@@ -1,8 +1,8 @@
 [package]
-name = "triforge-macros"
+name = "lilyco-macros"
 version = "0.1.0"
 edition = "2021"
-description = "Triforge proc macros — #[derive(App)] and #[derive(ValueEnum)]"
+description = "Lilyco proc macros — #[derive(App)] and #[derive(ValueEnum)]"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/lilyco-42/lilyco"
 keywords = ["macro", "derive", "cli", "proc-macro"]
@@ -17,6 +17,6 @@ quote = "1"
 proc-macro2 = "1"
 
 [dev-dependencies]
-triforge-core = { path = "../triforge-core" }
+lilyco-core = { path = "../lilyco-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
-use triforge_core::schema::CommandSchema;
+use lilyco_core::schema::CommandSchema;
 
 use crate::renderer::{self, AppState, FormRenderer};
 use crate::widgets::FormField;

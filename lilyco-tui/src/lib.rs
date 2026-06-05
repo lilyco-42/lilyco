@@ -14,7 +14,7 @@ mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
-    use triforge_core::schema::{ArgKind, ArgSchema, CommandSchema};
+    use lilyco_core::schema::{ArgKind, ArgSchema, CommandSchema};
 
     /// 构建测试用 schema：两个 flag + enum + number
     fn test_schema() -> CommandSchema {

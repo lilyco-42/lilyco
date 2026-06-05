@@ -1,15 +1,15 @@
 [package]
-name = "triforge-gui"
+name = "lilyco-gui"
 version = "0.1.0"
 edition = "2021"
-description = "Triforge Web GUI — axum server with embedded HTML, Gradio-like experience"
+description = "Lilyco Web GUI — axum server with embedded HTML, Gradio-like experience"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/lilyco-42/lilyco"
 keywords = ["web", "gui", "axum", "sse"]
 categories = ["web-programming", "gui"]
 
 [dependencies]
-triforge-core = { version = "0.1", path = "../triforge-core" }
+lilyco-core = { version = "0.1", path = "../lilyco-core" }
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 async-stream = "0.3"

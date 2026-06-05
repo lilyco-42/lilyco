@@ -205,7 +205,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
         let kind_expr = kind_to_tokens(&f.kind);
 
         quote! {
-            triforge_core::schema::ArgSchema {
+            lilyco_core::schema::ArgSchema {
                 name: #name.into(),
                 about: #about.into(),
                 kind: #kind_expr,
@@ -231,8 +231,8 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
             },
             InferredKind::Enum => quote! {{
                 let s = args.get(#name).and_then(|v| v.as_str()).unwrap_or("");
-                <#ty as triforge_core::schema::ValueEnum>::from_str(s)
-                    .ok_or_else(|| triforge_core::AppError::InvalidArg(
+                <#ty as lilyco_core::schema::ValueEnum>::from_str(s)
+                    .ok_or_else(|| lilyco_core::AppError::InvalidArg(
                         format!("invalid value for {}: {}", #name, s)
                     ))?
             }},
@@ -256,9 +256,9 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
     });
 
     let expanded = quote! {
-        impl triforge_core::App for #struct_name {
-            fn schema() -> triforge_core::schema::CommandSchema {
-                triforge_core::schema::CommandSchema {
+        impl lilyco_core::App for #struct_name {
+            fn schema() -> lilyco_core::schema::CommandSchema {
+                lilyco_core::schema::CommandSchema {
                     name: stringify!(#struct_name).into(),
                     about: #about_str.into(),
                     args: vec![#(#schema_args),*],
@@ -268,13 +268,13 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
 
             fn from_args(
                 args: &std::collections::HashMap<String, serde_json::Value>,
-            ) -> Result<Self, triforge_core::AppError> {
+            ) -> Result<Self, lilyco_core::AppError> {
                 Ok(Self {
                     #(#from_args_bindings),*
                 })
             }
 
-            fn run(&self, _ctx: &triforge_core::Context) -> Result<serde_json::Value, triforge_core::AppError> {
+            fn run(&self, _ctx: &lilyco_core::Context) -> Result<serde_json::Value, lilyco_core::AppError> {
                 unimplemented!("run() not implemented for {}", stringify!(#struct_name))
             }
         }
@@ -285,25 +285,25 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
 
 fn kind_to_tokens(kind: &InferredKind) -> TokenStream {
     match kind {
-        InferredKind::Flag => quote! { triforge_core::schema::ArgKind::Flag },
-        InferredKind::Text => quote! { triforge_core::schema::ArgKind::Text },
-        InferredKind::Number => quote! { triforge_core::schema::ArgKind::Number { min: None, max: None } },
+        InferredKind::Flag => quote! { lilyco_core::schema::ArgKind::Flag },
+        InferredKind::Text => quote! { lilyco_core::schema::ArgKind::Text },
+        InferredKind::Number => quote! { lilyco_core::schema::ArgKind::Number { min: None, max: None } },
         InferredKind::Path { must_exist } => {
-            quote! { triforge_core::schema::ArgKind::Path { must_exist: #must_exist } }
+            quote! { lilyco_core::schema::ArgKind::Path { must_exist: #must_exist } }
         }
         InferredKind::Enum => quote! {
-            triforge_core::schema::ArgKind::Enum {
+            lilyco_core::schema::ArgKind::Enum {
                 values: vec![] // placeholder — user should override via #[arg(enum_values = ...)]
             }
         },
         InferredKind::List { item } => {
             let inner = match item.as_ref() {
-                InferredKind::Text => quote! { triforge_core::schema::ArgKind::Text },
-                InferredKind::Number => quote! { triforge_core::schema::ArgKind::Number { min: None, max: None } },
-                InferredKind::Flag => quote! { triforge_core::schema::ArgKind::Flag },
-                _ => quote! { triforge_core::schema::ArgKind::Text },
+                InferredKind::Text => quote! { lilyco_core::schema::ArgKind::Text },
+                InferredKind::Number => quote! { lilyco_core::schema::ArgKind::Number { min: None, max: None } },
+                InferredKind::Flag => quote! { lilyco_core::schema::ArgKind::Flag },
+                _ => quote! { lilyco_core::schema::ArgKind::Text },
             };
-            quote! { triforge_core::schema::ArgKind::List { item: Box::new(#inner) } }
+            quote! { lilyco_core::schema::ArgKind::List { item: Box::new(#inner) } }
         }
     }
 }

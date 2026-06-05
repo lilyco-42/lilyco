@@ -1,4 +1,4 @@
-//! # Triforge Core
+//! # Lilyco Core
 //!
 //! 让 Rust 软件天生 AI-callable 的核心 crate。
 //!
@@ -9,7 +9,7 @@
 //! ## 使用
 //!
 //! ```ignore
-//! use triforge_core::prelude::*;
+//! use lilyco_core::prelude::*;
 //! ```
 
 // ── 模块声明 ──────────────────────────────────────────────
@@ -432,7 +432,7 @@ mod tests {
     }
 }
 
-/// Triforge 的 prelude：一次导入所有常用类型和 trait
+/// Lilyco 的 prelude：一次导入所有常用类型和 trait
 pub mod prelude {
     pub use crate::app::{App, Renderer};
     pub use crate::context::{Context, OutputFormat};

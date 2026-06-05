@@ -1,4 +1,4 @@
-//! imgpress — image compression tool built with Triforge.
+//! imgpress — image compression tool built with Lilyco.
 //!
 //! ```bash
 //! imgpress --input photo.jpg --quality 50 --format webp
@@ -15,8 +15,8 @@ use image::codecs::webp::WebPEncoder;
 use image::{DynamicImage, ExtendedColorType, GenericImageView};
 use image::imageops::FilterType as ResizeFilter;
 
-use triforge_core::prelude::*;
-use triforge_macros::{App, ValueEnum};
+use lilyco_core::prelude::*;
+use lilyco_macros::{App, ValueEnum};
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -215,18 +215,18 @@ fn encode_image(img: &DynamicImage, format: &Format, quality: u8) -> Result<Vec<
 
 fn main() {
     let schema = ImgCompress::schema();
-    let renderer = triforge_cli::CliRenderer::new();
+    let renderer = lilyco_cli::CliRenderer::new();
     let cmd = renderer.render(&schema);
 
     let matches = cmd.get_matches();
 
     // Handle --schema / --anthropic-tool / --openai-tool
-    if triforge_cli::CliRenderer::handle_builtin_flags(&schema, &matches) {
+    if lilyco_cli::CliRenderer::handle_builtin_flags(&schema, &matches) {
         return;
     }
 
-    let output_format = triforge_cli::CliRenderer::output_format(&matches);
-    let args = triforge_cli::CliRenderer::extract_args(&schema, &matches);
+    let output_format = lilyco_cli::CliRenderer::output_format(&matches);
+    let args = lilyco_cli::CliRenderer::extract_args(&schema, &matches);
 
     let app = match ImgCompress::from_args(&args) {
         Ok(a) => a,

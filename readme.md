@@ -1,4 +1,4 @@
-# Triforge
+# Lilyco
 
 **One struct. Three interfaces. Zero boilerplate.**
 
@@ -6,21 +6,21 @@
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![Tests](https://img.shields.io/badge/tests-58%20passed-green)](https://github.com/lilyco-42/lilyco)
 
-Triforge is a Rust framework that generates **CLI**, **TUI**, and **Web UI** — plus **AI function-calling schemas** — from a single struct definition. You write the business logic once; the framework handles everything else.
+Lilyco is a Rust framework that generates **CLI**, **TUI**, and **Web UI** — plus **AI function-calling schemas** — from a single struct definition. You write the business logic once; the framework handles everything else.
 
 ---
 
 ## Table of Contents
 
-- [Why Triforge](#why-triforge)
+- [Why Lilyco](#why-lilyco)
 - [Quick Start](#quick-start)
 - [Architecture](#architecture)
 - [Crate Reference](#crate-reference)
-  - [triforge-core](#triforge-core)
-  - [triforge-macros](#triforge-macros)
-  - [triforge-cli](#triforge-cli)
-  - [triforge-tui](#triforge-tui)
-  - [triforge-gui](#triforge-gui)
+  - [lilyco-core](#lilyco-core)
+  - [lilyco-macros](#lilyco-macros)
+  - [lilyco-cli](#lilyco-cli)
+  - [lilyco-tui](#lilyco-tui)
+  - [lilyco-gui](#lilyco-gui)
 - [Type → Widget Mapping](#type--widget-mapping)
 - [AI Integration](#ai-integration)
 - [Progress Protocol](#progress-protocol)
@@ -31,11 +31,11 @@ Triforge is a Rust framework that generates **CLI**, **TUI**, and **Web UI** —
 
 ---
 
-## Why Triforge
+## Why Lilyco
 
 A typical Rust CLI tool needs about 200 lines of clap boilerplate before the first line of actual logic. Add a TUI? Another 400 lines. A web dashboard? A different codebase entirely. Want LLMs to call your tool? You're writing JSON Schema by hand.
 
-Triforge collapses all of this into a single `#[derive]`:
+Lilyco collapses all of this into a single `#[derive]`:
 
 ```rust
 #[derive(App)]
@@ -70,7 +70,7 @@ Create a new project and add the dependencies:
 
 ```bash
 cargo new imgpress && cd imgpress
-cargo add triforge-core triforge-macros triforge-cli serde serde_json image
+cargo add lilyco-core lilyco-macros lilyco-cli serde serde_json image
 ```
 
 Paste this into `src/main.rs`:
@@ -80,8 +80,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 use image::{DynamicImage, GenericImageView};
 use image::imageops::FilterType;
-use triforge_core::prelude::*;
-use triforge_macros::{App, ValueEnum};
+use lilyco_core::prelude::*;
+use lilyco_macros::{App, ValueEnum};
 
 // 1. Define your types
 #[derive(Debug, ValueEnum)]
@@ -136,13 +136,13 @@ fn compress(app: &ImgCompress, ctx: &Context) -> Result<serde_json::Value, AppEr
 // 3. Wire up — the framework handles everything else
 fn main() {
     let schema = ImgCompress::schema();
-    let cmd = triforge_cli::CliRenderer::new().render(&schema);
+    let cmd = lilyco_cli::CliRenderer::new().render(&schema);
     let matches = cmd.get_matches();
 
-    if triforge_cli::CliRenderer::handle_builtin_flags(&schema, &matches) { return; }
+    if lilyco_cli::CliRenderer::handle_builtin_flags(&schema, &matches) { return; }
 
-    let output_format = triforge_cli::CliRenderer::output_format(&matches);
-    let args = triforge_cli::CliRenderer::extract_args(&schema, &matches);
+    let output_format = lilyco_cli::CliRenderer::output_format(&matches);
+    let args = lilyco_cli::CliRenderer::extract_args(&schema, &matches);
     let app = ImgCompress::from_args(&args).unwrap();
 
     let (tx, rx) = std::sync::mpsc::channel();
@@ -185,7 +185,7 @@ $ cargo run -- --json-stream         # Machine-readable progress
     └────┬───┘ └───┬────┘ └──┬──────────┘
          │         │         │
     ┌────▼─────────▼─────────▼────┐
-    │      triforge-core          │
+    │      lilyco-core          │
     │  CommandSchema → clap::Cmd  │
     │  Progress → TUI widgets     │
     │  Progress → SSE events      │
@@ -198,18 +198,18 @@ $ cargo run -- --json-stream         # Machine-readable progress
 2. **CLI-first**: CLI is the most structured interface. TUI and Web are derived from the same schema.
 3. **Progress as first-class citizen**: Every interface understands `Progress::Tick` / `Log` / `Done`.
 4. **Zero-cost**: Feature flags gate TUI and Web dependencies. CLI-only builds need only `clap`.
-5. **AI-native**: Every Triforge app can export its interface as an LLM function-calling schema.
+5. **AI-native**: Every Lilyco app can export its interface as an LLM function-calling schema.
 
 ---
 
 ## Crate Reference
 
-### triforge-core
+### lilyco-core
 
 The foundation. No UI dependencies.
 
 ```rust
-use triforge_core::prelude::*;
+use lilyco_core::prelude::*;
 ```
 
 #### Core Traits
@@ -244,12 +244,12 @@ schema.to_openai_tool()       // OpenAI function calling format
 schema.to_anthropic_tool()    // Anthropic tool use format
 ```
 
-### triforge-macros
+### lilyco-macros
 
 Proc macros for deriving boilerplate.
 
 ```rust
-use triforge_macros::{App, ValueEnum};
+use lilyco_macros::{App, ValueEnum};
 ```
 
 #### `#[derive(App)]`
@@ -294,13 +294,13 @@ enum Codec { H264, H265, Av1 }
 | `Vec<T>` | `List { item: infer(T) }` | `true` |
 | Custom `enum` | `Enum` | `true` |
 
-### triforge-cli
+### lilyco-cli
 
 Generates a `clap::Command` from `CommandSchema`. Adds built-in flags automatically.
 
 ```rust
 let schema = MyTool::schema();
-let renderer = triforge_cli::CliRenderer::new();
+let renderer = lilyco_cli::CliRenderer::new();
 let cmd = renderer.render(&schema);
 let matches = cmd.get_matches();
 ```
@@ -328,7 +328,7 @@ impl CliRenderer {
 }
 ```
 
-### triforge-tui
+### lilyco-tui
 
 Interactive terminal form built on ratatui.
 
@@ -374,12 +374,12 @@ The bottom bar shows a live CLI command preview that updates as you edit values.
 - Empty optional fields
 - Path values are auto-quoted if they contain spaces
 
-### triforge-gui
+### lilyco-gui
 
 Web server with embedded HTML, similar to Gradio in spirit.
 
 ```rust
-let gui = triforge_gui::GuiRenderer::new(8080);
+let gui = lilyco_gui::GuiRenderer::new(8080);
 gui.serve(schema, Arc::new(|args| Box::pin(async move {
     // process args, return result
     Ok(serde_json::json!({"status": "ok"}))
@@ -427,7 +427,7 @@ gui.serve(schema, Arc::new(|args| Box::pin(async move {
 
 ## AI Integration
 
-Every Triforge app is an AI tool:
+Every Lilyco app is an AI tool:
 
 ```bash
 $ imgpress --anthropic-tool
@@ -498,22 +498,22 @@ ctx.done(serde_json::json!({"size_mb": 4.2}), 3200);
 
 ## Examples
 
-### Image Compressor (`triforge-example`)
+### Image Compressor (`lilyco-example`)
 
 ```bash
-cd triforge-example
+cd lilyco-example
 cargo run -- --input photo.jpg --quality 50 --format webp
 cargo run -- --input photo.jpg --dry-run --json
 cargo run -- --schema
 ```
 
-See `triforge-example/src/main.rs` for the full source (~230 lines).
+See `lilyco-example/src/main.rs` for the full source (~230 lines).
 
 ### Transcode (TUI demo)
 
 ```rust
-use triforge_macros::{App, ValueEnum};
-use triforge_core::prelude::*;
+use lilyco_macros::{App, ValueEnum};
+use lilyco_core::prelude::*;
 use std::path::PathBuf;
 
 #[derive(ValueEnum)]
@@ -542,10 +542,10 @@ struct Transcode {
 cargo test --workspace
 
 # Run a specific crate
-cargo test -p triforge-core
-cargo test -p triforge-cli
-cargo test -p triforge-tui
-cargo test -p triforge-macros
+cargo test -p lilyco-core
+cargo test -p lilyco-cli
+cargo test -p lilyco-tui
+cargo test -p lilyco-macros
 ```
 
 Current coverage: **58 tests** across all crates.
@@ -558,19 +558,19 @@ Current coverage: **58 tests** across all crates.
 
 ```toml
 [dependencies]
-triforge-core = "0.1"
-triforge-macros = "0.1"
-triforge-cli = "0.1"
+lilyco-core = "0.1"
+lilyco-macros = "0.1"
+lilyco-cli = "0.1"
 ```
 
 ### From git
 
 ```toml
 [dependencies]
-triforge-core = { git = "https://github.com/lilyco-42/lilyco" }
-triforge-macros = { git = "https://github.com/lilyco-42/lilyco" }
-triforge-cli = { git = "https://github.com/lilyco-42/lilyco" }
-triforge-tui = { git = "https://github.com/lilyco-42/lilyco" }
+lilyco-core = { git = "https://github.com/lilyco-42/lilyco" }
+lilyco-macros = { git = "https://github.com/lilyco-42/lilyco" }
+lilyco-cli = { git = "https://github.com/lilyco-42/lilyco" }
+lilyco-tui = { git = "https://github.com/lilyco-42/lilyco" }
 ```
 
 ---

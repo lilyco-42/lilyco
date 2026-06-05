@@ -1,11 +1,11 @@
 [workspace]
 members = [
-    "triforge-core",
-    "triforge-cli",
-    "triforge-tui",
-    "triforge-gui",
-    "triforge-macros",
-    "triforge-example",
+    "lilyco-core",
+    "lilyco-cli",
+    "lilyco-tui",
+    "lilyco-gui",
+    "lilyco-macros",
+    "lilyco-example",
 ]
 resolver = "2"
 

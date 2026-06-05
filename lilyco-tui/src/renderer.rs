@@ -3,8 +3,8 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Gauge, Widget};
 
-use triforge_core::prelude::*;
-use triforge_core::schema::CommandSchema;
+use lilyco_core::prelude::*;
+use lilyco_core::schema::CommandSchema;
 
 use crate::widgets::FormField;
 

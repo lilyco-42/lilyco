@@ -2,7 +2,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 
-use triforge_core::schema::{ArgKind, ArgSchema};
+use lilyco_core::schema::{ArgKind, ArgSchema};
 
 // ── 表单字段值 ────────────────────────────────────────────
 

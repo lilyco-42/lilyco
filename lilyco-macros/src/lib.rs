@@ -1,7 +1,7 @@
 mod app_derive;
 mod value_enum;
 
-/// 为 struct 自动实现 `triforge_core::App` trait
+/// 为 struct 自动实现 `lilyco_core::App` trait
 ///
 /// 从字段类型推断 `ArgKind`，从 `#[arg(...)]` 属性读取元数据。
 ///
@@ -20,7 +20,7 @@ pub fn derive_app(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     app_derive::derive_app_impl(input.into()).into()
 }
 
-/// 为 enum 自动实现 `triforge_core::ValueEnum` trait
+/// 为 enum 自动实现 `lilyco_core::ValueEnum` trait
 ///
 /// 自动将 PascalCase 变体名转为 snake_case 字符串。
 #[proc_macro_derive(ValueEnum)]

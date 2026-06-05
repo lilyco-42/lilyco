@@ -15,8 +15,8 @@ use axum::{
 };
 use tokio::sync::Mutex;
 
-use triforge_core::prelude::*;
-use triforge_core::schema::{ArgKind, CommandSchema};
+use lilyco_core::prelude::*;
+use lilyco_core::schema::{ArgKind, CommandSchema};
 
 // ── GuiRenderer ───────────────────────────────────────────
 
@@ -48,7 +48,7 @@ impl GuiRenderer {
 
         let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.port))
             .await.unwrap();
-        eprintln!("Triforge GUI ready: http://localhost:{}", self.port);
+        eprintln!("Lilyco GUI ready: http://localhost:{}", self.port);
         axum::serve(listener, app).await.unwrap();
     }
 }

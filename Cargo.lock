@@ -609,6 +609,70 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
+name = "lilyco-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "lilyco-core",
+ "serde_json",
+]
+
+[[package]]
+name = "lilyco-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "lilyco-example"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "lilyco-cli",
+ "lilyco-core",
+ "lilyco-macros",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "lilyco-gui"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "axum",
+ "lilyco-core",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "lilyco-macros"
+version = "0.1.0"
+dependencies = [
+ "lilyco-core",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "serde_json",
+ "syn",
+]
+
+[[package]]
+name = "lilyco-tui"
+version = "0.1.0"
+dependencies = [
+ "crossterm",
+ "lilyco-core",
+ "ratatui",
+ "serde_json",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1124,70 +1188,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
-]
-
-[[package]]
-name = "triforge-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "serde_json",
- "triforge-core",
-]
-
-[[package]]
-name = "triforge-core"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "triforge-example"
-version = "0.1.0"
-dependencies = [
- "image",
- "serde",
- "serde_json",
- "triforge-cli",
- "triforge-core",
- "triforge-macros",
-]
-
-[[package]]
-name = "triforge-gui"
-version = "0.1.0"
-dependencies = [
- "async-stream",
- "axum",
- "serde",
- "serde_json",
- "tokio",
- "triforge-core",
-]
-
-[[package]]
-name = "triforge-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "serde",
- "serde_json",
- "syn",
- "triforge-core",
-]
-
-[[package]]
-name = "triforge-tui"
-version = "0.1.0"
-dependencies = [
- "crossterm",
- "ratatui",
- "serde_json",
- "triforge-core",
 ]
 
 [[package]]

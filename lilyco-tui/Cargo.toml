@@ -1,15 +1,15 @@
 [package]
-name = "triforge-tui"
+name = "lilyco-tui"
 version = "0.1.0"
 edition = "2021"
-description = "Triforge TUI renderer — interactive terminal form with live CLI preview"
+description = "Lilyco TUI renderer — interactive terminal form with live CLI preview"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/lilyco-42/lilyco"
 keywords = ["tui", "terminal", "ratatui", "form"]
 categories = ["command-line-interface"]
 
 [dependencies]
-triforge-core = { version = "0.1", path = "../triforge-core" }
+lilyco-core = { version = "0.1", path = "../lilyco-core" }
 ratatui = "0.29"
 crossterm = "0.28"
 serde_json = "1"

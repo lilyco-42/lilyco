@@ -1,8 +1,8 @@
 [package]
-name = "triforge-core"
+name = "lilyco-core"
 version = "0.1.0"
 edition = "2021"
-description = "Triforge core traits and types — make Rust software AI-callable by default"
+description = "Lilyco core traits and types — make Rust software AI-callable by default"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/lilyco-42/lilyco"
 readme = "../README.md"

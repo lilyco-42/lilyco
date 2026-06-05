@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
-use triforge_core::prelude::*;
-use triforge_core::schema::{CommandSchema, ValueEnum};
-use triforge_macros::{App, ValueEnum};
+use lilyco_core::prelude::*;
+use lilyco_core::schema::{CommandSchema, ValueEnum};
+use lilyco_macros::{App, ValueEnum};
 
 // ── 测试用类型 ────────────────────────────────────────────
 

@@ -1,8 +1,8 @@
 use clap::{Arg, ArgAction, Command};
 use std::ffi::OsStr;
 
-use triforge_core::prelude::*;
-use triforge_core::schema::{ArgKind, ArgSchema, CommandSchema};
+use lilyco_core::prelude::*;
+use lilyco_core::schema::{ArgKind, ArgSchema, CommandSchema};
 
 // ── CliRenderer ────────────────────────────────────────────
 
@@ -334,7 +334,7 @@ fn json_value_to_os_str(v: &serde_json::Value) -> Option<&'static OsStr> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use triforge_core::schema::CommandSchema;
+    use lilyco_core::schema::CommandSchema;
 
     /// 构建一个示例 schema：transcode --env prod --quality 23
     fn transcode_schema() -> CommandSchema {
