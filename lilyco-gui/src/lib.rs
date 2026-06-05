@@ -56,7 +56,13 @@ impl GuiRenderer {
             eprintln!("  (could not open browser: {e})");
         }
 
-        axum::serve(listener, app).await.unwrap();
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                tokio::signal::ctrl_c().await.ok();
+                eprintln!("\nShutting down...");
+            })
+            .await
+            .unwrap();
     }
 }
 
