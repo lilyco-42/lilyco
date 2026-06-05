@@ -9,7 +9,7 @@ keywords = ["tui", "terminal", "ratatui", "form"]
 categories = ["command-line-interface"]
 
 [dependencies]
-triforge-core = { path = "../triforge-core" }
+triforge-core = { version = "0.1", path = "../triforge-core" }
 ratatui = "0.29"
 crossterm = "0.28"
 serde_json = "1"
