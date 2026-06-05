@@ -48,7 +48,14 @@ impl GuiRenderer {
 
         let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.port))
             .await.unwrap();
-        eprintln!("Lilyco GUI ready: http://localhost:{}", self.port);
+        let url = format!("http://localhost:{}", self.port);
+        eprintln!("Lilyco GUI ready: {url}");
+
+        // Auto-open browser
+        if let Err(e) = webbrowser::open(&url) {
+            eprintln!("  (could not open browser: {e})");
+        }
+
         axum::serve(listener, app).await.unwrap();
     }
 }
