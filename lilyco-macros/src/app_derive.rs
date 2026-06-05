@@ -204,6 +204,9 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
         let (mut kind, required) = infer_kind(&field.ty);
         let is_option = is_option_type(&field.ty);
 
+        // Convention: fields with a default are not required
+        let required = required && arg_attrs.default.is_none();
+
         if let InferredKind::Path { ref mut must_exist } = kind {
             if let Some(me) = arg_attrs.must_exist {
                 *must_exist = me;
@@ -230,7 +233,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
             Some(d) => quote! { Some(serde_json::to_value(#d).unwrap()) },
             None => quote! { None },
         };
-        let kind_expr = kind_to_tokens(&f.kind);
+        let kind_expr = kind_to_tokens(f);
 
         quote! {
             lilyco_core::schema::ArgSchema {
@@ -311,17 +314,24 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
     expanded
 }
 
-fn kind_to_tokens(kind: &InferredKind) -> TokenStream {
-    match kind {
+fn kind_to_tokens(f: &FieldInfo) -> TokenStream {
+    match &f.kind {
         InferredKind::Flag => quote! { lilyco_core::schema::ArgKind::Flag },
         InferredKind::Text => quote! { lilyco_core::schema::ArgKind::Text },
-        InferredKind::Number => quote! { lilyco_core::schema::ArgKind::Number { min: None, max: None } },
+        InferredKind::Number => {
+            let min = f.attrs.min.as_ref().map(|m| quote! { Some(#m as f64) }).unwrap_or(quote! { None });
+            let max = f.attrs.max.as_ref().map(|m| quote! { Some(#m as f64) }).unwrap_or(quote! { None });
+            quote! { lilyco_core::schema::ArgKind::Number { min: #min, max: #max } }
+        }
         InferredKind::Path { must_exist } => {
             quote! { lilyco_core::schema::ArgKind::Path { must_exist: #must_exist } }
         }
-        InferredKind::Enum => quote! {
-            lilyco_core::schema::ArgKind::Enum {
-                values: vec![] // placeholder — user should override via #[arg(enum_values = ...)]
+        InferredKind::Enum => {
+            let ty = &f.ty;
+            quote! {
+                lilyco_core::schema::ArgKind::Enum {
+                    values: <#ty as lilyco_core::schema::ValueEnum>::variants().into_iter().map(|s| s.to_string()).collect()
+                }
             }
         },
         InferredKind::List { item } => {
