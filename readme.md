@@ -1,43 +1,517 @@
 # Triforge
 
-**Write once, run anywhere. CLI, TUI, Web — auto-generated from your Rust types.**
+**One struct. Three interfaces. Zero boilerplate.**
 
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
+[![Tests](https://img.shields.io/badge/tests-58%20passed-green)](https://github.com/lilyco-42/lilyco)
+
+Triforge is a Rust framework that generates **CLI**, **TUI**, and **Web UI** — plus **AI function-calling schemas** — from a single struct definition. You write the business logic once; the framework handles everything else.
 
 ---
 
-## What problem does this solve?
+## Table of Contents
 
-You write a Rust tool — say a video transcoder. You define a struct with fields:
+- [Why Triforge](#why-triforge)
+- [Quick Start](#quick-start)
+- [Architecture](#architecture)
+- [Crate Reference](#crate-reference)
+  - [triforge-core](#triforge-core)
+  - [triforge-macros](#triforge-macros)
+  - [triforge-cli](#triforge-cli)
+  - [triforge-tui](#triforge-tui)
+  - [triforge-gui](#triforge-gui)
+- [Type → Widget Mapping](#type--widget-mapping)
+- [AI Integration](#ai-integration)
+- [Progress Protocol](#progress-protocol)
+- [Examples](#examples)
+- [Testing](#testing)
+- [Installation](#installation)
+- [Limitations & Roadmap](#limitations--roadmap)
+
+---
+
+## Why Triforge
+
+A typical Rust CLI tool needs about 200 lines of clap boilerplate before the first line of actual logic. Add a TUI? Another 400 lines. A web dashboard? A different codebase entirely. Want LLMs to call your tool? You're writing JSON Schema by hand.
+
+Triforge collapses all of this into a single `#[derive]`:
 
 ```rust
-struct Transcode {
+#[derive(App)]
+#[app(about = "Compress image files")]
+struct ImgCompress {
+    #[arg(about = "Input file", must_exist = true)]
     input: PathBuf,
-    codec: Codec,
+
+    #[arg(about = "Quality 1-100", default = 75, range = 1..=100)]
     quality: u8,
+
+    #[arg(about = "Output format", default = "jpeg")]
+    format: Format,
+
+    #[arg(about = "Dry run")]
     dry_run: bool,
 }
 ```
 
-To make this usable, you need:
+From this you get:
 
-- A **CLI** so scripts and AI agents can call it (e.g., `transcode --input a.mp4 --codec h265`)
-- A **TUI** so terminal users get an interactive form with real-time preview
-- A **Web UI** so coworkers can open a browser and click buttons
-- A **JSON Schema** so LLMs can discover the interface via function calling
+- `imgpress --input photo.jpg --quality 50 --format webp` — CLI
+- Interactive TUI form with live command preview — TUI
+- Browser-based form with SSE progress — Web
+- Valid Anthropic/OpenAI tool definition — AI
 
-That's 4 interfaces. Triforge generates all 4 from the same struct definition.
+---
 
 ## Quick Start
 
+Create a new project and add the dependencies:
+
 ```bash
-cargo new mytool && cd mytool
-cargo add triforge-core triforge-macros triforge-cli serde_json
+cargo new imgpress && cd imgpress
+cargo add triforge-core triforge-macros triforge-cli serde serde_json image
 ```
 
+Paste this into `src/main.rs`:
+
 ```rust
-// src/main.rs
+use std::path::PathBuf;
+use std::time::Instant;
+use image::{DynamicImage, GenericImageView};
+use image::imageops::FilterType;
+use triforge_core::prelude::*;
+use triforge_macros::{App, ValueEnum};
+
+// 1. Define your types
+#[derive(Debug, ValueEnum)]
+enum Format { Jpeg, Png, Webp }
+
+#[derive(App)]
+#[app(about = "Compress image files")]
+struct ImgCompress {
+    #[arg(about = "Input image", must_exist = true)]
+    input: PathBuf,
+
+    #[arg(about = "Quality 1-100", default = 75, range = 1..=100)]
+    quality: u8,
+
+    #[arg(about = "Output format", default = "jpeg")]
+    format: Format,
+
+    #[arg(about = "Max width, 0 = no resize")]
+    width: u32,
+
+    #[arg(about = "Dry run")]
+    dry_run: bool,
+}
+
+// 2. Write your business logic
+fn compress(app: &ImgCompress, ctx: &Context) -> Result<serde_json::Value, AppError> {
+    let start = Instant::now();
+    ctx.emit(Progress::Started { total: Some(3), message: None });
+
+    let data = std::fs::read(&app.input)?;
+    let img = image::load_from_memory(&data)
+        .map_err(|e| AppError::Runtime(format!("decode: {e}")))?;
+
+    ctx.tick(1, Some(3), "Resizing...");
+    let img = if app.width > 0 && app.width < img.width() {
+        let ratio = app.width as f64 / img.width() as f64;
+        let h = (img.height() as f64 * ratio) as u32;
+        img.resize_exact(app.width, h.max(1), FilterType::Lanczos3)
+    } else { img };
+
+    ctx.tick(2, Some(3), "Encoding...");
+    let out_path = app.input.with_file_name(format!("compressed.{}",
+        if matches!(app.format, Format::Jpeg) { "jpg" } else { "png" }));
+    img.save(&out_path).map_err(|e| AppError::Runtime(format!("save: {e}")))?;
+
+    ctx.tick(3, Some(3), "Done");
+    ctx.done(serde_json::json!({"output": out_path.to_string_lossy()}),
+             start.elapsed().as_millis() as u64);
+    Ok(serde_json::json!({"status": "ok"}))
+}
+
+// 3. Wire up — the framework handles everything else
+fn main() {
+    let schema = ImgCompress::schema();
+    let cmd = triforge_cli::CliRenderer::new().render(&schema);
+    let matches = cmd.get_matches();
+
+    if triforge_cli::CliRenderer::handle_builtin_flags(&schema, &matches) { return; }
+
+    let output_format = triforge_cli::CliRenderer::output_format(&matches);
+    let args = triforge_cli::CliRenderer::extract_args(&schema, &matches);
+    let app = ImgCompress::from_args(&args).unwrap();
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let ctx = Context::new(tx, Arc::new(false.into()), output_format.clone());
+    std::thread::spawn(move || compress(&app, &ctx));
+
+    for event in rx {
+        match output_format {
+            OutputFormat::JsonStream => println!("{}", serde_json::to_string(&event).unwrap()),
+            _ => if let Progress::Log { message, .. } = &event { eprintln!("  {message}"); },
+        }
+        if matches!(event, Progress::Done { .. } | Progress::Error { .. }) { break; }
+    }
+}
+```
+
+Run it:
+
+```bash
+$ cargo run -- --input photo.jpg --quality 50 --format webp
+$ cargo run -- --schema              # JSON Schema
+$ cargo run -- --anthropic-tool      # AI tool definition
+$ cargo run -- --json-stream         # Machine-readable progress
+```
+
+---
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────┐
+│                  Your Struct                      │
+│         #[derive(App)]                           │
+│         struct MyTool { ... }                    │
+└────────┬──────────┬──────────┬──────────────────┘
+         │          │          │
+    ┌────▼───┐ ┌───▼────┐ ┌──▼──────────┐
+    │  CLI   │ │  TUI   │ │   Web UI    │
+    │ (clap) │ │(ratatui│ │(axum + HTML)│
+    └────┬───┘ └───┬────┘ └──┬──────────┘
+         │         │         │
+    ┌────▼─────────▼─────────▼────┐
+    │      triforge-core          │
+    │  CommandSchema → clap::Cmd  │
+    │  Progress → TUI widgets     │
+    │  Progress → SSE events      │
+    └─────────────────────────────┘
+```
+
+### Design Principles
+
+1. **Type-driven**: `bool` → checkbox, `u8` → number input, custom enum → dropdown. No manual widget mapping.
+2. **CLI-first**: CLI is the most structured interface. TUI and Web are derived from the same schema.
+3. **Progress as first-class citizen**: Every interface understands `Progress::Tick` / `Log` / `Done`.
+4. **Zero-cost**: Feature flags gate TUI and Web dependencies. CLI-only builds need only `clap`.
+5. **AI-native**: Every Triforge app can export its interface as an LLM function-calling schema.
+
+---
+
+## Crate Reference
+
+### triforge-core
+
+The foundation. No UI dependencies.
+
+```rust
+use triforge_core::prelude::*;
+```
+
+#### Core Traits
+
+| Trait | Method | Purpose |
+|-------|--------|---------|
+| `App` | `schema() -> CommandSchema` | Returns the full command schema |
+| `App` | `from_args(&HashMap) -> Result<Self, AppError>` | Construct from parsed CLI/AI args |
+| `App` | `run(&self, &Context) -> Result<Value, AppError>` | Execute business logic |
+| `Renderer` | `render(&self, &CommandSchema) -> Output` | Convert schema to a UI representation |
+| `ValueEnum` | `variants() -> Vec<&str>` | All possible string values |
+| `ValueEnum` | `from_str(&str) -> Option<Self>` | Parse from string |
+
+#### Core Types
+
+| Type | Purpose |
+|------|---------|
+| `CommandSchema` | Full command description: name, about, args, subcommands |
+| `ArgSchema` | Single argument: name, about, kind, required, default |
+| `ArgKind` | `Flag \| Text \| Number {min,max} \| Enum {values} \| Path {must_exist} \| List {item}` |
+| `Progress` | `Started \| Tick \| Log \| Done \| Error` |
+| `LogLevel` | `Debug \| Info \| Warn \| Error` |
+| `Context` | Runtime: progress channel, cancel signal, output format |
+| `OutputFormat` | `Human \| Json \| JsonStream` |
+| `AppError` | `InvalidArg \| InvalidInput \| Runtime \| Cancelled \| Io \| Serialize` |
+
+#### CommandSchema JSON Export
+
+```rust
+schema.to_json_schema()       // JSON Schema (generic)
+schema.to_openai_tool()       // OpenAI function calling format
+schema.to_anthropic_tool()    // Anthropic tool use format
+```
+
+### triforge-macros
+
+Proc macros for deriving boilerplate.
+
+```rust
+use triforge_macros::{App, ValueEnum};
+```
+
+#### `#[derive(App)]`
+
+Generates `schema()` and `from_args()`. Reads these attributes:
+
+**Struct-level:**
+| Attribute | Example | Purpose |
+|-----------|---------|---------|
+| `#[app(about = "...")]` | `#[app(about = "Compress images")]` | Command description |
+
+**Field-level:**
+| Attribute | Example | Purpose |
+|-----------|---------|---------|
+| `#[arg(about = "...")]` | `#[arg(about = "Input file")]` | Argument description |
+| `#[arg(default = expr)]` | `#[arg(default = 75)]` | Default value |
+| `#[arg(range = lo..=hi)]` | `#[arg(range = 1..=100)]` | Number range |
+| `#[arg(min = n)]` | `#[arg(min = 0)]` | Min value |
+| `#[arg(max = n)]` | `#[arg(max = 255)]` | Max value |
+| `#[arg(must_exist = bool)]` | `#[arg(must_exist = true)]` | Path existence check |
+
+#### `#[derive(ValueEnum)]`
+
+Auto-converts PascalCase variants to snake_case strings:
+
+```rust
+#[derive(ValueEnum)]
+enum Codec { H264, H265, Av1 }
+// → variants: ["h264", "h265", "av1"]
+// → from_str("h265") → Some(Codec::H265)
+```
+
+#### Type Inference
+
+| Rust Type | Inferred `ArgKind` | `required` |
+|-----------|-------------------|------------|
+| `bool` | `Flag` | `false` |
+| `String` | `Text` | `true` |
+| `u8`/`i32`/`f64`/... | `Number` | `true` |
+| `PathBuf` | `Path` | `true` |
+| `Option<T>` | same as `T` | `false` |
+| `Vec<T>` | `List { item: infer(T) }` | `true` |
+| Custom `enum` | `Enum` | `true` |
+
+### triforge-cli
+
+Generates a `clap::Command` from `CommandSchema`. Adds built-in flags automatically.
+
+```rust
+let schema = MyTool::schema();
+let renderer = triforge_cli::CliRenderer::new();
+let cmd = renderer.render(&schema);
+let matches = cmd.get_matches();
+```
+
+#### Built-in Flags (auto-added to every command)
+
+| Flag | Behavior |
+|------|----------|
+| `--schema` | Print JSON Schema and exit |
+| `--openai-tool` | Print OpenAI function definition and exit |
+| `--anthropic-tool` | Print Anthropic tool definition and exit |
+| `--json` | OutputFormat::Json |
+| `--json-stream` | OutputFormat::JsonStream (one JSON per line) |
+
+#### Public API
+
+```rust
+impl CliRenderer {
+    fn new() -> Self;
+    fn render(&self, schema: &CommandSchema) -> clap::Command;
+    fn handle_builtin_flags(schema: &CommandSchema, matches: &ArgMatches) -> bool;
+    fn output_format(matches: &ArgMatches) -> OutputFormat;
+    fn extract_args(schema: &CommandSchema, matches: &ArgMatches)
+        -> HashMap<String, serde_json::Value>;
+}
+```
+
+### triforge-tui
+
+Interactive terminal form built on ratatui.
+
+```
+ Transcode — Transcode video files
+ $ transcode --input video.mp4 --codec h265 --quality 18
+────────────────────────────────────────────────────────
+          (*) input: [video.mp4________________________]
+              codec: [h264] h265 [Av1]                  ←→
+           quality: [18]                                ↑↓
+           dry_run: [x]                                 Space
+────────────────────────────────────────────────────────
+ [Tab] Switch  [Enter] Confirm  [Esc] Quit  [F1] Help
+```
+
+#### Widget Behaviors
+
+| ArgKind | Key | Behavior |
+|---------|-----|----------|
+| Flag | `Space` | Toggle on/off |
+| Text | Type + `Backspace` | Edit text |
+| Number | `↑` `↓` | ±1. Type digits to edit |
+| Enum | `←` `→` | Cycle through options |
+| Path | Type + `Backspace` | Edit path |
+| List | `Enter` / `Delete` | Add/remove item |
+
+#### State Machine
+
+```
+Form ──Enter──▶ Confirm ──Enter──▶ Running ──done──▶ Done
+  ▲               │                   │               │
+  │               Esc                 │               │
+  └───────────────┘                   ▼               ▼
+                                   Error ◀────────── Enter
+```
+
+#### CLI Preview
+
+The bottom bar shows a live CLI command preview that updates as you edit values. It auto-omits:
+
+- `false` flags (e.g., `--dry-run` only appears when checked)
+- Values matching their defaults
+- Empty optional fields
+- Path values are auto-quoted if they contain spaces
+
+### triforge-gui
+
+Web server with embedded HTML, similar to Gradio in spirit.
+
+```rust
+let gui = triforge_gui::GuiRenderer::new(8080);
+gui.serve(schema, Arc::new(|args| Box::pin(async move {
+    // process args, return result
+    Ok(serde_json::json!({"status": "ok"}))
+}))).await;
+```
+
+```
+┌─────────────────────────────────────┐
+│  ImgCompress — Compress images      │
+│                                     │
+│        Input: [___________________] │
+│      Quality: [75_______________]   │
+│       Format: [jpeg ▾]             │
+│         Width: [0________________]  │
+│      Dry run: [☐]                  │
+│                                     │
+│        [▶ Run]    [📋 Copy CLI]    │
+│                                     │
+│  $ imgcompress --quality 75         │
+├─────────────────────────────────────┤
+│  Output                             │
+│  ████████░░░░░░░ 50%               │
+│  Encoding frame 50/100              │
+│  Done in 1.2s                       │
+└─────────────────────────────────────┘
+```
+
+**Flow:** Form POST → spawn task → SSE stream → progress bar + log
+
+---
+
+## Type → Widget Mapping
+
+| Rust Type | CLI | TUI | Web |
+|-----------|-----|-----|-----|
+| `bool` | `--flag` | `[x]` Space toggle | `<input type=checkbox>` |
+| `String` | `--name <val>` | text input | `<input type=text>` |
+| `u8`/`i32`/`f64`/... | `--count <num>` | ↑↓ ±1 + digit input | `<input type=number>` |
+| Custom enum | `--mode <choice>` | ←→ cycle | `<select>` |
+| `PathBuf` | `--file <path>` | text input | `<input type=text>` |
+| `Vec<T>` | `--tag a --tag b` | Enter/Delete multi-line | dynamic inputs |
+| `Option<T>` | optional | optional (not required) | optional |
+
+---
+
+## AI Integration
+
+Every Triforge app is an AI tool:
+
+```bash
+$ imgpress --anthropic-tool
+```
+
+```json
+{
+  "name": "ImgCompress",
+  "description": "Compress image files",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "input": { "type": "string", "description": "Input image file" },
+      "quality": { "type": "number", "minimum": 1, "maximum": 100, "description": "Quality" },
+      "format": { "type": "string", "enum": ["jpeg", "png", "webp"], "description": "Format" },
+      "dry_run": { "type": "boolean", "description": "Dry run" }
+    },
+    "required": ["input"]
+  }
+}
+```
+
+This is a valid Anthropic tool-use definition. Drop it into your Claude API call, and the model can invoke your Rust tool directly.
+
+```bash
+$ imgpress --openai-tool   # OpenAI format
+$ imgpress --schema         # Generic JSON Schema (for other LLMs)
+$ imgpress --json-stream    # Each Progress event as one JSON line — ideal for agent consumption
+```
+
+### AI Agent Consumption Pattern
+
+```jsonl
+{"type":"started","total":5,"message":"Loading photo.jpg..."}
+{"type":"tick","current":1,"total":5,"message":"Reading input file","percent":0.2}
+{"type":"tick","current":2,"total":5,"message":"Original: 4000×3000","percent":0.4}
+{"type":"tick","current":3,"total":5,"message":"Encoding...","percent":0.6}
+{"type":"tick","current":4,"total":5,"message":"Writing compressed.jpg","percent":0.8}
+{"type":"done","result":{"output_size":142000,"compression_ratio":35.5},"duration_ms":1200}
+```
+
+---
+
+## Progress Protocol
+
+Every interface consumes the same `Progress` events:
+
+```rust
+ctx.emit(Progress::Started { total: Some(100), message: Some("Starting...".into()) });
+
+for i in 0..=100 {
+    if ctx.is_cancelled() { return Err(AppError::Cancelled); }
+    ctx.tick(i, Some(100), format!("Processing frame {i}"));
+}
+
+ctx.log(LogLevel::Info, "Compression complete");
+ctx.done(serde_json::json!({"size_mb": 4.2}), 3200);
+```
+
+| Interface | `Started` | `Tick` | `Log` | `Done` |
+|-----------|-----------|--------|-------|--------|
+| **CLI** (`--json-stream`) | JSON line | JSON line with percent | JSON line | JSON line + exit |
+| **CLI** (Human) | — | `\r` progress line | `[INFO]` line | summary + exit |
+| **TUI** | Progress bar at 0% | Bar fills + message | Scroll log | Result screen |
+| **Web** | SSE: bar at 0% | SSE: bar fills | SSE: log append | SSE: result JSON |
+
+---
+
+## Examples
+
+### Image Compressor (`triforge-example`)
+
+```bash
+cd triforge-example
+cargo run -- --input photo.jpg --quality 50 --format webp
+cargo run -- --input photo.jpg --dry-run --json
+cargo run -- --schema
+```
+
+See `triforge-example/src/main.rs` for the full source (~230 lines).
+
+### Transcode (TUI demo)
+
+```rust
 use triforge_macros::{App, ValueEnum};
 use triforge_core::prelude::*;
 use std::path::PathBuf;
@@ -51,159 +525,45 @@ struct Transcode {
     #[arg(about = "Input file", must_exist = true)]
     input: PathBuf,
 
-    #[arg(about = "Output codec", default = "h264")]
+    #[arg(about = "Codec", default = "h264")]
     codec: Codec,
 
     #[arg(about = "Quality 0-51", default = 23, range = 0..=51)]
     quality: u8,
-
-    #[arg(about = "Preview only, don't transcode")]
-    dry_run: bool,
 }
-
-fn main() { triforge_cli::run::<Transcode>(); }
 ```
+
+---
+
+## Testing
 
 ```bash
-# CLI mode (default)
-$ cargo run -- --input video.mp4 --codec h265 --quality 18 --dry-run
-
-# Schema export for AI function calling
-$ cargo run -- --anthropic-tool
-$ cargo run -- --openai-tool
-
-# JSON output for scripts
-$ cargo run -- --json --input video.mp4 --output out.mp4
-```
-
-## Three Interfaces, One Definition
-
-### CLI
-
-```console
-$ transcode --input video.mp4 --codec h265 --quality 18 --dry-run
-{ "dry_run": true }
-
-$ transcode --schema
-{
-  "name": "Transcode", "about": "Transcode video files",
-  "args": [
-    { "name": "input", "kind": {"type":"path","must_exist":true}, "required": true },
-    { "name": "codec", "kind": {"type":"enum","values":["h264","h265","av1"]}, "default": "h264" },
-    { "name": "quality", "kind": {"type":"number","min":0,"max":51}, "default": 23 },
-    { "name": "dry_run", "kind": "flag" }
-  ]
-}
-```
-
-### TUI (terminal form)
-
-```
- Transcode — Transcode video files
- $ transcode --input video.mp4 --codec h265 --quality 18
-────────────────────────────────────────────────────────
-          (*) input: [video.mp4________________________]
-              codec: [h264] h265 [Av1]                  (←→ to choose)
-           quality: [18]                                (↑↓ to adjust)
-           dry_run: [x]                                 (Space to toggle)
-────────────────────────────────────────────────────────
- [Tab] Switch  [Enter] Confirm  [Esc] Quit  [F1] Help
-```
-
-### Web UI
-
-```console
-$ cargo run --features gui
-Triforge GUI ready: http://localhost:8080
-```
-
-Dark-themed form. Fill fields, click Run, progress streams via SSE.
-
-## Type → Widget Mapping
-
-| Rust Type | CLI | TUI | Web |
-|-----------|-----|-----|-----|
-| `bool` | `--flag` | `[x]` checkbox | `<input type=checkbox>` |
-| `String` | `--name <val>` | text input | `<input type=text>` |
-| `u8`/`f64`/... | `--count <num>` | number ± arrows | `<input type=number>` |
-| custom enum | `--mode <choice>` | ←→ cycle | `<select>` dropdown |
-| `PathBuf` | `--file <path>` | text input | `<input type=text>` |
-| `Vec<T>` | `--tag a --tag b` | multi-line (Enter/Delete) | dynamic inputs |
-
-## AI-Ready by Design
-
-```bash
-$ mytool --anthropic-tool
-```
-
-```json
-{
-  "name": "transcode",
-  "description": "Transcode video files",
-  "input_schema": {
-    "type": "object",
-    "properties": {
-      "input": { "type": "string", "description": "Input file" },
-      "codec": { "type": "string", "enum": ["h264", "h265", "av1"] },
-      "quality": { "type": "number", "minimum": 0, "maximum": 51 },
-      "dry_run": { "type": "boolean" }
-    },
-    "required": ["input"]
-  }
-}
-```
-
-Valid Anthropic tool use / OpenAI function calling definition. Paste it into your API call — the model can invoke your Rust tool directly.
-
-## Progress Protocol
-
-All three interfaces consume a unified `Progress` enum:
-
-```rust
-ctx.emit(Progress::Started { total: Some(100), message: Some("Encoding...".into()) });
-for frame in 0..100 {
-    if ctx.is_cancelled() { return Err(AppError::Cancelled); }
-    ctx.tick(frame, Some(100), format!("Frame {frame}"));
-}
-ctx.done(serde_json::json!({"size_mb": 42}), 3200);
-```
-
-| Interface | Progress Display |
-|-----------|-----------------|
-| CLI (`--json-stream`) | One JSON object per line to stdout |
-| TUI | Progress bar + scrolling log + elapsed time |
-| Web | Progress bar (SSE) + scrollable log panel |
-
-## Crate Structure
-
-| Crate | Purpose | Status |
-|-------|---------|--------|
-| `triforge-core` | Core traits (`App`, `ValueEnum`), types (`ArgSchema`, `Progress`), `Context` | ✅ |
-| `triforge-macros` | `#[derive(App)]`, `#[derive(ValueEnum)]` proc macros | ✅ |
-| `triforge-cli` | CLI renderer → `clap::Command`, schema/tool export, `--json-stream` | ✅ |
-| `triforge-tui` | TUI renderer → ratatui form, live CLI preview, 11 tests | ✅ |
-| `triforge-gui` | Web GUI → axum server, embedded HTML, SSE progress | ✅ |
-
-## Current Limitations
-
-- **`#[derive(App)]` only works on named-field structs** — no tuple structs or enums
-- **Number range validation** works at CLI (clap) but not in TUI/Web widgets yet
-- **Subcommands** in CLI only — TUI/Web not yet
-- **Web GUI `run()`** uses mock runner — real App trait dispatch pending
-- **Macro-generated `run()`** calls `unimplemented!()` — provide your own impl
-- **Not yet on crates.io** — use git dependency for now
-
-## Running Tests
-
-```bash
+# Run all tests
 cargo test --workspace
+
+# Run a specific crate
+cargo test -p triforge-core
+cargo test -p triforge-cli
+cargo test -p triforge-tui
+cargo test -p triforge-macros
 ```
 
-All 58 tests pass across 4 crates.
+Current coverage: **58 tests** across all crates.
+
+---
 
 ## Installation
 
-Use git dependency until published to crates.io:
+### From crates.io (when published)
+
+```toml
+[dependencies]
+triforge-core = "0.1"
+triforge-macros = "0.1"
+triforge-cli = "0.1"
+```
+
+### From git
 
 ```toml
 [dependencies]
@@ -212,6 +572,32 @@ triforge-macros = { git = "https://github.com/lilyco-42/lilyco" }
 triforge-cli = { git = "https://github.com/lilyco-42/lilyco" }
 triforge-tui = { git = "https://github.com/lilyco-42/lilyco" }
 ```
+
+---
+
+## Limitations & Roadmap
+
+### Current Limitations
+
+- **`#[derive(App)]`** only works on named-field structs (no tuple structs or enums)
+- **`run()`** generated by the macro calls `unimplemented!()`. You must provide a standalone function (see the example pattern) or implement the trait manually.
+- **Number range validation** works at the CLI layer (clap) but not in TUI/Web widgets
+- **Subcommands** are supported in CLI only — TUI and Web renderers do not handle them yet
+- **Web GUI `run()` integration** currently uses a mock runner — real `App` trait dispatch is the next step
+- **Windows TUI** not yet tested (crossterm backend should work but hasn't been verified)
+
+### Roadmap
+
+- [ ] Real `run()` dispatch in Web GUI with progress streaming
+- [ ] Subcommand navigation in TUI and Web GUI
+- [ ] Input validation in TUI/Web widgets (range, required, enum)
+- [ ] Path auto-complete in TUI (Tab triggers directory listing)
+- [ ] `#[app(subcommands)]` macro support
+- [ ] Publish to crates.io
+- [ ] Integration tests that exercise all three interfaces end-to-end
+- [ ] Performance benchmarks for schema generation
+
+---
 
 ## License
 

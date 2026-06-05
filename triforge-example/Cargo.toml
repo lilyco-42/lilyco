@@ -1,0 +1,19 @@
+[package]
+name = "triforge-example"
+version = "0.1.0"
+edition = "2021"
+description = "Triforge demo — image compression tool"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+
+[[bin]]
+name = "imgpress"
+path = "src/main.rs"
+
+[dependencies]
+triforge-core = { path = "../triforge-core" }
+triforge-macros = { path = "../triforge-macros" }
+triforge-cli = { path = "../triforge-cli" }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }

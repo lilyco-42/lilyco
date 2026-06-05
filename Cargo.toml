@@ -5,6 +5,7 @@ members = [
     "triforge-tui",
     "triforge-gui",
     "triforge-macros",
+    "triforge-example",
 ]
 resolver = "2"
 
