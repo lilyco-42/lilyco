@@ -48,7 +48,7 @@ fn derive_app_generates_schema() {
 
     // dry_run: Flag, not required
     let dry_run = &schema.args[4];
-    assert_eq!(dry_run.name, "dry_run");
+    assert_eq!(dry_run.name, "dry-run");
     assert!(!dry_run.required);
 }
 
@@ -63,7 +63,7 @@ fn derive_app_from_args_works() {
     args.insert("output".into(), serde_json::json!("/tmp/b.mp4"));
     args.insert("codec".into(), serde_json::json!("h265"));
     args.insert("quality".into(), serde_json::json!(42));
-    args.insert("dry_run".into(), serde_json::json!(true));
+    args.insert("dry-run".into(), serde_json::json!(true));
 
     let t: Transcode = Transcode::from_args(&args).unwrap();
     assert!(t.dry_run);

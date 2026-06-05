@@ -140,6 +140,106 @@ impl CliRenderer {
     }
 }
 
+// ── 一行启动 ───────────────────────────────────────────────
+
+/// 一行启动 CLI：自动处理 schema → clap → parse → progress → 输出。
+///
+/// ```ignore
+/// fn main() {
+///     lilyco_cli::run::<MyApp>(my_run_fn);
+/// }
+/// ```
+pub fn run<A: App + Send + 'static>(runner: fn(&A, &Context) -> Result<serde_json::Value, AppError>) {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+
+    let schema = A::schema();
+    let renderer = CliRenderer::new();
+    let cmd = renderer.render(&schema);
+    let matches = cmd.get_matches();
+
+    if CliRenderer::handle_builtin_flags(&schema, &matches) {
+        return;
+    }
+
+    let output_format = CliRenderer::output_format(&matches);
+    let args = CliRenderer::extract_args(&schema, &matches);
+
+    let app = match A::from_args(&args) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let ctx = Context::new(tx, cancel.clone(), output_format.clone());
+
+    let handle = std::thread::spawn(move || runner(&app, &ctx));
+
+    match output_format {
+        OutputFormat::JsonStream => {
+            for event in rx {
+                println!("{}", serde_json::to_string(&event).unwrap());
+                if matches!(event, Progress::Done { .. } | Progress::Error { .. }) {
+                    break;
+                }
+            }
+        }
+        OutputFormat::Json => {
+            for event in rx {
+                if let Progress::Done { result, .. } = event {
+                    println!("{}", serde_json::to_string_pretty(&result).unwrap());
+                    break;
+                }
+                if let Progress::Error { message, .. } = event {
+                    eprintln!("Error: {message}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        _ => {
+            for event in rx {
+                match &event {
+                    Progress::Tick { message, percent, .. } => {
+                        if let Some(msg) = message {
+                            let pct = percent
+                                .map(|p| format!("{:3.0}%", p * 100.0))
+                                .unwrap_or_default();
+                            eprintln!("\r  {pct}  {msg}");
+                        }
+                    }
+                    Progress::Log { level, message } => {
+                        eprintln!("  [{level:?}] {message}");
+                    }
+                    Progress::Done { result, duration_ms } => {
+                        if let Ok(r) = serde_json::to_string_pretty(result) {
+                            if r != "null" && r != "\"ok\"" && r.len() < 500 {
+                                println!("{r}");
+                            }
+                        }
+                        eprintln!("\n  Done in {duration_ms}ms");
+                        break;
+                    }
+                    Progress::Error { message, .. } => {
+                        eprintln!("\n  Error: {message}");
+                        std::process::exit(1);
+                    }
+                    _ => {}
+                }
+            }
+            eprintln!();
+        }
+    }
+
+    if let Err(e) = handle.join() {
+        eprintln!("Error: {e:?}");
+        std::process::exit(1);
+    }
+}
+
 // ── 内部实现 ───────────────────────────────────────────────
 
 /// clap 4 的内部类型（Str / Id / OsStr）仅接受 `&'static str`，

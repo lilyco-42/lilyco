@@ -13,6 +13,8 @@ struct ArgAttrs {
 }
 
 fn parse_app_about(attrs: &[Attribute]) -> Option<String> {
+    // Convention: struct-level doc comment → app about (if no explicit #[app(about = "...")])
+    let doc_about = doc_comment(attrs);
     for attr in attrs {
         if attr.path().is_ident("app") {
             let mut about = None;
@@ -30,7 +32,29 @@ fn parse_app_about(attrs: &[Attribute]) -> Option<String> {
             }
         }
     }
+    doc_about
+}
+
+/// Extract `/// doc comment` from field attributes (becomes about text)
+fn doc_comment(attrs: &[Attribute]) -> Option<String> {
+    for attr in attrs {
+        if attr.path().is_ident("doc") {
+            if let syn::Meta::NameValue(m) = &attr.meta {
+                if let syn::Expr::Lit(syn::ExprLit { lit: Lit::Str(s), .. }) = &m.value {
+                    let txt = s.value().trim().to_string();
+                    if !txt.is_empty() {
+                        return Some(txt);
+                    }
+                }
+            }
+        }
+    }
     None
+}
+
+/// snake_case → kebab-case
+fn snake_to_kebab(s: &str) -> String {
+    s.replace('_', "-")
 }
 
 fn parse_arg_attrs(attrs: &[Attribute]) -> ArgAttrs {
@@ -41,6 +65,9 @@ fn parse_arg_attrs(attrs: &[Attribute]) -> ArgAttrs {
         max: None,
         must_exist: None,
     };
+
+    // Convention: doc comment → about
+    result.about = doc_comment(attrs);
 
     for attr in attrs {
         if !attr.path().is_ident("arg") {
@@ -195,8 +222,9 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
 
     // ── generate schema() body ──
     let schema_args = field_infos.iter().map(|f| {
-        let name = f.ident.to_string();
-        let about = f.attrs.about.clone().unwrap_or_else(|| f.ident.to_string());
+        let name = snake_to_kebab(&f.ident.to_string());
+        let about = f.attrs.about.clone()
+            .unwrap_or_else(|| name.clone());
         let required = f.required;
         let default_expr = match &f.attrs.default {
             Some(d) => quote! { Some(serde_json::to_value(#d).unwrap()) },
@@ -217,7 +245,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
 
     // ── generate from_args() body ──
     let from_args_bindings = field_infos.iter().map(|f| {
-        let name = f.ident.to_string();
+        let name = snake_to_kebab(&f.ident.to_string());
         let ident = &f.ident;
         let ty = &f.ty;
         let is_opt = f.is_option;
