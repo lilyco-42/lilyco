@@ -59,9 +59,11 @@ struct ImgCompress {
     quality: u8,
 
     /// Max width (0 = none)
+    #[arg(default = 0)]
     width: u32,
 
     /// Max height (0 = none)
+    #[arg(default = 0)]
     height: u32,
 
     /// Dry run

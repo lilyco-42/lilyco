@@ -408,12 +408,19 @@ fn add_builtin_flags(cmd: Command) -> Command {
             .help("输出格式：JSON 流")
             .action(ArgAction::SetTrue),
     )
+    .arg(
+        Arg::new("gui")
+            .long("gui")
+            .help("启动 Web GUI")
+            .action(ArgAction::SetTrue)
+            .exclusive(true),
+    )
 }
 
 fn is_builtin_flag(name: &str) -> bool {
     matches!(
         name,
-        "schema" | "openai-tool" | "anthropic-tool" | "json" | "json-stream"
+        "schema" | "openai-tool" | "anthropic-tool" | "json" | "json-stream" | "gui"
     )
 }
 

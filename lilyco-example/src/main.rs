@@ -46,9 +46,11 @@ struct ImgCompress {
     quality: u8,
 
     /// Max width in pixels (0 = no resize)
+    #[arg(default = 0)]
     width: u32,
 
     /// Max height in pixels (0 = no resize)
+    #[arg(default = 0)]
     height: u32,
 
     /// Preview only — don't write output
@@ -173,5 +175,89 @@ fn encode(img: &DynamicImage, fmt: &Format, quality: u8) -> Result<Vec<u8>, AppE
 // ── main: one line ────────────────────────────────────────
 
 fn main() {
-    lilyco_cli::run::<ImgCompress>(run_compress);
+    let schema = ImgCompress::schema();
+    let cmd = lilyco_cli::CliRenderer::new().render(&schema);
+    let matches = cmd.get_matches();
+
+    // Built-in flags (--schema, --anthropic-tool, --openai-tool)
+    if lilyco_cli::CliRenderer::handle_builtin_flags(&schema, &matches) {
+        return;
+    }
+
+    // --gui: launch web interface
+    if matches.get_flag("gui") {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let gui = lilyco_gui::GuiRenderer::new(8080);
+            let schema_clone = schema.clone();
+            gui.serve(schema_clone, std::sync::Arc::new(move |args| {
+                let app = ImgCompress::from_args(&args).unwrap();
+                Box::pin(async move {
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    let ctx = Context::new_test(tx);
+                    let handle = std::thread::spawn(move || run_compress(&app, &ctx));
+                    // Wait for Done/Error
+                    let mut final_result = serde_json::Value::Null;
+                    for event in rx {
+                        if let Progress::Done { result, .. } = event {
+                            final_result = result;
+                            break;
+                        }
+                        if let Progress::Error { message, .. } = event {
+                            return Err(AppError::Runtime(message));
+                        }
+                    }
+                    let _ = handle.join();
+                    Ok(final_result)
+                })
+            })).await;
+        });
+        return;
+    }
+
+    // Default: CLI
+    let output_format = lilyco_cli::CliRenderer::output_format(&matches);
+    let args = lilyco_cli::CliRenderer::extract_args(&schema, &matches);
+    let app = ImgCompress::from_args(&args).unwrap();
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let ctx = Context::new(tx, cancel.clone(), output_format.clone());
+    let handle = std::thread::spawn(move || run_compress(&app, &ctx));
+
+    match output_format {
+        OutputFormat::JsonStream => {
+            for event in rx {
+                println!("{}", serde_json::to_string(&event).unwrap());
+                if matches!(event, Progress::Done { .. } | Progress::Error { .. }) { break; }
+            }
+        }
+        _ => {
+            for event in rx {
+                match &event {
+                    Progress::Tick { message, percent, .. } => {
+                        if let Some(msg) = message {
+                            let pct = percent.map(|p| format!("{:3.0}%", p * 100.0)).unwrap_or_default();
+                            eprintln!("\r  {pct}  {msg}");
+                        }
+                    }
+                    Progress::Log { level, message } => eprintln!("  [{level:?}] {message}"),
+                    Progress::Done { result, duration_ms } => {
+                        if let Ok(stats) = serde_json::from_value::<serde_json::Value>(result.clone()) {
+                            if stats != serde_json::json!(null) {
+                                println!("{}", serde_json::to_string_pretty(&stats).unwrap());
+                            }
+                        }
+                        eprintln!("\n  Done in {duration_ms}ms");
+                        break;
+                    }
+                    Progress::Error { message, .. } => { eprintln!("\n  Error: {message}"); break; }
+                    _ => {}
+                }
+            }
+            eprintln!();
+        }
+    }
+
+    if let Err(e) = handle.join() { eprintln!("Error: {e:?}"); }
 }

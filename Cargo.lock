@@ -688,10 +688,12 @@ dependencies = [
  "image",
  "lilyco-cli",
  "lilyco-core",
+ "lilyco-gui",
  "lilyco-macros",
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

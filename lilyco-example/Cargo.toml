@@ -14,6 +14,8 @@ path = "src/main.rs"
 lilyco-core = { path = "../lilyco-core" }
 lilyco-macros = { path = "../lilyco-macros" }
 lilyco-cli = { path = "../lilyco-cli" }
+lilyco-gui = { path = "../lilyco-gui" }
+tokio = { version = "1", features = ["rt"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
