@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -247,10 +248,9 @@ async fn progress_handler(
     let maybe_rx = { state.sessions.lock().await.remove(&id) };
     let found = maybe_rx.is_some();
 
-    type SseEvent = Result<Event, std::convert::Infallible>;
     let stream = async_stream::stream! {
         if !found {
-            yield Ok::<SseEvent, _>(Event::default().data(
+            yield Result::<Event, Infallible>::Ok(Event::default().data(
                 serde_json::json!({"type":"error","message":"session not found"}).to_string()
             ));
         } else {

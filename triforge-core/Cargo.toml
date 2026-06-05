@@ -2,7 +2,12 @@
 name = "triforge-core"
 version = "0.1.0"
 edition = "2021"
-description = "Triforge 核心 trait 和类型 —— 让 Rust 软件天生 AI-callable"
+description = "Triforge core traits and types — make Rust software AI-callable by default"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+readme = "../README.md"
+keywords = ["cli", "tui", "web", "ai", "schema"]
+categories = ["command-line-interface", "development-tools"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

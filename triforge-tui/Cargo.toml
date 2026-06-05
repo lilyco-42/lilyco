@@ -2,7 +2,11 @@
 name = "triforge-tui"
 version = "0.1.0"
 edition = "2021"
-description = "Triforge TUI 渲染器 —— 把 CommandSchema 转换成交互式终端表单"
+description = "Triforge TUI renderer — interactive terminal form with live CLI preview"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+keywords = ["tui", "terminal", "ratatui", "form"]
+categories = ["command-line-interface"]
 
 [dependencies]
 triforge-core = { path = "../triforge-core" }

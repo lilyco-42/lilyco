@@ -2,7 +2,11 @@
 name = "triforge-cli"
 version = "0.1.0"
 edition = "2021"
-description = "Triforge CLI 渲染器 —— 把 CommandSchema 转换成 clap::Command"
+description = "Triforge CLI renderer — generates clap::Command from CommandSchema"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+keywords = ["cli", "clap", "schema", "ai"]
+categories = ["command-line-interface"]
 
 [dependencies]
 triforge-core = { path = "../triforge-core" }

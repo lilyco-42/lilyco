@@ -2,7 +2,11 @@
 name = "triforge-macros"
 version = "0.1.0"
 edition = "2021"
-description = "Triforge 过程宏 —— #[derive(App)] 和 #[derive(ValueEnum)]"
+description = "Triforge proc macros — #[derive(App)] and #[derive(ValueEnum)]"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+keywords = ["macro", "derive", "cli", "proc-macro"]
+categories = ["development-tools::procedural-macro-helpers"]
 
 [lib]
 proc-macro = true

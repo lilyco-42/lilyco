@@ -2,7 +2,11 @@
 name = "triforge-gui"
 version = "0.1.0"
 edition = "2021"
-description = "Triforge Web GUI —— Axum + 嵌入式 HTML，类似 Gradio 的体验"
+description = "Triforge Web GUI — axum server with embedded HTML, Gradio-like experience"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+keywords = ["web", "gui", "axum", "sse"]
+categories = ["web-programming", "gui"]
 
 [dependencies]
 triforge-core = { path = "../triforge-core" }
