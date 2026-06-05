@@ -1,0 +1,13 @@
+[package]
+name = "triforge-macros"
+version = "0.1.0"
+edition = "2021"
+description = "Triforge 过程宏 —— #[derive(App)] 和 #[derive(ValueEnum)]"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

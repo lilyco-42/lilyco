@@ -1,0 +1,16 @@
+[package]
+name = "triforge-core"
+version = "0.1.0"
+edition = "2021"
+description = "Triforge 核心 trait 和类型 —— 让 Rust 软件天生 AI-callable"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+
+[features]
+default = ["cli"]
+cli = []
+tui = []
+gui = []
