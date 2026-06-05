@@ -167,32 +167,31 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
 <title>{title}</title>
 <link rel="stylesheet" href="https://unpkg.com/layui@2.9.8/dist/css/layui.css">
 <style>
-body{background:#f2f3f5;padding:20px}
-.main-card{max-width:820px;margin:0 auto}
-.cli-preview{font-family:Consolas,monospace;font-size:13px;color:#16b777;background:#2f363d;padding:12px 16px;border-radius:4px;word-break:break-all;margin-top:16px;min-height:20px}
-.cli-preview::before{content:"$ ";color:#8b949e}
-#out{margin-top:20px}
-#log{max-height:260px;overflow-y:auto;font-size:13px;background:#2f363d;color:#e1e4e8;padding:12px;border-radius:4px;white-space:pre-wrap;font-family:Consolas,monospace}
-#log .err{color:#ff5722}
-#result{font-size:13px;margin-top:12px;overflow-x:auto;background:#f8f8f8;padding:12px;border-radius:4px}
-.req-mark{color:#ff5722;margin-left:2px}
-.field-hint{color:#999;font-size:12px;margin-left:8px}
+body{{background:#f2f3f5;padding:20px}}
+.main-card{{max-width:820px;margin:0 auto}}
+.cli-preview{{font-family:Consolas,monospace;font-size:13px;color:#16b777;background:#2f363d;padding:12px 16px;border-radius:4px;word-break:break-all;margin-top:16px;min-height:20px}}
+.cli-preview::before{{content:"$ ";color:#8b949e}}
+#out{{margin-top:20px}}
+#log{{max-height:260px;overflow-y:auto;font-size:13px;background:#2f363d;color:#e1e4e8;padding:12px;border-radius:4px;white-space:pre-wrap;font-family:Consolas,monospace}}
+#log .err{{color:#ff5722}}
+#result{{font-size:13px;margin-top:12px;overflow-x:auto;background:#f8f8f8;padding:12px;border-radius:4px}}
+.req-mark{{color:#ff5722;margin-left:2px}}
 </style></head><body>
 <div class="layui-card main-card">
-<div class="layui-card-header" style="font-size:18px;font-weight:bold">{title}</div>
+<div class="layui-card-header" style="font-size:18px;font-weight:bold">{{title}}</div>
 <div class="layui-card-body">
-<p style="color:#666;margin-bottom:20px">{about}</p>
+<p style="color:#666;margin-bottom:20px">{{about}}</p>
 <form class="layui-form" id="form" lay-filter="form">
-{fields_html}
+{{fields_html}}
 <div style="margin-top:24px;display:flex;gap:12px">
 <button type="submit" class="layui-btn layui-btn-normal">▶ Run</button>
 <button type="button" class="layui-btn layui-btn-primary" onclick="copyCmd()">📋 Copy CLI</button>
 </div>
-<div class="cli-preview" id="preview">{cmd_name}</div>
+<div class="cli-preview" id="preview">{{cmd_name}}</div>
 </form>
 <div id="out" style="display:none">
 <fieldset class="layui-elem-field layui-field-title" style="margin-top:24px"><legend>Output</legend></fieldset>
-<div class="layui-progress" lay-showpercent="true" id="pbar-wrap" style="margin-bottom:12px"><div class="layui-progress-bar" id="pbar"><span class="layui-progress-text">0%</span></div></div>
+<div class="layui-progress" lay-showpercent="true" lay-filter="pbar-wrap" style="margin-bottom:12px"><div class="layui-progress-bar" lay-percent="0%"><span class="layui-progress-text">0%</span></div></div>
 <div id="log"></div>
 <pre id="result"></pre>
 </div>
@@ -200,36 +199,39 @@ body{background:#f2f3f5;padding:20px}
 </div>
 <script src="https://unpkg.com/layui@2.9.8/dist/layui.js"></script>
 <script>
-layui.use(['element','form'],function(){var element=layui.element,form=layui.form;
-const SCHEMA={name:"{cmd_name}",args:[{field_js_meta}]};
+layui.use(['element','form'],function(){{var element=layui.element,form=layui.form;
+const SCHEMA={{name:"{{cmd_name}}",args:[{{field_js_meta}}]}};
 const preview=document.getElementById("preview");
 const out=document.getElementById("out");
-const pbar=document.getElementById("pbar");
 const logEl=document.getElementById("log");
 const resultEl=document.getElementById("result");
-const pbarWrap=document.getElementById("pbar-wrap");
-function updatePreview(){var parts=[SCHEMA.name];
-for(var a of SCHEMA.args){var el=document.getElementById("field-"+a.name);if(!el)continue;
-if(a.kind==="Flag"){if(el.checked)parts.push("--"+a.name)}
-else if(a.kind==="List"){document.querySelectorAll("[id^=field-"+a.name+"-]").forEach(function(inp){if(inp.value)parts.push("--"+a.name+" "+inp.value)})}
-else{if(el.value){var v=a.kind==="Path"&&el.value.includes(" ")?'"'+el.value+'"':el.value;parts.push("--"+a.name+" "+v)}}}
-preview.textContent=parts.join(" ")}
-document.querySelectorAll("input,select").forEach(function(el){el.addEventListener("input",updatePreview)});
-document.getElementById("form").addEventListener("submit",async function(e){e.preventDefault();out.style.display="block";pbar.style.width="0%";logEl.innerHTML="";resultEl.textContent="";
-var data={};
-for(var a of SCHEMA.args){if(a.kind==="List"){data[a.name]=[];document.querySelectorAll("[id^=field-"+a.name+"-]").forEach(function(inp){if(inp.value)data[a.name].push(inp.value)})}
-else{var el=document.getElementById("field-"+a.name);if(a.kind==="Flag")data[a.name]=el.checked;else data[a.name]=el.value}}
+function updatePreview(){{var parts=[SCHEMA.name];
+for(var a of SCHEMA.args){{var el=document.getElementById("field-"+a.name);if(!el)continue;
+if(a.kind==="Flag"){{if(el.checked)parts.push("--"+a.name)}}
+else if(a.kind==="List"){{document.querySelectorAll("[id^=field-"+a.name+"-]").forEach(function(inp){{if(inp.value)parts.push("--"+a.name+" "+inp.value)}})}}
+else{{if(el.value){{var v=a.kind==="Path"&&el.value.includes(" ")?'"'+el.value+'"':el.value;parts.push("--"+a.name+" "+v)}}}}}}
+preview.textContent=parts.join(" ")}}
+document.querySelectorAll("input,select").forEach(function(el){{el.addEventListener("input",updatePreview)}});
+document.getElementById("form").addEventListener("submit",async function(e){{e.preventDefault();out.style.display="block";logEl.innerHTML="";resultEl.textContent="";
+var data={{}};
+for(var a of SCHEMA.args){{if(a.kind==="List"){{data[a.name]=[];document.querySelectorAll("[id^=field-"+a.name+"-]").forEach(function(inp){{if(inp.value)data[a.name].push(inp.value)}})}}
+else{{var el=document.getElementById("field-"+a.name);if(a.kind==="Flag")data[a.name]=el.checked;else data[a.name]=el.value}}}}
 var sid=Math.random().toString(36).slice(2);
+try{var resp=await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:sid,args:data})});
+if(!resp.ok){logEl.innerHTML="<span class=err>Server error: "+resp.status+"</span>";return;}}catch(err){logEl.innerHTML+="<span class=err>Network error: "+err+"</span>";return}
 var es=new EventSource("/progress/"+sid);
 es.onmessage=function(ev){var p=JSON.parse(ev.data);
-if(p.type==="tick"){var pct=(p.percent*100).toFixed(0);element.progress('pbar',pct+'%');logEl.innerHTML+=(p.message||"")+"\n"}
-else if(p.type==="log"){logEl.innerHTML+="["+(p.level||"info")+"] "+(p.message||"")+"\n"}
-else if(p.type==="done"){element.progress('pbar','100%');resultEl.textContent=JSON.stringify(p.result,null,2);es.close()}
-else if(p.type==="error"){logEl.innerHTML+="<span class=err>ERROR: "+(p.message||"")+"</span>\n";es.close()}
+if(p.type==="started"){logEl.innerHTML+=(p.message||"Running...")+"
+"}
+else if(p.type==="tick"){var pct=(p.percent*100).toFixed(0);element.progress('pbar-wrap',pct+'%');logEl.innerHTML+=(p.message||"")+"
+"}
+else if(p.type==="log"){logEl.innerHTML+="["+(p.level||"info")+"] "+(p.message||"")+"
+"}
+else if(p.type==="done"){element.progress('pbar-wrap','100%');resultEl.textContent=JSON.stringify(p.result,null,2);es.close()}
+else if(p.type==="error"){logEl.innerHTML+="<span class=err>ERROR: "+(p.message||"")+"</span>
+";es.close()}
 logEl.scrollTop=logEl.scrollHeight};
-es.onerror=function(){es.close()};
-try{await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:sid,args:data})})}catch(err){logEl.innerHTML+="<span class=err>Failed: "+err+"</span>\n"}
-});
+es.onerror=function(){es.close()}});
 function copyCmd(){navigator.clipboard.writeText(preview.textContent)}});
 </script></body></html>"#;
 
