@@ -190,25 +190,24 @@ fn main() {
         rt.block_on(async {
             let gui = lilyco_gui::GuiRenderer::new(8080);
             let schema_clone = schema.clone();
-            gui.serve(schema_clone, std::sync::Arc::new(move |args| {
+            gui.serve(schema_clone, std::sync::Arc::new(move |args, gui_tx| {
                 let app = ImgCompress::from_args(&args).unwrap();
                 Box::pin(async move {
-                    let (tx, rx) = std::sync::mpsc::channel();
-                    let ctx = Context::new_test(tx);
+                    let (std_tx, rx) = std::sync::mpsc::channel();
+                    let ctx = Context::new_test(std_tx);
                     let handle = std::thread::spawn(move || run_compress(&app, &ctx));
-                    // Wait for Done/Error
-                    let mut final_result = serde_json::Value::Null;
+
+                    // Forward progress events from std channel → GUI's tokio channel
                     for event in rx {
-                        if let Progress::Done { result, .. } = event {
-                            final_result = result;
+                        let json = serde_json::to_value(&event).unwrap();
+                        if gui_tx.send(json).await.is_err() {
                             break;
                         }
-                        if let Progress::Error { message, .. } = event {
-                            return Err(AppError::Runtime(message));
+                        if matches!(event, Progress::Done { .. } | Progress::Error { .. }) {
+                            break;
                         }
                     }
                     let _ = handle.join();
-                    Ok(final_result)
                 })
             })).await;
         });

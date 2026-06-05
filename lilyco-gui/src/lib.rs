@@ -15,7 +15,6 @@ use axum::{
 };
 use tokio::sync::Mutex;
 
-use lilyco_core::prelude::*;
 use lilyco_core::schema::{ArgKind, CommandSchema};
 
 // ── GuiRenderer ───────────────────────────────────────────
@@ -24,8 +23,13 @@ pub struct GuiRenderer {
     port: u16,
 }
 
+/// Runner receives args + a Sender to stream progress events (tick/log/done/error).
+/// The sender is connected to the SSE endpoint — messages appear in the browser in real time.
 pub type RunnerFn = Arc<
-    dyn Fn(HashMap<String, serde_json::Value>) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, AppError>> + Send>>
+    dyn Fn(
+            HashMap<String, serde_json::Value>,
+            tokio::sync::mpsc::Sender<serde_json::Value>,
+        ) -> Pin<Box<dyn Future<Output = ()> + Send>>
         + Send
         + Sync,
 >;
@@ -243,12 +247,7 @@ async fn run_handler(
     let runner = state.runner.clone();
 
     tokio::spawn(async move {
-        let result = runner(req.args).await;
-        let msg = match result {
-            Ok(val) => serde_json::json!({"type":"done","result":val,"duration_ms":0}),
-            Err(e) => serde_json::json!({"type":"error","code":1,"message":e.to_string()}),
-        };
-        let _ = tx.send(msg).await;
+        runner(req.args, tx).await;
     });
 
     "OK"
