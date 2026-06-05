@@ -89,17 +89,19 @@ async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
         if i > 0 { field_js_meta.push(','); }
         field_js_meta.push_str(&format!("{{name:\"{}\",kind:\"{}\"}}", arg.name, kind_name(&arg.kind)));
 
-        let req = if arg.required { " required" } else { "" };
-        let req_label = if arg.required { " class=\"req\"" } else { "" };
+        let req_mark = if arg.required { "<span class=\"req-mark\">*</span>" } else { "" };
+        let label = format!("{}{}", arg.about, req_mark);
 
         let widget = match &arg.kind {
             ArgKind::Flag => {
                 let ck = matches!(&arg.default, Some(serde_json::Value::Bool(true))).then_some(" checked").unwrap_or("");
-                format!("<input type=\"checkbox\" id=\"field-{}\"{}>", arg.name, ck)
+                format!("<input type=\"checkbox\" id=\"field-{}\"{} lay-skin=\"primary\" title=\"{}\">",
+                    arg.name, ck, arg.about)
             }
             ArgKind::Text | ArgKind::Path { .. } => {
                 let dv = arg.default.as_ref().and_then(|d| d.as_str()).unwrap_or("");
-                format!("<input type=\"text\" id=\"field-{}\" placeholder=\"{}\"{} value=\"{}\">", arg.name, arg.about, req, dv)
+                format!("<input type=\"text\" id=\"field-{}\" placeholder=\"{}\"{} value=\"{}\" class=\"layui-input\">",
+                    arg.name, arg.about, if arg.required {" lay-reqtext=\"required\""} else {""}, dv)
             }
             ArgKind::Number { min, max } => {
                 let dv = arg.default.as_ref().and_then(|d| d.as_f64())
@@ -107,7 +109,8 @@ async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
                     .unwrap_or_else(|| min.map(|m| m.to_string()).unwrap_or_default());
                 let min_a = min.map(|m| format!(" min=\"{m}\"")).unwrap_or_default();
                 let max_a = max.map(|m| format!(" max=\"{m}\"")).unwrap_or_default();
-                format!("<input type=\"number\" id=\"field-{}\"{} value=\"{}\"{}{}>", arg.name, req, dv, min_a, max_a)
+                format!("<input type=\"number\" id=\"field-{}\" value=\"{}\"{}{} class=\"layui-input\">",
+                    arg.name, dv, min_a, max_a)
             }
             ArgKind::Enum { values } => {
                 let mut opts = String::new();
@@ -115,24 +118,31 @@ async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
                     let sel = if arg.default.as_ref().and_then(|d| d.as_str()) == Some(v.as_str()) { " selected" } else { "" };
                     opts.push_str(&format!("<option value=\"{v}\"{sel}>{v}</option>"));
                 }
-                format!("<select id=\"field-{}\"{}>{}</select>", arg.name, req, opts)
+                format!("<select id=\"field-{}\" lay-search=\"\">{}</select>", arg.name, opts)
             }
             ArgKind::List { .. } => {
                 let mut inputs = String::new();
                 for j in 0..3 {
                     inputs.push_str(&format!(
-                        "<input type=\"text\" id=\"field-{}-{}\" placeholder=\"{} #{}\" style=\"margin-bottom:4px\">",
-                        arg.name, j, arg.about, j + 1
+                        "<input type=\"text\" id=\"field-{}-{}\" placeholder=\"{}\" class=\"layui-input\" style=\"margin-bottom:6px\">",
+                        arg.name, j, arg.about
                     ));
                 }
-                format!("<div style=\"display:flex;flex-direction:column;gap:4px;flex:1\">{inputs}</div>")
+                format!("<div>{inputs}</div>")
             }
         };
 
-        fields_html.push_str(&format!(
-            "<div class=\"field\"><label for=\"field-{}\"{}>{}</label>{}</div>\n",
-            arg.name, req_label, arg.about, widget
-        ));
+        if matches!(&arg.kind, ArgKind::Flag) {
+            fields_html.push_str(&format!(
+                "<div class=\"layui-form-item\"><div class=\"layui-input-block\">{}</div></div>\n",
+                widget
+            ));
+        } else {
+            fields_html.push_str(&format!(
+                "<div class=\"layui-form-item\"><label class=\"layui-form-label\">{}</label><div class=\"layui-input-block\">{}</div></div>\n",
+                label, widget
+            ));
+        }
     }
 
     Html(HTML_TEMPLATE
@@ -152,78 +162,75 @@ fn kind_name(kind: &ArgKind) -> &'static str {
 }
 
 const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
-<html lang="en"><head>
+<html><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>{title}</title>
+<link rel="stylesheet" href="https://unpkg.com/layui@2.9.8/dist/css/layui.css">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0f1117;color:#e1e4e8;max-width:760px;margin:48px auto;padding:0 24px}
-h1{font-size:20px;margin-bottom:4px}
-.about{color:#8b949e;margin-bottom:28px;font-size:14px}
-.field{display:flex;align-items:center;margin-bottom:14px;gap:12px}
-.field label{width:150px;text-align:right;font-size:14px;flex-shrink:0}
-.field label.req::after{content:" *";color:#f85149}
-.field input,.field select{flex:1;padding:8px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#e1e4e8;font-size:14px}
-.field input:focus,.field select:focus{outline:none;border-color:#58a6ff;box-shadow:0 0 0 1px #58a6ff44}
-.actions{margin-top:24px;display:flex;gap:12px}
-.actions button{padding:10px 24px;border-radius:6px;font-size:14px;cursor:pointer;border:none}
-.btn-run{background:#238636;color:#fff}.btn-run:hover{background:#2ea043}
-.btn-copy{background:#21262d;color:#c9d1d9;border:1px solid #30363d}
-.cli-preview{margin-top:14px;padding:10px 14px;background:#161b22;border-radius:6px;font-family:monospace;font-size:13px;color:#7ee787;word-break:break-all}
-.output{margin-top:28px}
-.output h3{font-size:16px;margin-bottom:10px}
-.progress-bar{width:100%;height:8px;background:#21262d;border-radius:4px;overflow:hidden;margin-bottom:10px}
-.progress-bar .fill{height:100%;background:#238636;transition:width .3s;border-radius:4px;width:0%}
-.log{max-height:220px;overflow-y:auto;font-size:12px;color:#8b949e;background:#161b22;padding:10px;border-radius:6px;white-space:pre-wrap}
-.log .err{color:#f85149}
+body{background:#f2f3f5;padding:20px}
+.main-card{max-width:820px;margin:0 auto}
+.cli-preview{font-family:Consolas,monospace;font-size:13px;color:#16b777;background:#2f363d;padding:12px 16px;border-radius:4px;word-break:break-all;margin-top:16px;min-height:20px}
+.cli-preview::before{content:"$ ";color:#8b949e}
+#out{margin-top:20px}
+#log{max-height:260px;overflow-y:auto;font-size:13px;background:#2f363d;color:#e1e4e8;padding:12px;border-radius:4px;white-space:pre-wrap;font-family:Consolas,monospace}
+#log .err{color:#ff5722}
+#result{font-size:13px;margin-top:12px;overflow-x:auto;background:#f8f8f8;padding:12px;border-radius:4px}
+.req-mark{color:#ff5722;margin-left:2px}
+.field-hint{color:#999;font-size:12px;margin-left:8px}
 </style></head><body>
-<h1>{title}</h1>
-<p class="about">{about}</p>
-<form id="form">
+<div class="layui-card main-card">
+<div class="layui-card-header" style="font-size:18px;font-weight:bold">{title}</div>
+<div class="layui-card-body">
+<p style="color:#666;margin-bottom:20px">{about}</p>
+<form class="layui-form" id="form" lay-filter="form">
 {fields_html}
-<div class="actions">
-<button type="submit" class="btn-run">▶ Run</button>
-<button type="button" class="btn-copy" onclick="copyCmd()">📋 Copy CLI</button>
+<div style="margin-top:24px;display:flex;gap:12px">
+<button type="submit" class="layui-btn layui-btn-normal">▶ Run</button>
+<button type="button" class="layui-btn layui-btn-primary" onclick="copyCmd()">📋 Copy CLI</button>
 </div>
-<div class="cli-preview" id="preview">$ {cmd_name}</div>
+<div class="cli-preview" id="preview">{cmd_name}</div>
 </form>
-<div class="output" id="out" style="display:none">
-<h3>Output</h3>
-<div class="progress-bar"><div class="fill" id="pbar"></div></div>
-<div class="log" id="log"></div>
-<pre id="result" style="color:#e1e4e8;font-size:13px;margin-top:10px;overflow-x:auto"></pre>
+<div id="out" style="display:none">
+<fieldset class="layui-elem-field layui-field-title" style="margin-top:24px"><legend>Output</legend></fieldset>
+<div class="layui-progress" lay-showpercent="true" id="pbar-wrap" style="margin-bottom:12px"><div class="layui-progress-bar" id="pbar"><span class="layui-progress-text">0%</span></div></div>
+<div id="log"></div>
+<pre id="result"></pre>
 </div>
+</div>
+</div>
+<script src="https://unpkg.com/layui@2.9.8/dist/layui.js"></script>
 <script>
+layui.use(['element','form'],function(){var element=layui.element,form=layui.form;
 const SCHEMA={name:"{cmd_name}",args:[{field_js_meta}]};
-const form=document.getElementById("form");
 const preview=document.getElementById("preview");
 const out=document.getElementById("out");
 const pbar=document.getElementById("pbar");
 const logEl=document.getElementById("log");
 const resultEl=document.getElementById("result");
+const pbarWrap=document.getElementById("pbar-wrap");
 function updatePreview(){var parts=[SCHEMA.name];
 for(var a of SCHEMA.args){var el=document.getElementById("field-"+a.name);if(!el)continue;
 if(a.kind==="Flag"){if(el.checked)parts.push("--"+a.name)}
 else if(a.kind==="List"){document.querySelectorAll("[id^=field-"+a.name+"-]").forEach(function(inp){if(inp.value)parts.push("--"+a.name+" "+inp.value)})}
 else{if(el.value){var v=a.kind==="Path"&&el.value.includes(" ")?'"'+el.value+'"':el.value;parts.push("--"+a.name+" "+v)}}}
-preview.textContent="$ "+parts.join(" ")}
+preview.textContent=parts.join(" ")}
 document.querySelectorAll("input,select").forEach(function(el){el.addEventListener("input",updatePreview)});
-form.addEventListener("submit",async function(e){e.preventDefault();out.style.display="block";pbar.style.width="0%";logEl.innerHTML="";resultEl.textContent="";
+document.getElementById("form").addEventListener("submit",async function(e){e.preventDefault();out.style.display="block";pbar.style.width="0%";logEl.innerHTML="";resultEl.textContent="";
 var data={};
 for(var a of SCHEMA.args){if(a.kind==="List"){data[a.name]=[];document.querySelectorAll("[id^=field-"+a.name+"-]").forEach(function(inp){if(inp.value)data[a.name].push(inp.value)})}
 else{var el=document.getElementById("field-"+a.name);if(a.kind==="Flag")data[a.name]=el.checked;else data[a.name]=el.value}}
 var sid=Math.random().toString(36).slice(2);
 var es=new EventSource("/progress/"+sid);
 es.onmessage=function(ev){var p=JSON.parse(ev.data);
-if(p.type==="tick"){pbar.style.width=(p.percent*100)+"%";logEl.innerHTML+=(p.message||"")+"\n"}
+if(p.type==="tick"){var pct=(p.percent*100).toFixed(0);element.progress('pbar',pct+'%');logEl.innerHTML+=(p.message||"")+"\n"}
 else if(p.type==="log"){logEl.innerHTML+="["+(p.level||"info")+"] "+(p.message||"")+"\n"}
-else if(p.type==="done"){resultEl.textContent=JSON.stringify(p.result,null,2);es.close()}
+else if(p.type==="done"){element.progress('pbar','100%');resultEl.textContent=JSON.stringify(p.result,null,2);es.close()}
 else if(p.type==="error"){logEl.innerHTML+="<span class=err>ERROR: "+(p.message||"")+"</span>\n";es.close()}
 logEl.scrollTop=logEl.scrollHeight};
 es.onerror=function(){es.close()};
 try{await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:sid,args:data})})}catch(err){logEl.innerHTML+="<span class=err>Failed: "+err+"</span>\n"}
 });
-function copyCmd(){navigator.clipboard.writeText(preview.textContent.slice(2))}
+function copyCmd(){navigator.clipboard.writeText(preview.textContent)}});
 </script></body></html>"#;
 
 // ── Handlers ───────────────────────────────────────────────
