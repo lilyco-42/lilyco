@@ -17,3 +17,6 @@ lilyco-cli = { path = "../lilyco-cli" }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3"

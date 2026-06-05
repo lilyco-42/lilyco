@@ -42,9 +42,8 @@ impl Context {
         }
     }
 
-    /// 仅供测试使用的构造函数（不需要取消信号）
-    #[allow(unused)]
-    pub(crate) fn new_test(tx: Sender<Progress>) -> Self {
+    /// 测试用构造函数：不需要外部取消信号，默认 Human 输出
+    pub fn new_test(tx: Sender<Progress>) -> Self {
         Self {
             progress_tx: tx,
             cancel: Arc::new(AtomicBool::new(false)),
