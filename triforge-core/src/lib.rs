@@ -20,6 +20,13 @@ pub mod error;
 pub mod progress;
 pub mod schema;
 
+// Re-exports at crate root for macro-generated code
+pub use app::{App, Renderer};
+pub use context::{Context, OutputFormat};
+pub use error::AppError;
+pub use progress::{LogLevel, Progress};
+pub use schema::{ArgKind, ArgSchema, CommandSchema, ValueEnum};
+
 // ── 便捷导入 ──────────────────────────────────────────────
 
 // ── 测试 ──────────────────────────────────────────────────

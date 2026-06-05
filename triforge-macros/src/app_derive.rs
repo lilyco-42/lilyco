@@ -104,6 +104,16 @@ struct FieldInfo {
     kind: InferredKind,
     required: bool,
     ty: Type,
+    is_option: bool,
+}
+
+fn is_option_type(ty: &Type) -> bool {
+    match ty {
+        Type::Path(tp) => {
+            tp.path.segments.last().map_or(false, |s| s.ident == "Option")
+        }
+        _ => false,
+    }
 }
 
 fn infer_kind(ty: &Type) -> (InferredKind, bool) {
@@ -131,7 +141,7 @@ fn infer_kind(ty: &Type) -> (InferredKind, bool) {
             }
 
             match name.as_str() {
-                "bool" => (InferredKind::Flag, true),
+                "bool" => (InferredKind::Flag, false), // flag 省略即 false
                 "String" => (InferredKind::Text, true),
                 "PathBuf" => (InferredKind::Path { must_exist: false }, true),
                 "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64"
@@ -165,6 +175,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
         let ident = field.ident.clone().unwrap();
         let arg_attrs = parse_arg_attrs(&field.attrs);
         let (mut kind, required) = infer_kind(&field.ty);
+        let is_option = is_option_type(&field.ty);
 
         if let InferredKind::Path { ref mut must_exist } = kind {
             if let Some(me) = arg_attrs.must_exist {
@@ -178,6 +189,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
             kind,
             required,
             ty: field.ty.clone(),
+            is_option,
         });
     }
 
@@ -208,37 +220,38 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
         let name = f.ident.to_string();
         let ident = &f.ident;
         let ty = &f.ty;
+        let is_opt = f.is_option;
 
-        match &f.kind {
-            InferredKind::Flag => quote! {
-                #ident: args.get(#name).and_then(|v| v.as_bool()).unwrap_or(false)
-            },
-            InferredKind::Text => quote! {
-                #ident: args.get(#name).and_then(|v| v.as_str()).unwrap_or("").to_string()
-            },
-            InferredKind::Number => quote! {
-                #ident: args.get(#name).and_then(|v| v.as_f64()).unwrap_or(0.0) as #ty
-            },
+        let inner = match &f.kind {
+            InferredKind::Flag => quote! { args.get(#name).and_then(|v| v.as_bool()).unwrap_or(false) },
+            InferredKind::Text => quote! { args.get(#name).and_then(|v| v.as_str()).unwrap_or("").to_string() },
+            InferredKind::Number => quote! { args.get(#name).and_then(|v| v.as_f64()).unwrap_or(0.0) as #ty },
             InferredKind::Path { .. } => quote! {
-                #ident: std::path::PathBuf::from(
-                    args.get(#name).and_then(|v| v.as_str()).unwrap_or("")
-                )
+                std::path::PathBuf::from(args.get(#name).and_then(|v| v.as_str()).unwrap_or(""))
             },
-            InferredKind::Enum => quote! {
-                #ident: {
-                    let s = args.get(#name).and_then(|v| v.as_str()).unwrap_or("");
-                    <#ty as triforge_core::schema::ValueEnum>::from_str(s)
-                        .ok_or_else(|| triforge_core::AppError::InvalidArg(
-                            format!("invalid value for {}: {}", #name, s)
-                        ))?
-                }
-            },
+            InferredKind::Enum => quote! {{
+                let s = args.get(#name).and_then(|v| v.as_str()).unwrap_or("");
+                <#ty as triforge_core::schema::ValueEnum>::from_str(s)
+                    .ok_or_else(|| triforge_core::AppError::InvalidArg(
+                        format!("invalid value for {}: {}", #name, s)
+                    ))?
+            }},
             InferredKind::List { .. } => quote! {
-                #ident: args.get(#name)
+                args.get(#name)
                     .and_then(|v| v.as_array())
                     .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
                     .unwrap_or_default()
             },
+        };
+
+        if is_opt {
+            quote! {
+                #ident: if args.contains_key(#name) { Some(#inner) } else { None }
+            }
+        } else {
+            quote! {
+                #ident: #inner
+            }
         }
     });
 
@@ -257,7 +270,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
                 args: &std::collections::HashMap<String, serde_json::Value>,
             ) -> Result<Self, triforge_core::AppError> {
                 Ok(Self {
-                    #(#from_args_bindings)*
+                    #(#from_args_bindings),*
                 })
             }
 

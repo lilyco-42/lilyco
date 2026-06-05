@@ -11,3 +11,8 @@ proc-macro = true
 syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
+
+[dev-dependencies]
+triforge-core = { path = "../triforge-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
