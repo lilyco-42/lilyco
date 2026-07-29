@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
-[![Tests](https://img.shields.io/badge/tests-72%20passed-green)](https://github.com/lilyco-42/lilyco)
+[![Tests](https://img.shields.io/badge/tests-84%20passed-green)](https://github.com/lilyco-42/lilyco)
 
 Lilyco is a Rust framework that generates **CLI**, **TUI**, and **Web UI** — plus **AI function-calling schemas** — from a single struct definition. You write the business logic once; the framework handles everything else.
 
@@ -21,7 +21,8 @@ Lilyco is a Rust framework that generates **CLI**, **TUI**, and **Web UI** — p
   - [lilyco-cli](#lilyco-cli)
   - [lilyco-tui](#lilyco-tui)
   - [lilyco-gui](#lilyco-gui)
-- [Type → Widget Mapping](#type--widget-mapping)
+  - [lilyco-ultra-ui](#lilyco-ultra-ui)
+- [Type -> Widget Mapping](#type---widget-mapping)
 - [AI Integration](#ai-integration)
 - [Progress Protocol](#progress-protocol)
 - [Examples](#examples)
@@ -173,28 +174,28 @@ $ cargo run -- --json-stream         # Machine-readable progress
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────┐
-│                  Your Struct                      │
-│         #[derive(App)]                           │
-│         struct MyTool { ... }                    │
-└────────┬──────────┬──────────┬──────────────────┘
-         │          │          │
-    ┌────▼───┐ ┌───▼────┐ ┌──▼──────────┐
-    │  CLI   │ │  TUI   │ │   Web UI    │
-    │ (clap) │ │(ratatui│ │(axum + HTML)│
-    └────┬───┘ └───┬────┘ └──┬──────────┘
-         │         │         │
-    ┌────▼─────────▼─────────▼────┐
-    │      lilyco-core          │
-    │  CommandSchema → clap::Cmd  │
-    │  Progress → TUI widgets     │
-    │  Progress → SSE events      │
-    └─────────────────────────────┘
++--------------------------------------------------+
+|                  Your Struct                      |
+|         #[derive(App)]                           |
+|         struct MyTool { ... }                    |
++--------+----------+----------+------------------+
+         |          |          |
+    +----v---+ +---v----+ +--v----------+
+    |  CLI   | |  TUI   | |   Web UI    |
+    | (clap) | |(ratatui| |(axum + HTML)|
+    +----+---+ +---+----+ +--v----------+
+         |         |         |
+    +----v---------v---------v----+
+    |      lilyco-core            |
+    |  CommandSchema -> clap::Cmd  |
+    |  Progress -> TUI widgets     |
+    |  Progress -> SSE events      |
+    +------------------------------+
 ```
 
 ### Design Principles
 
-1. **Type-driven**: `bool` → checkbox, `u8` → number input, custom enum → dropdown. No manual widget mapping.
+1. **Type-driven**: `bool` -> checkbox, `u8` -> number input, custom enum -> dropdown. No manual widget mapping.
 2. **CLI-first**: CLI is the most structured interface. TUI and Web are derived from the same schema.
 3. **Progress as first-class citizen**: Every interface understands `Progress::Tick` / `Log` / `Done`.
 4. **Zero-cost**: Feature flags gate TUI and Web dependencies. CLI-only builds need only `clap`.
@@ -229,12 +230,12 @@ use lilyco_core::prelude::*;
 |------|---------|
 | `CommandSchema` | Full command description: name, about, args, subcommands |
 | `ArgSchema` | Single argument: name, about, kind, required, default |
-| `ArgKind` | `Flag \| Text \| Number {min,max} \| Enum {values} \| Path {must_exist} \| List {item}` |
-| `Progress` | `Started \| Tick \| Log \| Done \| Error` |
-| `LogLevel` | `Debug \| Info \| Warn \| Error` |
+| `ArgKind` | `Flag | Text | Number {min,max} | Enum {values} | Path {must_exist} | List {item}` |
+| `Progress` | `Started | Tick | Log | Done | Error` |
+| `LogLevel` | `Debug | Info | Warn | Error` |
 | `Context` | Runtime: progress channel, cancel signal, output format |
-| `OutputFormat` | `Human \| Json \| JsonStream` |
-| `AppError` | `InvalidArg \| InvalidInput \| Runtime \| Cancelled \| Io \| Serialize` |
+| `OutputFormat` | `Human | Json | JsonStream` |
+| `AppError` | `InvalidArg | InvalidInput | Runtime | Cancelled | Io | Serialize` |
 
 #### CommandSchema JSON Export
 
@@ -279,8 +280,8 @@ Auto-converts PascalCase variants to snake_case strings:
 ```rust
 #[derive(ValueEnum)]
 enum Codec { H264, H265, Av1 }
-// → variants: ["h264", "h265", "av1"]
-// → from_str("h265") → Some(Codec::H265)
+// -> variants: ["h264", "h265", "av1"]
+// -> from_str("h265") -> Some(Codec::H265)
 ```
 
 #### Type Inference
@@ -334,14 +335,14 @@ impl CliRenderer {
 Interactive terminal form built on ratatui.
 
 ```
- Transcode — Transcode video files
+ Transcode -- Transcode video files
  $ transcode --input video.mp4 --codec h265 --quality 18
-────────────────────────────────────────────────────────
+---------------------------------------------------------
           (*) input: [video.mp4________________________]
-              codec: [h264] h265 [Av1]                  ←→
-           quality: [18]                                ↑↓
+              codec: [h264] h265 [Av1]                  <->
+           quality: [18]                                ^v
            dry_run: [x]                                 Space
-────────────────────────────────────────────────────────
+---------------------------------------------------------
  [Tab] Switch  [Enter] Confirm  [Esc] Quit  [F1] Help
 ```
 
@@ -351,19 +352,19 @@ Interactive terminal form built on ratatui.
 |---------|-----|----------|
 | Flag | `Space` | Toggle on/off |
 | Text | Type + `Backspace` | Edit text |
-| Number | `↑` `↓` | ±1. Type digits to edit |
-| Enum | `←` `→` | Cycle through options |
+| Number | `^` `v` | +/-1. Type digits to edit |
+| Enum | `<` `>` | Cycle through options |
 | Path | Type + `Backspace` | Edit path |
 | List | `Enter` / `Delete` | Add/remove item |
 
 #### State Machine
 
 ```
-Form ──Enter──▶ Confirm ──Enter──▶ Running ──done──▶ Done
-  ▲               │                   │               │
-  │               Esc                 │               │
-  └───────────────┘                   ▼               ▼
-                                   Error ◀────────── Enter
+Form --Enter--> Confirm --Enter--> Running --done--> Done
+  ^               |                   |               |
+  |               Esc                 |               |
+  +---------------+                   v               v
+                                   Error <---------- Enter
 ```
 
 #### CLI Preview
@@ -388,38 +389,87 @@ gui.serve(schema, Arc::new(|args| Box::pin(async move {
 ```
 
 ```
-┌─────────────────────────────────────┐
-│  ImgCompress — Compress images      │
-│                                     │
-│        Input: [___________________] │
-│      Quality: [75_______________]   │
-│       Format: [jpeg ▾]             │
-│         Width: [0________________]  │
-│      Dry run: [☐]                  │
-│                                     │
-│        [▶ Run]    [📋 Copy CLI]    │
-│                                     │
-│  $ imgcompress --quality 75         │
-├─────────────────────────────────────┤
-│  Output                             │
-│  ████████░░░░░░░ 50%               │
-│  Encoding frame 50/100              │
-│  Done in 1.2s                       │
-└─────────────────────────────────────┘
++-------------------------------------+
+|  ImgCompress -- Compress images     |
+|                                     |
+|        Input: [___________________] |
+|      Quality: [75_______________]   |
+|       Format: [jpeg v]             |
+|         Width: [0________________]  |
+|      Dry run: [ ]                  |
+|                                     |
+|        [> Run]    [Copy CLI]        |
+|                                     |
+|  $ imgcompress --quality 75         |
++-------------------------------------+
+|  Output                             |
+|  ████████░░░░░░░ 50%               |
+|  Encoding frame 50/100              |
+|  Done in 1.2s                       |
++-------------------------------------+
 ```
 
-**Flow:** Form POST → spawn task → SSE stream → progress bar + log
+**Flow:** Form POST -> spawn task -> SSE stream -> progress bar + log
+
+### lilyco-ultra-ui
+
+Experimental **JSON-to-React** declarative UI generator. Write a Chinese-language JSON spec; get a full React frontend — no Rust code required.
+
+```rust
+use lilyco_ultra_ui::UltraUiServer;
+
+#[tokio::main]
+async fn main() {
+    UltraUiServer::new(9090).serve().await;
+}
+```
+
+The JSON spec uses Chinese field names for an Excel-like feel:
+
+```json
+{
+  "窗口": {
+    "标题": "My App",
+    "大小": "中等",
+    "元素": [
+      { "类型": "标题", "内容": "Welcome" },
+      { "类型": "文本输入", "标签": "Name", "占位符": "Enter name..." },
+      { "类型": "数字", "标签": "Quantity", "最小值": 0, "最大值": 100 },
+      { "类型": "按钮", "文本": "Submit", "样式": "primary" },
+      { "类型": "进度", "标签": "Progress" }
+    ]
+  }
+}
+```
+
+#### Supported Element Types
+
+| Type (Chinese) | English | Description |
+|----------------|---------|-------------|
+| `文本` | Text | Static text block |
+| `标题` | Heading | H1-H4 heading |
+| `按钮` | Button | Clickable button with style variants |
+| `文本输入` | Text Input | Single-line text input |
+| `数字` | Number | Numeric input with min/max |
+| `下拉` | Select | Dropdown select |
+| `复选框` | Checkbox | Boolean toggle |
+| `多行文本` | Textarea | Multi-line text input |
+| `图片` | Image | Image display |
+| `分割线` | Divider | Visual separator |
+| `进度` | Progress | Progress bar |
+| `链接` | Link | Hyperlink |
+| `计算器` | Calculator | Built-in calculator widget |
 
 ---
 
-## Type → Widget Mapping
+## Type -> Widget Mapping
 
 | Rust Type | CLI | TUI | Web |
 |-----------|-----|-----|-----|
 | `bool` | `--flag` | `[x]` Space toggle | `<input type=checkbox>` |
 | `String` | `--name <val>` | text input | `<input type=text>` |
-| `u8`/`i32`/`f64`/... | `--count <num>` | ↑↓ ±1 + digit input | `<input type=number>` |
-| Custom enum | `--mode <choice>` | ←→ cycle | `<select>` |
+| `u8`/`i32`/`f64`/... | `--count <num>` | ^v +/-1 + digit input | `<input type=number>` |
+| Custom enum | `--mode <choice>` | <-> cycle | `<select>` |
 | `PathBuf` | `--file <path>` | text input | `<input type=text>` |
 | `Vec<T>` | `--tag a --tag b` | Enter/Delete multi-line | dynamic inputs |
 | `Option<T>` | optional | optional (not required) | optional |
@@ -464,7 +514,7 @@ $ imgpress --json-stream    # Each Progress event as one JSON line — ideal for
 ```jsonl
 {"type":"started","total":5,"message":"Loading photo.jpg..."}
 {"type":"tick","current":1,"total":5,"message":"Reading input file","percent":0.2}
-{"type":"tick","current":2,"total":5,"message":"Original: 4000×3000","percent":0.4}
+{"type":"tick","current":2,"total":5,"message":"Original: 4000x3000","percent":0.4}
 {"type":"tick","current":3,"total":5,"message":"Encoding...","percent":0.6}
 {"type":"tick","current":4,"total":5,"message":"Writing compressed.jpg","percent":0.8}
 {"type":"done","result":{"output_size":142000,"compression_ratio":35.5},"duration_ms":1200}
@@ -491,7 +541,7 @@ ctx.done(serde_json::json!({"size_mb": 4.2}), 3200);
 | Interface | `Started` | `Tick` | `Log` | `Done` |
 |-----------|-----------|--------|-------|--------|
 | **CLI** (`--json-stream`) | JSON line | JSON line with percent | JSON line | JSON line + exit |
-| **CLI** (Human) | — | `\r` progress line | `[INFO]` line | summary + exit |
+| **CLI** (Human) | -- | `\r` progress line | `[INFO]` line | summary + exit |
 | **TUI** | Progress bar at 0% | Bar fills + message | Scroll log | Result screen |
 | **Web** | SSE: bar at 0% | SSE: bar fills | SSE: log append | SSE: result JSON |
 
@@ -534,6 +584,15 @@ struct Transcode {
 }
 ```
 
+### Ultra UI (`lilyco-ultra-ui-example`)
+
+```bash
+cargo run -p lilyco-ultra-ui-example
+# Open http://localhost:9090 in your browser
+```
+
+Edit the JSON spec in the browser; the React UI updates in real time.
+
 ---
 
 ## Testing
@@ -547,9 +606,10 @@ cargo test -p lilyco-core
 cargo test -p lilyco-cli
 cargo test -p lilyco-tui
 cargo test -p lilyco-macros
+cargo test -p lilyco-ultra-ui
 ```
 
-Current coverage: **58 tests** across all crates.
+Current coverage: **84 tests** across all crates.
 
 ---
 
@@ -585,6 +645,7 @@ lilyco-tui = { git = "https://github.com/lilyco-42/lilyco" }
 - **Number range validation** works at the CLI layer (clap) but not in TUI/Web widgets
 - **Subcommands** are supported in CLI only — TUI and Web renderers do not handle them yet
 - **Windows TUI** not yet tested (crossterm backend should work but hasn't been verified)
+- **Ultra UI** is experimental — JSON spec format may change
 
 ### Roadmap
 
