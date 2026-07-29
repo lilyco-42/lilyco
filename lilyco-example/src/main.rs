@@ -29,6 +29,7 @@ enum Format {
 
 /// Compress and resize image files
 #[derive(App)]
+#[app(run = "run_compress")]
 struct ImgCompress {
     /// Input image file
     #[arg(must_exist = true)]
@@ -189,27 +190,7 @@ fn main() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let gui = lilyco_gui::GuiRenderer::new(8080);
-            let schema_clone = schema.clone();
-            gui.serve(schema_clone, std::sync::Arc::new(move |args, gui_tx| {
-                let app = ImgCompress::from_args(&args).unwrap();
-                Box::pin(async move {
-                    let (std_tx, rx) = std::sync::mpsc::channel();
-                    let ctx = Context::new_test(std_tx);
-                    let handle = std::thread::spawn(move || run_compress(&app, &ctx));
-
-                    // Forward progress events from std channel → GUI's tokio channel
-                    for event in rx {
-                        let json = serde_json::to_value(&event).unwrap();
-                        if gui_tx.send(json).await.is_err() {
-                            break;
-                        }
-                        if matches!(event, Progress::Done { .. } | Progress::Error { .. }) {
-                            break;
-                        }
-                    }
-                    let _ = handle.join();
-                })
-            })).await;
+            gui.serve_app::<ImgCompress>(schema.clone()).await;
         });
         return;
     }
@@ -222,7 +203,7 @@ fn main() {
     let (tx, rx) = std::sync::mpsc::channel();
     let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let ctx = Context::new(tx, cancel.clone(), output_format.clone());
-    let handle = std::thread::spawn(move || run_compress(&app, &ctx));
+    let handle = std::thread::spawn(move || app.run(&ctx));
 
     match output_format {
         OutputFormat::JsonStream => {

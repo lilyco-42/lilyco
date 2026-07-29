@@ -116,3 +116,64 @@ fn range_attr_sets_number_bounds() {
     let kind = &json["kind"];
     assert_eq!(kind["type"], "number", "should be Number kind");
 }
+
+// -- Test 6: run attribute wires up the function --
+
+fn test_run_fn(_app: &RunCmd, _ctx: &lilyco_core::Context) -> Result<serde_json::Value, lilyco_core::AppError> {
+    Ok(serde_json::json!({"called": true}))
+}
+
+/// Test command with run attribute
+#[derive(App)]
+#[app(about = "test run attribute", run = "test_run_fn")]
+struct RunCmd {
+    /// name field
+    name: String,
+}
+
+#[test]
+fn run_attribute_calls_specified_function() {
+    use std::collections::HashMap;
+
+    let mut args = HashMap::new();
+    args.insert("name".into(), serde_json::json!("hello"));
+
+    let app: RunCmd = RunCmd::from_args(&args).unwrap();
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let ctx = lilyco_core::Context::new_test(tx);
+
+    let result = app.run(&ctx).unwrap();
+    assert_eq!(result, serde_json::json!({"called": true}));
+}
+
+// -- Test 7: run attribute with about from doc comment --
+
+fn echo_run(app: &EchoCmd, _ctx: &lilyco_core::Context) -> Result<serde_json::Value, lilyco_core::AppError> {
+    Ok(serde_json::json!({"echo": app.message}))
+}
+
+/// Echo a message
+#[derive(App)]
+#[app(run = "echo_run")]
+struct EchoCmd {
+    /// Message to echo
+    message: String,
+}
+
+#[test]
+fn run_attribute_works_with_doc_comment_about() {
+    use std::collections::HashMap;
+
+    let schema = EchoCmd::schema();
+    assert_eq!(schema.about, "Echo a message");
+
+    let mut args = HashMap::new();
+    args.insert("message".into(), serde_json::json!("hello world"));
+
+    let app: EchoCmd = EchoCmd::from_args(&args).unwrap();
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let ctx = lilyco_core::Context::new_test(tx);
+
+    let result = app.run(&ctx).unwrap();
+    assert_eq!(result["echo"], serde_json::json!("hello world"));
+}

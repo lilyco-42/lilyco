@@ -15,6 +15,7 @@ use axum::{
 };
 use tokio::sync::Mutex;
 
+use lilyco_core::{App, Context, Progress};
 use lilyco_core::schema::{ArgKind, CommandSchema};
 
 // ── GuiRenderer ───────────────────────────────────────────
@@ -67,6 +68,44 @@ impl GuiRenderer {
             })
             .await
             .unwrap();
+    }
+
+    /// Serve with a concrete `App` type. Auto-wires `from_args` + `run`
+    /// and streams progress events to the browser via SSE.
+    /// Eliminates the need to manually construct a `RunnerFn` closure.
+    pub async fn serve_app<A>(&self, schema: CommandSchema)
+    where
+        A: App + Send + 'static,
+    {
+        let runner: RunnerFn = Arc::new(move |args, gui_tx| {
+            Box::pin(async move {
+                let app = match A::from_args(&args) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        let _ = gui_tx.send(serde_json::json!({
+                            "type": "error", "code": 1,
+                            "message": e.to_string(), "kind": null
+                        })).await;
+                        return;
+                    }
+                };
+                let (std_tx, rx) = std::sync::mpsc::channel();
+                let ctx = Context::new_test(std_tx);
+                let handle = std::thread::spawn(move || app.run(&ctx));
+                for event in rx {
+                    let json = serde_json::to_value(&event).unwrap();
+                    if gui_tx.send(json).await.is_err() { break; }
+                    if matches!(event, Progress::Done { .. } | Progress::Error { .. }) { break; }
+                }
+                if let Ok(Err(e)) = handle.join() {
+                    let _ = gui_tx.send(serde_json::json!({
+                        "type": "error", "code": 1,
+                        "message": e.to_string(), "kind": null
+                    })).await;
+                }
+            })
+        });
+        self.serve(schema, runner).await;
     }
 }
 

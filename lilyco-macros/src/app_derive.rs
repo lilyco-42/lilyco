@@ -12,27 +12,43 @@ struct ArgAttrs {
     must_exist: Option<bool>,
 }
 
-fn parse_app_about(attrs: &[Attribute]) -> Option<String> {
+struct AppAttrs {
+    about: Option<String>,
+    run: Option<String>,
+}
+
+fn parse_app_attrs(attrs: &[Attribute]) -> AppAttrs {
     // Convention: struct-level doc comment → app about (if no explicit #[app(about = "...")])
     let doc_about = doc_comment(attrs);
+    let mut result = AppAttrs {
+        about: None,
+        run: None,
+    };
+
     for attr in attrs {
         if attr.path().is_ident("app") {
-            let mut about = None;
             let _ = attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("about") {
                     let s: Lit = meta.value()?.parse()?;
                     if let Lit::Str(s) = s {
-                        about = Some(s.value());
+                        result.about = Some(s.value());
+                    }
+                } else if meta.path.is_ident("run") {
+                    let s: Lit = meta.value()?.parse()?;
+                    if let Lit::Str(s) = s {
+                        result.run = Some(s.value());
                     }
                 }
                 Ok(())
             });
-            if about.is_some() {
-                return about;
-            }
         }
     }
-    doc_about
+
+    if result.about.is_none() {
+        result.about = doc_about;
+    }
+
+    result
 }
 
 /// Extract `/// doc comment` from field attributes (becomes about text)
@@ -186,7 +202,8 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
     let input: DeriveInput = syn::parse2(input).expect("App: parse error");
 
     let struct_name = &input.ident;
-    let about_str = parse_app_about(&input.attrs)
+    let app_attrs = parse_app_attrs(&input.attrs);
+    let about_str = app_attrs.about
         .unwrap_or_else(|| struct_name.to_string());
 
     let fields = match &input.data {
@@ -286,6 +303,27 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
         }
     });
 
+    // ── generate run() body ──
+    // If #[app(run = "fn_name")] is specified, call that function;
+    // otherwise fall back to unimplemented!() (backward compatible).
+    let run_impl = match &app_attrs.run {
+        Some(fn_name) => {
+            let fn_ident = syn::Ident::new(fn_name, proc_macro2::Span::call_site());
+            quote! {
+                fn run(&self, ctx: &lilyco_core::Context) -> Result<serde_json::Value, lilyco_core::AppError> {
+                    #fn_ident(self, ctx)
+                }
+            }
+        }
+        None => {
+            quote! {
+                fn run(&self, _ctx: &lilyco_core::Context) -> Result<serde_json::Value, lilyco_core::AppError> {
+                    unimplemented!("run() not implemented for {} — add #[app(run = \"your_fn\")] to wire up business logic", stringify!(#struct_name))
+                }
+            }
+        }
+    };
+
     let expanded = quote! {
         impl lilyco_core::App for #struct_name {
             fn schema() -> lilyco_core::schema::CommandSchema {
@@ -305,9 +343,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
                 })
             }
 
-            fn run(&self, _ctx: &lilyco_core::Context) -> Result<serde_json::Value, lilyco_core::AppError> {
-                unimplemented!("run() not implemented for {}", stringify!(#struct_name))
-            }
+            #run_impl
         }
     };
 
