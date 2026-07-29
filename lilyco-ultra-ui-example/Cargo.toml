@@ -1,0 +1,11 @@
+[package]
+name = "lilyco-ultra-ui-example"
+version = "0.1.0"
+edition = "2021"
+description = "Demo: Lilyco Ultra UI — Excel-style JSON → React"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+
+[dependencies]
+lilyco-ultra-ui = { version = "0.2", path = "../lilyco-ultra-ui" }
+tokio = { version = "1", features = ["full"] }

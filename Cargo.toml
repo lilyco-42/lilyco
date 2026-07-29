@@ -6,6 +6,8 @@ members = [
     "lilyco-gui",
     "lilyco-macros",
     "lilyco-example",
+    "lilyco-ultra-ui",
+    "lilyco-ultra-ui-example",
 ]
 resolver = "2"
 

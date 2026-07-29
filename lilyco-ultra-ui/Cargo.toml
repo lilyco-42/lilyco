@@ -1,18 +1,17 @@
 [package]
-name = "lilyco-gui"
+name = "lilyco-ultra-ui"
 version = "0.2.0"
 edition = "2021"
-description = "Lilyco Web GUI — axum server with embedded HTML, Gradio-like experience"
+description = "Lilyco Ultra UI — Excel-style declarative JSON → React UI. Validates the lilyco framework's low-code approach."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/lilyco-42/lilyco"
-keywords = ["web", "gui", "axum", "sse"]
+keywords = ["web", "gui", "react", "low-code", "json"]
 categories = ["web-programming", "gui"]
 
 [dependencies]
 lilyco-core = { version = "0.2", path = "../lilyco-core" }
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
-async-stream = "0.3"
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 webbrowser = "1"

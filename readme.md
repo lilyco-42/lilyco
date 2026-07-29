@@ -619,9 +619,9 @@ Current coverage: **84 tests** across all crates.
 
 ```toml
 [dependencies]
-lilyco-core = "0.1"
-lilyco-macros = "0.1"
-lilyco-cli = "0.1"
+lilyco-core = "0.2"
+lilyco-macros = "0.2"
+lilyco-cli = "0.2"
 ```
 
 ### From git
