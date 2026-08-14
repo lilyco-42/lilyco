@@ -5,18 +5,72 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Request as AxumRequest, State},
+    http::{HeaderMap, Method, StatusCode},
+    middleware::{self, Next},
     response::{
         sse::{Event, KeepAlive, Sse},
-        Html, IntoResponse,
+        Html, IntoResponse, Response,
     },
     routing::{get, post},
-    Router,
+    Json, Router,
 };
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 use tokio::sync::Mutex;
 
 use lilyco_core::{App, Context, Progress};
 use lilyco_core::schema::{ArgKind, CommandSchema};
+
+pub const TOKEN_HEADER: &str = "X-Lilyco-Token";
+
+fn generate_id() -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect()
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    let host = host.trim().to_ascii_lowercase();
+    let host = if let Some(rest) = host.strip_prefix('[') {
+        // IPv6 bracket notation: "[::1]:8080"
+        rest.split(']').next().unwrap_or("")
+    } else {
+        host.split(':').next().unwrap_or("")
+    };
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
+}
+
+fn origin_host(origin: &str) -> Option<&str> {
+    let rest = origin
+        .strip_prefix("https://")
+        .or_else(|| origin.strip_prefix("http://"))?;
+    let host = rest.split(['/', ':', '?', '#']).next().unwrap_or("");
+    if host.is_empty() {
+        None
+    } else {
+        Some(host)
+    }
+}
+
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers.get(name)?.to_str().ok()
+}
 
 // ── GuiRenderer ───────────────────────────────────────────
 
@@ -43,15 +97,18 @@ impl GuiRenderer {
             schema: Arc::new(schema),
             sessions: Mutex::new(HashMap::new()),
             runner,
+            token: generate_id(),
         });
 
         let app = Router::new()
             .route("/", get(index))
             .route("/run", post(run_handler))
             .route("/progress/{id}", get(progress_handler))
+            .route_layer(middleware::from_fn_with_state(state.clone(), security_mw))
             .with_state(state);
 
-        let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.port))
+        // 只监听本机回环地址：本地 GUI 工具不需要暴露到局域网
+        let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", self.port))
             .await.unwrap();
         let url = format!("http://localhost:{}", self.port);
         eprintln!("Lilyco GUI ready: {url}");
@@ -115,6 +172,42 @@ struct AppState {
     schema: Arc<CommandSchema>,
     sessions: Mutex<HashMap<String, tokio::sync::mpsc::Receiver<serde_json::Value>>>,
     runner: RunnerFn,
+    token: String,
+}
+
+// ── Security middleware ───────────────────────────────────
+//
+// 防御 DNS rebinding / CSRF：
+// 1. 所有请求的 Host 必须是回环地址（rebinding 时 Host 仍是攻击者域名，会被拒绝）
+// 2. POST /run 的 Origin 若非回环地址则拒绝
+// 3. POST /run 必须携带本次启动随机生成的 X-Lilyco-Token
+
+async fn security_mw(
+    State(state): State<Arc<AppState>>,
+    request: AxumRequest,
+    next: Next,
+) -> Response {
+    let headers = request.headers();
+
+    let host = header_str(headers, "host").unwrap_or_default();
+    if !is_loopback_host(host) {
+        return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+    }
+
+    if request.method() == Method::POST && request.uri().path() == "/run" {
+        if let Some(origin) = header_str(headers, "origin") {
+            let ok = origin_host(origin).map(is_loopback_host).unwrap_or(false);
+            if !ok {
+                return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+            }
+        }
+        let token = header_str(headers, TOKEN_HEADER).unwrap_or_default();
+        if !constant_time_eq(token, &state.token) {
+            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+        }
+    }
+
+    next.run(request).await
 }
 
 // ── HTML ───────────────────────────────────────────────────
@@ -189,7 +282,8 @@ async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
         .replace("{about}", &schema.about)
         .replace("{cmd_name}", &schema.name)
         .replace("{fields_html}", &fields_html)
-        .replace("{field_js_meta}", &field_js_meta))
+        .replace("{field_js_meta}", &field_js_meta)
+        .replace("{token}", &state.token))
 }
 
 fn kind_name(kind: &ArgKind) -> &'static str {
@@ -203,30 +297,31 @@ fn kind_name(kind: &ArgKind) -> &'static str {
 const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="lilyco-token" content="{token}">
 <title>{title}</title>
 <link rel="stylesheet" href="https://unpkg.com/layui@2.9.8/dist/css/layui.css">
 <style>
-body{{background:#f2f3f5;padding:20px}}
-.main-card{{max-width:820px;margin:0 auto}}
-.cli-preview{{font-family:Consolas,monospace;font-size:13px;color:#16b777;background:#2f363d;padding:12px 16px;border-radius:4px;word-break:break-all;margin-top:16px;min-height:20px}}
-.cli-preview::before{{content:"$ ";color:#8b949e}}
-#out{{margin-top:20px}}
-#log{{max-height:260px;overflow-y:auto;font-size:13px;background:#2f363d;color:#e1e4e8;padding:12px;border-radius:4px;white-space:pre-wrap;font-family:Consolas,monospace}}
-#log .err{{color:#ff5722}}
-#result{{font-size:13px;margin-top:12px;overflow-x:auto;background:#f8f8f8;padding:12px;border-radius:4px}}
-.req-mark{{color:#ff5722;margin-left:2px}}
+body{background:#f2f3f5;padding:20px}
+.main-card{max-width:820px;margin:0 auto}
+.cli-preview{font-family:Consolas,monospace;font-size:13px;color:#16b777;background:#2f363d;padding:12px 16px;border-radius:4px;word-break:break-all;margin-top:16px;min-height:20px}
+.cli-preview::before{content:"$ ";color:#8b949e}
+#out{margin-top:20px}
+#log{max-height:260px;overflow-y:auto;font-size:13px;background:#2f363d;color:#e1e4e8;padding:12px;border-radius:4px;white-space:pre-wrap;font-family:Consolas,monospace}
+#log .err{color:#ff5722}
+#result{font-size:13px;margin-top:12px;overflow-x:auto;background:#f8f8f8;padding:12px;border-radius:4px}
+.req-mark{color:#ff5722;margin-left:2px}
 </style></head><body>
 <div class="layui-card main-card">
-<div class="layui-card-header" style="font-size:18px;font-weight:bold">{{title}}</div>
+<div class="layui-card-header" style="font-size:18px;font-weight:bold">{title}</div>
 <div class="layui-card-body">
-<p style="color:#666;margin-bottom:20px">{{about}}</p>
+<p style="color:#666;margin-bottom:20px">{about}</p>
 <form class="layui-form" id="form" lay-filter="form">
-{{fields_html}}
+{fields_html}
 <div style="margin-top:24px;display:flex;gap:12px">
 <button type="submit" class="layui-btn layui-btn-normal">▶ Run</button>
 <button type="button" class="layui-btn layui-btn-primary" onclick="copyCmd()">📋 Copy CLI</button>
 </div>
-<div class="cli-preview" id="preview">{{cmd_name}}</div>
+<div class="cli-preview" id="preview">{cmd_name}</div>
 </form>
 <div id="out" style="display:none">
 <fieldset class="layui-elem-field layui-field-title" style="margin-top:24px"><legend>Output</legend></fieldset>
@@ -238,58 +333,62 @@ body{{background:#f2f3f5;padding:20px}}
 </div>
 <script src="https://unpkg.com/layui@2.9.8/dist/layui.js"></script>
 <script>
-layui.use(['element','form'],function(){{var element=layui.element,form=layui.form;
-const SCHEMA={{name:"{{cmd_name}}",args:[{{field_js_meta}}]}};
+layui.use(['element','form'],function(){
+var element=layui.element,form=layui.form;
+const TOKEN=document.querySelector('meta[name="lilyco-token"]').content;
+const SCHEMA={name:"{cmd_name}",args:[{field_js_meta}]};
 const preview=document.getElementById("preview");
 const out=document.getElementById("out");
 const logEl=document.getElementById("log");
 const resultEl=document.getElementById("result");
-function updatePreview(){{var parts=[SCHEMA.name];
-for(var a of SCHEMA.args){{var el=document.getElementById("field-"+a.name);if(!el)continue;
-if(a.kind==="Flag"){{if(el.checked)parts.push("--"+a.name)}}
-else if(a.kind==="List"){{document.querySelectorAll("[id^=field-"+a.name+"-]").forEach(function(inp){{if(inp.value)parts.push("--"+a.name+" "+inp.value)}})}}
-else{{if(el.value){{var v=a.kind==="Path"&&el.value.includes(" ")?'"'+el.value+'"':el.value;parts.push("--"+a.name+" "+v)}}}}}}
-preview.textContent=parts.join(" ")}}
-document.querySelectorAll("input,select").forEach(function(el){{el.addEventListener("input",updatePreview)}});
-document.getElementById("form").addEventListener("submit",async function(e){{e.preventDefault();out.style.display="block";logEl.innerHTML="";resultEl.textContent="";
-var data={{}};
-for(var a of SCHEMA.args){{if(a.kind==="List"){{data[a.name]=[];document.querySelectorAll("[id^=field-"+a.name+"-]").forEach(function(inp){{if(inp.value)data[a.name].push(inp.value)}})}}
-else{{var el=document.getElementById("field-"+a.name);if(a.kind==="Flag")data[a.name]=el.checked;else data[a.name]=el.value}}}}
-var sid=Math.random().toString(36).slice(2);
-try{var resp=await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:sid,args:data})});
-if(!resp.ok){logEl.innerHTML="<span class=err>Server error: "+resp.status+"</span>";return;}}catch(err){logEl.innerHTML+="<span class=err>Network error: "+err+"</span>";return}
+function updatePreview(){
+var parts=[SCHEMA.name];
+for(var a of SCHEMA.args){
+var el=document.getElementById("field-"+a.name);if(!el)continue;
+if(a.kind==="Flag"){if(el.checked)parts.push("--"+a.name)}
+else if(a.kind==="List"){document.querySelectorAll("[id^=field-"+a.name+"-]").forEach(function(inp){if(inp.value)parts.push("--"+a.name+" "+inp.value)})}
+else{if(el.value){var v=a.kind==="Path"&&el.value.includes(" ")?'"'+el.value+'"':el.value;parts.push("--"+a.name+" "+v)}}}
+preview.textContent=parts.join(" ")}
+document.querySelectorAll("input,select").forEach(function(el){el.addEventListener("input",updatePreview)});
+document.getElementById("form").addEventListener("submit",async function(e){
+e.preventDefault();out.style.display="block";logEl.innerHTML="";resultEl.textContent="";
+var data={};
+for(var a of SCHEMA.args){
+if(a.kind==="List"){data[a.name]=[];document.querySelectorAll("[id^=field-"+a.name+"-]").forEach(function(inp){if(inp.value)data[a.name].push(inp.value)})}
+else{var el=document.getElementById("field-"+a.name);if(a.kind==="Flag")data[a.name]=el.checked;else data[a.name]=el.value}}
+var sid;
+try{var resp=await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:JSON.stringify({args:data})});
+if(!resp.ok){logEl.innerHTML="<span class=err>Server error: "+resp.status+"</span>";return;}
+var j=await resp.json();sid=j.session_id;}catch(err){logEl.innerHTML+="<span class=err>Network error: "+err+"</span>";return}
 var es=new EventSource("/progress/"+sid);
 es.onmessage=function(ev){var p=JSON.parse(ev.data);
-if(p.type==="started"){logEl.innerHTML+=(p.message||"Running...")+"
-"}
-else if(p.type==="tick"){var pct=(p.percent*100).toFixed(0);element.progress('pbar-wrap',pct+'%');logEl.innerHTML+=(p.message||"")+"
-"}
-else if(p.type==="log"){logEl.innerHTML+="["+(p.level||"info")+"] "+(p.message||"")+"
-"}
+if(p.type==="started"){logEl.innerHTML+=(p.message||"Running...")+"\n"}
+else if(p.type==="tick"){var pct=(p.percent*100).toFixed(0);element.progress('pbar-wrap',pct+'%');logEl.innerHTML+=(p.message||"")+"\n"}
+else if(p.type==="log"){logEl.innerHTML+="["+(p.level||"info")+"] "+(p.message||"")+"\n"}
 else if(p.type==="done"){element.progress('pbar-wrap','100%');resultEl.textContent=JSON.stringify(p.result,null,2);es.close()}
-else if(p.type==="error"){logEl.innerHTML+="<span class=err>ERROR: "+(p.message||"")+"</span>
-";es.close()}
+else if(p.type==="error"){logEl.innerHTML+="<span class=err>ERROR: "+(p.message||"")+"</span>\n";es.close()}
 logEl.scrollTop=logEl.scrollHeight};
-es.onerror=function(){es.close()}});
-function copyCmd(){navigator.clipboard.writeText(preview.textContent)}});
-</script></body></html>"#;
+es.onerror=function(){es.close()};
+});
+function copyCmd(){navigator.clipboard.writeText(preview.textContent)}
+});</script></body></html>"#;
 
 // ── Handlers ───────────────────────────────────────────────
 
 #[derive(serde::Deserialize)]
 struct RunRequest {
-    session_id: String,
     args: HashMap<String, serde_json::Value>,
 }
 
 async fn run_handler(
     State(state): State<Arc<AppState>>,
-    axum::Json(req): axum::Json<RunRequest>,
-) -> impl IntoResponse {
+    Json(req): Json<RunRequest>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let sid = generate_id();
     let (tx, rx) = tokio::sync::mpsc::channel::<serde_json::Value>(128);
     {
         let mut sessions = state.sessions.lock().await;
-        sessions.insert(req.session_id, rx);
+        sessions.insert(sid.clone(), rx);
     }
 
     let runner = state.runner.clone();
@@ -298,7 +397,7 @@ async fn run_handler(
         runner(req.args, tx).await;
     });
 
-    "OK"
+    (StatusCode::OK, Json(serde_json::json!({ "session_id": sid })))
 }
 
 async fn progress_handler(
