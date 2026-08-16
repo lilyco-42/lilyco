@@ -71,16 +71,14 @@ jobs:
 
       - uses: android-actions/setup-android@v3
         with:
-          ndk-version: "27.2.12479018"
+          packages: 'ndk;27.2.12479018'
 
       - name: Install android target
         run: rustup target add aarch64-linux-android
 
       - name: "Build lbrush (android headless: CLI+MCP)"
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
-          NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          NDK_BIN="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
           export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android24-clang"
