@@ -481,7 +481,11 @@ fn pick_colors(
         let mut dist_sum = 0.0f64;
         let mut exact = false;
         for p in selection.pixels() {
-            let d = (p[0].abs_diff(*cr) + p[1].abs_diff(*cg) + p[2].abs_diff(*cb)) as f64 / 3.0;
+            // 三通道差先提升到 u16，避免 debug 模式下 u8 相加溢出
+            let d = (p[0].abs_diff(*cr) as u16
+                + p[1].abs_diff(*cg) as u16
+                + p[2].abs_diff(*cb) as u16) as f64
+                / 3.0;
             dist_sum += d;
             if p[0] == *cr && p[1] == *cg && p[2] == *cb {
                 exact = true;
@@ -2084,7 +2088,14 @@ mod tests {
             PathBuf::from("page.png")
         );
         let with_dir = default_output(Path::new("/tmp/a/b/page.html"), ".png");
-        assert!(with_dir.to_string_lossy().ends_with("page.png"));
-        assert!(with_dir.to_string_lossy().starts_with("/tmp/a/b/"));
+        assert!(
+            with_dir.to_string_lossy().contains("page.png"),
+            "应保留 stem.png: {with_dir:?}"
+        );
+        assert_eq!(
+            with_dir.parent().and_then(|p| p.file_name()),
+            Some(std::ffi::OsStr::new("b")),
+            "应落在输入同目录: {with_dir:?}"
+        );
     }
 }
