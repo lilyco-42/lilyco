@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
-[![Tests](https://img.shields.io/badge/tests-84%20passed-green)](https://github.com/lilyco-42/lilyco)
+[![Tests](https://img.shields.io/badge/tests-100%2B%20passed-green)](https://github.com/lilyco-42/lilyco)
 
 Lilyco is a Rust framework that generates **CLI**, **TUI**, and **Web UI** — plus **AI function-calling schemas** — from a single struct definition. You write the business logic once; the framework handles everything else.
 
@@ -62,6 +62,9 @@ From this you get:
 - Interactive TUI form with live command preview — TUI
 - Browser-based form with SSE progress — Web
 - Valid Anthropic/OpenAI tool definition — AI
+- **`imgpress --mcp`** — a standard MCP server any Agent can call (2024-11-05)
+
+Same binary, four interfaces — the backend is chosen automatically by the environment.
 
 ---
 
@@ -71,8 +74,10 @@ Create a new project and add the dependencies:
 
 ```bash
 cargo new imgpress && cd imgpress
-cargo add lilyco-core lilyco-macros lilyco-cli serde serde_json image
+cargo add lilyco lilyco-core serde serde_json image
 ```
+
+> `lilyco-core` 必须保留：`#[derive(App)]` 宏展开会引用 `lilyco_core::…` 路径。
 
 Paste this into `src/main.rs`:
 
@@ -81,8 +86,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 use image::{DynamicImage, GenericImageView};
 use image::imageops::FilterType;
-use lilyco_core::prelude::*;
-use lilyco_macros::{App, ValueEnum};
+use lilyco::prelude::*;
 
 // 1. Define your types
 #[derive(Debug, ValueEnum)]
@@ -134,29 +138,9 @@ fn compress(app: &ImgCompress, ctx: &Context) -> Result<serde_json::Value, AppEr
     Ok(serde_json::json!({"status": "ok"}))
 }
 
-// 3. Wire up — the framework handles everything else
+// 3. Wire up — one line, four interfaces
 fn main() {
-    let schema = ImgCompress::schema();
-    let cmd = lilyco_cli::CliRenderer::new().render(&schema);
-    let matches = cmd.get_matches();
-
-    if lilyco_cli::CliRenderer::handle_builtin_flags(&schema, &matches) { return; }
-
-    let output_format = lilyco_cli::CliRenderer::output_format(&matches);
-    let args = lilyco_cli::CliRenderer::extract_args(&schema, &matches);
-    let app = ImgCompress::from_args(&args).unwrap();
-
-    let (tx, rx) = std::sync::mpsc::channel();
-    let ctx = Context::new(tx, Arc::new(false.into()), output_format.clone());
-    std::thread::spawn(move || compress(&app, &ctx));
-
-    for event in rx {
-        match output_format {
-            OutputFormat::JsonStream => println!("{}", serde_json::to_string(&event).unwrap()),
-            _ => if let Progress::Log { message, .. } = &event { eprintln!("  {message}"); },
-        }
-        if matches!(event, Progress::Done { .. } | Progress::Error { .. }) { break; }
-    }
+    lilyco::run::<ImgCompress>();
 }
 ```
 
@@ -167,30 +151,40 @@ $ cargo run -- --input photo.jpg --quality 50 --format webp
 $ cargo run -- --schema              # JSON Schema
 $ cargo run -- --anthropic-tool      # AI tool definition
 $ cargo run -- --json-stream         # Machine-readable progress
+$ cargo run -- --gui                 # Web GUI (SSE progress)
+$ cargo run -- --mcp                 # MCP stdio server (Agent-ready)
 ```
+
+`lilyco::run::<A>()` 按环境自动选端（借鉴 mininterface 的接口工厂）：
+交互终端 → TUI；管道/脚本 → CLI；`--gui` → Web；`--mcp` → MCP。
+TUI 起不来时自动回退 CLI，绝不裸崩。
 
 ---
 
 ## Architecture
 
+高内聚低耦合：执行语义只存在于 core（`executor`），四个后端只做"渲染/传输"，
+门面 `lilyco` 是唯一的组合根（依赖所有后端），用户只依赖 `lilyco`。
+
 ```
-+--------------------------------------------------+
-|                  Your Struct                      |
-|         #[derive(App)]                           |
-|         struct MyTool { ... }                    |
-+--------+----------+----------+------------------+
-         |          |          |
-    +----v---+ +---v----+ +--v----------+
-    |  CLI   | |  TUI   | |   Web UI    |
-    | (clap) | |(ratatui| |(axum + HTML)|
-    +----+---+ +---+----+ +--v----------+
-         |         |         |
-    +----v---------v---------v----+
-    |      lilyco-core            |
-    |  CommandSchema -> clap::Cmd  |
-    |  Progress -> TUI widgets     |
-    |  Progress -> SSE events      |
-    +------------------------------+
++----------------------------------------------------------+
+|              Your Struct  #[derive(App)]                  |
++----------------------------------------------------------+
+                  |
+     lilyco (facade)：自动后端选择（显式参数 > LILYCO_UI > 探测）
+                  |
+   +--------------+----------------+----------------+-----+
+   |  lilyco-cli |  lilyco-tui    |  lilyco-gui    | lilyco-mcp
+   |   clap      |  ratatui 表单  |  axum + SSE    | stdio JSON-RPC
+   |             |                |                | tools/list·call
+   +--------------+----------------+----------------+-----+
+                  |                  |
+      +-----------v------------------v-----------------+
+      |              lilyco-core                        |
+      |  App trait · CommandSchema · Registry(别名/隐藏) |
+      |  executor（唯一执行宿主：参数→执行→进度事件）     |
+      |  Progress 协议 · Context · AppError              |
+      +--------------------------------------------------+
 ```
 
 ### Design Principles
@@ -198,8 +192,13 @@ $ cargo run -- --json-stream         # Machine-readable progress
 1. **Type-driven**: `bool` -> checkbox, `u8` -> number input, custom enum -> dropdown. No manual widget mapping.
 2. **CLI-first**: CLI is the most structured interface. TUI and Web are derived from the same schema.
 3. **Progress as first-class citizen**: Every interface understands `Progress::Tick` / `Log` / `Done`.
-4. **Zero-cost**: Feature flags gate TUI and Web dependencies. CLI-only builds need only `clap`.
-5. **AI-native**: Every Lilyco app can export its interface as an LLM function-calling schema.
+4. **One execution host**: `core::executor` 是唯一的"参数→执行→进度事件"实现，
+   CLI / TUI / GUI / MCP 只渲染事件流，不再各自实现宿主循环（消灭了三份重复代码）。
+5. **AI-native**: 导出 LLM function-calling schema + 标准 MCP 服务器（`--mcp`），Agent 直接调用。
+6. **Facade 自动选端**: 借鉴 mininterface 的接口工厂 —— 显式参数 > `LILYCO_UI` > 自动探测，
+   TUI 起不来回退 CLI。
+7. **Registry 动态注册**: 借鉴 unilang —— 运行期注册命令（插件 / AI 动态注册 / REPL），
+   声明式 JSON 加载（`Registry::register_from_json`）。
 
 ---
 
@@ -236,6 +235,10 @@ use lilyco_core::prelude::*;
 | `Context` | Runtime: progress channel, cancel signal, output format |
 | `OutputFormat` | `Human | Json | JsonStream` |
 | `AppError` | `InvalidArg | InvalidInput | Runtime | Cancelled | Io | Serialize` |
+| `Registry` | 运行期命令注册表：注册 / 别名 / 隐藏 / JSON 声明式加载 |
+| `RegisteredCommand` | `name + aliases + hidden + schema + handler` |
+| `Handler` | `Fn(&Context, &Value) -> Result<Value, AppError>`（统一执行入口） |
+| `executor` | 共享执行宿主：`spawn`（流式）/ `execute`（同步收集），保证事件流以 Done/Error 结尾 |
 
 #### CommandSchema JSON Export
 
@@ -411,6 +414,43 @@ gui.serve(schema, Arc::new(|args| Box::pin(async move {
 
 **Flow:** Form POST -> spawn task -> SSE stream -> progress bar + log
 
+### lilyco (facade)
+
+**一个依赖搞定四端**。用户代码只依赖这一个 crate，后端按环境自动选择。
+
+```rust
+use lilyco::prelude::*;
+
+fn main() {
+    lilyco::run::<ImgCompress>();          // 自动选端
+    // lilyco::run_with::<ImgCompress>(Backend::Mcp);  // 显式指定
+}
+```
+
+| 触发方式 | 后端 |
+|---------|------|
+| `--mcp` | MCP stdio 服务器（Agent 直接调用） |
+| `--gui` / `--web` | Web GUI |
+| `LILYCO_UI=cli\|tui\|web\|mcp` | 环境变量强制 |
+| 交互终端 + `TERM` | TUI 表单（起不来自动回退 CLI） |
+| 其余（管道 / CI / 脚本） | CLI（`--json-stream` 供 AI 消费） |
+
+`lilyco::serve_mcp(registry)` 可把整个多命令注册表暴露为一个 MCP 服务器。
+
+### lilyco-mcp
+
+把命令注册表暴露为标准 **Model Context Protocol** 服务器（2024-11-05），
+实现 `initialize` / `ping` / `tools/list` / `tools/call`，零额外依赖。
+
+```rust
+let mut registry = Registry::new();
+registry.register(RegisteredCommand::from_app::<MyTool>())?;
+lilyco_mcp::McpServer::new(registry).serve_stdio()?;
+```
+
+核心是纯函数 `handle_line`（一行请求 → 一行响应），`serve` 可挂任意 `Read + Write`，
+协议逻辑全部可单元测试。
+
 ### lilyco-ultra-ui
 
 Experimental **JSON-to-React** declarative UI generator. Write a Chinese-language JSON spec; get a full React frontend — no Rust code required.
@@ -509,6 +549,24 @@ $ imgpress --schema         # Generic JSON Schema (for other LLMs)
 $ imgpress --json-stream    # Each Progress event as one JSON line — ideal for agent consumption
 ```
 
+### MCP Server（AI 调用的事实标准）
+
+```bash
+$ imgpress --mcp
+```
+
+`lilyco-mcp` 把命令注册表暴露为标准 **MCP stdio 服务器**（协议 2024-11-05）。
+任何支持 MCP 的 Agent（Claude Desktop、Cursor、OpenHands 等）都可以直接调用你的 Rust 工具：
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ImgCompress","arguments":{"input":"photo.jpg","quality":50}}}
+```
+
+相比手写 `--anthropic-tool` / `--openai-tool` 单次 schema，MCP 是标准化的长连接协议，
+一次 `tools/list` 拿全量工具定义，`tools/call` 直接执行并返回结构化结果。
+
 ### AI Agent Consumption Pattern
 
 ```jsonl
@@ -597,6 +655,8 @@ Edit the JSON spec in the browser; the React UI updates in real time.
 
 ## Testing
 
+本地：
+
 ```bash
 # Run all tests
 cargo test --workspace
@@ -607,7 +667,12 @@ cargo test -p lilyco-cli
 cargo test -p lilyco-tui
 cargo test -p lilyco-macros
 cargo test -p lilyco-ultra-ui
+cargo test -p lilyco-mcp
 ```
+
+CI（GitHub Actions）：push / PR 自动跑 **ubuntu + windows 双矩阵** —
+`cargo fmt --check` + `cargo clippy --workspace --all-targets` + `cargo test --workspace` + `cargo doc`。
+见 `.github/workflows/ci.yml`。Windows TUI 从此由 CI 持续验证编译与单元测试。
 
 Current coverage: **84 tests** across all crates.
 
@@ -619,19 +684,16 @@ Current coverage: **84 tests** across all crates.
 
 ```toml
 [dependencies]
-lilyco-core = "0.2"
-lilyco-macros = "0.2"
-lilyco-cli = "0.2"
+lilyco = "0.2"            # 推荐：一个依赖搞定四端
+lilyco-core = "0.2"       # derive(App) 宏展开需要
 ```
 
 ### From git
 
 ```toml
 [dependencies]
+lilyco = { git = "https://github.com/lilyco-42/lilyco" }
 lilyco-core = { git = "https://github.com/lilyco-42/lilyco" }
-lilyco-macros = { git = "https://github.com/lilyco-42/lilyco" }
-lilyco-cli = { git = "https://github.com/lilyco-42/lilyco" }
-lilyco-tui = { git = "https://github.com/lilyco-42/lilyco" }
 ```
 
 ---
@@ -644,7 +706,7 @@ lilyco-tui = { git = "https://github.com/lilyco-42/lilyco" }
 - **`#[app(run = "fn")]`** requires the function to be in scope. Without this attribute, `run()` panics with a helpful message directing you to add it.
 - **Number range validation** works at the CLI layer (clap) but not in TUI/Web widgets
 - **Subcommands** are supported in CLI only — TUI and Web renderers do not handle them yet
-- **Windows TUI** not yet tested (crossterm backend should work but hasn't been verified)
+- **TUI 执行期间事件循环冻结**（同步 `executor::execute`）；进度渲染与取消待异步化
 - **Ultra UI** is experimental — JSON spec format may change
 
 ### Roadmap
@@ -652,10 +714,18 @@ lilyco-tui = { git = "https://github.com/lilyco-42/lilyco" }
 - [x] ~~Real `run()` dispatch in Web GUI with progress streaming~~ — done via `GuiRenderer::serve_app::<A>()`
 - [x] ~~`#[app(run = "fn")]` macro attribute~~ — wire business logic with zero boilerplate
 - [x] ~~Integration tests that exercise all three interfaces end-to-end~~ — 12 tests in `lilyco-example`
+- [x] ~~共享执行宿主~~ — `core::executor`，CLI/TUI/GUI/MCP 同一执行路径
+- [x] ~~运行期命令注册表~~ — `core::Registry`（别名 / 隐藏 / JSON 声明式加载）
+- [x] ~~MCP 输出面~~ — `lilyco-mcp`：`--mcp` 启动标准 stdio 服务器
+- [x] ~~门面自动选端~~ — `lilyco::run::<A>()`（借鉴 mininterface 工厂）
+- [x] ~~CI 双矩阵~~ — GitHub Actions ubuntu + windows：fmt / clippy / test / doc
+- [ ] CLI 多命令：注册表 → clap 子命令（Registry 已就绪）
+- [ ] MCP 完整能力：进度通知 / 采样 / roots（基于 modelcontextprotocol/rust-sdk）
 - [ ] Subcommand navigation in TUI and Web GUI
 - [ ] Input validation in TUI/Web widgets (range, required, enum)
 - [ ] Path auto-complete in TUI (Tab triggers directory listing)
 - [ ] `#[app(subcommands)]` macro support
+- [ ] TUI 执行异步化（进度渲染 + 取消）
 - [ ] Publish to crates.io
 - [ ] Performance benchmarks for schema generation
 

@@ -17,14 +17,18 @@
 pub mod app;
 pub mod context;
 pub mod error;
+pub mod executor;
 pub mod progress;
+pub mod registry;
 pub mod schema;
 
 // Re-exports at crate root for macro-generated code
 pub use app::{App, Renderer};
 pub use context::{Context, OutputFormat};
 pub use error::AppError;
+pub use executor::{execute, spawn, RunOutcome, Task};
 pub use progress::{LogLevel, Progress};
+pub use registry::{Handler, RegisteredCommand, Registry, RegistryError};
 pub use schema::{ArgKind, ArgSchema, CommandSchema, ValueEnum};
 
 // ── 便捷导入 ──────────────────────────────────────────────
@@ -47,8 +51,14 @@ mod tests {
             percent: Some(0.12),
         };
         let json = serde_json::to_string(&p).unwrap();
-        assert!(json.contains("\"type\":\"tick\""), "expected type=tick, got: {json}");
-        assert!(json.contains("\"current\":120"), "expected current=120, got: {json}");
+        assert!(
+            json.contains("\"type\":\"tick\""),
+            "expected type=tick, got: {json}"
+        );
+        assert!(
+            json.contains("\"current\":120"),
+            "expected current=120, got: {json}"
+        );
     }
 
     #[test]
@@ -99,14 +109,8 @@ mod tests {
 
     #[test]
     fn loglevel_serializes_snake_case() {
-        assert_eq!(
-            serde_json::to_string(&LogLevel::Info).unwrap(),
-            "\"info\""
-        );
-        assert_eq!(
-            serde_json::to_string(&LogLevel::Warn).unwrap(),
-            "\"warn\""
-        );
+        assert_eq!(serde_json::to_string(&LogLevel::Info).unwrap(), "\"info\"");
+        assert_eq!(serde_json::to_string(&LogLevel::Warn).unwrap(), "\"warn\"");
     }
 
     // ─── CommandSchema → tool 导出 ─────────────────────
@@ -141,8 +145,7 @@ mod tests {
         assert_eq!(tool["name"], "transcode");
         assert!(tool["input_schema"]["properties"]["input"].is_object());
         assert_eq!(
-            tool["input_schema"]["required"][0],
-            "input",
+            tool["input_schema"]["required"][0], "input",
             "input should be required"
         );
     }
@@ -283,7 +286,13 @@ mod tests {
 
         ctx.log(LogLevel::Error, "something went wrong");
         let event = rx.recv().unwrap();
-        assert!(matches!(event, Progress::Log { level: LogLevel::Error, .. }));
+        assert!(matches!(
+            event,
+            Progress::Log {
+                level: LogLevel::Error,
+                ..
+            }
+        ));
 
         ctx.done(serde_json::json!({"done": true}), 100);
         let event = rx.recv().unwrap();
@@ -301,11 +310,7 @@ mod tests {
     fn context_is_cancelled_when_atomic_set() {
         let (tx, _rx) = std::sync::mpsc::channel();
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let ctx = Context::new(
-            tx,
-            cancel.clone(),
-            OutputFormat::Human,
-        );
+        let ctx = Context::new(tx, cancel.clone(), OutputFormat::Human);
         assert!(!ctx.is_cancelled());
         cancel.store(true, std::sync::atomic::Ordering::Relaxed);
         assert!(ctx.is_cancelled());
@@ -336,10 +341,7 @@ mod tests {
             AppError::InvalidArg("missing input".into()).to_string(),
             "参数错误: missing input"
         );
-        assert_eq!(
-            AppError::Cancelled.to_string(),
-            "已取消"
-        );
+        assert_eq!(AppError::Cancelled.to_string(), "已取消");
     }
 
     #[test]
@@ -354,7 +356,11 @@ mod tests {
         for case in cases {
             let json = serde_json::to_string(&case).unwrap();
             let back: AppError = serde_json::from_str(&json).unwrap();
-            assert_eq!(case.to_string(), back.to_string(), "roundtrip failed for {json}");
+            assert_eq!(
+                case.to_string(),
+                back.to_string(),
+                "roundtrip failed for {json}"
+            );
         }
     }
 
@@ -368,8 +374,9 @@ mod tests {
 
     #[test]
     fn app_error_from_serde_json() {
-        let serde_err: AppError =
-            serde_json::from_str::<serde_json::Value>("not json").unwrap_err().into();
+        let serde_err: AppError = serde_json::from_str::<serde_json::Value>("not json")
+            .unwrap_err()
+            .into();
         assert!(serde_err.to_string().contains("序列化错误"));
     }
 
@@ -425,7 +432,9 @@ mod tests {
     #[test]
     fn context_is_send() {
         // 如果 Context 不是 Send，这行编译不过
-        fn assert_send<T: Send>(v: T) -> T { v }
+        fn assert_send<T: Send>(v: T) -> T {
+            v
+        }
         let (tx, _rx) = std::sync::mpsc::channel();
         let ctx = Context::new_test(tx);
         let _ = assert_send(ctx);
@@ -437,6 +446,8 @@ pub mod prelude {
     pub use crate::app::{App, Renderer};
     pub use crate::context::{Context, OutputFormat};
     pub use crate::error::AppError;
+    pub use crate::executor::{execute, spawn, RunOutcome, Task};
     pub use crate::progress::{LogLevel, Progress};
+    pub use crate::registry::{Handler, RegisteredCommand, Registry, RegistryError};
     pub use crate::schema::{ArgKind, ArgSchema, CommandSchema, ValueEnum};
 }

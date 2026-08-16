@@ -19,8 +19,10 @@ use rand::distributions::Alphanumeric;
 use rand::Rng;
 use tokio::sync::Mutex;
 
-use lilyco_core::{App, Context, Progress};
+use lilyco_core::executor;
+use lilyco_core::registry::Handler;
 use lilyco_core::schema::{ArgKind, CommandSchema};
+use lilyco_core::{App, AppError, Progress};
 
 pub const TOKEN_HEADER: &str = "X-Lilyco-Token";
 
@@ -90,7 +92,9 @@ pub type RunnerFn = Arc<
 >;
 
 impl GuiRenderer {
-    pub fn new(port: u16) -> Self { Self { port } }
+    pub fn new(port: u16) -> Self {
+        Self { port }
+    }
 
     pub async fn serve(&self, schema: CommandSchema, runner: RunnerFn) {
         let state = Arc::new(AppState {
@@ -109,7 +113,8 @@ impl GuiRenderer {
 
         // 只监听本机回环地址：本地 GUI 工具不需要暴露到局域网
         let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", self.port))
-            .await.unwrap();
+            .await
+            .unwrap();
         let url = format!("http://localhost:{}", self.port);
         eprintln!("Lilyco GUI ready: {url}");
 
@@ -136,29 +141,34 @@ impl GuiRenderer {
     {
         let runner: RunnerFn = Arc::new(move |args, gui_tx| {
             Box::pin(async move {
-                let app = match A::from_args(&args) {
-                    Ok(a) => a,
-                    Err(e) => {
-                        let _ = gui_tx.send(serde_json::json!({
+                // 执行语义交给 core::executor（与 CLI / TUI / MCP 共享同一宿主）
+                let args_value = serde_json::to_value(&args).unwrap_or(serde_json::json!({}));
+                let handler: Handler = Arc::new(move |ctx, args| {
+                    let obj = args
+                        .as_object()
+                        .ok_or_else(|| AppError::InvalidArg("args must be a JSON object".into()))?;
+                    let map: std::collections::HashMap<String, serde_json::Value> =
+                        obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                    let app = A::from_args(&map)?;
+                    app.run(ctx)
+                });
+                let task = executor::spawn(handler, args_value);
+                for event in task.rx {
+                    let json = serde_json::to_value(&event).unwrap();
+                    if gui_tx.send(json).await.is_err() {
+                        break;
+                    }
+                    if matches!(event, Progress::Done { .. } | Progress::Error { .. }) {
+                        break;
+                    }
+                }
+                if let Ok(Err(e)) = task.handle.join() {
+                    let _ = gui_tx
+                        .send(serde_json::json!({
                             "type": "error", "code": 1,
                             "message": e.to_string(), "kind": null
-                        })).await;
-                        return;
-                    }
-                };
-                let (std_tx, rx) = std::sync::mpsc::channel();
-                let ctx = Context::new_test(std_tx);
-                let handle = std::thread::spawn(move || app.run(&ctx));
-                for event in rx {
-                    let json = serde_json::to_value(&event).unwrap();
-                    if gui_tx.send(json).await.is_err() { break; }
-                    if matches!(event, Progress::Done { .. } | Progress::Error { .. }) { break; }
-                }
-                if let Ok(Err(e)) = handle.join() {
-                    let _ = gui_tx.send(serde_json::json!({
-                        "type": "error", "code": 1,
-                        "message": e.to_string(), "kind": null
-                    })).await;
+                        }))
+                        .await;
                 }
             })
         });
@@ -218,17 +228,31 @@ async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
     let mut field_js_meta = String::new();
 
     for (i, arg) in schema.args.iter().enumerate() {
-        if i > 0 { field_js_meta.push(','); }
-        field_js_meta.push_str(&format!("{{name:\"{}\",kind:\"{}\"}}", arg.name, kind_name(&arg.kind)));
+        if i > 0 {
+            field_js_meta.push(',');
+        }
+        field_js_meta.push_str(&format!(
+            "{{name:\"{}\",kind:\"{}\"}}",
+            arg.name,
+            kind_name(&arg.kind)
+        ));
 
-        let req_mark = if arg.required { "<span class=\"req-mark\">*</span>" } else { "" };
+        let req_mark = if arg.required {
+            "<span class=\"req-mark\">*</span>"
+        } else {
+            ""
+        };
         let label = format!("{}{}", arg.about, req_mark);
 
         let widget = match &arg.kind {
             ArgKind::Flag => {
-                let ck = matches!(&arg.default, Some(serde_json::Value::Bool(true))).then_some(" checked").unwrap_or("");
-                format!("<input type=\"checkbox\" id=\"field-{}\"{} lay-skin=\"primary\" title=\"{}\">",
-                    arg.name, ck, arg.about)
+                let ck = matches!(&arg.default, Some(serde_json::Value::Bool(true)))
+                    .then_some(" checked")
+                    .unwrap_or("");
+                format!(
+                    "<input type=\"checkbox\" id=\"field-{}\"{} lay-skin=\"primary\" title=\"{}\">",
+                    arg.name, ck, arg.about
+                )
             }
             ArgKind::Text | ArgKind::Path { .. } => {
                 let dv = arg.default.as_ref().and_then(|d| d.as_str()).unwrap_or("");
@@ -236,7 +260,10 @@ async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
                     arg.name, arg.about, if arg.required {" lay-reqtext=\"required\""} else {""}, dv)
             }
             ArgKind::Number { min, max } => {
-                let dv = arg.default.as_ref().and_then(|d| d.as_f64())
+                let dv = arg
+                    .default
+                    .as_ref()
+                    .and_then(|d| d.as_f64())
                     .map(|n| n.to_string())
                     .unwrap_or_else(|| min.map(|m| m.to_string()).unwrap_or_default());
                 let min_a = min.map(|m| format!(" min=\"{m}\"")).unwrap_or_default();
@@ -247,10 +274,17 @@ async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
             ArgKind::Enum { values } => {
                 let mut opts = String::new();
                 for v in values {
-                    let sel = if arg.default.as_ref().and_then(|d| d.as_str()) == Some(v.as_str()) { " selected" } else { "" };
+                    let sel = if arg.default.as_ref().and_then(|d| d.as_str()) == Some(v.as_str()) {
+                        " selected"
+                    } else {
+                        ""
+                    };
                     opts.push_str(&format!("<option value=\"{v}\"{sel}>{v}</option>"));
                 }
-                format!("<select id=\"field-{}\" lay-search=\"\">{}</select>", arg.name, opts)
+                format!(
+                    "<select id=\"field-{}\" lay-search=\"\">{}</select>",
+                    arg.name, opts
+                )
             }
             ArgKind::List { .. } => {
                 let mut inputs = String::new();
@@ -277,20 +311,25 @@ async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
         }
     }
 
-    Html(HTML_TEMPLATE
-        .replace("{title}", &format!("{} — {}", schema.name, schema.about))
-        .replace("{about}", &schema.about)
-        .replace("{cmd_name}", &schema.name)
-        .replace("{fields_html}", &fields_html)
-        .replace("{field_js_meta}", &field_js_meta)
-        .replace("{token}", &state.token))
+    Html(
+        HTML_TEMPLATE
+            .replace("{title}", &format!("{} — {}", schema.name, schema.about))
+            .replace("{about}", &schema.about)
+            .replace("{cmd_name}", &schema.name)
+            .replace("{fields_html}", &fields_html)
+            .replace("{field_js_meta}", &field_js_meta)
+            .replace("{token}", &state.token),
+    )
 }
 
 fn kind_name(kind: &ArgKind) -> &'static str {
     match kind {
-        ArgKind::Flag => "Flag", ArgKind::Text => "Text",
-        ArgKind::Number { .. } => "Number", ArgKind::Enum { .. } => "Enum",
-        ArgKind::Path { .. } => "Path", ArgKind::List { .. } => "List",
+        ArgKind::Flag => "Flag",
+        ArgKind::Text => "Text",
+        ArgKind::Number { .. } => "Number",
+        ArgKind::Enum { .. } => "Enum",
+        ArgKind::Path { .. } => "Path",
+        ArgKind::List { .. } => "List",
     }
 }
 
@@ -397,7 +436,10 @@ async fn run_handler(
         runner(req.args, tx).await;
     });
 
-    (StatusCode::OK, Json(serde_json::json!({ "session_id": sid })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "session_id": sid })),
+    )
 }
 
 async fn progress_handler(

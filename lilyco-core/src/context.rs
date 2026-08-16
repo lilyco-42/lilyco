@@ -51,6 +51,15 @@ impl Context {
         }
     }
 
+    /// 正式构造：无外部取消信号（后台任务自行管理，如 [`crate::executor::spawn`]）
+    pub fn from_sender(progress_tx: Sender<Progress>) -> Self {
+        Self {
+            progress_tx,
+            cancel: Arc::new(AtomicBool::new(false)),
+            output_format: OutputFormat::Human,
+        }
+    }
+
     /// 上报进度事件，三端各自处理显示
     pub fn emit(&self, progress: Progress) {
         let _ = self.progress_tx.send(progress);
