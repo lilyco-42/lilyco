@@ -242,6 +242,8 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         let ctx = Context::new_test(tx);
         let result = run_grep(&app, &ctx).unwrap();
+        // 先释放 ctx（持有 tx），否则 rx.iter() 会等 channel 关闭而死锁
+        drop(ctx);
 
         assert_eq!(result["files"], 2);
         assert_eq!(result["match_count"], 2);
