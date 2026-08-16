@@ -66,11 +66,16 @@ impl McpServer {
             "tools/call" => self.tools_call(&req),
             "notifications/initialized" => return None, // 通知无需响应
             _ => {
+                // JSON-RPC 2.0：无 id 的请求是通知，绝不能回响应
+                // （DSH 的 MCP 客户端会发 notifications/cancelled 等）
+                if id.is_none() {
+                    return None;
+                }
                 return Some(error_response(
                     id.as_ref(),
                     ERROR_METHOD_NOT_FOUND,
                     &format!("method not found: {method}"),
-                ))
+                ));
             }
         };
 
@@ -293,6 +298,15 @@ mod tests {
         let server = McpServer::new(test_registry());
         assert!(server
             .handle_line(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)
+            .is_none());
+    }
+
+    #[test]
+    fn unknown_notification_gets_no_response() {
+        // JSON-RPC：通知（无 id）绝不响应——DSH 客户端会发 notifications/cancelled
+        let server = McpServer::new(test_registry());
+        assert!(server
+            .handle_line(r#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{}}"#)
             .is_none());
     }
 

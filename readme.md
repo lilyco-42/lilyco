@@ -618,6 +618,17 @@ cargo run -- --schema
 
 See `lilyco-example/src/main.rs` for the full source (~230 lines).
 
+### Grep (`lilyco-grep`)
+
+Simple recursive grep — the DSH ecosystem test vehicle:
+
+```bash
+cargo run -p lilyco-grep -- --pattern hello --path src
+cargo run -p lilyco-grep -- --pattern TODO --path . --ignore-case --count
+cargo run -p lilyco-grep -- --pattern hello --path src --json-stream   # AI 消费
+cargo run -p lilyco-grep -- --pattern hello --path src --mcp           # MCP 服务器
+```
+
 ### Transcode (TUI demo)
 
 ```rust
