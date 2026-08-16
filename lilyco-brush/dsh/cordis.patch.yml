@@ -1,0 +1,26 @@
+# lbrush — DSH 接入配置（dsh-mcp-client stdio 直连）
+#
+# 作用：把 lbrush 的 MCP 服务器挂进 profile，模型将看到原生工具
+#       `mcp__lbrush__Brush`（inputSchema 来自 CommandSchema，执行走 executor）。
+#
+# 用法：
+#   1. 拿到 lbrush.exe（CI artifact `lbrush-windows` 下载，或 cargo build -p lilyco-brush）
+#   2. 把下面 command 改成 lbrush.exe 实际路径
+#   3. 把这段插入 ~/.dsh/profiles/<profile>/cordis.patch.yml
+#      （或用 `dsh plugin --profile <profile> add ...` 管理的等价方式）
+#   4. 重启 dsh web
+#
+# 备选：不用 MCP 桥时，也可以直接 spawn：
+#   lbrush --command "ls -la"            # CLI
+#   lbrush --command "ls" --json-stream  # JSONL 进度事件（脚本/AI 直接消费）
+
+- insert:
+    - id: mcp-lbrush
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: lbrush
+        transport: stdio
+        command: D:/path/to/lbrush.exe
+        args: ['--mcp']
+        # brush 默认 120s 超时，工具级再留余量
+        toolCallTimeoutMs: 180000

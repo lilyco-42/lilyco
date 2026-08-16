@@ -629,6 +629,21 @@ cargo run -p lilyco-grep -- --pattern hello --path src --json-stream   # AI 消�
 cargo run -p lilyco-grep -- --pattern hello --path src --mcp           # MCP 服务器
 ```
 
+### Brush (`lilyco-brush`)
+
+brush（bash 兼容 shell）用 lilyco 重写 —— 给 AI 的 shell 工具：
+
+```bash
+lbrush --command "x=1; echo $x; ls | wc -l"        # CLI
+lbrush --command "sleep 5" --timeout-secs 1        # 超时 kill
+lbrush --command "ls" --json-stream                # AI 消费（JSONL）
+lbrush --mcp                                      # MCP 服务器
+```
+
+- 每次调用全新 shell（`--no-config`），非零退出码不是工具错误（结构化返回 `exit_code`）
+- DSH 接入：`lilyco-brush/dsh/cordis.patch.yml`（dsh-mcp-client stdio 直连，模型看到 `mcp__lbrush__Brush`）
+- CI 产出 `lbrush-windows` artifact，本机不装 Rust 也能拿二进制
+
 ### Transcode (TUI demo)
 
 ```rust

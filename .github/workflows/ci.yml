@@ -37,3 +37,26 @@ jobs:
 
       - name: Verify docs build
         run: cargo doc --workspace --no-deps
+
+  # 产出可直接使用的 lbrush.exe —— 本机不装 Rust 也能拿到二进制
+  release-build:
+    name: build lbrush (windows)
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Build lbrush (release)
+        run: cargo build --release -p lilyco-brush
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lbrush-windows
+          path: target/release/lbrush.exe
+          if-no-files-found: error
