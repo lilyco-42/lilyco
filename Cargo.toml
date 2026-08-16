@@ -8,6 +8,7 @@ members = [
     "lilyco-macros",
     "lilyco-example",
     "lilyco-grep",
+    "lilyco-brush",
     "lilyco-ultra-ui",
     "lilyco-ultra-ui-example",
     "lilyco",
