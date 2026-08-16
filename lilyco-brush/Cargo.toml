@@ -2,7 +2,7 @@
 name = "lilyco-brush"
 version = "0.1.0"
 edition = "2021"
-description = "brush (bash-compatible shell) as a Lilyco app — CLI / TUI / Web / MCP, AI-callable by default"
+description = "brush (bash-compatible shell) as a Lilyco app — CLI / TUI / Web / MCP, AI-callable by default, cross-platform incl. Android"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/lilyco-42/lilyco"
 
@@ -11,11 +11,19 @@ name = "lbrush"
 path = "src/main.rs"
 
 [dependencies]
-lilyco = { path = "../lilyco" }
+# 可选：android 构建用 headless（--no-default-features --features android，
+# 只剩 CLI + MCP，纯 Rust 可在 aarch64-linux-android 编译）
+lilyco = { path = "../lilyco", optional = true, default-features = false }
 # derive(App) 宏展开引用 lilyco_core::… 路径，binary 需要能解析到它
 lilyco-core = { path = "../lilyco-core" }
 serde_json = "1"
-wait-timeout = "0.2"
+
+[features]
+default = ["full"]
+# 全功能（CLI + TUI + Web + MCP）
+full = ["dep:lilyco", "lilyco/full"]
+# Android/Termux：headless（CLI + MCP）
+android = ["dep:lilyco"]
 
 [dev-dependencies]
 tempfile = "3"

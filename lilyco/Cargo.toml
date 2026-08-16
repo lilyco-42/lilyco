@@ -9,13 +9,25 @@ keywords = ["cli", "tui", "web", "mcp", "ai"]
 categories = ["command-line-interface", "development-tools"]
 
 [dependencies]
+# 永远可用（纯 Rust，任何平台）：CLI / MCP / core / 宏
 lilyco-core = { version = "0.2", path = "../lilyco-core" }
 lilyco-cli = { version = "0.2", path = "../lilyco-cli" }
-lilyco-tui = { version = "0.2", path = "../lilyco-tui" }
-lilyco-gui = { version = "0.2", path = "../lilyco-gui" }
 lilyco-mcp = { version = "0.2", path = "../lilyco-mcp" }
 lilyco-macros = { version = "0.2", path = "../lilyco-macros" }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-crossterm = "0.28"
-ratatui = "0.29"
+
+# 可选后端：TUI（crossterm 不支持 android，cfg(unix) 不含 android）、Web
+lilyco-tui = { version = "0.2", path = "../lilyco-tui", optional = true }
+lilyco-gui = { version = "0.2", path = "../lilyco-gui", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
+crossterm = { version = "0.28", optional = true }
+ratatui = { version = "0.29", optional = true }
+
+[features]
+default = ["tui", "web"]
+# 全功能别名（lilyco-brush 的 full 特性引用）
+full = ["tui", "web"]
+# Android/Termux 等无 crossterm 平台：
+#   --no-default-features（只剩 CLI + MCP，纯 Rust，aarch64-linux-android 可编）
+tui = ["dep:lilyco-tui", "dep:crossterm", "dep:ratatui"]
+web = ["dep:lilyco-gui", "dep:tokio"]

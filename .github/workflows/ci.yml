@@ -60,3 +60,35 @@ jobs:
           name: lbrush-windows
           path: target/release/lbrush.exe
           if-no-files-found: error
+
+  # Android（Termux）：headless 构建（CLI + MCP，纯 Rust）
+  # crossterm 的 cfg(unix) 不含 android，TUI/Web 后端在 android 目标上关闭
+  android:
+    name: build android (aarch64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;27.2.12479018'
+
+      - name: Install android target
+        run: rustup target add aarch64-linux-android
+
+      - name: "Build lbrush (android headless: CLI+MCP)"
+        run: |
+          NDK_BIN="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android24-clang"
+          cargo build --release -p lilyco-brush \
+            --no-default-features --features android \
+            --target aarch64-linux-android
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lbrush-android-arm64
+          path: target/aarch64-linux-android/release/lbrush
+          if-no-files-found: error
