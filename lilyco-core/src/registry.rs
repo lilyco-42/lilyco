@@ -24,7 +24,9 @@ pub type Handler =
     Arc<dyn Fn(&Context, &serde_json::Value) -> Result<serde_json::Value, AppError> + Send + Sync>;
 
 /// 注册表中的一条命令（schema + 可选处理器 + 元数据）
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `Debug` 手写：`dyn Fn` 不实现 `std::fmt::Debug`，handler 只显示占位符。
+#[derive(Clone, Serialize, Deserialize)]
 pub struct RegisteredCommand {
     /// 命令名（kebab-case），如 `img-compress`
     pub name: String,
@@ -39,6 +41,18 @@ pub struct RegisteredCommand {
     /// 执行处理器；声明式加载（JSON）时不携带
     #[serde(skip)]
     pub handler: Option<Handler>,
+}
+
+impl std::fmt::Debug for RegisteredCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegisteredCommand")
+            .field("name", &self.name)
+            .field("aliases", &self.aliases)
+            .field("hidden", &self.hidden)
+            .field("schema", &self.schema)
+            .field("handler", &self.handler.as_ref().map(|_| "<handler>"))
+            .finish()
+    }
 }
 
 impl RegisteredCommand {
