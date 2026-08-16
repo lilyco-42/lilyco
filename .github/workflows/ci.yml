@@ -76,7 +76,7 @@ jobs:
       - name: Install android target
         run: rustup target add aarch64-linux-android
 
-      - name: Build lbrush (android headless: CLI+MCP)
+      - name: "Build lbrush (android headless: CLI+MCP)"
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
