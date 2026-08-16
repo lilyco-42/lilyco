@@ -1,0 +1,31 @@
+# lvision — DSH 接入配置（dsh-mcp-client stdio 直连）
+#
+# 作用：把 lvision 的 MCP 服务器挂进 profile，模型将看到一组原生视觉工具：
+#   mcp__lvision__ImageInfo
+#   mcp__lvision__Crop
+#   mcp__lvision__Resize
+#   mcp__lvision__DominantColors
+#   mcp__lvision__PixelDiff
+#   mcp__lvision__ExtractForeground
+#   mcp__lvision__Trace
+#   mcp__lvision__HtmlScreenshot
+#
+# 用法：
+#   1. 拿到 lvision.exe（CI artifact `lvision-windows` 下载，或 cargo build -p lilyco-vision）
+#   2. 把下面 command 改成 lvision.exe 实际路径
+#   3. 把这段插入 ~/.dsh/profiles/<profile>/cordis.patch.yml
+#   4. 重启 dsh web
+#
+# 备选：不用 MCP 桥时直接 spawn：
+#   lvision --list          # 打印全部工具 schema（JSON）
+#   lvision --mcp           # MCP stdio 服务器
+
+- insert:
+    - id: mcp-lvision
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: lvision
+        transport: stdio
+        command: D:/path/to/lvision.exe
+        args: ['--mcp']
+        toolCallTimeoutMs: 120000
