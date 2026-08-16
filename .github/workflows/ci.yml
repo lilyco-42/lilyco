@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -119,3 +120,41 @@ jobs:
           name: lvision-android-arm64
           path: target/aarch64-linux-android/release/lvision
           if-no-files-found: error
+
+  # 打 tag（v*）时：把 windows + android 二进制发布为 GitHub Release
+  release:
+    name: publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [release-build, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: lbrush-windows
+          path: release/lbrush-windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: lvision-windows
+          path: release/lvision-windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: lbrush-android-arm64
+          path: release/lbrush-android-arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: lvision-android-arm64
+          path: release/lvision-android-arm64
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            release/lbrush-windows/* \
+            release/lvision-windows/* \
+            release/lbrush-android-arm64/* \
+            release/lvision-android-arm64/* \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
