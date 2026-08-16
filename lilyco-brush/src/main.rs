@@ -21,7 +21,6 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use lilyco::prelude::*;
-use wait_timeout::ChildExt;
 
 /// 输出截断上限（与旧版一致）
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
@@ -37,6 +36,9 @@ const GIT_BASH_CANDIDATES: &[&str] = &[
     "C:\\Program Files\\Git\\bin\\bash.exe",
     "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
 ];
+
+/// Termux（Android）bash 路径
+const TERMUX_BASH_CANDIDATES: &[&str] = &["/data/data/com.termux/files/usr/bin/bash"];
 
 /// Git for Windows coreutils 目录（前置到 PATH）
 const GIT_USR_BIN_CANDIDATES: &[&str] = &[
@@ -124,16 +126,22 @@ fn run_brush(app: &Brush, ctx: &Context) -> Result<serde_json::Value, AppError> 
         let _ = err_tx.send(read_with_cap(stderr));
     });
 
-    // 带超时等待；超时则 kill
+    // 带超时等待；超时则 kill。
+    // 用 try_wait 轮询（std-only）：wait-timeout crate 按 unix/windows 分叉，
+    // Android 目标编不过；轮询 20ms 粒度对 shell 工具足够。
     let timeout = Duration::from_secs(app.timeout_secs.max(1));
-    let (exit_code, timed_out) = match child.wait_timeout(timeout) {
-        Ok(Some(status)) => (status.code(), false),
-        Ok(None) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            (None, true)
+    let deadline = Instant::now() + timeout;
+    let (exit_code, timed_out) = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break (status.code(), false),
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break (None, true);
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(e) => return Err(AppError::Runtime(format!("wait: {e}"))),
         }
-        Err(e) => return Err(AppError::Runtime(format!("wait: {e}"))),
     };
 
     // 回收读线程结果：超时路径带 2s 界（孙进程持有管道句柄时读端不关闭）
@@ -211,12 +219,18 @@ fn resolve_shell() -> Result<(String, &'static str), AppError> {
             return Ok((c.to_string(), "bash"));
         }
     }
+    // Android/Termux
+    for c in TERMUX_BASH_CANDIDATES {
+        if Path::new(c).exists() {
+            return Ok((c.to_string(), "bash"));
+        }
+    }
     if let Some(p) = find_on_path("bash") {
         return Ok((p, "bash"));
     }
     Err(AppError::Runtime(
-        "no shell found: checked BRUSH_PATH, brush.exe candidates, PATH, Git Bash — \
-         install brush (scoop install brush / cargo install brush) or Git for Windows"
+        "no shell found: checked BRUSH_PATH, brush.exe candidates, PATH, Git Bash, Termux — \
+         install brush (scoop install brush / cargo install brush), Git for Windows, or Termux"
             .into(),
     ))
 }

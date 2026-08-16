@@ -644,6 +644,19 @@ lbrush --mcp                                      # MCP 服务器
 - DSH 接入：`lilyco-brush/dsh/cordis.patch.yml`（dsh-mcp-client stdio 直连，模型看到 `mcp__lbrush__Brush`）
 - CI 产出 `lbrush-windows` artifact，本机不装 Rust 也能拿二进制
 
+#### Android（Termux）
+
+lbrush 跨平台，Android 用 headless 构建（CLI + MCP）：
+
+```bash
+# CI artifact：lbrush-android-arm64；或本地交叉编译：
+cargo build -p lilyco-brush --no-default-features --features android --target aarch64-linux-android
+```
+
+- headless 关掉 TUI/Web 后端（crossterm 的 `cfg(unix)` 不含 android；`lilyco` facade 按 feature 门控）
+- shell 解析自动命中 Termux bash（`/data/data/com.termux/files/usr/bin/bash`）
+- Termux 里直接跑：`./lbrush --command "echo hi"`，或 `./lbrush --mcp` 给 AI agent 连
+
 ### Transcode (TUI demo)
 
 ```rust

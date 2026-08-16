@@ -38,12 +38,21 @@
 //! ```
 
 use std::io::IsTerminal;
-use std::sync::Arc;
 
+use lilyco_core::registry::Registry;
+use lilyco_core::App;
+
+// TUI 后端专属导入（crossterm 不支持 Android，按 feature 门控）
+#[cfg(feature = "tui")]
 use lilyco_core::executor;
+#[cfg(feature = "tui")]
 use lilyco_core::progress::LogLevel;
-use lilyco_core::registry::{Handler, RegisteredCommand, Registry};
-use lilyco_core::{App, AppError, Progress};
+#[cfg(feature = "tui")]
+use lilyco_core::registry::Handler;
+#[cfg(feature = "tui")]
+use lilyco_core::{AppError, Progress};
+#[cfg(feature = "tui")]
+use std::sync::Arc;
 
 /// 常用导入（trait + 类型 + derive 宏）
 pub mod prelude {
@@ -52,10 +61,15 @@ pub mod prelude {
 }
 
 /// 可用的后端
+///
+/// `Tui` / `Web` 由特性门控（crossterm 不支持 Android 目标；
+/// `--no-default-features` 时只剩 `Cli` + `Mcp`，纯 Rust 全平台可编）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
     Cli,
+    #[cfg(feature = "tui")]
     Tui,
+    #[cfg(feature = "web")]
     Web,
     Mcp,
 }
@@ -76,11 +90,14 @@ pub struct Env<'a> {
 /// 1. CLI 标志：`--mcp` / `--gui`（`--web` 同义）
 /// 2. 环境变量 `LILYCO_UI`：`cli` | `tui` | `web` | `mcp` | `auto`
 /// 3. 自动：stdin 是终端且设置了 `TERM` → TUI；否则 CLI（可管道化，脚本/AI 友好）
+///
+/// 被特性关掉的后端在探测中直接跳过（如 Android headless 构建永远落到 CLI）。
 pub fn detect_backend(env: &Env) -> Backend {
     // 1. 显式标志（调用时刻的意图最高优先）
     if env.args.iter().any(|a| a == "--mcp") {
         return Backend::Mcp;
     }
+    #[cfg(feature = "web")]
     if env.args.iter().any(|a| a == "--gui" || a == "--web") {
         return Backend::Web;
     }
@@ -88,18 +105,20 @@ pub fn detect_backend(env: &Env) -> Backend {
     if let Some(ui) = (env.env)("LILYCO_UI") {
         match ui.as_str() {
             "cli" => return Backend::Cli,
+            #[cfg(feature = "tui")]
             "tui" => return Backend::Tui,
+            #[cfg(feature = "web")]
             "web" | "gui" => return Backend::Web,
             "mcp" => return Backend::Mcp,
             _ => {} // 未知值 → 落到自动
         }
     }
     // 3. 自动
+    #[cfg(feature = "tui")]
     if env.stdin_is_terminal && (env.env)("TERM").map(|t| !t.is_empty()).unwrap_or(false) {
-        Backend::Tui
-    } else {
-        Backend::Cli
+        return Backend::Tui;
     }
+    Backend::Cli
 }
 
 /// 真实环境下的探测（进程入口用）
@@ -122,12 +141,14 @@ pub fn run<A: App + Send + 'static>() {
 pub fn run_with<A: App + Send + 'static>(backend: Backend) {
     match backend {
         Backend::Cli => run_cli::<A>(),
+        #[cfg(feature = "tui")]
         Backend::Tui => {
             // mininterface 借鉴点：TUI 起不来（非终端/CI）时回退 CLI，绝不裸崩
             if run_tui::<A>().is_err() {
                 run_cli::<A>();
             }
         }
+        #[cfg(feature = "web")]
         Backend::Web => run_web::<A>(),
         Backend::Mcp => serve_mcp(single_registry::<A>()),
     }
@@ -148,7 +169,7 @@ pub fn serve_mcp(registry: Registry) {
 fn single_registry<A: App + Send + 'static>() -> Registry {
     let mut registry = Registry::new();
     registry
-        .register(RegisteredCommand::from_app::<A>())
+        .register(lilyco_core::registry::RegisteredCommand::from_app::<A>())
         .expect("register app command");
     registry
 }
@@ -157,6 +178,7 @@ fn run_cli<A: App + Send + 'static>() {
     lilyco_cli::run::<A>(|app, ctx| app.run(ctx));
 }
 
+#[cfg(feature = "web")]
 fn run_web<A: App + Send + 'static>() {
     let port: u16 = std::env::var("LILYCO_PORT")
         .ok()
@@ -172,6 +194,7 @@ fn run_web<A: App + Send + 'static>() {
     });
 }
 
+#[cfg(feature = "tui")]
 fn run_tui<A: App + Send + 'static>() -> std::io::Result<()> {
     use crossterm::event::Event;
     use crossterm::execute;
@@ -221,6 +244,7 @@ fn run_tui<A: App + Send + 'static>() -> std::io::Result<()> {
 }
 
 /// 把表单当前值收集为参数 JSON
+#[cfg(feature = "tui")]
 fn collect_args(app: &lilyco_tui::TuiApp) -> serde_json::Value {
     use lilyco_tui::FieldValue;
     let mut map = serde_json::Map::new();
@@ -240,6 +264,7 @@ fn collect_args(app: &lilyco_tui::TuiApp) -> serde_json::Value {
 }
 
 /// 通过共享 executor 执行并把进度事件灌进 TUI 状态
+#[cfg(feature = "tui")]
 fn execute_form<A: App + Send + 'static>(app: &mut lilyco_tui::TuiApp, args: serde_json::Value) {
     let handler: Handler = Arc::new(move |ctx, args| {
         let obj = args
@@ -278,6 +303,7 @@ fn execute_form<A: App + Send + 'static>(app: &mut lilyco_tui::TuiApp, args: ser
     let _ = task.handle.join();
 }
 
+#[cfg(feature = "tui")]
 fn level_name(level: &LogLevel) -> &'static str {
     match level {
         LogLevel::Debug => "debug",
@@ -310,6 +336,7 @@ mod tests {
         assert_eq!(detect_backend(&e), Backend::Mcp);
     }
 
+    #[cfg(feature = "web")]
     #[test]
     fn gui_flag_selects_web() {
         let args = vec!["--gui".to_string()];
@@ -322,6 +349,7 @@ mod tests {
         assert_eq!(detect_backend(&e), Backend::Web);
     }
 
+    #[cfg(feature = "web")]
     #[test]
     fn env_var_forces_backend() {
         let args: Vec<String> = Vec::new();
@@ -359,6 +387,7 @@ mod tests {
         assert_eq!(detect_backend(&e), Backend::Cli);
     }
 
+    #[cfg(feature = "tui")]
     #[test]
     fn auto_tui_when_terminal_and_term() {
         let args: Vec<String> = Vec::new();
