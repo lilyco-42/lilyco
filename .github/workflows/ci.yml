@@ -38,9 +38,9 @@ jobs:
       - name: Verify docs build
         run: cargo doc --workspace --no-deps
 
-  # 产出可直接使用的 lbrush.exe —— 本机不装 Rust 也能拿到二进制
+  # 产出可直接使用的二进制 —— 本机不装 Rust 也能拿到
   release-build:
-    name: build lbrush (windows)
+    name: build binaries (windows)
     runs-on: windows-latest
     needs: test
     steps:
@@ -54,11 +54,21 @@ jobs:
       - name: Build lbrush (release)
         run: cargo build --release -p lilyco-brush
 
-      - name: Upload artifact
+      - name: Upload lbrush artifact
         uses: actions/upload-artifact@v4
         with:
           name: lbrush-windows
           path: target/release/lbrush.exe
+          if-no-files-found: error
+
+      - name: Build lvision (release)
+        run: cargo build --release -p lilyco-vision
+
+      - name: Upload lvision artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lvision-windows
+          path: target/release/lvision.exe
           if-no-files-found: error
 
   # Android（Termux）：headless 构建（CLI + MCP，纯 Rust）
@@ -86,9 +96,26 @@ jobs:
             --no-default-features --features android \
             --target aarch64-linux-android
 
-      - name: Upload artifact
+      - name: Upload lbrush artifact
         uses: actions/upload-artifact@v4
         with:
           name: lbrush-android-arm64
           path: target/aarch64-linux-android/release/lbrush
+          if-no-files-found: error
+
+      - name: "Build lvision (android headless: CLI+MCP)"
+        run: |
+          NDK_BIN="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android24-clang"
+          cargo build --release -p lilyco-vision \
+            --no-default-features --features android \
+            --target aarch64-linux-android
+
+      - name: Upload lvision artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lvision-android-arm64
+          path: target/aarch64-linux-android/release/lvision
           if-no-files-found: error

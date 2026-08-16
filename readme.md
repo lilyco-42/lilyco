@@ -657,6 +657,31 @@ cargo build -p lilyco-brush --no-default-features --features android --target aa
 - shell 解析自动命中 Termux bash（`/data/data/com.termux/files/usr/bin/bash`）
 - Termux 里直接跑：`./lbrush --command "echo hi"`，或 `./lbrush --mcp` 给 AI agent 连
 
+### Vision Toolkit (`lilyco-vision`)
+
+DSH Vision Toolkit 的 Rust 重写 —— 8 个本地视觉操作，`Registry` 注册 + `--mcp` 给 DSH 提供视觉：
+
+```bash
+lvision --list                                     # 打印全部工具 schema
+lvision --mcp                                      # MCP 服务器（8 个原生工具）
+```
+
+| 工具 | 功能 | 依赖 |
+|---|---|---|
+| `ImageInfo` | 尺寸 / 格式 / 大小 | image |
+| `Crop` | 像素框裁剪 + 缩放（LANCZOS） | image |
+| `Resize` | 等比缩放 | image |
+| `DominantColors` | 主色提取（贪心聚类 + 容差） | image（自研算法） |
+| `PixelDiff` | 网格级像素差异排行 + 热力图 | image（自研算法） |
+| `ExtractForeground` | 前景抠图（边界泛洪，透明 PNG） | image（自研算法） |
+| `Trace` | 位图矢量化 → SVG | [vtracer](https://github.com/visioncortex/vtracer) |
+| `HtmlScreenshot` | HTML → PNG（headless Chrome/Edge） | 浏览器 |
+
+- 全部本地计算，无 Python 运行时（原版是 Pillow+numpy+vtracer 的 uv 环境）
+- DSH 接入：`lilyco-vision/dsh/cordis.patch.yml`（模型看到 `mcp__lvision__*` 工具）
+- CI 产物：`lvision-windows` / `lvision-android-arm64`
+- 服务类工具（glance/ground/detect/OCR）依赖外部视觉服务，v1 不做
+
 ### Transcode (TUI demo)
 
 ```rust
