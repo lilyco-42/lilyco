@@ -149,14 +149,22 @@ jobs:
           name: lvision-android-arm64
           path: release/lvision-android-arm64
 
+      - name: Stage release files (platform-suffixed names)
+        run: |
+          mkdir -p staging
+          cp release/lbrush-windows/lbrush.exe staging/lbrush-windows.exe
+          cp release/lvision-windows/lvision.exe staging/lvision-windows.exe
+          cp release/lbrush-android-arm64/lbrush staging/lbrush-android-arm64
+          cp release/lvision-android-arm64/lvision staging/lvision-android-arm64
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            release/lbrush-windows/* \
-            release/lvision-windows/* \
-            release/lbrush-android-arm64/* \
-            release/lvision-android-arm64/* \
+            staging/lbrush-windows.exe \
+            staging/lvision-windows.exe \
+            staging/lbrush-android-arm64 \
+            staging/lvision-android-arm64 \
             --title "$GITHUB_REF_NAME" \
             --generate-notes
