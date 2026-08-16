@@ -4,10 +4,12 @@ members = [
     "lilyco-cli",
     "lilyco-tui",
     "lilyco-gui",
+    "lilyco-mcp",
     "lilyco-macros",
     "lilyco-example",
     "lilyco-ultra-ui",
     "lilyco-ultra-ui-example",
+    "lilyco",
 ]
 resolver = "2"
 

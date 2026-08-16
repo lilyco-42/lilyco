@@ -11,14 +11,13 @@ name = "imgpress"
 path = "src/main.rs"
 
 [dependencies]
+lilyco = { path = "../lilyco" }
+# derive(App) 宏展开引用 lilyco_core::… 路径，binary 需要能解析到它
 lilyco-core = { path = "../lilyco-core" }
-lilyco-macros = { path = "../lilyco-macros" }
-lilyco-cli = { path = "../lilyco-cli" }
-lilyco-gui = { path = "../lilyco-gui" }
-tokio = { version = "1", features = ["rt"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 tempfile = "3"
+lilyco-macros = { path = "../lilyco-macros" }

@@ -37,7 +37,9 @@ pub fn builder_html() -> String {
   <script>{js}</script>
 </body>
 </html>"#,
-        css = BUILDER_CSS, example = example, js = BUILDER_JS,
+        css = BUILDER_CSS,
+        example = example,
+        js = BUILDER_JS,
     )
 }
 
@@ -116,5 +118,7 @@ render();
 "##;
 
 fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }

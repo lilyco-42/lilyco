@@ -49,10 +49,7 @@ impl CommandSchema {
         let mut required: Vec<serde_json::Value> = Vec::new();
 
         for arg in &self.args {
-            props.insert(
-                arg.name.to_string(),
-                arg_kind_to_json_schema(&arg.kind),
-            );
+            props.insert(arg.name.to_string(), arg_kind_to_json_schema(&arg.kind));
             if arg.required {
                 required.push(serde_json::Value::String(arg.name.to_string()));
             }
@@ -141,4 +138,3 @@ pub trait ValueEnum: Sized {
     /// 从字符串反序列化
     fn from_str(s: &str) -> Option<Self>;
 }
-

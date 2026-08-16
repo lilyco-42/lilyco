@@ -27,10 +27,7 @@ pub enum Progress {
         percent: Option<f32>,
     },
     /// 日志输出
-    Log {
-        level: LogLevel,
-        message: String,
-    },
+    Log { level: LogLevel, message: String },
     /// 任务完成，携带结果
     Done {
         /// 任务结果，序列化为 JSON

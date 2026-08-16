@@ -12,9 +12,7 @@ pub trait App: Sized {
     fn schema() -> CommandSchema;
 
     /// 从解析后的参数 map 构造自身（CLI 调用路径）
-    fn from_args(
-        args: &HashMap<String, serde_json::Value>,
-    ) -> Result<Self, AppError>;
+    fn from_args(args: &HashMap<String, serde_json::Value>) -> Result<Self, AppError>;
 
     /// 执行业务逻辑，通过 ctx 上报进度
     fn run(&self, ctx: &Context) -> Result<serde_json::Value, AppError>;

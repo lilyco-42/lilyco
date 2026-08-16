@@ -44,10 +44,7 @@ impl CliRenderer {
     /// 返回 `true` 表示已打印并应退出进程。
     pub fn handle_builtin_flags(schema: &CommandSchema, matches: &clap::ArgMatches) -> bool {
         if matches.get_flag("schema") {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&schema).unwrap()
-            );
+            println!("{}", serde_json::to_string_pretty(&schema).unwrap());
             return true;
         }
         if matches.get_flag("openai-tool") {
@@ -114,10 +111,7 @@ impl CliRenderer {
                 }
                 ArgKind::Number { .. } => {
                     if let Some(v) = matches.get_one::<f64>(name) {
-                        map.insert(
-                            name.clone(),
-                            serde_json::json!(v),
-                        );
+                        map.insert(name.clone(), serde_json::json!(v));
                     }
                 }
                 ArgKind::Path { .. } => {
@@ -149,8 +143,9 @@ impl CliRenderer {
 ///     lilyco_cli::run::<MyApp>(my_run_fn);
 /// }
 /// ```
-pub fn run<A: App + Send + 'static>(runner: fn(&A, &Context) -> Result<serde_json::Value, AppError>) {
-    use std::sync::atomic::AtomicBool;
+pub fn run<A: App + Send + 'static>(
+    runner: fn(&A, &Context) -> Result<serde_json::Value, AppError>,
+) {
     use std::sync::Arc;
 
     let schema = A::schema();
@@ -165,23 +160,22 @@ pub fn run<A: App + Send + 'static>(runner: fn(&A, &Context) -> Result<serde_jso
     let output_format = CliRenderer::output_format(&matches);
     let args = CliRenderer::extract_args(&schema, &matches);
 
-    let app = match A::from_args(&args) {
-        Ok(a) => a,
-        Err(e) => {
-            eprintln!("Error: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    let (tx, rx) = std::sync::mpsc::channel();
-    let cancel = Arc::new(AtomicBool::new(false));
-    let ctx = Context::new(tx, cancel.clone(), output_format.clone());
-
-    let handle = std::thread::spawn(move || runner(&app, &ctx));
+    // 执行语义交给 core::executor（与 TUI / GUI / MCP 共享同一宿主）
+    let args_value = serde_json::to_value(&args).unwrap_or(serde_json::json!({}));
+    let handler: Handler = Arc::new(move |ctx, args| {
+        let obj = args
+            .as_object()
+            .ok_or_else(|| AppError::InvalidArg("args must be a JSON object".into()))?;
+        let map: std::collections::HashMap<String, serde_json::Value> =
+            obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let app = A::from_args(&map)?;
+        runner(&app, ctx)
+    });
+    let task = spawn(handler, args_value);
 
     match output_format {
         OutputFormat::JsonStream => {
-            for event in rx {
+            for event in task.rx {
                 println!("{}", serde_json::to_string(&event).unwrap());
                 if matches!(event, Progress::Done { .. } | Progress::Error { .. }) {
                     break;
@@ -189,7 +183,7 @@ pub fn run<A: App + Send + 'static>(runner: fn(&A, &Context) -> Result<serde_jso
             }
         }
         OutputFormat::Json => {
-            for event in rx {
+            for event in task.rx {
                 if let Progress::Done { result, .. } = event {
                     println!("{}", serde_json::to_string_pretty(&result).unwrap());
                     break;
@@ -201,9 +195,11 @@ pub fn run<A: App + Send + 'static>(runner: fn(&A, &Context) -> Result<serde_jso
             }
         }
         _ => {
-            for event in rx {
+            for event in task.rx {
                 match &event {
-                    Progress::Tick { message, percent, .. } => {
+                    Progress::Tick {
+                        message, percent, ..
+                    } => {
                         if let Some(msg) = message {
                             let pct = percent
                                 .map(|p| format!("{:3.0}%", p * 100.0))
@@ -214,7 +210,10 @@ pub fn run<A: App + Send + 'static>(runner: fn(&A, &Context) -> Result<serde_jso
                     Progress::Log { level, message } => {
                         eprintln!("  [{level:?}] {message}");
                     }
-                    Progress::Done { result, duration_ms } => {
+                    Progress::Done {
+                        result,
+                        duration_ms,
+                    } => {
                         if let Ok(r) = serde_json::to_string_pretty(result) {
                             if r != "null" && r != "\"ok\"" && r.len() < 500 {
                                 println!("{r}");
@@ -234,7 +233,7 @@ pub fn run<A: App + Send + 'static>(runner: fn(&A, &Context) -> Result<serde_jso
         }
     }
 
-    if let Err(e) = handle.join() {
+    if let Err(e) = task.handle.join() {
         eprintln!("Error: {e:?}");
         std::process::exit(1);
     }
@@ -267,9 +266,7 @@ fn build_command(schema: &CommandSchema) -> Command {
 
 fn arg_to_clap(arg: &ArgSchema) -> Arg {
     let name: &'static str = leak_str(&arg.name);
-    let mut a = Arg::new(name)
-        .long(name)
-        .help(arg.about.clone());
+    let mut a = Arg::new(name).long(name).help(arg.about.clone());
 
     if arg.required {
         a = a.required(true);
@@ -290,9 +287,7 @@ fn arg_to_clap(arg: &ArgSchema) -> Arg {
             let min = *min;
             let max = *max;
             a = a.value_parser(move |s: &str| -> Result<f64, String> {
-                let v: f64 = s
-                    .parse()
-                    .map_err(|e| format!("invalid number: {e}"))?;
+                let v: f64 = s.parse().map_err(|e| format!("invalid number: {e}"))?;
                 if let Some(lo) = min {
                     if v < lo {
                         return Err(format!("value must be >= {lo}, got {v}"));
@@ -322,10 +317,7 @@ fn arg_to_clap(arg: &ArgSchema) -> Arg {
         }
         ArgKind::List { item } => {
             let vp = arg_kind_to_value_parser(item);
-            a = a
-                .num_args(1..)
-                .action(ArgAction::Append)
-                .value_parser(vp);
+            a = a.num_args(1..).action(ArgAction::Append).value_parser(vp);
         }
     }
 
@@ -340,9 +332,7 @@ fn arg_kind_to_value_parser(kind: &ArgKind) -> clap::builder::ValueParser {
             let min = *min;
             let max = *max;
             clap::builder::ValueParser::new(move |s: &str| -> Result<f64, String> {
-                let v: f64 = s
-                    .parse()
-                    .map_err(|e| format!("invalid number: {e}"))?;
+                let v: f64 = s.parse().map_err(|e| format!("invalid number: {e}"))?;
                 if let Some(lo) = min {
                     if v < lo {
                         return Err(format!("value must be >= {lo}, got {v}"));
@@ -514,12 +504,17 @@ mod tests {
         let schema = transcode_schema();
         let cmd = renderer.render(&schema);
 
-        let matches = cmd.try_get_matches_from([
-            "transcode",
-            "--env", "prod",
-            "--quality", "23",
-            "--input", "test.mp4",
-        ]).unwrap();
+        let matches = cmd
+            .try_get_matches_from([
+                "transcode",
+                "--env",
+                "prod",
+                "--quality",
+                "23",
+                "--input",
+                "test.mp4",
+            ])
+            .unwrap();
 
         assert_eq!(matches.get_one::<String>("env").unwrap(), "prod");
         assert_eq!(*matches.get_one::<f64>("quality").unwrap(), 23.0);
@@ -531,11 +526,9 @@ mod tests {
         let schema = transcode_schema();
         let cmd = renderer.render(&schema);
 
-        let matches = cmd.try_get_matches_from([
-            "transcode",
-            "--env", "prod",
-            "--input", "test.mp4",
-        ]).unwrap();
+        let matches = cmd
+            .try_get_matches_from(["transcode", "--env", "prod", "--input", "test.mp4"])
+            .unwrap();
 
         // codec 有默认值 "h264"
         assert_eq!(matches.get_one::<String>("codec").unwrap(), "h264");
@@ -560,7 +553,10 @@ mod tests {
         let renderer = CliRenderer::new();
         let cmd = renderer.render(&schema);
 
-        let m = cmd.clone().try_get_matches_from(["cmd", "--verbose"]).unwrap();
+        let m = cmd
+            .clone()
+            .try_get_matches_from(["cmd", "--verbose"])
+            .unwrap();
         assert!(m.get_flag("verbose"));
 
         let m = cmd.try_get_matches_from(["cmd"]).unwrap();
@@ -616,7 +612,8 @@ mod tests {
         let renderer = CliRenderer::new();
         let cmd = renderer.render(&schema);
 
-        let m = cmd.clone()
+        let m = cmd
+            .clone()
             .try_get_matches_from(["cmd", "--codec", "h265"])
             .unwrap();
         assert_eq!(m.get_one::<String>("codec").unwrap(), "h265");
@@ -687,12 +684,18 @@ mod tests {
         let err = cmd
             .try_get_matches_from([
                 "transcode",
-                "--env", "prod",
-                "--quality", "100",
-                "--input", "test.mp4",
+                "--env",
+                "prod",
+                "--quality",
+                "100",
+                "--input",
+                "test.mp4",
             ])
             .unwrap_err();
-        assert!(err.to_string().contains("<= 51"), "expected range error: {err}");
+        assert!(
+            err.to_string().contains("<= 51"),
+            "expected range error: {err}"
+        );
     }
 
     #[test]
@@ -704,12 +707,17 @@ mod tests {
         let err = cmd
             .try_get_matches_from([
                 "transcode",
-                "--env", "prod",
+                "--env",
+                "prod",
                 "--quality=-5",
-                "--input", "test.mp4",
+                "--input",
+                "test.mp4",
             ])
             .unwrap_err();
-        assert!(err.to_string().contains(">= 0"), "expected range error: {err}");
+        assert!(
+            err.to_string().contains(">= 0"),
+            "expected range error: {err}"
+        );
     }
 
     // ─── 内置标志 ──────────────────────────────────────
@@ -720,9 +728,7 @@ mod tests {
         let schema = transcode_schema();
         let cmd = renderer.render(&schema);
 
-        let m = cmd
-            .try_get_matches_from(["transcode", "--schema"])
-            .unwrap();
+        let m = cmd.try_get_matches_from(["transcode", "--schema"]).unwrap();
         assert!(m.get_flag("schema"));
 
         let json_str = serde_json::to_string_pretty(&schema).unwrap();
@@ -761,7 +767,14 @@ mod tests {
         let cmd = renderer.render(&schema);
 
         let m = cmd
-            .try_get_matches_from(["transcode", "--json", "--env", "prod", "--input", "test.mp4"])
+            .try_get_matches_from([
+                "transcode",
+                "--json",
+                "--env",
+                "prod",
+                "--input",
+                "test.mp4",
+            ])
             .unwrap();
         assert!(m.get_flag("json"));
     }
@@ -773,7 +786,14 @@ mod tests {
         let cmd = renderer.render(&schema);
 
         let m = cmd
-            .try_get_matches_from(["transcode", "--json-stream", "--env", "prod", "--input", "test.mp4"])
+            .try_get_matches_from([
+                "transcode",
+                "--json-stream",
+                "--env",
+                "prod",
+                "--input",
+                "test.mp4",
+            ])
             .unwrap();
         assert!(m.get_flag("json-stream"));
         assert!(!m.get_flag("json"));
@@ -800,7 +820,14 @@ mod tests {
         let cmd = renderer.render(&schema);
 
         let m = cmd
-            .try_get_matches_from(["transcode", "--json", "--env", "prod", "--input", "test.mp4"])
+            .try_get_matches_from([
+                "transcode",
+                "--json",
+                "--env",
+                "prod",
+                "--input",
+                "test.mp4",
+            ])
             .unwrap();
         assert_eq!(CliRenderer::output_format(&m), OutputFormat::Json);
     }
@@ -812,7 +839,14 @@ mod tests {
         let cmd = renderer.render(&schema);
 
         let m = cmd
-            .try_get_matches_from(["transcode", "--json-stream", "--env", "prod", "--input", "test.mp4"])
+            .try_get_matches_from([
+                "transcode",
+                "--json-stream",
+                "--env",
+                "prod",
+                "--input",
+                "test.mp4",
+            ])
             .unwrap();
         assert_eq!(CliRenderer::output_format(&m), OutputFormat::JsonStream);
     }
@@ -824,9 +858,7 @@ mod tests {
         let schema = transcode_schema();
         let renderer = CliRenderer::new();
         let cmd = renderer.render(&schema);
-        let m = cmd
-            .try_get_matches_from(["transcode", "--schema"])
-            .unwrap();
+        let m = cmd.try_get_matches_from(["transcode", "--schema"]).unwrap();
         assert!(CliRenderer::handle_builtin_flags(&schema, &m));
     }
 
@@ -865,10 +897,14 @@ mod tests {
         let m = cmd
             .try_get_matches_from([
                 "transcode",
-                "--env", "prod",
-                "--input", "test.mp4",
-                "--tags", "drama",
-                "--tags", "action",
+                "--env",
+                "prod",
+                "--input",
+                "test.mp4",
+                "--tags",
+                "drama",
+                "--tags",
+                "action",
             ])
             .unwrap();
         let args = CliRenderer::extract_args(&schema, &m);
@@ -887,8 +923,10 @@ mod tests {
             .try_get_matches_from([
                 "transcode",
                 "--json-stream",
-                "--env", "prod",
-                "--input", "test.mp4",
+                "--env",
+                "prod",
+                "--input",
+                "test.mp4",
             ])
             .unwrap();
         let args = CliRenderer::extract_args(&schema, &m);

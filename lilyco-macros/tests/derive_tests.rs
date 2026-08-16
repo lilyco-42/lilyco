@@ -119,7 +119,10 @@ fn range_attr_sets_number_bounds() {
 
 // -- Test 6: run attribute wires up the function --
 
-fn test_run_fn(_app: &RunCmd, _ctx: &lilyco_core::Context) -> Result<serde_json::Value, lilyco_core::AppError> {
+fn test_run_fn(
+    _app: &RunCmd,
+    _ctx: &lilyco_core::Context,
+) -> Result<serde_json::Value, lilyco_core::AppError> {
     Ok(serde_json::json!({"called": true}))
 }
 
@@ -148,7 +151,10 @@ fn run_attribute_calls_specified_function() {
 
 // -- Test 7: run attribute with about from doc comment --
 
-fn echo_run(app: &EchoCmd, _ctx: &lilyco_core::Context) -> Result<serde_json::Value, lilyco_core::AppError> {
+fn echo_run(
+    app: &EchoCmd,
+    _ctx: &lilyco_core::Context,
+) -> Result<serde_json::Value, lilyco_core::AppError> {
     Ok(serde_json::json!({"echo": app.message}))
 }
 

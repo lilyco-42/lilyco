@@ -30,9 +30,7 @@ pub enum AppError {
 impl Serialize for AppError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
-            AppError::Cancelled => {
-                serializer.serialize_unit_variant("AppError", 3, "Cancelled")
-            }
+            AppError::Cancelled => serializer.serialize_unit_variant("AppError", 3, "Cancelled"),
             _ => {
                 let msg = self.message();
                 serializer.serialize_newtype_variant(
@@ -127,9 +125,9 @@ impl AppError {
 
     fn message(&self) -> String {
         match self {
-            AppError::InvalidArg(msg)
-            | AppError::InvalidInput(msg)
-            | AppError::Runtime(msg) => msg.clone(),
+            AppError::InvalidArg(msg) | AppError::InvalidInput(msg) | AppError::Runtime(msg) => {
+                msg.clone()
+            }
             AppError::Cancelled => String::new(),
             AppError::Io(e) => e.to_string(),
             AppError::Serialize(e) => e.to_string(),

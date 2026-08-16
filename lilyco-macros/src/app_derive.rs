@@ -56,7 +56,10 @@ fn doc_comment(attrs: &[Attribute]) -> Option<String> {
     for attr in attrs {
         if attr.path().is_ident("doc") {
             if let syn::Meta::NameValue(m) = &attr.meta {
-                if let syn::Expr::Lit(syn::ExprLit { lit: Lit::Str(s), .. }) = &m.value {
+                if let syn::Expr::Lit(syn::ExprLit {
+                    lit: Lit::Str(s), ..
+                }) = &m.value
+                {
                     let txt = s.value().trim().to_string();
                     if !txt.is_empty() {
                         return Some(txt);
@@ -152,9 +155,11 @@ struct FieldInfo {
 
 fn is_option_type(ty: &Type) -> bool {
     match ty {
-        Type::Path(tp) => {
-            tp.path.segments.last().map_or(false, |s| s.ident == "Option")
-        }
+        Type::Path(tp) => tp
+            .path
+            .segments
+            .last()
+            .map_or(false, |s| s.ident == "Option"),
         _ => false,
     }
 }
@@ -178,7 +183,12 @@ fn infer_kind(ty: &Type) -> (InferredKind, bool) {
                 if let syn::PathArguments::AngleBracketed(ref args) = last.arguments {
                     if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
                         let (inner_kind, _) = infer_kind(inner);
-                        return (InferredKind::List { item: Box::new(inner_kind) }, true);
+                        return (
+                            InferredKind::List {
+                                item: Box::new(inner_kind),
+                            },
+                            true,
+                        );
                     }
                 }
             }
@@ -187,8 +197,8 @@ fn infer_kind(ty: &Type) -> (InferredKind, bool) {
                 "bool" => (InferredKind::Flag, false), // flag 省略即 false
                 "String" => (InferredKind::Text, true),
                 "PathBuf" => (InferredKind::Path { must_exist: false }, true),
-                "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64"
-                | "f32" | "f64" | "usize" | "isize" => (InferredKind::Number, true),
+                "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64" | "f32" | "f64"
+                | "usize" | "isize" => (InferredKind::Number, true),
                 _ => (InferredKind::Enum, true),
             }
         }
@@ -203,8 +213,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
 
     let struct_name = &input.ident;
     let app_attrs = parse_app_attrs(&input.attrs);
-    let about_str = app_attrs.about
-        .unwrap_or_else(|| struct_name.to_string());
+    let about_str = app_attrs.about.unwrap_or_else(|| struct_name.to_string());
 
     let fields = match &input.data {
         Data::Struct(s) => match &s.fields {
@@ -243,8 +252,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
     // ── generate schema() body ──
     let schema_args = field_infos.iter().map(|f| {
         let name = snake_to_kebab(&f.ident.to_string());
-        let about = f.attrs.about.clone()
-            .unwrap_or_else(|| name.clone());
+        let about = f.attrs.about.clone().unwrap_or_else(|| name.clone());
         let required = f.required;
         let default_expr = match &f.attrs.default {
             Some(d) => quote! { Some(serde_json::to_value(#d).unwrap()) },
@@ -271,9 +279,15 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
         let is_opt = f.is_option;
 
         let inner = match &f.kind {
-            InferredKind::Flag => quote! { args.get(#name).and_then(|v| v.as_bool()).unwrap_or(false) },
-            InferredKind::Text => quote! { args.get(#name).and_then(|v| v.as_str()).unwrap_or("").to_string() },
-            InferredKind::Number => quote! { args.get(#name).and_then(|v| v.as_f64()).unwrap_or(0.0) as #ty },
+            InferredKind::Flag => {
+                quote! { args.get(#name).and_then(|v| v.as_bool()).unwrap_or(false) }
+            }
+            InferredKind::Text => {
+                quote! { args.get(#name).and_then(|v| v.as_str()).unwrap_or("").to_string() }
+            }
+            InferredKind::Number => {
+                quote! { args.get(#name).and_then(|v| v.as_f64()).unwrap_or(0.0) as #ty }
+            }
             InferredKind::Path { .. } => quote! {
                 std::path::PathBuf::from(args.get(#name).and_then(|v| v.as_str()).unwrap_or(""))
             },
@@ -355,8 +369,18 @@ fn kind_to_tokens(f: &FieldInfo) -> TokenStream {
         InferredKind::Flag => quote! { lilyco_core::schema::ArgKind::Flag },
         InferredKind::Text => quote! { lilyco_core::schema::ArgKind::Text },
         InferredKind::Number => {
-            let min = f.attrs.min.as_ref().map(|m| quote! { Some(#m as f64) }).unwrap_or(quote! { None });
-            let max = f.attrs.max.as_ref().map(|m| quote! { Some(#m as f64) }).unwrap_or(quote! { None });
+            let min = f
+                .attrs
+                .min
+                .as_ref()
+                .map(|m| quote! { Some(#m as f64) })
+                .unwrap_or(quote! { None });
+            let max = f
+                .attrs
+                .max
+                .as_ref()
+                .map(|m| quote! { Some(#m as f64) })
+                .unwrap_or(quote! { None });
             quote! { lilyco_core::schema::ArgKind::Number { min: #min, max: #max } }
         }
         InferredKind::Path { must_exist } => {
@@ -369,11 +393,13 @@ fn kind_to_tokens(f: &FieldInfo) -> TokenStream {
                     values: <#ty as lilyco_core::schema::ValueEnum>::variants().into_iter().map(|s| s.to_string()).collect()
                 }
             }
-        },
+        }
         InferredKind::List { item } => {
             let inner = match item.as_ref() {
                 InferredKind::Text => quote! { lilyco_core::schema::ArgKind::Text },
-                InferredKind::Number => quote! { lilyco_core::schema::ArgKind::Number { min: None, max: None } },
+                InferredKind::Number => {
+                    quote! { lilyco_core::schema::ArgKind::Number { min: None, max: None } }
+                }
                 InferredKind::Flag => quote! { lilyco_core::schema::ArgKind::Flag },
                 _ => quote! { lilyco_core::schema::ArgKind::Text },
             };

@@ -12,9 +12,15 @@ pub enum FieldValue {
     Flag(bool),
     Text(String),
     Number(f64),
-    Enum { values: Vec<String>, selected: usize },
+    Enum {
+        values: Vec<String>,
+        selected: usize,
+    },
     Path(String),
-    List { values: Vec<String>, cursor: usize },
+    List {
+        values: Vec<String>,
+        cursor: usize,
+    },
 }
 
 impl FieldValue {
@@ -95,7 +101,12 @@ impl FormField {
         let required = if self.required { "(*)" } else { "" };
         let label = format!(" {:>16} {} ", self.name, required);
 
-        buf.set_string(area.x, area.y, &label, Style::default().add_modifier(Modifier::BOLD));
+        buf.set_string(
+            area.x,
+            area.y,
+            &label,
+            Style::default().add_modifier(Modifier::BOLD),
+        );
 
         let widget_x = area.x + label.len() as u16;
 
