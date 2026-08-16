@@ -142,14 +142,22 @@ pub fn render_form(fr: &FormRenderer, area: Rect, buf: &mut Buffer) {
     let form_h = area.height.saturating_sub(header_h + footer_h);
 
     // ── 顶部标题栏 ──
-    let header = Rect { y: area.y, height: header_h, ..area };
+    let header = Rect {
+        y: area.y,
+        height: header_h,
+        ..area
+    };
     let title = format!(" {} — {} ", fr.command_name, fr.command_about);
     let title_style = Style::default().fg(Color::Black).bg(Color::Cyan);
     buf.set_string(header.x, header.y, &title, title_style);
 
     // CLI 预览（标题下方）
     let preview = format!(" $ {} ", fr.cli_preview());
-    let preview_area = Rect { y: header.y + 1, height: 1, ..area };
+    let preview_area = Rect {
+        y: header.y + 1,
+        height: 1,
+        ..area
+    };
     buf.set_string(
         preview_area.x,
         preview_area.y,
@@ -207,21 +215,29 @@ pub fn render_form(fr: &FormRenderer, area: Rect, buf: &mut Buffer) {
 /// 渲染确认对话框 overlay
 pub fn render_confirm(fr: &FormRenderer, area: Rect, buf: &mut Buffer) {
     let preview = fr.cli_preview();
-    let msg = format!(
-        " 确认执行？\n\n 命令: {preview}\n\n [Enter] 确认  [Esc] 取消 "
-    );
+    let msg = format!(" 确认执行？\n\n 命令: {preview}\n\n [Enter] 确认  [Esc] 取消 ");
 
     // 居中弹窗
     let w = 60u16.min(area.width);
     let h = 6u16;
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
-    let popup = Rect { x, y, width: w, height: h };
+    let popup = Rect {
+        x,
+        y,
+        width: w,
+        height: h,
+    };
 
     // 背景
     for dy in 0..h {
         let line = " ".repeat(w as usize);
-        buf.set_string(popup.x, popup.y + dy, &line, Style::default().bg(Color::DarkGray));
+        buf.set_string(
+            popup.x,
+            popup.y + dy,
+            &line,
+            Style::default().bg(Color::DarkGray),
+        );
     }
 
     for (i, line) in msg.lines().enumerate() {
@@ -245,7 +261,11 @@ pub fn render_running(fr: &FormRenderer, area: Rect, buf: &mut Buffer) {
         .ratio(f64::from(pct).clamp(0.0, 1.0))
         .label(format!("{:.0}%", pct * 100.0));
     gauge.render(
-        Rect { y: gauge_y, height: 3, ..area },
+        Rect {
+            y: gauge_y,
+            height: 3,
+            ..area
+        },
         buf,
     );
 
@@ -258,7 +278,11 @@ pub fn render_running(fr: &FormRenderer, area: Rect, buf: &mut Buffer) {
     };
     let visible_logs = log_area.height as usize;
     let logs = &fr.progress_log;
-    let skip = if logs.len() > visible_logs { logs.len() - visible_logs } else { 0 };
+    let skip = if logs.len() > visible_logs {
+        logs.len() - visible_logs
+    } else {
+        0
+    };
     for (i, msg) in logs.iter().skip(skip).enumerate() {
         buf.set_string(
             log_area.x,

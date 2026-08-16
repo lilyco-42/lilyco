@@ -244,7 +244,12 @@ fn render_help_overlay(area: Rect, buf: &mut Buffer) {
     for (i, line) in text.lines().enumerate() {
         let trimmed = line.trim();
         if !trimmed.is_empty() {
-            buf.set_string(x + 2, y + 1 + i as u16, trimmed, Style::default().fg(Color::White).bg(Color::DarkGray));
+            buf.set_string(
+                x + 2,
+                y + 1 + i as u16,
+                trimmed,
+                Style::default().fg(Color::White).bg(Color::DarkGray),
+            );
         }
     }
 }

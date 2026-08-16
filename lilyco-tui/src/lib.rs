@@ -12,9 +12,9 @@ pub use widgets::{FieldValue, FormField};
 mod tests {
     use super::*;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use lilyco_core::schema::{ArgKind, ArgSchema, CommandSchema};
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
-    use lilyco_core::schema::{ArgKind, ArgSchema, CommandSchema};
 
     /// 构建测试用 schema：两个 flag + enum + number
     fn test_schema() -> CommandSchema {
@@ -107,14 +107,20 @@ mod tests {
         let mut app = TuiApp::new(&schema);
 
         let preview_before = app.form.cli_preview();
-        assert!(!preview_before.contains("--verbose"), "verbose should be off by default");
+        assert!(
+            !preview_before.contains("--verbose"),
+            "verbose should be off by default"
+        );
 
         // 焦点移到 verbose (index 0)，按空格切换
         app.form.focus_index = 0;
         app.handle_event(key(KeyCode::Char(' ')));
 
         let preview_after = app.form.cli_preview();
-        assert!(preview_after.contains("--verbose"), "verbose should be on after toggle: {preview_after}");
+        assert!(
+            preview_after.contains("--verbose"),
+            "verbose should be on after toggle: {preview_after}"
+        );
     }
 
     // ─── 测试 3：左右键在 enum 值间循环 ─────────────────
@@ -169,7 +175,11 @@ mod tests {
         if let FieldValue::Number(n) = &mut app.fields_mut()[3].value {
             *n = 51.0; // 上限
         }
-        assert_eq!(app.form.cli_preview().contains("51"), true, "should show 51");
+        assert_eq!(
+            app.form.cli_preview().contains("51"),
+            true,
+            "should show 51"
+        );
 
         if let FieldValue::Number(n) = &mut app.fields_mut()[3].value {
             *n = 0.0; // 下限
@@ -206,11 +216,20 @@ mod tests {
         let preview = app.form.cli_preview();
 
         // quality 默认 23，当前值即 23，不应出现
-        assert!(!preview.contains("23"), "default quality should be omitted: {preview}");
+        assert!(
+            !preview.contains("23"),
+            "default quality should be omitted: {preview}"
+        );
         // codec 默认 h264，当前值即 h264，不应出现
-        assert!(!preview.contains("h264"), "default codec should be omitted: {preview}");
+        assert!(
+            !preview.contains("h264"),
+            "default codec should be omitted: {preview}"
+        );
         // auto 默认 true，不应出现
-        assert!(!preview.contains("auto"), "default auto=true should be omitted: {preview}");
+        assert!(
+            !preview.contains("auto"),
+            "default auto=true should be omitted: {preview}"
+        );
     }
 
     // ─── 测试 6：false 的 flag 不出现在预览里 ────────────
@@ -222,7 +241,10 @@ mod tests {
         let preview = app.form.cli_preview();
 
         // verbose 默认 false，不应出现
-        assert!(!preview.contains("verbose"), "false flag should be omitted: {preview}");
+        assert!(
+            !preview.contains("verbose"),
+            "false flag should be omitted: {preview}"
+        );
     }
 
     // ─── 附加：测试代码片段 ─────────────────────────────
@@ -232,9 +254,16 @@ mod tests {
         let schema = test_schema();
         let app = TuiApp::new(&schema);
         let preview = app.form.cli_preview();
-        assert!(preview.starts_with("demo"), "preview should start with command name: {preview}");
+        assert!(
+            preview.starts_with("demo"),
+            "preview should start with command name: {preview}"
+        );
         // 空必填字段不出现在预览中（用户需要先填写）
-        assert_eq!(preview.trim(), "demo", "only command name when all defaults/empty");
+        assert_eq!(
+            preview.trim(),
+            "demo",
+            "only command name when all defaults/empty"
+        );
     }
 
     #[test]

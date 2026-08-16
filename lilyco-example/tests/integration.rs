@@ -104,7 +104,10 @@ fn schema_enum_has_values() {
     let fmt = s.args.iter().find(|a| a.name == "format").unwrap();
     match &fmt.kind {
         ArgKind::Enum { values } => {
-            assert_eq!(values, &vec!["jpeg".to_string(), "png".to_string(), "webp".to_string()]);
+            assert_eq!(
+                values,
+                &vec!["jpeg".to_string(), "png".to_string(), "webp".to_string()]
+            );
         }
         _ => panic!("expected Enum"),
     }
@@ -165,7 +168,7 @@ fn from_args_uses_defaults() {
     let app = ImgCompress::from_args(&args).unwrap();
     assert_eq!(app.quality, 75);
     assert_eq!(app.format, Format::Jpeg);
-    assert!(!app.dry_run);  // flag defaults to false when key missing
+    assert!(!app.dry_run); // flag defaults to false when key missing
 }
 
 // ── Compression tests ───────────────────────────────────────
@@ -229,7 +232,7 @@ fn compress_with_resize() {
         output: None,
         format: Format::Png,
         quality: 80,
-        width: 50,  // resize to max 50px wide
+        width: 50, // resize to max 50px wide
         height: 0,
         dry_run: false,
     };
@@ -265,7 +268,9 @@ fn progress_stream_emits_events() {
     for event in rx {
         let is_done = matches!(event, Progress::Done { .. });
         events.push(event);
-        if is_done { break; }
+        if is_done {
+            break;
+        }
     }
     handle.join().unwrap().unwrap();
 
@@ -279,21 +284,24 @@ fn progress_stream_emits_events() {
 // We can't import from main.rs in a binary crate, so we duplicate the
 // compression logic here. In a real app, you'd extract this to a library crate.
 
-use std::time::Instant;
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::webp::WebPEncoder;
-use image::{DynamicImage, ExtendedColorType, GenericImageView};
 use image::imageops::FilterType as ResizeFilter;
+use image::{DynamicImage, ExtendedColorType, GenericImageView};
+use std::time::Instant;
 
 fn run_compress_inner(app: &ImgCompress, ctx: &Context) -> Result<serde_json::Value, AppError> {
     let start = Instant::now();
-    ctx.emit(Progress::Started { total: Some(5), message: None });
+    ctx.emit(Progress::Started {
+        total: Some(5),
+        message: None,
+    });
 
     ctx.tick(1, Some(5), "Reading");
     let data = std::fs::read(&app.input)?;
     let in_size = data.len() as u64;
-    let img = image::load_from_memory(&data)
-        .map_err(|e| AppError::Runtime(format!("decode: {e}")))?;
+    let img =
+        image::load_from_memory(&data).map_err(|e| AppError::Runtime(format!("decode: {e}")))?;
     let (in_w, in_h) = img.dimensions();
 
     ctx.tick(2, Some(5), format!("{in_w}×{in_h}"));
@@ -303,7 +311,11 @@ fn run_compress_inner(app: &ImgCompress, ctx: &Context) -> Result<serde_json::Va
     let out_path = match &app.output {
         Some(p) => PathBuf::from(p),
         None => {
-            let ext = match app.format { Format::Jpeg => "jpg", Format::Png => "png", Format::Webp => "webp" };
+            let ext = match app.format {
+                Format::Jpeg => "jpg",
+                Format::Png => "png",
+                Format::Webp => "webp",
+            };
             app.input.with_file_name(format!("compressed.{ext}"))
         }
     };
@@ -341,9 +353,15 @@ fn resize(img: DynamicImage, mw: u32, mh: u32) -> DynamicImage {
     let (w, h) = img.dimensions();
     let tw = if mw > 0 { mw } else { w };
     let th = if mh > 0 { mh } else { h };
-    if tw >= w && th >= h { return img; }
+    if tw >= w && th >= h {
+        return img;
+    }
     let r = (tw as f64 / w as f64).min(th as f64 / h as f64);
-    img.resize_exact((w as f64 * r).max(1.0) as u32, (h as f64 * r).max(1.0) as u32, ResizeFilter::Lanczos3)
+    img.resize_exact(
+        (w as f64 * r).max(1.0) as u32,
+        (h as f64 * r).max(1.0) as u32,
+        ResizeFilter::Lanczos3,
+    )
 }
 
 fn encode(img: &DynamicImage, fmt: &Format, q: u8) -> Result<Vec<u8>, AppError> {

@@ -29,7 +29,10 @@ pub fn generate_react_html(spec: &UiSpec) -> String {
   </script>
 </body>
 </html>"###,
-        title = title, css = CSS, spec_json = spec_json, react_app = REACT_APP,
+        title = title,
+        css = CSS,
+        spec_json = spec_json,
+        react_app = REACT_APP,
     )
 }
 
@@ -121,5 +124,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 
 /// HTML 转义
 fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }

@@ -15,7 +15,10 @@ async fn main() {
     let port = 9090;
     eprintln!("┌─────────────────────────────────────────────┐");
     eprintln!("│  Lilyco Ultra UI — Excel JSON → React       │");
-    eprintln!("│  浏览器: http://localhost:{port:<5}             │", port = port);
+    eprintln!(
+        "│  浏览器: http://localhost:{port:<5}             │",
+        port = port
+    );
     eprintln!("│  Ctrl+C 退出                                │");
     eprintln!("└─────────────────────────────────────────────┘");
     UltraUiServer::new(port).serve().await;

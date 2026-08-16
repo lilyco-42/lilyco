@@ -37,7 +37,10 @@ fn parse_all_element_types() {
     let spec = UiSpec::from_json(json).unwrap();
     assert_eq!(spec.window.elements.len(), 12);
     assert!(matches!(spec.window.elements[0], ElementSpec::Text { .. }));
-    assert!(matches!(spec.window.elements[2], ElementSpec::Button { .. }));
+    assert!(matches!(
+        spec.window.elements[2],
+        ElementSpec::Button { .. }
+    ));
     assert!(matches!(spec.window.elements[9], ElementSpec::Divider));
 }
 

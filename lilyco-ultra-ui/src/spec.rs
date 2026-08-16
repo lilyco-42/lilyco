@@ -24,16 +24,25 @@ pub struct WindowSpec {
 }
 
 impl WindowSpec {
-    fn default_title() -> String { "Lilyco Ultra UI".into() }
+    fn default_title() -> String {
+        "Lilyco Ultra UI".into()
+    }
 }
 
 /// 窗口大小：小 / 中等 / 大 / 全屏（默认中等）
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-pub enum WindowSize { 小, 中等, 大, 全屏 }
+pub enum WindowSize {
+    小,
+    中等,
+    大,
+    全屏,
+}
 
 impl Default for WindowSize {
-    fn default() -> Self { WindowSize::中等 }
+    fn default() -> Self {
+        WindowSize::中等
+    }
 }
 
 impl WindowSize {
@@ -50,79 +59,117 @@ impl WindowSize {
 /// 按钮样式变体
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
-pub enum ButtonVariant { #[default] Primary, Secondary, Danger }
+pub enum ButtonVariant {
+    #[default]
+    Primary,
+    Secondary,
+    Danger,
+}
 
 impl ButtonVariant {
     pub fn css_class(&self) -> &'static str {
-        match self { ButtonVariant::Primary => "", ButtonVariant::Secondary => "secondary", ButtonVariant::Danger => "danger" }
+        match self {
+            ButtonVariant::Primary => "",
+            ButtonVariant::Secondary => "secondary",
+            ButtonVariant::Danger => "danger",
+        }
     }
 }
-
 
 /// 界面元素 — 使用内部标签枚举，JSON 中通过 "类型" 字段区分
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "类型")]
 pub enum ElementSpec {
     #[serde(rename = "文本")]
-    Text { #[serde(rename = "内容")] content: String },
+    Text {
+        #[serde(rename = "内容")]
+        content: String,
+    },
 
     #[serde(rename = "标题")]
     Heading {
-        #[serde(rename = "内容")] content: String,
-        #[serde(rename = "级别", default = "default_heading_level")] level: u8,
+        #[serde(rename = "内容")]
+        content: String,
+        #[serde(rename = "级别", default = "default_heading_level")]
+        level: u8,
     },
 
     #[serde(rename = "按钮")]
     Button {
-        #[serde(rename = "文本")] text: String,
-        #[serde(rename = "动作", default)] action: String,
-        #[serde(rename = "样式", default)] variant: ButtonVariant,
+        #[serde(rename = "文本")]
+        text: String,
+        #[serde(rename = "动作", default)]
+        action: String,
+        #[serde(rename = "样式", default)]
+        variant: ButtonVariant,
     },
 
     #[serde(rename = "输入框")]
     Input {
-        #[serde(rename = "标签")] label: String,
-        #[serde(rename = "变量")] var_name: String,
-        #[serde(rename = "默认", default)] default: Option<String>,
-        #[serde(rename = "占位符", default)] placeholder: Option<String>,
+        #[serde(rename = "标签")]
+        label: String,
+        #[serde(rename = "变量")]
+        var_name: String,
+        #[serde(rename = "默认", default)]
+        default: Option<String>,
+        #[serde(rename = "占位符", default)]
+        placeholder: Option<String>,
     },
 
     #[serde(rename = "数字框")]
     Number {
-        #[serde(rename = "标签")] label: String,
-        #[serde(rename = "变量")] var_name: String,
-        #[serde(rename = "默认", default)] default: Option<f64>,
-        #[serde(rename = "最小", default)] min: Option<f64>,
-        #[serde(rename = "最大", default)] max: Option<f64>,
+        #[serde(rename = "标签")]
+        label: String,
+        #[serde(rename = "变量")]
+        var_name: String,
+        #[serde(rename = "默认", default)]
+        default: Option<f64>,
+        #[serde(rename = "最小", default)]
+        min: Option<f64>,
+        #[serde(rename = "最大", default)]
+        max: Option<f64>,
     },
 
     #[serde(rename = "选择框")]
     Select {
-        #[serde(rename = "标签")] label: String,
-        #[serde(rename = "变量")] var_name: String,
-        #[serde(rename = "选项")] options: Vec<String>,
-        #[serde(rename = "默认", default)] default: Option<String>,
+        #[serde(rename = "标签")]
+        label: String,
+        #[serde(rename = "变量")]
+        var_name: String,
+        #[serde(rename = "选项")]
+        options: Vec<String>,
+        #[serde(rename = "默认", default)]
+        default: Option<String>,
     },
 
     #[serde(rename = "复选框")]
     Checkbox {
-        #[serde(rename = "标签")] label: String,
-        #[serde(rename = "变量")] var_name: String,
-        #[serde(rename = "默认", default)] default: Option<bool>,
+        #[serde(rename = "标签")]
+        label: String,
+        #[serde(rename = "变量")]
+        var_name: String,
+        #[serde(rename = "默认", default)]
+        default: Option<bool>,
     },
 
     #[serde(rename = "文本域")]
     Textarea {
-        #[serde(rename = "标签")] label: String,
-        #[serde(rename = "变量")] var_name: String,
-        #[serde(rename = "默认", default)] default: Option<String>,
-        #[serde(rename = "行数", default = "default_textarea_rows")] rows: u8,
+        #[serde(rename = "标签")]
+        label: String,
+        #[serde(rename = "变量")]
+        var_name: String,
+        #[serde(rename = "默认", default)]
+        default: Option<String>,
+        #[serde(rename = "行数", default = "default_textarea_rows")]
+        rows: u8,
     },
 
     #[serde(rename = "图片")]
     Image {
-        #[serde(rename = "链接")] src: String,
-        #[serde(rename = "宽度", default = "default_image_width")] width: String,
+        #[serde(rename = "链接")]
+        src: String,
+        #[serde(rename = "宽度", default = "default_image_width")]
+        width: String,
     },
 
     #[serde(rename = "分隔线")]
@@ -130,40 +177,58 @@ pub enum ElementSpec {
 
     #[serde(rename = "进度条")]
     Progress {
-        #[serde(rename = "进度", default = "default_progress")] percent: f64,
-        #[serde(rename = "标签", default)] label: Option<String>,
+        #[serde(rename = "进度", default = "default_progress")]
+        percent: f64,
+        #[serde(rename = "标签", default)]
+        label: Option<String>,
     },
 
     #[serde(rename = "链接")]
     Link {
-        #[serde(rename = "文本")] text: String,
-        #[serde(rename = "链接")] href: String,
+        #[serde(rename = "文本")]
+        text: String,
+        #[serde(rename = "链接")]
+        href: String,
     },
 
     /// 计算器 — 内置计算器组件
     #[serde(rename = "计算器")]
     Calculator {
-        #[serde(rename = "变量", default = "default_calc_var")] var_name: String,
-        #[serde(rename = "模式", default = "default_calc_mode")] mode: CalcMode,
+        #[serde(rename = "变量", default = "default_calc_var")]
+        var_name: String,
+        #[serde(rename = "模式", default = "default_calc_mode")]
+        mode: CalcMode,
     },
 }
 
-fn default_heading_level() -> u8 { 2 }
-fn default_textarea_rows() -> u8 { 4 }
-fn default_image_width() -> String { "100%".into() }
-fn default_progress() -> f64 { 0.0 }
-fn default_calc_var() -> String { "calc_result".into() }
-fn default_calc_mode() -> CalcMode { CalcMode::Standard }
+fn default_heading_level() -> u8 {
+    2
+}
+fn default_textarea_rows() -> u8 {
+    4
+}
+fn default_image_width() -> String {
+    "100%".into()
+}
+fn default_progress() -> f64 {
+    0.0
+}
+fn default_calc_var() -> String {
+    "calc_result".into()
+}
+fn default_calc_mode() -> CalcMode {
+    CalcMode::Standard
+}
 
 /// 计算器模式
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum CalcMode {
-    #[default] Standard,
+    #[default]
+    Standard,
     Scientific,
     Programmer,
 }
-
 
 impl UiSpec {
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
@@ -196,7 +261,11 @@ impl UiSpec {
             }
             if let ElementSpec::Heading { level, .. } = el {
                 if !(*level >= 1 && *level <= 6) {
-                    errors.push(format!("元素 #{}: 标题级别必须在 1~6 之间，当前为 {}", i + 1, level));
+                    errors.push(format!(
+                        "元素 #{}: 标题级别必须在 1~6 之间，当前为 {}",
+                        i + 1,
+                        level
+                    ));
                 }
             }
         }
@@ -273,5 +342,6 @@ pub fn calculator_example_json() -> String {
       {"类型": "按钮", "文本": "复制结果", "动作": "copy_result", "样式": "secondary"}
     ]
   }
-}"#.into()
+}"#
+    .into()
 }

@@ -8,7 +8,11 @@ pub fn derive_value_enum_impl(input: TokenStream) -> TokenStream {
     let name = &input.ident;
 
     let variants: Vec<_> = match &input.data {
-        Data::Enum(e) => e.variants.iter().map(|v| (v.ident.clone(), pascal_to_snake(&v.ident.to_string()))).collect(),
+        Data::Enum(e) => e
+            .variants
+            .iter()
+            .map(|v| (v.ident.clone(), pascal_to_snake(&v.ident.to_string())))
+            .collect(),
         _ => panic!("ValueEnum: only works on enums"),
     };
 
@@ -46,7 +50,10 @@ fn pascal_to_snake(name: &str) -> String {
             result.push(c.to_lowercase().next().unwrap_or(c));
             // 后续连续大写字母视为整体（如 H264 → h264, Av1 → av1）
             while let Some(&next) = chars.peek() {
-                if next.is_lowercase() && result.len() >= 2 && result.as_bytes()[result.len() - 2] != b'_' {
+                if next.is_lowercase()
+                    && result.len() >= 2
+                    && result.as_bytes()[result.len() - 2] != b'_'
+                {
                     // hmm, complex case. Simple: just push lowercase for current
                     break;
                 }
