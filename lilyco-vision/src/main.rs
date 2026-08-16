@@ -52,14 +52,14 @@ fn default_output(input: &Path, suffix: &str) -> PathBuf {
 /// - 各分量收敛到 [0, w]/[0, h]（左闭右开，x2==w 表示整行）并归一化颠倒角点；
 /// - 空盒子（x1>=x2 或 y1>=y2）直接报错。
 fn parse_region(s: &str, w: u32, h: u32) -> Result<[u32; 4], AppError> {
-    let malformed = AppError::InvalidArg("region must be a pixel box \"X1,Y1,X2,Y2\"".into());
+    let malformed = || AppError::InvalidArg("region must be a pixel box \"X1,Y1,X2,Y2\"".into());
     let parts: Vec<&str> = s.split(',').map(str::trim).collect();
     if parts.len() != 4 {
-        return Err(malformed);
+        return Err(malformed());
     }
     let mut c = [0i64; 4];
     for (i, p) in parts.iter().enumerate() {
-        c[i] = p.parse::<i64>().map_err(|_| malformed.clone())?;
+        c[i] = p.parse::<i64>().map_err(|_| malformed())?;
     }
     let clamp = |v: i64, hi: u32| v.clamp(0, hi as i64) as u32;
     let x1 = clamp(c[0], w);
@@ -1717,7 +1717,7 @@ mod tests {
         assert!(out.is_file(), "crop@4x 产物应存在: {out:?}");
         assert!(
             out.to_string_lossy().ends_with("shot.crop@4x.png"),
-            "命名应对齐 {stem}.crop@{scale}x.png: {out:?}"
+            "命名应对齐 {{stem}}.crop@{{scale}}x.png: {out:?}"
         );
         let crop = load_rgba(&out).unwrap();
         assert_eq!(crop.dimensions(), (400, 160));
@@ -1943,7 +1943,7 @@ mod tests {
         let outs = r["outputs"].as_array().unwrap();
         for (i, name) in ["a.clean.png", "b.clean.png"].iter().enumerate() {
             let out = outs[i]["out"].as_str().unwrap();
-            assert!(out.ends_with(name), "命名应对齐 {stem}.clean.png: {out}");
+            assert!(out.ends_with(name), "命名应对齐 {{stem}}.clean.png: {out}");
             let img = load_rgba(Path::new(out)).unwrap();
             // 前景数量足够
             let fg: Vec<&Rgba<u8>> = img.pixels().filter(|p| p[3] > 128).collect();
