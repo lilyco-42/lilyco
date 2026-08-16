@@ -21,6 +21,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use lilyco::prelude::*;
+use wait_timeout::ChildExt;
 
 /// 输出截断上限（与旧版一致）
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
@@ -139,7 +140,7 @@ fn run_brush(app: &Brush, ctx: &Context) -> Result<serde_json::Value, AppError> 
         "shell": shell_kind,
         "command": app.command,
         "cwd": cwd,
-        "exit_code": exit_code.map(serde_json::json).unwrap_or(serde_json::Value::Null),
+        "exit_code": exit_code.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null),
         "timed_out": timed_out,
         "duration_ms": duration_ms,
         "stdout": stdout_text,
