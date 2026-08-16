@@ -130,7 +130,7 @@ impl McpServer {
         let name = params
             .get("name")
             .and_then(|n| n.as_str())
-            .ok_or((ERROR_INVALID_PARAMS, "missing tool name"))?;
+            .ok_or((ERROR_INVALID_PARAMS, "missing tool name".to_string()))?;
         let args = params
             .get("arguments")
             .cloned()
