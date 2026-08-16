@@ -85,7 +85,18 @@ main() {
     fi
     say "下载 $b"
     if [ "$DRY_RUN" = 0 ]; then
-      curl -fL --retry 3 -o "$BIN_DIR/$b" "$url" || die "下载失败: $b"
+      # 临时名下载 + rename 覆盖：绕开 Windows 实时扫描对刚下载 exe 的瞬时写锁
+      local part="$BIN_DIR/.$b.part"
+      local ok=0
+      for attempt in 1 2 3; do
+        if curl -fL --retry 2 -sS -o "$part" "$url" && mv -f "$part" "$BIN_DIR/$b"; then
+          ok=1
+          break
+        fi
+        warn "写入被锁（Windows 实时扫描常见），重试 $attempt/3…"
+        sleep 2
+      done
+      [ "$ok" = 1 ] || die "下载失败: $b"
       chmod +x "$BIN_DIR/$b" 2>/dev/null || true
     fi
   done
