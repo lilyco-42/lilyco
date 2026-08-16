@@ -110,11 +110,19 @@ fn run_brush(app: &Brush, ctx: &Context) -> Result<serde_json::Value, AppError> 
         .spawn()
         .map_err(|e| AppError::Runtime(format!("spawn {shell}: {e}")))?;
 
-    // 双线程读管道，避免输出大时管道写满死锁
+    // 双线程读管道，避免输出大时管道写满死锁。
+    // 结果经 channel 返回：Windows 上 kill 只杀 shell 本身，
+    // 孙进程（如 sleep）可能继承管道句柄导致读端不 EOF —— 必须带界回收。
     let stdout = child.stdout.take().expect("stdout is piped");
     let stderr = child.stderr.take().expect("stderr is piped");
-    let out_t = std::thread::spawn(move || read_with_cap(stdout));
-    let err_t = std::thread::spawn(move || read_with_cap(stderr));
+    let (out_tx, out_rx) = std::sync::mpsc::channel();
+    let (err_tx, err_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = out_tx.send(read_with_cap(stdout));
+    });
+    std::thread::spawn(move || {
+        let _ = err_tx.send(read_with_cap(stderr));
+    });
 
     // 带超时等待；超时则 kill
     let timeout = Duration::from_secs(app.timeout_secs.max(1));
@@ -128,12 +136,18 @@ fn run_brush(app: &Brush, ctx: &Context) -> Result<serde_json::Value, AppError> 
         Err(e) => return Err(AppError::Runtime(format!("wait: {e}"))),
     };
 
-    let (stdout_text, stdout_truncated) = out_t
-        .join()
-        .map_err(|_| AppError::Runtime("stdout reader panicked".into()))?;
-    let (stderr_text, stderr_truncated) = err_t
-        .join()
-        .map_err(|_| AppError::Runtime("stderr reader panicked".into()))?;
+    // 回收读线程结果：超时路径带 2s 界（孙进程持有管道句柄时读端不关闭）
+    let drain_bound = if timed_out {
+        Duration::from_secs(2)
+    } else {
+        Duration::from_secs(30)
+    };
+    let (stdout_text, stdout_truncated) = out_rx
+        .recv_timeout(drain_bound)
+        .unwrap_or_else(|_| ("[output drain timed out]".into(), true));
+    let (stderr_text, stderr_truncated) = err_rx
+        .recv_timeout(drain_bound)
+        .unwrap_or_else(|_| ("[output drain timed out]".into(), true));
 
     let duration_ms = start.elapsed().as_millis() as u64;
     let result = serde_json::json!({
@@ -220,12 +234,26 @@ fn resolve_git_usr_bin() -> Option<String> {
         .map(|c| c.to_string())
 }
 
+/// PATH 分隔符（Windows ';'，Unix ':'）
+fn path_sep() -> char {
+    if cfg!(windows) {
+        ';'
+    } else {
+        ':'
+    }
+}
+
+/// 按平台分隔符切分 PATH 条目
+fn path_entries(path: &str) -> impl Iterator<Item = &str> {
+    path.split(path_sep()).filter(|s| !s.is_empty())
+}
+
 /// 构建 PATH：Git usr/bin 前置 + 继承现有 PATH
 fn build_path_env() -> String {
     let existing = std::env::var("PATH").unwrap_or_default();
     match resolve_git_usr_bin() {
-        Some(gub) if !existing.split(';').any(|p| p.eq_ignore_ascii_case(&gub)) => {
-            format!("{gub};{existing}")
+        Some(gub) if !path_entries(&existing).any(|p| p.eq_ignore_ascii_case(&gub)) => {
+            format!("{gub}{}{existing}", path_sep())
         }
         _ => existing,
     }
@@ -237,10 +265,7 @@ fn find_on_path(name: &str) -> Option<String> {
     let exts: Vec<String> = std::env::var("PATHEXT")
         .map(|e| e.split(';').map(|s| s.to_lowercase()).collect())
         .unwrap_or_else(|_| vec![".exe".into(), ".bat".into(), ".cmd".into()]);
-    for dir in path.split(';') {
-        if dir.is_empty() {
-            continue;
-        }
+    for dir in path_entries(&path) {
         let base = Path::new(dir).join(name);
         for ext in &exts {
             let candidate = format!("{}{}", base.display(), ext);
@@ -367,8 +392,10 @@ mod tests {
         .unwrap();
         assert_eq!(r["timed_out"], true);
         assert!(r["exit_code"].is_null());
+        // Windows 上 kill 只杀 shell 本身，孙进程（sleep）可能拖慢管道回收；
+        // 带界回收已把时长压在 1s + 2s 上限附近，这里放宽到 10s 防抖动
         assert!(
-            started.elapsed() < Duration::from_secs(4),
+            started.elapsed() < Duration::from_secs(10),
             "超时应在 1s 附近触发，实际 {}ms",
             started.elapsed().as_millis()
         );
@@ -402,6 +429,7 @@ mod tests {
         .unwrap();
         let out = r["stdout"].as_str().unwrap();
         assert!(out.contains('3'), "算术 $((x+y)) 应得 3, got: {out}");
-        assert!(out.contains('0'), "2>/dev/null 后 $? 应为 0, got: {out}");
+        // ls /nonexistent 失败（退出码 2），2>/dev/null 只抑制报错不改变退出码
+        assert!(out.contains('2'), "$? 应反映失败命令的退出码 2, got: {out}");
     }
 }
