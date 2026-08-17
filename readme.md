@@ -1,12 +1,14 @@
 # Lilyco
 
-**One struct. Three interfaces. Zero boilerplate.**
+**One struct. Four interfaces (CLI / TUI / Web / MCP). Zero boilerplate. Cross-platform (Windows / Linux / Android).**
 
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
-[![Tests](https://img.shields.io/badge/tests-100%2B%20passed-green)](https://github.com/lilyco-42/lilyco)
+[![CI](https://img.shields.io/github/actions/workflow/status/lilyco-42/lilyco/ci.yml?branch=main&label=CI)](https://github.com/lilyco-42/lilyco/actions)
+[![Release](https://img.shields.io/github/v/release/lilyco-42/lilyco)](https://github.com/lilyco-42/lilyco/releases)
+[![Tests](https://img.shields.io/badge/tests-316%20passed-green)](https://github.com/lilyco-42/lilyco)
 
-Lilyco is a Rust framework that generates **CLI**, **TUI**, and **Web UI** — plus **AI function-calling schemas** — from a single struct definition. You write the business logic once; the framework handles everything else.
+Lilyco is a Rust framework that generates **CLI**, **TUI**, **Web UI**, and a **standard MCP server** — from a single struct definition. Every app is an AI tool by default: agents (DeepSeek Harness, Claude Code, Cursor…) call it directly through MCP or JSON-stream. Same binary runs on Windows, Linux, and Android (Termux). You write the business logic once; the framework handles everything else.
 
 ---
 
@@ -21,11 +23,14 @@ Lilyco is a Rust framework that generates **CLI**, **TUI**, and **Web UI** — p
   - [lilyco-cli](#lilyco-cli)
   - [lilyco-tui](#lilyco-tui)
   - [lilyco-gui](#lilyco-gui)
+  - [lilyco (facade)](#lilyco-facade)
+  - [lilyco-mcp](#lilyco-mcp)
   - [lilyco-ultra-ui](#lilyco-ultra-ui)
 - [Type -> Widget Mapping](#type---widget-mapping)
 - [AI Integration](#ai-integration)
 - [Progress Protocol](#progress-protocol)
 - [Examples](#examples)
+- [DSH Integration](#dsh-integration)
 - [Testing](#testing)
 - [Installation](#installation)
 - [Limitations & Roadmap](#limitations--roadmap)
@@ -717,6 +722,33 @@ Edit the JSON spec in the browser; the React UI updates in real time.
 
 ---
 
+## DSH Integration
+
+**DeepSeek Harness 接入（实测验证）**：lilyco 应用以 **MCP 服务器**形态挂进 dsh，模型直接获得原生工具。
+
+### 原理
+
+dsh 的能力扩展单元是 cordis 插件；外部 Rust 二进制经官方 [`@deepseek-ai/dsh-mcp-client`](https://github.com/deepseek-ai/deepseek-harness) 插件桥接（spawn 进程 + 注册 `ctx.tools`），模型看到 `mcp__<server>__<tool>` 原生工具。
+
+### 一键接入
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lilyco-42/lilyco/main/install.sh | bash
+```
+
+脚本自动：下载 release 二进制 → 安装 `dsh-mcp-client` 插件 → 写 profile patch。重启 dsh web 后，模型获得：
+
+| 服务器 | 工具 |
+|---|---|
+| `mcp__lbrush` | `Brush`（真 bash 执行器：变量/管道/重定向/`&&`/`||`/if-for-while） |
+| `mcp__lvision` | `Crop` / `Resize` / `DominantColors` / `PixelDiff` / `ExtractForeground` / `Trace` / `HtmlScreenshot` / `ImageInfo` |
+
+### 已知坑（实测）
+
+- **首轮不可见**：若 profile 使用了 router-flash 类 agent preset（首轮 core 工具过滤），新会话第一轮看不到 mcp 工具 —— 让模型先调用任意一次工具，下一轮全目录放开。
+- 插件无 `dsh.bundle` 时是 plain dependency，patch insert 显式引用其 name 即可加载。
+- 加/改插件后必须**重启 dsh web**（可用 `tasklist` 验证 `lbrush-windows.exe --mcp` 子进程确认插件已连接）。
+
 ## Testing
 
 本地：
@@ -732,13 +764,15 @@ cargo test -p lilyco-tui
 cargo test -p lilyco-macros
 cargo test -p lilyco-ultra-ui
 cargo test -p lilyco-mcp
+cargo test -p lilyco-vision
 ```
 
 CI（GitHub Actions）：push / PR 自动跑 **ubuntu + windows 双矩阵** —
-`cargo fmt --check` + `cargo clippy --workspace --all-targets` + `cargo test --workspace` + `cargo doc`。
+`cargo fmt --check` + `cargo clippy --workspace --all-targets` + `cargo test --workspace` + `cargo doc`；
+打 tag `v*` 自动构建 4 个二进制（Windows + Android-arm64）并发布 GitHub Release。
 见 `.github/workflows/ci.yml`。Windows TUI 从此由 CI 持续验证编译与单元测试。
 
-Current coverage: **84 tests** across all crates.
+Current coverage: **316 tests** across all crates (ubuntu + windows 双平台).
 
 ---
 
