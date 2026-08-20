@@ -12,6 +12,7 @@ members = [
     "lilyco-vision",
     "lilyco-ultra-ui",
     "lilyco-ultra-ui-example",
+    "lilyco-letsgal",
     "lilyco",
 ]
 resolver = "2"
