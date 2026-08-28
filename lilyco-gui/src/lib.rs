@@ -314,6 +314,7 @@ async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
     Html(
         HTML_TEMPLATE
             .replace("{title}", &format!("{} — {}", schema.name, schema.about))
+            .replace("{layui_css}", include_str!("../assets/layui.css"))
             .replace("{about}", &schema.about)
             .replace("{cmd_name}", &schema.name)
             .replace("{fields_html}", &fields_html)
@@ -338,22 +339,34 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <meta name="lilyco-token" content="{token}">
 <title>{title}</title>
-<link rel="stylesheet" href="https://unpkg.com/layui@2.9.8/dist/css/layui.css">
+<style>{layui_css}</style>
 <style>
+/* ── Flex 布局（自有，不依赖外部 CSS）─ 彻底避免 absolute/fixed 定位导致的重叠 ── */
+/* 全局：禁用一切 absolute/fixed 定位元素 */
+*{position:static !important}
+.layui-progress{position:relative !important}
+.layui-progress-bar{position:relative !important}
+.layui-input-block .layui-input, .layui-input, .layui-select, select, .layui-textarea{position:relative !important}
+.layui-tooltip, .layui-dropdown, .layui-nav-child, .layui-table-tips{display:none !important}
+
 body{background:#f2f3f5;padding:20px}
-.main-card{max-width:820px;margin:0 auto}
-.cli-preview{font-family:Consolas,monospace;font-size:13px;color:#16b777;background:#2f363d;padding:12px 16px;border-radius:4px;word-break:break-all;margin-top:16px;min-height:20px}
+.main-card{max-width:820px;margin:0 auto;background:#fff;border-radius:6px;box-shadow:0 1px 6px rgba(0,0,0,.08);overflow:hidden}
+.main-card-body, .layui-card-body{padding:20px 24px 24px}
+.layui-card-header{padding:16px 24px;font-size:18px;font-weight:bold;border-bottom:1px solid #eee}
+
+/* 表单：每个字段一行，label 与输入框用 flex 并排 */
+.layui-form-item{display:flex;align-items:flex-start;margin-bottom:16px;gap:12px}
+.layui-form-item .layui-form-label{flex:0 0 190px;min-width:190px;text-align:left;white-space:normal;line-height:1.4;padding:9px 0;box-sizing:border-box;color:#333}
+.layui-form-item .layui-input-block{flex:1 1 auto;min-width:0}
+.layui-form-label .req{color:#ff5722;margin-left:2px}
+.cli-preview{font-family:Consolas,monospace;font-size:13px;color:#16b777;background:#2f363d;padding:12px 16px;border-radius:4px;word-break:break-all;margin-top:16px;min-height:20px;position:relative !important}
 .cli-preview::before{content:"$ ";color:#8b949e}
 #out{margin-top:20px}
-#log{max-height:260px;overflow-y:auto;font-size:13px;background:#2f363d;color:#e1e4e8;padding:12px;border-radius:4px;white-space:pre-wrap;font-family:Consolas,monospace}
+#log{max-height:260px;overflow-y:auto;font-size:13px;background:#2f363d;color:#e1e4e8;padding:12px;border-radius:4px;white-space:pre-wrap;font-family:Consolas,monospace;position:relative !important}
 #log .err{color:#ff5722}
 #result{font-size:13px;margin-top:12px;overflow-x:auto;background:#f8f8f8;padding:12px;border-radius:4px}
 .req-mark{color:#ff5722;margin-left:2px}
-/* 长中文标签自适应：避免 layui-form-label 固定宽度导致 label 与输入框重叠 */
-.layui-form-item .layui-form-label{width:auto;min-width:110px;max-width:46%;text-align:left;white-space:normal;line-height:1.4;height:auto;min-height:38px;padding:9px 12px;box-sizing:border-box;display:flex;align-items:center}
-.layui-form-item .layui-input-block{margin-left:0;margin-right:10px;flex:1 1 auto;min-width:0}
-.layui-form-item{display:flex;align-items:flex-start;flex-wrap:wrap}
-@media(max-width:640px){.layui-form-item .layui-form-label{width:100%;max-width:none}.layui-form-item .layui-input-block{margin-left:0}}
+@media(max-width:640px){.layui-form-item{flex-direction:column;gap:4px}.layui-form-item .layui-form-label{flex:0 0 auto;min-width:0}}
 </style></head><body>
 <div class="layui-card main-card">
 <div class="layui-card-header" style="font-size:18px;font-weight:bold">{title}</div>
@@ -375,7 +388,7 @@ body{background:#f2f3f5;padding:20px}
 </div>
 </div>
 </div>
-<script src="https://unpkg.com/layui@2.9.8/dist/layui.js"></script>
+<script src="https://cdn.staticfile.net/layui/2.9.8/layui.js"></script>
 <script>
 layui.use(['element','form'],function(){
 var element=layui.element,form=layui.form;
