@@ -17,16 +17,14 @@
 ```bash
 cargo install cargo-binstall   # 首次
 
-# 从 git 仓库读取 binstall 元数据，可直接使用（无需发布 crates.io）
-cargo binstall --git https://github.com/lilyco-42/lilyco lilyco-ffmpeg
+cargo binstall lilyco-ffmpeg
 ```
 
-从 GitHub Release 拉单个预编译二进制，装到 `~/.cargo/bin/lffmpeg`（Windows 为 `lffmpeg.exe`）。
+从 GitHub Release 拉单个预编译二进制，装到 `~/.cargo/bin/lffmpeg`（Windows 为 `lffmpeg.exe`）；
+若对应平台的预编译资产尚未发布，则自动回退到 `cargo install` 源码编译安装。
 
-> 因为该 crate 尚未发布到 crates.io，`cargo binstall lilyco-ffmpeg`（不带 `--git`）
-> 会因"找不到 crate"而失败。发布到 crates.io 后即可直接用简写形式。
-> 无论哪种方式，都需要仓库已打 tag 触发 CI，Release 里才有对应
-> `lffmpeg-x86_64-pc-windows-msvc.exe` / `lffmpeg-aarch64-linux-android` 资产可下载。
+> 需要在仓库打 tag 触发 CI，Release 里才有对应 `lffmpeg-x86_64-pc-windows-msvc.exe` /
+> `lffmpeg-aarch64-linux-android` 资产可下载（在那之前 binstall 走源码安装回退，仍然可用）。
 
 ### 2. cargo install（源码编译）
 

@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-macros"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "Lilyco proc macros — #[derive(App)] and #[derive(ValueEnum)]"
 license = "MIT OR Apache-2.0"

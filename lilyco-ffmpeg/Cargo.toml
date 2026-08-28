@@ -15,9 +15,9 @@ path = "src/main.rs"
 [dependencies]
 # 可选：android 构建用 headless（--no-default-features --features android，
 # 只剩 CLI + MCP，纯 Rust 可在 aarch64-linux-android 编译）
-lilyco = { path = "../lilyco", optional = true, default-features = false }
+lilyco = { version = "0.2", path = "../lilyco", optional = true, default-features = false }
 # derive(App) 宏展开引用 lilyco_core::… 路径，binary 需要能解析到它
-lilyco-core = { path = "../lilyco-core" }
+lilyco-core = { version = "0.2", path = "../lilyco-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -32,12 +32,12 @@ android = ["dep:lilyco"]
 tempfile = "3"
 
 # ── cargo binstall ────────────────────────────────────────
-# `cargo binstall --git <repo> lilyco-ffmpeg` 从 GitHub Release 拉单个预编译二进制：
+# `cargo binstall lilyco-ffmpeg` 从 GitHub Release 拉单个预编译二进制：
 #   资产命名 `{ name }-{ target }{ binary-ext }`（完整 target triple；
 #   Windows 带 .exe、Android/Linux 无扩展名）
 #   pkg-fmt = "bin"：下载的单文件即二进制，装到 `{ bin }{ binary-ext }`
-#   （注意：binstall 的合法取值是 bin，不是 plain）
+#   url 里用 `v{ version }` 匹配仓库的 v* release tag（binstall 无 `{ tag }` 变量）
 # CI 的 release 工作流负责把这些资产构建并随 tag 发布（见 .github/workflows/ci.yml）。
 [package.metadata.binstall]
-pkg-url = "https://github.com/lilyco-42/lilyco/releases/download/{ tag }/{ name }-{ target }{ binary-ext }"
+pkg-url = "https://github.com/lilyco-42/lilyco/releases/download/v{ version }/{ name }-{ target }{ binary-ext }"
 pkg-fmt = "bin"

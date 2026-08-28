@@ -692,7 +692,7 @@ lvision --mcp                                      # MCP 服务器（8 个原生
 `lffmpeg` —— ffmpeg 包装：转码 / 缩放 / 裁剪，实时进度 + 取消，四端 + AI 可调：
 
 ```bash
-cargo binstall --git https://github.com/lilyco-42/lilyco lilyco-ffmpeg   # 免编译安装（见下）
+cargo binstall lilyco-ffmpeg                        # 免编译安装（见下）
 lffmpeg --input a.mp4 --output b.mp4 --codec h265 --crf 28   # CLI
 lffmpeg --input a.mp4 --output b.mp4 --width 1280            # 缩放（高度自动等比）
 lffmpeg --input a.mp4 --output clip.mp4 --start 10 --duration 5  # 裁剪
@@ -703,7 +703,7 @@ lffmpeg --mcp                                              # MCP 服务器
 - 实时进度：解析 ffmpeg `-progress pipe:1`；`ffprobe`（可选）算完成百分比，缺失降级不确定进度
 - 取消：CLI `Ctrl-C`、TUI `Ctrl-C`/`c`/`q`/`Esc`，kill 正在运行的 ffmpeg
 - 非零退出不是工具错误：结构化返回 `exit_code` + stderr 摘要
-- **cargo binstall**：`[package.metadata.binstall]` `pkg-url = "{ name }-{ target }{ binary-ext }"`, `pkg-fmt = "bin"` —— 打 tag 时 CI 发布 `lffmpeg-x86_64-pc-windows-msvc.exe` / `lffmpeg-aarch64-linux-android`，`{ target }` 全量 triple 供 binstall 匹配。当前用 `cargo binstall --git <repo> lilyco-ffmpeg`（crate 未发布 crates.io，简写形式需等发布后可用）
+- **cargo binstall**：`[package.metadata.binstall]` `pkg-url = "https://github.com/lilyco-42/lilyco/releases/download/v{ version }/{ name }-{ target }{ binary-ext }"`, `pkg-fmt = "bin"` —— 打 tag 时 CI 发布 `lffmpeg-x86_64-pc-windows-msvc.exe` / `lffmpeg-aarch64-linux-android`，`{ target }` 全量 triple 供 binstall 匹配。crate 已发布 crates.io，故 `cargo binstall lilyco-ffmpeg` 可简写；未发布预编译资产时自动回退源码安装
 - 完整用法：见 [`docs/lffmpeg.md`](docs/lffmpeg.md)
 - 依赖系统 `ffmpeg`（必须在 PATH 上）
 
@@ -798,7 +798,7 @@ Current coverage: **316 tests** across all crates (ubuntu + windows 双平台).
 
 ## Installation
 
-### From crates.io (when published)
+### From crates.io (published)
 
 ```toml
 [dependencies]
@@ -844,7 +844,7 @@ lilyco-core = { git = "https://github.com/lilyco-42/lilyco" }
 - [ ] Path auto-complete in TUI (Tab triggers directory listing)
 - [ ] `#[app(subcommands)]` macro support
 - [ ] TUI 执行异步化（进度渲染 + 取消）
-- [ ] Publish to crates.io
+- [x] ~~Publish to crates.io~~ — `lilyco-core/macros/cli/tui/gui 0.2.1`、`lilyco-mcp/lilyco 0.2.0`、`lilyco-ffmpeg 0.1.0`（旧 core 0.1.0/0.2.0 因缺 `executor`/`registry` 已 yank）
 - [ ] Performance benchmarks for schema generation
 
 ---

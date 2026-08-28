@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-core"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "Lilyco core traits and types — make Rust software AI-callable by default"
 license = "MIT OR Apache-2.0"

@@ -968,7 +968,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "lilyco-core",
@@ -977,7 +977,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1021,7 +1021,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-gui"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-stream",
  "axum",
@@ -1047,7 +1047,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-macros"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "lilyco-core",
  "proc-macro2",
@@ -1067,7 +1067,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-tui"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "crossterm",
  "lilyco-core",
