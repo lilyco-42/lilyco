@@ -313,7 +313,6 @@ async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
 
     Html(
         HTML_TEMPLATE
-            .replace("{title}", &format!("{} — {}", schema.name, schema.about))
             .replace("{layui_css}", include_str!("../assets/layui.css"))
             .replace("{about}", &schema.about)
             .replace("{cmd_name}", &schema.name)
@@ -338,7 +337,7 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <meta name="lilyco-token" content="{token}">
-<title>{title}</title>
+<title>{cmd_name} · Web 控制台</title>
 <style>{layui_css}</style>
 <style>
 /* ── Flex 布局（自有，不依赖外部 CSS）─ 彻底避免 absolute/fixed 定位导致的重叠 ── */
@@ -369,9 +368,9 @@ body{background:#f2f3f5;padding:20px}
 @media(max-width:640px){.layui-form-item{flex-direction:column;gap:4px}.layui-form-item .layui-form-label{flex:0 0 auto;min-width:0}}
 </style></head><body>
 <div class="layui-card main-card">
-<div class="layui-card-header" style="font-size:18px;font-weight:bold">{title}</div>
+<div class="layui-card-header" style="font-size:18px;font-weight:bold">{cmd_name}</div>
 <div class="layui-card-body">
-<p style="color:#666;margin-bottom:20px">{about}</p>
+<details class="about" id="about"><summary>关于 {cmd_name}（点击展开）</summary><p style="color:#666;margin:10px 0 0">{about}</p></details>
 <form class="layui-form" id="form" lay-filter="form">
 {fields_html}
 <div style="margin-top:24px;display:flex;gap:12px">
