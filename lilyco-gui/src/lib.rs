@@ -349,6 +349,11 @@ body{background:#f2f3f5;padding:20px}
 #log .err{color:#ff5722}
 #result{font-size:13px;margin-top:12px;overflow-x:auto;background:#f8f8f8;padding:12px;border-radius:4px}
 .req-mark{color:#ff5722;margin-left:2px}
+/* 长中文标签自适应：避免 layui-form-label 固定宽度导致 label 与输入框重叠 */
+.layui-form-item .layui-form-label{width:auto;min-width:110px;max-width:46%;text-align:left;white-space:normal;line-height:1.4;height:auto;min-height:38px;padding:9px 12px;box-sizing:border-box;display:flex;align-items:center}
+.layui-form-item .layui-input-block{margin-left:0;margin-right:10px;flex:1 1 auto;min-width:0}
+.layui-form-item{display:flex;align-items:flex-start;flex-wrap:wrap}
+@media(max-width:640px){.layui-form-item .layui-form-label{width:100%;max-width:none}.layui-form-item .layui-input-block{margin-left:0}}
 </style></head><body>
 <div class="layui-card main-card">
 <div class="layui-card-header" style="font-size:18px;font-weight:bold">{title}</div>
