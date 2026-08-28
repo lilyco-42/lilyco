@@ -27,11 +27,41 @@ pub struct Task {
 }
 
 /// 派生后台线程执行命令，流式返回进度事件
+///
+/// 与 [`execute`] 共享同一套终态合成逻辑：无论 handler 是否通过 `ctx.done` /
+/// `ctx.error` 上报终态，事件流都保证以 `Done` / `Error` 结尾（协议不变量）。
+/// 消费者（CLI / TUI / MCP）不再需要自己兜底合成，也不会因 handler 忘报
+/// 终态而永久阻塞在 channel 上。
 pub fn spawn(handler: Handler, args: serde_json::Value) -> Task {
     let cancel = Arc::new(AtomicBool::new(false));
     let (tx, rx) = channel();
-    let ctx = Context::new(tx, cancel.clone(), OutputFormat::Human);
-    let handle = std::thread::spawn(move || (handler)(&ctx, &args));
+    let ctx = Context::new(tx.clone(), cancel.clone(), OutputFormat::Human);
+
+    let handle = std::thread::spawn(move || {
+        let result = (handler)(&ctx, &args);
+
+        // 若 handler 未上报终态事件，按返回值合成，维持"恒以 Done/Error 结尾"不变量
+        if !ctx.has_terminal() {
+            match &result {
+                Ok(v) => {
+                    let _ = tx.send(Progress::Done {
+                        result: v.clone(),
+                        duration_ms: 0,
+                    });
+                }
+                Err(e) => {
+                    let _ = tx.send(Progress::Error {
+                        code: 1,
+                        message: e.to_string(),
+                        kind: None,
+                    });
+                }
+            }
+        }
+
+        result
+    });
+
     Task { cancel, rx, handle }
 }
 
@@ -173,5 +203,55 @@ mod tests {
             .store(true, std::sync::atomic::Ordering::Relaxed);
         // 只是验证取消句柄可写（命令侧读取）
         assert!(task.cancel.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    #[test]
+    fn spawn_synthesizes_terminal_when_handler_forgets() {
+        // handler 忘了 ctx.done()/ctx.error()，spawn 也应合成终态（协议不变量）
+        let handler: Handler = Arc::new(|_ctx, _args| Ok(serde_json::json!({ "ok": true })));
+        let task = spawn(handler, serde_json::json!({}));
+        let mut events = Vec::new();
+        for ev in task.rx {
+            let done = matches!(ev, Progress::Done { .. } | Progress::Error { .. });
+            events.push(ev);
+            if done {
+                break;
+            }
+        }
+        assert!(
+            matches!(events.last(), Some(Progress::Done { .. })),
+            "spawn should synthesize Done, got: {events:?}"
+        );
+    }
+
+    #[test]
+    fn spawn_synthesizes_error_when_handler_returns_err() {
+        // handler 返回 Err 但没发 Error 事件 → spawn 合成 Error 终态
+        let handler: Handler = Arc::new(|_ctx, _args| Err(AppError::Runtime("boom".into())));
+        let task = spawn(handler, serde_json::json!({}));
+        let mut events = Vec::new();
+        for ev in task.rx {
+            let done = matches!(ev, Progress::Done { .. } | Progress::Error { .. });
+            events.push(ev);
+            if done {
+                break;
+            }
+        }
+        assert!(
+            matches!(events.last(), Some(Progress::Error { .. })),
+            "spawn should synthesize Error, got: {events:?}"
+        );
+    }
+
+    #[test]
+    fn spawn_single_terminal_even_when_handler_emits() {
+        // handler 主动 ctx.done → spawn 不应再合成，只有一次终态
+        let task = spawn(ok_handler(), serde_json::json!({ "n": 1 }));
+        let events: Vec<Progress> = task.rx.iter().collect();
+        let terminals = events
+            .iter()
+            .filter(|e| matches!(e, Progress::Done { .. } | Progress::Error { .. }))
+            .count();
+        assert_eq!(terminals, 1, "exactly one terminal event, got {events:?}");
     }
 }

@@ -15,6 +15,10 @@ pub struct Context {
     cancel: Arc<AtomicBool>,
     /// 输出格式：human / json / json-stream
     pub output_format: OutputFormat,
+    /// 是否已发送终态事件（Done / Error）。
+    /// 供 executor 判断是否需要在 handler 返回后合成终态，
+    /// 从而保证事件流恒以 Done / Error 结尾（协议不变量）。
+    terminal_sent: AtomicBool,
 }
 
 /// 输出格式
@@ -39,6 +43,7 @@ impl Context {
             progress_tx,
             cancel,
             output_format,
+            terminal_sent: AtomicBool::new(false),
         }
     }
 
@@ -48,6 +53,7 @@ impl Context {
             progress_tx: tx,
             cancel: Arc::new(AtomicBool::new(false)),
             output_format: OutputFormat::Human,
+            terminal_sent: AtomicBool::new(false),
         }
     }
 
@@ -57,6 +63,7 @@ impl Context {
             progress_tx,
             cancel: Arc::new(AtomicBool::new(false)),
             output_format: OutputFormat::Human,
+            terminal_sent: AtomicBool::new(false),
         }
     }
 
@@ -95,6 +102,22 @@ impl Context {
             result,
             duration_ms,
         });
+        self.terminal_sent.store(true, Ordering::Relaxed);
+    }
+
+    /// 上报 Error 终态事件（协议保证事件流以 Done / Error 结尾）
+    pub fn error(&self, code: i32, message: impl Into<String>) {
+        self.emit(Progress::Error {
+            code,
+            message: message.into(),
+            kind: None,
+        });
+        self.terminal_sent.store(true, Ordering::Relaxed);
+    }
+
+    /// 是否已发送终态事件。仅供 executor 在 handler 返回后判断是否需要合成终态。
+    pub(crate) fn has_terminal(&self) -> bool {
+        self.terminal_sent.load(Ordering::Relaxed)
     }
 }
 

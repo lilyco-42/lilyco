@@ -306,4 +306,48 @@ mod tests {
         app.handle_event(key(KeyCode::Tab));
         assert_eq!(app.form.focus_index, 2);
     }
+
+    // ─── Running 状态取消 ────────────────────────────────
+
+    fn goto_running(app: &mut TuiApp) {
+        // 直接进入 Running（模拟已确认执行）
+        app.form.app_state = AppState::Running;
+    }
+
+    #[test]
+    fn running_c_cancels_to_error() {
+        let schema = test_schema();
+        let mut app = TuiApp::new(&schema);
+        goto_running(&mut app);
+        app.handle_event(key(KeyCode::Char('c')));
+        assert_eq!(*app.state(), AppState::Error);
+    }
+
+    #[test]
+    fn running_q_cancels_to_error() {
+        let schema = test_schema();
+        let mut app = TuiApp::new(&schema);
+        goto_running(&mut app);
+        app.handle_event(key(KeyCode::Char('q')));
+        assert_eq!(*app.state(), AppState::Error);
+    }
+
+    #[test]
+    fn running_esc_cancels_to_error() {
+        let schema = test_schema();
+        let mut app = TuiApp::new(&schema);
+        goto_running(&mut app);
+        app.handle_event(key(KeyCode::Esc));
+        assert_eq!(*app.state(), AppState::Error);
+    }
+
+    #[test]
+    fn running_ctrl_c_cancels_to_error() {
+        let schema = test_schema();
+        let mut app = TuiApp::new(&schema);
+        goto_running(&mut app);
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        app.handle_event(ctrl_c);
+        assert_eq!(*app.state(), AppState::Error);
+    }
 }

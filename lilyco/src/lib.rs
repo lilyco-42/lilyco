@@ -202,9 +202,16 @@ fn run_tui<A: App + Send + 'static>() -> std::io::Result<()> {
         disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
     };
     use lilyco_tui::{AppState, TuiApp};
+    use std::time::Duration;
 
     let schema = A::schema();
     let mut app = TuiApp::new(&schema);
+
+    enum TaskState {
+        Idle,
+        Running(executor::Task),
+    }
+    let mut task_state = TaskState::Idle;
 
     enable_raw_mode()?;
     let mut terminal =
@@ -212,6 +219,22 @@ fn run_tui<A: App + Send + 'static>() -> std::io::Result<()> {
     execute!(terminal.backend_mut(), EnterAlternateScreen)?;
 
     loop {
+        // 1. 进入 Running 且尚未启动任务 → 后台派生任务
+        if app.state() == &AppState::Running {
+            if let TaskState::Idle = task_state {
+                let args = collect_args(&app);
+                task_state = TaskState::Running(executor::spawn(build_handler::<A>(), args));
+            }
+        }
+
+        // 2. Running：非阻塞排空任务进度事件，保持 UI 响应
+        if app.state() == &AppState::Running {
+            if let TaskState::Running(task) = &task_state {
+                drain_task(&mut app, task);
+            }
+        }
+
+        // 3. 渲染
         terminal.draw(|f| {
             let area = f.area();
             app.render(area, f.buffer_mut());
@@ -221,20 +244,35 @@ fn run_tui<A: App + Send + 'static>() -> std::io::Result<()> {
             break;
         }
 
-        match crossterm::event::read()? {
-            Event::Key(key) => {
-                let cont = app.handle_event(key);
-                if !cont {
-                    break;
-                }
-                // 用户连续 Enter 确认后进入 Running → 执行
-                if app.state() == &AppState::Running {
-                    let args = collect_args(&app);
-                    execute_form::<A>(&mut app, args);
-                }
+        // 4. 已离开 Running（Done / Error）→ 请求取消并回收线程
+        if app.state() != &AppState::Running {
+            if let TaskState::Running(task) = &task_state {
+                task.cancel
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
             }
-            Event::Resize(_, _) => {}
-            _ => {}
+            if let TaskState::Running(task) = task_state {
+                let _ = task.handle.join();
+            }
+            task_state = TaskState::Idle;
+        }
+
+        // 5. 轮询键盘事件（Running 时短超时，持续刷新 elapsed 计时）
+        let timeout = if app.state() == &AppState::Running {
+            Duration::from_millis(150)
+        } else {
+            Duration::from_millis(500)
+        };
+        if crossterm::event::poll(timeout)? {
+            match crossterm::event::read()? {
+                Event::Key(key) => {
+                    let cont = app.handle_event(key);
+                    if !cont {
+                        break;
+                    }
+                }
+                Event::Resize(_, _) => {}
+                _ => {}
+            }
         }
     }
 
@@ -263,10 +301,10 @@ fn collect_args(app: &lilyco_tui::TuiApp) -> serde_json::Value {
     serde_json::Value::Object(map)
 }
 
-/// 通过共享 executor 执行并把进度事件灌进 TUI 状态
+/// 把表单字段值转换为 handler 参数的对象容器
 #[cfg(feature = "tui")]
-fn execute_form<A: App + Send + 'static>(app: &mut lilyco_tui::TuiApp, args: serde_json::Value) {
-    let handler: Handler = Arc::new(move |ctx, args| {
+fn build_handler<A: App + Send + 'static>() -> Handler {
+    Arc::new(move |ctx, args| {
         let obj = args
             .as_object()
             .ok_or_else(|| AppError::InvalidArg("args must be a JSON object".into()))?;
@@ -274,33 +312,47 @@ fn execute_form<A: App + Send + 'static>(app: &mut lilyco_tui::TuiApp, args: ser
             obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         let a = A::from_args(&map)?;
         a.run(ctx)
-    });
+    })
+}
 
-    let task = executor::spawn(handler, args);
-    for ev in task.rx {
-        match ev {
-            Progress::Started { message, .. } => app.start_progress(None, message),
-            Progress::Tick {
+/// 非阻塞排空任务进度事件灌进 TUI 状态。
+///
+/// 与 `run_tui` 的事件循环交替运行：只消费目前已到达的进度事件，
+/// 不阻塞等待，从而保证执行期间键盘仍然可响应、可取消。
+/// spawn 保证事件流恒以 Done / Error 终态结尾。
+#[cfg(feature = "tui")]
+fn drain_task(app: &mut lilyco_tui::TuiApp, task: &executor::Task) {
+    use std::sync::mpsc::TryRecvError;
+    loop {
+        match task.rx.try_recv() {
+            Ok(Progress::Started { message, .. }) => app.start_progress(None, message),
+            Ok(Progress::Tick {
                 current,
                 total,
                 message,
                 ..
-            } => app.tick_progress(current, total, message),
-            Progress::Log { level, message } => app.log_progress(level_name(&level), message),
-            Progress::Done {
+            }) => app.tick_progress(current, total, message),
+            Ok(Progress::Log { level, message }) => app.log_progress(level_name(&level), message),
+            Ok(Progress::Done {
                 result,
                 duration_ms,
-            } => {
+            }) => {
                 app.finish_progress(result, duration_ms);
-                break;
             }
-            Progress::Error { code, message, .. } => {
+            Ok(Progress::Error { code, message, .. }) => {
                 app.error_progress(code, message);
+            }
+            Err(TryRecvError::Empty) => break,
+            Err(TryRecvError::Disconnected) => {
+                // 线程结束。spawn 保证已合成终态，故无需兜底；
+                // 若因极端情况遗漏，此处安全地终止，避免无限循环。
+                if *app.state() == lilyco_tui::AppState::Running {
+                    app.error_progress(1, "任务意外终止".into());
+                }
                 break;
             }
         }
     }
-    let _ = task.handle.join();
 }
 
 #[cfg(feature = "tui")]

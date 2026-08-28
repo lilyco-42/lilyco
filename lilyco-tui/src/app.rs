@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
@@ -143,17 +143,25 @@ impl TuiApp {
     }
 
     fn handle_running_event(&mut self, key: KeyEvent) -> bool {
-        match key.code {
-            KeyCode::Char('c') | KeyCode::Char('C') => {
-                // Ctrl-C 取消 — crossterm 通常发 KeyCode::Char('c')
-                // 真实 Ctrl-C 由 crossterm 的 Event::Key 带 KeyModifiers::CONTROL 捕获
-                // 这里简化：Esc 也可取消
-                self.form.app_state = AppState::Error;
-                self.form.error_message = Some("用户取消".into());
-                true
-            }
-            _ => true,
+        // 取消：Ctrl-C、c / C、q / Q、Esc
+        // 注意：取消只改变 UI 状态为 Error；真正的中断由 facade 通过
+        // executor::Task.cancel 请求，handler 读取 ctx.is_cancelled() 优雅退出。
+        let is_ctrl_c = key.code == KeyCode::Char('c')
+            && key.modifiers.contains(KeyModifiers::CONTROL);
+        let is_cancel = is_ctrl_c
+            || matches!(
+                key.code,
+                KeyCode::Char('c')
+                    | KeyCode::Char('C')
+                    | KeyCode::Char('q')
+                    | KeyCode::Char('Q')
+                    | KeyCode::Esc
+            );
+        if is_cancel {
+            self.form.app_state = AppState::Error;
+            self.form.error_message = Some("用户取消".into());
         }
+        true
     }
 
     fn handle_terminal_event(&mut self, _key: KeyEvent) -> bool {
