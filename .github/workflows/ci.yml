@@ -72,6 +72,16 @@ jobs:
           path: target/release/lvision.exe
           if-no-files-found: error
 
+      - name: Build lffmpeg (release)
+        run: cargo build --release -p lilyco-ffmpeg
+
+      - name: Upload lffmpeg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lffmpeg-windows
+          path: target/release/lffmpeg.exe
+          if-no-files-found: error
+
   # Android（Termux）：headless 构建（CLI + MCP，纯 Rust）
   # crossterm 的 cfg(unix) 不含 android，TUI/Web 后端在 android 目标上关闭
   android:
@@ -121,6 +131,23 @@ jobs:
           path: target/aarch64-linux-android/release/lvision
           if-no-files-found: error
 
+      - name: "Build lffmpeg (android headless: CLI+MCP)"
+        run: |
+          NDK_BIN="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android24-clang"
+          cargo build --release -p lilyco-ffmpeg \
+            --no-default-features --features android \
+            --target aarch64-linux-android
+
+      - name: Upload lffmpeg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lffmpeg-android-arm64
+          path: target/aarch64-linux-android/release/lffmpeg
+          if-no-files-found: error
+
   # 打 tag（v*）时：把 windows + android 二进制发布为 GitHub Release
   release:
     name: publish GitHub release
@@ -142,12 +169,20 @@ jobs:
           path: release/lvision-windows
       - uses: actions/download-artifact@v4
         with:
+          name: lffmpeg-windows
+          path: release/lffmpeg-windows
+      - uses: actions/download-artifact@v4
+        with:
           name: lbrush-android-arm64
           path: release/lbrush-android-arm64
       - uses: actions/download-artifact@v4
         with:
           name: lvision-android-arm64
           path: release/lvision-android-arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: lffmpeg-android-arm64
+          path: release/lffmpeg-android-arm64
 
       - name: Stage release files (platform-suffixed names)
         run: |
@@ -156,6 +191,9 @@ jobs:
           cp release/lvision-windows/lvision.exe staging/lvision-windows.exe
           cp release/lbrush-android-arm64/lbrush staging/lbrush-android-arm64
           cp release/lvision-android-arm64/lvision staging/lvision-android-arm64
+          # lffmpeg 用完整 target triple 命名，供 cargo binstall 匹配 { target }
+          cp release/lffmpeg-windows/lffmpeg.exe staging/lffmpeg-x86_64-pc-windows-msvc.exe
+          cp release/lffmpeg-android-arm64/lffmpeg staging/lffmpeg-aarch64-linux-android
 
       - name: Create GitHub Release
         env:
@@ -166,5 +204,7 @@ jobs:
             staging/lvision-windows.exe \
             staging/lbrush-android-arm64 \
             staging/lvision-android-arm64 \
+            staging/lffmpeg-x86_64-pc-windows-msvc.exe \
+            staging/lffmpeg-aarch64-linux-android \
             --title "$GITHUB_REF_NAME" \
             --generate-notes

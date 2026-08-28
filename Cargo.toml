@@ -9,6 +9,7 @@ members = [
     "lilyco-example",
     "lilyco-grep",
     "lilyco-brush",
+    "lilyco-ffmpeg",
     "lilyco-vision",
     "lilyco-ultra-ui",
     "lilyco-ultra-ui-example",

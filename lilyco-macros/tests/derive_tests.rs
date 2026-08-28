@@ -117,6 +117,53 @@ fn range_attr_sets_number_bounds() {
     assert_eq!(kind["type"], "number", "should be Number kind");
 }
 
+// ── 测试 8：可选数值字段（Option<u32> / Option<f64>）─────────
+
+#[derive(App)]
+struct OptNumCmd {
+    #[arg(about = "width")]
+    width: Option<u32>,
+
+    #[arg(about = "crf")]
+    crf: Option<f64>,
+
+    #[arg(about = "name")]
+    name: Option<String>,
+}
+
+#[test]
+fn optional_numeric_fields_are_optional_number_kind() {
+    let schema = OptNumCmd::schema();
+    assert_eq!(schema.args.len(), 3);
+    for a in &schema.args {
+        assert!(!a.required, "{} should not be required", a.name);
+    }
+    let width_json = serde_json::to_value(&schema.args[0]).unwrap();
+    assert_eq!(width_json["kind"]["type"], "number", "width is Number");
+    let crf_json = serde_json::to_value(&schema.args[1]).unwrap();
+    assert_eq!(crf_json["kind"]["type"], "number", "crf is Number");
+}
+
+#[test]
+fn optional_numeric_from_args_present_and_absent() {
+    use std::collections::HashMap;
+
+    // 提供了 width / name → 有值；没提供 crf → None
+    let mut args = HashMap::new();
+    args.insert("width".into(), serde_json::json!(1280));
+    args.insert("name".into(), serde_json::json!("hello"));
+    let cmd: OptNumCmd = OptNumCmd::from_args(&args).unwrap();
+    assert_eq!(cmd.width, Some(1280u32));
+    assert_eq!(cmd.crf, None);
+    assert_eq!(cmd.name.as_deref(), Some("hello"));
+
+    // 全空 → 全 None
+    let cmd2: OptNumCmd = OptNumCmd::from_args(&HashMap::new()).unwrap();
+    assert_eq!(cmd2.width, None);
+    assert_eq!(cmd2.crf, None);
+    assert_eq!(cmd2.name, None);
+}
+
 // -- Test 6: run attribute wires up the function --
 
 fn test_run_fn(

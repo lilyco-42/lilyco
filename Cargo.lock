@@ -998,6 +998,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lilyco-ffmpeg"
+version = "0.1.0"
+dependencies = [
+ "lilyco",
+ "lilyco-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "lilyco-grep"
 version = "0.1.0"
 dependencies = [

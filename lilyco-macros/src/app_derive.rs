@@ -208,6 +208,24 @@ fn infer_kind(ty: &Type) -> (InferredKind, bool) {
 
 // ── 代码生成 ──────────────────────────────────────────────
 
+/// 数值字段在 `as #ty` 转换时使用实际数值类型。
+/// 对 `Option<u32>` / `Option<f64>` 等可选数值字段，取 `Option` 里的内层类型，
+/// 否则转型会变成 `f64 as Option<u32>`（编译错误）。
+fn number_cast_type(ty: &Type) -> TokenStream {
+    if let Type::Path(tp) = ty {
+        if let Some(last) = tp.path.segments.last() {
+            if last.ident == "Option" {
+                if let syn::PathArguments::AngleBracketed(args) = &last.arguments {
+                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                        return quote! { #inner };
+                    }
+                }
+            }
+        }
+    }
+    quote! { #ty }
+}
+
 pub fn derive_app_impl(input: TokenStream) -> TokenStream {
     let input: DeriveInput = syn::parse2(input).expect("App: parse error");
 
@@ -278,6 +296,8 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
         let ty = &f.ty;
         let is_opt = f.is_option;
 
+        let num_ty = number_cast_type(&f.ty);
+
         let inner = match &f.kind {
             InferredKind::Flag => {
                 quote! { args.get(#name).and_then(|v| v.as_bool()).unwrap_or(false) }
@@ -286,7 +306,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
                 quote! { args.get(#name).and_then(|v| v.as_str()).unwrap_or("").to_string() }
             }
             InferredKind::Number => {
-                quote! { args.get(#name).and_then(|v| v.as_f64()).unwrap_or(0.0) as #ty }
+                quote! { args.get(#name).and_then(|v| v.as_f64()).unwrap_or(0.0) as #num_ty }
             }
             InferredKind::Path { .. } => quote! {
                 std::path::PathBuf::from(args.get(#name).and_then(|v| v.as_str()).unwrap_or(""))
