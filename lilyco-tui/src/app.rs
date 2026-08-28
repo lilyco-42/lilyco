@@ -146,8 +146,8 @@ impl TuiApp {
         // 取消：Ctrl-C、c / C、q / Q、Esc
         // 注意：取消只改变 UI 状态为 Error；真正的中断由 facade 通过
         // executor::Task.cancel 请求，handler 读取 ctx.is_cancelled() 优雅退出。
-        let is_ctrl_c = key.code == KeyCode::Char('c')
-            && key.modifiers.contains(KeyModifiers::CONTROL);
+        let is_ctrl_c =
+            key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL);
         let is_cancel = is_ctrl_c
             || matches!(
                 key.code,
