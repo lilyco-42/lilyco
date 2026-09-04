@@ -256,8 +256,9 @@ async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
             }
             ArgKind::Text | ArgKind::Path { .. } => {
                 let dv = arg.default.as_ref().and_then(|d| d.as_str()).unwrap_or("");
-                format!("<input type=\"text\" id=\"field-{}\" placeholder=\"{}\"{} value=\"{}\" class=\"layui-input\">",
-                    arg.name, arg.about, if arg.required {" lay-reqtext=\"required\""} else {""}, dv)
+                let req_a = if arg.required { " required" } else { "" };
+                format!("<input type=\"text\" id=\"field-{}\" placeholder=\"{}\"{}{} value=\"{}\" class=\"layui-input\">",
+                    arg.name, arg.about, req_a, if arg.required {" lay-reqtext=\"required\""} else {""}, dv)
             }
             ArgKind::Number { min, max } => {
                 let dv = arg
@@ -268,8 +269,9 @@ async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
                     .unwrap_or_else(|| min.map(|m| m.to_string()).unwrap_or_default());
                 let min_a = min.map(|m| format!(" min=\"{m}\"")).unwrap_or_default();
                 let max_a = max.map(|m| format!(" max=\"{m}\"")).unwrap_or_default();
-                format!("<input type=\"number\" id=\"field-{}\" value=\"{}\"{}{} class=\"layui-input\">",
-                    arg.name, dv, min_a, max_a)
+                let req_a = if arg.required { " required" } else { "" };
+                format!("<input type=\"number\" id=\"field-{}\" value=\"{}\" step=\"any\"{}{}{} class=\"layui-input\">",
+                    arg.name, dv, min_a, max_a, req_a)
             }
             ArgKind::Enum { values } => {
                 let mut opts = String::new();
@@ -411,10 +413,14 @@ e.preventDefault();out.style.display="block";logEl.innerHTML="";resultEl.textCon
 var data={};
 for(var a of SCHEMA.args){
 if(a.kind==="List"){data[a.name]=[];document.querySelectorAll("[id^=field-"+a.name+"-]").forEach(function(inp){if(inp.value)data[a.name].push(inp.value)})}
-else{var el=document.getElementById("field-"+a.name);if(a.kind==="Flag")data[a.name]=el.checked;else data[a.name]=el.value}}
+else{var el=document.getElementById("field-"+a.name);
+if(a.kind==="Flag")data[a.name]=el.checked;
+else if(el.value==="")data[a.name]=null;
+else if(a.kind==="Number"){var n=Number(el.value);data[a.name]=isNaN(n)?el.value:n}
+else data[a.name]=el.value}}
 var sid;
 try{var resp=await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:JSON.stringify({args:data})});
-if(!resp.ok){logEl.innerHTML="<span class=err>Server error: "+resp.status+"</span>";return;}
+if(!resp.ok){var t=await resp.text();logEl.innerHTML="<span class=err>"+(t||("Server error: "+resp.status))+"</span>";return;}
 var j=await resp.json();sid=j.session_id;}catch(err){logEl.innerHTML+="<span class=err>Network error: "+err+"</span>";return}
 var es=new EventSource("/progress/"+sid);
 es.onmessage=function(ev){var p=JSON.parse(ev.data);
@@ -436,10 +442,14 @@ struct RunRequest {
     args: HashMap<String, serde_json::Value>,
 }
 
-async fn run_handler(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<RunRequest>,
-) -> (StatusCode, Json<serde_json::Value>) {
+async fn run_handler(State(state): State<Arc<AppState>>, Json(req): Json<RunRequest>) -> Response {
+    // 服务端 schema 校验（浏览器端的 required/min/max 可被绕过）：
+    // CommandSchema::validate_args，三端唯一校验实现
+    let args_value = serde_json::json!(req.args);
+    if let Err(e) = state.schema.validate_args(&args_value) {
+        return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
+    }
+
     let sid = generate_id();
     let (tx, rx) = tokio::sync::mpsc::channel::<serde_json::Value>(128);
     {
@@ -457,6 +467,7 @@ async fn run_handler(
         StatusCode::OK,
         Json(serde_json::json!({ "session_id": sid })),
     )
+        .into_response()
 }
 
 async fn progress_handler(
@@ -483,4 +494,78 @@ async fn progress_handler(
     };
 
     Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+// ── 测试 ──────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lilyco_core::schema::{ArgKind, ArgSchema};
+
+    fn schema_with_required_number() -> CommandSchema {
+        CommandSchema {
+            name: "demo".into(),
+            about: "demo".into(),
+            args: vec![
+                ArgSchema {
+                    name: "quality".into(),
+                    about: "质量".into(),
+                    kind: ArgKind::Number {
+                        min: Some(0.0),
+                        max: Some(51.0),
+                    },
+                    required: false,
+                    default: Some(serde_json::json!(23)),
+                },
+                ArgSchema {
+                    name: "input".into(),
+                    about: "输入".into(),
+                    kind: ArgKind::Text,
+                    required: true,
+                    default: None,
+                },
+            ],
+            subcommands: vec![],
+        }
+    }
+
+    fn test_state() -> Arc<AppState> {
+        let runner: RunnerFn = Arc::new(|_args, _tx| Box::pin(async {}));
+        Arc::new(AppState {
+            schema: Arc::new(schema_with_required_number()),
+            sessions: Mutex::new(HashMap::new()),
+            runner,
+            token: "test-token".into(),
+        })
+    }
+
+    #[tokio::test]
+    async fn run_rejects_missing_required_arg_with_400() {
+        let state = test_state();
+        let mut args = HashMap::new();
+        args.insert("quality".to_string(), serde_json::json!(30));
+        let resp = run_handler(State(state), Json(RunRequest { args })).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn run_rejects_out_of_range_number_with_400() {
+        let state = test_state();
+        let mut args = HashMap::new();
+        args.insert("input".to_string(), serde_json::json!("a.png"));
+        args.insert("quality".to_string(), serde_json::json!(99));
+        let resp = run_handler(State(state), Json(RunRequest { args })).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn run_accepts_valid_args() {
+        let state = test_state();
+        let mut args = HashMap::new();
+        args.insert("input".to_string(), serde_json::json!("a.png"));
+        args.insert("quality".to_string(), serde_json::json!(30));
+        let resp = run_handler(State(state), Json(RunRequest { args })).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
 }

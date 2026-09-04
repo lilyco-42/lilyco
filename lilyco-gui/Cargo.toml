@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-gui"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Lilyco Web GUI — axum server with embedded HTML, Gradio-like experience"
 license = "MIT OR Apache-2.0"
