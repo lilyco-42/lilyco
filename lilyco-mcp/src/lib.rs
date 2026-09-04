@@ -1,7 +1,9 @@
 //! # Lilyco MCP
 //!
 //! 把 Lilyco 命令注册表暴露为标准 **Model Context Protocol** (MCP) 服务器。
-//! 实现 2024-11-05 协议子集：`initialize` / `ping` / `tools/list` / `tools/call`。
+//! 实现 2024-11-05 协议子集：`initialize` / `ping` / `tools/list` / `tools/call`，
+//! 以及进度通知（`tools/call` 携带 `_meta.progressToken` 时流式返回
+//! `notifications/progress`）。
 //!
 //! 设计说明：
 //! - 低耦合：只依赖 `lilyco-core`（registry + executor），不关心任何渲染端；
@@ -9,8 +11,8 @@
 //! - 可测试：核心逻辑是纯函数 [`McpServer::handle_line`]（一行请求 → 一行响应），
 //!   [`McpServer::serve`] 可挂任意 `Read + Write` 对。
 //! - 与官方 MCP SDK 的关系：这里手工实现最小 stdio 子集（零额外依赖），
-//!   满足 Agent 直接调用；需要完整 SDK 能力（采样、roots、进度通知）时
-//!   可另建 `lilyco-mcp-full` 基于 modelcontextprotocol/rust-sdk 包装，core 无需变化。
+//!   满足 Agent 直接调用；采样 / roots 等完整能力可另建 `lilyco-mcp-full`
+//!   基于 modelcontextprotocol/rust-sdk 包装，core 无需变化。
 //!
 //! ## 使用
 //!
@@ -22,7 +24,9 @@
 use std::io::{BufRead, Write};
 
 use lilyco_core::executor;
+use lilyco_core::progress::Progress;
 use lilyco_core::registry::Registry;
+use lilyco_core::AppError;
 
 /// MCP 协议版本（2024-11-05）
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -48,6 +52,15 @@ impl McpServer {
     ///
     /// 通知（无 `id` 的请求，如 `notifications/initialized`）返回 `None`。
     pub fn handle_line(&self, line: &str) -> Option<String> {
+        self.handle_line_with_sink(line, &mut |_| {})
+    }
+
+    /// [`McpServer::handle_line`] 的流式版本。
+    ///
+    /// `tools/call` 执行期间产生的 `notifications/progress` 通过 `sink`
+    /// 逐行回调（每行一个完整 JSON-RPC 通知），返回值仍是最终响应。
+    /// 纯 [`McpServer::handle_line`] 等价于 sink 为空。
+    pub fn handle_line_with_sink(&self, line: &str, sink: &mut dyn FnMut(&str)) -> Option<String> {
         let req: serde_json::Value = match serde_json::from_str(line) {
             Ok(v) => v,
             Err(_) => return Some(error_response(None, ERROR_PARSE, "parse error")),
@@ -63,7 +76,7 @@ impl McpServer {
             "initialize" => initialize_response(),
             "ping" => Ok(serde_json::json!({})),
             "tools/list" => self.tools_list(),
-            "tools/call" => self.tools_call(&req),
+            "tools/call" => self.tools_call(&req, sink),
             "notifications/initialized" => return None, // 通知无需响应
             _ => {
                 // JSON-RPC 2.0：无 id 的请求是通知，绝不能回响应
@@ -86,6 +99,9 @@ impl McpServer {
     }
 
     /// 在任意 `Read + Write` 对上提供服务（内存测试 / 自定义传输均可用）
+    ///
+    /// 执行期间的通知即时写出（flush 每行）；通知写失败按尽力而为处理
+    /// （客户端可能已断开），最终响应的写失败仍向上传播。
     pub fn serve<R: BufRead, W: Write>(&self, mut reader: R, mut writer: W) -> std::io::Result<()> {
         let mut line = String::new();
         loop {
@@ -98,9 +114,15 @@ impl McpServer {
             if trimmed.is_empty() {
                 continue;
             }
-            if let Some(resp) = self.handle_line(trimmed) {
-                writeln!(writer, "{resp}")?;
-                writer.flush()?;
+            {
+                let mut sink = |notification: &str| {
+                    let _ = writeln!(writer, "{notification}");
+                    let _ = writer.flush();
+                };
+                if let Some(resp) = self.handle_line_with_sink(trimmed, &mut sink) {
+                    writeln!(writer, "{resp}")?;
+                    writer.flush()?;
+                }
             }
         }
         Ok(())
@@ -130,7 +152,11 @@ impl McpServer {
         Ok(serde_json::json!({ "tools": tools }))
     }
 
-    fn tools_call(&self, req: &serde_json::Value) -> Result<serde_json::Value, (i64, String)> {
+    fn tools_call(
+        &self,
+        req: &serde_json::Value,
+        sink: &mut dyn FnMut(&str),
+    ) -> Result<serde_json::Value, (i64, String)> {
         let params = req.get("params").cloned().unwrap_or(serde_json::json!({}));
         let name = params
             .get("name")
@@ -150,9 +176,60 @@ impl McpServer {
             .clone()
             .ok_or((ERROR_INTERNAL, format!("tool `{name}` has no handler")))?;
 
-        // 同步执行（最小实现）。进度通知（notifications/progress）留待完整版。
-        let outcome = executor::execute(handler, args);
-        match outcome.result {
+        // 客户端在 _meta.progressToken 请求进度 → 流式执行，
+        // Progress::Started/Tick 转发为 notifications/progress（2024-11-05）
+        let progress_token = params
+            .get("_meta")
+            .and_then(|m| m.get("progressToken"))
+            .cloned();
+
+        let result: Result<serde_json::Value, AppError> = match progress_token {
+            Some(token) => {
+                let task = executor::spawn(handler, args);
+                let mut terminal: Option<Result<serde_json::Value, String>> = None;
+                for event in task.rx {
+                    match &event {
+                        Progress::Started { total, message } => {
+                            sink(&progress_notification(&token, 0.0, *total, message.clone()));
+                        }
+                        Progress::Tick {
+                            current,
+                            total,
+                            message,
+                            ..
+                        } => {
+                            sink(&progress_notification(
+                                &token,
+                                *current as f64,
+                                *total,
+                                message.clone(),
+                            ));
+                        }
+                        Progress::Done { result, .. } => {
+                            terminal = Some(Ok(result.clone()));
+                        }
+                        Progress::Error { message, .. } => {
+                            terminal = Some(Err(message.clone()));
+                        }
+                        Progress::Log { .. } => {} // 日志不映射为进度通知
+                    }
+                }
+                // handler panic 时 channel 关闭且无终态事件 → join 兜底
+                match terminal {
+                    Some(r) => r.map_err(AppError::Runtime),
+                    None => match task.handle.join() {
+                        Ok(v) => v,
+                        Err(panic) => {
+                            Err(AppError::Runtime(format!("handler panicked: {panic:?}")))
+                        }
+                    },
+                }
+            }
+            // 无进度请求 → 同步执行（原路径，零开销）
+            None => executor::execute(handler, args).result,
+        };
+
+        match result {
             Ok(value) => Ok(serde_json::json!({
                 "content": [{ "type": "text", "text": value.to_string() }],
                 "isError": false,
@@ -163,6 +240,31 @@ impl McpServer {
             })),
         }
     }
+}
+
+/// 构造一条 `notifications/progress`（MCP 2024-11-05）。
+/// `total` / `message` 为 `None` 时省略字段。
+fn progress_notification(
+    token: &serde_json::Value,
+    progress: f64,
+    total: Option<u64>,
+    message: Option<String>,
+) -> String {
+    let mut params = serde_json::Map::new();
+    params.insert("progressToken".into(), token.clone());
+    params.insert("progress".into(), serde_json::json!(progress));
+    if let Some(t) = total {
+        params.insert("total".into(), serde_json::json!(t));
+    }
+    if let Some(m) = message {
+        params.insert("message".into(), serde_json::json!(m));
+    }
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/progress",
+        "params": params,
+    })
+    .to_string()
 }
 
 // ── JSON-RPC 装配 ────────────────────────────────────────
@@ -351,5 +453,167 @@ mod tests {
         let mut out = Vec::new();
         server.serve(std::io::Cursor::new(input), &mut out).unwrap();
         assert_eq!(String::from_utf8(out).unwrap().lines().count(), 1);
+    }
+
+    // ─── 进度通知（notifications/progress） ────────────
+
+    use std::sync::Arc;
+
+    use lilyco_core::registry::Handler;
+
+    /// 携带自定义 handler 的注册表：执行时上报两次 Tick + 一次 Done
+    fn progress_registry() -> Registry {
+        let mut reg = Registry::new();
+        let handler: Handler = Arc::new(|ctx, _args| {
+            ctx.tick(1, Some(2), "step 1");
+            ctx.tick(2, Some(2), "step 2");
+            let r = serde_json::json!({ "ok": true });
+            ctx.done(r.clone(), 3);
+            Ok(r)
+        });
+        let schema = CommandSchema {
+            name: "progress".into(),
+            about: "progress test".into(),
+            args: vec![],
+            subcommands: vec![],
+        };
+        reg.register(RegisteredCommand::new("progress", schema).with_handler(handler))
+            .unwrap();
+        reg
+    }
+
+    fn progress_call_req(token_json: &str) -> String {
+        format!(
+            r#"{{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{{"_meta":{{"progressToken":{token_json}}},"name":"progress","arguments":{{}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn progress_token_emits_notifications() {
+        let server = McpServer::new(progress_registry());
+        let mut notifications = Vec::new();
+        let resp = server
+            .handle_line_with_sink(&progress_call_req("\"tok-1\""), &mut |n| {
+                notifications.push(n.to_string())
+            })
+            .unwrap();
+
+        // 两次 Tick → 两条通知，内容与进度一一对应
+        assert_eq!(notifications.len(), 2, "notifications: {notifications:?}");
+        let first: serde_json::Value = serde_json::from_str(&notifications[0]).unwrap();
+        assert_eq!(first["jsonrpc"], "2.0");
+        assert_eq!(first["method"], "notifications/progress");
+        assert_eq!(first["params"]["progressToken"], "tok-1");
+        assert_eq!(first["params"]["progress"], 1.0);
+        assert_eq!(first["params"]["total"], 2);
+        assert_eq!(first["params"]["message"], "step 1");
+        let second: serde_json::Value = serde_json::from_str(&notifications[1]).unwrap();
+        assert_eq!(second["params"]["progress"], 2.0);
+        assert_eq!(second["params"]["message"], "step 2");
+
+        // 最终响应仍是合法 tools/call 结果
+        let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+        assert_eq!(v["id"], 9);
+        assert_eq!(v["result"]["isError"], false);
+        assert!(v["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("ok"));
+    }
+
+    #[test]
+    fn progress_token_can_be_number() {
+        let server = McpServer::new(progress_registry());
+        let mut notifications = Vec::new();
+        server
+            .handle_line_with_sink(&progress_call_req("42"), &mut |n| {
+                notifications.push(n.to_string())
+            })
+            .unwrap();
+        let first: serde_json::Value = serde_json::from_str(&notifications[0]).unwrap();
+        assert_eq!(first["params"]["progressToken"], 42);
+    }
+
+    #[test]
+    fn no_progress_token_emits_no_notifications() {
+        let server = McpServer::new(progress_registry());
+        let mut notifications = Vec::new();
+        let resp = server
+            .handle_line_with_sink(
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"progress","arguments":{}}}"#,
+                &mut |n| notifications.push(n.to_string()),
+            )
+            .unwrap();
+        assert!(notifications.is_empty(), "no token → no notifications");
+        let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+        assert_eq!(v["result"]["isError"], false);
+    }
+
+    #[test]
+    fn plain_handle_line_never_notifies() {
+        // 兼容入口：handle_line 等价于空 sink
+        let server = McpServer::new(progress_registry());
+        let resp = server.handle_line(&progress_call_req("\"t\"")).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+        assert_eq!(v["result"]["isError"], false);
+    }
+
+    #[test]
+    fn error_tool_with_progress_still_returns_error_response() {
+        let mut reg = Registry::new();
+        let handler: Handler = Arc::new(|ctx, _args| {
+            ctx.tick(1, None, "working");
+            Err(AppError::Runtime("boom".into()))
+        });
+        let schema = CommandSchema {
+            name: "fail".into(),
+            about: "always fails".into(),
+            args: vec![],
+            subcommands: vec![],
+        };
+        reg.register(RegisteredCommand::new("fail", schema).with_handler(handler))
+            .unwrap();
+
+        let server = McpServer::new(reg);
+        let mut notifications = Vec::new();
+        let resp = server
+            .handle_line_with_sink(
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"_meta":{"progressToken":"t"},"name":"fail","arguments":{}}}"#,
+                &mut |n| notifications.push(n.to_string()),
+            )
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+        assert_eq!(v["result"]["isError"], true);
+        assert!(v["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("boom"));
+    }
+
+    #[test]
+    fn serve_streams_notifications_before_response() {
+        let server = McpServer::new(progress_registry());
+        let input = format!("{}\n", progress_call_req("\"t\""));
+        let mut out = Vec::new();
+        server.serve(std::io::Cursor::new(input), &mut out).unwrap();
+        let stdout = String::from_utf8(out).unwrap();
+        let lines: Vec<&str> = stdout.lines().collect();
+        assert_eq!(lines.len(), 3, "2 notifications + 1 response: {lines:?}");
+
+        let first: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(first["method"], "notifications/progress");
+        let second: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(second["method"], "notifications/progress");
+        let last: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+        assert_eq!(last["result"]["isError"], false);
+    }
+
+    #[test]
+    fn progress_notification_omits_none_fields() {
+        let line = progress_notification(&serde_json::json!("t"), 3.0, None, None);
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert!(v["params"].get("total").is_none());
+        assert!(v["params"].get("message").is_none());
+        assert_eq!(v["params"]["progress"], 3.0);
     }
 }
