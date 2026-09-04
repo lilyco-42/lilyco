@@ -164,6 +164,18 @@ pub fn serve_mcp(registry: Registry) {
         });
 }
 
+/// 以 CLI 多命令形态运行整个注册表（一个二进制 = 多个子命令）
+///
+/// ```ignore
+/// let mut registry = Registry::new();
+/// registry.register(RegisteredCommand::from_app::<Compress>()).unwrap();
+/// registry.register(RegisteredCommand::from_app::<Resize>()).unwrap();
+/// lilyco::run_cli_registry("imgtool", registry);
+/// ```
+pub fn run_cli_registry(app_name: &str, registry: Registry) {
+    lilyco_cli::run_registry(app_name, registry);
+}
+
 // ── 后端分发 ──────────────────────────────────────────────
 
 fn single_registry<A: App + Send + 'static>() -> Registry {

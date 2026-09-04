@@ -172,7 +172,113 @@ pub fn run<A: App + Send + 'static>(
         runner(&app, ctx)
     });
     let task = spawn(handler, args_value);
+    drain_events(task, output_format);
+}
 
+// ── 多命令启动（Registry → clap 子命令） ──────────────────
+
+/// 多命令一行启动：把整个 [`Registry`] 渲染成 clap 子命令树。
+///
+/// - 可见命令 → 普通 subcommand（别名一并在 help 中可用）
+/// - 隐藏命令 → `hide(true)` 子命令（可调用，help 不显示）
+/// - 根级 `--schema`：打印注册表 JSON 清单（全部命令的 schema，供 Agent 消费）
+/// - 每个子命令自带 `--schema` / `--json` / `--json-stream` 等内置标志
+///
+/// ```ignore
+/// fn main() {
+///     let mut registry = Registry::new();
+///     registry.register(RegisteredCommand::from_app::<Compress>()).unwrap();
+///     registry.register(RegisteredCommand::from_app::<Resize>()).unwrap();
+///     lilyco_cli::run_registry("imgtool", registry);
+/// }
+/// ```
+pub fn run_registry(app_name: &str, registry: Registry) {
+    let cmd = build_registry_command(app_name, &registry);
+    let matches = cmd.get_matches();
+
+    if matches.get_flag("schema") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&registry.to_json()).unwrap()
+        );
+        return;
+    }
+
+    let Some((sub_name, sub_m)) = matches.subcommand() else {
+        return; // arg_required_else_help 已在无参数时打印帮助
+    };
+    let Some(entry) = resolve_registry_command(&registry, sub_name) else {
+        eprintln!("Error: unknown command: {sub_name}");
+        std::process::exit(2);
+    };
+
+    execute_registered(entry, sub_m);
+}
+
+/// 构建注册表的根 `clap::Command`（纯函数，可单测）
+///
+/// 子命令名取自各命令 schema 的 `name` 字段；注册表别名通过
+/// `resolve_registry_command` 在运行期解析。
+pub fn build_registry_command(app_name: &str, registry: &Registry) -> Command {
+    let mut root = Command::new(leak_str(app_name))
+        .disable_version_flag(true)
+        .arg_required_else_help(true);
+
+    for entry in registry.iter() {
+        let mut sub = build_command(&entry.schema);
+        for alias in &entry.aliases {
+            sub = sub.alias(leak_str(alias));
+        }
+        if entry.hidden {
+            sub = sub.hide(true);
+        }
+        root = root.subcommand(sub);
+    }
+
+    root.arg(
+        Arg::new("schema")
+            .long("schema")
+            .help("打印注册表 JSON 清单（全部命令）并退出")
+            .action(ArgAction::SetTrue)
+            .exclusive(true),
+    )
+}
+
+/// 按规范名或别名解析注册表条目；schema.name 与注册名不一致的
+/// 声明式命令（`register_from_json`）也能命中
+fn resolve_registry_command<'r>(
+    registry: &'r Registry,
+    name: &str,
+) -> Option<&'r RegisteredCommand> {
+    registry
+        .get(name)
+        .or_else(|| registry.iter().find(|c| c.schema.name == name))
+}
+
+/// 执行单个已解析命令：内置标志 → 参数提取 → executor → 输出渲染
+fn execute_registered(entry: &RegisteredCommand, sub_m: &clap::ArgMatches) {
+    let schema = &entry.schema;
+    if CliRenderer::handle_builtin_flags(schema, sub_m) {
+        return;
+    }
+    let output_format = CliRenderer::output_format(sub_m);
+    let args = CliRenderer::extract_args(schema, sub_m);
+
+    let Some(handler) = entry.handler.clone() else {
+        eprintln!(
+            "Error: command `{}` has no handler（声明式加载的命令不能直接执行）",
+            entry.name
+        );
+        std::process::exit(1);
+    };
+    let args_value = serde_json::to_value(&args).unwrap_or(serde_json::json!({}));
+    let task = spawn(handler, args_value);
+    drain_events(task, output_format);
+}
+
+/// 消费任务进度事件并按输出格式渲染（`run` 与 `run_registry` 共用）。
+/// 事件流协议保证以 Done / Error 结尾，线程 join 后进程退出。
+fn drain_events(task: Task, output_format: OutputFormat) {
     match output_format {
         OutputFormat::JsonStream => {
             for event in task.rx {
@@ -933,5 +1039,128 @@ mod tests {
         // json-stream 是内置标志，不应出现在 args 中
         assert!(!args.contains_key("json-stream"));
         assert!(args.contains_key("env"));
+    }
+
+    // ─── Registry 多命令 ───────────────────────────────
+
+    /// 单参数（--x）的最小 schema
+    fn simple_schema(name: &str) -> CommandSchema {
+        CommandSchema {
+            name: name.into(),
+            about: "test command".into(),
+            args: vec![ArgSchema {
+                name: "x".into(),
+                about: "arg x".into(),
+                kind: ArgKind::Text,
+                required: false,
+                default: None,
+            }],
+            subcommands: vec![],
+        }
+    }
+
+    /// 构建多命令注册表：可见 / 别名 / 隐藏各一条
+    fn multi_command_registry() -> Registry {
+        let mut reg = Registry::new();
+        reg.register(RegisteredCommand::new("ping", simple_schema("ping")))
+            .unwrap();
+        reg.register(
+            RegisteredCommand::new("img-compress", simple_schema("img-compress")).alias("imgc"),
+        )
+        .unwrap();
+        reg.register(RegisteredCommand::new("secret", simple_schema("secret")).hidden(true))
+            .unwrap();
+        reg
+    }
+
+    #[test]
+    fn registry_command_contains_all_schemas() {
+        let reg = multi_command_registry();
+        let root = build_registry_command("tool", &reg);
+        assert!(root.find_subcommand("ping").is_some());
+        assert!(root.find_subcommand("img-compress").is_some());
+        assert!(root.find_subcommand("secret").is_some());
+    }
+
+    #[test]
+    fn hidden_command_hidden_but_callable() {
+        let reg = multi_command_registry();
+        let root = build_registry_command("tool", &reg);
+        let secret = root.find_subcommand("secret").unwrap();
+        assert!(secret.is_hide_set(), "hidden command must be hide(true)");
+
+        // 仍可调用
+        let m = root
+            .try_get_matches_from(["tool", "secret", "--x", "1"])
+            .unwrap();
+        let (name, _) = m.subcommand().unwrap();
+        assert_eq!(name, "secret");
+    }
+
+    #[test]
+    fn alias_subcommand_resolves_to_canonical() {
+        let reg = multi_command_registry();
+        let root = build_registry_command("tool", &reg);
+        let m = root
+            .try_get_matches_from(["tool", "imgc", "--x", "v"])
+            .unwrap();
+        let (name, _) = m.subcommand().unwrap();
+        // 无论 clap 返回别名还是规范名，registry 解析都命中规范命令
+        let resolved = resolve_registry_command(&reg, name).unwrap();
+        assert_eq!(resolved.name, "img-compress");
+    }
+
+    #[test]
+    fn resolve_falls_back_to_schema_name() {
+        // 声明式加载：注册名与 schema.name 不一致也能命中
+        let mut reg = Registry::new();
+        let mut entry = RegisteredCommand::new("reg-name", simple_schema("schema-name"));
+        entry.schema.name = "schema-name".into();
+        reg.register(entry).unwrap();
+        let resolved = resolve_registry_command(&reg, "schema-name").unwrap();
+        assert_eq!(resolved.schema.name, "schema-name");
+    }
+
+    #[test]
+    fn root_schema_flag_parses() {
+        let reg = multi_command_registry();
+        let root = build_registry_command("tool", &reg);
+        let m = root.try_get_matches_from(["tool", "--schema"]).unwrap();
+        assert!(m.get_flag("schema"));
+        // 清单 JSON 可解析且包含全部命令
+        let json = reg.to_json();
+        assert!(json.is_array());
+    }
+
+    #[test]
+    fn bare_invocation_is_error() {
+        let reg = multi_command_registry();
+        let root = build_registry_command("tool", &reg);
+        assert!(root.try_get_matches_from(["tool"]).is_err());
+    }
+
+    #[test]
+    fn subcommand_builtin_flags_still_work() {
+        let reg = multi_command_registry();
+        let root = build_registry_command("tool", &reg);
+        let m = root
+            .try_get_matches_from(["tool", "ping", "--json-stream"])
+            .unwrap();
+        let (_, sub) = m.subcommand().unwrap();
+        assert!(sub.get_flag("json-stream"));
+        assert_eq!(CliRenderer::output_format(sub), OutputFormat::JsonStream);
+    }
+
+    #[test]
+    fn subcommand_args_extracted_for_handler() {
+        let reg = multi_command_registry();
+        let root = build_registry_command("tool", &reg);
+        let m = root
+            .try_get_matches_from(["tool", "imgc", "--x", "prod"])
+            .unwrap();
+        let (name, sub) = m.subcommand().unwrap();
+        let entry = resolve_registry_command(&reg, name).unwrap();
+        let args = CliRenderer::extract_args(&entry.schema, sub);
+        assert_eq!(args.get("x").unwrap(), &serde_json::json!("prod"));
     }
 }
