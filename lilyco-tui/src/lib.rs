@@ -458,4 +458,84 @@ mod tests {
             "must_exist violation expected: {errors:?}"
         );
     }
+
+    // ─── 多命令选择页（CommandSelect） ───────────────────
+
+    fn two_schemas() -> Vec<CommandSchema> {
+        vec![
+            CommandSchema {
+                name: "ping".into(),
+                about: "问好".into(),
+                args: vec![],
+                subcommands: vec![],
+            },
+            CommandSchema {
+                name: "add".into(),
+                about: "加法".into(),
+                args: vec![],
+                subcommands: vec![],
+            },
+        ]
+    }
+
+    #[test]
+    fn multi_command_select_renders_list() {
+        let app = TuiApp::new_multi("tool", two_schemas());
+        assert_eq!(*app.state(), AppState::CommandSelect);
+        let out = render_to_string(&app, 80, 20);
+        assert!(out.contains("tool"), "title shows app name: {out}");
+        assert!(out.contains("ping"), "lists ping: {out}");
+        assert!(out.contains("add"), "lists add: {out}");
+    }
+
+    #[test]
+    fn multi_select_enter_moves_to_form() {
+        let mut app = TuiApp::new_multi("tool", two_schemas());
+        app.handle_event(key(KeyCode::Enter));
+        assert_eq!(*app.state(), AppState::Form);
+        assert_eq!(app.active_command.as_deref(), Some("ping"));
+        assert_eq!(app.form.command_name, "ping");
+    }
+
+    #[test]
+    fn multi_select_arrow_bounds() {
+        let mut app = TuiApp::new_multi("tool", two_schemas());
+        app.handle_event(key(KeyCode::Down));
+        app.handle_event(key(KeyCode::Down)); // 2 条命令，最多到 1
+        assert_eq!(app.selected_command, 1);
+        app.handle_event(key(KeyCode::Up));
+        assert_eq!(app.selected_command, 0);
+        app.handle_event(key(KeyCode::Up)); // 顶部不再上移
+        assert_eq!(app.selected_command, 0);
+        app.handle_event(key(KeyCode::Down));
+        app.handle_event(key(KeyCode::Enter));
+        assert_eq!(app.active_command.as_deref(), Some("add"));
+    }
+
+    #[test]
+    fn multi_select_esc_quits() {
+        let mut app = TuiApp::new_multi("tool", two_schemas());
+        let cont = app.handle_event(key(KeyCode::Esc));
+        assert!(!cont);
+        assert!(app.should_quit);
+    }
+
+    #[test]
+    fn multi_done_returns_to_select_but_single_quits() {
+        // 多命令：Done 后任意键回选择页
+        let mut app = TuiApp::new_multi("tool", two_schemas());
+        app.handle_event(key(KeyCode::Enter)); // → Form
+        app.form.app_state = AppState::Done;
+        app.handle_event(key(KeyCode::Enter));
+        assert_eq!(*app.state(), AppState::CommandSelect);
+        assert!(app.active_command.is_none());
+
+        // 单命令：Done 后任意键退出
+        let schema = two_schemas().remove(0);
+        let mut single = TuiApp::new(&schema);
+        single.form.app_state = AppState::Done;
+        let cont = single.handle_event(key(KeyCode::Enter));
+        assert!(!cont);
+        assert!(single.should_quit);
+    }
 }

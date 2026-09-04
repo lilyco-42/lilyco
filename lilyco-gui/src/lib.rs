@@ -5,7 +5,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, Request as AxumRequest, State},
+    extract::{Path, Query, Request as AxumRequest, State},
     http::{HeaderMap, Method, StatusCode},
     middleware::{self, Next},
     response::{
@@ -20,7 +20,7 @@ use rand::Rng;
 use tokio::sync::Mutex;
 
 use lilyco_core::executor;
-use lilyco_core::registry::Handler;
+use lilyco_core::registry::{Handler, RegisteredCommand, Registry};
 use lilyco_core::schema::{ArgKind, CommandSchema};
 use lilyco_core::{App, AppError, Progress};
 
@@ -99,11 +99,37 @@ impl GuiRenderer {
     pub async fn serve(&self, schema: CommandSchema, runner: RunnerFn) {
         let state = Arc::new(AppState {
             schema: Arc::new(schema),
+            registry: None,
             sessions: Mutex::new(HashMap::new()),
             runner,
             token: generate_id(),
         });
+        self.serve_state(state).await;
+    }
 
+    /// 多命令形态：把整个 `Registry` 暴露为 Web 控制台
+    ///
+    /// `GET /?cmd=xxx` 按命令渲染表单（页头下拉切换）；隐藏命令不在下拉中，
+    /// 与 CLI help / MCP tools/list 语义一致。执行走 Registry 内的 handler。
+    pub async fn serve_registry(&self, registry: Registry) {
+        let default_schema = registry
+            .visible()
+            .next()
+            .expect("serve_registry: registry has no visible commands")
+            .schema
+            .clone();
+        let state = Arc::new(AppState {
+            schema: Arc::new(default_schema),
+            registry: Some(Arc::new(registry)),
+            sessions: Mutex::new(HashMap::new()),
+            // registry 模式的执行路径在 run_handler 内按 ?cmd 分发，不走这里
+            runner: Arc::new(|_, _| Box::pin(async {})),
+            token: generate_id(),
+        });
+        self.serve_state(state).await;
+    }
+
+    async fn serve_state(&self, state: Arc<AppState>) {
         let app = Router::new()
             .route("/", get(index))
             .route("/run", post(run_handler))
@@ -152,27 +178,36 @@ impl GuiRenderer {
                     let app = A::from_args(&map)?;
                     app.run(ctx)
                 });
-                let task = executor::spawn(handler, args_value);
-                for event in task.rx {
-                    let json = serde_json::to_value(&event).unwrap();
-                    if gui_tx.send(json).await.is_err() {
-                        break;
-                    }
-                    if matches!(event, Progress::Done { .. } | Progress::Error { .. }) {
-                        break;
-                    }
-                }
-                if let Ok(Err(e)) = task.handle.join() {
-                    let _ = gui_tx
-                        .send(serde_json::json!({
-                            "type": "error", "code": 1,
-                            "message": e.to_string(), "kind": null
-                        }))
-                        .await;
-                }
+                run_progress(handler, args_value, gui_tx).await;
             })
         });
         self.serve(schema, runner).await;
+    }
+}
+
+/// 执行 handler 并把进度事件流式转发到 SSE 通道（单命令 / 多命令共用）
+async fn run_progress(
+    handler: Handler,
+    args: serde_json::Value,
+    gui_tx: tokio::sync::mpsc::Sender<serde_json::Value>,
+) {
+    let task = executor::spawn(handler, args);
+    for event in task.rx {
+        let json = serde_json::to_value(&event).unwrap();
+        if gui_tx.send(json).await.is_err() {
+            break;
+        }
+        if matches!(event, Progress::Done { .. } | Progress::Error { .. }) {
+            break;
+        }
+    }
+    if let Ok(Err(e)) = task.handle.join() {
+        let _ = gui_tx
+            .send(serde_json::json!({
+                "type": "error", "code": 1,
+                "message": e.to_string(), "kind": null
+            }))
+            .await;
     }
 }
 
@@ -180,6 +215,8 @@ impl GuiRenderer {
 
 struct AppState {
     schema: Arc<CommandSchema>,
+    /// 多命令模式（`serve_registry`）：整张注册表
+    registry: Option<Arc<Registry>>,
     sessions: Mutex<HashMap<String, tokio::sync::mpsc::Receiver<serde_json::Value>>>,
     runner: RunnerFn,
     token: String,
@@ -222,8 +259,52 @@ async fn security_mw(
 
 // ── HTML ───────────────────────────────────────────────────
 
-async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
-    let schema = &state.schema;
+/// 按查询参数挑出要渲染的命令 schema（多命令模式）
+///
+/// `want` 必须命中可见命令（`registry.get` 含别名解析；隐藏命令不可导航），
+/// 否则回退第一个可见命令。
+fn pick_command<'r>(registry: &'r Registry, want: Option<&str>) -> &'r RegisteredCommand {
+    want.and_then(|n| registry.get(n))
+        .filter(|c| !c.hidden)
+        .or_else(|| registry.visible().next())
+        .expect("pick_command: registry has no visible commands")
+}
+
+async fn index(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Html<String> {
+    // 多命令模式：?cmd= 决定渲染哪个命令的表单
+    let schema = match &state.registry {
+        Some(reg) => pick_command(reg, params.get("cmd").map(|x| x.as_str()))
+            .schema
+            .clone(),
+        None => state.schema.as_ref().clone(),
+    };
+
+    // 命令切换下拉（可见命令 > 1 时出现）
+    let mut cmd_nav = String::new();
+    if let Some(reg) = &state.registry {
+        let visible: Vec<&RegisteredCommand> = reg.visible().collect();
+        if visible.len() > 1 {
+            let mut opts = String::new();
+            for c in &visible {
+                let sel = if c.schema.name == schema.name {
+                    " selected"
+                } else {
+                    ""
+                };
+                opts.push_str(&format!(
+                    "<option value=\"{}\"{}>{}</option>",
+                    c.schema.name, sel, c.schema.name
+                ));
+            }
+            cmd_nav = format!(
+                " <select style=\"margin-left:12px;font-size:14px;padding:4px\" onchange=\"if(this.value)location='/?cmd='+encodeURIComponent(this.value)\">{opts}</select>"
+            );
+        }
+    }
+
     let mut fields_html = String::new();
     let mut field_js_meta = String::new();
 
@@ -318,6 +399,8 @@ async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
             .replace("{layui_css}", include_str!("../assets/layui.css"))
             .replace("{about}", &schema.about)
             .replace("{cmd_name}", &schema.name)
+            .replace("{cmd_nav}", &cmd_nav)
+            .replace("{cmd_js}", &schema.name)
             .replace("{fields_html}", &fields_html)
             .replace("{field_js_meta}", &field_js_meta)
             .replace("{token}", &state.token),
@@ -370,7 +453,7 @@ body{background:#f2f3f5;padding:20px}
 @media(max-width:640px){.layui-form-item{flex-direction:column;gap:4px}.layui-form-item .layui-form-label{flex:0 0 auto;min-width:0}}
 </style></head><body>
 <div class="layui-card main-card">
-<div class="layui-card-header" style="font-size:18px;font-weight:bold">{cmd_name}</div>
+<div class="layui-card-header" style="font-size:18px;font-weight:bold">{cmd_name}{cmd_nav}</div>
 <div class="layui-card-body">
 <details class="about" id="about"><summary>关于 {cmd_name}（点击展开）</summary><p style="color:#666;margin:10px 0 0">{about}</p></details>
 <form class="layui-form" id="form" lay-filter="form">
@@ -394,6 +477,7 @@ body{background:#f2f3f5;padding:20px}
 layui.use(['element','form'],function(){
 var element=layui.element,form=layui.form;
 const TOKEN=document.querySelector('meta[name="lilyco-token"]').content;
+const CMD="{cmd_js}";
 const SCHEMA={name:"{cmd_name}",args:[{field_js_meta}]};
 const preview=document.getElementById("preview");
 const out=document.getElementById("out");
@@ -419,7 +503,7 @@ else if(el.value==="")data[a.name]=null;
 else if(a.kind==="Number"){var n=Number(el.value);data[a.name]=isNaN(n)?el.value:n}
 else data[a.name]=el.value}}
 var sid;
-try{var resp=await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:JSON.stringify({args:data})});
+try{var resp=await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:JSON.stringify({args:data,cmd:CMD})});
 if(!resp.ok){var t=await resp.text();logEl.innerHTML="<span class=err>"+(t||("Server error: "+resp.status))+"</span>";return;}
 var j=await resp.json();sid=j.session_id;}catch(err){logEl.innerHTML+="<span class=err>Network error: "+err+"</span>";return}
 var es=new EventSource("/progress/"+sid);
@@ -440,10 +524,52 @@ function copyCmd(){navigator.clipboard.writeText(preview.textContent)}
 #[derive(serde::Deserialize)]
 struct RunRequest {
     args: HashMap<String, serde_json::Value>,
+    /// 多命令模式：要执行的命令名（单命令模式忽略）
+    #[serde(default)]
+    cmd: Option<String>,
 }
 
 async fn run_handler(State(state): State<Arc<AppState>>, Json(req): Json<RunRequest>) -> Response {
-    // 服务端 schema 校验（浏览器端的 required/min/max 可被绕过）：
+    // 多命令模式：按 req.cmd 从 Registry 取命令执行
+    if let Some(reg) = &state.registry {
+        // /run 是显式执行：未指定命令 → 默认第一个可见；指定但未知/隐藏 → 400
+        // （与 index 的"回退到第一个可见"导航语义不同，执行绝不静默换命令）
+        let resolved = match req.cmd.as_deref() {
+            None | Some("") => reg.visible().next(),
+            Some(name) => reg.get(name).filter(|c| !c.hidden),
+        };
+        let Some(cmd) = resolved else {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("unknown command: {}", req.cmd.as_deref().unwrap_or("")),
+            )
+                .into_response();
+        };
+        let args_value = serde_json::json!(req.args);
+        // 服务端 schema 校验（与单命令模式同一套 validate_args）
+        if let Err(e) = cmd.schema.validate_args(&args_value) {
+            return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
+        }
+        let Some(handler) = cmd.handler.clone() else {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("command `{}` has no handler", cmd.name),
+            )
+                .into_response();
+        };
+
+        let sid = generate_id();
+        let (tx, rx) = tokio::sync::mpsc::channel::<serde_json::Value>(128);
+        state.sessions.lock().await.insert(sid.clone(), rx);
+        tokio::spawn(async move { run_progress(handler, args_value, tx).await });
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({ "session_id": sid })),
+        )
+            .into_response();
+    }
+
+    // 单命令模式：服务端 schema 校验（浏览器端的 required/min/max 可被绕过）：
     // CommandSchema::validate_args，三端唯一校验实现
     let args_value = serde_json::json!(req.args);
     if let Err(e) = state.schema.validate_args(&args_value) {
@@ -534,10 +660,130 @@ mod tests {
         let runner: RunnerFn = Arc::new(|_args, _tx| Box::pin(async {}));
         Arc::new(AppState {
             schema: Arc::new(schema_with_required_number()),
+            registry: None,
             sessions: Mutex::new(HashMap::new()),
             runner,
             token: "test-token".into(),
         })
+    }
+
+    // ── 多命令模式 ──
+
+    fn two_command_registry() -> Registry {
+        let mut reg = Registry::new();
+        let schema_of = |name: &str, about: &str| CommandSchema {
+            name: name.into(),
+            about: about.into(),
+            args: vec![],
+            subcommands: vec![],
+        };
+        let ping_handler: Handler = Arc::new(|_ctx, _args| Ok(serde_json::json!({"ok": true})));
+        reg.register(
+            RegisteredCommand::new("ping", schema_of("ping", "问好")).with_handler(ping_handler),
+        )
+        .unwrap();
+        // 隐藏命令：get 可命中但不可导航（pick_command 会回退）
+        reg.register(RegisteredCommand::new("secret", schema_of("secret", "隐藏")).hidden(true))
+            .unwrap();
+        reg
+    }
+
+    fn registry_state() -> Arc<AppState> {
+        Arc::new(AppState {
+            schema: Arc::new(CommandSchema {
+                name: "ping".into(),
+                about: "问好".into(),
+                args: vec![],
+                subcommands: vec![],
+            }),
+            registry: Some(Arc::new(two_command_registry())),
+            sessions: Mutex::new(HashMap::new()),
+            runner: Arc::new(|_, _| Box::pin(async {})),
+            token: "test-token".into(),
+        })
+    }
+
+    #[test]
+    fn pick_command_defaults_to_first_visible() {
+        let reg = two_command_registry();
+        assert_eq!(pick_command(&reg, None).schema.name, "ping");
+        assert_eq!(pick_command(&reg, Some("nope")).schema.name, "ping");
+    }
+
+    #[test]
+    fn pick_command_hidden_falls_back() {
+        let reg = two_command_registry();
+        assert_eq!(pick_command(&reg, Some("secret")).schema.name, "ping");
+    }
+
+    #[tokio::test]
+    async fn index_renders_selected_command_and_nav() {
+        let state = registry_state();
+        let mut params = HashMap::new();
+        params.insert("cmd".to_string(), "secret".to_string());
+        let resp = index(State(state.clone()), Query(params)).await;
+        // hidden 不可导航 → 回退第一个可见命令
+        assert!(resp.0.contains("ping"), "fallback to first visible");
+        assert!(resp.0.contains("select"), "nav dropdown expected");
+    }
+
+    #[tokio::test]
+    async fn registry_run_rejects_unknown_command() {
+        let state = registry_state();
+        let mut args = HashMap::new();
+        args.insert("x".to_string(), serde_json::json!(1));
+        let req = RunRequest {
+            args,
+            cmd: Some("bogus".into()),
+        };
+        let resp = run_handler(State(state), Json(req)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn registry_run_accepts_valid_command() {
+        let state = registry_state();
+        let req = RunRequest {
+            args: HashMap::new(),
+            cmd: Some("ping".into()),
+        };
+        let resp = run_handler(State(state), Json(req)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn registry_run_without_handler_is_400() {
+        let state = registry_state();
+        // secret 无 handler 但可见性为默认 —— 这里把它当可见命令调用
+        let mut reg = Registry::new();
+        reg.register(RegisteredCommand::new(
+            "noh",
+            CommandSchema {
+                name: "noh".into(),
+                about: "no handler".into(),
+                args: vec![],
+                subcommands: vec![],
+            },
+        ))
+        .unwrap();
+        let state2 = Arc::new(AppState {
+            schema: Arc::new(CommandSchema {
+                name: "noh".into(),
+                about: "no handler".into(),
+                args: vec![],
+                subcommands: vec![],
+            }),
+            registry: Some(Arc::new(reg)),
+            sessions: Mutex::new(HashMap::new()),
+            runner: Arc::new(|_, _| Box::pin(async {})),
+            token: "t".into(),
+        });
+        let req = RunRequest {
+            args: HashMap::new(),
+            cmd: Some("noh".into()),
+        };
+        let resp = run_handler(State(state2), Json(req)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
@@ -545,7 +791,7 @@ mod tests {
         let state = test_state();
         let mut args = HashMap::new();
         args.insert("quality".to_string(), serde_json::json!(30));
-        let resp = run_handler(State(state), Json(RunRequest { args })).await;
+        let resp = run_handler(State(state), Json(RunRequest { args, cmd: None })).await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -555,7 +801,7 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("input".to_string(), serde_json::json!("a.png"));
         args.insert("quality".to_string(), serde_json::json!(99));
-        let resp = run_handler(State(state), Json(RunRequest { args })).await;
+        let resp = run_handler(State(state), Json(RunRequest { args, cmd: None })).await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -565,7 +811,7 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("input".to_string(), serde_json::json!("a.png"));
         args.insert("quality".to_string(), serde_json::json!(30));
-        let resp = run_handler(State(state), Json(RunRequest { args })).await;
+        let resp = run_handler(State(state), Json(RunRequest { args, cmd: None })).await;
         assert_eq!(resp.status(), StatusCode::OK);
     }
 }

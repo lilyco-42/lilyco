@@ -41,6 +41,8 @@ pub struct FormRenderer {
 /// 应用状态机
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppState {
+    /// 多命令选择页（`TuiApp::new_multi` 起始状态）
+    CommandSelect,
     Form,
     Confirm,
     Running,
@@ -215,6 +217,7 @@ pub fn render_form(fr: &FormRenderer, area: Rect, buf: &mut Buffer) {
         buf.set_string(area.x, footer_y, &shown, Style::default().fg(Color::Red));
     }
     let shortcuts = match fr.app_state {
+        AppState::CommandSelect => "[↑↓] 选择  [Enter] 进入  [Esc] 退出",
         AppState::Form => "[Tab] 切换  [Enter] 确认  [Esc] 退出  [F1] 帮助",
         AppState::Confirm => "[Enter] 确认执行  [Esc] 返回",
         AppState::Running => "[Ctrl-C] 取消",
@@ -225,6 +228,54 @@ pub fn render_form(fr: &FormRenderer, area: Rect, buf: &mut Buffer) {
         area.x,
         footer_y + 1,
         shortcuts,
+        Style::default().fg(Color::DarkGray),
+    );
+}
+
+/// 渲染多命令选择页（`AppState::CommandSelect`）
+///
+/// 交互克隆 mininterface 的 subcommand picker：↑↓ 高亮、Enter 进入所选命令的表单。
+pub fn render_command_select(
+    app_name: &str,
+    schemas: &[CommandSchema],
+    selected: usize,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    // 标题栏
+    let title = format!(" {app_name} — 选择命令 ({}) ", schemas.len());
+    buf.set_string(
+        area.x,
+        area.y,
+        &title,
+        Style::default().fg(Color::Black).bg(Color::Cyan),
+    );
+
+    let sep_y = area.y + 1;
+    let sep = "─".repeat(area.width as usize);
+    buf.set_string(area.x, sep_y, &sep, Style::default().fg(Color::DarkGray));
+
+    let list_y = sep_y + 1;
+    let list_h = area.height.saturating_sub(3 + list_y - area.y);
+    for (i, schema) in schemas.iter().enumerate().take(list_h as usize) {
+        let row_y = list_y + i as u16;
+        let marker = if i == selected { "▶ " } else { "  " };
+        let line = format!("{marker}{:<16} {}", schema.name, schema.about);
+        let style = if i == selected {
+            Style::default().fg(Color::Black).bg(Color::Cyan)
+        } else {
+            Style::default()
+        };
+        let max = area.width as usize;
+        let shown: String = line.chars().take(max).collect();
+        buf.set_string(area.x, row_y, &shown, style);
+    }
+
+    let footer_y = area.y + area.height - 1;
+    buf.set_string(
+        area.x,
+        footer_y,
+        "[↑↓] 选择  [Enter] 进入  [Esc] 退出",
         Style::default().fg(Color::DarkGray),
     );
 }

@@ -1,6 +1,6 @@
 [package]
 name = "lilyco"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Lilyco facade — one dependency, auto backend selection (CLI / TUI / Web / MCP)"
 license = "MIT OR Apache-2.0"

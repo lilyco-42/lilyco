@@ -176,6 +176,28 @@ pub fn run_cli_registry(app_name: &str, registry: Registry) {
     lilyco_cli::run_registry(app_name, registry);
 }
 
+/// 以 TUI 多命令形态运行整个注册表（命令选择页 → 表单 → 执行）
+///
+/// 借鉴 mininterface 的 subcommand picker：交互终端先列出可见命令
+/// （隐藏命令不显示，语义与 CLI help / MCP tools/list 一致），
+/// 选中后进入该命令的表单；任务结束后返回选择页继续导航。
+/// TUI 起不来（非终端/CI/无 crossterm 平台）时回退 [`run_cli_registry`]。
+///
+/// ```ignore
+/// lilyco::run_tui_registry("imgtool", registry);
+/// ```
+pub fn run_tui_registry(app_name: &str, registry: Registry) {
+    #[cfg(feature = "tui")]
+    {
+        if run_tui_registry_impl(app_name, &registry).is_err() {
+            run_cli_registry(app_name, registry);
+        }
+        return;
+    }
+    #[cfg(not(feature = "tui"))]
+    run_cli_registry(app_name, registry);
+}
+
 // ── 后端分发 ──────────────────────────────────────────────
 
 fn single_registry<A: App + Send + 'static>() -> Registry {
@@ -208,16 +230,47 @@ fn run_web<A: App + Send + 'static>() {
 
 #[cfg(feature = "tui")]
 fn run_tui<A: App + Send + 'static>() -> std::io::Result<()> {
+    let schema = A::schema();
+    let mut handlers = std::collections::HashMap::new();
+    handlers.insert(schema.name.clone(), build_handler::<A>());
+    let mut app = lilyco_tui::TuiApp::new(&schema);
+    run_tui_event_loop(&mut app, &handlers)
+}
+
+/// TUI 多命令形态：命令选择页 → 表单 → 执行（mininterface subcommand picker 模式）
+#[cfg(feature = "tui")]
+fn run_tui_registry_impl(app_name: &str, registry: &Registry) -> std::io::Result<()> {
+    // 隐藏命令不进选择页（与 CLI help / MCP tools/list 语义一致）
+    let schemas: Vec<lilyco_core::schema::CommandSchema> =
+        registry.visible().map(|c| c.schema.clone()).collect();
+    if schemas.is_empty() {
+        return Err(std::io::Error::other("registry has no visible commands"));
+    }
+
+    let mut handlers = std::collections::HashMap::new();
+    for cmd in registry.iter() {
+        if let Some(h) = &cmd.handler {
+            handlers.insert(cmd.schema.name.clone(), h.clone());
+        }
+    }
+
+    let mut app = lilyco_tui::TuiApp::new_multi(app_name, schemas);
+    run_tui_event_loop(&mut app, &handlers)
+}
+
+/// TUI 事件循环（单命令 `run_tui` 与多命令 `run_tui_registry_impl` 共享）
+#[cfg(feature = "tui")]
+fn run_tui_event_loop(
+    app: &mut lilyco_tui::TuiApp,
+    handlers: &std::collections::HashMap<String, Handler>,
+) -> std::io::Result<()> {
     use crossterm::event::Event;
     use crossterm::execute;
     use crossterm::terminal::{
         disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
     };
-    use lilyco_tui::{AppState, TuiApp};
+    use lilyco_tui::AppState;
     use std::time::Duration;
-
-    let schema = A::schema();
-    let mut app = TuiApp::new(&schema);
 
     enum TaskState {
         Idle,
@@ -234,15 +287,27 @@ fn run_tui<A: App + Send + 'static>() -> std::io::Result<()> {
         // 1. 进入 Running 且尚未启动任务 → 后台派生任务
         if app.state() == &AppState::Running {
             if let TaskState::Idle = task_state {
-                let args = collect_args(&app);
-                task_state = TaskState::Running(executor::spawn(build_handler::<A>(), args));
+                let args = collect_args(app);
+                // 多命令按 active_command 取 handler；单命令 map 里只有一项
+                let name = app
+                    .active_command
+                    .clone()
+                    .unwrap_or_else(|| app.form.command_name.clone());
+                let Some(handler) = handlers.get(&name).cloned() else {
+                    disable_raw_mode()?;
+                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                    return Err(std::io::Error::other(format!(
+                        "no handler for command `{name}`"
+                    )));
+                };
+                task_state = TaskState::Running(executor::spawn(handler, args));
             }
         }
 
         // 2. Running：非阻塞排空任务进度事件，保持 UI 响应
         if app.state() == &AppState::Running {
             if let TaskState::Running(task) = &task_state {
-                drain_task(&mut app, task);
+                drain_task(app, task);
             }
         }
 
@@ -256,7 +321,7 @@ fn run_tui<A: App + Send + 'static>() -> std::io::Result<()> {
             break;
         }
 
-        // 4. 已离开 Running（Done / Error）→ 请求取消并回收线程
+        // 4. 已离开 Running（Done / Error / 回到选择页）→ 请求取消并回收线程
         if app.state() != &AppState::Running {
             if let TaskState::Running(task) = &task_state {
                 task.cancel

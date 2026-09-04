@@ -16,15 +16,48 @@ pub struct TuiApp {
     pub should_quit: bool,
     /// 帮助面板是否显示
     pub show_help: bool,
+    /// 多命令模式：可选命令 schema（`None` = 单命令模式）
+    pub commands: Option<Vec<CommandSchema>>,
+    /// 应用名（多命令选择页标题）
+    pub app_name: String,
+    /// 命令选择页当前高亮索引
+    pub selected_command: usize,
+    /// 当前激活的命令名（执行时 facade 按它取 handler）
+    pub active_command: Option<String>,
 }
 
 impl TuiApp {
-    /// 从 CommandSchema 创建
+    /// 单命令模式：从 CommandSchema 创建
     pub fn new(schema: &CommandSchema) -> Self {
         Self {
             form: FormRenderer::new(schema),
             should_quit: false,
             show_help: false,
+            commands: None,
+            app_name: schema.name.clone(),
+            selected_command: 0,
+            active_command: Some(schema.name.clone()),
+        }
+    }
+
+    /// 多命令模式：命令选择页起步，选中后进入对应表单
+    ///
+    /// `schemas` 应来自 Registry 的可见命令（隐藏命令由调用方过滤）。
+    pub fn new_multi(app_name: &str, schemas: Vec<CommandSchema>) -> Self {
+        let mut form = schemas
+            .first()
+            .map(FormRenderer::new)
+            .expect("new_multi requires at least one command");
+        // form 仅作占位（首个命令的表单），有效状态是命令选择页
+        form.app_state = AppState::CommandSelect;
+        Self {
+            form,
+            should_quit: false,
+            show_help: false,
+            commands: Some(schemas),
+            app_name: app_name.to_string(),
+            selected_command: 0,
+            active_command: None,
         }
     }
 
@@ -47,6 +80,7 @@ impl TuiApp {
     /// 处理一个按键事件，返回 `false` 表示应退出事件循环
     pub fn handle_event(&mut self, key: KeyEvent) -> bool {
         match self.form.app_state {
+            AppState::CommandSelect => self.handle_select_event(key),
             AppState::Form => self.handle_form_event(key),
             AppState::Confirm => self.handle_confirm_event(key),
             AppState::Running => self.handle_running_event(key),
@@ -57,6 +91,17 @@ impl TuiApp {
     /// 渲染当前状态到 Buffer
     pub fn render(&self, area: Rect, buf: &mut Buffer) {
         match self.form.app_state {
+            AppState::CommandSelect => {
+                if let Some(schemas) = &self.commands {
+                    renderer::render_command_select(
+                        &self.app_name,
+                        schemas,
+                        self.selected_command,
+                        area,
+                        buf,
+                    );
+                }
+            }
             AppState::Form | AppState::Running => {
                 renderer::render_form(&self.form, area, buf);
                 if self.show_help {
@@ -77,6 +122,36 @@ impl TuiApp {
     }
 
     // ── 各状态事件处理 ─────────────────────────────────
+
+    /// 命令选择页：↑↓/jk 移动，Enter 进入表单，Esc/q 退出
+    fn handle_select_event(&mut self, key: KeyEvent) -> bool {
+        use KeyCode::*;
+        let count = self.commands.as_ref().map(Vec::len).unwrap_or(0);
+        match key.code {
+            Esc | Char('q') => {
+                self.should_quit = true;
+                return false;
+            }
+            Up | Char('k') => {
+                self.selected_command = self.selected_command.saturating_sub(1);
+            }
+            Down | Char('j') => {
+                if count > 0 {
+                    self.selected_command = (self.selected_command + 1).min(count - 1);
+                }
+            }
+            Enter => {
+                if let Some(schemas) = &self.commands {
+                    let idx = self.selected_command.min(schemas.len() - 1);
+                    let schema = schemas[idx].clone();
+                    self.form = FormRenderer::new(&schema);
+                    self.active_command = Some(schema.name.clone());
+                }
+            }
+            _ => {}
+        }
+        true
+    }
 
     fn handle_form_event(&mut self, key: KeyEvent) -> bool {
         use KeyCode::*;
@@ -173,9 +248,21 @@ impl TuiApp {
     }
 
     fn handle_terminal_event(&mut self, _key: KeyEvent) -> bool {
-        // Done / Error 状态下任意键退出
-        self.should_quit = true;
-        false
+        // Done / Error 状态下任意键：
+        // 多命令模式 → 返回命令选择页（继续导航下一个命令）
+        // 单命令模式 → 退出
+        if self.commands.is_some() {
+            if let Some(schemas) = &self.commands {
+                let idx = self.selected_command.min(schemas.len().saturating_sub(1));
+                self.form = FormRenderer::new(&schemas[idx]);
+            }
+            self.form.app_state = AppState::CommandSelect;
+            self.active_command = None;
+            true
+        } else {
+            self.should_quit = true;
+            false
+        }
     }
 
     fn update_scroll(&mut self) {
