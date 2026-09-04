@@ -338,6 +338,28 @@ impl CliRenderer {
 }
 ```
 
+#### 多命令（Registry → clap 子命令）
+
+一个二进制挂多个命令，子命令名 / 别名 / 隐藏语义全部来自 `Registry`：
+
+```rust
+let mut registry = Registry::new();
+registry.register(RegisteredCommand::from_app::<Compress>())?;
+registry.register(RegisteredCommand::from_app::<Resize>())?;
+
+lilyco_cli::run_registry("imgtool", registry);   // crate 入口
+lilyco::run_cli_registry("imgtool", registry);   // 门面入口
+```
+
+```bash
+imgtool compress --input a.png    # 子命令
+imgtool resize --width 800        # 子命令
+imgtool --schema                  # 注册表清单（全部命令 schema，Agent 可消费）
+```
+
+> `#[derive(App)]` 默认用结构体名做命令名；多命令场景建议
+> `#[app(name = "img-compress")]` 指定 kebab-case 名。
+
 ### lilyco-tui
 
 Interactive terminal form built on ratatui.
@@ -446,6 +468,8 @@ fn main() {
 
 把命令注册表暴露为标准 **Model Context Protocol** 服务器（2024-11-05），
 实现 `initialize` / `ping` / `tools/list` / `tools/call`，零额外依赖。
+`tools/call` 携带 `_meta.progressToken` 时，执行期间流式返回
+`notifications/progress`（Progress::Started/Tick → 通知），长任务对 Agent 不再是黑盒。
 
 ```rust
 let mut registry = Registry::new();
@@ -836,12 +860,14 @@ lilyco-core = { git = "https://github.com/lilyco-42/lilyco" }
 - [x] ~~MCP 输出面~~ — `lilyco-mcp`：`--mcp` 启动标准 stdio 服务器
 - [x] ~~门面自动选端~~ — `lilyco::run::<A>()`（借鉴 mininterface 工厂）
 - [x] ~~CI 双矩阵~~ — GitHub Actions ubuntu + windows：fmt / clippy / test / doc
-- [ ] CLI 多命令：注册表 → clap 子命令（Registry 已就绪）
-- [ ] MCP 完整能力：进度通知 / 采样 / roots（基于 modelcontextprotocol/rust-sdk）
+- [x] ~~CLI 多命令：注册表 → clap 子命令~~ — `lilyco_cli::run_registry(name, registry)` / 门面 `lilyco::run_cli_registry`；隐藏命令可调用不显示，根级 `--schema` 打印注册表清单
+- [x] ~~MCP 进度通知~~ — `tools/call` 携带 `_meta.progressToken` 时流式返回 `notifications/progress`（零依赖实现）
+- [ ] MCP 采样 / roots（基于 modelcontextprotocol/rust-sdk）
 - [ ] Subcommand navigation in TUI and Web GUI
 - [ ] Input validation in TUI/Web widgets (range, required, enum)
 - [x] ~~TUI 执行异步化（进度渲染 + 取消）~~ — 非阻塞事件循环；取消键 `Ctrl-C`/`c`/`q`/`Esc`；executor 自动补发 `Done`/`Error` 终止事件（防卡死）
 - [ ] Path auto-complete in TUI (Tab triggers directory listing)
+- [x] ~~`#[app(name = "...")]` macro attribute~~ — 多命令场景自定义 kebab-case 命令名（默认取结构体名）
 - [ ] `#[app(subcommands)]` macro support
 - [ ] TUI 执行异步化（进度渲染 + 取消）
 - [x] ~~Publish to crates.io~~ — `lilyco-core/macros/cli/tui/gui 0.2.1`、`lilyco-mcp/lilyco 0.2.0`、`lilyco-ffmpeg 0.1.0`（旧 core 0.1.0/0.2.0 因缺 `executor`/`registry` 已 yank）
