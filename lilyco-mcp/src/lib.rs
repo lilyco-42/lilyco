@@ -171,6 +171,13 @@ impl McpServer {
             .registry
             .get(name)
             .ok_or((ERROR_INVALID_PARAMS, format!("unknown tool: {name}")))?;
+
+        // Agent 直传参数没有 CLI clap 兜底 —— 先做 schema 校验
+        // （CommandSchema::validate_args，三端唯一校验实现）
+        if let Err(e) = cmd.schema.validate_args(&args) {
+            return Err((ERROR_INVALID_PARAMS, e.to_string()));
+        }
+
         let handler = cmd
             .handler
             .clone()
@@ -606,6 +613,45 @@ mod tests {
         assert_eq!(second["method"], "notifications/progress");
         let last: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
         assert_eq!(last["result"]["isError"], false);
+    }
+
+    #[test]
+    fn tools_call_missing_required_arg_is_invalid_params() {
+        let server = McpServer::new(test_registry());
+        let req = r#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"echo","arguments":{}}}"#;
+        let resp = server.handle_line(req).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+        assert_eq!(v["error"]["code"], ERROR_INVALID_PARAMS);
+        assert!(
+            v["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("缺少必填参数"),
+            "schema validation error expected: {v}"
+        );
+    }
+
+    #[test]
+    fn tools_call_wrong_arg_type_is_invalid_params() {
+        let server = McpServer::new(test_registry());
+        let req = r#"{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"echo","arguments":{"text":42}}}"#;
+        let resp = server.handle_line(req).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+        assert_eq!(v["error"]["code"], ERROR_INVALID_PARAMS);
+    }
+
+    #[test]
+    fn tools_call_validation_rejects_before_execution() {
+        // 携带 progressToken 的请求同样先过校验，不产生任何通知
+        let server = McpServer::new(progress_registry());
+        let mut notifications = Vec::new();
+        let req = r#"{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"_meta":{"progressToken":"t"},"name":"nonexistent","arguments":{}}}"#;
+        let resp = server
+            .handle_line_with_sink(req, &mut |n| notifications.push(n.to_string()))
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+        assert_eq!(v["error"]["code"], ERROR_INVALID_PARAMS);
+        assert!(notifications.is_empty());
     }
 
     #[test]
