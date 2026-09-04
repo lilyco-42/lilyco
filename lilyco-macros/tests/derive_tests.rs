@@ -230,3 +230,29 @@ fn run_attribute_works_with_doc_comment_about() {
     let result = app.run(&ctx).unwrap();
     assert_eq!(result["echo"], serde_json::json!("hello world"));
 }
+
+// ── 测试：#[app(name = "...")] 覆盖命令名 ─────────────────
+
+/// Image compression (multi-command scenario: recommended kebab-case name)
+#[derive(App)]
+#[app(name = "img-compress", about = "Compress images", run = "run_nop")]
+struct ImgCompressNamed {
+    /// Input file
+    input: String,
+}
+
+fn run_nop(_app: &ImgCompressNamed, ctx: &Context) -> Result<serde_json::Value, AppError> {
+    let r = serde_json::json!({ "ok": true });
+    ctx.done(r.clone(), 0);
+    Ok(r)
+}
+
+#[test]
+fn app_name_attribute_overrides_command_name() {
+    let schema = ImgCompressNamed::schema();
+    assert_eq!(
+        schema.name, "img-compress",
+        "explicit name wins over struct name"
+    );
+    assert_eq!(schema.about, "Compress images");
+}

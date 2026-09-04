@@ -15,6 +15,7 @@ struct ArgAttrs {
 struct AppAttrs {
     about: Option<String>,
     run: Option<String>,
+    name: Option<String>,
 }
 
 fn parse_app_attrs(attrs: &[Attribute]) -> AppAttrs {
@@ -23,6 +24,7 @@ fn parse_app_attrs(attrs: &[Attribute]) -> AppAttrs {
     let mut result = AppAttrs {
         about: None,
         run: None,
+        name: None,
     };
 
     for attr in attrs {
@@ -37,6 +39,11 @@ fn parse_app_attrs(attrs: &[Attribute]) -> AppAttrs {
                     let s: Lit = meta.value()?.parse()?;
                     if let Lit::Str(s) = s {
                         result.run = Some(s.value());
+                    }
+                } else if meta.path.is_ident("name") {
+                    let s: Lit = meta.value()?.parse()?;
+                    if let Lit::Str(s) = s {
+                        result.name = Some(s.value());
                     }
                 }
                 Ok(())
@@ -232,6 +239,8 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
     let struct_name = &input.ident;
     let app_attrs = parse_app_attrs(&input.attrs);
     let about_str = app_attrs.about.unwrap_or_else(|| struct_name.to_string());
+    // 命令名默认取结构体名；多命令场景建议 #[app(name = "kebab-name")] 覆盖
+    let name_str = app_attrs.name.unwrap_or_else(|| struct_name.to_string());
 
     let fields = match &input.data {
         Data::Struct(s) => match &s.fields {
@@ -362,7 +371,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
         impl lilyco_core::App for #struct_name {
             fn schema() -> lilyco_core::schema::CommandSchema {
                 lilyco_core::schema::CommandSchema {
-                    name: stringify!(#struct_name).into(),
+                    name: #name_str.into(),
                     about: #about_str.into(),
                     args: vec![#(#schema_args),*],
                     subcommands: vec![],

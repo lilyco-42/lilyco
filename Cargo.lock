@@ -942,7 +942,7 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
 name = "lilyco"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "crossterm",
  "lilyco-cli",
@@ -968,7 +968,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-cli"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "clap",
  "lilyco-core",
@@ -1047,7 +1047,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-macros"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "lilyco-core",
  "proc-macro2",
@@ -1059,7 +1059,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-mcp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "lilyco-core",
  "serde_json",
