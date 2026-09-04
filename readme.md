@@ -846,7 +846,7 @@ lilyco-core = { git = "https://github.com/lilyco-42/lilyco" }
 
 - **`#[derive(App)]`** only works on named-field structs (no tuple structs or enums)
 - **`#[app(run = "fn")]`** requires the function to be in scope. Without this attribute, `run()` panics with a helpful message directing you to add it.
-- **Number range validation** works at the CLI layer (clap) but not in TUI/Web widgets
+- **Input validation** is shared: `CommandSchema::validate_args` (required / number range / enum / path must-exist) runs server-side in MCP (`INVALID_PARAMS`) and Web GUI (400), and pre-submit in TUI; CLI validates via clap at parse time
 - **Subcommands** are supported in CLI only — TUI and Web renderers do not handle them yet
 - **Ultra UI** is experimental — JSON spec format may change
 
@@ -864,7 +864,7 @@ lilyco-core = { git = "https://github.com/lilyco-42/lilyco" }
 - [x] ~~MCP 进度通知~~ — `tools/call` 携带 `_meta.progressToken` 时流式返回 `notifications/progress`（零依赖实现）
 - [ ] MCP 采样 / roots（基于 modelcontextprotocol/rust-sdk）
 - [ ] Subcommand navigation in TUI and Web GUI
-- [ ] Input validation in TUI/Web widgets (range, required, enum)
+- [x] ~~Input validation in TUI/Web widgets (range, required, enum)~~ — 共享校验 `CommandSchema::validate_args`：MCP `tools/call` 前置校验（`INVALID_PARAMS`）、Web GUI 服务端 400 + 浏览器 `required`/`min`/`max`、TUI 提交前拦截并红色提示；TUI 数字 ↑↓ 夹紧到 schema 范围
 - [x] ~~TUI 执行异步化（进度渲染 + 取消）~~ — 非阻塞事件循环；取消键 `Ctrl-C`/`c`/`q`/`Esc`；executor 自动补发 `Done`/`Error` 终止事件（防卡死）
 - [ ] Path auto-complete in TUI (Tab triggers directory listing)
 - [x] ~~`#[app(name = "...")]` macro attribute~~ — 多命令场景自定义 kebab-case 命令名（默认取结构体名）
