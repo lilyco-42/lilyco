@@ -34,6 +34,8 @@ pub struct FormRenderer {
     pub result: Option<serde_json::Value>,
     /// 错误信息（Error 状态）
     pub error_message: Option<String>,
+    /// 表单校验消息（Form 状态下提交被拦截时显示，值变更即清除）
+    pub validation_message: Option<String>,
 }
 
 /// 应用状态机
@@ -62,6 +64,7 @@ impl FormRenderer {
             app_state: AppState::Form,
             result: None,
             error_message: None,
+            validation_message: None,
         }
     }
 
@@ -118,6 +121,13 @@ impl FormRenderer {
                 crate::widgets::FieldValue::List { values, .. } => !values.is_empty(),
             }
         })
+    }
+
+    /// 全量校验当前表单，返回所有错误消息（空 = 可提交）
+    ///
+    /// 覆盖 required / Number 范围 / Path must_exist（与 CLI clap 校验语义一致）。
+    pub fn validation_errors(&self) -> Vec<String> {
+        self.fields.iter().filter_map(|f| f.validate()).collect()
     }
 }
 
@@ -197,6 +207,13 @@ pub fn render_form(fr: &FormRenderer, area: Rect, buf: &mut Buffer) {
 
     // ── 底部快捷键 ──
     let footer_y = area.y + area.height - footer_h;
+    if let Some(msg) = &fr.validation_message {
+        // 校验消息占 footer 首行，红色警示；超宽截断
+        let text = format!(" ⚠ {msg} ");
+        let max = area.width as usize;
+        let shown: String = text.chars().take(max).collect();
+        buf.set_string(area.x, footer_y, &shown, Style::default().fg(Color::Red));
+    }
     let shortcuts = match fr.app_state {
         AppState::Form => "[Tab] 切换  [Enter] 确认  [Esc] 退出  [F1] 帮助",
         AppState::Confirm => "[Enter] 确认执行  [Esc] 返回",

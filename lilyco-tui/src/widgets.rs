@@ -75,6 +75,8 @@ pub struct FormField {
     pub about: String,
     pub required: bool,
     pub default: Option<serde_json::Value>,
+    /// 参数类型约束（Number 范围 / Path must_exist 等校验依据）
+    pub kind: ArgKind,
     pub value: FieldValue,
 }
 
@@ -85,7 +87,59 @@ impl FormField {
             about: arg.about.clone(),
             required: arg.required,
             default: arg.default.clone(),
+            kind: arg.kind.clone(),
             value: FieldValue::from_schema(arg),
+        }
+    }
+
+    /// 校验当前字段值，返回错误消息（`None` = 合法）
+    ///
+    /// 与 `CommandSchema::validate_args` 同规则（三端唯一校验语义的 TUI 侧映射）：
+    /// required 空值 / Number 范围 / Path must_exist。
+    pub fn validate(&self) -> Option<String> {
+        match &self.value {
+            FieldValue::Flag(_) => None,
+            FieldValue::Text(v) => {
+                if self.required && v.is_empty() {
+                    Some(format!("必填参数 {} 未填写", self.name))
+                } else {
+                    None
+                }
+            }
+            FieldValue::Number(v) => {
+                if let ArgKind::Number { min, max } = &self.kind {
+                    if let Some(lo) = min {
+                        if *v < *lo {
+                            return Some(format!("参数 {} 需 >= {lo}，当前 {v}", self.name));
+                        }
+                    }
+                    if let Some(hi) = max {
+                        if *v > *hi {
+                            return Some(format!("参数 {} 需 <= {hi}，当前 {v}", self.name));
+                        }
+                    }
+                }
+                None
+            }
+            FieldValue::Enum { .. } => None, // 下拉选择，天然合法
+            FieldValue::Path(v) => {
+                if self.required && v.is_empty() {
+                    return Some(format!("必填参数 {} 未填写", self.name));
+                }
+                if let ArgKind::Path { must_exist: true } = &self.kind {
+                    if !v.is_empty() && !std::path::Path::new(v).exists() {
+                        return Some(format!("路径不存在: {} = {v}", self.name));
+                    }
+                }
+                None
+            }
+            FieldValue::List { values, .. } => {
+                if self.required && values.is_empty() {
+                    Some(format!("必填参数 {} 未填写", self.name))
+                } else {
+                    None
+                }
+            }
         }
     }
 
@@ -187,10 +241,12 @@ impl FormField {
             FieldValue::Number(val) => match key.code {
                 Up => {
                     *val += 1.0;
+                    Self::clamp_number(&self.kind, val);
                     true
                 }
                 Down => {
                     *val -= 1.0;
+                    Self::clamp_number(&self.kind, val);
                     true
                 }
                 Char(c) if c.is_ascii_digit() || c == '.' || c == '-' => {
@@ -269,6 +325,18 @@ impl FormField {
                 }
                 _ => false,
             },
+        }
+    }
+
+    /// 把数字值夹回 schema 的 min/max 范围（↑↓ 步进专用；键入值由提交校验拦截）
+    fn clamp_number(kind: &ArgKind, val: &mut f64) {
+        if let ArgKind::Number { min, max } = kind {
+            if let Some(lo) = min {
+                *val = val.max(*lo);
+            }
+            if let Some(hi) = max {
+                *val = val.min(*hi);
+            }
         }
     }
 

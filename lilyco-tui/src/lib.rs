@@ -350,4 +350,112 @@ mod tests {
         app.handle_event(ctrl_c);
         assert_eq!(*app.state(), AppState::Error);
     }
+
+    // ─── 表单校验（required / 范围 / must_exist） ────────
+
+    #[test]
+    fn enter_blocked_when_required_empty_and_message_shown() {
+        let schema = test_schema();
+        let mut app = TuiApp::new(&schema);
+        // output（Path, required）默认空 → Enter 应被拦截并给出消息
+        app.handle_event(key(KeyCode::Enter));
+        assert_eq!(
+            *app.state(),
+            AppState::Form,
+            "empty required must stay in Form"
+        );
+        let msg = app
+            .form
+            .validation_message
+            .clone()
+            .expect("validation message expected");
+        assert!(
+            msg.contains("output"),
+            "message should name the field: {msg}"
+        );
+
+        // 消息渲染进 buffer
+        let out = render_to_string(&app, 80, 20);
+        assert!(out.contains("⚠"), "warning glyph expected: {out}");
+
+        // 填上后 Enter 正常进入 Confirm，消息清除
+        if let FieldValue::Path(v) = &mut app.fields_mut()[4].value {
+            *v = "/tmp/out.png".into();
+        }
+        app.handle_event(key(KeyCode::Enter));
+        assert_eq!(*app.state(), AppState::Confirm);
+        assert!(app.form.validation_message.is_none());
+    }
+
+    #[test]
+    fn enter_blocked_when_number_out_of_range() {
+        let schema = test_schema();
+        let mut app = TuiApp::new(&schema);
+        if let FieldValue::Path(v) = &mut app.fields_mut()[4].value {
+            *v = "/tmp/out.png".into();
+        }
+        if let FieldValue::Number(n) = &mut app.fields_mut()[3].value {
+            *n = 99.0; // 上限 51
+        }
+        app.handle_event(key(KeyCode::Enter));
+        assert_eq!(
+            *app.state(),
+            AppState::Form,
+            "out-of-range must stay in Form"
+        );
+        let msg = app.form.validation_message.clone().unwrap();
+        assert!(msg.contains("51"), "range error should mention max: {msg}");
+    }
+
+    #[test]
+    fn number_up_down_clamped_to_schema_range() {
+        let schema = test_schema();
+        let mut app = TuiApp::new(&schema);
+        app.form.focus_index = 3; // quality, min 0 / max 51
+
+        if let FieldValue::Number(n) = &mut app.fields_mut()[3].value {
+            *n = 51.0;
+        }
+        app.handle_event(key(KeyCode::Up)); // 52 → 夹回 51
+        if let FieldValue::Number(n) = &app.fields()[3].value {
+            assert_eq!(*n, 51.0, "up must clamp at max");
+        }
+
+        if let FieldValue::Number(n) = &mut app.fields_mut()[3].value {
+            *n = 0.0;
+        }
+        app.handle_event(key(KeyCode::Down)); // -1 → 夹回 0
+        if let FieldValue::Number(n) = &app.fields()[3].value {
+            assert_eq!(*n, 0.0, "down must clamp at min");
+        }
+    }
+
+    #[test]
+    fn editing_clears_validation_message() {
+        let schema = test_schema();
+        let mut app = TuiApp::new(&schema);
+        app.form.validation_message = Some("stale".into());
+        app.form.focus_index = 0; // verbose flag
+        app.handle_event(key(KeyCode::Char(' '))); // 值变更
+        assert!(
+            app.form.validation_message.is_none(),
+            "edit should clear message"
+        );
+    }
+
+    #[test]
+    fn path_must_exist_validated() {
+        let schema = test_schema();
+        let mut app = TuiApp::new(&schema);
+        if let FieldValue::Path(v) = &mut app.fields_mut()[4].value {
+            *v = "definitely/not/exist.bin".into();
+        }
+        // 把 output 的 schema 换成 must_exist=true 再校验
+        app.fields_mut()[4].kind = lilyco_core::schema::ArgKind::Path { must_exist: true };
+        let errors = app.form.validation_errors();
+        assert!(
+            errors.iter().any(|e| e.contains("路径不存在")),
+            "must_exist violation expected: {errors:?}"
+        );
+    }
 }

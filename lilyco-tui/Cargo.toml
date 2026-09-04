@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-tui"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Lilyco TUI renderer — interactive terminal form with live CLI preview"
 license = "MIT OR Apache-2.0"

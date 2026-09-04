@@ -104,8 +104,14 @@ impl TuiApp {
                     self.show_help = false;
                     return true;
                 }
-                if self.form.all_required_filled() {
+                // 全量校验（required / Number 范围 / Path must_exist）不通过则
+                // 留在表单并显示红色消息；通过则清消息进入确认
+                let errors = self.form.validation_errors();
+                if errors.is_empty() {
+                    self.form.validation_message = None;
                     self.form.app_state = AppState::Confirm;
+                } else {
+                    self.form.validation_message = Some(errors.join("；"));
                 }
                 return true;
             }
@@ -120,6 +126,8 @@ impl TuiApp {
         if let Some(field) = self.form.focused_field_mut() {
             let changed = field.handle_key(key);
             if changed {
+                // 值变更后旧校验消息失效，清除
+                self.form.validation_message = None;
                 // 更新滚动位置
                 self.update_scroll();
             }
