@@ -32,3 +32,4 @@ cargo bench -p lilyco-example                     # schema 性能基准
 - commit：Conventional Commits（中文描述，如 `feat(lilyco-mcp): ...`）
 - 文档语言：README 架构叙述用中文；符号/API 描述保持英文原文
 - 版本：各 crate 独立版本号；改动的 crate patch +1，并同步 CODEGRAPH §1 版本表
+- 发布：`bash scripts/publish.sh`（依赖序全链；需先 `cargo login --registry crates-io`）
