@@ -29,10 +29,10 @@ lilyco (facade)          ← 组合根：唯一知道所有后端的 crate
 
 | crate | 职责 | 不做什么 |
 |-------|------|----------|
-| `lilyco-core` | 领域模型 + 执行语义：`App` trait、`CommandSchema`、`Registry`、`executor`、`Progress` 协议 | 不做任何 I/O / UI |
+| `lilyco-core` | 领域模型 + 执行语义：`App` trait、`CommandSchema`（含 `validate_args` 唯一校验）、`Registry`、`executor`、`Progress` 协议 | 不做任何 I/O / UI |
 | `lilyco-macros` | `#[derive(App)]` / `#[derive(ValueEnum)]` 代码生成 | 不含运行时逻辑 |
 | `lilyco-cli` | schema → clap 渲染 + 内置标志 + 事件格式化输出 | 不再实现线程/宿主 |
-| `lilyco-tui` | ratatui 表单状态机（`TuiApp`） | 不持有执行逻辑 |
+| `lilyco-tui` | ratatui 表单状态机（`TuiApp`：单命令 + 多命令选择页） | 不持有执行逻辑 |
 | `lilyco-gui` | axum 服务器 + SSE + 安全中间件 + HTML 模板 | 不关心任务怎么跑 |
 | `lilyco-mcp` | MCP 协议（JSON-RPC stdio） | 不关心命令语义 |
 | `lilyco` | 后端选择与装配（组合根） | 不含业务逻辑 |
@@ -58,6 +58,24 @@ rx: Receiver<Progress>   ← 事件流协议保证以 Done / Error 结尾
 
 `execute()` 额外保证：即使 handler 忘记上报终态事件，也会合成
 `Done`/`Error`，事件流永远合法（协议不变量，有测试覆盖）。
+
+### 3.1 消灭的重复 #2：统一校验 `CommandSchema::validate_args`
+
+校验规则（required 缺省/空串、Number 类型与范围、Enum 可选值、Path must_exist、
+List 递归）只存在于 core 一处（`schema.rs`），三端映射：
+
+- CLI：clap 在解析层校验（同一套规则的最直白表达）
+- MCP：`tools/call` 前置校验 → `INVALID_PARAMS`（Agent 直传参数没有 clap 兜底）
+- Web GUI：`run_handler` 服务端校验 → 400 + 浏览器 `required`/`min`/`max`
+- TUI：`FormField::validate` 提交前拦截（与 core 同语义的表单侧映射）
+
+### 3.2 消灭的重复 #3：多命令导航
+
+多命令语义（可见/别名/隐藏/默认命令）收敛在 `Registry`，四端各做一层薄渲染：
+CLI 子命令树（`run_registry`）、TUI 命令选择页（`TuiApp::new_multi`，
+借鉴 mininterface subcommand picker）、Web `?cmd=` 切换（`serve_registry`）、
+MCP tools/list。**导航可回退、执行不可回退**（`?cmd` 未知 → 回退第一个可见；
+`/run` 显式指定未知命令 → 400）。
 
 ## 4. 借鉴点与出处
 
@@ -103,5 +121,10 @@ AI 工具调用正被 MCP 标准化。lilyco 原本只导出手写 `--anthropic-
 
 - ~~CLI 多命令~~ 已实现：`lilyco_cli::run_registry` / `lilyco::run_cli_registry`（Registry → clap 子命令，别名/隐藏语义保留）
 - ~~MCP 无进度通知~~ 已实现：`tools/call` 携带 `_meta.progressToken` 时流式返回 `notifications/progress`；采样 / roots 仍留待 rust-sdk 版
+- ~~TUI/Web 无多命令导航~~ 已实现：TUI 命令选择页（`run_tui_registry`）+ Web `serve_registry`（`?cmd=` 切换）；schema 级嵌套 `subcommands` 仍仅 CLI 渲染
 - OpenAI strict-mode JSON Schema 兼容性未验证（`to_json_schema` 含 `minimum`/`default` 等，
   部分 strict 实现会拒绝）——见预研报告中的 pydantic-ai#1561 教训
+- TUI 数字键入值不即时夹紧（↑↓ 步进夹紧；键入越界由提交校验拦截）
+- schema 生成无性能基准
+
+> 代码导航：见 [CODEGRAPH.md](CODEGRAPH.md)（符号级图谱，带 `文件:行号`）。

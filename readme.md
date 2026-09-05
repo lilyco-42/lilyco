@@ -17,6 +17,7 @@ Lilyco is a Rust framework that generates **CLI**, **TUI**, **Web UI**, and a **
 - [Why Lilyco](#why-lilyco)
 - [Quick Start](#quick-start)
 - [Architecture](#architecture)
+- [Codegraph (for AI agents)](docs/CODEGRAPH.md)
 - [Crate Reference](#crate-reference)
   - [lilyco-core](#lilyco-core)
   - [lilyco-macros](#lilyco-macros)
