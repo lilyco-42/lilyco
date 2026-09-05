@@ -54,6 +54,12 @@ use lilyco_core::{AppError, Progress};
 #[cfg(feature = "tui")]
 use std::sync::Arc;
 
+/// 宏展开的后端路径：`#[derive(App)]` 生成的代码引用 `::lilyco::__core::…`
+///
+/// 用户只需依赖 `lilyco` 一个 crate（doc hidden，不进文档/IDE 提示）。
+#[doc(hidden)]
+pub use lilyco_core as __core;
+
 /// 常用导入（trait + 类型 + derive 宏）
 pub mod prelude {
     pub use lilyco_core::prelude::*;

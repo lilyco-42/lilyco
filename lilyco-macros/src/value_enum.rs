@@ -20,7 +20,7 @@ pub fn derive_value_enum_impl(input: TokenStream) -> TokenStream {
     let variant_strs: Vec<_> = variants.iter().map(|(_, s)| s).collect();
 
     let expanded = quote! {
-        impl lilyco_core::schema::ValueEnum for #name {
+        impl ::lilyco::__core::schema::ValueEnum for #name {
             fn variants() -> Vec<&'static str> {
                 vec![#(#variant_strs),*]
             }

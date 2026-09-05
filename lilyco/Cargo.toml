@@ -1,6 +1,6 @@
 [package]
 name = "lilyco"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 description = "Lilyco facade — one dependency, auto backend selection (CLI / TUI / Web / MCP)"
 license = "MIT OR Apache-2.0"
@@ -13,7 +13,7 @@ categories = ["command-line-interface", "development-tools"]
 lilyco-core = { version = "0.2", path = "../lilyco-core" }
 lilyco-cli = { version = "0.2", path = "../lilyco-cli" }
 lilyco-mcp = { version = "0.2", path = "../lilyco-mcp" }
-lilyco-macros = { version = "0.2", path = "../lilyco-macros" }
+lilyco-macros = { version = "0.3", path = "../lilyco-macros" }
 serde_json = "1"
 
 # 可选后端：TUI（crossterm 不支持 android，cfg(unix) 不含 android）、Web

@@ -24,12 +24,12 @@ flowchart TD
 | crate | 版本 | 依赖 | 职责一句话 |
 |---|---|---|---|
 | `lilyco-core` | 0.2.3 | serde/thiserror | 领域模型 + 执行语义 + 校验，零 UI 依赖 |
-| `lilyco-macros` | 0.2.2 | syn/quote | `#[derive(App)]` / `#[derive(ValueEnum)]` 代码生成 |
+| `lilyco-macros` | 0.3.0 | syn/quote | `#[derive(App)]` / `#[derive(ValueEnum)]` 代码生成 |
 | `lilyco-cli` | 0.2.2 | core + clap | schema → clap 渲染 + 内置标志 + 输出格式化 |
 | `lilyco-tui` | 0.2.4 | core + ratatui | ratatui 表单状态机（单/多命令），不持有执行逻辑 |
 | `lilyco-gui` | 0.2.3 | core + axum/tokio | Web 控制台 + SSE 进度 + 回环安全中间件 |
 | `lilyco-mcp` | 0.2.3 | core（零额外依赖） | MCP 2024-11-05 stdio 服务器 + 进度通知 |
-| `lilyco` | 0.2.2 | 全部 | **唯一组合根**：后端自动选择 + 各形态入口 |
+| `lilyco` | 0.2.3 | 全部 | **唯一组合根**：后端自动选择 + 各形态入口 |
 
 Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被特性门控）。
 
@@ -123,7 +123,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 4. **依赖单向**：core 不依赖后端，后端互不依赖，facade 是唯一知道所有后端的 crate。
 5. **clap 只接受 `'static str`**：运行时字符串用 `leak_str`（`lilyco-cli/src/lib.rs:353`，Box::leak，进程内无累积问题）。
 6. **导航可回退、执行不可回退**：`index` 的 `?cmd` 未知时回退第一个可见命令；`/run` 显式指定未知命令必须 400。
-7. **宏展开引用 `lilyco_core::` 绝对路径**：用户二进制必须同时依赖 `lilyco-core`。
+7. **宏展开引用 `::lilyco::__core::`（facade doc-hidden 再导出）**：用户只需依赖 `lilyco` 一个 crate；直接使用 `lilyco-macros` 的项目须同时依赖 `lilyco`（macros 的 dev-deps 即此契约）。
 
 ## 7. 扩展点（怎么加东西）
 

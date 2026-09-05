@@ -288,7 +288,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
         let kind_expr = kind_to_tokens(f);
 
         quote! {
-            lilyco_core::schema::ArgSchema {
+            ::lilyco::__core::schema::ArgSchema {
                 name: #name.into(),
                 about: #about.into(),
                 kind: #kind_expr,
@@ -322,8 +322,8 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
             },
             InferredKind::Enum => quote! {{
                 let s = args.get(#name).and_then(|v| v.as_str()).unwrap_or("");
-                <#ty as lilyco_core::schema::ValueEnum>::from_str(s)
-                    .ok_or_else(|| lilyco_core::AppError::InvalidArg(
+                <#ty as ::lilyco::__core::schema::ValueEnum>::from_str(s)
+                    .ok_or_else(|| ::lilyco::__core::AppError::InvalidArg(
                         format!("invalid value for {}: {}", #name, s)
                     ))?
             }},
@@ -353,14 +353,14 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
         Some(fn_name) => {
             let fn_ident = syn::Ident::new(fn_name, proc_macro2::Span::call_site());
             quote! {
-                fn run(&self, ctx: &lilyco_core::Context) -> Result<serde_json::Value, lilyco_core::AppError> {
+                fn run(&self, ctx: &::lilyco::__core::Context) -> Result<serde_json::Value, ::lilyco::__core::AppError> {
                     #fn_ident(self, ctx)
                 }
             }
         }
         None => {
             quote! {
-                fn run(&self, _ctx: &lilyco_core::Context) -> Result<serde_json::Value, lilyco_core::AppError> {
+                fn run(&self, _ctx: &::lilyco::__core::Context) -> Result<serde_json::Value, ::lilyco::__core::AppError> {
                     unimplemented!("run() not implemented for {} — add #[app(run = \"your_fn\")] to wire up business logic", stringify!(#struct_name))
                 }
             }
@@ -368,9 +368,9 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
-        impl lilyco_core::App for #struct_name {
-            fn schema() -> lilyco_core::schema::CommandSchema {
-                lilyco_core::schema::CommandSchema {
+        impl ::lilyco::__core::App for #struct_name {
+            fn schema() -> ::lilyco::__core::schema::CommandSchema {
+                ::lilyco::__core::schema::CommandSchema {
                     name: #name_str.into(),
                     about: #about_str.into(),
                     args: vec![#(#schema_args),*],
@@ -380,7 +380,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
 
             fn from_args(
                 args: &std::collections::HashMap<String, serde_json::Value>,
-            ) -> Result<Self, lilyco_core::AppError> {
+            ) -> Result<Self, ::lilyco::__core::AppError> {
                 Ok(Self {
                     #(#from_args_bindings),*
                 })
@@ -395,8 +395,8 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
 
 fn kind_to_tokens(f: &FieldInfo) -> TokenStream {
     match &f.kind {
-        InferredKind::Flag => quote! { lilyco_core::schema::ArgKind::Flag },
-        InferredKind::Text => quote! { lilyco_core::schema::ArgKind::Text },
+        InferredKind::Flag => quote! { ::lilyco::__core::schema::ArgKind::Flag },
+        InferredKind::Text => quote! { ::lilyco::__core::schema::ArgKind::Text },
         InferredKind::Number => {
             let min = f
                 .attrs
@@ -410,29 +410,29 @@ fn kind_to_tokens(f: &FieldInfo) -> TokenStream {
                 .as_ref()
                 .map(|m| quote! { Some(#m as f64) })
                 .unwrap_or(quote! { None });
-            quote! { lilyco_core::schema::ArgKind::Number { min: #min, max: #max } }
+            quote! { ::lilyco::__core::schema::ArgKind::Number { min: #min, max: #max } }
         }
         InferredKind::Path { must_exist } => {
-            quote! { lilyco_core::schema::ArgKind::Path { must_exist: #must_exist } }
+            quote! { ::lilyco::__core::schema::ArgKind::Path { must_exist: #must_exist } }
         }
         InferredKind::Enum => {
             let ty = &f.ty;
             quote! {
-                lilyco_core::schema::ArgKind::Enum {
-                    values: <#ty as lilyco_core::schema::ValueEnum>::variants().into_iter().map(|s| s.to_string()).collect()
+                ::lilyco::__core::schema::ArgKind::Enum {
+                    values: <#ty as ::lilyco::__core::schema::ValueEnum>::variants().into_iter().map(|s| s.to_string()).collect()
                 }
             }
         }
         InferredKind::List { item } => {
             let inner = match item.as_ref() {
-                InferredKind::Text => quote! { lilyco_core::schema::ArgKind::Text },
+                InferredKind::Text => quote! { ::lilyco::__core::schema::ArgKind::Text },
                 InferredKind::Number => {
-                    quote! { lilyco_core::schema::ArgKind::Number { min: None, max: None } }
+                    quote! { ::lilyco::__core::schema::ArgKind::Number { min: None, max: None } }
                 }
-                InferredKind::Flag => quote! { lilyco_core::schema::ArgKind::Flag },
-                _ => quote! { lilyco_core::schema::ArgKind::Text },
+                InferredKind::Flag => quote! { ::lilyco::__core::schema::ArgKind::Flag },
+                _ => quote! { ::lilyco::__core::schema::ArgKind::Text },
             };
-            quote! { lilyco_core::schema::ArgKind::List { item: Box::new(#inner) } }
+            quote! { ::lilyco::__core::schema::ArgKind::List { item: Box::new(#inner) } }
         }
     }
 }

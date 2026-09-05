@@ -81,10 +81,8 @@ Create a new project and add the dependencies:
 
 ```bash
 cargo new imgpress && cd imgpress
-cargo add lilyco lilyco-core serde serde_json image
+cargo add lilyco serde serde_json image      # 一个框架依赖即可（宏经 facade 解析路径）
 ```
-
-> `lilyco-core` 必须保留：`#[derive(App)]` 宏展开会引用 `lilyco_core::…` 路径。
 
 Paste this into `src/main.rs`:
 
