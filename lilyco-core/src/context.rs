@@ -2,7 +2,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
+use crate::error::AppError;
 use crate::progress::{LogLevel, Progress};
+
+/// 宿主桥：handler 反向调用宿主能力（MCP 采样 / roots 等）的唯一接口
+///
+/// core 只定义形状，不关心传输；由各后端实现（如 `lilyco-mcp` 把
+/// `sample` 映射为 `sampling/createMessage` JSON-RPC 请求）。CLI/TUI/GUI
+/// 不接桥 —— `ctx.sample` 会返回带指引的错误。
+pub trait HostBridge: Send + Sync {
+    /// 请求宿主的 LLM 采样（MCP `sampling/createMessage`）
+    fn sample(&self, prompt: &str, max_tokens: u32) -> Result<String, AppError>;
+    /// 获取宿主暴露的文件系统根（MCP `roots/list`），返回 (uri, name)
+    fn roots(&self) -> Result<Vec<(String, String)>, AppError>;
+}
 
 /// 传出给 App::run() 的运行时上下文
 ///
@@ -19,6 +32,8 @@ pub struct Context {
     /// 供 executor 判断是否需要在 handler 返回后合成终态，
     /// 从而保证事件流恒以 Done / Error 结尾（协议不变量）。
     terminal_sent: AtomicBool,
+    /// 宿主桥（可选）：采样 / roots 等反向能力
+    host: Option<Arc<dyn HostBridge>>,
 }
 
 /// 输出格式
@@ -44,6 +59,7 @@ impl Context {
             cancel,
             output_format,
             terminal_sent: AtomicBool::new(false),
+            host: None,
         }
     }
 
@@ -54,6 +70,7 @@ impl Context {
             cancel: Arc::new(AtomicBool::new(false)),
             output_format: OutputFormat::Human,
             terminal_sent: AtomicBool::new(false),
+            host: None,
         }
     }
 
@@ -64,6 +81,7 @@ impl Context {
             cancel: Arc::new(AtomicBool::new(false)),
             output_format: OutputFormat::Human,
             terminal_sent: AtomicBool::new(false),
+            host: None,
         }
     }
 
@@ -118,6 +136,37 @@ impl Context {
     /// 是否已发送终态事件。仅供 executor 在 handler 返回后判断是否需要合成终态。
     pub(crate) fn has_terminal(&self) -> bool {
         self.terminal_sent.load(Ordering::Relaxed)
+    }
+
+    // ── 宿主桥（MCP 采样 / roots 等） ──────────────────
+
+    /// 附加宿主桥（由 executor 的 `spawn_with` / `execute_with` 注入）
+    pub fn with_host(mut self, host: Arc<dyn HostBridge>) -> Self {
+        self.host = Some(host);
+        self
+    }
+
+    /// 请求宿主 LLM 采样（MCP `sampling/createMessage`）。
+    ///
+    /// 未接宿主桥（CLI / TUI / GUI）或客户端未声明 `sampling` 能力时返回错误。
+    pub fn sample(&self, prompt: &str, max_tokens: u32) -> Result<String, AppError> {
+        match &self.host {
+            Some(h) => h.sample(prompt, max_tokens),
+            None => Err(AppError::Runtime(
+                "当前运行形态不支持 LLM 采样（仅 MCP 服务器且客户端声明 sampling 能力时可用）"
+                    .into(),
+            )),
+        }
+    }
+
+    /// 获取宿主暴露的文件系统根（MCP `roots/list`），返回 (uri, name)。
+    pub fn roots(&self) -> Result<Vec<(String, String)>, AppError> {
+        match &self.host {
+            Some(h) => h.roots(),
+            None => Err(AppError::Runtime(
+                "当前运行形态不支持 roots（仅 MCP 服务器且客户端声明 roots 能力时可用）".into(),
+            )),
+        }
     }
 }
 

@@ -24,9 +24,9 @@ pub mod schema;
 
 // Re-exports at crate root for macro-generated code
 pub use app::{App, Renderer};
-pub use context::{Context, OutputFormat};
+pub use context::{Context, HostBridge, OutputFormat};
 pub use error::AppError;
-pub use executor::{execute, spawn, RunOutcome, Task};
+pub use executor::{execute, execute_with, spawn, spawn_with, RunOutcome, Task};
 pub use progress::{LogLevel, Progress};
 pub use registry::{Handler, RegisteredCommand, Registry, RegistryError};
 pub use schema::{ArgKind, ArgSchema, CommandSchema, ValueEnum};
@@ -444,9 +444,9 @@ mod tests {
 /// Lilyco 的 prelude：一次导入所有常用类型和 trait
 pub mod prelude {
     pub use crate::app::{App, Renderer};
-    pub use crate::context::{Context, OutputFormat};
+    pub use crate::context::{Context, HostBridge, OutputFormat};
     pub use crate::error::AppError;
-    pub use crate::executor::{execute, spawn, RunOutcome, Task};
+    pub use crate::executor::{execute, execute_with, spawn, spawn_with, RunOutcome, Task};
     pub use crate::progress::{LogLevel, Progress};
     pub use crate::registry::{Handler, RegisteredCommand, Registry, RegistryError};
     pub use crate::schema::{ArgKind, ArgSchema, CommandSchema, ValueEnum};

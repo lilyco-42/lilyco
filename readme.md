@@ -863,7 +863,7 @@ lilyco-core = { git = "https://github.com/lilyco-42/lilyco" }
 - [x] ~~CI 双矩阵~~ — GitHub Actions ubuntu + windows：fmt / clippy / test / doc
 - [x] ~~CLI 多命令：注册表 → clap 子命令~~ — `lilyco_cli::run_registry(name, registry)` / 门面 `lilyco::run_cli_registry`；隐藏命令可调用不显示，根级 `--schema` 打印注册表清单
 - [x] ~~MCP 进度通知~~ — `tools/call` 携带 `_meta.progressToken` 时流式返回 `notifications/progress`（零依赖实现）
-- [ ] MCP 采样 / roots（基于 modelcontextprotocol/rust-sdk）
+- [x] ~~MCP 采样 / roots~~ — 零依赖实现（不引 rust-sdk）：`HostBridge`（core）+ 双向 JSON-RPC 分流（serve）；handler 经 `ctx.sample()` 反向调用 Agent 的 LLM（`sampling/createMessage`），`ctx.roots()` 获取宿主工作根；客户端能力门控 + `srv-N` 字符串请求 id + 超时保护
 - [x] ~~Subcommand navigation in TUI and Web GUI~~ — TUI 命令选择页（`TuiApp::new_multi` + `run_tui_registry`，mininterface subcommand picker 模式；隐藏命令不显示）；Web GUI `serve_registry` + `?cmd=` 切换下拉；`/run` 显式执行未知命令 400
 - [x] ~~Input validation in TUI/Web widgets (range, required, enum)~~ — 共享校验 `CommandSchema::validate_args`：MCP `tools/call` 前置校验（`INVALID_PARAMS`）、Web GUI 服务端 400 + 浏览器 `required`/`min`/`max`、TUI 提交前拦截并红色提示；TUI 数字 ↑↓ 夹紧到 schema 范围
 - [x] ~~TUI 执行异步化（进度渲染 + 取消）~~ — 非阻塞事件循环；取消键 `Ctrl-C`/`c`/`q`/`Esc`；executor 自动补发 `Done`/`Error` 终止事件（防卡死）

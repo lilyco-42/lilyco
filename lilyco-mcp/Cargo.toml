@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-mcp"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 description = "Lilyco MCP server — expose Lilyco commands as Model Context Protocol tools over stdio"
 license = "MIT OR Apache-2.0"

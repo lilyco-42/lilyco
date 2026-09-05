@@ -23,12 +23,12 @@ flowchart TD
 
 | crate | 版本 | 依赖 | 职责一句话 |
 |---|---|---|---|
-| `lilyco-core` | 0.2.2 | serde/thiserror | 领域模型 + 执行语义 + 校验，零 UI 依赖 |
+| `lilyco-core` | 0.2.3 | serde/thiserror | 领域模型 + 执行语义 + 校验，零 UI 依赖 |
 | `lilyco-macros` | 0.2.2 | syn/quote | `#[derive(App)]` / `#[derive(ValueEnum)]` 代码生成 |
 | `lilyco-cli` | 0.2.2 | core + clap | schema → clap 渲染 + 内置标志 + 输出格式化 |
 | `lilyco-tui` | 0.2.4 | core + ratatui | ratatui 表单状态机（单/多命令），不持有执行逻辑 |
 | `lilyco-gui` | 0.2.3 | core + axum/tokio | Web 控制台 + SSE 进度 + 回环安全中间件 |
-| `lilyco-mcp` | 0.2.2 | core（零额外依赖） | MCP 2024-11-05 stdio 服务器 + 进度通知 |
+| `lilyco-mcp` | 0.2.3 | core（零额外依赖） | MCP 2024-11-05 stdio 服务器 + 进度通知 |
 | `lilyco` | 0.2.2 | 全部 | **唯一组合根**：后端自动选择 + 各形态入口 |
 
 Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被特性门控）。
@@ -50,6 +50,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `struct Task` | `lilyco-core/src/executor.rs:20` | `cancel` + `rx` + `handle` |
 | `enum Progress` | `lilyco-core/src/progress.rs:10` | Started/Tick/Log/Done/Error，serde tag=`type` |
 | `Context` | `lilyco-core/src/context.rs` | handler 上报进度：`emit:71` `tick:81` `log:92` `done:100` `is_cancelled:76` |
+| `trait HostBridge` | `lilyco-core/src/context.rs` | handler 反向调用宿主的唯一接口：`ctx.sample()`（MCP sampling/createMessage）/ `ctx.roots()`；CLI/TUI/GUI 不接桥，返回带指引错误 |
 | `enum AppError` | `lilyco-core/src/error.rs` | InvalidArg/InvalidInput/Runtime/Cancelled |
 
 ## 3. 四个后端
@@ -90,7 +91,8 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `handle_line()` | 54 | 纯函数：一行请求 → 一行响应（通知返回 None） |
 | `handle_line_with_sink()` | 63 | 流式版：进度通知逐行回调 |
 | `tools_call()` | 155 | 先 `validate_args`（错误 → INVALID_PARAMS），带 `_meta.progressToken` 时 spawn 流式执行 → `notifications/progress` |
-| `serve()` / `serve_stdio()` | 105 / 132 | 任意 Read+Write / stdin+stdout |
+| `serve()` / `serve_stdio()` | 105 / 132 | 双向 JSON-RPC 分流：客户端请求→dispatch（tools/call 进 worker 线程），客户端响应→pending 表路由给等待中的 handler |
+| `McpBridge` | `lilyco-mcp/src/lib.rs` | HostBridge 实现：`sampling/createMessage` / `roots/list` 反向请求；`srv-N` 字符串 id 防冲突；initialize 探测客户端能力门控 |
 
 ## 4. facade `lilyco`（唯一组合根，`lilyco/src/lib.rs`）
 

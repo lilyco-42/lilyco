@@ -120,7 +120,8 @@ AI 工具调用正被 MCP 标准化。lilyco 原本只导出手写 `--anthropic-
 ## 6. 已知限制（诚实清单）
 
 - ~~CLI 多命令~~ 已实现：`lilyco_cli::run_registry` / `lilyco::run_cli_registry`（Registry → clap 子命令，别名/隐藏语义保留）
-- ~~MCP 无进度通知~~ 已实现：`tools/call` 携带 `_meta.progressToken` 时流式返回 `notifications/progress`；采样 / roots 仍留待 rust-sdk 版
+- ~~MCP 无进度通知~~ 已实现：`tools/call` 携带 `_meta.progressToken` 时流式返回 `notifications/progress`
+- ~~MCP 采样 / roots 依赖 rust-sdk~~ 已零依赖实现：`HostBridge`（core 反向能力接口）+ serve 双向 JSON-RPC 分流；`ctx.sample()` 把 Agent 客户端当 LLM 用，`ctx.roots()` 取宿主根；capability 门控 + `srv-N` id + 超时保护
 - ~~TUI/Web 无多命令导航~~ 已实现：TUI 命令选择页（`run_tui_registry`）+ Web `serve_registry`（`?cmd=` 切换）；schema 级嵌套 `subcommands` 仍仅 CLI 渲染
 - OpenAI strict-mode JSON Schema 兼容性未验证（`to_json_schema` 含 `minimum`/`default` 等，
   部分 strict 实现会拒绝）——见预研报告中的 pydantic-ai#1561 教训

@@ -33,9 +33,24 @@ pub struct Task {
 /// 消费者（CLI / TUI / MCP）不再需要自己兜底合成，也不会因 handler 忘报
 /// 终态而永久阻塞在 channel 上。
 pub fn spawn(handler: Handler, args: serde_json::Value) -> Task {
+    spawn_with(handler, args, None)
+}
+
+/// [`spawn`] 的宿主桥变体：给 handler 的 Context 附加反向能力（采样 / roots）
+///
+/// 供 MCP 服务器执行 tools/call 时注入 [`crate::context::HostBridge`]；
+/// CLI / TUI / GUI 传 `None`（等价 [`spawn`]）。
+pub fn spawn_with(
+    handler: Handler,
+    args: serde_json::Value,
+    host: Option<Arc<dyn crate::context::HostBridge>>,
+) -> Task {
     let cancel = Arc::new(AtomicBool::new(false));
     let (tx, rx) = channel();
-    let ctx = Context::new(tx.clone(), cancel.clone(), OutputFormat::Human);
+    let mut ctx = Context::new(tx.clone(), cancel.clone(), OutputFormat::Human);
+    if let Some(host) = host {
+        ctx = ctx.with_host(host);
+    }
 
     let handle = std::thread::spawn(move || {
         let result = (handler)(&ctx, &args);
@@ -90,7 +105,16 @@ impl RunOutcome {
 /// 协议保证：即使 handler 忘记通过 ctx 上报 Done/Error，
 /// 返回值也会被合成终态事件，事件流永远以 `Done`/`Error` 结尾。
 pub fn execute(handler: Handler, args: serde_json::Value) -> RunOutcome {
-    let task = spawn(handler, args);
+    execute_with(handler, args, None)
+}
+
+/// [`execute`] 的宿主桥变体（同 [`spawn_with`] 与 [`execute`] 的关系）
+pub fn execute_with(
+    handler: Handler,
+    args: serde_json::Value,
+    host: Option<Arc<dyn crate::context::HostBridge>>,
+) -> RunOutcome {
+    let task = spawn_with(handler, args, host);
     let mut events = Vec::new();
     for ev in task.rx {
         let done = matches!(ev, Progress::Done { .. } | Progress::Error { .. });
