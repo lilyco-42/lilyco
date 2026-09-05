@@ -6,7 +6,8 @@
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![CI](https://img.shields.io/github/actions/workflow/status/lilyco-42/lilyco/ci.yml?branch=main&label=CI)](https://github.com/lilyco-42/lilyco/actions)
 [![Release](https://img.shields.io/github/v/release/lilyco-42/lilyco)](https://github.com/lilyco-42/lilyco/releases)
-[![Tests](https://img.shields.io/badge/tests-316%20passed-green)](https://github.com/lilyco-42/lilyco)
+[![Tests](https://img.shields.io/badge/tests-241%20passed-green)](https://github.com/lilyco-42/lilyco)
+[![crates.io](https://img.shields.io/crates/v/lilyco.svg?label=lilyco)](https://crates.io/crates/lilyco) [![crates.io](https://img.shields.io/crates/v/lilyco-core.svg?label=core)](https://crates.io/crates/lilyco-core) [![crates.io](https://img.shields.io/crates/v/lilyco-mcp.svg?label=mcp)](https://crates.io/crates/lilyco-mcp) [![docs.rs](https://img.shields.io/docsrs/lilyco?label=docs.rs)](https://docs.rs/lilyco)
 
 Lilyco is a Rust framework that generates **CLI**, **TUI**, **Web UI**, and a **standard MCP server** — from a single struct definition. Every app is an AI tool by default: agents (DeepSeek Harness, Claude Code, Cursor…) call it directly through MCP or JSON-stream. Same binary runs on Windows, Linux, and Android (Termux). You write the business logic once; the framework handles everything else.
 
@@ -383,15 +384,18 @@ Interactive terminal form built on ratatui.
 |---------|-----|----------|
 | Flag | `Space` | Toggle on/off |
 | Text | Type + `Backspace` | Edit text |
-| Number | `^` `v` | +/-1. Type digits to edit |
+| Number | `^` `v` | +/-1（自动夹在 schema 范围内）. Type digits to edit（越界由提交校验拦截） |
 | Enum | `<` `>` | Cycle through options |
-| Path | Type + `Backspace` | Edit path |
+| Path | Type + `Tab` | **目录补全**：循环候选（目录带 `/` 后缀）；空值时 `Tab` 切换字段 |
 | List | `Enter` / `Delete` | Add/remove item |
 
 #### State Machine
 
 ```
-Form --Enter--> Confirm --Enter--> Running --done--> Done
+[多命令] CommandSelect --Enter--> Form --Enter--> Confirm --Enter--> Running --done--> Done
+                                          ^                   |               |
+                                          |                   |               |
+                                          +------<--- Done/Error 任意键返回（单命令退出）
   ^               |                   |               |
   |               Esc                 |               |
   +---------------+                   v               v
@@ -463,7 +467,21 @@ fn main() {
 | 交互终端 + `TERM` | TUI 表单（起不来自动回退 CLI） |
 | 其余（管道 / CI / 脚本） | CLI（`--json-stream` 供 AI 消费） |
 
-`lilyco::serve_mcp(registry)` 可把整个多命令注册表暴露为一个 MCP 服务器。
+多命令场景（Registry → 四端导航）：
+
+```rust
+lilyco::serve_mcp(registry);         // MCP：整个注册表 = tools/list
+lilyco::run_cli_registry("app", registry);   // CLI：注册表 → clap 子命令
+lilyco::run_tui_registry("app", registry);   // TUI：命令选择页 → 表单（回退 CLI）
+```
+
+| 触发方式（单命令） | 后端 |
+|---------|------|
+| `--mcp` | MCP stdio 服务器（Agent 直接调用） |
+| `--gui` / `--web` | Web GUI |
+| `LILYCO_UI=cli\|tui\|web\|mcp` | 环境变量强制 |
+| 交互终端 + `TERM` | TUI 表单（起不来自动回退 CLI） |
+| 其余（管道 / CI / 脚本） | CLI（`--json-stream` 供 AI 消费） |
 
 ### lilyco-mcp
 
@@ -576,6 +594,22 @@ This is a valid Anthropic tool-use definition. Drop it into your Claude API call
 ```bash
 $ imgpress --openai-tool   # OpenAI format
 $ imgpress --schema         # Generic JSON Schema (for other LLMs)
+$ imgpress --mcp            # 标准 MCP 服务器：Agent 直接调用（含进度通知）
+```
+
+更进一步 —— **采样桥**（`HostBridge`）：MCP 形态下，工具执行中途可以反向调用
+Agent 客户端的 LLM（`sampling/createMessage`），让"工具用上模型"而不只是
+"模型用工具"：
+
+```rust
+fn run(app: &VisionTool, ctx: &Context) -> Result<serde_json::Value, AppError> {
+    let caption = ctx.sample("描述这张图片的内容", 256)?;   // 反向采样
+    ctx.done(serde_json::json!({ "caption": caption }), 0);
+    Ok(serde_json::Value::Null)
+}
+```
+
+客户端未声明 `sampling` 能力时返回带指引的错误（审批权始终在客户端手里）。
 $ imgpress --json-stream    # Each Progress event as one JSON line — ideal for agent consumption
 ```
 
@@ -817,7 +851,7 @@ CI（GitHub Actions）：push / PR 自动跑 **ubuntu + windows 双矩阵** —
 打 tag `v*` 自动构建 4 个二进制（Windows + Android-arm64）并发布 GitHub Release。
 见 `.github/workflows/ci.yml`。Windows TUI 从此由 CI 持续验证编译与单元测试。
 
-Current coverage: **316 tests** across all crates (ubuntu + windows 双平台).
+Current coverage: **241 tests** across all crates (ubuntu + windows 双平台) + 端到端冒烟（`examples/multi.rs`）+ 性能基准（`cargo bench -p lilyco-example`）.
 
 ---
 
