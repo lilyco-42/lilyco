@@ -968,7 +968,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-cli"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "clap",
  "lilyco-core",
@@ -977,7 +977,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-core"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "serde",
  "serde_json",

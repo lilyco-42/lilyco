@@ -61,6 +61,27 @@ impl CliRenderer {
             );
             return true;
         }
+        if matches.get_flag("openai-responses-tool") {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&schema.to_openai_responses_tool()).unwrap()
+            );
+            return true;
+        }
+        if matches.get_flag("openai-strict-tool") {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&schema.to_openai_tool_strict()).unwrap()
+            );
+            return true;
+        }
+        if matches.get_flag("gemini-tool") {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&schema.to_gemini_tool()).unwrap()
+            );
+            return true;
+        }
         false
     }
 
@@ -493,6 +514,27 @@ fn add_builtin_flags(cmd: Command) -> Command {
             .exclusive(true),
     )
     .arg(
+        Arg::new("openai-responses-tool")
+            .long("openai-responses-tool")
+            .help("打印 OpenAI Responses API 工具定义并退出（扁平格式）")
+            .action(ArgAction::SetTrue)
+            .exclusive(true),
+    )
+    .arg(
+        Arg::new("openai-strict-tool")
+            .long("openai-strict-tool")
+            .help("打印 OpenAI strict mode 工具定义并退出（结构化输出）")
+            .action(ArgAction::SetTrue)
+            .exclusive(true),
+    )
+    .arg(
+        Arg::new("gemini-tool")
+            .long("gemini-tool")
+            .help("打印 Gemini functionDeclarations 并退出")
+            .action(ArgAction::SetTrue)
+            .exclusive(true),
+    )
+    .arg(
         Arg::new("json")
             .long("json")
             .help("输出格式：单个 JSON")
@@ -516,7 +558,15 @@ fn add_builtin_flags(cmd: Command) -> Command {
 fn is_builtin_flag(name: &str) -> bool {
     matches!(
         name,
-        "schema" | "openai-tool" | "anthropic-tool" | "json" | "json-stream" | "gui"
+        "schema"
+            | "openai-tool"
+            | "openai-responses-tool"
+            | "openai-strict-tool"
+            | "gemini-tool"
+            | "anthropic-tool"
+            | "json"
+            | "json-stream"
+            | "gui"
     )
 }
 
@@ -864,6 +914,23 @@ mod tests {
             .try_get_matches_from(["transcode", "--anthropic-tool"])
             .unwrap();
         assert!(m.get_flag("anthropic-tool"));
+    }
+
+    #[test]
+    fn new_protocol_flags_recognized() {
+        let schema = transcode_schema();
+        let renderer = CliRenderer::new();
+        for flag in ["openai-responses-tool", "openai-strict-tool", "gemini-tool"] {
+            let cmd = renderer.render(&schema);
+            let m = cmd
+                .try_get_matches_from(["transcode", &format!("--{flag}")])
+                .unwrap_or_else(|e| panic!("{flag}: {e}"));
+            assert!(m.get_flag(flag), "{flag} not set");
+            assert!(
+                CliRenderer::handle_builtin_flags(&schema, &m),
+                "{flag} not handled"
+            );
+        }
     }
 
     #[test]

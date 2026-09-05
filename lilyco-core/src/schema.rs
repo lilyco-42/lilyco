@@ -51,7 +51,9 @@ impl CommandSchema {
         let mut required: Vec<serde_json::Value> = Vec::new();
 
         for arg in &self.args {
-            props.insert(arg.name.to_string(), arg_kind_to_json_schema(&arg.kind));
+            let mut prop = arg_kind_to_json_schema(&arg.kind);
+            prop["description"] = serde_json::json!(arg.about);
+            props.insert(arg.name.to_string(), prop);
             if arg.required {
                 required.push(serde_json::Value::String(arg.name.to_string()));
             }
@@ -87,6 +89,80 @@ impl CommandSchema {
             "name": self.name,
             "description": self.about,
             "input_schema": self.to_json_schema(),
+        })
+    }
+
+    /// 导出为 OpenAI Responses API 工具定义（扁平格式）
+    ///
+    /// 与 Chat Completions 的嵌套 `{"type":"function","function":{…}}` 不同，
+    /// Responses API 的 tools 数组直接使用 `{"type":"function","name",…}`。
+    pub fn to_openai_responses_tool(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "function",
+            "name": self.name,
+            "description": self.about,
+            "parameters": self.to_json_schema(),
+            "strict": false,
+        })
+    }
+
+    /// 导出为 OpenAI strict mode（结构化输出）工具定义
+    ///
+    /// strict:true 的硬性要求（OpenAI 现状）：全部属性进 `required`、
+    /// 每个对象 `additionalProperties:false`、~19 个约束关键词（minimum/
+    /// maximum/default 等）被剥离。非 required 字段以 `anyOf [T, null]`
+    /// 表达可空。参数格式同 [`to_json_schema`] 的净化版。
+    pub fn to_openai_tool_strict(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.about,
+                "parameters": self.strict_json_schema(),
+                "strict": true,
+            }
+        })
+    }
+
+    /// 导出为 Gemini functionDeclarations（OpenAPI 3.0 Schema 子集）
+    ///
+    /// Gemini 的 Schema proto 不含 `default` → 剥离；minimum/maximum/
+    /// enum/required 等 OpenAPI 关键词保留。
+    pub fn to_gemini_tool(&self) -> serde_json::Value {
+        let mut parameters = self.to_json_schema();
+        strip_key_recursively(&mut parameters, "default");
+        serde_json::json!({
+            "functionDeclarations": [{
+                "name": self.name,
+                "description": self.about,
+                "parameters": parameters,
+            }]
+        })
+    }
+
+    /// [`to_json_schema`] 的 OpenAI strict mode 净化版
+    ///
+    /// 规则：剥离不支持关键词；每个对象 `additionalProperties:false`；
+    /// 全部属性进 `required`；非 required 字段包 `anyOf [T, null]`。
+    pub fn strict_json_schema(&self) -> serde_json::Value {
+        let mut props = serde_json::Map::new();
+        let mut required: Vec<serde_json::Value> = Vec::new();
+
+        for arg in &self.args {
+            let mut prop = arg_kind_to_json_schema(&arg.kind);
+            sanitize_strict(&mut prop);
+            if !arg.required {
+                prop = serde_json::json!({ "anyOf": [prop, { "type": "null" }] });
+            }
+            props.insert(arg.name.clone(), prop);
+            required.push(serde_json::Value::String(arg.name.clone()));
+        }
+
+        serde_json::json!({
+            "type": "object",
+            "properties": props,
+            "required": required,
+            "additionalProperties": false,
         })
     }
 
@@ -227,6 +303,67 @@ fn arg_kind_to_json_schema(kind: &ArgKind) -> serde_json::Value {
                 "type": "array",
                 "items": arg_kind_to_json_schema(item),
             })
+        }
+    }
+}
+
+// ── AI 协议导出辅助 ────────────────────────────────────────
+
+/// strict mode 不支持、需剥离的关键词（OpenAI 结构化输出现状，~19 个的子集）
+const STRICT_UNSUPPORTED: &[&str] = &[
+    "minimum",
+    "maximum",
+    "default",
+    "multipleOf",
+    "minLength",
+    "maxLength",
+    "pattern",
+    "format",
+    "minItems",
+    "maxItems",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+];
+
+/// 递归净化为 strict mode 合规形态：剥关键词、对象加 additionalProperties:false、
+/// 全属性进 required
+fn sanitize_strict(schema: &mut serde_json::Value) {
+    if let serde_json::Value::Object(map) = schema {
+        for k in STRICT_UNSUPPORTED {
+            map.remove(*k);
+        }
+        let is_object = map.get("type").and_then(|t| t.as_str()) == Some("object");
+        if is_object {
+            map.insert("additionalProperties".into(), serde_json::json!(false));
+        }
+        if let Some(items) = map.get_mut("items") {
+            sanitize_strict(items);
+        }
+        if is_object {
+            let keys = {
+                let props = map.get_mut("properties").and_then(|p| p.as_object_mut());
+                if let Some(props) = props {
+                    for v in props.values_mut() {
+                        sanitize_strict(v);
+                    }
+                    Some(props.keys().cloned().collect::<Vec<_>>())
+                } else {
+                    None
+                }
+            };
+            if let Some(keys) = keys {
+                map.insert("required".into(), serde_json::json!(keys));
+            }
+        }
+    }
+}
+
+/// 递归删除指定关键词（Gemini Schema proto 无 default 等）
+fn strip_key_recursively(schema: &mut serde_json::Value, key: &str) {
+    if let serde_json::Value::Object(map) = schema {
+        map.remove(key);
+        for v in map.values_mut() {
+            strip_key_recursively(v, key);
         }
     }
 }
@@ -436,6 +573,85 @@ mod validate_tests {
         assert!(s
             .validate_args(&serde_json::json!({ "verbose": "yes" }))
             .is_err());
+    }
+
+    // ─── AI 协议导出（Responses / strict / Gemini） ─────
+
+    fn tool_schema() -> CommandSchema {
+        schema_with(vec![
+            arg("input", ArgKind::Text, true),
+            arg(
+                "quality",
+                ArgKind::Number {
+                    min: Some(0.0),
+                    max: Some(51.0),
+                },
+                false,
+            ),
+            arg(
+                "codec",
+                ArgKind::Enum {
+                    values: vec!["h264".into()],
+                },
+                false,
+            ),
+        ])
+    }
+
+    #[test]
+    fn openai_responses_tool_is_flattened() {
+        let t = tool_schema().to_openai_responses_tool();
+        assert_eq!(t["type"], "function");
+        assert_eq!(t["name"], "demo");
+        // 扁平格式：parameters 在顶层，无嵌套 function 对象
+        assert!(t["parameters"].is_object());
+        assert!(t.get("function").is_none());
+        assert_eq!(t["strict"], false);
+    }
+
+    #[test]
+    fn strict_tool_sanitizes_constraints_and_requires_all() {
+        let t = tool_schema().to_openai_tool_strict();
+        assert_eq!(t["function"]["strict"], true);
+        let params = &t["function"]["parameters"];
+        // 全属性进 required
+        let req = params["required"].as_array().unwrap();
+        assert_eq!(req.len(), 3, "all fields required in strict: {req:?}");
+        // 约束关键词被剥离
+        let raw = serde_json::to_string(params).unwrap();
+        assert!(
+            !raw.contains("minimum") && !raw.contains("maximum"),
+            "{raw}"
+        );
+        assert!(!raw.contains("\"default\""), "{raw}");
+        // 每个对象 additionalProperties: false
+        assert_eq!(params["additionalProperties"], false);
+        // 非 required 字段以 anyOf [T, null] 表达可空
+        assert!(params["properties"]["quality"]["anyOf"].is_array(), "{raw}");
+        // required 字段保持原类型
+        assert_eq!(params["properties"]["input"]["type"], "string");
+    }
+
+    #[test]
+    fn gemini_tool_strips_default_and_keeps_openapi_keywords() {
+        let mut s = tool_schema();
+        s.args[0].about = "输入文件".into();
+        let t = s.to_gemini_tool();
+        let decl = &t["functionDeclarations"][0];
+        assert_eq!(decl["name"], "demo");
+        let raw = serde_json::to_string(decl).unwrap();
+        // default 剥离；minimum（OpenAPI 关键词）保留
+        assert!(!raw.contains("\"default\""), "{raw}");
+        // to_json_schema 注入 description
+        assert!(raw.contains("输入文件"), "{raw}");
+    }
+
+    #[test]
+    fn json_schema_includes_per_arg_description() {
+        let mut s = tool_schema();
+        s.args[0].about = "输入文件".into();
+        let js = s.to_json_schema();
+        assert_eq!(js["properties"]["input"]["description"], "输入文件");
     }
 
     #[test]

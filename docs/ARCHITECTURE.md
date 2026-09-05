@@ -123,8 +123,7 @@ AI 工具调用正被 MCP 标准化。lilyco 原本只导出手写 `--anthropic-
 - ~~MCP 无进度通知~~ 已实现：`tools/call` 携带 `_meta.progressToken` 时流式返回 `notifications/progress`
 - ~~MCP 采样 / roots 依赖 rust-sdk~~ 已零依赖实现：`HostBridge`（core 反向能力接口）+ serve 双向 JSON-RPC 分流；`ctx.sample()` 把 Agent 客户端当 LLM 用，`ctx.roots()` 取宿主根；capability 门控 + `srv-N` id + 超时保护
 - ~~TUI/Web 无多命令导航~~ 已实现：TUI 命令选择页（`run_tui_registry`）+ Web `serve_registry`（`?cmd=` 切换）；schema 级嵌套 `subcommands` 仍仅 CLI 渲染
-- OpenAI strict-mode JSON Schema 兼容性未验证（`to_json_schema` 含 `minimum`/`default` 等，
-  部分 strict 实现会拒绝）——见预研报告中的 pydantic-ai#1561 教训
+- ~~OpenAI strict-mode 兼容性未验证~~ 已支持：`to_openai_tool_strict()`（strict_json_schema 净化器：剥 minimum/maximum/default 等、additionalProperties:false、全字段 required、可选字段 anyOf[T,null]）；另有 `to_openai_responses_tool()`（Responses API 扁平）与 `to_gemini_tool()`（OpenAPI 子集）
 - TUI 数字键入值不即时夹紧（↑↓ 步进夹紧；键入越界由提交校验拦截）
 - ~~schema 生成无性能基准~~ 已补：`cargo bench -p lilyco-example`（release 实测 0.03–3 µs/op）
 

@@ -590,8 +590,13 @@ $ imgpress --anthropic-tool
 This is a valid Anthropic tool-use definition. Drop it into your Claude API call, and the model can invoke your Rust tool directly.
 
 ```bash
-$ imgpress --openai-tool   # OpenAI format
-$ imgpress --schema         # Generic JSON Schema (for other LLMs)
+$ imgpress --openai-tool             # Chat Completions 格式（嵌套 function）
+$ imgpress --openai-responses-tool   # Responses API 格式（扁平，strict:false）
+$ imgpress --openai-strict-tool      # strict mode（结构化输出：剥约束关键词 +
+                                     #   additionalProperties:false + 全字段 required）
+$ imgpress --gemini-tool             # Gemini functionDeclarations（OpenAPI 子集）
+$ imgpress --anthropic-tool          # Anthropic tool_use
+$ imgpress --schema                  # Generic JSON Schema (for other LLMs)
 $ imgpress --mcp            # 标准 MCP 服务器：Agent 直接调用（含进度通知）
 ```
 

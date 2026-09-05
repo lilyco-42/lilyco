@@ -44,7 +44,17 @@
 
 **结论**："agent-friendly CLI" 正在成为独立品类；lilyco 的 `--schema`/`--json-stream`/`--mcp` 三件套天然属于此列，README 可强调该定位。
 
-## 4. 待验证 / 后续预研候选
+## 4. AI 协议导出：build-vs-buy 决策记录（信条 3 搜索证据）
+
+需求：OpenAI Responses API（扁平）/ strict mode（结构化输出净化）/ Gemini functionDeclarations 导出。
+
+- 搜索：gh repo search ×4（openai strict schema rust / function calling rust tool schema / llm tool definition rust gemini anthropic / json schema sanitizer）+ crates.io API ×3 —— **无独立的零依赖转换库**
+- 现成实现只存在于重型框架内部：[rig-core](https://github.com/0xPlaygrounds/rig)（2.5M 下载，reqwest/tokio 全家桶）、[genai](https://crates.io/crates/genai)（351k）、[async-openai](https://crates.io/crates/async-openai) —— 引入即违反 core 零依赖硬约束
+- **决策**：零依赖自研（~120 行 + 测试），报文形状对齐 rig 源码验证（ResponsesToolDefinition 扁平 = `{type:"function",name,description,parameters,strict}` ✓；Gemini `functionDeclarations` ✓）
+- strict 净化规则来源：[OpenAI structured outputs 官方](https://developers.openai.com/api/docs/guides/structured-outputs)（19 个不支持关键词剥离、每对象 additionalProperties:false、全字段 required）+ 社区实证（[Reddit r/LLMDevs](https://www.reddit.com/r/LLMDevs/comments/1vyo3be/openai_strict_mode_doesnt_enforce_pattern_format/)）
+- Gemini OpenAPI 子集来源：[官方 function calling 文档](https://ai.google.dev/gemini-api/docs/function-calling)（Schema proto 无 default → 剥离）
+
+## 5. 待验证 / 后续预研候选
 
 - [ ] MCP `server/discover` + 无状态模式支持（2026-07-28 SEP-2575）—— 现有 `initialize` 握手保留为旧客户端兼容
 - [ ] MRTR 形态的 `HostBridge` 适配器（`InputRequiredResult`/`inputResponses`）—— 待真实客户端落地再动
