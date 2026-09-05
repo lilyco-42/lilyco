@@ -13,6 +13,8 @@ use lilyco::prelude::*;
 
 #[derive(App)]
 #[app(name = "bench-sample", about = "基准样例", run = "run_bench")]
+// 字段只被 derive 生成的 schema/from_args 读写，基准不读它们 —— 静默 dead_code
+#[allow(dead_code)]
 struct BenchSample {
     /// 输入文件
     input: String,
