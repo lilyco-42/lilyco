@@ -143,7 +143,7 @@ cargo run -p lilyco-example -- --mcp                              # MCP 服务�
 cargo bench -p lilyco-example                      # schema 生成性能基准
 ```
 
-发版：改各 crate 版本（本文件 §1 同步更新）→ commit → `bash scripts/publish.sh`（按依赖顺序全链发布；rsproxy 用户必须 `--registry crates-io`，脚本已处理；token：`cargo login --registry crates-io <token>`）。
+发版：改各 crate 版本（本文件 §1 同步更新）→ commit → `bash scripts/publish.sh`（按依赖顺序全链发布；脚本用临时 CARGO_HOME 绕开 rsproxy 镜像滞后，验证构建走 crates.io 真实索引）。
 
 ## 9. 测试地图
 
