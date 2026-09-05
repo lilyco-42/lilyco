@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-tui"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 description = "Lilyco TUI renderer — interactive terminal form with live CLI preview"
 license = "MIT OR Apache-2.0"
@@ -13,3 +13,6 @@ lilyco-core = { version = "0.2", path = "../lilyco-core" }
 ratatui = "0.29"
 crossterm = "0.28"
 serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

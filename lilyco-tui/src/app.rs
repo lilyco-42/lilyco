@@ -5,7 +5,7 @@ use ratatui::layout::Rect;
 use lilyco_core::schema::CommandSchema;
 
 use crate::renderer::{self, AppState, FormRenderer};
-use crate::widgets::FormField;
+use crate::widgets::{FieldValue, FormField};
 
 // ── TuiApp ────────────────────────────────────────────────
 
@@ -24,6 +24,8 @@ pub struct TuiApp {
     pub selected_command: usize,
     /// 当前激活的命令名（执行时 facade 按它取 handler）
     pub active_command: Option<String>,
+    /// 路径补全会话：`(base 键, 候选列表, 当前索引)`；值变更即失效
+    completion: Option<(String, Vec<String>, usize)>,
 }
 
 impl TuiApp {
@@ -37,6 +39,7 @@ impl TuiApp {
             app_name: schema.name.clone(),
             selected_command: 0,
             active_command: Some(schema.name.clone()),
+            completion: None,
         }
     }
 
@@ -58,6 +61,7 @@ impl TuiApp {
             app_name: app_name.to_string(),
             selected_command: 0,
             active_command: None,
+            completion: None,
         }
     }
 
@@ -166,7 +170,18 @@ impl TuiApp {
                 if self.show_help {
                     self.show_help = false;
                 } else {
-                    self.form.next_field();
+                    // Path 字段聚焦且已有输入 → Tab 用于目录补全（readline 风格，
+                    // 重复 Tab 循环候选）；空值时照常切换字段，保证前进导航可达
+                    let is_path_with_input = self
+                        .form
+                        .focused_field()
+                        .is_some_and(|f| matches!(&f.value, FieldValue::Path(v) if !v.is_empty()));
+                    if is_path_with_input {
+                        self.path_complete();
+                    } else {
+                        self.completion = None;
+                        self.form.next_field();
+                    }
                 }
                 return true;
             }
@@ -201,14 +216,74 @@ impl TuiApp {
         if let Some(field) = self.form.focused_field_mut() {
             let changed = field.handle_key(key);
             if changed {
-                // 值变更后旧校验消息失效，清除
+                // 值变更后旧校验消息与补全会话失效
                 self.form.validation_message = None;
+                self.completion = None;
                 // 更新滚动位置
                 self.update_scroll();
             }
         }
 
         true
+    }
+
+    /// Path 字段 Tab 补全（readline 风格）
+    ///
+    /// - 首次 Tab：按当前输入读目录、过滤前缀，补全到第一个候选
+    /// - 再次 Tab（同 base）：循环候选（目录条目带 `/` 后缀）
+    /// - 无候选：不改动值，会话置空
+    fn path_complete(&mut self) {
+        use std::path::Path as StdPath;
+
+        let Some(field) = self.form.focused_field() else {
+            return;
+        };
+        let FieldValue::Path(text) = &field.value else {
+            return;
+        };
+        let (dir, prefix) = split_dir_prefix(text);
+        let base = format!("{dir}\0{prefix}");
+
+        // 同一会话：循环候选。续期条件 = base 未变（尚未补全）
+        // 或 当前文本正是上次应用的候选（补全后的循环；编辑过则开新会话）
+        if let Some((b, cands, idx)) = &mut self.completion {
+            let applied = cands.get(*idx).map(String::as_str) == Some(text.as_str());
+            if !cands.is_empty() && (*b == base || applied) {
+                *idx = (*idx + 1) % cands.len();
+                let value = cands[*idx].clone();
+                if let FieldValue::Path(v) = &mut self.form.focused_field_mut().unwrap().value {
+                    *v = value;
+                }
+                return;
+            }
+        }
+
+        // 新会话：读目录
+        let read_dir = if dir.is_empty() {
+            StdPath::new(".")
+        } else {
+            StdPath::new(&dir)
+        };
+        let mut cands: Vec<String> = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(read_dir) {
+            for entry in rd.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !name.starts_with(&prefix) {
+                    continue;
+                }
+                let suffix = if entry.path().is_dir() { "/" } else { "" };
+                cands.push(format!("{dir}{name}{suffix}"));
+            }
+        }
+        cands.sort();
+        if cands.is_empty() {
+            self.completion = None;
+            return;
+        }
+        self.completion = Some((base, cands.clone(), 0));
+        if let FieldValue::Path(v) = &mut self.form.focused_field_mut().unwrap().value {
+            *v = cands[0].clone();
+        }
     }
 
     fn handle_confirm_event(&mut self, key: KeyEvent) -> bool {
@@ -319,6 +394,20 @@ impl TuiApp {
     }
 }
 
+// ── 路径补全辅助 ──────────────────────────────────────────
+
+/// 拆分路径输入为（目录前缀, 文件名前缀），兼容 `/` 与 `\` 分隔符
+///
+/// - `src/`   → ("src/", "")
+/// - `src/ma` → ("src/", "ma")
+/// - `ma`     → ("", "ma")
+pub(crate) fn split_dir_prefix(text: &str) -> (String, String) {
+    match text.rfind('/').max(text.rfind('\\')) {
+        Some(pos) => (text[..=pos].to_string(), text[pos + 1..].to_string()),
+        None => (String::new(), text.to_string()),
+    }
+}
+
 // ── 帮助 overlay ──────────────────────────────────────────
 
 fn render_help_overlay(area: Rect, buf: &mut Buffer) {
@@ -328,6 +417,7 @@ fn render_help_overlay(area: Rect, buf: &mut Buffer) {
         快捷键帮助
 
         Tab / Shift+Tab      切换字段焦点
+        Tab(Path 输入中)     路径补全 / 循环候选
         ↑↓                   数字加减
         ←→                   Enum 选项切换
         空格                  Flag 切换
@@ -336,7 +426,7 @@ fn render_help_overlay(area: Rect, buf: &mut Buffer) {
         F1                    关闭帮助
     ";
     let w = 36u16;
-    let h = 12u16;
+    let h = 13u16;
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
     let dark = Style::default().bg(Color::DarkGray);

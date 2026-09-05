@@ -867,12 +867,12 @@ lilyco-core = { git = "https://github.com/lilyco-42/lilyco" }
 - [x] ~~Subcommand navigation in TUI and Web GUI~~ — TUI 命令选择页（`TuiApp::new_multi` + `run_tui_registry`，mininterface subcommand picker 模式；隐藏命令不显示）；Web GUI `serve_registry` + `?cmd=` 切换下拉；`/run` 显式执行未知命令 400
 - [x] ~~Input validation in TUI/Web widgets (range, required, enum)~~ — 共享校验 `CommandSchema::validate_args`：MCP `tools/call` 前置校验（`INVALID_PARAMS`）、Web GUI 服务端 400 + 浏览器 `required`/`min`/`max`、TUI 提交前拦截并红色提示；TUI 数字 ↑↓ 夹紧到 schema 范围
 - [x] ~~TUI 执行异步化（进度渲染 + 取消）~~ — 非阻塞事件循环；取消键 `Ctrl-C`/`c`/`q`/`Esc`；executor 自动补发 `Done`/`Error` 终止事件（防卡死）
-- [ ] Path auto-complete in TUI (Tab triggers directory listing)
+- [x] ~~Path auto-complete in TUI (Tab triggers directory listing)~~ — Path 字段有输入时 Tab 触发目录补全，重复 Tab 循环候选（目录带 `/` 后缀）；空值时 Tab 照常切换字段；兼容 `/` 与 `\` 分隔符
 - [x] ~~`#[app(name = "...")]` macro attribute~~ — 多命令场景自定义 kebab-case 命令名（默认取结构体名）
 - [ ] `#[app(subcommands)]` macro support
 - [ ] TUI 执行异步化（进度渲染 + 取消）
 - [x] ~~Publish to crates.io~~ — `lilyco-core/macros/cli/tui/gui 0.2.1`、`lilyco-mcp/lilyco 0.2.0`、`lilyco-ffmpeg 0.1.0`（旧 core 0.1.0/0.2.0 因缺 `executor`/`registry` 已 yank）
-- [ ] Performance benchmarks for schema generation
+- [x] ~~Performance benchmarks for schema generation~~ — 零依赖基准 `cargo bench -p lilyco-example`（schema 生成 / JSON 导出 / validate_args / Registry 装配，release 实测 0.03–3 µs/op）
 
 ---
 

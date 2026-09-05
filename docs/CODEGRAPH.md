@@ -26,7 +26,7 @@ flowchart TD
 | `lilyco-core` | 0.2.2 | serde/thiserror | 领域模型 + 执行语义 + 校验，零 UI 依赖 |
 | `lilyco-macros` | 0.2.2 | syn/quote | `#[derive(App)]` / `#[derive(ValueEnum)]` 代码生成 |
 | `lilyco-cli` | 0.2.2 | core + clap | schema → clap 渲染 + 内置标志 + 输出格式化 |
-| `lilyco-tui` | 0.2.3 | core + ratatui | ratatui 表单状态机（单/多命令），不持有执行逻辑 |
+| `lilyco-tui` | 0.2.4 | core + ratatui | ratatui 表单状态机（单/多命令），不持有执行逻辑 |
 | `lilyco-gui` | 0.2.3 | core + axum/tokio | Web 控制台 + SSE 进度 + 回环安全中间件 |
 | `lilyco-mcp` | 0.2.2 | core（零额外依赖） | MCP 2024-11-05 stdio 服务器 + 进度通知 |
 | `lilyco` | 0.2.2 | 全部 | **唯一组合根**：后端自动选择 + 各形态入口 |
@@ -72,6 +72,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `struct FormRenderer` | `lilyco-tui/src/renderer.rs:14` | `validation_errors():131`（提交前校验）、`cli_preview():98` |
 | `struct FormField` | `lilyco-tui/src/widgets.rs:73` | 携带 `ArgKind` 约束；`validate():99` 与 core validate_args 同语义 |
 | `render_command_select()` | `lilyco-tui/src/renderer.rs:238` | 多命令选择页（↑↓/jk + Enter） |
+| `path_complete()` | `lilyco-tui/src/app.rs` | Path 字段 Tab 目录补全（readline 风格循环候选；`split_dir_prefix` 兼容 `/` 与 `\`） |
 
 ### lilyco-gui（`lilyco-gui/src/lib.rs`）
 | 符号 | 行 | 说明 |
@@ -137,6 +138,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets
 cargo run -p lilyco-example --example multi -- ping --name 世界   # 多命令冒烟
 cargo run -p lilyco-example --example multi -- --schema           # 注册表清单
 cargo run -p lilyco-example -- --mcp                              # MCP 服务器冒烟
+cargo bench -p lilyco-example                      # schema 生成性能基准
 ```
 
 发版：手动改各 crate 版本（本文件 §1 同步更新）→ commit → `cargo publish -p …`（顺序：core → macros → cli/tui/gui/mcp → facade）。
@@ -147,8 +149,9 @@ cargo run -p lilyco-example -- --mcp                              # MCP 服务�
 |---|---|---|
 | core 校验/协议/registry | `lilyco-core/src/{schema,lib,registry}.rs` `#[cfg(test)]` | validate_args 12 例、Progress serde、registry 别名/隐藏/JSON |
 | CLI | `lilyco-cli/src/lib.rs` 底部 | 渲染/解析/内置标志/多命令构建与解析 |
-| TUI | `lilyco-tui/src/lib.rs` 底部 | 渲染、状态机、校验拦截、多命令选择页 |
+| TUI | `lilyco-tui/src/lib.rs` 底部 | 渲染、状态机、校验拦截、多命令选择页、路径 Tab 补全 |
 | GUI | `lilyco-gui/src/lib.rs` 底部 | run_handler 400/200、pick_command、?cmd 导航 |
 | MCP | `lilyco-mcp/src/lib.rs` 底部 | initialize/tools/进度通知/校验拒绝 |
 | 门面 | `lilyco/src/lib.rs` 底部 | 后端探测 |
 | 端到端 | `lilyco-example/tests/integration.rs` + `examples/multi.rs` | 图片压缩全链路 + 多命令演示 |
+| 性能基准 | `lilyco-example/benches/schema.rs` | schema 生成 / 导出 / 校验 / Registry 装配（`cargo bench -p lilyco-example`） |

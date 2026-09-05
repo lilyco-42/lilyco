@@ -538,4 +538,111 @@ mod tests {
         assert!(!cont);
         assert!(single.should_quit);
     }
+
+    // ─── 路径 Tab 补全 ──────────────────────────────────
+
+    fn path_field_schema() -> CommandSchema {
+        CommandSchema {
+            name: "demo".into(),
+            about: "demo".into(),
+            args: vec![
+                ArgSchema {
+                    name: "input".into(),
+                    about: "输入路径".into(),
+                    kind: ArgKind::Path { must_exist: false },
+                    required: true,
+                    default: None,
+                },
+                ArgSchema {
+                    name: "other".into(),
+                    about: "其他".into(),
+                    kind: ArgKind::Text,
+                    required: false,
+                    default: None,
+                },
+            ],
+            subcommands: vec![],
+        }
+    }
+
+    #[test]
+    fn split_dir_prefix_cases() {
+        use super::app::split_dir_prefix;
+        assert_eq!(split_dir_prefix("src/"), ("src/".into(), "".into()));
+        assert_eq!(split_dir_prefix("src/ma"), ("src/".into(), "ma".into()));
+        assert_eq!(split_dir_prefix("ma"), ("".into(), "ma".into()));
+        // Windows 反斜杠（Rust raw string，源码零转义）
+        assert_eq!(
+            split_dir_prefix(r"C:\tmp\x"),
+            (r"C:\tmp\".into(), "x".into())
+        );
+    }
+
+    #[test]
+    fn tab_on_empty_path_navigates_but_with_input_completes() {
+        let schema = path_field_schema();
+        let mut app = TuiApp::new(&schema);
+        // 空 Path：Tab 前进到下一字段
+        app.handle_event(key(KeyCode::Tab));
+        assert_eq!(app.form.focus_index, 1);
+
+        // 回到 input，输入真实目录 → Tab 触发补全而非跳转
+        app.form.focus_index = 0;
+        let base = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(base.path().join("alpha")).unwrap();
+        std::fs::write(base.path().join("afile.txt"), "x").unwrap();
+        if let FieldValue::Path(v) = &mut app.fields_mut()[0].value {
+            *v = format!("{}{}", base.path().display(), "/");
+        }
+        app.handle_event(key(KeyCode::Tab));
+        assert_eq!(
+            app.form.focus_index, 0,
+            "Tab on path input must NOT navigate"
+        );
+        if let FieldValue::Path(v) = &app.fields()[0].value {
+            let name = v.rsplit('/').next().unwrap();
+            assert!(
+                name == "alpha/" || name == "afile.txt",
+                "first sorted candidate expected, got {v}"
+            );
+        }
+    }
+
+    #[test]
+    fn tab_cycles_candidates() {
+        let schema = path_field_schema();
+        let mut app = TuiApp::new(&schema);
+        let base = tempfile::tempdir().unwrap();
+        std::fs::write(base.path().join("aa1.txt"), "x").unwrap();
+        std::fs::write(base.path().join("aa2.txt"), "x").unwrap();
+        if let FieldValue::Path(v) = &mut app.fields_mut()[0].value {
+            *v = base.path().join("aa").display().to_string();
+        }
+
+        // 首次 Tab → 第一个候选；再次 Tab → 循环下一个
+        app.handle_event(key(KeyCode::Tab));
+        if let FieldValue::Path(v) = &app.fields()[0].value {
+            assert!(v.ends_with("aa1.txt"), "first candidate: {v}");
+        }
+        app.handle_event(key(KeyCode::Tab));
+        if let FieldValue::Path(v) = &app.fields()[0].value {
+            assert!(v.ends_with("aa2.txt"), "cycled candidate: {v}");
+        }
+    }
+
+    #[test]
+    fn tab_on_nonexistent_dir_keeps_value() {
+        let schema = path_field_schema();
+        let mut app = TuiApp::new(&schema);
+        if let FieldValue::Path(v) = &mut app.fields_mut()[0].value {
+            *v = "definitely/not/exist/xx".into();
+        }
+        app.handle_event(key(KeyCode::Tab));
+        if let FieldValue::Path(v) = &app.fields()[0].value {
+            assert_eq!(
+                v, "definitely/not/exist/xx",
+                "no candidates → value unchanged"
+            );
+        }
+    }
 }

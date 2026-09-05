@@ -10,6 +10,10 @@ repository = "https://github.com/lilyco-42/lilyco"
 name = "imgpress"
 path = "src/main.rs"
 
+[[bench]]
+name = "schema"
+harness = false
+
 [dependencies]
 lilyco = { path = "../lilyco" }
 # derive(App) 宏展开引用 lilyco_core::… 路径，binary 需要能解析到它

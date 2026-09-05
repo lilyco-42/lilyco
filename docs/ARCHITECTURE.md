@@ -125,6 +125,6 @@ AI 工具调用正被 MCP 标准化。lilyco 原本只导出手写 `--anthropic-
 - OpenAI strict-mode JSON Schema 兼容性未验证（`to_json_schema` 含 `minimum`/`default` 等，
   部分 strict 实现会拒绝）——见预研报告中的 pydantic-ai#1561 教训
 - TUI 数字键入值不即时夹紧（↑↓ 步进夹紧；键入越界由提交校验拦截）
-- schema 生成无性能基准
+- ~~schema 生成无性能基准~~ 已补：`cargo bench -p lilyco-example`（release 实测 0.03–3 µs/op）
 
 > 代码导航：见 [CODEGRAPH.md](CODEGRAPH.md)（符号级图谱，带 `文件:行号`）。

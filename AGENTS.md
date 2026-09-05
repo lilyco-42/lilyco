@@ -24,6 +24,7 @@ workspace 依赖图、全部关键符号（带 `文件:行号`）、四端调用
 ```bash
 cargo test --workspace
 cargo run -p lilyco-example --example multi -- ping --name 世界   # 多命令冒烟
+cargo bench -p lilyco-example                     # schema 性能基准
 ```
 
 ## 约定

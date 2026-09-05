@@ -942,7 +942,7 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
 name = "lilyco"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "crossterm",
  "lilyco-cli",
@@ -1021,7 +1021,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-gui"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "async-stream",
  "axum",
@@ -1067,12 +1067,13 @@ dependencies = [
 
 [[package]]
 name = "lilyco-tui"
-version = "0.2.2"
+version = "0.2.4"
 dependencies = [
  "crossterm",
  "lilyco-core",
  "ratatui",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
