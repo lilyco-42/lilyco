@@ -894,6 +894,8 @@ lilyco-core = { git = "https://github.com/lilyco-42/lilyco" }
 
 ### Roadmap
 
+#### 已完成（v0.1 → v0.2.x）
+
 - [x] ~~Real `run()` dispatch in Web GUI with progress streaming~~ — done via `GuiRenderer::serve_app::<A>()`
 - [x] ~~`#[app(run = "fn")]` macro attribute~~ — wire business logic with zero boilerplate
 - [x] ~~Integration tests that exercise all three interfaces end-to-end~~ — 12 tests in `lilyco-example`

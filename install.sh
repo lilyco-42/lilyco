@@ -5,6 +5,7 @@
 #   bash install.sh                     # 默认 profile: web；安装到 ~/.lilyco/bin
 #   LILYCO_PROFILE=foo bash install.sh  # 指定 DSH profile
 #   bash install.sh --dry-run           # 只打印将执行的动作，不改任何文件
+#   LILYCO_SKIP_CHECKSUM=1 bash install.sh   # 跳过下载资产的 sha256 校验（不推荐）
 #
 # 幂等：重复运行不会重复下载/追加条目。完成后重启 dsh web 生效。
 set -euo pipefail
@@ -50,11 +51,27 @@ detect_platform() {
   esac
 }
 
-# 从 latest release 取指定资产的下载 URL（免 jq，仅 grep/sed）
+# 从 latest release 取指定资产的下载 URL / sha256 digest（免 jq，仅 grep/sed/awk）
+release_json() { curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null; }
 asset_url() { # $1 = 资产名子串
-  curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+  release_json \
     | grep -o "\"browser_download_url\": *\"[^\"]*${1}[^\"]*\"" \
     | head -n1 | sed 's/.*"browser_download_url": *"//; s/"$//'
+}
+asset_digest() { # $1 = 资产名子串 → sha256hex（API 无 digest 时输出空）
+  release_json | tr ',' '\n' | tr -d ' "' | awk -v want="$1" '
+    /^name:/ { cur = (index($0, want) > 0) ? 1 : 0 }
+    cur && /^digest:sha256:/ { sub(/^digest:sha256:/, ""); print; exit }
+  '
+}
+sha256_bin() { # $1 = 文件 → sha256hex（sha256sum/shasum 优先，Windows 裸环境退 certutil）
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d" " -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | cut -d" " -f1
+  else
+    certutil -hashfile "$(cygpath -w "$1")" SHA256 2>/dev/null | sed -n 2p | tr -d " \r"
+  fi
 }
 
 print_path_hint() {
@@ -98,6 +115,23 @@ main() {
       done
       [ "$ok" = 1 ] || die "下载失败: $b"
       chmod +x "$BIN_DIR/$b" 2>/dev/null || true
+      # ── sha256 校验（GitHub API asset digest；LILYCO_SKIP_CHECKSUM=1 可跳过）──
+      if [ "${LILYCO_SKIP_CHECKSUM:-0}" = "1" ]; then
+        warn "LILYCO_SKIP_CHECKSUM=1，跳过 sha256 校验"
+      else
+        local want have
+        want=$(asset_digest "$b")
+        if [ -z "$want" ]; then
+          warn "API 未返回 digest，跳过校验: $b"
+        else
+          have=$(sha256_bin "$BIN_DIR/$b")
+          if [ "$have" != "$want" ]; then
+            rm -f "$BIN_DIR/$b"
+            die "sha256 不匹配: $b（已删除。确认来源可信可 LILYCO_SKIP_CHECKSUM=1 重试）"
+          fi
+          say "sha256 校验通过: $b"
+        fi
+      fi
     fi
   done
 
