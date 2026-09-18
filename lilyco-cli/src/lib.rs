@@ -639,6 +639,7 @@ mod tests {
                 },
             ],
             subcommands: vec![],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
         }
     }
 
@@ -705,6 +706,7 @@ mod tests {
                 default: None,
             }],
             subcommands: vec![],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
         };
         let renderer = CliRenderer::new();
         let cmd = renderer.render(&schema);
@@ -734,6 +736,7 @@ mod tests {
                 default: None,
             }],
             subcommands: vec![],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
         };
         let renderer = CliRenderer::new();
         let cmd = renderer.render(&schema);
@@ -764,6 +767,7 @@ mod tests {
                 default: None,
             }],
             subcommands: vec![],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
         };
         let renderer = CliRenderer::new();
         let cmd = renderer.render(&schema);
@@ -799,6 +803,7 @@ mod tests {
                         default: None,
                     }],
                     subcommands: vec![],
+                    safety: lilyco_core::safety::SafetyTier::ReadOnly,
                 },
                 CommandSchema {
                     name: "push".into(),
@@ -811,8 +816,10 @@ mod tests {
                         default: None,
                     }],
                     subcommands: vec![],
+                    safety: lilyco_core::safety::SafetyTier::ReadOnly,
                 },
             ],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
         };
         let renderer = CliRenderer::new();
         let cmd = renderer.render(&schema);
@@ -1123,6 +1130,7 @@ mod tests {
                 default: None,
             }],
             subcommands: vec![],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
         }
     }
 

@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::app::App;
 use crate::context::Context;
 use crate::error::AppError;
+use crate::safety::{GateDecision, GateRequest, SafetyPolicy, SafetyTier};
 use crate::schema::CommandSchema;
 
 /// 命令处理器：接收参数 JSON，通过 ctx 上报进度，返回结果 JSON
@@ -132,25 +133,82 @@ pub enum RegistryError {
 /// - 静态侧：`#[derive(App)]` + [`RegisteredCommand::from_app`] 编译期装配
 /// - 动态侧：运行期 [`Registry::register`] / [`Registry::register_from_json`]
 ///   （插件系统、AI 运行期注册新命令、REPL 均属此路径）
-#[derive(Debug, Default)]
+///
+/// 安全门：注册表持有一条 [`SafetyPolicy`]（默认 [`crate::safety::DenyElevated`]，
+/// fail-closed）。注册命令时若 `schema.safety` 高于 T0，handler 会被自动包进
+/// 策略检查——四个后端（CLI/TUI/Web/MCP）共用这道门，无旁路。
+/// 策略须在注册命令**之前**通过 [`Registry::with_policy`] 设置（门在注册时包住 handler）。
 pub struct Registry {
     commands: HashMap<String, RegisteredCommand>,
     aliases: HashMap<String, String>,
+    policy: Arc<dyn SafetyPolicy>,
+}
+
+impl Default for Registry {
+    fn default() -> Self {
+        Self {
+            commands: HashMap::new(),
+            aliases: HashMap::new(),
+            policy: Arc::new(crate::safety::DenyElevated),
+        }
+    }
+}
+
+impl std::fmt::Debug for Registry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Registry")
+            .field("commands", &self.commands)
+            .field("aliases", &self.aliases)
+            .field("policy", &"<dyn SafetyPolicy>")
+            .finish()
+    }
 }
 
 impl Registry {
-    /// 新建空注册表
+    /// 新建空注册表（默认策略 [`crate::safety::DenyElevated`]：只放行 T0）
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// 注入安全策略（须在注册命令之前调用——门在注册时包住 handler）
+    pub fn with_policy(mut self, policy: Arc<dyn SafetyPolicy>) -> Self {
+        self.policy = policy;
+        self
+    }
+
+    /// 当前安全策略
+    pub fn policy(&self) -> &Arc<dyn SafetyPolicy> {
+        &self.policy
+    }
+
     /// 注册一条命令。校验：非空名、无重名；别名索引同步建立。
-    pub fn register(&mut self, cmd: RegisteredCommand) -> Result<(), RegistryError> {
+    ///
+    /// 安全门：`schema.safety` 高于 T0 且携带 handler 的命令，handler 在此
+    /// 被包进策略检查——调用时先过门，拒绝即返回 [`AppError::Safety`]。
+    pub fn register(&mut self, mut cmd: RegisteredCommand) -> Result<(), RegistryError> {
         if cmd.name.is_empty() {
             return Err(RegistryError::EmptyName);
         }
         if self.commands.contains_key(&cmd.name) {
             return Err(RegistryError::Duplicate(cmd.name.clone()));
+        }
+        let tier = cmd.schema.safety;
+        if tier != SafetyTier::ReadOnly {
+            if let Some(inner) = cmd.handler.take() {
+                let name = cmd.name.clone();
+                let policy = Arc::clone(&self.policy);
+                cmd.handler = Some(Arc::new(move |ctx, args| {
+                    let req = GateRequest {
+                        command: name.as_str(),
+                        tier,
+                        args,
+                    };
+                    match policy.check(req) {
+                        GateDecision::Allow => inner(ctx, args),
+                        GateDecision::Deny(reason) => Err(AppError::Safety(reason)),
+                    }
+                }));
+            }
         }
         for alias in &cmd.aliases {
             self.aliases.insert(alias.clone(), cmd.name.clone());
@@ -225,6 +283,7 @@ mod tests {
                 default: None,
             }],
             subcommands: vec![],
+            safety: crate::safety::SafetyTier::ReadOnly,
         }
     }
 
@@ -343,5 +402,111 @@ mod tests {
         let cmd = RegisteredCommand::from_app::<Dummy>();
         assert_eq!(cmd.name, "dummy");
         assert!(cmd.handler.is_some());
+    }
+
+    // ── 安全门 ─────────────────────────────────────────────
+
+    use crate::safety::{GateDecision, GateRequest, Interactive, SafetyTier};
+
+    fn tier_handler_schema(name: &str, tier: SafetyTier) -> RegisteredCommand {
+        let mut schema = simple_schema(name);
+        schema.safety = tier;
+        RegisteredCommand::new(name, schema).with_handler(std::sync::Arc::new(|_ctx, _args| {
+            Ok(serde_json::json!({ "done": true }))
+        }))
+    }
+
+    #[test]
+    fn elevated_command_denied_by_default_policy() {
+        let mut reg = Registry::new();
+        reg.register(tier_handler_schema("drone-takeoff", SafetyTier::Confirm))
+            .unwrap();
+        let h = reg.get("drone-takeoff").unwrap().handler.clone().unwrap();
+        let outcome = crate::execute(h, serde_json::json!({}));
+        let err = outcome.result.unwrap_err();
+        assert!(matches!(err, AppError::Safety(_)), "{err}");
+        assert!(err.to_string().contains("drone-takeoff"), "{err}");
+        // 协议不变量仍成立：事件流以 Error 终态结尾
+        assert!(matches!(
+            outcome.last_event(),
+            Some(crate::Progress::Error { .. })
+        ));
+    }
+
+    #[test]
+    fn read_only_command_passes_default_policy() {
+        let mut reg = Registry::new();
+        reg.register(tier_handler_schema("drone-status", SafetyTier::ReadOnly))
+            .unwrap();
+        let h = reg.get("drone-status").unwrap().handler.clone().unwrap();
+        let outcome = crate::execute(h, serde_json::json!({}));
+        assert!(outcome.result.is_ok(), "{:?}", outcome.result);
+    }
+
+    #[test]
+    fn interactive_policy_allows_confirm_but_not_never_auto() {
+        let mut reg = Registry::new().with_policy(std::sync::Arc::new(Interactive));
+        reg.register(tier_handler_schema("takeoff", SafetyTier::Confirm))
+            .unwrap();
+        reg.register(tier_handler_schema("drop", SafetyTier::NeverAuto))
+            .unwrap();
+        let takeoff = reg.get("takeoff").unwrap().handler.clone().unwrap();
+        assert!(crate::execute(takeoff, serde_json::json!({}))
+            .result
+            .is_ok());
+        let drop = reg.get("drop").unwrap().handler.clone().unwrap();
+        let err = crate::execute(drop, serde_json::json!({}))
+            .result
+            .unwrap_err();
+        assert!(matches!(err, AppError::Safety(_)), "{err}");
+    }
+
+    /// 能看参数的策略：限高 120m（T2 类细粒度门控的雏形）
+    struct AltitudeCap;
+
+    impl SafetyPolicy for AltitudeCap {
+        fn check(&self, req: GateRequest<'_>) -> GateDecision {
+            let alt = req
+                .args
+                .get("altitude")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            if alt <= 120.0 {
+                GateDecision::Allow
+            } else {
+                GateDecision::Deny(format!("限高 120m，请求 {alt}m"))
+            }
+        }
+    }
+
+    #[test]
+    fn custom_policy_can_inspect_args() {
+        let mut reg = Registry::new().with_policy(std::sync::Arc::new(AltitudeCap));
+        reg.register(tier_handler_schema("takeoff", SafetyTier::Confirm))
+            .unwrap();
+        let h = reg.get("takeoff").unwrap().handler.clone().unwrap();
+        assert!(
+            crate::execute(h.clone(), serde_json::json!({ "altitude": 50 }))
+                .result
+                .is_ok()
+        );
+        let err = crate::execute(h, serde_json::json!({ "altitude": 500 }))
+            .result
+            .unwrap_err();
+        assert!(
+            matches!(&err, AppError::Safety(m) if m.contains("500")),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn policy_defaults_to_deny_elevated() {
+        let reg = Registry::new();
+        let probe: GateRequest<'_> = GateRequest {
+            command: "x",
+            tier: SafetyTier::Confirm,
+            args: &serde_json::json!({}),
+        };
+        assert!(matches!(reg.policy().check(probe), GateDecision::Deny(_)));
     }
 }

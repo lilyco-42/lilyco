@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
+use crate::safety::SafetyTier;
 
 /// 一个参数的完整机器可读描述
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +43,10 @@ pub struct CommandSchema {
     pub about: String,
     pub args: Vec<ArgSchema>,
     pub subcommands: Vec<CommandSchema>,
+    /// 安全分级（默认 T0 只读）；派生宏从 `#[app(safety = "...")]` 读取，
+    /// 注册表按 SafetyPolicy 在执行前门控（见 `safety` 模块）
+    #[serde(default)]
+    pub safety: SafetyTier,
 }
 
 impl CommandSchema {
@@ -392,6 +397,7 @@ mod validate_tests {
             about: "demo".into(),
             args,
             subcommands: vec![],
+            safety: crate::safety::SafetyTier::ReadOnly,
         }
     }
 

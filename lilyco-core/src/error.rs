@@ -18,6 +18,9 @@ pub enum AppError {
     #[error("已取消")]
     Cancelled,
 
+    #[error("安全门: {0}")]
+    Safety(String),
+
     #[error("IO 错误: {0}")]
     Io(#[from] std::io::Error),
 
@@ -59,6 +62,7 @@ const VARIANTS: &[&str] = &[
     "Cancelled",
     "Io",
     "Serialize",
+    "Safety",
 ];
 
 struct AppErrorVisitor;
@@ -79,6 +83,10 @@ impl<'de> de::Visitor<'de> for AppErrorVisitor {
             "Cancelled" => {
                 data.unit_variant()?;
                 Ok(AppError::Cancelled)
+            }
+            "Safety" => {
+                let msg: String = data.newtype_variant()?;
+                Ok(AppError::Safety(msg))
             }
             "Io" => {
                 let msg: String = data.newtype_variant()?;
@@ -107,8 +115,9 @@ impl AppError {
             AppError::InvalidInput(_) => 1,
             AppError::Runtime(_) => 2,
             AppError::Cancelled => 3,
-            AppError::Io(_) => 4,
-            AppError::Serialize(_) => 5,
+            AppError::Safety(_) => 4,
+            AppError::Io(_) => 5,
+            AppError::Serialize(_) => 6,
         }
     }
 
@@ -118,6 +127,7 @@ impl AppError {
             AppError::InvalidInput(_) => "InvalidInput",
             AppError::Runtime(_) => "Runtime",
             AppError::Cancelled => "Cancelled",
+            AppError::Safety(_) => "Safety",
             AppError::Io(_) => "Io",
             AppError::Serialize(_) => "Serialize",
         }
@@ -125,9 +135,10 @@ impl AppError {
 
     fn message(&self) -> String {
         match self {
-            AppError::InvalidArg(msg) | AppError::InvalidInput(msg) | AppError::Runtime(msg) => {
-                msg.clone()
-            }
+            AppError::InvalidArg(msg)
+            | AppError::InvalidInput(msg)
+            | AppError::Runtime(msg)
+            | AppError::Safety(msg) => msg.clone(),
             AppError::Cancelled => String::new(),
             AppError::Io(e) => e.to_string(),
             AppError::Serialize(e) => e.to_string(),

@@ -20,6 +20,7 @@ pub mod error;
 pub mod executor;
 pub mod progress;
 pub mod registry;
+pub mod safety;
 pub mod schema;
 
 // Re-exports at crate root for macro-generated code
@@ -29,6 +30,9 @@ pub use error::AppError;
 pub use executor::{execute, execute_with, spawn, spawn_with, RunOutcome, Task};
 pub use progress::{LogLevel, Progress};
 pub use registry::{Handler, RegisteredCommand, Registry, RegistryError};
+pub use safety::{
+    DenyElevated, GateDecision, GateRequest, Interactive, SafetyPolicy, SafetyTier, Unrestricted,
+};
 pub use schema::{ArgKind, ArgSchema, CommandSchema, ValueEnum};
 
 // ── 便捷导入 ──────────────────────────────────────────────
@@ -139,6 +143,7 @@ mod tests {
                 },
             ],
             subcommands: vec![],
+            safety: crate::safety::SafetyTier::ReadOnly,
         };
 
         let tool = schema.to_anthropic_tool();
@@ -163,6 +168,7 @@ mod tests {
                 default: None,
             }],
             subcommands: vec![],
+            safety: crate::safety::SafetyTier::ReadOnly,
         };
 
         let tool = schema.to_openai_tool();
@@ -184,6 +190,7 @@ mod tests {
                 default: None,
             }],
             subcommands: vec![],
+            safety: crate::safety::SafetyTier::ReadOnly,
         };
 
         let js = schema.to_json_schema();
@@ -248,6 +255,7 @@ mod tests {
                 },
             ],
             subcommands: vec![],
+            safety: crate::safety::SafetyTier::ReadOnly,
         };
 
         let js = schema.to_json_schema();
@@ -417,7 +425,9 @@ mod tests {
                 about: "清理构建产物".into(),
                 args: vec![],
                 subcommands: vec![],
+                safety: crate::safety::SafetyTier::ReadOnly,
             }],
+            safety: crate::safety::SafetyTier::ReadOnly,
         };
 
         let val = serde_json::to_value(&schema).unwrap();
@@ -449,5 +459,9 @@ pub mod prelude {
     pub use crate::executor::{execute, execute_with, spawn, spawn_with, RunOutcome, Task};
     pub use crate::progress::{LogLevel, Progress};
     pub use crate::registry::{Handler, RegisteredCommand, Registry, RegistryError};
+    pub use crate::safety::{
+        DenyElevated, GateDecision, GateRequest, Interactive, SafetyPolicy, SafetyTier,
+        Unrestricted,
+    };
     pub use crate::schema::{ArgKind, ArgSchema, CommandSchema, ValueEnum};
 }
