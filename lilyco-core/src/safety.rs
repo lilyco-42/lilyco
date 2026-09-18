@@ -23,15 +23,18 @@ use serde::{Deserialize, Serialize};
 ///   也不得放行给自动化调用面
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[serde(alias = "t0", alias = "t1", alias = "t2", alias = "t3")]
 pub enum SafetyTier {
     /// T0：只读，自动放行
+    #[serde(alias = "t0")]
     ReadOnly,
     /// T1：需人工确认
+    #[serde(alias = "t1")]
     Confirm,
     /// T2：需能力令牌
+    #[serde(alias = "t2")]
     Token,
     /// T3：禁止自动化执行
+    #[serde(alias = "t3")]
     NeverAuto,
 }
 
