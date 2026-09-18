@@ -249,9 +249,16 @@ impl McpServer {
         let tools: Vec<serde_json::Value> = registry
             .visible()
             .map(|cmd| {
+                // 安全分级写进工具描述，Agent 在 tools/list 就能看到门槛
+                let tier = cmd.schema.safety;
+                let description = if tier == lilyco_core::safety::SafetyTier::ReadOnly {
+                    cmd.schema.about.clone()
+                } else {
+                    format!("{} [safety: {}]", cmd.schema.about, tier.tag())
+                };
                 serde_json::json!({
                     "name": cmd.name,
-                    "description": cmd.schema.about,
+                    "description": description,
                     "inputSchema": cmd.schema.to_json_schema(),
                 })
             })
@@ -538,6 +545,7 @@ mod tests {
                     default: None,
                 }],
                 subcommands: vec![],
+                safety: lilyco_core::safety::SafetyTier::ReadOnly,
             }
         }
 
@@ -693,6 +701,7 @@ mod tests {
             about: "progress test".into(),
             args: vec![],
             subcommands: vec![],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
         };
         reg.register(RegisteredCommand::new("progress", schema).with_handler(handler))
             .unwrap();
@@ -787,6 +796,7 @@ mod tests {
             about: "always fails".into(),
             args: vec![],
             subcommands: vec![],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
         };
         reg.register(RegisteredCommand::new("fail", schema).with_handler(handler))
             .unwrap();
@@ -1000,6 +1010,7 @@ mod tests {
             about: "needs host bridge".into(),
             args: vec![],
             subcommands: vec![],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
         };
         reg.register(RegisteredCommand::new("needs-host", schema).with_handler(handler))
             .unwrap();

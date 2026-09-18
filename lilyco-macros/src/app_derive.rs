@@ -16,6 +16,7 @@ struct AppAttrs {
     about: Option<String>,
     run: Option<String>,
     name: Option<String>,
+    safety: Option<String>,
 }
 
 fn parse_app_attrs(attrs: &[Attribute]) -> AppAttrs {
@@ -25,6 +26,7 @@ fn parse_app_attrs(attrs: &[Attribute]) -> AppAttrs {
         about: None,
         run: None,
         name: None,
+        safety: None,
     };
 
     for attr in attrs {
@@ -44,6 +46,11 @@ fn parse_app_attrs(attrs: &[Attribute]) -> AppAttrs {
                     let s: Lit = meta.value()?.parse()?;
                     if let Lit::Str(s) = s {
                         result.name = Some(s.value());
+                    }
+                } else if meta.path.is_ident("safety") {
+                    let s: Lit = meta.value()?.parse()?;
+                    if let Lit::Str(s) = s {
+                        result.safety = Some(s.value());
                     }
                 }
                 Ok(())
@@ -242,6 +249,24 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
     // 命令名默认取结构体名；多命令场景建议 #[app(name = "kebab-name")] 覆盖
     let name_str = app_attrs.name.unwrap_or_else(|| struct_name.to_string());
 
+    // 安全分级：#[app(safety = "t1")] / "confirm" 等；缺省 T0 只读
+    let safety_ident = match app_attrs.safety.as_deref().map(str::trim) {
+        None => quote! { ReadOnly },
+        Some(raw) => match raw.to_ascii_lowercase().as_str() {
+            "t0" | "read_only" | "readonly" | "read" | "open" => quote! { ReadOnly },
+            "t1" | "confirm" | "confirmation" => quote! { Confirm },
+            "t2" | "token" | "capability" => quote! { Token },
+            "t3" | "never_auto" | "neverauto" | "never" | "forbidden" => quote! { NeverAuto },
+            other => {
+                let msg = format!(
+                    "unknown safety tier `{other}` — use t0/read_only | t1/confirm | t2/token | t3/never_auto"
+                );
+                let lit = proc_macro2::Literal::string(&msg);
+                return quote! { compile_error!(#lit); };
+            }
+        },
+    };
+
     let fields = match &input.data {
         Data::Struct(s) => match &s.fields {
             Fields::Named(fields) => &fields.named,
@@ -375,6 +400,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
                     about: #about_str.into(),
                     args: vec![#(#schema_args),*],
                     subcommands: vec![],
+                    safety: ::lilyco::__core::safety::SafetyTier::#safety_ident,
                 }
             }
 

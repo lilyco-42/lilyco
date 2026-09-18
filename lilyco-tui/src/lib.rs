@@ -64,6 +64,7 @@ mod tests {
                 },
             ],
             subcommands: vec![],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
         }
     }
 
@@ -468,12 +469,14 @@ mod tests {
                 about: "问好".into(),
                 args: vec![],
                 subcommands: vec![],
+                safety: lilyco_core::safety::SafetyTier::ReadOnly,
             },
             CommandSchema {
                 name: "add".into(),
                 about: "加法".into(),
                 args: vec![],
                 subcommands: vec![],
+                safety: lilyco_core::safety::SafetyTier::ReadOnly,
             },
         ]
     }
@@ -562,6 +565,7 @@ mod tests {
                 },
             ],
             subcommands: vec![],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
         }
     }
 

@@ -653,6 +653,7 @@ mod tests {
                 },
             ],
             subcommands: vec![],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
         }
     }
 
@@ -676,6 +677,7 @@ mod tests {
             about: about.into(),
             args: vec![],
             subcommands: vec![],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
         };
         let ping_handler: Handler = Arc::new(|_ctx, _args| Ok(serde_json::json!({"ok": true})));
         reg.register(
@@ -695,6 +697,7 @@ mod tests {
                 about: "问好".into(),
                 args: vec![],
                 subcommands: vec![],
+                safety: lilyco_core::safety::SafetyTier::ReadOnly,
             }),
             registry: Some(Arc::new(two_command_registry())),
             sessions: Mutex::new(HashMap::new()),
@@ -763,6 +766,7 @@ mod tests {
                 about: "no handler".into(),
                 args: vec![],
                 subcommands: vec![],
+                safety: lilyco_core::safety::SafetyTier::ReadOnly,
             },
         ))
         .unwrap();
@@ -772,6 +776,7 @@ mod tests {
                 about: "no handler".into(),
                 args: vec![],
                 subcommands: vec![],
+                safety: lilyco_core::safety::SafetyTier::ReadOnly,
             }),
             registry: Some(Arc::new(reg)),
             sessions: Mutex::new(HashMap::new()),
