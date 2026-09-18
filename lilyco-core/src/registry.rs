@@ -423,14 +423,13 @@ mod tests {
             .unwrap();
         let h = reg.get("drone-takeoff").unwrap().handler.clone().unwrap();
         let outcome = crate::execute(h, serde_json::json!({}));
+        // 先取终态再动 result（unwrap_err 会部分移动 outcome）
+        let terminal_is_error = matches!(outcome.last_event(), Some(crate::Progress::Error { .. }));
         let err = outcome.result.unwrap_err();
         assert!(matches!(err, AppError::Safety(_)), "{err}");
         assert!(err.to_string().contains("drone-takeoff"), "{err}");
         // 协议不变量仍成立：事件流以 Error 终态结尾
-        assert!(matches!(
-            outcome.last_event(),
-            Some(crate::Progress::Error { .. })
-        ));
+        assert!(terminal_is_error, "事件流应以 Error 终态收尾");
     }
 
     #[test]

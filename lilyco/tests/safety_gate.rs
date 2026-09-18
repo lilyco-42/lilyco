@@ -96,11 +96,13 @@ fn t1_takeoff_is_denied_on_automated_surface() {
         handler_of(&reg, "drone-takeoff"),
         serde_json::json!({ "altitude": 50 }),
     );
+    // 先取终态再动 result（expect_err 会部分移动 outcome）
+    let terminal_is_error = matches!(outcome.last_event(), Some(Progress::Error { .. }));
     let err = outcome.result.expect_err("MCP 自动化面必须拒绝 T1");
     assert!(matches!(err, AppError::Safety(_)), "{err}");
     assert!(err.to_string().contains("drone-takeoff"), "{err}");
     // 协议不变量：事件流仍以 Error 终态收尾
-    assert!(matches!(outcome.last_event(), Some(Progress::Error { .. })));
+    assert!(terminal_is_error, "事件流应以 Error 终态收尾");
 }
 
 #[test]
