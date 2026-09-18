@@ -6,6 +6,8 @@
 
 **One struct. Four interfaces (CLI / TUI / Web / MCP). Zero boilerplate. Cross-platform (Windows / Linux / Android).**
 
+**Mission — Accelerate the arrival of Token 2 Anything, promote its adoption, enhance the liquidity of intelligence in the real world, liberate humans, and hasten the arrival of the lying-flat future.**
+
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![CI](https://img.shields.io/github/actions/workflow/status/lilyco-42/lilyco/ci.yml?branch=main&label=CI)](https://github.com/lilyco-42/lilyco/actions)
@@ -922,3 +924,4 @@ lilyco-core = { git = "https://github.com/lilyco-42/lilyco" }
 ## License
 
 MIT OR Apache-2.0, at your option.
+
