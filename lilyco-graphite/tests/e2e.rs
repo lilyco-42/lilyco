@@ -103,7 +103,7 @@ fn doc_new_passes_gate_and_emits_telemetry() {
     assert!(outcome.events.iter().any(|e| matches!(
         e,
         Progress::Telemetry { key, value }
-            if key == "graphite.op" && value == serde_json::json!("doc-new")
+            if key == "graphite.op" && value.as_str() == Some("doc-new")
     )));
     assert!(outcome.events.iter().any(|e| matches!(
         e,
@@ -183,7 +183,7 @@ fn set_fill_allowed_by_interactive_policy() {
     assert!(outcome.events.iter().any(|e| matches!(
         e,
         Progress::Telemetry { key, value }
-            if key == "graphite.fill" && value == serde_json::json!(0.75)
+            if key == "graphite.fill" && value.as_f64() == Some(0.75)
     )));
 }
 
