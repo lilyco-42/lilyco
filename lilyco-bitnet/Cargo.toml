@@ -1,0 +1,21 @@
+[package]
+name = "lilyco-bitnet"
+version = "0.1.0"
+edition = "2021"
+description = "Lilyco P3 采样桥 — bitnet-rs 本地 BitNet b1.58 推理实现 HostBridge，全离线 LLM 闭环"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+
+[[bin]]
+name = "lbitnet"
+path = "src/main.rs"
+
+[dependencies]
+# default-features = false → headless（CLI + MCP），与 lilyco-plc 等工具族一致
+lilyco = { path = "../lilyco", default-features = false }
+# derive(App) 宏展开引用 lilyco_core::… 路径，需要能解析到它
+lilyco-core = { path = "../lilyco-core" }
+serde_json = "1"
+# 本地 BitNet b1.58 推理引擎（进程内 lib 复用，非子进程）
+# 注：待 bitnet-rs PR（feat/model-api → main）合并后改为锁 rev
+bitnet-rs = { git = "https://github.com/lilyco-42/bitnet-rs", branch = "feat/model-api" }
