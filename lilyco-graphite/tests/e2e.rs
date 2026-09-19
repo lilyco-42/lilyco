@@ -262,7 +262,12 @@ fn export_svg_renders_red_rect_golden() {
 
     let outcome = execute(
         handler_of(&reg, "graphite-export-svg"),
-        serde_json::json!({ "out": path.to_string_lossy(), "scale": 1.0 }),
+        serde_json::json!({
+            "out": path.to_string_lossy(),
+            "scale": 1.0,
+            "width": 256,
+            "height": 256,
+        }),
     );
     let result = outcome
         .result
@@ -288,14 +293,20 @@ fn export_svg_renders_red_rect_golden() {
     );
     assert!(svg.trim_end().ends_with("</svg>"), "SVG 应有闭合根元素");
     assert!(svg.contains("<path d="), "应包含 <path> 矢量形状元素");
+
+    // 失败诊断数据：序列化文档里的节点全貌（fill 节点是否落进文档一查便知）
+    let doc_dump = {
+        let (_, bytes) = lock_host().save_content().unwrap();
+        String::from_utf8_lossy(&bytes).to_string()
+    };
     assert!(
         svg.to_lowercase().contains("e14d2a"),
         "应包含矩形填充色 #E14D2A（SVG 内以 fill=\"#…\" 十六进制发射）。\
-         实际 fill 属性: {:?}；SVG 前 1200 字符: {}",
+         实际 fill 属性: {:?}；SVG 全文: {svg}；文档 JSON: {}",
         svg.match_indices("fill=")
             .map(|(i, _)| &svg[i..svg.len().min(i + 40)])
             .collect::<Vec<_>>(),
-        &svg[..svg.len().min(1200)]
+        &doc_dump[..doc_dump.len().min(24000)]
     );
     let _ = std::fs::remove_file(&path);
 }
@@ -326,6 +337,8 @@ fn export_svg_from_saved_file_roundtrip() {
         serde_json::json!({
             "doc": doc_path.to_string_lossy(),
             "out": out_path.to_string_lossy(),
+            "width": 256,
+            "height": 256,
         }),
     );
     let result = outcome.result.expect("从文件渲染 SVG 必须成功");
