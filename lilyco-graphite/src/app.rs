@@ -169,6 +169,10 @@ pub struct GraphiteExportSvg {
     out: String,
     /// 导出缩放（缺省 1.0）
     scale: Option<f64>,
+    /// 视口宽度（像素，决定 SVG viewBox；缺省 1x1 会裁掉画布内容）
+    width: Option<u32>,
+    /// 视口高度（像素）
+    height: Option<u32>,
 }
 
 pub fn run_export_svg(
@@ -180,7 +184,8 @@ pub fn run_export_svg(
     let bytes = document_bytes(&app.doc)?;
 
     let start = std::time::Instant::now();
-    let svg = crate::export::render_svg(&bytes, scale).map_err(AppError::Runtime)?;
+    let svg = crate::export::render_svg(&bytes, scale, app.width, app.height)
+        .map_err(AppError::Runtime)?;
     let elapsed_ms = start.elapsed().as_millis() as u64;
 
     std::fs::write(&out, &svg).map_err(|e| AppError::Runtime(format!("写 SVG 失败 {out}: {e}")))?;
