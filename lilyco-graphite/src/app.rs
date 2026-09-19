@@ -22,6 +22,16 @@ fn with_host<T>(f: impl FnOnce(&mut GraphiteHost) -> Result<T, String>) -> Resul
     f(&mut host).map_err(AppError::Runtime)
 }
 
+/// 取导出用文档字节：显式路径读盘；缺省用共享宿主当前文档的 save_content 产物
+fn document_bytes(doc: &Option<String>) -> Result<Vec<u8>, AppError> {
+    match doc {
+        Some(path) => {
+            std::fs::read(path).map_err(|e| AppError::Runtime(format!("读文档失败 {path}: {e}")))
+        }
+        None => with_host(|host| host.save_content().map(|(_, bytes)| bytes)),
+    }
+}
+
 /// 新建 Graphite 文档（T0 只读级，AI 画布起点）
 #[derive(App)]
 #[app(
@@ -137,6 +147,99 @@ pub fn run_save(app: &GraphiteSave, ctx: &Context) -> Result<serde_json::Value, 
     ctx.telemetry("graphite.op", serde_json::json!("save"));
     ctx.telemetry("graphite.bytes", serde_json::json!(bytes.len()));
     let r = serde_json::json!({ "path": path, "file_name": name, "bytes": bytes.len() });
+    ctx.done(r.clone(), 0);
+    Ok(r)
+}
+
+/// 渲染导出 SVG（T0，P1 出图决定性验证）
+///
+/// 链路：消息总线文档（或 .graphite 文件）→ DynamicExecutor 图求值 → SVG 字节落盘。
+/// 纯 CPU 矢量路径（SvgRender），headless 无 GPU 也能跑。
+#[derive(App)]
+#[app(
+    name = "graphite-export-svg",
+    about = "把 Graphite 文档渲染为 SVG 文件（headless 矢量渲染，无 GPU 依赖）",
+    run = "run_export_svg"
+)]
+pub struct GraphiteExportSvg {
+    /// .graphite 文档路径（缺省 = 当前文档）
+    doc: Option<String>,
+    /// 输出 SVG 文件路径
+    out: String,
+    /// 导出缩放（缺省 1.0）
+    scale: Option<f64>,
+}
+
+pub fn run_export_svg(
+    app: &GraphiteExportSvg,
+    ctx: &Context,
+) -> Result<serde_json::Value, AppError> {
+    let scale = app.scale.unwrap_or(1.);
+    let out = app.out.clone();
+    let bytes = document_bytes(&app.doc)?;
+
+    let start = std::time::Instant::now();
+    let svg = crate::export::render_svg(&bytes, scale)?;
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+
+    std::fs::write(&out, &svg).map_err(|e| AppError::Runtime(format!("写 SVG 失败 {out}: {e}")))?;
+
+    ctx.telemetry("graphite.op", serde_json::json!("export-svg"));
+    ctx.telemetry("graphite.export_format", serde_json::json!("svg"));
+    ctx.telemetry("graphite.export_bytes", serde_json::json!(svg.len()));
+    ctx.telemetry("graphite.export_ms", serde_json::json!(elapsed_ms));
+    let r =
+        serde_json::json!({ "out": out, "format": "svg", "bytes": svg.len(), "ms": elapsed_ms });
+    ctx.done(r.clone(), 0);
+    Ok(r)
+}
+
+/// 渲染导出 PNG（T0，尽力而为——GPU/Vello 路径）
+///
+/// 无 GPU 环境返回带结论的错误（SVG 是主力路径）；有 GPU（独显或 Mesa 软件
+/// GPU 栈 lavapipe/llvmpipe）时完整走 "Vello 光栅化 → 纹理回读 → PNG 编码"。
+#[derive(App)]
+#[app(
+    name = "graphite-export-png",
+    about = "把 Graphite 文档渲染为 PNG 文件（GPU 光栅化，无 GPU 环境会明确报错）",
+    run = "run_export_png"
+)]
+pub struct GraphiteExportPng {
+    /// .graphite 文档路径（缺省 = 当前文档）
+    doc: Option<String>,
+    /// 输出 PNG 文件路径
+    out: String,
+    /// 输出宽度（像素；与 height 同时给才生效，缺省随文档）
+    width: Option<u32>,
+    /// 输出高度（像素）
+    height: Option<u32>,
+    /// 导出缩放（缺省 1.0）
+    scale: Option<f64>,
+    /// 保留透明通道（缺省 false，合成不透明白底）
+    transparent: Option<bool>,
+}
+
+pub fn run_export_png(
+    app: &GraphiteExportPng,
+    ctx: &Context,
+) -> Result<serde_json::Value, AppError> {
+    let scale = app.scale.unwrap_or(1.);
+    let transparent = app.transparent.unwrap_or(false);
+    let out = app.out.clone();
+    let bytes = document_bytes(&app.doc)?;
+
+    let start = std::time::Instant::now();
+    let png = crate::export::render_png(&bytes, scale, app.width, app.height, transparent)?;
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+
+    std::fs::write(&out, &png).map_err(|e| AppError::Runtime(format!("写 PNG 失败 {out}: {e}")))?;
+
+    ctx.telemetry("graphite.op", serde_json::json!("export-png"));
+    ctx.telemetry("graphite.export_format", serde_json::json!("png"));
+    ctx.telemetry("graphite.export_bytes", serde_json::json!(png.len()));
+    ctx.telemetry("graphite.export_ms", serde_json::json!(elapsed_ms));
+    let r =
+        serde_json::json!({ "out": out, "format": "png", "bytes": png.len(), "ms": elapsed_ms });
     ctx.done(r.clone(), 0);
     Ok(r)
 }
