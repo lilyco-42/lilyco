@@ -1,0 +1,27 @@
+[package]
+name = "lilyco-graphite"
+version = "0.1.0"
+edition = "2021"
+description = "Lilyco Graphite 桥 — headless 驱动 Graphite 编辑器内核（消息总线），AI 画画最小闭环"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+
+[[bin]]
+name = "lgraphite"
+path = "src/main.rs"
+
+[dependencies]
+# default-features = false → headless（CLI + MCP），与 lilyco-plc 同款组合根
+lilyco = { path = "../lilyco", default-features = false }
+# derive(App) 宏展开引用 lilyco_core::… 路径，需要能解析到它
+lilyco-core = { path = "../lilyco-core" }
+serde_json = "1"
+
+# Graphite 编辑器内核（Apache-2.0/MIT）。git dep 锁 rev，仓库只读不推 PR。
+# 注意：graphite workspace 根的 [patch.crates-io]（winit/rfd/cef）只影响其 desktop 壳层，
+# editor 依赖链不涉及这些 crate，因此在 lilyco workspace 内可正常解析。
+graphite-editor = { git = "https://github.com/GraphiteEditor/Graphite", rev = "ab32a6047650996725263b132806c171dc83097b" }
+graphene-std = { git = "https://github.com/GraphiteEditor/Graphite", rev = "ab32a6047650996725263b132806c171dc83097b" }
+graph-craft = { git = "https://github.com/GraphiteEditor/Graphite", rev = "ab32a6047650996725263b132806c171dc83097b" }
+# 版本必须与 graphite workspace 锁定的 glam 对齐（0.32.x），否则 DVec2 类型不一致
+glam = "0.32.1"
