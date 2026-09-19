@@ -148,6 +148,39 @@ jobs:
           path: target/aarch64-linux-android/release/lffmpeg
           if-no-files-found: error
 
+  # P3 伴飞计算机（Radxa Cubie A7A / Allwinner A733 等 aarch64 Linux 板）：
+  # headless 构建（CLI + MCP + PLC），aarch64-unknown-linux-musl 静态单文件，
+  # scp 到板上即可跑（与 cache-node 的 musl 静态单文件先例同一路数）。
+  # 独立并行 job，不挂 needs，不影响 PR 主路径（test）。
+  companion:
+    name: companion (aarch64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain + aarch64 musl target
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-unknown-linux-musl
+
+      # 提供交叉链接兜底（本仓库五 crate 全为纯 Rust，rustc 自带 musl 自包含 CRT，
+      # 通常系统 cc 就能链接；装上 musl-tools 以防万一）
+      - name: Install musl tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: "Build headless (CLI + MCP + PLC) for aarch64 musl"
+        run: |
+          cargo build -p lilyco -p lilyco-core -p lilyco-cli -p lilyco-mcp -p lilyco-plc \
+            --target aarch64-unknown-linux-musl --no-default-features --release
+
+      - name: Upload lplc artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lplc-aarch64-linux-musl
+          path: target/aarch64-unknown-linux-musl/release/lplc
+          if-no-files-found: error
+
   # 打 tag（v*）时：把 windows + android 二进制发布为 GitHub Release
   release:
     name: publish GitHub release
