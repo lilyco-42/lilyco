@@ -4,6 +4,7 @@ members = [
     "lilyco-cli",
     "lilyco-tui",
     "lilyco-gui",
+    "lilyco-graphite",
     "lilyco-mcp",
     "lilyco-macros",
     "lilyco-example",

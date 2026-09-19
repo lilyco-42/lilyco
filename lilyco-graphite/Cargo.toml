@@ -1,0 +1,35 @@
+[package]
+name = "lilyco-graphite"
+version = "0.1.0"
+edition = "2021"
+description = "Lilyco Graphite 桥 — headless 驱动 Graphite 编辑器内核（消息总线），AI 画画最小闭环"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+
+[[bin]]
+name = "lgraphite"
+path = "src/main.rs"
+
+[dependencies]
+# default-features = false → headless（CLI + MCP），与 lilyco-plc 同款组合根
+lilyco = { path = "../lilyco", default-features = false }
+# derive(App) 宏展开引用 lilyco_core::… 路径，需要能解析到它
+lilyco-core = { path = "../lilyco-core" }
+serde_json = "1"
+
+# Graphite 编辑器内核（Apache-2.0/MIT）。git dep 锁 rev，仓库只读不推 PR。
+# 注意：graphite workspace 根的 [patch.crates-io]（winit/rfd/cef）只影响其 desktop 壳层，
+# editor 依赖链不涉及这些 crate，因此在 lilyco workspace 内可正常解析。
+graphite-editor = { git = "https://github.com/GraphiteEditor/Graphite", rev = "ab32a6047650996725263b132806c171dc83097b" }
+graphene-std = { git = "https://github.com/GraphiteEditor/Graphite", rev = "ab32a6047650996725263b132806c171dc83097b" }
+graph-craft = { git = "https://github.com/GraphiteEditor/Graphite", rev = "ab32a6047650996725263b132806c171dc83097b" }
+# 版本必须与 graphite workspace 锁定的 glam 对齐（0.32.x），否则 DVec2 类型不一致。
+# 精确钉版：spirv-std 0.10.0-alpha.1 的 glam 需求同时兼容 0.32/0.33，
+# 新解析会拉 0.33.7 造成双 glam 并存，raster-nodes 的 shader 节点
+# （spirv-std ImageCoordinate trait）相干性检查失败（E0277）。
+# graphite 上游 lock 的已验证组合是 glam 0.32.1 单版本，这里钉死对齐。
+glam = "=0.32.1"
+# 依赖版本对齐 pin：graphite 上游 lock 钉 mmap-io 0.9.4（as_slice 返回 &[u8]），
+# 0.9.5+ 改返回 MappedSlice 导致 document-container 编译失败（E0308）。
+# 本 crate 声明精确版本以参与全 workspace 统一解析，把版本钉回上游已验证组合。
+mmap-io = "=0.9.4"
