@@ -276,7 +276,9 @@ fn export_svg_renders_red_rect_golden() {
         "应发出格式遥测"
     );
 
-    // 3) 断言产物：真实存在的合法 SVG，含矩形元素与填充色
+    // 3) 断言产物：真实存在的合法 SVG，含形状元素与填充色
+    // 注意：Graphite 的 SVG 渲染器把所有矢量形状统一发射为 <path d="…">（不发射
+    // <rect>，rect 只出现在 clipPath defs 里），所以这里断言 <path 而非 <rect>
     let svg = std::fs::read_to_string(&path).expect("SVG 文件必须存在");
     assert!(
         svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\""),
@@ -284,7 +286,7 @@ fn export_svg_renders_red_rect_golden() {
         &svg.chars().take(80).collect::<String>()
     );
     assert!(svg.trim_end().ends_with("</svg>"), "SVG 应有闭合根元素");
-    assert!(svg.contains("<rect"), "应包含 <rect> 形状元素");
+    assert!(svg.contains("<path d="), "应包含 <path> 矢量形状元素");
     assert!(
         svg.to_lowercase().contains("e14d2a"),
         "应包含矩形填充色 #E14D2A（SVG 内以 fill=\"#…\" 十六进制发射）"
@@ -324,7 +326,10 @@ fn export_svg_from_saved_file_roundtrip() {
     assert!(result["bytes"].as_u64().unwrap() > 0);
 
     let svg = std::fs::read_to_string(&out_path).unwrap();
-    assert!(svg.contains("<rect"), "文件渲染产物应含 <rect>");
+    assert!(
+        svg.contains("<path d="),
+        "文件渲染产物应含 <path> 矢量形状元素"
+    );
     assert!(
         svg.to_lowercase().contains("2244ee"),
         "文件渲染产物应含填充色 #2244EE"
