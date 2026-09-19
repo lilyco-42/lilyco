@@ -111,6 +111,9 @@ fn build_session(document_bytes: &[u8]) -> Result<RenderSession, String> {
 /// 渲染 SVG，返回 SVG 字节（纯 CPU 矢量路径，headless 无 GPU 也能跑）
 pub fn render_svg(document_bytes: &[u8], scale: f64) -> Result<Vec<u8>, String> {
     let session = build_session(document_bytes)?;
+    // Executor trait 只为 &DynamicExecutor 实现（官方 CLI 以引用持有），
+    // 这里同样显式取引用再调 execute
+    let executor = &session.executor;
 
     let render_config = RenderConfig {
         scale,
@@ -118,7 +121,7 @@ pub fn render_svg(document_bytes: &[u8], scale: f64) -> Result<Vec<u8>, String> 
         for_export: true,
         ..Default::default()
     };
-    let result = block_on(session.executor.execute(render_config.into_context()))
+    let result = block_on(executor.execute(render_config.into_context()))
         .map_err(|e| format!("SVG 渲染执行失败: {e:?}"))?;
     let svg = match result {
         TaggedValue::RenderOutput(output) => match output.data {
@@ -144,6 +147,8 @@ pub fn render_png(
     transparent: bool,
 ) -> Result<Vec<u8>, String> {
     let session = build_session(document_bytes)?;
+    // 同 render_svg：Executor 只为 &DynamicExecutor 实现，显式取引用
+    let executor = &session.executor;
 
     // PNG 走 Vello 光栅化，WgpuExecutor 是硬依赖（render 节点的 Raster 分支会
     // `.expect("GPU executor not available")`）——提前探测给出可行动的错误
@@ -178,7 +183,7 @@ pub fn render_png(
         if let (Some(w), Some(h)) = (width, height) {
             render_config.viewport.resolution = UVec2::new(w, h);
         }
-        let result = block_on(session.executor.execute(render_config.into_context()))
+        let result = block_on(executor.execute(render_config.into_context()))
             .map_err(|e| format!("PNG 渲染执行失败: {e:?}"))?;
         match result {
             TaggedValue::RenderOutput(output) => match output.data {
@@ -220,8 +225,8 @@ fn encode_png(
 ) -> Result<Vec<u8>, String> {
     use image::{ImageFormat, RgbaImage};
 
-    let image =
-        RgbaImage::from_raw(width, height, data).ok_or("图像缓冲尺寸与宽高不符".to_string())?;
+    let image = RgbaImage::from_raw(width, height, data)
+        .ok_or_else(|| "图像缓冲尺寸与宽高不符".to_string())?;
     let mut cursor = std::io::Cursor::new(Vec::new());
     if transparent {
         image

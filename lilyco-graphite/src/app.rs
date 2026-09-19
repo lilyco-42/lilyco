@@ -179,7 +179,7 @@ pub fn run_export_svg(
     let bytes = document_bytes(&app.doc)?;
 
     let start = std::time::Instant::now();
-    let svg = crate::export::render_svg(&bytes, scale)?;
+    let svg = crate::export::render_svg(&bytes, scale).map_err(AppError::Runtime)?;
     let elapsed_ms = start.elapsed().as_millis() as u64;
 
     std::fs::write(&out, &svg).map_err(|e| AppError::Runtime(format!("写 SVG 失败 {out}: {e}")))?;
@@ -229,7 +229,8 @@ pub fn run_export_png(
     let bytes = document_bytes(&app.doc)?;
 
     let start = std::time::Instant::now();
-    let png = crate::export::render_png(&bytes, scale, app.width, app.height, transparent)?;
+    let png = crate::export::render_png(&bytes, scale, app.width, app.height, transparent)
+        .map_err(AppError::Runtime)?;
     let elapsed_ms = start.elapsed().as_millis() as u64;
 
     std::fs::write(&out, &png).map_err(|e| AppError::Runtime(format!("写 PNG 失败 {out}: {e}")))?;
