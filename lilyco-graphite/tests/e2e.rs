@@ -246,10 +246,11 @@ fn export_svg_renders_red_rect_golden() {
     let _session = driver();
 
     // 1) 消息总线建图：新建文档 + 红色矩形
+    // 注意：编辑器默认路由是 "副色喂填充、主色喂描边"，要出填充红必须设填充工作色
     {
         let mut host = lock_host();
         host.new_document("export-svg");
-        host.set_primary_color(parse_hex_color("#E14D2A").unwrap());
+        host.set_fill_color(parse_hex_color("#E14D2A").unwrap());
         host.draw_rectangle(10., 20., 200., 100.);
     }
 
@@ -289,7 +290,12 @@ fn export_svg_renders_red_rect_golden() {
     assert!(svg.contains("<path d="), "应包含 <path> 矢量形状元素");
     assert!(
         svg.to_lowercase().contains("e14d2a"),
-        "应包含矩形填充色 #E14D2A（SVG 内以 fill=\"#…\" 十六进制发射）"
+        "应包含矩形填充色 #E14D2A（SVG 内以 fill=\"#…\" 十六进制发射）。\
+         实际 fill 属性: {:?}；SVG 前 1200 字符: {}",
+        svg.match_indices("fill=")
+            .map(|(i, _)| &svg[i..svg.len().min(i + 40)])
+            .collect::<Vec<_>>(),
+        &svg[..svg.len().min(1200)]
     );
     let _ = std::fs::remove_file(&path);
 }
@@ -304,7 +310,7 @@ fn export_svg_from_saved_file_roundtrip() {
     {
         let mut host = lock_host();
         host.new_document("roundtrip");
-        host.set_primary_color(parse_hex_color("#2244EE").unwrap());
+        host.set_fill_color(parse_hex_color("#2244EE").unwrap());
         host.draw_rectangle(0., 0., 80., 40.);
         let (_, bytes) = host.save_content().unwrap();
         std::fs::write(&doc_path, &bytes).unwrap();
@@ -357,7 +363,7 @@ fn export_png_when_gpu_available() {
     {
         let mut host = lock_host();
         host.new_document("export-png");
-        host.set_primary_color(parse_hex_color("#E14D2A").unwrap());
+        host.set_fill_color(parse_hex_color("#E14D2A").unwrap());
         host.draw_rectangle(10., 20., 200., 100.);
     }
 
