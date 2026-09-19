@@ -338,9 +338,21 @@ fn into_registry_with_policy(
 ) -> Registry {
     let mut out = Registry::new().with_policy(policy);
     // 先收集再重建，避免同时持有对新表的可变借用与对旧表的借用
-    let entries: Vec<(String, Vec<String>, bool, lilyco_core::schema::CommandSchema)> = registry
+    let entries: Vec<(
+        String,
+        Vec<String>,
+        bool,
+        lilyco_core::schema::CommandSchema,
+    )> = registry
         .iter()
-        .map(|c| (c.name.clone(), c.aliases.clone(), c.hidden, c.schema.clone()))
+        .map(|c| {
+            (
+                c.name.clone(),
+                c.aliases.clone(),
+                c.hidden,
+                c.schema.clone(),
+            )
+        })
         .collect();
     for (name, aliases, hidden, schema) in entries {
         match registry.get(&name).and_then(|c| c.handler.clone()) {
@@ -453,7 +465,10 @@ fn run_tui_registry_impl(app_name: &str, registry: &Registry) -> std::io::Result
 fn build_multi_tui(
     app_name: &str,
     registry: &Registry,
-) -> std::io::Result<(lilyco_tui::TuiApp, std::collections::HashMap<String, Handler>)> {
+) -> std::io::Result<(
+    lilyco_tui::TuiApp,
+    std::collections::HashMap<String, Handler>,
+)> {
     // 隐藏命令不进选择页（与 CLI help / MCP tools/list 语义一致）
     let schemas: Vec<lilyco_core::schema::CommandSchema> =
         registry.visible().map(|c| c.schema.clone()).collect();
@@ -843,8 +858,10 @@ mod tests {
     fn demo_registry() -> Registry {
         use lilyco_core::registry::RegisteredCommand;
         let mut reg = Registry::new();
-        reg.register(RegisteredCommand::from_app::<t0::Read>()).unwrap();
-        reg.register(RegisteredCommand::from_app::<t1::Write>()).unwrap();
+        reg.register(RegisteredCommand::from_app::<t0::Read>())
+            .unwrap();
+        reg.register(RegisteredCommand::from_app::<t1::Write>())
+            .unwrap();
         reg
     }
 
@@ -1059,7 +1076,8 @@ mod tests {
     fn multi_tui_hides_hidden_commands_from_picker() {
         use lilyco_core::registry::RegisteredCommand;
         let mut reg = Registry::new();
-        reg.register(RegisteredCommand::from_app::<t0::Read>()).unwrap();
+        reg.register(RegisteredCommand::from_app::<t0::Read>())
+            .unwrap();
         reg.register(RegisteredCommand::from_app::<t1::Write>().hidden(true))
             .unwrap();
 
@@ -1070,11 +1088,21 @@ mod tests {
         let mut screen = String::new();
         for y in 0..20 {
             for x in 0..80 {
-                screen.push(buf.cell((x, y)).unwrap().symbol().chars().next().unwrap_or(' '));
+                screen.push(
+                    buf.cell((x, y))
+                        .unwrap()
+                        .symbol()
+                        .chars()
+                        .next()
+                        .unwrap_or(' '),
+                );
             }
             screen.push('\n');
         }
-        assert!(screen.contains("read"), "可见命令 read 应在选择页: {screen}");
+        assert!(
+            screen.contains("read"),
+            "可见命令 read 应在选择页: {screen}"
+        );
         assert!(
             !screen.contains("write"),
             "隐藏命令 write 不该出现在选择页: {screen}"
@@ -1109,7 +1137,10 @@ mod tests {
         let (mut app, handlers) = build_multi_tui("demo", &demo_registry()).unwrap();
         app.handle_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert_eq!(app.state(), &lilyco_tui::AppState::Form);
-        let active = app.active_command.clone().expect("进入表单后应有 active_command");
+        let active = app
+            .active_command
+            .clone()
+            .expect("进入表单后应有 active_command");
         assert_eq!(
             app.form.command_name, active,
             "表单命令名必须与高亮命令一致"

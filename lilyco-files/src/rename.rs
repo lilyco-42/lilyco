@@ -24,7 +24,9 @@ pub struct Rename {
     root: PathBuf,
 
     /// 只改匹配的文件名 glob
-    #[arg(about = "Only rename files whose NAME matches this glob, e.g. '*.jpg' (omit = all files)")]
+    #[arg(
+        about = "Only rename files whose NAME matches this glob, e.g. '*.jpg' (omit = all files)"
+    )]
     pattern: Option<String>,
 
     /// 新文件名前缀
@@ -56,7 +58,9 @@ pub struct Rename {
     overwrite: bool,
 
     /// 允许重复叠加前缀/后缀
-    #[arg(about = "Allow re-applying a prefix/suffix that is already present (default: skip such files, so running twice is idempotent)")]
+    #[arg(
+        about = "Allow re-applying a prefix/suffix that is already present (default: skip such files, so running twice is idempotent)"
+    )]
     allow_reapply: bool,
 }
 
@@ -167,7 +171,10 @@ fn run_rename(app: &Rename, ctx: &Context) -> Result<serde_json::Value, AppError
         if !app.overwrite {
             for p in &plans {
                 if Path::new(&p.to).exists() {
-                    conflicts.push(format!("目标已存在: {}（如确认要覆盖请加 --overwrite）", p.to));
+                    conflicts.push(format!(
+                        "目标已存在: {}（如确认要覆盖请加 --overwrite）",
+                        p.to
+                    ));
                 }
             }
         }
@@ -189,8 +196,9 @@ fn run_rename(app: &Rename, ctx: &Context) -> Result<serde_json::Value, AppError
                 Some(plans.len() as u64),
                 format!("{} -> {}", p.from, p.to),
             );
-            std::fs::rename(&p.from, &p.to)
-                .map_err(|e| AppError::Runtime(format!("重命名失败 {} -> {}: {e}", p.from, p.to)))?;
+            std::fs::rename(&p.from, &p.to).map_err(|e| {
+                AppError::Runtime(format!("重命名失败 {} -> {}: {e}", p.from, p.to))
+            })?;
             applied.push(RenamePlan {
                 from: p.from.clone(),
                 to: p.to.clone(),
@@ -500,7 +508,10 @@ mod tests {
         };
         let e = run(&app).unwrap_err();
         assert!(e.to_string().contains("目标已存在"), "{e}");
-        assert!(tmp.path().join("a.txt").exists(), "abort must not change anything");
+        assert!(
+            tmp.path().join("a.txt").exists(),
+            "abort must not change anything"
+        );
     }
 
     #[test]
@@ -518,7 +529,10 @@ mod tests {
         let r = run(&app).unwrap();
         assert_eq!(r["count"], 1, "{r}");
         // 覆盖后内容来自 a.txt
-        assert_eq!(fs::read_to_string(tmp.path().join("P_a.txt")).unwrap(), "original");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("P_a.txt")).unwrap(),
+            "original"
+        );
     }
 
     /// 链式改名（a -> P_a，而 P_a 本身也是候选源）必须整体中止。
@@ -539,7 +553,10 @@ mod tests {
         assert!(e.to_string().contains("冲突"), "{e}");
         // 两个文件都必须原样保留
         assert_eq!(fs::read_to_string(tmp.path().join("a.txt")).unwrap(), "AAA");
-        assert_eq!(fs::read_to_string(tmp.path().join("P_a.txt")).unwrap(), "BBB");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("P_a.txt")).unwrap(),
+            "BBB"
+        );
     }
 
     #[test]

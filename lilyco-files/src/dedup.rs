@@ -229,7 +229,10 @@ mod tests {
         fs::write(tmp.path().join("a.bin"), b"aaaaaaaaaa").unwrap();
         fs::write(tmp.path().join("b.bin"), b"bbbbbbbbbb").unwrap();
         let r = run(&base(tmp.path())).unwrap();
-        assert_eq!(r["group_count"], 0, "same size + different head must not match: {r}");
+        assert_eq!(
+            r["group_count"], 0,
+            "same size + different head must not match: {r}"
+        );
     }
 
     #[test]

@@ -43,7 +43,8 @@ pub fn build_registry_with_policy(policy: Arc<dyn SafetyPolicy>) -> Registry {
     ];
     for c in cmds {
         let name = c.name.clone();
-        reg.register(c).unwrap_or_else(|e| panic!("注册命令 `{name}` 失败: {e}"));
+        reg.register(c)
+            .unwrap_or_else(|e| panic!("注册命令 `{name}` 失败: {e}"));
     }
     reg
 }
@@ -79,7 +80,10 @@ mod tests {
         let reg = build_registry();
         let names: Vec<String> = reg.iter().map(|c| c.name.clone()).collect();
         for want in ["find", "rename", "dedup", "stats"] {
-            assert!(names.contains(&want.to_string()), "missing {want}: {names:?}");
+            assert!(
+                names.contains(&want.to_string()),
+                "missing {want}: {names:?}"
+            );
         }
         assert_eq!(reg.iter().count(), 4, "{names:?}");
         assert!(reg.visible().count() == 4, "all MVP commands are visible");
