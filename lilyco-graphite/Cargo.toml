@@ -31,3 +31,15 @@ glam = "=0.32.1"
 # 0.9.5+ 改返回 MappedSlice 导致 document-container 编译失败（E0308）。
 # 本 crate 声明精确版本以参与全 workspace 统一解析，把版本钉回上游已验证组合。
 mmap-io = "=0.9.4"
+
+# ── 渲染导出（P1 出图）：官方 graphene-cli 同款组合（Cargo.lock 已含全部条目，零新增解析风险）──
+# DynamicExecutor（图求值）+ wrap_network_in_scope
+interpreted-executor = { git = "https://github.com/GraphiteEditor/Graphite", rev = "ab32a6047650996725263b132806c171dc83097b" }
+# Preprocessor（展开注入 scope；legacy .graphite 无资源表 → 恒 None）
+preprocessor = { git = "https://github.com/GraphiteEditor/Graphite", rev = "ab32a6047650996725263b132806c171dc83097b" }
+# 异步驱动：DynamicExecutor::new / execute 均为 async，官方 CLI 用 futures::block_on
+futures = "0.3"
+# PNG 编码（raster 导出）
+image = { version = "0.25", default-features = false, features = ["png"] }
+# PNG 的 GPU→CPU 纹理回读需手动 poll 设备（官方 CLI 同款 poll 线程）
+wgpu = "29"
