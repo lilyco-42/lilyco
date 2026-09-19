@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-gui"
-version = "0.2.3"
+version.workspace = true
 edition = "2021"
 description = "Lilyco Web GUI — axum server with embedded HTML, Gradio-like experience"
 license = "MIT OR Apache-2.0"
@@ -9,7 +9,7 @@ keywords = ["web", "gui", "axum", "sse"]
 categories = ["web-programming", "gui"]
 
 [dependencies]
-lilyco-core = { version = "0.2", path = "../lilyco-core" }
+lilyco-core = { version = "0.3", path = "../lilyco-core" }
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 async-stream = "0.3"

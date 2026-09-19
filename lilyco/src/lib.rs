@@ -69,7 +69,6 @@ use lilyco_core::progress::LogLevel;
 use lilyco_core::registry::Handler;
 #[cfg(feature = "tui")]
 use lilyco_core::{AppError, Progress};
-#[cfg(feature = "tui")]
 use std::sync::Arc;
 
 /// 宏展开的后端路径：`#[derive(App)]` 生成的代码引用 `::lilyco::__core::…`
@@ -86,8 +85,9 @@ pub mod prelude {
 
 /// 可用的后端
 ///
-/// `Tui` / `Web` 由特性门控（crossterm 不支持 Android 目标；
-/// `--no-default-features` 时只剩 `Cli` + `Mcp`，纯 Rust 全平台可编）。
+/// `Tui` / `Web` / `Ultra` 由特性门控（crossterm 不支持 Android 目标；
+/// `--no-default-features` 时只剩 `Cli` + `Mcp`，纯 Rust 全平台可编；
+/// 平台重依赖一律显式 feature —— 内聚/耦合守则 3）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
     Cli,
@@ -96,6 +96,9 @@ pub enum Backend {
     #[cfg(feature = "web")]
     Web,
     Mcp,
+    /// JSON → React 生成器 playground（`--ultra` / LILYCO_UI=ultra）
+    #[cfg(feature = "ultra")]
+    Ultra,
 }
 
 /// 环境快照（注入式，便于单元测试）
@@ -134,6 +137,8 @@ pub fn detect_backend(env: &Env) -> Backend {
             #[cfg(feature = "web")]
             "web" | "gui" => return Backend::Web,
             "mcp" => return Backend::Mcp,
+            #[cfg(feature = "ultra")]
+            "ultra" => return Backend::Ultra,
             _ => {} // 未知值 → 落到自动
         }
     }
@@ -174,6 +179,8 @@ pub fn run_with<A: App + Send + 'static>(backend: Backend) {
         }
         #[cfg(feature = "web")]
         Backend::Web => run_web::<A>(),
+        #[cfg(feature = "ultra")]
+        Backend::Ultra => run_ultra(),
         Backend::Mcp => serve_mcp(single_registry::<A>()),
     }
 }
@@ -438,6 +445,22 @@ fn run_web<A: App + Send + 'static>() {
     rt.block_on(async {
         let gui = lilyco_gui::GuiRenderer::new(port);
         gui.serve_app::<A>(A::schema()).await;
+    });
+}
+
+/// Ultra UI：JSON → React 生成器 playground（不渲染命令表单，独立工具页）
+#[cfg(feature = "ultra")]
+fn run_ultra() {
+    let port: u16 = std::env::var("LILYCO_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8080);
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    rt.block_on(async {
+        lilyco_ultra_ui::UltraUiServer::new(port).serve().await;
     });
 }
 
@@ -749,6 +772,7 @@ mod tests {
     }
 
     #[cfg(feature = "tui")]
+    #[cfg(feature = "tui")]
     #[test]
     fn auto_tui_when_terminal_and_term() {
         let args: Vec<String> = Vec::new();
@@ -818,6 +842,7 @@ mod tests {
     }
 
     /// `--tui` 显式标志在多命令形态下被识别
+    #[cfg(feature = "tui")]
     #[test]
     fn registry_tui_flag_is_honored() {
         let args = vec!["--tui".to_string()];

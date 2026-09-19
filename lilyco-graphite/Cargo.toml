@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-graphite"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "Lilyco Graphite 桥 — headless 驱动 Graphite 编辑器内核（消息总线），AI 画画最小闭环"
 license = "MIT OR Apache-2.0"
@@ -13,8 +13,6 @@ path = "src/main.rs"
 [dependencies]
 # default-features = false → headless（CLI + MCP），与 lilyco-plc 同款组合根
 lilyco = { path = "../lilyco", default-features = false }
-# derive(App) 宏展开引用 lilyco_core::… 路径，需要能解析到它
-lilyco-core = { path = "../lilyco-core" }
 serde_json = "1"
 
 # Graphite 编辑器内核（Apache-2.0/MIT）。git dep 锁 rev，仓库只读不推 PR。

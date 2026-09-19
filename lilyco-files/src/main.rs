@@ -22,8 +22,8 @@ mod rename;
 mod stats;
 mod util;
 
+use lilyco::__core::safety::{DenyElevated, Interactive, SafetyPolicy};
 use lilyco::prelude::*;
-use lilyco_core::safety::{DenyElevated, Interactive, SafetyPolicy};
 use std::sync::Arc;
 
 /// 构建整个「文件整理」域的注册表（使用给定安全策略）
@@ -92,7 +92,7 @@ mod tests {
     /// 安全分级：只有 rename 高于 T0，其余都必须是 T0
     #[test]
     fn only_rename_is_elevated() {
-        use lilyco_core::safety::SafetyTier;
+        use lilyco::__core::safety::SafetyTier;
         let reg = build_registry();
         for c in reg.iter() {
             let tier = c.schema.safety;
@@ -159,7 +159,7 @@ mod tests {
     /// T0 的 find 在交互策略下必须放行
     #[test]
     fn find_is_allowed_under_default_policy() {
-        use lilyco_core::safety::{GateDecision, GateRequest, SafetyPolicy};
+        use lilyco::__core::safety::{GateDecision, GateRequest, SafetyPolicy};
         let reg = build_registry();
         let find = reg.get("find").expect("find registered");
         let decision = reg.policy().check(GateRequest {
@@ -176,7 +176,7 @@ mod tests {
     /// 所有人都吃 `DenyElevated` 默认值 → 人在 CLI 上手敲 `rename` 也被拒。
     #[test]
     fn interactive_surface_allows_rename() {
-        use lilyco_core::safety::{GateDecision, GateRequest, SafetyPolicy};
+        use lilyco::__core::safety::{GateDecision, GateRequest, SafetyPolicy};
         let reg = build_registry_with_policy(Arc::new(Interactive));
         let rename = reg.get("rename").expect("rename registered");
         assert_eq!(
@@ -193,7 +193,7 @@ mod tests {
     /// **策略分层**：MCP 自动化面必须拒绝 T1 的 rename，但仍放行 T0
     #[test]
     fn mcp_surface_denies_rename_but_allows_readonly() {
-        use lilyco_core::safety::{GateDecision, GateRequest, SafetyPolicy};
+        use lilyco::__core::safety::{GateDecision, GateRequest, SafetyPolicy};
         let reg = build_registry_with_policy(policy_for(lilyco::Backend::Mcp));
         let rename = reg.get("rename").unwrap();
         let denied = reg.policy().check(GateRequest {
@@ -229,7 +229,7 @@ mod tests {
         assert_eq!(name(Backend::Mcp), "DenyElevated");
         assert_eq!(name(Backend::Cli), "Interactive");
         // 真实验证：MCP 策拒绝 T1、交互策放行 T1
-        use lilyco_core::safety::{GateDecision, GateRequest, SafetyTier};
+        use lilyco::__core::safety::{GateDecision, GateRequest, SafetyTier};
         let args = serde_json::json!({});
         let mcp = policy_for(Backend::Mcp);
         assert!(matches!(

@@ -1,3 +1,12 @@
+//! # Lilyco Macros（发布契约：随 facade 同步）
+//!
+//! ## ⚠️ 与 lilyco facade 强耦合
+//!
+//! 本 crate 展开的代码引用 `::lilyco::__core::…`（facade 的 doc-hidden 再导出），
+//! 因此**必须与 lilyco facade 同版本发布**：facade 侧以 `version = "=x.y.z"` 精确
+//! 锁定本 crate（semver 不可见的耦合边 → 显式版本锁定）。单独升级本 crate 会
+//! 导致用户编译失败——版本号永远跟 facade 走。
+
 mod app_derive;
 mod value_enum;
 

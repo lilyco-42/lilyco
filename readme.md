@@ -870,7 +870,8 @@ Current coverage: **241 tests** across all crates (ubuntu + windows 双平台) +
 
 ```toml
 [dependencies]
-lilyco = "0.2"            # 推荐：一个依赖搞定四端
+lilyco = "0.3"            # 推荐：一个依赖搞定四端
+# 默认 headless（CLI+MCP）；要 TUI/Web：lilyco = { version = "0.3", features = ["tui", "web"] }
 lilyco-core = "0.2"       # derive(App) 宏展开需要
 ```
 
@@ -878,7 +879,7 @@ lilyco-core = "0.2"       # derive(App) 宏展开需要
 
 ```toml
 [dependencies]
-lilyco = { git = "https://github.com/lilyco-42/lilyco" }
+lilyco = { git = "https://github.com/lilyco-42/lilyco", rev = "d05a610" } # git 依赖锁 rev（守则 2）
 lilyco-core = { git = "https://github.com/lilyco-42/lilyco" }
 ```
 

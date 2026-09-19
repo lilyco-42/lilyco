@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-ffmpeg"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "Lilyco ffmpeg wrapper — transcode / resize / trim media with live progress, four interfaces + AI-callable"
 license = "MIT OR Apache-2.0"
@@ -15,9 +15,7 @@ path = "src/main.rs"
 [dependencies]
 # 可选：android 构建用 headless（--no-default-features --features android，
 # 只剩 CLI + MCP，纯 Rust 可在 aarch64-linux-android 编译）
-lilyco = { version = "0.2", path = "../lilyco", optional = true, default-features = false }
-# derive(App) 宏展开引用 lilyco_core::… 路径，binary 需要能解析到它
-lilyco-core = { version = "0.2", path = "../lilyco-core" }
+lilyco = { version = "0.3", path = "../lilyco", optional = true, default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
