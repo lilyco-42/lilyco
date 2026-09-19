@@ -337,6 +337,9 @@ fn drain_events(task: Task, output_format: OutputFormat) {
                     Progress::Log { level, message } => {
                         eprintln!("  [{level:?}] {message}");
                     }
+                    Progress::Telemetry { key, value } => {
+                        eprintln!("  [telemetry] {key}={value}");
+                    }
                     Progress::Done {
                         result,
                         duration_ms,

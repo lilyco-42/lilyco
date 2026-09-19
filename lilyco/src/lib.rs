@@ -416,6 +416,9 @@ fn drain_task(app: &mut lilyco_tui::TuiApp, task: &executor::Task) {
                 ..
             }) => app.tick_progress(current, total, message),
             Ok(Progress::Log { level, message }) => app.log_progress(level_name(&level), message),
+            Ok(Progress::Telemetry { key, value }) => {
+                app.log_progress("info", format!("{key}={value}"));
+            }
             Ok(Progress::Done {
                 result,
                 duration_ms,

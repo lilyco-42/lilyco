@@ -82,6 +82,10 @@ mod tests {
                 level: LogLevel::Warn,
                 message: "磁盘空间不足".into(),
             },
+            Progress::Telemetry {
+                key: "altitude".into(),
+                value: serde_json::json!({ "m": 120.5 }),
+            },
             Progress::Done {
                 result: serde_json::json!({"ok": true}),
                 duration_ms: 4200,
@@ -305,6 +309,29 @@ mod tests {
         ctx.done(serde_json::json!({"done": true}), 100);
         let event = rx.recv().unwrap();
         assert!(matches!(event, Progress::Done { .. }));
+    }
+
+    #[test]
+    fn context_telemetry_emits_data_point() {
+        // 遥测：被控对象的状态流（Token 2 Anything 的"看清物理世界"通道）
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = Context::new_test(tx);
+        ctx.telemetry("altitude", serde_json::json!(120.5));
+        ctx.telemetry("battery", serde_json::json!({ "percent": 87 }));
+        let a = rx.recv().unwrap();
+        let b = rx.recv().unwrap();
+        assert!(matches!(
+            a,
+            Progress::Telemetry { ref key, .. } if key == "altitude"
+        ));
+        if let Progress::Telemetry { key, value } = b {
+            assert_eq!(key, "battery");
+            assert_eq!(value["percent"], 87);
+        } else {
+            panic!("expected Telemetry, got {b:?}");
+        }
+        // 遥测不是终态
+        assert!(!ctx.has_terminal());
     }
 
     #[test]

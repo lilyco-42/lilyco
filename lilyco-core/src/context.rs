@@ -114,6 +114,17 @@ impl Context {
         });
     }
 
+    /// 上报遥测数据点（持续状态流：无人机姿态 / PLC 寄存器 / 传感器读数）
+    ///
+    /// 与 [`Context::tick`] 的区别：tick 描述"任务做到哪了"，telemetry 描述
+    /// "被控对象现在什么状态"。执行期间可高频调用，各端按自身形态消费。
+    pub fn telemetry(&self, key: impl Into<String>, value: serde_json::Value) {
+        self.emit(Progress::Telemetry {
+            key: key.into(),
+            value,
+        });
+    }
+
     /// 上报 Done 事件
     pub fn done(&self, result: serde_json::Value, duration_ms: u64) {
         self.emit(Progress::Done {

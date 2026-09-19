@@ -332,6 +332,16 @@ impl McpServer {
                         Progress::Error { message, .. } => {
                             terminal = Some(Err(message.clone()));
                         }
+                        Progress::Telemetry { key, value } => {
+                            // 遥测复用已协商的 progress 通道（零 spec 风险）：
+                            // 数据点转成 message 形如 "altitude=50"，Agent 实时可见
+                            sink(&progress_notification(
+                                &token,
+                                0.0,
+                                None,
+                                Some(format!("{key}={value}")),
+                            ));
+                        }
                         Progress::Log { .. } => {} // 日志不映射为进度通知
                     }
                 }
@@ -782,6 +792,63 @@ mod tests {
         let resp = server.handle_line(&progress_call_req("\"t\"")).unwrap();
         let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
         assert_eq!(v["result"]["isError"], false);
+    }
+
+    #[test]
+    fn telemetry_forwards_over_progress_channel() {
+        // P1 遥测：Telemetry 数据点在 progressToken 已协商时转成 key=value 消息，
+        // Agent 在 tools/call 进行中即可看到物理世界状态（无人机姿态流）
+        let mut reg = Registry::new();
+        let handler: Handler = Arc::new(|ctx, _args| {
+            ctx.telemetry("altitude", serde_json::json!(120.5));
+            ctx.telemetry("battery", serde_json::json!(87));
+            let r = serde_json::json!({ "landed": true });
+            ctx.done(r.clone(), 1);
+            Ok(r)
+        });
+        let schema = CommandSchema {
+            name: "telemetry".into(),
+            about: "emit telemetry".into(),
+            args: vec![],
+            subcommands: vec![],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
+        };
+        reg.register(RegisteredCommand::new("telemetry", schema).with_handler(handler))
+            .unwrap();
+        let server = McpServer::new(reg);
+
+        let mut notifications: Vec<String> = Vec::new();
+        let resp = server
+            .handle_line_with_sink(
+                r#"{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"_meta":{"progressToken":"tok-t"},"name":"telemetry","arguments":{}}}"#,
+                &mut |n| notifications.push(n.to_string()),
+            )
+            .unwrap();
+        let messages: Vec<String> = notifications
+            .iter()
+            .filter_map(|s| {
+                let v: serde_json::Value = serde_json::from_str(s).ok()?;
+                if v["method"] == "notifications/progress" {
+                    v["params"]["message"].as_str().map(String::from)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            messages.iter().any(|m| m.contains("altitude=120.5")),
+            "{messages:?}"
+        );
+        assert!(
+            messages.iter().any(|m| m.contains("battery=87")),
+            "{messages:?}"
+        );
+        // 最终响应仍是合法结果
+        let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+        assert!(v["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("landed"));
     }
 
     #[test]

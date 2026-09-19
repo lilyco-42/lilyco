@@ -28,6 +28,17 @@ pub enum Progress {
     },
     /// 日志输出
     Log { level: LogLevel, message: String },
+    /// 遥测数据点：物理世界的持续状态流（无人机姿态 / PLC 寄存器 / 传感器读数）
+    ///
+    /// 与 Tick（任务进度）不同，Telemetry 描述**被控对象**的实时状态，
+    /// 由 handler 在执行期间持续上报；MCP 侧复用已协商的 progress 通道
+    /// 转发为 `key=value` 消息，Agent 可实时感知物理世界。
+    Telemetry {
+        /// 数据点名称，如 "altitude"、"battery"、"rpm"
+        key: String,
+        /// 数据点值（结构化 JSON，可为数字/字符串/对象）
+        value: serde_json::Value,
+    },
     /// 任务完成，携带结果
     Done {
         /// 任务结果，序列化为 JSON
