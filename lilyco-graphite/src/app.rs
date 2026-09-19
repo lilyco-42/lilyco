@@ -89,7 +89,8 @@ pub fn run_add_rect(app: &GraphiteAddRect, ctx: &Context) -> Result<serde_json::
     let nodes = with_host(|host| {
         if let Some(hex) = &fill {
             let color = parse_hex_color(hex)?;
-            host.set_primary_color(color);
+            // 填充工作色走 secondary 槽位（编辑器默认路由：副色喂填充、主色喂描边）
+            host.set_fill_color(color);
         }
         host.draw_rectangle(app.x, app.y, app.w, app.h);
         host.node_count()
