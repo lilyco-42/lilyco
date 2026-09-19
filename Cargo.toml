@@ -12,6 +12,7 @@ members = [
     "lilyco-plc",
     "lilyco-brush",
     "lilyco-ffmpeg",
+    "lilyco-files",
     "lilyco-vision",
     "lilyco-ultra-ui",
     "lilyco-ultra-ui-example",

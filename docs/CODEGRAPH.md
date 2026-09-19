@@ -44,7 +44,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `validate_args()` | `lilyco-core/src/schema.rs:105` | **三端唯一参数校验实现**（required/range/enum/must_exist/List 递归） |
 | `to_json_schema/openai/anthropic` | `lilyco-core/src/schema.rs:49,73,85` | AI tool 定义导出 |
 | `type Handler` | `lilyco-core/src/registry.rs:23` | `Arc<dyn Fn(&Context, &Value) -> Result<Value, AppError>>` |
-| `struct Registry` | `lilyco-core/src/registry.rs` | 多命令注册表；`register:148` `get(含别名):163` `visible:180` `from_json:194` |
+| `struct Registry` | `lilyco-core/src/registry.rs` | 多命令注册表；`register:148` `get(含别名):163` `visible:180` `from_json:194` `with_policy`（**必须在 `register` 之前调用**：门在注册时包住 handler） |
 | `RegisteredCommand::from_app` | `lilyco-core/src/registry.rs:92` | App 类型 → 注册表条目（零样板入口） |
 | `spawn()` / `execute()` | `lilyco-core/src/executor.rs:35,92` | **唯一执行宿主**：后台线程 + 进度 channel |
 | `struct Task` | `lilyco-core/src/executor.rs:20` | `cancel` + `rx` + `handle` |
@@ -103,7 +103,14 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `serve_mcp()` | 158 | 注册表 → MCP 服务器 |
 | `run_cli_registry()` | 175 | 注册表 → clap 子命令 |
 | `run_tui_registry()` | 189 | 注册表 → TUI 命令选择页（起不来回退 CLI 多命令） |
-| `run_tui_event_loop()` | 263 | 单/多命令共享的 TUI 循环（非阻塞 drain + 可取消） |
+| `run_web_registry()` | 233 | 注册表 → Web 控制台（`?cmd=` 下拉 + `/run` 显式分发） |
+| `run_registry()` | 268 | **多命令一行启动**：按 `detect_registry_backend()` 自动分发 |
+| `run_registry_with()` | 293 | 显式指定后端；**按调用面注入 SafetyPolicy**（MCP→`DenyElevated`，其余→`Interactive`） |
+| `run_registry_with_policy()` | 308 | 调用方自带策略（逃生舱，业务通常不要用） |
+| `detect_registry_backend()` | — | 多命令形态探测：**自动探测出的 TUI 降级为 CLI**（裸跑不该被拽进交互界面；进 TUI 须显式 `--tui`） |
+| `build_multi_tui()` | 449 | 纯函数：注册表 →（选择页 TuiApp + 名字→handler 表）。与事件循环分离以便无 TTY 单测（隐藏命令过滤、空注册表报错） |
+| `into_registry_with_policy()` | 353 | 对已有注册表重建以换策略（**兜底**：只能替换，不能解开已包在 handler 上的旧门） |
+| `run_tui_event_loop()` | 464 | 单/多命令共享的 TUI 循环（非阻塞 drain + 可取消） |
 
 ## 5. 多命令语义对照（四端对齐）
 
@@ -124,6 +131,8 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 5. **clap 只接受 `'static str`**：运行时字符串用 `leak_str`（`lilyco-cli/src/lib.rs:353`，Box::leak，进程内无累积问题）。
 6. **导航可回退、执行不可回退**：`index` 的 `?cmd` 未知时回退第一个可见命令；`/run` 显式指定未知命令必须 400。
 7. **宏展开引用 `::lilyco::__core::`（facade doc-hidden 再导出）**：用户只需依赖 `lilyco` 一个 crate；直接使用 `lilyco-macros` 的项目须同时依赖 `lilyco`（macros 的 dev-deps 即此契约）。
+8. **安全策略按「调用面」注入，且在 `register` 之前**：`Registry::with_policy` 在注册时就把 handler 包进门，所以顺序不能反；`run_registry_with` 按后端选策略 —— **MCP = `DenyElevated`（自动化面，fail-closed）**，**CLI/TUI/Web = `Interactive`（人类在环，放行 T1）**。这是四端"同一份 handler、不同信任级别"的唯一实现点。`into_registry_with_policy` 只能用于**尚未注册**的注册表；对已注册的调它会在 handler 上叠第二道门（旧门先拒），表现为"换了策略还是被拒"。
+9. **MCP `serve()` 在 stdin EOF 后必须 join 在途 worker**：`tools/call` 丢到 worker 线程执行（为支持 handler 反向 `sampling/createMessage`），短连接客户端（脚本 / `echo … | server`）写完即关 stdin —— 不等 worker 就会丢响应。回归测试：`serve_waits_for_inflight_tools_call_on_eof`。
 
 ## 7. 扩展点（怎么加东西）
 

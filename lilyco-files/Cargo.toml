@@ -1,0 +1,39 @@
+[package]
+name = "lilyco-files"
+version = "0.1.0"
+edition = "2021"
+description = "lfiles — 文件整理域：查找 / 批量重命名 / 去重 / 目录统计，四端 (CLI / TUI / Web / MCP) + AI 可调"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+keywords = ["cli", "files", "find", "dedup", "mcp"]
+categories = ["command-line-interface", "filesystem"]
+
+[[bin]]
+name = "lfiles"
+path = "src/main.rs"
+
+[dependencies]
+# 可选：android 构建用 headless（--no-default-features --features android，
+# 只剩 CLI + MCP，纯 Rust 可在 aarch64-linux-android 编译）
+lilyco = { version = "0.2", path = "../lilyco", optional = true, default-features = false }
+# derive(App) 宏展开引用 lilyco_core::… 路径，binary 需要能解析到它
+lilyco-core = { version = "0.2", path = "../lilyco-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+default = ["full"]
+# 全功能（CLI + TUI + Web + MCP）
+full = ["dep:lilyco", "lilyco/full"]
+# Android/Termux：headless（CLI + MCP）
+android = ["dep:lilyco"]
+
+[dev-dependencies]
+tempfile = "3"
+
+# ── cargo binstall ────────────────────────────────────────
+# 资产命名 `{ name }-{ target }{ binary-ext }`（完整 target triple）；
+# pkg-fmt = "bin"：下载的单文件即二进制
+[package.metadata.binstall]
+pkg-url = "https://github.com/lilyco-42/lilyco/releases/download/v{ version }/{ name }-{ target }{ binary-ext }"
+pkg-fmt = "bin"

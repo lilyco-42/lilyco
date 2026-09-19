@@ -277,7 +277,41 @@ pub fn run_registry(app_name: &str, registry: Registry) {
 }
 
 /// 显式指定后端运行注册表
+///
+/// **安全策略按调用面注入**（这是本函数除了分发之外的第二职责）：
+///
+/// | 后端 | 策略 | 理由 |
+/// |---|---|---|
+/// | CLI / TUI | [`Interactive`] | 人类亲手敲命令 / 在表单里点提交，按键即确认，放行 T0+T1 |
+/// | Web | [`Interactive`] | 同上，但只在 127.0.0.1 监听，且带 CSRF 令牌中间件 |
+/// | MCP | [`DenyElevated`] | Agent 无人值守，只放行 T0；T1+ 拒绝并说明原因 |
+///
+/// 调用方若已有自己的策略，请用 [`run_registry_with_policy`]。
+///
+/// [`Interactive`]: lilyco_core::safety::Interactive
+/// [`DenyElevated`]: lilyco_core::safety::DenyElevated
 pub fn run_registry_with(app_name: &str, registry: Registry, backend: Backend) {
+    use std::sync::Arc;
+    let policy: Arc<dyn lilyco_core::safety::SafetyPolicy> = match backend {
+        Backend::Mcp => Arc::new(lilyco_core::safety::DenyElevated),
+        #[allow(unreachable_patterns)]
+        _ => Arc::new(lilyco_core::safety::Interactive),
+    };
+    run_registry_with_policy(app_name, registry, backend, policy);
+}
+
+/// 显式指定后端**与**安全策略运行注册表（最大控制权）
+///
+/// `with_policy` 必须在注册命令**之前**调用（门在注册时就把 handler 包住了），
+/// 所以这里先把传入的注册表重建成带新策略的形式 —— 借用 `registry` 的
+/// schema 重新 `register` 一次，语义与「一开始就用该策略注册」完全一致。
+pub fn run_registry_with_policy(
+    app_name: &str,
+    registry: Registry,
+    backend: Backend,
+    policy: std::sync::Arc<dyn lilyco_core::safety::SafetyPolicy>,
+) {
+    let registry = into_registry_with_policy(registry, policy);
     match backend {
         Backend::Cli => run_cli_registry(app_name, registry),
         #[cfg(feature = "tui")]
@@ -289,6 +323,45 @@ pub fn run_registry_with(app_name: &str, registry: Registry, backend: Backend) {
         #[allow(unreachable_patterns)]
         _ => run_cli_registry(app_name, registry),
     }
+}
+
+/// 把注册表重建成带指定安全策略的形式。
+///
+/// 为什么需要重建而不是「改一下策略字段」：门在 `register` 时就把 handler
+/// 包住了，已注册的命令无法事后换门。重建 = 把「策略 → 各 handler」的
+/// 包裹关系按新策略重新建立一遍，对调用方完全透明。
+///
+/// 重建会**保留**命令名、别名、隐藏标记与 schema（含各自的安全分级）。
+fn into_registry_with_policy(
+    registry: Registry,
+    policy: std::sync::Arc<dyn lilyco_core::safety::SafetyPolicy>,
+) -> Registry {
+    let mut out = Registry::new().with_policy(policy);
+    // 先收集再重建，避免同时持有对新表的可变借用与对旧表的借用
+    let entries: Vec<(String, Vec<String>, bool, lilyco_core::schema::CommandSchema)> = registry
+        .iter()
+        .map(|c| (c.name.clone(), c.aliases.clone(), c.hidden, c.schema.clone()))
+        .collect();
+    for (name, aliases, hidden, schema) in entries {
+        match registry.get(&name).and_then(|c| c.handler.clone()) {
+            Some(handler) => {
+                let cmd = lilyco_core::registry::RegisteredCommand::new(name, schema)
+                    .with_handler(handler)
+                    .hidden(hidden)
+                    .aliases(aliases);
+                // 重建只改安全策略，命令本身不该丢东西
+                debug_assert!(cmd.handler.is_some());
+                out.register(cmd).unwrap_or_else(|e| {
+                    eprintln!("重建注册表失败: {e}");
+                    std::process::exit(1);
+                });
+            }
+            None => {
+                eprintln!("跳过无 handler 的命令 `{name}`");
+            }
+        }
+    }
+    out
 }
 
 /// 多命令形态的真实环境探测。
@@ -368,6 +441,19 @@ fn run_tui<A: App + Send + 'static>() -> std::io::Result<()> {
 /// TUI 多命令形态：命令选择页 → 表单 → 执行（mininterface subcommand picker 模式）
 #[cfg(feature = "tui")]
 fn run_tui_registry_impl(app_name: &str, registry: &Registry) -> std::io::Result<()> {
+    let (mut app, handlers) = build_multi_tui(app_name, registry)?;
+    run_tui_event_loop(&mut app, &handlers)
+}
+
+/// 构造多命令 TUI：命令选择页 + 名字→handler 表。
+///
+/// 与事件循环分离，好让"隐藏命令不进选择页""无可见命令即报错""handler 表
+/// 与可见命令一一对应"这些语义可以在无终端环境下单测（事件循环需要真 TTY）。
+#[cfg(feature = "tui")]
+fn build_multi_tui(
+    app_name: &str,
+    registry: &Registry,
+) -> std::io::Result<(lilyco_tui::TuiApp, std::collections::HashMap<String, Handler>)> {
     // 隐藏命令不进选择页（与 CLI help / MCP tools/list 语义一致）
     let schemas: Vec<lilyco_core::schema::CommandSchema> =
         registry.visible().map(|c| c.schema.clone()).collect();
@@ -382,8 +468,8 @@ fn run_tui_registry_impl(app_name: &str, registry: &Registry) -> std::io::Result
         }
     }
 
-    let mut app = lilyco_tui::TuiApp::new_multi(app_name, schemas);
-    run_tui_event_loop(&mut app, &handlers)
+    let app = lilyco_tui::TuiApp::new_multi(app_name, schemas);
+    Ok((app, handlers))
 }
 
 /// TUI 事件循环（单命令 `run_tui` 与多命令 `run_tui_registry_impl` 共享）
@@ -744,5 +830,325 @@ mod tests {
         // 这里不实际调用（会 exit 进程），只验证 Registry 可构造。
         let reg = Registry::new();
         assert_eq!(reg.iter().count(), 0);
+    }
+
+    // ── 安全策略按调用面注入 ──────────────────────────────
+    //
+    // 铁律：**CLI/TUI/Web 是人类在环 → Interactive（放行 T0+T1）；
+    // MCP 是无人值守 → DenyElevated（只放行 T0）**。
+    // 曾经的缺陷：framework 里 `with_policy` 从没被调用过，所有人都吃
+    // DenyElevated 默认值 → 人在 CLI 上手敲 T1 命令也被拒。
+
+    /// 构造一个带 T0 + T1 两条命令的注册表（借用真实 App 类型）
+    fn demo_registry() -> Registry {
+        use lilyco_core::registry::RegisteredCommand;
+        let mut reg = Registry::new();
+        reg.register(RegisteredCommand::from_app::<t0::Read>()).unwrap();
+        reg.register(RegisteredCommand::from_app::<t1::Write>()).unwrap();
+        reg
+    }
+
+    // 注：这里的两个 App 实现在 crate 内手写（不用 `#[derive(App)]`）。
+    // derive 宏展开成 `::lilyco::__core::…` 路径，在 facade 自己的
+    // 测试模块里那个路径解析不到（同名 crate 冲突），所以手写 impl。
+
+    /// T0 只读命令
+    mod t0 {
+        use crate::__core::error::AppError;
+        use crate::__core::schema::{ArgKind, ArgSchema, CommandSchema};
+        use crate::__core::{App, Context};
+
+        pub struct Read {
+            pub path: String,
+        }
+
+        impl App for Read {
+            fn schema() -> CommandSchema {
+                CommandSchema {
+                    name: "read".into(),
+                    about: "读取（T0 只读）".into(),
+                    args: vec![ArgSchema {
+                        name: "path".into(),
+                        about: "路径".into(),
+                        kind: ArgKind::Text,
+                        required: true,
+                        default: None,
+                    }],
+                    subcommands: vec![],
+                    safety: crate::__core::safety::SafetyTier::ReadOnly,
+                }
+            }
+            fn from_args(
+                args: &std::collections::HashMap<String, serde_json::Value>,
+            ) -> Result<Self, AppError> {
+                Ok(Read {
+                    path: args
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                })
+            }
+            fn run(&self, ctx: &Context) -> Result<serde_json::Value, AppError> {
+                let r = serde_json::json!({ "read": self.path });
+                ctx.done(r.clone(), 0);
+                Ok(r)
+            }
+        }
+    }
+
+    /// T1 写命令需确认
+    mod t1 {
+        use crate::__core::error::AppError;
+        use crate::__core::schema::{ArgKind, ArgSchema, CommandSchema};
+        use crate::__core::{App, Context};
+
+        pub struct Write {
+            pub path: String,
+        }
+
+        impl App for Write {
+            fn schema() -> CommandSchema {
+                CommandSchema {
+                    name: "write".into(),
+                    about: "写入（T1 需确认）".into(),
+                    args: vec![ArgSchema {
+                        name: "path".into(),
+                        about: "路径".into(),
+                        kind: ArgKind::Text,
+                        required: true,
+                        default: None,
+                    }],
+                    subcommands: vec![],
+                    safety: crate::__core::safety::SafetyTier::Confirm,
+                }
+            }
+            fn from_args(
+                args: &std::collections::HashMap<String, serde_json::Value>,
+            ) -> Result<Self, AppError> {
+                Ok(Write {
+                    path: args
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                })
+            }
+            fn run(&self, ctx: &Context) -> Result<serde_json::Value, AppError> {
+                let r = serde_json::json!({ "wrote": self.path });
+                ctx.done(r.clone(), 0);
+                Ok(r)
+            }
+        }
+    }
+
+    /// Interactive 策略重建后：T0 与 T1 都放行（CLI/TUI/Web 面）
+    #[test]
+    fn interactive_policy_allows_t0_and_t1() {
+        use lilyco_core::safety::{GateDecision, GateRequest, Interactive};
+        let reg = into_registry_with_policy(demo_registry(), Arc::new(Interactive));
+        let p = reg.policy();
+        for (name, tier) in [
+            ("read", lilyco_core::safety::SafetyTier::ReadOnly),
+            ("write", lilyco_core::safety::SafetyTier::Confirm),
+        ] {
+            let d = p.check(GateRequest {
+                command: name,
+                tier,
+                args: &serde_json::json!({}),
+            });
+            assert_eq!(d, GateDecision::Allow, "{name} 在交互面必须放行");
+        }
+    }
+
+    /// DenyElevated 策略重建后：T0 放行、T1 拒绝（MCP 面）
+    #[test]
+    fn deny_elevated_policy_blocks_t1_only() {
+        use lilyco_core::safety::{DenyElevated, GateDecision, GateRequest};
+        let reg = into_registry_with_policy(demo_registry(), Arc::new(DenyElevated));
+        let p = reg.policy();
+        assert_eq!(
+            p.check(GateRequest {
+                command: "read",
+                tier: lilyco_core::safety::SafetyTier::ReadOnly,
+                args: &serde_json::json!({}),
+            }),
+            GateDecision::Allow
+        );
+        assert!(matches!(
+            p.check(GateRequest {
+                command: "write",
+                tier: lilyco_core::safety::SafetyTier::Confirm,
+                args: &serde_json::json!({}),
+            }),
+            GateDecision::Deny(_)
+        ));
+    }
+
+    /// 重建必须**保真**：命令名、别名、隐藏标记、schema、handler 一个不丢
+    #[test]
+    fn rebuild_preserves_command_metadata() {
+        use lilyco_core::registry::RegisteredCommand;
+        use lilyco_core::safety::Interactive;
+        let mut reg = Registry::new();
+        reg.register(RegisteredCommand::from_app::<t0::Read>())
+            .unwrap();
+        reg.register(
+            RegisteredCommand::from_app::<t1::Write>()
+                .alias("w")
+                .hidden(false),
+        )
+        .unwrap();
+
+        let rebuilt = into_registry_with_policy(reg, Arc::new(Interactive));
+        assert_eq!(rebuilt.iter().count(), 2, "命令数不能变");
+        // 别名解析仍然可用
+        assert!(rebuilt.contains("w"), "别名 `w` 在重建后丢失");
+        assert_eq!(rebuilt.get("w").unwrap().name, "write");
+        // handler 仍在（能真正执行，不是空壳）
+        for c in rebuilt.iter() {
+            assert!(c.handler.is_some(), "{} 重建后丢了 handler", c.name);
+        }
+        // schema 保真
+        assert_eq!(
+            rebuilt.get("read").unwrap().schema.safety,
+            lilyco_core::safety::SafetyTier::ReadOnly
+        );
+        assert_eq!(
+            rebuilt.get("write").unwrap().schema.safety,
+            lilyco_core::safety::SafetyTier::Confirm
+        );
+    }
+
+    /// 重建后 handler 真的能跑通（T0 命令经门后返回结果）
+    #[test]
+    fn rebuilt_handler_actually_executes() {
+        use lilyco_core::safety::Interactive;
+        let reg = into_registry_with_policy(demo_registry(), Arc::new(Interactive));
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let ctx = lilyco_core::context::Context::new_test(tx);
+        let handler = reg.get("read").unwrap().handler.clone().unwrap();
+        let out = handler(&ctx, &serde_json::json!({ "path": "a.txt" })).unwrap();
+        assert_eq!(out["read"], "a.txt");
+    }
+
+    // ─── 多命令 TUI 接线 ────────────────────────────────
+    //
+    // 事件循环（run_tui_event_loop）需要真 TTY（enable_raw_mode + CrosstermBackend），
+    // 无法在 CI/沙箱里跑；但"选择页里有什么、handler 表怎么建"是纯数据，抽到
+    // build_multi_tui 后可测。这里是四端验收中 TUI 端唯一可自动化的部分。
+
+    /// 多命令 TUI 起始状态必须是「命令选择页」，且表里命令与注册表可见命令一致
+    #[cfg(feature = "tui")]
+    #[test]
+    fn multi_tui_starts_on_command_select_with_all_visible() {
+        let (app, handlers) = build_multi_tui("demo", &demo_registry()).unwrap();
+        assert_eq!(
+            app.state(),
+            &lilyco_tui::AppState::CommandSelect,
+            "多命令形态必须落在选择页，而不是某个命令的表单"
+        );
+        assert_eq!(handlers.len(), 2, "handler 表应含 read/write 两条");
+        assert!(handlers.contains_key("read"));
+        assert!(handlers.contains_key("write"));
+    }
+
+    /// 隐藏命令不进选择页（与 CLI help / MCP tools/list 语义一致）
+    #[cfg(feature = "tui")]
+    #[test]
+    fn multi_tui_hides_hidden_commands_from_picker() {
+        use lilyco_core::registry::RegisteredCommand;
+        let mut reg = Registry::new();
+        reg.register(RegisteredCommand::from_app::<t0::Read>()).unwrap();
+        reg.register(RegisteredCommand::from_app::<t1::Write>().hidden(true))
+            .unwrap();
+
+        let (app, handlers) = build_multi_tui("demo", &reg).unwrap();
+        // 选择页上只有 read（write 被隐藏）
+        let mut buf = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 80, 20));
+        app.render(ratatui::layout::Rect::new(0, 0, 80, 20), &mut buf);
+        let mut screen = String::new();
+        for y in 0..20 {
+            for x in 0..80 {
+                screen.push(buf.cell((x, y)).unwrap().symbol().chars().next().unwrap_or(' '));
+            }
+            screen.push('\n');
+        }
+        assert!(screen.contains("read"), "可见命令 read 应在选择页: {screen}");
+        assert!(
+            !screen.contains("write"),
+            "隐藏命令 write 不该出现在选择页: {screen}"
+        );
+        // handler 表仍保留 write（隐藏只影响展示，不影响可执行性 —— 供别名/直调）
+        assert_eq!(handlers.len(), 2);
+    }
+
+    /// 注册表里没有可见命令 → 明确报错，而不是进一个空选择页
+    #[cfg(feature = "tui")]
+    #[test]
+    fn multi_tui_empty_registry_errors_out() {
+        // 不用 unwrap_err()：Ok 侧含 HashMap<String, Handler>（trait object 无 Debug）
+        match build_multi_tui("demo", &Registry::new()) {
+            Ok(_) => panic!("空注册表不该构造出 TUI"),
+            Err(e) => assert!(
+                e.to_string().contains("no visible commands"),
+                "错误信息应说明没有可见命令，实际: {e}"
+            ),
+        }
+    }
+
+    /// 选择页 → Enter 进表单 → 表单里的命令就是高亮那条（且高亮项必有 handler）
+    ///
+    /// 不断言"第一条是 read"：`Registry.commands` 是 `HashMap`，`visible()` 的
+    /// 顺序不确定，所以默认高亮哪条本就不该被写死。这里断言的是真正的不变量：
+    /// 高亮项与进入的表单一致，且该名字在 handler 表里查得到。
+    #[cfg(feature = "tui")]
+    #[test]
+    fn multi_tui_enter_moves_into_highlighted_command_form() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let (mut app, handlers) = build_multi_tui("demo", &demo_registry()).unwrap();
+        app.handle_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.state(), &lilyco_tui::AppState::Form);
+        let active = app.active_command.clone().expect("进入表单后应有 active_command");
+        assert_eq!(
+            app.form.command_name, active,
+            "表单命令名必须与高亮命令一致"
+        );
+        assert!(
+            handlers.contains_key(&active),
+            "进表单后必须能查到这个命令的 handler，实际 active={active}"
+        );
+    }
+
+    /// 下移一位后进入的应是另一条命令（证明是"选中项"在驱动，不是写死第一条）
+    #[cfg(feature = "tui")]
+    #[test]
+    fn multi_tui_enter_after_down_enters_a_different_command() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let (mut app, handlers) = build_multi_tui("demo", &demo_registry()).unwrap();
+
+        app.handle_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let first = app.active_command.clone().unwrap();
+
+        // 回到选择页，下移一位再进
+        app.form.app_state = lilyco_tui::AppState::CommandSelect;
+        app.active_command = None;
+        app.handle_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        app.handle_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let second = app.active_command.clone().unwrap();
+
+        assert_ne!(first, second, "下移一位后应进入另一条命令");
+        assert!(handlers.contains_key(&second), "第二条也必须有 handler");
+    }
+
+    /// 选择页在 q / Esc 下退出（否则用户进 TUI 出不来）
+    #[cfg(feature = "tui")]
+    #[test]
+    fn multi_tui_esc_quits_from_picker() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let (mut app, _h) = build_multi_tui("demo", &demo_registry()).unwrap();
+        let cont = app.handle_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!cont, "Esc 应要求事件循环退出");
+        assert!(app.should_quit);
     }
 }

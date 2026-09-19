@@ -146,6 +146,10 @@ impl McpServer {
         let writer: Arc<Mutex<dyn Write + Send>> = Arc::new(Mutex::new(writer));
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
         let caps = Arc::new(Caps::default());
+        // 在途的 tools/call worker。客户端关闭 stdin（EOF）后主循环会退出，
+        // 但 worker 可能还没写完响应 —— 必须 join 它们，否则短连接客户端
+        // （脚本、`echo … | server`、CI）会丢响应。长连接客户端不受影响。
+        let mut workers: Vec<std::thread::JoinHandle<()>> = Vec::new();
 
         let mut line = String::new();
         loop {
@@ -183,7 +187,7 @@ impl McpServer {
                     let w2 = Arc::clone(&writer);
                     let pending2 = Arc::clone(&pending);
                     let caps2 = Arc::clone(&caps);
-                    std::thread::spawn(move || {
+                    workers.push(std::thread::spawn(move || {
                         let bridge: Arc<dyn HostBridge> = Arc::new(McpBridge {
                             writer: Arc::clone(&w2),
                             pending: pending2,
@@ -202,7 +206,7 @@ impl McpServer {
                             let _ = writeln!(w, "{resp}");
                             let _ = w.flush();
                         }
-                    });
+                    }));
                 } else {
                     let mut sink = |notification: &str| {
                         let mut w = writer.lock().unwrap();
@@ -231,6 +235,11 @@ impl McpServer {
                     }
                 }
             }
+        }
+        // stdin 已 EOF。等在途的 tools/call 写完响应再返回 —— 否则短连接
+        // 客户端（脚本 / CI / `echo … | server`）会在 worker 落盘前丢响应。
+        for w in workers {
+            let _ = w.join();
         }
         Ok(())
     }
@@ -688,6 +697,43 @@ mod tests {
             .serve(std::io::Cursor::new(input), out.clone())
             .unwrap();
         assert_eq!(out.string().lines().count(), 1);
+    }
+
+    /// **EOF 后在途的 `tools/call` 响应不能丢**。
+    ///
+    /// `tools/call` 被丢到 worker 线程执行（为了支持反向 sampling/roots）。
+    /// 曾经的缺陷：主循环读到 EOF 直接 break，worker 还没写完就被进程退出带走，
+    /// 短连接客户端（脚本 / CI / `echo … | binary --mcp`）全部拿不到结果。
+    /// 修法：EOF 后 join 所有 worker 再返回。
+    ///
+    /// 这里的输入是 `Cursor`，读完即 EOF —— 正好模拟"写完就关 stdin"。
+    #[test]
+    fn serve_waits_for_inflight_tools_call_on_eof() {
+        let server = McpServer::new(test_registry());
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",",
+            "\"params\":{\"name\":\"echo\",\"arguments\":{\"text\":\"hi\"}}}\n",
+        );
+        let out = SharedBuf::default();
+        server
+            .serve(std::io::Cursor::new(input), out.clone())
+            .unwrap();
+
+        let s = out.string();
+        // 必须拿到 id=2 的响应体，而不是只有 initialize
+        let call_line = s
+            .lines()
+            .find(|l| l.contains("\"id\":2"))
+            .unwrap_or_else(|| panic!("tools/call 响应丢失（EOF 杀死了 worker）: {s}"));
+        assert!(
+            call_line.contains("\"isError\":false"),
+            "echo 应成功返回: {call_line}"
+        );
+        assert!(
+            call_line.contains("echoed"),
+            "tools/call 响应体不完整: {call_line}"
+        );
     }
 
     // ─── 进度通知（notifications/progress） ────────────

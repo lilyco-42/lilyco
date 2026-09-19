@@ -58,45 +58,44 @@ CLI 是子命令、MCP 一次 `tools/list` 全返回、Web 用 `?cmd=` 下拉切
 
 → **每个「域」= 一个二进制 × 四端**，而不是每个命令一个进程。
 
-### 多命令三端入口（已核实 API 存在，无需改 core）
+### 多命令四端入口（`lfiles` 已跑通，可直接照抄）
 
 ```rust
-let mut reg = Registry::new();
-reg.register(RegisteredCommand::from_app::<FindFiles>())?;
-reg.register(RegisteredCommand::from_app::<Dedup>())?;
-// … 同域更多命令
+// 每个 app crate 的 main.rs 就是这个形状（lilyco-files/src/main.rs 是样板）
+pub fn build_registry_with_policy(policy: Arc<dyn SafetyPolicy>) -> Registry {
+    let mut reg = Registry::new().with_policy(policy);   // ← 必须在 register 之前
+    for c in [RegisteredCommand::from_app::<find::Find>(),
+              RegisteredCommand::from_app::<rename::Rename>(),
+              RegisteredCommand::from_app::<dedup::Dedup>(),
+              RegisteredCommand::from_app::<stats::Stats>()] {
+        reg.register(c).expect("命令名冲突");
+    }
+    reg
+}
 
-// CLI 子命令
-lilyco::run_cli_registry("lfiles", reg.clone());
-// Web 控制台（?cmd= 下拉）
-lilyco::run_web_registry("lfiles", reg.clone());   // ← 见下方「待补」
-// MCP stdio
-lilyco::serve_mcp(reg.clone());
-// TUI 命令选择页 → 表单
-lilyco::run_tui_registry("lfiles", reg);
+pub fn policy_for(backend: lilyco::Backend) -> Arc<dyn SafetyPolicy> {
+    match backend {
+        lilyco::Backend::Mcp => Arc::new(DenyElevated),  // 自动化面 fail-closed
+        _ => Arc::new(Interactive),                      // 人类在环，放行 T1
+    }
+}
+
+fn main() {
+    let backend = lilyco::detect_registry_backend();
+    let reg = build_registry_with_policy(policy_for(backend));
+    lilyco::run_registry_with("lfiles", reg, backend);   // 四端一行分发
+}
 ```
 
-> ⚠️ **已核实的 API 现状**（`D:/Code/lilyco` 本地读码）：
-> - `lilyco::run_cli_registry` ✅ 有
-> - `lilyco::run_tui_registry` ✅ 有
-> - `lilyco::serve_mcp(registry)` ✅ 有
-> - `lilyco_gui::GuiRenderer::serve_registry(registry)` ✅ 有，但 **facade 里没有 `run_web_registry` 包装**
->   → 目前只能手写 tokio 块绕过 facade。**这是唯一需要补的 facade 缺口**（约 10 行）：
->
-> ```rust
-> /// 以 Web 控制台形态运行整个注册表（多命令，?cmd= 切换）
-> #[cfg(feature = "web")]
-> pub fn run_web_registry(app_name: &str, registry: Registry) {
->     let port = std::env::var("LILYCO_PORT").ok()
->         .and_then(|p| p.parse().ok()).unwrap_or(8080);
->     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
->     rt.block_on(async {
->         eprintln!("{app_name} Web UI: http://localhost:{port}");
->         lilyco_gui::GuiRenderer::new(port).serve_registry(registry).await;
->     });
-> }
-> ```
-> 同时 `detect_backend` 要加 `--web` / `--gui` 在多命令形态的分发（单命令 `run::<A>()` 已有）。
+> **已落地**（`D:/Code/lilyco`，PR #14 后）：
+> - `lilyco::run_cli_registry` / `run_tui_registry` / `run_web_registry` / `serve_mcp` ✅ 四个薄包装齐了
+> - `run_registry()` / `run_registry_with()` / `detect_registry_backend()` ✅ 一行自动分发
+> - **`run_web_registry` 缺口已补**（facade 原先是唯一缺口，需手写 tokio 块绕过）
+> - **安全策略按调用面注入已补**：原先 `Registry::with_policy` 在整个框架里**从无调用点** →
+>   所有 app 都吃默认 `DenyElevated` → CLI 上手敲 T1 也被拒。现在 `run_registry_with`
+>   按后端选策略（MCP→`DenyElevated`，其余→`Interactive`）。详见 `CODEGRAPH.md` §6 不变量 8。
+> - `detect_registry_backend()` 的约定：**多命令形态下自动探测出的 TUI 降级为 CLI**
+>   （裸跑一个多命令 app 不该被拽进交互界面），进 TUI 要显式 `--tui`。
 
 ## 3. MVP 场景划分（普通人 80% 的电脑操作）
 
@@ -116,25 +115,34 @@ lilyco::run_tui_registry("lfiles", reg);
 > 对每个新 app 来说 TUI 的增量代码 = 0 行。**不做的唯一理由是编不过**（Android/CI），
 > 那不是"砍"，是 `--no-default-features` 的降级路径。
 
-## 4. 四端各自的验收标准（都要过）
+## 4. 四端各自的验收标准（**`lfiles` 已全过**）
 
-| 端 | 验收 |
-|---|---|
-| **CLI** | `lfiles find --pattern '*.jpg' --json` 出结构化 JSON；`--schema` / `--openai-tool` 有输出 |
-| **WebUI** | `lfiles --gui` → 自动开浏览器 → `?cmd=` 下拉能切到任意命令 → 提交后有 SSE 进度 → 结果显示 |
-| **MCP** | `lfiles --mcp` → `initialize` / `tools/list` 返回带 safety tag 的 schema → `tools/call` 缺参被 `validate_args` 拦下 |
-| **TUI** | 交互终端直接 `lfiles` → 命令选择页 → 表单 → 执行有进度条 → `q`/Esc 返回选择页 |
+| 端 | 验收 | 实测结果（2026-09-19） |
+|---|---|---|
+| **CLI** | `lfiles find --pattern '*.jpg' --json` 出结构化 JSON；`--schema` / `--openai-tool` 有输出 | ✅ `--help` 列 4 子命令；`find`/`dedup`/`stats` 数值全对；`rename` dry-run 不动盘、`--apply` 真改、冲突中止（`目标已存在…未做任何改动`）、幂等三态（跳过 / `--allow-reapply` 叠加）全通过 |
+| **WebUI** | `lfiles --gui` → `?cmd=` 下拉能切到任意命令 → 提交后有 SSE 进度 → 结果显示 | ✅ 首页 132KB；下拉含 4 命令且 `?cmd=` 四命令渲染字节数各异；裸 `POST /run` → **401**（CSRF 令牌中间件生效）；带令牌 → `started→started→tick→done` SSE 全流；**`find` 结果与 CLI `--json` 逐字一致**；`rename`(T1) 在 Web(Interactive) 面放行 |
+| **MCP** | `initialize` / `tools/list` 返回带 safety tag 的 schema → `tools/call` 缺参被 `validate_args` 拦下 | ✅ `initialize` 正常；`tools/list` 4 工具（`rename` 带 `[safety: T1]`）；`tools/call find`(T0) 放行返回真实数据；`tools/call rename`(T1) **被安全门拒绝**；缺 `root` → `-32602 参数错误: 缺少必填参数: root` |
+| **TUI** | 交互终端 `lfiles --tui` → 命令选择页 → 表单 → 执行有进度条 → `q`/Esc 返回选择页 | ✅ 真 PTY（winpty）实测：选择页渲染 4 命令 + `▶` 光标可移动；Enter 进表单渲染字段（`root (*)` / `min-size` / `ext`）+ CLI 预览 `$ dedup --root qq` + 实时校验（`⚠ 必填参数 root 未填写` → `⚠ 路径不存在`）；Esc/q 干净退出；裸跑自动降级 CLI |
 
-**四端同一份 handler，结果 JSON 必须逐字一致**（这是框架化的验收点）。
+**四端同一份 handler，结果 JSON 必须逐字一致** —— 已在 CLI↔Web 之间用同一 `root` 参数实测比对通过（忽略 `duration_ms`）。
+
+> TUI 的「选择页→表单→进度→回选择页」状态机另有 6 个 facade 单测（`build_multi_tui`
+> 的隐藏命令过滤 / 空注册表报错 / 高亮驱动）+ 29 个 `lilyco-tui` 单测覆盖；
+> 真 TTY 下验证的是"确实渲染出来了、确实能进能退"。
 
 ## 5. MVP 必须带上、不能省的两件事
 
 1. **安全分级**：删除/覆盖/上传/外呼 一律 `SafetyTier::Confirm`(T1) 以上；
    `tools/list` 已把 tier 写进 description，agent 能看到门槛。**别为省事全标 T0。**
+   `lfiles` 的 `rename` 已按此定为 T1 —— 副产物是它**逼出了框架级缺陷**：
+   `Registry::with_policy` 原先无调用点，导致 CLI 上敲 T1 也被拒（见 §2 已落地清单）。
 2. **参数不得拼 shell**：MCP / Web 直传参数没有 clap 兜底，安全完全依赖 `validate_args` + 执行层转义。
    → 先做**参数白名单 + 数组式 exec（不经 shell）**。反面教材：`mcp-imagemagick-rce`（CWE-78 命令注入）。
+   `lfiles` 全命令只用 `std::fs`，无 `Command::new`，天然免疫此类问题。
 
 > 注：Web 端 `serve_state` 已带 `security_mw` 中间件且**只绑 127.0.0.1**，这是对的，别改成 0.0.0.0。
+> 实测确认：中间件对 `POST /run` 同时校验回环 `Origin` + `X-Lilyco-Token`（令牌写在首页
+> `<meta name="lilyco-token">`，前端 JS 读取后随 fetch 带上）。
 
 ## 6. 分发与 agent 侧对齐
 
@@ -148,7 +156,10 @@ lilyco::run_tui_registry("lfiles", reg);
 
 ## 7. 一句话行动清单
 
-1. 补 facade 的 `run_web_registry`（约 10 行）+ 多命令形态的 `--gui` 分发。
-2. 起 `lfiles` 作为第一个「一域一二进制 × 四端」样板，把 `find` / `rename` / `dedup` 三条命令挂上。
-3. 四端逐个过 §4 验收表，确保结果 JSON 逐字一致。
-4. 样板跑通后，`lmedia` / `limage` 就是把已有 app 并进来，`ldoc` / `lsys` 照抄。
+1. ~~补 facade 的 `run_web_registry`~~ ✅ 已完成（含 `run_registry` / `run_registry_with` /
+   `detect_registry_backend`，以及**按调用面注入 SafetyPolicy**）。
+2. ~~起 `lfiles` 作为第一个「一域一二进制 × 四端」样板~~ ✅ 已完成：`find` / `rename` /
+   `dedup` / `stats` 四命令挂一表，**69 个单测**，`docs/lfiles.md` 为样板文档。
+3. ~~四端逐个过 §4 验收表，确保结果 JSON 逐字一致~~ ✅ 已完成（见上表）。
+4. 样板已跑通 → 下一步把 `lmedia`(已有 `lffmpeg`) / `limage`(已有 `lilyco-brush`+`lilyco-vision`)
+   并进来，`ldoc` / `lsys` 照抄 `lilyco-files` 的结构（`main.rs` 的 registry 装配 + 每命令一文件）。

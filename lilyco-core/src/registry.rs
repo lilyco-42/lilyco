@@ -80,6 +80,16 @@ impl RegisteredCommand {
         self
     }
 
+    /// 批量设置别名（重建注册表等场景比逐个 `alias()` 方便）
+    pub fn aliases<I, S>(mut self, aliases: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.aliases.extend(aliases.into_iter().map(Into::into));
+        self
+    }
+
     /// 标记隐藏
     pub fn hidden(mut self, hidden: bool) -> Self {
         self.hidden = hidden;
