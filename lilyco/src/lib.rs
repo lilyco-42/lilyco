@@ -69,7 +69,6 @@ use lilyco_core::progress::LogLevel;
 use lilyco_core::registry::Handler;
 #[cfg(feature = "tui")]
 use lilyco_core::{AppError, Progress};
-#[cfg(feature = "tui")]
 use std::sync::Arc;
 
 /// 宏展开的后端路径：`#[derive(App)]` 生成的代码引用 `::lilyco::__core::…`
@@ -773,6 +772,7 @@ mod tests {
     }
 
     #[cfg(feature = "tui")]
+    #[cfg(feature = "tui")]
     #[test]
     fn auto_tui_when_terminal_and_term() {
         let args: Vec<String> = Vec::new();
@@ -842,6 +842,7 @@ mod tests {
     }
 
     /// `--tui` 显式标志在多命令形态下被识别
+    #[cfg(feature = "tui")]
     #[test]
     fn registry_tui_flag_is_honored() {
         let args = vec!["--tui".to_string()];

@@ -3,8 +3,8 @@
 //! 链路：Agent token → 安全门（T0 直通 / T2 验令牌）→ Modbus TCP → mock PLC 寄存器，
 //! 全程零真硬件、云端可跑。
 
-use lilyco::prelude::*;
 use lilyco::__core::safety::{GateDecision, GateRequest};
+use lilyco::prelude::*;
 use lilyco_plc::{MockPlc, ModbusTcp, PlcRead, PlcWrite};
 use std::sync::Arc;
 

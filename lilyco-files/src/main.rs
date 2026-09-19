@@ -22,8 +22,8 @@ mod rename;
 mod stats;
 mod util;
 
-use lilyco::prelude::*;
 use lilyco::__core::safety::{DenyElevated, Interactive, SafetyPolicy};
+use lilyco::prelude::*;
 use std::sync::Arc;
 
 /// 构建整个「文件整理」域的注册表（使用给定安全策略）
