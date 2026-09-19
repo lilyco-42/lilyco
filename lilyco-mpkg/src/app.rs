@@ -56,7 +56,7 @@ pub fn run_put(app: &MpkgPut, ctx: &Context) -> Result<serde_json::Value, AppErr
 pub struct MpkgGet {
     /// 记忆包存储目录
     dir: PathBuf,
-    /// 内容哈希（64 位 hex 或 sha256: 前缀），与 name 二选一
+    /// blob 内容地址（原始字节 sha256，64 位 hex 或 sha256: 前缀），与 name 二选一
     hash: Option<String>,
     /// 按包名取出（读名字索引），与 hash 二选一
     name: Option<String>,
@@ -97,7 +97,7 @@ pub fn run_get(app: &MpkgGet, ctx: &Context) -> Result<serde_json::Value, AppErr
 pub struct MpkgVerify {
     /// 记忆包存储目录
     dir: PathBuf,
-    /// 内容哈希（64 位 hex 或 sha256: 前缀），与 name 二选一
+    /// blob 内容地址（原始字节 sha256，64 位 hex 或 sha256: 前缀），与 name 二选一
     hash: Option<String>,
     /// 按包名定位（读名字索引），与 hash 二选一
     name: Option<String>,

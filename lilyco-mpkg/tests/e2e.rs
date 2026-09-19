@@ -176,12 +176,15 @@ fn put_get_verify_full_chain() {
     );
     assert_eq!(outcome.result.unwrap()["id"].as_str().unwrap(), info.id);
 
-    // get 支持带 sha256: 前缀的哈希写法
+    // get 支持带 sha256: 前缀的哈希写法（--hash 定位的是存储层 blob 地址）
     let outcome = execute(
         handler_of(&reg, "mpkg-get"),
-        serde_json::json!({ "dir": dir.to_str().unwrap(), "hash": info.id }),
+        serde_json::json!({
+            "dir": dir.to_str().unwrap(),
+            "hash": format!("sha256:{}", info.blob),
+        }),
     );
-    assert_eq!(outcome.result.unwrap()["blob"], info.blob);
+    assert_eq!(outcome.result.unwrap()["blob"].as_str().unwrap(), info.blob);
 
     // verify（T0 直通）：完整性通过 + 遥测上报验证结果
     let outcome = execute(
