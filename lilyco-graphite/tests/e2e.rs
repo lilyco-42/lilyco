@@ -16,10 +16,19 @@ use lilyco_graphite::{
 };
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-/// 测试级串行锁：保证 "建文档 / 画图 / 执行 App" 的复合操作不被并行测试插入
+/// 测试级串行锁：保证 "建文档 / 画图 / 执行 App" 的复合操作不被并行测试插入。
+/// 毒化恢复：某个断言失败不应连坐后续测试。
 fn driver() -> MutexGuard<'static, ()> {
     static DRIVER: OnceLock<Mutex<()>> = OnceLock::new();
-    DRIVER.get_or_init(|| Mutex::new(())).lock().unwrap()
+    DRIVER
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+/// 共享宿主上锁（毒化恢复同 driver()）
+fn lock_host() -> MutexGuard<'static, lilyco_graphite::GraphiteHost> {
+    shared_host().lock().unwrap_or_else(|e| e.into_inner())
 }
 
 fn handler_of(reg: &Registry, name: &str) -> Handler {
@@ -31,7 +40,7 @@ fn handler_of(reg: &Registry, name: &str) -> Handler {
 #[test]
 fn headless_new_doc_add_rect_save_full_chain() {
     let _session = driver();
-    let mut host = shared_host().lock().unwrap();
+    let mut host = lock_host();
 
     // 1) 新建文档
     host.new_document("spike");
@@ -48,8 +57,13 @@ fn headless_new_doc_add_rect_save_full_chain() {
         "加矩形后节点数应增加: before={before} after={after}"
     );
 
-    // 4) 改填充不透明度（消息派发不 panic 即视为已受理）
+    // 4) 改填充不透明度——会向图层插入 blending fill 节点，节点数可能再增
     host.set_fill(0.5);
+    let filled = host.node_count().unwrap();
+    assert!(
+        filled >= after,
+        "set_fill 不应减少节点: after={after} filled={filled}"
+    );
 
     // 5) 序列化：拿到 .graphite 字节且为合法 JSON，内含 rectangle 图层痕迹
     let (name, bytes) = host.save_content().unwrap();
@@ -70,7 +84,7 @@ fn headless_new_doc_add_rect_save_full_chain() {
             .and_then(|n| n.as_array())
             .unwrap()
             .len(),
-        after,
+        filled,
         "节点计数应与序列化产物一致"
     );
 }
@@ -115,7 +129,7 @@ fn doc_new_passes_gate_and_emits_telemetry() {
 fn add_rect_passes_gate_and_grows_document() {
     let _session = driver();
     // 确保有活动文档
-    shared_host().lock().unwrap().new_document("add-rect");
+    lock_host().new_document("add-rect");
 
     let mut reg = Registry::new();
     reg.register(RegisteredCommand::from_app::<GraphiteAddRect>())
@@ -165,7 +179,7 @@ fn set_fill_allowed_by_interactive_policy() {
     let _session = driver();
     // 先确保有文档和选中图层（handler 线程会再拿宿主锁，这里不能持有）
     {
-        let mut host = shared_host().lock().unwrap();
+        let mut host = lock_host();
         host.new_document("interactive");
         host.draw_rectangle(0., 0., 50., 50.);
     }
@@ -193,7 +207,7 @@ fn save_writes_document_bytes_to_disk() {
     let _session = driver();
     // 保证有内容可存
     {
-        let mut host = shared_host().lock().unwrap();
+        let mut host = lock_host();
         host.new_document("save-demo");
         host.draw_rectangle(5., 5., 30., 30.);
     }
