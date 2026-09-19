@@ -34,9 +34,12 @@ job 与现有 `test` / `release-build` / `android` job **独立并行**，不挂
 rustup toolchain install stable --profile minimal
 rustup default stable
 rustup target add aarch64-unknown-linux-musl
-sudo apt-get install -y musl-tools   # 交叉链接兜底（本仓库纯 Rust，通常用不到）
+# aarch64 交叉链接器：rustc 给 musl 目标的链接命令传 AArch64 专用旗标
+# （--fix-cortex-a53-843419），宿主 x86_64 的 ld 不认识，必须换 aarch64 ld
+sudo apt-get install -y gcc-aarch64-linux-gnu
 
 # 2) 构建 headless（CLI + MCP + PLC），静态单文件
+export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc
 cargo build -p lilyco -p lilyco-core -p lilyco-cli -p lilyco-mcp -p lilyco-plc \
   --target aarch64-unknown-linux-musl --no-default-features --release
 

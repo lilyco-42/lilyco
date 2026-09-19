@@ -164,12 +164,16 @@ jobs:
           rustup default stable
           rustup target add aarch64-unknown-linux-musl
 
-      # 提供交叉链接兜底（本仓库五 crate 全为纯 Rust，rustc 自带 musl 自包含 CRT，
-      # 通常系统 cc 就能链接；装上 musl-tools 以防万一）
-      - name: Install musl tools
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      # aarch64 交叉链接器：rustc 给 musl 目标的链接命令传 AArch64 专用旗标
+      # （--fix-cortex-a53-843419），宿主 x86_64 的 ld 不认识，必须换 aarch64 ld。
+      # 纯 Rust 下该 gcc 只当链接驱动用——CRT/libc 全部来自 rustc 自带的 musl 自包含文件，
+      # 产物仍是静态 musl 单文件（不是 glibc 动态链接）
+      - name: Install aarch64 cross linker
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: "Build headless (CLI + MCP + PLC) for aarch64 musl"
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
         run: |
           cargo build -p lilyco -p lilyco-core -p lilyco-cli -p lilyco-mcp -p lilyco-plc \
             --target aarch64-unknown-linux-musl --no-default-features --release
