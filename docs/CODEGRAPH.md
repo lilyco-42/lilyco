@@ -23,12 +23,12 @@ flowchart TD
 
 | crate | 版本 | 依赖 | 职责一句话 |
 |---|---|---|---|
-| `lilyco-core` | 0.2.3 | serde/thiserror | 领域模型 + 执行语义 + 校验，零 UI 依赖 |
+| `lilyco-core` | 0.3.0 | serde/thiserror | 领域模型 + 执行语义 + 校验，零 UI 依赖 |
 | `lilyco-macros` | 0.3.0 | syn/quote | `#[derive(App)]` / `#[derive(ValueEnum)]` 代码生成 |
-| `lilyco-cli` | 0.2.2 | core + clap | schema → clap 渲染 + 内置标志 + 输出格式化 |
-| `lilyco-tui` | 0.2.4 | core + ratatui | ratatui 表单状态机（单/多命令），不持有执行逻辑 |
-| `lilyco-gui` | 0.2.3 | core + axum/tokio | Web 控制台 + SSE 进度 + 回环安全中间件 |
-| `lilyco-mcp` | 0.2.3 | core（零额外依赖） | MCP 2024-11-05 stdio 服务器 + 进度通知 |
+| `lilyco-cli` | 0.3.0 | core + clap | schema → clap 渲染 + 内置标志 + 输出格式化 |
+| `lilyco-tui` | 0.3.0 | core + ratatui | ratatui 表单状态机（单/多命令），不持有执行逻辑 |
+| `lilyco-gui` | 0.3.0 | core + axum/tokio | Web 控制台 + SSE 进度 + 回环安全中间件 |
+| `lilyco-mcp` | 0.3.0 | core（零额外依赖） | MCP 2024-11-05 stdio 服务器 + 进度通知 |
 | `lilyco` | 0.2.3 | 全部 | **唯一组合根**：后端自动选择 + 各形态入口 |
 
 Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被特性门控）。

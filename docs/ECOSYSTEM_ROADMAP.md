@@ -39,3 +39,19 @@ mpkg 格式上收 lystack 为单一契约源：
 3. 平台重依赖（webrtc / crossterm / tokio）一律 feature 门控默认关（P2）
 4. 运维脚本与产品代码分仓（P2）
 5. 对外工具一律走 lilyco 工具层（App derive + 安全门 + 遥测），不再手写 CLI
+
+---
+
+## 架构收口（2026-09-20，外部评审驱动）
+
+| 项 | 状态 |
+|---|---|
+| 删 7 个冗余 `lilyco-core` 依赖（grep/ffmpeg/brush/vision/letsgal/pet/example 0 处使用）+ 过时注释 | ✅ |
+| files/plc/mpkg/bitnet/graphite 的 `lilyco_core::` → `lilyco::__core::`（13 处）后删依赖 | ✅ |
+| facade `default = []`（守则 3）：crossterm/ratatui/tokio/axum 全部显式 feature，版本升 0.3.0 | ✅ |
+| facade 以 `=0.3.0` 精确锁 lilyco-macros（semver 不可见边 → 显式锁定；macros 须随 facade 发布——cargo 机制） | ✅ |
+| `lilyco-ultra-ui` 接进组合根：`Backend::Ultra`（`--ultra` / LILYCO_UI=ultra，feature `ultra`） | ✅ |
+| 全部 crate `version.workspace = true`，统一 0.3.0（消除 5 种版本分叉）；CODEGRAPH 表同步 | ✅ |
+| CI 拆分：framework（8 crate）/ apps（12 crate）两 job——应用挂了不拖累框架绿 | ✅ |
+| 组织级 `lilyco-42/.github` hygiene reusable workflow（守则 2 git 依赖锁 rev / 大文件扫描） | ✅ |
+| 框架/应用分目录（crates/ + apps/） | 📌 挂账：等 lfiles 工作线收口后执行（避免路径冲突） |

@@ -15,6 +15,9 @@ workspace 依赖图、全部关键符号（带 `文件:行号`）、四端调用
 1. `core::executor` 是唯一执行宿主 —— 禁止在后端重写"线程 + 进度消费"循环。
 2. `CommandSchema::validate_args` 是唯一参数校验实现 —— 新规则先加 core（带测试），TUI 侧在 `FormField::validate` 映射。
 3. 依赖严格单向：core 不依赖后端；后端互不依赖；`lilyco` facade 是唯一组合根。
+   - facade `default = []`（headless）：TUI/Web/Ultra 平台重依赖一律显式 `features = [...]`（守则 3）
+   - 应用 crate 只依赖 `lilyco`，不直接依赖 `lilyco-core`（core 类型走 `lilyco::__core` 或 prelude）
+   - git 依赖必须锁 rev/tag（守则 2，CI hygiene job 强制）
 4. `Progress` 事件流恒以 `Done`/`Error` 结尾（executor 合成兜底）。
 5. 任何 PR：`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets`、`cargo test --workspace` 全绿；新增能力必须带测试。
 6. 多命令语义四端对齐：可见/别名/隐藏 —— 改语义时对照 `docs/CODEGRAPH.md` §5 的矩阵，四端一起改。

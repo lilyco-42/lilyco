@@ -39,7 +39,7 @@
 //! | `mpkg-get` | T0 只读 | 读存储不产生副作用 |
 //! | `mpkg-verify` | T0 只读 | 纯校验，重算哈希不改任何状态 |
 //!
-//! `MpkgPut` 注册进 [`lilyco_core::registry::Registry`] 即被 P0 安全门包住：
+//! `MpkgPut` 注册进 [`lilyco::__core::registry::Registry`] 即被 P0 安全门包住：
 //! 默认 `DenyElevated` 策略下自动化面直接拒绝，且拒绝发生在写盘之前。
 
 pub mod app;

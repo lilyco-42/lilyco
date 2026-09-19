@@ -15,7 +15,7 @@
 //! - **官方先例**：驱动模式复刻 `graphite-editor` 的 `test_utils.rs`
 //!   （测试如何无 GUI 模拟鼠标拖拽画形状），但不依赖其 `#[cfg(test)]` 门控
 //! - **天生受门控**：`GraphiteSetFill` 声明 `safety = "t1"`，注册进
-//!   [`lilyco_core::registry::Registry`] 即被安全门包住——自动化面默认拒绝，
+//!   [`lilyco::__core::registry::Registry`] 即被安全门包住——自动化面默认拒绝，
 //!   交互面（`Interactive` 策略）放行
 //! - **进程级单宿主**：Graphite 的 `ENVIRONMENT` 是 `OnceLock`（每进程只能建一个
 //!   Editor），因此所有工具共享 [`shared_host`] 返回的唯一内核实例

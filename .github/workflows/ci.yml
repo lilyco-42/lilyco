@@ -11,8 +11,15 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: test (${{ matrix.os }})
+  # 组织级架构守则（git 依赖锁 rev / 大文件不入库）—— reusable workflow
+  hygiene:
+    name: hygiene (架构守则)
+    uses: lilyco-42/.github/.github/workflows/lyco-hygiene.yml@main
+
+  # 框架 crate：core/macros/cli/tui/gui/mcp/ultra-ui/facade
+  # 与应用 job 拆分 —— 应用挂了不拖累框架绿（守则：框架 CI 不被应用 C 依赖卡住）
+  framework:
+    name: framework (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -27,23 +34,44 @@ jobs:
           rustup toolchain install stable --profile minimal --component rustfmt,clippy
           rustup default stable
 
-      - name: Check formatting
+      - name: Clippy (framework, all targets)
+        run: cargo clippy -p lilyco-core -p lilyco-macros -p lilyco-cli -p lilyco-tui -p lilyco-gui -p lilyco-mcp -p lilyco-ultra-ui -p lilyco --all-targets
+
+      - name: Run tests (framework, headless)
+        run: cargo test -p lilyco-core -p lilyco-macros -p lilyco-cli -p lilyco-tui -p lilyco-gui -p lilyco-mcp -p lilyco-ultra-ui -p lilyco
+
+      - name: Run tests (facade full features: tui + web + ultra)
+        run: cargo test -p lilyco --features full
+
+      - name: Verify docs build (framework)
+        run: cargo doc -p lilyco-core -p lilyco-macros -p lilyco-cli -p lilyco-tui -p lilyco-gui -p lilyco-mcp -p lilyco-ultra-ui -p lilyco --no-deps
+
+  # 应用 crate：框架消费者。ubuntu 单平台快验（windows 应用产物走 release-build）
+  apps:
+    name: apps (fmt + clippy + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain (fmt + clippy)
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+
+      - name: Check formatting (workspace)
         run: cargo fmt --all -- --check
 
-      - name: Clippy (all targets)
-        run: cargo clippy --workspace --all-targets
+      - name: Clippy (apps, all targets)
+        run: cargo clippy -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal --all-targets
 
-      - name: Run tests
-        run: cargo test --workspace
-
-      - name: Verify docs build
-        run: cargo doc --workspace --no-deps
+      - name: Run tests (apps)
+        run: cargo test -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal
 
   # 产出可直接使用的二进制 —— 本机不装 Rust 也能拿到
   release-build:
     name: build binaries (windows)
     runs-on: windows-latest
-    needs: test
+    needs: [framework, apps]
     steps:
       - uses: actions/checkout@v4
 

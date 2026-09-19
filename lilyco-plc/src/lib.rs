@@ -6,7 +6,7 @@
 //! 设计要点：
 //! - **零依赖**：MBAP/TCP 帧只有几十行，不值得为此引入 tokio-modbus 全家桶
 //!   （lyco 信条 5：最小化验证，原子化构建）
-//! - **天生受门控**：`PlcWrite` 声明 `safety = "t2"`，注册进 [`lilyco_core::registry::Registry`]
+//! - **天生受门控**：`PlcWrite` 声明 `safety = "t2"`，注册进 [`lilyco::__core::registry::Registry`]
 //!   即被 P0 安全门包住——自动化面默认拒绝，能力令牌策略放行
 //! - **自带遥测**：读取/写入都通过 `ctx.telemetry` 上报数据点，
 //!   Agent 在 MCP progress 通道实时看到寄存器值（P1 遥测流）

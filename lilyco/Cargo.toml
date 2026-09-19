@@ -1,6 +1,6 @@
 [package]
 name = "lilyco"
-version = "0.2.3"
+version.workspace = true
 edition = "2021"
 description = "Lilyco facade — one dependency, auto backend selection (CLI / TUI / Web / MCP)"
 license = "MIT OR Apache-2.0"
@@ -10,24 +10,30 @@ categories = ["command-line-interface", "development-tools"]
 
 [dependencies]
 # 永远可用（纯 Rust，任何平台）：CLI / MCP / core / 宏
-lilyco-core = { version = "0.2", path = "../lilyco-core" }
-lilyco-cli = { version = "0.2", path = "../lilyco-cli" }
-lilyco-mcp = { version = "0.2", path = "../lilyco-mcp" }
-lilyco-macros = { version = "0.3", path = "../lilyco-macros" }
+lilyco-core = { version = "0.3", path = "../lilyco-core" }
+lilyco-cli = { version = "0.3", path = "../lilyco-cli" }
+lilyco-mcp = { version = "0.3", path = "../lilyco-mcp" }
+lilyco-ultra-ui = { version = "0.3", path = "../lilyco-ultra-ui", optional = true }
+# 精确锁版：宏展开引用 ::lilyco::__core，facade 与 macros 必须同版本发布（semver 不可见边 → 显式锁定）
+lilyco-macros = { version = "=0.3.0", path = "../lilyco-macros" }
 serde_json = "1"
 
 # 可选后端：TUI（crossterm 不支持 android，cfg(unix) 不含 android）、Web
-lilyco-tui = { version = "0.2", path = "../lilyco-tui", optional = true }
-lilyco-gui = { version = "0.2", path = "../lilyco-gui", optional = true }
+lilyco-tui = { version = "0.3", path = "../lilyco-tui", optional = true }
+lilyco-gui = { version = "0.3", path = "../lilyco-gui", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
 crossterm = { version = "0.28", optional = true }
 ratatui = { version = "0.29", optional = true }
 
 [features]
-default = ["tui", "web"]
+# 默认 headless（CLI + MCP）：平台重依赖（crossterm/ratatui/tokio/axum）一律显式启用
+# —— 内聚/耦合守则 3（见 docs/ECOSYSTEM_ROADMAP.md）；要 TUI/Web 用 features = ["tui","web"] 或 "full"
+default = []
 # 全功能别名（lilyco-brush 的 full 特性引用）
-full = ["tui", "web"]
+full = ["tui", "web", "ultra"]
 # Android/Termux 等无 crossterm 平台：
 #   --no-default-features（只剩 CLI + MCP，纯 Rust，aarch64-linux-android 可编）
 tui = ["dep:lilyco-tui", "dep:crossterm", "dep:ratatui"]
 web = ["dep:lilyco-gui", "dep:tokio"]
+# Ultra UI：JSON → React 生成器 playground（--ultra）
+ultra = ["dep:lilyco-ultra-ui"]
