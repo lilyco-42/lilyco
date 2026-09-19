@@ -131,7 +131,8 @@ fn plc_write_requires_token_then_lands_in_plc() {
     );
     assert!(
         matches!(denied.result, Err(AppError::Safety(_))),
-        "{denied:?}"
+        "{:?}",
+        denied.result
     );
 
     // 错 token → 门拒
