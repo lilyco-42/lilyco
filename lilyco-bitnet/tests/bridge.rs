@@ -43,8 +43,22 @@ impl SharedMock {
         }
     }
 
-    fn boxed(self) -> Box<dyn Sampler> {
-        Box::new(self)
+    /// 恒定失败的假采样器（错误路径）
+    fn failing() -> Self {
+        Self {
+            inner: Arc::new(MockInner {
+                calls: Mutex::new(Vec::new()),
+                gen_tokens: 0,
+                fail: true,
+            }),
+        }
+    }
+
+    /// 装箱为 trait 对象；克隆共享记录（构造处仍可 calls() 读调用历史）
+    fn boxed(&self) -> Box<dyn Sampler> {
+        Box::new(SharedMock {
+            inner: Arc::clone(&self.inner),
+        })
     }
 
     fn calls(&self) -> Vec<(String, u32)> {
@@ -117,8 +131,7 @@ fn sample_never_exceeds_max_tokens_on_either_side() {
 
 #[test]
 fn sample_surfaces_sampler_error() {
-    let mock = SharedMock::new(0);
-    mock.inner.fail = true;
+    let mock = SharedMock::failing();
     let err = BitNetBridge::with_sampler(mock.boxed())
         .sample("hi", 8)
         .unwrap_err();
