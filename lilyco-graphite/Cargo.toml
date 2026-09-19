@@ -25,3 +25,7 @@ graphene-std = { git = "https://github.com/GraphiteEditor/Graphite", rev = "ab32
 graph-craft = { git = "https://github.com/GraphiteEditor/Graphite", rev = "ab32a6047650996725263b132806c171dc83097b" }
 # 版本必须与 graphite workspace 锁定的 glam 对齐（0.32.x），否则 DVec2 类型不一致
 glam = "0.32.1"
+# 依赖版本对齐 pin：graphite 上游 lock 钉 mmap-io 0.9.4（as_slice 返回 &[u8]），
+# 0.9.5+ 改返回 MappedSlice 导致 document-container 编译失败（E0308）。
+# 本 crate 声明精确版本以参与全 workspace 统一解析，把版本钉回上游已验证组合。
+mmap-io = "=0.9.4"
