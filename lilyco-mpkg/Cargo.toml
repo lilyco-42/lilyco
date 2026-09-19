@@ -1,0 +1,21 @@
+[package]
+name = "lilyco-mpkg"
+version = "0.1.0"
+edition = "2021"
+description = "Lilyco memory package — mpkg content-addressed put/get/verify, T2 token-gated write with telemetry"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+
+[[bin]]
+name = "lmpkg"
+path = "src/main.rs"
+
+[dependencies]
+# default-features = false → headless（CLI + MCP），aarch64 伴飞计算机可编
+lilyco = { path = "../lilyco", default-features = false }
+# derive(App) 宏展开引用 lilyco_core::… 路径，需要能解析到它
+lilyco-core = { path = "../lilyco-core" }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
