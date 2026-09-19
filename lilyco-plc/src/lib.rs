@@ -214,25 +214,25 @@ pub struct MockPlc {
 }
 
 impl MockPlc {
-    /// 启动 mock PLC（后台线程，accept 单连接多事务）
+    /// 启动 mock PLC（后台线程；寄存器空间跨连接持久，实例间隔离）
     pub fn spawn(initial: Vec<u16>) -> std::io::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;
+        // 与真 PLC 一致：寄存器在连接间持久（写连接与读连接看到同一份状态）
+        let regs = Arc::new(std::sync::Mutex::new(initial));
         std::thread::spawn(move || {
-            // 循环 accept：每个测试一个连接，多测试各自独立
             for stream in listener.incoming() {
                 let Ok(mut s) = stream else { return };
-                mock_conn(&mut s, &initial);
+                mock_conn(&mut s, &regs);
             }
         });
         Ok(Self { addr })
     }
 }
 
-/// 单连接事务循环（寄存器空间每连接独立初始化）
-fn mock_conn(stream: &mut TcpStream, initial: &[u16]) {
+/// 单连接事务循环（寄存器空间为 MockPlc 实例内共享）
+fn mock_conn(stream: &mut TcpStream, regs: &Arc<std::sync::Mutex<Vec<u16>>>) {
     let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
-    let mut regs = initial.to_vec();
     loop {
         let mut head = [0u8; 7];
         if read_exact(stream, &mut head).is_err() {
@@ -246,6 +246,7 @@ fn mock_conn(stream: &mut TcpStream, initial: &[u16]) {
         if read_exact(stream, &mut pdu).is_err() {
             return;
         }
+        let mut regs = regs.lock().expect("mock plc lock");
         let resp: Vec<u8> = match pdu[0] {
             0x03 => {
                 // 读保持寄存器
