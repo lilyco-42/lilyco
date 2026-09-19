@@ -7,8 +7,8 @@
 //! cargo test -p lilyco-pet -- --ignored
 //! ```
 
+use lilyco::__core::safety::{GateDecision, GateRequest, SafetyTier};
 use lilyco::prelude::*;
-use lilyco_core::safety::{GateDecision, GateRequest, SafetyTier};
 use lilyco_pet::{edge_tts, PetAct, PetAction, PetSay};
 
 fn handler_of(reg: &Registry, name: &str) -> Handler {
@@ -84,7 +84,7 @@ fn pet_say_schema_marks_t0_and_expected_args() {
 
     let text = s.args.iter().find(|a| a.name == "text").expect("text 参数");
     assert!(text.required, "text 必填");
-    assert!(matches!(text.kind, lilyco_core::schema::ArgKind::Text));
+    assert!(matches!(text.kind, lilyco::__core::schema::ArgKind::Text));
 
     let voice = s
         .args
@@ -123,7 +123,7 @@ fn pet_act_schema_marks_t0_and_enum_args() {
         .expect("action 参数");
     assert!(action.required, "action 必填");
     match &action.kind {
-        lilyco_core::schema::ArgKind::Enum { values } => {
+        lilyco::__core::schema::ArgKind::Enum { values } => {
             assert!(values.contains(&"face_smile".to_string()));
             assert!(values.contains(&"toggle_dress".to_string()));
             assert_eq!(values.len(), PetAction::variants().len());
@@ -139,7 +139,7 @@ fn pet_act_schema_marks_t0_and_enum_args() {
     assert!(!intensity.required, "intensity 可选");
     assert!(matches!(
         intensity.kind,
-        lilyco_core::schema::ArgKind::Number { .. }
+        lilyco::__core::schema::ArgKind::Number { .. }
     ));
 }
 

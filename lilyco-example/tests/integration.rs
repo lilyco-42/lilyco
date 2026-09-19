@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use image::{ImageBuffer, Rgb};
-use lilyco_core::prelude::*;
-use lilyco_core::schema::{ArgKind, CommandSchema};
+use lilyco::__core::prelude::*;
+use lilyco::__core::schema::{ArgKind, CommandSchema};
 
 // Import the binary's types and functions.
 // In a binary crate, we can't directly `use` items from main.rs.
