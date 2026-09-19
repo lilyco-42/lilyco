@@ -8,6 +8,7 @@
 //! 两层哈希（易混淆，见 GOLDEN.md §3 显式警告）：
 //! - content-id = `sha256:` + sha256(canon_json(包JSON))，语义身份，对空白不敏感；
 //! - blob 地址 = sha256(原始字节)，存储地址，对每字节敏感。
+//!
 //! golden 输入为 canon 形式 → 两者十六进制恰好相同；非 canon 字节落盘时
 //! blob 变而 content-id 不变（见末尾测试）。
 
