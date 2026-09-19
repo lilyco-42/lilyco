@@ -1,3 +1,6 @@
+// 与 lib.rs 同款：graphite 类型链撑爆默认 trait 求解深度
+#![recursion_limit = "512"]
+
 //! lgraphite — Graphite 桥演示：一个二进制 = CLI + TUI + Web + MCP 四端 + 安全门 + 遥测
 //!
 //! ```bash

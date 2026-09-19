@@ -1,3 +1,6 @@
+// 与 lib.rs 同款：graphite 类型链撑爆默认 trait 求解深度
+#![recursion_limit = "512"]
+
 //! Graphite 桥端到端（P0 spike）
 //!
 //! 链路：lilyco App → 安全门（T0 直通 / T1 拒绝）→ GraphiteHost（headless 消息总线）

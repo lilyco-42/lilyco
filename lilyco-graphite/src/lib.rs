@@ -1,3 +1,7 @@
+// graphite 的消息类型拉入 wgpu/naga 深泛型 trait 链，会撑爆默认 128 的
+// trait 求解器（与 graphite 上游 lib.rs 的同款注释同源），这里照搬其解法
+#![recursion_limit = "512"]
+
 //! # Lilyco Graphite — AI 画画最小闭环（P0 spike）
 //!
 //! headless 驱动 [Graphite](https://github.com/GraphiteEditor/Graphite) 编辑器内核：
