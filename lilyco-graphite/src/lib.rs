@@ -30,8 +30,13 @@
 //! ```
 
 pub mod app;
+pub mod export;
 pub mod host;
 
+pub use export::{gpu_available, render_png, render_svg};
 pub use host::{parse_hex_color, shared_host, GraphiteHost};
 
-pub use app::{GraphiteAddRect, GraphiteDocNew, GraphiteSave, GraphiteSetFill};
+pub use app::{
+    GraphiteAddRect, GraphiteDocNew, GraphiteExportPng, GraphiteExportSvg, GraphiteSave,
+    GraphiteSetFill,
+};
