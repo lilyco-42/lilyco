@@ -365,7 +365,7 @@ version = "0.0.0"
 source = "git+https://github.com/GraphiteEditor/Graphite?rev=ab32a6047650996725263b132806c171dc83097b#ab32a6047650996725263b132806c171dc83097b"
 dependencies = [
  "core-types",
- "glam 0.32.1",
+ "glam",
  "graphic-types",
  "node-macro",
  "serde",
@@ -418,7 +418,7 @@ dependencies = [
  "bytemuck",
  "core-types",
  "dyn-any",
- "glam 0.32.1",
+ "glam",
  "graphene-hash",
  "graphic-types",
  "half",
@@ -436,7 +436,7 @@ source = "git+https://github.com/GraphiteEditor/Graphite?rev=ab32a60476509967252
 dependencies = [
  "core-types",
  "dyn-any",
- "glam 0.32.1",
+ "glam",
  "graphene-hash",
  "serde",
 ]
@@ -784,7 +784,7 @@ dependencies = [
  "color",
  "ctor",
  "dyn-any",
- "glam 0.32.1",
+ "glam",
  "graphene-hash",
  "image",
  "kurbo",
@@ -1127,7 +1127,7 @@ version = "0.3.1"
 source = "git+https://github.com/GraphiteEditor/Graphite?rev=ab32a6047650996725263b132806c171dc83097b#ab32a6047650996725263b132806c171dc83097b"
 dependencies = [
  "dyn-any-derive",
- "glam 0.32.1",
+ "glam",
  "reqwest",
 ]
 
@@ -1565,16 +1565,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "glam"
-version = "0.33.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e762b9b188634fc508d4ec54b62ea3d352c43fd431d18d05d46f559f217f4725"
-dependencies = [
- "bytemuck",
- "libm",
-]
-
-[[package]]
 name = "glow"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1637,7 +1627,7 @@ dependencies = [
  "brush-nodes",
  "core-types",
  "dyn-any",
- "glam 0.32.1",
+ "glam",
  "graphene-application-io",
  "graphene-core",
  "graphene-hash",
@@ -1669,7 +1659,7 @@ dependencies = [
  "blake3",
  "core-types",
  "dyn-any",
- "glam 0.32.1",
+ "glam",
  "graphene-hash",
  "graphene-resource",
  "log",
@@ -1686,7 +1676,7 @@ source = "git+https://github.com/GraphiteEditor/Graphite?rev=ab32a60476509967252
 dependencies = [
  "core-types",
  "dyn-any",
- "glam 0.32.1",
+ "glam",
  "graphene-application-io",
  "log",
  "serde",
@@ -1704,7 +1694,7 @@ source = "git+https://github.com/GraphiteEditor/Graphite?rev=ab32a60476509967252
 dependencies = [
  "core-types",
  "dyn-any",
- "glam 0.32.1",
+ "glam",
  "graphene-hash",
  "graphic-types",
  "log",
@@ -1718,7 +1708,7 @@ name = "graphene-hash"
 version = "0.0.0"
 source = "git+https://github.com/GraphiteEditor/Graphite?rev=ab32a6047650996725263b132806c171dc83097b#ab32a6047650996725263b132806c171dc83097b"
 dependencies = [
- "glam 0.32.1",
+ "glam",
  "graphene-hash-derive",
 ]
 
@@ -1755,7 +1745,7 @@ dependencies = [
  "bytemuck",
  "core-types",
  "dyn-any",
- "glam 0.32.1",
+ "glam",
  "graph-craft",
  "graphene-application-io",
  "graphene-canvas-utils",
@@ -1789,7 +1779,7 @@ dependencies = [
  "brush-types",
  "core-types",
  "dyn-any",
- "glam 0.32.1",
+ "glam",
  "graphic-types",
  "node-macro",
  "rand 0.9.5",
@@ -1806,7 +1796,7 @@ dependencies = [
  "brush-types",
  "core-types",
  "dyn-any",
- "glam 0.32.1",
+ "glam",
  "graphene-hash",
  "node-macro",
  "raster-types",
@@ -1829,7 +1819,7 @@ dependencies = [
  "document-graph-storage",
  "dyn-any",
  "futures",
- "glam 0.32.1",
+ "glam",
  "graph-craft",
  "graphene-hash",
  "graphene-std",
@@ -2360,7 +2350,7 @@ dependencies = [
  "core-types",
  "dyn-any",
  "futures",
- "glam 0.32.1",
+ "glam",
  "graph-craft",
  "graphene-core",
  "graphene-std",
@@ -2668,7 +2658,7 @@ dependencies = [
 name = "lilyco-graphite"
 version = "0.1.0"
 dependencies = [
- "glam 0.32.1",
+ "glam",
  "graph-craft",
  "graphene-std",
  "graphite-editor",
@@ -2915,7 +2905,7 @@ version = "0.0.0"
 source = "git+https://github.com/GraphiteEditor/Graphite?rev=ab32a6047650996725263b132806c171dc83097b#ab32a6047650996725263b132806c171dc83097b"
 dependencies = [
  "core-types",
- "glam 0.32.1",
+ "glam",
  "graphic-types",
  "log",
  "math-parser",
@@ -3151,7 +3141,7 @@ source = "git+https://github.com/GraphiteEditor/Graphite?rev=ab32a60476509967252
 dependencies = [
  "bytemuck",
  "dyn-any",
- "glam 0.32.1",
+ "glam",
  "graphene-hash",
  "half",
  "log",
@@ -3492,7 +3482,7 @@ version = "0.0.0"
 source = "git+https://github.com/GraphiteEditor/Graphite?rev=ab32a6047650996725263b132806c171dc83097b#ab32a6047650996725263b132806c171dc83097b"
 dependencies = [
  "core-types",
- "glam 0.32.1",
+ "glam",
  "graphic-types",
  "linesweeper",
  "log",
@@ -3964,7 +3954,7 @@ dependencies = [
  "core-types",
  "dyn-any",
  "fastnoise-lite",
- "glam 0.32.1",
+ "glam",
  "graphene-hash",
  "graphene-resource",
  "image",
@@ -3991,7 +3981,7 @@ dependencies = [
  "bytemuck",
  "core-types",
  "dyn-any",
- "glam 0.32.1",
+ "glam",
  "graphene-hash",
  "image",
  "node-macro",
@@ -4155,7 +4145,7 @@ dependencies = [
  "brush-types",
  "core-types",
  "dyn-any",
- "glam 0.32.1",
+ "glam",
  "graphene-hash",
  "graphene-resource",
  "graphic-types",
@@ -4179,7 +4169,7 @@ source = "git+https://github.com/GraphiteEditor/Graphite?rev=ab32a60476509967252
 dependencies = [
  "core-types",
  "dyn-any",
- "glam 0.32.1",
+ "glam",
  "graphic-types",
  "log",
  "node-macro",
@@ -4831,7 +4821,7 @@ checksum = "68cdc5ca01151f2627fdf1cff34bf6452f5dc212a6d09f4aa5a9b4f17e9bc8e3"
 dependencies = [
  "bitflags 1.3.2",
  "bytemuck",
- "glam 0.33.7",
+ "glam",
  "libm",
  "num-traits",
  "spirv-std-macros",
@@ -5063,7 +5053,7 @@ dependencies = [
  "core-types",
  "dyn-any",
  "fancy-regex",
- "glam 0.32.1",
+ "glam",
  "graphene-hash",
  "graphene-resource",
  "log",
@@ -5353,7 +5343,7 @@ version = "0.0.0"
 source = "git+https://github.com/GraphiteEditor/Graphite?rev=ab32a6047650996725263b132806c171dc83097b#ab32a6047650996725263b132806c171dc83097b"
 dependencies = [
  "core-types",
- "glam 0.32.1",
+ "glam",
  "graphic-types",
  "node-macro",
  "rand 0.9.5",
@@ -5624,7 +5614,7 @@ dependencies = [
  "core-types",
  "delaunator",
  "dyn-any",
- "glam 0.32.1",
+ "glam",
  "graphene-hash",
  "graphic-types",
  "kurbo",
@@ -5649,7 +5639,7 @@ dependencies = [
  "core-types",
  "dyn-any",
  "fixedbitset",
- "glam 0.32.1",
+ "glam",
  "graphene-hash",
  "kurbo",
  "log",
@@ -6153,7 +6143,7 @@ dependencies = [
  "core-types",
  "dyn-any",
  "futures",
- "glam 0.32.1",
+ "glam",
  "graphene-application-io",
  "node-macro",
  "raster-types",
