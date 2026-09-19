@@ -40,7 +40,7 @@ jobs:
       - name: Run tests (framework, headless)
         run: cargo test -p lilyco-core -p lilyco-macros -p lilyco-cli -p lilyco-tui -p lilyco-gui -p lilyco-mcp -p lilyco-ultra-ui -p lilyco
 
-      - name: Run tests (facade full features: tui + web + ultra)
+      - name: "Run tests (facade full features: tui + web + ultra)"
         run: cargo test -p lilyco --features full
 
       - name: Verify docs build (framework)
