@@ -1,7 +1,7 @@
 //! # Lilyco BitNet 采样桥 — 全离线 LLM 后端
 //!
 //! 用本地 [bitnet-rs](https://github.com/lilyco-42/bitnet-rs)（BitNet b1.58-2B
-//! 推理引擎）实现 [`lilyco_core::context::HostBridge`]，打通
+//! 推理引擎）实现 [`lilyco::__core::context::HostBridge`]，打通
 //! **pet 聊天 → ctx.sample → 本地 BitNet 推理 → pet-say 语音** 的全离线闭环。
 //!
 //! 设计要点：
@@ -27,8 +27,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
-use lilyco_core::context::HostBridge;
-use lilyco_core::error::AppError;
+use lilyco::__core::context::HostBridge;
+use lilyco::__core::error::AppError;
 
 pub mod app;
 

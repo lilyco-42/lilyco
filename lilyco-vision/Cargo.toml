@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-vision"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "Vision toolkit (image-info / crop / resize / dominant-colors / pixel-diff / foreground / trace / screenshot) as Lilyco apps — CLI / TUI / Web / MCP, AI-callable by default"
 license = "MIT OR Apache-2.0"
@@ -14,8 +14,6 @@ path = "src/main.rs"
 # 可选：android 构建用 headless（--no-default-features --features android，
 # 只剩 CLI + MCP，纯 Rust 可在 aarch64-linux-android 编译）
 lilyco = { path = "../lilyco", optional = true, default-features = false }
-# derive(App) 宏展开引用 lilyco_core::… 路径，binary 需要能解析到它
-lilyco-core = { path = "../lilyco-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }

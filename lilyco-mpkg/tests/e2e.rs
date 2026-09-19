@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use lilyco::prelude::*;
-use lilyco_core::safety::{GateDecision, GateRequest};
+use lilyco::__core::safety::{GateDecision, GateRequest};
 use lilyco_mpkg::{MpkgGet, MpkgPut, MpkgVerify, Store};
 
 fn handler_of(reg: &Registry, name: &str) -> Handler {

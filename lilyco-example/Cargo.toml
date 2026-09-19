@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-example"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "Lilyco demo — image compression tool"
 license = "MIT OR Apache-2.0"
@@ -16,8 +16,6 @@ harness = false
 
 [dependencies]
 lilyco = { path = "../lilyco" }
-# derive(App) 宏展开引用 lilyco_core::… 路径，binary 需要能解析到它
-lilyco-core = { path = "../lilyco-core" }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }

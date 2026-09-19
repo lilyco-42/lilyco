@@ -23,7 +23,7 @@
 
 use std::path::PathBuf;
 
-use lilyco_core::AppError;
+use lilyco::__core::AppError;
 use serde_json::{json, Value};
 
 use crate::sha256::sha256_hex;

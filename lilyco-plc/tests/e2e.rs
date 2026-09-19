@@ -4,7 +4,7 @@
 //! 全程零真硬件、云端可跑。
 
 use lilyco::prelude::*;
-use lilyco_core::safety::{GateDecision, GateRequest};
+use lilyco::__core::safety::{GateDecision, GateRequest};
 use lilyco_plc::{MockPlc, ModbusTcp, PlcRead, PlcWrite};
 use std::sync::Arc;
 
