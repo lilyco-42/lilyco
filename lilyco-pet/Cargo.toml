@@ -1,0 +1,22 @@
+[package]
+name = "lilyco-pet"
+version = "0.1.0"
+edition = "2021"
+description = "Lilyco 桌宠桥 — 丛雨（cute-pet）动作与语音成为 AI 可调工具：pet-say（EdgeTTS）/ pet-act，T0 安全分级 + 遥测"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+
+[[bin]]
+name = "lpet"
+path = "src/main.rs"
+
+[dependencies]
+# default-features = false → headless（CLI + MCP），桌宠前端进程 / 嵌入式陪伴设备都可挂
+lilyco = { path = "../lilyco", default-features = false }
+# derive(App) 宏展开引用 lilyco_core::… 路径，需要能解析到它
+lilyco-core = { path = "../lilyco-core" }
+serde_json = "1"
+# EdgeTTS：对齐 lly 的成熟方案（msedge-tts 处理 Sec-MS-GEC DRM 时钟 / WSS 握手，
+# 纯 rustls TLS，无 openssl 系统依赖）。rustls 0.23 需要进程级默认 CryptoProvider。
+msedge-tts = "0.4"
+rustls = { version = "0.23", features = ["ring"] }
