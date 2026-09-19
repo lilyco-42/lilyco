@@ -18,7 +18,10 @@ use crate::util::{ext_of, glob_match, human_size, norm, walk};
 )]
 pub struct Find {
     /// 起始目录或文件
-    #[arg(about = "Root directory (or a single file) to search", must_exist = true)]
+    #[arg(
+        about = "Root directory (or a single file) to search",
+        must_exist = true
+    )]
     root: PathBuf,
 
     /// 文件名 glob（如 *.jpg）
@@ -46,7 +49,10 @@ pub struct Find {
     ignore_case: bool,
 
     /// 最多返回多少条（0 = 不限）
-    #[arg(about = "Cap the number of returned files (0 = unlimited)", default = 0)]
+    #[arg(
+        about = "Cap the number of returned files (0 = unlimited)",
+        default = 0
+    )]
     limit: u64,
 }
 
@@ -78,8 +84,8 @@ fn run_find(app: &Find, ctx: &Context) -> Result<serde_json::Value, AppError> {
     });
 
     // 1. 遍历
-    let entries = walk(&app.root, app.max_depth.map(|d| d as usize))
-        .map_err(AppError::InvalidArg)?;
+    let entries =
+        walk(&app.root, app.max_depth.map(|d| d as usize)).map_err(AppError::InvalidArg)?;
 
     ctx.emit(Progress::Started {
         total: Some(entries.len() as u64),
