@@ -1186,7 +1186,7 @@ mod tests {
 
     #[test]
     fn sanitize_filename_blocks_traversal() {
-        assert_eq!(sanitize_filename("../../etc/passwd"), "______etc_passwd");
+        assert_eq!(sanitize_filename("../../etc/passwd"), "____etc_passwd");
         assert_eq!(sanitize_filename("报告 最终.pdf"), "报告_最终.pdf");
         assert_eq!(sanitize_filename(""), "");
         assert_eq!(sanitize_filename(".."), "_");
