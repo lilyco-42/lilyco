@@ -17,5 +17,5 @@ lilyco = { path = "../lilyco", default-features = false }
 lilyco-core = { path = "../lilyco-core" }
 serde_json = "1"
 # 本地 BitNet b1.58 推理引擎（进程内 lib 复用，非子进程）
-# 注：待 bitnet-rs PR（feat/model-api → main）合并后改为锁 rev
-bitnet-rs = { git = "https://github.com/lilyco-42/bitnet-rs", branch = "feat/model-api" }
+# bitnet-rs 已锁 rev（feat/model-api 已 squash 合并进 main）
+bitnet-rs = { git = "https://github.com/lilyco-42/bitnet-rs", rev = "6e12ab9e8ad4c99a88cd0ffec9f0d08b1d507f31" }
