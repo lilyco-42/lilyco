@@ -82,11 +82,23 @@ impl GraphiteHost {
         })
     }
 
-    /// 设置主色（primary working color）——决定后续绘制形状的填充色
+    /// 设置主色（primary working color）。
+    ///
+    /// 注意编辑器默认路由：主色喂**描边**、副色喂**填充**（见 editor 的
+    /// `color_selector.rs::fill_working_color`，colors_swapped=false 时填充取副色）。
+    /// 想让后续绘制形状带填充色请用 [`Self::set_fill_color`]。
     pub fn set_primary_color(&mut self, color: Color) -> Vec<FrontendMessage> {
         self.send(ToolMessage::SelectWorkingColor {
             color,
             primary: true,
+        })
+    }
+
+    /// 设置填充工作色（secondary working color）——默认路由下决定后续绘制形状的填充。
+    pub fn set_fill_color(&mut self, color: Color) -> Vec<FrontendMessage> {
+        self.send(ToolMessage::SelectWorkingColor {
+            color,
+            primary: false,
         })
     }
 
