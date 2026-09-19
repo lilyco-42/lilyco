@@ -109,18 +109,28 @@ fn build_session(document_bytes: &[u8]) -> Result<RenderSession, String> {
 }
 
 /// 渲染 SVG，返回 SVG 字节（纯 CPU 矢量路径，headless 无 GPU 也能跑）
-pub fn render_svg(document_bytes: &[u8], scale: f64) -> Result<Vec<u8>, String> {
+pub fn render_svg(
+    document_bytes: &[u8],
+    scale: f64,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> Result<Vec<u8>, String> {
     let session = build_session(document_bytes)?;
     // Executor trait 只为 &DynamicExecutor 实现（官方 CLI 以引用持有），
     // 这里同样显式取引用再调 execute
     let executor = &session.executor;
 
-    let render_config = RenderConfig {
+    let mut render_config = RenderConfig {
         scale,
         export_format: ExportFormat::Svg,
         for_export: true,
         ..Default::default()
     };
+    // 视口尺寸决定 SVG 的 viewBox/width/height（缺省 Footprint::default 是 1x1，
+    // 画布内容会被裁掉——给尺寸才能得到视觉完整的 SVG）
+    if let (Some(w), Some(h)) = (width, height) {
+        render_config.viewport.resolution = UVec2::new(w, h);
+    }
     let result = block_on(executor.execute(render_config.into_context()))
         .map_err(|e| format!("SVG 渲染执行失败: {e:?}"))?;
     let svg = match result {
