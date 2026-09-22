@@ -1,0 +1,95 @@
+# lbin — 二进制 / 容器结构查看使用文档
+
+`lilyco-binfmt` 是 lilyco 框架的**第二个纯只读域二进制**：一个 `lbin` 挂「看一个文件到底是什么结构」
+这一整域的 4 条命令，照 `lilyco-files` 的样板获得 **CLI / TUI / Web / MCP** 四端 + AI 可调用。
+
+- 仓库：`https://github.com/lilyco-42/lilyco`
+- 二进制名：`lbin`
+- 依赖：`object`（符号层）+ 自己写的字节走查（识别 / 成员表 / 分区图），**不执行、不解压、不写盘**
+- 安全级：**4 条命令全是 T0 只读**，MCP 的 `DenyElevated` 策略下照样放行
+
+---
+
+## 安装
+
+```bash
+cargo binstall lilyco-binfmt            # 免编译
+cargo install --path lilyco-binfmt      # 源码编译
+cargo run -p lilyco-binfmt -- identify --path /usr/bin/ls --json
+```
+
+---
+
+## 命令一览
+
+| 命令 | 安全级 | 干什么 |
+|---|---|---|
+| `identify` | **T0** 只读 | 靠文件自己的字节说清是什么族、什么格式，并摊开它头部自报的字段 |
+| `entries` | **T0** 只读 | 列压缩包/归档的成员表：ZIP（含 APK/JAR/DOCX/EPUB）、tar、ar（含 .deb） |
+| `regions` | **T0** 只读 | 把整个文件按区上色：头部 / 表 / 代码 / 数据 / 只读 / 元数据 / 空闲 / 尾部叠加 |
+| `symbols` | **T0** 只读 | 按分析器的读法看一个目标文件：节表 + `.symtab` 与 `.dynsym` + 地址到名字 |
+
+四条命令都要 `--path`（`must_exist`）。规模控制两个开关：
+`--max-bytes`（默认 `identify` 1 MiB、`regions` 32 MiB、`entries`/`symbols` 64 MiB；**写 0 = 不设上限**）
+与 `--limit`（`entries` 默认 200、`symbols` 默认 128；`regions` 上限固定 256 区）。
+`--json` 出结构化结果，人读格式在结果超过 500 字节时只报进度——**给脚本和 AI 用请加 `--json`**。
+
+> Web / MCP 端不带这些参数时传进来的是 0（`#[arg(default)]` 只在 CLI 生效）。`--max-bytes 0` 与 `--limit 0`
+> 都按上面的缺省值处理——把 0 当成「只读一千字节 / 只列一条」会交出被悄悄砍短的答案，四端还会给出长短不一的同一张表。
+
+---
+
+## 快速上手
+
+```bash
+lbin identify --path app.apk --json          # 是 APK 还是别的？头字段怎么说？
+lbin entries  --path app.apk --limit 200     # 中央目录列出的成员
+lbin regions  --path a.out --json            # 哪些字节是代码/数据/表，哪些没人指
+lbin symbols  --path /usr/bin/ls --json      # 节表 + 两张符号表 + 地址→名字
+lbin --schema                                # 注册表清单（四端同源的那份）
+```
+
+`identify` 的两档置信度是**这域的关键设计**：
+
+- `signature` —— 开头几个字节就定死了（ELF/PE/PNG/…）。
+- `structural` —— 魔数之外还得让某张表刚好铺进文件才敢这么说。
+  例：`0xCAFEBABE` 同时是 Java class 与通用二进制的魔数，只有当架构表每一项的
+  偏移与长度都落在文件内、且条数 ≤ 64 时，才叫它 universal binary。
+
+`entries` 每条答案都带 `checks: [{claim, ok, note}]`：文件自报的东西要自己圆得回来。
+中央目录说 3 条而实际只有 1 条，就报 `ok: false` 并说清差在哪，而不是默默少报。
+
+`regions` 的 `totals` 必须自洽：`claimed + unreferenced + loaded_unaddressed == 读进来的字节数`。
+`gap`（绿色）只表示「没有表也没有加载段点到这里」，**不是「改这里安全」**——校验和、签名、
+自读取的程序都不会在表里留下痕迹。没实现的族一律 `mapped: false` + 原因，不编区间。
+
+---
+
+## 覆盖范围（说清楚边界）
+
+| 命令 | 现在能用 | 现在不用 |
+|---|---|---|
+| `identify` | ELF 32/64、PE、DOS/MZ、Mach-O（thin + fat）、DEX、ZIP/APK、tar、ar、PNG/JPEG/GIF/BMP/WebP/RIFF、TIFF、PDF、WebAssembly、Java class、SQLite、CAB、7z、RAR、xar、EBML/Matroska、ISO BMFF（按 brand）、gzip/bzip2/xz/zstd/LZ4、WOFF/WOFF2、RPM | 内容级解析（只做结构） |
+| `entries` | ZIP 家族（方法/CRC-32/两个尺寸/局部头偏移）、tar（typeflag/mode/uid/gid/mtime + 八位校验和自证）、ar（含 `.deb` 的 `` ` ``+换行命名） | 压缩流的解压 |
+| `regions` | ELF（节 + 加载段 → 区分对齐填充与真空闲）、PE（段表 + 证书目录）、Mach-O（节表/符号表/间接符号表/重定位，端序由头的字节排列决定）、PNG（块表 + 真算的 CRC） | 其他族给 `mapped: false` + 原因 |
+| `symbols` | 走 `object`：ELF/PE/Mach-O/COFF，节表 + `.symtab`/`.dynsym` + 地址到名字索引 | 反汇编、控制流（那是另一个域） |
+
+Mach-O 的两处坑已经用真文件钉住（`lilyco-binfmt/src/regions.rs` 的测试）：
+节名/段名是**定长 16 字节**，`__compact_unwind`、`__gcc_except_tab` 正好占满、没有结尾符；
+`S_ZEROFILL`（`__bss`/`__common`）的 `offset` 是 0，在文件里没有字节，不能画成数据区。
+
+---
+
+## 四端与扩展
+
+```rust
+// lilyco-binfmt/src/main.rs —— 与 lilyco-files 同形状
+let reg = build_registry_with_policy(policy_for(backend));
+lilyco::run_registry_with("lbin", reg, backend)
+```
+
+- MCP：`lbin --mcp` → `tools/list` 返回 4 个工具，参数由 `CommandSchema::validate_args` 统一校验
+  （缺 `path` 直接被拒，错误信息里带字段名）。
+- 加一条命令：新模块 + `#[derive(App)]` → `main.rs` 的 `for c in [...]` 里加一行，四端自动获得。
+- 加一个能画区的族：`src/regions.rs` 加 `xxx_spans()` 并在 `run_regions` 的 match 里加一臂，
+  同时补一条「图必须铺满读进来的字节」的测试。

@@ -1,0 +1,43 @@
+[package]
+name = "lilyco-binfmt"
+version = "0.1.0"
+edition = "2021"
+description = "lbin — 二进制与容器文件结构域：识别 / 成员表 / 分区上色 / 节与符号，四端 (CLI / TUI / Web / MCP) + AI 可调"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+keywords = ["cli", "binary", "elf", "pe", "mcp"]
+categories = ["command-line-interface", "development-tools"]
+
+[[bin]]
+name = "lbin"
+path = "src/main.rs"
+
+[dependencies]
+# 可选：android 构建用 headless（--no-default-features --features android，
+# 只剩 CLI + MCP，纯 Rust 可在 aarch64-linux-android 编译）
+lilyco = { version = "0.2", path = "../lilyco", optional = true, default-features = false }
+# derive(App) 宏展开引用 lilyco_core::… 路径，binary 需要能解析到它
+lilyco-core = { version = "0.2", path = "../lilyco-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Apache-2.0 OR MIT，与本体同样的读法：统一的节表 / 符号表层，
+# 关掉 default 的 compression 以免拉进 flate2/ruzstd。
+# 钉死版本：行文本里用的是它 Debug 输出的小写形式，小版本随时可能改词。
+object = { version = "=0.32.2", default-features = false, features = ["read", "std"] }
+
+[features]
+default = ["full"]
+# 全功能（CLI + TUI + Web + MCP）
+full = ["dep:lilyco", "lilyco/full"]
+# Android/Termux：headless（CLI + MCP）
+android = ["dep:lilyco"]
+
+[dev-dependencies]
+tempfile = "3"
+
+# ── cargo binstall ────────────────────────────────────────
+# 资产命名 `{ name }-{ target }{ binary-ext }`（完整 target triple）；
+# pkg-fmt = "bin"：下载的单文件即二进制
+[package.metadata.binstall]
+pkg-url = "https://github.com/lilyco-42/lilyco/releases/download/v{ version }/{ name }-{ target }{ binary-ext }"
+pkg-fmt = "bin"

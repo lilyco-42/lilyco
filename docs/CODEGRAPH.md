@@ -137,6 +137,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 ## 7. 扩展点（怎么加东西）
 
 - **加一个命令**：写 struct + `#[derive(App)]`（可选 `#[app(name/about/run)]`，字段 doc comment 即描述）→ `registry.register(RegisteredCommand::from_app::<T>())`。四端自动获得。
+- **加一个域二进制**：照 `lilyco-files`（文件域）或 `lilyco-binfmt`（二进制结构域，`lbin`，4 条全 T0 只读）抄 `main.rs` 的 registry 装配 + 按调用面注入安全策略 → 根 `Cargo.toml` 的 `[workspace] members` 加一行 → 使用文档放 `docs/<域>.md`（`docs/lfiles.md`、`docs/binfmt.md`）。
 - **加一个后端**：新 crate 只依赖 core，实现 `Renderer`；facade 加一行分发。参考 lilyco-mcp（最小样板 ≈ 350 行含测试）。
 - **加校验规则**：`schema.rs::validate_kind` + `schema.rs` 测试 + TUI `FormField::validate` 映射 + README 限制清单。
 - **加进度事件**：`Progress` 枚举加变体（serde 兼容）→ 各后端消费者各加一臂。
@@ -164,5 +165,6 @@ cargo bench -p lilyco-example                      # schema 生成性能基准
 | GUI | `lilyco-gui/src/lib.rs` 底部 | run_handler 400/200、pick_command、?cmd 导航 |
 | MCP | `lilyco-mcp/src/lib.rs` 底部 | initialize/tools/进度通知/校验拒绝 |
 | 门面 | `lilyco/src/lib.rs` 底部 | 后端探测 |
+| 域二进制 | `lilyco-binfmt/src/{main,read,entries,regions,symbols}.rs` 底部 | 注册表形状/全 T0/工具导出/参数拒绝；魔数判别（Java class ≠ 通用二进制）、tar 八位校验和、PNG 真算 CRC、ELF 头部只到 `e_ehsize`、Mach-O 端序与定长 16 字节节名、零填充节不画成数据 |
 | 端到端 | `lilyco-example/tests/integration.rs` + `examples/multi.rs` | 图片压缩全链路 + 多命令演示 |
 | 性能基准 | `lilyco-example/benches/schema.rs` | schema 生成 / 导出 / 校验 / Registry 装配（`cargo bench -p lilyco-example`） |

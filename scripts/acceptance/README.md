@@ -58,3 +58,26 @@ python scripts/acceptance/tui_probe.py "$BIN" "$FIX"
 
 > 实现要点：winpty 下 stdout 是管道，`read()` 会阻塞到缓冲满 →
 > 必须用**后台线程持续 `read1`** 累积，主线程只管发键与计时。
+
+## lbin（`lilyco-binfmt`）：一份脚本跑完四端
+
+```bash
+BIN=target/debug/lbin          # 或 .exe
+python scripts/acceptance/binfmt_probe.py "$BIN" /绝对路径/某个真实二进制文件
+```
+
+`lbin` 四条命令（`identify` / `entries` / `regions` / `symbols`）全 T0 只读，所以比对基准是
+**同一个文件在四端拿到同一份 JSON**：脚本先取 CLI `--json` 作基准，再逐端比对——
+Web（CSRF 401 → 带令牌 SSE → 逐字比对 → 未知命令 400）、MCP（握手 → `tools/list` 四工具且
+`path` 必填 → 四端调用逐字比对 → 缺参 `-32602`）、TUI（winpty 真 PTY：选择页四条命令 →
+`↓` → `Enter` 进表单 → `Esc`/`q` 退出；不带 `--tui` 裸跑降级 CLI）。退出码 0 才算全过。
+
+> 用真实文件而不是造的样本：`identify` 的判据是「表要刚好铺进文件」，
+> 手搓的字节流很容易四端都拿到同一个假答案，比不出差异。
+
+> winpty 发键的坑：`Esc` 与后一个键**贴着发**（0.4s）会被 crossterm 当成一整个转义序列吞掉，
+> 于是「表单页 Esc 后 q」看起来像退不出去（实测：0.4s 挂、1.2s 干净退出）。
+> 同理 `Ctrl-C` 在 winpty 下本来就不能指望——退出判定只认 Esc/q。
+> 另一个坑：从表单退出要两次状态跳转，`wait` 只给 4 秒会把干净的退出误判成挂死。
+
+

@@ -779,6 +779,25 @@ lffmpeg --mcp                                              # MCP 服务器
 - 完整用法：见 [`docs/lffmpeg.md`](docs/lffmpeg.md)
 - 依赖系统 `ffmpeg`（必须在 PATH 上）
 
+### Binary structure (`lilyco-binfmt`)
+
+`lbin` —— 回答「这个文件到底是什么结构」：识别 / 列成员 / 按区上色 / 读符号表，四端 + AI 可调，**4 条命令全 T0 只读**（不执行、不解压、不写盘）：
+
+```bash
+cargo binstall lilyco-binfmt                          # 免编译安装
+lbin identify --path app.apk --json                   # 什么族什么格式 + 头部自报的字段
+lbin entries  --path app.apk --limit 200              # 中央目录列出的成员（ZIP/tar/ar）
+lbin regions  --path a.out --json                     # 头/表/代码/数据/空闲/尾部叠加
+lbin symbols  --path /usr/bin/ls --json               # 节表 + .symtab/.dynsym + 地址→名字
+lbin --mcp                                            # MCP 服务器
+```
+
+- 置信度分两档：`signature`（开头字节定死）与 `structural`（表刚好铺进文件才敢这么说）——`0xCAFEBABE` 既是 Java class 也是通用二进制，靠架构表落点判别
+- 每个答案带自证：`entries` 报 `checks[]`（文件自报的数目/长度对不上就直说），`regions` 保证 `claimed + unreferenced + loaded_unaddressed == 读进来的字节数`
+- `gap`（绿色）只表示「没有表点到这里」，不是「改这里安全」——校验和与签名不留痕迹
+- 认不出签名、或该族的表还没实现，就 `mapped: false` + 原因，不编区间
+- 完整用法：见 [`docs/binfmt.md`](docs/binfmt.md)
+
 ### Transcode (TUI demo)
 
 ```rust

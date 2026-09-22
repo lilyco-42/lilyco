@@ -14,6 +14,7 @@ members = [
     "lilyco-brush",
     "lilyco-ffmpeg",
     "lilyco-files",
+    "lilyco-binfmt",
     "lilyco-vision",
     "lilyco-ultra-ui",
     "lilyco-ultra-ui-example",

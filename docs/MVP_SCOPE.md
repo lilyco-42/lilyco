@@ -106,9 +106,10 @@ fn main() {
 | **`limage`** | 照片/PS 类 | 抠图、老照片修复、超分、美颜、格式转换、缩放、加水印 | **已有 `lilyco-brush`** + `lilyco-vision` |
 | **`ldoc`** | 文档 | PDF 合并/拆分/提取文本、OCR、Office↔PDF、批量转换 | 部分可用 `lilyco-vision`(OCR) |
 | **`lsys`** | 系统/硬件 | 进程、磁盘、内存、网络、环境变量、服务、shell 执行 | 新（`lilyco-plc` 可参考） |
+| **`lbin`** | 看文件的结构（逆向/取证/答疑） | 识别魔数并摊开头字段、列压缩包成员、按区上色、读目标文件节表与符号表 | **已有 `lilyco-binfmt`**，4 条命令全 T0 只读 |
 
 **MVP 先做这 5 个**：覆盖「整理文件 → 处理照片 → 剪视频 → 读文档 → 看系统」，
-其中两个已有底子，边际成本最低。
+其中两个已有底子，边际成本最低。`lbin` 不在名额里——它全 T0 只读、已在仓库，随时可发。
 次批：`ltext`（grep/替换/编码）、`lnet`（下载/抓取/API）、`lchat`（文本生成）。
 
 > **为什么 TUI 顺带做**：`lilyco::run_tui_registry` 已存在，多命令选择页也已实现；
@@ -125,6 +126,14 @@ fn main() {
 | **TUI** | 交互终端 `lfiles --tui` → 命令选择页 → 表单 → 执行有进度条 → `q`/Esc 返回选择页 | ✅ 真 PTY（winpty）实测：选择页渲染 4 命令 + `▶` 光标可移动；Enter 进表单渲染字段（`root (*)` / `min-size` / `ext`）+ CLI 预览 `$ dedup --root qq` + 实时校验（`⚠ 必填参数 root 未填写` → `⚠ 路径不存在`）；Esc/q 干净退出；裸跑自动降级 CLI |
 
 **四端同一份 handler，结果 JSON 必须逐字一致** —— 已在 CLI↔Web 之间用同一 `root` 参数实测比对通过（忽略 `duration_ms`）。
+
+> **`lbin` 的第二轮实测（2026-09-22，`scripts/acceptance/binfmt_probe.py`）：两个真实文件各 27/27 通过**（一个 ELF 目标、一个真实 PE 动态库）。
+> CLI 基准 ↔ Web（`--gui` + CSRF + SSE）↔ MCP（stdio `tools/call`）三处结果 JSON 逐字一致（四条命令都比，含 `symbols`）；
+> TUI 在 winpty 真 PTY 下选择页列出四条命令、`↓` 移动高亮、`Enter` 渲染表单与 CLI 预览、`Esc`/`q` 干净退出；
+> 裸跑（不带 `--tui`）仍降级 CLI。
+> 这一轮抓到两处**只在非 CLI 端现形**的缺陷：`limit` / `max-bytes` 在 Web/MCP 省略时传进来是 0，
+> 当时被当成「只列一条」/「只读一千字节」，于是四端给出长短不一的同一张表、报错还怪文件——
+> 现在 0 一律按文档缺省处理（`docs/binfmt.md` 的注意事项里有明文）。
 
 > TUI 的「选择页→表单→进度→回选择页」状态机另有 6 个 facade 单测（`build_multi_tui`
 > 的隐藏命令过滤 / 空注册表报错 / 高亮驱动）+ 29 个 `lilyco-tui` 单测覆盖；
