@@ -454,6 +454,14 @@ gui.serve(schema, Arc::new(|args| Box::pin(async move {
 
 **Flow:** Form POST -> spawn task -> SSE stream -> progress bar + log
 
+**路径字段带「…」选择按钮**：`#[arg(must_exist = true)]` 渲染出的输入框旁边有一个按钮，点了由**本机进程**弹一次系统文件选择框（`POST /pick`，走 `rfd`，可用 `pick` 特性关掉），选完把真实路径回填进输入框。
+浏览器的 `<input type=file>` 办不到这件事——它出于安全永远不给出真实路径（只有 `File.name`），而四端共用的 handler 收的正是 `path`、自己从盘上读。
+`/pick` 与 `/run` 共用同一道回环 + Origin + Token 闸（无令牌 401，挡在弹框之前）；对话框在 blocking 线程里等，弹着的时候页面照常响应。
+> 弹框可见性：Windows 的前台锁定不让后台进程抢焦点，所以 `pick_handler` 不硬抢——它按标题轮询
+> `FindWindowW`（标题就是 `set_title` 用的那个常量，两者不会各说各话），`SetForegroundWindow` 试一次、
+> `FlashWindowEx` 让任务栏那一格闪起来；页面上同时挂一条「系统选择框已弹出，可能被压在后面，看任务栏」的提示，
+> 请求一结束就撤。实测：弹着的时候 `tasklist /V` 的窗口标题正是 `选择文件`，且页面其他请求仍然 200。
+
 ### lilyco (facade)
 
 **一个依赖搞定四端**。用户代码只依赖这一个 crate，后端按环境自动选择。

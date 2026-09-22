@@ -48,7 +48,7 @@ pub const TOKEN_HEADER: &str = "X-Lilyco-Token";
 /// 上传大小上限（base64 编码前）
 const MAX_UPLOAD_BYTES: usize = 200 * 1024 * 1024;
 /// 需要令牌 + 回环 Origin 校验的 POST 端点
-const PROTECTED_POST: &[&str] = &["/run", "/upload", "/cancel"];
+const PROTECTED_POST: &[&str] = &["/run", "/upload", "/cancel", "/pick"];
 
 fn generate_id() -> String {
     rand::thread_rng()
@@ -238,6 +238,7 @@ impl GuiRenderer {
             .route("/progress/{id}", get(progress_handler))
             .route("/upload", post(upload_handler))
             .route("/cancel/{id}", post(cancel_handler))
+            .route("/pick", post(pick_handler))
             .route_layer(middleware::from_fn_with_state(state.clone(), security_mw))
             .with_state(state);
 
@@ -491,13 +492,23 @@ async fn index(
                 } else {
                     "可选：拖拽文件上传并回填路径，或直接手填"
                 };
+                // 「本机」按钮：让服务端弹系统选择器，回填磁盘上的原始路径（不上传副本）。
+                // 没开 pick 特性的构建不画它，免得点了只得到一句报错。
+                let pick_btn = if cfg!(feature = "pick") {
+                    format!(
+                        "<button type=\"button\" class=\"btn-icon dz-pick\" data-pick=\"{esc_name}\" \
+                         aria-label=\"用系统选择器挑本机文件\" title=\"用系统选择器挑本机文件（只回填真实路径，不上传副本）\">本机</button>"
+                    )
+                } else {
+                    String::new()
+                };
                 format!(
                     "<input type=\"text\" id=\"field-{esc_name}\" class=\"mono\" placeholder=\"{}\"{req_a} value=\"{}\" spellcheck=\"false\">\
                      <div class=\"dropzone\" data-target=\"field-{esc_name}\" data-must-exist=\"{must_attr}\" tabindex=\"0\" role=\"button\" aria-label=\"上传文件\">\
                      <input type=\"file\" class=\"visually-hidden\" data-file-for=\"field-{esc_name}\" tabindex=\"-1\">\
                      <span class=\"dz-icon\">⇪</span><span class=\"dz-hint\">{hint}</span>\
                      <span class=\"dz-status\" id=\"up-{esc_name}\" aria-live=\"polite\"></span>\
-                     <span class=\"file-chip\" id=\"chip-{esc_name}\" hidden></span></div>",
+                     <span class=\"file-chip\" id=\"chip-{esc_name}\" hidden></span>{pick_btn}</div>",
                     html_escape(&arg.about),
                     html_escape(dv),
                 )
@@ -689,6 +700,23 @@ function updatePreview(){
 document.getElementById("form").addEventListener("input",updatePreview);
 updatePreview();
 
+// ── 原生选择器：让服务端弹系统对话框，回填磁盘上的原始路径（不上传副本） ──
+// 与上面的拖拽区是两条路：上传拿到的是服务端暂存副本，这里拿到文件本来的路径。
+// 对话框可能被压在浏览器后面（Windows 不让后台进程抢前台），所以状态里写明「看任务栏」。
+document.querySelectorAll("[data-pick]").forEach(btn=>btn.addEventListener("click",async()=>{
+  const name=btn.getAttribute("data-pick"),field=$("field-"+name),status=$("up-"+name);
+  if(!field)return;
+  btn.disabled=true;
+  if(status)status.textContent="等待系统对话框…（可能被压在后面，看一下任务栏）";
+  try{
+    const resp=await fetch("/pick",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:"{}"});
+    const j=await resp.json();
+    if(j.path){field.value=j.path;updatePreview();if(status)status.textContent="已选择："+j.path}
+    else if(status)status.textContent=j.error||"已取消";
+  }catch(err){if(status)status.textContent="选择框失败："+err}
+  finally{btn.disabled=false}
+}));
+
 // ── 文件输入组件：拖拽 / 点击选择 → /upload 暂存 → 回填绝对路径 ──
 function fmtSize(n){return n>1048576?(n/1048576).toFixed(1)+" MB":n>1024?(n/1024).toFixed(1)+" KB":n+" B"}
 async function uploadFile(file,dz){
@@ -796,7 +824,10 @@ struct RunRequest {
 struct UploadRequest {
     /// 原始文件名（仅用于生成暂存文件名，会被净化）
     name: String,
-    /// 文件内容（dataURL 去前缀后的 base64）
+    /// 文件内容（dataURL 去前缀后的 base64）。
+    /// 页面发的是 camelCase `dataB64`，两种写法都得收：只认一种时另一种会整条请求 400，
+    /// 而报出来的错是「missing field data_b64」，看的人根本想不到是键名对不上。
+    #[serde(alias = "dataB64")]
     data_b64: String,
 }
 
@@ -869,6 +900,99 @@ async fn run_handler(State(state): State<Arc<AppState>>, Json(req): Json<RunRequ
         Json(serde_json::json!({ "session_id": sid })),
     )
         .into_response()
+}
+
+/// 对话框标题：既是给用户看的，也是本进程找回那个窗口的查找键
+const PICKER_TITLE: &str = "选择文件";
+
+/// 提醒线程的句柄；非 Windows 版本给 None，调用点两边写法一致
+struct Raiser(Option<std::thread::JoinHandle<()>>);
+
+impl Raiser {
+    fn join(self) {
+        if let Some(handle) = self.0 {
+            let _ = handle.join();
+        }
+    }
+}
+
+/// Windows 的前台锁定不让后台进程抢焦点，所以不硬抢：按标题轮询到那个顶层窗口后
+/// `SetForegroundWindow` 试一次 + `FlashWindowEx` 让任务栏闪。页面提示是主力，闪烁是加成。
+#[cfg(all(windows, feature = "pick"))]
+fn flash_picker_when_ready(title: &'static str) -> Raiser {
+    Raiser(Some(std::thread::spawn(move || {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            FindWindowW, FlashWindowEx, SetForegroundWindow, FLASHWINFO, FLASHW_ALL,
+            FLASHW_TIMERNOFG,
+        };
+        let needle: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+        // 窗口是另一个线程慢慢建出来的，所以要等一会；建好后闪一次就收工
+        for _ in 0..50 {
+            // windows-sys 里 PCWSTR 就是裸的 *const u16，结尾 0 由 needle 自己带上
+            let hwnd = unsafe { FindWindowW(std::ptr::null(), needle.as_ptr()) };
+            if !hwnd.is_null() {
+                unsafe {
+                    SetForegroundWindow(hwnd);
+                    let info = FLASHWINFO {
+                        cbSize: std::mem::size_of::<FLASHWINFO>() as u32,
+                        hwnd,
+                        dwFlags: FLASHW_ALL | FLASHW_TIMERNOFG,
+                        uCount: 5,
+                        dwTimeout: 0,
+                    };
+                    FlashWindowEx(&info);
+                }
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(60));
+        }
+    })))
+}
+
+/// 非 Windows：没有可闪的任务栏格子，页面那条提示仍然管用
+#[cfg(not(all(windows, feature = "pick")))]
+fn flash_picker_when_ready(_title: &'static str) -> Raiser {
+    Raiser(None)
+}
+
+/// 让本机进程弹一次系统文件选择框，把**磁盘上的原始路径**回填到页面输入框。
+///
+/// 与 `/upload` 的分工：拖拽上传走浏览器（拿到的是服务端暂存副本的路径，受 200 MB 上限），
+/// 这里走本机对话框（拿到文件本来的路径，不复制、不设体积上限）。浏览器出于安全永远不给
+/// 真实路径，所以这个框只能由服务端弹；而四端共用的 handler 收的正是 `path`。
+async fn pick_handler() -> Response {
+    #[cfg(feature = "pick")]
+    {
+        // 对话框是阻塞调用：放 blocking 线程里等，弹着的时候页面其他请求照常跑
+        let picked = tokio::task::spawn_blocking(|| {
+            let raiser = flash_picker_when_ready(PICKER_TITLE);
+            let chosen = rfd::FileDialog::new().set_title(PICKER_TITLE).pick_file();
+            let _ = raiser.join();
+            chosen
+        })
+        .await;
+        match picked {
+            // 取消不是错误：path 给 null，页面留着原值不动
+            Ok(Some(path)) => Json(serde_json::json!({ "path": path.display().to_string() })),
+            Ok(None) => Json(serde_json::json!({ "path": serde_json::Value::Null })),
+            Err(error) => Json(serde_json::json!({
+                "path": serde_json::Value::Null,
+                "error": error.to_string(),
+            })),
+        }
+        .into_response()
+    }
+    #[cfg(not(feature = "pick"))]
+    {
+        (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(serde_json::json!({
+                "path": serde_json::Value::Null,
+                "error": "这个构建没开 pick 特性：请手填路径，或把文件拖进虚线框上传",
+            })),
+        )
+            .into_response()
+    }
 }
 
 /// 文件暂存：浏览器端读文件 → base64 → 写入服务端临时目录 → 回填绝对路径。
@@ -1073,6 +1197,78 @@ mod tests {
         let body = body_of(resp).await;
         assert!(body.contains("ping"), "fallback to first visible");
         assert!(body.contains("select"), "nav dropdown expected");
+    }
+
+    /// `/pick`（原生文件选择器）必须和 /run /upload /cancel 同一道闸：
+    /// 它会开一个窗口，不能被别的页面远程刷
+    #[test]
+    fn pick_endpoint_is_token_gated() {
+        assert!(
+            PROTECTED_POST.contains(&"/pick"),
+            "/pick 漏在闸外：{PROTECTED_POST:?}"
+        );
+    }
+
+    /// Path 字段除了拖拽区还要带「本机」按钮（拿原始路径，不走上传副本）；数字字段不带
+    #[tokio::test]
+    async fn path_fields_get_the_native_pick_button() {
+        let state = Arc::new(AppState {
+            schema: Arc::new(CommandSchema {
+                name: "pick".into(),
+                about: "pick".into(),
+                args: vec![
+                    ArgSchema {
+                        name: "file".into(),
+                        about: "文件".into(),
+                        kind: ArgKind::Path { must_exist: false },
+                        required: true,
+                        default: None,
+                    },
+                    ArgSchema {
+                        name: "quality".into(),
+                        about: "质量".into(),
+                        kind: ArgKind::Number {
+                            min: Some(0.0),
+                            max: Some(51.0),
+                        },
+                        required: false,
+                        default: Some(serde_json::json!(23)),
+                    },
+                ],
+                subcommands: vec![],
+                safety: lilyco_core::safety::SafetyTier::ReadOnly,
+            }),
+            registry: None,
+            sessions: Mutex::new(HashMap::new()),
+            cancels: Mutex::new(HashMap::new()),
+            runner: Arc::new(|_, _| Box::pin(async {})),
+            token: "t".into(),
+        });
+        let body = body_of(index(State(state), Query(HashMap::new())).await).await;
+        assert!(body.contains("dropzone"), "Path 参数要有拖拽区");
+        if cfg!(feature = "pick") {
+            assert!(
+                body.contains("data-pick=\"file\"") && body.contains("fetch(\"/pick\""),
+                "原生选择器按钮或它的请求没了"
+            );
+        }
+        assert!(
+            !body.contains("data-pick=\"quality\""),
+            "非 Path 字段不该挂选择器"
+        );
+    }
+
+    /// 页面发 camelCase、结构体字段是 snake_case：两种拼写都得收。
+    /// 只认一种时拖拽上传会整条 400，而报出来的错是「missing field data_b64」，
+    /// 完全看不出是键名对不上（这个坑是实跑截图抓到的）。
+    #[test]
+    fn upload_request_accepts_both_key_spellings() {
+        let camel: UploadRequest =
+            serde_json::from_str(r#"{"name":"a.bin","dataB64":"AAA"}"#).expect("camelCase 要能收");
+        assert_eq!(camel.data_b64, "AAA");
+        let snake: UploadRequest = serde_json::from_str(r#"{"name":"a.bin","data_b64":"BBB"}"#)
+            .expect("snake_case 要能收");
+        assert_eq!(snake.data_b64, "BBB");
     }
 
     #[tokio::test]

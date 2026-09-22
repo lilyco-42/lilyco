@@ -17,3 +17,19 @@ serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 webbrowser = "1"
 rand = "0.8"
+# 原生文件选择器：页面里「用系统选择器挑本机文件」那个按钮走这条路径。
+# 只要 xdg-portal 后端 —— rfd 的 default 还带 wayland，会拉 wayland-sys 的 pkg-config 构建脚本，
+# 交叉编译到 Linux 直接编不动。
+rfd = { version = "0.17", optional = true, default-features = false, features = ["xdg-portal"] }
+
+[target.'cfg(windows)'.dependencies]
+# 只需要三个入口点：按标题找窗口、闪任务栏、试一次抢前台。0.61 与 tokio/mio 已有那份对齐。
+windows-sys = { version = "0.61", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[features]
+# 默认开原生选择器；关掉就不画那个按钮（Android/Termux 的特性组合本来就不启用 lilyco-gui）
+default = ["pick"]
+pick = ["dep:rfd", "dep:windows-sys"]

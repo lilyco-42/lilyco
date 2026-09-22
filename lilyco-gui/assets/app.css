@@ -222,6 +222,9 @@ input[type="checkbox"] {
 }
 .btn-icon:hover { border-color: var(--accent); color: var(--accent); }
 
+/* 拖拽区里的「本机」按钮：不 nowrap 会被 flex 挤成一列竖字 */
+.dz-pick { white-space: nowrap; align-self: center; flex: 0 0 auto; }
+
 /* ── 文件拖拽组件 ── */
 .dropzone {
   margin-top: 8px;

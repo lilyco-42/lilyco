@@ -90,6 +90,10 @@ lilyco::run_registry_with("lbin", reg, backend)
 
 - MCP：`lbin --mcp` → `tools/list` 返回 4 个工具，参数由 `CommandSchema::validate_args` 统一校验
   （缺 `path` 直接被拒，错误信息里带字段名）。
+- Web：`lbin --web` → 路径输入框旁边有「…」按钮，点了弹**系统文件选择框**，选完自动回填路径
+  （框架能力，见 `readme.md` 的 `/pick`；不用浏览器 `<input type=file>` 是因为它给不出真实路径）。
+  对话框可能被压在浏览器后面（Windows 不让后台进程抢前台），所以它会闪任务栏，
+  页面上也会写着「看任务栏」，选完提示自动消失。
 - 加一条命令：新模块 + `#[derive(App)]` → `main.rs` 的 `for c in [...]` 里加一行，四端自动获得。
 - 加一个能画区的族：`src/regions.rs` 加 `xxx_spans()` 并在 `run_regions` 的 match 里加一臂，
   同时补一条「图必须铺满读进来的字节」的测试。
