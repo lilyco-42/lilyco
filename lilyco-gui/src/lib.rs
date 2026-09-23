@@ -1,7 +1,7 @@
 //! # Lilyco Web GUI — axum 服务器 + 内嵌单页控制台
 //!
-//! 设计基调（对齐 docs/WEBUI_EVALUATION.md 决策）：
-//! - **零外部 UI 依赖**：自研 ~12KB 设计系统 CSS（ChatGPT/Codex 级观感），
+//! 设计基调（对齐 docs/WEBUI_EVALUATION.md 决策，取值见 `DESIGN.md`）：
+//! - **零外部 UI 依赖**：自研 ~15KB 设计系统 CSS（明暗两套令牌 + 组件级 container query），
 //!   Layui（480KB，95% 能力闲置）退役；vanilla JS 架构保留
 //! - **文件输入组件**：Path 参数支持拖拽 / 点击选择，也可让服务端弹本机选择器
 //!   （见 `files`）

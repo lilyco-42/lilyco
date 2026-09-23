@@ -87,6 +87,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `AppState` | `state.rs:17` | schema / registry / sessions / cancels / token 一处真相（`pub(crate)`，测试夹具在同文件 `fixture`） |
 | `pick_command()` | `render.rs:23` | `?cmd=` → 可见命令（别名命中；隐藏回退第一个可见） |
 | `index()` | `render.rs:33` | schema → 表单 HTML；**转义纪律集中在此**，骨架是 `assets/index.html` |
+| 设计令牌 | `lilyco-gui/DESIGN.md` | 颜色/间距/排版/圆角/动效/响应式的**唯一一张表**；改样式先看它，`app.css` 只许引用表里的值 |
 | `run_handler()` | `run.rs:111` | `/run`：多命令按 `req.cmd` 显式分发（未知/隐藏 → 400，**绝不静默换命令**）；单命令走 `runner` |
 | `run_progress()` | `run.rs:41` | handler → spawn → SSE 事件转发（单/多命令共用；registry 版会登记取消句柄） |
 | `upload_handler()` | `files.rs:98` | 拖拽上传 → base64 → 服务端临时副本（净化文件名 + 双重体积上限） |
