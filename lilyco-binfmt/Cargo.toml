@@ -18,8 +18,13 @@ path = "src/main.rs"
 lilyco = { version = "0.3", path = "../lilyco", optional = true, default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# 办公文件（docx / xlsx / pptx / odt / …）的正文就是包里被 deflate 压过的一个部件，
+# 不解压就读不到字。用纯 Rust 后端（miniz_oxide）而不是 zlib：Android / Termux 那条
+# 构建链上没有 C 工具链，`--features android` 必须照样编得动。
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 # Apache-2.0 OR MIT，与本体同样的读法：统一的节表 / 符号表层，
-# 关掉 default 的 compression 以免拉进 flate2/ruzstd。
+# 关掉 default 的 compression 以免再拉进 ruzstd（解压 deflate 是上面那条直接依赖，
+# zstd 对本域没用：办公文件里没有哪种常用格式用 zstd 打包）。
 # 钉死版本：行文本里用的是它 Debug 输出的小写形式，小版本随时可能改词。
 object = { version = "=0.32.2", default-features = false, features = ["read", "std"] }
 

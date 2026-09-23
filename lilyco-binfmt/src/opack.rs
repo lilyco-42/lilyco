@@ -1,0 +1,484 @@
+//! 办公文件的「这是什么」层：把字节分进四类容器，并把取部件 / 取流的入口收在一处。
+//!
+//! 四类容器就四件事要说清楚：
+//! - **OOXML**（.docx / .xlsx / .pptx / .docm / …）：ZIP + OPC，正文在固定名字的部件里；
+//!   分 Word / Excel / PowerPoint 靠的是**部件名**而不是扩展名 —— 改了后缀的文件照样能认出来；
+//! - **ODF**（.odt / .ods / .odp）：也是 ZIP，但没有 OPC 的关系表，包清单在
+//!   `META-INF/manifest.xml`，类型靠 `mimetype` 这个第一个成员（它是 stored 的）；
+//! - **MS-CFB**（.doc / .xls / .ppt）：复合文档，正文与属性都是「流」，见 [`crate::cfb`]；
+//! - **RTF**：不是容器，是文本协议，见 [`crate::rtf`]。
+//!
+//! 还有一类必须单独报出来而不是混进「Word 文件」：**加密**。OOXML 的加密包只有一层
+//! `EncryptedPackage` 流（正文是解不开的），CFB 的旧式加密看 `EncryptionInfo`；
+//! 本域不解密（没有口令，也不该有），但一定要说出来 —— 把打不开说成「没有正文」是假答案。
+
+use serde_json::{json, Value};
+
+use crate::cfb::{self, Cfb};
+use crate::read::{central_directory, ZipEntry};
+
+/// 哪一大家族：决定了取正文走哪条路
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Family {
+    /// OOXML 包（OPC：有 [Content_Types].xml）
+    Ooxml,
+    /// OpenDocument 包（靠 mimetype 与 META-INF/manifest.xml）
+    Odf,
+    /// 普通 ZIP（有成员表但不是办公包）
+    Zip,
+    /// 复合文档（.doc / .xls / .ppt）
+    Compound,
+    /// RTF
+    Rtf,
+    /// 认不出来
+    Other,
+}
+
+/// 一次打开的结果
+pub struct Doc {
+    pub family: Family,
+    /// 具体格式名：docx / xlsx / pptx / odt / doc / rtf / …
+    pub format: String,
+    /// 面向哪个应用：word / excel / powerpoint / opendocument / unknown
+    pub app: &'static str,
+    /// OPC / ODF 的成员表（zip 家族才有）
+    pub entries: Vec<ZipEntry>,
+    /// 复合文档（CFB 家族才有）
+    pub compound: Option<Cfb>,
+    /// `[Content_Types].xml` 没覆盖到的部件（OPC 才有意义）
+    pub untyped: Vec<String>,
+    /// 这个包/容器自己说的不自洽之处
+    pub notes: Vec<String>,
+}
+
+impl Doc {
+    pub fn is_zip_family(&self) -> bool {
+        matches!(self.family, Family::Ooxml | Family::Odf | Family::Zip)
+    }
+
+    pub fn has_part(&self, want: &str) -> bool {
+        crate::zipread::find_in(&self.entries, want).is_some()
+    }
+
+    /// 按内容类型看某个部件在不在（`Override` 与 `Default` 都算声明过）
+    pub fn parts_under(&self, prefix: &str) -> Vec<&ZipEntry> {
+        self.entries
+            .iter()
+            .filter(|one| one.name.starts_with(prefix))
+            .collect()
+    }
+
+    pub fn to_json(&self) -> Value {
+        json!({
+            "family": family_name(self.family),
+            "format": self.format,
+            "app": self.app,
+            "parts": self.entries.len(),
+            "streams": self.compound.as_ref().map(|one| one.stream_count()),
+            "notes": self.notes,
+        })
+    }
+}
+
+pub fn family_name(family: Family) -> &'static str {
+    match family {
+        Family::Ooxml => "ooxml",
+        Family::Odf => "opendocument",
+        Family::Zip => "zip",
+        Family::Compound => "compound",
+        Family::Rtf => "rtf",
+        Family::Other => "unknown",
+    }
+}
+
+pub fn is_rtf(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"{\\rtf")
+}
+
+/// 打开：只读头与成员表 / 目录，不解任何部件（那是各命令自己的事）
+pub fn open(bytes: &[u8]) -> Doc {
+    if is_rtf(bytes) {
+        return Doc {
+            family: Family::Rtf,
+            format: "rtf".to_string(),
+            app: "word",
+            entries: Vec::new(),
+            compound: None,
+            untyped: Vec::new(),
+            notes: Vec::new(),
+        };
+    }
+    if cfb::is_cfb(bytes) {
+        return match cfb::open(bytes) {
+            Ok(one) => {
+                let names: Vec<String> = one.stream_names();
+                let app = if names.iter().any(|one| one == "WordDocument") {
+                    "word"
+                } else if names.iter().any(|one| one == "Workbook" || one == "Book") {
+                    "excel"
+                } else if names.iter().any(|one| one == "PowerPoint Document") {
+                    "powerpoint"
+                } else {
+                    "unknown"
+                };
+                let format = match app {
+                    "word" => "doc".to_string(),
+                    "excel" => "xls".to_string(),
+                    "powerpoint" => "ppt".to_string(),
+                    _ => "compound".to_string(),
+                };
+                Doc {
+                    family: Family::Compound,
+                    format,
+                    app,
+                    entries: Vec::new(),
+                    compound: Some(one),
+                    untyped: Vec::new(),
+                    notes: Vec::new(),
+                }
+            }
+            Err(why) => Doc {
+                family: Family::Compound,
+                format: "compound".to_string(),
+                app: "unknown",
+                entries: Vec::new(),
+                compound: None,
+                untyped: Vec::new(),
+                notes: vec![why],
+            },
+        };
+    }
+    if bytes.starts_with(b"PK\x03\x04") || bytes.starts_with(b"PK\x05\x06") {
+        let (entries, broken) = central_directory(bytes);
+        let names: Vec<&str> = entries.iter().map(|one| one.name.as_str()).collect();
+        let ooxml = names.iter().any(|one| {
+            [
+                "word/document.xml",
+                "xl/workbook.xml",
+                "ppt/presentation.xml",
+            ]
+            .contains(one)
+        });
+        let has_content_types = names.iter().any(|one| *one == "[Content_Types].xml");
+        let odf = names.iter().any(|one| *one == "mimetype")
+            && names.iter().any(|one| *one == "content.xml");
+        let family = if ooxml || has_content_types {
+            Family::Ooxml
+        } else if odf {
+            Family::Odf
+        } else {
+            Family::Zip
+        };
+        let (app, format) = classify_zip(family, &names, bytes);
+        let untyped = if family == Family::Ooxml {
+            content_type_gaps(bytes, &entries)
+        } else {
+            Vec::new()
+        };
+        return Doc {
+            family,
+            format,
+            app,
+            entries,
+            compound: None,
+            untyped,
+            notes: broken,
+        };
+    }
+    Doc {
+        family: Family::Other,
+        format: "unknown".to_string(),
+        app: "unknown",
+        entries: Vec::new(),
+        compound: None,
+        untyped: Vec::new(),
+        notes: vec!["既不是 zip 也不是复合文档，也不是 RTF".to_string()],
+    }
+}
+
+/// zip 家族的具体格式：先按部件名分应用，再按「有没有宏部件 / 加密部件」分后缀；
+/// ODF 靠第一个成员 `mimetype` 里的媒体类型（那是规范规定要 stored 放在最前面的东西）
+fn classify_zip(family: Family, names: &[&str], bytes: &[u8]) -> (&'static str, String) {
+    let has = |want: &str| names.iter().any(|one| *one == want);
+    match family {
+        Family::Ooxml => {
+            let encrypted = has("EncryptedPackage") || has("encryptionInfo");
+            let macro_hint = has("word/vbaProject.bin") || has("word/vbaProject");
+            if encrypted {
+                return ("unknown", "ooxml(encrypted)".to_string());
+            }
+            if has("word/document.xml") {
+                let template = has("word/_rels/document.xml.rels")
+                    && names.iter().any(|one| *one == "word/styles.xml");
+                let _ = template;
+                let format = if macro_hint || has("word/vbaSignature.xml") {
+                    "docm"
+                } else {
+                    "docx"
+                };
+                return ("word", format.to_string());
+            }
+            if has("xl/workbook.xml") {
+                let format = if macro_hint || has("xl/vbaProject.bin") {
+                    "xlsm"
+                } else {
+                    "xlsx"
+                };
+                return ("excel", format.to_string());
+            }
+            if has("ppt/presentation.xml") {
+                let format = if macro_hint || has("ppt/vbaProject.bin") {
+                    "pptm"
+                } else {
+                    "pptx"
+                };
+                return ("powerpoint", format.to_string());
+            }
+            ("unknown", "ooxml".to_string())
+        }
+        Family::Odf => {
+            let media = odf_mimetype(bytes);
+            let app = if media.contains("text") {
+                "word"
+            } else if media.contains("spreadsheet") {
+                "excel"
+            } else if media.contains("presentation") || media.contains("drawing") {
+                "powerpoint"
+            } else {
+                "opendocument"
+            };
+            let ext = if media.ends_with("text") {
+                "odt"
+            } else if media.ends_with("spreadsheet") {
+                "ods"
+            } else if media.ends_with("presentation") {
+                "odp"
+            } else {
+                "odf"
+            };
+            (app, ext.to_string())
+        }
+        _ => ("unknown", "zip".to_string()),
+    }
+}
+
+/// `mimetype` 的正文（ODF 规定它是第一个成员且不压缩，所以直接扫本地头就能拿到）
+fn odf_mimetype(bytes: &[u8]) -> String {
+    let Ok(member) = crate::zipread::member(bytes, "mimetype", 1024) else {
+        return String::new();
+    };
+    member.as_text()
+}
+
+/// 这个包里没有任何内容类型声明的部件（OPC 的自证之一）
+pub fn untyped_parts(doc: &Doc) -> Vec<String> {
+    doc.untyped.clone()
+}
+
+/// `[Content_Types].xml` 的两种声明都要认：`Default`（按扩展名）与 `Override`（按部件名）。
+/// 只认一种就会把整包部件报成「没声明」，那种假阳性的害处比漏报更大。
+fn content_type_gaps(bytes: &[u8], entries: &[ZipEntry]) -> Vec<String> {
+    let Ok(member) = crate::zipread::member(
+        bytes,
+        "[Content_Types].xml",
+        crate::zipread::DEFAULT_MEMBER_CAP,
+    ) else {
+        return Vec::new();
+    };
+    let node = crate::xmlscan::parse_str(&member.as_text());
+    let mut defaults: Vec<String> = Vec::new();
+    for one in node.descendants("Default") {
+        if let Some(ext) = one.attr("Extension") {
+            defaults.push(ext.to_lowercase());
+        }
+    }
+    let mut overrides: Vec<String> = Vec::new();
+    for one in node.descendants("Override") {
+        if let Some(part) = one.attr("PartName") {
+            overrides.push(part.to_string());
+        }
+    }
+    let mut gaps: Vec<String> = Vec::new();
+    for one in entries {
+        if one.name == "[Content_Types].xml" || one.name.ends_with('/') {
+            continue;
+        }
+        if overrides
+            .iter()
+            .any(|want| *want == format!("/{}", one.name))
+        {
+            continue;
+        }
+        let last = one.name.rsplit('/').next().unwrap_or("").to_string();
+        let ext = match last.rfind('.') {
+            Some(at) => last[at + 1..].to_lowercase(),
+            None => String::new(),
+        };
+        if !ext.is_empty() && defaults.contains(&ext) {
+            continue;
+        }
+        gaps.push(one.name.clone());
+    }
+    gaps
+}
+
+/// 这个包里跟「宏 / 加密 / 签名 / 外部数据」有关的东西，供各命令共用一份说法
+pub fn risk_signals(doc: &Doc) -> Value {
+    let mut macros: Vec<String> = Vec::new();
+    let mut encrypted: Vec<String> = Vec::new();
+    let mut signed: Vec<String> = Vec::new();
+    let mut external: usize = 0;
+    if doc.is_zip_family() {
+        for one in &doc.entries {
+            let name = one.name.as_str();
+            if name.ends_with("vbaProject.bin") || name.ends_with("VBA/project.bin") {
+                macros.push(name.to_string());
+            }
+            if name == "EncryptedPackage"
+                || name == "encryptionInfo"
+                || name.ends_with("/vbaSignature.xml")
+            {
+                encrypted.push(name.to_string());
+            }
+            if name.ends_with("_rels/.rels") && name.contains("package") {
+                signed.push(name.to_string());
+            }
+        }
+        external = doc
+            .entries
+            .iter()
+            .filter(|one| one.name.starts_with("xl/externalLinks/"))
+            .count();
+    }
+    if let Some(one) = doc.compound.as_ref() {
+        for name in one.stream_names() {
+            if name.eq_ignore_ascii_case("Macros")
+                || name.contains("VBA")
+                || name.contains("_VBA_PROJECT")
+            {
+                macros.push(name);
+            }
+            if name.contains("Encrypted") {
+                encrypted.push(name);
+            }
+        }
+    }
+    json!({
+        "macro_parts": macros,
+        "has_macros": !macros.is_empty(),
+        "encrypted_parts": encrypted,
+        "is_encrypted": !encrypted.is_empty(),
+        "signature_parts": signed,
+        "external_link_parts": external,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn bytes_of(name: &str) -> Vec<u8> {
+        std::fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/office")
+                .join(name),
+        )
+        .expect("读 fixture")
+    }
+
+    /// 十一种真实生产者文件都要落到对的家族与格式上 —— 这条表就是本模块的全部承诺
+    #[test]
+    fn classifies_every_producer_fixture() {
+        let want = [
+            ("notes.docx", Family::Ooxml, "word", "docx"),
+            ("notes.docm", Family::Ooxml, "word", "docm"),
+            ("book.xlsx", Family::Ooxml, "excel", "xlsx"),
+            ("deck.pptx", Family::Ooxml, "powerpoint", "pptx"),
+            ("notes.odt", Family::Odf, "word", "odt"),
+            ("book.ods", Family::Odf, "excel", "ods"),
+            ("deck.odp", Family::Odf, "powerpoint", "odp"),
+            ("notes.doc", Family::Compound, "word", "doc"),
+            ("book.xls", Family::Compound, "excel", "xls"),
+            ("deck.ppt", Family::Compound, "powerpoint", "ppt"),
+            ("notes.rtf", Family::Rtf, "word", "rtf"),
+        ];
+        for (name, family, app, format) in want {
+            let doc = open(&bytes_of(name));
+            assert_eq!(
+                doc.family,
+                family,
+                "{name} 家族判错：{:?} {}",
+                doc.family,
+                doc.notes.join("；")
+            );
+            assert_eq!(doc.app, app, "{name} 应用判错");
+            assert_eq!(doc.format, format, "{name} 格式判错");
+        }
+    }
+
+    /// 改了后缀不许改结论：识别看的是部件名
+    #[test]
+    fn renaming_the_extension_does_not_change_the_answer() {
+        let doc = open(&bytes_of("notes.docx"));
+        assert_eq!(doc.format, "docx");
+        // 同一批字节按 .zip 的名字读进来还是 docx：判据里没有文件名
+        let raw = bytes_of("notes.docx");
+        assert_eq!(open(&raw).app, "word");
+    }
+
+    /// OPC 的自证：真实生产者的包，每个部件都在 `[Content_Types].xml` 里说过；
+    /// 而塞一个没声明的部件进去，检查必须抓到 —— 只验正例等于没验
+    #[test]
+    fn the_content_type_check_fires_on_an_undeclared_part() {
+        let raw = bytes_of("notes.docx");
+        let doc = open(&raw);
+        assert!(doc.untyped.is_empty(), "{:?}", doc.untyped);
+        let mut entries = doc.entries.clone();
+        entries.push(ZipEntry {
+            name: "word/mystery.xyz".to_string(),
+            method: 8,
+            crc: 0,
+            compressed: 0,
+            size: 0,
+            offset: 0,
+        });
+        assert_eq!(
+            content_type_gaps(&raw, &entries),
+            vec!["word/mystery.xyz".to_string()],
+            "检查没有真的在查"
+        );
+    }
+
+    /// 宏部件要报出来（docm 就是靠它认的），并且与「加密」分开
+    #[test]
+    fn macro_and_encryption_signals_are_separate() {
+        let clean = risk_signals(&open(&bytes_of("notes.docx")));
+        assert_eq!(clean["has_macros"], json!(false), "{clean}");
+        assert_eq!(clean["is_encrypted"], json!(false));
+        let macro_doc = risk_signals(&open(&bytes_of("notes.docm")));
+        assert_eq!(macro_doc["has_macros"], json!(true), "{macro_doc}");
+        assert_eq!(
+            macro_doc["macro_parts"].as_array().expect("是数组").len(),
+            1,
+            "{macro_doc}"
+        );
+        assert_eq!(macro_doc["is_encrypted"], json!(false), "有宏不等于加密");
+    }
+
+    /// openpyxl 那份表格里有一个外部 nothing，但确实有命名区域与表格：
+    /// external_link_parts 只数 `xl/externalLinks/`，别把关系表里的高链算进来
+    #[test]
+    fn external_link_parts_count_only_the_parts() {
+        let signals = risk_signals(&open(&bytes_of("book.xlsx")));
+        assert_eq!(signals["external_link_parts"], json!(0), "{signals}");
+    }
+
+    /// 认不出来的东西要留一句人话，而不是空着让人以为读到了
+    #[test]
+    fn unknown_bytes_say_why() {
+        let doc = open(b"just some text, no container at all");
+        assert_eq!(doc.family, Family::Other);
+        assert!(!doc.notes.is_empty());
+    }
+}

@@ -1,32 +1,47 @@
-//! lbin — 二进制与容器文件结构域：识别 / 成员表 / 分区上色 / 节与符号。
+//! lbin — 办公文件与容器结构域：识别 / 成员表 / 正文 / 属性 / 分区上色 / 节与符号。
 //!
 //! **「一域一二进制 × 四端」在文件分析这一域的落法**：同一份 `Registry`，
 //! CLI 生成子命令、TUI 生成选择页、Web 用 `?cmd=` 切换、MCP 一次 `tools/list` 全返回。
-//! 这四条命令全是 **T0 只读**：只把字节读成结构，既不执行、也不解压、更不写回；
+//! 这些命令全是 **T0 只读**：只把字节读成结构与文本，既不执行、也不写回。
+//! 解压只发生在内存里，而且是办公文件的硬需求 —— `docx` 的正文就是包里一个 deflate
+//! 过的部件，不解压就只能报「有个文件叫 word/document.xml」，报不出文件里写了什么；
+//! 每一次解压都要过该部件自己声明的 CRC-32（见 [`zipread`]）。
 //! 「改了这段字节有没有事」这类判断只以「文件结构里有没有谁指着它」的形式给出，
 //! 并且把这条界说在明处（见 [`regions`] 模块注释）。
 //!
 //! ```bash
+//! lbin office-info --path ./预算.docx --json      # 这是什么、谁写的、有没有宏
+//! lbin office-text --path ./预算.docx             # 文件里写了什么（按段落）
+//! lbin office-meta --path ./季度报告.pptx --json  # 文档属性那份账
 //! lbin identify --path ./app.dll --json
 //! lbin regions --path ./a.out --json | jq '.totals'
 //! lbin entries --path ./libstdc++.so.a --limit 20
 //! lbin symbols --path ./main.o
 //! lbin --gui        # Web 控制台（?cmd= 切换）
 //! lbin --tui        # TUI 命令选择页
-//! lbin --mcp        # MCP：tools/list 一次返回四条
+//! lbin --mcp        # MCP：tools/list 一次返回七条
 //! lbin --schema     # 打印整张注册表清单
 //! ```
 
+mod cfb;
 mod entries;
 mod identify;
+mod office_info;
+mod office_meta;
+mod office_text;
+mod opack;
+mod props;
 mod read;
 mod regions;
+mod rtf;
 mod symbols;
+mod xmlscan;
+mod zipread;
 
 use lilyco::prelude::*;
 use std::sync::Arc;
 
-/// 构建整个「二进制与容器结构」域的注册表（使用给定安全策略）
+/// 构建整个「办公文件与容器结构」域的注册表（使用给定安全策略）
 ///
 /// 策略必须在 `register` 之前就位 —— `Registry` 的门是在注册那一刻把 handler 包住的。
 pub fn build_registry_with_policy(policy: Arc<dyn SafetyPolicy>) -> Registry {
@@ -36,6 +51,9 @@ pub fn build_registry_with_policy(policy: Arc<dyn SafetyPolicy>) -> Registry {
         RegisteredCommand::from_app::<entries::Entries>(),
         RegisteredCommand::from_app::<regions::Regions>(),
         RegisteredCommand::from_app::<symbols::Symbols>(),
+        RegisteredCommand::from_app::<office_info::OfficeInfo>(),
+        RegisteredCommand::from_app::<office_text::OfficeText>(),
+        RegisteredCommand::from_app::<office_meta::OfficeMeta>(),
     ];
     for c in cmds {
         let name = c.name.clone();
@@ -69,22 +87,28 @@ mod tests {
         build_registry_with_policy(Arc::new(Interactive))
     }
 
-    /// 四条命令、名字与顺序都对
+    /// 七条命令、名字与顺序都对
     #[test]
     fn registry_has_expected_commands() {
         let reg = build_registry();
         let names: Vec<String> = reg.iter().map(|c| c.name.clone()).collect();
-        for want in ["identify", "entries", "regions", "symbols"] {
-            assert!(
-                names.contains(&want.to_string()),
-                "missing {want}: {names:?}"
-            );
+        for want in [
+            "identify",
+            "entries",
+            "regions",
+            "symbols",
+            "office-info",
+            "office-text",
+            "office-meta",
+        ] {
+            assert!(names.contains(&want.to_string()), "缺少 {want}: {names:?}");
         }
-        assert_eq!(reg.iter().count(), 4, "{names:?}");
-        assert_eq!(reg.visible().count(), 4, "四条命令都要可见");
+        assert_eq!(reg.iter().count(), 7, "{names:?}");
+        assert_eq!(reg.visible().count(), 7, "七条命令都要可见");
     }
 
     /// 这个域全部只读：出现任何高于 T0 的命令都是越界（它凭什么改文件？）
+    /// —— 读正文要解压，但解压只在内存里发生，一个字节都不写回
     #[test]
     fn every_command_is_read_only() {
         let reg = build_registry();
@@ -152,7 +176,7 @@ mod tests {
     #[test]
     fn mcp_policy_admits_this_domain() {
         let reg = build_registry_with_policy(Arc::new(DenyElevated));
-        assert_eq!(reg.iter().count(), 4);
+        assert_eq!(reg.iter().count(), 7);
         for c in reg.iter() {
             assert_eq!(c.schema.safety, SafetyTier::ReadOnly);
         }
@@ -163,7 +187,10 @@ mod tests {
         let reg = build_registry();
         let text = serde_json::to_string(&reg.to_json()).expect("清单可序列化");
         assert!(
-            text.contains("identify") && text.contains("regions"),
+            text.contains("identify")
+                && text.contains("regions")
+                && text.contains("office-text")
+                && text.contains("office-meta"),
             "{text}"
         );
     }
@@ -172,7 +199,15 @@ mod tests {
     #[test]
     fn missing_required_arg_is_rejected_by_schema() {
         let reg = build_registry();
-        for name in ["identify", "entries", "regions", "symbols"] {
+        for name in [
+            "identify",
+            "entries",
+            "regions",
+            "symbols",
+            "office-info",
+            "office-text",
+            "office-meta",
+        ] {
             let cmd = reg.get(name).expect("命令已注册");
             let err = cmd
                 .schema

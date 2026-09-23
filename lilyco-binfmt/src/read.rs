@@ -19,22 +19,24 @@ pub struct Blob {
 }
 
 /// 大端 / 小端取数：越界一律 `None`，调用方决定怎么交代
-fn le16(at: usize) -> impl Fn(&[u8]) -> Option<u64> {
+/// （`pub(crate)`：本域的容器读取器（`zipread` / `cfb`）共用同一套取数口径，
+/// 不要再各写一份 `from_le_bytes`）
+pub(crate) fn le16(at: usize) -> impl Fn(&[u8]) -> Option<u64> {
     move |b| Some(u16::from_le_bytes(b.get(at..at + 2)?.try_into().ok()?) as u64)
 }
-fn le32(at: usize) -> impl Fn(&[u8]) -> Option<u64> {
+pub(crate) fn le32(at: usize) -> impl Fn(&[u8]) -> Option<u64> {
     move |b| Some(u32::from_le_bytes(b.get(at..at + 4)?.try_into().ok()?) as u64)
 }
-fn le64(at: usize) -> impl Fn(&[u8]) -> Option<u64> {
+pub(crate) fn le64(at: usize) -> impl Fn(&[u8]) -> Option<u64> {
     move |b| Some(u64::from_le_bytes(b.get(at..at + 8)?.try_into().ok()?))
 }
-fn be16(at: usize) -> impl Fn(&[u8]) -> Option<u64> {
+pub(crate) fn be16(at: usize) -> impl Fn(&[u8]) -> Option<u64> {
     move |b| Some(u16::from_be_bytes(b.get(at..at + 2)?.try_into().ok()?) as u64)
 }
-fn be32(at: usize) -> impl Fn(&[u8]) -> Option<u64> {
+pub(crate) fn be32(at: usize) -> impl Fn(&[u8]) -> Option<u64> {
     move |b| Some(u32::from_be_bytes(b.get(at..at + 4)?.try_into().ok()?) as u64)
 }
-fn be64(at: usize) -> impl Fn(&[u8]) -> Option<u64> {
+pub(crate) fn be64(at: usize) -> impl Fn(&[u8]) -> Option<u64> {
     move |b| Some(u64::from_be_bytes(b.get(at..at + 8)?.try_into().ok()?))
 }
 
@@ -683,6 +685,8 @@ pub fn central_directory(b: &[u8]) -> (Vec<ZipEntry>, Vec<String>) {
     (out, broken)
 }
 
+/// ZIP 中央目录里的一条（`Clone`：办公命令要把条目表复制出来再补自己的样本）
+#[derive(Clone)]
 pub struct ZipEntry {
     pub name: String,
     pub method: u64,

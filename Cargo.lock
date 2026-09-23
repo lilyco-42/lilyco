@@ -2588,6 +2588,7 @@ dependencies = [
 name = "lilyco-binfmt"
 version = "0.3.0"
 dependencies = [
+ "flate2",
  "lilyco",
  "object",
  "serde",
