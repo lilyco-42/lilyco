@@ -184,6 +184,10 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
    现在三样一起兜：`BOOT` 挪到文件末尾、每个 `init` 单独 try 且失败写进日志区、
    `render.rs` 里 `boot_is_the_last_thing_in_the_script` + `every_js_component_init_is_bootted`
    + `inline_script_is_syntactically_valid` 三条测试盯着。
+   兜底本身也实测过：把页面 `outerHTML` 里 `.dz-browse` 那颗按钮抹掉再装进 srcdoc iframe，
+   帧里读回 `#out` 已露出 + 一行 `line err`「组件装配失败，页面功能不完整：initDropzone:
+   Cannot read properties of null…」，而 `#preview` 仍有内容 —— 也就是一个组件的毛病被关在自己的
+   init 里，其余九个照常装配。对照组（没动过的 `outerHTML`）`#out` 保持 `hidden`、日志为空。
 4. **`GET /` 必须 `no-store`**。整页自包含且随进程变（schema、令牌、重编译后的资产）。
    踩过：改了页面 JS 重编重跑，浏览器还在发上一版，半数组件是死的，第一反应是「新代码有 bug」。
 
@@ -254,18 +258,21 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 
 ### 10.3 页面级组件
 
-| 组件 | 构成 | 七态 | 无障碍 |
-|------|------|------|--------|
-| `topbar` | brand + `command-nav` + 主题按钮 | hover / focus / active / `aria-pressed=true`（深色）/ 其余 n/a | `position:sticky` + `backdrop-filter`；窄容器里下拉整行换到第二行（实测 320–420 两行 99px、≥560 单行 57px，各档顶栏自身无横向溢出），主题按钮始终距右 16px |
-| `command-nav` | `<select id=cmd-nav>`，可见命令 >1 才出现 | hover / focus / **disabled + `aria-busy="true"`**（换命令要整页重载，切换那一下就把下拉按住：实测 `disabled=true`、`opacity 0.55`、`cursor:progress` —— 那是「正在办」不是「不许办」，所以不复用默认的 `not-allowed`）/ loading·empty·error·success：n/a（值域非空、选不出非法值，成败由整页重载自己回答） | `aria-label="切换命令"`；跳转在 `initCommandNav`，不写内联 `onchange` |
-| `run-bar` | `运行` + `取消` + `复制 CLI` | hover / focus / disabled（跑起来时）/ loading（`.loading` 转圈 + `aria-busy`；关掉动画时改文字 `…`，见 §5）/ 空 n/a / error（取消失败时按钮解禁）/ success n/a | `type=submit` 语义保留；`aria-busy` 给读屏 |
-| `cli-preview` | `$ ` + 一行命令文本 | 空 = `display:none`（不留孤零零的 `$ `）/ 其余 n/a（纯展示） | 只读；`复制 CLI` 才有反馈 |
-| `output` | `out-head` + `log` + `result-wrap` 的容器 | 空（`hidden`）/ 有内容（`hidden` 撤掉）/ error（装配失败时也强制露出来） | `#log` 是唯一 live region（`role=log`）；`#out` 不再叠 `aria-live`，免得同一句话念两遍 |
-| `progress` | `.progress` + `.progress-bar` | 不确定（`data-indet=1` 跑动）/ 确定（写 `aria-valuenow`）/ done（整条绿）/ error（整条红且走满，0% 的空条等于「什么都没发生」）/ 请求都没成功时收在 0%（不再空转） | `role=progressbar` + `aria-valuemin/max`；无比例时不给 `valuenow`（别骗读屏） |
-| `log` | `.terminal` 里的行 | 空（`等待输出…`）/ running / err / warn / tele / 上限 500 行（实测灌 620 行只留 500，最旧的丢掉、滚动跟到底）/ 满 = 滚动 | 固定深底不随主题（§1.3），`tabindex=0` + `:focus-visible` 让键盘用户能滚这段可滚动区域 |
-| `result` | `结果` + `复制` + `<pre>` | 空 = 整块 `hidden` / success（跑完露出）/ error = n/a（失败没有结果）/ 其余 n/a | `JSON.stringify(…,2)` 纯文本；宽屏 ≥1200 时限高内滚 |
-| `file-chip` | 已上传文件的一枚胶囊按钮 | hover（转危险色）/ focus / 空 = `hidden` / 其余 n/a | `aria-label` 由 JS 写成「清除已上传的 <文件名>」，读屏念得出是哪个文件 |
-| 复制反馈 | `copyText()` | copied（文字换「已复制」+ `--ok` 1.2s）/ failed（「复制失败」+ `--danger`）/ 平时 n/a | 剪贴板被拒（自动化环境实测被拒）不能静默 —— 静默的复制等于没复制 |
+「用到的令牌」是从 `app.css` 里对着组件规则读出来的，不是凭印象写的（终端区那几个十六进制
+字面量是 §1.3 的固定色板，故意不走主题令牌）。
+
+| 组件 | 构成 | 七态 | 用到的令牌 | 无障碍 |
+|------|------|------|-----------|--------|
+| `topbar` | brand + `command-nav` + 主题按钮 | hover / focus / active / pressed（`aria-pressed=true`=深色，=success 语义）/ disabled·loading·empty·error：n/a（常驻骨架，brand 恒在） | `--surface`（82% 混合）`--hairline` `--s-2`；按钮另用 `--control` `--ink` `--accent` `--surface-3` `--r-control` | `position:sticky` + `backdrop-filter`；实测 320–420 下拉换到第二行（99px）、≥560 单行（57px），各档顶栏自身无横向溢出，主题按钮始终距右 16px |
+| `command-nav` | `<select id=cmd-nav>`，可见命令 >1 才出现 | hover / focus / **disabled + `aria-busy="true"`**（实测 `opacity 0.55` + `cursor:progress`：那是「正在办」不是「不许办」）/ loading·empty·error·success：n/a（值域非空、选不出非法值，成不成功由整页重载自己回答） | `--control`（描边，3.64·3.30）`--ink` `--surface` `--r-control` | `aria-label="切换命令"`；跳转在 `initCommandNav`，不写内联 `onchange` |
+| `run-bar` | `运行` + `取消` + `复制 CLI` | hover / focus / disabled（跑起来时，实测 `opacity 0.55`）/ loading（转圈 + `aria-busy`；reduce 下改文字 `…`，见 §5）/ error（取消失败按钮解禁）/ success（跑完 `setBusy(false)` 复原）/ empty：n/a（按钮没有空态） | `--accent` `--on-accent`（5.17·7.32）`--control` `--danger` `--hairline` `--s-2` `--r-control` | `type=submit` 语义保留；`aria-busy` 给读屏；窄容器 ≤420 竖排各占满 |
+| `cli-preview` | `$ ` 前缀 + 一行命令文本 | empty = `display:none`（不留孤零零的 `$ `）/ 其余六态：n/a（纯展示，交互在 `复制 CLI` 那颗上） | `--surface-2` `--hairline` `--ink-muted`（4.88·6.56 对预览底）`--accent`（`$ ` 前缀）`--r-control` `--s-3` | 只读文本；`updatePreview` 每次表单 input/change 都重算 |
+| `output` | `out-head` + `log` + `result-wrap` 的容器 | empty（`hidden`）/ 有内容（撤 `hidden`）/ error（装配失败时也强制露出来，见 §8.3）/ hover·focus·disabled·loading·success：n/a（它自己不接收交互） | `--s-5`；标题行 `--ink-muted` `--s-3` `--s-4` | `#log` 是唯一 live region；`#out` **不再叠 `aria-live`**，免得同一句话念两遍 |
+| `progress` | `.progress` 槽 + `.progress-bar` 条 | loading=不确定（`data-indet=1` 跑动；reduce 下铺满 + 压淡）/ 确定（`aria-valuenow`）/ success（`data-state=done` 整条 `--ok`）/ error（`data-state=error` 整条 `--danger` 且走满）/ empty（宽 0% = 什么都没发生，所以收尾不给 0%）/ hover·focus·disabled：n/a（非交互） | `--surface-3`（槽）`--accent` `--ok` `--danger` `--r-pill` | `role=progressbar` + `aria-valuemin/max`；无比例时**不给** `valuenow`（别骗读屏） |
+| `log` | `.terminal` 里的 `.line` 流 | empty（`等待输出…`，`#8b949e`）/ loading=running（持续追加）/ error（`.line.err` `#ff7b72`）/ warn（`#e3b341`）/ tele（`#56d364`）/ focus（`:focus-visible` 内描边）/ 满（500 行上限，实测灌 620 只留 500、滚动跟到底）/ hover·disabled·success：n/a | `--mono` `--hairline` `--r-panel` `--s-3` `--s-4` + §1.3 固定色板（`#0d1117` / `#e6edf3`，16.02:1） | `role=log` `aria-live=polite`；`tabindex=0` 让键盘用户能滚这段可滚动区域（WCAG 2.1.1） |
+| `result` | `结果` 标题 + `复制` + `<pre>` | empty = 整块 `hidden` / success（跑完露出 JSON）/ hover·focus：落在复制钮上 / error·disabled·loading：n/a（失败没有结果，也不在跑） | `--surface-2` `--hairline` `--ink`（17.63·14.50）`--mono` `--r-panel` `--s-3` `--s-4` | `JSON.stringify(…,2)` 纯文本、不走 innerHTML；≥1200 限高内滚 |
+| `file-chip` | 已上传文件的一枚胶囊**按钮** | hover（转 `--danger`）/ focus / empty = `hidden` / 其余 n/a | `--surface-2` `--hairline` `--ink` `--danger` `--r-pill` `--s-1` `--s-3` | `aria-label` 由 JS 写成「清除已上传的 <文件名>」，读屏念得出清的是哪个；实测走完整条上传链路 |
+| 复制反馈 | `copyText()` 改文字 + 一次性上色 | success（`--ok`，实测 `#3ddc97`）/ error（`--danger`，实测 `#ff7b72`）/ disabled（反馈期间连点被 `data-copying` 挡住）/ 平时·hover·empty·loading：n/a | `--ok` `--danger`（+ 宿主按钮自己的描边） | 剪贴板被拒（这台自动化环境实测就是被拒）不能静默 —— 静默的复制等于没复制 |
 
 **状态色实测**（深色主题下读回；浅色用同一批令牌，值见 §1.1/§1.2）：
 `disabled` = `opacity 0.55` + `cursor not-allowed`（`run` / `btn-icon` / `input` 三处一致）；
