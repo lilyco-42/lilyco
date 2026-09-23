@@ -383,6 +383,98 @@ def pptx_facts(path: Path) -> dict:
     }
 
 
+def of_local(node, want: str):
+    """ODF 属性按局部名取，但躲开 LibreOffice 抄的那份 `calcext:` 副本
+    （命名空间是 documentfoundation 的实验区，值是从正式那份抄来的）。
+    """
+    for key, value in node.attrib.items():
+        if key.rsplit("}", 1)[-1] != want or "documentfoundation" in key:
+            continue
+        return value
+    return None
+
+
+def count_local(root, want: str) -> int:
+    return sum(1 for one in root.iter() if xml_local(one.tag) == want)
+
+
+def style_counts(paras: list) -> dict:
+    """样式名 → 用了它几段（口径与 `office-doc` 的 styles 字段一致）"""
+    out: dict[str, int] = {}
+    for one in paras:
+        name = of_local(one, "style-name")
+        if name:
+            out[name] = out.get(name, 0) + 1
+    return dict(sorted(out.items()))
+
+
+def odt_structure(path: Path) -> dict:
+    """ODF 文字的结构账：口径与 `office-doc` 的 ODT 分支一条一条对（表格里也算段）。
+    正文位置在 office:body 里的 office:text，取不到就退回全树。
+    """
+    with zipfile.ZipFile(path) as box:
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    root = ET.fromstring(parts["content.xml"])
+    body = None
+    for one in root.iter():
+        if xml_local(one.tag) == "body":
+            for kid in one:
+                if xml_local(kid.tag) == "text":
+                    body = kid
+                    break
+        if body is not None:
+            break
+    body = body if body is not None else root
+
+    def texts(node) -> str:
+        return "".join(node.itertext()).strip()
+
+    paras = [one for one in body.iter() if xml_local(one.tag) == "p"]
+    notes = [one for one in body.iter() if xml_local(one.tag) == "note"]
+    statistic = {}
+    if "meta.xml" in parts:
+        for one in ET.fromstring(parts["meta.xml"]).iter():
+            if xml_local(one.tag) == "document-statistic":
+                statistic = {key.rsplit("}", 1)[-1]: value for key, value in one.attrib.items()}
+    return {
+        "paragraphs": len(paras),
+        "empty_paragraphs": sum(1 for one in paras if not texts(one)),
+        "headings": [
+            {"level": of_local(one, "outline-level"), "text": texts(one)}
+            for one in body.iter()
+            if xml_local(one.tag) == "h"
+        ],
+        "styles": style_counts(paras),
+        "tables": sum(1 for one in body.iter() if xml_local(one.tag) == "table"),
+        "table_rows": sum(1 for one in body.iter() if xml_local(one.tag) == "table-row"),
+        "table_cells": sum(1 for one in body.iter() if xml_local(one.tag) == "table-cell"),
+        "covered_cells": count_local(body, "covered-table-cell"),
+        "sections": count_local(body, "section"),
+        "breaks": count_local(body, "line-break"),
+        "page_breaks": count_local(body, "soft-page-break"),
+        "drawings": count_local(body, "frame"),
+        "annotations": count_local(body, "annotation"),
+        "lists": count_local(body, "list"),
+        "list_styles": count_local(body, "list-style"),
+        "bookmarks": count_local(body, "bookmark-start") + count_local(body, "bookmark"),
+        "sequences": count_local(body, "sequence-decl"),
+        "tracked_changes": count_local(body, "tracked-changes"),
+        "hyperlinks": [
+            {"target": of_local(one, "href"), "text": texts(one)}
+            for one in body.iter()
+            if xml_local(one.tag) == "a"
+        ],
+        "images": [
+            of_local(one, "href")
+            for one in body.iter()
+            if xml_local(one.tag) == "image" and of_local(one, "href")
+        ],
+        "footnotes": sum(1 for one in notes if of_local(one, "note-class") == "footnote"),
+        "endnotes": sum(1 for one in notes if of_local(one, "note-class") == "endnote"),
+        "statistic": statistic,
+    }
+
+
 def odt_facts(path: Path) -> dict:
     parts = {}
     with zipfile.ZipFile(path) as box:
@@ -990,6 +1082,7 @@ def facts(path: Path) -> dict:
         elif "content.xml" in parts:
             out["app"] = "opendocument"
             out["odf"] = odt_facts(path)
+            out["odt"] = odt_structure(path)
             sheets = ods_facts(path)
             if sheets is not None:
                 out["ods"] = sheets

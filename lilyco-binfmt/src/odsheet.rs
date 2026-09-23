@@ -117,7 +117,7 @@ fn numeric_or_text(raw: Option<&str>) -> Value {
 /// ODF 的前缀虽然照着规范写，但**声明是文件自己做的**，只认死前缀就是给自己埋雷。
 /// 唯一要躲开的是 LibreOffice 那份实验命名空间：`calcext:value-type` 是照着
 /// `office:value-type` 抄的一份，撞上它就等于信了副本。
-fn attr_of(node: &Node, local: &str) -> Option<&str> {
+pub(crate) fn attr_of(node: &Node, local: &str) -> Option<&str> {
     node.attrs
         .iter()
         .filter(|(key, _)| key.rsplit(':').next().unwrap_or_default() == local)

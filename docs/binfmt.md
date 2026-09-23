@@ -31,7 +31,7 @@ cargo run -p lilyco-binfmt -- identify --path /usr/bin/ls --json
 | `office-info` | **T0** 只读 | 这份办公文件是什么（OOXML / ODF / 复合文档 / RTF）、谁写的、有没有宏与加密 |
 | `office-text` | **T0** 只读 | 文件里写了什么：docx 按段、pptx 按页与备注、xlsx 按格子、odt/rtf 各按自己的段落口径；docx 还读批注 / 脚注 / 尾注 / 页眉 / 页脚那几个部件，每条带 `from`/`part`/`author`/`date` |
 | `office-meta` | **T0** 只读 | 文档属性那份账：`docProps/*`、ODF 的 `meta.xml`、遗留格式的 OLE 属性集 |
-| `office-doc` | **T0** 只读 | Word 的结构：段落/标题层级/样式/表格行列/超链接内外/脚注尾注批注/修订计数 |
+| `office-doc` | **T0** 只读 | Word 与 ODT 的结构：段落/标题层级/样式/表格行列/超链接/脚注尾注批注/修订计数；.odt 那份还连带把生产者自己写在 `meta.xml` 的段落数页数一起交出来 |
 | `office-sheet` | **T0** 只读 | 表格的结构：每张表（含隐藏的）与范围、格子与公式、合并格、命名区域、外链；xlsx 每个格子还带**数字格式**（`s=` 是 `cellXfs` 的下标）与换算出来的日期；.ods 走它自己那套（值类型 + 重复计数累加出的格子位置） |
 | `office-slide` | **T0** 只读 | 演示文稿的结构：放映顺序、每页标题与备注、版式与母版、尺寸与媒体 |
 | `office-package` | **T0** 只读 | 包自证：关系指着不存在的部件、部件没声明内容类型、解压过不了自己的 CRC-32 |

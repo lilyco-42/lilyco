@@ -21,10 +21,10 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-doc",
     run = "run_office_doc",
-    about = "Report the structure of a Word document: paragraph count (empty ones counted separately, because Word's own statistics do), headings with their level and text, every style used and how often, tables with rows and cells, inline shapes and pictures, hyperlinks split into internal and external with their targets, sections, explicit page/column breaks, footnotes and endnotes and comments (read from their own parts when present), tracked-change presence (w:ins / w:del counts), numbering usage, headers and footers, embedded objects and custom XML, plus which optional parts the package actually carries. For legacy .doc it falls back to what the piece table can honestly tell: paragraph count from the CP total plus the marker characters it dropped (cell ends, field boundaries), not a claim about tables it cannot see. Returns { path, format, kind, structure, styles, tables, images, hyperlinks, parts, notes }. Read-only (safety T0)."
+    about = "Report the structure of a Word document: paragraph count (empty ones counted separately, because Word's own statistics do), headings with their level and text, every style used and how often, tables with rows and cells, inline shapes and pictures, hyperlinks split into internal and external with their targets, sections, explicit page/column breaks, footnotes and endnotes and comments (read from their own parts when present), tracked-change presence (w:ins / w:del counts), numbering usage, headers and footers, embedded objects and custom XML, plus which optional parts the package actually carries. For legacy .doc it falls back to what the piece table can honestly tell: paragraph count from the CP total plus the marker characters it dropped (cell ends, field boundaries), not a claim about tables it cannot see. For .odt it reports the same account from content.xml's office:text (headings from text:outline-level, comments from text:annotation, pictures from draw:image, footnotes and endnotes split out of the single text:note element by its note:class) and additionally echoes meta.xml's own document-statistic so the producer's numbers are visible next to ours. Returns { path, format, kind, structure, styles, tables, images, hyperlinks, parts, notes }. Read-only (safety T0)."
 )]
 pub struct OfficeDoc {
-    /// Word 文档（docx / docm / doc）
+    /// Word 文档（docx / docm / doc / odt）
     #[arg(about = "Word document to structure", must_exist = true)]
     path: PathBuf,
 
@@ -64,11 +64,15 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             notes.push(format!("word/document.xml：{}", member.note));
         }
         let root = xmlscan::parse_str(&member.as_text());
-        let body = match root.child("body") {
+        // `#doc` 的直接孩子是 `<w:document>`，`w:body` 在它下面一层：
+        // 只往下走一步就会永远找不到 body，然后所有计数都从伪根走 ——
+        // 数字照样对（descendants 是全树），但那条「没有 body」的假话会一直留在 notes 里。
+        let document = root.child("document").unwrap_or(&root);
+        let body = match document.child("body") {
             Some(one) => one,
             None => {
-                notes.push("document.xml 里没有 body 元素".to_string());
-                &root
+                notes.push("document.xml 里没有 w:body 元素".to_string());
+                document
             }
         };
         let paragraphs = body.descendants("p");
@@ -162,6 +166,152 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             "endnotes": count("endnote", "word/endnotes.xml"),
             "comments": count("comment", "word/comments.xml"),
             "parts": doc.entries.iter().map(|one| one.name.clone()).filter(|one| one.starts_with("word/")).take(limit).collect::<Vec<String>>(),
+            "notes": notes,
+        })
+    } else if doc.family == Family::Odf && doc.app == "word" {
+        // ODF 文字：正文在 office:body > office:text，属性都带前缀而前缀是文件自己声明的，
+        // 所以按局部名取（但要躲开 LibreOffice 抄的那份 calcext: 副本）。
+        let member = match zipread::member(bytes, "content.xml", DEFAULT_MEMBER_CAP) {
+            Ok(one) => one,
+            Err(why) => return Err(AppError::InvalidInput(why)),
+        };
+        let href = |one: &xmlscan::Node| -> Option<String> {
+            crate::odsheet::attr_of(one, "href").map(|one| one.to_string())
+        };
+        let root = xmlscan::parse_str(&member.as_text());
+        let text_body = root
+            .descendants("body")
+            .into_iter()
+            .find_map(|one| one.child("text"))
+            .unwrap_or(&root);
+        let paragraphs = text_body.descendants("p");
+        let mut empty = 0usize;
+        let mut styles: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
+        for one in &paragraphs {
+            if crate::office_text::paragraph_text(one).is_empty() {
+                empty += 1;
+            }
+            if let Some(style) = crate::odsheet::attr_of(one, "style-name") {
+                *styles.entry(style.to_string()).or_insert(0) += 1;
+            }
+        }
+        let headings: Vec<Value> = text_body
+            .descendants("h")
+            .iter()
+            .take(limit)
+            .map(|one| {
+                json!({
+                    "level": crate::odsheet::attr_of(one, "outline-level")
+                        .and_then(|raw| raw.trim().parse::<u64>().ok()),
+                    "text": crate::office_text::paragraph_text(one),
+                })
+            })
+            .collect();
+        let tables: Vec<Value> = text_body
+            .descendants("table")
+            .iter()
+            .take(limit)
+            .map(|one| {
+                json!({
+                    "name": crate::odsheet::attr_of(one, "name"),
+                    "rows": one.all("table-row").len(),
+                    "cells": one.descendants("table-cell").len(),
+                    "covered": one.descendants("covered-table-cell").len(),
+                    "text": one
+                        .descendants("p")
+                        .iter()
+                        .filter(|p| !crate::office_text::paragraph_text(p).is_empty())
+                        .count(),
+                })
+            })
+            .collect();
+        // 脚注与尾注在 ODF 里是同一个 `text:note`，靠 note:class 分家
+        let notes_found: Vec<&xmlscan::Node> = text_body.descendants("note");
+        let of_class = |want: &str| -> usize {
+            notes_found
+                .iter()
+                .filter(|one| crate::odsheet::attr_of(one, "note-class") == Some(want))
+                .count()
+        };
+        let unclassed = notes_found.len() - of_class("footnote") - of_class("endnote");
+        if unclassed > 0 {
+            notes.push(format!(
+                "{} 个 text:note 没写 note:class，分不清脚注还是尾注",
+                unclassed
+            ));
+        }
+        let hyperlinks: Vec<Value> = text_body
+            .descendants("a")
+            .iter()
+            .take(limit)
+            .map(|one| {
+                json!({
+                    "target": href(one),
+                    "text": one.text().trim(),
+                })
+            })
+            .collect();
+        let images: Vec<String> = text_body
+            .descendants("image")
+            .iter()
+            .filter_map(|one| href(one))
+            .take(limit)
+            .collect();
+        let statistic = zipread::member(bytes, "meta.xml", DEFAULT_MEMBER_CAP)
+            .ok()
+            .map(|one| {
+                let meta = xmlscan::parse_str(&one.as_text());
+                let mut out = json!({});
+                if let Some(node) = meta.descendants("document-statistic").first() {
+                    for (key, value) in &node.attrs {
+                        let local = key.rsplit(':').next().unwrap_or(key).to_string();
+                        out[local] = json!(value);
+                    }
+                }
+                out
+            })
+            .unwrap_or_else(|| json!({}));
+        notes.push(
+            "ODF 的段落口径与 OOXML 一致：表格里也算段；`structure.sections` 是 text:section（内容分块），\
+             不是 Word 那种分页设置"
+                .to_string(),
+        );
+        json!({
+            "path": app.path.to_string_lossy(),
+            "format": doc.format,
+            "kind": "opendocument-text",
+            "structure": {
+                "paragraphs": paragraphs.len(),
+                "empty_paragraphs": empty,
+                "tables": tables.len(),
+                "table_rows": text_body.descendants("table-row").len(),
+                "table_cells": text_body.descendants("table-cell").len(),
+                "covered_cells": text_body.descendants("covered-table-cell").len(),
+                "sections": text_body.descendants("section").len(),
+                "breaks": text_body.descendants("line-break").len(),
+                "page_breaks": text_body.descendants("soft-page-break").len(),
+                "drawings": text_body.descendants("frame").len(),
+                "annotations": text_body.descendants("annotation").len(),
+                "lists": text_body.descendants("list").len(),
+                "list_styles": text_body.descendants("list-style").len(),
+                "bookmarks": text_body.descendants("bookmark-start").len()
+                    + text_body.descendants("bookmark").len(),
+                "sequences": text_body.descendants("sequence-decl").len(),
+                "tracked_changes": text_body.descendants("tracked-changes").len(),
+                "hyperlinks": hyperlinks.len(),
+                "images": images.len(),
+            },
+            "headings": headings,
+            "styles": styles,
+            "tables": tables,
+            "images": images,
+            "hyperlinks": hyperlinks,
+            "footnotes": of_class("footnote"),
+            "endnotes": of_class("endnote"),
+            "comments": text_body.descendants("annotation").len(),
+            "producer_statistics": statistic,
+            "parts": doc.entries.iter().map(|one| one.name.clone()).take(limit).collect::<Vec<String>>(),
             "notes": notes,
         })
     } else if doc.family == Family::Compound && doc.app == "word" {
@@ -272,6 +422,49 @@ mod tests {
             out["notes"].as_array().expect("有 notes").is_empty(),
             "{out}"
         );
+    }
+
+    /// ODT 的结构账：段落口径与 OOXML 一致（表格里也算段），标题层级在 `text:outline-level`，
+    /// 脚注与尾注共用一个 `text:note`（这份两个都没写所以是 0）；
+    /// 期望值全部来自 `odt_structure()`，而 `paragraph-count` 还与 LibreOffice
+    /// 自己写在 `meta.xml` 的那份账对得上
+    #[test]
+    fn an_opendocument_text_document_is_accounted_for() {
+        let out = run("notes.odt");
+        assert_eq!(out["kind"], "opendocument-text");
+        assert_eq!(
+            out["structure"]["paragraphs"], 10,
+            "与 meta.xml 自报的 paragraph-count 一致：{out}"
+        );
+        assert_eq!(out["structure"]["empty_paragraphs"], 2, "{out}");
+        assert_eq!(out["styles"]["Standard"], 8, "{out}");
+        assert_eq!(out["styles"]["P2"], 1);
+        assert_eq!(
+            out["headings"],
+            json!([
+                {"level": 1, "text": "一级标题：预算口径"},
+                {"level": 2, "text": "二级标题：明细"}
+            ]),
+            "{out}"
+        );
+        assert_eq!(out["structure"]["tables"], 1);
+        assert_eq!(out["structure"]["table_rows"], 2);
+        assert_eq!(out["structure"]["table_cells"], 4);
+        assert_eq!(out["tables"][0]["name"], "表格1", "{out}");
+        assert_eq!(out["comments"], 1, "text:annotation 就是批注");
+        assert_eq!(out["footnotes"], 0, "一个 text:note 都没有");
+        assert_eq!(out["endnotes"], 0);
+        assert_eq!(out["hyperlinks"][0]["target"], "https://example.com/budget");
+        assert_eq!(out["hyperlinks"][0]["text"], "预算制度");
+        assert_eq!(out["structure"]["drawings"], 1, "那张图包在 draw:frame 里");
+        assert_eq!(
+            out["images"][0], "Pictures/1000000100000008000000088E4DF5D4.png",
+            "{out}"
+        );
+        assert_eq!(out["structure"]["sequences"], 5, "五个页码/章节变量声明");
+        assert_eq!(out["structure"]["tracked_changes"], 0);
+        assert_eq!(out["producer_statistics"]["paragraph-count"], "10", "{out}");
+        assert_eq!(out["producer_statistics"]["page-count"], "2");
     }
 
     /// 表格里的段落也算段落：这是 Word 自己的口径，换了口径数字就对不上

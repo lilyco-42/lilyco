@@ -268,6 +268,36 @@ def main() -> int:
               [(one.get("covered"), one.get("merged")) for one in got.get("sheets", [])],
               [(one["covered"], one["merged"]) for one in want["sheets"]])
 
+    # ── 3d) ODT：文字文档的结构账 ───────────────────────────────────
+    print("=== 3d) notes.odt：office-doc 的 ODF 分支 ===")
+    odt = lbin("office-doc", fixture("notes.odt"))
+    want = files["notes.odt"]["odt"]
+    for field in (
+        "paragraphs", "empty_paragraphs", "tables", "table_rows", "table_cells",
+        "covered_cells", "sections", "breaks", "page_breaks", "drawings",
+        "annotations", "lists", "list_styles", "bookmarks", "sequences",
+        "tracked_changes", "hyperlinks", "images",
+    ):
+        check("notes.odt structure.%s" % field, dig(odt, "structure." + field), want.get(field))
+    for field in ("footnotes", "endnotes"):
+        check("notes.odt %s" % field, odt.get(field), want.get(field))
+    check("notes.odt 样式用量", odt.get("styles"), want["styles"])
+    check(
+        "notes.odt 标题与层级",
+        odt.get("headings"),
+        [{"level": int(one["level"]), "text": one["text"]} for one in want["headings"]],
+    )
+    check("notes.odt 超链接", [one.get("target") for one in odt.get("hyperlinks", [])],
+          [one["target"] for one in want["hyperlinks"]])
+    check("notes.odt 图的出处", odt.get("images"), want["images"])
+    # 生产者的账：LibreOffice 自己写在 meta.xml 的段落数与页数
+    check("notes.odt 与生产者自报的段落数", dig(odt, "producer_statistics.paragraph-count"),
+          want["statistic"]["paragraph-count"])
+    check("notes.odt 与生产者自报的页数", dig(odt, "producer_statistics.page-count"),
+          want["statistic"]["page-count"])
+    check("notes.odt 段数 == 生产者自报", dig(odt, "structure.paragraphs"),
+          int(want["statistic"]["paragraph-count"]))
+
     # ── 属性：三份账 ───────────────────────────────────────────────
     print("=== 4) office-meta：属性 ===")
     m = lbin("office-meta", fixture("notes.docx"))
