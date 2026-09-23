@@ -29,7 +29,7 @@ cargo run -p lilyco-binfmt -- identify --path /usr/bin/ls --json
 | `regions` | **T0** 只读 | 把整个文件按区上色：头部 / 表 / 代码 / 数据 / 只读 / 元数据 / 空闲 / 尾部叠加 |
 | `symbols` | **T0** 只读 | 按分析器的读法看一个目标文件：节表 + `.symtab` 与 `.dynsym` + 地址到名字 |
 | `office-info` | **T0** 只读 | 这份办公文件是什么（OOXML / ODF / 复合文档 / RTF）、谁写的、有没有宏与加密 |
-| `office-text` | **T0** 只读 | 文件里写了什么：docx 按段、pptx 按页与备注、xlsx 与 **ods** 按格子（表名 + A1 位置 + 值类型）、odt/rtf 各按自己的段落口径；docx 还读批注 / 脚注 / 尾注 / 页眉 / 页脚那几个部件，odt 的批注嵌在正文段里面，每条都带 `from`/`part`/`author`/`date` |
+| `office-text` | **T0** 只读 | 文件里写了什么：docx 按段、pptx 按页与备注、xlsx 与 **ods** 按格子（表名 + A1 位置 + 值类型）、odt/rtf 各按自己的段落口径；docx 还读批注 / 脚注 / 尾注 / 页眉 / 页脚那几个部件，odt 的页眉页脚在 `styles.xml` 的 master-page 里，odt 的批注嵌在正文段里面，rtf 的页眉与正文混在同一个流里（靠 `\header` 那些目标群分开），每条都带 `from`/`part`/`author`/`date` |
 | `office-meta` | **T0** 只读 | 文档属性那份账：`docProps/*`、ODF 的 `meta.xml`、遗留格式的 OLE 属性集 |
 | `office-doc` | **T0** 只读 | Word 与 ODT 的结构：段落/标题层级/样式/表格行列/超链接/脚注尾注批注/修订计数（脚注部件里那两条分隔符不算注）；.odt 那份还连带把生产者自己写在 `meta.xml` 的段落数页数一起交出来 |
 | `office-sheet` | **T0** 只读 | 表格的结构：每张表（含隐藏的）与范围、格子与公式、合并格、命名区域、外链；xlsx 每个格子还带**数字格式**（`s=` 是 `cellXfs` 的下标）与换算出来的日期；.ods 走它自己那套（值类型 + 重复计数累加出的格子位置）；`--csv [--sheet 名字或序号]` 另交一份 RFC4180 铺平的网格（日期给 ISO、没缓存值的公式格给空、.xls 的日期只能给序列数）；.ods 每格还带它继承的**数据样式**（`format_kind` / `decimals` / `format_tokens`，样式分在 content.xml 与 styles.xml 两处） |

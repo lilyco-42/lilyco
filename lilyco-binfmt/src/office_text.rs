@@ -36,7 +36,7 @@ use crate::zipread::{self, Member, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-text",
     run = "run_office_text",
-    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored), then the parts that are not in the body at all - comments, footnotes, endnotes, headers and footers - each entry carrying from/part/author/date so a comment never reads like body text. pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels - except .ods, which answers like a spreadsheet does: one entry per non-empty cell with its sheet name, A1-style reference and declared value type (the text shown in the cell, not office:value). ODF comments are text:annotation elements nested INSIDE a body paragraph (docx keeps them in a separate part), so they are emitted as their own entries carrying from/author/date read from their meta:creator and meta:date children, and the paragraph that holds one reports only its own text. An .odt's page headers and footers are not in content.xml either - they sit in styles.xml under style:master-page (a document with two sections has two master pages, and left/right/first-page variants are separate slots), so they are read there and flagged from=header/footer with the master-page name and slot. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=record-tree with every text atom found by walking the tree (master placeholders included, because they really are in the file). Read-only (safety T0): parts are inflated in memory only."
+    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored), then the parts that are not in the body at all - comments, footnotes, endnotes, headers and footers - each entry carrying from/part/author/date so a comment never reads like body text. pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels - except .ods, which answers like a spreadsheet does: one entry per non-empty cell with its sheet name, A1-style reference and declared value type (the text shown in the cell, not office:value). ODF comments are text:annotation elements nested INSIDE a body paragraph (docx keeps them in a separate part), so they are emitted as their own entries carrying from/author/date read from their meta:creator and meta:date children, and the paragraph that holds one reports only its own text. An .odt's page headers and footers are not in content.xml either - they sit in styles.xml under style:master-page (a document with two sections has two master pages, and left/right/first-page variants are separate slots), so they are read there and flagged from=header/footer with the master-page name and slot. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text; its page headers and footers live in the SAME stream as the body (only the destination groups named header / headerl / headerf / footer say which), so they are separated out and flagged from=header/footer with the slot name - one header often appears in several slots, which is reported as the file writes it rather than merged away. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=record-tree with every text atom found by walking the tree (master placeholders included, because they really are in the file). Read-only (safety T0): parts are inflated in memory only."
 )]
 pub struct OfficeText {
     /// 办公文件
@@ -468,6 +468,30 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                 }
                 let index = paragraphs.len();
                 paragraphs.push(json!({ "index": index, "text": line, "part": "rtf" }));
+            }
+            // 页眉与页脚的字与正文在同一个流里，靠目标群分开；一条会同时写进
+            // `\header`、`\headerf` 好几个口袋，所以每条都带着自己是哪个口袋
+            for (what, found) in [("header", &one.headers), ("footer", &one.footers)] {
+                for had in found.iter() {
+                    let text = had["text"].as_str().unwrap_or_default();
+                    if text.is_empty() && !app.keep_empty {
+                        continue;
+                    }
+                    let index = paragraphs.len();
+                    paragraphs.push(json!({
+                        "index": index,
+                        "text": text,
+                        "from": what,
+                        "slot": had["slot"],
+                        "part": "rtf",
+                    }));
+                }
+            }
+            if one.page_destinations > 0 {
+                notes.push(format!(
+                    "页眉页脚是从 {} 个目标群里读出来的（它们与正文混在同一个流里）",
+                    one.page_destinations
+                ));
             }
         }
         Family::Compound => match doc.compound.as_ref() {
@@ -1116,6 +1140,67 @@ mod tests {
             .map(|one| one["index"].as_u64().expect("每条都有 index"))
             .collect();
         assert_eq!(listed, (0..7).collect::<Vec<u64>>(), "{listed:?}");
+    }
+
+    /// RTF 的页眉页脚与正文在**同一个流**里，只靠目标群（`\headerl …}`）分开：
+    /// 以前这些字会被当成正文行交出去。一条页眉会同时写进 `\header` 与 `\headerf`
+    /// 好几个口袋，所以口袋名一起报，不替文件合并
+    /// （期望值来自 `lyco_rtf.py` 的 rtf_text）
+    #[test]
+    fn rtf_page_headers_are_not_body_text() {
+        let out = run("notes-hf.rtf", 20000, false);
+        let items = out["paragraphs"].as_array().expect("是数组");
+        let body: Vec<&str> = items
+            .iter()
+            .filter(|one| one["from"] == Value::Null)
+            .map(|one| one["text"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(
+            body,
+            vec![
+                "带页眉的一页",
+                "正文只有一句：这一份是用来测页眉页脚那条分支的。",
+                "换节之后的一段正文。",
+            ],
+            "{out}"
+        );
+        let side: Vec<(&str, &str, &str)> = items
+            .iter()
+            .filter(|one| one["from"] != Value::Null)
+            .map(|one| {
+                (
+                    one["from"].as_str().unwrap_or_default(),
+                    one["slot"].as_str().unwrap_or_default(),
+                    one["text"].as_str().unwrap_or_default(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            side,
+            vec![
+                ("header", "header", "公司机密 · 预算评审"),
+                ("header", "header", "第二节的页眉不一样"),
+                ("header", "headerf", "第二节的页眉不一样"),
+                ("footer", "footer", "第 1 页 / 共 3 页"),
+                ("footer", "footer", "第 1 页 / 共 3 页"),
+            ],
+            "{side:?}"
+        );
+        // 没有页眉的那份一份都不许多
+        let plain = run("notes.rtf", 20000, false);
+        assert_eq!(
+            plain["paragraphs"].as_array().expect("是数组").len(),
+            7,
+            "{plain}"
+        );
+        assert!(
+            plain["paragraphs"]
+                .as_array()
+                .expect("是数组")
+                .iter()
+                .all(|one| one["from"] == Value::Null),
+            "{plain}"
+        );
     }
 
     /// 脚注部件里那两条分隔符（`separator` / `continuationSeparator`）不交出来：

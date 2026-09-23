@@ -103,10 +103,38 @@ def decode_pending(raw: bytes, codepage: int) -> tuple[str, int]:
     return text, text.count(chr(0xFFFD))
 
 
+def group_end(text: str, at: int) -> tuple[int, str]:
+    """从 `at` 起找到关掉**当前这一群**的 `}`：交回它的位置与群内文本。
+
+    `\\{` 与 `\\}` 是字面花括号，不参与配对；找不到就走到尾。
+    """
+    depth = 0
+    i = at
+    while i < len(text):
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            if depth == 0:
+                return i, text[at:i]
+            depth -= 1
+        elif ch == "\\" and i + 1 < len(text) and text[i + 1] in "{}":
+            i += 1
+        i += 1
+    return len(text), text[at:]
+
+
+PAGE_DESTINATIONS = {
+    "header", "headerl", "headerr", "headert", "headerf",
+    "footer", "footerl", "footerr", "footert", "footerf",
+}
+
+
 def rtf_text(data: bytes) -> dict:
     """返回 `{text, lines, line_count, chars, ...}`：计数都是文件自己账上的数"""
     text = data.decode("latin-1", "replace")
     out: list[str] = []
+    page: dict = {"headers": [], "footers": [], "destinations": 0}
     pending = bytearray()  # 连续的 \'hh 字节，攒着按字符集一起解
     skip: list[bool] = [False]
     codepage = 1252
@@ -213,6 +241,20 @@ def rtf_text(data: bytes) -> dict:
             j = skip_rtf_chars(text, j, max(ucount, 0))
             i = j
             continue
+        if word in PAGE_DESTINATIONS and not skip[-1]:
+            # 目标群到「关掉当前这一群」的那个 } 止；里面递归走一遍（页眉也有 \par、\u）
+            stop, inner = group_end(text, j)
+            sub = rtf_text(inner.encode("latin-1", "replace"))
+            # 一条一节会同时写进 \header / \headerl / \headert 好几个口袋：
+            # 每条都带着自己是哪个口袋，不替文件合并
+            key = "headers" if word.startswith("header") else "footers"
+            for line in sub["lines"]:
+                page[key].append({"slot": word, "text": line})
+            page["destinations"] += 1
+            if len(skip) > 1:
+                skip.pop()
+            i = stop + 1
+            continue
         if word in SKIP_DESTINATIONS:
             skip[-1] = True
             stats["destinations"] += 1
@@ -242,6 +284,9 @@ def rtf_text(data: bytes) -> dict:
         "pictures": stats["pictures"],
         "embedded_objects": stats["objects"],
         "skipped_destinations": stats["destinations"],
+        "headers": page["headers"],
+        "footers": page["footers"],
+        "page_destinations": page["destinations"],
         "replacement_chars": stats["replacements"],
     }
 

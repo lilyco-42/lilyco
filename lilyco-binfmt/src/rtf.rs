@@ -49,6 +49,49 @@ const SKIP_DESTINATIONS: &[&str] = &[
 
 /// 断点类：输出一个换行
 const BREAK_WORDS: &[&str] = &["par", "line", "sect", "page", "pbb"];
+/// 页眉与页脚的目标群：字是真的，但它们不是正文。
+/// 注意 `\headery` / `\footery` 是「页眉高度」这种**格式**控制字，
+/// 控制字读到字母为止，所以整名匹配不会把它们误当成目标
+const PAGE_DESTINATIONS: &[&str] = &[
+    "header", "headerl", "headerr", "headert", "headerf", "footer", "footerl", "footerr",
+    "footert", "footerf",
+];
+
+/// 目标属于页眉还是页脚
+fn page_kind(word: &str) -> &'static str {
+    if word.starts_with("header") {
+        "header"
+    } else {
+        "footer"
+    }
+}
+
+/// 从 `at` 起找到关闭**当前这一群**的那个 `}`：交回它的位置与群里的字节。
+/// `\{` 与 `\}` 是字面花括号，不参与配对；找不到就走到尾（坏文件不咬人）
+fn group_end(bytes: &[u8], at: usize) -> (usize, Vec<u8>) {
+    let mut depth = 0i32;
+    let mut i = at;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => depth += 1,
+            b'}' => {
+                if depth == 0 {
+                    return (i, bytes[at..i].to_vec());
+                }
+                depth -= 1;
+            }
+            b'\\' => {
+                if matches!(bytes.get(i + 1), Some(&b'{') | Some(&b'}')) {
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    (bytes.len(), bytes[at.min(bytes.len())..].to_vec())
+}
+
 /// 单元格分隔：输出一个制表符
 const TAB_WORDS: &[&str] = &["tab", "cell", "nestcell"];
 /// 行结束：一行表格就是一行文本 —— 把 \row 当制表符会把整张表挤成一行
@@ -68,6 +111,12 @@ pub struct Rtf {
     pub pictures: usize,
     pub embedded_objects: usize,
     pub skipped_destinations: usize,
+    /// 页眉与页脚的字：它们与正文混在同一个流里，靠目标群分开。
+    /// 一条一节会同时写进 `\header`、`\headerl`、`\headert` 好几个口袋，
+    /// 所以每条都带着自己是哪个口袋（slot），不替文件合并
+    pub headers: Vec<Value>,
+    pub footers: Vec<Value>,
+    pub page_destinations: usize,
     pub notes: Vec<String>,
 }
 
@@ -76,6 +125,9 @@ impl Rtf {
         json!({
             "text": self.text,
             "lines": self.lines,
+            "headers": self.headers,
+            "footers": self.footers,
+            "page_destinations": self.page_destinations,
             "line_count": self.lines.len(),
             "chars": self.text.chars().count(),
             "declared_codepage": self.declared_codepage,
@@ -107,6 +159,9 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         pictures: 0,
         embedded_objects: 0,
         skipped_destinations: 0,
+        headers: Vec::new(),
+        footers: Vec::new(),
+        page_destinations: 0,
         notes: Vec::new(),
     };
     let mut i = 0usize;
@@ -227,6 +282,28 @@ pub fn extract(bytes: &[u8]) -> Rtf {
                 continue;
             }
             _ => {}
+        }
+        if !skipping && PAGE_DESTINATIONS.contains(&word.as_str()) {
+            // 目标群从这一位起，到关掉「当前这一群」的那个 `}` 止。
+            // 里面递归走一遍：页眉也会有 \par、\u 与字段。
+            let (stop, inner) = group_end(bytes, j);
+            let sub = extract(&inner);
+            let slot = word.clone();
+            let into: &mut Vec<Value> = if page_kind(word.as_str()) == "header" {
+                &mut me.headers
+            } else {
+                &mut me.footers
+            };
+            for line in sub.lines {
+                into.push(json!({"slot": slot.clone(), "text": line}));
+            }
+            me.page_destinations += 1;
+            // 那个 `}` 被这一跳吃掉了，群里层的跳过标记要自己弹掉
+            if skip.len() > 1 {
+                skip.pop();
+            }
+            i = stop + 1;
+            continue;
         }
         if SKIP_DESTINATIONS.contains(&word.as_str()) {
             let last = skip.len() - 1;

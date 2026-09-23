@@ -268,6 +268,25 @@ def main() -> int:
     check("deck.ppt office-slide 也说记录树", dig(slide97, "record_tree.text_atoms"), len(ppt_want["text_atoms"]))
     rtf = lbin("office-text", fixture("notes.rtf"))
     check("notes.rtf 逐行文本", [one["text"] for one in rtf.get("paragraphs", [])], files["notes.rtf"]["rtf"]["lines"])
+    # RTF 的页眉页脚与正文在同一个流里，只靠目标群分开：正文不许带上页眉的字
+    hf_rtf = lbin("office-text", fixture("notes-hf.rtf"))
+    rwant = files["notes-hf.rtf"]["rtf"]
+    check(
+        "notes-hf.rtf 正文行",
+        [one["text"] for one in hf_rtf.get("paragraphs", []) if not one.get("from")],
+        rwant["lines"],
+    )
+    check(
+        "notes-hf.rtf 页眉页脚逐条",
+        [
+            (one.get("from"), one.get("slot"), one.get("text"))
+            for one in hf_rtf.get("paragraphs", [])
+            if one.get("from")
+        ],
+        [("header", one["slot"], one["text"]) for one in rwant["headers"]]
+        + [("footer", one["slot"], one["text"]) for one in rwant["footers"]],
+    )
+    check("notes-hf.rtf 目标群数", rwant["page_destinations"], 6)
 
     # ── 表格结构：表名、可见性、范围、格子 ──────────────────────────
     print("=== 3) office-sheet：布局 ===")
