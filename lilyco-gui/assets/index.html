@@ -181,7 +181,10 @@ async function uploadFile(file,dz){
   const max=Number(dz.dataset.maxUpload)||0;
   if(max&&file.size>max){
     const hasPick=!!dz.querySelector("[data-pick]");
-    fail(file.name+" 是 "+fmtSize(file.size)+"，超过上传上限 "+fmtSize(max)+"（浏览器要把整个文件读成 base64 再发给服务端）。"
+    // 报字节而不是只报 MB：209,715,201 B 和 209,715,200 B 都显示成「200.0 MB」，
+    // 只给 MB 的话用户读到的是「200 MB 超过 200 MB」这种自相矛盾的话
+    const bytes=n=>n.toLocaleString("en-US")+" B";
+    fail(file.name+" 有 "+bytes(file.size)+"（"+fmtSize(file.size)+"），超过上传上限 "+bytes(max)+"（"+fmtSize(max)+"）—— 浏览器要把整个文件读成 base64 再发给服务端。"
       +(hasPick?"改点右边的「本机」—— 服务端直接弹系统选择器，回填原始路径，不复制也不限大小。"
                :"这条构建没开本机选择器：请手填路径，或换小一点的文件。"));
     return;
@@ -211,6 +214,8 @@ async function uploadFile(file,dz){
     const j=await resp.json();
     p.input.value=j.path;
     p.chip.textContent=file.name+" · "+fmtSize(j.size);
+    // 光有文件名+大小读屏不知道这是干什么的按钮，动作得进可访问名
+    p.chip.setAttribute("aria-label","清除已上传的 "+file.name);
     p.chip.title="清除已上传的副本路径";
     p.chip.hidden=false;
     dz.classList.add("uploaded");

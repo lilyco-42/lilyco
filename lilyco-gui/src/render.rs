@@ -819,6 +819,23 @@ mod tests {
         );
     }
 
+    /// chip 是按钮，可访问名必须带上「清除」这个动作 —— 只念得出文件名和大小时，
+    /// 读屏用户听到的是一个看不出作用的按钮。超限话术必须报字节：只报 MB 的话，
+    /// 209,715,201 B 与 209,715,200 B 都显示成「200.0 MB」，用户读到的是
+    /// 「200 MB 超过 200 MB」这种自相矛盾的句子。两条都是 2026-09-23 真在页面上读出来的。
+    #[test]
+    fn the_chip_and_the_oversize_message_say_what_they_mean() {
+        let page = HTML_TEMPLATE;
+        assert!(
+            page.contains(r##"setAttribute("aria-label","清除已上传的 "##),
+            "chip 的可访问名不再说明它清除的是什么了"
+        );
+        assert!(
+            page.contains("bytes(file.size)") && page.contains("bytes(max)"),
+            "超限话术退回只报 MB，会念出「200 MB 超过 200 MB」"
+        );
+    }
+
     /// 数一遍 JS 里 `function initXxx(` 定义出来的组件
     fn js_init_fns(src: &str) -> Vec<String> {
         const MARK: &str = "function init";
