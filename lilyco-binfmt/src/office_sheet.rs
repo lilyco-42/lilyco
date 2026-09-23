@@ -74,6 +74,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
         // 格子写的 `s="3"` 是 `cellXfs` 的**下标**，不是格式号：不绕这一层，
         // 一个日期永远只是「一个数」（41631）。
         let styles = crate::numfmt::read_styles(bytes);
+        let mut notes = doc.notes.clone();
         notes.extend(styles.notes.iter().cloned());
         let mut sheets: Vec<Value> = Vec::new();
         let mut totals = json!({
@@ -272,7 +273,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             "sheets": sheets,
             "defined_names": defined,
             "external_links": external,
-            "notes": doc.notes,
+            "notes": notes,
         });
         ctx.done(result.clone(), start.elapsed().as_millis() as u64);
         return Ok(result);

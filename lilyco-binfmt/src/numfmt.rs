@@ -19,6 +19,8 @@
 
 use std::collections::BTreeMap;
 
+use serde_json::{json, Value};
+
 use crate::xmlscan::{self, Node};
 use crate::zipread;
 
@@ -36,6 +38,9 @@ pub enum Kind {
     Date,
     Datetime,
     Time,
+    /// 格式号在内置表里，但这一版没抄它的串（见 `builtin_code` 那段注释）——
+    /// 报成 general 就是替文件编话，所以说「不知道」。
+    Unknown,
 }
 
 impl Kind {
@@ -48,6 +53,7 @@ impl Kind {
             Kind::Date => "date",
             Kind::Datetime => "datetime",
             Kind::Time => "time",
+            Kind::Unknown => "unknown",
         }
     }
 }
@@ -78,23 +84,12 @@ pub fn builtin_code(id: u64) -> Option<&'static str> {
         20 => "h:mm",
         21 => "h:mm:ss",
         22 => "m/d/yy h:mm",
-        37 => "#,##0 ;(#,##0)",
-        38 => "#,##0 ;[Red](#,##0)",
-        39 => "#,##0.00;(#,##0.00)",
-        40 => "#,##0.00;[Red](#,##0.00)",
         45 => "mm:ss",
         46 => "[h]:mm:ss",
         47 => "mmss.##",
-        48 => "h:mm:ss",
-        49 => "hhmm",
-        50 => "hh:mm",
-        51 => "hh-mm",
-        52 => "yyyy-MM\\\",月\\\"hh-mm",
-        53 => "yyyy-MM\\\",月\\\"",
-        54 => "m/d/yy h:mm",
-        55 => "yyyy年m月",
-        56 | 57 => "yyyy年m月d日",
-        58 => "上午/下午hh\"时\"mm\"分\"",
+        // 23-36 与 48-58 这一批是**跟着地区变**的日期/时间内置号（中文 Excel 写 31 是
+        // `yyyy"年"m"月"d"日"`，日文 Excel 写同一个号是另一套串）。手上没有真件证明
+        // 该抄哪一份，所以宁可让 `format_of` 说「这个号我没抄」，也不照记忆写一个。
         _ => return None,
     })
 }
@@ -171,7 +166,8 @@ pub fn serial_to_iso(value: f64, year1904: bool) -> String {
         return "1900-02-29".to_string();
     }
     let unix_days: i64 = if year1904 {
-        days - 24_857
+        // 1904-01-01 距 1970-01-01 是 24107 天（1900 系统那边是 25569，两套基准差 1462 天）
+        days - 24_107
     } else if days < 60 {
         days - 25_568
     } else {
@@ -204,24 +200,30 @@ pub struct Styles {
 }
 
 impl Styles {
-    /// 某个样式下标对应的 (格式号, 格式串)。读不出来就是 (0, "General")。
-    pub fn format_of(&self, style: usize) -> (u64, String) {
+    /// 某个样式下标对应的 (格式号, 格式串)。串是 `None` 表示这个号这一版没抄串。
+    pub fn format_of(&self, style: usize) -> (u64, Option<String>) {
         let id = self.xfs.get(style).copied().unwrap_or(0);
         if let Some(one) = self.custom.get(&id) {
-            return (id, one.clone());
+            return (id, Some(one.clone()));
         }
-        (id, builtin_code(id).unwrap_or("General").to_string())
+        (id, builtin_code(id).map(|one| one.to_string()))
     }
 
     pub fn kind_of(&self, style: usize) -> Kind {
-        kind_of(&self.format_of(style).1)
+        match self.format_of(style).1 {
+            Some(code) => kind_of(&code),
+            None => Kind::Unknown,
+        }
     }
 
     /// 一个格子完整的格式账：号、串、判定，必要时再加上换算出来的日期。
     /// `cell_type` 是 `<c t="…">`：文本与布尔格子的类型由文件直接说，不用去猜格式串。
     pub fn cell_format(&self, style: usize, raw: Option<&str>, cell_type: &str) -> Value {
         let (id, code) = self.format_of(style);
-        let judged = kind_of(&code);
+        let judged = match &code {
+            Some(one) => kind_of(one),
+            None => Kind::Unknown,
+        };
         let kind = match cell_type {
             "s" | "str" | "inlineStr" => "text",
             "b" => "bool",
@@ -356,7 +358,7 @@ mod tests {
         assert!(styles.notes.is_empty(), "{:?}", styles.notes);
         assert_eq!(styles.xfs.len(), 6, "{:?}", styles.xfs);
         // 1 号样式不是内置 14，而是自定义 164 —— 只查内置表就会漏掉
-        assert_eq!(styles.format_of(1), (164, "yyyy-mm-dd".to_string()));
+        assert_eq!(styles.format_of(1), (164, Some("yyyy-mm-dd".to_string())));
         assert_eq!(styles.kind_of(1), Kind::Date);
         assert_eq!(styles.kind_of(2), Kind::Datetime);
         assert_eq!(styles.kind_of(3), Kind::Percent);
@@ -385,6 +387,32 @@ mod tests {
         assert_eq!(
             styles.cell_format(2, Some("41631.63541666666"), "n")["as_date"],
             "2013-12-23T15:15:00"
+        );
+    }
+
+    /// 内置号里地区相关的那批没抄串，就说 unknown —— 报成 general 是替文件编话
+    #[test]
+    fn an_untranscribed_builtin_says_unknown_not_general() {
+        let styles = Styles {
+            xfs: vec![0, 14, 47, 31],
+            custom: BTreeMap::new(),
+            year1904: false,
+            notes: Vec::new(),
+        };
+        assert_eq!(styles.kind_of(0), Kind::General);
+        assert_eq!(styles.kind_of(1), Kind::Date, "内置 14 = mm-dd-yy");
+        assert_eq!(styles.kind_of(2), Kind::Time, "内置 47 = mmss.##");
+        let unknown = styles.cell_format(3, Some("41631"), "n");
+        assert_eq!(unknown["format_kind"], "unknown", "{unknown}");
+        assert_eq!(
+            unknown["format"],
+            Value::Null,
+            "串没抄就别给一条串：{unknown}"
+        );
+        assert_eq!(unknown["num_fmt"], 31, "号还是照文件给：{unknown}");
+        assert!(
+            unknown.get("as_date").is_none(),
+            "判定不知道就不换算：{unknown}"
         );
     }
 
