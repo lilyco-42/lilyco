@@ -12,7 +12,7 @@
   <text x="492" y="160" font-size="46" font-weight="700" fill="#1e40af" opacity="0.55" font-family="Consolas,monospace">=&gt;</text>
   <rect x="0" y="0" width="6" height="200" fill="url(#ac)"/>
   <rect x="36" y="46" height="34" rx="17" width="130" fill="rgba(37,99,235,.18)" stroke="#2563eb"/>
-  <text x="101" y="69" font-size="15" fill="#93c5fd" text-anchor="middle">Rust · ★5 旗舰</text>
+  <text x="101" y="69" font-size="15" fill="#93c5fd" text-anchor="middle">Rust · ★6 旗舰</text>
   <text x="36" y="126" font-size="44" font-weight="700" fill="#eff6ff">Lilyco</text>
   <text x="36" y="158" font-size="17" fill="#bfdbfe">一个 struct 派生 CLI / TUI / GUI / MCP 四端 · 天生 AI 可调用</text>
 </svg>
