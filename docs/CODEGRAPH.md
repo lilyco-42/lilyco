@@ -55,14 +55,16 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 
 ## 3. 四个后端
 
-### lilyco-cli（`lilyco-cli/src/lib.rs`）
-| 符号 | 行 | 说明 |
+### lilyco-cli（`lilyco-cli/src/`，按职责分文件；对外只有 `CliRenderer` / `run` / `run_registry` / `build_registry_command`）
+| 符号 | 位置 | 说明 |
 |---|---|---|
-| `run::<A>()` | 146 | 单命令一行启动（clap 校验 → extract → executor → drain） |
-| `run_registry()` | 195 | **多命令**：Registry → clap 子命令树；根级 `--schema` 打印清单 |
-| `build_registry_command()` | 222 | 纯函数构建根 Command（别名/隐藏→hide(true)） |
-| `resolve_registry_command()` | 249 | 规范名/别名 → 注册表条目（含 schema.name 兜底） |
-| `drain_events()` | 281 | 单/多命令共用的进度消费（Human/Json/JsonStream） |
+| `struct CliRenderer` | `renderer.rs:27` | schema → clap 的渲染入口；`handle_builtin_flags():46`、`output_format():90`、`extract_args():103` |
+| `run::<A>()` | `single.rs:17` | 单命令一行启动（clap 校验 → extract → executor → drain） |
+| `run_registry()` | `registry.rs:28` | **多命令**：Registry → clap 子命令树；根级 `--schema` 打印清单 |
+| `build_registry_command()` | `registry.rs:55` | 纯函数构建根 Command（别名/隐藏→hide(true)） |
+| `resolve_registry_command()` | `registry.rs:82` | 规范名/别名 → 注册表条目（含 schema.name 兜底） |
+| `drain_events()` | `registry.rs:114` | 单/多命令共用的进度消费（Human/Json/JsonStream） |
+| `build_command()` / `add_builtin_flags()` | `command.rs:17` / `command.rs:133` | 构造规则本体：一个 `ArgKind` 怎么变成 `clap::Arg` |
 
 ### lilyco-tui（状态机，三文件）
 | 符号 | 位置 | 说明 |
@@ -133,7 +135,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 2. **`CommandSchema::validate_args` 是唯一校验实现**：TUI `FormField::validate` 是其表单侧映射；新增校验规则先改 core，再同步 TUI。
 3. **事件流协议**：`rx` 恒以 `Done`/`Error` 结尾（`executor::spawn` 合成兜底）——消费者无需自己兜底。
 4. **依赖单向**：core 不依赖后端，后端互不依赖，facade 是唯一知道所有后端的 crate。
-5. **clap 只接受 `'static str`**：运行时字符串用 `leak_str`（`lilyco-cli/src/lib.rs:353`，Box::leak，进程内无累积问题）。
+5. **clap 只接受 `'static str`**：运行时字符串用 `leak_str`（`lilyco-cli/src/command.rs:13`，Box::leak，进程内无累积问题）。
 6. **导航可回退、执行不可回退**：`index` 的 `?cmd` 未知时回退第一个可见命令；`/run` 显式指定未知命令必须 400。
 7. **宏展开引用 `::lilyco::__core::`（facade doc-hidden 再导出）**：用户只需依赖 `lilyco` 一个 crate；直接使用 `lilyco-macros` 的项目须同时依赖 `lilyco`（macros 的 dev-deps 即此契约）。
 8. **安全策略按「调用面」注入，且在 `register` 之前**：`Registry::with_policy` 在注册时就把 handler 包进门，所以顺序不能反；`run_registry_with` 按后端选策略 —— **MCP = `DenyElevated`（自动化面，fail-closed）**，**CLI/TUI/Web = `Interactive`（人类在环，放行 T1）**。这是四端"同一份 handler、不同信任级别"的唯一实现点。`into_registry_with_policy` 只能用于**尚未注册**的注册表；对已注册的调它会在 handler 上叠第二道门（旧门先拒），表现为"换了策略还是被拒"。
@@ -175,7 +177,7 @@ cargo bench -p lilyco-example                      # schema 生成性能基准
 | 区域 | 位置 | 覆盖 |
 |---|---|---|
 | core 校验/协议/registry | `lilyco-core/src/{schema,lib,registry}.rs` `#[cfg(test)]` | validate_args 12 例、Progress serde、registry 别名/隐藏/JSON |
-| CLI | `lilyco-cli/src/lib.rs` 底部 | 渲染/解析/内置标志/多命令构建与解析 |
+| CLI | `lilyco-cli/src/tests.rs` | 渲染/解析/内置标志/多命令构建与解析（31 例） |
 | TUI | `lilyco-tui/src/lib.rs` 底部 | 渲染、状态机、校验拦截、多命令选择页、路径 Tab 补全 |
 | GUI | `lilyco-gui/src/{security,state,render,run,files,util}.rs` 各自底部 | run_handler 400/200、pick_command、?cmd 导航、转义、base64、文件名净化、`/pick` 同闸 |
 | MCP | `lilyco-mcp/src/lib.rs` 底部 | initialize/tools/进度通知/校验拒绝 |

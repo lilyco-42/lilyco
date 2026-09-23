@@ -18,12 +18,12 @@
 //! - `POST /cancel/{sid}`    请求取消
 //!
 //! 模块划分（一处一职）：
-//! - [`security`] 回环 Host + Origin + 一次性令牌
-//! - [`state`]    跨端点共享的那一份状态
-//! - [`render`]   schema → HTML 表单（转义纪律集中在此）
-//! - [`run`]      分发、SSE 进度流、取消
-//! - [`files`]    拖拽上传与本机选择器两条取文件的路
-//! - [`util`]     无领域含义的纯函数
+//! - `security` 回环 Host + Origin + 一次性令牌
+//! - `state`    跨端点共享的那一份状态
+//! - `render`   schema → HTML 表单（转义纪律集中在此）
+//! - `run`      分发、SSE 进度流、取消
+//! - `files`    拖拽上传与本机选择器两条取文件的路
+//! - `util`     无领域含义的纯函数
 //!
 //! 对外只有三个符号：[`GuiRenderer`]、[`RunnerFn`]、[`TOKEN_HEADER`]。
 

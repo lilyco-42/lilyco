@@ -2589,7 +2589,6 @@ name = "lilyco-binfmt"
 version = "0.3.0"
 dependencies = [
  "lilyco",
- "lilyco-core",
  "object",
  "serde",
  "serde_json",
