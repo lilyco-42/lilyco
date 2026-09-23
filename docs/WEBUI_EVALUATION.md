@@ -3,6 +3,14 @@
 > 目标：为 lilyco Web 端（schema→表单 + SSE 进度）选型 UI 组件方案。
 > 结论先行：**Pico.css（classless）替换 Layui + 保留 vanilla JS 架构 + 补 HTML 转义**。
 
+> **后续修正（2026-09-23）**：Layui 确实退役了，但 **Pico.css 这一步没有落地**。
+> 实际走的是「自研一套设计令牌 + 组件目录」：`lilyco-gui/DESIGN.md` 是唯一一张表（颜色/间距/排版/
+> 圆角/动效/响应式 + §10 每个组件的构成与七态），`assets/app.css` 只许引用表里的值。
+> 原因：整页要 `include_str!` 进每个域二进制并受严格 CSP（`default-src 'none'`，无外链），
+> 第三方 classless 框架带来的类名层与主题变量反而多一层要维护的映射；
+> 而这次真正需要的是**可核对的数值与状态**，不是组件库。
+> 本文其余部分作为预研记录原样保留（选型矩阵与体检仍然有效）。
+
 ## 0. 现状体检（lilyco-gui/src/lib.rs，822 行）
 
 - 渲染：Rust `format!` 字符串模板（19 处）→ 按 6 种 `ArgKind` 生成控件 HTML

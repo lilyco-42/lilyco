@@ -1,8 +1,9 @@
 //! # Lilyco Web GUI — axum 服务器 + 内嵌单页控制台
 //!
-//! 设计基调（对齐 docs/WEBUI_EVALUATION.md 决策，取值见 `DESIGN.md`）：
-//! - **零外部 UI 依赖**：自研 ~15KB 设计系统 CSS（明暗两套令牌 + 组件级 container query），
-//!   Layui（480KB，95% 能力闲置）退役；vanilla JS 架构保留
+//! 设计基调（取值与组件目录一律看 `DESIGN.md`，那里是唯一一张表；
+//! `docs/WEBUI_EVALUATION.md` 是 2026-09-19 的预研记录，其 Pico.css 结论已被自研令牌取代）：
+//! - **零外部 UI 依赖**：自研 ~20 KB 设计系统 CSS（明暗两套令牌 + 组件级 container query +
+//!   七态），Layui（480KB，95% 能力闲置）退役；vanilla JS 架构保留，按组件拆成 `init*`
 //! - **文件输入组件**：Path 参数支持拖拽 / 点击选择，也可让服务端弹本机选择器
 //!   （见 `files`）
 //! - **安全**：html_escape 全插值点、CSP/nosniff 响应头、动态内容一律 textContent 渲染；
