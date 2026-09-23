@@ -14,6 +14,7 @@
 //! 「这份文件坏了一半，还能读出多少」—— 静默中断等于什么都没读到。
 
 /// 一个元素。`name` 是原文里的名字（带前缀），`direct` 是它的直接文本段拼起来（已解实体）。
+#[derive(Debug, Clone)]
 pub struct Node {
     pub name: String,
     pub attrs: Vec<(String, String)>,

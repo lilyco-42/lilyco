@@ -66,6 +66,7 @@ pub fn fmtid_label(fmtid: &str) -> &'static str {
 }
 
 /// 一个属性：pid + 变体类型 + 已经按文件声明的字符集解好的值
+#[derive(Debug, Clone)]
 pub struct Prop {
     pub pid: u32,
     pub name: Option<&'static str>,
@@ -73,6 +74,7 @@ pub struct Prop {
     pub value: Value,
 }
 
+#[derive(Debug)]
 pub struct Set {
     pub fmtid: String,
     pub label: &'static str,

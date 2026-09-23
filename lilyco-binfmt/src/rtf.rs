@@ -58,6 +58,7 @@ const OBJECT_WORDS: &[&str] = &[
     "object", "objattph", "objdata", "objclass", "objname", "objemb", "objhide",
 ];
 
+#[derive(Debug, Clone)]
 pub struct Rtf {
     pub text: String,
     pub lines: Vec<String>,

@@ -35,6 +35,7 @@ pub enum Family {
 }
 
 /// 一次打开的结果
+#[derive(Debug)]
 pub struct Doc {
     pub family: Family,
     /// 具体格式名：docx / xlsx / pptx / odt / doc / rtf / …
@@ -356,7 +357,7 @@ pub fn risk_signals(doc: &Doc) -> Value {
                 || name.contains("VBA")
                 || name.contains("_VBA_PROJECT")
             {
-                macros.push(name);
+                macros.push(name.clone());
             }
             if name.contains("Encrypted") {
                 encrypted.push(name);

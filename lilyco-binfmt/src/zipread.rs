@@ -22,6 +22,7 @@ pub const DEFAULT_MEMBER_CAP: u64 = 64 * 1024 * 1024;
 
 /// 一个成员：字节 + 它自己声明的那套账（压缩方法 / 长度 / CRC）。
 /// `data` 是**解压后**的字节（stored 成员就是原样）。
+#[derive(Debug)]
 pub struct Member {
     pub name: String,
     pub method: u64,
@@ -263,6 +264,7 @@ mod tests {
         ];
         let mut out = Vec::new();
         let mut central = Vec::new();
+        let declared = parts.len();
         for (name, method, body) in parts {
             let offset = out.len() as u64;
             let crc = crc32(&body) as u32;
@@ -309,8 +311,8 @@ mod tests {
         out.extend_from_slice(b"PK\x05\x06");
         out.extend_from_slice(&0u16.to_le_bytes()); // this disk
         out.extend_from_slice(&0u16.to_le_bytes()); // disk with cd start
-        out.extend_from_slice(&(parts.len() as u16).to_le_bytes());
-        out.extend_from_slice(&(parts.len() as u16).to_le_bytes());
+        out.extend_from_slice(&(declared as u16).to_le_bytes());
+        out.extend_from_slice(&(declared as u16).to_le_bytes());
         out.extend_from_slice(&(central.len() as u32).to_le_bytes());
         out.extend_from_slice(&cd_at.to_le_bytes());
         out.extend_from_slice(&0u16.to_le_bytes()); // comment len
