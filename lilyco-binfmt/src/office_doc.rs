@@ -184,12 +184,13 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             .into_iter()
             .find_map(|one| one.child("text"))
             .unwrap_or(&root);
-        let paragraphs = text_body.descendants("p");
+        let mut paragraphs: Vec<&xmlscan::Node> = Vec::new();
+        crate::office_text::odf_paragraphs(text_body, &mut paragraphs);
         let mut empty = 0usize;
         let mut styles: std::collections::BTreeMap<String, usize> =
             std::collections::BTreeMap::new();
         for one in &paragraphs {
-            if crate::office_text::paragraph_text(one).is_empty() {
+            if crate::office_text::odf_paragraph_text(one).is_empty() {
                 empty += 1;
             }
             if let Some(style) = crate::odsheet::attr_of(one, "style-name") {
@@ -424,19 +425,24 @@ mod tests {
         );
     }
 
-    /// ODT 的结构账：段落口径与 OOXML 一致（表格里也算段），标题层级在 `text:outline-level`，
-    /// 脚注与尾注共用一个 `text:note`（这份两个都没写所以是 0）；
-    /// 期望值全部来自 `odt_structure()`，而 `paragraph-count` 还与 LibreOffice
-    /// 自己写在 `meta.xml` 的那份账对得上
+    /// ODT 的结构账：段落口径与 OOXML 一致（表格里也算段），但**批注里的段不算** ——
+    /// ODF 的 `text:annotation` 嵌在正文段里面，LibreOffice 自报 10 段正是因为它把
+    /// 批注里那一段也数了进去；标题层级在 `text:outline-level`，
+    /// 脚注与尾注共用一个 `text:note`（这份两个都没写所以是 0）。
+    /// 期望值全部来自 `odt_structure()`。
     #[test]
     fn an_opendocument_text_document_is_accounted_for() {
         let out = run("notes.odt");
         assert_eq!(out["kind"], "opendocument-text");
         assert_eq!(
-            out["structure"]["paragraphs"], 10,
-            "与 meta.xml 自报的 paragraph-count 一致：{out}"
+            out["structure"]["paragraphs"], 9,
+            "正文段不含批注里那一段：{out}"
         );
         assert_eq!(out["structure"]["empty_paragraphs"], 2, "{out}");
+        assert_eq!(
+            out["producer_statistics"]["paragraph-count"], "10",
+            "生产者的 10 = 我们的 9 + 批注里那一段：口径差要在两边都说得清"
+        );
         assert_eq!(out["styles"]["Standard"], 8, "{out}");
         assert_eq!(out["styles"]["P2"], 1);
         assert_eq!(

@@ -427,10 +427,10 @@ def odt_structure(path: Path) -> dict:
     body = body if body is not None else root
 
     def texts(node) -> str:
-        return "".join(node.itertext()).strip()
+        return odf_para_text(node).strip()
 
-    paras = [one for one in body.iter() if xml_local(one.tag) == "p"]
-    notes = [one for one in body.iter() if xml_local(one.tag) == "note"]
+    paras = body_paragraphs(body)
+    notes_found = [one for one in body.iter() if xml_local(one.tag) == "note"]
     statistic = {}
     if "meta.xml" in parts:
         for one in ET.fromstring(parts["meta.xml"]).iter():
@@ -446,6 +446,18 @@ def odt_structure(path: Path) -> dict:
         ],
         "styles": style_counts(paras),
         "tables": sum(1 for one in body.iter() if xml_local(one.tag) == "table"),
+        # 逐张表的账：名字在 table:name，格子只数 table-cell（覆盖格另算）
+        "table_list": [
+            {
+                "name": of_local(one, "name"),
+                "rows": sum(1 for kid in one if xml_local(kid.tag) == "table-row"),
+                "cells": sum(1 for kid in one.iter() if xml_local(kid.tag) == "table-cell"),
+                "covered": sum(1 for kid in one.iter() if xml_local(kid.tag) == "covered-table-cell"),
+                "text": sum(1 for kid in one.iter() if xml_local(kid.tag) == "p" and odf_para_text(kid).strip()),
+            }
+            for one in body.iter()
+            if xml_local(one.tag) == "table"
+        ],
         "table_rows": sum(1 for one in body.iter() if xml_local(one.tag) == "table-row"),
         "table_cells": sum(1 for one in body.iter() if xml_local(one.tag) == "table-cell"),
         "covered_cells": count_local(body, "covered-table-cell"),
@@ -469,10 +481,75 @@ def odt_structure(path: Path) -> dict:
             for one in body.iter()
             if xml_local(one.tag) == "image" and of_local(one, "href")
         ],
-        "footnotes": sum(1 for one in notes if of_local(one, "note-class") == "footnote"),
-        "endnotes": sum(1 for one in notes if of_local(one, "note-class") == "endnote"),
+        "footnotes": sum(1 for one in notes_found if of_local(one, "note-class") == "footnote"),
+        "endnotes": sum(1 for one in notes_found if of_local(one, "note-class") == "endnote"),
+        "paragraph_texts": [texts(one) for one in paras],
+        "annotation_texts": annotation_entries(body),
         "statistic": statistic,
     }
+
+
+def body_paragraphs(root) -> list:
+    """正文段：批注（`text:annotation`）里的那些 `text:p` 不算。
+
+    ODF 的批注是嵌在正文段**里面**的，不是像 docx 那样另有一个 comments.xml 部件，
+    所以「这一段有几段字」这件事得先把批注子树挖掉再数。
+    ElementTree 没有父指针，就反过来做：先把批注里的段挑出来，按 id 排除。
+    """
+    inside = set()
+    for owner in root.iter():
+        if xml_local(owner.tag) != "annotation":
+            continue
+        for one in owner.iter():
+            if xml_local(one.tag) == "p":
+                inside.add(id(one))
+    return [
+        one
+        for one in root.iter()
+        if xml_local(one.tag) == "p" and id(one) not in inside
+    ]
+
+
+def annotation_entries(body) -> list:
+    """ODF 批注：作者与时间挂在它自己的 meta:creator / meta:date **孩子**上
+    （docx 那边是 w:comment 的属性）—— 两份文件的存法正好相反，都得照文件读。
+    """
+    out = []
+    for owner in body.iter():
+        if xml_local(owner.tag) != "annotation":
+            continue
+        author = ""
+        stamp = ""
+        for kid in owner:
+            if xml_local(kid.tag) == "creator":
+                author = "".join(kid.itertext()).strip()
+            if xml_local(kid.tag) == "date":
+                stamp = "".join(kid.itertext()).strip()
+        for para in [one for one in owner.iter() if xml_local(one.tag) == "p"]:
+            out.append(
+                {
+                    "from": "annotation",
+                    "author": author or None,
+                    "date": stamp or None,
+                    "text": "".join(para.itertext()).strip(),
+                }
+            )
+    return out
+
+
+def odf_para_text(node) -> str:
+    """ODF 一段的字，批注子树挖掉 —— 与 `office-text` 的 ODF 口径一条一条对得上。
+
+    注意批注元素**后面**那段尾巴字（`kid.tail`）还属于这一段：`</text:annotation>`
+    之后、`</text:p>` 之前写的字是正文，挖掉批注不能把它一起挖走。
+    """
+    out = node.text or ""
+    for kid in node:
+        if xml_local(kid.tag) == "annotation":
+            out += kid.tail or ""
+            continue
+        out += odf_para_text(kid) + (kid.tail or "")
+    return out
 
 
 def odt_facts(path: Path) -> dict:
@@ -481,7 +558,7 @@ def odt_facts(path: Path) -> dict:
         names = [one.filename for one in box.infolist()]
         parts = {one.filename: box.read(one.filename) for one in box.infolist()}
     root = ET.fromstring(parts["content.xml"])
-    paras = [one for one in root.iter() if xml_local(one.tag) == "p"]
+    paras = body_paragraphs(root)
     heads = [one for one in root.iter() if xml_local(one.tag) == "h"]
     tables = [one for one in root.iter() if xml_local(one.tag) == "table"]
     metas = {}
@@ -491,14 +568,18 @@ def odt_facts(path: Path) -> dict:
             name = xml_local(one.tag)
             if one.text and one.text.strip():
                 metas.setdefault(name, one.text.strip())
+    texts = [odf_para_text(one).strip() for one in paras]
     return {
         "paragraph_count": len(paras),
         "headings": ["".join(one.itertext()) for one in heads],
         "tables": len(tables),
-        "text": "\n".join("".join(one.itertext()) for one in paras),
+        "text": "\n".join(texts),
+        "paragraphs": texts,
         "media": sorted(one for one in names if one.startswith("Pictures/")),
         "meta": metas,
         "parts": sorted(names),
+        # 批注单独一份：作者与时间在 meta:creator / meta:date 这些孩子上
+        "annotations": annotation_entries(root),
     }
 
 
@@ -633,6 +714,99 @@ def ods_facts(path: Path) -> dict | None:
         "sheets": sheets,
         "cell_total": sum(one["cells"] for one in sheets),
         "statistic": statistic,
+    }
+
+
+def odp_facts(path: Path) -> dict | None:
+    """ODF 演示稿：页面上的字与备注里的字是两件事，尺寸还得绕 master-page 那一跳。
+
+    `presentation:notes` 里坐着三个框 —— 缩略图、真正的备注（class="notes"）、
+    以及页码占位（class="page-number"，里面是样字 `<编号>`）。把整页的 `text:p`
+    一把抓，就会把「<编号>」当成这页写了什么。
+    """
+    with zipfile.ZipFile(path) as box:
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    if b"office:presentation" not in parts["content.xml"]:
+        return None
+    root = ET.fromstring(parts["content.xml"])
+    styles = ET.fromstring(parts["styles.xml"]) if "styles.xml" in parts else None
+
+    layout_of_master: dict = {}
+    size_of_layout: dict = {}
+    if styles is not None:
+        for one in styles.iter():
+            if xml_local(one.tag) == "master-page":
+                layout_of_master[of_local(one, "name")] = of_local(one, "page-layout-name")
+            if xml_local(one.tag) == "page-layout":
+                for kid in one:
+                    if xml_local(kid.tag) == "page-layout-properties":
+                        size_of_layout[of_local(one, "name")] = {
+                            "page_width": of_local(kid, "page-width"),
+                            "page_height": of_local(kid, "page-height"),
+                            "orientation": of_local(kid, "print-orientation"),
+                        }
+
+    def lines_of(frame) -> list:
+        return [
+            "".join(one.itertext()).strip()
+            for one in frame.iter()
+            if xml_local(one.tag) == "p" and "".join(one.itertext()).strip()
+        ]
+
+    slides = []
+    for page in root.iter():
+        if xml_local(page.tag) != "page":
+            continue
+        texts: list = []
+        placeholders: list = []
+        title = ""
+        notes = ""
+        note_classes: list = []
+        block = None
+        for kid in page:
+            if xml_local(kid.tag) == "notes":
+                block = kid
+        for frame in page:
+            if xml_local(frame.tag) != "frame":
+                continue
+            kind = of_local(frame, "class") or ""
+            if kind and kind not in placeholders:
+                placeholders.append(kind)
+            lines = lines_of(frame)
+            if kind == "title" and lines and not title:
+                title = lines[0]
+            texts.extend(lines)
+        if block is not None:
+            for frame in block:
+                if xml_local(frame.tag) != "frame":
+                    continue
+                kind = of_local(frame, "class") or ""
+                note_classes.append(kind)
+                if kind == "notes":
+                    notes = "\n".join(lines_of(frame))
+        master = of_local(page, "master-page-name")
+        slides.append(
+            {
+                "name": of_local(page, "name"),
+                # 没有 title 占位时退回第一段：两边同一口径，不然比的是两份规则
+                "title": title if title else (texts[0] if texts else ""),
+                "master": master,
+                "layout": of_local(page, "presentation-page-layout-name"),
+                "placeholders": placeholders,
+                "texts": texts,
+                "notes": notes,
+                "notes_frame_classes": note_classes,
+                "pictures": sum(1 for one in page.iter() if xml_local(one.tag) == "image"),
+                "tables": sum(1 for one in page.iter() if xml_local(one.tag) == "table"),
+                "size": size_of_layout.get(layout_of_master.get(master)),
+            }
+        )
+    return {
+        "slides": slides,
+        "masters": sorted({one["master"] for one in slides if one["master"]}),
+        "layouts": sorted({one["layout"] for one in slides if one["layout"]}),
+        # 页上写着版式名，文件里没有版式定义：这是这份真件的事实，不是我漏读
+        "page_layout_defs": sum(1 for one in root.iter() if xml_local(one.tag) == "page-layout"),
     }
 
 
@@ -1086,6 +1260,9 @@ def facts(path: Path) -> dict:
             sheets = ods_facts(path)
             if sheets is not None:
                 out["ods"] = sheets
+            deck = odp_facts(path)
+            if deck is not None:
+                out["odp"] = deck
         else:
             out["app"] = "unknown-zip"
         return out

@@ -36,7 +36,7 @@ use crate::zipread::{self, Member, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-text",
     run = "run_office_text",
-    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored), then the parts that are not in the body at all - comments, footnotes, endnotes, headers and footers - each entry carrying from/part/author/date so a comment never reads like body text. pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels - except .ods, which answers like a spreadsheet does: one entry per non-empty cell with its sheet name, A1-style reference and declared value type (the text shown in the cell, not office:value). rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=record-tree with every text atom found by walking the tree (master placeholders included, because they really are in the file). Read-only (safety T0): parts are inflated in memory only."
+    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored), then the parts that are not in the body at all - comments, footnotes, endnotes, headers and footers - each entry carrying from/part/author/date so a comment never reads like body text. pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels - except .ods, which answers like a spreadsheet does: one entry per non-empty cell with its sheet name, A1-style reference and declared value type (the text shown in the cell, not office:value). ODF comments are text:annotation elements nested INSIDE a body paragraph (docx keeps them in a separate part), so they are emitted as their own entries carrying from/author/date read from their meta:creator and meta:date children, and the paragraph that holds one reports only its own text. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=record-tree with every text atom found by walking the tree (master placeholders included, because they really are in the file). Read-only (safety T0): parts are inflated in memory only."
 )]
 pub struct OfficeText {
     /// 办公文件
@@ -338,7 +338,12 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                 let mut ordered: Vec<(&Node, bool)> = Vec::new();
                 gather_text_nodes(&root, &mut ordered);
                 for (one, heading) in ordered {
-                    let text = run_text(one);
+                    let text = if one.descendants("annotation").is_empty() {
+                        run_text(one)
+                    } else {
+                        // 批注嵌在这一段里面：它的字要单独交账，不能混进正文
+                        text_skipping(one, "annotation")
+                    };
                     if text.is_empty() && !app.keep_empty {
                         continue;
                     }
@@ -356,6 +361,40 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                         "heading": if level > 0 { json!(level) } else { Value::Null },
                         "part": "content.xml",
                     }));
+                }
+                // 批注（ODF 里叫 text:annotation）：作者与时间挂在它自己的 meta:* 孩子上，
+                // 不是属性 —— 这跟 docx 的 w:comment 正好相反，两边都得照文件读。
+                let annotations = root.descendants("annotation");
+                for owner in &annotations {
+                    let author = owner
+                        .child("creator")
+                        .map(|had| had.text().trim().to_string())
+                        .unwrap_or_default();
+                    let stamp = owner
+                        .child("date")
+                        .map(|had| had.text().trim().to_string())
+                        .unwrap_or_default();
+                    for one in owner.descendants("p") {
+                        let text = run_text(one);
+                        if text.is_empty() && !app.keep_empty {
+                            continue;
+                        }
+                        let index = paragraphs.len();
+                        paragraphs.push(json!({
+                            "index": index,
+                            "text": text,
+                            "from": "annotation",
+                            "author": if author.is_empty() { Value::Null } else { json!(author) },
+                            "date": if stamp.is_empty() { Value::Null } else { json!(stamp) },
+                            "part": "content.xml",
+                        }));
+                    }
+                }
+                if !annotations.is_empty() {
+                    notes.push(format!(
+                        "正文之外还读了 {} 条批注（text:annotation，作者与时间挂在它自己的 meta:* 上）",
+                        annotations.len()
+                    ));
                 }
             } else {
                 notes.push("包里读不到 content.xml".to_string());
@@ -524,9 +563,14 @@ fn push_paragraph(into: &mut Vec<Value>, keep_empty: bool, text: &str, extra: Va
     into.push(one);
 }
 
-/// 按文档顺序收集 ODF 的正文节点：`text:p` 是段，`text:h` 是带层级的标题
+/// 按文档顺序收集 ODF 的正文节点：`text:p` 是段，`text:h` 是带层级的标题。
+/// `text:annotation` 整块跳过 —— ODF 的批注就嵌在正文段里面，里面的 `text:p`
+/// 不是页面上的一段字，它单独交账（带作者与时间）。
 fn gather_text_nodes<'a>(node: &'a Node, into: &mut Vec<(&'a Node, bool)>) {
     for one in &node.children {
+        if one.local() == "annotation" {
+            continue;
+        }
         if one.local() == "p" || one.local() == "h" {
             into.push((one, one.local() == "h"));
             continue;
@@ -535,9 +579,56 @@ fn gather_text_nodes<'a>(node: &'a Node, into: &mut Vec<(&'a Node, bool)>) {
     }
 }
 
+/// 一段里挖掉某类子树之后的字（ODF 用它把批注从正文里摘出去）
+fn text_skipping(node: &Node, skip: &str) -> String {
+    let mut out = String::new();
+    collect_skipping(node, skip, &mut out);
+    out.trim().to_string()
+}
+
+fn collect_skipping(node: &Node, skip: &str, out: &mut String) {
+    let name = node.local();
+    if name == skip {
+        return;
+    }
+    if name == "tab" {
+        out.push('\t');
+        return;
+    }
+    if name == "br" || name == "cr" {
+        out.push('\n');
+        return;
+    }
+    out.push_str(&node.direct);
+    for child in &node.children {
+        collect_skipping(child, skip, out);
+    }
+}
+
 /// 给 office-doc 复用：一个段落的文本（口径与 office-text 交出去的一致）
 pub fn paragraph_text(node: &Node) -> String {
     run_text(node)
+}
+
+/// 给 office-doc 复用：ODF 的**正文段**清单 —— 批注子树里的 `text:p` 不算。
+/// docx 把批注放在另一个部件里，天然不会混进来；ODF 是把 `text:annotation`
+/// 嵌在正文段**里面**的，所以这条排除必须由读者自己做，不然段数比生产者多一。
+pub fn odf_paragraphs<'a>(node: &'a Node, into: &mut Vec<&'a Node>) {
+    for one in &node.children {
+        if one.local() == "annotation" {
+            continue;
+        }
+        if one.local() == "p" {
+            into.push(one);
+            continue;
+        }
+        odf_paragraphs(one, into);
+    }
+}
+
+/// 给 office-doc 复用：ODF 段落口径 —— 批注里的字不算这一段的字
+pub fn odf_paragraph_text(node: &Node) -> String {
+    text_skipping(node, "annotation")
 }
 
 /// 给 office-doc 复用：段落样式名
@@ -865,6 +956,47 @@ mod tests {
                 .iter()
                 .any(|one| one.as_str().unwrap_or("").contains("office:value")),
             "{out}"
+        );
+    }
+
+    /// ODF 的批注嵌在正文段**里面**（docx 是另一个部件）：它自己单独一条，
+    /// 带 from/author/date，而且不许混进它所在那一段的字里
+    #[test]
+    fn an_odf_annotation_is_a_separate_entry_not_body_text() {
+        let out = run("notes.odt", 20000, false);
+        let items = out["paragraphs"].as_array().expect("是数组");
+        let found = items
+            .iter()
+            .find(|one| one["from"] == "annotation")
+            .expect("这份 odt 有一条批注");
+        assert_eq!(found["text"], "这里要补上不含税口径", "{found}");
+        assert_eq!(
+            found["author"], "liuqi",
+            "作者挂在 meta:creator 那个孩子上：{found}"
+        );
+        assert_eq!(found["part"], "content.xml");
+        assert!(
+            found["date"]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with("2026-"),
+            "{found}"
+        );
+        // 它所在那一段只留自己的字
+        let holder = items
+            .iter()
+            .find(|one| {
+                one["text"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .starts_with("最后一页说明")
+            })
+            .expect("批注后面那段正文还在");
+        assert_eq!(holder["text"], "最后一页说明：数字为含税口径", "{holder}");
+        assert_eq!(holder["from"], Value::Null);
+        assert_eq!(
+            out["total_paragraphs"], 10,
+            "7 段正文 + 2 个标题 + 1 条批注：{out}"
         );
     }
 

@@ -4,8 +4,11 @@
 //! （部件名里的数字不是顺序！`slide12.xml` 可能排在第 2 页），每页的版式与母版靠关系表指，
 //! 备注页是另一组部件。这三件事混在一起最容易做出的错答案就是「按文件名当放映顺序」。
 //!
-//! ODF 演示文稿（odp）没有母版/版式那套层级，页就是 `draw:page`，所以单独走一条路，
-//! 并把「这条路给不出版式」写在 notes 里而不是硬凑一个空字段。
+//! ODF 演示文稿（odp）走另一条路：页是 `draw:page`，页名在 `draw:name` 上，
+//! 备注在 `presentation:notes` 里那个 `presentation:class="notes"` 的框里 ——
+//! 那个框旁边还坐着页码占位（样字「<编号>」）与缩略图，混着读就等于把占位符当正文。
+//! 尺寸也不在页上：`draw:master-page-name` → 样式文件里的 `style:master-page`
+//! → `style:page-layout-name` → 那个版式的 `style:page-layout-properties`。
 
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -22,7 +25,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-slide",
     run = "run_office_slide",
-    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP is a different shape (pages are draw:page, there is no master/layout ladder) so it answers with what it has and says so. Legacy .ppt answers with what its PowerPoint 97 record tree honestly gives (record / container / text-atom counts) and an empty slide list, because per-slide attribution needs a pairing this reader will not guess. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
+    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP answers with its own ladder: pages are draw:page (name on draw:name), the title comes from the frame whose presentation:class is title, speaker notes are the presentation:class=notes frame inside presentation:notes - the page-number placeholder sitting next to it holds the literal sample text <编号> and is never reported as slide content - and the page size is resolved through draw:master-page-name to styles.xml's style:master-page and then its style:page-layout. A file may name a presentation page layout (presentation-page-layout-name) without carrying any definition for it, which this command reports instead of inventing one. Legacy .ppt answers with what its PowerPoint 97 record tree honestly gives (record / container / text-atom counts) and an empty slide list, because per-slide attribution needs a pairing this reader will not guess. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
 )]
 pub struct OfficeSlide {
     /// 演示文稿（pptx / pptm / odp / ppt）
@@ -225,37 +228,165 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
         let content = xml(bytes, "content.xml")
             .ok_or_else(|| AppError::InvalidInput("读不到 content.xml".to_string()))?;
         let root = xmlscan::parse_str(&content.as_text());
+        // 页面尺寸不在页上：draw:page 只写 master-page-name，尺寸在样式文件里
+        // style:master-page → style:page-layout-name → 那个版式的 page-layout-properties。
+        // 四跳，跟 xlsx 的 `s=` 绕 cellXfs 是同一类账。
+        let mut layout_of_master: Vec<(String, String)> = Vec::new();
+        let mut size_of_layout: Vec<(String, String, String, String)> = Vec::new();
+        if let Some(styles) = xml(bytes, "styles.xml") {
+            let sheet = xmlscan::parse_str(&styles.as_text());
+            for one in sheet.descendants("master-page") {
+                let name = crate::odsheet::attr_of(one, "name")
+                    .unwrap_or_default()
+                    .to_string();
+                let layout = crate::odsheet::attr_of(one, "page-layout-name")
+                    .unwrap_or_default()
+                    .to_string();
+                layout_of_master.push((name, layout));
+            }
+            for one in sheet.descendants("page-layout") {
+                let name = crate::odsheet::attr_of(one, "name")
+                    .unwrap_or_default()
+                    .to_string();
+                if let Some(props) = one.child("page-layout-properties") {
+                    size_of_layout.push((
+                        name,
+                        crate::odsheet::attr_of(props, "page-width")
+                            .unwrap_or_default()
+                            .to_string(),
+                        crate::odsheet::attr_of(props, "page-height")
+                            .unwrap_or_default()
+                            .to_string(),
+                        crate::odsheet::attr_of(props, "print-orientation")
+                            .unwrap_or_default()
+                            .to_string(),
+                    ));
+                }
+            }
+        }
         let pages = root.descendants("page");
         let mut slides: Vec<Value> = Vec::new();
+        let mut masters: Vec<String> = Vec::new();
+        let mut layouts: Vec<String> = Vec::new();
+        let mut size = Value::Null;
         for (index, one) in pages.iter().enumerate() {
-            let texts: Vec<String> = one
-                .descendants("p")
-                .iter()
-                .map(|one| crate::office_text::paragraph_text(one))
-                .filter(|one| !one.is_empty())
-                .collect();
+            let master = crate::odsheet::attr_of(one, "master-page-name")
+                .unwrap_or_default()
+                .to_string();
+            let layout = crate::odsheet::attr_of(one, "presentation-page-layout-name")
+                .unwrap_or_default()
+                .to_string();
+            if !master.is_empty() && !masters.iter().any(|had| *had == master) {
+                masters.push(master.clone());
+            }
+            if !layout.is_empty() && !layouts.iter().any(|had| *had == layout) {
+                layouts.push(layout.clone());
+            }
+            // 备注那一块（presentation:notes）里的字不是页面上的字：混进 texts，
+            // 读的人会以为幻灯片上写着「<编号>」。页与备注块里的 `draw:frame` 都是
+            // 各自的直接孩子，所以按孩子取就分得清，不用比指针。
+            let notes_node = one.child("notes");
+            let visible = one.all("frame");
+            let in_notes = notes_node
+                .map(|owner| owner.all("frame"))
+                .unwrap_or_default();
+            let mut texts: Vec<String> = Vec::new();
+            let mut placeholders: Vec<String> = Vec::new();
+            let mut notes_text = String::new();
+            let mut title = String::new();
+            let lines_of = |frame: &xmlscan::Node| -> Vec<String> {
+                frame
+                    .descendants("p")
+                    .iter()
+                    .map(|had| crate::office_text::paragraph_text(had))
+                    .filter(|had| !had.is_empty())
+                    .collect()
+            };
+            for frame in &visible {
+                let frame = *frame;
+                let class = crate::odsheet::attr_of(frame, "class").unwrap_or_default();
+                if !class.is_empty() && !placeholders.iter().any(|had| had == class) {
+                    placeholders.push(class.to_string());
+                }
+                let lines = lines_of(frame);
+                if class == "title" && lines.first().is_some() && title.is_empty() {
+                    title = lines.first().cloned().unwrap_or_default();
+                }
+                texts.extend(lines);
+            }
+            for frame in &in_notes {
+                let frame = *frame;
+                if crate::odsheet::attr_of(frame, "class") == Some("notes") {
+                    notes_text = lines_of(frame).join("\n");
+                }
+            }
+            let title = if title.is_empty() {
+                // 没有 title 占位的页：退回第一段。这是退回来，不是文件这么标的
+                texts.first().cloned().unwrap_or_default()
+            } else {
+                title
+            };
+            if size == Value::Null {
+                size = layout_of_master
+                    .iter()
+                    .find(|(name, _)| *name == master)
+                    .and_then(|(_, layout)| {
+                        size_of_layout.iter().find(|(name, _, _, _)| name == layout)
+                    })
+                    .map(|(_, width, height, orientation)| {
+                        json!({
+                            "page_width": width,
+                            "page_height": height,
+                            "orientation": orientation,
+                            "master_page": master.as_str(),
+                        })
+                    })
+                    .unwrap_or(Value::Null);
+            }
             slides.push(json!({
                 "index": index,
-                "name": one.attr("name").unwrap_or_default(),
-                "title": texts.first().cloned().unwrap_or_default(),
+                "name": crate::odsheet::attr_of(one, "name").unwrap_or_default(),
+                "title": title,
+                "master": master,
+                "layout": layout,
+                "placeholders": placeholders,
                 "texts": texts,
+                "notes": notes_text,
+                "paragraph_total": texts.len(),
                 "frames": one.descendants("frame").len(),
                 "pictures": one.descendants("image").len(),
                 "tables": one.descendants("table").len(),
             }));
         }
-        notes.push("ODP 没有母版/版式那套层级，这条命令对它只报页与页里的文本框".to_string());
+        notes.push(format!(
+            "ODP 的层级是 draw:page → master-page-name → 样式文件里的 page-layout：\
+             这份用到 {} 个母版页、{} 个版式名；尺寸是按这条链从 styles.xml 读出来的\
+             （{}），不在页上",
+            masters.len(),
+            layouts.len(),
+            if size.is_null() {
+                "读不出来"
+            } else {
+                "读出来了"
+            }
+        ));
+        notes.push(
+            "页上写的 presentation-page-layout-name 只是名字：这份文件里没有对应的版式定义，\
+             所以那条链报不了每格放在哪"
+                .to_string(),
+        );
+        if masters.is_empty() {
+            notes.push("这些页没写 master-page-name".to_string());
+        }
         let result = json!({
             "path": app.path.to_string_lossy(),
             "format": doc.format,
             "kind": "opendocument-presentation",
             "order": Value::Array((0..pages.len()).map(|one| json!({"show_index": one})).collect()),
             "slides": slides,
-            "size": root.descendants("presentation").first().and_then(|one| {
-                one.attr("width").map(|width| json!({"width": width, "height": one.attr("height")}))
-            }).unwrap_or(Value::Null),
-            "masters": [],
-            "layouts": [],
+            "size": size,
+            "masters": masters,
+            "layouts": layouts,
             "media": doc.entries.iter().filter(|one| one.name.starts_with("Pictures/")).count(),
             "media_parts": doc.entries.iter().map(|one| one.name.clone()).filter(|one| one.starts_with("Pictures/")).collect::<Vec<String>>(),
             "notes": notes,
@@ -393,21 +524,52 @@ mod tests {
         assert_eq!(parts[0]["show_index"], order[0]["show_index"]);
     }
 
-    /// ODP 是 LibreOffice 写的那份：只报它真有的东西，并把局限写在 notes 里
+    /// ODP 是 LibreOffice 写的那份：页、版式引用、备注与尺寸各有来历，
+    /// 而 `presentation:notes` 里的字**不算页面上的字**（期望值来自 `odp_facts()`）
     #[test]
-    fn odp_reports_pages_and_says_what_it_lacks() {
+    fn odp_reports_pages_notes_and_the_master_hop() {
         let out = run("deck.odp");
         assert_eq!(out["kind"], "opendocument-presentation");
         let slides = out["slides"].as_array().expect("是数组");
-        assert!(!slides.is_empty(), "{out}");
-        assert_eq!(slides[0]["title"], "预算评审", "{}", slides[0]);
-        assert!(slides[0]["texts"].as_array().expect("是数组").len() >= 2);
+        assert_eq!(slides.len(), 2, "{out}");
+        assert_eq!(slides[0]["name"], "预算评审", "页名在 draw:name 上：{out}");
+        assert_eq!(slides[0]["title"], "预算评审");
+        assert_eq!(slides[0]["master"], "Title_20_and_20_Content");
+        assert_eq!(slides[0]["layout"], "AL1T11");
+        assert_eq!(
+            slides[0]["texts"],
+            json!(["预算评审", "新增两台 64 核应用服务器", "第二条要点"]),
+            "{}",
+            slides[0]
+        );
+        assert_eq!(
+            slides[0]["notes"], "评审时先讲口径再讲数字",
+            "备注单独一条，不混进页面上的字"
+        );
+        assert_eq!(
+            slides[0]["placeholders"],
+            json!(["title", "outline"]),
+            "页上的占位类别：{}",
+            slides[0]
+        );
+        assert_eq!(slides[1]["title"], "第二页：数字");
         assert!(slides[1]["texts"]
             .as_array()
             .expect("是数组")
             .iter()
             .any(|one| one.as_str().unwrap_or("").contains("124000")));
-        assert!(out["masters"].as_array().expect("是数组").is_empty());
+        assert_eq!(slides[1]["notes"], "", "第二页没写备注");
+        assert_eq!(slides[1]["tables"], 1, "那张表在页里：{}", slides[1]);
+        // 「<编号>」是页码占位里的样字，不是这页写了什么
+        let flat = serde_json::to_string(&slides).expect("序列化");
+        assert!(!flat.contains("编号"), "页码占位的样字不许当正文：{flat}");
+        let masters = out["masters"].as_array().expect("是数组");
+        assert_eq!(masters.len(), 2, "{out}");
+        let layouts = out["layouts"].as_array().expect("是数组");
+        assert_eq!(layouts.len(), 2, "{layouts:?}");
+        assert_eq!(out["size"]["page_width"], "25.4cm", "{out}");
+        assert_eq!(out["size"]["page_height"], "19.05cm");
+        assert_eq!(out["size"]["orientation"], "landscape");
         let note = out["notes"]
             .as_array()
             .expect("有 notes")
@@ -415,7 +577,10 @@ mod tests {
             .map(|one| one.as_str().unwrap_or(""))
             .collect::<Vec<_>>()
             .join(" ");
-        assert!(note.contains("母版"), "{note}");
+        assert!(
+            note.contains("版式定义"),
+            "文件里没有版式定义要说出来：{note}"
+        );
     }
 
     /// .ppt 的记录树现在读得出文本原子，但**不猜页数**：张数要靠 SlideContainer 与

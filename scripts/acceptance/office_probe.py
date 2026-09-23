@@ -168,8 +168,9 @@ def main() -> int:
 
     deck = lbin("office-text", fixture("deck.pptx"))
     deck_want = files["deck.pptx"]["ooxml"]
+    # office-text 连备注页一起读（那是这份演示稿写了字的地方），要账就得把 notes 部件算进来
     check("deck.pptx 幻灯片部件", sorted({one["part"] for one in deck.get("paragraphs", [])}),
-          [one["part"] for one in deck_want["slides"]])
+          sorted([one["part"] for one in deck_want["slides"]] + deck_want["notesSlides"]))
     slide = lbin("office-slide", fixture("deck.pptx"))
     check("deck.pptx 页数", len(slide.get("slides", [])), deck_want["slide_count"])
     check("deck.pptx 每页标题", [one["title"] for one in slide.get("slides", [])], [one["title"] for one in deck_want["slides"]])
@@ -182,7 +183,17 @@ def main() -> int:
     odt = lbin("office-text", fixture("notes.odt"))
     odt_want = files["notes.odt"]["odf"]
     check("notes.odt 文本非空", [one["text"] for one in odt.get("paragraphs", []) if one["text"]] != [], True)
-    check("notes.odt 段落数", odt.get("total_paragraphs"), odt_want["paragraph_count"])
+    check("notes.odt 段落数（批注里的字不算正文段）", odt_want["paragraph_count"], 9)
+    want_odt = [one for one in odt_want["paragraphs"] if one] + [
+        one["text"] for one in odt_want["annotations"] if one["text"]
+    ]
+    check("notes.odt 段数（正文 + 批注）", odt.get("total_paragraphs"), len(want_odt))
+    check("notes.odt 逐条文本", [one["text"] for one in odt.get("paragraphs", []) if one["text"]],
+          want_odt)
+    for one in odt_want["annotations"]:
+        got = [had for had in odt.get("paragraphs", []) if had.get("text") == one["text"]]
+        check("notes.odt 批注的出处与作者", [(had.get("from"), had.get("author")) for had in got],
+              [("annotation", one["author"])])
 
     legacy = lbin("office-text", fixture("notes.doc"))
     legacy_want = files["notes.doc"]["legacy_text"]
@@ -296,33 +307,78 @@ def main() -> int:
 
     # ── 3d) ODT：文字文档的结构账 ───────────────────────────────────
     print("=== 3d) notes.odt：office-doc 的 ODF 分支 ===")
-    odt = lbin("office-doc", fixture("notes.odt"))
-    want = files["notes.odt"]["odt"]
+    odtstruct = lbin("office-doc", fixture("notes.odt"))
+    dwant = files["notes.odt"]["odt"]
     for field in (
         "paragraphs", "empty_paragraphs", "tables", "table_rows", "table_cells",
         "covered_cells", "sections", "breaks", "page_breaks", "drawings",
         "annotations", "lists", "list_styles", "bookmarks", "sequences",
-        "tracked_changes", "hyperlinks", "images",
+        "tracked_changes",
     ):
-        check("notes.odt structure.%s" % field, dig(odt, "structure." + field), want.get(field))
+        check("notes.odt structure.%s" % field, dig(odtstruct, "structure." + field), dwant.get(field))
+    # structure 里这两个是计数，清单在别的键上：别拿清单去比计数
+    check("notes.odt structure.hyperlinks", dig(odtstruct, "structure.hyperlinks"),
+          len(dwant["hyperlinks"]))
+    check("notes.odt structure.images", dig(odtstruct, "structure.images"), len(dwant["images"]))
     for field in ("footnotes", "endnotes"):
-        check("notes.odt %s" % field, odt.get(field), want.get(field))
-    check("notes.odt 样式用量", odt.get("styles"), want["styles"])
+        check("notes.odt %s" % field, odtstruct.get(field), dwant.get(field))
+    check("notes.odt 样式用量", odtstruct.get("styles"), dwant["styles"])
     check(
         "notes.odt 标题与层级",
-        odt.get("headings"),
-        [{"level": int(one["level"]), "text": one["text"]} for one in want["headings"]],
+        odtstruct.get("headings"),
+        [{"level": int(one["level"]), "text": one["text"]} for one in dwant["headings"]],
     )
-    check("notes.odt 超链接", [one.get("target") for one in odt.get("hyperlinks", [])],
-          [one["target"] for one in want["hyperlinks"]])
-    check("notes.odt 图的出处", odt.get("images"), want["images"])
-    # 生产者的账：LibreOffice 自己写在 meta.xml 的段落数与页数
-    check("notes.odt 与生产者自报的段落数", dig(odt, "producer_statistics.paragraph-count"),
-          want["statistic"]["paragraph-count"])
-    check("notes.odt 与生产者自报的页数", dig(odt, "producer_statistics.page-count"),
-          want["statistic"]["page-count"])
-    check("notes.odt 段数 == 生产者自报", dig(odt, "structure.paragraphs"),
-          int(want["statistic"]["paragraph-count"]))
+    check("notes.odt 超链接清单", [one.get("target") for one in odtstruct.get("hyperlinks", [])],
+          [one["target"] for one in dwant["hyperlinks"]])
+    check("notes.odt 图的出处", odtstruct.get("images"), dwant["images"])
+    check("notes.odt 表格清单", [(one.get("name"), one.get("rows"), one.get("cells"), one.get("covered"))
+                                 for one in odtstruct.get("tables", [])],
+          [(one["name"], one["rows"], one["cells"], one["covered"]) for one in dwant["table_list"]])
+    # 生产者自己写在 meta.xml 的那份账：照原样交出来，口径不同就说清口径
+    check("notes.odt 与生产者自报的页数", dig(odtstruct, "producer_statistics.page-count"),
+          dwant["statistic"]["page-count"])
+    record(
+        "notes.odt 段数两份账的口径差说得出来",
+        dig(odtstruct, "structure.paragraphs") == dwant["paragraphs"]
+        and int(dwant["statistic"]["paragraph-count"]) == dwant["paragraphs"]
+        + len(dwant["annotation_texts"]),
+        json.dumps(
+            {
+                "lbin": dig(odtstruct, "structure.paragraphs"),
+                "读者(不含批注)": dwant["paragraphs"],
+                "生产者自报": dwant["statistic"]["paragraph-count"],
+                "批注里的段": len(dwant["annotation_texts"]),
+            },
+            ensure_ascii=False,
+        )[:160],
+    )
+
+    # ── 3e) ODP：页、备注与母版那一跳 ────────────────────────────────
+    print("=== 3e) deck.odp：office-slide 的 ODF 分支 ===")
+    slide = lbin("office-slide", fixture("deck.odp"))
+    pw = files["deck.odp"]["odp"]
+    check("deck.odp 页数", len(slide.get("slides", [])), len(pw["slides"]))
+    check("deck.odp 母版引用", sorted(slide.get("masters", [])), pw["masters"])
+    check("deck.odp 版式名", sorted(slide.get("layouts", [])), pw["layouts"])
+    check("deck.odp 文件里的版式定义数", pw["page_layout_defs"], 0)
+    for index, one in enumerate(pw["slides"]):
+        got = slide.get("slides", [])[index]
+        label = "deck.odp 第 %d 页" % (index + 1)
+        check(label + " 页名", got.get("name"), one["name"])
+        check(label + " 标题", got.get("title"), one["title"])
+        check(label + " 母版", got.get("master"), one["master"])
+        check(label + " 版式名", got.get("layout"), one["layout"])
+        check(label + " 页面上的字", got.get("texts"), one["texts"])
+        check(label + " 备注", got.get("notes"), one["notes"])
+        check(label + " 占位类别", got.get("placeholders"), one["placeholders"])
+        check(label + " 图与表", (got.get("pictures"), got.get("tables")),
+              (one["pictures"], one["tables"]))
+    check("deck.odp 尺寸来自母版那一跳", dig(slide, "size.page_width"),
+          pw["slides"][0]["size"]["page_width"])
+    check("deck.odp 尺寸的方向", dig(slide, "size.orientation"),
+          pw["slides"][0]["size"]["orientation"])
+    blob = json.dumps(slide, ensure_ascii=False)
+    record("deck.odp 不许把页码占位的样字当正文", "<编号>" not in blob, blob[:120])
 
     # ── 属性：三份账 ───────────────────────────────────────────────
     print("=== 4) office-meta：属性 ===")
@@ -338,8 +394,9 @@ def main() -> int:
     for one in files["notes.doc"].get("summary", {}).get("sets", []):
         if one["fmtid"] == "e0859ff2f94f6810ab9108002b27b3d9":
             props = one["properties"]
-    check("notes.doc OLE 标题", dig(lm, "legacy.SummaryInformation.title.value"), props.get("2"))
-    check("notes.doc OLE 作者", dig(lm, "legacy.SummaryInformation.author.value"), props.get("4"))
+    # 属性集表里的 PID 是**整数**键（json.dumps 才把它们写成字符串）
+    check("notes.doc OLE 标题", dig(lm, "legacy.SummaryInformation.title.value"), props.get(2))
+    check("notes.doc OLE 作者", dig(lm, "legacy.SummaryInformation.author.value"), props.get(4))
     check("notes.doc OLE CodePage", dig(lm, "legacy.SummaryInformation.codepage.value"), 65001)
     rm = lbin("office-meta", fixture("notes.rtf"))
     rinfo = files["notes.rtf"]["rtf"]["info"]["fields"]
