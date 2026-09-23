@@ -41,6 +41,9 @@ pub struct OfficeDoc {
     max_bytes: u64,
 }
 
+/// CLI 的 `#[arg(default = N)]` 与各端省略参数时的回退值必须是同一个数
+const LIMIT_DEFAULT: usize = 100;
+
 fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
     let start = std::time::Instant::now();
     let blob = read_blob(&app.path, app.max_bytes).map_err(AppError::InvalidInput)?;
@@ -51,7 +54,7 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
     let doc = open(&blob.bytes);
     let bytes = &blob.bytes[..];
     let mut notes: Vec<String> = Vec::new();
-    let limit = usize::try_from(app.limit).unwrap_or(usize::MAX);
+    let limit = crate::opack::take_limit(app.limit, LIMIT_DEFAULT);
     let result = if doc.family == Family::Ooxml && doc.app == "word" {
         let member = match zipread::member(bytes, "word/document.xml", DEFAULT_MEMBER_CAP) {
             Ok(one) => one,

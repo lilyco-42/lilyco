@@ -81,6 +81,17 @@ impl Doc {
     }
 }
 
+/// derive 的取值口径：Web / MCP / JSON 端省略某个数时拿到的是 **0**，不是 schema 里的
+/// `default`（那个只给 CLI 解析与 --help 用）。所以 0 必须回退成缺省值 —— 否则「省略 limit」
+/// 就变成「只要 0 条」，交出一份被悄悄砍短的答案。
+pub fn take_limit(raw: u64, fallback: usize) -> usize {
+    if raw == 0 {
+        fallback
+    } else {
+        usize::try_from(raw).unwrap_or(fallback)
+    }
+}
+
 pub fn family_name(family: Family) -> &'static str {
     match family {
         Family::Ooxml => "ooxml",
@@ -389,7 +400,6 @@ pub fn risk_signals(doc: &Doc) -> Value {
 
 use std::collections::BTreeMap;
 
-use crate::read::ZipEntry;
 use crate::xmlscan;
 use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 
@@ -741,6 +751,14 @@ mod tests {
         // 同一批字节按 .zip 的名字读进来还是 docx：判据里没有文件名
         let raw = bytes_of("notes.docx");
         assert_eq!(open(&raw).app, "word");
+    }
+
+    /// 0 是「各端省略了这个数」的表示法，不是「要零条」
+    #[test]
+    fn zero_means_unset_for_limits_and_byte_caps() {
+        assert_eq!(take_limit(0, 200), 200);
+        assert_eq!(take_limit(7, 200), 7);
+        // max_bytes 不归这里管：read_blob 已经定了 0 = 不设上限（见 read.rs 与 docs/binfmt.md）
     }
 
     /// OPC 的自证：真实生产者的包，每个部件都在 `[Content_Types].xml` 里说过；

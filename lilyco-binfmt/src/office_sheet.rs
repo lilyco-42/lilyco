@@ -43,6 +43,9 @@ pub struct OfficeSheet {
     max_bytes: u64,
 }
 
+/// CLI 的 `#[arg(default = N)]` 与各端省略参数时的回退值必须是同一个数
+const LIMIT_DEFAULT: usize = 200;
+
 fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError> {
     let start = std::time::Instant::now();
     let blob = read_blob(&app.path, app.max_bytes).map_err(AppError::InvalidInput)?;
@@ -52,7 +55,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
     });
     let doc = open(&blob.bytes);
     let bytes = &blob.bytes[..];
-    let limit = usize::try_from(app.limit).unwrap_or(usize::MAX);
+    let limit = crate::opack::take_limit(app.limit, LIMIT_DEFAULT);
     if doc.family == Family::Ooxml && doc.app == "excel" {
         let workbook = xml(bytes, "xl/workbook.xml")
             .ok_or_else(|| AppError::InvalidInput("包里读不到 xl/workbook.xml".to_string()))?;
@@ -252,11 +255,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             .as_ref()
             .ok_or_else(|| AppError::InvalidInput("复合文档打不开".to_string()))?;
         let book = crate::biff::read(cfb, bytes)?;
-        let mut notes = book.notes.clone();
-        notes.push(
-            "BIFF8 把每张表放成同一条流里的子流；这里的单元格按流顺序给出，按表归位还没实现"
-                .to_string(),
-        );
+        let notes = book.notes.clone();
         let cells: Vec<Value> = book
             .cells
             .iter()
@@ -283,7 +282,12 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "records": book.records,
                 "totals": {"cells": book.cells.len(), "formulas": book.formula_cells},
             },
-            "sheets": book.sheets.iter().map(|one| json!({"name": one.name, "state": one.state, "record_start": one.record_start})).collect::<Vec<Value>>(),
+            "sheets": book.sheets.iter().map(|one| json!({
+                "name": one.name,
+                "state": one.state,
+                "record_start": one.record_start,
+                "cells": book.cells.iter().filter(|had| had.sheet.as_deref() == Some(one.name.as_str())).count(),
+            })).collect::<Vec<Value>>(),
             "cells": cells,
             "notes": notes,
         });
@@ -412,6 +416,9 @@ mod tests {
         assert_eq!(out["workbook"]["shared_strings"], 8);
         assert_eq!(out["workbook"]["totals"]["cells"], 11, "{out}");
         assert_eq!(out["workbook"]["totals"]["formulas"], 1);
+        assert_eq!(out["sheets"][0]["cells"], 9, "{out}");
+        assert_eq!(out["sheets"][1]["cells"], 1);
+        assert_eq!(out["sheets"][2]["cells"], 1, "隐藏表也有格子");
         let named: Vec<String> = out["cells"]
             .as_array()
             .expect("是数组")

@@ -63,13 +63,14 @@ python scripts/acceptance/tui_probe.py "$BIN" "$FIX"
 
 ```bash
 BIN=target/debug/lbin          # 或 .exe
-python scripts/acceptance/binfmt_probe.py "$BIN" /绝对路径/某个真实二进制文件
+python scripts/acceptance/binfmt_probe.py "$BIN" /绝对路径/某个真实二进制 \
+       [winpty 用工作目录] /绝对路径/某个办公文件
 ```
 
-`lbin` 四条命令（`identify` / `entries` / `regions` / `symbols`）全 T0 只读，所以比对基准是
+`lbin` 十二条命令全 T0 只读：四条二进制结构（`identify` / `entries` / `regions` / `symbols`）读第 2 个参数，八条办公文件（`office-info` / `office-text` / `office-meta` / `office-doc` / `office-sheet` / `office-slide` / `office-package` / `office-objects`）读第 4 个（默认是仓库里那份 `notes.docx`）。比对基准是
 **同一个文件在四端拿到同一份 JSON**：脚本先取 CLI `--json` 作基准，再逐端比对——
-Web（CSRF 401 → 带令牌 SSE → 逐字比对 → 未知命令 400）、MCP（握手 → `tools/list` 四工具且
-`path` 必填 → 四端调用逐字比对 → 缺参 `-32602`）、TUI（winpty 真 PTY：选择页四条命令 →
+Web（CSRF 401 → 带令牌 SSE → 逐字比对 → 未知命令 400）、MCP（握手 → `tools/list` 全部工具且
+`path` 必填 → 逐条调用与 CLI 逐字比对 → 缺参 `-32602`）、TUI（winpty 真 PTY：选择页滚一遍能列出全部命令 →
 `↓` → `Enter` 进表单 → `Esc`/`q` 退出；不带 `--tui` 裸跑降级 CLI）。退出码 0 才算全过。
 
 > 用真实文件而不是造的样本：`identify` 的判据是「表要刚好铺进文件」，

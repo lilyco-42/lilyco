@@ -67,6 +67,15 @@ jobs:
       - name: Run tests (apps)
         run: cargo test -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt
 
+      # 办公文件这一摊的证据制度：同一批字节，两套独立实现必须给出同样的答案。
+      # 编译只在这里发生（本机不跑 cargo build），fixture 是提交进来的真实生产者文件，
+      # 第二读者只用 Python 标准库，不装任何第三方包。
+      - name: Build lbin (for the office two-reader cross-check)
+        run: cargo build -p lilyco-binfmt
+
+      - name: Office cross-check — Rust 读者 vs 标准库 Python 读者
+        run: python3 scripts/acceptance/office_probe.py target/debug/lbin
+
   # 产出可直接使用的二进制 —— 本机不装 Rust 也能拿到
   release-build:
     name: build binaries (windows)

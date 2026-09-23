@@ -10,6 +10,12 @@
 //! 3. **BOUNDSHEET 的可见性在 grbit 的最低两位**（0 可见 / 1 隐藏 / 2 深度隐藏），
 //!    不是从 bit2 开始；错位就把隐藏表报成可见表。
 //!
+//! 还有一处容易想当然的：**`.xls` 的「表」不是容器里的多条流**。整本工作簿只有
+//! 一条 `Workbook` 流，每张表是这条流里的一个子流，`BOUNDSHEET.lbPlyPos` 给出的
+//! 正是该子流在 `Workbook` 内的**字节偏移**。所以要问「这个格子属于哪张表」，
+//! 答案是「起点不超过它的那最后一条 BOUNDSHEET」—— 靠数 BOF 的出现次序也能蒙对，
+//! 但那是猜规范，而偏移是文件自己写着的。
+//!
 //! 与 `scripts/acceptance/lyco_legacy.py` 是同一套规范的两份实现，两边对同一批
 //! 真实生产者文件（openpyxl 写的 xlsx 经 LibreOffice 转成 xls）必须给出同样的表名、
 //! 可见性与单元格值。
@@ -46,6 +52,8 @@ pub struct Cell {
     pub kind: &'static str,
     pub text: Option<String>,
     pub number: Option<f64>,
+    /// 这条记录落在哪张表的子流里（由 BOUNDSHEET 的字节偏移判出；全局区里的为 None）
+    pub sheet: Option<String>,
 }
 
 impl Cell {
@@ -72,6 +80,7 @@ impl Cell {
             "kind": self.kind,
             "text": self.text,
             "number": self.number,
+            "sheet": self.sheet,
         })
     }
 }
@@ -92,7 +101,7 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
         .read(bytes, "Workbook")
         .or_else(|| cfb.read(bytes, "Book"))
         .ok_or("容器里既没有 Workbook 也没有 Book 流")?;
-    let mut records: Vec<(u64, Vec<u8>)> = Vec::new();
+    let mut records: Vec<(usize, u64, Vec<u8>)> = Vec::new();
     let mut at = 0usize;
     while at + 4 <= raw.len() {
         let op = le16(at)(&raw).unwrap_or(0);
@@ -100,10 +109,10 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
         let start = at + 4;
         let body = raw.get(start..start + len).unwrap_or(&[]).to_vec();
         if len > raw.len().saturating_sub(start) {
-            records.push((op, body));
+            records.push((at, op, body));
             break;
         }
-        records.push((op, body));
+        records.push((at, op, body));
         at = start + len;
     }
     let mut sheets: Vec<Sheet> = Vec::new();
@@ -113,7 +122,10 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
     let mut formula_cells = 0usize;
     let mut notes: Vec<String> = Vec::new();
     for index in 0..records.len() {
-        let (op, body) = &records[index];
+        let (offset, op, body) = &records[index];
+        // 这条记录落在哪张表的子流里。BOUNDSHEET 全部待在全局区，所以走到任何一条
+        // 单元格记录时清单都已经收齐了。
+        let belongs = owner(&sheets, *offset);
         match *op {
             BOF => bofs.push((le16(0)(body).unwrap_or(0), le16(2)(body).unwrap_or(0))),
             BOUNDSHEET => {
@@ -149,15 +161,15 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                 let unique = usize::try_from(le32(4)(body).unwrap_or(0)).unwrap_or(usize::MAX);
                 let mut chunks: Vec<Vec<u8>> = vec![body.get(8..).unwrap_or(&[]).to_vec()];
                 let mut probe = index + 1;
-                while probe < records.len() && records[probe].0 == CONTINUE {
-                    chunks.push(records[probe].1.clone());
+                while probe < records.len() && records[probe].1 == CONTINUE {
+                    chunks.push(records[probe].2.clone());
                     probe += 1;
                 }
                 strings = shared_strings(&chunks, unique, &mut notes);
             }
             LABELSST => {
-                let row = (le16(0)(body).unwrap_or(0) as u32);
-                let col = (le16(2)(body).unwrap_or(0) as u32);
+                let row = le16(0)(body).unwrap_or(0) as u32;
+                let col = le16(2)(body).unwrap_or(0) as u32;
                 let which = usize::try_from(le32(6)(body).unwrap_or(0)).unwrap_or(usize::MAX);
                 let text = strings.get(which).cloned();
                 if text.is_none() {
@@ -172,34 +184,37 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                     kind: "sst",
                     text,
                     number: None,
+                    sheet: belongs.clone(),
                 });
             }
             NUMBER => {
-                let row = (le16(0)(body).unwrap_or(0) as u32);
-                let col = (le16(2)(body).unwrap_or(0) as u32);
+                let row = le16(0)(body).unwrap_or(0) as u32;
+                let col = le16(2)(body).unwrap_or(0) as u32;
                 cells.push(Cell {
                     row,
                     col,
                     kind: "number",
                     text: None,
                     number: Some(f64::from_bits(le64(6)(body).unwrap_or(0))),
+                    sheet: belongs.clone(),
                 });
             }
             RK => {
-                let row = (le16(0)(body).unwrap_or(0) as u32);
-                let col = (le16(2)(body).unwrap_or(0) as u32);
+                let row = le16(0)(body).unwrap_or(0) as u32;
+                let col = le16(2)(body).unwrap_or(0) as u32;
                 cells.push(Cell {
                     row,
                     col,
                     kind: "rk",
                     text: None,
                     number: Some(decode_rk(le32(6)(body).unwrap_or(0) as u32)),
+                    sheet: belongs.clone(),
                 });
             }
             MUL_RK => {
                 // 一行里连续若干列的 RK：colFrom(2) 之后每 6 字节一个 {xf(2), rk(4)}
-                let row = (le16(0)(body).unwrap_or(0) as u32);
-                let first = (le16(2)(body).unwrap_or(0) as u32);
+                let row = le16(0)(body).unwrap_or(0) as u32;
+                let first = le16(2)(body).unwrap_or(0) as u32;
                 let room = body.len().saturating_sub(6);
                 for i in 0..room / 6 {
                     let packed = le32(4 + i * 6)(body).unwrap_or(0) as u32;
@@ -209,12 +224,13 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                         kind: "mulrk",
                         text: None,
                         number: Some(decode_rk(packed)),
+                        sheet: belongs.clone(),
                     });
                 }
             }
             LABEL => {
-                let row = (le16(0)(body).unwrap_or(0) as u32);
-                let col = (le16(2)(body).unwrap_or(0) as u32);
+                let row = le16(0)(body).unwrap_or(0) as u32;
+                let col = le16(2)(body).unwrap_or(0) as u32;
                 let count = usize::try_from(le16(6)(body).unwrap_or(0)).unwrap_or(0);
                 let flags = body.get(8).copied().unwrap_or(0);
                 let wide = flags & 0x01 != 0;
@@ -237,17 +253,19 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                         decode_cp1252(raw_text)
                     }),
                     number: None,
+                    sheet: belongs.clone(),
                 });
             }
             FORMULA => {
-                let row = (le16(0)(body).unwrap_or(0) as u32);
-                let col = (le16(2)(body).unwrap_or(0) as u32);
+                let row = le16(0)(body).unwrap_or(0) as u32;
+                let col = le16(2)(body).unwrap_or(0) as u32;
                 cells.push(Cell {
                     row,
                     col,
                     kind: "formula",
                     text: None,
                     number: None,
+                    sheet: belongs.clone(),
                 });
                 formula_cells += 1;
             }
@@ -263,6 +281,16 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
         formula_cells,
         notes,
     })
+}
+
+/// 这条记录属于哪张表：BOUNDSHEET 自报的子流起点里，不超过该记录偏移的最后一条。
+/// 表清单是按流顺序收集的，所以从后往前找第一个放得下的就是它。
+fn owner(sheets: &[Sheet], offset: usize) -> Option<String> {
+    sheets
+        .iter()
+        .rev()
+        .find(|one| usize::try_from(one.record_start).unwrap_or(usize::MAX) <= offset)
+        .map(|one| one.name.clone())
 }
 
 /// RK 数：bit0 = 除以 100，bit1 = 整数（顺序记反会得到看着像浮点误差的错值）
@@ -503,59 +531,44 @@ mod tests {
         assert_eq!(book.cells.len(), 11, "{:?}", book.cells);
         assert_eq!(book.formula_cells, 1);
         assert!(book.notes.is_empty(), "{:?}", book.notes);
+        // 按 BOUNDSHEET 自报的子流起点归位：隐藏的「草稿」也有一个格子，
+        // 而全局区里没有任何单元格记录（所以不该出现 None）。
+        let mut per_sheet: Vec<(String, usize)> = Vec::new();
+        for one in &book.cells {
+            let name = one.sheet.clone().unwrap_or_else(|| "?全局?".to_string());
+            match per_sheet.iter_mut().find(|(had, _)| *had == name) {
+                Some((_, count)) => *count += 1,
+                None => per_sheet.push((name, 1)),
+            }
+        }
+        assert_eq!(
+            per_sheet,
+            vec![
+                ("预算表".to_string(), 9),
+                ("说明".to_string(), 1),
+                ("草稿".to_string(), 1)
+            ],
+            "{per_sheet:?}"
+        );
     }
 
     /// 单元格引用的进制换算：第 26 列是 AA，不是 Z+1
     #[test]
     fn cell_references_use_the_spreadsheet_notation() {
-        let cell = Cell {
-            row: 0,
-            col: 0,
+        let at = |row: u32, col: u32| Cell {
+            row,
+            col,
             kind: "sst",
             text: None,
             number: None,
+            sheet: None,
         };
-        assert_eq!(cell.reference(), "A1");
-        let cell = Cell {
-            row: 3,
-            col: 1,
-            kind: "sst",
-            text: None,
-            number: None,
-        };
-        assert_eq!(cell.reference(), "B4");
-        let cell = Cell {
-            row: 9,
-            col: 25,
-            kind: "sst",
-            text: None,
-            number: None,
-        };
-        assert_eq!(cell.reference(), "Z10");
-        let cell = Cell {
-            row: 0,
-            col: 26,
-            kind: "sst",
-            text: None,
-            number: None,
-        };
-        assert_eq!(cell.reference(), "AA1");
-        let cell = Cell {
-            row: 0,
-            col: 27,
-            kind: "sst",
-            text: None,
-            number: None,
-        };
-        assert_eq!(cell.reference(), "AB1");
-        let cell = Cell {
-            row: 0,
-            col: 51,
-            kind: "sst",
-            text: None,
-            number: None,
-        };
-        assert_eq!(cell.reference(), "AZ1");
+        assert_eq!(at(0, 0).reference(), "A1");
+        assert_eq!(at(3, 1).reference(), "B4");
+        assert_eq!(at(9, 25).reference(), "Z10");
+        assert_eq!(at(0, 26).reference(), "AA1");
+        assert_eq!(at(0, 27).reference(), "AB1");
+        assert_eq!(at(0, 51).reference(), "AZ1");
     }
 
     /// RK 的两个标志位：整数 / 除以 100 / 两者组合，都要与 Excel 里看到的数一致

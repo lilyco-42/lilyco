@@ -28,14 +28,27 @@ cargo run -p lilyco-binfmt -- identify --path /usr/bin/ls --json
 | `entries` | **T0** 只读 | 列压缩包/归档的成员表：ZIP（含 APK/JAR/DOCX/EPUB）、tar、ar（含 .deb） |
 | `regions` | **T0** 只读 | 把整个文件按区上色：头部 / 表 / 代码 / 数据 / 只读 / 元数据 / 空闲 / 尾部叠加 |
 | `symbols` | **T0** 只读 | 按分析器的读法看一个目标文件：节表 + `.symtab` 与 `.dynsym` + 地址到名字 |
+| `office-info` | **T0** 只读 | 这份办公文件是什么（OOXML / ODF / 复合文档 / RTF）、谁写的、有没有宏与加密 |
+| `office-text` | **T0** 只读 | 文件里写了什么：docx 按段、pptx 按页与备注、xlsx 按格子、odt/rtf 各按自己的段落口径 |
+| `office-meta` | **T0** 只读 | 文档属性那份账：`docProps/*`、ODF 的 `meta.xml`、遗留格式的 OLE 属性集 |
+| `office-doc` | **T0** 只读 | Word 的结构：段落/标题层级/样式/表格行列/超链接内外/脚注尾注批注/修订计数 |
+| `office-sheet` | **T0** 只读 | 表格的结构：每张表（含隐藏的）与范围、格子与公式、合并格、命名区域、外链 |
+| `office-slide` | **T0** 只读 | 演示文稿的结构：放映顺序、每页标题与备注、版式与母版、尺寸与媒体 |
+| `office-package` | **T0** 只读 | 包自证：关系指着不存在的部件、部件没声明内容类型、解压过不了自己的 CRC-32 |
+| `office-objects` | **T0** 只读 | 正文之外装了什么：图片、嵌入对象、字体、自定义 XML + 该留心的宏/外链/加密/签名 |
 
-四条命令都要 `--path`（`must_exist`）。规模控制两个开关：
-`--max-bytes`（默认 `identify` 1 MiB、`regions` 32 MiB、`entries`/`symbols` 64 MiB；**写 0 = 不设上限**）
-与 `--limit`（`entries` 默认 200、`symbols` 默认 128；`regions` 上限固定 256 区）。
+十二条命令都要 `--path`（`must_exist`）。规模控制两个开关：
+`--max-bytes`（默认 `identify` 1 MiB、`regions` 32 MiB、`entries`/`symbols` 与 `office-*` 64 MiB；
+**写 0 = 不设上限**）与 `--limit`（`entries` 默认 200、`symbols` 默认 128、
+`office-sheet`/`office-package` 200、其余 office 命令 100；`regions` 上限固定 256 区；
+`office-text` 还有一个 `--max-chars`，默认 20000）。
 `--json` 出结构化结果，人读格式在结果超过 500 字节时只报进度——**给脚本和 AI 用请加 `--json`**。
 
-> Web / MCP 端不带这些参数时传进来的是 0（`#[arg(default)]` 只在 CLI 生效）。`--max-bytes 0` 与 `--limit 0`
-> 都按上面的缺省值处理——把 0 当成「只读一千字节 / 只列一条」会交出被悄悄砍短的答案，四端还会给出长短不一的同一张表。
+> Web / MCP 端不带这些参数时传进来的是 0（`#[arg(default)]` 只在 CLI 生效）。这两个 0 的含义**不一样**，
+> 而且不能混：`--max-bytes 0` = 不设上限（`read.rs::read_blob` 里定的），`--limit 0` 与
+> `--max-chars 0` = 按上面的缺省值处理（`opack::take_limit` 里定的）。把 0 当成「只列一条」
+> 会交出被悄悄砍短的答案，四端还会给出长短不一的同一张表；反过来把「不设上限」当成缺省值
+> 会让一个 8 GB 的文件直接进内存。`office_text.rs` 与 `opack.rs` 的测试各钉了一条。
 
 ---
 
@@ -73,6 +86,13 @@ lbin --schema                                # 注册表清单（四端同源的
 | `entries` | ZIP 家族（方法/CRC-32/两个尺寸/局部头偏移）、tar（typeflag/mode/uid/gid/mtime + 八位校验和自证）、ar（含 `.deb` 的 `` ` ``+换行命名） | 压缩流的解压 |
 | `regions` | ELF（节 + 加载段 → 区分对齐填充与真空闲）、PE（段表 + 证书目录）、Mach-O（节表/符号表/间接符号表/重定位，端序由头的字节排列决定）、PNG（块表 + 真算的 CRC） | 其他族给 `mapped: false` + 原因 |
 | `symbols` | 走 `object`：ELF/PE/Mach-O/COFF，节表 + `.symtab`/`.dynsym` + 地址到名字索引 | 反汇编、控制流（那是另一个域） |
+| `office-*` | OOXML（docx/docm/xlsx/xlsm/pptx/pptm）、ODF（odt/ods/odp）、MS-CFB 遗留（doc/xls/ppt）、RTF；OPC 的关系表与内容类型；OLE 属性集；`.doc` 的 piece 表；`.xls` 的 BIFF8 记录 | `.ppt`（PowerPoint 97 记录树）的正文、RTF 的 `\info` 群、宏内容的解析（只检测宏部件）、密码学验证（签名只看有没有，不验签） |
+
+office 这一摊的证据制度在 [`lilyco-binfmt/tests/fixtures/office/README.md`](../lilyco-binfmt/tests/fixtures/office/README.md)：
+13 份 fixture 全部由**独立生产者**写出（python-docx / openpyxl / python-pptx / Pillow / LibreOffice），
+Rust 测试里的每个期望值都来自第二读者（`scripts/acceptance/office_reader.py` + `lyco_rtf.py` +
+`lyco_legacy.py`，只用 Python 标准库）对同一批文件的读取；CI 的 `apps` job 还会把编出来的 `lbin`
+与那位读者逐字段对账（`office_probe.py`），不一致就红。
 
 Mach-O 的两处坑已经用真文件钉住（`lilyco-binfmt/src/regions.rs` 的测试）：
 节名/段名是**定长 16 字节**，`__compact_unwind`、`__gcc_except_tab` 正好占满、没有结尾符；
@@ -88,7 +108,7 @@ let reg = build_registry_with_policy(policy_for(backend));
 lilyco::run_registry_with("lbin", reg, backend)
 ```
 
-- MCP：`lbin --mcp` → `tools/list` 返回 4 个工具，参数由 `CommandSchema::validate_args` 统一校验
+- MCP：`lbin --mcp` → `tools/list` 返回 12 个工具，参数由 `CommandSchema::validate_args` 统一校验
   （缺 `path` 直接被拒，错误信息里带字段名）。
 - Web：`lbin --web` → 路径输入框旁边有「…」按钮，点了弹**系统文件选择框**，选完自动回填路径
   （框架能力，见 `readme.md` 的 `/pick`；不用浏览器 `<input type=file>` 是因为它给不出真实路径）。

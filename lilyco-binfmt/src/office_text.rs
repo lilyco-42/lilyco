@@ -52,6 +52,9 @@ pub struct OfficeText {
     max_bytes: u64,
 }
 
+/// 与 `#[arg(default = 20000)]` 同一个数：Web / MCP 省略时不能变成「0 个字符」
+const MAX_CHARS_DEFAULT: usize = 20000;
+
 fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
     let start = std::time::Instant::now();
     let blob = read_blob(&app.path, app.max_bytes).map_err(AppError::InvalidInput)?;
@@ -345,12 +348,13 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
         .iter()
         .map(|one| one["text"].as_str().unwrap_or("").chars().count())
         .sum();
+    let budget = crate::opack::take_limit(app.max_chars, MAX_CHARS_DEFAULT);
     let mut emitted: Vec<Value> = Vec::new();
     let mut used = 0usize;
     let mut cut = false;
     for one in paragraphs.iter() {
         let len = one["text"].as_str().unwrap_or("").chars().count();
-        if used + len > app.max_chars as usize && !emitted.is_empty() {
+        if used + len > budget && !emitted.is_empty() {
             cut = true;
             break;
         }
@@ -722,6 +726,23 @@ mod tests {
             .collect::<Vec<_>>()
             .join(" ");
         assert!(note.contains("PowerPoint"), "{note}");
+    }
+
+    /// Web / MCP 端省略 `max-chars` 时 derive 给的是 0，不是 schema 的 default：
+    /// 0 必须回退成 20000，否则「省略」会悄悄变成「一个字都不给」
+    #[test]
+    fn an_omitted_char_budget_falls_back_to_the_default() {
+        let app = OfficeText {
+            path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/office/notes.docx"),
+            max_chars: 0,
+            keep_empty: false,
+            max_bytes: 0,
+        };
+        let (tx, _rx) = mpsc::channel();
+        let omitted = run_office_text(&app, &Context::new_test(tx)).expect("省略两个上限也要能跑");
+        let stated = run("notes.docx", 20000, false);
+        assert_eq!(omitted, stated, "0 与写明的缺省值必须给出同一份答案");
     }
 
     /// 上限截断时同时给出 cut 与全量计数：悄悄砍短是最坏的失败方式

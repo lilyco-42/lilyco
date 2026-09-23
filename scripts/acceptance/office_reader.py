@@ -271,7 +271,7 @@ def pptx_facts(path: Path) -> dict:
         notes = ""
         stem = name[: -len(".xml")]
         note_name = stem.replace("/slides/", "/notesSlides/notesSlide")
-        rels = parts.get(f"{stem}.rels")
+        rels = parts.get(f"{stem[: stem.rindex('/')]}/_rels/{stem[stem.rindex('/') + 1 :]}.xml.rels")
         if rels is not None:
             r = ET.fromstring(rels)
             targets = [
@@ -405,8 +405,8 @@ def has_local_child(node, want: str) -> bool:
 def cfb_parse(data: bytes) -> dict:
     """MS-CFB 复合文档：扇区 / 目录 / 迷你流全按规范自己走一遍，不借任何库。
 
-    返回 `{meta..., "entries": [...], "streams": {name: bytes}}` —— 元数据视图与字节视图
-    出自**同一次**解析。写两份链遍历就是给自己留「两份不一致」的坑。
+    返回 `{meta..., "entries": [...], "streams": [{name, size, ...}], "bytes": {name: bytes}}`
+    —— 元数据视图与字节视图出自**同一次**解析。写两份链遍历就是给自己留「两份不一致」的坑。
     """
     if data[:8] != bytes.fromhex("D0CF11E0A1B11AE1"):
         raise ValueError("不是 CFB 签名")

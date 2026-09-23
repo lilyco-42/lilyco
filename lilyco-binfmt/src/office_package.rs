@@ -39,6 +39,9 @@ pub struct OfficePackage {
     max_bytes: u64,
 }
 
+/// CLI 的 `#[arg(default = N)]` 与各端省略参数时的回退值必须是同一个数
+const LIMIT_DEFAULT: usize = 200;
+
 fn run_office_package(app: &OfficePackage, ctx: &Context) -> Result<Value, AppError> {
     let start = std::time::Instant::now();
     let blob = read_blob(&app.path, app.max_bytes).map_err(AppError::InvalidInput)?;
@@ -54,7 +57,7 @@ fn run_office_package(app: &OfficePackage, ctx: &Context) -> Result<Value, AppEr
             doc.format
         )));
     }
-    let limit = usize::try_from(app.limit).unwrap_or(usize::MAX);
+    let limit = crate::opack::take_limit(app.limit, LIMIT_DEFAULT);
     let types = if doc.family == Family::Ooxml {
         ContentTypes::read(&blob.bytes)
     } else {

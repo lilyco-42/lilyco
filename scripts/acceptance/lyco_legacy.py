@@ -228,8 +228,20 @@ def read_sst(chunks: list, unique: int) -> list:
     return out
 
 
+def _owner(sheets: list, offset: int):
+    """这条记录落在哪张表的子流里：自报起点不超过它的最后一条 BOUNDSHEET。
+
+    `.xls` 的所有表共用同一条 Workbook 流，BOUNDSHEET.lbPlyPos 给出的就是该子流
+    在这条流内的字节偏移 —— 不按偏移归位，就只能按流顺序报一堆没有主人的格子。
+    """
+    for one in reversed(sheets):
+        if one["record_start"] <= offset:
+            return one["name"]
+    return None
+
+
 def biff_workbook(cfb_bytes: dict) -> dict:
-    """把 Workbook 流的记录表读成：工作表清单、共享字符串、带值的单元格"""
+    """把 Workbook 流的记录表读成：工作表清单、共享字符串、带值的单元格（按表归位）"""
     raw = cfb_bytes.get("Workbook") or cfb_bytes.get("Book")
     if raw is None:
         return {"error": "既没有 Workbook 也没有 Book 流"}
@@ -238,7 +250,7 @@ def biff_workbook(cfb_bytes: dict) -> dict:
     while at + 4 <= len(raw):
         op = _u16(raw, at) or 0
         ln = _u16(raw, at + 2) or 0
-        records.append((op, raw[at + 4 : at + 4 + ln]))
+        records.append((at, op, raw[at + 4 : at + 4 + ln]))
         at += 4 + ln
     sheets: list = []
     strings: list = []
@@ -246,15 +258,16 @@ def biff_workbook(cfb_bytes: dict) -> dict:
     bofs: list = []
     formulas = 0
     dimensions = []
-    for index, (op, body) in enumerate(records):
+    for index, (offset, op, body) in enumerate(records):
+        belongs = _owner(sheets, offset)
         if op == 0x0809:  # BOF
             bofs.append((_u16(body, 0), _u16(body, 2)))
         elif op == 0x00FC:  # SST
             unique = _u32(body, 4) or 0
             chunks = [bytearray(body[8:])]
             probe = index + 1
-            while probe < len(records) and records[probe][0] == 0x003C:
-                chunks.append(bytearray(records[probe][1]))
+            while probe < len(records) and records[probe][1] == 0x003C:
+                chunks.append(bytearray(records[probe][2]))
                 probe += 1
             strings = read_sst(chunks, unique)
         elif op == 0x0085:  # BOUNDSHEET：lbPlyPos(4) + grbit(2) + ShortXLUnicodeString
@@ -279,14 +292,24 @@ def biff_workbook(cfb_bytes: dict) -> dict:
         elif op == 0x00FD:  # LABELSST
             r, col, _xf, sst_index = struct.unpack_from("<HHHI", body, 0)
             value = strings[sst_index] if sst_index < len(strings) else None
-            cells.append({"row": r, "col": col, "type": "sst", "value": value})
+            cells.append(
+                {"row": r, "col": col, "type": "sst", "value": value, "sheet": belongs}
+            )
         elif op == 0x0203:  # NUMBER
             r, col, _xf, value = struct.unpack_from("<HHHd", body, 0)
-            cells.append({"row": r, "col": col, "type": "number", "value": value})
+            cells.append(
+                {"row": r, "col": col, "type": "number", "value": value, "sheet": belongs}
+            )
         elif op == 0x027E:  # RK
             r, col, _xf = struct.unpack_from("<HHH", body, 0)
             cells.append(
-                {"row": r, "col": col, "type": "rk", "value": decode_rk(_u32(body, 6) or 0)}
+                {
+                    "row": r,
+                    "col": col,
+                    "type": "rk",
+                    "value": decode_rk(_u32(body, 6) or 0),
+                    "sheet": belongs,
+                }
             )
         elif op == 0x0204:  # LABEL（老式：字符串直接跟在记录里）
             r, col, _xf = struct.unpack_from("<HHH", body, 0)
@@ -298,20 +321,21 @@ def biff_workbook(cfb_bytes: dict) -> dict:
                     "row": r,
                     "col": col,
                     "type": "label",
-                    "value": raw_text.decode("utf-16-le" if grbit & 1 else "cp1252", "replace"),
+                    "value": raw_text.decode(
+                        "utf-16-le" if grbit & 1 else "cp1252", "replace"
+                    ),
+                    "sheet": belongs,
                 }
             )
         elif op == 0x0006:  # FORMULA
             r, col, _xf = struct.unpack_from("<HHH", body, 0)
-            cells.append({"row": r, "col": col, "type": "formula", "value": None})
+            cells.append(
+                {"row": r, "col": col, "type": "formula", "value": None, "sheet": belongs}
+            )
             formulas += 1
-        elif op == 0x00FC or op == 0x027F:  # 0x027F = RSTRING（内联富文本）
-            pass
-        elif op == 0x00FD or op == 0x0000:
-            pass
-        elif op == 0x00FA:  # LABELREC 之外的 MULRK：一段连续列的 RK
-            r = _u16(body, 0)
-            col_from = _u16(body, 2)
+        elif op == 0x00BD:  # MULRK：一行里连续若干列，每 6 字节一个 {xf(2), rk(4)}
+            r = _u16(body, 0) or 0
+            col_from = _u16(body, 2) or 0
             for i in range((len(body) - 6) // 6):
                 packed = _u32(body, 4 + i * 6) or 0
                 cells.append(
@@ -320,14 +344,14 @@ def biff_workbook(cfb_bytes: dict) -> dict:
                         "col": col_from + i,
                         "type": "mulrk",
                         "value": decode_rk(packed),
+                        "sheet": belongs,
                     }
                 )
-        elif op == 0x00FC:
-            pass
-        elif op == 0x00FD:
-            pass
         elif op == 0x0200:  # DIMENSIONS
             dimensions.append((_u32(body, 0), _u32(body, 4)))
+    per_sheet: dict = {}
+    for one in cells:
+        per_sheet[one["sheet"]] = per_sheet.get(one["sheet"], 0) + 1
     return {
         "records": len(records),
         "bofs": bofs,
@@ -336,4 +360,5 @@ def biff_workbook(cfb_bytes: dict) -> dict:
         "cells": cells,
         "formula_cells": formulas,
         "dimensions": dimensions,
+        "cells_per_sheet": per_sheet,
     }

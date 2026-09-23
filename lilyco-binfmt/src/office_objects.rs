@@ -44,6 +44,9 @@ pub struct OfficeObjects {
     max_bytes: u64,
 }
 
+/// CLI 的 `#[arg(default = N)]` 与各端省略参数时的回退值必须是同一个数
+const LIMIT_DEFAULT: usize = 100;
+
 fn run_office_objects(app: &OfficeObjects, ctx: &Context) -> Result<Value, AppError> {
     let start = std::time::Instant::now();
     let blob = read_blob(&app.path, app.max_bytes).map_err(AppError::InvalidInput)?;
@@ -69,7 +72,7 @@ fn run_office_objects(app: &OfficeObjects, ctx: &Context) -> Result<Value, AppEr
         };
         let (rels, mut rel_notes) = crate::opack::relationships(&blob.bytes, &doc.entries);
         notes.append(&mut rel_notes);
-        let limit = usize::try_from(app.limit).unwrap_or(usize::MAX);
+        let limit = crate::opack::take_limit(app.limit, LIMIT_DEFAULT);
         for one in &doc.entries {
             let name = one.name.as_str();
             let declared = types.of(name).unwrap_or("");

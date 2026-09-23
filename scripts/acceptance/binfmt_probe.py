@@ -1,13 +1,14 @@
 """lbin 四端验收探针（对齐 docs/MVP_SCOPE.md §4 的验收标准）。
 
-用法：python binfmt_probe.py <lbin 二进制> <一个真实文件> [winpty 用工作目录]
+用法：python binfmt_probe.py <lbin 二进制> <一个真实二进制> [工作目录] <一个办公文件>
+# 二进制类命令读第 2 个参数，office-* 读第 4 个（默认是仓库里那份 notes.docx）
 
 覆盖：
-  1. CLI      四条命令各出一次 --json，作为比对基准
-  2. Web      --gui → 首页含四命令 → 裸 POST 401 → 带令牌 SSE → 与 CLI **逐字一致**
-  3. MCP      initialize → tools/list（4 工具、path 必填、read_only）→ tools/call 与
+  1. CLI      十二条命令各出一次 --json，作为比对基准
+  2. Web      --gui → 首页含全部命令 → 裸 POST 401 → 带令牌 SSE → 与 CLI **逐字一致**
+  3. MCP      initialize → tools/list（全部工具、path 必填、read_only）→ tools/call 与
               CLI 逐字一致 → 缺参 -32602
-  4. TUI      winpty 真 PTY：选择页四条命令都在 → Enter 进表单 → Esc/q 干净退出；
+  4. TUI      winpty 真 PTY：选择页全部命令都在 → Enter 进表单 → Esc/q 干净退出；
               裸跑（不带 --tui）降级 CLI
 
 实现要点沿用 tui_probe.py：winpty 下 stdout 是管道，必须后台线程 read1 累积。
@@ -25,7 +26,26 @@ import urllib.request
 BIN = os.path.abspath(sys.argv[1])
 SAMPLE = os.path.abspath(sys.argv[2])
 CWD = os.path.abspath(sys.argv[3]) if len(sys.argv) > 3 else os.path.dirname(SAMPLE)
-COMMANDS = ["identify", "entries", "regions", "symbols"]
+COMMANDS = [
+    "identify",
+    "entries",
+    "regions",
+    "symbols",
+    "office-info",
+    "office-text",
+    "office-meta",
+    "office-doc",
+    "office-sheet",
+    "office-slide",
+    "office-package",
+    "office-objects",
+]
+# 办公文件那八条要有办公文件可读：默认用提交进来的真实生产者 fixture，也可用第 5 个参数换掉
+OFFICE_SAMPLE = os.path.abspath(
+    sys.argv[4] if len(sys.argv) > 4
+    else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..",
+                      "lilyco-binfmt", "tests", "fixtures", "office", "notes.docx")
+)
 ARGS = {"path": SAMPLE, "max-bytes": 1 << 24}
 STRIP = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][A-Z0-9]|\x1b\][^\x07]*\x07|\x1b[=>]")
 CTRL = re.compile(r"[\r\x00-\x08\x0b-\x1f\x7f]")
@@ -37,9 +57,18 @@ def record(name, ok, detail=""):
     print("  %s %-46s %s" % ("PASS" if ok else "FAIL", name, detail[:96]))
 
 
+def sample_for(cmd):
+    return OFFICE_SAMPLE if cmd.startswith("office-") else SAMPLE
+
+
+def args_for(cmd):
+    return {"path": sample_for(cmd), "max-bytes": ARGS["max-bytes"]}
+
+
 def cli_json(cmd):
-    out = subprocess.run([BIN, cmd, "--path", SAMPLE, "--max-bytes", str(ARGS["max-bytes"]),
-                          "--json"], capture_output=True, text=True, encoding="utf-8",
+    out = subprocess.run([BIN, cmd, "--path", sample_for(cmd),
+                          "--max-bytes", str(ARGS["max-bytes"]), "--json"],
+                         capture_output=True, text=True, encoding="utf-8",
                          errors="replace", timeout=60, cwd=CWD)
     try:
         return json.loads(out.stdout), out
@@ -52,7 +81,7 @@ def canon(value):
 
 
 # ── 1) CLI ────────────────────────────────────────────────────────
-print("=== 1) CLI：四条命令的 --json 作基准 ===")
+print("=== 1) CLI：十二条命令的 --json 作基准 ===")
 base = {}
 for cmd in COMMANDS:
     payload, proc = cli_json(cmd)
@@ -73,7 +102,8 @@ try:
     time.sleep(3)
     html = urllib.request.urlopen(BASE + "/", timeout=20).read().decode("utf-8", "replace")
     hit = [c for c in COMMANDS if c in html]
-    record("web 首页渲染四条命令", len(hit) == 4, "%d/4 命中，页面 %d 字节" % (len(hit), len(html)))
+    record("web 首页渲染全部命令", len(hit) == len(COMMANDS),
+           "%d/%d 命中，页面 %d 字节" % (len(hit), len(COMMANDS), len(html)))
     token = re.search(r'name="lilyco-token" content="([^"]+)"', html)
     record("web 首页带 CSRF 令牌", token is not None)
     token = token.group(1) if token else ""
@@ -84,7 +114,7 @@ try:
     except urllib.error.HTTPError as error:
         record("web 裸 POST 被拒（401）", error.code == 401, "HTTP %d" % error.code)
     for cmd in COMMANDS:
-        payload = json.dumps({"cmd": cmd, "args": ARGS}).encode()
+        payload = json.dumps({"cmd": cmd, "args": args_for(cmd)}).encode()
         req = urllib.request.Request(BASE + "/run", data=payload, headers={
             "Content-Type": "application/json", "X-Lilyco-Token": token})
         try:
@@ -134,7 +164,7 @@ lines = [
 ]
 for index, cmd in enumerate(COMMANDS):
     lines.append({"jsonrpc": "2.0", "id": 10 + index, "method": "tools/call",
-                  "params": {"name": cmd, "arguments": ARGS}})
+                  "params": {"name": cmd, "arguments": args_for(cmd)}})
 lines.append({"jsonrpc": "2.0", "id": 99, "method": "tools/call",
               "params": {"name": "identify", "arguments": {}}})
 proc = subprocess.Popen([BIN, "--mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -175,9 +205,9 @@ init = buf.get(1, {})
 record("mcp initialize 回协议版本", init.get("result", {}).get("protocolVersion") == "2024-11-05")
 tools = buf.get(2, {}).get("result", {}).get("tools", [])
 names = sorted(one.get("name") for one in tools)
-record("mcp tools/list 四条命令齐", names == sorted(COMMANDS), str(names))
+record("mcp tools/list 全部命令齐", names == sorted(COMMANDS), str(names))
 shape = all(one["inputSchema"].get("required") == ["path"] and
-            "path" in one["inputSchema"]["properties"] for one in tools) and len(tools) == 4
+            "path" in one["inputSchema"]["properties"] for one in tools) and len(tools) == len(COMMANDS)
 record("mcp 每个工具 path 必填且类型对", shape)
 tags = [one.get("description", "") for one in tools]
 readable = all(("T0" in one or "read_only" in one or "只读" in one or
@@ -267,16 +297,24 @@ ESC = chr(27).encode()
 CR = chr(13).encode()
 raw1, screen1, out1 = drive([])
 hit = [cmd for cmd in COMMANDS if cmd in screen1]
-record("tui 选择页列出四条命令", len(hit) == 4, "%d/4 命中（捕获 %d 字节）" % (len(hit), len(raw1)))
+record("tui 选择页首屏有命令", len(hit) >= 1,
+       "首屏 %d 条 / 共 %d 条（视口有限）" % (len(hit), len(COMMANDS)))
+# 命令一多，首屏放不下才是实情：按方向键滚过一整圈，把每次重绘累积起来再比全集
+raw1b, screen1b, out1b = drive([ESC + b"[B"] * (len(COMMANDS) - 1))
+rolled = [cmd for cmd in COMMANDS if cmd in screen1b]
+record("tui 滚一遍能列出全部命令", set(rolled) == set(COMMANDS),
+       "%d/%d 命中（捕获 %d 字节）" % (len(rolled), len(COMMANDS), len(raw1b)))
 record("tui 标题含 lbin", "lbin" in screen1)
 raw2, screen2, out2 = drive([ESC + b"[B" + ESC + b"[B"])
-record("tui ↓ 移动高亮后画面有变", screen2 != screen1, "尾部窗口差异")
+record("tui 方向键移动高亮后画面有变", screen2 != screen1, "尾部窗口差异")
 raw3, screen3, out3 = drive([CR])
 cues = [key for key in ["path", "max-bytes", "Run", "运行", "$", "About", "关于"] if key in screen3]
 record("tui Enter 进表单并渲染字段/预览", bool(cues), str(cues))
-record("tui Esc/q 干净退出（未被 kill）", out1 and out2 and out3,
-       "选择页=%s / â=%s / 表单=%s" % ("退" if out1 else "挂", "退" if out2 else "挂",
-                                  "退" if out3 else "挂"))
+record("tui Esc/q 干净退出（未被 kill）", out1 and out1b and out2 and out3,
+       "选择页=%s / 滚动=%s / 移动=%s / 表单=%s" % ("退" if out1 else "挂",
+                                          "退" if out1b else "挂",
+                                          "退" if out2 else "挂",
+                                          "退" if out3 else "挂"))
 
 # ── 汇总 ──────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in RESULTS if ok)

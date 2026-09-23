@@ -789,18 +789,31 @@ lffmpeg --mcp                                              # MCP 服务器
 - 完整用法：见 [`docs/lffmpeg.md`](docs/lffmpeg.md)
 - 依赖系统 `ffmpeg`（必须在 PATH 上）
 
-### Binary structure (`lilyco-binfmt`)
+### 办公文件与容器结构 (`lilyco-binfmt`)
 
-`lbin` —— 回答「这个文件到底是什么结构」：识别 / 列成员 / 按区上色 / 读符号表，四端 + AI 可调，**4 条命令全 T0 只读**（不执行、不解压、不写盘）：
+`lbin` —— 办公文件处理是它的主业，二进制/容器结构是同一套读法的另一半：**12 条命令全 T0 只读**
+（不执行、不写盘；读 docx 的正文必须在内存里解压，解压结果一律要过该部件自己声明的 CRC-32）：
 
 ```bash
 cargo install --path lilyco-binfmt                    # 从源码装（该 crate 还没上 crates.io，`cargo binstall` 要等发布 + 预编译资产）
+lbin office-info --path 预算.docx --json              # 这是什么、谁写的、有没有宏/加密/外链
+lbin office-text --path 预算.docx                     # 文件里写了什么（docx/doc/xlsx/pptx/odt/rtf）
+lbin office-meta --path 季度报告.pptx --json          # 文档属性：docProps / meta.xml / OLE 属性集
+lbin office-doc --path 预算.docx                      # 段落、标题层级、表格、超链接、批注、修订
+lbin office-sheet --path 预算表.xlsx                  # 每张表（含隐藏的）、范围、公式、命名区域
+lbin office-slide --path 评审.pptx                    # 放映顺序、每页标题与备注、版式与母版
+lbin office-package --path 预算.docx --json           # 包自证：关系断头、部件没声明类型、CRC 没过
+lbin office-objects --path 预算.docx --json           # 嵌入物、外链、宏与加密这些要留心的东西
 lbin identify --path app.apk --json                   # 什么族什么格式 + 头部自报的字段
 lbin entries  --path app.apk --limit 200              # 中央目录列出的成员（ZIP/tar/ar）
 lbin regions  --path a.out --json                     # 头/表/代码/数据/空闲/尾部叠加
 lbin symbols  --path /usr/bin/ls --json               # 节表 + .symtab/.dynsym + 地址→名字
-lbin --mcp                                            # MCP 服务器
+lbin --mcp                                            # MCP 服务器：tools/list 一次返回十二条
 ```
+
+- 认格式**看部件名与流名，不看文件后缀**：改了后缀的 docx 照样报 docx；`docm` 靠 `vbaProject.bin` 认
+- 覆盖 OOXML（docx/docm/xlsx/xlsm/pptx/pptm）、ODF（odt/ods/odp）、遗留复合文档（doc/xls/ppt）、RTF；
+  `.ppt` 的记录树与 RTF 的 `\info` 群还没做，命令照实回答 unsupported 并说明原因
 
 - 置信度分两档：`signature`（开头字节定死）与 `structural`（表刚好铺进文件才敢这么说）——`0xCAFEBABE` 既是 Java class 也是通用二进制，靠架构表落点判别
 - 每个答案带自证：`entries` 报 `checks[]`（文件自报的数目/长度对不上就直说），`regions` 保证 `claimed + unreferenced + loaded_unaddressed == 读进来的字节数`
