@@ -45,6 +45,7 @@ impl Entry {
 }
 
 /// 一个已打开的复合文档
+#[derive(Debug)]
 pub struct Cfb {
     pub minor: u64,
     pub major: u64,
@@ -214,14 +215,14 @@ pub fn open(b: &[u8]) -> Result<Cfb, String> {
     }
     let root = entries.iter().find(|one| one.kind == "root").cloned();
     let mut mini_notes: Vec<String> = Vec::new();
-    let mini_stream = match root {
+    let mini_stream = match root.as_ref() {
         Some(one) => read_chain(b, one.start, &fat, sector, &mut mini_notes),
         None => {
             notes.push("没有 root 存储项，小流的迷你扇区无处可取".to_string());
             Vec::new()
         }
     };
-    let mini_stream = match root {
+    let mini_stream = match root.as_ref() {
         Some(one) => {
             let want = usize::try_from(one.size).unwrap_or(usize::MAX);
             if mini_stream.len() < want && want != usize::MAX {

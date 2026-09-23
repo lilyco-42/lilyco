@@ -187,6 +187,24 @@ def add_custom_props(path: Path) -> None:
                 box.writestr(name, data)
 
 
+def write_english_docx(path: Path) -> None:
+    """纯 ASCII 的一份 docx：转成 .doc 后 Word 会用「压缩 piece」存它
+
+    这个样本存在的唯一理由：.doc 的 piece 表每个 piece 自己说字符宽
+    （fc 的 bit30 = 压缩 → 8 位字符，而且偏移还要除二）。中英混排那份走的是
+    UTF-16 那条路，光有它就无法证明 8 位这条路也读对了。
+    """
+    from docx import Document
+
+    doc = Document()
+    doc.add_heading("Quarterly budget note", level=1)
+    doc.add_paragraph("The server budget for Q3 is 124,000 yuan.")
+    doc.add_paragraph("Second line: numbers are tax-inclusive.")
+    doc.core_properties.title = "Quarterly budget note"
+    doc.core_properties.author = "liuqi"
+    doc.save(str(path))
+
+
 def write_xlsx(path: Path) -> None:
     """openpyxl：多表、隐藏表、公式、合并格、命名区域、真表格 —— 一个电子表格里
     `lbin office-sheet` 要报的东西基本都在这里，而这些东西 LibreOffice 转出来的样本未必有。
@@ -431,6 +449,9 @@ def main() -> int:
     write_pptx(pptx, art)
     add_macro_part(docx, OUT / "notes.docm")
 
+    english = OUT / "notes-en.docx"
+    write_english_docx(english)
+
     # 真 ODF 写入者是 LibreOffice：从 OOXML 转过去，比手搓的 content.xml 有说服力
     for src, fmt in ((docx, "odt"), (xlsx, "ods"), (pptx, "odp")):
         convert(exe, src, fmt, SCRATCH)
@@ -442,9 +463,15 @@ def main() -> int:
             print(f"⚠️  没拿到 {name}")
 
     # 遗留二进制格式：这些就是 MS-CFB 复合文档
-    for src, fmt in ((docx, "doc"), (xlsx, "xls"), (pptx, "ppt"), (docx, "rtf")):
+    for src, fmt in (
+        (docx, "doc"),
+        (english, "doc"),
+        (xlsx, "xls"),
+        (pptx, "ppt"),
+        (docx, "rtf"),
+    ):
         convert(exe, src, fmt, SCRATCH)
-    for name in ("notes.doc", "book.xls", "deck.ppt", "notes.rtf"):
+    for name in ("notes.doc", "notes-en.doc", "book.xls", "deck.ppt", "notes.rtf"):
         src = SCRATCH / name
         if src.exists():
             shutil.copyfile(src, OUT / name)

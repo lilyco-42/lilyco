@@ -686,7 +686,7 @@ pub fn central_directory(b: &[u8]) -> (Vec<ZipEntry>, Vec<String>) {
 }
 
 /// ZIP 中央目录里的一条（`Clone`：办公命令要把条目表复制出来再补自己的样本）
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ZipEntry {
     pub name: String,
     pub method: u64,

@@ -1,0 +1,339 @@
+r"""遗留办公格式（.doc / .xls）的**独立读者**：只用标准库。
+
+这个文件与 `lilyco-binfmt/src/word.rs`、`lilyco-binfmt/src/biff.rs` 是同一套规范的两份实现。
+两边对同一批真实生产者文件（LibreOffice 写的 .doc / .xls）必须给出同样的文本，
+这一点由 CI 上的 `office_probe.py` 核对 —— 单靠一份实现说「我读出来是这样」不算证据。
+
+- `.doc`：MS-DOC 的正文位置不在 WordDocument 流里顺排，而是 FIB → `fcClx` → 表流里的
+  `PlcPcd`（piece 表）；每个 piece 自己说字符宽（fc 的 bit30 = 压缩 → 8 位，偏移还要除二），
+  所以中英混排能各自省一半空间 —— 读错这一位就整篇碎字。
+- `.xls`：MS-XLS 的 Workbook 流是一串记录；字符串集中在 SST（可跨 CONTINUE 边界，
+  每进一个新块都要重读一个 grbit 字节），单元格只存 SST 索引或 RK 压缩数。
+"""
+
+from __future__ import annotations
+
+import struct
+from pathlib import Path  # noqa: F401  # 与调用方保持同样的导入面
+
+# ---------------------------------------------------------------- MS-DOC
+WORD_FIELD_START = 0x13
+WORD_FIELD_SEP = 0x14
+WORD_FIELD_END = 0x15
+# Word 拿来当结构用的字符：段落结束、单元格/行、软换行、分页、对象与批注锚……
+WORD_STRUCTURAL = {0x01, 0x02, 0x05, 0x08, 0x0A, 0x0B, 0x0C, 0x0E, 0x0F, 0x16, 0x17, 0x18}
+
+
+def _u8(buf: bytes, off: int):
+    return buf[off] if 0 <= off < len(buf) else None
+
+
+def _u16(buf: bytes, off: int):
+    return struct.unpack_from("<H", buf, off)[0] if off + 2 <= len(buf) else None
+
+
+def _u32(buf: bytes, off: int):
+    return struct.unpack_from("<I", buf, off)[0] if off + 4 <= len(buf) else None
+
+
+def clean_word_text(body: str) -> list[str]:
+    """域代码只留结果部分，结构字符换成制表/换行或丢掉"""
+    out: list[str] = []
+    in_field = False
+    keep_result = False
+    for ch in body:
+        code = ord(ch)
+        if code == WORD_FIELD_START:
+            in_field = True
+            keep_result = False
+            continue
+        if code == WORD_FIELD_SEP:
+            keep_result = True
+            continue
+        if code == WORD_FIELD_END:
+            in_field = False
+            keep_result = False
+            continue
+        if in_field and not keep_result:
+            continue
+        if code == 0x0D:
+            out.append("\n")
+        elif code == 0x07:
+            out.append("\t")
+        elif code in WORD_STRUCTURAL:
+            continue
+        else:
+            out.append(ch)
+    return [one.strip() for one in "".join(out).split("\n") if one.strip()]
+
+
+def doc_pieces(cfb_bytes: dict) -> dict:
+    """按 FIB 的 piece 表把 .doc 的正文取出来（入参是已经解析好的 {流名: 字节}）"""
+    wd = cfb_bytes.get("WordDocument")
+    if wd is None:
+        return {"error": "没有 WordDocument 流"}
+    flags = _u16(wd, 10) or 0
+    table = "1Table" if flags & 0x0200 else "0Table"
+    if table not in cfb_bytes:
+        table = "1Table" if "1Table" in cfb_bytes else "0Table"
+    if table not in cfb_bytes:
+        return {"error": "1Table 与 0Table 都不在容器里"}
+    tbl = cfb_bytes[table]
+    fc_clx = _u32(wd, 0x01A2) or 0
+    lcb_clx = _u32(wd, 0x01A6) or 0
+    clx = tbl[fc_clx : fc_clx + lcb_clx]
+    if len(clx) != lcb_clx:
+        return {"error": f"表流装不下 Clx：要 {lcb_clx} 字节，只有 {len(clx)}"}
+    at = 0
+    plc = b""
+    prcs = 0
+    while at < len(clx):
+        kind = clx[at]
+        if kind == 1:  # Prc：图形参数，跳过
+            cb = _u16(clx, at + 1) or 0
+            at += 3 + cb
+            prcs += 1
+        elif kind == 2:  # Pcdt：正文的 piece 表
+            lcb = _u32(clx, at + 1) or 0
+            plc = clx[at + 5 : at + 5 + lcb]
+            break
+        else:
+            return {"error": f"Clx 里出现不认识的标记 {kind}（位置 {at}）"}
+    if len(plc) < 16:
+        return {"error": "Pcdt 太短，读不出 piece 表", "table_stream": table}
+    n = (len(plc) - 4) // 12
+    cps = [_u32(plc, k * 4) or 0 for k in range(n + 1)]
+    pieces = []
+    text: list[str] = []
+    for k in range(n):
+        base = (n + 1) * 4 + k * 8
+        fc = _u32(plc, base + 2) or 0
+        compressed = bool(fc & 0x4000_0000)
+        fc &= 0x3FFF_FFFF
+        count = cps[k + 1] - cps[k]
+        if compressed:
+            raw = wd[fc // 2 : fc // 2 + count]
+            text.append(raw.decode("cp1252", "replace"))
+        else:
+            raw = wd[fc : fc + count * 2]
+            text.append(raw.decode("utf-16-le", "replace"))
+        pieces.append(
+            {"cp_start": cps[k], "chars": count, "compressed": compressed, "fc": fc}
+        )
+    body = "".join(text)
+    lines = clean_word_text(body)
+    return {
+        "table_stream": table,
+        "fc_clx": fc_clx,
+        "lcb_clx": lcb_clx,
+        "prc_skipped": prcs,
+        "pieces": pieces,
+        "piece_count": n,
+        "cp_total": cps[-1] if cps else 0,
+        "raw_chars": len(body),
+        "text": body,
+        "lines": lines,
+        "line_count": len(lines),
+    }
+
+
+# ---------------------------------------------------------------- MS-XLS（BIFF8）
+def decode_rk(packed: int) -> float:
+    """RK 数（MS-XLS 2.5.10）：低两位是标志 —— bit0 = 除以 100，bit1 = 整数
+
+    这两个位的顺序是最容易记反的地方：记反了 124000 会变成 1.05e-310，
+    一个「看起来像浮点误差」的错值。判定标准很简单 —— 与 Excel 里看到的数一致。
+    """
+    div100 = bool(packed & 0x01)
+    is_int = bool(packed & 0x02)
+    signed = struct.unpack("<i", struct.pack("<I", packed & 0xFFFF_FFFF))[0]
+    if is_int:
+        value = float(signed >> 2)
+    else:
+        value = struct.unpack("<d", struct.pack("<Q", (packed & 0xFFFF_FFFF) << 32))[0]
+    return value / 100.0 if div100 else value
+
+
+class _ChunkReader:
+    """在 SST 的多个块（SST 正文 + 若干 CONTINUE）上顺序取字节"""
+
+    def __init__(self, chunks: list) -> None:
+        self.chunks = chunks
+        self.chunk = 0
+        self.pos = 0
+
+    def take(self, n: int) -> bytes:
+        buf = bytearray()
+        while len(buf) < n and self.chunk < len(self.chunks):
+            data = self.chunks[self.chunk]
+            room = len(data) - self.pos
+            if room <= 0:
+                self.chunk += 1
+                self.pos = 0
+                continue
+            grab = min(room, n - len(buf))
+            buf += data[self.pos : self.pos + grab]
+            self.pos += grab
+        return bytes(buf)
+
+    def exhausted(self) -> bool:
+        return self.chunk >= len(self.chunks) or self.pos >= len(self.chunks[self.chunk])
+
+    def at_chunk_end(self) -> bool:
+        return self.chunk + 1 < len(self.chunks) and self.pos >= len(self.chunks[self.chunk])
+
+
+def read_sst(chunks: list, unique: int) -> list:
+    """SST 的字符串可以跨 CONTINUE 边界，而且每进一个新块都要重读一个 grbit 字节"""
+    cursor = _ChunkReader(chunks)
+    out: list[str] = []
+    for _ in range(unique):
+        head = cursor.take(3)
+        if len(head) < 3:
+            break
+        cch = struct.unpack("<H", head[:2])[0]
+        grbit = head[2]
+        rich = bool(grbit & 0x08)
+        ext = bool(grbit & 0x04)
+        wide = bool(grbit & 0x01)
+        crun = struct.unpack("<H", cursor.take(2))[0] if rich else 0
+        cext = struct.unpack("<I", cursor.take(4))[0] if ext else 0
+        pieces: list[str] = []
+        remaining = cch
+        while remaining > 0:
+            if cursor.at_chunk_end() or cursor.exhausted():
+                if cursor.chunk + 1 >= len(chunks):
+                    break
+                cursor.chunk += 1
+                cursor.pos = 0
+                flag = cursor.take(1)
+                if not flag:
+                    break
+                wide = bool(flag[0] & 0x01)
+            data = cursor.chunks[cursor.chunk]
+            per = 2 if wide else 1
+            room = len(data) - cursor.pos
+            can = min(remaining, room // per)
+            if can == 0:
+                continue
+            raw = cursor.take(can * per)
+            pieces.append(raw.decode("utf-16-le" if wide else "cp1252", "replace"))
+            remaining -= can
+        text = "".join(pieces)
+        if rich:
+            cursor.take(crun * 4)
+        if ext:
+            cursor.take(cext)
+        out.append(text)
+    return out
+
+
+def biff_workbook(cfb_bytes: dict) -> dict:
+    """把 Workbook 流的记录表读成：工作表清单、共享字符串、带值的单元格"""
+    raw = cfb_bytes.get("Workbook") or cfb_bytes.get("Book")
+    if raw is None:
+        return {"error": "既没有 Workbook 也没有 Book 流"}
+    records: list = []
+    at = 0
+    while at + 4 <= len(raw):
+        op = _u16(raw, at) or 0
+        ln = _u16(raw, at + 2) or 0
+        records.append((op, raw[at + 4 : at + 4 + ln]))
+        at += 4 + ln
+    sheets: list = []
+    strings: list = []
+    cells: list = []
+    bofs: list = []
+    formulas = 0
+    dimensions = []
+    for index, (op, body) in enumerate(records):
+        if op == 0x0809:  # BOF
+            bofs.append((_u16(body, 0), _u16(body, 2)))
+        elif op == 0x00FC:  # SST
+            unique = _u32(body, 4) or 0
+            chunks = [bytearray(body[8:])]
+            probe = index + 1
+            while probe < len(records) and records[probe][0] == 0x003C:
+                chunks.append(bytearray(records[probe][1]))
+                probe += 1
+            strings = read_sst(chunks, unique)
+        elif op == 0x0085:  # BOUNDSHEET：lbPlyPos(4) + grbit(2) + ShortXLUnicodeString
+            grbit = _u16(body, 4) or 0
+            nl = _u8(body, 6) or 0
+            flags = _u8(body, 7) or 0
+            wide = bool(flags & 0x01)
+            text = (
+                body[8 : 8 + nl * 2].decode("utf-16-le", "replace")
+                if wide
+                else body[8 : 8 + nl].decode("cp1252", "replace")
+            )
+            sheets.append(
+                {
+                    "name": text,
+                    "state": {0: "visible", 1: "hidden", 2: "very-hidden"}.get(
+                        grbit & 3, "visible"
+                    ),
+                    "record_start": _u32(body, 0),
+                }
+            )
+        elif op == 0x00FD:  # LABELSST
+            r, col, _xf, sst_index = struct.unpack_from("<HHHI", body, 0)
+            value = strings[sst_index] if sst_index < len(strings) else None
+            cells.append({"row": r, "col": col, "type": "sst", "value": value})
+        elif op == 0x0203:  # NUMBER
+            r, col, _xf, value = struct.unpack_from("<HHHd", body, 0)
+            cells.append({"row": r, "col": col, "type": "number", "value": value})
+        elif op == 0x027E:  # RK
+            r, col, _xf = struct.unpack_from("<HHH", body, 0)
+            cells.append(
+                {"row": r, "col": col, "type": "rk", "value": decode_rk(_u32(body, 6) or 0)}
+            )
+        elif op == 0x0204:  # LABEL（老式：字符串直接跟在记录里）
+            r, col, _xf = struct.unpack_from("<HHH", body, 0)
+            cch = _u16(body, 6) or 0
+            grbit = body[8] if len(body) > 8 else 0
+            raw_text = body[9 : 9 + cch * (2 if grbit & 1 else 1)]
+            cells.append(
+                {
+                    "row": r,
+                    "col": col,
+                    "type": "label",
+                    "value": raw_text.decode("utf-16-le" if grbit & 1 else "cp1252", "replace"),
+                }
+            )
+        elif op == 0x0006:  # FORMULA
+            r, col, _xf = struct.unpack_from("<HHH", body, 0)
+            cells.append({"row": r, "col": col, "type": "formula", "value": None})
+            formulas += 1
+        elif op == 0x00FC or op == 0x027F:  # 0x027F = RSTRING（内联富文本）
+            pass
+        elif op == 0x00FD or op == 0x0000:
+            pass
+        elif op == 0x00FA:  # LABELREC 之外的 MULRK：一段连续列的 RK
+            r = _u16(body, 0)
+            col_from = _u16(body, 2)
+            for i in range((len(body) - 6) // 6):
+                packed = _u32(body, 4 + i * 6) or 0
+                cells.append(
+                    {
+                        "row": r,
+                        "col": col_from + i,
+                        "type": "mulrk",
+                        "value": decode_rk(packed),
+                    }
+                )
+        elif op == 0x00FC:
+            pass
+        elif op == 0x00FD:
+            pass
+        elif op == 0x0200:  # DIMENSIONS
+            dimensions.append((_u32(body, 0), _u32(body, 4)))
+    return {
+        "records": len(records),
+        "bofs": bofs,
+        "sheets": sheets,
+        "shared_strings": strings,
+        "cells": cells,
+        "formula_cells": formulas,
+        "dimensions": dimensions,
+    }

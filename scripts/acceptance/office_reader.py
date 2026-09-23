@@ -24,6 +24,7 @@ from pathlib import Path as _Path
 
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 from lyco_rtf import rtf_text  # 独立 RTF 实现，与 lilyco-binfmt/src/rtf.rs 对账
+from lyco_legacy import biff_workbook, doc_pieces  # 遗留格式的第二读者
 
 END = "END"  # CFB 的链结束标记
 FREE = "FREE"
@@ -748,8 +749,10 @@ def facts(path: Path) -> dict:
     head = data[:8].hex().upper()
     if head == "D0CF11E0A1B11AE1":
         cfb = cfb_open(data)
+        cfb_full = cfb_parse(data)
         out["container"] = "cfb"
         out["cfb"] = cfb
+        cfb = cfb_full
         names = {one["name"]: one for one in cfb["streams"]}
         for stream, key in (
             ("\x05SummaryInformation", "summary"),
@@ -767,6 +770,12 @@ def facts(path: Path) -> dict:
         else:
             out["app"] = "unknown"
         out["has_vba"] = any("Macros" in one or "VBA" in one for one in names)
+        # 遗留正文与表格记录：第二读者，Rust 那边 word.rs / biff.rs 要对得上
+        streams = cfb["bytes"] if "bytes" in cfb else cfb_parse(data)["bytes"]
+        if "WordDocument" in names:
+            out["legacy_text"] = doc_pieces(streams)
+        if "Workbook" in names or "Book" in names:
+            out["biff"] = biff_workbook(streams)
         return out
     if data[:2] == b"PK":
         out["container"] = "zip"

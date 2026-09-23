@@ -12,9 +12,10 @@
 //! - **ODF / RTF**：ODF 读 `content.xml` 的 `text:p` 与 `text:h`（层级看 `text:outline-level`）；
 //!   RTF 走 [`crate::rtf`] 的目标群感知提取，不是「把控制字删掉」就算完。
 //!
-//! 遗留二进制格式（.doc / .xls / .ppt）的正文在 `WordDocument` 流的 piece table 与
-//! `Workbook` 流的 BIFF SST 里，是另一套记录式结构：这一层没实现时就照实返回
-//! `kind: "unsupported"` 加一句为什么 —— 把读不出来报成「文档是空的」是假答案。
+//! 遗留二进制格式走另两条路：`.doc` 的正文位置在 FIB 指向的 **piece 表** 里（见 [`crate::word]`），
+//! `.xls` 的文本集中在 **SST**（可跨 CONTINUE 边界，见 [`crate::biff]`）。`.ppt` 的记录树
+//! 这一版还没做 —— 照实返回 `kind: "unsupported"` 加一句为什么，
+//! 把读不出来报成「文档是空的」是假答案。
 
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -31,7 +32,7 @@ use crate::zipread::{self, Member, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-text",
     run = "run_office_text",
-    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored). pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc/.xls/.ppt answer kind=unsupported with the reason (their text lives in FIB piece tables / BIFF SST), never as empty text. Read-only (safety T0): parts are inflated in memory only."
+    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored). pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=unsupported with the reason, never as empty text. Read-only (safety T0): parts are inflated in memory only."
 )]
 pub struct OfficeText {
     /// 办公文件
@@ -139,10 +140,11 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                     parts_read.push(note_part.clone());
                     let root = xmlscan::parse_str(&member.as_text());
                     for one in root.descendants("p") {
+                        let index = paragraphs.len();
                         push_paragraph(
                             &mut paragraphs,
                             app.keep_empty,
-                            paragraphs.len(),
+                            index,
                             &run_text(one),
                             json!({"slide": slide, "notes": true, "part": note_part}),
                         );
@@ -271,14 +273,68 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                 paragraphs.push(json!({ "index": index, "text": line, "part": "rtf" }));
             }
         }
-        Family::Compound => {
-            notes.push(
-                "遗留二进制格式（.doc/.xls/.ppt）的正文在 WordDocument 流的 piece table 与 \
-                 Workbook 流的 BIFF SST 里，本版本还没实现这一层：宁可说不做，\
-                 也不把读不出来的东西报成空文本"
-                    .to_string(),
-            );
-        }
+        Family::Compound => match doc.compound.as_ref() {
+            // 遗留格式没有「包」可走：.doc 的正文位置在 piece 表里、.xls 的文本在 SST 里，
+            // 各走各的读取器。.ppt 的 97 记录树这版还没做，照实说，不给一份空文本。
+            Some(cfb) if cfb.find("WordDocument").is_some() => {
+                kind = "paragraphs";
+                match crate::word::read(cfb, bytes) {
+                    Ok(body) => {
+                        parts_read.push(format!("WordDocument + {}", body.table_stream));
+                        notes.extend(body.notes.iter().cloned());
+                        for (index, line) in body.lines.iter().enumerate() {
+                            paragraphs.push(json!({
+                                "index": index,
+                                "text": line,
+                                "part": "WordDocument",
+                            }));
+                        }
+                    }
+                    Err(why) => {
+                        kind = "unsupported";
+                        notes.push(why);
+                    }
+                }
+            }
+            Some(cfb) if cfb.find("Workbook").is_some() || cfb.find("Book").is_some() => {
+                kind = "shared-strings";
+                match crate::biff::read(cfb, bytes) {
+                    Ok(book) => {
+                        parts_read.push("Workbook".to_string());
+                        notes.extend(book.notes.iter().cloned());
+                        notes.push(format!(
+                            "这份工作簿有 {} 张表（{}）；按表归位的单元格见 office-sheet",
+                            book.sheets.len(),
+                            book.sheets
+                                .iter()
+                                .map(|one| format!("{}:{}", one.name, one.state))
+                                .collect::<Vec<_>>()
+                                .join("、")
+                        ));
+                        for (index, text) in book.strings.iter().enumerate() {
+                            paragraphs.push(json!({
+                                "index": index,
+                                "text": text,
+                                "part": "Workbook/SST",
+                            }));
+                        }
+                    }
+                    Err(why) => {
+                        kind = "unsupported";
+                        notes.push(why);
+                    }
+                }
+            }
+            Some(_) => {
+                notes.push(
+                    "这份复合文档不是 Word / Excel：PowerPoint 97 的记录树本版本还没实现正文读取"
+                        .to_string(),
+                );
+            }
+            None => {
+                notes.push("复合文档打不开（头或 FAT 读不出），正文也就无从谈起".to_string());
+            }
+        },
         _ => {
             notes.push(format!("{} 没有「正文」这一层可读", doc.format));
         }
@@ -544,7 +600,7 @@ mod tests {
             })
             .collect();
         assert!(
-            firsts.contains(("预算表".to_string(), "A1".to_string(), "科目".to_string())),
+            firsts.contains(&("预算表".to_string(), "A1".to_string(), "科目".to_string(),)),
             "{firsts:?}"
         );
         assert!(
@@ -588,25 +644,66 @@ mod tests {
         }
     }
 
-    /// 遗留格式：照实说做不到，而不是给一份空文本
+    /// 遗留的 .doc：piece 表读出来的正文必须与 docx 的段落对得上
+    /// （期望值来自 `lyco_legacy.py` 对同一份文件的独立读取）
     #[test]
-    fn legacy_formats_say_what_is_missing() {
-        for name in ["notes.doc", "book.xls", "deck.ppt"] {
-            let out = run(name, 20000, false);
-            assert_eq!(out["kind"], "unsupported", "{name}: {out}");
-            assert_eq!(out["paragraphs"].as_array().expect("是数组").len(), 0);
-            let note = out["notes"]
-                .as_array()
-                .expect("有 notes")
-                .iter()
-                .map(|one| one.as_str().unwrap_or(""))
-                .collect::<Vec<&str>>()
-                .join(" ");
-            assert!(
-                note.contains("piece table") || note.contains("SST"),
-                "{name}: {note}"
-            );
-        }
+    fn reads_a_legacy_word_document() {
+        let out = run("notes.doc", 20000, false);
+        assert_eq!(out["kind"], "paragraphs", "{out}");
+        let all = texts(&out);
+        assert_eq!(all[0], "一级标题：预算口径", "{all:?}");
+        assert_eq!(all[1], "第三季度服务器预算为十二万四千元");
+        assert!(
+            all[3].contains("服务器") && all[3].contains("124000"),
+            "{all:?}"
+        );
+        assert!(
+            all.iter().any(|one| one.contains("这里要补上不含税口径")),
+            "批注正文也在文档里：{all:?}"
+        );
+        assert_eq!(out["parts_read"], json!(["WordDocument + 1Table"]), "{out}");
+    }
+
+    /// 纯 ASCII 的 .doc 走同一张表：内容不同，读取路径也要不同才说明不是一处巧合
+    #[test]
+    fn reads_a_legacy_word_document_in_english() {
+        let out = run("notes-en.doc", 20000, false);
+        assert_eq!(out["kind"], "paragraphs");
+        assert_eq!(texts(&out)[0], "Quarterly budget note", "{out}");
+    }
+
+    /// 遗留的 .xls：SST 的字符串 + 表清单与可见性
+    #[test]
+    fn reads_a_legacy_workbook_strings() {
+        let out = run("book.xls", 20000, false);
+        assert_eq!(out["kind"], "shared-strings", "{out}");
+        let all = texts(&out);
+        assert_eq!(all.len(), 8, "{all:?}");
+        assert!(all.contains(&"科目".to_string()) && all.contains(&"隐藏的草稿表".to_string()));
+        let note = out["notes"]
+            .as_array()
+            .expect("有 notes")
+            .iter()
+            .map(|one| one.as_str().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(note.contains("草稿:hidden"), "表的可见性要报出来：{note}");
+    }
+
+    /// .ppt 的记录树还没做：照实说做不到，而不是给一份空文本
+    #[test]
+    fn a_legacy_presentation_says_what_is_missing() {
+        let out = run("deck.ppt", 20000, false);
+        assert_eq!(out["kind"], "unsupported", "{out}");
+        assert_eq!(out["paragraphs"].as_array().expect("是数组").len(), 0);
+        let note = out["notes"]
+            .as_array()
+            .expect("有 notes")
+            .iter()
+            .map(|one| one.as_str().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(note.contains("PowerPoint"), "{note}");
     }
 
     /// 上限截断时同时给出 cut 与全量计数：悄悄砍短是最坏的失败方式

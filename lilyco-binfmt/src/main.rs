@@ -23,6 +23,7 @@
 //! lbin --schema     # 打印整张注册表清单
 //! ```
 
+mod biff;
 mod cfb;
 mod entries;
 mod identify;
@@ -35,6 +36,7 @@ mod read;
 mod regions;
 mod rtf;
 mod symbols;
+mod word;
 mod xmlscan;
 mod zipread;
 
