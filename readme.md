@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/lilyco-42/lilyco/main/docs/logo.png" alt="lilyco" width="200">
+  <img src="https://raw.githubusercontent.com/lilyco-42/lilyco/HEAD/docs/logo.png" alt="lilyco" width="200">
 </p>
 
 <div align="center">
@@ -852,7 +852,7 @@ dsh 的能力扩展单元是 cordis 插件；外部 Rust 二进制经官方 [`@d
 ### 一键接入
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lilyco-42/lilyco/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/lilyco-42/lilyco/HEAD/install.sh | bash
 ```
 
 脚本自动：下载 release 二进制 → 安装 `dsh-mcp-client` 插件 → 写 profile patch。重启 dsh web 后，模型获得：
@@ -908,7 +908,7 @@ lilyco-core = "0.2"       # derive(App) 宏展开需要
 
 > **只写大版本。** `"0.2"` 是 caret 约束，会自动取到最新的 `0.2.x`；
 > 精确版本号以页首那排 crates.io 徽章为准 —— 徽章是自动更新的，**不要在文档里写死 patch 号**，写死必然过期。
-> 仓库 `main` 一般领先于已发布版本（workspace 版本已到 `0.3.0`，尚未发布），
+> 仓库 `main` 一般领先于已发布版本（workspace 里的版本号高于 crates.io 上的最新发布），
 > 想用最新代码请走下面的「From git」。
 
 ### From git
