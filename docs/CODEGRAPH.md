@@ -92,14 +92,15 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `upload_handler()` | `files.rs:98` | 拖拽上传 → base64 → 服务端临时副本（净化文件名 + 双重体积上限） |
 | `pick_handler()` | `files.rs:201` | 本机原生选择器 → 回填**原始路径**（`pick` 特性；`flash_picker_when_ready:160` 治前台锁定） |
 
-### lilyco-mcp（`lilyco-mcp/src/lib.rs`）
-| 符号 | 行 | 说明 |
+### lilyco-mcp（`lilyco-mcp/src/`；对外只有 `McpServer` + 协议常量）
+| 符号 | 位置 | 说明 |
 |---|---|---|
-| `handle_line()` | 54 | 纯函数：一行请求 → 一行响应（通知返回 None） |
-| `handle_line_with_sink()` | 63 | 流式版：进度通知逐行回调 |
-| `tools_call()` | 155 | 先 `validate_args`（错误 → INVALID_PARAMS），带 `_meta.progressToken` 时 spawn 流式执行 → `notifications/progress` |
-| `serve()` / `serve_stdio()` | 105 / 132 | 双向 JSON-RPC 分流：客户端请求→dispatch（tools/call 进 worker 线程），客户端响应→pending 表路由给等待中的 handler |
-| `McpBridge` | `lilyco-mcp/src/lib.rs` | HostBridge 实现：`sampling/createMessage` / `roots/list` 反向请求；`srv-N` 字符串 id 防冲突；initialize 探测客户端能力门控 |
+| `handle_line()` | `server.rs:35` | 纯函数：一行请求 → 一行响应（通知返回 None） |
+| `handle_line_with_sink()` | `server.rs:44` | 流式版：进度通知逐行回调 |
+| `tools_call()` | `server.rs:238` | 先 `validate_args`（错误 → INVALID_PARAMS），带 `_meta.progressToken` 时 spawn 流式执行 → `notifications/progress` |
+| `serve()` / `serve_stdio()` | `server.rs:101` / `server.rs:208` | 双向 JSON-RPC 分流：客户端请求→dispatch（tools/call 进 worker 线程），客户端响应→pending 表路由给等待中的 handler |
+| `protocol.rs` | `progress_notification():14`、`initialize_response():37` | JSON-RPC 报文装配与协议常量（线格式只在这一层） |
+| `McpBridge` | `bridge.rs:37` | HostBridge 实现：`sampling/createMessage` / `roots/list` 反向请求；`srv-N` 字符串 id 防冲突；initialize 探测客户端能力门控 |
 
 ## 4. facade `lilyco`（唯一组合根，`lilyco/src/lib.rs`）
 
@@ -180,7 +181,7 @@ cargo bench -p lilyco-example                      # schema 生成性能基准
 | CLI | `lilyco-cli/src/tests.rs` | 渲染/解析/内置标志/多命令构建与解析（31 例） |
 | TUI | `lilyco-tui/src/lib.rs` 底部 | 渲染、状态机、校验拦截、多命令选择页、路径 Tab 补全 |
 | GUI | `lilyco-gui/src/{security,state,render,run,files,util}.rs` 各自底部 | run_handler 400/200、pick_command、?cmd 导航、转义、base64、文件名净化、`/pick` 同闸 |
-| MCP | `lilyco-mcp/src/lib.rs` 底部 | initialize/tools/进度通知/校验拒绝 |
+| MCP | `lilyco-mcp/src/tests.rs` | initialize/tools/进度通知/双向 serve/校验拒绝（26 例） |
 | 门面 | `lilyco/src/lib.rs` 底部 | 后端探测 |
 | 域二进制 | `lilyco-binfmt/src/{main,read,entries,regions,symbols}.rs` 底部 | 注册表形状/全 T0/工具导出/参数拒绝；魔数判别（Java class ≠ 通用二进制）、tar 八位校验和、PNG 真算 CRC、ELF 头部只到 `e_ehsize`、Mach-O 端序与定长 16 字节节名、零填充节不画成数据 |
 | 端到端 | `lilyco-example/tests/integration.rs` + `examples/multi.rs` | 图片压缩全链路 + 多命令演示 |
