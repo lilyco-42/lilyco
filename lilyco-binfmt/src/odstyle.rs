@@ -67,14 +67,19 @@ fn attr_local(node: &xmlscan::Node, want: &str) -> Option<String> {
         .map(|(_, value)| value.clone())
 }
 
-/// 元素树逐条抄下来：`<number:text>-</number:text>` 记成 `text:-`，其余记局部名
+/// 元素树逐条抄下来：`<number:text>-</number:text>` 记成 `text:-`，其余记局部名。
+/// 两件事：字面要取 `text()`（xmlscan 为保顺序把直接文本存成 `#text` 子节点，
+/// 带前缀元素的 `direct` 是空的 —— 照 `direct` 抄会把所有字面量抄成空串）；
+/// 而 `#text` 这种节点本身不算一个 token（格式化过的 ODF 会在元素之间留空白，
+/// Python 那边按子元素走也看不见它）
 fn tokens_of(style: &xmlscan::Node) -> Vec<String> {
     style
         .children
         .iter()
+        .filter(|one| one.local() != "#text")
         .map(|one| {
             if one.local() == "text" {
-                format!("text:{}", one.direct)
+                format!("text:{}", one.text())
             } else {
                 one.local().to_string()
             }

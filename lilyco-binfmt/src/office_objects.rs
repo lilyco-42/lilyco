@@ -359,8 +359,8 @@ mod tests {
             lines,
             vec![
                 "Pictures/1000000100000008000000088E4DF5D4.png|content.xml|image|false",
-                "|meta.xml|template|false",
                 "https://example.com/budget|content.xml|a|true",
+                "|meta.xml|template|false",
             ],
             "{lines:?}"
         );
