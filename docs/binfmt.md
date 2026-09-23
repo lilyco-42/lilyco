@@ -35,7 +35,7 @@ cargo run -p lilyco-binfmt -- identify --path /usr/bin/ls --json
 | `office-sheet` | **T0** 只读 | 表格的结构：每张表（含隐藏的）与范围、格子与公式、合并格、命名区域、外链；xlsx 每个格子还带**数字格式**（`s=` 是 `cellXfs` 的下标）与换算出来的日期；.ods 走它自己那套（值类型 + 重复计数累加出的格子位置）；`--csv [--sheet 名字或序号]` 另交一份 RFC4180 铺平的网格（日期给 ISO、没缓存值的公式格给空、.xls 的日期只能给序列数）；.ods 每格还带它继承的**数据样式**（`format_kind` / `decimals` / `format_tokens`，样式分在 content.xml 与 styles.xml 两处） |
 | `office-slide` | **T0** 只读 | 演示文稿的结构：放映顺序、每页标题与**演讲者备注**、版式与母版、尺寸与媒体；pptx 与 odp 各按自己的层级走（odp 的尺寸要绕 master-page 那一跳） |
 | `office-package` | **T0** 只读 | 包自证：关系指着不存在的部件、部件没声明内容类型、解压过不了自己的 CRC-32 |
-| `office-objects` | **T0** 只读 | 正文之外装了什么：图片、嵌入对象、字体、自定义 XML + 该留心的宏/外链/加密/签名 |
+| `office-objects` | **T0** 只读 | 正文之外装了什么：图片、嵌入对象、字体、自定义 XML + 该留心的宏/外链/加密/签名；ODF 没有 OPC 关系表，引用按 `xlink:href` 逐条扫（带 scheme 的才算站外），宏那一条只判 OOXML/复合文档 —— 手上没有含 Basic 库的 ODF 样本 |
 
 十二条命令都要 `--path`（`must_exist`）。规模控制两个开关：
 `--max-bytes`（默认 `identify` 1 MiB、`regions` 32 MiB、`entries`/`symbols` 与 `office-*` 64 MiB；

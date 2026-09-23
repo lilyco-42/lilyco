@@ -103,6 +103,10 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     另外 ODF 的格式是一棵元素树，没有 Excel 那种格式串，所以这里只逐条抄 token
     （`year`、`text:-`、`month`…），不重构 `yyyy-mm-dd`。
 
+13. **ODF 的 `meta.xml` 里有一条写着空串的引用**：`<meta:template xlink:href="" xlink:type="simple"/>`。
+    数「站外目标」时它既不是包内路径也不是外部地址 —— 照文件报出来（`target: ""`），
+    不替文件删掉一条它自己写下的属性。「在不在包外」只用 URI 的通用形状判：带 scheme 的算外面。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：

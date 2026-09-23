@@ -535,6 +535,31 @@ def main() -> int:
     check("notes.docx 无宏", bool(dig(o, "risk_signals.has_macros")), False)
     dm = lbin("office-objects", fixture("notes.docm"))
     check("notes.docm 有宏", bool(dig(dm, "risk_signals.has_macros")), True)
+    # ODF 没有 OPC 关系表：引用坐在 xlink:href 上，「在不在包外」只看它有没有 scheme
+    for name in ("notes.odt", "deck.odp", "book.ods", "hidden.ods", "formats.ods"):
+        want = files[name]["links"]
+        got = lbin("office-objects", fixture(name))
+
+        def shape(one):
+            return json.dumps(one, ensure_ascii=False, sort_keys=True)
+
+        check(
+            "%s 引用清单" % name,
+            sorted(shape(one) for one in got.get("links", [])),
+            sorted(shape(one) for one in want["links"]),
+        )
+        check(
+            "%s 站外目标" % name,
+            [(one.get("target"), one.get("source")) for one in got.get("external", [])],
+            [(one["target"], one["part"]) for one in want["external"]],
+        )
+        check("%s 站外目标计数" % name, dig(got, "risk_signals.external_targets"), len(want["external"]))
+    check("notes.odt 那份确实有一个站外超链接", len(files["notes.odt"]["links"]["external"]), 1)
+    check(
+        "deck.odp 的图与表预览都是包内引用（不算站外）",
+        [one["target"] for one in files["deck.odp"]["links"]["links"]],
+        ["Pictures/1000000100000008000000088E4DF5D4.png", "Pictures/TablePreview1.svm"],
+    )
 
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")

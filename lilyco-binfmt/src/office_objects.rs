@@ -18,13 +18,58 @@ use lilyco::prelude::*;
 
 use crate::opack::{open, ContentTypes, Family};
 use crate::read::read_blob;
+use crate::xmlscan;
+
+/// 引用算不算「在包外面」：只看它有没有 scheme（`https:`、`vnd.sun.star.script:`…）。
+/// 这是 URI 的通用形状，不是照着某一种格式的名字表猜的 —— 没 scheme 的才可能是包内路径
+fn has_scheme(raw: &str) -> bool {
+    let text = raw.trim_start();
+    let Some((head, _)) = text.split_once(':') else {
+        return false;
+    };
+    let mut chars = head.chars();
+    match chars.next() {
+        Some(first) if first.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '.'))
+}
+
+/// 把一个部件里的 `href`（ODF 写作 `xlink:href`，前缀由文件自己声明）逐条收下来
+fn collect_hrefs(text: &str, part: &str, out: &mut Vec<Value>, limit: usize, total: &mut usize) {
+    let root = xmlscan::parse_str(text);
+    walk_hrefs(&root, part, out, limit, total);
+}
+
+fn walk_hrefs(
+    node: &xmlscan::Node,
+    part: &str,
+    out: &mut Vec<Value>,
+    limit: usize,
+    total: &mut usize,
+) {
+    if let Some(raw) = node.attr_local("href") {
+        *total += 1;
+        if out.len() < limit {
+            out.push(json!({
+                "target": raw,
+                "part": part,
+                "element": node.local(),
+                "external": has_scheme(raw),
+            }));
+        }
+    }
+    for one in &node.children {
+        walk_hrefs(one, part, out, limit, total);
+    }
+}
 
 /// 列出办公文件里的嵌入物与外部引用，并标出需要留心的部分（T0 只读）
 #[derive(App)]
 #[app(
     name = "office-objects",
     run = "run_office_objects",
-    about = "Report what an office document carries besides its text, and what deserves a second look. Covers media parts (by declared content type, not by guessing at filenames), embedded OLE objects (word/embeddings, xl/embeddings, ppt/embeddings, ODF Objects/), embedded fonts, custom XML items, thumbnails; and the watch-list: macro projects (vbaProject.bin or a declared vbaProject content type), encryption parts (EncryptedPackage / encryptionInfo), digital signature parts, external relationships grouped by kind (hyperlink, oleObject, externalLinkData, attachedTemplate) with their targets, external-link workbook parts, and form or ActiveX parts. For legacy compound files it reports stream names (Macros, _VBA_PROJECT_CUR, Embx.*, Object*) instead of parts. Macro detection means 'a macro part is present' - the project stream is never parsed and never executed. Returns { path, format, app, media, objects, fonts, custom_xml, thumbnails, external, watch, risk_signals, notes }."
+    about = "Report what an office document carries besides its text, and what deserves a second look. Covers media parts (by declared content type, not by guessing at filenames), embedded OLE objects (word/embeddings, xl/embeddings, ppt/embeddings, ODF Objects/), embedded fonts, custom XML items, thumbnails; and the watch-list: macro projects (vbaProject.bin or a declared vbaProject content type), encryption parts (EncryptedPackage / encryptionInfo), digital signature parts, external relationships grouped by kind (hyperlink, oleObject, externalLinkData, attachedTemplate) with their targets, external-link workbook parts, and form or ActiveX parts. For legacy compound files it reports stream names (Macros, _VBA_PROJECT_CUR, Embx.*, Object*) instead of parts. ODF packages have no OPC relationship table, so their references are read off xlink:href on whichever element carries one: every hit is listed under links with its part, the element that held it and an external flag set by the one rule that needs no format-specific name table - the target has a URI scheme. Macro detection means 'a macro part is present' - the project stream is never parsed and never executed; ODF Basic libraries are NOT judged here, because no fixture carries one and inventing the part names would be self-authored evidence. Returns { path, format, app, media, objects, fonts, custom_xml, thumbnails, external, links, watch, risk_signals, notes }."
 )]
 pub struct OfficeObjects {
     /// 办公文件
@@ -62,6 +107,7 @@ fn run_office_objects(app: &OfficeObjects, ctx: &Context) -> Result<Value, AppEr
     let mut custom_xml: Vec<String> = Vec::new();
     let mut thumbnails: Vec<String> = Vec::new();
     let mut external: Vec<Value> = Vec::new();
+    let mut links: Vec<Value> = Vec::new();
     let mut watch: Vec<Value> = Vec::new();
 
     if doc.is_zip_family() {
@@ -150,8 +196,44 @@ fn run_office_objects(app: &OfficeObjects, ctx: &Context) -> Result<Value, AppEr
             watch.push(json!({"kind": "external-workbook", "parts": linked}));
         }
         if doc.family == Family::Odf {
+            // ODF 没有 OPC 关系表：站外引用坐在 `xlink:href` 上，而前缀是文件自己声明的，
+            // 所以按局部名找。判据只有一条 —— 带 scheme 的就不是包内路径。
+            let mut total = 0usize;
+            for one in &doc.entries {
+                let name = one.name.as_str();
+                if !name
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or_default()
+                    .ends_with(".xml")
+                {
+                    continue;
+                }
+                collect_hrefs(&one.as_text(), name, &mut links, limit, &mut total);
+            }
+            external.extend(
+                links
+                    .iter()
+                    .filter(|one| one["external"].as_bool() == Some(true))
+                    .map(|one| {
+                        json!({
+                            "kind": "xlink-href",
+                            "target": one["target"],
+                            "source": one["part"],
+                            "element": one["element"],
+                        })
+                    }),
+            );
+            if total > links.len() {
+                notes.push(format!(
+                    "ODF 的引用共 {total} 条，只列了前 {} 条（limit）",
+                    links.len()
+                ));
+            }
             notes.push(
-                "ODF 的关系不在 OPC 表里，站外引用来自 drawing/xlink:href（本命令不读图形树）"
+                "ODF 的引用按 xlink:href 扫（关系表在 OPC 里，ODF 没有那份表）；\
+                 ODF 里带的 Basic 库这一版**不判**：手上没有含宏的 ODF 样本，\
+                 照记忆猜部件名等于自造证据"
                     .to_string(),
             );
         }
@@ -191,6 +273,7 @@ fn run_office_objects(app: &OfficeObjects, ctx: &Context) -> Result<Value, AppEr
         "custom_xml": custom_xml,
         "thumbnails": thumbnails,
         "external": external,
+        "links": links,
         "watch": watch,
         "risk_signals": {
             "has_macros": watch.iter().any(|one| one["kind"] == "macro"),
@@ -241,6 +324,67 @@ mod tests {
             1,
             "docProps/thumbnail.jpeg"
         );
+    }
+
+    /// ODF 没有 OPC 关系表：引用在 `xlink:href` 上。`notes.odt` 里三条 ——
+    /// 一个站外超链接、一张包内图、还有 `meta.xml` 里那条写着空串的模板引用
+    /// （照文件报，不替它删）；`deck.odp` 两条都在包内
+    /// （期望值来自 `office_reader.py` 的 odf_links）
+    #[test]
+    fn odf_references_are_read_off_xlink_href() {
+        let out = run("notes.odt");
+        let mut lines: Vec<String> = out["links"]
+            .as_array()
+            .expect("是数组")
+            .iter()
+            .map(|one| {
+                format!(
+                    "{}|{}|{}|{}",
+                    one["target"].as_str().unwrap_or_default(),
+                    one["part"].as_str().unwrap_or_default(),
+                    one["element"].as_str().unwrap_or_default(),
+                    one["external"],
+                )
+            })
+            .collect();
+        lines.sort();
+        assert_eq!(
+            lines,
+            vec![
+                "Pictures/1000000100000008000000088E4DF5D4.png|content.xml|image|false",
+                "|meta.xml|template|false",
+                "https://example.com/budget|content.xml|a|true",
+            ],
+            "{lines:?}"
+        );
+        assert_eq!(
+            out["external"].as_array().expect("是数组").len(),
+            1,
+            "{out}"
+        );
+        assert_eq!(out["external"][0]["kind"], "xlink-href");
+        assert_eq!(out["external"][0]["target"], "https://example.com/budget");
+        assert_eq!(out["external"][0]["source"], "content.xml");
+        assert_eq!(out["risk_signals"]["external_targets"], 1);
+        let deck = run("deck.odp");
+        assert_eq!(deck["links"].as_array().expect("是数组").len(), 2, "{deck}");
+        assert_eq!(
+            deck["external"].as_array().expect("是数组").len(),
+            0,
+            "两张包内图不算站外"
+        );
+    }
+
+    /// 「带 scheme 就算在包外」这一条判据的边界
+    #[test]
+    fn the_scheme_rule_separates_outside_from_inside() {
+        assert!(has_scheme("https://example.com/x"));
+        assert!(has_scheme("mailto:someone@example.com"));
+        assert!(has_scheme("vnd.sun.star.script:Foo.bar?language=Basic"));
+        assert!(!has_scheme("Pictures/a.png"));
+        assert!(!has_scheme("#anchor"));
+        assert!(!has_scheme(""));
+        assert!(!has_scheme("1abc:x"), "scheme 必须字母开头");
     }
 
     /// 宏样本：检测必须为真，并且说清「只看包，不解析宏内容」

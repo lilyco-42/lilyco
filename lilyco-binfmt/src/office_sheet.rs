@@ -223,6 +223,19 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                     }
                     entry["dimension"] = json!(dimension);
                     entry["cells"] = json!(count);
+                    let hidden_rows = sheet_root
+                        .descendants("row")
+                        .iter()
+                        .filter(|one| hidden_on(one))
+                        .count();
+                    let hidden_cols = sheet_root
+                        .descendants("col")
+                        .iter()
+                        .filter(|one| hidden_on(one))
+                        .map(|one| col_span(one))
+                        .sum::<usize>();
+                    entry["hidden_rows"] = json!(hidden_rows);
+                    entry["hidden_cols"] = json!(hidden_cols);
                     entry["listed"] = json!(cells.len());
                     entry["formulas"] = json!(formulas);
                     entry["numeric"] = json!(numeric);
@@ -231,17 +244,6 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                     entry["date_cells"] = json!(dates);
                     entry["formula_cells_with_cached_value"] = json!(cached);
                     entry["merged"] = json!(sheet_root.descendants("mergeCell").len());
-                    entry["hidden_rows"] = json!(sheet_root
-                        .descendants("row")
-                        .iter()
-                        .filter(|one| hidden_on(one))
-                        .count());
-                    entry["hidden_cols"] = json!(sheet_root
-                        .descendants("col")
-                        .iter()
-                        .filter(|one| hidden_on(one))
-                        .map(|one| col_span(one))
-                        .sum::<usize>());
                     entry["rows"] = json!(sheet_root.descendants("row").len());
                     entry["cell_list"] = json!(cells);
                     grid_names.push(name.clone());
@@ -252,6 +254,8 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                     bump(&mut totals, "shared_strings", shared_count);
                     bump(&mut totals, "inline_strings", inline);
                     bump(&mut totals, "dates", dates);
+                    bump(&mut totals, "hidden_rows", hidden_rows);
+                    bump(&mut totals, "hidden_cols", hidden_cols);
                     bump(
                         &mut totals,
                         "merged",
@@ -407,6 +411,11 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             .ok_or_else(|| AppError::InvalidInput("复合文档打不开".to_string()))?;
         let book = crate::biff::read(cfb, bytes).map_err(AppError::InvalidInput)?;
         let mut notes = book.notes.clone();
+        notes.push(
+            "这一支不报隐藏行/列：BIFF 把它们写在 ROW 与 COLINFO 记录的字段里，\
+             本版本没解那两个字段，所以每张表都没有 hidden_rows / hidden_cols 这两个键"
+                .to_string(),
+        );
         if app.csv {
             // 这条路上没有「查 cellXfs 拿格式码」那一步：日期格只会给序列数
             notes.push(
@@ -1000,6 +1009,9 @@ mod tests {
             assert_eq!(sheet["hidden_rows"], 2, "{name}：{sheet}");
             assert_eq!(sheet["hidden_cols"], 3, "{name}：{sheet}");
             assert_eq!(sheet["cells"], 13, "藏起来的格子还是格子：{name}");
+            // 合计那份也要一致：CI 上第一轮就是「每张表都对、总账是 0」被抓出来的
+            assert_eq!(out["workbook"]["totals"]["hidden_rows"], 2, "{name} 的总账");
+            assert_eq!(out["workbook"]["totals"]["hidden_cols"], 3, "{name} 的总账");
         }
     }
 

@@ -795,6 +795,51 @@ def ods_facts(path: Path) -> dict | None:
     }
 
 
+def has_scheme(raw: str) -> bool:
+    """URI 的通用形状：`scheme ":"` —— scheme 是字母开头的 alnum / + / - / . 串。
+
+    与 Rust 那边同一条规则，不查任何格式的名字表。
+    """
+    text = raw.lstrip()
+    head, sep, _ = text.partition(":")
+    if not sep or not head:
+        return False
+    if not head[0].isascii() or not head[0].isalpha():
+        return False
+    return all(ch.isascii() and (ch.isalnum() or ch in "+-.") for ch in head)
+
+
+def odf_links(path: Path) -> dict:
+    """ODF 的引用清单：关系表是 OPC 的东西，ODF 没有那份表，引用坐在 `xlink:href` 上。
+
+    判据只有一条 URI 的通用形状：目标带 scheme 就算「在包外面」（`https:`、
+    `vnd.sun.star.script:` 都算），没 scheme 的才是包内路径。前缀按局部名认，
+    因为命名空间前缀是文件自己声明的。
+    """
+    out: list = []
+    with zipfile.ZipFile(path) as box:
+        for one in box.infolist():
+            if not one.filename.endswith(".xml"):
+                continue
+            try:
+                root = ET.fromstring(box.read(one.filename))
+            except ET.ParseError:
+                continue
+            for node in root.iter():
+                for key, value in node.attrib.items():
+                    if key.rsplit("}", 1)[-1] != "href":
+                        continue
+                    out.append(
+                        {
+                            "target": value,
+                            "part": one.filename,
+                            "element": xml_local(node.tag),
+                            "external": has_scheme(value),
+                        }
+                    )
+    return {"links": out, "external": [one for one in out if one["external"]]}
+
+
 def odp_facts(path: Path) -> dict | None:
     """ODF 演示稿：页面上的字与备注里的字是两件事，尺寸还得绕 master-page 那一跳。
 
@@ -1662,6 +1707,7 @@ def facts(path: Path) -> dict:
         elif "content.xml" in parts:
             out["app"] = "opendocument"
             out["odf"] = odt_facts(path)
+            out["links"] = odf_links(path)
             out["odt"] = odt_structure(path)
             sheets = ods_facts(path)
             if sheets is not None:
