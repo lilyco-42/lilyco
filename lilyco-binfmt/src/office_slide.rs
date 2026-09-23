@@ -318,7 +318,7 @@ mod tests {
         assert_eq!(slides[1]["title"], "第二页：数字");
         assert_eq!(slides[0]["notes"], "评审时先讲口径再讲数字", "备注要单独读");
         assert_eq!(slides[0]["pictures"], 1);
-        assert_eq!(slides[1]["tables"], 1, "第二页那张表：{slides[1]}");
+        assert_eq!(slides[1]["tables"], 1, "第二页那张表：{}", slides[1]);
         assert_eq!(out["size"]["cx"], 9144000, "{out}");
         assert_eq!(out["size"]["format"], "screen4x3");
         assert_eq!(out["masters"].as_array().expect("是数组").len(), 1);
@@ -351,7 +351,7 @@ mod tests {
         assert_eq!(out["kind"], "opendocument-presentation");
         let slides = out["slides"].as_array().expect("是数组");
         assert!(!slides.is_empty(), "{out}");
-        assert_eq!(slides[0]["title"], "预算评审", "{slides[0]}");
+        assert_eq!(slides[0]["title"], "预算评审", "{}", slides[0]);
         assert!(slides[0]["texts"].as_array().expect("是数组").len() >= 2);
         assert!(slides[1]["texts"]
             .as_array()

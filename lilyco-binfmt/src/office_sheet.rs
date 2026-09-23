@@ -364,7 +364,7 @@ mod tests {
         assert_eq!(out["workbook"]["hidden_sheets"], 1);
         let sheets = out["sheets"].as_array().expect("是数组");
         assert_eq!(sheets[0]["name"], "预算表");
-        assert_eq!(sheets[0]["dimension"], "A1:B5", "{sheets[0]}");
+        assert_eq!(sheets[0]["dimension"], "A1:B5", "{}", sheets[0]);
         assert_eq!(sheets[0]["cells"], 9);
         assert_eq!(sheets[0]["formulas"], 1);
         assert_eq!(sheets[0]["merged"], 1);
@@ -397,11 +397,13 @@ mod tests {
         assert_eq!(
             cells[3]["value"],
             json!(124000.0),
-            "数字格子要报成数：{cells[3]}"
+            "数字格子要报成数：{}",
+            cells[3]
         );
         assert_eq!(
             cells[7]["formula"], "=SUM(B2:B3)",
-            "公式格子报公式：{cells[7]}"
+            "公式格子报公式：{}",
+            cells[7]
         );
     }
 

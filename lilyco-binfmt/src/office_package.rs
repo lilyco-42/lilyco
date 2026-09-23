@@ -136,6 +136,34 @@ fn run_office_package(app: &OfficePackage, ctx: &Context) -> Result<Value, AppEr
         .iter()
         .filter(|one| one.contains("包里没有的部件"))
         .collect();
+    // 四条自证：每条都是一个 json! 对象，先在外头拼好 —— `json!` 里嵌 `[...]` 再
+    // 接 `.iter()` 不是合法的 Rust，宏吃不下尾随表达式。
+    let checks = vec![
+        json!({
+            "claim": "成员表能自证（EOCD 自报的条数与位置对得上）",
+            "ok": doc.notes.is_empty(),
+            "note": doc.notes.join("；"),
+        }),
+        json!({
+            "claim": "每条内部关系都指着一个真实存在的部件",
+            "ok": broken.is_empty(),
+            "note": broken.join("；"),
+        }),
+        json!({
+            "claim": "每个部件都声明了内容类型",
+            "ok": if doc.family == Family::Ooxml { untyped.is_empty() } else { true },
+            "note": if doc.family == Family::Ooxml {
+                untyped.join("；")
+            } else {
+                "ODF 不用 OPC 的内容类型表，这条不适用".to_string()
+            },
+        }),
+        json!({
+            "claim": "解压出来的每个部件都过它自己声明的 CRC-32 与长度",
+            "ok": unverified == 0,
+            "note": format!("{unverified} 个部件没过（上限 {limit} 之内）"),
+        }),
+    ];
     ctx.tick(1, Some(1), "audited");
     let result = json!({
         "path": app.path.to_string_lossy(),
@@ -152,35 +180,7 @@ fn run_office_package(app: &OfficePackage, ctx: &Context) -> Result<Value, AppEr
             "undeclared_types": untyped.len(),
             "unpointed": orphans.len(),
         },
-        "checks": [
-            {
-                "claim": "成员表能自证（EOCD 自报的条数与位置对得上）",
-                "ok": doc.notes.is_empty(),
-                "note": doc.notes.join("；"),
-            },
-            {
-                "claim": "每条内部关系都指着一个真实存在的部件",
-                "ok": broken.is_empty(),
-                "note": broken.join("；"),
-            },
-            {
-                "claim": "每个部件都声明了内容类型",
-                "ok": if doc.family == Family::Ooxml { untyped.is_empty() } else { true },
-                "note": if doc.family == Family::Ooxml {
-                    untyped.join("；")
-                } else {
-                    "ODF 不用 OPC 的内容类型表，这条不适用".to_string()
-                },
-            },
-            {
-                "claim": "解压出来的每个部件都过它自己声明的 CRC-32 与长度",
-                "ok": unverified == 0,
-                "note": format!("{unverified} 个部件没过（上限 {} 之内）", limit),
-            },
-        ]
-        .iter()
-        .map(|one| json!({"claim": one["claim"], "ok": one["ok"], "note": one["note"]}))
-        .collect::<Vec<Value>>(),
+        "checks": checks,
         "notes": notes,
         "unpointed_parts": orphans,
     });
