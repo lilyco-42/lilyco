@@ -142,6 +142,24 @@ def side_texts(parts: dict) -> list:
     return out
 
 
+def tally_of(texts: list) -> dict:
+    """「多少字」这份账的口径：字符数、去空白的字符数、按空白切的词数。
+
+    中文一整段可能只算一个「词」—— 那不是数错，是这个口径对中文意义有限，
+    所以要跟 characters_no_spaces 一起看。与 Rust 那边 `Tally` 一条一条对：
+    Python 的 str.split() == Rust 的 split_whitespace()，
+    str.isspace() == char::is_whitespace()（对文件里真出现的那些字符）。
+    """
+    joined = [one or "" for one in texts]
+    return {
+        "characters": sum(len(one) for one in joined),
+        "characters_no_spaces": sum(
+            sum(1 for ch in one if not ch.isspace()) for one in joined
+        ),
+        "words_by_space": sum(len(one.split()) for one in joined),
+    }
+
+
 def _note_part_count(parts: dict, name: str, tag: str) -> int:
     """脚注 / 尾注部件里有几条**注**：分隔符那两条不算。
 
@@ -238,6 +256,8 @@ def docx_facts(path: Path) -> dict:
         "footnotes": _note_part_count(parts, "word/footnotes.xml", "footnote"),
         "endnotes": _note_part_count(parts, "word/endnotes.xml", "endnote"),
         "text": "\n".join(one for one in paragraphs if one),
+        # 口径与 Rust 那边一致：每段先 trim 再数（run_text 会 trim）
+        "statistics": {"ours": tally_of([one.strip() for one in paragraphs])},
     }
     return out
 
@@ -456,6 +476,13 @@ def odt_structure(path: Path) -> dict:
     return {
         "paragraphs": len(paras),
         "empty_paragraphs": sum(1 for one in paras if not texts(one)),
+        # 标题在 ODF 里是 text:h 不是 text:p，字数那份要一起算（与 Rust 的 Tally 同一条）
+        "statistics": {
+            "ours": tally_of(
+                [texts(one) for one in paras]
+                + [texts(one) for one in body.iter() if xml_local(one.tag) == "h"]
+            )
+        },
         "headings": [
             {"level": of_local(one, "outline-level"), "text": texts(one)}
             for one in body.iter()

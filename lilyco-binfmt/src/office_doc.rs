@@ -21,7 +21,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-doc",
     run = "run_office_doc",
-    about = "Report the structure of a Word document: paragraph count (empty ones counted separately, because Word's own statistics do), headings with their level and text, every style used and how often, tables with rows and cells, inline shapes and pictures, hyperlinks split into internal and external with their targets, sections, explicit page/column breaks, footnotes and endnotes and comments (read from their own parts when present), tracked-change presence (w:ins / w:del counts), numbering usage, headers and footers, embedded objects and custom XML, plus which optional parts the package actually carries. For legacy .doc it falls back to what the piece table can honestly tell: paragraph count from the CP total plus the marker characters it dropped (cell ends, field boundaries), not a claim about tables it cannot see. For .odt it reports the same account from content.xml's office:text (headings from text:outline-level, comments from text:annotation, pictures from draw:image, footnotes and endnotes split out of the single text:note element by its note:class) and additionally echoes meta.xml's own document-statistic so the producer's numbers are visible next to ours. Returns { path, format, kind, structure, styles, tables, images, hyperlinks, parts, notes }. Read-only (safety T0)."
+    about = "Report the structure of a Word document: paragraph count (empty ones counted separately, because Word's own statistics do), headings with their level and text, every style used and how often, tables with rows and cells, inline shapes and pictures, hyperlinks split into internal and external with their targets, sections, explicit page/column breaks, footnotes and endnotes and comments (read from their own parts when present), tracked-change presence (w:ins / w:del counts), numbering usage, headers and footers, embedded objects and custom XML, plus which optional parts the package actually carries. statistics answers 'how many words/pages': ours (characters, characters_no_spaces and words_by_space - the last split on whitespace only, which is why it is named that way and not 'words') next to the producer's own numbers (docx docProps/app.xml, ODF meta.xml document-statistic) because the two disagree by design - python-docx writes app.xml with Words/Characters at 0 (it never counted), and LibreOffice counts Chinese words rather than whitespace runs, while on the same text our character counts match its character-count exactly. For legacy .doc it falls back to what the piece table can honestly tell: paragraph count from the CP total plus the marker characters it dropped (cell ends, field boundaries), not a claim about tables it cannot see. For .odt it reports the same account from content.xml's office:text (headings from text:outline-level, comments from text:annotation, pictures from draw:image, footnotes and endnotes split out of the single text:note element by its note:class) and additionally echoes meta.xml's own document-statistic so the producer's numbers are visible next to ours. Returns { path, format, kind, structure, styles, tables, images, hyperlinks, statistics, parts, notes }. Read-only (safety T0)."
 )]
 pub struct OfficeDoc {
     /// Word 文档（docx / docm / doc / odt）
@@ -43,6 +43,68 @@ pub struct OfficeDoc {
 
 /// CLI 的 `#[arg(default = N)]` 与各端省略参数时的回退值必须是同一个数
 const LIMIT_DEFAULT: usize = 100;
+
+/// 字数与字符数：口径写在键名上。`words_by_space` 就是「按空白切的词」——
+/// 一整段中文可能只算一个「词」，那不是数错，是这个口径对中文意义有限，
+/// 所以它必须与 `characters_no_spaces` 一起看（Word/LibreOffice 自己的「字数」
+/// 是另一套规则，这里不模仿，只把它自报的那份照抄在下面）
+#[derive(Default)]
+struct Tally {
+    characters: usize,
+    no_space: usize,
+    words_by_space: usize,
+}
+
+impl Tally {
+    fn add(&mut self, text: &str) {
+        self.characters += text.chars().count();
+        self.no_space += text.chars().filter(|one| !one.is_whitespace()).count();
+        self.words_by_space += text.split_whitespace().count();
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "characters": self.characters,
+            "characters_no_spaces": self.no_space,
+            "words_by_space": self.words_by_space,
+        })
+    }
+}
+
+/// `docProps/app.xml` 里生产者自报的那几个数。python-docx 写的样本里
+/// `Words` / `Characters` / `Paragraphs` 全是 0 —— 那是「它没数过」，不是
+/// 「这份文档没有字」，所以两份账并排放，谁也不许盖掉谁。
+fn producer_counts(bytes: &[u8]) -> Value {
+    let Ok(member) = zipread::member(bytes, "docProps/app.xml", DEFAULT_MEMBER_CAP) else {
+        return Value::Null;
+    };
+    let root = xmlscan::parse_str(&member.as_text());
+    let mut out = serde_json::Map::new();
+    for (key, want) in [
+        ("words", "Words"),
+        ("characters", "Characters"),
+        ("paragraphs", "Paragraphs"),
+        ("lines", "Lines"),
+        ("pages", "Pages"),
+    ] {
+        let Some(one) = root.descendants(want).first() else {
+            continue;
+        };
+        let raw = one.text().trim().to_string();
+        out.insert(
+            key.to_string(),
+            match raw.parse::<i64>() {
+                Ok(number) => json!(number),
+                Err(_) => json!(raw),
+            },
+        );
+    }
+    if out.is_empty() {
+        Value::Null
+    } else {
+        Value::Object(out)
+    }
+}
 
 fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
     let start = std::time::Instant::now();
@@ -80,8 +142,10 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
         let mut styles: std::collections::BTreeMap<String, usize> =
             std::collections::BTreeMap::new();
         let mut empty = 0usize;
+        let mut tally = Tally::default();
         for one in &paragraphs {
             let text = crate::office_text::paragraph_text(one);
+            tally.add(&text);
             if text.is_empty() {
                 empty += 1;
             }
@@ -176,6 +240,11 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             "footnotes": count("footnote", "word/footnotes.xml"),
             "endnotes": count("endnote", "word/endnotes.xml"),
             "comments": count("comment", "word/comments.xml"),
+            // 「多少字、多少页」这一问有两份账：自己数的与生产者自报的
+            "statistics": {
+                "ours": tally.to_json(),
+                "producer": producer_counts(bytes),
+            },
             "parts": doc.entries.iter().map(|one| one.name.clone()).filter(|one| one.starts_with("word/")).take(limit).collect::<Vec<String>>(),
             "notes": notes,
         })
@@ -198,15 +267,23 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
         let mut paragraphs: Vec<&xmlscan::Node> = Vec::new();
         crate::office_text::odf_paragraphs(text_body, &mut paragraphs);
         let mut empty = 0usize;
+        let mut tally = Tally::default();
         let mut styles: std::collections::BTreeMap<String, usize> =
             std::collections::BTreeMap::new();
         for one in &paragraphs {
-            if crate::office_text::odf_paragraph_text(one).is_empty() {
+            let text = crate::office_text::odf_paragraph_text(one);
+            tally.add(&text);
+            if text.is_empty() {
                 empty += 1;
             }
             if let Some(style) = crate::odsheet::attr_of(one, "style-name") {
                 *styles.entry(style.to_string()).or_insert(0) += 1;
             }
+        }
+        // 标题在 ODF 里不是 `text:p` 而是 `text:h`：算字数要把它一起算，
+        // 不然「这份文档多少字」会漏掉所有小标题
+        for one in text_body.descendants("h") {
+            tally.add(&crate::office_text::paragraph_text(one));
         }
         let headings: Vec<Value> = text_body
             .descendants("h")
@@ -322,7 +399,12 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             "footnotes": of_class("footnote"),
             "endnotes": of_class("endnote"),
             "comments": text_body.descendants("annotation").len(),
-            "producer_statistics": statistic,
+            // 与 docx 那一份同一个形状：自己数的与生产者自报的并排
+            // （ODF 的生产者账在 meta.xml 的 document-statistic，值全是字符串）
+            "statistics": {
+                "ours": tally.to_json(),
+                "producer": statistic,
+            },
             "parts": doc.entries.iter().map(|one| one.name.clone()).take(limit).collect::<Vec<String>>(),
             "notes": notes,
         })
@@ -439,6 +521,15 @@ mod tests {
         assert_eq!(out["comments"], json!(1), "批注部件要一起数");
         assert_eq!(out["footnotes"], json!(0));
         assert_eq!(out["endnotes"], json!(0));
+        // 「多少字」两份账：自己数的与生产者自报的。python-docx 写了 app.xml 却
+        // 一个数都没数（Words/Characters 全是 0），所以那一份只能照抄不能当答案
+        assert_eq!(
+            out["statistics"]["ours"],
+            json!({"characters": 67, "characters_no_spaces": 66, "words_by_space": 10}),
+            "{out}"
+        );
+        assert_eq!(out["statistics"]["producer"]["words"], 0);
+        assert_eq!(out["statistics"]["producer"]["pages"], 1);
         assert_eq!(out["images"], json!(["word/media/image1.png"]));
         assert_eq!(out["hyperlinks"][0]["target"], "https://example.com/budget");
         assert_eq!(out["hyperlinks"][0]["external"], json!(true));
@@ -463,8 +554,22 @@ mod tests {
         );
         assert_eq!(out["structure"]["empty_paragraphs"], 2, "{out}");
         assert_eq!(
-            out["producer_statistics"]["paragraph-count"], "10",
+            out["statistics"]["producer"]["paragraph-count"], "10",
             "生产者的 10 = 我们的 9 + 批注里那一段：口径差要在两边都说得清"
+        );
+        // 字符数两边完全一致（我们与 LibreOffice 各数各的），词数不一致是口径：
+        // 它按中文词切（61），我们只按空白切（10）—— 所以键名叫 words_by_space
+        assert_eq!(
+            out["statistics"]["ours"],
+            json!({"characters": 67, "characters_no_spaces": 66, "words_by_space": 10}),
+            "{out}"
+        );
+        assert_eq!(out["statistics"]["producer"]["character-count"], "67");
+        assert_eq!(out["statistics"]["producer"]["word-count"], "61");
+        // 同一批字在 docx 与 odt 两边数出来必须一样（这份 odt 就是从那份 docx 转的）
+        assert_eq!(
+            out["statistics"]["ours"],
+            run("notes.docx")["statistics"]["ours"]
         );
         assert_eq!(out["styles"]["Standard"], 8, "{out}");
         assert_eq!(out["styles"]["P2"], 1);
@@ -492,8 +597,11 @@ mod tests {
         );
         assert_eq!(out["structure"]["sequences"], 5, "五个页码/章节变量声明");
         assert_eq!(out["structure"]["tracked_changes"], 0);
-        assert_eq!(out["producer_statistics"]["paragraph-count"], "10", "{out}");
-        assert_eq!(out["producer_statistics"]["page-count"], "2");
+        assert_eq!(
+            out["statistics"]["producer"]["paragraph-count"], "10",
+            "{out}"
+        );
+        assert_eq!(out["statistics"]["producer"]["page-count"], "2");
     }
 
     /// 表格里的段落也算段落：这是 Word 自己的口径，换了口径数字就对不上

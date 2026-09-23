@@ -117,6 +117,16 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     `notes-hf.rtf` 里 3 条页眉 + 2 条页脚就是从 6 个目标群读出来的 ——
     每条都带着口袋名，不替文件合并成「一份页眉」。
 
+15. **「这份文档多少字」有三份账，而且两个对不上是正常的**。`notes.odt` 的
+    `meta.xml` 自报 `character-count="67" non-whitespace-character-count="66" word-count="61"`，
+    我们与 LibreOffice 各数各的字符数，结果 67/66 完全一致；词数我们报 10 ——
+    因为 `words_by_space` 就是「按空白切的词」，一整段中文算一个，而 LibreOffice
+    按中文词切。docx 那边更直接：python-docx 写了 `docProps/app.xml`，可
+    `Words` / `Characters` / `Paragraphs` / `Lines` 全是 0（它没数过，不是文档没字），
+    只有 `Pages` 是 1。所以两边并排给，键名把口径写死，谁也不许盖掉谁。
+    另：`notes-hf.odt` 我们数 40 个字符而生产者数 86 —— 差的是页眉页脚那份，
+    我们只数正文（`statistics.ours`），这条口径差也是有意留出来的。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：

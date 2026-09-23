@@ -215,6 +215,10 @@ def main() -> int:
 
     doc = lbin("office-doc", fixture("notes.docx"))
     check("notes.docx 表格数", dig(doc, "structure.tables"), want["tables"])
+    # 「多少字」那份账有两边：自己数的与生产者自报的（python-docx 写的那份全是 0）
+    check("notes.docx 自己数的字与读者一致", dig(doc, "statistics.ours"), want["statistics"]["ours"])
+    check("notes.docx 生产者自报的字数", dig(doc, "statistics.producer.words"), 0)
+    check("notes.docx 生产者自报的页数", dig(doc, "statistics.producer.pages"), 1)
     check("notes.docx 行数", dig(doc, "structure.table_rows"), want["table_rows"])
     check("notes.docx 格子数", dig(doc, "structure.table_cells"), want["table_cells"])
     check("notes.docx 节数", dig(doc, "structure.sections"), want["sections"])
@@ -427,8 +431,35 @@ def main() -> int:
                                  for one in odtstruct.get("tables", [])],
           [(one["name"], one["rows"], one["cells"], one["covered"]) for one in dwant["table_list"]])
     # 生产者自己写在 meta.xml 的那份账：照原样交出来，口径不同就说清口径
-    check("notes.odt 与生产者自报的页数", dig(odtstruct, "producer_statistics.page-count"),
+    check("notes.odt 与生产者自报的页数", dig(odtstruct, "statistics.producer.page-count"),
           dwant["statistic"]["page-count"])
+    # 「多少字」两边对得上：我们数的字符数与 LibreOffice 自报的完全一致，
+    # 词数不一致是口径（它按词切中文，我们只按空白切）
+    check("notes.odt 自己数的字与读者一致", dig(odtstruct, "statistics.ours"), dwant["statistics"]["ours"])
+    check(
+        "notes.odt 的字符数与生产者自报的一致",
+        [dig(odtstruct, "statistics.ours.characters"),
+         dig(odtstruct, "statistics.ours.characters_no_spaces")],
+        [int(dwant["statistic"]["character-count"]), int(dwant["statistic"]["non-whitespace-character-count"])],
+    )
+    check(
+        "notes.odt 的词数口径与生产者不同（说明写在文档里）",
+        dig(odtstruct, "statistics.ours.words_by_space") != int(dwant["statistic"]["word-count"]),
+        True,
+    )
+    hfodtstruct = lbin("office-doc", fixture("notes-hf.odt"))
+    hfwant = files["notes-hf.odt"]["odt"]
+    check(
+        "notes-hf.odt 只数正文：页眉页脚不在我们的账里",
+        dig(hfodtstruct, "statistics.ours"),
+        hfwant["statistics"]["ours"],
+    )
+    record(
+        "notes-hf.odt 生产者的字符数含页眉页脚",
+        int(hfwant["statistic"]["character-count"]) > hfwant["statistics"]["ours"]["characters"],
+        json.dumps({"生产者": hfwant["statistic"]["character-count"],
+                    "我们": hfwant["statistics"]["ours"]["characters"]}),
+    )
     record(
         "notes.odt 段数两份账的口径差说得出来",
         dig(odtstruct, "structure.paragraphs") == dwant["paragraphs"]
