@@ -89,7 +89,7 @@ lbin --schema                                # 注册表清单（四端同源的
 | `office-*` | OOXML（docx/docm/xlsx/xlsm/pptx/pptm）、ODF（odt/ods/odp）、MS-CFB 遗留（doc/xls/ppt）、RTF；OPC 的关系表与内容类型；OLE 属性集；RTF 的 `\info` 群与 `\*\userprops`；`.doc` 的 piece 表；`.xls` 的 BIFF8 记录（格子按 BOUNDSHEET 偏移归位到每张表）；`.ppt` 的 PowerPoint 97 记录树（文本原子 0x0FA0 / 0x0FA8 / 0x0FBA） | `.ppt` 的按页归位（要 SlideContainer 与 SlidePersistAtom 配对）、宏内容的解析（只检测宏部件）、密码学验证（签名只看有没有，不验签） |
 
 office 这一摊的证据制度在 [`lilyco-binfmt/tests/fixtures/office/README.md`](../lilyco-binfmt/tests/fixtures/office/README.md)：
-15 份 fixture 全部由**独立生产者**写出（python-docx / openpyxl / python-pptx / Pillow / LibreOffice），
+16 份 fixture 全部由**独立生产者**写出（python-docx / openpyxl / python-pptx / Pillow / LibreOffice），
 Rust 测试里的每个期望值都来自第二读者（`scripts/acceptance/office_reader.py` + `lyco_rtf.py` +
 `lyco_legacy.py`，只用 Python 标准库）对同一批文件的读取；CI 的 `apps` job 还会把编出来的 `lbin`
 与那位读者逐字段对账（`office_probe.py`），不一致就红。

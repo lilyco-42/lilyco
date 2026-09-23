@@ -90,6 +90,7 @@ def main() -> int:
     # ── 识别：每条命令都得把文件认成同一个东西 ──────────────────────
     expect = {
         "notes.docx": ("ooxml", "word", "docx"),
+        "notes-hf.docx": ("ooxml", "word", "docx"),
         "notes.docm": ("ooxml", "word", "docm"),
         "notes-en.docx": ("ooxml", "word", "docx"),
         "book.xlsx": ("ooxml", "excel", "xlsx"),
@@ -136,6 +137,25 @@ def main() -> int:
         pair = (one.get("from"), one.get("author"))
         got_pair = (got[0].get("from"), got[0].get("author")) if got else (None, None)
         check("notes.docx 正文之外的出处与作者", got_pair, pair)
+    # 页眉页脚那份样本：这条分支此前从未被真件走过，这里连顺序一起比
+    hf = lbin("office-text", fixture("notes-hf.docx"))
+    hwant = files["notes-hf.docx"]["ooxml"]
+    hside = [one for one in hwant["side_texts"] if one["text"]]
+    check(
+        "notes-hf.docx 正文+页眉页脚条数",
+        hf.get("total_paragraphs"),
+        len([one for one in hwant["paragraphs"] if one]) + len(hside),
+    )
+    check(
+        "notes-hf.docx 页眉页脚逐条出处",
+        [
+            (one.get("from"), one.get("part"), one.get("text"))
+            for one in hf.get("paragraphs", [])
+            if one.get("from")
+        ],
+        [(one["from"], one["part"], one["text"]) for one in hside],
+    )
+
     doc = lbin("office-doc", fixture("notes.docx"))
     check("notes.docx 表格数", dig(doc, "structure.tables"), want["tables"])
     check("notes.docx 行数", dig(doc, "structure.table_rows"), want["table_rows"])

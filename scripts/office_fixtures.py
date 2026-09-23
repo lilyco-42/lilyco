@@ -205,6 +205,31 @@ def write_english_docx(path: Path) -> None:
     doc.save(str(path))
 
 
+def write_header_docx(path: Path) -> None:
+    """带页眉与页脚的 docx：两节的页眉不一样，第二节显式断开链接才会多出 header2.xml
+
+    这份样本存在的理由：`office-text` 早就按部件名扫 `header*.xml` / `footer*.xml` 了，
+    可前面那批 fixture 一份都不带页眉 —— 那条分支从来没被真件走过一次。
+    """
+    from docx import Document
+
+    doc = Document()
+    doc.add_heading("带页眉的一页", level=1)
+    doc.add_paragraph("正文只有一句：这一份是用来测页眉页脚那条分支的。")
+    first = doc.sections[0]
+    first.header.paragraphs[0].text = "公司机密 · 预算评审"
+    first.footer.paragraphs[0].text = "第 1 页 / 共 3 页"
+    second = doc.add_section()
+    # 不显式断开，python-docx 会让第二节沿用第一节，就不会有第二个页眉部件
+    second.header.is_linked_to_previous = False
+    second.header.paragraphs[0].text = "第二节的页眉不一样"
+    doc.add_page_break()
+    doc.add_paragraph("换节之后的一段正文。")
+    doc.core_properties.title = "带页眉的说明"
+    doc.core_properties.author = "liuqi"
+    doc.save(str(path))
+
+
 def write_xlsx(path: Path) -> None:
     """openpyxl：多表、隐藏表、公式、合并格、命名区域、真表格 —— 一个电子表格里
     `lbin office-sheet` 要报的东西基本都在这里，而这些东西 LibreOffice 转出来的样本未必有。
@@ -487,6 +512,9 @@ def main() -> int:
 
     english = OUT / "notes-en.docx"
     write_english_docx(english)
+
+    headers = OUT / "notes-hf.docx"
+    write_header_docx(headers)
 
     # 真 ODF 写入者是 LibreOffice：从 OOXML 转过去，比手搓的 content.xml 有说服力
     for src, fmt in ((docx, "odt"), (xlsx, "ods"), (pptx, "odp"), (OUT / "formats.xlsx", "ods")):

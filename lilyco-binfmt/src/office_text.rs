@@ -868,6 +868,72 @@ mod tests {
         );
     }
 
+    /// 页眉与页脚第一次有真件可走：两个节的页眉不一样，而它们按部件名排在正文后面
+    /// （期望值来自 `office_reader.py` 的 `side_texts()`）
+    #[test]
+    fn headers_and_footers_come_out_labelled_as_such() {
+        let out = run("notes-hf.docx", 20000, false);
+        let items = out["paragraphs"].as_array().expect("是数组");
+        let side: Vec<(&str, &str, &str)> = items
+            .iter()
+            .filter(|one| one["from"] != Value::Null)
+            .map(|one| {
+                (
+                    one["from"].as_str().unwrap_or_default(),
+                    one["part"].as_str().unwrap_or_default(),
+                    one["text"].as_str().unwrap_or_default(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            side,
+            [
+                ("footer", "word/footer1.xml", "第 1 页 / 共 3 页"),
+                ("header", "word/header1.xml", "公司机密 · 预算评审"),
+                ("header", "word/header2.xml", "第二节的页眉不一样"),
+            ],
+            "{out}"
+        );
+        // 正文 5 段里只有 3 段有字（另两段只放分页符与节标记）
+        assert_eq!(
+            out["total_paragraphs"], 6,
+            "3 段正文 + 页眉页脚 3 条：{out}"
+        );
+        assert_eq!(out["line_count"], 6);
+        let body: Vec<&str> = items
+            .iter()
+            .filter(|one| one["from"] == Value::Null)
+            .map(|one| one["text"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(
+            body,
+            [
+                "带页眉的一页",
+                "正文只有一句：这一份是用来测页眉页脚那条分支的。",
+                "换节之后的一段正文。"
+            ],
+            "{out}"
+        );
+        for part in ["word/header1.xml", "word/header2.xml", "word/footer1.xml"] {
+            assert!(
+                out["parts_read"]
+                    .as_array()
+                    .expect("是数组")
+                    .iter()
+                    .any(|one| one.as_str() == Some(part)),
+                "{part} 该被读到：{out}"
+            );
+        }
+        // 页眉页脚没有作者这一说：那属性只挂在批注/脚注/尾注的容器上
+        assert!(
+            items
+                .iter()
+                .filter(|one| one["from"] != Value::Null)
+                .all(|one| one["author"] == Value::Null),
+            "{out}"
+        );
+    }
+
     /// rtf：控制字、字体表、域指令都不许混进正文
     #[test]
     fn reads_rtf_without_control_words() {
