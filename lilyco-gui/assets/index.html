@@ -84,7 +84,12 @@ function initTheme(){
 function initCommandNav(){
   const sel=$("cmd-nav");
   if(sel)sel.addEventListener("change",()=>{
-    if(sel.value)location.href="/?cmd="+encodeURIComponent(sel.value);
+    if(!sel.value)return;
+    // 换命令要整页重载（表单是服务端按 schema 摊的）。重载期间先把下拉按住：
+    // 一是给「已经在切了」一个看得见的答复，二是免得连点排出两次导航
+    sel.disabled=true;
+    sel.setAttribute("aria-busy","true");
+    location.href="/?cmd="+encodeURIComponent(sel.value);
   });
 }
 

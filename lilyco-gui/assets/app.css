@@ -221,6 +221,8 @@ input[type="number"]:out-of-range { border-color: var(--danger); }
 input:user-invalid { border-color: var(--danger); }
 input:user-invalid:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent); }
 input:disabled, select:disabled { opacity: 0.55; cursor: not-allowed; }
+/* 命令切换期间下拉是「正在办」而不是「不许办」：光标该是沙漏不是禁止符 */
+select[aria-busy="true"]:disabled { cursor: progress; }
 input[type="checkbox"] {
   accent-color: var(--accent);
   width: 17px;
