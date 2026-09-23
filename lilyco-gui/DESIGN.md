@@ -225,7 +225,7 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 
 | 组件 | 构成 | 七态 | 无障碍 |
 |------|------|------|--------|
-| `topbar` | brand + `command-nav` + 主题按钮 | hover / focus / active / `aria-pressed=true`（深色）/ 其余 n/a | `position:sticky` + `backdrop-filter`；窄容器里下拉整行换到第二行，主题按钮钉在行尾 |
+| `topbar` | brand + `command-nav` + 主题按钮 | hover / focus / active / `aria-pressed=true`（深色）/ 其余 n/a | `position:sticky` + `backdrop-filter`；窄容器里下拉整行换到第二行（实测 320–420 两行 99px、≥560 单行 57px，各档顶栏自身无横向溢出），主题按钮始终距右 16px |
 | `command-nav` | `<select id=cmd-nav>`，可见命令 >1 才出现 | hover / focus / disabled n/a / 空 n/a（只渲染非空值域） | `aria-label="切换命令"`；换命令整页重载（表单是服务端按 schema 摊的），跳转在 `initCommandNav` |
 | `run-bar` | `运行` + `取消` + `复制 CLI` | hover / focus / disabled（跑起来时）/ loading（`.loading` 转圈 + `aria-busy`）/ 空 n/a / error（取消失败时按钮解禁）/ success n/a | `type=submit` 语义保留；`aria-busy` 给读屏 |
 | `cli-preview` | `$ ` + 一行命令文本 | 空 = `display:none`（不留孤零零的 `$ `）/ 其余 n/a（纯展示） | 只读；`复制 CLI` 才有反馈 |
