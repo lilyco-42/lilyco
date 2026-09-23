@@ -773,7 +773,7 @@ fn crc32(bytes: &[u8]) -> u64 {
 mod tests {
     use super::*;
     use crate::identify::tiny_elf;
-    use lilyco_core::Context;
+    use lilyco::prelude::Context;
     use std::sync::mpsc;
 
     fn run(path: PathBuf) -> Result<Value, AppError> {

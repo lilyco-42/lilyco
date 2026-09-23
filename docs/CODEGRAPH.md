@@ -103,19 +103,19 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 
 | 符号 | 行 | 说明 |
 |---|---|---|
-| `detect_backend()` | 95 | `--mcp/--gui` > `LILYCO_UI` > 终端探测（TUI 失败回退 CLI） |
-| `run::<A>()` / `run_with()` | 136 / 141 | 单命令四端自动选择 |
-| `serve_mcp()` | 158 | 注册表 → MCP 服务器 |
-| `run_cli_registry()` | 175 | 注册表 → clap 子命令 |
-| `run_tui_registry()` | 189 | 注册表 → TUI 命令选择页（起不来回退 CLI 多命令） |
-| `run_web_registry()` | 233 | 注册表 → Web 控制台（`?cmd=` 下拉 + `/run` 显式分发） |
-| `run_registry()` | 268 | **多命令一行启动**：按 `detect_registry_backend()` 自动分发 |
-| `run_registry_with()` | 293 | 显式指定后端；**按调用面注入 SafetyPolicy**（MCP→`DenyElevated`，其余→`Interactive`） |
-| `run_registry_with_policy()` | 308 | 调用方自带策略（逃生舱，业务通常不要用） |
-| `detect_registry_backend()` | — | 多命令形态探测：**自动探测出的 TUI 降级为 CLI**（裸跑不该被拽进交互界面；进 TUI 须显式 `--tui`） |
-| `build_multi_tui()` | 449 | 纯函数：注册表 →（选择页 TuiApp + 名字→handler 表）。与事件循环分离以便无 TTY 单测（隐藏命令过滤、空注册表报错） |
-| `into_registry_with_policy()` | 353 | 对已有注册表重建以换策略（**兜底**：只能替换，不能解开已包在 handler 上的旧门） |
-| `run_tui_event_loop()` | 464 | 单/多命令共享的 TUI 循环（非阻塞 drain + 可取消） |
+| `detect_backend()` | 122 | `--mcp/--gui` > `LILYCO_UI` > 终端探测（TUI 失败回退 CLI） |
+| `run::<A>()` / `run_with()` | 165 / 170 | 单命令四端自动选择 |
+| `serve_mcp()` | 189 | 注册表 → MCP 服务器 |
+| `run_cli_registry()` | 206 | 注册表 → clap 子命令 |
+| `run_tui_registry()` | 220 | 注册表 → TUI 命令选择页（起不来回退 CLI 多命令） |
+| `run_web_registry()` | 243 | 注册表 → Web 控制台（`?cmd=` 下拉 + `/run` 显式分发） |
+| `run_registry()` | 282 | **多命令一行启动**：按 `detect_registry_backend()` 自动分发 |
+| `run_registry_with()` | 300 | 显式指定后端；**按调用面注入 SafetyPolicy**（MCP→`DenyElevated`，其余→`Interactive`） |
+| `run_registry_with_policy()` | 315 | 调用方自带策略（逃生舱，业务通常不要用） |
+| `detect_registry_backend()` | 392 | 多命令形态探测：**自动探测出的 TUI 降级为 CLI**（裸跑不该被拽进交互界面；进 TUI 须显式 `--tui`） |
+| `build_multi_tui()` | 488 | 纯函数：注册表 →（选择页 TuiApp + 名字→handler 表）。与事件循环分离以便无 TTY 单测（隐藏命令过滤、空注册表报错） |
+| `into_registry_with_policy()` | 342 | 对已有注册表重建以换策略（**兜底**：只能替换，不能解开已包在 handler 上的旧门） |
+| `run_tui_event_loop()` | 515 | 单/多命令共享的 TUI 循环（非阻塞 drain + 可取消） |
 
 ## 5. 多命令语义对照（四端对齐）
 
@@ -145,6 +145,9 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
   `crate = "lilyco_core"` 是给**不依赖 facade** 的嵌入方用的：默认展开成 `::lilyco::__core::…`，
   两条路径下的条目一一对应（facade 里就是 `pub use lilyco_core as __core`）。
 - **加一个域二进制**：照 `lilyco-files`（文件域）或 `lilyco-binfmt`（二进制结构域，`lbin`，4 条全 T0 只读）抄 `main.rs` 的 registry 装配 + 按调用面注入安全策略 → 根 `Cargo.toml` 的 `[workspace] members` 加一行 → 使用文档放 `docs/<域>.md`（`docs/lfiles.md`、`docs/binfmt.md`）。
+  **完整清单（12 步，含 CI 枚举那一步）与可复制骨架见 [INTEGRATION.md](INTEGRATION.md) + `scripts/domain-template/`。**
+  应用 crate 只依赖 `lilyco` 一个包：core 的类型（`Context` / `SafetyPolicy` / `SafetyTier` / `Registry`…）从 `lilyco::prelude::*` 拿，
+  `derive(App)` 默认展开成 `::lilyco::__core::…` —— 不需要把 `lilyco-core` 写进 `[dependencies]`（`lbin` 已按这条清掉）。
 - **加一个后端**：新 crate 只依赖 core，实现 `Renderer`；facade 加一行分发。参考 lilyco-mcp（最小样板 ≈ 350 行含测试）。
 - **选后端 = 开特性，但只有一处该开**：`lilyco-core` **没有任何特性**（它是后端无关的领域层）；
   域 crate 一律 `default = ["full"]` / `full = ["dep:lilyco", "lilyco/full"]` / `android = ["dep:lilyco"]`；

@@ -24,7 +24,6 @@ mod regions;
 mod symbols;
 
 use lilyco::prelude::*;
-use lilyco_core::safety::{DenyElevated, Interactive, SafetyPolicy};
 use std::sync::Arc;
 
 /// 构建整个「二进制与容器结构」域的注册表（使用给定安全策略）
@@ -64,7 +63,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lilyco_core::safety::SafetyTier;
+    use lilyco::prelude::SafetyTier;
 
     fn build_registry() -> Registry {
         build_registry_with_policy(Arc::new(Interactive))

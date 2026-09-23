@@ -96,7 +96,7 @@ pub(crate) fn tiny_elf() -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lilyco_core::Context;
+    use lilyco::prelude::Context;
     use std::sync::mpsc;
 
     fn run(path: std::path::PathBuf) -> Result<Value, AppError> {
