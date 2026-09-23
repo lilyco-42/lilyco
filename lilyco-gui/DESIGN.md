@@ -136,6 +136,7 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
   `data-target`（**裸参数名**）`data-must-exist` `data-browse` `data-pick`
   `data-max-upload`（**服务端注入的上传上限**，页面据此在读文件之前拦下超大文件）
   `data-list` `data-list-item` `data-list-add` `data-placeholder` `data-indet` `data-state`
+  `data-item` / `data-item-kind`（List 的 item 类型：容器与每行各一份，JS 靠它决定行控件与提交类型）
 - `<meta name="lilyco-token">` 与请求头 `X-Lilyco-Token`
 - **不许有内联事件**：`onclick=` / `onchange=` / `onsubmit=` / `oninput=` / `onload=` 一律不能出现在
   服务端吐的 HTML 里，行为只写在 `assets/index.html` 的 `init*` 中（`render.rs` 有一条测试逐名扫）。
