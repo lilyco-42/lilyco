@@ -19,7 +19,8 @@ pub(crate) struct AppState {
     /// 多命令模式（`serve_registry`）：整张注册表
     pub(crate) registry: Option<Arc<Registry>>,
     pub(crate) sessions: Mutex<HashMap<String, tokio::sync::mpsc::Receiver<serde_json::Value>>>,
-    /// sid → 取消标志（registry 模式 /cancel 端点用；终态后移除）
+    /// sid → 取消句柄（只有 `run::run_progress` 会登记，终态后移除；
+    /// 页面据此决定画不画「取消」，见 DESIGN.md §8.6）
     pub(crate) cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub(crate) runner: RunnerFn,
     pub(crate) token: String,

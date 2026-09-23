@@ -7,9 +7,9 @@
 //!   页面骨架是 `assets/index.html`。每个组件的构成、七态与用到的令牌见
 //!   `lilyco-gui/DESIGN.md` §10 —— 改组件要同时改那张表，两边不许各说各话。
 //!
-//! 组件在 DOM 上自报家门：`data-component="<名字>"` 是 JS 装配（`assets/index.html` 里
-//! 一个组件一个 `init*`）与单测共同的锚点。HTML 片段一律用 raw string 写 ——
-//! 满屏 `\"` 转义正是这类代码最容易看错的地方。
+//! 组件在 DOM 上自报家门：`data-component="<名字>"` 是**单测与调试**的锚点（行为层的装配
+//! 锚点是 `assets/index.html` 里 `BOOT` 那份 `init*` 清单，不是这个属性）。
+//! HTML 片段一律用 raw string 写 —— 满屏 `\"` 转义正是这类代码最容易看错的地方。
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -76,8 +76,17 @@ pub(crate) async fn index(
         .unwrap_or_else(|_| "[]".into())
         .replace("</", "<\\/");
 
+    // 只有注册表模式的执行路径会登记取消句柄（见 run::run_progress）；自定义 RunnerFn
+    // 没有句柄可查，/cancel 只能回 404 —— 那就别画那颗按钮。
+    // 静态标志赶在动态内容之前填：参数说明里真写出这串占位符也不会被误换。
+    let cancellable = if state.registry.is_some() {
+        "true"
+    } else {
+        "false"
+    };
     let html = HTML_TEMPLATE
         .replace("__CSS__", include_str!("../assets/app.css"))
+        .replace("__CANCEL_JS__", cancellable)
         .replace("__CMD_NAV__", &cmd_nav)
         .replace("__FIELDS__", &fields_html)
         .replace("__ABOUT__", &html_escape(&schema.about))
@@ -233,7 +242,8 @@ fn options_html(values: &[String], current: Option<&str>) -> String {
 
 /// `Number`：带 min/max 的数字输入。区间既写进 HTML 属性（校验与原生 UI 用），
 /// 也渲染成一行可见提示并用 `aria-describedby` 挂上 —— 只放属性的话，
-/// 读屏用户听不到「0 到 51」这个约束
+/// 读屏用户听不到「0 到 51」这个约束。**单边区间也要说**：只有 `min=0` 的
+/// 参数（很常见：数量、尺寸）此前一个字都不报，只有浏览器弹的原生提示知道。
 fn widget_number(f: &Field, min: Option<f64>, max: Option<f64>) -> String {
     let dv = f
         .arg
@@ -242,19 +252,22 @@ fn widget_number(f: &Field, min: Option<f64>, max: Option<f64>) -> String {
         .and_then(|d| d.as_f64())
         .map(|n| n.to_string())
         .unwrap_or_else(|| min.map(|m| m.to_string()).unwrap_or_default());
-    let (described, hint) = match (min, max) {
-        (Some(lo), Some(hi)) => (
-            format!(r##" aria-describedby="hint-{esc}""##, esc = f.esc_name),
-            format!(
-                r##"<span class="field-hint" id="hint-{esc}">取值 {lo} – {hi}</span>"##,
-                esc = f.esc_name
-            ),
+    let esc = &f.esc_name;
+    let range = match (min, max) {
+        (Some(lo), Some(hi)) => Some(format!("取值 {lo} – {hi}")),
+        (Some(lo), None) => Some(format!("取值 >= {lo}")),
+        (None, Some(hi)) => Some(format!("取值 <= {hi}")),
+        (None, None) => None,
+    };
+    let (described, hint) = match range {
+        Some(text) => (
+            format!(r##" aria-describedby="hint-{esc}""##),
+            format!(r##"<span class="field-hint" id="hint-{esc}">{text}</span>"##),
         ),
-        _ => (String::new(), String::new()),
+        None => (String::new(), String::new()),
     };
     format!(
         r##"<input type="number" id="field-{esc}" data-component="number" value="{dv}"{attrs}{req}{described}>{hint}"##,
-        esc = f.esc_name,
         dv = html_escape(&dv),
         attrs = number_attrs(min, max),
         req = f.req_a,
@@ -292,7 +305,7 @@ fn widget_path(f: &Field, must_exist: bool) -> String {
         ph = f.placeholder(),
         req = f.req_a,
         dv = f.default_text(),
-        dz = dropzone(f, must_exist, hint)
+        dz = dropzone(f, hint)
     )
 }
 
@@ -303,18 +316,18 @@ fn widget_path(f: &Field, must_exist: bool) -> String {
 /// `data-max-upload` 由服务端注入 —— 页面据此在**读文件之前**拦下超大文件，
 /// 上限因此只有一个来源（`crate::files::MAX_UPLOAD_BYTES`）。
 /// 状态行 `role="status"` 并挂在路径框的 `aria-describedby` 上，上传结果不必聚焦也能读到。
-fn dropzone(f: &Field, must_exist: bool, hint: &str) -> String {
+///
+/// 这里**不再**重复参数名（`data-browse`）或 `must_exist`：前者 JS 从 `.dropzone[data-target]`
+/// 就拿得到，后者已经变成下面那句提示文案 —— DOM 上不留没人读的副本。
+fn dropzone(f: &Field, hint: &str) -> String {
     let esc = &f.esc_name;
     format!(
-        r##"<div class="dropzone" data-component="dropzone" data-target="{esc}" data-must-exist="{must}" data-max-upload="{MAX_UPLOAD_BYTES}">\
+        r##"<div class="dropzone" data-component="dropzone" data-target="{esc}" data-max-upload="{MAX_UPLOAD_BYTES}">\
 <input type="file" class="visually-hidden" tabindex="-1" aria-hidden="true">\
 <span class="dz-icon" aria-hidden="true">⇪</span><span class="dz-hint">{hint}</span>\
 <span class="dz-status" id="up-{esc}" role="status" aria-live="polite"></span>\
-<button type="button" class="btn-icon dz-browse" data-component="browse" data-browse="{esc}">选择文件</button>{pick}\
+<button type="button" class="btn-icon dz-browse" data-component="browse">选择文件</button>{pick}\
 <button type="button" class="file-chip" id="chip-{esc}" hidden></button></div>"##,
-        esc = esc,
-        must = if must_exist { "1" } else { "0" },
-        hint = hint,
         pick = pick_button(f)
     )
 }
@@ -336,16 +349,15 @@ fn pick_button(f: &Field) -> String {
 /// **行里的控件由 item 类型决定**：以前一律画成文本框，于是 `Vec<u32>` 这种参数
 /// 从 Web 提交的是字符串数组，`core::validate_kind` 的 `Number` 分支要的是
 /// `as_f64`，直接回一句「需要数字」—— CLI / TUI / MCP 都能跑，只有 Web 不行。
-/// 容器上的 `data-item` 给 JS 复制行时用（同一份 `kind_name`，不另立映射表）。
+/// 容器上的 `data-item` 给 JS 收值时用（同一份 `kind_name`，不另立映射表），
+/// 每行的 `data-item-kind` 给 `resetItem` 用 —— 复制行、清行都只认服务端标的类型。
 fn widget_list(f: &Field, item: &ArgKind) -> String {
     let esc = &f.esc_name;
-    let ph = f.placeholder();
     format!(
-        r##"<div class="list-rows" id="list-{esc}" data-component="list" data-list="{esc}" data-item="{kind}" data-placeholder="{ph}">{rows}</div>\
+        r##"<div class="list-rows" id="list-{esc}" data-component="list" data-list="{esc}" data-item="{kind}">{rows}</div>\
 <button type="button" class="btn-icon list-add" data-component="list-add" data-list-add="{esc}">＋ 添加一项</button>"##,
         esc = esc,
         kind = kind_name(item),
-        ph = ph,
         rows = list_row(f, item) + &list_row(f, item)
     )
 }
@@ -579,9 +591,10 @@ mod tests {
         )])
         .await;
         assert!(body.contains("dropzone"), "Path 参数必须有拖拽上传组件");
+        // must_exist 落在**话术**上，不再另存一份 data-must-exist 让 JS 之外的人猜
         assert!(
-            body.contains(r##"data-must-exist="1""##),
-            "must_exist 语义保留"
+            body.contains("拖到这里，或点「选择文件」"),
+            "must_exist 的 Path 要告诉用户怎么给这个文件"
         );
         assert!(body.contains(r##"type="file""##), "必须有文件选择入口");
         // 上限只有一个来源：服务端常量注入 DOM，页面读它来拦超大文件。
@@ -619,6 +632,195 @@ mod tests {
         assert!(
             !cfg!(feature = "pick") || body.contains(&format!(r##"data-pick="{target}""##)),
             "本机按钮的 data-pick 与 data-target 得用同一套名字"
+        );
+    }
+
+    /// 页面内联 JS 的正文（骨架里的 `<script>` 块，占位符已填）
+    fn inline_script() -> String {
+        HTML_TEMPLATE
+            .split("<script>")
+            .nth(1)
+            .expect("页面里没有 <script> 块")
+            .split("</script>")
+            .next()
+            .unwrap()
+            .to_string()
+    }
+
+    /// HTML 里出现过的所有 `data-*` 属性名（去重、按出现顺序）
+    fn data_names(html: &str) -> Vec<String> {
+        let b = html.as_bytes();
+        let mut out: Vec<String> = Vec::new();
+        let mut i = 0;
+        while i + 5 <= b.len() {
+            if &b[i..i + 5] == b"data-" {
+                let mut j = i + 5;
+                while j < b.len()
+                    && (b[j].is_ascii_lowercase() || b[j] == b'-' || b[j].is_ascii_digit())
+                {
+                    j += 1;
+                }
+                let name = String::from_utf8_lossy(&b[i..j]).to_string();
+                if !out.contains(&name) {
+                    out.push(name);
+                }
+                i = j;
+            } else {
+                i += 1;
+            }
+        }
+        out
+    }
+
+    /// `data-item-kind` → `itemKind`：JS 摸 dataset 时用的是驼峰，不是横线名
+    fn to_camel(attr: &str) -> String {
+        attr.trim_start_matches("data-")
+            .split('-')
+            .enumerate()
+            .map(|(n, part)| {
+                if n == 0 {
+                    part.to_string()
+                } else {
+                    let mut c = part.chars();
+                    c.next()
+                        .map(|x| x.to_uppercase().collect::<String>() + c.as_str())
+                        .unwrap_or_default()
+                }
+            })
+            .collect()
+    }
+
+    /// DOM 上不留没人读的副本。每个 `data-*` 要么内联 JS 提它（横线名或 dataset 驼峰名），
+    /// 要么 CSS 拿它当选择器钩子，要么在下面白名单里说清用处。
+    ///
+    /// 起因（2026-09-23 复核）：`data-browse` / `data-must-exist` / `data-placeholder`
+    /// 画在页面上半年，一个人都没读过，而 DESIGN.md 写着「JS 靠它们决定行为」——
+    /// 属性与文档各说各话，读代码的人只能猜。
+    #[tokio::test]
+    async fn no_data_attribute_goes_unread() {
+        let body = page(vec![
+            arg(
+                "num",
+                "数量",
+                ArgKind::Number {
+                    min: Some(0.0),
+                    max: None,
+                },
+                false,
+                None,
+            ),
+            arg(
+                "path",
+                "路径",
+                ArgKind::Path { must_exist: true },
+                true,
+                None,
+            ),
+            arg(
+                "nums",
+                "尺寸",
+                ArgKind::List {
+                    item: Box::new(ArgKind::Number {
+                        min: Some(1.0),
+                        max: Some(9.0),
+                    }),
+                },
+                false,
+                None,
+            ),
+        ])
+        .await;
+        let js = inline_script();
+        let css = include_str!("../assets/app.css");
+        let read_by_someone = |name: &str| {
+            name == "data-component" // markup 自报家门：测试与调试的锚点，不声称 JS 读它
+                || js.contains(name)
+                || js.contains(&to_camel(name))
+                || css.contains(name)
+        };
+        let offenders: Vec<String> = data_names(&body)
+            .into_iter()
+            .filter(|n| !read_by_someone(n))
+            .collect();
+        assert!(
+            offenders.is_empty(),
+            "这些 data-* 画了没人读：{offenders:?}"
+        );
+    }
+
+    /// 单边区间也要说出来。以前只有 min 和 max 都在才画提示，
+    /// 于是「取值 >= 0」这种最常见的约束一个字都不报，读屏用户听到的只是一个数字框。
+    #[tokio::test]
+    async fn number_bounds_are_spoken_whichever_side_they_come_from() {
+        let lo = page(vec![arg(
+            "n",
+            "数量",
+            ArgKind::Number {
+                min: Some(0.0),
+                max: None,
+            },
+            false,
+            None,
+        )])
+        .await;
+        assert!(
+            lo.contains(r##"min="0""##) && lo.contains("取值 >= 0"),
+            "只有 min 时也要念出来"
+        );
+        let hi = page(vec![arg(
+            "n",
+            "上限",
+            ArgKind::Number {
+                min: None,
+                max: Some(9.0),
+            },
+            false,
+            None,
+        )])
+        .await;
+        assert!(
+            hi.contains(r##"max="9""##) && hi.contains("取值 <= 9"),
+            "只有 max 时也要念出来"
+        );
+        assert!(
+            hi.contains(r##"aria-describedby="hint-n""##),
+            "提示得挂在框上"
+        );
+        // 什么区间都没有就别硬凑一行提示
+        let none = page(vec![arg(
+            "n",
+            "任意数",
+            ArgKind::Number {
+                min: None,
+                max: None,
+            },
+            false,
+            None,
+        )])
+        .await;
+        // 比的是画出来的片段，不是 CSS 里那条 `.field-hint` 规则（整页永远含着它）
+        assert!(
+            !none.contains(r##"<span class="field-hint""##) && !none.contains(r##"id="hint-n""##),
+            "无区间却画了一行空提示"
+        );
+    }
+
+    /// 「取消」按钮不能是个假承诺：只有 `Registry` 那条执行路会登记取消句柄，
+    /// 自定义 RunnerFn（`serve`）拿不到句柄，页面就得连按钮都不画。
+    /// `serve_app` 因此内部就是单命令注册表（见 lib.rs）。
+    #[tokio::test]
+    async fn the_cancel_button_only_promises_what_the_server_can_do() {
+        let runner_mode = state_with(schema_of("demo", "demo", vec![]));
+        let body = body_of(index(State(runner_mode), Query(HashMap::new())).await).await;
+        assert!(
+            body.contains("const CANCELABLE=false;"),
+            "单命令 RunnerFn 没有取消句柄，页面却还是画了「取消」"
+        );
+        let reg = registry_state();
+        let body = body_of(index(State(reg), Query(HashMap::new())).await).await;
+        assert!(
+            body.contains("const CANCELABLE=true;"),
+            "注册表模式可以取消，页面却把按钮藏了"
         );
     }
 
@@ -818,6 +1020,7 @@ mod tests {
             .next()
             .unwrap()
             .replace("__CMD_JS__", "\"demo\"")
+            .replace("__CANCEL_JS__", "true")
             .replace("__META__", "[]");
         let mut path = std::env::temp_dir();
         path.push(format!("lilyco-gui-inline-{}.js", std::process::id()));

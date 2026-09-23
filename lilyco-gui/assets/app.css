@@ -466,7 +466,7 @@ input[type="checkbox"] {
 /* 空态与可滚动区域都要有交代：tabindex=0 的滚动区必须能看出被聚焦了
    （WCAG 2.1.1 键盘可滚动），占位色是终端固定色板里的灰，不走主题令牌 */
 .terminal:empty::before { content: "等待输出…"; color: #8b949e; }
-.terminal:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.terminal:focus-visible, #result:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .result-wrap { margin-top: var(--s-3); }
 .result-head {

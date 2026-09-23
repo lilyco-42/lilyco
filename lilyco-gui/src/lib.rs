@@ -8,7 +8,9 @@
 //!   （见 `files`）
 //! - **安全**：html_escape 全插值点、CSP/nosniff 响应头、动态内容一律 textContent 渲染；
 //!   受保护 POST 全部要求 token + 回环 Origin（见 `security`）
-//! - **取消**：`POST /cancel/{sid}` 置取消标志（命令侧经 ctx.is_cancelled() 响应）
+//! - **取消**：`POST /cancel/{sid}` 置取消标志（命令侧经 ctx.is_cancelled() 响应）。
+//!   句柄只有走 `Registry` 那条执行路才登记得到，所以 `serve_app` 内部就是单命令注册表；
+//!   自己传 `RunnerFn` 的 `serve` 没有句柄，页面相应地不画「取消」按钮
 //!
 //! 端点（与 scripts/acceptance/web_probe.py 验收契约兼容）：
 //! - `GET  /`                首页（?cmd= 多命令切换）
@@ -44,7 +46,7 @@ use axum::routing::{get, post};
 use axum::Router;
 use tokio::sync::Mutex;
 
-use lilyco_core::registry::{Handler, Registry};
+use lilyco_core::registry::{Handler, RegisteredCommand, Registry};
 use lilyco_core::schema::CommandSchema;
 use lilyco_core::{App, AppError};
 
@@ -53,7 +55,7 @@ pub use crate::security::TOKEN_HEADER;
 
 use crate::files::{pick_handler, upload_handler};
 use crate::render::index;
-use crate::run::{cancel_handler, progress_handler, run_handler, run_progress};
+use crate::run::{cancel_handler, progress_handler, run_handler};
 use crate::security::security_mw;
 use crate::state::AppState;
 use crate::util::generate_id;
@@ -69,6 +71,10 @@ impl GuiRenderer {
         Self { port }
     }
 
+    /// 单命令形态：自己给一个 `RunnerFn`。
+    ///
+    /// 注意这条路的取消：GUI 拿不到 handler 的取消句柄（它藏在 runner 里），
+    /// 所以页面的「取消」按钮不会出现。要取消请用 [`Self::serve_app`] / [`Self::serve_registry`]。
     pub async fn serve(&self, schema: CommandSchema, runner: RunnerFn) {
         let state = Arc::new(AppState {
             schema: Arc::new(schema),
@@ -144,26 +150,29 @@ impl GuiRenderer {
     /// Serve with a concrete `App` type. Auto-wires `from_args` + `run`
     /// and streams progress events to the browser via SSE.
     /// Eliminates the need to manually construct a `RunnerFn` closure.
+    ///
+    /// 内部走 `serve_registry`（单命令的注册表）而不是 `serve` + `RunnerFn`：
+    /// 只有那条路会把 executor 的取消句柄登记进 `AppState::cancels`，
+    /// 而 `#[app]` 的单命令二进制是这套 GUI 最主要的用户形态 ——
+    /// 走 RunnerFn 的话页面那颗「取消」每次只回一句 404，是个假承诺。
     pub async fn serve_app<A>(&self, schema: CommandSchema)
     where
         A: App + Send + 'static,
     {
-        let runner: RunnerFn = Arc::new(move |args, gui_tx| {
-            Box::pin(async move {
-                // 执行语义交给 core::executor（与 CLI / TUI / MCP 共享同一宿主）
-                let args_value = serde_json::to_value(&args).unwrap_or(serde_json::json!({}));
-                let handler: Handler = Arc::new(move |ctx, args| {
-                    let obj = args
-                        .as_object()
-                        .ok_or_else(|| AppError::InvalidArg("args must be a JSON object".into()))?;
-                    let map: std::collections::HashMap<String, serde_json::Value> =
-                        obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-                    let app = A::from_args(&map)?;
-                    app.run(ctx)
-                });
-                run_progress(handler, args_value, gui_tx).await;
-            })
+        // 执行语义交给 core::executor（与 CLI / TUI / MCP 共享同一宿主）
+        let handler: Handler = Arc::new(move |ctx, args| {
+            let obj = args
+                .as_object()
+                .ok_or_else(|| AppError::InvalidArg("args must be a JSON object".into()))?;
+            let map: HashMap<String, serde_json::Value> =
+                obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            let app = A::from_args(&map)?;
+            app.run(ctx)
         });
-        self.serve(schema, runner).await;
+        let mut registry = Registry::new();
+        registry
+            .register(RegisteredCommand::new(schema.name.clone(), schema).with_handler(handler))
+            .expect("serve_app: 空注册表不会拒绝它的第一条命令");
+        self.serve_registry(registry).await;
     }
 }

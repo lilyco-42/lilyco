@@ -1,8 +1,9 @@
 //! 执行侧：`POST /run` 分发、`GET /progress/{sid}` SSE 流、`POST /cancel/{sid}`。
 //!
-//! 单命令模式走调用方给的 `RunnerFn`；多命令模式（registry）按 `cmd` 显式取 handler，
-//! 并把取消句柄登记进 `AppState::cancels`。两条路都经 `core::executor`，
-//! 与 CLI / TUI / MCP 共用同一执行宿主。
+//! 能取消的执行路只有一条：`Registry` 里的 handler 经 `run_progress` 交给
+//! `core::executor`（与 CLI / TUI / MCP 同一宿主），顺手把取消句柄登记进
+//! `AppState::cancels`。自定义 `RunnerFn`（`serve`）自己 spawn 任务，GUI 手里
+//! 没有句柄，页面因此不画「取消」按钮（`serve_app` 走的就是单命令注册表）。
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -37,37 +38,17 @@ pub type RunnerFn = Arc<
         + Sync,
 >;
 
-/// 执行 handler 并把进度事件流式转发到 SSE 通道（单命令 / 多命令共用）
-pub(crate) async fn run_progress(
-    handler: Handler,
-    args: serde_json::Value,
-    gui_tx: tokio::sync::mpsc::Sender<serde_json::Value>,
-) {
-    let task = executor::spawn(handler, args);
-    for event in task.rx {
-        let json = serde_json::to_value(&event).unwrap();
-        if gui_tx.send(json).await.is_err() {
-            break;
-        }
-        if matches!(event, Progress::Done { .. } | Progress::Error { .. }) {
-            break;
-        }
-    }
-    if let Ok(Err(e)) = task.handle.join() {
-        let _ = gui_tx
-            .send(serde_json::json!({
-                "type": "error", "code": 1,
-                "message": e.to_string(), "kind": null
-            }))
-            .await;
-    }
-}
-
-/// 注册表模式的执行循环：额外把取消句柄登记到 `cancels`（/cancel/{sid} 用），
-/// 终态后清理。
-async fn run_progress_registry(
-    state: Arc<AppState>,
-    sid: String,
+/// 执行 handler 并把进度事件流式转发到 SSE 通道；同时登记取消句柄，终态后清理。
+///
+/// `cancels` 这一步是 /cancel 唯一能找到句柄的地方 —— 所以「可取消」这件事
+/// 由它决定，页面据此决定画不画「取消」（`render::index` 读 `state.registry`）。
+///
+/// 注意 `for event in task.rx` 是**阻塞**收事件（crossbeam 收件箱，不是 async）：
+/// 它占住一个 worker 线程，所以这条路只能在多线程 runtime 上跑（`axum::serve` 的
+/// 运行时满足）。测试里要用 `flavor = "multi_thread"`，单线程 runtime 会直接僵住。
+async fn run_progress(
+    state: &AppState,
+    sid: &str,
     handler: Handler,
     args: serde_json::Value,
     gui_tx: tokio::sync::mpsc::Sender<serde_json::Value>,
@@ -77,7 +58,7 @@ async fn run_progress_registry(
         .cancels
         .lock()
         .await
-        .insert(sid.clone(), Arc::clone(&task.cancel));
+        .insert(sid.to_string(), Arc::clone(&task.cancel));
     for event in task.rx {
         let json = serde_json::to_value(&event).unwrap();
         if gui_tx.send(json).await.is_err() {
@@ -87,7 +68,7 @@ async fn run_progress_registry(
             break;
         }
     }
-    state.cancels.lock().await.remove(&sid);
+    state.cancels.lock().await.remove(sid);
     if let Ok(Err(e)) = task.handle.join() {
         let _ = gui_tx
             .send(serde_json::json!({
@@ -146,7 +127,7 @@ pub(crate) async fn run_handler(
         let state2 = Arc::clone(&state);
         let sid2 = sid.clone();
         tokio::spawn(async move {
-            run_progress_registry(state2, sid2, handler, args_value, tx).await;
+            run_progress(&state2, &sid2, handler, args_value, tx).await;
         });
         return (
             StatusCode::OK,
@@ -237,7 +218,9 @@ mod tests {
     use lilyco_core::schema::CommandSchema;
 
     use super::*;
-    use crate::state::fixture::{registry_state, test_state};
+    use crate::state::fixture::{
+        body_of, registry_state, registry_state_with, schema_of, test_state,
+    };
 
     #[tokio::test]
     async fn registry_run_rejects_unknown_command() {
@@ -327,5 +310,85 @@ mod tests {
         args.insert("quality".to_string(), serde_json::json!(30));
         let resp = run_handler(State(state), Json(RunRequest { args, cmd: None })).await;
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    /// 「取消」的整条链：/run 登记句柄 → /cancel 找得到 → 终态后清掉。
+    /// 这条之所以要单独立着：`serve_app` 曾经走自定义 RunnerFn 那条路，句柄从来没进过
+    /// `cancels`，于是页面上每颗「取消」都只回一句 404 —— 而所有其它测试全是绿的。
+    ///
+    /// `multi_thread` 不是提速：`run_progress` 收事件是阻塞的，单线程 runtime 下它会
+    /// 饿死本测试的 `sleep`，第一次跑就把 `cargo test` 挂在那里（2026-09-23 实测 2 分钟不动）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn registry_run_registers_a_cancel_handle_and_clears_it() {
+        let mut reg = Registry::new();
+        let slow: Handler = Arc::new(|ctx, _args| {
+            // 一直跑到被取消：命令侧的 ctx.is_cancelled() 是唯一的出口
+            while !ctx.is_cancelled() {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Ok(serde_json::json!(null))
+        });
+        reg.register(
+            RegisteredCommand::new("slow", schema_of("slow", "慢命令", vec![])).with_handler(slow),
+        )
+        .unwrap();
+        let state = registry_state_with(reg);
+
+        let resp = run_handler(
+            State(state.clone()),
+            Json(RunRequest {
+                args: HashMap::new(),
+                cmd: Some("slow".into()),
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let sid = serde_json::from_str::<serde_json::Value>(&body_of(resp).await).unwrap()
+            ["session_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let mut found = false;
+        for _ in 0..200 {
+            if state.cancels.lock().await.contains_key(&sid) {
+                found = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        assert!(found, "/run 返回了 {sid}，却没登记它的取消句柄");
+
+        let resp = cancel_handler(State(state.clone()), Path(sid.clone())).await;
+        assert_eq!(resp.status(), StatusCode::OK, "/cancel 找不到正在跑的会话");
+
+        for _ in 0..200 {
+            if !state.cancels.lock().await.contains_key(&sid) {
+                return; // 终态后清理完成
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        panic!("会话已终态，取消句柄却还留在表里");
+    }
+
+    /// 反面：自定义 RunnerFn 那条路确实没有句柄 —— 页面据此不画「取消」（见 render 的同名测试）
+    #[tokio::test]
+    async fn runner_fn_sessions_cannot_be_cancelled() {
+        let state = test_state();
+        let mut args = HashMap::new();
+        args.insert("input".to_string(), serde_json::json!("a.png"));
+        args.insert("quality".to_string(), serde_json::json!(30));
+        let resp = run_handler(State(state.clone()), Json(RunRequest { args, cmd: None })).await;
+        let sid = serde_json::from_str::<serde_json::Value>(&body_of(resp).await).unwrap()
+            ["session_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let resp = cancel_handler(State(state), Path(sid)).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::NOT_FOUND,
+            "RunnerFn 模式不该假装能取消"
+        );
     }
 }

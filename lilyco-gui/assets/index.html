@@ -38,7 +38,8 @@ __FIELDS__
     <div id="log" class="terminal" role="log" aria-live="polite" tabindex="0" data-component="log"></div>
     <div class="result-wrap" id="result-wrap" hidden data-component="result">
       <div class="result-head"><span>结果</span><button type="button" id="copy-result" class="btn-icon">复制</button></div>
-      <pre id="result" class="mono"></pre>
+      <!-- 可滚动区一律 tabindex=0 让键盘能滚（WCAG 2.1.1），与 #log 同一条规矩 -->
+      <pre id="result" class="mono" role="region" aria-label="运行结果" tabindex="0"></pre>
     </div>
   </section>
 </section>
@@ -57,6 +58,8 @@ __FIELDS__
 const TOKEN=document.querySelector('meta[name="lilyco-token"]').content;
 const CMD=__CMD_JS__;
 const SCHEMA_ARGS=__META__;
+// 服务端登记过取消句柄才有这颗按钮；没有就别画（点了只得到一句 404）
+const CANCELABLE=__CANCEL_JS__;
 const $=id=>document.getElementById(id);
 const qsa=sel=>Array.from(document.querySelectorAll(sel));
 /* 装配清单：新增组件写一个 initXxx 并加进这里。
@@ -153,7 +156,9 @@ function copyText(text,btn){
     btn.classList.add(ok?"copied":"copy-failed");
     setTimeout(()=>{btn.textContent=old;btn.classList.remove("copied","copy-failed");delete btn.dataset.copying},1200);
   };
-  navigator.clipboard.writeText(text).then(()=>done(true),()=>done(false));
+  // writeText 也可能同步抛（非安全上下文里 clipboard 就是 undefined）；不接住就永远卡在
+  // data-copying=1，之后每次复制都被上面那道闸门吞掉
+  try{navigator.clipboard.writeText(text).then(()=>done(true),()=>done(false))}catch(err){done(false)}
 }
 
 /* ── Path · 拖拽上传（拿到的是服务端暂存副本路径）── */
@@ -265,41 +270,30 @@ function initPickButton(){
 }
 
 /* ── List · 动态行（初始行由服务端按 item 类型画好，这里只管增删）── */
+// 模板 = 服务端画的第一行。JS 不另立「item 类型 → 控件」映射表（§8.1 的平行表）
+const ROW_TMPL=new Map();
 function initList(){
+  qsa(".list-rows").forEach(host=>{
+    const tmpl=host.querySelector(".list-row");
+    if(tmpl)ROW_TMPL.set(host,tmpl);
+  });
   qsa("[data-list-add]").forEach(btn=>btn.addEventListener("click",()=>addListRow(btn.dataset.listAdd)));
   qsa(".row-del").forEach(b=>b.addEventListener("click",e=>removeListRow(e.currentTarget)));
 }
 function listItemEl(row){return row.querySelector("[data-list-item]")}
-// 复制服务端画好的第一行：控件类型由 item 决定，JS 不另立一套映射表（免得又各说各话）
+// item 控件回初始值：类型读服务端标的 data-item-kind，不靠 tagName 重猜
+function resetItem(el){
+  if(el.dataset.itemKind==="Flag")el.checked=false;
+  else if(el.dataset.itemKind==="Enum")el.selectedIndex=0;
+  else el.value="";
+}
 function addListRow(name){
   const host=$("list-"+name);
-  if(!host)return null;
-  const proto=host.querySelector(".list-row");
-  const row=document.createElement("div");row.className="list-row";
-  if(proto){
-    for(const src of proto.children){
-      const c=src.cloneNode(true);
-      if(c.hasAttribute("data-list-item")){
-        if(c.type==="checkbox")c.checked=false;
-        else if(c.tagName==="SELECT")c.selectedIndex=0;
-        else c.value="";
-      }else if(c.classList.contains("row-del")){
-        c.addEventListener("click",()=>removeListRow(c));
-      }
-      row.append(c);
-    }
-  }else{
-    // 一行都不剩（理论上不会发生：removeListRow 会兜一行），退化成文本行
-    const inp=document.createElement("input");
-    inp.type="text";inp.className="mono";inp.dataset.listItem=name;
-    inp.placeholder=host.dataset.placeholder||"";
-    inp.setAttribute("aria-label",host.dataset.placeholder||"");
-    const del=document.createElement("button");
-    del.type="button";del.className="btn-icon row-del";del.textContent="✕";
-    del.setAttribute("aria-label","删除该行");
-    del.addEventListener("click",()=>removeListRow(del));
-    row.append(inp,del);
-  }
+  const tmpl=host&&ROW_TMPL.get(host);
+  if(!tmpl)return null;
+  const row=tmpl.cloneNode(true);
+  for(const el of row.querySelectorAll("[data-list-item]"))resetItem(el);
+  row.querySelector(".row-del").addEventListener("click",e=>removeListRow(e.currentTarget));
   host.append(row);
   listItemEl(row).focus();
   updatePreview();
@@ -308,7 +302,7 @@ function addListRow(name){
 function removeListRow(node){
   const row=node.closest(".list-row"),host=row.closest(".list-rows");
   row.remove();
-  // 一行不剩就没法再填了，兜一行空的
+  // 删到最后一行也要能继续填：照模板补一行，控件类型仍跟着 item 走
   if(host&&!host.querySelector(".list-row"))addListRow(host.dataset.list);
   updatePreview();
 }
@@ -346,9 +340,12 @@ function logLine(cls,text){
 
 /* ── 结果区 ── */
 function initResult(){
+  clearResult();
+  $("copy-result").addEventListener("click",e=>copyText($("result").textContent,e.currentTarget));
+}
+function clearResult(){
   $("result-wrap").hidden=true;
   $("result").textContent="";
-  $("copy-result").addEventListener("click",e=>copyText($("result").textContent,e.currentTarget));
 }
 function showResult(value){
   $("result").textContent=JSON.stringify(value,null,2);
@@ -364,7 +361,9 @@ function initRunBar(){
 function setBusy(b){
   const btn=$("run-btn");
   btn.disabled=b;btn.classList.toggle("loading",b);btn.setAttribute("aria-busy",String(b));
-  $("cancel-btn").hidden=!b;
+  // cancel() 按下后会自禁，不在这里复原的话第二次运行它是「看得见但点不动」
+  const cb=$("cancel-btn");
+  cb.hidden=!(b&&CANCELABLE);cb.disabled=!b;
 }
 async function run(e){
   e.preventDefault();
@@ -374,7 +373,9 @@ async function run(e){
   //   实测连点三次 requestSubmit 就真发出三个 POST /run。）
   if($("run-btn").disabled||es)return;
   const data=readForm(),out=$("out");
-  out.hidden=false;initLog();setProgress(null);setProgressState(null);setBusy(true);
+  // 上一次的结论不清掉，日志在滚、结果区还写着旧 JSON —— 看着像这次运行刚出结果
+  out.hidden=false;initLog();clearResult();setProgress(null);setProgressState(null);setBusy(true);
+  $("cancel-btn").disabled=true;  // sid 还没回来：这一下点了确实什么都没发生，先别让它能点
   out.scrollIntoView({block:"nearest"});  // 手机上运行按钮在表单底部，输出区在它下面
   let sid;
   try{
@@ -382,6 +383,7 @@ async function run(e){
       body:JSON.stringify({args:data,cmd:CMD})});
     if(!resp.ok)throw new Error((await resp.text())||("HTTP "+resp.status));
     sid=(await resp.json()).session_id;activeSid=sid;
+    $("cancel-btn").disabled=false;  // 有 sid 了，/cancel 才有点得到的东西
   }catch(err){
     // 请求就没成功，根本没有进度可等：把不确定态的跑动动画停下来，
     // 不然那条一直滚的进度条看着像「还在跑」
