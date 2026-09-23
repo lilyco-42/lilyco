@@ -560,6 +560,17 @@ input[type="checkbox"] {
   #result { max-height: min(560px, 70vh); overflow-y: auto; }
 }
 
+/* 关掉动画不等于关掉状态：这两条给「被停了动画就啥也看不出来」的两个组件留了静态替代。
+   环境级没法实测（这台浏览器工具改不了 prefers-reduced-motion），规则级由
+   render.rs 的 reduced_motion_keeps_a_non_animated_state_signal 盯着别被删。 */
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
+  /* 不确定态原来靠 40% 的条来回跑；停掉动画它会停在半路，读起来像「卡在 40%」。
+     没动可动就用「铺满 + 压淡」表示「在跑，但不知道跑到哪了」。 */
+  .progress[data-indet="1"] .progress-bar { width: 100%; opacity: 0.5; }
+  /* 主按钮的 loading 是个转圈，动画一停就只剩个静止圆环、标签还被藏了 →
+     按钮看着像空的。这里改成文字「…”：不动也说得清在忙。 */
+  .btn.loading .btn-label { visibility: visible; }
+  .btn.loading .btn-label::after { content: " …"; }
+  .btn.loading::after { display: none; }
 }

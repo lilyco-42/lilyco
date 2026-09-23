@@ -118,7 +118,22 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 
 时长：微交互 150ms、状态切换 200ms、进场 300ms。只用 `transform` + `opacity`。
 `@keyframes` 上限 3 个（rise / spin / indet）。
-`prefers-reduced-motion: reduce` 时全部关闭（现有那条保留）。
+
+**关掉动画不等于关掉状态。** `prefers-reduced-motion: reduce` 那条把动画全停之后，
+两个「只靠动来说话」的组件会静悄悄失去状态，所以各留了一份静态替代：
+
+- 进度条不确定态：动画一停，40% 的条会停在半路，读起来像「卡在 40%」→ 改成**铺满 + 压淡**（`opacity .5`），
+  意思是「在跑，不知道到哪了」；确定态的百分比本来就在宽度里，不受影响。
+- 主按钮 loading：转圈停住只剩个静止圆环，而标签被 `visibility:hidden` 藏了 → 按钮看着像空的。
+  改成**留着标签 + 后缀 `…`**，不靠动也说得清在忙。
+
+这两条由 `render.rs` 的 `reduced_motion_keeps_a_non_animated_state_signal` 盯着别被删。
+实测（2026-09-23，这台浏览器环境恰好开着「减少动态效果」，所以是能真量的那一档）：
+不确定态读回 `width 394px / track 394px`、`opacity 0.5`、`animation-name none`；
+同一元素给到确定值 `setProgress(0.42)` 时又回到 `165px`（= 42%）、`opacity 1`、`aria-valuenow=42`，
+说明静态替代只接管不确定态，没有漏进确定进度。CSSOM 里两条同名规则各自的位置也对：
+根作用域那条还是 `width:40% + animation:indet 1.2s`（正常动效环境用的），reduce 块里才是铺满那条。
+`loading` 按钮在同一环境下读回 `visibility: visible` + `::after " …"`。
 
 ## 6. 分层：hairline 优先于阴影
 
@@ -172,14 +187,14 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 | 文件 | 重设计前 | 现在（2026-09-23 实测） |
 |------|---------|------|
 | `assets/index.html`（含内联 JS） | 10,377 B | 19,777 B |
-| `assets/app.css` | 10,314 B | 20,474 B |
-| 一次 `GET /` 的响应 | 未量过旧版（两个资源文件之和 20,691 B） | 41,091 B（`lbin` 的 identify 与 symbols 两份表单实测同尺寸） |
+| `assets/app.css` | 10,314 B | 21,424 B |
+| 一次 `GET /` 的响应 | 未量过旧版（两个资源文件之和 20,691 B） | 43,786 B（`lbin` 的 identify 表单实测字节数） |
 
 **上限不在这里写第二遍**：`src/render.rs` 的 `assets_stay_within_the_documented_budget`
 是唯一的闸门（HTML ≤ 21,000 B、CSS ≤ 22,500 B），涨过线编译期就红。
 响应比两个文件之和还大，是因为骨架里的 `__FIELDS__` / `__CMD_NAV__` / `__ABOUT__` / `__META__`
 都会换成真内容；按字符数报会少算约 5 KB（CJK 一个字三个字节），所以这张表一律记字节。
-涨的这 20 KB（资源文件从 20,691 B 到 40,251 B）买的是：两套主题 × 全令牌、§2.1 的组件级响应式、
+涨的这 21 KB（资源文件从 20,691 B 到 41,201 B）买的是：两套主题 × 全令牌、§2.1 的组件级响应式、
 §10 的七态与无障碍结构
 （真按钮、焦点环、live region、`aria-describedby`），以及行为层从「一坨顺序脚本」拆成 10 个可装配组件。
 这页要**内嵌进每个域二进制的 `.exe` 里**，所以预算是真的要守 —— 但它是本机回环上的单个响应，
@@ -238,7 +253,7 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 |------|------|------|--------|
 | `topbar` | brand + `command-nav` + 主题按钮 | hover / focus / active / `aria-pressed=true`（深色）/ 其余 n/a | `position:sticky` + `backdrop-filter`；窄容器里下拉整行换到第二行（实测 320–420 两行 99px、≥560 单行 57px，各档顶栏自身无横向溢出），主题按钮始终距右 16px |
 | `command-nav` | `<select id=cmd-nav>`，可见命令 >1 才出现 | hover / focus / **disabled + `aria-busy="true"`**（换命令要整页重载，切换那一下就把下拉按住：实测 `disabled=true`、`opacity 0.55`、`cursor:progress` —— 那是「正在办」不是「不许办」，所以不复用默认的 `not-allowed`）/ loading·empty·error·success：n/a（值域非空、选不出非法值，成败由整页重载自己回答） | `aria-label="切换命令"`；跳转在 `initCommandNav`，不写内联 `onchange` |
-| `run-bar` | `运行` + `取消` + `复制 CLI` | hover / focus / disabled（跑起来时）/ loading（`.loading` 转圈 + `aria-busy`）/ 空 n/a / error（取消失败时按钮解禁）/ success n/a | `type=submit` 语义保留；`aria-busy` 给读屏 |
+| `run-bar` | `运行` + `取消` + `复制 CLI` | hover / focus / disabled（跑起来时）/ loading（`.loading` 转圈 + `aria-busy`；关掉动画时改文字 `…`，见 §5）/ 空 n/a / error（取消失败时按钮解禁）/ success n/a | `type=submit` 语义保留；`aria-busy` 给读屏 |
 | `cli-preview` | `$ ` + 一行命令文本 | 空 = `display:none`（不留孤零零的 `$ `）/ 其余 n/a（纯展示） | 只读；`复制 CLI` 才有反馈 |
 | `output` | `out-head` + `log` + `result-wrap` 的容器 | 空（`hidden`）/ 有内容（`hidden` 撤掉）/ error（装配失败时也强制露出来） | `#log` 是唯一 live region（`role=log`）；`#out` 不再叠 `aria-live`，免得同一句话念两遍 |
 | `progress` | `.progress` + `.progress-bar` | 不确定（`data-indet=1` 跑动）/ 确定（写 `aria-valuenow`）/ done（整条绿）/ error（整条红且走满，0% 的空条等于「什么都没发生」）/ 请求都没成功时收在 0%（不再空转） | `role=progressbar` + `aria-valuemin/max`；无比例时不给 `valuenow`（别骗读屏） |

@@ -879,6 +879,30 @@ mod tests {
         );
     }
 
+    /// `prefers-reduced-motion` 把动画全停之后，「进度不确定」与「按钮在忙」这两件事
+    /// 必须有静态替代 —— 关掉动画不等于关掉状态（40% 的条会看着像卡住，转圈的按钮
+    /// 会看着像空的）。这台浏览器工具没法模拟那条媒体查询，所以至少把规则钉在测试里：
+    /// 谁删了静态替代，这里红。
+    #[test]
+    fn reduced_motion_keeps_a_non_animated_state_signal() {
+        let css = include_str!("../assets/app.css");
+        let block = css
+            .split("@media (prefers-reduced-motion: reduce)")
+            .nth(1)
+            .expect("reduced-motion 那段没了");
+        for need in [
+            "width: 100%", // 不确定态：铺满 + 压淡
+            "opacity: 0.5",
+            "visibility: visible", // loading：标签留着
+            "display: none",       // 静止的转圈别再占位
+        ] {
+            assert!(
+                block.contains(need),
+                "reduced-motion 里少了静态替代：{need}"
+            );
+        }
+    }
+
     /// 体积闸门（DESIGN.md §9）：这页要 `include_str!` 进每个域二进制的 `.exe`，
     /// 上限只写在这一个地方 —— 表格里再抄一份就是第二张需要人记着的平行表。
     /// 涨过线要么删点什么，要么改这里并说清换来什么。
