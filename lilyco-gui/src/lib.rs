@@ -37,6 +37,7 @@ mod util;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use axum::extract::DefaultBodyLimit;
 use axum::middleware;
 use axum::routing::{get, post};
 use axum::Router;
@@ -107,7 +108,12 @@ impl GuiRenderer {
             .route("/", get(index))
             .route("/run", post(run_handler))
             .route("/progress/{id}", get(progress_handler))
-            .route("/upload", post(upload_handler))
+            // /upload 单独放宽：axum 默认只放 2 MB，拖一个稍大的文件进去会在传输层
+            // 被掐断，页面只剩一句「Failed to fetch」——那句可读的 413 轮不到说出口
+            .route(
+                "/upload",
+                post(upload_handler).layer(DefaultBodyLimit::max(files::MAX_JSON_BODY)),
+            )
             .route("/cancel/{id}", post(cancel_handler))
             .route("/pick", post(pick_handler))
             .route_layer(middleware::from_fn_with_state(state.clone(), security_mw))

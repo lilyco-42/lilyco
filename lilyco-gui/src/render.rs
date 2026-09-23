@@ -121,8 +121,8 @@ pub(crate) async fn index(
                 };
                 format!(
                     "<input type=\"text\" id=\"field-{esc_name}\" class=\"mono\" placeholder=\"{}\"{req_a} value=\"{}\" spellcheck=\"false\">\
-                     <div class=\"dropzone\" data-target=\"field-{esc_name}\" data-must-exist=\"{must_attr}\" tabindex=\"0\" role=\"button\" aria-label=\"上传文件\">\
-                     <input type=\"file\" class=\"visually-hidden\" data-file-for=\"field-{esc_name}\" tabindex=\"-1\">\
+                     <div class=\"dropzone\" data-target=\"{esc_name}\" data-must-exist=\"{must_attr}\" tabindex=\"0\" role=\"button\" aria-label=\"上传文件\">\
+                     <input type=\"file\" class=\"visually-hidden\" data-file-for=\"{esc_name}\" tabindex=\"-1\">\
                      <span class=\"dz-icon\">⇪</span><span class=\"dz-hint\">{hint}</span>\
                      <span class=\"dz-status\" id=\"up-{esc_name}\" aria-live=\"polite\"></span>\
                      <span class=\"file-chip\" id=\"chip-{esc_name}\" hidden></span>{pick_btn}</div>",
@@ -238,7 +238,9 @@ mod tests {
     use lilyco_core::schema::{ArgKind, ArgSchema, CommandSchema};
 
     use super::*;
-    use crate::state::fixture::{body_of, registry_state, two_command_registry};
+    use crate::state::fixture::{
+        arg, body_of, registry_state, schema_of, state_with, two_command_registry,
+    };
 
     #[test]
     fn pick_command_defaults_to_first_visible() {
@@ -373,5 +375,47 @@ mod tests {
             "must_exist 语义保留"
         );
         assert!(body.contains("type=\"file\""), "必须有文件选择入口");
+    }
+
+    /// 页面 JS 拿 `$("field-" + dz.dataset.target)` 找输入框，所以 `data-target` 必须是
+    /// **裸参数名**。这里曾经发的是 `field-path`，JS 拼成 `field-field-path` 取到 null，
+    /// 上传明明成功了，页面却报「上传失败：Cannot set properties of null」——
+    /// 只有真在浏览器里拖一个文件进去才看得见。
+    #[tokio::test]
+    async fn dropzone_ids_match_what_the_page_looks_up() {
+        let state = state_with(schema_of(
+            "up",
+            "upload",
+            vec![arg(
+                "file",
+                "文件",
+                ArgKind::Path { must_exist: true },
+                true,
+                None,
+            )],
+        ));
+        let body = body_of(index(State(state), Query(HashMap::new())).await).await;
+        let target = body
+            .split("data-target=\"")
+            .nth(1)
+            .expect("dropzone 要有 data-target")
+            .split('"')
+            .next()
+            .unwrap()
+            .to_string();
+        assert_eq!(target, "file", "data-target 要的是裸参数名，不是 id");
+        // JS 拼出来的那几个 id 必须真的在页面里
+        assert!(
+            body.contains(&format!("id=\"field-{target}\"")),
+            "输入框 id 对不上 JS 的拼法"
+        );
+        assert!(
+            body.contains(&format!("id=\"up-{target}\"")),
+            "状态行 id 对不上 /pick 的拼法"
+        );
+        assert!(
+            !cfg!(feature = "pick") || body.contains(&format!("data-pick=\"{target}\"")),
+            "本机按钮的 data-pick 与 data-target 得用同一套名字"
+        );
     }
 }

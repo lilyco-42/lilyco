@@ -17,6 +17,18 @@ use crate::util::generate_id;
 
 /// 上传大小上限（base64 编码前）
 const MAX_UPLOAD_BYTES: usize = 200 * 1024 * 1024;
+/// 体积粗筛看的 base64 字符数上限（base64 膨胀系数 4/3，再加一点余量）
+const MAX_B64_CHARS: usize = MAX_UPLOAD_BYTES / 3 * 4 + 1024;
+/// `/upload` 的**传输层**上限：必须比 [`MAX_B64_CHARS`] 宽，否则超限的请求会在
+/// axum 默认那道 2 MB 闸上被直接掐断，浏览器只报「Failed to fetch」，页面里那句
+/// 「file too large (max 200MB)」永远显示不出来（用户实测截图就是前者）。
+/// 多出来的 1 MiB 给 JSON 外壳（`name` 字段 + 括号）。
+pub(crate) const MAX_JSON_BODY: usize = MAX_B64_CHARS + (1 << 20);
+// 两条线一旦倒过来，超限上传就只剩一句「Failed to fetch」——编译期就把它钉住。
+const _: () = assert!(
+    MAX_JSON_BODY > MAX_B64_CHARS,
+    "传输层上限必须比 handler 的体积粗筛更宽"
+);
 
 /// 对话框标题：既是给用户看的，也是本进程找回那个窗口的查找键
 #[cfg(feature = "pick")]
@@ -101,7 +113,7 @@ pub(crate) async fn upload_handler(Json(req): Json<UploadRequest>) -> Response {
         return (StatusCode::BAD_REQUEST, "invalid file name").into_response();
     }
     // base64 膨胀系数 4/3：编码长度粗筛即可挡住超大 body
-    if req.data_b64.len() > MAX_UPLOAD_BYTES / 3 * 4 + 1024 {
+    if req.data_b64.len() > MAX_B64_CHARS {
         return (StatusCode::PAYLOAD_TOO_LARGE, "file too large (max 200MB)").into_response();
     }
     let Some(bytes) = base64_decode(&req.data_b64) else {
