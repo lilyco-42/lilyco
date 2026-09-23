@@ -1131,6 +1131,40 @@ mod tests {
         );
     }
 
+    /// 「设计系统即数字 / 只此一张表」的机器版：`app.css` 里出现的每一个颜色字面量，
+    /// 都必须能在 `DESIGN.md` 里找到 —— 样式表里悄悄多一个色，就是多了一张没人记的表。
+    /// 终端区那一串（§1.3）也在文档里逐个列全，所以这里不需要例外名单。
+    #[test]
+    fn every_css_color_is_in_the_design_table() {
+        let css = include_str!("../assets/app.css");
+        let doc = include_str!("../DESIGN.md").to_ascii_lowercase();
+        let b = css.as_bytes();
+        let mut offenders: Vec<String> = Vec::new();
+        let mut i = 0;
+        while i < b.len() {
+            if b[i] != b'#' {
+                i += 1;
+                continue;
+            }
+            let mut j = i + 1;
+            while j < b.len() && b[j].is_ascii_hexdigit() {
+                j += 1;
+            }
+            // 只认 3/4/6/8 位那一族：`#result` 这类选择器的下一个字母不是十六进制位
+            if matches!(j - i - 1, 3 | 4 | 6 | 8) {
+                let hex = String::from_utf8_lossy(&b[i + 1..j]).to_ascii_lowercase();
+                if !doc.contains(&format!("#{hex}")) {
+                    offenders.push(format!("#{hex}"));
+                }
+            }
+            i = j;
+        }
+        assert!(
+            offenders.is_empty(),
+            "app.css 里这些颜色没写进 DESIGN.md：{offenders:?}（§1 是唯一一张表）"
+        );
+    }
+
     /// `List` 的行控件由 item 类型决定。以前不管 item 是什么都画文本框，于是 `Vec<u32>`
     /// 这种参数从 Web 交上去的是字符串数组，而 schema 声明的是 `Number`
     /// （`validate_kind` 只认 `as_f64`）→ 一句「需要数字」。
