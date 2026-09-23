@@ -192,12 +192,18 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 
 | 组件 | 构成 | 七态 | 令牌 | 无障碍 |
 |------|------|------|------|--------|
-| `flag` | `<label class="flag-row">` + 原生 checkbox | hover（原生）/ focus（`input:focus-visible` 环）/ disabled / checked（=success，原生勾选）/ loading·empty·error：n/a（开关没有中间态） | `--accent`（`accent-color`）`--s-2` | 标签即 `label for`，整行可点；不用 ARIA 重造 |
-| `text` | 单个 `<input type=text>` | hover 描边压深 / focus accent + 3px 环 / disabled 0.55 / `:user-invalid` 描边转红 / 空 = 无占位以外状态 | `--control` 3.64·3.30 / `--ink` 17.63·14.50 / `--danger` 6.54·6.94 | `label for`；`required` 用原生属性；16px 字号（≤720 视口）防 iOS 聚焦缩放 |
-| `number` | `<input type=number>` + `.field-hint` | 同 `text`，另有 `:out-of-range`（实测 `min/max` 生效） | 同上 + `--ink-muted` 5.43·7.07 | `min`/`max` 进属性 **且** 写成可见提示；`aria-describedby="hint-<arg>"` 让读屏念得出区间 |
-| `enum` | `<select>` + `<option selected>` | hover / focus / disabled / 空 = n/a（值域非空）/ error = n/a（选不出非法值） | `--control` / `--ink` | 原生键盘可用；`--s-1..7` 高度 40px 与其它控件对齐 |
-| `path` | 手填 `<input>` + `.dropzone` 容器（三件套） | hover / focus（里面每个控件各自）/ disabled（`本机` 请求中）/ busy（`.dz-status.busy`）/ success（`.uploaded` + `ok`）/ error（`.dz-status.err` + 整区 `:has()` 转红）/ empty（`.dz-hint`） | `--accent` 5.17·6.83 / `--warn` / `--ok` / `--danger` / `--accent-soft` | 状态行 `id="up-<arg>"` `role=status` `aria-live=polite`，并挂在路径框的 `aria-describedby` 上；上传结果不必聚焦也能读到 |
-| `list` | `.list-rows` + N 行（输入框 + `✕`）+ `.list-add` | hover / focus（`.btn-icon` 环）/ disabled / 空 = 删到一行时兜一行空的 / error·success：n/a（逐行无独立反馈） | `--s-2` 节奏 / `--danger`（删除 hover） | 行按钮 `aria-label="删除该行"`；新增行 `focus()` 跟上；`data-placeholder` 让新行与初始行同一套文案 |
+| `flag` | `<label class="flag-row">` + 原生 checkbox | hover（原生）/ focus（`input:focus-visible` 环）/ disabled\* / checked（=success，原生勾选）/ loading·empty·error：n/a（开关没有中间态） | `--accent`（`accent-color`）`--s-2` | 标签即 `label for`，整行可点；不用 ARIA 重造 |
+| `text` | 单个 `<input type=text>` | hover 描边压深 / focus accent + 3px 环 / disabled\* / `:user-invalid` 描边转红 / 空 = 无占位以外状态 / loading·success：n/a | `--control` 3.64·3.30 / `--ink` 17.63·14.50 / `--danger` 6.54·6.94 | `label for`；`required` 用原生属性；16px 字号（≤720 视口）防 iOS 聚焦缩放 |
+| `number` | `<input type=number>` + `.field-hint` | 同 `text`，另有 `:out-of-range`（实测填 999 进 `1–100` 的框，`matches(":out-of-range")` 为真，描边由这条规则转红） | 同上 + `--ink-muted` 5.43·7.07 | `min`/`max` 进属性 **且** 写成可见提示；`aria-describedby="hint-<arg>"` 让读屏念得出区间 |
+| `enum` | `<select>` + `<option selected>` | hover / focus / disabled\* / 空 = n/a（值域非空）/ error = n/a（选不出非法值）/ loading·success：n/a | `--control` / `--ink` | 原生键盘可用；40px 高与其它控件对齐（同一档 `--s-*` 节奏） |
+| `path` | 手填 `<input>` + `.dropzone` 容器（三件套） | hover / focus（里面每个控件各自）/ disabled（`本机` 在 `POST /pick` 期间由 JS 置位）/ busy（`.dz-status.busy`）/ success（`.uploaded` + `ok`，实测拖一个 600 B 文件走完全程）/ error（`.dz-status.err` + 整区 `:has()` 转红）/ empty（`.dz-hint`） | `--accent` 5.17·6.83 / `--warn` / `--ok` / `--danger` / `--accent-soft` | 状态行 `id="up-<arg>"` `role=status` `aria-live=polite`，并挂在路径框的 `aria-describedby` 上；上传结果不必聚焦也能读到 |
+| `list` | `.list-rows` + N 行（输入框 + `✕`）+ `.list-add` | hover / focus（`.btn-icon` 环）/ disabled\* / 空 = 删到一行时兜一行空的（实测连删 5 次仍留 1 行）/ error·success：n/a（逐行无独立反馈） | `--s-2` 节奏 / `--danger`（删除 hover） | 行按钮 `aria-label="删除该行"`；新增行 `focus()` 跟上；`data-placeholder` 让新行与初始行同一套文案 |
+
+\* `disabled` 的**样式**实测到位（`run` / `btn-icon` / `input` 三者都读回 `opacity:0.55` +
+`cursor:not-allowed`），但参数控件这一层暂时没有**触发方**：schema 里还没有「只读参数」这种东西。
+三颗按钮（`运行` / `取消` / `本机`）是真的会置灰 —— 前两颗由 `setBusy`/`cancel` 驱动，
+`本机` 在 `POST /pick` 期间驱动（那一下会弹系统对话框，故意没在自动化里点）。
+参数控件留着这条规则是控件基线的一部分：哪天真出现只读参数，直接复用，别另起一行。
 
 ### 10.2 拖拽区（`path` 里最重的一个，单独说）
 
@@ -226,6 +232,14 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 | `result` | `结果` + `复制` + `<pre>` | 空 = 整块 `hidden` / success（跑完露出）/ error = n/a（失败没有结果）/ 其余 n/a | `JSON.stringify(…,2)` 纯文本；宽屏 ≥1200 时限高内滚 |
 | `file-chip` | 已上传文件的一枚胶囊按钮 | hover（转危险色）/ focus / 空 = `hidden` / 其余 n/a | `aria-label` 由 JS 写成「清除已上传的 <文件名>」，读屏念得出是哪个文件 |
 | 复制反馈 | `copyText()` | copied（文字换「已复制」+ `--ok` 1.2s）/ failed（「复制失败」+ `--danger`）/ 平时 n/a | 剪贴板被拒（自动化环境实测被拒）不能静默 —— 静默的复制等于没复制 |
+
+**状态色实测**（深色主题下读回；浅色用同一批令牌，值见 §1.1/§1.2）：
+`disabled` = `opacity 0.55` + `cursor not-allowed`（`run` / `btn-icon` / `input` 三处一致）；
+`loading` = `cursor progress` + `spin` 动画；`progress done` `#3ddc97`、`error` `#ff7b72`；
+`dropzone.uploaded` 边框 `#6ea1ff` 实线且提示语让位（`.dz-hint` 隐藏）、
+错误态靠 `.dropzone:has(.dz-status.err)` 从 `#5f6d7c` 翻成 `#ff7b72`；
+`copied` `#3ddc97`、`copy-failed` `#ff7b72`；日志空态占位 `#8b949e`（终端固定色板，见 §1.3）；
+主题按钮按下（`aria-pressed=true`）描边与字色转 `#6ea1ff`。
 
 ### 10.4 加一个组件的清单
 
