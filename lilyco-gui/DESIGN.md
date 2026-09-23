@@ -124,10 +124,15 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 
 - 进度条不确定态：动画一停，40% 的条会停在半路，读起来像「卡在 40%」→ 改成**铺满 + 压淡**（`opacity .5`），
   意思是「在跑，不知道到哪了」；确定态的百分比本来就在宽度里，不受影响。
-- 主按钮 loading：转圈停住只剩个静止圆环，而标签被 `visibility:hidden` 藏了 → 按钮看着像空的。
-  改成**留着标签 + 后缀 `…`**，不靠动也说得清在忙。
+- 主按钮 loading：`* { animation: none !important }` 打不到伪元素 —— 改之前实测
+  `getComputedStyle(btn,'::after').animationName` 在 reduce 环境下仍然是 `spin`，也就是**根本没遵守
+  用户的偏好**，转圈照转；同时标签被 `visibility:hidden` 藏着，读屏与低视力用户只剩一个会转的空壳。
+  现在 reduce 下 `::after` 是 `display:none`（圈没了），标签 `visibility:visible` 并加后缀 `…`，
+  `aria-busy="true"`、`disabled`、`cursor:progress` 一起到位 —— 既不动也不空。
+  （`走 setBusy(true)` 这条真实代码路径量的，不是手动加 class。）
 
 这两条由 `render.rs` 的 `reduced_motion_keeps_a_non_animated_state_signal` 盯着别被删。
+顺带记一句教训：`*` 选不到 `::before` / `::after`，想真的「减少动效」得点名伪元素自己。
 实测（2026-09-23，这台浏览器环境恰好开着「减少动态效果」，所以是能真量的那一档）：
 不确定态读回 `width 394px / track 394px`、`opacity 0.5`、`animation-name none`；
 同一元素给到确定值 `setProgress(0.42)` 时又回到 `165px`（= 42%）、`opacity 1`、`aria-valuenow=42`，
