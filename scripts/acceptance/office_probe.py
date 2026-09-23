@@ -100,6 +100,7 @@ def main() -> int:
         "notes.doc": ("compound", "word", "doc"),
         "notes-en.doc": ("compound", "word", "doc"),
         "formats.xlsx": ("ooxml", "excel", "xlsx"),
+        "formats.ods": ("opendocument", "excel", "ods"),
         "book.xls": ("compound", "excel", "xls"),
         "deck.ppt": ("compound", "powerpoint", "ppt"),
         "notes.rtf": ("rtf", "word", "rtf"),
@@ -267,6 +268,11 @@ def main() -> int:
         check("%s 覆盖格与合并" % name,
               [(one.get("covered"), one.get("merged")) for one in got.get("sheets", [])],
               [(one["covered"], one["merged"]) for one in want["sheets"]])
+        txt = lbin("office-text", fixture(name))
+        check("%s office-text 走的是格子口径" % name, txt.get("kind"), "cells")
+        check("%s office-text 的格子清单" % name,
+              [(one.get("sheet"), one.get("ref"), one.get("text")) for one in txt.get("paragraphs", [])],
+              [(one["name"], cell["ref"], cell["text"]) for one in want["sheets"] for cell in one["cell_list"]])
 
     # ── 3d) ODT：文字文档的结构账 ───────────────────────────────────
     print("=== 3d) notes.odt：office-doc 的 ODF 分支 ===")

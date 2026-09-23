@@ -10,6 +10,8 @@
 //! - **SpreadsheetML**（xlsx / xlsm）：网格没有「段落」，给的是**有值的单元格**
 //!   （含内联字符串与共享字符串两种存法），并说明公式单元格里读到的是公式而不是缓存值；
 //! - **ODF / RTF**：ODF 读 `content.xml` 的 `text:p` 与 `text:h`（层级看 `text:outline-level`）；
+//!   `.ods` 例外——它跟 xlsx 一样按格子交账（表名 + A1 位置 + 值类型），
+//!   因为「一份表格文件的正文」就是它那些格子；
 //!   RTF 走 [`crate::rtf`] 的目标群感知提取，不是「把控制字删掉」就算完。
 //!
 //! 遗留二进制格式走另两条路：`.doc` 的正文位置在 FIB 指向的 **piece 表** 里（见 [`crate::word]`），
@@ -34,7 +36,7 @@ use crate::zipread::{self, Member, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-text",
     run = "run_office_text",
-    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored), then the parts that are not in the body at all - comments, footnotes, endnotes, headers and footers - each entry carrying from/part/author/date so a comment never reads like body text. pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=record-tree with every text atom found by walking the tree (master placeholders included, because they really are in the file). Read-only (safety T0): parts are inflated in memory only."
+    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored), then the parts that are not in the body at all - comments, footnotes, endnotes, headers and footers - each entry carrying from/part/author/date so a comment never reads like body text. pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels - except .ods, which answers like a spreadsheet does: one entry per non-empty cell with its sheet name, A1-style reference and declared value type (the text shown in the cell, not office:value). rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=record-tree with every text atom found by walking the tree (master placeholders included, because they really are in the file). Read-only (safety T0): parts are inflated in memory only."
 )]
 pub struct OfficeText {
     /// 办公文件
@@ -303,6 +305,29 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                 "公式单元格读到的是公式本身：这份文件里没有缓存结果，报数值就是猜".to_string(),
             );
         }
+        Family::Odf if doc.app == "excel" => {
+            // ODS 的正文就是格子：按表按位置交出来，跟 xlsx 那条同一个口径
+            kind = "cells";
+            let book = crate::odsheet::read(bytes);
+            notes.extend(book.notes.iter().cloned());
+            parts_read.push("content.xml".to_string());
+            for one in &book.sheets {
+                for had in &one.cells {
+                    let extra = json!({
+                        "sheet": one.name,
+                        "ref": had.reference,
+                        "value_type": had.value_type,
+                        "part": "content.xml",
+                    });
+                    push_paragraph(&mut paragraphs, app.keep_empty, &had.text, extra);
+                }
+            }
+            notes.push(
+                "ODS 的格子里交出来的是给人看的那一份（`12.5%`、`2013年12月23日`），\
+                 真正的值在 office:value / date-value —— 要两份账用 office-sheet"
+                    .to_string(),
+            );
+        }
         Family::Odf => {
             kind = "paragraphs";
             if let Some(member) = read(bytes, "content.xml") {
@@ -312,7 +337,7 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                 // 读出来的就不是那份文档了
                 let mut ordered: Vec<(&Node, bool)> = Vec::new();
                 gather_text_nodes(&root, &mut ordered);
-                for (index, (one, heading)) in ordered.into_iter().enumerate() {
+                for (one, heading) in ordered {
                     let text = run_text(one);
                     if text.is_empty() && !app.keep_empty {
                         continue;
@@ -324,6 +349,7 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                     } else {
                         0
                     };
+                    let index = paragraphs.len();
                     paragraphs.push(json!({
                         "index": index,
                         "text": text,
@@ -340,10 +366,11 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
             let one = crate::rtf::extract(bytes);
             notes.extend(one.notes.iter().cloned());
             parts_read.push("(rtf stream)".to_string());
-            for (index, line) in one.lines.iter().enumerate() {
+            for line in &one.lines {
                 if line.is_empty() && !app.keep_empty {
                     continue;
                 }
+                let index = paragraphs.len();
                 paragraphs.push(json!({ "index": index, "text": line, "part": "rtf" }));
             }
         }
@@ -794,6 +821,50 @@ mod tests {
         assert!(
             items.iter().any(|one| one["heading"] != Value::Null),
             "标题要有层级：{items:?}"
+        );
+        // index 是「这份列表里的第几条」，跳号就说明有条目被默默丢掉了
+        let listed: Vec<u64> = items
+            .iter()
+            .map(|one| one["index"].as_u64().expect("每条都有 index"))
+            .collect();
+        assert_eq!(
+            listed,
+            (0..listed.len() as u64).collect::<Vec<u64>>(),
+            "{listed:?}"
+        );
+    }
+
+    /// ODS 的正文就是格子：按表、按位置交出来，口径与 xlsx 那条一致
+    /// （期望值来自 `ods_facts()`）
+    #[test]
+    fn an_opendocument_spreadsheet_reads_as_cells() {
+        let out = run("book.ods", 20000, false);
+        assert_eq!(out["kind"], "cells", "{out}");
+        let items = out["paragraphs"].as_array().expect("是数组");
+        assert_eq!(items.len(), 11, "{out}");
+        assert_eq!(items[0]["text"], "科目");
+        assert_eq!(items[0]["sheet"], "预算表");
+        assert_eq!(items[0]["ref"], "A1");
+        assert_eq!(items[7]["ref"], "B4", "公式格给的是文件里算出来的那一个数");
+        assert_eq!(items[7]["text"], "142000", "{out}");
+        assert_eq!(items[7]["value_type"], "float");
+        assert_eq!(items[10]["sheet"], "草稿", "隐藏表的内容也在");
+        let listed: Vec<u64> = items
+            .iter()
+            .map(|one| one["index"].as_u64().expect("每条都有 index"))
+            .collect();
+        assert_eq!(
+            listed,
+            (0..listed.len() as u64).collect::<Vec<u64>>(),
+            "{listed:?}"
+        );
+        assert!(
+            out["notes"]
+                .as_array()
+                .expect("有 notes")
+                .iter()
+                .any(|one| one.as_str().unwrap_or("").contains("office:value")),
+            "{out}"
         );
     }
 
