@@ -168,15 +168,17 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 
 ## 9. 体积预算
 
-| 文件 | 重设计前 | 现在 | 上限 |
-|------|---------|------|------|
-| `assets/index.html`（含内联 JS） | 10,377 B | 18,221 B | 21,000 B |
-| `assets/app.css` | 10,314 B | 20,125 B | 22,500 B |
-| 一次 `GET /` 的响应 | 未量过旧版（两个资源文件之和 20,691 B） | 41,091 B（`lbin` 的 identify 与 symbols 两份表单实测同尺寸） | 46,000 B |
+| 文件 | 重设计前 | 现在（2026-09-23 实测） |
+|------|---------|------|
+| `assets/index.html`（含内联 JS） | 10,377 B | 19,489 B |
+| `assets/app.css` | 10,314 B | 20,307 B |
+| 一次 `GET /` 的响应 | 未量过旧版（两个资源文件之和 20,691 B） | 41,091 B（`lbin` 的 identify 与 symbols 两份表单实测同尺寸） |
 
+**上限不在这里写第二遍**：`src/render.rs` 的 `assets_stay_within_the_documented_budget`
+是唯一的闸门（HTML ≤ 21,000 B、CSS ≤ 22,500 B），涨过线编译期就红。
 响应比两个文件之和还大，是因为骨架里的 `__FIELDS__` / `__CMD_NAV__` / `__ABOUT__` / `__META__`
 都会换成真内容；按字符数报会少算约 5 KB（CJK 一个字三个字节），所以这张表一律记字节。
-涨的这 20 KB（响应从 20,691 B 到 41,091 B）买的是：两套主题 × 全令牌、§2.1 的组件级响应式、
+涨的这 19 KB（资源文件从 20,691 B 到 39,796 B）买的是：两套主题 × 全令牌、§2.1 的组件级响应式、
 §10 的七态与无障碍结构
 （真按钮、焦点环、live region、`aria-describedby`），以及行为层从「一坨顺序脚本」拆成 10 个可装配组件。
 这页要**内嵌进每个域二进制的 `.exe` 里**，所以预算是真的要守 —— 但它是本机回环上的单个响应，
@@ -200,7 +202,15 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 | `number` | `<input type=number>` + `.field-hint` | 同 `text`，另有 `:out-of-range`（实测填 999 进 `1–100` 的框，`matches(":out-of-range")` 为真，描边由这条规则转红） | 同上 + `--ink-muted` 5.43·7.07 | `min`/`max` 进属性 **且** 写成可见提示；`aria-describedby="hint-<arg>"` 让读屏念得出区间 |
 | `enum` | `<select>` + `<option selected>` | hover / focus / disabled\* / 空 = n/a（值域非空）/ error = n/a（选不出非法值）/ loading·success：n/a | `--control` / `--ink` | 原生键盘可用；40px 高与其它控件对齐（同一档 `--s-*` 节奏） |
 | `path` | 手填 `<input>` + `.dropzone` 容器（三件套） | hover / focus（里面每个控件各自）/ disabled（`本机` 在 `POST /pick` 期间由 JS 置位）/ busy（`.dz-status.busy`）/ success（`.uploaded` + `ok`，实测拖一个 600 B 文件走完全程）/ error（`.dz-status.err` + 整区 `:has()` 转红）/ empty（`.dz-hint`） | `--accent` 5.17·6.83 / `--warn` / `--ok` / `--danger` / `--accent-soft` | 状态行 `id="up-<arg>"` `role=status` `aria-live=polite`，并挂在路径框的 `aria-describedby` 上；上传结果不必聚焦也能读到 |
-| `list` | `.list-rows` + N 行（输入框 + `✕`）+ `.list-add` | hover / focus（`.btn-icon` 环）/ disabled\* / 空 = 删到一行时兜一行空的（实测连删 5 次仍留 1 行）/ error·success：n/a（逐行无独立反馈） | `--s-2` 节奏 / `--danger`（删除 hover） | 行按钮 `aria-label="删除该行"`；新增行 `focus()` 跟上；`data-placeholder` 让新行与初始行同一套文案 |
+| `list` | `.list-rows` + N 行（**行的控件按 item 类型**：Text→文本、Number→带区间的数字框、Enum→下拉、Path→等宽文本、Flag→复选框）+ `.list-add` | hover / focus（`.btn-icon` 环）/ disabled\* / 空 = 删到一行时兜一行空的（实测连删 5 次仍留 1 行）/ error·success：n/a（逐行无独立反馈） | `--s-2` 节奏 / `--danger`（删除 hover） | 行控件 `aria-label` 取参数说明；新增行 `focus()` 跟上；新行是**复制服务端画好的第一行**（`addListRow` 不自己判断类型，JS 里因此没有第二份「item→控件」映射） |
+
+> **List 的 item 类型现在只到 `Text` 为止**：`#[derive(App)]` 取 List 的值时一律
+> `arr.iter().filter_map(as_str).collect()`，于是 `Vec<u32>` / `Vec<Enum>` 直接编译不过
+> （`Vec<u32>` 不能从 `String` 迭代器构造），而它生成的 schema 却把 item 声明成
+> `Number{min:None,max:None}`。也就是说：Web 侧已经按 schema 会把数字行、下拉、复选框画对了
+> （`list_rows_follow_their_item_kind` 盯着），但只有 `Vec<String>` 真能跑通端到端。
+> 剩下那半在 `lilyco-macros` 的取值分支里，属于四端共同的问题，不是控制台单独的毛病 ——
+> 别把它当成 Web 的 bug 修在这里。
 
 \* `disabled` 的**样式**实测到位（`run` / `btn-icon` / `input` 三者都读回 `opacity:0.55` +
 `cursor:not-allowed`），但参数控件这一层暂时没有**触发方**：schema 里还没有「只读参数」这种东西。

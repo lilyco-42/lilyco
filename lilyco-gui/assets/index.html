@@ -109,7 +109,20 @@ function readForm(){
   return data;
 }
 const toNumber=v=>{const n=Number(v);return isNaN(n)?v:n};
-const listValues=name=>qsa('[data-list-item="'+name+'"]').map(i=>i.value).filter(v=>v!=="");
+// 按 item 类型收值：Number 要发数字（服务端 validate_kind 的 Number 分支只认 as_f64，
+// 发字符串会被一句「需要数字」打回），Flag 行未勾就等于这一项不存在
+function listValues(name){
+  const host=$("list-"+name);
+  const kind=(host&&host.dataset.item)||"Text";
+  const out=[];
+  for(const el of qsa('[data-list-item="'+name+'"]')){
+    if(kind==="Flag"){if(el.checked)out.push(true);continue}
+    const v=el.value;
+    if(v==="")continue;
+    out.push(kind==="Number"?toNumber(v):v);
+  }
+  return out;
+}
 function cliLine(data){
   const parts=[CMD];
   for(const a of SCHEMA_ARGS){
@@ -246,26 +259,46 @@ function initPickButton(){
   }));
 }
 
-/* ── List · 动态行（初始行由服务端渲染，这里只管增删）── */
+/* ── List · 动态行（初始行由服务端按 item 类型画好，这里只管增删）── */
 function initList(){
   qsa("[data-list-add]").forEach(btn=>btn.addEventListener("click",()=>addListRow(btn.dataset.listAdd)));
   qsa(".row-del").forEach(b=>b.addEventListener("click",e=>removeListRow(e.currentTarget)));
 }
+function listItemEl(row){return row.querySelector("[data-list-item]")}
+// 复制服务端画好的第一行：控件类型由 item 决定，JS 不另立一套映射表（免得又各说各话）
 function addListRow(name){
   const host=$("list-"+name);
   if(!host)return null;
+  const proto=host.querySelector(".list-row");
   const row=document.createElement("div");row.className="list-row";
-  const inp=document.createElement("input");
-  inp.type="text";inp.className="mono";inp.dataset.listItem=name;
-  inp.placeholder=host.dataset.placeholder||"";
-  inp.setAttribute("aria-label",host.dataset.placeholder||"");
-  const del=document.createElement("button");
-  del.type="button";del.className="btn-icon row-del";del.textContent="✕";
-  del.setAttribute("aria-label","删除该行");
-  del.addEventListener("click",()=>removeListRow(del));
-  row.append(inp,del);host.append(row);inp.focus();
+  if(proto){
+    for(const src of proto.children){
+      const c=src.cloneNode(true);
+      if(c.hasAttribute("data-list-item")){
+        if(c.type==="checkbox")c.checked=false;
+        else if(c.tagName==="SELECT")c.selectedIndex=0;
+        else c.value="";
+      }else if(c.classList.contains("row-del")){
+        c.addEventListener("click",()=>removeListRow(c));
+      }
+      row.append(c);
+    }
+  }else{
+    // 一行都不剩（理论上不会发生：removeListRow 会兜一行），退化成文本行
+    const inp=document.createElement("input");
+    inp.type="text";inp.className="mono";inp.dataset.listItem=name;
+    inp.placeholder=host.dataset.placeholder||"";
+    inp.setAttribute("aria-label",host.dataset.placeholder||"");
+    const del=document.createElement("button");
+    del.type="button";del.className="btn-icon row-del";del.textContent="✕";
+    del.setAttribute("aria-label","删除该行");
+    del.addEventListener("click",()=>removeListRow(del));
+    row.append(inp,del);
+  }
+  host.append(row);
+  listItemEl(row).focus();
   updatePreview();
-  return inp;
+  return row;
 }
 function removeListRow(node){
   const row=node.closest(".list-row"),host=row.closest(".list-rows");

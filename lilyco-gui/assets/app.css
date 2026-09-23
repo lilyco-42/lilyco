@@ -238,8 +238,10 @@ input[type="checkbox"] {
 }
 .list-rows { display: flex; flex-direction: column; gap: var(--s-2); }
 .list-row { display: flex; gap: var(--s-2); align-items: center; }
-/* flex 子项默认 min-width:auto —— 长路径会把整行撑破，必须显式归零 */
-.list-row > input { flex: 1 1 auto; min-width: 0; }
+/* flex 子项默认 min-width:auto —— 长路径会把整行撑破，必须显式归零。
+   行里的控件按 item 类型可能是 input / select / 复选框那一整条 label，都得撑开 */
+.list-row > input, .list-row > select, .list-row > label { flex: 1 1 auto; min-width: 0; }
+.list-row .flag-row { margin: 0; }
 .row-del { flex: 0 0 auto; }
 .list-add { max-width: 100%; margin-top: var(--s-2); }
 

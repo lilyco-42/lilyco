@@ -117,7 +117,7 @@ fn render_field(arg: &ArgSchema) -> String {
         ArgKind::Number { min, max } => widget_number(&f, *min, *max),
         ArgKind::Enum { values } => widget_enum(&f, values),
         ArgKind::Path { must_exist } => widget_path(&f, *must_exist),
-        ArgKind::List { .. } => widget_list(&f),
+        ArgKind::List { item } => widget_list(&f, item),
     };
     field_shell(&f, widget)
 }
@@ -207,6 +207,30 @@ fn widget_text(f: &Field) -> String {
     )
 }
 
+/// `Number` 的属性片段（区间 + 允许小数）。`List{item:Number}` 的行也用它 ——
+/// 「数字框长什么样」只许有一个定义处。
+fn number_attrs(min: Option<f64>, max: Option<f64>) -> String {
+    let min_a = min.map(|m| format!(r##" min="{m}""##)).unwrap_or_default();
+    let max_a = max.map(|m| format!(r##" max="{m}""##)).unwrap_or_default();
+    format!(r##"{min_a}{max_a} step="any""##)
+}
+
+/// 下拉的 `<option>` 列表；`current` 决定哪一项预选中
+fn options_html(values: &[String], current: Option<&str>) -> String {
+    values
+        .iter()
+        .map(|v| {
+            let ev = html_escape(v);
+            let sel = if current == Some(v.as_str()) {
+                " selected"
+            } else {
+                ""
+            };
+            format!(r##"<option value="{ev}"{sel}>{ev}</option>"##)
+        })
+        .collect()
+}
+
 /// `Number`：带 min/max 的数字输入。区间既写进 HTML 属性（校验与原生 UI 用），
 /// 也渲染成一行可见提示并用 `aria-describedby` 挂上 —— 只放属性的话，
 /// 读屏用户听不到「0 到 51」这个约束
@@ -218,8 +242,6 @@ fn widget_number(f: &Field, min: Option<f64>, max: Option<f64>) -> String {
         .and_then(|d| d.as_f64())
         .map(|n| n.to_string())
         .unwrap_or_else(|| min.map(|m| m.to_string()).unwrap_or_default());
-    let min_a = min.map(|m| format!(r##" min="{m}""##)).unwrap_or_default();
-    let max_a = max.map(|m| format!(r##" max="{m}""##)).unwrap_or_default();
     let (described, hint) = match (min, max) {
         (Some(lo), Some(hi)) => (
             format!(r##" aria-describedby="hint-{esc}""##, esc = f.esc_name),
@@ -231,11 +253,10 @@ fn widget_number(f: &Field, min: Option<f64>, max: Option<f64>) -> String {
         _ => (String::new(), String::new()),
     };
     format!(
-        r##"<input type="number" id="field-{esc}" data-component="number" value="{dv}" step="any"{min_a}{max_a}{req}{described}>{hint}"##,
+        r##"<input type="number" id="field-{esc}" data-component="number" value="{dv}"{attrs}{req}{described}>{hint}"##,
         esc = f.esc_name,
         dv = html_escape(&dv),
-        min_a = min_a,
-        max_a = max_a,
+        attrs = number_attrs(min, max),
         req = f.req_a,
         described = described,
         hint = hint
@@ -244,24 +265,11 @@ fn widget_number(f: &Field, min: Option<f64>, max: Option<f64>) -> String {
 
 /// `Enum`：下拉，默认值预选中
 fn widget_enum(f: &Field, values: &[String]) -> String {
-    let current = f.arg.default.as_ref().and_then(|d| d.as_str());
-    let opts: String = values
-        .iter()
-        .map(|v| {
-            let ev = html_escape(v);
-            let sel = if current == Some(v.as_str()) {
-                " selected"
-            } else {
-                ""
-            };
-            format!(r##"<option value="{ev}"{sel}>{ev}</option>"##)
-        })
-        .collect();
     format!(
         r##"<select id="field-{esc}" data-component="enum"{req}>{opts}</select>"##,
         esc = f.esc_name,
         req = f.req_a,
-        opts = opts
+        opts = options_html(values, f.arg.default.as_ref().and_then(|d| d.as_str()))
     )
 }
 
@@ -324,24 +332,59 @@ fn pick_button(f: &Field) -> String {
 
 /// `List`：动态行（默认 2 行）。增删都由 JS 的 `initList` 负责 ——
 /// 组件不在 HTML 里塞内联 `onclick`，行为归行为层。
-/// 容器上的 `data-placeholder` 给 JS 新建的行用，初始行与新增行才是同一套提示文案。
-fn widget_list(f: &Field) -> String {
+///
+/// **行里的控件由 item 类型决定**：以前一律画成文本框，于是 `Vec<u32>` 这种参数
+/// 从 Web 提交的是字符串数组，`core::validate_kind` 的 `Number` 分支要的是
+/// `as_f64`，直接回一句「需要数字」—— CLI / TUI / MCP 都能跑，只有 Web 不行。
+/// 容器上的 `data-item` 给 JS 复制行时用（同一份 `kind_name`，不另立映射表）。
+fn widget_list(f: &Field, item: &ArgKind) -> String {
     let esc = &f.esc_name;
     let ph = f.placeholder();
     format!(
-        r##"<div class="list-rows" id="list-{esc}" data-component="list" data-list="{esc}" data-placeholder="{ph}">{rows}</div>\
+        r##"<div class="list-rows" id="list-{esc}" data-component="list" data-list="{esc}" data-item="{kind}" data-placeholder="{ph}">{rows}</div>\
 <button type="button" class="btn-icon list-add" data-component="list-add" data-list-add="{esc}">＋ 添加一项</button>"##,
         esc = esc,
+        kind = kind_name(item),
         ph = ph,
-        rows = list_row(f) + &list_row(f)
+        rows = list_row(f, item) + &list_row(f, item)
     )
 }
 
-fn list_row(f: &Field) -> String {
+/// 一行列表项：按 item 类型挑控件。
+/// `Path` 只给一个等宽文本框（每行再挂一套拖拽区会把表单撑爆），
+/// `List` 嵌套不支持 —— 退化成文本，交给服务端的校验说话。
+fn list_row(f: &Field, item: &ArgKind) -> String {
     let ph = f.placeholder();
+    let control = match item {
+        ArgKind::Number { min, max } => format!(
+            r##"<input type="number" class="mono" data-list-item="{esc}" data-item-kind="Number" placeholder="{ph}" aria-label="{ph}"{attrs}>"##,
+            esc = f.esc_name,
+            ph = ph,
+            attrs = number_attrs(*min, *max)
+        ),
+        ArgKind::Enum { values } => format!(
+            r##"<select data-list-item="{esc}" data-item-kind="Enum" aria-label="{ph}">{opts}</select>"##,
+            esc = f.esc_name,
+            ph = ph,
+            opts = options_html(values, None)
+        ),
+        ArgKind::Flag => format!(
+            r##"<label class="flag-row"><input type="checkbox" data-list-item="{esc}" data-item-kind="Flag"><span>{ph}</span></label>"##,
+            esc = f.esc_name,
+            ph = ph
+        ),
+        ArgKind::Path { .. } => format!(
+            r##"<input type="text" class="mono" data-list-item="{}" data-item-kind="Path" placeholder="{ph}" aria-label="{ph}" spellcheck="false">"##,
+            f.esc_name
+        ),
+        _ => format!(
+            r##"<input type="text" class="mono" data-list-item="{esc}" data-item-kind="Text" placeholder="{ph}" aria-label="{ph}">"##,
+            esc = f.esc_name,
+            ph = ph
+        ),
+    };
     format!(
-        r##"<div class="list-row"><input type="text" class="mono" data-list-item="{esc}" placeholder="{ph}" aria-label="{ph}"><button type="button" class="btn-icon row-del" aria-label="删除该行">✕</button></div>"##,
-        esc = f.esc_name
+        r##"<div class="list-row">{control}<button type="button" class="btn-icon row-del" aria-label="删除该行">✕</button></div>"##
     )
 }
 
@@ -833,6 +876,83 @@ mod tests {
         assert!(
             page.contains("bytes(file.size)") && page.contains("bytes(max)"),
             "超限话术退回只报 MB，会念出「200 MB 超过 200 MB」"
+        );
+    }
+
+    /// 体积闸门（DESIGN.md §9）：这页要 `include_str!` 进每个域二进制的 `.exe`，
+    /// 上限只写在这一个地方 —— 表格里再抄一份就是第二张需要人记着的平行表。
+    /// 涨过线要么删点什么，要么改这里并说清换来什么。
+    #[test]
+    fn assets_stay_within_the_documented_budget() {
+        const HTML_BUDGET: usize = 21_000;
+        const CSS_BUDGET: usize = 22_500;
+        let html = HTML_TEMPLATE.len();
+        let css = include_str!("../assets/app.css").len();
+        assert!(
+            html <= HTML_BUDGET,
+            "index.html 已经 {html} B，超过 {HTML_BUDGET} B 上限（DESIGN.md §9）"
+        );
+        assert!(
+            css <= CSS_BUDGET,
+            "app.css 已经 {css} B，超过 {CSS_BUDGET} B 上限（DESIGN.md §9）"
+        );
+    }
+
+    /// `List` 的行控件由 item 类型决定。以前不管 item 是什么都画文本框，于是 `Vec<u32>`
+    /// 这种参数从 Web 交上去的是字符串数组，而 schema 声明的是 `Number`
+    /// （`validate_kind` 只认 `as_f64`）→ 一句「需要数字」。
+    /// 注：`Vec<u32>` 目前连编译都过不去（derive 取值一律 `as_str().collect()`，
+    /// 见 DESIGN.md §10.1 那段注记），所以这条是按 **schema 承诺**画的，
+    /// 等 `lilyco-macros` 修好取值分支就直接对上。
+    #[tokio::test]
+    async fn list_rows_follow_their_item_kind() {
+        let body = page(vec![
+            arg(
+                "nums",
+                "数字清单",
+                ArgKind::List {
+                    item: Box::new(ArgKind::Number {
+                        min: Some(1.0),
+                        max: Some(9.0),
+                    }),
+                },
+                true,
+                None,
+            ),
+            arg(
+                "modes",
+                "模式清单",
+                ArgKind::List {
+                    item: Box::new(ArgKind::Enum {
+                        values: vec!["a".into(), "b".into()],
+                    }),
+                },
+                false,
+                None,
+            ),
+        ])
+        .await;
+        assert!(
+            body.contains(r##"data-item="Number""##) && body.contains(r##"data-item="Enum""##),
+            "容器得把 item 类型带给 JS，复制行时才知道画什么控件"
+        );
+        assert_eq!(
+            body.matches(r##"data-item-kind="Number""##).count(),
+            2,
+            "数字项的两行都是 number 框（数属性而不是 type=\"number\"，那串在 CSS 里也有）"
+        );
+        assert!(
+            body.contains(r##"<input type="number" class="mono" data-list-item="nums""##),
+            "行里确实是 number 输入，不是文本框"
+        );
+        assert!(
+            body.contains(r##"min="1" max="9""##),
+            "行内数字框带着区间（与独立 Number 同一个定义）"
+        );
+        assert!(
+            body.contains(r##"<select data-list-item="modes""##)
+                && body.contains(r##"<option value="a">a</option>"##),
+            "Enum 项要画下拉，不是文本框"
         );
     }
 
