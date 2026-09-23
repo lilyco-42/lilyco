@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-binfmt"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "lbin — 二进制与容器文件结构域：识别 / 成员表 / 分区上色 / 节与符号，四端 (CLI / TUI / Web / MCP) + AI 可调"
 license = "MIT OR Apache-2.0"
@@ -15,9 +15,9 @@ path = "src/main.rs"
 [dependencies]
 # 可选：android 构建用 headless（--no-default-features --features android，
 # 只剩 CLI + MCP，纯 Rust 可在 aarch64-linux-android 编译）
-lilyco = { version = "0.2", path = "../lilyco", optional = true, default-features = false }
+lilyco = { version = "0.3", path = "../lilyco", optional = true, default-features = false }
 # derive(App) 宏展开引用 lilyco_core::… 路径，binary 需要能解析到它
-lilyco-core = { version = "0.2", path = "../lilyco-core" }
+lilyco-core = { version = "0.3", path = "../lilyco-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Apache-2.0 OR MIT，与本体同样的读法：统一的节表 / 符号表层，
