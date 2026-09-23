@@ -346,13 +346,16 @@ pub fn risk_signals(doc: &Doc) -> Value {
             if name.ends_with("vbaProject.bin") || name.ends_with("VBA/project.bin") {
                 macros.push(name.to_string());
             }
-            if name == "EncryptedPackage"
-                || name == "encryptionInfo"
-                || name.ends_with("/vbaSignature.xml")
-            {
+            if name == "EncryptedPackage" || name == "encryptionInfo" {
                 encrypted.push(name.to_string());
             }
-            if name.ends_with("_rels/.rels") && name.contains("package") {
+            // 签名与加密是两件事：vbaSignature.xml / 数字签名关系说「谁签的」，
+            // 不说「内容被加密」——混在一起就会把一份能读的宏文件报成读不了
+            if name.ends_with("/vbaSignature.xml")
+                || name.contains("digitalSignature")
+                || name.contains("_signature")
+                || (name.ends_with("_rels/.rels") && name.contains("package"))
+            {
                 signed.push(name.to_string());
             }
         }
@@ -568,8 +571,9 @@ pub fn odf_manifest(bytes: &[u8]) -> Vec<(String, String)> {
     root.descendants("file-entry")
         .iter()
         .filter_map(|one| {
-            let path = one.attr("full-path")?;
-            let media = one.attr("media-type").unwrap_or_default();
+            // 清单里的属性写作 `manifest:full-path` / `manifest:media-type`
+            let path = one.attr_local("full-path")?;
+            let media = one.attr_local("media-type").unwrap_or_default();
             Some((path.to_string(), media.to_string()))
         })
         .collect()

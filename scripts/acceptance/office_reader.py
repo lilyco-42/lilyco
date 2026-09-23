@@ -201,7 +201,9 @@ def docx_facts(path: Path) -> dict:
         "comments": comments,
         "side_texts": side_texts(parts),
         "sections": len([one for one in body.iter() if xml_local(one.tag) == "sectPr"]),
-        "has_numbering": "word/numbering.xml" in parts,
+        # 部件在 ≠ 文档用了编号：notes.docx 带着 numbering.xml，正文里一个 numPr 都没有
+        "has_numbering": any(xml_local(one.tag) == "numPr" for one in body.iter()),
+        "numbering_part": "word/numbering.xml" in parts,
         "has_settings": "word/settings.xml" in parts,
         "has_styles_part": "word/styles.xml" in parts,
         "has_font_table": "word/fontTable.xml" in parts,

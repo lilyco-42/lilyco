@@ -219,12 +219,16 @@ mod tests {
                 out["counts"]["members"].as_u64().expect("有 members") > 3,
                 "{out}"
             );
-            assert!(
-                out["counts"]["relationships"]
-                    .as_u64()
-                    .expect("有 relationships")
-                    > 0
-            );
+            // ODF 根本没有跨部件关系：那里数出来的 0 是实情，不是缺陷
+            if !name.ends_with(".odt") {
+                assert!(
+                    out["counts"]["relationships"]
+                        .as_u64()
+                        .expect("有 relationships")
+                        > 0,
+                    "{name}: {out}"
+                );
+            }
         }
     }
 

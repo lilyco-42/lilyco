@@ -99,10 +99,16 @@ fn run_office_objects(app: &OfficeObjects, ctx: &Context) -> Result<Value, AppEr
             if name == "EncryptedPackage" || name == "encryptionInfo" {
                 watch.push(json!({"kind": "encrypted", "part": name}));
             }
+            if name.ends_with("/vbaSignature.xml") || name.contains("digitalSignature") {
+                watch.push(json!({"kind": "signature", "part": name}));
+            }
+            // 别用 "form" 当判据：每一个 OOXML 内容类型都写着
+            // `application/vnd.openxmlformats-…`，"xformats" 里就含 "form"，
+            // 于是全包 22 个部件会被当成 15 个表单/ActiveX 控件。
             if name.starts_with("word/activeX")
                 || name.starts_with("word/axO")
                 || declared.contains("activex")
-                || declared.contains("form")
+                || declared.contains("oleObject")
             {
                 watch.push(
                     json!({"kind": "form-or-activex", "part": name, "content_type": declared}),

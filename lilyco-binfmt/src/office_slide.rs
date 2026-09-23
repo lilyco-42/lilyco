@@ -86,7 +86,7 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
             .iter()
             .filter_map(|one| {
                 let id = one.attr("id")?;
-                let rid = one.attr_local("id")?;
+                let rid = rel_id(one)?;
                 Some(json!({"show_index": id, "r_id": rid, "part": id_to_part(rid)}))
             })
             .collect();
@@ -314,6 +314,16 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
 
 fn xml(bytes: &[u8], want: &str) -> Option<zipread::Member> {
     zipread::member(bytes, want, DEFAULT_MEMBER_CAP).ok()
+}
+
+/// `<p:sldId id="256" r:id="rId2"/>`：两个属性的**局部名**都叫 `id`，按局部名去找
+/// 就会拿到放映序号当关系号（CI 上真这么错了）。关系号一定带前缀 —— `r:` 这个名字
+/// 是文档自己声明的，但前缀总在 —— 所以判据是「不是裸 `id`，且以 `:id` 结尾」。
+fn rel_id(node: &xmlscan::Node) -> Option<&str> {
+    node.attrs
+        .iter()
+        .find(|(key, _)| key != "id" && key.ends_with(":id"))
+        .map(|(_, value)| value.as_str())
 }
 
 #[cfg(test)]

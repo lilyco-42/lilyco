@@ -86,7 +86,7 @@ fn run_office_meta(app: &OfficeMeta, ctx: &Context) -> Result<Value, AppError> {
             }
             if let Some(member) = read(bytes, "docProps/app.xml") {
                 let root = xmlscan::parse_str(&member.as_text());
-                flatten(&root, &mut application);
+                flatten(&root, &mut application, 0);
             } else {
                 notes.push("没有 docProps/app.xml（应用属性是可选的）".to_string());
             }
@@ -161,9 +161,11 @@ fn run_office_meta(app: &OfficeMeta, ctx: &Context) -> Result<Value, AppError> {
                         }
                         _ => {
                             if key == "user-defined" {
+                                // 属性写作 `meta:name` —— 按精确名找会一个都找不到，
+                                // 于是所有自定义属性都并成同一个 "user-defined" 键
                                 let name = one
-                                    .attr("name")
-                                    .or_else(|| one.attr("xlink:href"))
+                                    .attr_local("name")
+                                    .or_else(|| one.attr_local("href"))
                                     .unwrap_or("user-defined")
                                     .to_string();
                                 custom[name] = json!(text);
@@ -238,7 +240,10 @@ fn run_office_meta(app: &OfficeMeta, ctx: &Context) -> Result<Value, AppError> {
             let mut named = serde_json::Map::new();
             let mut kinds: Vec<String> = Vec::new();
             for one in info.props.iter() {
-                named.insert(one.name.clone(), json!(one.value));
+                named.insert(
+                    one.name.clone(),
+                    json!({"value": one.value.clone(), "type": one.kind}),
+                );
                 kinds.push(format!(
                     "{}={}",
                     one.name,
@@ -335,25 +340,32 @@ fn leaf_text(node: &Node) -> String {
     node.text().trim().to_string()
 }
 
-/// 把一棵子里的叶子元素摊成键值表（app.xml 的 `<Application>…</Application>` 就是这种）
-fn flatten(node: &Node, into: &mut Value) {
+/// 把一棵子里的叶子元素摊成键值表（app.xml 的 `<Application>…</Application>` 就是这种）。
+///
+/// 只能往下走**一层**：`docProps/app.xml` 的叶子挂在根 `<Properties>` 里面，
+/// 而根元素本身不是一个属性 —— 原来把「有孩子的节点」整个摊成 `application.Properties`
+/// 那一份子表，于是 `application.Application` 是空的（CI 上真就这么错）。
+/// 反过来，`<HeadingPairs>` 那种嵌套容器里的 `<vt:lpstr>` 也不是属性，
+/// 再往下钻就会把结构噪声报成账 —— 所以到第二层就停。
+fn flatten(node: &Node, into: &mut Value, depth: usize) {
     for one in &node.children {
         if one.name == "#text" {
             continue;
         }
-        let text = leaf_text(one);
-        if !text.is_empty() && one.children.iter().all(|child| child.name == "#text") {
-            into[one.local()] = json!(text);
-        } else {
-            let mut inner = json!({});
-            flatten(one, &mut inner);
-            if inner
-                .as_object()
-                .map(|map| !map.is_empty())
-                .unwrap_or(false)
-            {
-                into[one.local()] = inner;
+        let nested: Vec<&Node> = one
+            .children
+            .iter()
+            .filter(|child| child.name != "#text")
+            .collect();
+        if !nested.is_empty() {
+            if depth < 1 {
+                flatten(one, into, depth + 1);
             }
+            continue;
+        }
+        let text = leaf_text(one);
+        if !text.is_empty() {
+            into[one.local()] = json!(text);
         }
     }
 }
@@ -431,7 +443,8 @@ mod tests {
         let out = run("notes.odt");
         assert_eq!(out["source"], "meta.xml");
         assert_eq!(out["core"]["title"], "季度预算说明");
-        assert_eq!(out["core"]["creator"], "liuqi");
+        // LibreOffice 只写 meta:initial-creator，没有 dc:creator —— 不能替它补一个
+        assert_eq!(out["core"]["creator"], Value::Null, "{out}");
         assert_eq!(out["core"]["initial-creator"], "liuqi");
         let generator = out["core"]["generator"].as_str().expect("有 generator");
         assert!(generator.starts_with("LibreOffice/"), "{generator}");

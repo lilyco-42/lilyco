@@ -790,8 +790,11 @@ mod tests {
     /// `\uN` 之后的回退字节要按 `\ucN` 丢，且 `\'hh` 算一个字符
     #[test]
     fn unicode_escapes_drop_their_fallback() {
-        let one = rtf("{\\uc1\\u20013\\'39\\u22914\\'41 x}");
-        assert_eq!(one.text, "中太x");
+        let one = rtf("{\\uc1\\u20013\\'39\\u22826\\'41 x}");
+        assert_eq!(
+            one.text, "中太 x",
+            "控制字后的那个空格属于控制字，正文里的空格要留下"
+        );
         assert_eq!(one.unicode_escapes, 2);
         assert_eq!(one.hex_bytes, 0, "被丢掉的回退字节不该计数成 hex");
         let zero = rtf("{\\uc0\\u20013?}");

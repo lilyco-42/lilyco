@@ -160,7 +160,11 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                                 None => value.clone(),
                             },
                         };
-                        if formula.is_some() && value.is_some() {
+                        // `<v></v>` 是「有标签、没值」：openpyxl 就是这么写的，
+                        // 把空串当成缓存结果等于替文件编一个数
+                        if formula.is_some()
+                            && value.as_ref().is_some_and(|raw| !raw.trim().is_empty())
+                        {
                             cached += 1;
                         }
                         if cells.len() < limit {
@@ -401,7 +405,7 @@ mod tests {
             cells[3]
         );
         assert_eq!(
-            cells[7]["formula"], "=SUM(B2:B3)",
+            cells[7]["formula"], "SUM(B2:B3)",
             "公式格子报公式：{}",
             cells[7]
         );

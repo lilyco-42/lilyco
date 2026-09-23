@@ -140,7 +140,13 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
                 "deletions": body.descendants("del").len(),
                 "bookmarks": body.descendants("bookmarkStart").len(),
                 "fields": body.descendants("fldSimple").len() + body.descendants("fldChar").len(),
+                // 部件存在 ≠ 文档用到了编号：notes.docx 带着 numbering.xml，
+                // 正文里却一个 numPr 都没有（python-docx 没往里写列表）
                 "has_numbering": body.descendants("numPr").len() > 0,
+                "numbering_part": doc
+                    .entries
+                    .iter()
+                    .any(|one| one.name == "word/numbering.xml"),
             },
             "headings": headings,
             "styles": styles,
@@ -239,7 +245,8 @@ mod tests {
         assert_eq!(s["sections"], 1);
         assert_eq!(s["drawings"], 1, "那张 Pillow 画的 PNG");
         assert_eq!(s["page_breaks"], 1);
-        assert_eq!(s["has_numbering"], json!(true));
+        assert_eq!(s["has_numbering"], json!(false), "正文里没用编号：{s}");
+        assert_eq!(s["numbering_part"], json!(true), "包里有编号部件：{s}");
         assert_eq!(
             out["headings"],
             json!([

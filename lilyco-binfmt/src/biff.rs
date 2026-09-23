@@ -589,8 +589,9 @@ mod tests {
     /// SST 跨 CONTINUE 边界：字符串的后半要重读 grbit，8 位与 16 位可以在同一个串里换
     #[test]
     fn strings_can_straddle_a_continue_boundary_and_switch_width() {
-        let first = [b'\x05', b'\x00', b'\x01', b'a', b'b', b'c', b'd']; // cch=5, 8 位，只放得下 4 个
-        let second = [0x01u8, b'e', b'f']; // 新块开头重读 grbit（还是 8 位）
+        // grbit 的 bit0=0 才是 8 位字符；写成 0x01 会连注释里说的「4 个」变成 2 个字
+        let first = [b'\x05', b'\x00', b'\x00', b'a', b'b', b'c', b'd']; // cch=5，8 位，只放得下 4 个
+        let second = [0x00u8, b'e', b'f']; // 新块开头重读 grbit（还是 8 位）
         let mut notes: Vec<String> = Vec::new();
         let got = shared_strings(&[first.to_vec(), second.to_vec()], 1, &mut notes);
         assert_eq!(got, vec!["abcde".to_string()], "{got:?} {notes:?}");

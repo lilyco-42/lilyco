@@ -175,7 +175,11 @@ fn producer_of(doc: &crate::opack::Doc, bytes: &[u8]) -> (Value, Value) {
                 if let Some(one) = node.descendants(tag).first() {
                     let value = one.text();
                     if !value.is_empty() {
-                        authoring[key] = json!(value);
+                        authoring[key] = json!(value.clone());
+                        // meta:generator 就是「谁写的」，producer 里也该有一份
+                        if key == "generator" {
+                            producer["generator"] = json!(value);
+                        }
                     }
                 }
             }
@@ -274,7 +278,7 @@ mod tests {
             generator.starts_with("LibreOffice/"),
             "meta.xml 里的 generator 应当说明是谁写的：{odt}"
         );
-        assert_eq!(odt["authoring"]["creator"], "liuqi");
+        assert_eq!(odt["authoring"]["initial-creator"], "liuqi", "{odt}");
 
         let legacy = run("notes.doc");
         assert_eq!(legacy["family"], "compound");
