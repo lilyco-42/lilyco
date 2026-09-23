@@ -155,8 +155,9 @@ fn main() {
 
 ## 6. 分发与 agent 侧对齐
 
-- 分发：`cargo binstall`（`lffmpeg` 已验证，见其 `[package.metadata.binstall]`），
-  CI 的 release 工作流按 `{name}-{target}{ext}` 命名资产。**四端编在同一份资产里**，不做多版本分发。
+- 分发：`cargo binstall` 的 metadata 已写在 `[package.metadata.binstall]`，但**尚未达到可用**：
+  `{ name }` 是包名（`lilyco-ffmpeg`），CI 的 release 工作流却按二进制名（`lffmpeg-…`）命名资产，
+  URL 对不上 → 现在只有源码安装这条路（修法见 `docs/INTEGRATION.md` §0）。**四端编在同一份资产里**，不做多版本分发。
 - 与 agent 侧对齐：模型只吃 `to_openai_tool()` 形状（= MCP `tools/list` 的等价物），
   **agent 里做一次 MCP→OpenAI 的形状转换即可**，模型不需要知道 MCP 细节。
   已实测：留出工具 schema 泛化 81.2% → **新 CLI 零重训**（见 `lyco_agent/docs/toolcall-contract-2026-09-19.md`）。

@@ -32,9 +32,11 @@ android = ["dep:lilyco"]
 tempfile = "3"
 
 # ── cargo binstall ────────────────────────────────────────
-# 只有 crate 发布且 CI 真的产出该资产时才有效；资产命名规则见 docs/INTEGRATION.md §4
-# 资产命名 `{ name }-{ target }{ binary-ext }`（完整 target triple）；
-# pkg-fmt = "bin"：下载的单文件即二进制
+# 只有 crate 发布且 CI 真的产出该资产时才有效；资产命名 `{ name }-{ target }{ binary-ext }`
+# （完整 target triple）、pkg-fmt = "bin"（下载的单文件即二进制）。
+# 坑：`{ name }` 展开成**包名**（lilyco-<域>），而 CI 的 staging 现在按**二进制名**
+# （l<域>-…）发布，两者对不上 → binstall 只会 404 回退源码编译。补 release 资产时
+# 顺手拷一份按包名命名的，或照 docs/INTEGRATION.md §0 的两种改法二选一。
 [package.metadata.binstall]
 pkg-url = "https://github.com/lilyco-42/lilyco/releases/download/v{ version }/{ name }-{ target }{ binary-ext }"
 pkg-fmt = "bin"

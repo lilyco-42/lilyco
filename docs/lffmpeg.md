@@ -12,25 +12,26 @@
 
 ## 安装
 
-### 1. cargo binstall（推荐，免编译）
+### 1. 源码安装（今天就可用）
+
+```bash
+cargo install --path lilyco-ffmpeg     # 仓库内
+cargo install lilyco-ffmpeg            # crates.io（当前版本 0.1.0）
+cargo install --git https://github.com/lilyco-42/lilyco lilyco-ffmpeg   # 跟着 main 走
+```
+
+### 2. cargo binstall（尚未达到，先按源码装）
 
 ```bash
 cargo install cargo-binstall   # 首次
-
-cargo binstall lilyco-ffmpeg
+cargo binstall lilyco-ffmpeg   # 目前会 404 并回退源码编译
 ```
 
-从 GitHub Release 拉单个预编译二进制，装到 `~/.cargo/bin/lffmpeg`（Windows 为 `lffmpeg.exe`）；
-若对应平台的预编译资产尚未发布，则自动回退到 `cargo install` 源码编译安装。
-
-> 需要在仓库打 tag 触发 CI，Release 里才有对应 `lffmpeg-x86_64-pc-windows-msvc.exe` /
-> `lffmpeg-aarch64-linux-android` 资产可下载（在那之前 binstall 走源码安装回退，仍然可用）。
-
-### 2. cargo install（源码编译）
-
-```bash
-cargo install --git https://github.com/lilyco-42/lilyco lilyco-ffmpeg
-```
+原因：`[package.metadata.binstall]` 的 `pkg-url` 用 `{ name }`，binstall 把它展开成**包名**
+`lilyco-ffmpeg`，而 CI 的 staging 发布的资产按**二进制名**命名
+（`lffmpeg-x86_64-pc-windows-msvc.exe` / `lffmpeg-aarch64-linux-android`），URL 差一个前缀就对不上。
+两条修法见 [`INTEGRATION.md`](INTEGRATION.md) §0；把 CI 那份资产改成按包名命名即可生效。
+（另外：只有打 `v*` tag 才会触发 release job，`main` 上的提交不产出 Release。）
 
 ### 3. 从仓库直接跑（开发）
 

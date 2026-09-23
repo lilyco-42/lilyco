@@ -37,6 +37,21 @@
 `{ name }-{ target }{ binary-ext}`，`pkg-fmt = "bin"`）。要把某个域补进产物清单，改
 `.github/workflows/ci.yml` 的 `release-build` / `android` 两处（那是人工决策，见 §4 第 11 步）。
 
+**而这条 binstall 契约现在对不上，别照抄**（2026-09-23 读 binstall 源码 `gh_crate_meta.rs` 的
+占位符表 + 对 `v0.1.0` 资产清单核过；没实跑过 `cargo binstall`）：`{ name }` 展开成**包名**，
+`{ target }` 是完整 triple，于是 `lilyco-ffmpeg` 要的是
+`lilyco-ffmpeg-x86_64-pc-windows-msvc.exe`；CI 的 staging 却按**二进制名**发布
+`lffmpeg-x86_64-pc-windows-msvc.exe`。名字差一个前缀，binstall 只会 404 再回退源码编译 ——
+README 里「免编译安装」那句因此目前是达不到，不是没测到。两种改法二选一：
+
+- CI `Stage release files` 那一步多拷一份按包名命名的资产（`lilyco-ffmpeg-<triple>.exe`），
+  metadata 不动，`{ name }` 语义也不动 —— 推荐，改动全在仓库内
+- 或把 `pkg-url` 里的 `{ name }` 写成字面二进制名 `lffmpeg-…` —— 但 binstall 的占位符表里
+  **没有** `{ compiled-binary-name }` 这类键，等于把二进制名硬编进 URL，改名就断
+
+新域 crate 的 `Cargo.toml` 里那条 `pkg-url` 与三个现存 crate 一模一样，照抄就把这个坑一起抄走；
+`scripts/domain-template/` 的注释已把这条写在那一段上。
+
 ## 路径 B：在自己的 crate 里写命令（推荐）
 
 一个 `[dependencies]` 就够 —— **应用 crate 不要直接依赖 `lilyco-core`**（AGENTS 硬规则 3）：

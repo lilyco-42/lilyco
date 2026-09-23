@@ -13,7 +13,7 @@
 ## 安装
 
 ```bash
-cargo binstall lilyco-binfmt            # 免编译
+cargo binstall lilyco-binfmt            # 暂时只会回退源码（该 crate 未发布，见 docs/INTEGRATION.md §0）
 cargo install --path lilyco-binfmt      # 源码编译
 cargo run -p lilyco-binfmt -- identify --path /usr/bin/ls --json
 ```

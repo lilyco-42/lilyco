@@ -772,7 +772,7 @@ lvision --mcp                                      # MCP 服务器（8 个原生
 `lffmpeg` —— ffmpeg 包装：转码 / 缩放 / 裁剪，实时进度 + 取消，四端 + AI 可调：
 
 ```bash
-cargo binstall lilyco-ffmpeg                        # 免编译安装（见下）
+cargo install --path lilyco-ffmpeg                   # 源码安装（binstall 现在还拿不到，见下）
 lffmpeg --input a.mp4 --output b.mp4 --codec h265 --crf 28   # CLI
 lffmpeg --input a.mp4 --output b.mp4 --width 1280            # 缩放（高度自动等比）
 lffmpeg --input a.mp4 --output clip.mp4 --start 10 --duration 5  # 裁剪
@@ -783,7 +783,7 @@ lffmpeg --mcp                                              # MCP 服务器
 - 实时进度：解析 ffmpeg `-progress pipe:1`；`ffprobe`（可选）算完成百分比，缺失降级不确定进度
 - 取消：CLI `Ctrl-C`、TUI `Ctrl-C`/`c`/`q`/`Esc`，kill 正在运行的 ffmpeg
 - 非零退出不是工具错误：结构化返回 `exit_code` + stderr 摘要
-- **cargo binstall**：`[package.metadata.binstall]` `pkg-url = "https://github.com/lilyco-42/lilyco/releases/download/v{ version }/{ name }-{ target }{ binary-ext }"`, `pkg-fmt = "bin"` —— 打 tag 时 CI 发布 `lffmpeg-x86_64-pc-windows-msvc.exe` / `lffmpeg-aarch64-linux-android`，`{ target }` 全量 triple 供 binstall 匹配。crate 已发布 crates.io，故 `cargo binstall lilyco-ffmpeg` 可简写；未发布预编译资产时自动回退源码安装
+- **cargo binstall 现在还达不到**：`[package.metadata.binstall]` 写的是 `pkg-url = ".../v{ version }/{ name }-{ target }{ binary-ext }"`，而 binstall 的 `{ name }` 展开成**包名**（`lilyco-ffmpeg`）；打 tag 时 CI 发布的资产却按**二进制名**命名（`lffmpeg-x86_64-pc-windows-msvc.exe` / `lffmpeg-aarch64-linux-android`），URL 对不上 → 只会 404 再回退源码编译。改名放 CI 的 `Stage release files`（多拷一份包名命名的资产）最省事，两种改法与出处见 [`docs/INTEGRATION.md`](docs/INTEGRATION.md) §0
 - 完整用法：见 [`docs/lffmpeg.md`](docs/lffmpeg.md)
 - 依赖系统 `ffmpeg`（必须在 PATH 上）
 
