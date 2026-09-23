@@ -207,6 +207,17 @@ def main() -> int:
     check("notes.doc OLE 标题", dig(lm, "legacy.SummaryInformation.title.value"), props.get("2"))
     check("notes.doc OLE 作者", dig(lm, "legacy.SummaryInformation.author.value"), props.get("4"))
     check("notes.doc OLE CodePage", dig(lm, "legacy.SummaryInformation.codepage.value"), 65001)
+    rm = lbin("office-meta", fixture("notes.rtf"))
+    rinfo = files["notes.rtf"]["rtf"]["info"]["fields"]
+    for key, value in sorted(rinfo.items()):
+        check("notes.rtf \\info." + key, dig(rm, "core." + key), value)
+    rprops = {
+        str(one.get("name")): one.get("value")
+        for one in files["notes.rtf"]["rtf"]["info"]["user_props"]
+    }
+    check("notes.rtf 自定义属性条数", len(rm.get("custom", {})), len(rprops))
+    for key, value in sorted(rprops.items()):
+        check("notes.rtf 自定义属性 " + key, dig(rm, "custom." + key + ".value"), value)
     om = lbin("office-meta", fixture("notes.odt"))
     ometa = files["notes.odt"]["odf"]["meta"]
     check("notes.odt 标题", dig(om, "core.title"), ometa.get("title"))

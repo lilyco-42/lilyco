@@ -814,7 +814,8 @@ lbin --mcp                                            # MCP 服务器：tools/li
 - 认格式**看部件名与流名，不看文件后缀**：改了后缀的 docx 照样报 docx；`docm` 靠 `vbaProject.bin` 认
 - 覆盖 OOXML（docx/docm/xlsx/xlsm/pptx/pptm）、ODF（odt/ods/odp）、遗留复合文档（doc/xls/ppt）、RTF：
   `.doc` 走 FIB→piece 表、`.xls` 走 BIFF8 记录（格子按 BOUNDSHEET 自报的偏移归位到每张表）、
-  `.ppt` 走 PowerPoint 97 记录树取文本原子；还没做的是 RTF 的 `\info` 群与 `.ppt` 的按页归位，
+  `.ppt` 走 PowerPoint 97 记录树取文本原子，RTF 的属性走 `\info` 群与 `\*\userprops`；
+  `.ppt` 的按页归位还没做，
   做不到的部分照实留空并说明原因，不给一份看着像「没有」的答案
 
 - 置信度分两档：`signature`（开头字节定死）与 `structural`（表刚好铺进文件才敢这么说）——`0xCAFEBABE` 既是 Java class 也是通用二进制，靠架构表落点判别

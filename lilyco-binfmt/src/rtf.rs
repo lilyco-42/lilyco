@@ -341,6 +341,407 @@ fn flush(out: &mut Vec<u8>, pending: &mut Vec<u8>, codepage: u32, notes: &mut Ve
     pending.clear();
 }
 
+/// `\info` 一带的元数据：键由控制字自己说，值在它所引导的那一群里。
+///
+/// 三条判据都是从真件上踩出来的（`notes.rtf`，LibreOffice 由 python-docx 的 docx 转出）：
+/// * `\upr{A}{B}` 的第一群是 7 位回退文本，这份文件在那儿只留下 `?`，真值在第二群
+///   `\*\ud{...}` 里 —— 正文抽取把 `\*` 群整群跳过是对的，读元数据时照搬就会丢掉标题。
+///   所以这里只跳 `\upr` 的第一群，`\*` 反而不跳。
+/// * `\info{}` 在这份文件里只包住了标题那一对 `\upr`，其余键（subject / keywords /
+///   doccomm / author / creatim / userprops）紧跟在同一层。只认「第一个群」会漏掉九成
+///   元数据，所以扫到下一个**非元数据目标**（`\stylesheet` 那类）为止，并有硬上界。
+/// * 文字要**按群整块交账**：逐字交账会把 `AppVersion` 变成十条自定义属性。
+#[derive(Debug, Clone)]
+pub struct Prop {
+    pub name: String,
+    pub kind: Option<i64>,
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct Info {
+    pub found: bool,
+    pub fields: std::collections::BTreeMap<String, String>,
+    pub props: Vec<Prop>,
+    pub notes: Vec<String>,
+    pub codepage: u32,
+}
+
+impl Info {
+    pub fn to_json(&self) -> Value {
+        json!({
+            "found": self.found,
+            "codepage": self.codepage,
+            "fields": self.fields,
+            "user_props": self.props.iter().map(|one| json!({
+                "name": one.name, "type": one.kind, "value": one.value,
+            })).collect::<Vec<Value>>(),
+            "notes": self.notes,
+        })
+    }
+}
+
+const INFO_TEXT_KEYS: &[(&str, &str)] = &[
+    ("title", "title"),
+    ("subject", "subject"),
+    ("author", "author"),
+    ("operator", "operator"),
+    ("keywords", "keywords"),
+    ("doccomm", "comment"),
+    ("comments", "comment"),
+    ("lastsavedby", "last_saved_by"),
+    ("nchars", "chars"),
+    ("nwords", "words"),
+    ("npages", "pages"),
+    ("nparas", "paragraphs"),
+    ("nlines", "lines"),
+    ("version", "version"),
+    ("category", "category"),
+    ("manager", "manager"),
+    ("company", "company"),
+    ("propname", "propname"),
+    ("staticval", "staticval"),
+];
+
+const INFO_TIME_KEYS: &[(&str, &str)] = &[
+    ("creatim", "created"),
+    ("revtim", "modified"),
+    ("printim", "printed"),
+];
+
+const INFO_TIME_PARTS: &[&str] = &["yr", "mo", "dy", "hr", "min", "sec"];
+
+const INFO_STOP: &[&str] = &[
+    "stylesheet",
+    "fonttbl",
+    "colortbl",
+    "generator",
+    "listtable",
+    "listoverridetable",
+    "themedata",
+    "colorschememapping",
+    "datastore",
+    "rsidtbl",
+    "xmlnstbl",
+    "filetbl",
+    "header",
+    "footer",
+    "pict",
+    "object",
+    "sect",
+    "latentstyles",
+    "bkmkstart",
+    "atncluster",
+    "mmathPr",
+];
+
+const INFO_SCAN_CAP: usize = 65536;
+
+/// 找一个作为**完整控制字**出现的目标（`\info` 不算 `\information` 的一部分）
+fn find_control(bytes: &[u8], name: &[u8]) -> Option<usize> {
+    let mut at = 0usize;
+    while let Some(found) = windows_position(bytes, at, name) {
+        if found >= 1
+            && bytes[found - 1] == b'\\'
+            && !bytes
+                .get(found + name.len())
+                .is_some_and(|one| one.is_ascii_alphabetic())
+        {
+            return Some(found - 1);
+        }
+        at = found + 1;
+    }
+    None
+}
+
+fn windows_position(bytes: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
+    bytes
+        .get(from..)?
+        .windows(needle.len())
+        .position(|one| one == needle)
+        .map(|one| one + from)
+}
+
+fn key_for(word: &str) -> Option<&'static str> {
+    INFO_TEXT_KEYS
+        .iter()
+        .find(|(one, _)| *one == word)
+        .map(|(_, key)| *key)
+}
+
+fn time_key(word: &str) -> Option<&'static str> {
+    INFO_TIME_KEYS
+        .iter()
+        .find(|(one, _)| *one == word)
+        .map(|(_, key)| *key)
+}
+
+/// `\ansicpg` 声明的字符集：取最后一次声明，跟 `extract` 的走法一致
+fn declared_codepage(head: &[u8]) -> u32 {
+    let mut found: Option<usize> = None;
+    let mut at = 0usize;
+    while let Some(hit) = windows_position(head, at, b"ansicpg") {
+        if hit >= 1 && head[hit - 1] == b'\\' {
+            found = Some(hit + b"ansicpg".len());
+        }
+        at = hit + 1;
+    }
+    let Some(mut i) = found else { return 1252 };
+    let mut digits: String = String::new();
+    while i < head.len() && head[i].is_ascii_digit() {
+        digits.push(head[i] as char);
+        i += 1;
+    }
+    digits.parse::<u32>().unwrap_or(1252)
+}
+
+struct Frame {
+    key: Option<&'static str>,
+    skip: bool,
+    buf: Vec<u8>,
+}
+
+/// 读出 `\info` 一带的元数据；没有 `\info` 时返回 `found: false`，不编字段
+pub fn parse_info(bytes: &[u8]) -> Info {
+    let Some(start) = find_control(bytes, b"info") else {
+        let mut info = Info::default();
+        info.notes.push("这份 RTF 没有 \\info 群".to_string());
+        return info;
+    };
+    let head = bytes.get(..start).unwrap_or_default();
+    let codepage = declared_codepage(head);
+    let mut info = Info {
+        found: true,
+        fields: std::collections::BTreeMap::new(),
+        props: Vec::new(),
+        notes: Vec::new(),
+        codepage,
+    };
+    let mut stack: Vec<Frame> = vec![Frame {
+        key: None,
+        skip: false,
+        buf: Vec::new(),
+    }];
+    let mut next_key: Option<&'static str> = None;
+    let mut skip_next = false;
+    let mut current_time: Option<&'static str> = None;
+    let mut times: std::collections::BTreeMap<String, [u32; 6]> = std::collections::BTreeMap::new();
+    let mut pending: Vec<u8> = Vec::new();
+    let mut ucount = 1usize;
+    let end = (start + INFO_SCAN_CAP).min(bytes.len());
+    let mut i = start;
+
+    while i < end {
+        let ch = bytes[i];
+        if ch == b'{' {
+            flush_into(&mut stack, &mut pending, codepage, &mut info.notes);
+            let parent = stack.last().and_then(|one| one.key);
+            let key = next_key.or(parent);
+            stack.push(Frame {
+                key,
+                skip: skip_next,
+                buf: Vec::new(),
+            });
+            next_key = None;
+            skip_next = false;
+            i += 1;
+            continue;
+        }
+        if ch == b'}' {
+            flush_into(&mut stack, &mut pending, codepage, &mut info.notes);
+            if stack.len() > 1 {
+                let frame = stack.pop();
+                if let Some(frame) = frame {
+                    commit(frame, &mut info);
+                }
+            }
+            i += 1;
+            continue;
+        }
+        if ch == b'\r' || ch == b'\n' {
+            i += 1;
+            continue;
+        }
+        if ch != b'\\' {
+            flush_into(&mut stack, &mut pending, codepage, &mut info.notes);
+            if let Some(frame) = stack.last_mut() {
+                if frame.key.is_some() && !frame.skip {
+                    push_char(&mut frame.buf, ch as char);
+                }
+            }
+            i += 1;
+            continue;
+        }
+        if bytes.get(i + 1) == Some(&b'*') {
+            i += 2;
+            continue;
+        }
+        if bytes.get(i + 1) == Some(&b'\'') {
+            if let Some(frame) = stack.last() {
+                if frame.key.is_some() && !frame.skip {
+                    let high = bytes.get(i + 2).copied().unwrap_or(b'0');
+                    let low = bytes.get(i + 3).copied().unwrap_or(b'0');
+                    pending.push(hex_digit(high) * 16 + hex_digit(low));
+                }
+            }
+            i += 4;
+            continue;
+        }
+        let mut j = i + 1;
+        let mut word: Vec<u8> = Vec::new();
+        while j < bytes.len() && bytes[j].is_ascii_alphabetic() {
+            word.push(bytes[j]);
+            j += 1;
+        }
+        let word = String::from_utf8_lossy(&word).into_owned();
+        if word.is_empty() {
+            flush_into(&mut stack, &mut pending, codepage, &mut info.notes);
+            if let Some(frame) = stack.last_mut() {
+                if frame.key.is_some() && !frame.skip {
+                    if let Some(one) = bytes.get(j) {
+                        frame.buf.push(*one);
+                    }
+                }
+            }
+            i = if j < bytes.len() { j + 1 } else { j };
+            continue;
+        }
+        let mut digits: Vec<u8> = Vec::new();
+        while j < bytes.len() && (bytes[j].is_ascii_digit() || bytes[j] == b'-') {
+            digits.push(bytes[j]);
+            j += 1;
+        }
+        if bytes.get(j) == Some(&b' ') {
+            j += 1;
+        }
+        flush_into(&mut stack, &mut pending, codepage, &mut info.notes);
+        let digits = String::from_utf8_lossy(&digits).into_owned();
+        if word == "uc" {
+            ucount = digits.parse::<usize>().unwrap_or(1);
+        } else if word == "u" && !digits.is_empty() {
+            let raw = digits.parse::<i64>().unwrap_or(0);
+            let value = if raw < 0 { raw + 65536 } else { raw };
+            if let Some(frame) = stack.last_mut() {
+                if frame.key.is_some() && !frame.skip {
+                    if let Some(one) = u32::try_from(value).ok().and_then(char::from_u32) {
+                        push_char(&mut frame.buf, one);
+                    } else {
+                        info.notes.push(format!("\\u{digits} 这个数不是有效码位"));
+                    }
+                }
+            }
+            i = skip_rtf_chars(bytes, j, ucount);
+            continue;
+        } else if let Some(key) = key_for(&word) {
+            // 这类控制字出现在它自己那一群的开头（{\title 文字}），定的是当前这一帧的键
+            let frame_is_open = stack.last().map(|one| one.key.is_none()).unwrap_or(false);
+            if frame_is_open {
+                if let Some(frame) = stack.last_mut() {
+                    frame.key = Some(key);
+                }
+            } else {
+                next_key = Some(key);
+            }
+            if key == "version" && !digits.is_empty() {
+                info.fields.insert("version".to_string(), digits.clone());
+            }
+        } else if let Some(key) = time_key(&word) {
+            current_time = Some(key);
+            times.insert(key.to_string(), [0u32; 6]);
+        } else if INFO_TIME_PARTS.contains(&word.as_str()) && current_time.is_some() {
+            let slot = match word.as_str() {
+                "yr" => 0,
+                "mo" => 1,
+                "dy" => 2,
+                "hr" => 3,
+                "min" => 4,
+                _ => 5,
+            };
+            let name = current_time.unwrap_or_default().to_string();
+            if let Some(one) = times.get_mut(&name) {
+                one[slot] = digits.parse::<u32>().unwrap_or(0);
+            }
+        } else if word == "proptype" {
+            if !digits.is_empty() {
+                if let Some(last) = info.props.last_mut() {
+                    last.kind = digits.parse::<i64>().ok();
+                }
+            }
+        } else if word == "upr" {
+            skip_next = true;
+        } else if INFO_STOP.contains(&word.as_str()) {
+            break;
+        }
+        i = j;
+    }
+    flush_into(&mut stack, &mut pending, codepage, &mut info.notes);
+    if let Some(frame) = stack.pop() {
+        commit(frame, &mut info);
+    }
+    for (name, stamp) in &times {
+        if stamp[0] == 0 {
+            info.notes
+                .push(format!("{name} 在文件里是全零（等于没写这个时间）"));
+            continue;
+        }
+        info.fields.insert(
+            name.clone(),
+            format!(
+                "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+                stamp[0], stamp[1], stamp[2], stamp[3], stamp[4], stamp[5]
+            ),
+        );
+    }
+    info
+}
+
+fn flush_into(
+    stack: &mut Vec<Frame>,
+    pending: &mut Vec<u8>,
+    codepage: u32,
+    notes: &mut Vec<String>,
+) {
+    if pending.is_empty() {
+        return;
+    }
+    let mut out: Vec<u8> = Vec::new();
+    flush(&mut out, pending, codepage, notes);
+    if let Some(frame) = stack.last_mut() {
+        frame.buf.extend_from_slice(&out);
+    }
+}
+
+fn commit(frame: Frame, info: &mut Info) {
+    let Some(key) = frame.key else { return };
+    if frame.buf.is_empty() {
+        return;
+    }
+    let text = String::from_utf8_lossy(&frame.buf).into_owned();
+    match key {
+        "propname" => info.props.push(Prop {
+            name: text,
+            kind: None,
+            value: None,
+        }),
+        "staticval" => {
+            if let Some(last) = info.props.last_mut() {
+                let joined = match last.value.take() {
+                    Some(had) => had + &text,
+                    None => text,
+                };
+                last.value = Some(joined);
+            }
+        }
+        "created" | "modified" | "printed" => {}
+        other => {
+            let joined = match info.fields.get(other) {
+                Some(had) => had.clone() + &text,
+                None => text,
+            };
+            info.fields.insert(other.to_string(), joined);
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -465,6 +866,90 @@ mod tests {
             extract(b"{unclosed").text,
             "unclosed",
             "没有控制字时文本就是文本"
+        );
+    }
+
+    /// `\info` 群：标题在 `\upr` 的 `\*\ud` 那一边，其余键与 `\info{}` 平级排着。
+    /// 期望值来自 `lyco_rtf.py` 的 `rtf_info`，CI 里逐字段对账。
+    #[test]
+    fn info_group_metadata_comes_out_whole() {
+        let bytes = fixture("notes.rtf");
+        let info = parse_info(&bytes);
+        assert!(info.found);
+        assert_eq!(info.codepage, 1252);
+        assert_eq!(
+            info.fields.get("title").map(|one| one.as_str()),
+            Some("季度预算说明")
+        );
+        assert_eq!(
+            info.fields.get("subject").map(|one| one.as_str()),
+            Some("季度预算")
+        );
+        assert_eq!(
+            info.fields.get("keywords").map(|one| one.as_str()),
+            Some("budget, quarterly")
+        );
+        assert_eq!(
+            info.fields.get("comment").map(|one| one.as_str()),
+            Some("fixture produced by python-docx")
+        );
+        assert_eq!(
+            info.fields.get("author").map(|one| one.as_str()),
+            Some("liuqi")
+        );
+        assert_eq!(
+            info.fields.get("created").map(|one| one.as_str()),
+            Some("2013-12-23T23:15:00")
+        );
+        assert_eq!(info.fields.len(), 7, "{:?}", info.fields);
+        // 四条自定义属性：名字要整块交账，逐字交账会变成几十条
+        let names: Vec<String> = info.props.iter().map(|one| one.name.clone()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "AppVersion".to_string(),
+                "OOXMLCorePropertyCategory".to_string(),
+                "口径".to_string(),
+                "预算额度".to_string()
+            ],
+            "{names:?}"
+        );
+        assert_eq!(
+            info.props[0].value.as_deref(),
+            Some("14.0000"),
+            "{:?}",
+            info.props[0]
+        );
+        assert_eq!(info.props[3].kind, Some(3));
+        assert_eq!(info.props[3].value.as_deref(), Some("124000"));
+        // printim 全零：不能把 0000-00-00 当成一个真时间报出去
+        assert!(!info.fields.contains_key("printed"), "{:?}", info.fields);
+        assert!(
+            info.notes.iter().any(|one| one.contains("printed")),
+            "{:?}",
+            info.notes
+        );
+    }
+
+    /// 没有 `\info` 的文件要照实说，不能给一个空 map 装作读过
+    #[test]
+    fn a_document_without_info_says_so() {
+        let info = parse_info(br"{\ansi hello}");
+        assert!(!info.found);
+        assert!(info.fields.is_empty());
+        assert!(!info.notes.is_empty());
+    }
+
+    /// `\upr` 的第一群是 7 位回退文本：只认它就会拿到一串问号
+    #[test]
+    fn the_upr_fallback_is_not_the_value() {
+        let src = br"\{\ansi\ansicpg1252\info{\upr{\title \'3f\'3f}{\*\ud{\title \u26381\'3f\u21153\'3f}}}";
+        let info = parse_info(src);
+        assert_eq!(
+            info.fields.get("title").map(|one| one.as_str()),
+            Some("服务"),
+            "{:?}",
+            info.fields
         );
     }
 }

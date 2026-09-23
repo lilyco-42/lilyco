@@ -13,7 +13,7 @@ use lilyco::prelude::*;
 
 use crate::opack::{open, relationships, Family};
 use crate::read::read_blob;
-use crate::xmlscan::{self, Node};
+use crate::xmlscan;
 use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 
 /// 报出 Word 文档的结构（T0 只读）
@@ -159,7 +159,7 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             Some(one) => one,
             None => return Err(AppError::InvalidInput("复合文档打不开".to_string())),
         };
-        let body = crate::word::read(cfb, bytes)?;
+        let body = crate::word::read(cfb, bytes).map_err(AppError::InvalidInput)?;
         let raw = &body.text;
         json!({
             "path": app.path.to_string_lossy(),

@@ -233,10 +233,29 @@ fn run_office_meta(app: &OfficeMeta, ctx: &Context) -> Result<Value, AppError> {
         }
         Family::Rtf => {
             source = "rtf-info";
-            notes.push(
-                "RTF 的元数据在 \\info 目标群里，本版本还没解析那一段（正文读取见 office-text）"
-                    .to_string(),
-            );
+            let info = crate::rtf::parse_info(bytes);
+            core = json!(info.fields);
+            let mut named = serde_json::Map::new();
+            let mut kinds: Vec<String> = Vec::new();
+            for one in info.props.iter() {
+                named.insert(one.name.clone(), json!(one.value));
+                kinds.push(format!(
+                    "{}={}",
+                    one.name,
+                    one.kind.map_or("?".to_string(), |had| had.to_string())
+                ));
+            }
+            custom = Value::Object(named);
+            notes.extend(info.notes.iter().cloned());
+            if info.found {
+                notes.push(format!(
+                    "元数据来自 \\info 群（文件自报字符集 {}）：{} 个字段、{} 条自定义属性（RTF 里的类型编号：{}）",
+                    info.codepage,
+                    info.fields.len(),
+                    info.props.len(),
+                    kinds.join("、"),
+                ));
+            }
         }
         _ => {
             source = "none";
@@ -468,12 +487,17 @@ mod tests {
         assert!(out["custom"].as_object().expect("是对象").is_empty());
     }
 
-    /// RTF 的属性还没实现 —— 要说明，不要静默
+    /// RTF 的属性来自 `\info` 群（期望值同 `lyco_rtf.py::rtf_info`）
     #[test]
-    fn rtf_says_its_info_group_is_not_parsed() {
+    fn rtf_answers_with_its_info_group() {
         let out = run("notes.rtf");
         assert_eq!(out["source"], "rtf-info");
-        assert!(out["core"].as_object().expect("是对象").is_empty());
+        assert_eq!(out["core"]["title"], "季度预算说明", "{out}");
+        assert_eq!(out["core"]["author"], "liuqi");
+        assert_eq!(out["core"]["created"], "2013-12-23T23:15:00");
+        assert_eq!(out["core"].as_object().expect("是对象").len(), 7);
+        assert_eq!(out["custom"]["口径"]["value"], "含税", "{out}");
+        assert_eq!(out["custom"]["预算额度"]["type"], 3);
         let note = out["notes"]
             .as_array()
             .expect("有 notes")
@@ -482,6 +506,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join(" ");
         assert!(note.contains("info"), "{note}");
+        assert!(note.contains("printed"), "全零的时间要说破：{note}");
     }
 
     /// 每个真实生产者文件都要给出至少一条属性（这条同时是本命令的全家族回归）

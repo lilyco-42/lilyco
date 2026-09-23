@@ -132,9 +132,10 @@ fn run_office_package(app: &OfficePackage, ctx: &Context) -> Result<Value, AppEr
         })
         .map(|one| one["name"].as_str().unwrap_or_default().to_string())
         .collect();
-    let broken: Vec<&String> = notes
+    let broken: Vec<String> = notes
         .iter()
         .filter(|one| one.contains("包里没有的部件"))
+        .cloned()
         .collect();
     // 四条自证：每条都是一个 json! 对象，先在外头拼好 —— `json!` 里嵌 `[...]` 再
     // 接 `.iter()` 不是合法的 Rust，宏吃不下尾随表达式。

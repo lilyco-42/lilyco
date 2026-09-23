@@ -254,7 +254,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             .compound
             .as_ref()
             .ok_or_else(|| AppError::InvalidInput("复合文档打不开".to_string()))?;
-        let book = crate::biff::read(cfb, bytes)?;
+        let book = crate::biff::read(cfb, bytes).map_err(AppError::InvalidInput)?;
         let notes = book.notes.clone();
         let cells: Vec<Value> = book
             .cells

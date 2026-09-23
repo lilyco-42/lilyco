@@ -86,7 +86,7 @@ lbin --schema                                # 注册表清单（四端同源的
 | `entries` | ZIP 家族（方法/CRC-32/两个尺寸/局部头偏移）、tar（typeflag/mode/uid/gid/mtime + 八位校验和自证）、ar（含 `.deb` 的 `` ` ``+换行命名） | 压缩流的解压 |
 | `regions` | ELF（节 + 加载段 → 区分对齐填充与真空闲）、PE（段表 + 证书目录）、Mach-O（节表/符号表/间接符号表/重定位，端序由头的字节排列决定）、PNG（块表 + 真算的 CRC） | 其他族给 `mapped: false` + 原因 |
 | `symbols` | 走 `object`：ELF/PE/Mach-O/COFF，节表 + `.symtab`/`.dynsym` + 地址到名字索引 | 反汇编、控制流（那是另一个域） |
-| `office-*` | OOXML（docx/docm/xlsx/xlsm/pptx/pptm）、ODF（odt/ods/odp）、MS-CFB 遗留（doc/xls/ppt）、RTF；OPC 的关系表与内容类型；OLE 属性集；`.doc` 的 piece 表；`.xls` 的 BIFF8 记录（格子按 BOUNDSHEET 偏移归位到每张表）；`.ppt` 的 PowerPoint 97 记录树（文本原子 0x0FA0 / 0x0FA8 / 0x0FBA） | `.ppt` 的按页归位（要 SlideContainer 与 SlidePersistAtom 配对）、RTF 的 `\info` 群、宏内容的解析（只检测宏部件）、密码学验证（签名只看有没有，不验签） |
+| `office-*` | OOXML（docx/docm/xlsx/xlsm/pptx/pptm）、ODF（odt/ods/odp）、MS-CFB 遗留（doc/xls/ppt）、RTF；OPC 的关系表与内容类型；OLE 属性集；RTF 的 `\info` 群与 `\*\userprops`；`.doc` 的 piece 表；`.xls` 的 BIFF8 记录（格子按 BOUNDSHEET 偏移归位到每张表）；`.ppt` 的 PowerPoint 97 记录树（文本原子 0x0FA0 / 0x0FA8 / 0x0FBA） | `.ppt` 的按页归位（要 SlideContainer 与 SlidePersistAtom 配对）、宏内容的解析（只检测宏部件）、密码学验证（签名只看有没有，不验签） |
 
 office 这一摊的证据制度在 [`lilyco-binfmt/tests/fixtures/office/README.md`](../lilyco-binfmt/tests/fixtures/office/README.md)：
 13 份 fixture 全部由**独立生产者**写出（python-docx / openpyxl / python-pptx / Pillow / LibreOffice），
