@@ -162,7 +162,7 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
   服务端吐的 HTML 里，行为只写在 `assets/index.html` 的 `init*` 中（`render.rs` 有一条测试逐名扫）。
   理由：markup 与行为各说各话是这套页面出过的每一类「点了没反应」的根因。
 
-## 8. 不变量（真栽过的四类）
+## 8. 不变量（真栽过的五类）
 
 1. **平行表禁止**。同一事实只允许有一个来源。
    事故 A：`/upload` 的体积上限在 handler 里写 200 MB，而 axum 默认只放 2 MB，两条线各说各话 →
@@ -190,20 +190,26 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
    init 里，其余九个照常装配。对照组（没动过的 `outerHTML`）`#out` 保持 `hidden`、日志为空。
 4. **`GET /` 必须 `no-store`**。整页自包含且随进程变（schema、令牌、重编译后的资产）。
    踩过：改了页面 JS 重编重跑，浏览器还在发上一版，半数组件是死的，第一反应是「新代码有 bug」。
+5. **「一次只跑一个」的闸门必须同步生效**。`run()` 里那句 `if(es)return` 挡不住连点：`es` 要等
+   `POST /run` 的 fetch 回来才赋值，而运行按钮虽然被 `setBusy(true)` 禁了，**表单自己不管**——
+   在输入框里按回车照样提交。实测连发三次 `requestSubmit()` 就真出去三个 `/run`（对 T1/T2 命令
+   就是三次副作用）。现在闸门是 `$("run-btn").disabled`：`setBusy(true)` 在任何 `await` 之前同步发生，
+   所以第二次起必被挡；同一处实测跑完一轮后再提交仍能发出第二个请求（闸门会松开，不会锁死页面）。
 
 ## 9. 体积预算
 
 | 文件 | 重设计前 | 现在（2026-09-23 实测） |
 |------|---------|------|
-| `assets/index.html`（含内联 JS） | 10,377 B | 19,777 B |
+| `assets/index.html`（含内联 JS） | 10,377 B | 20,162 B |
 | `assets/app.css` | 10,314 B | 21,424 B |
-| 一次 `GET /` 的响应 | 未量过旧版（两个资源文件之和 20,691 B） | 43,786 B（`lbin` 的 identify 表单实测字节数） |
+| 一次 `GET /` 的响应 | 未量过旧版（两个资源文件之和 20,691 B） | 44,041 B（`lbin` 的 identify 表单实测字节数） |
 
 **上限不在这里写第二遍**：`src/render.rs` 的 `assets_stay_within_the_documented_budget`
-是唯一的闸门（HTML ≤ 21,000 B、CSS ≤ 22,500 B），涨过线编译期就红。
+是唯一的闸门（HTML ≤ 21,000 B、CSS ≤ 22,500 B），涨过线编译期就红 —— HTML 那一档只剩 ~800 B 余量，
+下一个组件大概会撞上去，那就是该坐下来决定「删什么或凭什么涨」的时刻。
 响应比两个文件之和还大，是因为骨架里的 `__FIELDS__` / `__CMD_NAV__` / `__ABOUT__` / `__META__`
 都会换成真内容；按字符数报会少算约 5 KB（CJK 一个字三个字节），所以这张表一律记字节。
-涨的这 21 KB（资源文件从 20,691 B 到 41,201 B）买的是：两套主题 × 全令牌、§2.1 的组件级响应式、
+涨的这 21 KB（资源文件从 20,691 B 到 41,586 B）买的是：两套主题 × 全令牌、§2.1 的组件级响应式、
 §10 的七态与无障碍结构
 （真按钮、焦点环、live region、`aria-describedby`），以及行为层从「一坨顺序脚本」拆成 10 个可装配组件。
 这页要**内嵌进每个域二进制的 `.exe` 里**，所以预算是真的要守 —— 但它是本机回环上的单个响应，
@@ -236,6 +242,9 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 > （`list_rows_follow_their_item_kind` 盯着），但只有 `Vec<String>` 真能跑通端到端。
 > 剩下那半在 `lilyco-macros` 的取值分支里，属于四端共同的问题，不是控制台单独的毛病 ——
 > 别把它当成 Web 的 bug 修在这里。
+> 验证到能验的那一层：在跑起来的页面里挂一个 `data-item="Number"` 的列表容器，
+> `addListRow` 复制出来的行确实是 `type=number`，`listValues` 回 `[7,9]` 且 `typeof` 两个都是
+> `number`（不是 `"7"`）；端到端那一档要等宏修好才有真参数可跑。
 
 \* `disabled` 的**样式**实测到位（`run` / `btn-icon` / `input` 三者都读回 `opacity:0.55` +
 `cursor:not-allowed`），但参数控件这一层暂时没有**触发方**：schema 里还没有「只读参数」这种东西。
@@ -265,7 +274,7 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 |------|------|------|-----------|--------|
 | `topbar` | brand + `command-nav` + 主题按钮 | hover / focus / active / pressed（`aria-pressed=true`=深色，=success 语义）/ disabled·loading·empty·error：n/a（常驻骨架，brand 恒在） | `--surface`（82% 混合）`--hairline` `--s-2`；按钮另用 `--control` `--ink` `--accent` `--surface-3` `--r-control` | `position:sticky` + `backdrop-filter`；实测 320–420 下拉换到第二行（99px）、≥560 单行（57px），各档顶栏自身无横向溢出，主题按钮始终距右 16px |
 | `command-nav` | `<select id=cmd-nav>`，可见命令 >1 才出现 | hover / focus / **disabled + `aria-busy="true"`**（实测 `opacity 0.55` + `cursor:progress`：那是「正在办」不是「不许办」）/ loading·empty·error·success：n/a（值域非空、选不出非法值，成不成功由整页重载自己回答） | `--control`（描边，3.64·3.30）`--ink` `--surface` `--r-control` | `aria-label="切换命令"`；跳转在 `initCommandNav`，不写内联 `onchange` |
-| `run-bar` | `运行` + `取消` + `复制 CLI` | hover / focus / disabled（跑起来时，实测 `opacity 0.55`）/ loading（转圈 + `aria-busy`；reduce 下改文字 `…`，见 §5）/ error（取消失败按钮解禁）/ success（跑完 `setBusy(false)` 复原）/ empty：n/a（按钮没有空态） | `--accent` `--on-accent`（5.17·7.32）`--control` `--danger` `--hairline` `--s-2` `--r-control` | `type=submit` 语义保留；`aria-busy` 给读屏；窄容器 ≤420 竖排各占满 |
+| `run-bar` | `运行` + `取消` + `复制 CLI` | hover / focus / disabled（跑起来时，实测 `opacity 0.55`；它同时就是「一次只跑一个」的闸门，见 §8.5）/ loading（转圈 + `aria-busy`；reduce 下改文字 `…`，见 §5）/ error（取消失败按钮解禁）/ success（跑完 `setBusy(false)` 复原）/ empty：n/a（按钮没有空态） | `--accent` `--on-accent`（5.17·7.32）`--control` `--danger` `--hairline` `--s-2` `--r-control` | `type=submit` 语义保留；`aria-busy` 给读屏；窄容器 ≤420 竖排各占满 |
 | `cli-preview` | `$ ` 前缀 + 一行命令文本 | empty = `display:none`（不留孤零零的 `$ `）/ 其余六态：n/a（纯展示，交互在 `复制 CLI` 那颗上） | `--surface-2` `--hairline` `--ink-muted`（4.88·6.56 对预览底）`--accent`（`$ ` 前缀）`--r-control` `--s-3` | 只读文本；`updatePreview` 每次表单 input/change 都重算 |
 | `output` | `out-head` + `log` + `result-wrap` 的容器 | empty（`hidden`）/ 有内容（撤 `hidden`）/ error（装配失败时也强制露出来，见 §8.3）/ hover·focus·disabled·loading·success：n/a（它自己不接收交互） | `--s-5`；标题行 `--ink-muted` `--s-3` `--s-4` | `#log` 是唯一 live region；`#out` **不再叠 `aria-live`**，免得同一句话念两遍 |
 | `progress` | `.progress` 槽 + `.progress-bar` 条 | loading=不确定（`data-indet=1` 跑动；reduce 下铺满 + 压淡）/ 确定（`aria-valuenow`）/ success（`data-state=done` 整条 `--ok`）/ error（`data-state=error` 整条 `--danger` 且走满）/ empty（宽 0% = 什么都没发生，所以收尾不给 0%）/ hover·focus·disabled：n/a（非交互） | `--surface-3`（槽）`--accent` `--ok` `--danger` `--r-pill` | `role=progressbar` + `aria-valuemin/max`；无比例时**不给** `valuenow`（别骗读屏） |

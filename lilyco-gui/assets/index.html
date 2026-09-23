@@ -368,7 +368,11 @@ function setBusy(b){
 }
 async function run(e){
   e.preventDefault();
-  if(es)return;
+  // 一次只跑一个。拿按钮的 disabled 当唯一闸门，不另立一个 running 标志：
+  // setBusy(true) 在任何 await 之前同步发生，所以第二、第三次提交一定被挡。
+  // （光靠 `if(es)` 挡不住 —— es 要等 /run 的 fetch 回来才赋值，
+  //   实测连点三次 requestSubmit 就真发出三个 POST /run。）
+  if($("run-btn").disabled||es)return;
   const data=readForm(),out=$("out");
   out.hidden=false;initLog();setProgress(null);setProgressState(null);setBusy(true);
   out.scrollIntoView({block:"nearest"});  // 手机上运行按钮在表单底部，输出区在它下面
