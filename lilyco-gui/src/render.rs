@@ -603,6 +603,26 @@ mod tests {
             body.contains(&format!(r##"data-max-upload="{MAX_UPLOAD_BYTES}""##)),
             "拖拽区没带上服务端注入的体积上限"
         );
+
+        // 另一边也要说得过去：`must_exist = false` 是可以手填的目标路径，
+        // 不能拿「拖进来就回填服务端副本」那句话去骗人（真页面上 lbin/lfiles 全是 true，
+        // 所以这一半只能由测试覆盖）
+        let out = page(vec![arg(
+            "dest",
+            "输出",
+            ArgKind::Path { must_exist: false },
+            false,
+            None,
+        )])
+        .await;
+        assert!(
+            out.contains("可选：拖拽上传，或直接手填路径"),
+            "must_exist=false 的 Path 话术要允许手填"
+        );
+        assert!(
+            !out.contains("拖到这里，或点「选择文件」"),
+            "两种 must_exist 的话术串了"
+        );
     }
 
     /// 页面 JS 拿 `$("field-" + dz.dataset.target)` 找输入框，所以 `data-target` 必须是
