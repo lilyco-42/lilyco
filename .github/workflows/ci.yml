@@ -62,10 +62,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy (apps, all targets)
-        run: cargo clippy -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal --all-targets
+        run: cargo clippy -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt --all-targets
 
       - name: Run tests (apps)
-        run: cargo test -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal
+        run: cargo test -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt
 
   # 产出可直接使用的二进制 —— 本机不装 Rust 也能拿到
   release-build:
