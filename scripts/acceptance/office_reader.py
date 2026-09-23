@@ -510,6 +510,28 @@ def body_paragraphs(root) -> list:
     ]
 
 
+def body_paragraph_and_heading_nodes(root) -> list:
+    """`office-text` 的 ODF 口径：正文段**和标题**按文档顺序一起走。
+
+    这两份账本来就不是一个问句：office-doc 问「有几段」（只认 `text:p`，
+    标题另有一份带层级的清单），office-text 问「页面上能读到哪几块字」，
+    `text:h` 也是字。共用一份清单会让其中一边说谎，所以分开列。
+    批注子树同样挖掉，理由与 `body_paragraphs` 一致。
+    """
+    inside = set()
+    for owner in root.iter():
+        if xml_local(owner.tag) != "annotation":
+            continue
+        for one in owner.iter():
+            if xml_local(one.tag) in ("p", "h"):
+                inside.add(id(one))
+    return [
+        one
+        for one in root.iter()
+        if xml_local(one.tag) in ("p", "h") and id(one) not in inside
+    ]
+
+
 def annotation_entries(body) -> list:
     """ODF 批注：作者与时间挂在它自己的 meta:creator / meta:date **孩子**上
     （docx 那边是 w:comment 的属性）—— 两份文件的存法正好相反，都得照文件读。
@@ -568,13 +590,17 @@ def odt_facts(path: Path) -> dict:
             name = xml_local(one.tag)
             if one.text and one.text.strip():
                 metas.setdefault(name, one.text.strip())
-    texts = [odf_para_text(one).strip() for one in paras]
+    # office-text 交的是「页面上读到的每一块字」，标题也算 —— 与「几段」是两问
+    blocks = [
+        odf_para_text(one).strip()
+        for one in body_paragraph_and_heading_nodes(root)
+    ]
     return {
         "paragraph_count": len(paras),
         "headings": ["".join(one.itertext()) for one in heads],
         "tables": len(tables),
-        "text": "\n".join(texts),
-        "paragraphs": texts,
+        "text": "\n".join(blocks),
+        "paragraphs": [one for one in blocks if one],
         "media": sorted(one for one in names if one.startswith("Pictures/")),
         "meta": metas,
         "parts": sorted(names),
@@ -808,6 +834,176 @@ def odp_facts(path: Path) -> dict | None:
         # 页上写着版式名，文件里没有版式定义：这是这份真件的事实，不是我漏读
         "page_layout_defs": sum(1 for one in root.iter() if xml_local(one.tag) == "page-layout"),
     }
+
+
+def split_ref(reference: str):
+    """`B4` → (行 3, 列 1)。不是 A1 形状就交回 None —— 位置猜不出来就不铺网格。"""
+    raw = (reference or "").strip()
+    at = 0
+    while at < len(raw) and raw[at].isalpha():
+        at += 1
+    letters, digits = raw[:at], raw[at:]
+    if not letters or not digits or not digits.isdigit():
+        return None
+    col = 0
+    for ch in letters.upper():
+        col = col * 26 + (ord(ch) - ord("A") + 1)
+    row = int(digits)
+    if row == 0:
+        return None
+    return (row - 1, col - 1)
+
+
+def csv_quote(raw: str) -> str:
+    """RFC4180：带逗号、引号、换行就整体加引号，里面的引号翻倍"""
+    if any(ch in raw for ch in ('"', ",", "\n", "\r")):
+        return '"' + raw.replace('"', '""') + '"'
+    return raw
+
+
+def csv_render(cells: list) -> str:
+    rows = max((one[0] for one in cells), default=-1) + 1
+    cols = max((one[1] for one in cells), default=-1) + 1
+    grid = [["" for _ in range(cols)] for _ in range(rows)]
+    for row, col, raw in cells:
+        grid[row][col] = raw
+    return "".join(
+        ",".join(csv_quote(one) for one in line) + "\n" for line in grid
+    )
+
+
+def number_text(raw: str) -> str:
+    """按 lbin 的口径给数：整数值不写 `.0`（Rust 的 `{}` 就是这个样子）"""
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return raw or ""
+    return str(int(value)) if value.is_integer() else repr(value)
+
+
+def xlsx_csv(path: Path) -> list:
+    """每张表一个 (名字, CSV 文本)：字符串查 sharedStrings，日期给 ISO 串"""
+    with zipfile.ZipFile(path) as box:
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    wb = ET.fromstring(parts["xl/workbook.xml"])
+    rels = {}
+    if "xl/_rels/workbook.xml.rels" in parts:
+        for one in ET.fromstring(parts["xl/_rels/workbook.xml.rels"]).iter():
+            if xml_local(one.tag) == "Relationship":
+                rels[one.get("Id")] = one.get("Target") or ""
+    sst = []
+    if "xl/sharedStrings.xml" in parts:
+        for one in ET.fromstring(parts["xl/sharedStrings.xml"]).iter():
+            if xml_local(one.tag) == "si":
+                sst.append("".join(x.text or "" for x in one.iter() if xml_local(x.tag) == "t"))
+    dates = {}
+    for one in xlsx_formats(path)["cells"]:
+        if one.get("as_date"):
+            dates[f"{one['sheet']}!{one['ref']}"] = one["as_date"]
+    out = []
+    for sheet in wb.iter():
+        if xml_local(sheet.tag) != "sheet":
+            continue
+        name = sheet.get("name") or ""
+        rid = None
+        for key, value in sheet.attrib.items():
+            if key.rsplit("}", 1)[-1] == "id":
+                rid = value
+        target = rels.get(rid) or ""
+        # 关系目标可以写成「包根起算」的绝对名（openpyxl 就用 "/xl/worksheets/sheet1.xml"）
+        if target.startswith("/"):
+            part = target[1:]
+        elif target.startswith("xl/"):
+            part = target
+        else:
+            part = "xl/" + target
+        if part not in parts:
+            continue
+        cells = []
+        root = ET.fromstring(parts[part])
+        for one in root.iter():
+            if xml_local(one.tag) != "c":
+                continue
+            ref = one.get("r") or ""
+            spot = split_ref(ref)
+            if spot is None:
+                continue
+            kind = one.get("t") or "n"
+            value = ""
+            inline = ""
+            for kid in one:
+                if xml_local(kid.tag) == "v":
+                    value = "".join(kid.itertext()).strip()
+                if xml_local(kid.tag) == "is":
+                    inline = "".join(kid.itertext()).strip()
+            if dates.get(f"{name}!{ref}"):
+                display = dates[f"{name}!{ref}"]
+            elif kind == "s":
+                try:
+                    display = sst[int(value)]
+                except (ValueError, IndexError):
+                    display = f"#SST 索引 {value} 越界"
+            elif kind == "inlineStr":
+                display = inline
+            elif kind == "b":
+                display = "TRUE" if value == "1" else "FALSE"
+            elif kind == "e":
+                display = f"#错误 {value}"
+            elif kind in ("str", "n"):
+                display = value if kind == "str" or not value else number_text(value)
+            else:
+                display = value
+            cells.append((spot[0], spot[1], display))
+        out.append((name, csv_render(cells)))
+    return out
+
+
+def ods_csv(path: Path) -> list:
+    """ODF 表格：与 xlsx 同一口径 —— 给值不给显示格式，日期给 ISO，布尔给 TRUE/FALSE"""
+    book = ods_facts(path) or {"sheets": []}
+    out = []
+    for one in book["sheets"]:
+        cells = []
+        for had in one["cell_list"]:
+            spot = split_ref(had["ref"])
+            if spot is None:
+                continue
+            if had["date_value"]:
+                display = had["date_value"]
+            elif had["value_type"] == "boolean":
+                display = "TRUE" if had["boolean_value"] == "true" else "FALSE"
+            elif had["value_type"] in ("float", "percentage", "currency") and had["value"]:
+                display = number_text(had["value"])
+            else:
+                display = had["text"]
+            cells.append((spot[0], spot[1], display))
+        out.append((one["name"], csv_render(cells)))
+    return out
+
+
+def biff_csv(book: dict) -> dict:
+    """遗留 .xls 的 CSV：位置**直接用记录里的 row/col 整数**，Rust 那边是从 `"B4"`
+    反解 —— 两条算法不同，结果必须逐字相同，这样才叫对账。
+
+    日期格这里给的是序列数：BIFF 这条路没有「查 cellXfs 拿格式码」那一步
+    （命令在 notes 里也是这么说的），所以别装作它能换算成 ISO。
+    """
+    out = []
+    for one in book["sheets"]:
+        cells = []
+        for had in book["cells"]:
+            if had.get("sheet") != one["name"]:
+                continue
+            raw = had.get("value")
+            display = raw if isinstance(raw, str) else number_text(raw)
+            cells.append((int(had["row"]), int(had["col"]), display))
+        out.append((one["name"], csv_render(cells)))
+    return {"sheets": [{"name": name, "csv": body} for name, body in out]}
+
+
+def csv_facts(path: Path) -> dict:
+    sheets = xlsx_csv(path) if path.suffix.lower() in (".xlsx", ".xlsm") else ods_csv(path)
+    return {"sheets": [{"name": name, "csv": body} for name, body in sheets]}
 
 
 # ---------------------------------------------------------------- MS-CFB（.doc/.xls/.ppt）
@@ -1233,6 +1429,7 @@ def facts(path: Path) -> dict:
             out["legacy_text"] = doc_pieces(streams)
         if "Workbook" in names or "Book" in names:
             out["biff"] = biff_workbook(streams)
+            out["csv"] = biff_csv(out["biff"])
         if "PowerPoint Document" in streams:
             out["ppt_text"] = ppt_text(streams)
         return out
@@ -1250,6 +1447,7 @@ def facts(path: Path) -> dict:
             out["ooxml"] = xlsx_facts(path)
             if path.suffix.lower() == ".xlsx":
                 out["formats"] = xlsx_formats(path)
+            out["csv"] = csv_facts(path)
         elif "ppt/presentation.xml" in parts:
             out["app"] = "powerpoint"
             out["ooxml"] = pptx_facts(path)
@@ -1260,6 +1458,7 @@ def facts(path: Path) -> dict:
             sheets = ods_facts(path)
             if sheets is not None:
                 out["ods"] = sheets
+                out["csv"] = csv_facts(path)
             deck = odp_facts(path)
             if deck is not None:
                 out["odp"] = deck

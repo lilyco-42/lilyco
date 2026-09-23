@@ -14,6 +14,8 @@ word / biff），另一边是只用标准库的 Python 读者（`office_reader.p
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
 import subprocess
@@ -379,6 +381,36 @@ def main() -> int:
           pw["slides"][0]["size"]["orientation"])
     blob = json.dumps(slide, ensure_ascii=False)
     record("deck.odp 不许把页码占位的样字当正文", "<编号>" not in blob, blob[:120])
+
+    # ── 3f) --csv：把一张表铺平成 RFC4180（期望文本逐字来自 csv_facts/biff_csv）──
+    print("=== 3f) office-sheet --csv：铺平一张表 ===")
+    for name in ("book.xlsx", "formats.xlsx", "book.xls", "book.ods", "formats.ods"):
+        want = {one["name"]: one["csv"] for one in files[name]["csv"]["sheets"]}
+        plain = lbin("office-sheet", fixture(name))
+        record(
+            "%s 不开 --csv 就不交那份账" % name,
+            plain.get("csv") is None,
+            json.dumps(plain.get("csv"), ensure_ascii=False)[:80],
+        )
+        got = lbin("office-sheet", fixture(name), "--csv")
+        order = [one["name"] for one in got.get("sheets", [])]
+        check("%s --csv 的表序与命令报的一致" % name, order, list(want))
+        check("%s --csv 默认第一张" % name, dig(got, "csv.text"), want.get(order[0]))
+        for at, one in enumerate(got.get("sheets", [])):
+            nm = one["name"]
+            body = want.get(nm) or ""
+            shape = list(csv.reader(io.StringIO(body)))
+            by_name = lbin("office-sheet", fixture(name), "--csv", "--sheet", nm)
+            check("%s --csv --sheet %s（按表名）" % (name, nm), dig(by_name, "csv.text"), body)
+            by_index = lbin("office-sheet", fixture(name), "--csv", "--sheet", str(at))
+            check("%s --csv --sheet %d（按序号）" % (name, at), dig(by_index, "csv.text"), body)
+            check(
+                "%s --csv %s 声明的行列与 csv 模块解出来的一致" % (name, nm),
+                [dig(by_name, "csv.rows"), dig(by_name, "csv.columns")],
+                [len(shape), max((len(row) for row in shape), default=0)],
+            )
+        bad = lbin("office-sheet", fixture(name), "--csv", "--sheet", "没这张表")
+        check("%s --csv 认错表名就把候选说清楚" % name, isinstance(dig(bad, "csv.error"), str), True)
 
     # ── 属性：三份账 ───────────────────────────────────────────────
     print("=== 4) office-meta：属性 ===")

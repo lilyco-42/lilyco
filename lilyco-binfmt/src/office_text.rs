@@ -908,6 +908,24 @@ mod tests {
         let all = texts(&out);
         assert!(all.contains(&"一级标题：预算口径".to_string()), "{all:?}");
         assert!(all.contains(&"第三季度服务器预算为十二万四千元".to_string()));
+        // 逐条钉住：标题插在两段之间，按文档顺序走 —— 分开取「所有段」「所有标题」
+        // 会把它堆到末尾，读出来的就不是这份文档；最后一条才是批注
+        assert_eq!(
+            all,
+            vec![
+                "一级标题：预算口径",
+                "第三季度服务器预算为十二万四千元",
+                "二级标题：明细",
+                "科目",
+                "金额",
+                "服务器",
+                "124000",
+                "口径见 预算制度",
+                "最后一页说明：数字为含税口径",
+                "这里要补上不含税口径",
+            ],
+            "{all:?}"
+        );
         let items = out["paragraphs"].as_array().expect("是数组");
         assert!(
             items.iter().any(|one| one["heading"] != Value::Null),

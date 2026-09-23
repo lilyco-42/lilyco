@@ -23,7 +23,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-sheet",
     run = "run_office_sheet",
-    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader. ODF spreadsheets (.ods) are read on their own terms: cells carry an explicit value-type with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, and a sheet's visibility is resolved through the automatic style it names. Returns { path, format, sheets, workbook, defined_names, tables, external_links, parts, notes }."
+    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader. ODF spreadsheets (.ods) are read on their own terms: cells carry an explicit value-type with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, and a sheet's visibility is resolved through the automatic style it names. With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (for legacy .xls there is no style hop yet, so a date goes out as the serial and a note says so), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. Returns { path, format, sheets, csv, workbook, defined_names, tables, external_links, parts, notes }."
 )]
 pub struct OfficeSheet {
     /// 表格文件（xlsx / xlsm / xls / ods）
@@ -37,6 +37,14 @@ pub struct OfficeSheet {
         min = 1
     )]
     limit: u64,
+
+    /// 顺带交一份 CSV（RFC4180：带逗号/引号/换行的字段加引号，日期给 ISO）
+    #[arg(about = "Also render one sheet as CSV")]
+    csv: bool,
+
+    /// `--csv` 要哪张表：表名，或 `index` 那个从 0 起的序号；不给就是第一张
+    #[arg(about = "Sheet for --csv: name or 0-based index", default = "")]
+    sheet: String,
 
     /// 最多读多少字节
     #[arg(about = "Read at most this many bytes", default = 67108864)]
@@ -77,6 +85,9 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
         let mut notes = doc.notes.clone();
         notes.extend(styles.notes.iter().cloned());
         let mut sheets: Vec<Value> = Vec::new();
+        let mut grid_names: Vec<String> = Vec::new();
+        let mut grids: Vec<Vec<(usize, usize, String)>> = Vec::new();
+        let mut grid_skipped = 0usize;
         let mut totals = json!({
             "cells": 0, "formulas": 0, "numeric": 0, "shared_strings": 0,
             "inline_strings": 0, "merged": 0, "hidden_rows": 0, "hidden_cols": 0,
@@ -120,6 +131,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                     let mut inline = 0usize;
                     let mut cached = 0usize;
                     let mut dates = 0usize;
+                    let mut grid: Vec<(usize, usize, String)> = Vec::new();
                     for cell in sheet_root.descendants("c") {
                         count += 1;
                         let reference = cell.attr("r").unwrap_or_default().to_string();
@@ -186,6 +198,17 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                         {
                             cached += 1;
                         }
+                        if grid.len() < MAX_GRID_CELLS {
+                            if let Some((row, col)) = split_ref(&reference) {
+                                let display = match formatted["as_date"].as_str() {
+                                    Some(one) => one.to_string(),
+                                    None => text.clone().unwrap_or_default(),
+                                };
+                                grid.push((row, col, display));
+                            }
+                        } else {
+                            grid_skipped += 1;
+                        }
                         if cells.len() < limit {
                             cells.push(merge(
                                 json!({
@@ -222,6 +245,8 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                         .count());
                     entry["rows"] = json!(sheet_root.descendants("row").len());
                     entry["cell_list"] = json!(cells);
+                    grid_names.push(name.clone());
+                    grids.push(grid);
                     bump(&mut totals, "cells", count);
                     bump(&mut totals, "formulas", formulas);
                     bump(&mut totals, "numeric", numeric);
@@ -271,6 +296,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "totals": totals,
             },
             "sheets": sheets,
+            "csv": csv_report(app.csv, &grid_names, &grids, &app.sheet, grid_skipped),
             "defined_names": defined,
             "external_links": external,
             "notes": notes,
@@ -286,6 +312,19 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
              所以这边没有 1900 / 1904 那套基准要猜；显示文本（如 `12.5%`）与值是两样东西"
                 .to_string(),
         );
+        let grid_names: Vec<String> = book.sheets.iter().map(|one| one.name.clone()).collect();
+        let grids: Vec<Vec<(usize, usize, String)>> = book
+            .sheets
+            .iter()
+            .map(|one| {
+                one.cells
+                    .iter()
+                    .filter_map(|had| {
+                        split_ref(&had.reference).map(|(row, col)| (row, col, ods_display(had)))
+                    })
+                    .collect()
+            })
+            .collect();
         let mut sheets: Vec<Value> = Vec::new();
         let mut totals = json!({
             "cells": 0, "formulas": 0, "dates": 0, "merged": 0, "covered": 0,
@@ -337,6 +376,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "totals": totals,
             },
             "sheets": sheets,
+            "csv": csv_report(app.csv, &grid_names, &grids, &app.sheet, 0),
             "notes": notes,
         });
         ctx.done(result.clone(), start.elapsed().as_millis() as u64);
@@ -348,7 +388,37 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             .as_ref()
             .ok_or_else(|| AppError::InvalidInput("复合文档打不开".to_string()))?;
         let book = crate::biff::read(cfb, bytes).map_err(AppError::InvalidInput)?;
-        let notes = book.notes.clone();
+        let mut notes = book.notes.clone();
+        if app.csv {
+            // 这条路上没有「查 cellXfs 拿格式码」那一步：日期格只会给序列数
+            notes.push(
+                "CSV 里 .xls 的日期格给的是序列数：BIFF 这一支还没解样式，\
+                 不替它换算成 ISO"
+                    .to_string(),
+            );
+        }
+        let grid_names: Vec<String> = book.sheets.iter().map(|one| one.name.clone()).collect();
+        let grids: Vec<Vec<(usize, usize, String)>> = book
+            .sheets
+            .iter()
+            .map(|sheet| {
+                book.cells
+                    .iter()
+                    .filter(|had| had.sheet.as_deref() == Some(sheet.name.as_str()))
+                    .filter_map(|had| {
+                        split_ref(&had.reference()).map(|(row, col)| {
+                            (
+                                row,
+                                col,
+                                had.text.clone().unwrap_or_else(|| {
+                                    had.number.map(|one| format!("{one}")).unwrap_or_default()
+                                }),
+                            )
+                        })
+                    })
+                    .collect()
+            })
+            .collect();
         let cells: Vec<Value> = book
             .cells
             .iter()
@@ -382,6 +452,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "cells": book.cells.iter().filter(|had| had.sheet.as_deref() == Some(one.name.as_str())).count(),
             })).collect::<Vec<Value>>(),
             "cells": cells,
+            "csv": csv_report(app.csv, &grid_names, &grids, &app.sheet, 0),
             "notes": notes,
         });
         ctx.done(result.clone(), start.elapsed().as_millis() as u64);
@@ -423,6 +494,131 @@ fn shared_strings(bytes: &[u8]) -> Vec<String> {
     }
 }
 
+/// 一格最多铺进 CSV 的总数上限：坏文件可以自报几百万格，铺完就成了内存事故
+const MAX_GRID_CELLS: usize = 200_000;
+
+/// `B4` → (行 3, 列 1)。不是 A1 形状就交回 None —— 位置猜不出来就不铺。
+fn split_ref(reference: &str) -> Option<(usize, usize)> {
+    let raw = reference.trim();
+    let split = raw.find(|ch: char| ch.is_ascii_digit())?;
+    let letters = &raw[..split];
+    let digits = &raw[split..];
+    if letters.is_empty() || !digits.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    let mut col = 0usize;
+    for ch in letters.chars() {
+        let letter = ch.to_ascii_uppercase();
+        if !('A'..='Z').contains(&letter) {
+            return None;
+        }
+        col = col.checked_mul(26)? + usize::from(letter as u8 - b'A') + 1;
+    }
+    let row: usize = digits.parse().ok()?;
+    if row == 0 {
+        return None;
+    }
+    Some((row - 1, col - 1))
+}
+
+/// CSV 里的一格：RFC4180 —— 带逗号、引号、换行就整体加引号，里面的引号翻倍
+fn csv_field(raw: &str) -> String {
+    if raw.contains(['"', ',', '\n', '\r']) {
+        format!("\"{}\"", raw.replace('"', "\"\""))
+    } else {
+        raw.to_string()
+    }
+}
+
+/// 把 (行, 列, 文本) 铺成一张网再拼成 CSV：空洞是空字段，尾部不裁（空格子也是格子）
+fn render_csv(cells: &[(usize, usize, String)]) -> (String, usize, usize) {
+    let rows = cells.iter().map(|one| one.0 + 1).max().unwrap_or(0);
+    let cols = cells.iter().map(|one| one.1 + 1).max().unwrap_or(0);
+    let mut grid: Vec<Vec<String>> = vec![vec![String::new(); cols]; rows];
+    for (row, col, text) in cells {
+        if *row < rows && *col < cols {
+            grid[*row][*col] = text.clone();
+        }
+    }
+    let mut out = String::new();
+    for line in &grid {
+        out.push_str(
+            &line
+                .iter()
+                .map(|one| csv_field(one.as_str()))
+                .collect::<Vec<String>>()
+                .join(","),
+        );
+        out.push('\n');
+    }
+    (out, rows, cols)
+}
+
+/// ODS 一格进 CSV 该写什么：跟 xlsx 那条同一口径 —— **给值，不给显示格式**，
+/// 日期给 ISO（ODF 本来就写着 ISO），布尔给 TRUE/FALSE，文本给文本。
+/// 于是同一份数据在 xlsx 与 ods 两边拼出来的 CSV 是一样的，
+/// 而不是 `12.5%` 与 `0.125` 各来一份。
+fn ods_display(one: &crate::odsheet::Cell) -> String {
+    if let Some(raw) = &one.date_value {
+        return raw.clone();
+    }
+    match one.value_type.as_str() {
+        "boolean" => {
+            if one.boolean_value.as_deref() == Some("true") {
+                "TRUE".to_string()
+            } else {
+                "FALSE".to_string()
+            }
+        }
+        "float" | "percentage" | "currency" => one
+            .value
+            .as_ref()
+            .and_then(|raw| raw.parse::<f64>().ok())
+            .map(|value| format!("{value}"))
+            .unwrap_or_else(|| one.text.clone()),
+        _ => one.text.clone(),
+    }
+}
+
+/// `--sheet` 说的是序号还是表名：先试序号（命令报的 `index` 从 0 起），再按表名找
+fn pick_sheet(names: &[String], want: &str) -> Option<usize> {
+    let want = want.trim();
+    if want.is_empty() {
+        return if names.is_empty() { None } else { Some(0) };
+    }
+    if let Some(index) = want.parse::<usize>().ok().filter(|one| *one < names.len()) {
+        return Some(index);
+    }
+    names.iter().position(|one| one == want)
+}
+
+/// `--csv` 的那份账：没开就整个键都不给（不给一份空 CSV 装作有）
+fn csv_report(
+    want: bool,
+    names: &[String],
+    grids: &[Vec<(usize, usize, String)>],
+    pick: &str,
+    skipped: usize,
+) -> Value {
+    if !want {
+        return Value::Null;
+    }
+    let Some(index) = pick_sheet(names, pick) else {
+        return json!({"error": format!("没有这张表「{}」；这份文件里的表是 {:?}", pick, names)});
+    };
+    let (text, rows, columns) =
+        render_csv(grids.get(index).map(|one| &one[..]).unwrap_or_default());
+    json!({
+        "sheet": names[index],
+        "index": index,
+        "rows": rows,
+        "columns": columns,
+        "cells_skipped": skipped,
+        "line_end": "LF",
+        "text": text,
+    })
+}
+
 /// 把格式账并到格子那条记录上（`cell_format` 交回的是一个小对象）
 fn merge(base: Value, extra: Value) -> Value {
     let mut map = base.as_object().cloned().unwrap_or_default();
@@ -453,6 +649,23 @@ mod tests {
                 .join(name),
             limit: 200,
             max_bytes: 1 << 26,
+            csv: false,
+            sheet: String::new(),
+        };
+        let (tx, _rx) = mpsc::channel();
+        run_office_sheet(&app, &Context::new_test(tx)).expect("office-sheet 应成功")
+    }
+
+    /// 开 `--csv` 的那条路：`sheet` 是给 `--sheet` 的原样字符串（空=第一张）
+    fn run_csv(name: &str, sheet: &str) -> Value {
+        let app = OfficeSheet {
+            path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/office")
+                .join(name),
+            limit: 200,
+            max_bytes: 1 << 26,
+            csv: true,
+            sheet: sheet.to_string(),
         };
         let (tx, _rx) = mpsc::channel();
         run_office_sheet(&app, &Context::new_test(tx)).expect("office-sheet 应成功")
@@ -483,6 +696,11 @@ mod tests {
         );
         assert_eq!(out["workbook"]["has_calc_chain"], json!(false));
         assert_eq!(out["workbook"]["tables"], 1);
+        // 没开 --csv 时这个键是 null，而不是一份空 CSV 装作有
+        assert!(
+            matches!(out.get("csv"), Some(one) if one.is_null()),
+            "{out}"
+        );
         assert_eq!(out["defined_names"][0]["text"], "'预算表'!$B$4", "{out}");
         assert!(
             out["notes"].as_array().expect("有 notes").is_empty(),
@@ -636,6 +854,94 @@ mod tests {
         );
     }
 
+    /// `--csv`：一份铺平的网格（期望文本逐字来自 `office_reader.py` 的 csv_facts）
+    #[test]
+    fn csv_renders_the_grid_of_a_sheet() {
+        let out = run_csv("book.ods", "");
+        let csv = &out["csv"];
+        assert_eq!(csv["sheet"], "预算表");
+        assert_eq!(csv["index"], 0);
+        assert_eq!(csv["rows"], 5, "{csv}");
+        assert_eq!(csv["columns"], 2);
+        assert_eq!(csv["cells_skipped"], 0);
+        assert_eq!(csv["line_end"], "LF");
+        assert_eq!(
+            csv["text"], "科目,金额\n服务器,124000\n网络,18000\n合计,142000\n口径：含税,\n",
+            "{csv}"
+        );
+    }
+
+    /// 公式格没有缓存值时 CSV 里那一格是空的：这不是漏，是文件本来就没给数
+    #[test]
+    fn a_formula_without_a_cached_result_renders_empty() {
+        let out = run_csv("book.xlsx", "");
+        assert_eq!(
+            out["csv"]["text"],
+            "科目,金额\n服务器,124000\n网络,18000\n合计,\n口径：含税,\n"
+        );
+        assert_eq!(out["csv"]["rows"], 5);
+        assert_eq!(out["sheets"][0]["formula_cells_with_cached_value"], 0);
+    }
+
+    /// `--sheet` 认表名也认命令报出的序号，认不出来就把候选说清楚
+    #[test]
+    fn csv_picks_a_sheet_by_name_or_by_index() {
+        let by_name = run_csv("book.ods", "草稿");
+        assert_eq!(by_name["csv"]["sheet"], "草稿");
+        assert_eq!(by_name["csv"]["index"], 2);
+        assert_eq!(by_name["csv"]["text"], "隐藏的草稿表\n");
+        let by_index = run_csv("book.ods", "1");
+        assert_eq!(by_index["csv"]["sheet"], "说明", "序号从 0 起");
+        let missing = run_csv("book.ods", "没这张");
+        assert!(
+            missing["csv"]["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("预算表"),
+            "{missing}"
+        );
+        assert!(
+            run_csv("book.ods", "9")["csv"]["error"].is_string(),
+            "序号越界也要走 error 那条话，不能默默给第一张"
+        );
+    }
+
+    /// 日期格进 CSV 给 ISO 读法，百分数与货币给值不给 `12.5%` 那一份
+    /// （与 `--csv` 之外那套格式账同源，两边不许各编一个数）
+    #[test]
+    fn csv_gives_values_not_display_strings() {
+        let out = run_csv("formats.xlsx", "");
+        assert_eq!(
+            out["csv"]["text"],
+            "标签,日期,2013-12-23\n,,2013-12-23T15:15:00\n,,0.125\n,,124000\n\
+             ,,2013-12-23\n,,1234.5\n,,12/23/2013\n,,TRUE\n",
+            "{out}"
+        );
+        assert_eq!(out["csv"]["rows"], 8);
+        assert_eq!(out["csv"]["columns"], 3);
+    }
+
+    /// 同一份数据在 xlsx 与 ods 两边拼出来的 CSV 必须逐字相同 —— 这两套账
+    /// 一个是序列数 + 格式码、一个是显式 value-type，能对上才说明两边都没猜
+    #[test]
+    fn the_same_workbook_renders_the_same_csv_in_both_formats() {
+        for sheet in ["", "另一张"] {
+            let xlsx = run_csv("formats.xlsx", sheet);
+            let ods = run_csv("formats.ods", sheet);
+            assert_eq!(xlsx["csv"]["text"], ods["csv"]["text"], "sheet={sheet}");
+        }
+        for sheet in ["", "说明", "草稿"] {
+            let xlsx = run_csv("book.xlsx", sheet);
+            let ods = run_csv("book.ods", sheet);
+            if sheet.is_empty() {
+                // 只有第一张差一格：那边公式没缓存值，这边 LibreOffice 写了 142000
+                assert_ne!(xlsx["csv"]["text"], ods["csv"]["text"]);
+            } else {
+                assert_eq!(xlsx["csv"]["text"], ods["csv"]["text"], "sheet={sheet}");
+            }
+        }
+    }
+
     /// 不是表格的文件要指路
     #[test]
     fn a_word_document_is_not_a_sheet() {
@@ -644,6 +950,8 @@ mod tests {
                 .join("tests/fixtures/office/notes.docx"),
             limit: 10,
             max_bytes: 1 << 20,
+            csv: false,
+            sheet: String::new(),
         };
         let (tx, _rx) = mpsc::channel();
         let why = run_office_sheet(&app, &Context::new_test(tx)).unwrap_err();
