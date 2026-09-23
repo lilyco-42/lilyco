@@ -13,13 +13,18 @@
 //! lbin office-info --path ./预算.docx --json      # 这是什么、谁写的、有没有宏
 //! lbin office-text --path ./预算.docx             # 文件里写了什么（按段落）
 //! lbin office-meta --path ./季度报告.pptx --json  # 文档属性那份账
+//! lbin office-doc --path ./预算.docx              # 段落/标题/表格/链接/批注
+//! lbin office-sheet --path ./预算表.xlsx           # 表清单（含隐藏的）与格子
+//! lbin office-slide --path ./评审.pptx             # 放映顺序、每页标题与备注
+//! lbin office-package --path ./预算.docx --json    # 包自证：关系与内容类型
+//! lbin office-objects --path ./预算.docx --json    # 嵌入物、外链、宏与加密
 //! lbin identify --path ./app.dll --json
 //! lbin regions --path ./a.out --json | jq '.totals'
 //! lbin entries --path ./libstdc++.so.a --limit 20
 //! lbin symbols --path ./main.o
 //! lbin --gui        # Web 控制台（?cmd= 切换）
 //! lbin --tui        # TUI 命令选择页
-//! lbin --mcp        # MCP：tools/list 一次返回七条
+//! lbin --mcp        # MCP：tools/list 一次返回十二条
 //! lbin --schema     # 打印整张注册表清单
 //! ```
 
@@ -27,8 +32,13 @@ mod biff;
 mod cfb;
 mod entries;
 mod identify;
+mod office_doc;
 mod office_info;
 mod office_meta;
+mod office_objects;
+mod office_package;
+mod office_sheet;
+mod office_slide;
 mod office_text;
 mod opack;
 mod props;
@@ -56,6 +66,11 @@ pub fn build_registry_with_policy(policy: Arc<dyn SafetyPolicy>) -> Registry {
         RegisteredCommand::from_app::<office_info::OfficeInfo>(),
         RegisteredCommand::from_app::<office_text::OfficeText>(),
         RegisteredCommand::from_app::<office_meta::OfficeMeta>(),
+        RegisteredCommand::from_app::<office_doc::OfficeDoc>(),
+        RegisteredCommand::from_app::<office_sheet::OfficeSheet>(),
+        RegisteredCommand::from_app::<office_slide::OfficeSlide>(),
+        RegisteredCommand::from_app::<office_package::OfficePackage>(),
+        RegisteredCommand::from_app::<office_objects::OfficeObjects>(),
     ];
     for c in cmds {
         let name = c.name.clone();
@@ -89,7 +104,7 @@ mod tests {
         build_registry_with_policy(Arc::new(Interactive))
     }
 
-    /// 七条命令、名字与顺序都对
+    /// 十二条命令、名字与顺序都对
     #[test]
     fn registry_has_expected_commands() {
         let reg = build_registry();
@@ -102,11 +117,16 @@ mod tests {
             "office-info",
             "office-text",
             "office-meta",
+            "office-doc",
+            "office-sheet",
+            "office-slide",
+            "office-package",
+            "office-objects",
         ] {
             assert!(names.contains(&want.to_string()), "缺少 {want}: {names:?}");
         }
-        assert_eq!(reg.iter().count(), 7, "{names:?}");
-        assert_eq!(reg.visible().count(), 7, "七条命令都要可见");
+        assert_eq!(reg.iter().count(), 12, "{names:?}");
+        assert_eq!(reg.visible().count(), 12, "十二条命令都要可见");
     }
 
     /// 这个域全部只读：出现任何高于 T0 的命令都是越界（它凭什么改文件？）
@@ -178,7 +198,7 @@ mod tests {
     #[test]
     fn mcp_policy_admits_this_domain() {
         let reg = build_registry_with_policy(Arc::new(DenyElevated));
-        assert_eq!(reg.iter().count(), 7);
+        assert_eq!(reg.iter().count(), 12);
         for c in reg.iter() {
             assert_eq!(c.schema.safety, SafetyTier::ReadOnly);
         }
@@ -209,6 +229,11 @@ mod tests {
             "office-info",
             "office-text",
             "office-meta",
+            "office-doc",
+            "office-sheet",
+            "office-slide",
+            "office-package",
+            "office-objects",
         ] {
             let cmd = reg.get(name).expect("命令已注册");
             let err = cmd

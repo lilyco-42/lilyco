@@ -404,6 +404,24 @@ fn gather_text_nodes<'a>(node: &'a Node, into: &mut Vec<(&'a Node, bool)>) {
     }
 }
 
+/// 给 office-doc 复用：一个段落的文本（口径与 office-text 交出去的一致）
+pub fn paragraph_text(node: &Node) -> String {
+    run_text(node)
+}
+
+/// 给 office-doc 复用：段落样式名
+pub fn style_of(node: &Node) -> Option<String> {
+    paragraph_style(node)
+}
+
+/// 给 office-doc 复用：标题层级（`heading_level` 报的是 JSON，这里要的是 Option<u32>）
+pub fn heading_of(node: &Node) -> Option<u32> {
+    match heading_level(node) {
+        Value::Number(one) => one.as_u64().map(|raw| raw as u32),
+        _ => None,
+    }
+}
+
 /// 一个段落里的文本：按文档顺序取每一段文字，并把 tab / br 还原成制表与换行
 fn run_text(node: &Node) -> String {
     let mut out = String::new();

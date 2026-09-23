@@ -418,8 +418,6 @@ mod tests {
     /// 截断的表流：宁可报错，也不要从不存在的位置取字节
     #[test]
     fn a_clx_that_does_not_fit_says_so() {
-        let (pieces, _) = piece_table(&[0x02, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00]).unwrap_err();
-        let _ = pieces;
         let why = piece_table(&[0x02, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00]).unwrap_err();
         assert!(why.contains("Pcdt") || why.contains("Clx"), "{why}");
         let why = piece_table(&[0x07, 0x00]).unwrap_err();

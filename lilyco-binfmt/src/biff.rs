@@ -156,8 +156,8 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                 strings = shared_strings(&chunks, unique, &mut notes);
             }
             LABELSST => {
-                let row = u32::from(le16(0)(body).unwrap_or(0));
-                let col = u32::from(le16(2)(body).unwrap_or(0));
+                let row = (le16(0)(body).unwrap_or(0) as u32);
+                let col = (le16(2)(body).unwrap_or(0) as u32);
                 let which = usize::try_from(le32(6)(body).unwrap_or(0)).unwrap_or(usize::MAX);
                 let text = strings.get(which).cloned();
                 if text.is_none() {
@@ -175,8 +175,8 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                 });
             }
             NUMBER => {
-                let row = u32::from(le16(0)(body).unwrap_or(0));
-                let col = u32::from(le16(2)(body).unwrap_or(0));
+                let row = (le16(0)(body).unwrap_or(0) as u32);
+                let col = (le16(2)(body).unwrap_or(0) as u32);
                 cells.push(Cell {
                     row,
                     col,
@@ -186,8 +186,8 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                 });
             }
             RK => {
-                let row = u32::from(le16(0)(body).unwrap_or(0));
-                let col = u32::from(le16(2)(body).unwrap_or(0));
+                let row = (le16(0)(body).unwrap_or(0) as u32);
+                let col = (le16(2)(body).unwrap_or(0) as u32);
                 cells.push(Cell {
                     row,
                     col,
@@ -198,8 +198,8 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
             }
             MUL_RK => {
                 // 一行里连续若干列的 RK：colFrom(2) 之后每 6 字节一个 {xf(2), rk(4)}
-                let row = u32::from(le16(0)(body).unwrap_or(0));
-                let first = u32::from(le16(2)(body).unwrap_or(0));
+                let row = (le16(0)(body).unwrap_or(0) as u32);
+                let first = (le16(2)(body).unwrap_or(0) as u32);
                 let room = body.len().saturating_sub(6);
                 for i in 0..room / 6 {
                     let packed = le32(4 + i * 6)(body).unwrap_or(0) as u32;
@@ -213,8 +213,8 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                 }
             }
             LABEL => {
-                let row = u32::from(le16(0)(body).unwrap_or(0));
-                let col = u32::from(le16(2)(body).unwrap_or(0));
+                let row = (le16(0)(body).unwrap_or(0) as u32);
+                let col = (le16(2)(body).unwrap_or(0) as u32);
                 let count = usize::try_from(le16(6)(body).unwrap_or(0)).unwrap_or(0);
                 let flags = body.get(8).copied().unwrap_or(0);
                 let wide = flags & 0x01 != 0;
@@ -240,8 +240,8 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                 });
             }
             FORMULA => {
-                let row = u32::from(le16(0)(body).unwrap_or(0));
-                let col = u32::from(le16(2)(body).unwrap_or(0));
+                let row = (le16(0)(body).unwrap_or(0) as u32);
+                let col = (le16(2)(body).unwrap_or(0) as u32);
                 cells.push(Cell {
                     row,
                     col,

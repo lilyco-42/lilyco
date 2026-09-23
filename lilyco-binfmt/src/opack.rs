@@ -374,6 +374,321 @@ pub fn risk_signals(doc: &Doc) -> Value {
     })
 }
 
+// ── 包级别的关系表与内容类型 --------------------------------------------------
+//
+// OPC 的关系表（`_rels/*.rels`）是「谁指着谁」的唯一来源，而它有两个必须自己处理的点：
+// - 目标要**按源部件解析**：`word/_rels/document.xml.rels` 里的 `media/image1.png`
+//   指的是 `word/media/image1.png`，不是包根的 `media/image1.png`；写成 `/word/...`
+//   的又是从根算起。解错了，「关系指向不存在的部件」这条检查就只会误报。
+// - `TargetMode="External"` 的目标**不在包里**，不能拿去查存在性 —— 那正是「文档里有站外链接」
+//   这一类信息本身。
+//
+// 内容类型有两种声明（`Default` 按扩展名、`Override` 按部件名），只认一种就会把整包
+// 报成「没声明类型」。ODF 不用 OPC：它的包清单是 `META-INF/manifest.xml`，
+// 那里只说「哪个文件是什么媒体类型」，没有跨部件关系。
+
+use std::collections::BTreeMap;
+
+use crate::read::ZipEntry;
+use crate::xmlscan;
+use crate::zipread::{self, DEFAULT_MEMBER_CAP};
+
+/// 一条关系，target 已经解析成包内路径（外部关系保留原文）
+#[derive(Debug, Clone)]
+pub struct Rel {
+    /// 关系表所属的部件，比如 `word/document.xml`
+    pub source: String,
+    pub id: String,
+    /// 类型的最后一段：`hyperlink` / `image` / `oleObject` / `attachedTemplate` / …
+    pub kind: String,
+    pub target: String,
+    pub external: bool,
+    /// 解析到包内路径（外部关系为 None）
+    pub resolved: Option<String>,
+}
+
+/// 读全部 `.rels`；同时把「关系表自己指着不存在的源部件」这类问题留在 notes 里
+pub fn relationships(bytes: &[u8], entries: &[ZipEntry]) -> (Vec<Rel>, Vec<String>) {
+    let mut out: Vec<Rel> = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
+    let names: Vec<&str> = entries.iter().map(|one| one.name.as_str()).collect();
+    for one in entries {
+        if !one.name.ends_with(".rels") {
+            continue;
+        }
+        let Ok(member) = zipread::read_member(bytes, one, DEFAULT_MEMBER_CAP) else {
+            notes.push(format!("关系表 {} 解不出来", one.name));
+            continue;
+        };
+        let root = xmlscan::parse_str(&member.as_text());
+        let base = rel_base(&one.name);
+        for rel in root.descendants("Relationship") {
+            let Some(target) = rel.attr("Target") else {
+                notes.push(format!("{} 里有一条关系没有 Target", one.name));
+                continue;
+            };
+            let external = rel.attr("TargetMode") == Some("External");
+            let resolved = if external {
+                None
+            } else {
+                let path = resolve_target(&base, target);
+                if names.contains(&path.as_str()) {
+                    Some(path)
+                } else {
+                    notes.push(format!(
+                        "{} 的关系 {} 指着包里没有的部件 `{}`",
+                        one.name,
+                        rel.attr("Id").unwrap_or("?"),
+                        path
+                    ));
+                    None
+                }
+            };
+            out.push(Rel {
+                source: rel_source(&one.name),
+                id: rel.attr("Id").unwrap_or_default().to_string(),
+                kind: rel
+                    .attr("Type")
+                    .unwrap_or_default()
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or("")
+                    .to_string(),
+                target: target.to_string(),
+                external,
+                resolved,
+            });
+        }
+    }
+    (out, notes)
+}
+
+// `word/_rels/document.xml.rels` 的宿主部件所在目录 → `word`；包根的 `_rels/.rels` → ""
+fn rel_base(rels_name: &str) -> String {
+    match rels_name.rsplit_once("/_rels/") {
+        Some((dir, _)) => dir.to_string(),
+        None => String::new(),
+    }
+}
+
+// 关系表属于哪个部件：`word/_rels/document.xml.rels` 的宿主是 `word/document.xml`，
+// `_rels/.rels` 属于包根（记成空串，检查时不参与「源部件在不在」的判断）
+fn rel_source(rels_name: &str) -> String {
+    let without = rels_name.trim_end_matches(".rels");
+    match without.rsplit_once("/_rels/") {
+        Some((dir, file)) if !file.is_empty() => format!("{dir}/{file}"),
+        _ => String::new(),
+    }
+}
+
+/// 按 OPC 规则解析目标：以 `/` 开头从包根算，否则相对源部件所在目录
+pub fn resolve_target(base: &str, target: &str) -> String {
+    let cleaned = target.trim_start_matches('/');
+    if target.starts_with('/') || base.is_empty() {
+        return normalize(cleaned);
+    }
+    normalize(&format!("{base}/{cleaned}"))
+}
+
+/// 消掉 `./` 与 `a/../b`：打包器写法不统一，但包内路径只有一个真相
+fn normalize(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for one in path.split('/') {
+        match one {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            _ => parts.push(one),
+        }
+    }
+    parts.join("/")
+}
+
+/// `[Content_Types].xml` 的两张表
+#[derive(Debug, Default)]
+pub struct ContentTypes {
+    pub defaults: BTreeMap<String, String>,
+    pub overrides: BTreeMap<String, String>,
+    pub notes: Vec<String>,
+}
+
+impl ContentTypes {
+    pub fn read(bytes: &[u8]) -> ContentTypes {
+        let mut out = ContentTypes::default();
+        let Ok(member) = zipread::member(bytes, "[Content_Types].xml", DEFAULT_MEMBER_CAP) else {
+            out.notes.push("包里没有 [Content_Types].xml".to_string());
+            return out;
+        };
+        let root = xmlscan::parse_str(&member.as_text());
+        for one in root.descendants("Default") {
+            if let (Some(ext), Some(ty)) = (one.attr("Extension"), one.attr("ContentType")) {
+                out.defaults.insert(ext.to_lowercase(), ty.to_string());
+            }
+        }
+        for one in root.descendants("Override") {
+            if let (Some(part), Some(ty)) = (one.attr("PartName"), one.attr("ContentType")) {
+                out.overrides
+                    .insert(part.trim_start_matches('/').to_string(), ty.to_string());
+            }
+        }
+        out
+    }
+
+    /// 某个部件声明的类型；没声明就 None（调用方决定这是不是错误）
+    pub fn of(&self, part: &str) -> Option<&str> {
+        if let Some(one) = self.overrides.get(part.trim_start_matches('/')) {
+            return Some(one.as_str());
+        }
+        let last = part.rsplit('/').next().unwrap_or(part);
+        let ext = match last.rfind('.') {
+            Some(at) => last[at + 1..].to_lowercase(),
+            None => return None,
+        };
+        self.defaults.get(&ext).map(|one| one.as_str())
+    }
+}
+
+/// ODF 的包清单：`META-INF/manifest.xml` 的 `manifest:file-entry`
+pub fn odf_manifest(bytes: &[u8]) -> Vec<(String, String)> {
+    let Ok(member) = zipread::member(bytes, "META-INF/manifest.xml", DEFAULT_MEMBER_CAP) else {
+        return Vec::new();
+    };
+    let root = xmlscan::parse_str(&member.as_text());
+    root.descendants("file-entry")
+        .iter()
+        .filter_map(|one| {
+            let path = one.attr("full-path")?;
+            let media = one.attr("media-type").unwrap_or_default();
+            Some((path.to_string(), media.to_string()))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod rel_tests {
+    use super::*;
+
+    #[test]
+    fn rel_paths_resolve_against_their_source_part() {
+        assert_eq!(rel_base("word/_rels/document.xml.rels"), "word");
+        assert_eq!(rel_base("_rels/.rels"), "");
+        assert_eq!(rel_base("xl/_rels/workbook.xml.rels"), "xl");
+        assert_eq!(
+            resolve_target("word", "media/image1.png"),
+            "word/media/image1.png"
+        );
+        assert_eq!(
+            resolve_target("word", "/docProps/core.xml"),
+            "docProps/core.xml"
+        );
+        assert_eq!(
+            resolve_target("ppt/slides", "../slideLayouts/slideLayout1.xml"),
+            "ppt/slideLayouts/slideLayout1.xml"
+        );
+        assert_eq!(
+            rel_source("word/_rels/document.xml.rels"),
+            "word/document.xml"
+        );
+        assert_eq!(rel_source("_rels/.rels"), "");
+    }
+
+    /// 真包真表：notes.docx 的每条内部关系都要指到一个真实存在的部件
+    #[test]
+    fn every_internal_relationship_in_a_real_package_resolves() {
+        let raw = std::fs::read(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/office/notes.docx"),
+        )
+        .expect("读 fixture");
+        let (dirs, _) = crate::read::central_directory(&raw);
+        let (rels, notes) = relationships(&raw, &dirs);
+        assert!(!rels.is_empty(), "关系表要读得出条目");
+        assert!(notes.is_empty(), "{notes:?}");
+        let external: Vec<&Rel> = rels.iter().filter(|one| one.external).collect();
+        assert_eq!(external.len(), 1, "文档里就一个站外超链接：{external:?}");
+        assert_eq!(external[0].kind, "hyperlink");
+        assert_eq!(external[0].target, "https://example.com/budget");
+        assert!(rels
+            .iter()
+            .any(|one| one.kind == "image"
+                && one.resolved.as_deref() == Some("word/media/image1.png")));
+        // custom.xml 那组关系是真包里的另一类，也要能解析
+        assert!(rels.iter().any(|one| one.kind == "customXml"));
+    }
+
+    /// 断头关系必须抓到：只验真包等于没验这条检查
+    #[test]
+    fn a_relationship_pointing_at_nothing_is_reported() {
+        let raw = std::fs::read(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/office/notes.docx"),
+        )
+        .expect("读 fixture");
+        let (mut dirs, _) = crate::read::central_directory(&raw);
+        dirs.retain(|one| one.name != "word/media/image1.png");
+        let (rels, notes) = relationships(&raw, &dirs);
+        assert!(
+            notes
+                .iter()
+                .any(|one| one.contains("word/media/image1.png")),
+            "删掉一个被指着的文件，检查应当抓到：{notes:?}；关系={rels:?}"
+        );
+        assert!(
+            rels.iter()
+                .any(|one| one.kind == "image" && one.resolved.is_none()),
+            "解析不出的那条要留下 resolved=None"
+        );
+    }
+
+    /// 内容类型：Defaults 与 Overrides 都要认
+    #[test]
+    fn content_types_come_from_both_tables() {
+        let raw = std::fs::read(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/office/notes.docx"),
+        )
+        .expect("读 fixture");
+        let types = ContentTypes::read(&raw);
+        assert_eq!(
+            types.of("word/document.xml"),
+            Some(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+            ),
+            "{:?}",
+            types.overrides
+        );
+        assert_eq!(
+            types.of("word/media/image1.png"),
+            Some("image/png"),
+            "png 是 Default 那条"
+        );
+        assert_eq!(types.of("word/nothing.xyz"), None);
+    }
+
+    /// ODF 的清单是另一套：没有 .rels，只有 manifest 的 file-entry
+    #[test]
+    fn odf_manifest_lists_its_own_parts() {
+        let raw = std::fs::read(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/office/notes.odt"),
+        )
+        .expect("读 fixture");
+        let entries = odf_manifest(&raw);
+        assert!(
+            entries
+                .iter()
+                .any(|(path, media)| path == "/"
+                    && media == "application/vnd.oasis.opendocument.text"),
+            "{entries:?}"
+        );
+        assert!(entries.iter().any(|(path, _)| path == "content.xml"));
+        let (dirs, _) = crate::read::central_directory(&raw);
+        let (rels, _) = relationships(&raw, &dirs);
+        assert!(rels.is_empty(), "ODF 不该被当成 OPC 读出关系：{rels:?}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

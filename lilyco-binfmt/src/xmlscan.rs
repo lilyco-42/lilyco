@@ -64,18 +64,18 @@ impl Node {
     }
 
     /// 所有直接子元素
-    pub fn all(&self, want: &str) -> Vec<&Node> {
+    pub fn all<'a>(&'a self, want: &str) -> Vec<&'a Node> {
         self.children.iter().filter(|one| one.is(want)).collect()
     }
 
     /// 所有后代元素（不含自己），按文档顺序
-    pub fn descendants(&self, want: &str) -> Vec<&Node> {
+    pub fn descendants<'a>(&'a self, want: &str) -> Vec<&'a Node> {
         let mut out = Vec::new();
         self.collect(want, &mut out);
         out
     }
 
-    fn collect(&self, want: &str, out: &mut Vec<&Node>) {
+    fn collect<'a>(&'a self, want: &str, out: &mut Vec<&'a Node>) {
         for one in &self.children {
             if one.is(want) {
                 out.push(one);

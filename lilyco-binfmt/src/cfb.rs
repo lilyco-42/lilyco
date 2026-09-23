@@ -24,7 +24,7 @@ const NO_SECT: u32 = 0xFFFF_FFFF;
 const CHAIN_LIMIT: usize = 1 << 20;
 
 /// 目录项：`kind` 是 spec 的四种之一
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Entry {
     pub name: String,
     pub kind: &'static str,
