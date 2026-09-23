@@ -13,6 +13,7 @@ use axum::response::{Html, IntoResponse, Response};
 use lilyco_core::registry::{RegisteredCommand, Registry};
 use lilyco_core::schema::ArgKind;
 
+use crate::files::MAX_UPLOAD_BYTES;
 use crate::state::AppState;
 use crate::util::html_escape;
 
@@ -121,7 +122,7 @@ pub(crate) async fn index(
                 };
                 format!(
                     "<input type=\"text\" id=\"field-{esc_name}\" class=\"mono\" placeholder=\"{}\"{req_a} value=\"{}\" spellcheck=\"false\">\
-                     <div class=\"dropzone\" data-target=\"{esc_name}\" data-must-exist=\"{must_attr}\" tabindex=\"0\" role=\"button\" aria-label=\"上传文件\">\
+                     <div class=\"dropzone\" data-target=\"{esc_name}\" data-must-exist=\"{must_attr}\" data-max-upload=\"{MAX_UPLOAD_BYTES}\" tabindex=\"0\" role=\"button\" aria-label=\"上传文件\">\
                      <input type=\"file\" class=\"visually-hidden\" data-file-for=\"{esc_name}\" tabindex=\"-1\">\
                      <span class=\"dz-icon\">⇪</span><span class=\"dz-hint\">{hint}</span>\
                      <span class=\"dz-status\" id=\"up-{esc_name}\" aria-live=\"polite\"></span>\
@@ -375,6 +376,12 @@ mod tests {
             "must_exist 语义保留"
         );
         assert!(body.contains("type=\"file\""), "必须有文件选择入口");
+        // 上限只有一个来源：服务端常量注入 DOM，页面读它来拦超大文件。
+        // 谁把 200 抄进 JS 或文档，这条就会红。
+        assert!(
+            body.contains(&format!("data-max-upload=\"{MAX_UPLOAD_BYTES}\"")),
+            "拖拽区没带上服务端注入的体积上限"
+        );
     }
 
     /// 页面 JS 拿 `$("field-" + dz.dataset.target)` 找输入框，所以 `data-target` 必须是

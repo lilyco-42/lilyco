@@ -15,8 +15,12 @@ use axum::Json;
 
 use crate::util::generate_id;
 
-/// 上传大小上限（base64 编码前）
-const MAX_UPLOAD_BYTES: usize = 200 * 1024 * 1024;
+/// 上传大小上限（base64 编码前）。
+///
+/// 这个数**只有一个来源**：它同时喂给 `/upload` 的两道自查和页面里的
+/// `data-max-upload`（浏览器据此在读文件之前就拦下超大文件）。谁再抄一份数字到
+/// JS 或文档里，就是 DESIGN.md §8 说的平行表。
+pub(crate) const MAX_UPLOAD_BYTES: usize = 200 * 1024 * 1024;
 /// 体积粗筛看的 base64 字符数上限（base64 膨胀系数 4/3，再加一点余量）
 const MAX_B64_CHARS: usize = MAX_UPLOAD_BYTES / 3 * 4 + 1024;
 /// `/upload` 的**传输层**上限：必须比 [`MAX_B64_CHARS`] 宽，否则超限的请求会在

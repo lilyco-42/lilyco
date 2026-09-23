@@ -106,19 +106,41 @@ document.querySelectorAll("[data-pick]").forEach(btn=>btn.addEventListener("clic
 function fmtSize(n){return n>1048576?(n/1048576).toFixed(1)+" MB":n>1024?(n/1024).toFixed(1)+" KB":n+" B"}
 async function uploadFile(file,dz){
   const name=dz.dataset.target,status=dz.querySelector(".dz-status"),chip=dz.querySelector(".file-chip"),input=$("field-"+name);
+  const fail=msg=>{status.textContent="上传失败："+msg;status.className="dz-status err"};
+  // 上限由服务端注入（data-max-upload），页面不抄第二份数字。
+  // 必须在读文件之前拦：超限时把整FileReader 读成 base64 会先吃光内存，
+  // 而硬发出去只会被服务端掐断，浏览器报一句没头没尾的 Failed to fetch。
+  const max=Number(dz.dataset.maxUpload)||0;
+  if(max&&file.size>max){
+    const hasPick=!!dz.querySelector("[data-pick]");
+    fail(file.name+" 是 "+fmtSize(file.size)+"，超过上传上限 "+fmtSize(max)+"（浏览器要把整个文件读成 base64 再发给服务端）。"
+      +(hasPick?"改点右边的「本机」—— 服务端直接弹系统选择器，回填原始路径，不复制也不限大小。"
+               :"这条构建没开本机选择器：请手填路径，或换小一点的文件。"));
+    return;
+  }
   status.textContent="上传中 "+file.name+"（"+fmtSize(file.size)+"）…";status.className="dz-status busy";
   try{
-    const dataUrl=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(r.error||new Error("读取失败"));r.readAsDataURL(file)});
+    const dataUrl=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(new Error("读取文件失败（"+file.name+"）"));r.readAsDataURL(file)});
     const b64=dataUrl.split(",",2)[1]||"";
-    const resp=await fetch("/upload",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:JSON.stringify({name:file.name,dataB64:b64})});
-    if(!resp.ok){throw new Error((await resp.text())||("HTTP "+resp.status))}
+    let resp;
+    try{
+      resp=await fetch("/upload",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:JSON.stringify({name:file.name,dataB64:b64})});
+    }catch(netErr){
+      // fetch 直接 reject = 请求根本没拿到响应：多半是 body 太大被服务端中途断开
+      fail("传输被中断（"+netErr.message+"）。若文件较大，改点「本机」直接引用原始路径；否则重试一次。");
+      return;
+    }
+    if(!resp.ok){
+      const body=await resp.text().catch(()=>"");
+      throw new Error(body?("HTTP "+resp.status+"："+body):("HTTP "+resp.status+"（服务端未给原因）"));
+    }
     const j=await resp.json();
     input.value=j.path;
     chip.textContent=file.name+" · "+fmtSize(j.size)+"  ✕";
     chip.hidden=false;status.textContent="已就绪：服务端路径已回填";status.className="dz-status ok";
     updatePreview();
     chip.onclick=()=>{input.value="";chip.hidden=true;status.textContent="";updatePreview()};
-  }catch(err){status.textContent="上传失败："+err.message;status.className="dz-status err"}
+  }catch(err){fail(err.message||String(err))}
 }
 document.querySelectorAll(".dropzone").forEach(dz=>{
   const fi=dz.querySelector("input[type=file]");

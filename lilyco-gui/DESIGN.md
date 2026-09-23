@@ -130,7 +130,9 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 - 占位符：`__CSS__` `__CMD_NAV__` `__FIELDS__` `__ABOUT__` `__CMD_NAME__` `__CMD_JS__` `__META__` `__TOKEN__`
 - id：`field-<arg>` `up-<arg>` `chip-<arg>` `list-<arg>` `cmd-nav` `theme-toggle` `form` `run-btn` `cancel-btn` `copy-cli` `copy-result` `preview` `out` `log` `progress` `progress-bar` `result-wrap` `result`
 - class：`dropzone` `dz-icon` `dz-hint` `dz-status` `dz-pick` `file-chip` `visually-hidden` `list-rows` `list-row` `list-add` `row-del` `flag-row` `field` `field-flag` `req-mark` `mono` `btn` `btn-icon` `primary` `ghost` `danger` `ok` `err` `busy` `drag-over` `uploaded` `loading` `card` `topbar` `page` `foot` `terminal` `cli-preview` `actions` `out-head` `result-head` `result-wrap` `brand` `brand-mark` `brand-sub` `icon-btn` `card-title` `card-about` `progress` `progress-bar`
-- 属性：`data-target`（**裸参数名**）`data-must-exist` `data-pick` `data-file-for`（裸参数名）`data-list` `data-list-item` `data-list-add` `data-indet`
+- 属性：`data-target`（**裸参数名**）`data-must-exist` `data-pick` `data-file-for`（裸参数名）
+  `data-max-upload`（**服务端注入的上传上限**，页面据此在读文件之前拦下超大文件）
+  `data-list` `data-list-item` `data-list-add` `data-indet`
 - `<meta name="lilyco-token">` 与请求头 `X-Lilyco-Token`
 
 ## 8. 不变量（今天真栽过的两类）
