@@ -14,8 +14,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
 
-[features]
-default = ["cli"]
-cli = []
-tui = []
-gui = []
+# 没有任何特性。core 是后端无关的领域层（AGENTS 硬规则 3），不该 advertise 后端开关。
+# 原先的 cli=[] / tui=[] / gui=[] 是空壳：全仓库零引用（Cargo.toml 的 features 与
+# cfg(feature = …) 都查过），留着只会让集成方以为开它们能改变什么。
+# 要挑后端，开 facade 的 lilyco/{tui,web,ultra} 或域 crate 的 full/android。

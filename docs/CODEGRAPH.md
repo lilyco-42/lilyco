@@ -141,6 +141,11 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
   两条路径下的条目一一对应（facade 里就是 `pub use lilyco_core as __core`）。
 - **加一个域二进制**：照 `lilyco-files`（文件域）或 `lilyco-binfmt`（二进制结构域，`lbin`，4 条全 T0 只读）抄 `main.rs` 的 registry 装配 + 按调用面注入安全策略 → 根 `Cargo.toml` 的 `[workspace] members` 加一行 → 使用文档放 `docs/<域>.md`（`docs/lfiles.md`、`docs/binfmt.md`）。
 - **加一个后端**：新 crate 只依赖 core，实现 `Renderer`；facade 加一行分发。参考 lilyco-mcp（最小样板 ≈ 350 行含测试）。
+- **选后端 = 开特性，但只有一处该开**：`lilyco-core` **没有任何特性**（它是后端无关的领域层）；
+  域 crate 一律 `default = ["full"]` / `full = ["dep:lilyco", "lilyco/full"]` / `android = ["dep:lilyco"]`；
+  facade `default = []` + `full = ["tui","web","ultra"]`（后端各自 `dep:` 门控）；
+  `lilyco-gui` 的 `pick` 只管它自己的原生文件选择器。
+  新增域 crate 照这套命名，别再造 `headless` / `no-tui` / `cli` 这类同义词（core 原来那三个空壳特性就是这么来的，已删）。
 - **加校验规则**：`schema.rs::validate_kind` + `schema.rs` 测试 + TUI `FormField::validate` 映射 + README 限制清单。
 - **加进度事件**：`Progress` 枚举加变体（serde 兼容）→ 各后端消费者各加一臂。
 
