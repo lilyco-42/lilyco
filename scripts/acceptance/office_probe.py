@@ -94,6 +94,8 @@ def main() -> int:
         "notes.docx": ("ooxml", "word", "docx"),
         "notes-hf.docx": ("ooxml", "word", "docx"),
         "notes-foot.docx": ("ooxml", "word", "docx"),
+        "notes-hf.odt": ("opendocument", "word", "odt"),
+        "notes-hf.rtf": ("rtf", "word", "rtf"),
         "notes.docm": ("ooxml", "word", "docm"),
         "notes-en.docx": ("ooxml", "word", "docx"),
         "book.xlsx": ("ooxml", "excel", "xlsx"),
@@ -191,6 +193,25 @@ def main() -> int:
     footdoc = lbin("office-doc", fixture("notes-foot.docx"))
     check("notes-foot.docx 脚注数", footdoc.get("footnotes"), fwant["footnotes"])
     check("notes-foot.docx 尾注数（部件不在包里就是零）", footdoc.get("endnotes"), fwant["endnotes"])
+
+    # 同一批字换 ODF 的存法：页眉页脚在 styles.xml 的 master-page 里，一节一个 master-page
+    hfodt = lbin("office-text", fixture("notes-hf.odt"))
+    hwant2 = files["notes-hf.odt"]["page_text"]
+    check(
+        "notes-hf.odt 页眉页脚逐条出处",
+        [
+            (one.get("from"), one.get("part"), one.get("master"), one.get("slot"), one.get("text"))
+            for one in hfodt.get("paragraphs", [])
+            if one.get("from")
+        ],
+        [(one["from"], one["part"], one["master"], one["slot"], one["text"]) for one in hwant2],
+    )
+    check("notes-hf.odt 两个 master-page 各一套", len(hwant2), 4)
+    check(
+        "notes.odt 没有页眉页脚时不凭空多条目",
+        [one.get("from") for one in lbin("office-text", fixture("notes.odt")).get("paragraphs", []) if one.get("from") == "header"],
+        [],
+    )
 
     doc = lbin("office-doc", fixture("notes.docx"))
     check("notes.docx 表格数", dig(doc, "structure.tables"), want["tables"])

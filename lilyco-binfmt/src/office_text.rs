@@ -36,7 +36,7 @@ use crate::zipread::{self, Member, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-text",
     run = "run_office_text",
-    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored), then the parts that are not in the body at all - comments, footnotes, endnotes, headers and footers - each entry carrying from/part/author/date so a comment never reads like body text. pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels - except .ods, which answers like a spreadsheet does: one entry per non-empty cell with its sheet name, A1-style reference and declared value type (the text shown in the cell, not office:value). ODF comments are text:annotation elements nested INSIDE a body paragraph (docx keeps them in a separate part), so they are emitted as their own entries carrying from/author/date read from their meta:creator and meta:date children, and the paragraph that holds one reports only its own text. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=record-tree with every text atom found by walking the tree (master placeholders included, because they really are in the file). Read-only (safety T0): parts are inflated in memory only."
+    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored), then the parts that are not in the body at all - comments, footnotes, endnotes, headers and footers - each entry carrying from/part/author/date so a comment never reads like body text. pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels - except .ods, which answers like a spreadsheet does: one entry per non-empty cell with its sheet name, A1-style reference and declared value type (the text shown in the cell, not office:value). ODF comments are text:annotation elements nested INSIDE a body paragraph (docx keeps them in a separate part), so they are emitted as their own entries carrying from/author/date read from their meta:creator and meta:date children, and the paragraph that holds one reports only its own text. An .odt's page headers and footers are not in content.xml either - they sit in styles.xml under style:master-page (a document with two sections has two master pages, and left/right/first-page variants are separate slots), so they are read there and flagged from=header/footer with the master-page name and slot. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=record-tree with every text atom found by walking the tree (master placeholders included, because they really are in the file). Read-only (safety T0): parts are inflated in memory only."
 )]
 pub struct OfficeText {
     /// 办公文件
@@ -403,6 +403,55 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                         "正文之外还读了 {} 条批注（text:annotation，作者与时间挂在它自己的 meta:* 上）",
                         annotations.len()
                     ));
+                }
+                // 页眉与页脚不在 content.xml：ODF 把它们放在 styles.xml 的 master-page 里，
+                // 左右页与首页还可以各有一套（style:header-left / style:header-first …）
+                if doc.app == "word" {
+                    match read(bytes, "styles.xml") {
+                        Some(member) => {
+                            parts_read.push("styles.xml".to_string());
+                            let styles = xmlscan::parse_str(&member.as_text());
+                            let mut slots = 0usize;
+                            for page in styles.descendants("master-page") {
+                                let master =
+                                    page.attr_local("name").unwrap_or_default().to_string();
+                                for slot in &page.children {
+                                    let local = slot.local();
+                                    let what = match local {
+                                        "header" | "header-left" | "header-first" => "header",
+                                        "footer" | "footer-left" | "footer-first" => "footer",
+                                        _ => continue,
+                                    };
+                                    for one in slot.descendants("p") {
+                                        let text = run_text(one);
+                                        if !text.is_empty() {
+                                            slots += 1;
+                                        }
+                                        let extra = json!({
+                                            "from": what,
+                                            "part": "styles.xml",
+                                            "master": master.as_str(),
+                                            "slot": local,
+                                            // 页眉页脚没有作者与时间：这两个键在 docx 那边也是空的，
+                                            // 键的集合两边一致，读的人不必按家族分两套代码
+                                            "author": Value::Null,
+                                            "date": Value::Null,
+                                        });
+                                        push_paragraph(
+                                            &mut paragraphs,
+                                            app.keep_empty,
+                                            &text,
+                                            extra,
+                                        );
+                                    }
+                                }
+                            }
+                            notes.push(format!(
+                                "页眉与页脚在 styles.xml 的 master-page 里，读了 {slots} 条有字的"
+                            ));
+                        }
+                        None => notes.push("styles.xml 读不到：这份的页眉页脚没看".to_string()),
+                    }
                 }
             } else {
                 notes.push("包里读不到 content.xml".to_string());
@@ -1024,6 +1073,49 @@ mod tests {
             out["total_paragraphs"], 10,
             "7 段正文 + 2 个标题 + 1 条批注：{out}"
         );
+    }
+
+    /// 同一批字换 ODF 的存法（`notes-hf.odt` 由 LibreOffice 从 `notes-hf.docx` 转来）：
+    /// 页眉页脚在 styles.xml 的 master-page 里，两个节各有一个 master-page，
+    /// 所以四条都在，而且各自说得出挂在哪个页型上
+    /// （期望值来自 `office_reader.py` 的 odf_page_text）
+    #[test]
+    fn odf_headers_and_footers_come_from_the_master_pages() {
+        let out = run("notes-hf.odt", 20000, false);
+        let items = out["paragraphs"].as_array().expect("是数组");
+        let side: Vec<(&str, &str, &str, &str)> = items
+            .iter()
+            .filter(|one| one["from"] != Value::Null)
+            .map(|one| {
+                (
+                    one["from"].as_str().unwrap_or_default(),
+                    one["master"].as_str().unwrap_or_default(),
+                    one["slot"].as_str().unwrap_or_default(),
+                    one["text"].as_str().unwrap_or_default(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            side,
+            vec![
+                ("header", "Standard", "header", "公司机密 · 预算评审"),
+                ("footer", "Standard", "footer", "第 1 页 / 共 3 页"),
+                ("header", "Converted1", "header", "第二节的页眉不一样"),
+                ("footer", "Converted1", "footer", "第 1 页 / 共 3 页"),
+            ],
+            "{side:?}"
+        );
+        let body = items
+            .iter()
+            .filter(|one| one["from"] == Value::Null)
+            .count();
+        assert_eq!(body, 3, "正文三条，页眉页脚不混进去：{out}");
+        assert_eq!(out["total_paragraphs"], 7, "{out}");
+        let listed: Vec<u64> = items
+            .iter()
+            .map(|one| one["index"].as_u64().expect("每条都有 index"))
+            .collect();
+        assert_eq!(listed, (0..7).collect::<Vec<u64>>(), "{listed:?}");
     }
 
     /// 脚注部件里那两条分隔符（`separator` / `continuationSeparator`）不交出来：

@@ -795,6 +795,46 @@ def ods_facts(path: Path) -> dict | None:
     }
 
 
+def odf_page_text(path: Path) -> list:
+    """ODF 的页眉与页脚：它们不在 content.xml，在 styles.xml 的 master-page 里。
+
+    而且一个 master-page 可以有四个口袋（`style:header` / `header-left` /
+    `header-first` 与页脚的对应三个），首页与左右页各一套是 ODF 的常规而不是特例。
+    """
+    with zipfile.ZipFile(path) as box:
+        if "styles.xml" not in box.namelist():
+            return []
+        root = ET.fromstring(box.read("styles.xml"))
+    slots = {
+        "header": "header",
+        "header-left": "header",
+        "header-first": "header",
+        "footer": "footer",
+        "footer-left": "footer",
+        "footer-first": "footer",
+    }
+    out: list = []
+    for page in root.iter():
+        if xml_local(page.tag) != "master-page":
+            continue
+        master = local_attr(page, "name")
+        for slot in page:
+            what = slots.get(xml_local(slot.tag))
+            if what is None:
+                continue
+            for para in [one for one in slot.iter() if xml_local(one.tag) == "p"]:
+                out.append(
+                    {
+                        "from": what,
+                        "part": "styles.xml",
+                        "master": master,
+                        "slot": xml_local(slot.tag),
+                        "text": "".join(para.itertext()).strip(),
+                    }
+                )
+    return out
+
+
 def has_scheme(raw: str) -> bool:
     """URI 的通用形状：`scheme ":"` —— scheme 是字母开头的 alnum / + / - / . 串。
 
@@ -1708,6 +1748,7 @@ def facts(path: Path) -> dict:
             out["app"] = "opendocument"
             out["odf"] = odt_facts(path)
             out["links"] = odf_links(path)
+            out["page_text"] = odf_page_text(path)
             out["odt"] = odt_structure(path)
             sheets = ods_facts(path)
             if sheets is not None:

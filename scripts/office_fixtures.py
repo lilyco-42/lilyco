@@ -612,9 +612,21 @@ def main() -> int:
         (xlsx, "xls"),
         (pptx, "ppt"),
         (docx, "rtf"),
+        # 页眉页脚那两份再转两个格式：ODF 的页眉坐在 master-page 的样式里，
+        # RTF 的坐在 \header / \footer 目标里 —— 两边都是同一批字的另一种存法
+        (headers, "rtf"),
+        (headers, "odt"),
     ):
         convert(exe, src, fmt, SCRATCH)
-    for name in ("notes.doc", "notes-en.doc", "book.xls", "deck.ppt", "notes.rtf"):
+    for name in (
+        "notes.doc",
+        "notes-en.doc",
+        "book.xls",
+        "deck.ppt",
+        "notes.rtf",
+        "notes-hf.rtf",
+        "notes-hf.odt",
+    ):
         src = SCRATCH / name
         if src.exists():
             shutil.copyfile(src, OUT / name)

@@ -312,7 +312,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
         let mut notes = book.notes.clone();
         // 格式在另一跳上：格子 → 单元格样式 → `style:data-style-name` → `number:*-style`，
         // 而那棵元素树可能坐在 content.xml，也可能坐在 styles.xml
-        let styles = crate::odstyle::read(bytes);
+        let styles = crate::odstyle::Styles::read(bytes);
         notes.extend(styles.notes.iter().cloned());
         notes.push(
             "ODF 的数字格式是一棵元素树，不是 Excel 那种格式串：这里逐条抄成 \

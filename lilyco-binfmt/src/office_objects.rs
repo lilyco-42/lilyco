@@ -19,6 +19,7 @@ use lilyco::prelude::*;
 use crate::opack::{open, ContentTypes, Family};
 use crate::read::read_blob;
 use crate::xmlscan;
+use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 
 /// 引用算不算「在包外面」：只看它有没有 scheme（`https:`、`vnd.sun.star.script:`…）。
 /// 这是 URI 的通用形状，不是照着某一种格式的名字表猜的 —— 没 scheme 的才可能是包内路径
@@ -209,7 +210,13 @@ fn run_office_objects(app: &OfficeObjects, ctx: &Context) -> Result<Value, AppEr
                 {
                     continue;
                 }
-                collect_hrefs(&one.as_text(), name, &mut links, limit, &mut total);
+                // `entries` 只是目录（名字、大小、CRC），字要现解出来；
+                // 解不动的部件照实说，不装作那份不存在
+                let Ok(member) = zipread::member(&blob.bytes, name, DEFAULT_MEMBER_CAP) else {
+                    notes.push(format!("{name} 解不出来：那条引用没看"));
+                    continue;
+                };
+                collect_hrefs(&member.as_text(), name, &mut links, limit, &mut total);
             }
             external.extend(
                 links
