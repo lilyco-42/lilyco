@@ -225,6 +225,49 @@ def main() -> int:
         record("formats %s 判成 %s" % (key, theirs["format_kind"]), mine == theirs,
                json.dumps({"got": mine, "want": theirs}, ensure_ascii=False)[:130])
 
+    # ── 3c) ODS：另一套脾气的表格 ────────────────────────────────────
+    print("=== 3c) ODS：重复计数、覆盖格、值类型与隐藏表 ===")
+    for name in ("book.ods", "formats.ods"):
+        want = files[name]["ods"]
+        got = lbin("office-sheet", fixture(name))
+        check("%s 表的顺序与名字" % name, [one.get("name") for one in got.get("sheets", [])],
+              [one["name"] for one in want["sheets"]])
+        check("%s 表的可见性" % name, [one.get("state") for one in got.get("sheets", [])],
+              ["visible" if one["visible"] else "hidden" for one in want["sheets"]])
+        check("%s 格子总数" % name, dig(got, "workbook.cell_total"), want["cell_total"])
+        # 第三方的账：LibreOffice 自己往 meta.xml 写了 cell-count
+        check("%s 与生产者自报的 cell-count" % name, dig(got, "workbook.cell_total"),
+              int(want["statistic"]["cell-count"]))
+        mine_flat = {}
+        for one_sheet in got.get("sheets", []):
+            for cell in one_sheet.get("cell_list", []):
+                mine_flat["%s!%s" % (one_sheet.get("name"), cell.get("ref"))] = cell
+        theirs_flat = {
+            "%s!%s" % (one["name"], cell["ref"]): cell for one in want["sheets"] for cell in one["cell_list"]
+        }
+        check("%s 格子位置清单" % name, sorted(mine_flat), sorted(theirs_flat))
+        for key in sorted(theirs_flat):
+            mine = mine_flat.get(key, {})
+            theirs = theirs_flat[key]
+            pair = {
+                "kind": (mine.get("kind"), theirs["value_type"]),
+                "text": (mine.get("text"), theirs["text"]),
+                "value": (mine.get("value"), float(theirs["value"]) if theirs["value"] else None),
+                "date": (mine.get("date_value"), theirs["date_value"]),
+                "bool": (mine.get("boolean_value"), theirs["boolean_value"]),
+                "formula": (mine.get("formula"), theirs["formula"]),
+                "span": (mine.get("columns_spanned"), theirs["columns_spanned"]),
+            }
+            bad = [label for label, (a, b) in pair.items() if a != b]
+            record("%s %s 的账一致" % (name, key), not bad,
+                   json.dumps({"字段": bad, "got": [pair[one][0] for one in bad]}, ensure_ascii=False)[:130])
+        check("%s 每表行列" % name,
+              [(one.get("rows"), one.get("columns")) for one in got.get("sheets", [])],
+              [(one["rows"], one["columns"]) for one in want["sheets"]])
+        check("%s 覆盖格与合并" % name,
+              [(one.get("covered"), one.get("merged")) for one in got.get("sheets", [])],
+              [(one["covered"], one["merged"]) for one in want["sheets"]])
+
     # ── 属性：三份账 ───────────────────────────────────────────────
     print("=== 4) office-meta：属性 ===")
     m = lbin("office-meta", fixture("notes.docx"))

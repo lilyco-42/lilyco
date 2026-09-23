@@ -13,6 +13,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `formats.xlsx` | openpyxl 3.1（`write_formats_xlsx`） | 日期格的 `s=` 指向 `cellXfs` 的**下标**而不是格式号；日期/百分比/货币被写成自定义号 164-168（内置表查不到）；`C5` 的格式串带引号汉字字面量；**`C7` 是长得像日期的文本** |
 | `deck.pptx` | python-pptx | 两页：标题 + 正文 + 备注 + 图片；第二页一张 2×2 表；4:3 尺寸 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
+| `formats.ods` | LibreOffice（从 `formats.xlsx`） | 同一份格式账的 ODF 写法：日期是 `office:date-value` 的 ISO 串、百分比带 `12.5%` 这种显示文本、货币只剩显示里的 ¥；每行尾部 `number-columns-repeated="16381"` 的填空、行首还有重复 2 的空格 |
 | `notes.doc` | LibreOffice（从 `notes.docx`） | MS-CFB 复合文档 + WordDocument 流 + `1Table` 里的 piece 表 |
 | `notes-en.doc` | LibreOffice（从纯 ASCII 的 `notes-en.docx`） | 中英一视同仁仍写 16 位 piece —— 记下这个事实，见下 |
 | `book.xls` | LibreOffice（从 `book.xlsx`） | BIFF8：BOUNDSHEET（含隐藏表）、SST + CONTINUE、LABELSST / RK / FORMULA |
@@ -54,11 +55,22 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
    换算还要看 `xl/workbook.xml` 的 `date1904`，而 1900 系统里第 60 号是那个不存在的
    1900-02-29：文件自己写着 60，就照 60 报，不替它改成某一天。
 
+7. **ODF 的格子没有名字，也没有序列数**。`book.ods` 每一行的最后一个格子写着
+   `number-columns-repeated="16382"` —— 那是一片空白，占 16382 列而不是 1 格；
+   `formats.ods` 的行首还有 `repeated="2"` 的空格，所以列号必须一路累加，
+   否则 `C2` 会被数成 `A2`。日期在 ODF 里直接就是 `office:date-value="2013-12-23"`，
+   没有 1900/1904 那套基准要猜，而显示文本（`2013年12月23日`）与值是两样东西。
+   隐藏表更绕：`table:table` 只写 `table:style-name="ta3"`，得去那个自动样式的
+   `table:table-properties` 里读 `table:display="false"`。 LibreOffice 自己在 `meta.xml`
+   写了 `cell-count="11"` —— 数出来的格子数与它对得上，这是第三方给的保证。
+   还有 `calcext:value-type` 那份实验命名空间的副本，按局部名乱抓就会抓到它。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
 `scripts/acceptance/office_reader.py`（OOXML / ODF / MS-CFB / OLE 属性集，只用标准库）、
 `lyco_rtf.py`（RTF）、`lyco_legacy.py`（`.doc` piece 表、`.xls` BIFF8、`.ppt` 记录树）、
-`lyco_formats.py`（`.xlsx` 的数字格式与日期换算）。
+`lyco_formats.py`（`.xlsx` 的数字格式与日期换算），以及 `office_reader.py` 里的
+`ods_facts()`（`.ods` 的重复计数、覆盖格与自动样式可见性）。
 CI 的 `apps` job 会把编出来的 `lbin` 再跑一遍 `office_probe.py` 与它们逐字段对账，
 不一致就红 —— 而不是只跑一遍单元测试说"自己跟自己也挺一致"。

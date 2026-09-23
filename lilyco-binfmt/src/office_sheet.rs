@@ -23,10 +23,10 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-sheet",
     run = "run_office_sheet",
-    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader. Returns { path, format, sheets, workbook, defined_names, tables, external_links, parts, notes }."
+    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader. ODF spreadsheets (.ods) are read on their own terms: cells carry an explicit value-type with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, and a sheet's visibility is resolved through the automatic style it names. Returns { path, format, sheets, workbook, defined_names, tables, external_links, parts, notes }."
 )]
 pub struct OfficeSheet {
-    /// 表格文件（xlsx / xlsm / xls）
+    /// 表格文件（xlsx / xlsm / xls / ods）
     #[arg(about = "Spreadsheet to inspect", must_exist = true)]
     path: PathBuf,
 
@@ -278,6 +278,70 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
         ctx.done(result.clone(), start.elapsed().as_millis() as u64);
         return Ok(result);
     }
+    if doc.family == Family::Odf && doc.app == "excel" {
+        let book = crate::odsheet::read(bytes);
+        let mut notes = book.notes.clone();
+        notes.push(
+            "ODF 的格子里不写序列数：日期就是 `office:date-value` 那个 ISO 串，\
+             所以这边没有 1900 / 1904 那套基准要猜；显示文本（如 `12.5%`）与值是两样东西"
+                .to_string(),
+        );
+        let mut sheets: Vec<Value> = Vec::new();
+        let mut totals = json!({
+            "cells": 0, "formulas": 0, "dates": 0, "merged": 0, "covered": 0,
+        });
+        for (index, one) in book.sheets.iter().enumerate() {
+            let mut types = serde_json::Map::new();
+            for had in &one.cells {
+                let key = had.value_type.clone();
+                let next = types.get(&key).and_then(|one| one.as_u64()).unwrap_or(0) + 1;
+                types.insert(key, json!(next));
+            }
+            sheets.push(json!({
+                "index": index,
+                "name": one.name,
+                "state": if one.visible { "visible" } else { "hidden" },
+                "rows": one.rows,
+                "columns": one.columns,
+                "cells": one.cells.len(),
+                "formulas": one.formulas(),
+                "date_cells": one.date_cells(),
+                "merged": one.merged,
+                "covered": one.covered,
+                "value_types": Value::Object(types),
+                "cell_list": one.cells.iter().take(limit).map(crate::odsheet::Cell::to_json).collect::<Vec<Value>>(),
+            }));
+            bump(&mut totals, "cells", one.cells.len());
+            bump(&mut totals, "formulas", one.formulas());
+            bump(&mut totals, "dates", one.date_cells());
+            bump(&mut totals, "merged", one.merged);
+            bump(&mut totals, "covered", one.covered);
+        }
+        let cut = book
+            .sheets
+            .iter()
+            .any(|one| one.cells.len() > limit)
+            .then(|| "格子只列前 --limit 个")
+            .unwrap_or_default();
+        if !cut.is_empty() {
+            notes.push(cut.to_string());
+        }
+        let result = json!({
+            "path": app.path.to_string_lossy(),
+            "format": doc.format,
+            "kind": "opendocument-spreadsheet",
+            "workbook": {
+                "sheets": book.sheets.len(),
+                "hidden_sheets": book.sheets.iter().filter(|one| !one.visible).count(),
+                "cell_total": book.cell_total(),
+                "totals": totals,
+            },
+            "sheets": sheets,
+            "notes": notes,
+        });
+        ctx.done(result.clone(), start.elapsed().as_millis() as u64);
+        return Ok(result);
+    }
     if doc.family == Family::Compound && doc.app == "excel" {
         let cfb = doc
             .compound
@@ -511,6 +575,65 @@ mod tests {
         assert!(trap.get("as_date").is_none(), "{trap}");
         assert_eq!(find("A1")["style"], 0, "没写 s 就是 0 号样式");
         assert_eq!(out["sheets"][1]["date_cells"], 1, "{out}");
+    }
+
+    /// ODS 走的是另一套账：格子内不写序列数，位置靠重复计数累加，
+    /// 隐藏表的可见性在它引的自动样式里（期望值来自 `ods_facts()`）
+    #[test]
+    fn an_opendocument_spreadsheet_is_read_on_its_own_terms() {
+        let out = run("book.ods");
+        assert_eq!(out["kind"], "opendocument-spreadsheet");
+        assert_eq!(out["workbook"]["sheets"], 3, "{out}");
+        assert_eq!(out["workbook"]["hidden_sheets"], 1);
+        assert_eq!(
+            out["workbook"]["cell_total"], 11,
+            "生产者自己写的 cell-count"
+        );
+        assert_eq!(out["workbook"]["totals"]["formulas"], 1);
+        assert_eq!(out["workbook"]["totals"]["covered"], 1);
+        let states: Vec<&str> = out["sheets"]
+            .as_array()
+            .expect("是数组")
+            .iter()
+            .map(|one| one["state"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(states, ["visible", "visible", "hidden"], "{out}");
+        let first = &out["sheets"][0];
+        assert_eq!(first["columns"], 2, "行尾那 16382 个空格不许算列：{first}");
+        assert_eq!(first["value_types"]["string"], 6, "{first}");
+        assert_eq!(first["value_types"]["float"], 3, "{first}");
+        let listed = first["cell_list"].as_array().expect("是数组");
+        let merged = listed
+            .iter()
+            .find(|one| one["ref"] == "A5")
+            .expect("A5 那一格跨两列");
+        assert_eq!(merged["columns_spanned"], 2, "{merged}");
+        assert_eq!(merged["text"], "口径：含税");
+
+        let formats = run("formats.ods");
+        assert_eq!(formats["workbook"]["totals"]["dates"], 4, "{formats}");
+        let kinds: Vec<&str> = formats["sheets"][0]["cell_list"]
+            .as_array()
+            .expect("是数组")
+            .iter()
+            .map(|one| one["kind"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                "string",
+                "string",
+                "date",
+                "date",
+                "percentage",
+                "float",
+                "date",
+                "float",
+                "string",
+                "boolean"
+            ],
+            "{formats}"
+        );
     }
 
     /// 不是表格的文件要指路

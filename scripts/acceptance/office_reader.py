@@ -421,31 +421,43 @@ def col_letter(index: int) -> str:
             return name
 
 
-def ods_facts(path: Path) -> dict:
+def ods_facts(path: Path) -> dict | None:
     """ODF 电子表格：格子内**不写数字**，写的是 office:value / date-value / boolean-value，
     位置要靠 table:number-columns-repeated 累加出来 —— 那属性一填就是 16381，
     照字面数就是每张表一万六千格。表是不是隐藏，也不在表上，在它引的那个自动样式里。
+    不是表格的 ODF（文字/演示稿里的普通表）交回 None：判据是内容里有没有 spreadsheet 根。
     """
     with zipfile.ZipFile(path) as box:
         parts = {one.filename: box.read(one.filename) for one in box.infolist()}
     root = ET.fromstring(parts["content.xml"])
+    if not any(xml_local(one.tag) == "spreadsheet" for one in root.iter()):
+        return None
+
+    def attr(node, want: str):
+        """按局部名取属性，但躲开 LibreOffice 抄的那份副本：`calcext:value-type`
+        的局部名跟 `office:value-type` 一模一样，命名空间却是 documentfoundation 的实验区。
+        """
+        for key, value in node.attrib.items():
+            if key.rsplit("}", 1)[-1] != want or "documentfoundation" in key:
+                continue
+            return value
+        return None
 
     def rep(node, want: str) -> int:
-        raw = local_attr(node, want)
         try:
-            return max(1, int(raw))
+            return max(1, int(attr(node, want)))
         except (TypeError, ValueError):
             return 1
 
     # 自动样式家族 = table 的那些：table:display 说这张表可不可见
     shown: dict[str, bool] = {}
     for style in root.iter():
-        if xml_local(style.tag) != "style" or local_attr(style, "family") != "table":
+        if xml_local(style.tag) != "style" or attr(style, "family") != "table":
             continue
-        holder = local_attr(style, "name") or ""
+        holder = attr(style, "name") or ""
         for one in style:
             if xml_local(one.tag) == "table-properties":
-                flag = local_attr(one, "display")
+                flag = attr(one, "display")
                 shown[holder] = flag != "false"
 
     sheets = []
@@ -473,15 +485,15 @@ def ods_facts(path: Path) -> dict:
                     covered += 1
                     col_at += span
                     continue
-                text = "".join(
+                text = "\n".join(
                     "".join(one.itertext())
                     for one in cell
                     if xml_local(one.tag) == "p"
                 )
-                value = local_attr(cell, "value")
-                stamp = local_attr(cell, "date-value")
-                flag = local_attr(cell, "boolean-value")
-                formula = local_attr(cell, "formula")
+                value = attr(cell, "value")
+                stamp = attr(cell, "date-value")
+                flag = attr(cell, "boolean-value")
+                formula = attr(cell, "formula")
                 if text or value or stamp or flag or formula:
                     cs = rep(cell, "number-columns-spanned")
                     rs = rep(cell, "number-rows-spanned")
@@ -490,7 +502,7 @@ def ods_facts(path: Path) -> dict:
                     row_cells.append(
                         {
                             "ref": f"{col_letter(col_at)}{row_at + 1}",
-                            "value_type": local_attr(cell, "value-type") or "empty",
+                            "value_type": attr(cell, "value-type") or "empty",
                             "value": value,
                             "date_value": stamp,
                             "boolean_value": flag,
@@ -506,11 +518,11 @@ def ods_facts(path: Path) -> dict:
                 used_rows += row_repeat
                 cells.extend(row_cells)
             row_at += row_repeat
-        name = local_attr(table, "name") or ""
+        name = attr(table, "name") or ""
         sheets.append(
             {
                 "name": name,
-                "visible": shown.get(local_attr(table, "style-name"), True),
+                "visible": shown.get(attr(table, "style-name"), True),
                 "rows": used_rows,
                 "columns": widest,
                 "cells": len(cells),
@@ -978,6 +990,9 @@ def facts(path: Path) -> dict:
         elif "content.xml" in parts:
             out["app"] = "opendocument"
             out["odf"] = odt_facts(path)
+            sheets = ods_facts(path)
+            if sheets is not None:
+                out["ods"] = sheets
         else:
             out["app"] = "unknown-zip"
         return out
