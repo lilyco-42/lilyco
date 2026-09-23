@@ -308,9 +308,10 @@ input[type="checkbox"] {
 .btn-icon:active { transform: scale(0.98); }
 .btn-icon:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 .btn-icon:disabled:hover { border-color: var(--hairline); color: var(--ink-muted); }
-/* 复制的成/败必须有反馈：静默写剪贴板等于没写（浏览器还可能弹个权限框） */
-.btn-icon.copied { border-color: var(--ok); color: var(--ok); }
-.btn-icon.copy-failed { border-color: var(--danger); color: var(--danger); }
+/* 复制的成/败必须有反馈：静默写剪贴板等于没写（浏览器还可能弹个权限框）。
+   两颗复制按钮一种是 .btn-icon（结果）、一种是 .btn.ghost（CLI 预览），两条都得上 */
+.btn-icon.copied, .btn.copied { border-color: var(--ok); color: var(--ok); }
+.btn-icon.copy-failed, .btn.copy-failed { border-color: var(--danger); color: var(--danger); }
 .row-del:hover { border-color: var(--danger); color: var(--danger); }
 
 /* 拖拽区里的两个动作按钮：不 nowrap 会被 flex 挤成一列竖字 */

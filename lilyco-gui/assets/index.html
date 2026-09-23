@@ -126,11 +126,14 @@ function updatePreview(){$("preview").textContent=cliLine(readForm())}
 
 /* ── 通用：复制并给一次性反馈（成功/失败都得说，静默复制等于没复制）── */
 function copyText(text,btn){
+  if(btn.dataset.copying)return;   // 反馈期间别再叠一层：两次定时器会互相把状态色抹掉
+  btn.dataset.copying="1";
   const done=ok=>{
     const old=btn.dataset.label||btn.textContent;
     btn.dataset.label=old;btn.textContent=ok?"已复制":"复制失败";
+    btn.classList.remove("copied","copy-failed");
     btn.classList.add(ok?"copied":"copy-failed");
-    setTimeout(()=>{btn.textContent=old;btn.classList.remove("copied","copy-failed")},1200);
+    setTimeout(()=>{btn.textContent=old;btn.classList.remove("copied","copy-failed");delete btn.dataset.copying},1200);
   };
   navigator.clipboard.writeText(text).then(()=>done(true),()=>done(false));
 }
