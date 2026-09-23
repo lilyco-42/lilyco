@@ -87,7 +87,8 @@ fn producer_counts(bytes: &[u8]) -> Value {
         ("lines", "Lines"),
         ("pages", "Pages"),
     ] {
-        let Some(one) = root.descendants(want).first() else {
+        let found = root.descendants(want);
+        let Some(one) = found.first() else {
             continue;
         };
         let raw = one.text().trim().to_string();
