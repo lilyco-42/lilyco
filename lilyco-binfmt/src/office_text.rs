@@ -34,7 +34,7 @@ use crate::zipread::{self, Member, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-text",
     run = "run_office_text",
-    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored). pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=record-tree with every text atom found by walking the tree (master placeholders included, because they really are in the file). Read-only (safety T0): parts are inflated in memory only."
+    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored), then the parts that are not in the body at all - comments, footnotes, endnotes, headers and footers - each entry carrying from/part/author/date so a comment never reads like body text. pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=record-tree with every text atom found by walking the tree (master placeholders included, because they really are in the file). Read-only (safety T0): parts are inflated in memory only."
 )]
 pub struct OfficeText {
     /// 办公文件
@@ -91,6 +91,84 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                 }
                 None => notes.push("包里读不到 word/document.xml".to_string()),
             }
+            // 正文之外的那几类部件：审阅的人要的常常就是批注与脚注，而它们各自是
+            // 一个部件，不在 document.xml 里。页眉页脚同理（按部件名字里的数字排）。
+            let mut side: Vec<(String, &'static str)> = Vec::new();
+            for one in doc.entries.iter() {
+                let name = one.name.as_str();
+                let Some(base) = name.rsplit('/').next() else {
+                    continue;
+                };
+                if !name.starts_with("word/") || !base.ends_with(".xml") {
+                    continue;
+                }
+                let stem = &base[..base.len() - 4];
+                let what = if stem == "footnotes" {
+                    "footnote"
+                } else if stem == "endnotes" {
+                    "endnote"
+                } else if stem == "comments" {
+                    "comment"
+                } else if stem.starts_with("header") {
+                    "header"
+                } else if stem.starts_with("footer") {
+                    "footer"
+                } else {
+                    continue;
+                };
+                side.push((name.to_string(), what));
+            }
+            side.sort();
+            for (part, what) in side.iter() {
+                let Some(member) = read(bytes, part) else {
+                    notes.push(format!("{part} 读不出来"));
+                    continue;
+                };
+                parts_read.push(part.clone());
+                let root = xmlscan::parse_str(&member.as_text());
+                // 批注/脚注/尾注是「容器元素 + 里面的段」，作者与时间挂在容器上；
+                // 页眉页脚没有这一层，直接走它的段。
+                let owners: Vec<&xmlscan::Node> = match what {
+                    "comment" | "footnote" | "endnote" => root.descendants(what),
+                    _ => vec![&root],
+                };
+                for owner in owners.iter() {
+                    let author = owner.attr_local("author");
+                    let stamp = owner.attr_local("date");
+                    for one in owner.descendants("p") {
+                        let text = run_text(one);
+                        if text.is_empty() && !app.keep_empty {
+                            continue;
+                        }
+                        let index = paragraphs.len();
+                        push_paragraph(
+                            &mut paragraphs,
+                            app.keep_empty,
+                            index,
+                            &text,
+                            json!({
+                                "from": what,
+                                "part": part,
+                                "author": author,
+                                "date": stamp,
+                                "style": paragraph_style(one),
+                            }),
+                        );
+                    }
+                }
+            }
+            let mut kinds: Vec<&'static str> = side.iter().map(|(_, one)| *one).collect();
+            kinds.sort_unstable();
+            kinds.dedup();
+            notes.push(format!(
+                "正文之外的部件读了 {} 个（{}）；包里没写的种类不会出现",
+                side.len(),
+                if kinds.is_empty() {
+                    "无".to_string()
+                } else {
+                    kinds.join("、")
+                },
+            ));
         }
         Family::Ooxml if doc.app == "powerpoint" => {
             kind = "slides";
@@ -588,15 +666,18 @@ mod tests {
                 "124000",
                 "口径见 预算制度",
                 "最后一页说明：数字为含税口径",
+                // 批注不在 document.xml 里，但它是这份文件的文字，排在正文之后
+                "这里要补上不含税口径",
             ],
             "{out}"
         );
-        assert_eq!(out["total_paragraphs"], 11, "空段也算段，Word 就是这么数的");
+        // 这里数的是「这条命令给出的段」：只放分页符的两段被 trim 成空，默认不露面
+        assert_eq!(out["total_paragraphs"], 10, "{out}");
         assert_eq!(out["paragraphs"][0]["heading"], json!(1));
         assert_eq!(out["paragraphs"][2]["heading"], json!(2));
         assert_eq!(out["paragraphs"][1]["heading"], Value::Null);
         assert_eq!(out["paragraphs"][0]["style"], "Heading1");
-        assert_eq!(out["total_chars"], 67, "{out}");
+        assert_eq!(out["total_chars"], 77, "正文 67 + 批注 10：{out}");
         assert_eq!(out["cut"], json!(false));
     }
 
@@ -604,8 +685,39 @@ mod tests {
     #[test]
     fn keep_empty_shows_the_paragraphs_nobody_sees() {
         let out = run("notes.docx", 20000, true);
-        assert_eq!(out["line_count"], 11, "{out}");
+        // 正文 11 段（含只放分页符的两段）+ 批注 1 段
+        assert_eq!(out["line_count"], 12, "{out}");
         assert!(texts(&out).iter().any(|one| one.is_empty()));
+    }
+
+    /// 批注这一类「正文之外」的段落要带着出处与作者出来，不然读者分不清它在哪儿
+    #[test]
+    fn a_comment_is_reported_as_a_comment() {
+        let out = run("notes.docx", 20000, false);
+        let items = out["paragraphs"].as_array().expect("是数组");
+        let comment = items
+            .iter()
+            .find(|one| one["from"] == "comment")
+            .expect("这份 docx 有一条批注");
+        assert_eq!(comment["text"], "这里要补上不含税口径", "{comment}");
+        assert_eq!(comment["part"], "word/comments.xml");
+        assert_eq!(comment["author"], "liuqi", "批注要说是谁写的");
+        assert!(
+            comment["date"].as_str().unwrap_or("").starts_with("2026-"),
+            "{comment}"
+        );
+        // 正文那几段不该带上 from：读了什么就要分得清
+        let body = &items[0];
+        assert_eq!(body["part"], "word/document.xml");
+        assert_eq!(body["from"], Value::Null, "{body}");
+        assert!(
+            out["notes"]
+                .as_array()
+                .expect("有 notes")
+                .iter()
+                .any(|one| one.as_str().unwrap_or("").contains("comments")),
+            "{out}"
+        );
     }
 
     /// pptx：两页都要有，标题形状标 heading，表格与备注各归各
@@ -799,8 +911,8 @@ mod tests {
     fn a_small_char_budget_cuts_but_still_counts_everything() {
         let out = run("notes.docx", 12, false);
         assert_eq!(out["cut"], json!(true), "{out}");
-        assert_eq!(out["total_paragraphs"], 11);
-        assert_eq!(out["total_chars"], 67, "全量字符数不许跟着上限变：{out}");
+        assert_eq!(out["total_paragraphs"], 10);
+        assert_eq!(out["total_chars"], 77, "全量字符数不许跟着上限变：{out}");
         assert!(out["line_count"].as_u64().expect("有 line_count") < 9);
     }
 }

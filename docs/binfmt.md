@@ -29,7 +29,7 @@ cargo run -p lilyco-binfmt -- identify --path /usr/bin/ls --json
 | `regions` | **T0** 只读 | 把整个文件按区上色：头部 / 表 / 代码 / 数据 / 只读 / 元数据 / 空闲 / 尾部叠加 |
 | `symbols` | **T0** 只读 | 按分析器的读法看一个目标文件：节表 + `.symtab` 与 `.dynsym` + 地址到名字 |
 | `office-info` | **T0** 只读 | 这份办公文件是什么（OOXML / ODF / 复合文档 / RTF）、谁写的、有没有宏与加密 |
-| `office-text` | **T0** 只读 | 文件里写了什么：docx 按段、pptx 按页与备注、xlsx 按格子、odt/rtf 各按自己的段落口径 |
+| `office-text` | **T0** 只读 | 文件里写了什么：docx 按段、pptx 按页与备注、xlsx 按格子、odt/rtf 各按自己的段落口径；docx 还读批注 / 脚注 / 尾注 / 页眉 / 页脚那几个部件，每条带 `from`/`part`/`author`/`date` |
 | `office-meta` | **T0** 只读 | 文档属性那份账：`docProps/*`、ODF 的 `meta.xml`、遗留格式的 OLE 属性集 |
 | `office-doc` | **T0** 只读 | Word 的结构：段落/标题层级/样式/表格行列/超链接内外/脚注尾注批注/修订计数 |
 | `office-sheet` | **T0** 只读 | 表格的结构：每张表（含隐藏的）与范围、格子与公式、合并格、命名区域、外链 |

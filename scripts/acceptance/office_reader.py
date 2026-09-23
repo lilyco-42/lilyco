@@ -84,6 +84,57 @@ def walk_text(root, keep: tuple[str, ...], joiner: str = "\n") -> list[str]:
     return out
 
 
+def local_attr(node, want: str):
+    """按**局部名**取属性：OOXML 的属性都带 w: 前缀，前缀不是契约的一部分。"""
+    for key, value in node.attrib.items():
+        if key.rsplit("}", 1)[-1].rsplit(":", 1)[-1] == want:
+            return value
+    return None
+
+
+def side_texts(parts: dict) -> list:
+    """正文之外的部件：批注 / 脚注 / 尾注 / 页眉页脚 —— 与 Rust 那边同一套判据。
+
+    脚注与尾注文件里带头两条「分隔符」条目（id 是 -1 / 0），它们没有文字；
+    这里保留空串，让两边的「哪些段落是空的」也必须一致，而不是各自偷偷滤掉。
+    """
+    out: list = []
+    names = sorted(parts)
+    for name in names:
+        base = name.rsplit("/", 1)[-1]
+        if not name.startswith("word/") or not base.endswith(".xml"):
+            continue
+        stem = base[:-4]
+        if stem == "footnotes":
+            what, owner = "footnote", "footnote"
+        elif stem == "endnotes":
+            what, owner = "endnote", "endnote"
+        elif stem == "comments":
+            what, owner = "comment", "comment"
+        elif stem.startswith("header"):
+            what, owner = "header", None
+        elif stem.startswith("footer"):
+            what, owner = "footer", None
+        else:
+            continue
+        root = ET.fromstring(parts[name])
+        holders = [one for one in root.iter() if xml_local(one.tag) == owner] if owner else [root]
+        for had in holders:
+            author = local_attr(had, "author") if owner else None
+            stamp = local_attr(had, "date") if owner else None
+            for para in [one for one in had.iter() if xml_local(one.tag) == "p"]:
+                out.append(
+                    {
+                        "from": what,
+                        "part": name,
+                        "author": author,
+                        "date": stamp,
+                        "text": "".join(para.itertext()),
+                    }
+                )
+    return out
+
+
 def docx_facts(path: Path) -> dict:
     with zipfile.ZipFile(path) as box:
         names = [one.filename for one in box.infolist()]
@@ -148,6 +199,7 @@ def docx_facts(path: Path) -> dict:
         ],
         "media": sorted(one for one in names if one.startswith("word/media/")),
         "comments": comments,
+        "side_texts": side_texts(parts),
         "sections": len([one for one in body.iter() if xml_local(one.tag) == "sectPr"]),
         "has_numbering": "word/numbering.xml" in parts,
         "has_settings": "word/settings.xml" in parts,

@@ -121,9 +121,19 @@ def main() -> int:
     print("=== 2) office-text：读出来的文字 ===")
     docx = lbin("office-text", fixture("notes.docx"))
     want = files["notes.docx"]["ooxml"]
-    check("notes.docx 段落数", docx.get("total_paragraphs"), want["paragraph_count"])
+    # 这条命令交出来的是「有字的段」：正文之外还要加上批注 / 脚注 / 尾注 / 页眉页脚那几类部件
+    side = want.get("side_texts", [])
+    want_texts = [one for one in want["paragraphs"] if one] + [one["text"] for one in side if one["text"]]
+    check("notes.docx 段落数（正文 + 正文之外）", docx.get("total_paragraphs"), len(want_texts))
     check("notes.docx 非空段文本", [one["text"] for one in docx.get("paragraphs", []) if one["text"]],
-          [one for one in want["paragraphs"] if one])
+          want_texts)
+    for one in side:
+        if not one["text"]:
+            continue
+        got = [had for had in docx.get("paragraphs", []) if had.get("text") == one["text"]]
+        pair = (one.get("from"), one.get("author"))
+        got_pair = (got[0].get("from"), got[0].get("author")) if got else (None, None)
+        check("notes.docx 正文之外的出处与作者", got_pair, pair)
     doc = lbin("office-doc", fixture("notes.docx"))
     check("notes.docx 表格数", dig(doc, "structure.tables"), want["tables"])
     check("notes.docx 行数", dig(doc, "structure.table_rows"), want["table_rows"])
