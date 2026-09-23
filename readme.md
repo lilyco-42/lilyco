@@ -792,7 +792,7 @@ lffmpeg --mcp                                              # MCP 服务器
 `lbin` —— 回答「这个文件到底是什么结构」：识别 / 列成员 / 按区上色 / 读符号表，四端 + AI 可调，**4 条命令全 T0 只读**（不执行、不解压、不写盘）：
 
 ```bash
-cargo binstall lilyco-binfmt                          # 免编译安装
+cargo install --path lilyco-binfmt                    # 从源码装（该 crate 还没上 crates.io，`cargo binstall` 要等发布 + 预编译资产）
 lbin identify --path app.apk --json                   # 什么族什么格式 + 头部自报的字段
 lbin entries  --path app.apk --limit 200              # 中央目录列出的成员（ZIP/tar/ar）
 lbin regions  --path a.out --json                     # 头/表/代码/数据/空闲/尾部叠加
