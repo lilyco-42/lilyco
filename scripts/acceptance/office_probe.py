@@ -313,6 +313,19 @@ def main() -> int:
         theirs_flat = {
             "%s!%s" % (one["name"], cell["ref"]): cell for one in want["sheets"] for cell in one["cell_list"]
         }
+        smap = files[name].get("ods_styles", {})
+
+        def fmt(d):
+            return {
+                k: (tuple(d.get("format_tokens") or []) if k == "format_tokens" else d.get(k))
+                for k in (
+                    "data_style",
+                    "format_kind",
+                    "decimals",
+                    "currency_symbol",
+                    "format_tokens",
+                )
+            }
         check("%s 格子位置清单" % name, sorted(mine_flat), sorted(theirs_flat))
         for key in sorted(theirs_flat):
             mine = mine_flat.get(key, {})
@@ -325,6 +338,9 @@ def main() -> int:
                 "bool": (mine.get("boolean_value"), theirs["boolean_value"]),
                 "formula": (mine.get("formula"), theirs["formula"]),
                 "span": (mine.get("columns_spanned"), theirs["columns_spanned"]),
+                # 格式那一跳：格子引的样式名，以及顺着 样式→data-style→number:*-style 抄出来的账
+                "样式": (mine.get("cell_style"), theirs.get("style")),
+                "格式": (fmt(mine), fmt(smap.get(theirs.get("style")) or {})),
             }
             bad = [label for label, (a, b) in pair.items() if a != b]
             record("%s %s 的账一致" % (name, key), not bad,

@@ -43,6 +43,8 @@ pub struct Cell {
     pub boolean_value: Option<String>,
     pub formula: Option<String>,
     pub text: String,
+    /// 这一格引用的单元格样式名（`table:style-name`）：格式在它的 `style:data-style-name` 那一跳后面
+    pub style_name: Option<String>,
     pub columns_spanned: usize,
     pub rows_spanned: usize,
 }
@@ -298,6 +300,7 @@ pub fn read(bytes: &[u8]) -> Book {
                         boolean_value,
                         formula,
                         text,
+                        style_name: attr_of(cell, "style-name").map(|one| one.to_string()),
                         columns_spanned,
                         rows_spanned,
                     });

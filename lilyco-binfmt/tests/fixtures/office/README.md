@@ -93,6 +93,16 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     顺带记下 RTF 的写法：要用 `{\footnote …}` 这一族，`\footnote{…}` 那种 LibreOffice 的导入器
     会把别处的字串行当脚注正文（第一版就把字体名 `Calibri;` 写了进去）。
 
+12. **屏上写着 `¥124000.00` 的那一格其实不是货币格式**。`formats.ods` 的 `ce4` 指的是
+    一个 `number:number-style`，¥ 是里面的字面量 `<number:text>¥</number:text>`，
+    不是 `number:currency-style`；而 `ce2` 那个 `number:date-style` 里坐着
+    `hours` / `minutes` / `seconds` —— ODF 的「日期时间」就是一个带时间部件的 date-style，
+    没有单独的元素名。**类别只能看元素自己的名字**，照屏上的样子反推就是替文件编一个类别。
+    数据样式还分在两处：`N41`/`N49`/`N99` 在 `content.xml`，`ce2`~`ce4` 指的
+    `N150`/`N151`/`N152` 在 `styles.xml` —— 只读一份就会报「找不到格式」。
+    另外 ODF 的格式是一棵元素树，没有 Excel 那种格式串，所以这里只逐条抄 token
+    （`year`、`text:-`、`month`…），不重构 `yyyy-mm-dd`。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：

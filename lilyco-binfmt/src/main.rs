@@ -34,6 +34,7 @@ mod entries;
 mod identify;
 mod numfmt;
 mod odsheet;
+mod odstyle;
 mod office_doc;
 mod office_info;
 mod office_meta;

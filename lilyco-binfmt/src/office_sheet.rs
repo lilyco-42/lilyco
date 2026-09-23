@@ -23,7 +23,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-sheet",
     run = "run_office_sheet",
-    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader. ODF spreadsheets (.ods) are read on their own terms: cells carry an explicit value-type with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, a sheet's visibility is resolved through the automatic style it names, and hidden rows/columns are counted from table:visibility="collapse" on the element or in the row/column style it names (multiplying number-columns-repeated, so one element standing for three collapsed columns reports 3, not 1). With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (for legacy .xls there is no style hop yet, so a date goes out as the serial and a note says so), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. Returns { path, format, sheets, csv, workbook, defined_names, tables, external_links, parts, notes }."
+    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader. ODF spreadsheets (.ods) are read on their own terms: cells carry an explicit value-type with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, a sheet's visibility is resolved through the automatic style it names, and hidden rows/columns are counted from table:visibility="collapse" on the element or in the row/column style it names (multiplying number-columns-repeated, so one element standing for three collapsed columns reports 3, not 1); each ODS cell additionally carries the number format it inherits - cell style, then style:data-style-name, then that number:*-style element (which lives in content.xml or styles.xml, and is reached through parent-style-name when the cell style itself names none) - reported as format_kind (taken from the element's own name, so a ¥ written as a literal text token stays a number-style), plus decimals, currency_symbol and a faithful format_tokens transcription; ODF has no format string, so none is invented. With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (for legacy .xls there is no style hop yet, so a date goes out as the serial and a note says so), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. Returns { path, format, sheets, csv, workbook, defined_names, tables, external_links, parts, notes }."
 )]
 pub struct OfficeSheet {
     /// 表格文件（xlsx / xlsm / xls / ods）
@@ -306,6 +306,16 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
     if doc.family == Family::Odf && doc.app == "excel" {
         let book = crate::odsheet::read(bytes);
         let mut notes = book.notes.clone();
+        // 格式在另一跳上：格子 → 单元格样式 → `style:data-style-name` → `number:*-style`，
+        // 而那棵元素树可能坐在 content.xml，也可能坐在 styles.xml
+        let styles = crate::odstyle::read(bytes);
+        notes.extend(styles.notes.iter().cloned());
+        notes.push(
+            "ODF 的数字格式是一棵元素树，不是 Excel 那种格式串：这里逐条抄成 \
+             `format_tokens`（`year`、`text:-`…），不替它重构 `yyyy-mm-dd`；\
+             类别只看样式元素自己的名字 —— 屏上带 ¥ 字面量的那份其实是个 number-style"
+                .to_string(),
+        );
         notes.push(
             "ODF 的格子里不写序列数：日期就是 `office:date-value` 那个 ISO 串，\
              所以这边没有 1900 / 1904 那套基准要猜；显示文本（如 `12.5%`）与值是两样东西"
@@ -350,7 +360,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "hidden_rows": one.hidden_rows,
                 "hidden_cols": one.hidden_cols,
                 "value_types": Value::Object(types),
-                "cell_list": one.cells.iter().take(limit).map(crate::odsheet::Cell::to_json).collect::<Vec<Value>>(),
+                "cell_list": one.cells.iter().take(limit).map(|had| merge(had.to_json(), styles.for_cell(had.style_name.as_deref()))).collect::<Vec<Value>>(),
             }));
             bump(&mut totals, "cells", one.cells.len());
             bump(&mut totals, "formulas", one.formulas());
@@ -377,6 +387,10 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "sheets": book.sheets.len(),
                 "hidden_sheets": book.sheets.iter().filter(|one| !one.visible).count(),
                 "cell_total": book.cell_total(),
+                "styles": {
+                    "cell_styles": styles.counts().0,
+                    "data_styles": styles.counts().1,
+                },
                 "totals": totals,
             },
             "sheets": sheets,
@@ -1002,6 +1016,53 @@ mod tests {
                 "{name}：{text}"
             );
         }
+    }
+
+    /// ODS 的格式在样式那一跳后面（期望值来自 `office_reader.py` 的 ods_styles）：
+    /// 格子只写一个样式名，样式再指数据样式，数据样式才说这是日期、百分数还是布尔
+    #[test]
+    fn an_ods_cell_reports_the_data_style_it_inherits() {
+        let out = run("formats.ods");
+        let cells = out["sheets"][0]["cell_list"]
+            .as_array()
+            .expect("是数组")
+            .iter()
+            .map(|one| {
+                (
+                    one["ref"].as_str().unwrap_or_default().to_string(),
+                    one.clone(),
+                )
+            })
+            .collect::<std::collections::HashMap<String, Value>>();
+        let cell = |want: &str| cells.get(want).cloned().unwrap_or(Value::Null);
+        let plain = cell("C1");
+        assert_eq!(plain["cell_style"], "ce1", "{plain}");
+        assert_eq!(plain["data_style"], "N49");
+        assert_eq!(plain["format_kind"], "date");
+        assert_eq!(
+            plain["format_tokens"],
+            json!(["year", "text:-", "month", "text:-", "day"]),
+            "元素树逐条抄，不替它拼格式串：{plain}"
+        );
+        let percent = cell("C3");
+        assert_eq!(percent["format_kind"], "percent", "{percent}");
+        assert_eq!(percent["decimals"], 1);
+        let money = cell("C4");
+        assert_eq!(
+            money["format_kind"], "number",
+            "¥ 是字面量，不是 currency-style"
+        );
+        assert_eq!(money["currency_symbol"], Value::Null, "{money}");
+        let flag = cell("C8");
+        assert_eq!(flag["format_kind"], "bool", "{flag}");
+        // 没写样式的格子不交一份空对象：那一格本来就没有这一跳
+        assert!(cell("C6").get("cell_style").is_none(), "{}", cell("C6"));
+        assert!(
+            out["workbook"]["styles"]["data_styles"]
+                .as_u64()
+                .unwrap_or(0)
+                > 0
+        );
     }
 
     /// 不是表格的文件要指路

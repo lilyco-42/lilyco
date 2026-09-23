@@ -756,6 +756,7 @@ def ods_facts(path: Path) -> dict | None:
                             "boolean_value": flag,
                             "formula": formula,
                             "text": text,
+                            "style": attr(cell, "style-name"),
                             "columns_spanned": cs,
                             "rows_spanned": rs,
                         }
@@ -1102,6 +1103,108 @@ def xlsx_hidden(path: Path) -> dict:
                     first = last = 0
                 cols += last - first + 1 if last >= first >= 1 else 1
         out[sheet.get("name") or ""] = {"hidden_rows": rows, "hidden_cols": cols}
+    return out
+
+
+def ods_styles(path: Path) -> dict:
+    """ODF 的「这一格按什么格式显示」那一跳，独立算一遍。
+
+    链路：格子的 `table:style-name` → 单元格样式的 `style:data-style-name`（父样式链
+    上找）→ `number:*-style` 元素。数据样式可能在 content.xml 也可能在 styles.xml，
+    两边都得读，同名时 content 里那份赢。
+    **不重构格式串**：把元素树逐条抄成 token（`<number:text>-</number:text>` 记 `text:-`），
+    再带上的只有样式自己写的 `number:decimal-places` 与 `number:currency-symbol`。
+    """
+    with zipfile.ZipFile(path) as box:
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+
+    def attr(node, want: str):
+        for key, value in node.attrib.items():
+            if key.rsplit("}", 1)[-1] != want or "documentfoundation" in key:
+                continue
+            return value
+        return None
+
+    cell_styles: dict[str, dict] = {}
+    data_styles: dict[str, dict] = {}
+    KIND = {
+        "date-style": "date",
+        "time-style": "time",
+        "number-style": "number",
+        "currency-style": "currency",
+        "percentage-style": "percent",
+        "text-style": "text",
+        "boolean-style": "bool",
+    }
+    # 顺序就是优先级：先 styles.xml，后 content.xml
+    for name in ("styles.xml", "content.xml"):
+        if name not in parts:
+            continue
+        root = ET.fromstring(parts[name])
+        for one in root.iter():
+            if xml_local(one.tag) == "style" and attr(one, "family") == "table-cell":
+                holder = attr(one, "name")
+                if holder is None:
+                    continue
+                cell_styles[holder] = {
+                    "data_style": attr(one, "data-style-name"),
+                    "parent": attr(one, "parent-style-name"),
+                }
+            kind = KIND.get(xml_local(one.tag))
+            if kind is None:
+                continue
+            holder = attr(one, "name")
+            if holder is None:
+                continue
+            tokens = []
+            decimals = None
+            for kid in one:
+                if xml_local(kid.tag) == "text":
+                    tokens.append("text:" + ("".join(kid.itertext()) or ""))
+                else:
+                    tokens.append(xml_local(kid.tag))
+                if decimals is None:
+                    raw = attr(kid, "decimal-places")
+                    if raw is not None:
+                        try:
+                            decimals = int(raw)
+                        except ValueError:
+                            decimals = None
+            data_styles[holder] = {
+                "kind": kind,
+                "decimals": decimals,
+                "currency_symbol": attr(one, "currency-symbol"),
+                "tokens": tokens,
+            }
+
+    def data_of(cell_style):
+        here = cell_style
+        for _ in range(8):
+            found = cell_styles.get(here)
+            if found is None:
+                return None
+            want = found.get("data_style")
+            if want:
+                return data_styles.get(want), want
+            here = found.get("parent")
+            if not here:
+                return None, None
+        return None, None
+
+    out = {}
+    for holder in cell_styles:
+        got = data_of(holder)
+        if got is None:
+            out[holder] = {"data_style": None, "format_kind": None}
+            continue
+        style, want = got
+        out[holder] = {
+            "data_style": want,
+            "format_kind": (style or {}).get("kind"),
+            "decimals": (style or {}).get("decimals"),
+            "currency_symbol": (style or {}).get("currency_symbol"),
+            "format_tokens": (style or {}).get("tokens", []),
+        }
     return out
 
 
@@ -1564,6 +1667,7 @@ def facts(path: Path) -> dict:
             if sheets is not None:
                 out["ods"] = sheets
                 out["csv"] = csv_facts(path)
+                out["ods_styles"] = ods_styles(path)
             deck = odp_facts(path)
             if deck is not None:
                 out["odp"] = deck
