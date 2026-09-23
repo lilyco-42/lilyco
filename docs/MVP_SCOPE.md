@@ -127,6 +127,10 @@ fn main() {
 
 **四端同一份 handler，结果 JSON 必须逐字一致** —— 已在 CLI↔Web 之间用同一 `root` 参数实测比对通过（忽略 `duration_ms`）。
 
+> **2026-09-23 修正一处过时数字**：上表 WebUI 那行的「首页 132KB」是 Layui 内嵌时代的量。
+> 控制台换成自研设计系统后重量：`lbin identify` 的 `GET /` = 44,605 B、`lbrush` = 44,051 B
+> （内联 CSS + JS，零外链，明暗两套 + 320–1920 全档），其余各行结论不变。
+
 > **`lbin` 的第二轮实测（2026-09-22，`scripts/acceptance/binfmt_probe.py`）：两个真实文件各 27/27 通过**（一个 ELF 目标、一个真实 PE 动态库）。
 > CLI 基准 ↔ Web（`--gui` + CSRF + SSE）↔ MCP（stdio `tools/call`）三处结果 JSON 逐字一致（四条命令都比，含 `symbols`）；
 > TUI 在 winpty 真 PTY 下选择页列出四条命令、`↓` 移动高亮、`Enter` 渲染表单与 CLI 预览、`Esc`/`q` 干净退出；

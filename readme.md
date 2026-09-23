@@ -421,40 +421,42 @@ The bottom bar shows a live CLI command preview that updates as you edit values.
 
 ### lilyco-gui
 
-Web server with embedded HTML, similar to Gradio in spirit.
+Web server with embedded HTML, similar to Gradio in spirit. Zero external UI dependencies: one
+self-contained page (design tokens, component catalogue and the seven interaction states live in
+`lilyco-gui/DESIGN.md`), light + dark, usable from 320 px to 1920 px.
 
 ```rust
+// 单命令：把 App 类型交给它，进度与取消都接好线（内部就是一份单命令注册表）
 let gui = lilyco_gui::GuiRenderer::new(8080);
-gui.serve(schema, Arc::new(|args| Box::pin(async move {
-    // process args, return result
-    Ok(serde_json::json!({"status": "ok"}))
-}))).await;
+gui.serve_app::<ImgCompress>(ImgCompress::schema()).await;
 ```
+
+多命令用 `serve_registry(registry)`（页面顶部出现命令下拉，`?cmd=` 切换）。自己实现执行体的逃生口是
+`serve(schema, runner)`：`RunnerFn` 拿到参数和一个 SSE 发送端，代价是 GUI 手里没有取消句柄，
+页面因此不画「取消」按钮 —— 要让 Web 端能取消就走前两个入口。
 
 ```
 +-------------------------------------+
-|  ImgCompress -- Compress images     |
-|                                     |
-|        Input: [___________________] |
-|      Quality: [75_______________]   |
-|       Format: [jpeg v]             |
-|         Width: [0________________]  |
-|      Dry run: [ ]                  |
-|                                     |
-|        [> Run]    [Copy CLI]        |
-|                                     |
-|  $ imgcompress --quality 75         |
-+-------------------------------------+
-|  Output                             |
-|  ████████░░░░░░░ 50%               |
-|  Encoding frame 50/100              |
-|  Done in 1.2s                       |
+|  ◆ lilyco Web 控制台     [imgcompress v] ◐ |
+|  ImgCompress                        |
+|  Compress images                    |
+|  Input *  [_____________________]   |
+|           [ ⇪ 拖拽区 · 选择文件 · 本机 ] |
+|  Quality  [75]  取值 1 – 100        |
+|  Format   [jpeg v]                  |
+|  Dry run  [ ]  只算不写             |
+|  [▶ 运行] [■ 取消] [复制 CLI]        |
+|  $ imgcompress --quality 75 ...     |
+|  输出  ▓▓▓▓▓▓░░░░ 60%                |
+|  > Encoding frame 60/100            |
+|  结果  { "saved_bytes": 10240 }  [复制] |
 +-------------------------------------+
 ```
 
-**Flow:** Form POST -> spawn task -> SSE stream -> progress bar + log
+**Flow:** `POST /run` (JSON args + token header) → spawn on `core::executor` → `GET /progress/{sid}`
+SSE (`started` / `tick` / `log` / `telemetry` / `done` / `error`) → progress bar + log + result.
 
-**路径字段带「…」选择按钮**：`#[arg(must_exist = true)]` 渲染出的输入框旁边有一个按钮，点了由**本机进程**弹一次系统文件选择框（`POST /pick`，走 `rfd`，可用 `pick` 特性关掉），选完把真实路径回填进输入框。
+**路径字段带「本机」选择按钮**：`#[arg(must_exist = true)]` 渲染出的输入框旁边有一个按钮，点了由**本机进程**弹一次系统文件选择框（`POST /pick`，走 `rfd`，可用 `pick` 特性关掉），选完把真实路径回填进输入框。
 浏览器的 `<input type=file>` 办不到这件事——它出于安全永远不给出真实路径（只有 `File.name`），而四端共用的 handler 收的正是 `path`、自己从盘上读。
 `/pick` 与 `/run` 共用同一道回环 + Origin + Token 闸（无令牌 401，挡在弹框之前）；对话框在 blocking 线程里等，弹着的时候页面照常响应。
 > 弹框可见性：Windows 的前台锁定不让后台进程抢焦点，所以 `pick_handler` 不硬抢——它按标题轮询
