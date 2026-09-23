@@ -410,7 +410,131 @@ def odt_facts(path: Path) -> dict:
     }
 
 
+def col_letter(index: int) -> str:
+    """0 → A，25 → Z，26 → AA：ODF 的格子没有名字，位置得自己数出来"""
+    name = ""
+    at = index
+    while True:
+        name = chr(ord("A") + at % 26) + name
+        at = at // 26 - 1
+        if at < 0:
+            return name
+
+
+def ods_facts(path: Path) -> dict:
+    """ODF 电子表格：格子内**不写数字**，写的是 office:value / date-value / boolean-value，
+    位置要靠 table:number-columns-repeated 累加出来 —— 那属性一填就是 16381，
+    照字面数就是每张表一万六千格。表是不是隐藏，也不在表上，在它引的那个自动样式里。
+    """
+    with zipfile.ZipFile(path) as box:
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    root = ET.fromstring(parts["content.xml"])
+
+    def rep(node, want: str) -> int:
+        raw = local_attr(node, want)
+        try:
+            return max(1, int(raw))
+        except (TypeError, ValueError):
+            return 1
+
+    # 自动样式家族 = table 的那些：table:display 说这张表可不可见
+    shown: dict[str, bool] = {}
+    for style in root.iter():
+        if xml_local(style.tag) != "style" or local_attr(style, "family") != "table":
+            continue
+        holder = local_attr(style, "name") or ""
+        for one in style:
+            if xml_local(one.tag) == "table-properties":
+                flag = local_attr(one, "display")
+                shown[holder] = flag != "false"
+
+    sheets = []
+    for table in root.iter():
+        if xml_local(table.tag) != "table":
+            continue
+        cells: list = []
+        covered = 0
+        merged = 0
+        used_rows = 0
+        widest = 0
+        row_at = 0
+        for row in table:
+            if xml_local(row.tag) != "table-row":
+                continue
+            row_repeat = rep(row, "number-rows-repeated")
+            col_at = 0
+            row_cells = []
+            for cell in row:
+                kind = xml_local(cell.tag)
+                if kind not in ("table-cell", "covered-table-cell"):
+                    continue
+                span = rep(cell, "number-columns-repeated")
+                if kind == "covered-table-cell":
+                    covered += 1
+                    col_at += span
+                    continue
+                text = "".join(
+                    "".join(one.itertext())
+                    for one in cell
+                    if xml_local(one.tag) == "p"
+                )
+                value = local_attr(cell, "value")
+                stamp = local_attr(cell, "date-value")
+                flag = local_attr(cell, "boolean-value")
+                formula = local_attr(cell, "formula")
+                if text or value or stamp or flag or formula:
+                    cs = rep(cell, "number-columns-spanned")
+                    rs = rep(cell, "number-rows-spanned")
+                    if cs > 1 or rs > 1:
+                        merged += 1
+                    row_cells.append(
+                        {
+                            "ref": f"{col_letter(col_at)}{row_at + 1}",
+                            "value_type": local_attr(cell, "value-type") or "empty",
+                            "value": value,
+                            "date_value": stamp,
+                            "boolean_value": flag,
+                            "formula": formula,
+                            "text": text,
+                            "columns_spanned": cs,
+                            "rows_spanned": rs,
+                        }
+                    )
+                    widest = max(widest, col_at + 1)
+                col_at += span
+            if row_cells:
+                used_rows += row_repeat
+                cells.extend(row_cells)
+            row_at += row_repeat
+        name = local_attr(table, "name") or ""
+        sheets.append(
+            {
+                "name": name,
+                "visible": shown.get(local_attr(table, "style-name"), True),
+                "rows": used_rows,
+                "columns": widest,
+                "cells": len(cells),
+                "cell_list": cells,
+                "covered": covered,
+                "merged": merged,
+                "formulas": sum(1 for one in cells if one["formula"]),
+            }
+        )
+    statistic = {}
+    if "meta.xml" in parts:
+        for one in ET.fromstring(parts["meta.xml"]).iter():
+            if xml_local(one.tag) == "document-statistic":
+                statistic = {key.rsplit("}", 1)[-1]: value for key, value in one.attrib.items()}
+    return {
+        "sheets": sheets,
+        "cell_total": sum(one["cells"] for one in sheets),
+        "statistic": statistic,
+    }
+
+
 # ---------------------------------------------------------------- MS-CFB（.doc/.xls/.ppt）
+
+
 def u8(buf: bytes, off: int):
     return buf[off] if 0 <= off < len(buf) else None
 

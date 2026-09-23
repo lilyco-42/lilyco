@@ -489,9 +489,9 @@ def main() -> int:
     write_english_docx(english)
 
     # 真 ODF 写入者是 LibreOffice：从 OOXML 转过去，比手搓的 content.xml 有说服力
-    for src, fmt in ((docx, "odt"), (xlsx, "ods"), (pptx, "odp")):
+    for src, fmt in ((docx, "odt"), (xlsx, "ods"), (pptx, "odp"), (OUT / "formats.xlsx", "ods")):
         convert(exe, src, fmt, SCRATCH)
-    for name in ("notes.odt", "book.ods", "deck.odp"):
+    for name in ("notes.odt", "book.ods", "deck.odp", "formats.ods"):
         src = SCRATCH / name
         if src.exists():
             shutil.copyfile(src, OUT / name)
