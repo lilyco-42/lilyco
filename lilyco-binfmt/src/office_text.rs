@@ -135,6 +135,14 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                     _ => vec![&root],
                 };
                 for owner in owners.iter() {
+                    // 分隔符与续分符不是「一条注」：Word 与 LibreOffice 都在这个部件里
+                    // 白放两条，它们没有正文，一开 --keep-empty 就凭空多出两条脚注
+                    if matches!(
+                        owner.attr_local("type").unwrap_or_default(),
+                        "separator" | "continuationSeparator"
+                    ) {
+                        continue;
+                    }
                     let author = owner.attr_local("author");
                     let stamp = owner.attr_local("date");
                     for one in owner.descendants("p") {
@@ -1016,6 +1024,36 @@ mod tests {
             out["total_paragraphs"], 10,
             "7 段正文 + 2 个标题 + 1 条批注：{out}"
         );
+    }
+
+    /// 脚注部件里那两条分隔符（`separator` / `continuationSeparator`）不交出来：
+    /// LibreOffice 与 Word 都在 `word/footnotes.xml` 里白放两条没有字的 `w:footnote`，
+    /// 一开 `--keep-empty` 就会凭空多出两条「空脚注」
+    /// （期望值来自 `office_reader.py` 的 `side_texts()`）
+    #[test]
+    fn footnote_separators_never_show_up_as_notes() {
+        let out = run("notes-foot.docx", 20000, true);
+        let side: Vec<(&str, &str)> = out["paragraphs"]
+            .as_array()
+            .expect("是数组")
+            .iter()
+            .filter(|one| one["from"] != Value::Null)
+            .map(|one| {
+                (
+                    one["from"].as_str().unwrap_or_default(),
+                    one["text"].as_str().unwrap_or_default(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            side,
+            [
+                ("footnote", "Footnote: the numbers are gross."),
+                ("footnote", "Second footnote: see the budget policy."),
+            ],
+            "{side:?}"
+        );
+        assert_eq!(out["total_paragraphs"], 6, "4 段正文 + 2 条脚注：{out}");
     }
 
     /// 页眉与页脚第一次有真件可走：两个节的页眉不一样，而它们按部件名排在正文后面

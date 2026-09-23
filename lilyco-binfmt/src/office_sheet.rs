@@ -23,7 +23,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-sheet",
     run = "run_office_sheet",
-    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader. ODF spreadsheets (.ods) are read on their own terms: cells carry an explicit value-type with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, and a sheet's visibility is resolved through the automatic style it names. With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (for legacy .xls there is no style hop yet, so a date goes out as the serial and a note says so), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. Returns { path, format, sheets, csv, workbook, defined_names, tables, external_links, parts, notes }."
+    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader. ODF spreadsheets (.ods) are read on their own terms: cells carry an explicit value-type with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, a sheet's visibility is resolved through the automatic style it names, and hidden rows/columns are counted from table:visibility="collapse" on the element or in the row/column style it names (multiplying number-columns-repeated, so one element standing for three collapsed columns reports 3, not 1). With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (for legacy .xls there is no style hop yet, so a date goes out as the serial and a note says so), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. Returns { path, format, sheets, csv, workbook, defined_names, tables, external_links, parts, notes }."
 )]
 pub struct OfficeSheet {
     /// 表格文件（xlsx / xlsm / xls / ods）
@@ -234,15 +234,14 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                     entry["hidden_rows"] = json!(sheet_root
                         .descendants("row")
                         .iter()
-                        .filter(|one| one.attr("hidden") == Some("true")
-                            || one.attr("hidden") == Some("1"))
+                        .filter(|one| hidden_on(one))
                         .count());
                     entry["hidden_cols"] = json!(sheet_root
                         .descendants("col")
                         .iter()
-                        .filter(|one| one.attr("hidden") == Some("true")
-                            || one.attr("hidden") == Some("1"))
-                        .count());
+                        .filter(|one| hidden_on(one))
+                        .map(|one| col_span(one))
+                        .sum::<usize>());
                     entry["rows"] = json!(sheet_root.descendants("row").len());
                     entry["cell_list"] = json!(cells);
                     grid_names.push(name.clone());
@@ -328,6 +327,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
         let mut sheets: Vec<Value> = Vec::new();
         let mut totals = json!({
             "cells": 0, "formulas": 0, "dates": 0, "merged": 0, "covered": 0,
+            "hidden_rows": 0, "hidden_cols": 0,
         });
         for (index, one) in book.sheets.iter().enumerate() {
             let mut types = serde_json::Map::new();
@@ -347,6 +347,8 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "date_cells": one.date_cells(),
                 "merged": one.merged,
                 "covered": one.covered,
+                "hidden_rows": one.hidden_rows,
+                "hidden_cols": one.hidden_cols,
                 "value_types": Value::Object(types),
                 "cell_list": one.cells.iter().take(limit).map(crate::odsheet::Cell::to_json).collect::<Vec<Value>>(),
             }));
@@ -355,6 +357,8 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             bump(&mut totals, "dates", one.date_cells());
             bump(&mut totals, "merged", one.merged);
             bump(&mut totals, "covered", one.covered);
+            bump(&mut totals, "hidden_rows", one.hidden_rows);
+            bump(&mut totals, "hidden_cols", one.hidden_cols);
         }
         let cut = book
             .sheets
@@ -496,6 +500,33 @@ fn shared_strings(bytes: &[u8]) -> Vec<String> {
 
 /// 一格最多铺进 CSV 的总数上限：坏文件可以自报几百万格，铺完就成了内存事故
 const MAX_GRID_CELLS: usize = 200_000;
+
+/// `hidden` 这个开关两种写法都有：openpyxl 写 `hidden="1"`，LibreOffice 写
+/// `hidden="true"`（而且没隐藏的行也照样写 `hidden="false"`）
+fn hidden_on(node: &xmlscan::Node) -> bool {
+    matches!(
+        node.attr("hidden")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true"
+    )
+}
+
+/// `<col>` 是带跨度的：LibreOffice 把连续三列并成一条 `min="3" max="5"`，
+/// 按元素个数数就会少报两列。只写一端就按一列算（另一端规范里默认与之同值）
+fn col_span(node: &xmlscan::Node) -> usize {
+    let min = node
+        .attr("min")
+        .and_then(|raw| raw.trim().parse::<usize>().ok());
+    let max = node
+        .attr("max")
+        .and_then(|raw| raw.trim().parse::<usize>().ok());
+    match (min, max) {
+        (Some(first), Some(last)) if last >= first => last - first + 1,
+        _ => 1,
+    }
+}
 
 /// `B4` → (行 3, 列 1)。不是 A1 形状就交回 None —— 位置猜不出来就不铺。
 fn split_ref(reference: &str) -> Option<(usize, usize)> {
@@ -939,6 +970,37 @@ mod tests {
             } else {
                 assert_eq!(xlsx["csv"]["text"], ods["csv"]["text"], "sheet={sheet}");
             }
+        }
+    }
+
+    /// 隐藏的行与列有三种写法：openpyxl 一列一条 `hidden="1"`、LibreOffice 把连续
+    /// 三列并成一条 `min="3" max="5" hidden="true"`、ODF 用
+    /// `table:visibility="collapse"` 压在一整条 `number-columns-repeated="3"` 上。
+    /// 三种存法必须报出同一个数
+    #[test]
+    fn hidden_rows_and_columns_are_counted_whichever_way_they_are_written() {
+        for name in ["hidden.xlsx", "hidden-lo.xlsx", "hidden.ods"] {
+            let out = run(name);
+            let sheet = &out["sheets"][0];
+            assert_eq!(sheet["name"], "预算表", "{name}");
+            assert_eq!(sheet["hidden_rows"], 2, "{name}：{sheet}");
+            assert_eq!(sheet["hidden_cols"], 3, "{name}：{sheet}");
+            assert_eq!(sheet["cells"], 13, "藏起来的格子还是格子：{name}");
+        }
+    }
+
+    /// 隐藏只是「看不见」，不是「没有」：那些字要照样出现在 CSV 里
+    #[test]
+    fn hidden_columns_still_carry_their_text() {
+        for name in ["hidden.xlsx", "hidden-lo.xlsx", "hidden.ods"] {
+            let text = run_csv(name, "")["csv"]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            assert!(
+                text.contains("第一列批注") && text.contains("第二列批注"),
+                "{name}：{text}"
+            );
         }
     }
 

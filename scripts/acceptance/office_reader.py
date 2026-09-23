@@ -96,8 +96,9 @@ def local_attr(node, want: str):
 def side_texts(parts: dict) -> list:
     """正文之外的部件：批注 / 脚注 / 尾注 / 页眉页脚 —— 与 Rust 那边同一套判据。
 
-    脚注与尾注文件里带头两条「分隔符」条目（id 是 -1 / 0），它们没有文字；
-    这里保留空串，让两边的「哪些段落是空的」也必须一致，而不是各自偷偷滤掉。
+    脚注与尾注部件里白坐着两条「分隔符」（`w:type="separator"` 与
+    `"continuationSeparator"`，Word 与 LibreOffice 都写）：它们不是文档里的注，
+    两边都不交 —— 留着它们，`--keep-empty` 一开就凭空多出两条空脚注。
     """
     out: list = []
     names = sorted(parts)
@@ -121,6 +122,11 @@ def side_texts(parts: dict) -> list:
         root = ET.fromstring(parts[name])
         holders = [one for one in root.iter() if xml_local(one.tag) == owner] if owner else [root]
         for had in holders:
+            if owner and (local_attr(had, "type") or "") in (
+                "separator",
+                "continuationSeparator",
+            ):
+                continue
             author = local_attr(had, "author") if owner else None
             stamp = local_attr(had, "date") if owner else None
             for para in [one for one in had.iter() if xml_local(one.tag) == "p"]:
@@ -134,6 +140,27 @@ def side_texts(parts: dict) -> list:
                     }
                 )
     return out
+
+
+def _note_part_count(parts: dict, name: str, tag: str) -> int:
+    """脚注 / 尾注部件里有几条**注**：分隔符那两条不算。
+
+    Word 与 LibreOffice 都会在这个部件里写 `w:type="separator"` 与
+    `"continuationSeparator"` 各一条（正文是空的）—— 按 `w:footnote` 元素个数
+    数就会把一份两条脚注的文档报成四条。部件不在包里才是零个。
+    """
+    if name not in parts:
+        return 0
+    root = ET.fromstring(parts[name])
+    return len(
+        [
+            one
+            for one in root.iter()
+            if xml_local(one.tag) == tag
+            and (local_attr(one, "type") or "")
+            not in ("separator", "continuationSeparator")
+        ]
+    )
 
 
 def docx_facts(path: Path) -> dict:
@@ -208,18 +235,8 @@ def docx_facts(path: Path) -> dict:
         "has_settings": "word/settings.xml" in parts,
         "has_styles_part": "word/styles.xml" in parts,
         "has_font_table": "word/fontTable.xml" in parts,
-        "footnotes": len([
-            one
-            for one in (ET.fromstring(parts["word/footnotes.xml"]).iter()
-                        if "word/footnotes.xml" in parts else [])
-            if xml_local(one.tag) == "footnote"
-        ]),
-        "endnotes": len([
-            one
-            for one in (ET.fromstring(parts["word/endnotes.xml"]).iter()
-                        if "word/endnotes.xml" in parts else [])
-            if xml_local(one.tag) == "endnote"
-        ]),
+        "footnotes": _note_part_count(parts, "word/footnotes.xml", "footnote"),
+        "endnotes": _note_part_count(parts, "word/endnotes.xml", "endnote"),
         "text": "\n".join(one for one in paragraphs if one),
     }
     return out
@@ -659,6 +676,24 @@ def ods_facts(path: Path) -> dict | None:
                 flag = attr(one, "display")
                 shown[holder] = flag != "false"
 
+    # 隐藏的行与列：`table:visibility="collapse"` 可以直接写在行/列上（LibreOffice
+    # 那份就这么写），也可以只写在它引的那个自动样式里，两边都得看
+    folded: dict[str, bool] = {}
+    for style in root.iter():
+        if xml_local(style.tag) != "style":
+            continue
+        wanted = {
+            "table-row": "table-row-properties",
+            "table-column": "table-column-properties",
+        }.get(attr(style, "family") or "")
+        if wanted is None:
+            continue
+        flag = any(
+            xml_local(one.tag) == wanted and attr(one, "visibility") == "collapse"
+            for one in style
+        )
+        folded[attr(style, "name") or ""] = flag
+
     sheets = []
     for table in root.iter():
         if xml_local(table.tag) != "table":
@@ -668,11 +703,25 @@ def ods_facts(path: Path) -> dict | None:
         merged = 0
         used_rows = 0
         widest = 0
+        hidden_rows = 0
+        hidden_cols = 0
+        for column in table:
+            if xml_local(column.tag) != "table-column":
+                continue
+            if attr(column, "visibility") == "collapse" or folded.get(
+                attr(column, "style-name") or ""
+            ):
+                # 一条元素盖几列，看它自己的 number-columns-repeated
+                hidden_cols += rep(column, "number-columns-repeated")
         row_at = 0
         for row in table:
             if xml_local(row.tag) != "table-row":
                 continue
             row_repeat = rep(row, "number-rows-repeated")
+            if attr(row, "visibility") == "collapse" or folded.get(
+                attr(row, "style-name") or ""
+            ):
+                hidden_rows += row_repeat
             col_at = 0
             row_cells = []
             for cell in row:
@@ -728,6 +777,8 @@ def ods_facts(path: Path) -> dict | None:
                 "cell_list": cells,
                 "covered": covered,
                 "merged": merged,
+                "hidden_rows": hidden_rows,
+                "hidden_cols": hidden_cols,
                 "formulas": sum(1 for one in cells if one["formula"]),
             }
         )
@@ -999,6 +1050,59 @@ def biff_csv(book: dict) -> dict:
             cells.append((int(had["row"]), int(had["col"]), display))
         out.append((one["name"], csv_render(cells)))
     return {"sheets": [{"name": name, "csv": body} for name, body in out]}
+
+
+def xlsx_hidden(path: Path) -> dict:
+    """每张表隐藏了多少行、多少列（OOXML 那条路）。
+
+    `<col>` 是带跨度的：LibreOffice 把连续三列并成一条 `min="3" max="5"`，
+    按元素个数数就少报两列；openpyxl 反过来一列一条。两边的数必须都是 3。
+    `hidden` 的写法也不同：`"1"`（openpyxl）与 `"true"`（LibreOffice，
+    而且没隐藏的行它也写 `hidden="false"`）。
+    """
+    with zipfile.ZipFile(path) as box:
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    rels = {}
+    if "xl/_rels/workbook.xml.rels" in parts:
+        for one in ET.fromstring(parts["xl/_rels/workbook.xml.rels"]).iter():
+            if xml_local(one.tag) == "Relationship":
+                rels[one.get("Id")] = one.get("Target") or ""
+    out: dict = {}
+    wb = ET.fromstring(parts["xl/workbook.xml"])
+    for sheet in wb.iter():
+        if xml_local(sheet.tag) != "sheet":
+            continue
+        rid = None
+        for key, value in sheet.attrib.items():
+            if key.rsplit("}", 1)[-1] == "id":
+                rid = value
+        target = rels.get(rid) or ""
+        if target.startswith("/"):
+            part = target[1:]
+        elif target.startswith("xl/"):
+            part = target
+        else:
+            part = "xl/" + target
+        if part not in parts:
+            continue
+        root = ET.fromstring(parts[part])
+        rows = 0
+        cols = 0
+        for one in root.iter():
+            tag = xml_local(one.tag)
+            if (one.get("hidden") or "").lower() not in ("1", "true"):
+                continue
+            if tag == "row":
+                rows += 1
+            elif tag == "col":
+                try:
+                    first = int(one.get("min", "0"))
+                    last = int(one.get("max", "0"))
+                except ValueError:
+                    first = last = 0
+                cols += last - first + 1 if last >= first >= 1 else 1
+        out[sheet.get("name") or ""] = {"hidden_rows": rows, "hidden_cols": cols}
+    return out
 
 
 def csv_facts(path: Path) -> dict:
@@ -1448,6 +1552,7 @@ def facts(path: Path) -> dict:
             if path.suffix.lower() == ".xlsx":
                 out["formats"] = xlsx_formats(path)
             out["csv"] = csv_facts(path)
+            out["hidden"] = xlsx_hidden(path)
         elif "ppt/presentation.xml" in parts:
             out["app"] = "powerpoint"
             out["ooxml"] = pptx_facts(path)

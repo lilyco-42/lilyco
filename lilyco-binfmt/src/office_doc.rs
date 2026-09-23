@@ -126,7 +126,18 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             zipread::member(bytes, part, DEFAULT_MEMBER_CAP)
                 .map(|member| {
                     let root = xmlscan::parse_str(&member.as_text());
-                    root.descendants(name).len()
+                    root.descendants(name)
+                        .iter()
+                        // 脚注与尾注部件里白坐着两条分隔符（separator 与
+                        // continuationSeparator）：LibreOffice 与 Word 都写，
+                        // 按元素个数数就会凭空多出两条「注」
+                        .filter(|one| {
+                            !matches!(
+                                one.attr_local("type").unwrap_or_default(),
+                                "separator" | "continuationSeparator"
+                            )
+                        })
+                        .count()
                 })
                 .unwrap_or(0)
         };
@@ -385,6 +396,18 @@ mod tests {
         };
         let (tx, _rx) = mpsc::channel();
         run_office_doc(&app, &Context::new_test(tx)).expect("office-doc 应成功")
+    }
+
+    /// LibreOffice 从 RTF 导入写出的那份脚注样本：`word/footnotes.xml` 里有四条
+    /// `w:footnote`，其中两条是 `separator` / `continuationSeparator` —— 它们是
+    /// 排版用的占位，不是文档里的注（期望值来自 `office_reader.py` 的 docx_facts）
+    #[test]
+    fn footnote_separators_are_not_counted_as_footnotes() {
+        let out = run("notes-foot.docx");
+        assert_eq!(out["footnotes"], 2, "{out}");
+        assert_eq!(out["endnotes"], 0, "这份文件根本没有 endnotes.xml");
+        assert_eq!(out["comments"], 0);
+        assert_eq!(out["structure"]["paragraphs"], 4, "注的字不在正文里");
     }
 
     /// 结构数字要与独立读者算出来的逐项一致（期望值：office_reader.py 的 docx_facts）

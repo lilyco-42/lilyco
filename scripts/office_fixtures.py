@@ -306,6 +306,38 @@ def write_formats_xlsx(path: Path) -> None:
     wb.save(str(path))
 
 
+def write_hidden_xlsx(path: Path) -> None:
+    """openpyxl：隐藏行、隐藏列，还有藏在隐藏列里的字。
+
+    这份样本是给「隐藏的才是重点」那半条功能当证据的：
+    * 第 3、4 行整行隐藏（`<row hidden="1">`）—— 里面坐着 `合计` 那行；
+    * C 列隐藏，D/E 两列也隐藏，而且 D2/E2 **有字**：只报「有几列隐藏」不够，
+      还得看得见那些字仍然会被算进格子数；
+    * 转成 .ods 之后隐藏换了存法 —— 行列只写一个样式名，`collapse` 在那个
+      自动样式的 `table-row-properties` / `table-column-properties` 里；
+    * 再让 LibreOffice 把 .ods 转回 .xlsx，隐藏列会被并成 `<col min="4" max="5">`
+      这种跨列写法（openpyxl 一列一条），少展开一格就少报一列。
+    """
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "预算表"
+    ws["A1"], ws["B1"], ws["C1"] = "科目", "金额", "备注"
+    ws["A2"], ws["B2"] = "服务器", 124000
+    ws["C2"] = "含税"
+    ws["D2"] = "第一列批注"
+    ws["E2"] = "第二列批注"
+    ws["A3"], ws["B3"] = "网络", 18000
+    ws["A4"], ws["B4"] = "合计", "=SUM(B2:B3)"
+    ws["A5"] = "口径：含税"
+    ws.row_dimensions[3].hidden = True
+    ws.row_dimensions[4].hidden = True
+    for letter in ("C", "D", "E"):
+        ws.column_dimensions[letter].hidden = True
+    wb.save(str(path))
+
+
 def write_pptx(path: Path, art: Path) -> None:
     """python-pptx：两页、标题+正文占位符、备注、图片、表格、切换与母版"""
     from pptx import Presentation
@@ -489,6 +521,28 @@ def write_odt(path: Path) -> None:
         box.writestr("meta.xml", meta)
 
 
+FOOTNOTE_RTF = r"""{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0 Calibri;}}
+\pard Quarterly budget note.\par
+This sentence carries a footnote{\footnote\fs16 Footnote: the numbers are gross.} and keeps going.\par
+A second line carries a second note{\footnote\fs16 Second footnote: see the budget policy.}\par
+Last line.\par
+}
+"""
+
+
+def write_footnote_rtf(path: Path) -> None:
+    """写一份带两条脚注的 RTF，只为让 LibreOffice 把它导入成一份**真 OOXML**。
+
+    python-docx 没有加脚注的 API（1.2 也没有），所以 `word/footnotes.xml` 那一条分支
+    一直没件真文件可走。交出去的 docx 完全由 LibreOffice 写出：连分隔符与续分符
+    （`w:type="separator"` / `"continuationSeparator"`）也是它自己加的 —— 那正好是
+    「数脚注不能只数 `w:footnote` 元素」的证据。
+    写法要按 `{\footnote ...}` 这一族：`\footnote{...}` 那种 LibreOffice 的导入器会
+    把字串行（第一版就把手上的字体名当成了脚注正文）。
+    """
+    path.write_text(FOOTNOTE_RTF, encoding="ascii")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="重跑前先清掉输出目录")
@@ -515,6 +569,31 @@ def main() -> int:
 
     headers = OUT / "notes-hf.docx"
     write_header_docx(headers)
+
+    # 隐藏行/列那一档：openpyxl 写 xlsx，LibreOffice 转 ods，再转回 xlsx（跨列写法）
+    hidden = OUT / "hidden.xlsx"
+    write_hidden_xlsx(hidden)
+    convert(exe, hidden, "ods", SCRATCH)
+    if (SCRATCH / "hidden.ods").exists():
+        shutil.copyfile(SCRATCH / "hidden.ods", SCRATCH / "hidden-copy.ods")
+        shutil.copyfile(SCRATCH / "hidden.ods", OUT / "hidden.ods")
+        convert(exe, SCRATCH / "hidden-copy.ods", "xlsx", SCRATCH / "roundtrip")
+        back = SCRATCH / "roundtrip" / "hidden-copy.xlsx"
+        if back.exists():
+            shutil.copyfile(back, OUT / "hidden-lo.xlsx")
+        else:
+            print("⚠️  没拿到 hidden-lo.xlsx（.ods → .xlsx 那一转）")
+    else:
+        print("⚠️  没拿到 hidden.ods")
+
+    # 脚注那一条分支：python-docx 给不出 word/footnotes.xml，让 LibreOffice 从 RTF 导入再写出
+    foot_rtf = SCRATCH / "notes-foot.rtf"
+    write_footnote_rtf(foot_rtf)
+    convert(exe, foot_rtf, "docx", SCRATCH)
+    if (SCRATCH / "notes-foot.docx").exists():
+        shutil.copyfile(SCRATCH / "notes-foot.docx", OUT / "notes-foot.docx")
+    else:
+        print("⚠️  没拿到 notes-foot.docx")
 
     # 真 ODF 写入者是 LibreOffice：从 OOXML 转过去，比手搓的 content.xml 有说服力
     for src, fmt in ((docx, "odt"), (xlsx, "ods"), (pptx, "odp"), (OUT / "formats.xlsx", "ods")):

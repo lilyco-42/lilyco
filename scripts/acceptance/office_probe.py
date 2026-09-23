@@ -93,6 +93,7 @@ def main() -> int:
     expect = {
         "notes.docx": ("ooxml", "word", "docx"),
         "notes-hf.docx": ("ooxml", "word", "docx"),
+        "notes-foot.docx": ("ooxml", "word", "docx"),
         "notes.docm": ("ooxml", "word", "docm"),
         "notes-en.docx": ("ooxml", "word", "docx"),
         "book.xlsx": ("ooxml", "excel", "xlsx"),
@@ -107,6 +108,9 @@ def main() -> int:
         "book.xls": ("compound", "excel", "xls"),
         "deck.ppt": ("compound", "powerpoint", "ppt"),
         "notes.rtf": ("rtf", "word", "rtf"),
+        "hidden.xlsx": ("ooxml", "excel", "xlsx"),
+        "hidden-lo.xlsx": ("ooxml", "excel", "xlsx"),
+        "hidden.ods": ("opendocument", "excel", "ods"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -157,6 +161,36 @@ def main() -> int:
         ],
         [(one["from"], one["part"], one["text"]) for one in hside],
     )
+
+    # 脚注那份样本（LibreOffice 从 RTF 导入写出）：部件里白坐着两条分隔符，
+    # 「有几条注」与「有几个 w:footnote 元素」不是一回事
+    foot = lbin("office-text", fixture("notes-foot.docx"))
+    fwant = files["notes-foot.docx"]["ooxml"]
+    fside = [one for one in fwant["side_texts"] if one["text"]]
+    check("notes-foot.docx 分隔符不交成正文那样的注", len(fside), 2)
+    check(
+        "notes-foot.docx 正文+脚注条数",
+        foot.get("total_paragraphs"),
+        len([one for one in fwant["paragraphs"] if one]) + len(fside),
+    )
+    check(
+        "notes-foot.docx 脚注逐条出处",
+        [
+            (one.get("from"), one.get("part"), one.get("text"))
+            for one in foot.get("paragraphs", [])
+            if one.get("from")
+        ],
+        [(one["from"], one["part"], one["text"]) for one in fside],
+    )
+    record(
+        "notes-foot.docx 注的字不混进正文",
+        all("gross" not in (one.get("text") or "") for one in foot.get("paragraphs", []) if not one.get("from")),
+        json.dumps([one.get("text") for one in foot.get("paragraphs", [])], ensure_ascii=False)[:120],
+    )
+
+    footdoc = lbin("office-doc", fixture("notes-foot.docx"))
+    check("notes-foot.docx 脚注数", footdoc.get("footnotes"), fwant["footnotes"])
+    check("notes-foot.docx 尾注数（部件不在包里就是零）", footdoc.get("endnotes"), fwant["endnotes"])
 
     doc = lbin("office-doc", fixture("notes.docx"))
     check("notes.docx 表格数", dig(doc, "structure.tables"), want["tables"])
@@ -411,6 +445,36 @@ def main() -> int:
             )
         bad = lbin("office-sheet", fixture(name), "--csv", "--sheet", "没这张表")
         check("%s --csv 认错表名就把候选说清楚" % name, isinstance(dig(bad, "csv.error"), str), True)
+
+    # ── 3g) 隐藏的行与列：藏起来的是「看不看得到」，不是「在不在」────────
+    print("=== 3g) 隐藏行/隐藏列：三种存法，同一个数 ===")
+    for name in ("hidden.xlsx", "hidden-lo.xlsx", "hidden.ods"):
+        if "hidden" in files[name]:
+            want = files[name]["hidden"]
+        else:
+            want = {one["name"]: one for one in files[name]["ods"]["sheets"]}
+        got = lbin("office-sheet", fixture(name))
+        for one in got.get("sheets", []):
+            nm = one["name"]
+            mine = {k: one.get(k) for k in ("hidden_rows", "hidden_cols")}
+            theirs = {k: (want.get(nm) or {}).get(k) for k in ("hidden_rows", "hidden_cols")}
+            check("%s %s 隐藏几行几列" % (name, nm), mine, theirs)
+        check(
+            "%s 合计的隐藏行数" % name,
+            dig(got, "workbook.totals.hidden_rows"),
+            sum(int(one.get("hidden_rows") or 0) for one in want.values()),
+        )
+        blob = json.dumps(lbin("office-sheet", fixture(name), "--csv"), ensure_ascii=False)
+        record(
+            "%s 隐藏列里的字仍然要看得见" % name,
+            "第一列批注" in blob and "第二列批注" in blob,
+            blob[:90],
+        )
+    check(
+        "隐藏列按 min/max 展开：LibreOffice 并成一条也报 3 列",
+        dig(lbin("office-sheet", fixture("hidden-lo.xlsx")), "sheets[0].hidden_cols"),
+        dig(lbin("office-sheet", fixture("hidden.xlsx")), "sheets[0].hidden_cols"),
+    )
 
     # ── 属性：三份账 ───────────────────────────────────────────────
     print("=== 4) office-meta：属性 ===")

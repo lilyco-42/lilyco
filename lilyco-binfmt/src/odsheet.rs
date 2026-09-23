@@ -73,6 +73,10 @@ pub struct Sheet {
     pub cells: Vec<Cell>,
     pub covered: usize,
     pub merged: usize,
+    /// 隐藏的行数与列数：`table:visibility="collapse"` 可以直接写在行/列上，
+    /// 也可以只写在它引的那个自动样式里，两边都得看
+    pub hidden_rows: usize,
+    pub hidden_cols: usize,
 }
 
 impl Sheet {
@@ -174,17 +178,39 @@ pub fn read(bytes: &[u8]) -> Book {
     let root = xmlscan::parse_str(&member.as_text());
     // 表 → 它引的自动样式 → 那个样式的 table:display
     let mut shown: Vec<(String, bool)> = Vec::new();
+    // 行与列的隐藏也有两种写法：`table:visibility="collapse"` 直接写在行/列上，
+    // 或者只写在它引的那个自动样式的 row/column-properties 里。LibreOffice 转出来
+    // 的这份用前一种，而只查一种的读者会把藏起来的行整批当成正常的
+    let mut folded: Vec<(String, bool)> = Vec::new();
     for style in root.descendants("style") {
-        if attr_of(style, "family") != Some("table") {
-            continue;
-        }
+        let family = attr_of(style, "family").unwrap_or_default();
+        let props = match family {
+            "table" => {
+                let name = attr_of(style, "name").unwrap_or_default().to_string();
+                let display = style
+                    .child("table-properties")
+                    .and_then(|one| attr_of(one, "display"))
+                    .unwrap_or("true");
+                shown.push((name, display != "false"));
+                continue;
+            }
+            "table-row" => style.child("table-row-properties"),
+            "table-column" => style.child("table-column-properties"),
+            _ => continue,
+        };
         let name = attr_of(style, "name").unwrap_or_default().to_string();
-        let display = style
-            .child("table-properties")
-            .and_then(|one| attr_of(one, "display"))
-            .unwrap_or("true");
-        shown.push((name, display != "false"));
+        let hidden = props
+            .and_then(|one| attr_of(one, "visibility"))
+            .unwrap_or("visible")
+            == "collapse";
+        folded.push((name, hidden));
     }
+    let folded_by_style = |name: Option<&str>| -> bool {
+        match name {
+            Some(want) => folded.iter().any(|(one, flag)| one == want && *flag),
+            None => false,
+        }
+    };
     for table in root.descendants("table") {
         let mut sheet = Sheet {
             name: attr_of(table, "name").unwrap_or_default().to_string(),
@@ -194,10 +220,21 @@ pub fn read(bytes: &[u8]) -> Book {
             cells: Vec::new(),
             covered: 0,
             merged: 0,
+            hidden_rows: 0,
+            hidden_cols: 0,
         };
         if let Some(style) = attr_of(table, "style-name") {
             if let Some((_, flag)) = shown.iter().find(|(one, _)| one == style) {
                 sheet.visible = *flag;
+            }
+        }
+        // 列：LibreOffice 把一片连续的同款列压成一个带 repeated 的元素，
+        // 隐藏的三列就写成一条 visibility="collapse" + repeated="3"
+        for column in table.all("table-column") {
+            let hidden = attr_of(column, "visibility") == Some("collapse")
+                || folded_by_style(attr_of(column, "style-name"));
+            if hidden {
+                sheet.hidden_cols += repeated(column, "number-columns-repeated");
             }
         }
         let mut row_at = 0usize;
@@ -205,6 +242,11 @@ pub fn read(bytes: &[u8]) -> Book {
         let mut walked = 0usize;
         for row in table.all("table-row") {
             let row_repeat = repeated(row, "number-rows-repeated");
+            if attr_of(row, "visibility") == Some("collapse")
+                || folded_by_style(attr_of(row, "style-name"))
+            {
+                sheet.hidden_rows += row_repeat;
+            }
             let mut col_at = 0usize;
             let mut hit = false;
             // 格子的局部名是 table-cell / covered-table-cell，不是一个叫 cell 的元素
