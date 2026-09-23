@@ -1109,12 +1109,18 @@ mod tests {
     /// 体积闸门（DESIGN.md §9）：这页要 `include_str!` 进每个域二进制的 `.exe`，
     /// 上限只写在这一个地方 —— 表格里再抄一份就是第二张需要人记着的平行表。
     /// 涨过线要么删点什么，要么改这里并说清换来什么。
+    ///
+    /// 量的是**提交进仓库的字节**：Windows runner 按 `core.autocrlf` 检出时会给每行补一个
+    /// `\r`，同一个文件就地胖 441 B —— 2026-09-23 就是这样在 CI 上红的（本地 20,751 B、
+    /// CI 21,192 B）。预算要管的是资源本身，不是某台机器的检出方式。
     #[test]
     fn assets_stay_within_the_documented_budget() {
         const HTML_BUDGET: usize = 21_000;
         const CSS_BUDGET: usize = 22_500;
-        let html = HTML_TEMPLATE.len();
-        let css = include_str!("../assets/app.css").len();
+        let html = HTML_TEMPLATE.replace("\r\n", "\n").len();
+        let css = include_str!("../assets/app.css")
+            .replace("\r\n", "\n")
+            .len();
         assert!(
             html <= HTML_BUDGET,
             "index.html 已经 {html} B，超过 {HTML_BUDGET} B 上限（DESIGN.md §9）"
