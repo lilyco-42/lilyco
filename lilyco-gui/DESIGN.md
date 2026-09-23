@@ -270,6 +270,16 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 > 验证到能验的那一层：在跑起来的页面里挂一个 `data-item="Number"` 的列表容器，
 > `addListRow` 复制出来的行确实是 `type=number`，`listValues` 回 `[7,9]` 且 `typeof` 两个都是
 > `number`（不是 `"7"`）；端到端那一档要等宏修好才有真参数可跑。
+> 2026-09-23 改成模板克隆之后同一层再测一遍：把两行数字删空，补回来的那一行仍是
+> `INPUT:number` + `data-item-kind="Number"`（删空退化成文本框就是这次的修复点），
+> Enum 行克隆出来 `selectedIndex` 归 0、Flag 行归未勾 —— 清行只认 `data-item-kind`。
+
+**同一批最终资产上的状态重测（2026-09-23）**：`flag` / `text` / `enum` / `number` / `path` 五块在
+键盘模态下 `matches(":focus-visible")` 为真、环是 `box-shadow: 0 0 0 3px rgba(110,161,255,.16)`；
+`disabled` 五块都读回 `opacity 0.55`（`text`/`enum`/`number`/`path` 配 `cursor:not-allowed`，
+checkbox 由 UA 给 `pointer`）；`input[type=text]:hover, input[type=number]:hover, select:hover`、
+`input[type=number]:out-of-range`、`input:user-invalid` 三条规则都读自 `document.styleSheets`（135 条规则里）。
+`number` 的单边区间在真页面上读出：`lbin entries` 的 `limit` 只有 `min=1` → 提示 `取值 >= 1`。
 
 \* `disabled` 的**样式**实测到位（`run` / `btn-icon` / `input` 三者都读回 `opacity:0.55` +
 `cursor:not-allowed`），但参数控件这一层暂时没有**触发方**：schema 里还没有「只读参数」这种东西。
