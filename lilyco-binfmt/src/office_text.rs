@@ -79,11 +79,10 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                 Some(member) => {
                     parts_read.push(part.to_string());
                     let root = xmlscan::parse_str(&member.as_text());
-                    for (index, one) in root.descendants("p").iter().enumerate() {
+                    for one in root.descendants("p").iter() {
                         push_paragraph(
                             &mut paragraphs,
                             app.keep_empty,
-                            index,
                             &run_text(one),
                             json!({"heading": heading_level(one), "style": paragraph_style(one), "part": part}),
                         );
@@ -141,11 +140,9 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                         if text.is_empty() && !app.keep_empty {
                             continue;
                         }
-                        let index = paragraphs.len();
                         push_paragraph(
                             &mut paragraphs,
                             app.keep_empty,
-                            index,
                             &text,
                             json!({
                                 "from": what,
@@ -188,7 +185,6 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                 parts_read.push(part.clone());
                 let root = xmlscan::parse_str(&member.as_text());
                 let slide = slide_number(&part);
-                let mut index = 0usize;
                 // 先按形状走：标题形状里的段才敢标 heading
                 for shape in root.descendants("sp") {
                     let title = shape
@@ -199,11 +195,9 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                         push_paragraph(
                             &mut paragraphs,
                             app.keep_empty,
-                            index,
                             &run_text(one),
                             json!({"slide": slide, "heading": if title { json!(1) } else { Value::Null }, "part": part}),
                         );
-                        index += 1;
                     }
                 }
                 // 表格 / 图表这些不在 sp 里的文字也要读到
@@ -212,11 +206,9 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                         push_paragraph(
                             &mut paragraphs,
                             app.keep_empty,
-                            index,
                             &run_text(one),
                             json!({"slide": slide, "table": true, "part": part}),
                         );
-                        index += 1;
                     }
                 }
                 let note_part = part.replace("/slides/slide", "/notesSlides/notesSlide");
@@ -224,11 +216,9 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                     parts_read.push(note_part.clone());
                     let root = xmlscan::parse_str(&member.as_text());
                     for one in root.descendants("p") {
-                        let index = paragraphs.len();
                         push_paragraph(
                             &mut paragraphs,
                             app.keep_empty,
-                            index,
                             &run_text(one),
                             json!({"slide": slide, "notes": true, "part": note_part}),
                         );
@@ -491,12 +481,15 @@ fn read(bytes: &[u8], want: &str) -> Option<Member> {
     zipread::member(bytes, want, DEFAULT_MEMBER_CAP).ok()
 }
 
-fn push_paragraph(into: &mut Vec<Value>, keep_empty: bool, index: usize, text: &str, extra: Value) {
+/// 交出来的段是「读到的顺序」，`index` 就是它在这份列表里的位置：
+/// 各分支（正文 / 批注 / 每页形状 / 每页备注）共用一个计数器，才会出现
+/// 一条 9 夹在两条 10 之间、或两页各自从 0 数起 —— 那不是一个序号，是噪声。
+fn push_paragraph(into: &mut Vec<Value>, keep_empty: bool, text: &str, extra: Value) {
     if text.is_empty() && !keep_empty {
         return;
     }
     let mut one = extra;
-    let index_value = json!(index);
+    let index_value = json!(into.len());
     if let Some(map) = one.as_object_mut() {
         map.insert("index".to_string(), index_value);
         map.insert("text".to_string(), json!(text));
@@ -716,8 +709,19 @@ mod tests {
                 .as_array()
                 .expect("有 notes")
                 .iter()
-                .any(|one| one.as_str().unwrap_or("").contains("comments")),
+                .any(|one| one.as_str().unwrap_or("").contains("comment")),
             "{out}"
+        );
+        // index 是「在这份列表里的第几条」：正文与批注共用一条数，
+        // 所以它必须 0、1、2 连续，不能一条 9 夹在 7 与 10 之间。
+        let listed: Vec<u64> = items
+            .iter()
+            .map(|one| one["index"].as_u64().expect("每条都有 index"))
+            .collect();
+        assert_eq!(
+            listed,
+            (0..listed.len() as u64).collect::<Vec<u64>>(),
+            "{listed:?}"
         );
     }
 

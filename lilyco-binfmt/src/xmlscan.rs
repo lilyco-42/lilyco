@@ -328,8 +328,12 @@ impl Node {
     /// `<text:p>前<span>中</span>后</text:p>` 读出来必须是「前中后」，
     /// 拼成一份 direct 就只能得到「前后中」。
     fn push_text(&mut self, raw: &[u8]) {
-        // 只丢「带换行的纯空白」：那是元素之间的缩进噪声（pretty-print 的 XML 到处都是），
-        // 留着它，「空文档只有一个伪根」这类判据就会莫名其妙地多出一个孩子。
+        // 伪根（`#doc`）下面只有一棵文档元素，挂在它身上的空白是文件开头结尾的
+        // 排版空白，永远不会是内容 —— 否则「空文档只有一个伪根」就不成立了。
+        if self.name == "#doc" && raw.iter().all(|one| is_ws(*one)) {
+            return;
+        }
+        // 元素之间只丢「带换行的纯空白」：那是 pretty-print 的缩进噪声（真 XML 到处都是）。
         // 但**不带换行**的空白不能丢 —— `<w:t xml:space="preserve"> </w:t>` 就是一个空格，
         // 是两个词之间那个真空格。
         if raw.is_empty()

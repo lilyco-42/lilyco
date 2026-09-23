@@ -116,10 +116,15 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             .filter_map(|one| one.resolved.clone())
             .take(limit)
             .collect();
-        let count = |name: &str, part: &str| -> Option<usize> {
-            let member = zipread::member(bytes, part, DEFAULT_MEMBER_CAP).ok()?;
-            let root = xmlscan::parse_str(&member.as_text());
-            Some(root.descendants(name).len())
+        let count = |name: &str, part: &str| -> usize {
+            // 部件不在包里就是零个：OOXML 的脚注 / 尾注 / 批注各自是一个部件，
+            // 没写这个部件等于文档里没有这类东西。只有遗留 .doc 看不见它们，才给 null。
+            zipread::member(bytes, part, DEFAULT_MEMBER_CAP)
+                .map(|member| {
+                    let root = xmlscan::parse_str(&member.as_text());
+                    root.descendants(name).len()
+                })
+                .unwrap_or(0)
         };
         json!({
             "path": app.path.to_string_lossy(),
@@ -286,7 +291,8 @@ mod tests {
     fn a_legacy_doc_reports_only_what_the_piece_table_shows() {
         let out = run("notes.doc");
         assert_eq!(out["kind"], "word-binary");
-        assert_eq!(out["structure"]["paragraphs"], 11, "{out}");
+        // 段落数 = 正文里的硬回车数：独立读者对着 piece 表还原出的 139 个字符数到 10 个 \r
+        assert_eq!(out["structure"]["paragraphs"], 10, "{out}");
         assert_eq!(out["structure"]["cp_total"], 139);
         assert_eq!(out["structure"]["pieces"], 1);
         assert_eq!(

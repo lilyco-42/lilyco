@@ -595,9 +595,9 @@ mod tests {
         let mut notes: Vec<String> = Vec::new();
         let got = shared_strings(&[first.to_vec(), second.to_vec()], 1, &mut notes);
         assert_eq!(got, vec!["abcde".to_string()], "{got:?} {notes:?}");
-        // 16 位 → 8 位的切换
+        // 16 位 → 8 位的切换：一个宽字符用掉 2 字节，第二个字符要等到下一个块
         let mut wide_head: Vec<u8> = vec![0x02, 0x00, 0x01]; // cch=2, wide
-        wide_head.extend_from_slice(&0x4E2Du32.to_le_bytes()); // 一个中文字
+        wide_head.extend_from_slice(&0x4E2Du16.to_le_bytes()); // 一个中文字（2 字节）
         let mut tail: Vec<u8> = vec![0x00]; // 新块：grbit=0 → 8 位
         tail.push(b'!');
         let got = shared_strings(&[wide_head, tail], 1, &mut notes);

@@ -76,7 +76,11 @@ fn run_office_objects(app: &OfficeObjects, ctx: &Context) -> Result<Value, AppEr
         for one in &doc.entries {
             let name = one.name.as_str();
             let declared = types.of(name).unwrap_or("");
-            if declared.starts_with("image/") || name.starts_with("Pictures/") {
+            if name.starts_with("docProps/thumbnail") {
+                // 缩略图也是 image/jpeg，但它不是文档带的图：先认它，
+                // 否则「这个文件里有几张图」会被一张预览图顶掉（独立读者就不这么数）。
+                thumbnails.push(name.to_string());
+            } else if declared.starts_with("image/") || name.starts_with("Pictures/") {
                 media.push(json!({"part": name, "content_type": declared, "size": one.size}));
             } else if name.contains("/embeddings/")
                 || name.starts_with("Objects/")
@@ -87,8 +91,6 @@ fn run_office_objects(app: &OfficeObjects, ctx: &Context) -> Result<Value, AppEr
                 fonts.push(name.to_string());
             } else if name.starts_with("customXml/") && !name.contains("_rels") {
                 custom_xml.push(name.to_string());
-            } else if name.starts_with("docProps/thumbnail") {
-                thumbnails.push(name.to_string());
             }
             if name.ends_with("vbaProject.bin")
                 || declared.contains("vbaProject")

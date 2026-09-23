@@ -22,7 +22,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-slide",
     run = "run_office_slide",
-    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size with its format name, the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP is a different shape (pages are draw:page, there is no master/layout ladder) so it answers with what it has and says so. Legacy .ppt is identified here but its record tree is not parsed - the command reports that plainly. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
+    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP is a different shape (pages are draw:page, there is no master/layout ladder) so it answers with what it has and says so. Legacy .ppt answers with what its PowerPoint 97 record tree honestly gives (record / container / text-atom counts) and an empty slide list, because per-slide attribution needs a pairing this reader will not guess. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
 )]
 pub struct OfficeSlide {
     /// 演示文稿（pptx / pptm / odp / ppt）
@@ -66,9 +66,11 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
             .first()
             .map(|one| {
                 json!({
-                    "cx": one.attr("cx"),
-                    "cy": one.attr("cy"),
-                    "format": one.attr("type").unwrap_or("custom"),
+                    "cx": emu(one.attr("cx")),
+                    "cy": emu(one.attr("cy")),
+                    // 文件自己写的那个属性就叫 type；这里若也叫 format，
+                    // 同一个 JSON 里「format」就会一会儿指文件类型、一会儿指画幅。
+                    "type": one.attr("type").unwrap_or("custom"),
                 })
             })
             .unwrap_or(Value::Null);
@@ -326,6 +328,14 @@ fn rel_id(node: &xmlscan::Node) -> Option<&str> {
         .map(|(_, value)| value.as_str())
 }
 
+/// 画幅是十进制整数字符串（EMU）：能数出来就给数，数不出来照原样给，不假装有值
+fn emu(raw: Option<&str>) -> Value {
+    match raw.and_then(|one| one.parse::<u64>().ok()) {
+        Some(one) => json!(one),
+        None => raw.map(|one| json!(one)).unwrap_or(Value::Null),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,7 +369,7 @@ mod tests {
         assert_eq!(slides[0]["pictures"], 1);
         assert_eq!(slides[1]["tables"], 1, "第二页那张表：{}", slides[1]);
         assert_eq!(out["size"]["cx"], 9144000, "{out}");
-        assert_eq!(out["size"]["format"], "screen4x3");
+        assert_eq!(out["size"]["type"], "screen4x3");
         assert_eq!(out["masters"].as_array().expect("是数组").len(), 1);
         assert_eq!(out["layouts"].as_array().expect("是数组").len(), 11);
         assert_eq!(out["media"], 1);

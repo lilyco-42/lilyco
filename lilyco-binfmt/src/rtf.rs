@@ -797,8 +797,12 @@ mod tests {
         );
         assert_eq!(one.unicode_escapes, 2);
         assert_eq!(one.hex_bytes, 0, "被丢掉的回退字节不该计数成 hex");
+        // `\uc0` 说的是「一个回退字符都不跳」：那个 ? 就是正文，不是回退垃圾
         let zero = rtf("{\\uc0\\u20013?}");
-        assert_eq!(zero.text, "中");
+        assert_eq!(
+            zero.text, "中?",
+            "\\uc0 被当成默认的 1 就会吞掉正文里的问号"
+        );
     }
 
     /// 连续 `\'hh` 攒起来按文件声明的字符集解：UTF-8 那档能还原中文
