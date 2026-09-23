@@ -17,6 +17,10 @@ struct AppAttrs {
     run: Option<String>,
     name: Option<String>,
     safety: Option<String>,
+    /// `#[app(crate = "lilyco_core")]`：不依赖 facade、只用 core + macros 的嵌入方
+    /// 用它把展开路径指过去。默认仍是 `::lilyco::__core`（facade 里 `pub use lilyco_core as __core`，
+    /// 两条路径下的条目一一对应）。
+    crate_path: Option<String>,
 }
 
 fn parse_app_attrs(attrs: &[Attribute]) -> AppAttrs {
@@ -27,6 +31,7 @@ fn parse_app_attrs(attrs: &[Attribute]) -> AppAttrs {
         run: None,
         name: None,
         safety: None,
+        crate_path: None,
     };
 
     for attr in attrs {
@@ -51,6 +56,11 @@ fn parse_app_attrs(attrs: &[Attribute]) -> AppAttrs {
                     let s: Lit = meta.value()?.parse()?;
                     if let Lit::Str(s) = s {
                         result.safety = Some(s.value());
+                    }
+                } else if meta.path.is_ident("crate") {
+                    let s: Lit = meta.value()?.parse()?;
+                    if let Lit::Str(s) = s {
+                        result.crate_path = Some(s.value());
                     }
                 }
                 Ok(())
@@ -245,6 +255,23 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
 
     let struct_name = &input.ident;
     let app_attrs = parse_app_attrs(&input.attrs);
+    // 展开路径：默认走 facade 的 `__core` 再导出；`#[app(crate = "lilyco_core")]` 让
+    // 只依赖 core + macros 的嵌入方也能 derive。写错就当编译错误报出来，不 panic。
+    let core: TokenStream = match app_attrs.crate_path.as_deref().map(str::trim) {
+        None => quote! { ::lilyco::__core },
+        Some(path) => {
+            let normalized = path.trim_start_matches("::");
+            match normalized.parse::<TokenStream>() {
+                Ok(tokens) => quote! { ::#tokens },
+                Err(_) => {
+                    let lit = proc_macro2::Literal::string(
+                        "app(crate = \"...\") 里不是一个合法的 crate 路径",
+                    );
+                    return quote! { compile_error!(#lit); };
+                }
+            }
+        }
+    };
     let about_str = app_attrs.about.unwrap_or_else(|| struct_name.to_string());
     // 命令名默认取结构体名；多命令场景建议 #[app(name = "kebab-name")] 覆盖
     let name_str = app_attrs.name.unwrap_or_else(|| struct_name.to_string());
@@ -310,10 +337,10 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
             Some(d) => quote! { Some(serde_json::to_value(#d).unwrap()) },
             None => quote! { None },
         };
-        let kind_expr = kind_to_tokens(f);
+        let kind_expr = kind_to_tokens(f, &core);
 
         quote! {
-            ::lilyco::__core::schema::ArgSchema {
+            #core::schema::ArgSchema {
                 name: #name.into(),
                 about: #about.into(),
                 kind: #kind_expr,
@@ -347,8 +374,8 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
             },
             InferredKind::Enum => quote! {{
                 let s = args.get(#name).and_then(|v| v.as_str()).unwrap_or("");
-                <#ty as ::lilyco::__core::schema::ValueEnum>::from_str(s)
-                    .ok_or_else(|| ::lilyco::__core::AppError::InvalidArg(
+                <#ty as #core::schema::ValueEnum>::from_str(s)
+                    .ok_or_else(|| #core::AppError::InvalidArg(
                         format!("invalid value for {}: {}", #name, s)
                     ))?
             }},
@@ -378,14 +405,14 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
         Some(fn_name) => {
             let fn_ident = syn::Ident::new(fn_name, proc_macro2::Span::call_site());
             quote! {
-                fn run(&self, ctx: &::lilyco::__core::Context) -> Result<serde_json::Value, ::lilyco::__core::AppError> {
+                fn run(&self, ctx: &#core::Context) -> Result<serde_json::Value, #core::AppError> {
                     #fn_ident(self, ctx)
                 }
             }
         }
         None => {
             quote! {
-                fn run(&self, _ctx: &::lilyco::__core::Context) -> Result<serde_json::Value, ::lilyco::__core::AppError> {
+                fn run(&self, _ctx: &#core::Context) -> Result<serde_json::Value, #core::AppError> {
                     unimplemented!("run() not implemented for {} — add #[app(run = \"your_fn\")] to wire up business logic", stringify!(#struct_name))
                 }
             }
@@ -393,20 +420,20 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
-        impl ::lilyco::__core::App for #struct_name {
-            fn schema() -> ::lilyco::__core::schema::CommandSchema {
-                ::lilyco::__core::schema::CommandSchema {
+        impl #core::App for #struct_name {
+            fn schema() -> #core::schema::CommandSchema {
+                #core::schema::CommandSchema {
                     name: #name_str.into(),
                     about: #about_str.into(),
                     args: vec![#(#schema_args),*],
                     subcommands: vec![],
-                    safety: ::lilyco::__core::safety::SafetyTier::#safety_ident,
+                    safety: #core::safety::SafetyTier::#safety_ident,
                 }
             }
 
             fn from_args(
                 args: &std::collections::HashMap<String, serde_json::Value>,
-            ) -> Result<Self, ::lilyco::__core::AppError> {
+            ) -> Result<Self, #core::AppError> {
                 Ok(Self {
                     #(#from_args_bindings),*
                 })
@@ -419,10 +446,10 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
     expanded
 }
 
-fn kind_to_tokens(f: &FieldInfo) -> TokenStream {
+fn kind_to_tokens(f: &FieldInfo, core: &TokenStream) -> TokenStream {
     match &f.kind {
-        InferredKind::Flag => quote! { ::lilyco::__core::schema::ArgKind::Flag },
-        InferredKind::Text => quote! { ::lilyco::__core::schema::ArgKind::Text },
+        InferredKind::Flag => quote! { #core::schema::ArgKind::Flag },
+        InferredKind::Text => quote! { #core::schema::ArgKind::Text },
         InferredKind::Number => {
             let min = f
                 .attrs
@@ -436,29 +463,29 @@ fn kind_to_tokens(f: &FieldInfo) -> TokenStream {
                 .as_ref()
                 .map(|m| quote! { Some(#m as f64) })
                 .unwrap_or(quote! { None });
-            quote! { ::lilyco::__core::schema::ArgKind::Number { min: #min, max: #max } }
+            quote! { #core::schema::ArgKind::Number { min: #min, max: #max } }
         }
         InferredKind::Path { must_exist } => {
-            quote! { ::lilyco::__core::schema::ArgKind::Path { must_exist: #must_exist } }
+            quote! { #core::schema::ArgKind::Path { must_exist: #must_exist } }
         }
         InferredKind::Enum => {
             let ty = &f.ty;
             quote! {
-                ::lilyco::__core::schema::ArgKind::Enum {
-                    values: <#ty as ::lilyco::__core::schema::ValueEnum>::variants().into_iter().map(|s| s.to_string()).collect()
+                #core::schema::ArgKind::Enum {
+                    values: <#ty as #core::schema::ValueEnum>::variants().into_iter().map(|s| s.to_string()).collect()
                 }
             }
         }
         InferredKind::List { item } => {
             let inner = match item.as_ref() {
-                InferredKind::Text => quote! { ::lilyco::__core::schema::ArgKind::Text },
+                InferredKind::Text => quote! { #core::schema::ArgKind::Text },
                 InferredKind::Number => {
-                    quote! { ::lilyco::__core::schema::ArgKind::Number { min: None, max: None } }
+                    quote! { #core::schema::ArgKind::Number { min: None, max: None } }
                 }
-                InferredKind::Flag => quote! { ::lilyco::__core::schema::ArgKind::Flag },
-                _ => quote! { ::lilyco::__core::schema::ArgKind::Text },
+                InferredKind::Flag => quote! { #core::schema::ArgKind::Flag },
+                _ => quote! { #core::schema::ArgKind::Text },
             };
-            quote! { ::lilyco::__core::schema::ArgKind::List { item: Box::new(#inner) } }
+            quote! { #core::schema::ArgKind::List { item: Box::new(#inner) } }
         }
     }
 }

@@ -256,3 +256,52 @@ fn app_name_attribute_overrides_command_name() {
     );
     assert_eq!(schema.about, "Compress images");
 }
+
+// ── crate 覆盖口：不借 facade 也能 derive ───────────────────
+// 默认展开成 `::lilyco::__core::…`，等于逼着每个用 derive 的人都得依赖 facade。
+// 只想嵌进自己进程、只带 core + macros 的人用 `#[app(crate = "lilyco_core")]` 走直连路径。
+
+#[derive(App)]
+#[app(
+    about = "不带 facade 的命令",
+    name = "bare",
+    crate = "lilyco_core",
+    run = "bare_run"
+)]
+struct BareCommand {
+    #[arg(about = "要读的文件", must_exist = true)]
+    path: PathBuf,
+
+    #[arg(about = "最多列几条", default = 16, min = 1)]
+    limit: u64,
+}
+
+fn bare_run(app: &BareCommand, ctx: &Context) -> Result<serde_json::Value, AppError> {
+    ctx.done(
+        serde_json::json!({ "path": app.path.display().to_string(), "limit": app.limit }),
+        0,
+    );
+    Ok(serde_json::json!({ "ok": true }))
+}
+
+#[test]
+fn crate_override_emits_paths_that_resolve_without_the_facade() {
+    let schema = BareCommand::schema();
+    assert_eq!(schema.name, "bare");
+    assert_eq!(schema.safety, SafetyTier::ReadOnly, "缺省仍是 T0 只读");
+    let kinds: Vec<&str> = schema
+        .args
+        .iter()
+        .map(|a| match &a.kind {
+            ArgKind::Path { .. } => "path",
+            ArgKind::Number { .. } => "number",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(kinds, vec!["path", "number"], "{:?}", schema.args);
+    assert!(
+        schema.args[1].default == Some(serde_json::json!(16)),
+        "默认值要穿过覆盖后的路径：{:?}",
+        schema.args[1]
+    );
+}
