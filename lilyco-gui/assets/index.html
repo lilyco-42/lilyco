@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="lilyco-token" content="__TOKEN__">
+<title>__CMD_NAME__ · lilyco 控制台</title>
+<style>__CSS__</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark">◆</span> lilyco <span class="brand-sub">Web 控制台</span></div>
+  __CMD_NAV__
+  <button type="button" id="theme-toggle" class="icon-btn" aria-label="切换深浅主题">◐</button>
+</header>
+
+<main class="page">
+<section class="card">
+  <h1 class="card-title">__CMD_NAME__</h1>
+  <p class="card-about">__ABOUT__</p>
+
+  <form id="form" novalidate>
+__FIELDS__
+    <div class="actions">
+      <button type="submit" id="run-btn" class="btn primary"><span class="btn-label">▶ 运行</span></button>
+      <button type="button" id="cancel-btn" class="btn danger" hidden>■ 取消</button>
+      <button type="button" id="copy-cli" class="btn ghost">复制 CLI</button>
+    </div>
+    <div class="cli-preview mono" id="preview"></div>
+  </form>
+
+  <section id="out" hidden aria-live="polite">
+    <div class="out-head">
+      <h2>输出</h2>
+      <div class="progress" id="progress" data-indet="1"><div class="progress-bar" id="progress-bar"></div></div>
+    </div>
+    <div id="log" class="terminal" aria-live="polite"></div>
+    <div class="result-wrap" id="result-wrap" hidden>
+      <div class="result-head"><span>结果</span><button type="button" id="copy-result" class="btn-icon">复制</button></div>
+      <pre id="result" class="mono"></pre>
+    </div>
+  </section>
+</section>
+<footer class="foot">lilyco · 本地回环会话 · 令牌随进程轮换</footer>
+</main>
+
+<script>
+const TOKEN=document.querySelector('meta[name="lilyco-token"]').content;
+const CMD=__CMD_JS__;
+const SCHEMA_ARGS=__META__;
+"use strict";
+const $=id=>document.getElementById(id);
+const esc=s=>{const d=document.createElement("div");d.textContent=String(s);return d.innerHTML};
+
+// ── 主题（系统偏好 + 手动切换持久化）──
+const root=document.documentElement;
+const savedTheme=localStorage.getItem("lilyco-theme");
+if(savedTheme)root.dataset.theme=savedTheme;
+$("theme-toggle").addEventListener("click",()=>{
+  const cur=root.dataset.theme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");
+  const next=cur==="dark"?"light":"dark";
+  root.dataset.theme=next;localStorage.setItem("lilyco-theme",next);
+});
+
+// ── CLI 预览 ──
+function fieldVal(a){
+  if(a.kind==="Flag")return $( "field-"+a.name).checked?"__flag__":null;
+  if(a.kind==="List"){return Array.from(document.querySelectorAll('[data-list-item="'+a.name+'"]')).map(i=>i.value).filter(v=>v!=="")}
+  const el=$("field-"+a.name);
+  if(!el||el.value==="")return null;
+  if(a.kind==="Number"){const n=Number(el.value);return isNaN(n)?el.value:n}
+  return el.value;
+}
+function updatePreview(){
+  const parts=[CMD];
+  for(const a of SCHEMA_ARGS){
+    const v=fieldVal(a);
+    if(v===null)continue;
+    if(v==="__flag__"){parts.push("--"+a.name);continue}
+    if(Array.isArray(v)){v.forEach(x=>parts.push("--"+a.name+" "+(String(x).includes(" ")?'"'+x+'"':x)));continue}
+    parts.push("--"+a.name+" "+(String(v).includes(" ")||a.kind==="Path"?'"'+v+'"':v));
+  }
+  $("preview").textContent=parts.join(" ");
+}
+document.getElementById("form").addEventListener("input",updatePreview);
+updatePreview();
+
+// ── 原生选择器：让服务端弹系统对话框，回填磁盘上的原始路径（不上传副本） ──
+// 与上面的拖拽区是两条路：上传拿到的是服务端暂存副本，这里拿到文件本来的路径。
+// 对话框可能被压在浏览器后面（Windows 不让后台进程抢前台），所以状态里写明「看任务栏」。
+document.querySelectorAll("[data-pick]").forEach(btn=>btn.addEventListener("click",async()=>{
+  const name=btn.getAttribute("data-pick"),field=$("field-"+name),status=$("up-"+name);
+  if(!field)return;
+  btn.disabled=true;
+  if(status)status.textContent="等待系统对话框…（可能被压在后面，看一下任务栏）";
+  try{
+    const resp=await fetch("/pick",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:"{}"});
+    const j=await resp.json();
+    if(j.path){field.value=j.path;updatePreview();if(status)status.textContent="已选择："+j.path}
+    else if(status)status.textContent=j.error||"已取消";
+  }catch(err){if(status)status.textContent="选择框失败："+err}
+  finally{btn.disabled=false}
+}));
+
+// ── 文件输入组件：拖拽 / 点击选择 → /upload 暂存 → 回填绝对路径 ──
+function fmtSize(n){return n>1048576?(n/1048576).toFixed(1)+" MB":n>1024?(n/1024).toFixed(1)+" KB":n+" B"}
+async function uploadFile(file,dz){
+  const name=dz.dataset.target,status=dz.querySelector(".dz-status"),chip=dz.querySelector(".file-chip"),input=$("field-"+name);
+  status.textContent="上传中 "+file.name+"（"+fmtSize(file.size)+"）…";status.className="dz-status busy";
+  try{
+    const dataUrl=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(r.error||new Error("读取失败"));r.readAsDataURL(file)});
+    const b64=dataUrl.split(",",2)[1]||"";
+    const resp=await fetch("/upload",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:JSON.stringify({name:file.name,dataB64:b64})});
+    if(!resp.ok){throw new Error((await resp.text())||("HTTP "+resp.status))}
+    const j=await resp.json();
+    input.value=j.path;
+    chip.textContent=file.name+" · "+fmtSize(j.size)+"  ✕";
+    chip.hidden=false;status.textContent="已就绪：服务端路径已回填";status.className="dz-status ok";
+    updatePreview();
+    chip.onclick=()=>{input.value="";chip.hidden=true;status.textContent="";updatePreview()};
+  }catch(err){status.textContent="上传失败："+err.message;status.className="dz-status err"}
+}
+document.querySelectorAll(".dropzone").forEach(dz=>{
+  const fi=dz.querySelector("input[type=file]");
+  dz.addEventListener("click",()=>fi.click());
+  dz.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();fi.click()}});
+  fi.addEventListener("change",()=>{if(fi.files[0])uploadFile(fi.files[0],dz)});
+  dz.addEventListener("dragover",e=>{e.preventDefault();dz.classList.add("drag-over")});
+  dz.addEventListener("dragleave",()=>dz.classList.remove("drag-over"));
+  dz.addEventListener("drop",e=>{e.preventDefault();dz.classList.remove("drag-over");
+    const f=e.dataTransfer.files&&e.dataTransfer.files[0];if(f)uploadFile(f,dz)});
+});
+
+// ── List 增删行 ──
+document.querySelectorAll("[data-list-add]").forEach(btn=>btn.addEventListener("click",()=>{
+  const name=btn.dataset.listAdd,rows=$("list-"+name);
+  const row=document.createElement("div");row.className="list-row";
+  const inp=document.createElement("input");inp.type="text";inp.className="mono";inp.dataset.listItem=name;
+  const del=document.createElement("button");del.type="button";del.className="btn-icon row-del";del.textContent="✕";del.setAttribute("aria-label","删除该行");
+  del.addEventListener("click",()=>row.remove());
+  inp.addEventListener("input",updatePreview);
+  row.append(inp,del);rows.append(row);inp.focus();
+}));
+
+// ── 运行 / SSE / 取消 ──
+const out=$("out"),logEl=$("log"),bar=$("progress"),barEl=$("progress-bar"),resultWrap=$("result-wrap"),resultEl=$("result");
+let es=null,activeSid=null;
+function setProgress(p){ // p: null=不确定, 0..1
+  if(p===null){bar.dataset.indet="1";barEl.style.width="40%"}
+  else{bar.dataset.indet="0";barEl.style.width=Math.max(0,Math.min(100,p*100)).toFixed(1)+"%"}
+}
+function logLine(cls,text){
+  const d=document.createElement("div");d.className="line"+(cls?" "+cls:"");d.textContent=text;
+  logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;
+}
+function setBusy(b){
+  $("run-btn").disabled=b;$("run-btn").classList.toggle("loading",b);
+  $("cancel-btn").hidden=!b;
+}
+document.getElementById("form").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const data={};
+  for(const a of SCHEMA_ARGS){
+    if(a.kind==="Flag"){data[a.name]=$("field-"+a.name).checked;continue}
+    if(a.kind==="List"){data[a.name]=Array.from(document.querySelectorAll('[data-list-item="'+a.name+'"]')).map(i=>i.value).filter(v=>v!=="");continue}
+    const el=$("field-"+a.name),v=el?el.value:"";
+    data[a.name]=v===""?null:(a.kind==="Number"&&(n=>!isNaN(n)&&v!=="")(Number(v))?Number(v):v);
+  }
+  out.hidden=false;logEl.textContent="";resultWrap.hidden=true;setProgress(null);setBusy(true);
+  let sid;
+  try{
+    const resp=await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:JSON.stringify({args:data,cmd:CMD})});
+    if(!resp.ok){throw new Error((await resp.text())||("HTTP "+resp.status))}
+    sid=(await resp.json()).session_id;activeSid=sid;
+  }catch(err){logLine("err","请求失败："+err.message);setBusy(false);return}
+  es=new EventSource("/progress/"+sid);
+  es.onmessage=ev=>{
+    let p;try{p=JSON.parse(ev.data)}catch{return}
+    if(p.type==="started"){logLine(null,p.message||"运行中…")}
+    else if(p.type==="tick"){setProgress(p.percent);if(p.message)logLine(null,p.message)}
+    else if(p.type==="log"){logLine(p.level==="error"?"err":p.level==="warn"?"warn":null,"["+(p.level||"info")+"] "+p.message)}
+    else if(p.type==="telemetry"){logLine("tele",p.key+" = "+JSON.stringify(p.value))}
+    else if(p.type==="done"){setProgress(1);resultEl.textContent=JSON.stringify(p.result,null,2);resultWrap.hidden=false;finish()}
+    else if(p.type==="error"){setProgress(0);logLine("err","ERROR: "+p.message);finish()}
+  };
+  es.onerror=()=>{finish()};
+  function finish(){if(es){es.close();es=null}activeSid=null;setBusy(false)}
+});
+$("cancel-btn").addEventListener("click",async()=>{
+  if(!activeSid)return;
+  try{await fetch("/cancel/"+activeSid,{method:"POST",headers:{"X-Lilyco-Token":TOKEN}});logLine("warn","已发送取消请求（命令需响应 ctx.is_cancelled）")}catch(e){logLine("err","取消失败："+e.message)}
+});
+$("copy-result").addEventListener("click",()=>navigator.clipboard.writeText(resultEl.textContent));
+$("copy-cli").addEventListener("click",()=>navigator.clipboard.writeText($("preview").textContent));
+</script>
+</body></html>

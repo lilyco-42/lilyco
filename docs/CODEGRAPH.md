@@ -75,15 +75,20 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `render_command_select()` | `lilyco-tui/src/renderer.rs:238` | 多命令选择页（↑↓/jk + Enter） |
 | `path_complete()` | `lilyco-tui/src/app.rs` | Path 字段 Tab 目录补全（readline 风格循环候选；`split_dir_prefix` 兼容 `/` 与 `\`） |
 
-### lilyco-gui（`lilyco-gui/src/lib.rs`）
-| 符号 | 行 | 说明 |
+### lilyco-gui（`lilyco-gui/src/`，按职责分文件；对外只有 `GuiRenderer` / `RunnerFn` / `TOKEN_HEADER`）
+| 符号 | 位置 | 说明 |
 |---|---|---|
-| `serve_app::<A>()` | 164 | 单命令；`serve(schema, runner):99` 底层 |
-| `serve_registry()` | 114 | **多命令**；`GET /?cmd=xxx` 渲染对应表单 + 下拉切换 |
-| `pick_command()` | 266 | `?cmd=` → 可见命令（别名命中；隐藏回退第一个可见） |
-| `run_handler()` | 532 | `/run`：多命令按 `req.cmd` 显式分发（未知/隐藏 → 400，**绝不静默换命令**）；单命令走 `runner` |
-| `run_progress()` | 189 | handler → spawn → SSE 事件转发（单/多命令共用） |
-| `security_mw()` | 232 | 回环 Host 校验 + Origin 校验 + 随机 Token（防 DNS rebinding/CSRF） |
+| `serve_app::<A>()` | `lib.rs:140` | 单命令；`serve(schema, runner):70` 底层 |
+| `serve_registry()` | `lib.rs:86` | **多命令**；`GET /?cmd=xxx` 渲染对应表单 + 下拉切换 |
+| `serve_state()` | `lib.rs:105` | 路由器装配处：六个端点 + `security_mw` 一道闸（**新增端点只改这里**） |
+| `security_mw()` | `security.rs:63` | 回环 Host 校验 + Origin 校验 + 随机 Token（防 DNS rebinding/CSRF）；`PROTECTED_POST:21` 是那份端点清单 |
+| `AppState` | `state.rs:17` | schema / registry / sessions / cancels / token 一处真相（`pub(crate)`，测试夹具在同文件 `fixture`） |
+| `pick_command()` | `render.rs:23` | `?cmd=` → 可见命令（别名命中；隐藏回退第一个可见） |
+| `index()` | `render.rs:33` | schema → 表单 HTML；**转义纪律集中在此**，骨架是 `assets/index.html` |
+| `run_handler()` | `run.rs:111` | `/run`：多命令按 `req.cmd` 显式分发（未知/隐藏 → 400，**绝不静默换命令**）；单命令走 `runner` |
+| `run_progress()` | `run.rs:41` | handler → spawn → SSE 事件转发（单/多命令共用；registry 版会登记取消句柄） |
+| `upload_handler()` | `files.rs:98` | 拖拽上传 → base64 → 服务端临时副本（净化文件名 + 双重体积上限） |
+| `pick_handler()` | `files.rs:201` | 本机原生选择器 → 回填**原始路径**（`pick` 特性；`flash_picker_when_ready:160` 治前台锁定） |
 
 ### lilyco-mcp（`lilyco-mcp/src/lib.rs`）
 | 符号 | 行 | 说明 |
@@ -169,7 +174,7 @@ cargo bench -p lilyco-example                      # schema 生成性能基准
 | core 校验/协议/registry | `lilyco-core/src/{schema,lib,registry}.rs` `#[cfg(test)]` | validate_args 12 例、Progress serde、registry 别名/隐藏/JSON |
 | CLI | `lilyco-cli/src/lib.rs` 底部 | 渲染/解析/内置标志/多命令构建与解析 |
 | TUI | `lilyco-tui/src/lib.rs` 底部 | 渲染、状态机、校验拦截、多命令选择页、路径 Tab 补全 |
-| GUI | `lilyco-gui/src/lib.rs` 底部 | run_handler 400/200、pick_command、?cmd 导航 |
+| GUI | `lilyco-gui/src/{security,state,render,run,files,util}.rs` 各自底部 | run_handler 400/200、pick_command、?cmd 导航、转义、base64、文件名净化、`/pick` 同闸 |
 | MCP | `lilyco-mcp/src/lib.rs` 底部 | initialize/tools/进度通知/校验拒绝 |
 | 门面 | `lilyco/src/lib.rs` 底部 | 后端探测 |
 | 域二进制 | `lilyco-binfmt/src/{main,read,entries,regions,symbols}.rs` 底部 | 注册表形状/全 T0/工具导出/参数拒绝；魔数判别（Java class ≠ 通用二进制）、tar 八位校验和、PNG 真算 CRC、ELF 头部只到 `e_ehsize`、Mach-O 端序与定长 16 字节节名、零填充节不画成数据 |
