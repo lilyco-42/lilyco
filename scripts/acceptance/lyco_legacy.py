@@ -362,3 +362,104 @@ def biff_workbook(cfb_bytes: dict) -> dict:
         "dimensions": dimensions,
         "cells_per_sheet": per_sheet,
     }
+
+
+# ── MS-PPT（PowerPoint 97）：PowerPoint Document 流的记录树 ─────────────────
+
+
+PPT_TEXT_ATOMS = {0x0FA0: "text-chars", 0x0FA8: "text-bytes", 0x0FBA: "c-string"}
+PPT_SLIDE_CONTAINER = 0x03F8
+PPT_MAX_DEPTH = 8
+
+
+def _ppt_head(buf: bytes, off: int):
+    """记录头：+0 recVer（容器 0xF / 原子 0x0）、+2 recType、+4 正文长度。
+
+    这个布局不是背来的：这份真件里三个已知原子（4000 / 3999 / 4010）都落在 +2，
+    而且按它整条流严丝合缝地铺满。
+    """
+    if off + 8 > len(buf):
+        return None
+    size = _u32(buf, off + 4)
+    if size is None:
+        return None
+    return _u16(buf, off) or 0, _u16(buf, off + 2) or 0, int(size)
+
+
+def _ppt_tiles(buf: bytes) -> bool:
+    """这一段正文能不能再走成一条完整的记录流（走完正好停在末尾才算）"""
+    if len(buf) < 8:
+        return False
+    at = 0
+    while at + 8 <= len(buf):
+        head = _ppt_head(buf, at)
+        if head is None or at + 8 + head[2] > len(buf):
+            return False
+        at += 8 + head[2]
+    return at == len(buf)
+
+
+def ppt_decode_atom(kind: int, body: bytes) -> str:
+    """TextBytesAtom 按 Windows-1252；另两种规范写「16 位字符」，真实生产者非 ASCII
+    时写的是 UTF-16 —— 判据用字节自己给：高字节全零时两种读法结果相同。"""
+    data = bytes(body)
+    if kind == 0x0FA8:
+        return data.decode("cp1252", "replace")
+    wide = any(data[i] != 0 for i in range(1, len(data), 2))
+    if wide:
+        return data.decode("utf-16-le", "replace")
+    return data[0::2].decode("cp1252", "replace")
+
+
+def ppt_text(cfb_bytes: dict) -> dict:
+    """递归走出记录树，按流顺序取出文本原子（容器靠「正文能铺满」判，不看 recVer）"""
+    raw = cfb_bytes.get("PowerPoint Document")
+    if raw is None:
+        return {"error": "容器里没有 PowerPoint Document 流"}
+    atoms: list = []
+    notes: list = []
+    box = {"records": 0, "containers": 0, "slide_containers": 0}
+
+    def walk(buf: bytes, depth: int) -> None:
+        at = 0
+        while at + 8 <= len(buf) and box["records"] < 200000:
+            head = _ppt_head(buf, at)
+            if head is None:
+                break
+            _inst, kind, size = head
+            end = at + 8 + size
+            if end > len(buf):
+                notes.append(f"深度 {depth} 处一条记录伸出这一层末尾（在 {at}）")
+                return
+            box["records"] += 1
+            body = buf[at + 8 : end]
+            if kind in PPT_TEXT_ATOMS:
+                atoms.append(
+                    {
+                        "kind": PPT_TEXT_ATOMS[kind],
+                        "depth": depth,
+                        "offset": at,
+                        "text": ppt_decode_atom(kind, body),
+                    }
+                )
+            if kind == PPT_SLIDE_CONTAINER:
+                box["slide_containers"] += 1
+            if depth < PPT_MAX_DEPTH and body and _ppt_tiles(bytes(body)):
+                box["containers"] += 1
+                walk(bytes(body), depth + 1)
+            at = end
+
+    walk(bytes(raw), 0)
+    lines: list = []
+    for one in atoms:
+        for part in one["text"].replace("\r", "\n").replace("\x0b", "\n").split("\n"):
+            if part.strip():
+                lines.append(part)
+    return {
+        "records": box["records"],
+        "text_atoms": atoms,
+        "lines": lines,
+        "containers": box["containers"],
+        "slide_containers": box["slide_containers"],
+        "notes": notes,
+    }

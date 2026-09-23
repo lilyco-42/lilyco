@@ -1,0 +1,278 @@
+//! MS-PPT（PowerPoint 97）：`PowerPoint Document` 流是一棵记录树，本模块把里面的
+//! 文本原子读出来。
+//!
+//! 这一族的坑不在偏移表上，而在**怎么知道自己在读一条记录**：
+//! 1. 记录头 8 字节 —— `+0` 是 recVer（容器 `0xF`、原子 `0x0`），`+2` 是 recType，
+//!    `+4` 是正文长度。判据不是背下来的：这份 fixture 里三个已知原子
+//!    （`0x0FA0` TextCharsAtom / `0x0F9F` TextFooterAtom / `0x0FAA` TextHeaderAtom）
+//!    都落在 `+2` 上，且按这个布局整条流**严丝合缝地铺满**（1427 条记录，零处错位）。
+//! 2. **容器与原子不能靠 recVer 的位来定**（生产者并不老实）：唯一的判据是
+//!    「正文自己能不能再走成一条完整的记录流」。能就下去，不能就只当它是正文。
+//!    这条自证让整棵树在深度 6~7 处拿到幻灯片文字，而不是把未知类型当成黑洞。
+//! 3. `TextCharsAtom` 的规范写法是「16 位字符、低字节 Windows-1252」，而真实生产者
+//!    对非 ASCII 写的是 **UTF-16**。用字节自己判：高字节里出现过非零就按 UTF-16 读，
+//!    否则两种读法结果相同 —— 于是一份中英混排的文档不会被读成天书。
+//!
+//! 与 `scripts/acceptance/lyco_legacy.py` 的 `ppt_text()` 是同一套规范的两份实现，
+//! CI 里对同一份 LibreOffice 写的 `deck.ppt` 逐条比文本。
+
+use serde_json::{json, Value};
+
+use crate::cfb::Cfb;
+use crate::read::{le16, le32};
+use crate::word::decode_cp1252;
+
+pub const TEXT_CHARS: u64 = 0x0FA0;
+pub const TEXT_BYTES: u64 = 0x0FA8;
+pub const C_STRING: u64 = 0x0FBA;
+const SLIDE_CONTAINER: u64 = 0x03F8;
+const MAX_RECORDS: usize = 200_000;
+// 真件里幻灯片文字在第 6~7 层；再深就分不清「子容器」和「碰巧能铺满的 blob」了
+const MAX_DEPTH: usize = 8;
+
+#[derive(Debug, Clone)]
+pub struct TextAtom {
+    /// `text-chars` / `text-bytes` / `c-string`
+    pub kind: &'static str,
+    /// 在**所在那一层正文**里的偏移（同一层从 0 计，所以跨层会重复）
+    pub offset: usize,
+    pub depth: usize,
+    pub text: String,
+}
+
+#[derive(Debug)]
+pub struct Deck {
+    pub records: usize,
+    pub atoms: Vec<TextAtom>,
+    pub containers: usize,
+    pub slide_containers: usize,
+    pub notes: Vec<String>,
+}
+
+impl Deck {
+    /// 原子按段落记不划算：一个原子里可能有好几段（`\r` 分隔），这里摊平成行
+    pub fn lines(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for one in &self.atoms {
+            for line in one.text.split(['\r', '\n', '\u{b}']) {
+                if !line.trim().is_empty() {
+                    out.push(line.to_string());
+                }
+            }
+        }
+        out
+    }
+
+    pub fn to_json(&self) -> Value {
+        json!({
+            "records": self.records,
+            "text_atoms": self.atoms.len(),
+            "containers": self.containers,
+            "slide_containers": self.slide_containers,
+            "atoms": self.atoms.iter().map(|one| json!({
+                "kind": one.kind, "depth": one.depth, "offset": one.offset, "text": one.text,
+            })).collect::<Vec<Value>>(),
+            "notes": self.notes,
+        })
+    }
+}
+
+fn head(buf: &[u8], at: usize) -> Option<(u64, usize)> {
+    let kind = le16(at + 2)(buf)?;
+    let len = usize::try_from(le32(at + 4)(buf)?).ok()?;
+    Some((kind, len))
+}
+
+/// 这一段能不能再走成一条完整的记录流（走完正好停在末尾才算）
+fn tiles(buf: &[u8]) -> bool {
+    if buf.len() < 8 {
+        return false;
+    }
+    let mut at = 0usize;
+    let mut seen = 0usize;
+    while at + 8 <= buf.len() {
+        let Some((_, len)) = head(buf, at) else {
+            return false;
+        };
+        let Some(next) = at.checked_add(8).and_then(|base| base.checked_add(len)) else {
+            return false;
+        };
+        if next > buf.len() {
+            return false;
+        }
+        at = next;
+        seen += 1;
+        if seen > MAX_RECORDS {
+            return false;
+        }
+    }
+    at == buf.len()
+}
+
+fn kind_name(kind: u64) -> Option<&'static str> {
+    match kind {
+        TEXT_CHARS => Some("text-chars"),
+        TEXT_BYTES => Some("text-bytes"),
+        C_STRING => Some("c-string"),
+        _ => None,
+    }
+}
+
+/// 文本原子的解码：见模块注释第 3 条
+fn decode_text(kind: u64, body: &[u8]) -> String {
+    if kind == TEXT_BYTES {
+        return decode_cp1252(body);
+    }
+    let wide = body.chunks(2).any(|pair| pair.len() == 2 && pair[1] != 0);
+    if wide {
+        let mut units: Vec<u16> = Vec::new();
+        for pair in body.chunks(2) {
+            if pair.len() == 2 {
+                units.push(u16::from_le_bytes([pair[0], pair[1]]));
+            }
+        }
+        String::from_utf16_lossy(&units)
+    } else {
+        decode_cp1252(&body.iter().step_by(2).copied().collect::<Vec<u8>>())
+    }
+}
+
+fn walk_tree(buf: &[u8], depth: usize, deck: &mut Walk) {
+    let mut at = 0usize;
+    while at + 8 <= buf.len() && deck.records < MAX_RECORDS {
+        let Some((kind, len)) = head(buf, at) else {
+            break;
+        };
+        let Some(end) = at.checked_add(8).and_then(|base| base.checked_add(len)) else {
+            deck.notes.push(format!(
+                "深度 {depth} 处第 {} 条记录的自报长度超出这一层",
+                deck.records
+            ));
+            return;
+        };
+        if end > buf.len() {
+            deck.notes
+                .push(format!("深度 {depth} 处一条记录伸出这一层末尾（在 {at}）"));
+            return;
+        }
+        deck.records += 1;
+        let body = &buf[at + 8..end];
+        if let Some(name) = kind_name(kind) {
+            deck.atoms.push(TextAtom {
+                kind: name,
+                offset: at,
+                depth,
+                text: decode_text(kind, body),
+            });
+        }
+        if kind == SLIDE_CONTAINER {
+            deck.slide_containers += 1;
+        }
+        if depth < MAX_DEPTH && !body.is_empty() && tiles(body) {
+            deck.containers += 1;
+            walk_tree(body, depth + 1, deck);
+        }
+        at = end;
+    }
+}
+
+struct Walk {
+    records: usize,
+    atoms: Vec<TextAtom>,
+    containers: usize,
+    slide_containers: usize,
+    notes: Vec<String>,
+}
+
+pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Deck, String> {
+    let stream = cfb
+        .read(bytes, "PowerPoint Document")
+        .ok_or("容器里没有 PowerPoint Document 流")?;
+    let mut deck = Walk {
+        records: 0,
+        atoms: Vec::new(),
+        containers: 0,
+        slide_containers: 0,
+        notes: Vec::new(),
+    };
+    walk_tree(&stream, 0, &mut deck);
+    let mut notes = deck.notes;
+    if deck.records >= MAX_RECORDS {
+        notes.push(format!("记录数到了上限 {MAX_RECORDS}，后面的没再走"));
+    }
+    Ok(Deck {
+        records: deck.records,
+        atoms: deck.atoms,
+        containers: deck.containers,
+        slide_containers: deck.slide_containers,
+        notes,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open(name: &str) -> (Vec<u8>, Cfb) {
+        let bytes = std::fs::read(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/office")
+                .join(name),
+        )
+        .expect("读 fixture");
+        let cfb = crate::cfb::open(&bytes).expect("打开复合文档");
+        (bytes, cfb)
+    }
+
+    /// LibreOffice 由 deck.pptx 转出的真件：幻灯片文字一条不少、顺序对，
+    /// 整棵记录树走满（期望值来自 `lyco_legacy.py` 的 `ppt_text`）
+    #[test]
+    fn reads_the_text_a_powerpoint_record_tree_hides() {
+        let (bytes, cfb) = open("deck.ppt");
+        let deck = read(&cfb, &bytes).expect("读得出记录树");
+        assert_eq!(deck.records, 1427, "{}", deck.records);
+        assert_eq!(deck.atoms.len(), 67, "{}", deck.atoms.len());
+        assert_eq!(deck.containers, 381, "{}", deck.containers);
+        assert_eq!(deck.slide_containers, 11, "SlideContainer 的个数不是页数");
+        assert!(deck.notes.is_empty(), "{:?}", deck.notes);
+        let lines = deck.lines();
+        for want in [
+            "预算评审",
+            "新增两台 64 核应用服务器",
+            "第二条要点",
+            "第二页：数字",
+            "科目",
+            "金额",
+            "服务器",
+            "评审时先讲口径再讲数字",
+        ] {
+            assert!(lines.iter().any(|one| one == want), "缺 {want}：{lines:?}");
+        }
+        // 幻灯片母版的占位文字也在（它确实是文件里的文字，不该被当成正文丢掉，
+        // 但要点是：读出来的东西和 pptx 那边逐条对得上）
+        assert!(lines
+            .iter()
+            .any(|one| one == "Click to edit Master title style"));
+    }
+
+    /// 高字节全零时两种读法必须给出同一个结果，非零时必须走 UTF-16
+    #[test]
+    fn the_width_of_text_atoms_is_decided_by_its_own_bytes() {
+        let ascii: Vec<u8> = "abc".bytes().flat_map(|one| [one, 0]).collect::<Vec<u8>>();
+        assert_eq!(decode_text(TEXT_CHARS, &ascii), "abc");
+        let cjk: Vec<u8> = "预算"
+            .encode_utf16()
+            .flat_map(|one| one.to_le_bytes())
+            .collect::<Vec<u8>>();
+        assert_eq!(decode_text(TEXT_CHARS, &cjk), "预算");
+        assert_eq!(decode_text(TEXT_BYTES, b"8/4"), "8/4");
+    }
+
+    /// 不是演示文稿的复合文档要报错
+    #[test]
+    fn a_non_presentation_says_so() {
+        let (bytes, cfb) = open("notes.doc");
+        let why = read(&cfb, &bytes).unwrap_err();
+        assert!(why.contains("PowerPoint Document"), "{why}");
+    }
+}

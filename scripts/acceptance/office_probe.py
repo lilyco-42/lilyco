@@ -159,6 +159,13 @@ def main() -> int:
     check("notes-en.doc 逐行文本", [one["text"] for one in legacy_en.get("paragraphs", [])],
           files["notes-en.doc"]["legacy_text"]["lines"])
 
+    ppt97 = lbin("office-text", fixture("deck.ppt"))
+    ppt_want = files["deck.ppt"]["ppt_text"]
+    check("deck.ppt 记录树走满", dig(ppt97, "kind"), "record-tree")
+    check("deck.ppt 逐行文本", [one["text"] for one in ppt97.get("paragraphs", [])], ppt_want["lines"])
+    check("deck.ppt 行数一致", ppt97.get("total_paragraphs"), len(ppt_want["lines"]))
+    slide97 = lbin("office-slide", fixture("deck.ppt"))
+    check("deck.ppt office-slide 也说记录树", dig(slide97, "record_tree.text_atoms"), len(ppt_want["text_atoms"]))
     rtf = lbin("office-text", fixture("notes.rtf"))
     check("notes.rtf 逐行文本", [one["text"] for one in rtf.get("paragraphs", [])], files["notes.rtf"]["rtf"]["lines"])
 

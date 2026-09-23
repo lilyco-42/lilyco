@@ -262,18 +262,47 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
         return Ok(result);
     }
     if doc.format == "ppt" {
-        notes.push(
-            "PowerPoint 97 的 .ppt 是记录树（PowerPoint Document 流）：本版本能识别与读属性，\
-             还没解析其中的文本原子"
-                .to_string(),
-        );
-        return Ok(json!({
+        // 97 的 .ppt 是一棵记录树：文本原子能读，但「第几页」要 SlideContainer 与
+        // SlidePersistAtom 配对才定得下来，定不下来就不报页数（报一个错的比不报更坏）。
+        let mut deck_json = Value::Null;
+        match doc
+            .compound
+            .as_ref()
+            .map(|cfb| crate::ppt::read(cfb, bytes))
+        {
+            Some(Ok(deck)) => {
+                notes.push(format!(
+                    "记录树走过 {} 条记录，文本原子 {} 个（其中 SlideContainer {} 个）；\
+                     幻灯片张数要从 SlideContainer 与 SlidePersistAtom 的配对读出，\
+                     这一版不猜，正文逐条见 office-text",
+                    deck.records,
+                    deck.atoms.len(),
+                    deck.slide_containers,
+                ));
+                notes.extend(deck.notes.iter().cloned());
+                deck_json = json!({
+                    "records": deck.records,
+                    "text_atoms": deck.atoms.len(),
+                    "containers": deck.containers,
+                    "slide_containers": deck.slide_containers,
+                    "atoms": deck.atoms.iter().map(|one| json!({
+                        "kind": one.kind, "depth": one.depth, "text": one.text,
+                    })).collect::<Vec<Value>>(),
+                });
+            }
+            Some(Err(why)) => notes.push(why),
+            None => notes.push("复合文档打不开（头或 FAT 读不出），记录树也无从谈起".to_string()),
+        }
+        let result = json!({
             "path": app.path.to_string_lossy(),
             "format": doc.format,
             "kind": "powerpoint-binary",
             "slides": [],
+            "record_tree": deck_json,
             "notes": notes,
-        }));
+        });
+        ctx.done(result.clone(), start.elapsed().as_millis() as u64);
+        return Ok(result);
     }
     Err(AppError::InvalidInput(format!(
         "{} 不是演示文稿（识别为 {} / {}）；表格用 office-sheet，文档用 office-doc",
@@ -369,12 +398,23 @@ mod tests {
         assert!(note.contains("母版"), "{note}");
     }
 
-    /// .ppt 只到「认出来」这一步，要明说而不是给一份空页表
+    /// .ppt 的记录树现在读得出文本原子，但**不猜页数**：张数要靠 SlideContainer 与
+    /// SlidePersistAtom 的配对，那一层没做就把 `slides` 留空并把局限写在 notes 里
     #[test]
-    fn legacy_ppt_says_the_record_tree_is_not_parsed() {
+    fn legacy_ppt_reads_the_record_tree_but_refuses_to_guess_pages() {
         let out = run("deck.ppt");
         assert_eq!(out["kind"], "powerpoint-binary");
         assert!(out["slides"].as_array().expect("是数组").is_empty());
+        assert_eq!(out["record_tree"]["text_atoms"], 67, "{out}");
+        assert_eq!(out["record_tree"]["records"], 1427);
+        assert_eq!(out["record_tree"]["slide_containers"], 11);
+        let atoms = out["record_tree"]["atoms"].as_array().expect("是数组");
+        assert!(
+            atoms
+                .iter()
+                .any(|one| one["text"].as_str().unwrap_or("") == "预算评审"),
+            "幻灯片标题要在原子里"
+        );
         let note = out["notes"]
             .as_array()
             .expect("有 notes")
@@ -383,6 +423,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join(" ");
         assert!(note.contains("记录树"), "{note}");
+        assert!(note.contains("不猜"), "说不清的局限要写明：{note}");
     }
 
     #[test]

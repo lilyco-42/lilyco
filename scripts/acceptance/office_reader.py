@@ -24,7 +24,7 @@ from pathlib import Path as _Path
 
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 from lyco_rtf import rtf_text  # 独立 RTF 实现，与 lilyco-binfmt/src/rtf.rs 对账
-from lyco_legacy import biff_workbook, doc_pieces  # 遗留格式的第二读者
+from lyco_legacy import biff_workbook, doc_pieces, ppt_text  # 遗留格式的第二读者
 
 END = "END"  # CFB 的链结束标记
 FREE = "FREE"
@@ -776,6 +776,8 @@ def facts(path: Path) -> dict:
             out["legacy_text"] = doc_pieces(streams)
         if "Workbook" in names or "Book" in names:
             out["biff"] = biff_workbook(streams)
+        if "PowerPoint Document" in streams:
+            out["ppt_text"] = ppt_text(streams)
         return out
     if data[:2] == b"PK":
         out["container"] = "zip"

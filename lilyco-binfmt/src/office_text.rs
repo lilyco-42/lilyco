@@ -13,8 +13,10 @@
 //!   RTF 走 [`crate::rtf`] 的目标群感知提取，不是「把控制字删掉」就算完。
 //!
 //! 遗留二进制格式走另两条路：`.doc` 的正文位置在 FIB 指向的 **piece 表** 里（见 [`crate::word]`），
-//! `.xls` 的文本集中在 **SST**（可跨 CONTINUE 边界，见 [`crate::biff]`）。`.ppt` 的记录树
-//! 这一版还没做 —— 照实返回 `kind: "unsupported"` 加一句为什么，
+//! `.xls` 的文本集中在 **SST**（可跨 CONTINUE 边界，见 [`crate::biff]`）；`.ppt` 的文本
+//! 散在一棵记录树的原子（0x0FA0 / 0x0FA8 / 0x0FBA）里，见 [`crate::ppt]` —— 那里连「这是
+//! 不是一层容器」都要靠「正文能不能再铺成一条完整记录流」来判。读不出来的东西照实返回
+//! `kind: "unsupported"` 加一句为什么，
 //! 把读不出来报成「文档是空的」是假答案。
 
 use serde_json::{json, Value};
@@ -32,7 +34,7 @@ use crate::zipread::{self, Member, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-text",
     run = "run_office_text",
-    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored). pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=unsupported with the reason, never as empty text. Read-only (safety T0): parts are inflated in memory only."
+    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored). pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=record-tree with every text atom found by walking the tree (master placeholders included, because they really are in the file). Read-only (safety T0): parts are inflated in memory only."
 )]
 pub struct OfficeText {
     /// 办公文件
@@ -328,9 +330,35 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                     }
                 }
             }
+            Some(cfb) if cfb.find("PowerPoint Document").is_some() => {
+                kind = "record-tree";
+                match crate::ppt::read(cfb, bytes) {
+                    Ok(deck) => {
+                        parts_read.push("PowerPoint Document".to_string());
+                        notes.extend(deck.notes.iter().cloned());
+                        notes.push(format!(
+                            "97 记录树里文本原子有 {} 个（走过 {} 条记录）；母版、备注与幻灯片正文同在一棵树里，按页归位要靠 SlideContainer 与 SlidePersistAtom 的配对，这里不猜",
+                            deck.atoms.len(),
+                            deck.records,
+                        ));
+                        for (index, line) in deck.lines().iter().enumerate() {
+                            paragraphs.push(json!({
+                                "index": index,
+                                "text": line,
+                                "part": "PowerPoint Document",
+                            }));
+                        }
+                    }
+                    Err(why) => {
+                        kind = "unsupported";
+                        notes.push(why);
+                    }
+                }
+            }
             Some(_) => {
                 notes.push(
-                    "这份复合文档不是 Word / Excel：PowerPoint 97 的记录树本版本还没实现正文读取"
+                    "这份复合文档既没有 WordDocument 也没有 Workbook / PowerPoint Document 流，\
+                     所以没有「正文」这一层可指"
                         .to_string(),
                 );
             }
@@ -712,20 +740,41 @@ mod tests {
         assert!(note.contains("草稿:hidden"), "表的可见性要报出来：{note}");
     }
 
-    /// .ppt 的记录树还没做：照实说做不到，而不是给一份空文本
+    /// .ppt 的 97 记录树：文本原子全部读出来（期望值来自 `lyco_legacy.py` 的 `ppt_text`）。
+    /// 母版占位文字也在里面 —— 它确实是文件里的文字，不藏
     #[test]
-    fn a_legacy_presentation_says_what_is_missing() {
+    fn reads_a_legacy_presentation_record_tree() {
         let out = run("deck.ppt", 20000, false);
-        assert_eq!(out["kind"], "unsupported", "{out}");
-        assert_eq!(out["paragraphs"].as_array().expect("是数组").len(), 0);
-        let note = out["notes"]
+        assert_eq!(out["kind"], "record-tree", "{out}");
+        let lines: Vec<&str> = out["paragraphs"]
             .as_array()
-            .expect("有 notes")
+            .expect("是数组")
             .iter()
-            .map(|one| one.as_str().unwrap_or(""))
-            .collect::<Vec<_>>()
-            .join(" ");
-        assert!(note.contains("PowerPoint"), "{note}");
+            .map(|one| one["text"].as_str().unwrap_or(""))
+            .collect();
+        for want in [
+            "预算评审",
+            "新增两台 64 核应用服务器",
+            "第二条要点",
+            "第二页：数字",
+            "科目",
+            "金额",
+            "服务器",
+            "评审时先讲口径再讲数字",
+        ] {
+            assert!(lines.iter().any(|one| *one == want), "缺 {want}");
+        }
+        // 幻灯片正文与母版文字的顺序也要对：正文在母版之后出现
+        let first_body = lines
+            .iter()
+            .position(|one| *one == "预算评审")
+            .expect("有正文");
+        let first_master = lines
+            .iter()
+            .position(|one| *one == "Click to edit Master title style")
+            .expect("有母版");
+        assert!(first_master < first_body, "母版在前、正文在后：{lines:?}");
+        assert_eq!(out["line_count"], lines.len());
     }
 
     /// Web / MCP 端省略 `max-chars` 时 derive 给的是 0，不是 schema 的 default：
