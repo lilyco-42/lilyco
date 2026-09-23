@@ -123,7 +123,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                             formulas += 1;
                             let _ = raw;
                         }
-                        if let Some(one) = cell.child("is") {
+                        if cell.child("is").is_some() {
                             inline += 1;
                         }
                         if kind == "s" {

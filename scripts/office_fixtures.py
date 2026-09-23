@@ -246,6 +246,41 @@ def write_xlsx(path: Path) -> None:
     wb.save(str(path))
 
 
+def write_formats_xlsx(path: Path) -> None:
+    """openpyxl：一个格子的 `s=` 指向 styles.xml 的 cellXfs，那里才写着它是日期还是数。
+
+    这份样本是专给「日期格识别」这条功能当证据的：
+    * C1 / C2 是 openpyxl 自己带的日期与日期时间（它把它们写成**自定义**格式号 164/165，
+      而不是内置的 14/22 —— 所以只查内置表会漏掉真件）；
+    * C3/C4 是百分比与货币；C5 是带汉字字面量的自定义日期格式（`yyyy"年"m"月"d"日"`），
+      字面量不剥掉就会把「月」这种字当成月份标记；
+    * **C7 是文本 `12/23/2013`**：长得像日期、样式是 General，它不是日期；
+    * C8 是布尔；C6 是常规数。
+    """
+    import datetime as dt
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "格式"
+    ws["A1"] = "标签"
+    ws["B1"] = "日期"
+    ws["C1"] = dt.date(2013, 12, 23)
+    ws["C2"] = dt.datetime(2013, 12, 23, 15, 15, 0)
+    ws["C3"] = 0.125
+    ws["C3"].number_format = "0.0%"
+    ws["C4"] = 124000
+    ws["C4"].number_format = "¥#,##0.00"
+    ws["C5"] = dt.date(2013, 12, 23)
+    ws["C5"].number_format = 'yyyy"年"m"月"d"日"'
+    ws["C6"] = 1234.5
+    ws["C7"] = "12/23/2013"
+    ws["C8"] = True
+    second = wb.create_sheet("另一张")
+    second["A1"] = dt.date(2026, 9, 23)
+    wb.save(str(path))
+
+
 def write_pptx(path: Path, art: Path) -> None:
     """python-pptx：两页、标题+正文占位符、备注、图片、表格、切换与母版"""
     from pptx import Presentation
@@ -445,6 +480,7 @@ def main() -> int:
     add_custom_props(docx)
     xlsx = OUT / "book.xlsx"
     write_xlsx(xlsx)
+    write_formats_xlsx(OUT / "formats.xlsx")
     pptx = OUT / "deck.pptx"
     write_pptx(pptx, art)
     add_macro_part(docx, OUT / "notes.docm")

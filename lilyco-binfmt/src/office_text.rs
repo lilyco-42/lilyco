@@ -120,6 +120,7 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
             }
             side.sort();
             for (part, what) in side.iter() {
+                let what: &'static str = *what;
                 let Some(member) = read(bytes, part) else {
                     notes.push(format!("{part} 读不出来"));
                     continue;

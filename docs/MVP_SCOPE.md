@@ -144,7 +144,7 @@ fn main() {
 > 命令表也同步到十二条并让 office 那八条读一份真实生产者写的 `.docx`。但四端探针要在本机
 > 跑起 `lbin`，而这一域的编译一律只在 CI 发生 —— 所以**十二条口径下的四端逐字一致尚未重跑**，
 > 已跑的是 CI 里的双读者对账（`scripts/acceptance/office_probe.py`：Rust 读者 vs 标准库
-> Python 读者，逐字段比 13 份 fixture）。
+> Python 读者，逐字段比 14 份 fixture）。
 
 > TUI 的「选择页→表单→进度→回选择页」状态机另有 6 个 facade 单测（`build_multi_tui`
 > 的隐藏命令过滤 / 空注册表报错 / 高亮驱动）+ 29 个 `lilyco-tui` 单测覆盖；
