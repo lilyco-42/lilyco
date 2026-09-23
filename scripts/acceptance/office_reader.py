@@ -24,6 +24,7 @@ from pathlib import Path as _Path
 
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 from lyco_rtf import rtf_info, rtf_text  # 独立 RTF 实现，与 lilyco-binfmt/src/rtf.rs 对账
+from lyco_formats import xlsx_formats  # xlsx 数字格式的第二读者（与 numfmt.rs 对账）
 from lyco_legacy import biff_workbook, doc_pieces, ppt_text  # 遗留格式的第二读者
 
 END = "END"  # CFB 的链结束标记
@@ -845,6 +846,8 @@ def facts(path: Path) -> dict:
         elif "xl/workbook.xml" in parts:
             out["app"] = "excel"
             out["ooxml"] = xlsx_facts(path)
+            if path.suffix.lower() == ".xlsx":
+                out["formats"] = xlsx_formats(path)
         elif "ppt/presentation.xml" in parts:
             out["app"] = "powerpoint"
             out["ooxml"] = pptx_facts(path)

@@ -32,6 +32,7 @@ mod biff;
 mod cfb;
 mod entries;
 mod identify;
+mod numfmt;
 mod office_doc;
 mod office_info;
 mod office_meta;

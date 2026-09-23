@@ -23,7 +23,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-sheet",
     run = "run_office_sheet",
-    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Legacy .xls goes through the BIFF8 record reader. Returns { path, format, sheets, workbook, defined_names, tables, external_links, parts, notes }."
+    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader. Returns { path, format, sheets, workbook, defined_names, tables, external_links, parts, notes }."
 )]
 pub struct OfficeSheet {
     /// 表格文件（xlsx / xlsm / xls）
@@ -71,10 +71,15 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             }
         }
         let shared = shared_strings(bytes);
+        // 格子写的 `s="3"` 是 `cellXfs` 的**下标**，不是格式号：不绕这一层，
+        // 一个日期永远只是「一个数」（41631）。
+        let styles = crate::numfmt::read_styles(bytes);
+        notes.extend(styles.notes.iter().cloned());
         let mut sheets: Vec<Value> = Vec::new();
         let mut totals = json!({
             "cells": 0, "formulas": 0, "numeric": 0, "shared_strings": 0,
             "inline_strings": 0, "merged": 0, "hidden_rows": 0, "hidden_cols": 0,
+            "dates": 0,
         });
         for (index, one) in root.descendants("sheet").iter().enumerate() {
             let name = one.attr("name").unwrap_or_default().to_string();
@@ -113,11 +118,24 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                     let mut shared_count = 0usize;
                     let mut inline = 0usize;
                     let mut cached = 0usize;
+                    let mut dates = 0usize;
                     for cell in sheet_root.descendants("c") {
                         count += 1;
                         let reference = cell.attr("r").unwrap_or_default().to_string();
                         let kind = cell.attr("t").unwrap_or("n").to_string();
+                        let style_index = cell
+                            .attr("s")
+                            .and_then(|raw| raw.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
                         let value = cell.child("v").map(|one| one.text().trim().to_string());
+                        let formatted =
+                            styles.cell_format(style_index, value.as_deref(), kind.as_str());
+                        if matches!(
+                            formatted["format_kind"].as_str().unwrap_or(""),
+                            "date" | "datetime" | "time"
+                        ) {
+                            dates += 1;
+                        }
                         let formula = cell.child("f").map(|one| one.text().trim().to_string());
                         if let Some(raw) = &formula {
                             formulas += 1;
@@ -168,12 +186,15 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                             cached += 1;
                         }
                         if cells.len() < limit {
-                            cells.push(json!({
-                                "ref": reference,
-                                "kind": kind,
-                                "value": numeric_or_text(text),
-                                "formula": formula,
-                            }));
+                            cells.push(merge(
+                                json!({
+                                    "ref": reference,
+                                    "kind": kind,
+                                    "value": numeric_or_text(text),
+                                    "formula": formula,
+                                }),
+                                formatted,
+                            ));
                         }
                     }
                     entry["dimension"] = json!(dimension);
@@ -183,6 +204,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                     entry["numeric"] = json!(numeric);
                     entry["shared_string_cells"] = json!(shared_count);
                     entry["inline_strings"] = json!(inline);
+                    entry["date_cells"] = json!(dates);
                     entry["formula_cells_with_cached_value"] = json!(cached);
                     entry["merged"] = json!(sheet_root.descendants("mergeCell").len());
                     entry["hidden_rows"] = json!(sheet_root
@@ -204,6 +226,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                     bump(&mut totals, "numeric", numeric);
                     bump(&mut totals, "shared_strings", shared_count);
                     bump(&mut totals, "inline_strings", inline);
+                    bump(&mut totals, "dates", dates);
                     bump(
                         &mut totals,
                         "merged",
@@ -235,6 +258,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             "workbook": {
                 "sheets": sheets.len(),
                 "hidden_sheets": sheets.iter().filter(|one| one["state"] != "visible").count(),
+                "date1904": json!(styles.year1904),
                 "shared_strings": shared.len(),
                 "views": root.descendants("workbookView").len(),
                 "calculation_mode": root.descendants("calcPr").first().and_then(|one| one.attr("fullCalcOnLoad")).map(|one| one.to_string()),
@@ -332,6 +356,17 @@ fn shared_strings(bytes: &[u8]) -> Vec<String> {
         }
         None => Vec::new(),
     }
+}
+
+/// 把格式账并到格子那条记录上（`cell_format` 交回的是一个小对象）
+fn merge(base: Value, extra: Value) -> Value {
+    let mut map = base.as_object().cloned().unwrap_or_default();
+    if let Some(more) = extra.as_object() {
+        for (key, value) in more {
+            map.insert(key.clone(), value.clone());
+        }
+    }
+    Value::Object(map)
 }
 
 fn bump(totals: &mut Value, key: &str, add: usize) {
@@ -437,6 +472,44 @@ mod tests {
             "{named:?}"
         );
         assert!(named.iter().any(|one| one == "草稿"), "{named:?}");
+    }
+
+    /// 数字格式：`s=` 是 `cellXfs` 的下标。日期格要认出来并换算，而 `12/23/2013`
+    /// 那种长得像日期的**文本**不许被猜成日期（期望值来自 `lyco_formats.py`）
+    #[test]
+    fn a_cell_number_is_not_a_date_until_the_style_says_so() {
+        let out = run("formats.xlsx");
+        assert_eq!(out["kind"], "spreadsheetml");
+        assert_eq!(out["workbook"]["date1904"], json!(false), "{out}");
+        assert_eq!(out["workbook"]["totals"]["dates"], 4, "{out}");
+        let cells = out["sheets"][0]["cell_list"].as_array().expect("是数组");
+        let find = |want: &str| {
+            cells
+                .iter()
+                .find(|one| one["ref"] == want)
+                .cloned()
+                .unwrap_or(Value::Null)
+        };
+        assert_eq!(find("C1")["format_kind"], "date", "{out}");
+        assert_eq!(find("C1")["as_date"], "2013-12-23", "{}", find("C1"));
+        assert_eq!(find("C2")["as_date"], "2013-12-23T15:15:00");
+        assert_eq!(find("C3")["format_kind"], "percent");
+        assert_eq!(find("C4")["format_kind"], "currency");
+        assert_eq!(
+            find("C5")["format"],
+            "yyyy\"年\"m\"月\"d\"日\"",
+            "{}",
+            find("C5")
+        );
+        assert_eq!(find("C6")["format_kind"], "general");
+        let trap = find("C7");
+        assert_eq!(
+            trap["format_kind"], "text",
+            "长得像日期的文本仍是文本：{trap}"
+        );
+        assert!(trap.get("as_date").is_none(), "{trap}");
+        assert_eq!(find("A1")["style"], 0, "没写 s 就是 0 号样式");
+        assert_eq!(out["sheets"][1]["date_cells"], 1, "{out}");
     }
 
     /// 不是表格的文件要指路

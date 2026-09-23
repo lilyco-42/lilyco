@@ -99,6 +99,7 @@ def main() -> int:
         "deck.odp": ("opendocument", "powerpoint", "odp"),
         "notes.doc": ("compound", "word", "doc"),
         "notes-en.doc": ("compound", "word", "doc"),
+        "formats.xlsx": ("ooxml", "excel", "xlsx"),
         "book.xls": ("compound", "excel", "xls"),
         "deck.ppt": ("compound", "powerpoint", "ppt"),
         "notes.rtf": ("rtf", "word", "rtf"),
@@ -199,6 +200,30 @@ def main() -> int:
           [one.get("sheet") for one in bw["cells"][: int(dig(b, "workbook.totals.cells") or 0)]])
     check("book.xls 按表计数", {str(one.get("name")): int(one.get("cells") or 0) for one in b.get("sheets", [])},
           {str(k): int(v) for k, v in bw["cells_per_sheet"].items()})
+
+    # ── 3b) 数字格式：格子写的是 cellXfs 的下标，日期藏在样式里 ──────────
+    print("=== 3b) formats.xlsx：格式号、判定与换算出来的日期 ===")
+    fx = lbin("office-sheet", fixture("formats.xlsx"))
+    fw = files["formats.xlsx"]["formats"]
+    flat = {}
+    for one_sheet in fx.get("sheets", []):
+        for cell in one_sheet.get("cell_list", []):
+            flat["%s!%s" % (one_sheet.get("name"), cell.get("ref"))] = cell
+    want = {("%s!%s" % (one["sheet"], one["ref"])): one for one in fw["cells"]}
+    check("formats.xlsx 格子数", len(flat), len(want))
+    check("formats.xlsx 1904 基准", dig(fx, "workbook.date1904"), fw["date1904"])
+    for key in sorted(want):
+        got = flat.get(key, {})
+        mine = {k: got.get(k) for k in ("format_kind", "num_fmt", "format", "as_date")}
+        theirs = {
+            "format_kind": want[key].get("kind"),
+            "num_fmt": want[key].get("num_fmt_id"),
+            "format": want[key].get("format_code"),
+            "as_date": want[key].get("as_date"),
+        }
+        # 日期格两边都要有 as_date；非日期格两边都不许有
+        record("formats %s 判成 %s" % (key, theirs["format_kind"]), mine == theirs,
+               json.dumps({"got": mine, "want": theirs}, ensure_ascii=False)[:130])
 
     # ── 属性：三份账 ───────────────────────────────────────────────
     print("=== 4) office-meta：属性 ===")
