@@ -145,6 +145,10 @@ body {
   transition: border-color 0.15s, background 0.15s;
 }
 .icon-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.icon-btn:active { background: var(--surface-3); }
+/* 深色主题按下时用实底 accent 报状态，不然看不出「现在是深色」 */
+.icon-btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 
 /* ── 版心 ── */
 .page { padding: var(--s-5) var(--s-4) var(--s-7); }
@@ -181,6 +185,14 @@ body {
   color: var(--ink);
 }
 .req-mark { margin-left: var(--s-1); color: var(--danger); }
+/* 控件下方的解释（Number 的取值区间）：既给眼睛，也给读屏（aria-describedby） */
+.field-hint {
+  display: block;
+  margin-top: var(--s-1);
+  color: var(--ink-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
 
 input[type="text"], input[type="number"], select {
   width: 100%;
@@ -201,6 +213,14 @@ input:focus-visible, select:focus-visible {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+/* hover 只把描边压深一档，不抢 focus 的 accent —— 两种状态得能分辨 */
+input[type="text"]:hover, input[type="number"]:hover, select:hover { border-color: var(--ink-muted); }
+/* 越界：min/max 是服务端按 schema 发的，浏览器原生就能判 */
+input[type="number"]:out-of-range { border-color: var(--danger); }
+/* :user-invalid 只在用户真的动过之后报警，空着必填项不该一路红 */
+input:user-invalid { border-color: var(--danger); }
+input:user-invalid:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent); }
+input:disabled, select:disabled { opacity: 0.55; cursor: not-allowed; }
 input[type="checkbox"] {
   accent-color: var(--accent);
   width: 17px;
@@ -217,11 +237,11 @@ input[type="checkbox"] {
   cursor: pointer;
 }
 .list-rows { display: flex; flex-direction: column; gap: var(--s-2); }
-.list-row { display: flex; gap: var(--s-2); align-items: flex-start; }
+.list-row { display: flex; gap: var(--s-2); align-items: center; }
 /* flex 子项默认 min-width:auto —— 长路径会把整行撑破，必须显式归零 */
 .list-row > input { flex: 1 1 auto; min-width: 0; }
 .row-del { flex: 0 0 auto; }
-.list-add { max-width: 100%; }
+.list-add { max-width: 100%; margin-top: var(--s-2); }
 
 /* ── 按钮 ── */
 .btn {
@@ -243,7 +263,6 @@ input[type="checkbox"] {
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn.primary { background: var(--accent); color: var(--on-accent); }
 .btn.primary:hover { background: color-mix(in srgb, var(--accent) 88%, var(--ink)); }
-.btn.primary:disabled { opacity: 0.55; cursor: not-allowed; }
 .btn.ghost, .btn.danger {
   background: transparent;
   border-color: var(--control);
@@ -265,6 +284,12 @@ input[type="checkbox"] {
   animation: spin 0.7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* disabled 一律压淡并收掉 hover —— 灰着还能变色的按钮会让人一直点 */
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn.primary:disabled:hover { background: var(--accent); }
+.btn.ghost:disabled:hover, .btn.danger:disabled:hover { border-color: var(--control); background: transparent; color: var(--ink-muted); }
+/* aria-busy 给读屏，loading 给眼睛；跑起来的那颗按钮两样一起亮 */
+.btn.loading { cursor: progress; }
 
 .btn-icon {
   min-height: 28px;
@@ -280,9 +305,16 @@ input[type="checkbox"] {
 }
 .btn-icon:hover { border-color: var(--accent); color: var(--accent); }
 .btn-icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn-icon:active { transform: scale(0.98); }
+.btn-icon:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+.btn-icon:disabled:hover { border-color: var(--hairline); color: var(--ink-muted); }
+/* 复制的成/败必须有反馈：静默写剪贴板等于没写（浏览器还可能弹个权限框） */
+.btn-icon.copied { border-color: var(--ok); color: var(--ok); }
+.btn-icon.copy-failed { border-color: var(--danger); color: var(--danger); }
+.row-del:hover { border-color: var(--danger); color: var(--danger); }
 
-/* 拖拽区里的「本机」按钮：不 nowrap 会被 flex 挤成一列竖字 */
-.dz-pick { flex: 0 0 auto; align-self: center; white-space: nowrap; }
+/* 拖拽区里的两个动作按钮：不 nowrap 会被 flex 挤成一列竖字 */
+.dz-browse, .dz-pick { flex: 0 0 auto; align-self: center; white-space: nowrap; }
 
 /* ── 文件输入组件 ── */
 .dropzone {
@@ -300,11 +332,8 @@ input[type="checkbox"] {
   user-select: none;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
-.dropzone:hover, .dropzone:focus-visible {
-  border-color: var(--accent);
-  color: var(--ink);
-  outline: none;
-}
+/* 拖拽区是容器：hover 由里面每个控件自己报，这里只把虚线压深一档 */
+.dropzone:hover { border-color: var(--ink-muted); color: var(--ink); }
 .dropzone.drag-over { border-color: var(--accent); border-style: solid; background: var(--accent-soft); }
 .dropzone.uploaded {
   border-color: var(--accent);
@@ -312,6 +341,10 @@ input[type="checkbox"] {
   background: var(--accent-soft);
   color: var(--ink);
 }
+/* 上传成功后提示语就没用了，让位给 chip */
+.dropzone.uploaded .dz-hint { display: none; }
+/* 失败要让整个区也发红，光靠一行小字容易被当成说明文字扫过去 */
+.dropzone:has(.dz-status.err) { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 7%, transparent); }
 .dz-icon { flex: 0 0 auto; color: var(--accent); font-size: 16px; }
 .dz-hint { flex: 1 1 160px; min-width: 0; }
 /* 状态行永远独占一行：上传中/失败的话术最长，挤在行里读不全 */
@@ -320,20 +353,27 @@ input[type="checkbox"] {
 .dz-status.busy { color: var(--warn); }
 .dz-status.ok { color: var(--ok); }
 .dz-status.err { color: var(--danger); }
+/* chip 是个真按钮（可聚焦、可回车清除），所以要自己带描边与字体 */
 .file-chip {
   flex: 1 1 100%;
   min-width: 0;
   max-width: 100%;
   padding: var(--s-1) var(--s-3);
+  border: 1px solid var(--hairline);
   border-radius: var(--r-pill);
   background: var(--surface-2);
   color: var(--ink);
+  font: inherit;
   font-size: 12.5px;
+  text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
 }
+.file-chip:hover { border-color: var(--danger); color: var(--danger); }
+.file-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -357,6 +397,8 @@ input[type="checkbox"] {
   word-break: break-all;
 }
 .cli-preview::before { content: "$ "; color: var(--accent); font-weight: 700; }
+/* 空预览（JS 没起来，或还没算出命令）不显示那条孤零零的 "$ " */
+.cli-preview:empty { display: none; }
 
 /* ── 输出区 ── */
 #out { margin-top: var(--s-5); }
@@ -391,6 +433,10 @@ input[type="checkbox"] {
   transition: width 0.2s ease;
 }
 .progress[data-indet="1"] .progress-bar { width: 40%; animation: indet 1.2s ease-in-out infinite; }
+/* 收尾态：跑完转绿、出错整条涂红。error 时 JS 仍把宽度写成 100%，
+   因为 0% 的进度条等于「什么都没发生」 */
+.progress[data-state="done"] .progress-bar { background: var(--ok); }
+.progress[data-state="error"] .progress-bar { background: var(--danger); }
 @keyframes indet { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
 
 /* 终端：机器输出，不随主题变（DESIGN.md §1.3）。高度按视口收，矮屏上不吃掉整页 */
@@ -412,6 +458,10 @@ input[type="checkbox"] {
 .terminal .line.err { color: #ff7b72; }
 .terminal .line.warn { color: #e3b341; }
 .terminal .line.tele { color: #56d364; }
+/* 空态与可滚动区域都要有交代：tabindex=0 的滚动区必须能看出被聚焦了
+   （WCAG 2.1.1 键盘可滚动），占位色是终端固定色板里的灰，不走主题令牌 */
+.terminal:empty::before { content: "等待输出…"; color: #8b949e; }
+.terminal:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .result-wrap { margin-top: var(--s-3); }
 .result-head {
@@ -472,9 +522,11 @@ input[type="checkbox"] {
   .actions .btn { flex: 1 1 140px; justify-content: center; }
 }
 @container (max-width: 420px) {
-  /* 按钮组改竖排，每个占满 —— 复制 CLI 这种次要动作不该抢主按钮的位 */
+  /* 按钮组改竖排，每个占满 —— 复制 CLI 这种次要动作不该抢主按钮的位。
+     flex 基准必须收回 auto：主轴变成高度后，上面 560px 那条 `flex:1 1 140px`
+     会把 140px 解释成高度，实测按钮被顶到 140px 高。 */
   .actions { flex-direction: column; }
-  .actions .btn { width: 100%; }
+  .actions .btn { width: 100%; flex: 0 0 auto; }
   .out-head { flex-wrap: wrap; }
   .out-head .progress { flex: 1 1 100%; }
   .topbar select { flex-basis: 100%; order: 2; }

@@ -12,7 +12,7 @@ flowchart TD
     A["用户 struct + #[derive(App)]"] --> B["CommandSchema<br/>core/schema.rs"]
     B --> C[lilyco-cli: clap]
     B --> D[lilyco-tui: ratatui 表单]
-    B --> E[lilyco-gui: axum+layui]
+    B --> E[lilyco-gui: axum+自研设计系统]
     B --> F[lilyco-mcp: stdio JSON-RPC]
     C & D & E & F --> G["core::executor<br/>唯一执行宿主"]
     G --> H["Handler(&Context, args JSON)<br/>→ Progress 事件流 → Done/Error"]
@@ -85,9 +85,11 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `serve_state()` | `lib.rs:105` | 路由器装配处：六个端点 + `security_mw` 一道闸（**新增端点只改这里**） |
 | `security_mw()` | `security.rs:63` | 回环 Host 校验 + Origin 校验 + 随机 Token（防 DNS rebinding/CSRF）；`PROTECTED_POST:21` 是那份端点清单 |
 | `AppState` | `state.rs:17` | schema / registry / sessions / cancels / token 一处真相（`pub(crate)`，测试夹具在同文件 `fixture`） |
-| `pick_command()` | `render.rs:23` | `?cmd=` → 可见命令（别名命中；隐藏回退第一个可见） |
-| `index()` | `render.rs:33` | schema → 表单 HTML；**转义纪律集中在此**，骨架是 `assets/index.html` |
-| 设计令牌 | `lilyco-gui/DESIGN.md` | 颜色/间距/排版/圆角/动效/响应式的**唯一一张表**；改样式先看它，`app.css` 只许引用表里的值 |
+| `pick_command()` | `render.rs:32` | `?cmd=` → 可见命令（别名命中；隐藏回退第一个可见） |
+| `index()` | `render.rs:44` | 只做装配：取 schema → 拼组件 → 填模板 → 挂响应头（含 `no-store`，见 DESIGN.md §8.4） |
+| `render_field()` | `render.rs:112` | **一个 `ArgKind` 一个组件函数**（`widget_flag/text/number/enum/path/list` + `field_shell`/`dropzone`/`pick_button`/`list_row`/`command_nav`），转义在 `Field` 里算一次 |
+| 前端组件装配 | `assets/index.html` | 一个组件一个 `init*` + 末尾一行 `BOOT`；`initDropzone` 负责拖拽区里三个控件的点击分流 |
+| 设计令牌与组件目录 | `lilyco-gui/DESIGN.md` | §1–§6 颜色/间距/排版/圆角/动效/响应式的**唯一一张表**（`app.css` 只许引用表里的值），§7 DOM 契约，§10 每个组件的构成/七态/令牌/无障碍 |
 | `run_handler()` | `run.rs:111` | `/run`：多命令按 `req.cmd` 显式分发（未知/隐藏 → 400，**绝不静默换命令**）；单命令走 `runner` |
 | `run_progress()` | `run.rs:41` | handler → spawn → SSE 事件转发（单/多命令共用；registry 版会登记取消句柄） |
 | `upload_handler()` | `files.rs:98` | 拖拽上传 → base64 → 服务端临时副本（净化文件名 + 双重体积上限） |
@@ -181,7 +183,7 @@ cargo bench -p lilyco-example                      # schema 生成性能基准
 | core 校验/协议/registry | `lilyco-core/src/{schema,lib,registry}.rs` `#[cfg(test)]` | validate_args 12 例、Progress serde、registry 别名/隐藏/JSON |
 | CLI | `lilyco-cli/src/tests.rs` | 渲染/解析/内置标志/多命令构建与解析（31 例） |
 | TUI | `lilyco-tui/src/lib.rs` 底部 | 渲染、状态机、校验拦截、多命令选择页、路径 Tab 补全 |
-| GUI | `lilyco-gui/src/{security,state,render,run,files,util}.rs` 各自底部 | run_handler 400/200、pick_command、?cmd 导航、转义、base64、文件名净化、`/pick` 同闸 |
+| GUI | `lilyco-gui/src/{security,state,render,run,files,util}.rs` 各自底部 | run_handler 400/200、pick_command、?cmd 导航、转义、base64、文件名净化、`/pick` 同闸；**组件契约**：六种 ArgKind 各自出组件且 `data-component` 自报、JS 里每个 `init*` 都在 `BOOT`、装配行在脚本末尾（TDZ）、内联 JS 过 `node --check`、页面无内联事件、拖拽区 id 对得上 JS 的拼法、`no-store` |
 | MCP | `lilyco-mcp/src/tests.rs` | initialize/tools/进度通知/双向 serve/校验拒绝（26 例） |
 | 门面 | `lilyco/src/lib.rs` 底部 | 后端探测 |
 | 域二进制 | `lilyco-binfmt/src/{main,read,entries,regions,symbols}.rs` 底部 | 注册表形状/全 T0/工具导出/参数拒绝；魔数判别（Java class ≠ 通用二进制）、tar 八位校验和、PNG 真算 CRC、ELF 头部只到 `e_ehsize`、Mach-O 端序与定长 16 字节节名、零填充节不画成数据 |

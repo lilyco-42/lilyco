@@ -1,7 +1,15 @@
 //! 页面渲染：`GET /` 把 CommandSchema 摊成一张表单（多命令模式带切换下拉）。
 //!
-//! 唯一的 HTML 出口，所以转义纪律集中在这里：任何插值进模板的动态内容先过
-//! `html_escape`，进 JSON 元数据的先序列化再把 `</` 断掉。骨架见 `assets/index.html`。
+//! 这里是全 crate 唯一的 HTML 出口，所以两件事集中在此：
+//! - **转义纪律**：任何插值进模板的动态内容先过 `html_escape`；进 JSON 元数据的先序列化
+//!   再把 `</` 断掉。
+//! - **组件目录**：一个 `ArgKind` 一个组件函数（`widget_*`），标签与布局在 `field_shell`，
+//!   页面骨架是 `assets/index.html`。每个组件的构成、七态与用到的令牌见
+//!   `lilyco-gui/DESIGN.md` §10 —— 改组件要同时改那张表，两边不许各说各话。
+//!
+//! 组件在 DOM 上自报家门：`data-component="<名字>"` 是 JS 装配（`assets/index.html` 里
+//! 一个组件一个 `init*`）与单测共同的锚点。HTML 片段一律用 raw string 写 ——
+//! 满屏 `\"` 转义正是这类代码最容易看错的地方。
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -11,7 +19,7 @@ use axum::http::header;
 use axum::response::{Html, IntoResponse, Response};
 
 use lilyco_core::registry::{RegisteredCommand, Registry};
-use lilyco_core::schema::ArgKind;
+use lilyco_core::schema::{ArgKind, ArgSchema};
 
 use crate::files::MAX_UPLOAD_BYTES;
 use crate::state::AppState;
@@ -31,6 +39,8 @@ pub(crate) fn pick_command<'r>(
         .expect("pick_command: registry has no visible commands")
 }
 
+/// `GET /`：装配一份命令表单。这里只做「取 schema → 拼组件 → 填模板 → 挂响应头」，
+/// 具体每个控件长什么样一律在 `widget_*` 里
 pub(crate) async fn index(
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
@@ -43,159 +53,36 @@ pub(crate) async fn index(
         None => state.schema.as_ref().clone(),
     };
 
-    // 命令切换下拉（可见命令 > 1 时出现）
-    let mut cmd_nav = String::new();
-    if let Some(reg) = &state.registry {
-        let visible: Vec<&RegisteredCommand> = reg.visible().collect();
-        if visible.len() > 1 {
-            let mut opts = String::new();
-            for c in &visible {
-                let name = html_escape(&c.schema.name);
-                let sel = if c.schema.name == schema.name {
-                    " selected"
-                } else {
-                    ""
-                };
-                opts.push_str(&format!("<option value=\"{name}\"{sel}>{name}</option>"));
-            }
-            cmd_nav = format!(
-                "<select id=\"cmd-nav\" aria-label=\"切换命令\" onchange=\"if(this.value)location='/?cmd='+encodeURIComponent(this.value)\">{opts}</select>"
-            );
-        }
-    }
-
-    let mut fields_html = String::new();
-    let mut field_meta: Vec<serde_json::Value> = Vec::new();
-
-    for arg in &schema.args {
-        field_meta.push(serde_json::json!({
-            "name": arg.name,
-            "kind": kind_name(&arg.kind),
-            "required": arg.required,
-        }));
-
-        let esc_name = html_escape(&arg.name);
-        let req_mark = if arg.required {
-            "<span class=\"req-mark\" aria-hidden=\"true\">*</span>"
-        } else {
-            ""
-        };
-        let label = format!("{}{}", html_escape(&arg.about), req_mark);
-        let req_a = if arg.required { " required" } else { "" };
-
-        let widget = match &arg.kind {
-            ArgKind::Flag => {
-                let ck = matches!(&arg.default, Some(serde_json::Value::Bool(true)))
-                    .then_some(" checked")
-                    .unwrap_or("");
-                format!(
-                    "<label class=\"flag-row\"><input type=\"checkbox\" id=\"field-{esc_name}\"{ck}> \
-                     <span>{label}</span></label>"
-                )
-            }
-            ArgKind::Text => {
-                let dv = arg.default.as_ref().and_then(|d| d.as_str()).unwrap_or("");
-                format!(
-                    "<input type=\"text\" id=\"field-{esc_name}\" placeholder=\"{}\"{req_a} value=\"{}\">",
-                    html_escape(&arg.about),
-                    html_escape(dv),
-                )
-            }
-            ArgKind::Path { must_exist } => {
-                // 文件输入组件：手动路径 + 拖拽/点击上传（上传后回填服务端暂存绝对路径）
-                let dv = arg.default.as_ref().and_then(|d| d.as_str()).unwrap_or("");
-                let must_attr = if *must_exist { "1" } else { "0" };
-                let hint = if *must_exist {
-                    "拖拽文件到此处，或点击选择 —— 上传后自动回填服务端路径"
-                } else {
-                    "可选：拖拽文件上传并回填路径，或直接手填"
-                };
-                // 「本机」按钮：让服务端弹系统选择器，回填磁盘上的原始路径（不上传副本）。
-                // 没开 pick 特性的构建不画它，免得点了只得到一句报错。
-                let pick_btn = if cfg!(feature = "pick") {
-                    format!(
-                        "<button type=\"button\" class=\"btn-icon dz-pick\" data-pick=\"{esc_name}\" \
-                         aria-label=\"用系统选择器挑本机文件\" title=\"用系统选择器挑本机文件（只回填真实路径，不上传副本）\">本机</button>"
-                    )
-                } else {
-                    String::new()
-                };
-                format!(
-                    "<input type=\"text\" id=\"field-{esc_name}\" class=\"mono\" placeholder=\"{}\"{req_a} value=\"{}\" spellcheck=\"false\">\
-                     <div class=\"dropzone\" data-target=\"{esc_name}\" data-must-exist=\"{must_attr}\" data-max-upload=\"{MAX_UPLOAD_BYTES}\" tabindex=\"0\" role=\"button\" aria-label=\"上传文件\">\
-                     <input type=\"file\" class=\"visually-hidden\" data-file-for=\"{esc_name}\" tabindex=\"-1\">\
-                     <span class=\"dz-icon\">⇪</span><span class=\"dz-hint\">{hint}</span>\
-                     <span class=\"dz-status\" id=\"up-{esc_name}\" aria-live=\"polite\"></span>\
-                     <span class=\"file-chip\" id=\"chip-{esc_name}\" hidden></span>{pick_btn}</div>",
-                    html_escape(&arg.about),
-                    html_escape(dv),
-                )
-            }
-            ArgKind::Number { min, max } => {
-                let dv = arg
-                    .default
-                    .as_ref()
-                    .and_then(|d| d.as_f64())
-                    .map(|n| n.to_string())
-                    .unwrap_or_else(|| min.map(|m| m.to_string()).unwrap_or_default());
-                let min_a = min.map(|m| format!(" min=\"{m}\"")).unwrap_or_default();
-                let max_a = max.map(|m| format!(" max=\"{m}\"")).unwrap_or_default();
-                format!(
-                    "<input type=\"number\" id=\"field-{esc_name}\" value=\"{}\" step=\"any\"{min_a}{max_a}{req_a}>",
-                    html_escape(&dv),
-                )
-            }
-            ArgKind::Enum { values } => {
-                let mut opts = String::new();
-                for v in values {
-                    let ev = html_escape(v);
-                    let sel = if arg.default.as_ref().and_then(|d| d.as_str()) == Some(v.as_str()) {
-                        " selected"
-                    } else {
-                        ""
-                    };
-                    opts.push_str(&format!("<option value=\"{ev}\"{sel}>{ev}</option>"));
-                }
-                format!("<select id=\"field-{esc_name}\"{req_a}>{opts}</select>")
-            }
-            ArgKind::List { .. } => {
-                // 动态行：默认 2 行 + 增删按钮（收集时按 data-list 前缀聚合）
-                format!(
-                    "<div class=\"list-rows\" id=\"list-{esc_name}\" data-list=\"{esc_name}\">\
-                     <div class=\"list-row\"><input type=\"text\" class=\"mono\" data-list-item=\"{esc_name}\" placeholder=\"{}\"><button type=\"button\" class=\"btn-icon row-del\" aria-label=\"删除该行\" onclick=\"this.closest('.list-row').remove()\">✕</button></div>\
-                     <div class=\"list-row\"><input type=\"text\" class=\"mono\" data-list-item=\"{esc_name}\" placeholder=\"{}\"><button type=\"button\" class=\"btn-icon row-del\" aria-label=\"删除该行\" onclick=\"this.closest('.list-row').remove()\">✕</button></div>\
-                     </div>\
-                     <button type=\"button\" class=\"btn-icon list-add\" data-list-add=\"{esc_name}\">＋ 添加一项</button>",
-                    html_escape(&arg.about),
-                    html_escape(&arg.about),
-                )
-            }
-        };
-
-        if matches!(&arg.kind, ArgKind::Flag) {
-            fields_html.push_str(&format!("<div class=\"field field-flag\">{widget}</div>\n"));
-        } else {
-            fields_html.push_str(&format!(
-                "<div class=\"field\"><label for=\"field-{esc_name}\">{label}</label>{widget}</div>\n"
-            ));
-        }
-    }
+    let cmd_nav = state
+        .registry
+        .as_ref()
+        .map(|reg| command_nav(reg, &schema.name))
+        .unwrap_or_default();
+    let fields_html: String = schema.args.iter().map(render_field).collect();
+    let field_meta: Vec<serde_json::Value> = schema
+        .args
+        .iter()
+        .map(|arg| {
+            serde_json::json!({
+                "name": arg.name,
+                "kind": kind_name(&arg.kind),
+                "required": arg.required,
+            })
+        })
+        .collect();
 
     // JSON 元数据（含 </script> 防 breakout 转义）
     let meta_json = serde_json::to_string(&field_meta)
         .unwrap_or_else(|_| "[]".into())
         .replace("</", "<\\/");
-    let cmd_json = serde_json::json!(schema.name).to_string();
-    let about_html = html_escape(&schema.about);
-    let cmd_html = html_escape(&schema.name);
 
     let html = HTML_TEMPLATE
         .replace("__CSS__", include_str!("../assets/app.css"))
         .replace("__CMD_NAV__", &cmd_nav)
         .replace("__FIELDS__", &fields_html)
-        .replace("__ABOUT__", &about_html)
-        .replace("__CMD_NAME__", &cmd_html)
-        .replace("__CMD_JS__", &cmd_json)
+        .replace("__ABOUT__", &html_escape(&schema.about))
+        .replace("__CMD_NAME__", &html_escape(&schema.name))
+        .replace("__CMD_JS__", &serde_json::json!(schema.name).to_string())
         .replace("__META__", &meta_json)
         // token 最后注入且 token 为随机字母数字，无碰撞风险
         .replace("__TOKEN__", &state.token);
@@ -210,7 +97,277 @@ pub(crate) async fn index(
             .unwrap(),
     );
     headers.insert("X-Content-Type-Options", "nosniff".parse().unwrap());
+    // 整页自包含且随进程变（schema、令牌、重编译后的资产都会变），缓存下来只会看到旧控制台：
+    // 实测过一次 —— 改了页面 JS 重编重跑，浏览器还在发上一版，页面上半数组件是死的。
+    headers.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
     resp
+}
+
+// ── 字段外壳 ───────────────────────────────────────────────
+//
+// 一个参数在页面上永远是「外壳 + 一个控件」。外壳管标签、必填标记与布局；
+// 控件只认自己的 ArgKind。Flag 例外：它的标签就是控件那一行。
+
+/// 渲染一个参数：外壳 + 对应 ArgKind 的控件
+fn render_field(arg: &ArgSchema) -> String {
+    let f = Field::new(arg);
+    let widget = match &arg.kind {
+        ArgKind::Flag => widget_flag(&f),
+        ArgKind::Text => widget_text(&f),
+        ArgKind::Number { min, max } => widget_number(&f, *min, *max),
+        ArgKind::Enum { values } => widget_enum(&f, values),
+        ArgKind::Path { must_exist } => widget_path(&f, *must_exist),
+        ArgKind::List { .. } => widget_list(&f),
+    };
+    field_shell(&f, widget)
+}
+
+/// 渲染上下文：同一个参数的名字、标签、必填标记会被多处片段反复用到，
+/// 一次算好（含转义）比在每个组件里各转一遍安全 —— 漏一处就是 XSS。
+struct Field<'a> {
+    arg: &'a ArgSchema,
+    /// 已转义的参数名，用于 id 与 data-* 插值
+    esc_name: String,
+    /// 已转义的标签文案（不含必填星号）
+    label: String,
+    req_a: &'static str,
+}
+
+impl<'a> Field<'a> {
+    fn new(arg: &'a ArgSchema) -> Self {
+        Self {
+            arg,
+            esc_name: html_escape(&arg.name),
+            label: html_escape(&arg.about),
+            req_a: if arg.required { " required" } else { "" },
+        }
+    }
+
+    /// 字符串型参数的默认值（未给就是空串）
+    fn default_text(&self) -> String {
+        html_escape(
+            self.arg
+                .default
+                .as_ref()
+                .and_then(|d| d.as_str())
+                .unwrap_or(""),
+        )
+    }
+
+    /// 占位文案：控件里也拿 about 当提示
+    fn placeholder(&self) -> String {
+        html_escape(&self.arg.about)
+    }
+
+    /// 外壳用的标签：文案 + 必填星号
+    fn label_with_mark(&self) -> String {
+        let mark = if self.arg.required {
+            r##"<span class="req-mark" aria-hidden="true">*</span>"##
+        } else {
+            ""
+        };
+        format!("{}{}", self.label, mark)
+    }
+}
+
+/// 外壳：标签 + 控件。Flag 走整行布局，其余一律「标签在上、控件在下」
+fn field_shell(f: &Field, widget: String) -> String {
+    if matches!(f.arg.kind, ArgKind::Flag) {
+        return format!(r##"<div class="field field-flag">{widget}</div>"##) + "\n";
+    }
+    format!(
+        r##"<div class="field"><label for="field-{esc}">{label}</label>{widget}</div>"##,
+        esc = f.esc_name,
+        label = f.label_with_mark()
+    ) + "\n"
+}
+
+// ── 六种控件 ───────────────────────────────────────────────
+
+/// `Flag`：复选框即标签，整行可点
+fn widget_flag(f: &Field) -> String {
+    let checked = matches!(&f.arg.default, Some(serde_json::Value::Bool(true)))
+        .then_some(" checked")
+        .unwrap_or("");
+    format!(
+        r##"<label class="flag-row" data-component="flag"><input type="checkbox" id="field-{esc}"{checked}> <span>{label}</span></label>"##,
+        esc = f.esc_name,
+        label = f.label
+    )
+}
+
+/// `Text`：单行输入
+fn widget_text(f: &Field) -> String {
+    format!(
+        r##"<input type="text" id="field-{esc}" data-component="text" placeholder="{ph}"{req} value="{dv}">"##,
+        esc = f.esc_name,
+        ph = f.placeholder(),
+        req = f.req_a,
+        dv = f.default_text()
+    )
+}
+
+/// `Number`：带 min/max 的数字输入。区间既写进 HTML 属性（校验与原生 UI 用），
+/// 也渲染成一行可见提示并用 `aria-describedby` 挂上 —— 只放属性的话，
+/// 读屏用户听不到「0 到 51」这个约束
+fn widget_number(f: &Field, min: Option<f64>, max: Option<f64>) -> String {
+    let dv = f
+        .arg
+        .default
+        .as_ref()
+        .and_then(|d| d.as_f64())
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| min.map(|m| m.to_string()).unwrap_or_default());
+    let min_a = min.map(|m| format!(r##" min="{m}""##)).unwrap_or_default();
+    let max_a = max.map(|m| format!(r##" max="{m}""##)).unwrap_or_default();
+    let (described, hint) = match (min, max) {
+        (Some(lo), Some(hi)) => (
+            format!(r##" aria-describedby="hint-{esc}""##, esc = f.esc_name),
+            format!(
+                r##"<span class="field-hint" id="hint-{esc}">取值 {lo} – {hi}</span>"##,
+                esc = f.esc_name
+            ),
+        ),
+        _ => (String::new(), String::new()),
+    };
+    format!(
+        r##"<input type="number" id="field-{esc}" data-component="number" value="{dv}" step="any"{min_a}{max_a}{req}{described}>{hint}"##,
+        esc = f.esc_name,
+        dv = html_escape(&dv),
+        min_a = min_a,
+        max_a = max_a,
+        req = f.req_a,
+        described = described,
+        hint = hint
+    )
+}
+
+/// `Enum`：下拉，默认值预选中
+fn widget_enum(f: &Field, values: &[String]) -> String {
+    let current = f.arg.default.as_ref().and_then(|d| d.as_str());
+    let opts: String = values
+        .iter()
+        .map(|v| {
+            let ev = html_escape(v);
+            let sel = if current == Some(v.as_str()) {
+                " selected"
+            } else {
+                ""
+            };
+            format!(r##"<option value="{ev}"{sel}>{ev}</option>"##)
+        })
+        .collect();
+    format!(
+        r##"<select id="field-{esc}" data-component="enum"{req}>{opts}</select>"##,
+        esc = f.esc_name,
+        req = f.req_a,
+        opts = opts
+    )
+}
+
+/// `Path`：手填路径 + 拖拽上传 + 本机选择器三件套。
+///
+/// 三条路都只往同一个 `input` 回填路径，所以命令侧永远只看 `--path`：
+/// - 拖拽/点击 → `POST /upload`，拿到服务端**副本**路径（受 `data-max-upload` 限制）
+/// - 「本机」→ `POST /pick`，服务端弹系统对话框，拿到**原始**路径（不复制、不限大小）
+/// - 手填 → 用户自己的字符串
+fn widget_path(f: &Field, must_exist: bool) -> String {
+    let hint = if must_exist {
+        "拖到这里，或点「选择文件」—— 上传后自动回填服务端路径"
+    } else {
+        "可选：拖拽上传，或直接手填路径"
+    };
+    format!(
+        r##"<input type="text" id="field-{esc}" class="mono" data-component="path" placeholder="{ph}"{req} value="{dv}" spellcheck="false" aria-describedby="up-{esc}">\
+{dz}"##,
+        esc = f.esc_name,
+        ph = f.placeholder(),
+        req = f.req_a,
+        dv = f.default_text(),
+        dz = dropzone(f, must_exist, hint)
+    )
+}
+
+/// 拖拽区是个**容器**，不是按钮：里面有三个各自能点的控件（选文件 / 本机 / 清除），
+/// 所以外层不许挂 `role="button"` 或 `tabindex` —— 那会把一次点击变成两个动作，
+/// 读屏也数不清到底有几个控件。键盘可达由「选择文件」这个真按钮负责。
+///
+/// `data-max-upload` 由服务端注入 —— 页面据此在**读文件之前**拦下超大文件，
+/// 上限因此只有一个来源（`crate::files::MAX_UPLOAD_BYTES`）。
+/// 状态行 `role="status"` 并挂在路径框的 `aria-describedby` 上，上传结果不必聚焦也能读到。
+fn dropzone(f: &Field, must_exist: bool, hint: &str) -> String {
+    let esc = &f.esc_name;
+    format!(
+        r##"<div class="dropzone" data-component="dropzone" data-target="{esc}" data-must-exist="{must}" data-max-upload="{MAX_UPLOAD_BYTES}">\
+<input type="file" class="visually-hidden" tabindex="-1" aria-hidden="true">\
+<span class="dz-icon" aria-hidden="true">⇪</span><span class="dz-hint">{hint}</span>\
+<span class="dz-status" id="up-{esc}" role="status" aria-live="polite"></span>\
+<button type="button" class="btn-icon dz-browse" data-component="browse" data-browse="{esc}">选择文件</button>{pick}\
+<button type="button" class="file-chip" id="chip-{esc}" hidden></button></div>"##,
+        esc = esc,
+        must = if must_exist { "1" } else { "0" },
+        hint = hint,
+        pick = pick_button(f)
+    )
+}
+
+/// 「本机」按钮：只在开了 `pick` 特性的构建里画，否则点了只能得到一句报错
+fn pick_button(f: &Field) -> String {
+    if !cfg!(feature = "pick") {
+        return String::new();
+    }
+    format!(
+        r##"<button type="button" class="btn-icon dz-pick" data-component="pick" data-pick="{esc}" aria-label="用系统选择器挑本机文件" title="用系统选择器挑本机文件（只回填真实路径，不上传副本）">本机</button>"##,
+        esc = f.esc_name
+    )
+}
+
+/// `List`：动态行（默认 2 行）。增删都由 JS 的 `initList` 负责 ——
+/// 组件不在 HTML 里塞内联 `onclick`，行为归行为层。
+/// 容器上的 `data-placeholder` 给 JS 新建的行用，初始行与新增行才是同一套提示文案。
+fn widget_list(f: &Field) -> String {
+    let esc = &f.esc_name;
+    let ph = f.placeholder();
+    format!(
+        r##"<div class="list-rows" id="list-{esc}" data-component="list" data-list="{esc}" data-placeholder="{ph}">{rows}</div>\
+<button type="button" class="btn-icon list-add" data-component="list-add" data-list-add="{esc}">＋ 添加一项</button>"##,
+        esc = esc,
+        ph = ph,
+        rows = list_row(f) + &list_row(f)
+    )
+}
+
+fn list_row(f: &Field) -> String {
+    let ph = f.placeholder();
+    format!(
+        r##"<div class="list-row"><input type="text" class="mono" data-list-item="{esc}" placeholder="{ph}" aria-label="{ph}"><button type="button" class="btn-icon row-del" aria-label="删除该行">✕</button></div>"##,
+        esc = f.esc_name
+    )
+}
+
+/// 命令切换下拉：只在多命令且可见命令 > 1 时出现。
+/// 换了命令要整页重载（表单是服务端按 schema 摊出来的），跳转逻辑在 `initCommandNav`
+fn command_nav(registry: &Registry, current: &str) -> String {
+    let visible: Vec<&RegisteredCommand> = registry.visible().collect();
+    if visible.len() < 2 {
+        return String::new();
+    }
+    let opts: String = visible
+        .iter()
+        .map(|c| {
+            let name = html_escape(&c.schema.name);
+            let sel = if c.schema.name == current {
+                " selected"
+            } else {
+                ""
+            };
+            format!(r##"<option value="{name}"{sel}>{name}</option>"##)
+        })
+        .collect();
+    format!(
+        r##"<select id="cmd-nav" data-component="command-nav" aria-label="切换命令">{opts}</select>"##,
+        opts = opts
+    )
 }
 
 fn kind_name(kind: &ArgKind) -> &'static str {
@@ -243,6 +400,22 @@ mod tests {
         arg, body_of, registry_state, schema_of, state_with, two_command_registry,
     };
 
+    /// 渲染一份 schema，返回页面 HTML
+    async fn page(args: Vec<ArgSchema>) -> String {
+        let state = state_with(schema_of("demo", "demo", args));
+        body_of(index(State(state), Query(HashMap::new())).await).await
+    }
+
+    /// 取某个属性的值（测试自用）
+    fn attr(html: &str, name: &str) -> String {
+        let key = format!(r##"{name}=""##);
+        let rest = html
+            .split(&key)
+            .nth(1)
+            .unwrap_or_else(|| panic!("页面里没有属性 {name}"));
+        rest.split('"').next().unwrap().to_string()
+    }
+
     #[test]
     fn pick_command_defaults_to_first_visible() {
         let reg = two_command_registry();
@@ -271,48 +444,35 @@ mod tests {
     /// Path 字段除了拖拽区还要带「本机」按钮（拿原始路径，不走上传副本）；数字字段不带
     #[tokio::test]
     async fn path_fields_get_the_native_pick_button() {
-        let state = Arc::new(AppState {
-            schema: Arc::new(CommandSchema {
-                name: "pick".into(),
-                about: "pick".into(),
-                args: vec![
-                    ArgSchema {
-                        name: "file".into(),
-                        about: "文件".into(),
-                        kind: ArgKind::Path { must_exist: false },
-                        required: true,
-                        default: None,
-                    },
-                    ArgSchema {
-                        name: "quality".into(),
-                        about: "质量".into(),
-                        kind: ArgKind::Number {
-                            min: Some(0.0),
-                            max: Some(51.0),
-                        },
-                        required: false,
-                        default: Some(serde_json::json!(23)),
-                    },
-                ],
-                subcommands: vec![],
-                safety: lilyco_core::safety::SafetyTier::ReadOnly,
-            }),
-            registry: None,
-            sessions: Mutex::new(HashMap::new()),
-            cancels: Mutex::new(HashMap::new()),
-            runner: Arc::new(|_, _| Box::pin(async {})),
-            token: "t".into(),
-        });
-        let body = body_of(index(State(state), Query(HashMap::new())).await).await;
+        let body = page(vec![
+            arg(
+                "file",
+                "文件",
+                ArgKind::Path { must_exist: false },
+                true,
+                None,
+            ),
+            arg(
+                "quality",
+                "质量",
+                ArgKind::Number {
+                    min: Some(0.0),
+                    max: Some(51.0),
+                },
+                false,
+                Some(serde_json::json!(23)),
+            ),
+        ])
+        .await;
         assert!(body.contains("dropzone"), "Path 参数要有拖拽区");
         if cfg!(feature = "pick") {
             assert!(
-                body.contains("data-pick=\"file\"") && body.contains("fetch(\"/pick\""),
+                body.contains(r##"data-pick="file""##) && body.contains(r##"fetch("/pick""##),
                 "原生选择器按钮或它的请求没了"
             );
         }
         assert!(
-            !body.contains("data-pick=\"quality\""),
+            !body.contains(r##"data-pick="quality""##),
             "非 Path 字段不该挂选择器"
         );
     }
@@ -339,47 +499,52 @@ mod tests {
             runner: Arc::new(|_, _| Box::pin(async {})),
             token: "t".into(),
         });
-        let resp = index(State(state), Query(HashMap::new())).await;
-        let body = body_of(resp).await;
+        let body = body_of(index(State(state), Query(HashMap::new())).await).await;
         assert!(!body.contains("<script>alert"), "about must be escaped");
         assert!(!body.contains("<img src=x>"), "about must be escaped");
         assert!(!body.contains("\"><svg>"), "default must be escaped");
     }
 
+    /// 页面不许被缓存：整页自包含，且内容随进程变（schema、令牌、重编译后的资产）。
+    /// 踩过一次 —— 改了页面 JS 重编重跑，浏览器还在发上一版，半数组件是死的，
+    /// 看上去像新代码有 bug。
+    #[tokio::test]
+    async fn index_forbids_caching() {
+        let state = state_with(schema_of("demo", "demo", vec![]));
+        let resp = index(State(state), Query(HashMap::new())).await;
+        assert_eq!(
+            resp.headers()
+                .get(header::CACHE_CONTROL)
+                .and_then(|v| v.to_str().ok()),
+            Some("no-store"),
+            "没有 no-store，重编译后浏览器还在发旧控制台"
+        );
+        assert!(
+            resp.headers().contains_key(header::CONTENT_SECURITY_POLICY),
+            "CSP 头不能丢"
+        );
+    }
+
     #[tokio::test]
     async fn index_renders_dropzone_for_path_args() {
-        let state = Arc::new(AppState {
-            schema: Arc::new(CommandSchema {
-                name: "up".into(),
-                about: "upload".into(),
-                args: vec![ArgSchema {
-                    name: "file".into(),
-                    about: "文件".into(),
-                    kind: ArgKind::Path { must_exist: true },
-                    required: true,
-                    default: None,
-                }],
-                subcommands: vec![],
-                safety: lilyco_core::safety::SafetyTier::ReadOnly,
-            }),
-            registry: None,
-            sessions: Mutex::new(HashMap::new()),
-            cancels: Mutex::new(HashMap::new()),
-            runner: Arc::new(|_, _| Box::pin(async {})),
-            token: "t".into(),
-        });
-        let resp = index(State(state), Query(HashMap::new())).await;
-        let body = body_of(resp).await;
+        let body = page(vec![arg(
+            "file",
+            "文件",
+            ArgKind::Path { must_exist: true },
+            true,
+            None,
+        )])
+        .await;
         assert!(body.contains("dropzone"), "Path 参数必须有拖拽上传组件");
         assert!(
-            body.contains("data-must-exist=\"1\""),
+            body.contains(r##"data-must-exist="1""##),
             "must_exist 语义保留"
         );
-        assert!(body.contains("type=\"file\""), "必须有文件选择入口");
+        assert!(body.contains(r##"type="file""##), "必须有文件选择入口");
         // 上限只有一个来源：服务端常量注入 DOM，页面读它来拦超大文件。
         // 谁把 200 抄进 JS 或文档，这条就会红。
         assert!(
-            body.contains(&format!("data-max-upload=\"{MAX_UPLOAD_BYTES}\"")),
+            body.contains(&format!(r##"data-max-upload="{MAX_UPLOAD_BYTES}""##)),
             "拖拽区没带上服务端注入的体积上限"
         );
     }
@@ -390,39 +555,296 @@ mod tests {
     /// 只有真在浏览器里拖一个文件进去才看得见。
     #[tokio::test]
     async fn dropzone_ids_match_what_the_page_looks_up() {
-        let state = state_with(schema_of(
-            "up",
-            "upload",
-            vec![arg(
-                "file",
-                "文件",
-                ArgKind::Path { must_exist: true },
-                true,
-                None,
-            )],
-        ));
-        let body = body_of(index(State(state), Query(HashMap::new())).await).await;
-        let target = body
-            .split("data-target=\"")
-            .nth(1)
-            .expect("dropzone 要有 data-target")
-            .split('"')
-            .next()
-            .unwrap()
-            .to_string();
+        let body = page(vec![arg(
+            "file",
+            "文件",
+            ArgKind::Path { must_exist: true },
+            true,
+            None,
+        )])
+        .await;
+        let target = attr(&body, "data-target");
         assert_eq!(target, "file", "data-target 要的是裸参数名，不是 id");
-        // JS 拼出来的那几个 id 必须真的在页面里
         assert!(
-            body.contains(&format!("id=\"field-{target}\"")),
+            body.contains(&format!(r##"id="field-{target}""##)),
             "输入框 id 对不上 JS 的拼法"
         );
         assert!(
-            body.contains(&format!("id=\"up-{target}\"")),
+            body.contains(&format!(r##"id="up-{target}""##)),
             "状态行 id 对不上 /pick 的拼法"
         );
         assert!(
-            !cfg!(feature = "pick") || body.contains(&format!("data-pick=\"{target}\"")),
+            !cfg!(feature = "pick") || body.contains(&format!(r##"data-pick="{target}""##)),
             "本机按钮的 data-pick 与 data-target 得用同一套名字"
         );
+    }
+
+    /// 六种 ArgKind 各自必须出现，并带上组件自报家门的 `data-component`。
+    /// 这条是「组件目录」（DESIGN.md §10）与 DOM 之间的对账：少一个组件、
+    /// 或组件忘了自报，红的就是这里。
+    #[tokio::test]
+    async fn every_arg_kind_renders_its_own_component() {
+        let body = page(vec![
+            arg(
+                "flag",
+                "开关",
+                ArgKind::Flag,
+                false,
+                Some(serde_json::json!(true)),
+            ),
+            arg(
+                "text",
+                "文本",
+                ArgKind::Text,
+                false,
+                Some(serde_json::json!("dv")),
+            ),
+            arg(
+                "num",
+                "数字",
+                ArgKind::Number {
+                    min: Some(0.0),
+                    max: Some(51.0),
+                },
+                true,
+                Some(serde_json::json!(23)),
+            ),
+            arg(
+                "mode",
+                "模式",
+                ArgKind::Enum {
+                    values: vec!["fast".into(), "best".into()],
+                },
+                false,
+                Some(serde_json::json!("best")),
+            ),
+            arg(
+                "path",
+                "路径",
+                ArgKind::Path { must_exist: true },
+                true,
+                None,
+            ),
+            arg(
+                "tags",
+                "标签",
+                ArgKind::List {
+                    item: Box::new(ArgKind::Text),
+                },
+                false,
+                None,
+            ),
+        ])
+        .await;
+
+        for kind in ["flag", "text", "number", "enum", "path", "list"] {
+            assert!(
+                body.contains(&format!(r##"data-component="{kind}""##)),
+                "缺 {kind} 组件"
+            );
+        }
+        assert!(
+            body.contains(r##"<input type="checkbox" id="field-flag" checked"##),
+            "Flag 的默认值要真的勾上"
+        );
+        assert!(body.contains(r##"value="dv""##), "Text 默认值");
+        assert!(
+            body.contains(r##"min="0" max="51""##) && body.contains(r##"id="hint-num""##),
+            "Number 的区间既进属性也要能被读屏念到"
+        );
+        assert!(
+            body.contains(r##"<option value="best" selected>best</option>"##),
+            "Enum 默认值要预选中"
+        );
+        assert_eq!(
+            body.matches(r##"class="list-row""##).count(),
+            2,
+            "List 默认两行"
+        );
+    }
+
+    /// 行为全归 JS 层：服务端吐出来的 HTML 里一个内联事件都不许有。
+    /// 内联事件是「 markup 与行为各说各话」的头号来源 —— 改了 `init*` 忘了改属性，
+    /// 页面不会报错，只会点了没反应。
+    #[tokio::test]
+    async fn no_inline_event_handlers_anywhere() {
+        let body = page(vec![
+            arg(
+                "path",
+                "路径",
+                ArgKind::Path { must_exist: false },
+                false,
+                None,
+            ),
+            arg(
+                "tags",
+                "标签",
+                ArgKind::List {
+                    item: Box::new(ArgKind::Text),
+                },
+                false,
+                None,
+            ),
+        ])
+        .await;
+        for hook in ["onclick=", "onchange=", "oninput=", "onsubmit=", "onload="] {
+            assert!(
+                !body.contains(hook),
+                "页面里出现了内联事件 {hook}，行为该写在 init* 里"
+            );
+        }
+    }
+
+    /// 拖拽区里住着三个各自能点的控件（选文件 / 本机 / 清除）。它们确实在拖拽区内，
+    /// 所以外层**不许**是 role=button —— 否则点「本机」会同时弹出浏览器的文件选择框，
+    /// 而点击分流只能由 initDropzone 负责，不许退回内联事件。
+    #[tokio::test]
+    async fn interactive_children_live_inside_the_dropzone() {
+        let body = page(vec![arg(
+            "file",
+            "文件",
+            ArgKind::Path { must_exist: true },
+            true,
+            None,
+        )])
+        .await;
+        let dz = dropzone_markup(&body);
+        assert!(
+            !dz.contains(r##"role="button""##) && !dz.contains("tabindex=\"0\""),
+            "拖拽区是容器，不能自己冒充按钮"
+        );
+        assert!(
+            dz.contains(r##"class="btn-icon dz-browse""##),
+            "键盘用户要有一个真的「选择文件」按钮可用"
+        );
+        if cfg!(feature = "pick") {
+            assert!(dz.contains("data-pick="), "本机按钮在拖拽区内");
+        }
+        assert!(
+            dz.contains(r##"<button type="button" class="file-chip""##),
+            "chip 得是 button：可聚焦、可回车清除"
+        );
+        assert!(
+            !dz.contains("onclick=") && !dz.contains("onchange="),
+            "拖拽区内部不许有内联事件，点击分流归 initDropzone"
+        );
+    }
+
+    /// JS 里定义的每个 `init*` 都必须进 BOOT：加了组件忘了装配，页面不报错，
+    /// 只是那个组件永远不动。BOOT 里也不能有不存在的函数，那会让整个 boot 抛异常。
+    #[test]
+    fn every_js_component_init_is_bootted() {
+        let page = HTML_TEMPLATE;
+        let defined = js_init_fns(page);
+        assert!(
+            defined.len() >= 9,
+            "组件数量掉到 {defined:?}，装配清单被动过了？"
+        );
+        let boot = page
+            .split("const BOOT=[")
+            .nth(1)
+            .expect("BOOT 清单没了")
+            .split(']')
+            .next()
+            .unwrap();
+        for f in &defined {
+            assert!(
+                boot.split(['[', ']', ',', '\n'])
+                    .any(|x| x.trim() == f.as_str()),
+                "{f} 定义了却没进 BOOT"
+            );
+        }
+        for entry in boot.split(',').map(str::trim).filter(|x| !x.is_empty()) {
+            assert!(
+                defined.iter().any(|f| f == entry),
+                "BOOT 装配了不存在的 {entry}，boot 会直接抛异常"
+            );
+        }
+    }
+
+    /// 内联 JS 没有编译期检查：一个括号打错，整台控制台静默死掉 —— Rust 侧全是绿的，
+    /// 页面却一个按钮都不响应。本机有 node 就把 `<script>` 块丢给它 parse 一遍。
+    /// 没有 node 只跳过这一条（不误伤离线开发），CI 两台 runner 都带 node 所以闸门有效。
+    #[test]
+    fn inline_script_is_syntactically_valid() {
+        let js = HTML_TEMPLATE
+            .split("<script>")
+            .nth(1)
+            .expect("页面里没有 <script> 块")
+            .split("</script>")
+            .next()
+            .unwrap()
+            .replace("__CMD_JS__", "\"demo\"")
+            .replace("__META__", "[]");
+        let mut path = std::env::temp_dir();
+        path.push(format!("lilyco-gui-inline-{}.js", std::process::id()));
+        std::fs::write(&path, &js).expect("临时 JS 写不出去");
+        let check = std::process::Command::new("node")
+            .arg("--check")
+            .arg(&path)
+            .output();
+        let _ = std::fs::remove_file(&path);
+        let Ok(out) = check else {
+            eprintln!("跳过：本机没有 node，内联 JS 语法无人守");
+            return;
+        };
+        assert!(
+            out.status.success(),
+            "内联 JS 语法不过：{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// 装配循环必须是脚本里最后一段：跑在它后面的顶层 `const`/`let` 还没初始化，
+    /// 组件一读就撞 TDZ。真实事故：`quoteIfSpaced` 声明在 BOOT 之后，
+    /// `initCliPreview` 抛 ReferenceError → 拖拽区、List、运行、结果全没装配，
+    /// 页面看着完全正常，点了不动，控制台里连个错误都找不到。
+    #[test]
+    fn boot_is_the_last_thing_in_the_script() {
+        let js = HTML_TEMPLATE
+            .split("<script>")
+            .nth(1)
+            .expect("页面里没有 <script> 块")
+            .split("</script>")
+            .next()
+            .unwrap();
+        let boot_at = js.rfind("for(const init of BOOT)").expect("装配循环没了");
+        let offenders: Vec<&str> = js[boot_at..]
+            .lines()
+            .filter(|l| l.starts_with("const ") || l.starts_with("let "))
+            .collect();
+        assert!(
+            offenders.is_empty(),
+            "顶层声明跑到了装配循环之后，装配期读它会撞 TDZ：{offenders:?}"
+        );
+    }
+
+    /// 数一遍 JS 里 `function initXxx(` 定义出来的组件
+    fn js_init_fns(src: &str) -> Vec<String> {
+        const MARK: &str = "function init";
+        let mut out = Vec::new();
+        let mut rest = src;
+        while let Some(i) = rest.find(MARK) {
+            rest = &rest[i + MARK.len()..];
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect();
+            if !name.is_empty() {
+                out.push(format!("init{name}"));
+            }
+        }
+        out
+    }
+
+    /// 取第一个拖拽区的完整标记
+    fn dropzone_markup(body: &str) -> String {
+        body.split(r##"<div class="dropzone""##)
+            .nth(1)
+            .expect("页面里没有拖拽区")
+            .split("</div>")
+            .next()
+            .unwrap()
+            .to_string()
     }
 }

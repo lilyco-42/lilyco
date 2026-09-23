@@ -82,8 +82,10 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 - **flex 子项一律 `min-width: 0`**（输入框、chip、状态行、下拉）。默认值是 `auto`，
   一条 150 字符的 Windows 长路径就能把整行撑破 —— 这是本机控制台最常见的溢出源。
 
-实测（同源页面里逐档改容器宽，量 `scrollWidth - clientWidth`）：320 / 360 / 420 / 560 / 860 / 1200
-六档**卡片内零横向溢出**；按钮组 ≤420 竖排占满、≥560 回横排；CLI 预览处处换行不溢出。
+实测（2026-09-23，`srcdoc` 同域 iframe 造真实视口，明暗两套各跑一遍）：
+320 / 390 / 420 / 560 / 720 / 1024 / 1440 / 1920 八档**整页零横向溢出**；
+输入框、下拉、按钮在每一档都是 40px 高（`@container ≤420` 竖排占满那一档曾经把按钮顶到 140px 高 ——
+`flex: 1 1 140px` 的主轴在 `flex-direction: column` 下是高度，收在 `@container ≤420` 里改回 `0 0 auto`）。
 
 ## 3. 排版
 
@@ -128,14 +130,18 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 ## 7. 不许改的名字（样式可以重写，这些不行）
 
 - 占位符：`__CSS__` `__CMD_NAV__` `__FIELDS__` `__ABOUT__` `__CMD_NAME__` `__CMD_JS__` `__META__` `__TOKEN__`
-- id：`field-<arg>` `up-<arg>` `chip-<arg>` `list-<arg>` `cmd-nav` `theme-toggle` `form` `run-btn` `cancel-btn` `copy-cli` `copy-result` `preview` `out` `log` `progress` `progress-bar` `result-wrap` `result`
-- class：`dropzone` `dz-icon` `dz-hint` `dz-status` `dz-pick` `file-chip` `visually-hidden` `list-rows` `list-row` `list-add` `row-del` `flag-row` `field` `field-flag` `req-mark` `mono` `btn` `btn-icon` `primary` `ghost` `danger` `ok` `err` `busy` `drag-over` `uploaded` `loading` `card` `topbar` `page` `foot` `terminal` `cli-preview` `actions` `out-head` `result-head` `result-wrap` `brand` `brand-mark` `brand-sub` `icon-btn` `card-title` `card-about` `progress` `progress-bar`
-- 属性：`data-target`（**裸参数名**）`data-must-exist` `data-pick` `data-file-for`（裸参数名）
+- id：`field-<arg>` `up-<arg>` `chip-<arg>` `hint-<arg>` `list-<arg>` `cmd-nav` `theme-toggle` `form` `run-btn` `cancel-btn` `copy-cli` `copy-result` `preview` `out` `log` `progress` `progress-bar` `result-wrap` `result`
+- class：`dropzone` `dz-icon` `dz-hint` `dz-status` `dz-browse` `dz-pick` `file-chip` `visually-hidden` `list-rows` `list-row` `list-add` `row-del` `flag-row` `field` `field-flag` `field-hint` `req-mark` `mono` `btn` `btn-icon` `primary` `ghost` `danger` `copied` `copy-failed` `ok` `err` `busy` `drag-over` `uploaded` `loading` `card` `topbar` `page` `foot` `terminal` `cli-preview` `actions` `out-head` `result-head` `result-wrap` `brand` `brand-mark` `brand-sub` `icon-btn` `card-title` `card-about` `progress` `progress-bar`
+- 属性：`data-component`（组件自报家门，JS 装配与单测共同的锚点）
+  `data-target`（**裸参数名**）`data-must-exist` `data-browse` `data-pick`
   `data-max-upload`（**服务端注入的上传上限**，页面据此在读文件之前拦下超大文件）
-  `data-list` `data-list-item` `data-list-add` `data-indet`
+  `data-list` `data-list-item` `data-list-add` `data-placeholder` `data-indet` `data-state`
 - `<meta name="lilyco-token">` 与请求头 `X-Lilyco-Token`
+- **不许有内联事件**：`onclick=` / `onchange=` / `onsubmit=` / `oninput=` / `onload=` 一律不能出现在
+  服务端吐的 HTML 里，行为只写在 `assets/index.html` 的 `init*` 中（`render.rs` 有一条测试逐名扫）。
+  理由：markup 与行为各说各话是这套页面出过的每一类「点了没反应」的根因。
 
-## 8. 不变量（今天真栽过的两类）
+## 8. 不变量（真栽过的四类）
 
 1. **平行表禁止**。同一事实只允许有一个来源。
    事故 A：`/upload` 的体积上限在 handler 里写 200 MB，而 axum 默认只放 2 MB，两条线各说各话 →
@@ -146,17 +152,90 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
    「JS 拼出来的 id 必须存在于页面」。
 2. **改样式必须真在浏览器里量过，不是看过**。`cargo test` 看不见对比度，眼睛也看不见 360px 容器里的挤压。
    本表里每个数值都应有一次实测对应：控件高度那栏原来写 36px，实测 43.2px 才发现是没锁 `line-height`；
-   对比度四组数（15.8 / 6.83 / 7.32 / 3.3）是从跑起来的页面 `getComputedStyle` 读回来核对的，不是手算的。
-   验收清单：明/暗两套 → 逐档改容器宽（320/360/420/560/860/1200）量 `scrollWidth` →
-   拖一个 >2 MiB 真文件走完「上传→回填→运行→进度→结果」→ `本机` 按钮渲染 → 取消 → 复制 → 命令切换。
+   对比度与 §10 的状态是从跑起来的页面 `getComputedStyle` 读回来核对的，不是手算的。
+   视口层怎么量：把当前页面 `outerHTML` 塞进一个同域 `srcdoc` iframe，改 iframe 的宽，
+   里面的 `@media` 与 container query 会按真实视口生效（320/390/420/560/720/1024/1440/1920 全档）。
    截图取不到时（in-app 浏览器表面 hidden）就读 DOM 几何与计算样式，别拿「应该没问题」交差。
+3. **装配那一行必须在脚本最后**。组件函数读顶层 `const`，提前跑就撞 TDZ：
+   `quoteIfSpaced` 声明在 `BOOT` 循环之后 → `initCliPreview` 抛 `ReferenceError` →
+   拖拽区、List、运行、结果四个组件根本没装配，页面看着完全正常、点了不动，
+   而 `cargo test` 与 `node --check` 全都是绿的（语法没错，是执行顺序错）。
+   现在三样一起兜：`BOOT` 挪到文件末尾、每个 `init` 单独 try 且失败写进日志区、
+   `render.rs` 里 `boot_is_the_last_thing_in_the_script` + `every_js_component_init_is_bootted`
+   + `inline_script_is_syntactically_valid` 三条测试盯着。
+4. **`GET /` 必须 `no-store`**。整页自包含且随进程变（schema、令牌、重编译后的资产）。
+   踩过：改了页面 JS 重编重跑，浏览器还在发上一版，半数组件是死的，第一反应是「新代码有 bug」。
 
 ## 9. 体积预算
 
-`assets/index.html` ≤ 12 KB（现 10.4 KB），`assets/app.css` ≤ 16 KB（现 15.1 KB）。
-CSS 从 10.7 涨到 15.1 的差额买的是 §2.1 那套组件级响应式与两套主题的完整令牌，
-不是装饰。超预算要先说明换来了什么 —— 这页要**内嵌进每个域二进制的二进制里**，
-每个 `--gui` 都带一份，所以预算是真的要守。
+| 文件 | 重设计前 | 现在 | 上限 |
+|------|---------|------|------|
+| `assets/index.html`（含内联 JS） | 10.4 KB | 17.6 KB | 20 KB |
+| `assets/app.css` | 10.7 KB | 20.0 KB | 22 KB |
+| 一次 `GET /` 的响应 | 21.1 KB | 37.5 KB | 42 KB |
+
+涨的 16 KB 买的是：两套主题 × 全令牌、§2.1 的组件级响应式、§10 的七态与无障碍结构
+（真按钮、焦点环、live region、`aria-describedby`），以及行为层从「一坨顺序脚本」拆成 10 个可装配组件。
+这页要**内嵌进每个域二进制的 `.exe` 里**，所以预算是真的要守 —— 但它是本机回环上的单个响应，
+不过网、不分片、无外部请求，涨的是磁盘不是等待。再要涨得先说清换来什么。
+
+## 10. 组件目录
+
+一个 `ArgKind` 一个组件函数（`src/render.rs` 的 `widget_*`），页面侧一个组件一个 `init*`
+（`assets/index.html`）。**改组件要同时改这张表**：`data-component` 少了谁、
+`BOOT` 漏装配了谁，测试会红；这张表负责对账「有没有七态、用了哪些令牌」。
+
+下表的对比度全部是 2026-09-23 从跑起来的页面 `getComputedStyle` 读回来再算的比值
+（明 / 暗，320–1920 全档无横向溢出）。
+
+### 10.1 六种参数控件
+
+| 组件 | 构成 | 七态 | 令牌 | 无障碍 |
+|------|------|------|------|--------|
+| `flag` | `<label class="flag-row">` + 原生 checkbox | hover（原生）/ focus（`input:focus-visible` 环）/ disabled / checked（=success，原生勾选）/ loading·empty·error：n/a（开关没有中间态） | `--accent`（`accent-color`）`--s-2` | 标签即 `label for`，整行可点；不用 ARIA 重造 |
+| `text` | 单个 `<input type=text>` | hover 描边压深 / focus accent + 3px 环 / disabled 0.55 / `:user-invalid` 描边转红 / 空 = 无占位以外状态 | `--control` 3.64·3.30 / `--ink` 17.63·14.50 / `--danger` 6.54·6.94 | `label for`；`required` 用原生属性；16px 字号（≤720 视口）防 iOS 聚焦缩放 |
+| `number` | `<input type=number>` + `.field-hint` | 同 `text`，另有 `:out-of-range`（实测 `min/max` 生效） | 同上 + `--ink-muted` 5.43·7.07 | `min`/`max` 进属性 **且** 写成可见提示；`aria-describedby="hint-<arg>"` 让读屏念得出区间 |
+| `enum` | `<select>` + `<option selected>` | hover / focus / disabled / 空 = n/a（值域非空）/ error = n/a（选不出非法值） | `--control` / `--ink` | 原生键盘可用；`--s-1..7` 高度 40px 与其它控件对齐 |
+| `path` | 手填 `<input>` + `.dropzone` 容器（三件套） | hover / focus（里面每个控件各自）/ disabled（`本机` 请求中）/ busy（`.dz-status.busy`）/ success（`.uploaded` + `ok`）/ error（`.dz-status.err` + 整区 `:has()` 转红）/ empty（`.dz-hint`） | `--accent` 5.17·6.83 / `--warn` / `--ok` / `--danger` / `--accent-soft` | 状态行 `id="up-<arg>"` `role=status` `aria-live=polite`，并挂在路径框的 `aria-describedby` 上；上传结果不必聚焦也能读到 |
+| `list` | `.list-rows` + N 行（输入框 + `✕`）+ `.list-add` | hover / focus（`.btn-icon` 环）/ disabled / 空 = 删到一行时兜一行空的 / error·success：n/a（逐行无独立反馈） | `--s-2` 节奏 / `--danger`（删除 hover） | 行按钮 `aria-label="删除该行"`；新增行 `focus()` 跟上；`data-placeholder` 让新行与初始行同一套文案 |
+
+### 10.2 拖拽区（`path` 里最重的一个，单独说）
+
+`.dropzone` 是**容器不是按钮**：里面有 `选择文件`、`本机`（开了 `pick` 特性才有）、`chip` 三个各管各的控件，
+外层挂 `role="button"` 会让一次点击变成两个动作。点击分流归 `initDropzone`：
+落在 `button` / `input` / `.dz-status` 上不触发文件框，落在空白处才触发。
+实测（`HTMLInputElement.prototype.click` 计数）：提示语 1 次、`选择文件` 1 次、`本机` 0 次、
+状态行 0 次、空白区 1 次。`chip` 现在是 `<button type=button>`（可 Tab、可回车清除），
+不再是没有焦点的 `<span onclick>`。
+
+三条取文件的路都只往同一个 `input` 回填，所以命令侧永远只看 `--path`：
+拖拽/点击 → `/upload`（服务端副本，受 `data-max-upload` 限）；`本机` → `/pick`（磁盘原始路径，不复制不限大小）；
+手填 → 用户自己的字符串。
+
+### 10.3 页面级组件
+
+| 组件 | 构成 | 七态 | 无障碍 |
+|------|------|------|--------|
+| `topbar` | brand + `command-nav` + 主题按钮 | hover / focus / active / `aria-pressed=true`（深色）/ 其余 n/a | `position:sticky` + `backdrop-filter`；窄容器里下拉整行换到第二行，主题按钮钉在行尾 |
+| `command-nav` | `<select id=cmd-nav>`，可见命令 >1 才出现 | hover / focus / disabled n/a / 空 n/a（只渲染非空值域） | `aria-label="切换命令"`；换命令整页重载（表单是服务端按 schema 摊的），跳转在 `initCommandNav` |
+| `run-bar` | `运行` + `取消` + `复制 CLI` | hover / focus / disabled（跑起来时）/ loading（`.loading` 转圈 + `aria-busy`）/ 空 n/a / error（取消失败时按钮解禁）/ success n/a | `type=submit` 语义保留；`aria-busy` 给读屏 |
+| `cli-preview` | `$ ` + 一行命令文本 | 空 = `display:none`（不留孤零零的 `$ `）/ 其余 n/a（纯展示） | 只读；`复制 CLI` 才有反馈 |
+| `output` | `out-head` + `log` + `result-wrap` 的容器 | 空（`hidden`）/ 有内容（`hidden` 撤掉）/ error（装配失败时也强制露出来） | `#log` 是唯一 live region（`role=log`）；`#out` 不再叠 `aria-live`，免得同一句话念两遍 |
+| `progress` | `.progress` + `.progress-bar` | 不确定（`data-indet=1` 跑动）/ 确定（写 `aria-valuenow`）/ done（整条绿）/ error（整条红且走满，0% 的空条等于「什么都没发生」）/ 请求都没成功时收在 0%（不再空转） | `role=progressbar` + `aria-valuemin/max`；无比例时不给 `valuenow`（别骗读屏） |
+| `log` | `.terminal` 里的行 | 空（`等待输出…`）/ running / err / warn / tele / 上限 500 行（实测灌 620 行只留 500，最旧的丢掉、滚动跟到底）/ 满 = 滚动 | 固定深底不随主题（§1.3），`tabindex=0` + `:focus-visible` 让键盘用户能滚这段可滚动区域 |
+| `result` | `结果` + `复制` + `<pre>` | 空 = 整块 `hidden` / success（跑完露出）/ error = n/a（失败没有结果）/ 其余 n/a | `JSON.stringify(…,2)` 纯文本；宽屏 ≥1200 时限高内滚 |
+| `file-chip` | 已上传文件的一枚胶囊按钮 | hover（转危险色）/ focus / 空 = `hidden` / 其余 n/a | `aria-label` 由 JS 写成「清除已上传的 <文件名>」，读屏念得出是哪个文件 |
+| 复制反馈 | `copyText()` | copied（文字换「已复制」+ `--ok` 1.2s）/ failed（「复制失败」+ `--danger`）/ 平时 n/a | 剪贴板被拒（自动化环境实测被拒）不能静默 —— 静默的复制等于没复制 |
+
+### 10.4 加一个组件的清单
+
+1. `render.rs`：写 `widget_xxx`，进 `render_field` 的 `match`，`data-component="xxx"` 自报家门。
+2. `assets/index.html`：写 `initXxx`，加进 `BOOT`（漏了会被 `every_js_component_init_is_bootted` 拦下）。
+3. `app.css`：只用 §1 的令牌与 §2 的 `--s-*`；状态用伪类，不新增颜色字面量（终端区除外，见 §1.3）。
+4. 本表加一行：构成 / 哪些态真的存在 / 用到的令牌 / 无障碍要求。**没有的态就写 n/a 并说明为什么**，
+   不许为了凑格子留一条永远命中不到的 CSS 规则。
+5. 浏览器实测：`srcdoc` iframe 走 320→1920，明暗两套各一遍。
+
 
 ---
 

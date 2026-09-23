@@ -8,8 +8,8 @@
 <style>__CSS__</style>
 </head>
 <body>
-<header class="topbar">
-  <div class="brand"><span class="brand-mark">◆</span> lilyco <span class="brand-sub">Web 控制台</span></div>
+<header class="topbar" data-component="topbar">
+  <div class="brand"><span class="brand-mark" aria-hidden="true">◆</span> lilyco <span class="brand-sub">Web 控制台</span></div>
   __CMD_NAV__
   <button type="button" id="theme-toggle" class="icon-btn" aria-label="切换深浅主题">◐</button>
 </header>
@@ -21,21 +21,22 @@
 
   <form id="form" novalidate>
 __FIELDS__
-    <div class="actions">
+    <div class="actions" data-component="run-bar">
       <button type="submit" id="run-btn" class="btn primary"><span class="btn-label">▶ 运行</span></button>
       <button type="button" id="cancel-btn" class="btn danger" hidden>■ 取消</button>
       <button type="button" id="copy-cli" class="btn ghost">复制 CLI</button>
     </div>
-    <div class="cli-preview mono" id="preview"></div>
+    <div class="cli-preview mono" id="preview" data-component="cli-preview" aria-live="off"></div>
   </form>
 
-  <section id="out" hidden aria-live="polite">
+  <section id="out" hidden data-component="output">
     <div class="out-head">
       <h2>输出</h2>
-      <div class="progress" id="progress" data-indet="1"><div class="progress-bar" id="progress-bar"></div></div>
+      <div class="progress" id="progress" data-indet="1" role="progressbar" aria-label="运行进度"
+           aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" id="progress-bar"></div></div>
     </div>
-    <div id="log" class="terminal" aria-live="polite"></div>
-    <div class="result-wrap" id="result-wrap" hidden>
+    <div id="log" class="terminal" role="log" aria-live="polite" tabindex="0" data-component="log"></div>
+    <div class="result-wrap" id="result-wrap" hidden data-component="result">
       <div class="result-head"><span>结果</span><button type="button" id="copy-result" class="btn-icon">复制</button></div>
       <pre id="result" class="mono"></pre>
     </div>
@@ -45,71 +46,138 @@ __FIELDS__
 </main>
 
 <script>
+"use strict";
+/* ═══ 行为层：一个组件一个 init ═══
+   组件之间不互相摸 DOM，只通过四个公共函数通信：
+     updatePreview()  重新生成 CLI 预览
+     readForm()       表单 → 参数对象（预览与 /run 共用一份读表逻辑）
+     logLine(cls,t)   往日志区追加一行
+     setProgress(p)   进度条（null = 不确定）
+   新增组件：写一个 initXxx，加进下面 BOOT 那一行，并在 DESIGN.md §10 补一条。 */
 const TOKEN=document.querySelector('meta[name="lilyco-token"]').content;
 const CMD=__CMD_JS__;
 const SCHEMA_ARGS=__META__;
-"use strict";
 const $=id=>document.getElementById(id);
-const esc=s=>{const d=document.createElement("div");d.textContent=String(s);return d.innerHTML};
+const qsa=sel=>Array.from(document.querySelectorAll(sel));
+/* 装配清单：新增组件写一个 initXxx 并加进这里。
+   真正的启动那一行在本文件**最末尾** —— 组件函数读的是下面的顶层 const，
+   提前跑会撞上 TDZ（ReferenceError），而一个组件抛错会带走后面所有组件。 */
+const BOOT=[initTheme,initCommandNav,initCliPreview,initDropzone,initPickButton,initList,
+            initProgress,initLog,initResult,initRunBar];
 
-// ── 主题（系统偏好 + 手动切换持久化）──
-const root=document.documentElement;
-const savedTheme=localStorage.getItem("lilyco-theme");
-if(savedTheme)root.dataset.theme=savedTheme;
-$("theme-toggle").addEventListener("click",()=>{
-  const cur=root.dataset.theme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");
-  const next=cur==="dark"?"light":"dark";
-  root.dataset.theme=next;localStorage.setItem("lilyco-theme",next);
-});
-
-// ── CLI 预览 ──
-function fieldVal(a){
-  if(a.kind==="Flag")return $( "field-"+a.name).checked?"__flag__":null;
-  if(a.kind==="List"){return Array.from(document.querySelectorAll('[data-list-item="'+a.name+'"]')).map(i=>i.value).filter(v=>v!=="")}
-  const el=$("field-"+a.name);
-  if(!el||el.value==="")return null;
-  if(a.kind==="Number"){const n=Number(el.value);return isNaN(n)?el.value:n}
-  return el.value;
+/* ── 顶栏 · 主题切换 ── */
+function initTheme(){
+  const root=document.documentElement,btn=$("theme-toggle");
+  const theme=()=>root.dataset.theme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");
+  const saved=localStorage.getItem("lilyco-theme");
+  if(saved)root.dataset.theme=saved;
+  btn.setAttribute("aria-pressed",String(theme()==="dark"));
+  btn.addEventListener("click",()=>{
+    const next=theme()==="dark"?"light":"dark";
+    root.dataset.theme=next;
+    localStorage.setItem("lilyco-theme",next);
+    btn.setAttribute("aria-pressed",String(next==="dark"));
+  });
 }
-function updatePreview(){
+
+/* ── 顶栏 · 命令切换（单命令页面没有这个节点）── */
+function initCommandNav(){
+  const sel=$("cmd-nav");
+  if(sel)sel.addEventListener("change",()=>{
+    if(sel.value)location.href="/?cmd="+encodeURIComponent(sel.value);
+  });
+}
+
+/* ── CLI 预览 + 读表 ── */
+function initCliPreview(){
+  // input 会冒泡，所以动态加出来的行也在这里一并覆盖
+  $("form").addEventListener("input",updatePreview);
+  $("form").addEventListener("change",updatePreview);
+  $("copy-cli").addEventListener("click",e=>copyText($("preview").textContent,e.currentTarget));
+  updatePreview();
+}
+// 读表：Flag 恒有值（true/false），其余留空记为 null
+function readForm(){
+  const data={};
+  for(const a of SCHEMA_ARGS){
+    const el=$("field-"+a.name);
+    if(a.kind==="Flag"){data[a.name]=!!(el&&el.checked);continue}
+    if(a.kind==="List"){data[a.name]=listValues(a.name);continue}
+    if(!el||el.value===""){data[a.name]=null;continue}
+    data[a.name]=a.kind==="Number"?toNumber(el.value):el.value;
+  }
+  return data;
+}
+const toNumber=v=>{const n=Number(v);return isNaN(n)?v:n};
+const listValues=name=>qsa('[data-list-item="'+name+'"]').map(i=>i.value).filter(v=>v!=="");
+function cliLine(data){
   const parts=[CMD];
   for(const a of SCHEMA_ARGS){
-    const v=fieldVal(a);
-    if(v===null)continue;
-    if(v==="__flag__"){parts.push("--"+a.name);continue}
-    if(Array.isArray(v)){v.forEach(x=>parts.push("--"+a.name+" "+(String(x).includes(" ")?'"'+x+'"':x)));continue}
-    parts.push("--"+a.name+" "+(String(v).includes(" ")||a.kind==="Path"?'"'+v+'"':v));
+    const v=data[a.name];
+    if(v===null||v===false)continue;
+    if(a.kind==="Flag"){parts.push("--"+a.name);continue}
+    if(Array.isArray(v)){for(const x of v)parts.push("--"+a.name+" "+quoteIfSpaced(x));continue}
+    parts.push("--"+a.name+" "+(a.kind==="Path"||String(v).includes(" ")?'"'+v+'"':v));
   }
-  $("preview").textContent=parts.join(" ");
+  return parts.join(" ");
 }
-document.getElementById("form").addEventListener("input",updatePreview);
-updatePreview();
+const quoteIfSpaced=x=>String(x).includes(" ")?'"'+x+'"':x;
+function updatePreview(){$("preview").textContent=cliLine(readForm())}
 
-// ── 原生选择器：让服务端弹系统对话框，回填磁盘上的原始路径（不上传副本） ──
-// 与上面的拖拽区是两条路：上传拿到的是服务端暂存副本，这里拿到文件本来的路径。
-// 对话框可能被压在浏览器后面（Windows 不让后台进程抢前台），所以状态里写明「看任务栏」。
-document.querySelectorAll("[data-pick]").forEach(btn=>btn.addEventListener("click",async()=>{
-  const name=btn.getAttribute("data-pick"),field=$("field-"+name),status=$("up-"+name);
-  if(!field)return;
-  btn.disabled=true;
-  if(status)status.textContent="等待系统对话框…（可能被压在后面，看一下任务栏）";
-  try{
-    const resp=await fetch("/pick",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:"{}"});
-    const j=await resp.json();
-    if(j.path){field.value=j.path;updatePreview();if(status)status.textContent="已选择："+j.path}
-    else if(status)status.textContent=j.error||"已取消";
-  }catch(err){if(status)status.textContent="选择框失败："+err}
-  finally{btn.disabled=false}
-}));
+/* ── 通用：复制并给一次性反馈（成功/失败都得说，静默复制等于没复制）── */
+function copyText(text,btn){
+  const done=ok=>{
+    const old=btn.dataset.label||btn.textContent;
+    btn.dataset.label=old;btn.textContent=ok?"已复制":"复制失败";
+    btn.classList.add(ok?"copied":"copy-failed");
+    setTimeout(()=>{btn.textContent=old;btn.classList.remove("copied","copy-failed")},1200);
+  };
+  navigator.clipboard.writeText(text).then(()=>done(true),()=>done(false));
+}
 
-// ── 文件输入组件：拖拽 / 点击选择 → /upload 暂存 → 回填绝对路径 ──
+/* ── Path · 拖拽上传（拿到的是服务端暂存副本路径）── */
+function initDropzone(){
+  qsa(".dropzone").forEach(dz=>{
+    const fi=dz.querySelector('input[type=file]');
+    dz.querySelector(".dz-browse").addEventListener("click",()=>fi.click());
+    // 拖拽区是容器，里面每个控件各管各的：点在空白处才算「选文件」
+    dz.addEventListener("click",e=>{if(!e.target.closest("button,input,.dz-status"))fi.click()});
+    fi.addEventListener("change",()=>{
+      if(fi.files[0])uploadFile(fi.files[0],dz);
+      fi.value="";  // 不清空的话，连着选同一个文件不再触发 change
+    });
+    const chip=dzParts(dz).chip;
+    chip.addEventListener("click",()=>clearUpload(dz));
+    dz.addEventListener("dragover",e=>{e.preventDefault();dz.classList.add("drag-over")});
+    // 扫过子元素也会触发 dragleave，不判 relatedTarget 就会一直闪
+    dz.addEventListener("dragleave",e=>{if(!dz.contains(e.relatedTarget))dz.classList.remove("drag-over")});
+    dz.addEventListener("drop",e=>{
+      e.preventDefault();dz.classList.remove("drag-over");
+      const f=e.dataTransfer&&e.dataTransfer.files[0];
+      if(f)uploadFile(f,dz);
+    });
+  });
+}
+function dzParts(dz){
+  const name=dz.dataset.target;
+  return {name,input:$("field-"+name),status:$("up-"+name),chip:$("chip-"+name)};
+}
+function setStatus(dz,cls,text){
+  const s=dzParts(dz).status;
+  s.textContent=text;s.className="dz-status"+(cls?" "+cls:"");
+}
 function fmtSize(n){return n>1048576?(n/1048576).toFixed(1)+" MB":n>1024?(n/1024).toFixed(1)+" KB":n+" B"}
+function clearUpload(dz){
+  const p=dzParts(dz);
+  p.input.value="";p.chip.hidden=true;p.chip.textContent="";
+  dz.classList.remove("uploaded");setStatus(dz,"","");updatePreview();
+}
 async function uploadFile(file,dz){
-  const name=dz.dataset.target,status=dz.querySelector(".dz-status"),chip=dz.querySelector(".file-chip"),input=$("field-"+name);
-  const fail=msg=>{status.textContent="上传失败："+msg;status.className="dz-status err"};
+  const p=dzParts(dz);
+  const fail=msg=>setStatus(dz,"err","上传失败："+msg);
   // 上限由服务端注入（data-max-upload），页面不抄第二份数字。
-  // 必须在读文件之前拦：超限时把整FileReader 读成 base64 会先吃光内存，
-  // 而硬发出去只会被服务端掐断，浏览器报一句没头没尾的 Failed to fetch。
+  // 必须在读文件之前拦：超限还去 FileReader 读 base64 会先吃光内存，
+  // 硬发出去也只会被服务端掐断，浏览器报一句没头没尾的 Failed to fetch。
   const max=Number(dz.dataset.maxUpload)||0;
   if(max&&file.size>max){
     const hasPick=!!dz.querySelector("[data-pick]");
@@ -118,13 +186,19 @@ async function uploadFile(file,dz){
                :"这条构建没开本机选择器：请手填路径，或换小一点的文件。"));
     return;
   }
-  status.textContent="上传中 "+file.name+"（"+fmtSize(file.size)+"）…";status.className="dz-status busy";
+  setStatus(dz,"busy","上传中 "+file.name+"（"+fmtSize(file.size)+"）…");
   try{
-    const dataUrl=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(new Error("读取文件失败（"+file.name+"）"));r.readAsDataURL(file)});
-    const b64=dataUrl.split(",",2)[1]||"";
+    const dataUrl=await new Promise((res,rej)=>{
+      const r=new FileReader();
+      r.addEventListener("load",()=>res(r.result));
+      r.addEventListener("error",()=>rej(new Error("读取文件失败（"+file.name+"）")));
+      r.readAsDataURL(file);
+    });
+    const b64=String(dataUrl).split(",",2)[1]||"";
     let resp;
     try{
-      resp=await fetch("/upload",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:JSON.stringify({name:file.name,dataB64:b64})});
+      resp=await fetch("/upload",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},
+        body:JSON.stringify({name:file.name,dataB64:b64})});
     }catch(netErr){
       // fetch 直接 reject = 请求根本没拿到响应：多半是 body 太大被服务端中途断开
       fail("传输被中断（"+netErr.message+"）。若文件较大，改点「本机」直接引用原始路径；否则重试一次。");
@@ -135,84 +209,181 @@ async function uploadFile(file,dz){
       throw new Error(body?("HTTP "+resp.status+"："+body):("HTTP "+resp.status+"（服务端未给原因）"));
     }
     const j=await resp.json();
-    input.value=j.path;
-    chip.textContent=file.name+" · "+fmtSize(j.size)+"  ✕";
-    chip.hidden=false;status.textContent="已就绪：服务端路径已回填";status.className="dz-status ok";
+    p.input.value=j.path;
+    p.chip.textContent=file.name+" · "+fmtSize(j.size);
+    p.chip.title="清除已上传的副本路径";
+    p.chip.hidden=false;
+    dz.classList.add("uploaded");
+    setStatus(dz,"ok","已就绪：服务端路径已回填");
     updatePreview();
-    chip.onclick=()=>{input.value="";chip.hidden=true;status.textContent="";updatePreview()};
   }catch(err){fail(err.message||String(err))}
 }
-document.querySelectorAll(".dropzone").forEach(dz=>{
-  const fi=dz.querySelector("input[type=file]");
-  dz.addEventListener("click",()=>fi.click());
-  dz.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();fi.click()}});
-  fi.addEventListener("change",()=>{if(fi.files[0])uploadFile(fi.files[0],dz)});
-  dz.addEventListener("dragover",e=>{e.preventDefault();dz.classList.add("drag-over")});
-  dz.addEventListener("dragleave",()=>dz.classList.remove("drag-over"));
-  dz.addEventListener("drop",e=>{e.preventDefault();dz.classList.remove("drag-over");
-    const f=e.dataTransfer.files&&e.dataTransfer.files[0];if(f)uploadFile(f,dz)});
-});
 
-// ── List 增删行 ──
-document.querySelectorAll("[data-list-add]").forEach(btn=>btn.addEventListener("click",()=>{
-  const name=btn.dataset.listAdd,rows=$("list-"+name);
-  const row=document.createElement("div");row.className="list-row";
-  const inp=document.createElement("input");inp.type="text";inp.className="mono";inp.dataset.listItem=name;
-  const del=document.createElement("button");del.type="button";del.className="btn-icon row-del";del.textContent="✕";del.setAttribute("aria-label","删除该行");
-  del.addEventListener("click",()=>row.remove());
-  inp.addEventListener("input",updatePreview);
-  row.append(inp,del);rows.append(row);inp.focus();
-}));
-
-// ── 运行 / SSE / 取消 ──
-const out=$("out"),logEl=$("log"),bar=$("progress"),barEl=$("progress-bar"),resultWrap=$("result-wrap"),resultEl=$("result");
-let es=null,activeSid=null;
-function setProgress(p){ // p: null=不确定, 0..1
-  if(p===null){bar.dataset.indet="1";barEl.style.width="40%"}
-  else{bar.dataset.indet="0";barEl.style.width=Math.max(0,Math.min(100,p*100)).toFixed(1)+"%"}
+/* ── Path · 「本机」：服务端弹系统对话框，回填磁盘上的原始路径（不上传副本）── */
+function initPickButton(){
+  qsa("[data-pick]").forEach(btn=>btn.addEventListener("click",async()=>{
+    const name=btn.getAttribute("data-pick"),field=$("field-"+name),status=$("up-"+name);
+    if(!field)return;
+    btn.disabled=true;
+    if(status){status.textContent="等待系统对话框…（可能被压在后面，看一下任务栏）";status.className="dz-status busy"}
+    try{
+      const resp=await fetch("/pick",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:"{}"});
+      const j=await resp.json();
+      if(j.path){
+        field.value=j.path;updatePreview();
+        if(status){status.textContent="已选择："+j.path;status.className="dz-status ok"}
+      }else if(status){status.textContent=j.error||"已取消";status.className="dz-status"}
+    }catch(err){if(status){status.textContent="选择框失败："+err;status.className="dz-status err"}}
+    finally{btn.disabled=false}
+  }));
 }
+
+/* ── List · 动态行（初始行由服务端渲染，这里只管增删）── */
+function initList(){
+  qsa("[data-list-add]").forEach(btn=>btn.addEventListener("click",()=>addListRow(btn.dataset.listAdd)));
+  qsa(".row-del").forEach(b=>b.addEventListener("click",e=>removeListRow(e.currentTarget)));
+}
+function addListRow(name){
+  const host=$("list-"+name);
+  if(!host)return null;
+  const row=document.createElement("div");row.className="list-row";
+  const inp=document.createElement("input");
+  inp.type="text";inp.className="mono";inp.dataset.listItem=name;
+  inp.placeholder=host.dataset.placeholder||"";
+  inp.setAttribute("aria-label",host.dataset.placeholder||"");
+  const del=document.createElement("button");
+  del.type="button";del.className="btn-icon row-del";del.textContent="✕";
+  del.setAttribute("aria-label","删除该行");
+  del.addEventListener("click",()=>removeListRow(del));
+  row.append(inp,del);host.append(row);inp.focus();
+  updatePreview();
+  return inp;
+}
+function removeListRow(node){
+  const row=node.closest(".list-row"),host=row.closest(".list-rows");
+  row.remove();
+  // 一行不剩就没法再填了，兜一行空的
+  if(host&&!host.querySelector(".list-row"))addListRow(host.dataset.list);
+  updatePreview();
+}
+
+/* ── 进度条 ── */
+function initProgress(){setProgress(null);setProgressState(null)}
+// p：null = 不确定态（服务端还没报比例），0..1 = 确定进度
+function setProgress(p){
+  const bar=$("progress"),fill=$("progress-bar");
+  if(typeof p!=="number"||isNaN(p)){
+    bar.dataset.indet="1";bar.removeAttribute("aria-valuenow");fill.style.width="";
+    return;
+  }
+  const pct=Math.max(0,Math.min(100,p*100));
+  bar.dataset.indet="0";bar.setAttribute("aria-valuenow",String(Math.round(pct)));
+  fill.style.width=pct.toFixed(1)+"%";
+}
+// 收尾态：done 整条转绿，error 整条涂红，跑起来之前清空
+function setProgressState(s){
+  const bar=$("progress");
+  if(s)bar.dataset.state=s;else bar.removeAttribute("data-state");
+}
+
+/* ── 日志区 ── */
+const LOG_MAX_LINES=500;  // 长任务的 tick 能刷出上万行，得有个顶
+function initLog(){const log=$("log");log.textContent="";log.scrollTop=0}
 function logLine(cls,text){
-  const d=document.createElement("div");d.className="line"+(cls?" "+cls:"");d.textContent=text;
-  logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;
+  const log=$("log"),d=document.createElement("div");
+  d.className=cls?"line "+cls:"line";
+  d.textContent=text;
+  log.appendChild(d);
+  while(log.childElementCount>LOG_MAX_LINES)log.firstElementChild.remove();
+  log.scrollTop=log.scrollHeight;
+}
+
+/* ── 结果区 ── */
+function initResult(){
+  $("result-wrap").hidden=true;
+  $("result").textContent="";
+  $("copy-result").addEventListener("click",e=>copyText($("result").textContent,e.currentTarget));
+}
+function showResult(value){
+  $("result").textContent=JSON.stringify(value,null,2);
+  $("result-wrap").hidden=false;
+}
+
+/* ── 运行 / SSE / 取消 ── */
+let es=null,activeSid=null;
+function initRunBar(){
+  $("form").addEventListener("submit",run);
+  $("cancel-btn").addEventListener("click",cancel);
 }
 function setBusy(b){
-  $("run-btn").disabled=b;$("run-btn").classList.toggle("loading",b);
+  const btn=$("run-btn");
+  btn.disabled=b;btn.classList.toggle("loading",b);btn.setAttribute("aria-busy",String(b));
   $("cancel-btn").hidden=!b;
 }
-document.getElementById("form").addEventListener("submit",async e=>{
+async function run(e){
   e.preventDefault();
-  const data={};
-  for(const a of SCHEMA_ARGS){
-    if(a.kind==="Flag"){data[a.name]=$("field-"+a.name).checked;continue}
-    if(a.kind==="List"){data[a.name]=Array.from(document.querySelectorAll('[data-list-item="'+a.name+'"]')).map(i=>i.value).filter(v=>v!=="");continue}
-    const el=$("field-"+a.name),v=el?el.value:"";
-    data[a.name]=v===""?null:(a.kind==="Number"&&(n=>!isNaN(n)&&v!=="")(Number(v))?Number(v):v);
-  }
-  out.hidden=false;logEl.textContent="";resultWrap.hidden=true;setProgress(null);setBusy(true);
+  if(es)return;
+  const data=readForm(),out=$("out");
+  out.hidden=false;initLog();setProgress(null);setProgressState(null);setBusy(true);
+  out.scrollIntoView({block:"nearest"});  // 手机上运行按钮在表单底部，输出区在它下面
   let sid;
   try{
-    const resp=await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:JSON.stringify({args:data,cmd:CMD})});
-    if(!resp.ok){throw new Error((await resp.text())||("HTTP "+resp.status))}
+    const resp=await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},
+      body:JSON.stringify({args:data,cmd:CMD})});
+    if(!resp.ok)throw new Error((await resp.text())||("HTTP "+resp.status));
     sid=(await resp.json()).session_id;activeSid=sid;
-  }catch(err){logLine("err","请求失败："+err.message);setBusy(false);return}
+  }catch(err){
+    // 请求就没成功，根本没有进度可等：把不确定态的跑动动画停下来，
+    // 不然那条一直滚的进度条看着像「还在跑」
+    logLine("err","请求失败："+err.message);setProgress(0);setBusy(false);return;
+  }
   es=new EventSource("/progress/"+sid);
-  es.onmessage=ev=>{
+  es.addEventListener("message",ev=>{
     let p;try{p=JSON.parse(ev.data)}catch{return}
-    if(p.type==="started"){logLine(null,p.message||"运行中…")}
-    else if(p.type==="tick"){setProgress(p.percent);if(p.message)logLine(null,p.message)}
-    else if(p.type==="log"){logLine(p.level==="error"?"err":p.level==="warn"?"warn":null,"["+(p.level||"info")+"] "+p.message)}
-    else if(p.type==="telemetry"){logLine("tele",p.key+" = "+JSON.stringify(p.value))}
-    else if(p.type==="done"){setProgress(1);resultEl.textContent=JSON.stringify(p.result,null,2);resultWrap.hidden=false;finish()}
-    else if(p.type==="error"){setProgress(0);logLine("err","ERROR: "+p.message);finish()}
-  };
-  es.onerror=()=>{finish()};
-  function finish(){if(es){es.close();es=null}activeSid=null;setBusy(false)}
-});
-$("cancel-btn").addEventListener("click",async()=>{
+    applyEvent(p);
+  });
+  es.addEventListener("error",finish);  // 服务端关流也会走这里
+}
+function applyEvent(p){
+  switch(p.type){
+    case "started":logLine(null,p.message||"运行中…");break;
+    case "tick":setProgress(p.percent);if(p.message)logLine(null,p.message);break;
+    case "log":logLine(p.level==="error"?"err":p.level==="warn"?"warn":null,"["+(p.level||"info")+"] "+p.message);break;
+    case "telemetry":logLine("tele",p.key+" = "+JSON.stringify(p.value));break;
+    case "done":setProgress(1);setProgressState("done");showResult(p.result);finish();break;
+    // 失败也走满条并涂红：留个 0% 的空条，看上去像什么都没发生
+    case "error":setProgress(1);setProgressState("error");logLine("err","ERROR: "+p.message);finish();break;
+  }
+}
+function finish(){if(es){es.close();es=null}activeSid=null;setBusy(false)}
+async function cancel(){
   if(!activeSid)return;
-  try{await fetch("/cancel/"+activeSid,{method:"POST",headers:{"X-Lilyco-Token":TOKEN}});logLine("warn","已发送取消请求（命令需响应 ctx.is_cancelled）")}catch(e){logLine("err","取消失败："+e.message)}
-});
-$("copy-result").addEventListener("click",()=>navigator.clipboard.writeText(resultEl.textContent));
-$("copy-cli").addEventListener("click",()=>navigator.clipboard.writeText($("preview").textContent));
+  const btn=$("cancel-btn");
+  btn.disabled=true;
+  try{
+    const resp=await fetch("/cancel/"+activeSid,{method:"POST",headers:{"X-Lilyco-Token":TOKEN}});
+    if(!resp.ok)throw new Error((await resp.text())||("HTTP "+resp.status));
+    logLine("warn","已发送取消请求（命令需响应 ctx.is_cancelled）");
+  }catch(err){
+    logLine("err","取消失败："+err.message);btn.disabled=false;  // 失败了才值得再点一次
+  }
+}
+
+/* ═══ 装配 ═══
+   放在最后：所有顶层常量此时都已初始化，函数声明本来就提升。
+   每个组件单独 try —— 一个组件的毛病不该把整台控制台带走；但失败必须看得见，
+   半死的页面（看着正常、点了不动）是最难报的 bug。 */
+const bootFailures=[];
+for(const init of BOOT){
+  try{init()}catch(err){bootFailures.push((init.name||"组件")+": "+err.message)}
+}
+if(bootFailures.length){
+  const d=document.createElement("div");
+  d.className="line err";
+  d.textContent="组件装配失败，页面功能不完整：" + bootFailures.join("；");
+  $("out").hidden=false;
+  $("log").appendChild(d);
+  console.error(bootFailures.join("\n"));
+}
 </script>
 </body></html>
