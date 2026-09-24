@@ -576,6 +576,10 @@ fn docx_numbering(
     has_part: bool,
     limit: usize,
 ) -> Value {
+    // `parse_str` 交回来的是伪根 `#doc`，它只有一个孩子（`w:numbering` / `w:styles`）——
+    // 在这一层找 `w:num` 永远找不到，条数会平白无故报 0（CI 上就是这条抓到的）
+    let numbering = numbering.map(|root| root.child("numbering").unwrap_or(root));
+    let style_root = style_root.map(|root| root.child("styles").unwrap_or(root));
     // numId -> 那一条 `w:num` 写的 abstractNumId
     let mut nums: Vec<(String, Option<String>)> = Vec::new();
     // abstractNumId -> 那一份定义写了哪几级（每级一份账）
