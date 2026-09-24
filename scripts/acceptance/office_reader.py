@@ -294,6 +294,9 @@ def docx_facts(path: Path) -> dict:
         "comments": comments,
         "side_texts": side_texts(parts),
         "sections": len([one for one in body.iter() if xml_local(one.tag) == "sectPr"]),
+        # 段落自己写的格式（这一族不用跳样式）与一节一条的分栏
+        "paragraph_formats": docx_paragraph_formats(paras),
+        "columns": docx_columns(body),
         # 部件在 ≠ 文档用了编号：notes.docx 带着 numbering.xml，正文里一个 numPr 都没有
         "has_numbering": any(xml_local(one.tag) == "numPr" for one in body.iter()),
         "numbering_part": "word/numbering.xml" in parts,
@@ -684,6 +687,217 @@ def xlsx_headers(parts: dict) -> dict:
             ET.fromstring(parts[name])
         )
     return out
+
+
+def _kids(node, want: str) -> list:
+    """直接儿子里局部名等于 want 的那些，按文件顺序"""
+    return [one for one in node if xml_local(one.tag) == want]
+
+
+ODF_INDENT = ("margin-left", "margin-right", "text-indent", "auto-text-indent")
+
+
+ODF_NS_PREFIX = {"http://www.w3.org/XML/1998/namespace": "xml"}
+
+
+def ns_prefixes(text: str) -> dict:
+    """把这份 XML 自己声明的 `xmlns:前缀="URI"` 反查成 URI → 前缀
+
+    ODF 的属性名是带前缀的，而且 `fo:margin-left` 与 `loext:margin-left` 是两个不同的东西
+    （前者的值是 `3cm`，后者是 `2ic`）—— 只按局部名收就会互相盖掉，所以这里按文件自己写的
+    名字交。前缀不是契约的一部分，但**这一族是照前缀写的**，要交出「文件写了什么」就得留着它。
+    """
+    out = dict(ODF_NS_PREFIX)
+    for prefix, uri in re.findall(r'xmlns:([A-Za-z0-9_\-]+)="([^"]*)"', text):
+        out.setdefault(uri, prefix)
+    return out
+
+
+def written_kept(node, prefixes: dict) -> dict:
+    """属性按**文件写的名字**交：`{uri}margin-left` 还原成 `fo:margin-left`，认不出前缀就交局部名"""
+    out = {}
+    for key, value in node.attrib.items():
+        if "}" in key:
+            at = key.index("}")
+            head = prefixes.get(key[1:at])
+            local = key[at + 1:]
+            out["%s:%s" % (head, local) if head else local] = value
+        else:
+            out[key] = value
+    return out
+
+
+def docx_paragraph_formats(paras: list, limit: int = 200) -> dict:
+    """docx 的段落格式：`w:jc` / `w:ind` / `w:spacing` 就写在段自己的 `w:pPr` 上
+
+    这一族不用跳样式（样式表里那份不是「这一段写的」），所以只交段上有的；
+    `w:leftChars="200"` 是第二种单位（两个字），照字符串交，`chars_written` 只是
+    说「这一族的缩进里出现了 Chars 后缀」，不替它折算成厘米。
+    """
+    entries = []
+    alignment = indents = spacings = 0
+    for index, one in enumerate(paras):
+        holder = _kids(one, "pPr")
+        if not holder:
+            continue
+        kids = list(holder[0])
+        jc = _kids(holder[0], "jc")
+        ind = _kids(holder[0], "ind")
+        spacing = _kids(holder[0], "spacing")
+        style = _kids(holder[0], "pStyle")
+        entry = {
+            "index": index,
+            "style": local_attr(style[0], "val") if style else None,
+            "elements": [xml_local(kid.tag) for kid in kids],
+            "alignment": local_attr(jc[0], "val") if jc else None,
+            "indent": written_attrs(ind[0]) if ind else None,
+            "spacing": written_attrs(spacing[0]) if spacing else None,
+            "chars_written": (
+                any(xml_local(key).endswith("Chars") for key in ind[0].attrib) if ind else False
+            ),
+        }
+        alignment += 1 if jc else 0
+        indents += 1 if ind else 0
+        spacings += 1 if spacing else 0
+        entries.append(entry)
+    return {
+        "checked": len(paras),
+        "listed": len(entries),
+        "with_alignment": alignment,
+        "with_indent": indents,
+        "with_spacing": spacings,
+        "list": entries[:limit],
+    }
+
+
+def docx_columns(body, limit: int = 200) -> dict:
+    """docx 的分栏：一节一条 `sectPr/w:cols`（`num` 省掉就是没说要分栏）"""
+    entries = []
+    for index, sect in enumerate(_all(body, "sectPr")[:limit]):
+        cols = _kids(sect, "cols")
+        entries.append(
+            {
+                "at": index,
+                "present": bool(cols),
+                "written": written_attrs(cols[0]) if cols else None,
+                "count": local_attr(cols[0], "num") if cols else None,
+                "space": local_attr(cols[0], "space") if cols else None,
+                "parts": [written_attrs(one) for one in _kids(cols[0], "column")] if cols else [],
+            }
+        )
+    return {
+        "sections": len(entries),
+        "written": len([one for one in entries if one["present"]]),
+        "multi": len([one for one in entries
+                      if (one["count"] or "").isdigit() and int(one["count"]) > 1]),
+        "list": entries,
+    }
+
+
+def _all(root, want: str) -> list:
+    """后代里按局部名挑（文档顺序），与 Rust 的 descendants(want) 同一条规则"""
+    return [one for one in root.iter() if xml_local(one.tag) == want]
+
+
+def odf_paragraph_formats(paras: list, root, prefixes: dict, limit: int = 200) -> dict:
+    """ODF 的段落格式：段上只有一个样式名，属性在 `style:paragraph-properties` 上
+
+    一跳：`text:p/@text:style-name` → 同一个部件里那个 `style:style` →
+    `style:paragraph-properties` 的属性。**只找得到 content.xml 里那一份**：
+    第三段点名的 `Standard` 住在 styles.xml，那是文档默认，不是这一段写的 ——
+    所以那条 `resolved: false`、`written: null`，父样式链更不去猜。
+    """
+    styles = {}
+    for one in _all(root, "style"):
+        name = local_attr(one, "name")
+        if name is None or local_attr(one, "family") not in ("paragraph", "text"):
+            continue
+        if name in styles:
+            continue  # 同名样式取第一个：Rust 那边是 `find`，两边必须同一条规则
+        props = _kids(one, "paragraph-properties")
+        styles[name] = (
+            local_attr(one, "family"),
+            local_attr(one, "parent-style-name"),
+            written_kept(props[0], prefixes) if props else None,
+        )
+    entries = []
+    resolved = 0
+    for index, one in enumerate(paras):
+        name = local_attr(one, "style-name")
+        got = styles.get(name) if name else None
+        entry = {
+            "index": index,
+            "style": name,
+            "resolved": got is not None,
+            "family": got[0] if got else None,
+            "parent": got[1] if got else None,
+            "written": got[2] if got else None,
+        }
+        if got and got[2] is not None:
+            written = got[2]
+            entry["alignment"] = written.get("fo:text-align")
+            entry["indent"] = {
+                key: value for key, value in written.items() if key.rsplit(":", 1)[-1] in ODF_INDENT
+            }
+            entry["spacing"] = {
+                key: value
+                for key, value in written.items()
+                if key.rsplit(":", 1)[-1] in ("margin-top", "margin-bottom", "line-height",
+                                              "contextual-spacing")
+            }
+            resolved += 1
+        entries.append(entry)
+    return {
+        "checked": len(paras),
+        "listed": len(entries),
+        "resolved": resolved,
+        "list": entries[:limit],
+    }
+
+
+def odf_columns(root, prefixes: dict, limit: int = 200) -> dict:
+    """ODF 的分栏：`text:section` 点名一个 family=section 的样式，栏在它的 section-properties 里
+
+    与 docx 完全不同：那里是「一节一条 w:cols」，这里是「一个内联区一个区样式」，
+    而且每一栏还各写一份 `style:column`（宽度是 `rel-width="32767*"` 那种相对数）。
+    """
+    styles = {}
+    for one in _all(root, "style"):
+        name = local_attr(one, "name")
+        if name is None or local_attr(one, "family") != "section":
+            continue
+        if name in styles:
+            continue  # 同名区样式取第一个，与 Rust 的 `find` 同一条规则
+        props = _kids(one, "section-properties")
+        cols = _kids(props[0], "columns") if props else []
+        styles[name] = (
+            written_kept(cols[0], prefixes) if cols else None,
+            [written_kept(kid, prefixes) for kid in _kids(cols[0], "column")] if cols else [],
+            local_attr(props[0], "dont-balance-text-columns") if props else None,
+            bool(props),
+        )
+    entries = []
+    for one in _all(root, "section")[:limit]:
+        name = local_attr(one, "style-name")
+        got = styles.get(name) if name else None
+        entries.append(
+            {
+                "name": local_attr(one, "name"),
+                "style": name,
+                "resolved": got is not None,
+                "has_properties": bool(got[3]) if got else False,
+                "written": got[0] if got else None,
+                "parts": got[1] if got else [],
+                "dont_balance": got[2] if got else None,
+            }
+        )
+    return {
+        "sections": len(entries),
+        # 「写了栏这件事」= 那个 `style:columns` 元素在，哪怕它是空的（Rust 那边判的是 null，
+        # 一个 `<style:columns/>` 在两家都算说过话，所以这里判 is not None 而不是判真假）
+        "written": len([one for one in entries if one["written"] is not None]),
+        "list": entries,
+    }
 
 
 def null_cache() -> dict:
@@ -1228,6 +1442,7 @@ def odt_structure(path: Path) -> dict:
         if body is not None:
             break
     body = body if body is not None else root
+    prefixes = ns_prefixes(parts["content.xml"].decode("utf8", "replace"))
 
     def texts(node) -> str:
         return odf_para_text(node).strip()
@@ -1275,6 +1490,9 @@ def odt_structure(path: Path) -> dict:
         "breaks": count_local(body, "line-break"),
         # 换页写在段落样式上（`fo:break-before="page"`），不是正文里的元素：见 odf_page_breaks
         "page_breaks": odf_page_breaks(root, body),
+        # 段落格式与分栏：这一族都住在样式那一跳上（不是正文元素），见上面两个函数
+        "paragraph_formats": odf_paragraph_formats(paras, root, prefixes),
+        "columns": odf_columns(root, prefixes),
         # text:soft-page-break 是另一件事：渲染时落下的那个位置，不是作者要的换页
         "soft_page_breaks": count_local(body, "soft-page-break"),
         "drawings": count_local(body, "frame"),

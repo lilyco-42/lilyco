@@ -895,6 +895,64 @@ def write_size_xlsx(path: Path) -> None:
     wb.save(path)
 
 
+def write_para_docx(path: Path) -> None:
+    """python-docx：四种段落写法 + 一节两栏 —— 「这一段到底排成什么样」
+
+    一次把三家会分家的地方都摆开（另两份件由 LibreOffice 导出得到）：
+    * 第一段：两端对齐 + 左缩进 3 厘米 + 首行缩进 480 twips + 段前 6 磅段后 3 磅 + 1.5 倍行距；
+    * 第二段：右对齐 + 右缩进 24 磅 + **悬挂缩进** + **固定** 18 磅行距（与「1.5 倍」在 docx 里
+      是同一个 `w:line` 配两种 `w:lineRule`，在 ODF 里是同一个 `fo:line-height` 配两种单位）；
+    * 第三段：什么都不设 —— 「没写」这一种必须有，否则读成 0 还是没读出来分不开；
+    * 第四段：居中 + **按字数**缩进（docx 的第二种单位：`w:leftChars="200"` 是两个字，
+      ODF 那一家换成了 `loext:margin-left="2ic"`，只看 `fo:` 会当成没缩进）；
+    * 末尾另起一节分两栏（`w:cols w:num="2" w:space="425"`）：模板自带的第二节那份
+      `w:cols` 只有 `w:space` 没有 `num`，正好是「一栏」的写法。
+    """
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Cm, Pt, Twips
+
+    doc = Document()
+    one = doc.add_paragraph("第一段：两端对齐，左缩进三厘米，首行缩进两个字")
+    one.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    one.paragraph_format.left_indent = Cm(3)
+    one.paragraph_format.first_line_indent = Twips(480)
+    one.paragraph_format.space_before = Pt(6)
+    one.paragraph_format.space_after = Pt(3)
+    one.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
+
+    two = doc.add_paragraph("第二段：右对齐，悬挂缩进，固定行距 18 磅")
+    two.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    two.paragraph_format.right_indent = Pt(24)
+    two.paragraph_format.first_line_indent = Pt(-18)
+    two.paragraph_format.line_spacing = Pt(18)
+    two.paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+
+    doc.add_paragraph("第三段：什么都不设")
+
+    four = doc.add_paragraph("第四段：按字数缩进")
+    four.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    node = OxmlElement("w:ind")
+    node.set(qn("w:left"), "0")
+    node.set(qn("w:leftChars"), "200")
+    node.set(qn("w:firstLineChars"), "150")
+    four._p.get_or_add_pPr().append(node)
+
+    section = doc.add_section()
+    # 模板自带一节一份 `w:cols`（只有 space，没有 num —— 那就是「一栏」的写法），
+    # 所以这里改它而不是再塞一份：追加会造出同一个 sectPr 里两个 w:cols
+    cols = section._sectPr.find(qn("w:cols"))
+    if cols is None:
+        cols = OxmlElement("w:cols")
+        section._sectPr.append(cols)
+    cols.set(qn("w:num"), "2")
+    cols.set(qn("w:space"), "425")
+    doc.add_paragraph("这一节排在两栏里")
+    doc.save(path)
+
+
 def write_pptx_charts(path: Path) -> None:
     """python-pptx：同一页两张图（柱形与饼图），第二页一张也没有。
 
@@ -1517,6 +1575,20 @@ def main() -> int:
         shutil.copyfile(made, OUT / "size-lo.xlsx")
     else:
         print("⚠️  没拿到 size-lo.xlsx（xlsx → xlsx 那一转）")
+
+    # 段落格式与分栏那三件套：docx 由 python-docx 写，odt / rtf 都由 LibreOffice 导出
+    para = OUT / "para.docx"
+    write_para_docx(para)
+    convert(exe, para, "odt", SCRATCH)
+    if (SCRATCH / "para.odt").exists():
+        shutil.copyfile(SCRATCH / "para.odt", OUT / "para.odt")
+    else:
+        print("⚠️  没拿到 para.odt")
+    convert(exe, para, "rtf", SCRATCH)
+    if (SCRATCH / "para.rtf").exists():
+        shutil.copyfile(SCRATCH / "para.rtf", OUT / "para.rtf")
+    else:
+        print("⚠️  没拿到 para.rtf")
 
     # 演示稿的第二生产者与图那两份：同一份 pptx 让 LibreOffice 转 odp 再转回来，
     # 版式与母版的条数、段落被拆成几个 run、`sldSz` 上那个 type 属性都会变

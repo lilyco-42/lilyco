@@ -43,6 +43,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `tables.docx` / `tables.odt` / `tables.rtf` | python-docx 与 LibreOffice（两张表：3×2 与 2×2，中间夹一段正文，首尾各一个标题） | 表那一份的对照件：三家都给 5 行 10 格，而 RTF 只敢给行数与格子数 —— 「几张表」的分组规则在 `notes.rtf`（一张）与这份（两张）上试过，单表对、两表数成一张 |
 | `paper-a4.docx` / `paper-a4.odt` / `paper-a4.rtf` | python-docx 与 LibreOffice（A4 纵向一节 + 横过来的一节） | 那张纸的第二尺寸：三家换算到 0.01mm 后短边都是 **21001**（不是 21000 —— OOXML 与 RTF 写 11906 twips，ODF 照抄成 `21.001cm`），所以这一支不给尺寸起名；横排那一节 docx 与 odt 都有第二条并写着 `orient=landscape`，而 RTF 全文一个 `\landscape` 都没有 → 那一条流只交文档默认的纵向 |
 | `tables-merged.docx` / `tables-merged.odt` | python-docx 与 LibreOffice（一张横向合并的 2×3 + 一张纵向合并的 2×2） | 合并格的两种写法：OOXML 把横向合掉的那一格**整个不写**（第一格带 `w:gridSpan="2"`，那一行 2 个 `w:tc`），ODF 把被盖住的那一格照样写出来（空的 `covered-table-cell`，那一行 3 个格）；纵向合并 OOXML 写 `vMerge`（restart / continue 两头），ODF 只在起头那格写 `number-rows-spanned="2"` |
+| `para.docx` | python-docx（`write_para_docx`） | 「这一段自己排成什么样」的四种情况：第一段两端对齐 + 左缩进 `1701`（3cm 换算）+ 首行 `480` + 段前 `120` 段后 `60` + `line="360" lineRule="auto"`；第二段右对齐 + `hanging="360"` + **同一个 `line="360"` 配 `lineRule="exact"`**；第三段一条 `w:pPr` 都不写（`checked` 6 与 `listed` 4 的差就是它）；第四段居中之外把**第二种单位**摆出来 —— `w:left="0"` 与 `w:leftChars="200"`、`firstLineChars="150"` 并排；末尾一节改成两栏（`w:num="2" w:space="425"`），模板自带那一节只有 `w:space="720"` 没有 `num` —— 两条 `w:cols` 都在，所以 `sections` 2、`written` 2 而 `multi` 只有 1 |
+| `para.odt` | LibreOffice（从 `para.docx`） | 同样的话换了地方住：段上只有 `text:style-name="P1"`，属性在 `style:paragraph-properties` 上（一跳）；`both`→`justify`、`right`→`end`、`1701`→`fo:margin-left="3cm"`、`hanging="360"`→**负的** `fo:text-indent="-0.635cm"`；`line 360 + auto/exact` 换成 `fo:line-height="150%"` 与 `"0.635cm"`（靠单位分别）；按字数那段改用另一个前缀 —— `loext:margin-left="2ic"`、`loext:text-indent="1.5ic"`，`fo:` 上什么都没有；第三段点名的 `Standard` 住在 styles.xml → `resolved: false`、`written: null`；两栏变成 `text:section` + family=section 的样式（`fo:column-count="2"`、`fo:column-gap="0.751cm"`，每栏一份 `style:rel-width` = `32767*` 与 `32768*`，另写 `style:dont-balance-text-columns="true"`） |
+| `para.rtf` | LibreOffice（从 `para.docx`） | 这一族两份账**都不交**，理由量在这份件里：正文五段每段前面都把样式默认重发一遍（`\sl276\sb0\sa200\ltrpar…` 段段都有，「写了什么」与「继承了什么」分不开）；第二段那个右对齐整个没写出来（全文 `\qr` 0 次、`\qj` 与 `\qc` 各 1 次）；按字数的那两个缩进被抹平成 `\li0\fi0`；1.5 倍与固定 18 磅它用**符号**分别（`\sl360\slmult1` 与 `\sl-360\slmult0`）；全文 `\cols` 0 次 → 两栏在这条流里不存在 |
 | `toc.docx` | LibreOffice 的 **docx 导出器**（把目录注进 `notes.docx` 再让它照抄） | 真目录：`<w:sdt>` + `<w:docPartGallery w:val="Table of Contents"/>`，级别在域指令文字里 —— LibreOffice 把引号写成 `&quot;`，所以 `TOC \o "1-2" \h` 要还原实体才读得对 |
 | `toc.odt` | LibreOffice（从 `toc.docx`） | 同一件东西的另一副面孔：`text:table-of-content`（名字 `目录1`）、级别在 `text:table-of-content-source/@outline-level="2"`，另外**十级条目模板全写出来**（`entry_templates` 报的是文件写了几个，不是用上了几级） |
 | `toc.rtf` | LibreOffice（从 `toc.docx`） | 目录的第三种写法：没有 OOXML 那个 `w:sdt` 壳，也没有 ODF 那个 `outline-level` 属性，只有流里的一条域 `{\*\fldinst { TOC \\o "1-2" \\h}}` —— 开关前面的反斜杠**成对写**（单个会开出一个控制字），解掉那一对之后与 `toc.docx` 的 `w:instrText` 逐字相同。全文两条域（这一条 TOC 与目录条目上那一条 HYPERLINK）、`line_count` 9、`skipped_destinations` 120 |
@@ -718,6 +721,40 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     ODF 与 .xls 这三份账同样没读（键整个不在）：ODF 的列宽行高与页眉页脚一样住在样式里，
     .xls 的在 BIFF 的 COLINFO / ROW 与 FILTER 记录里，没有一个读者能核对。
 
+54. **这一段自己排成什么样、这一节排成几栏**（`para.docx`、`para.odt`、`para.rtf`）。
+    同一份四段话在两家手里住在**两个地方**：OOXML 就写在段自己的 `w:pPr` 上，ODF 段上只留一个
+    样式名、属性在样式表的 `style:paragraph-properties` 里（一跳），所以一份账要按两种走法各记：
+    * 「没写」这一种必须有，否则「这一段什么都没说」与「读成 0」分不开：docx `checked` 6 而 `listed` 4
+      （差的那两段一条 `w:pPr` 都没有）；ODF 那边第三段点名的 `Standard` 住在 styles.xml，
+      而这一族只看得见 content.xml 里的那一份 → `resolved: false`、`written: null`，不借邻居的数。
+    * 对齐的**值照文件交**：同一段 docx 说 `both`、odt 说 `justify`，第二段 docx 说 `right`、odt 说 `end`
+      —— 折成一个词就是替两家编一个谁都没写过的词。
+    * 「1.5 倍」与「固定 18 磅」这三家各用一个不同的东西去分别它：docx 两处都是 `w:line="360"`，
+      分别靠 `lineRule`（`auto` / `exact`）；ODF 换成 `fo:line-height="150%"` 与 `"0.635cm"`，
+      分别靠单位（同一个数换个单位就不是同一件事）；RTF 用**符号加另一个开关**
+      （`\sl360\slmult1` 与 `\sl-360\slmult0`）。三个都不换算。
+    * 缩进有第二种单位，而那第二种单位只有一家在写：docx 把 `w:left="0"` 与 `w:leftChars="200"` 并排
+      （`chars_written` 只说「出现了 Chars 后缀」，不替它换成毫米），ODF 那一段干脆改用 `loext:` 前缀
+      （`loext:margin-left="2ic"`、`loext:text-indent="1.5ic"`，`fo:` 上什么都没有 —— 只按 `fo:` 挑就当这段没缩进）。
+      所以 ODF 那份属性表**留着前缀交**：`fo:text-indent` 与 `loext:text-indent` 是两个属性，
+      按局部名合并就会互相盖掉。悬挂缩进也一样，ODF 是一个**负的** `fo:text-indent`（`-0.635cm`），
+      docx 另开一个 `hanging="360"`。
+    * 分栏两份账不同形：docx 一节一条 `w:cols`（模板自带那一节只有 `w:space="720"`、没有 `num` ——
+      那就是「一栏」的写法，于是 `sections` 2、`written` 2、`multi` 1 是三本账）；ODF 是 `text:section`
+      点名 family=section 的样式，栏在它的 `style:section-properties` 里（`fo:column-count="2"`、
+      `fo:column-gap="0.751cm"`），每栏还各写一份 `style:column`，相对宽度是 `32767*` 与 `32768*`
+      （两半不相等，是生产者自己凑的整数，不是我们摊的）。`style:dont-balance-text-columns="true"`
+      交在 **`dont_balance`** 这个键上 —— 键叫 `balance` 就会把那个 `true` 读成反话。
+    * RTF 这一族**两个键都不交**，理由就量在这份件里：正文五段每段前面都把样式默认重发一遍
+      （`\sl276\sb0\sa200\ltrpar…` 段段都有，「这一段写了什么」与「它继承了什么」分不开）；
+      第二段那个右对齐整个没写出来（全文 `\qr` 0 次，`\qj` 与 `\qc` 各 1 次）；按字数的那两个缩进被抹平成
+      `\li0\fi0`；而全文 `\cols` 0 次 —— 两栏在这条流里不存在。归属判不住就不交：键整个不在，
+      不是 0、也不是 null。`.doc` 同理（段格式住在那张表流里，这一族的读者不走过去）。
+    命名空间声明在这两族都不算属性（`xmlns=` 与 `xmlns:fo=` 说的是「这个名字怎么读」，不是文件给的属性），
+    标准库那个 XML 读者本来也不把它们放进 attrib —— 这条口径是上一批对账失败量出来的：
+    `<table xmlns="…spreadsheetml/2006/main">` 让 Rust 多报一个 `xmlns` 键，而 `size.xlsx` 与
+    `size-lo.xlsx` 的表根元素上都写着它（一家把它放在最后一个属性、另一家放在第一个）。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
@@ -741,6 +778,11 @@ docx 用 ElementTree 找 `w:sectPr` 的 `w:pgSz` / `w:pgMar`，odt 找 `styles.x
 同一份 `revisions-lo.docx` 与 `revisions.odt` 两边逐条对得上，才对得起「合成规则」这四个字。
 保护那一份另有 `scripts/acceptance/lyco_protect.py`：同样只吃标准库，
 按 ElementTree 的属性取法把四家的开关与两层结构各读一遍，与 `protect.rs` 逐字段对。
+段落格式与分栏那一份在同一份 `office_reader.py` 里（`docx_paragraph_formats` / `docx_columns` /
+`odf_paragraph_formats` / `odf_columns`）：ODF 那边要按前缀交属性，而 ElementTree 会把
+`fo:margin-left` 折成 `{uri}margin-left` —— 于是先从这份 `content.xml` 自己的 `xmlns:fo=` 那几条声明里
+建一张 uri→前缀 的表再还原名字（前缀是文件自己起的，不是抄来的）。两边都不把
+`xmlns` / `xmlns:*` 当属性，样式的解析都只一跳、同名取第一个（与 Rust 的 `find` 同一条规则）。
 CI 的 `apps` job 会把编出来的 `lbin` 再跑一遍 `office_probe.py` 与它们逐字段对账，
 不一致就红 —— 而不是只跑一遍单元测试说"自己跟自己也挺一致"。
 

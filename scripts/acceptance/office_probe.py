@@ -144,6 +144,9 @@ def main() -> int:
         "view-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "size.xlsx": ("ooxml", "excel", "xlsx"),
         "size-lo.xlsx": ("ooxml", "excel", "xlsx"),
+        "para.docx": ("ooxml", "word", "docx"),
+        "para.odt": ("opendocument", "word", "odt"),
+        "para.rtf": ("rtf", "word", "rtf"),
         "notes.odt": ("opendocument", "word", "odt"),
         "book.ods": ("opendocument", "excel", "ods"),
         "deck.odp": ("opendocument", "powerpoint", "odp"),
@@ -844,6 +847,109 @@ def main() -> int:
     check("deck.pptx 每页备注", [one["notes"] for one in slide.get("slides", [])], [one["notes"] for one in deck_want["slides"]])
     check("deck.pptx 母版数", len(slide.get("masters", [])), len(deck_want["masters"]))
     check("deck.pptx 版式数", len(slide.get("layouts", [])), len(deck_want["layouts"]))
+
+    # ── 2h) 段落的格式与分栏：docx 写在段自己身上，ODF 要跳到它点名的样式 ──────
+    print("=== 2h) office-doc 的段落格式与分栏（docx 与 odt 两族） ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name)).get("structure", {})
+        want = files[name]["ooxml"]
+        check("%s 段落格式与读者一致" % name, got.get("paragraph_formats"), want.get("paragraph_formats"))
+        check("%s 的分栏与读者一致" % name, got.get("columns"), want.get("columns"))
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name)).get("structure", {})
+        want = files[name]["odt"]
+        check("%s 段落格式与读者一致" % name, got.get("paragraph_formats"), want.get("paragraph_formats"))
+        check("%s 的分栏与读者一致" % name, got.get("columns"), want.get("columns"))
+    para = {ext: lbin("office-doc", fixture("para." + ext)) for ext in ("docx", "odt", "rtf")}
+    check(
+        "同一件事的两种字面：两端对齐在 docx 叫 both、在 ODF 叫 justify",
+        [dig(para["docx"], "structure.paragraph_formats.list[0].alignment"),
+         dig(para["odt"], "structure.paragraph_formats.list[0].alignment"),
+         dig(para["docx"], "structure.paragraph_formats.list[1].alignment"),
+         dig(para["odt"], "structure.paragraph_formats.list[1].alignment")],
+        ["both", "justify", "right", "end"],
+    )
+    check(
+        "单位也各交各的：twips 的 1701 与 cm 的 3cm（不换算）",
+        [dig(para["docx"], "structure.paragraph_formats.list[0].indent.left"),
+         dig(para["odt"], "structure.paragraph_formats.list[0].indent.fo:margin-left"),
+         dig(para["docx"], "structure.paragraph_formats.list[0].spacing.before"),
+         dig(para["odt"], "structure.paragraph_formats.list[0].spacing.fo:margin-top")],
+        ["1701", "3cm", "120", "0.212cm"],
+    )
+    check(
+        "行距的两种写法：docx 换 lineRule，ODF 换单位（150% 与 0.635cm）",
+        [dig(para["docx"], "structure.paragraph_formats.list[0].spacing.lineRule"),
+         dig(para["docx"], "structure.paragraph_formats.list[0].spacing.line"),
+         dig(para["odt"], "structure.paragraph_formats.list[0].written.fo:line-height"),
+         dig(para["docx"], "structure.paragraph_formats.list[1].spacing.lineRule"),
+         dig(para["odt"], "structure.paragraph_formats.list[1].written.fo:line-height")],
+        ["auto", "360", "150%", "exact", "0.635cm"],
+    )
+    check(
+        "缩进的第二种单位：docx 是 leftChars=200，ODF 换成 loext:margin-left=2ic",
+        [dig(para["docx"], "structure.paragraph_formats.list[2].indent.leftChars"),
+         dig(para["docx"], "structure.paragraph_formats.list[2].chars_written"),
+         dig(para["docx"], "structure.paragraph_formats.list[0].chars_written"),
+         dig(para["odt"], "structure.paragraph_formats.list[3].indent.loext:margin-left"),
+         dig(para["odt"], "structure.paragraph_formats.list[3].indent.fo:margin-left"),
+         dig(para["odt"], "structure.paragraph_formats.list[0].indent.fo:margin-left")],
+        ["200", True, False, "2ic", None, "3cm"],
+    )
+    check(
+        "「没写」上不了榜，而 ODF 每段都点名一个样式：两份账的条数不同",
+        [dig(para["docx"], "structure.paragraph_formats.checked"),
+         dig(para["docx"], "structure.paragraph_formats.listed"),
+         dig(para["odt"], "structure.paragraph_formats.checked"),
+         dig(para["odt"], "structure.paragraph_formats.listed")],
+        [6, 4, 5, 5],
+    )
+    check(
+        "点名到 styles.xml 里那个样式：这一跳不通就说 null，不当成「没格式」",
+        [dig(para["odt"], "structure.paragraph_formats.list[2].style"),
+         dig(para["odt"], "structure.paragraph_formats.list[2].resolved"),
+         dig(para["odt"], "structure.paragraph_formats.list[2].written"),
+         dig(para["odt"], "structure.paragraph_formats.resolved")],
+        ["Standard", False, None, 4],
+    )
+    check(
+        "段里只挂着节属性那一段也上榜（它确实写了 pPr）",
+        [dig(para["docx"], "structure.paragraph_formats.list[3].index"),
+         dig(para["docx"], "structure.paragraph_formats.list[3].elements"),
+         dig(para["docx"], "structure.paragraph_formats.list[3].alignment")],
+        [4, ["sectPr"], None],
+    )
+    check(
+        "分栏：docx 一节一条 w:cols（一栏就是没有 num），ODF 一个内联区一条区样式",
+        [dig(para["docx"], "structure.columns.sections"),
+         dig(para["docx"], "structure.columns.multi"),
+         dig(para["docx"], "structure.columns.list[0].written"),
+         dig(para["docx"], "structure.columns.list[1].written"),
+         dig(para["odt"], "structure.columns.sections"),
+         dig(para["odt"], "structure.columns.written")],
+        [2, 1, {"space": "720"}, {"space": "425", "num": "2"}, 1, 1],
+    )
+    check(
+        "ODF 的两栏还各写一份相对宽度与自己的内缩",
+        [dig(para["odt"], "structure.columns.list[0].written"),
+         dig(para["odt"], "structure.columns.list[0].name"),
+         [one.get("style:rel-width") for one in (dig(para["odt"], "structure.columns.list[0].parts") or [])],
+         dig(para["odt"], "structure.columns.list[0].parts[1].fo:start-indent"),
+         dig(para["odt"], "structure.columns.list[0].dont_balance")],
+        [{"fo:column-count": "2", "fo:column-gap": "0.751cm"}, "TextSection",
+         ["32767*", "32768*"], "0.375cm", "true"],
+    )
+    # RTF 这一族两份账都不交：LibreOffice 的导出在每一段前面把样式的默认重发一遍
+    # （`\pard\plain\s0…\sa200` 段段都有），「这一段自己写了什么」与样式分不开；
+    # 而全文没有一个 `\cols`。`.doc` 同理：段格式在表流里，这一族不判
+    for name in ("para.rtf", "notes.rtf", "toc.rtf"):
+        got = lbin("office-doc", fixture(name)).get("structure", {})
+        check("%s 这一段不报段落格式与分栏：两个键整个不在" % name,
+              [one for one in ("paragraph_formats", "columns") if got.get(one) is not None], [])
+    for name in ("notes.doc", "notes-en.doc"):
+        got = lbin("office-doc", fixture(name)).get("structure", {})
+        check("%s 也不报：段格式在表流里" % name,
+              [one for one in ("paragraph_formats", "columns") if got.get(one) is not None], [])
 
     # ── 2f) 演示稿的第二生产者与那两张图：同一份稿子中一家会重写什么 ──────
     print("=== 2f) 两家写的 pptx 与页上的图 ===")

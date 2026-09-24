@@ -21,7 +21,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-doc",
     run = "run_office_doc",
-    about = "Report the structure of a Word document: paragraph count (empty ones counted separately, because Word's own statistics do), headings with their level and text, every style used and how often, tables with rows and cells, inline shapes and pictures, hyperlinks split into internal and external with their targets, sections, explicit page/column breaks, footnotes and endnotes and comments (read from their own parts when present), tracked-change presence (w:ins / w:del counts) plus a revision ledger (revisions): one entry per logical change with its kind, author, date, the paragraph index it sits in and the words it carries - elements are merged only when adjacent with the same kind/author/date/paragraph, because a producer writes one edit as several runs (LibreOffice splits the number from the unit into two w:ins), while the ODF export of the very same file states them as one changed-region, which is what this merge rule was measured against. Paragraph-mark insertions (w:pPr/w:rPr/w:ins) are counted apart from the paragraph's text and are not merged with it; ODF keeps deleted words inside the region and inserted words between text:change-start and text:change-end in the body, and both are read. Legacy .doc reports revisions as null rather than guess (the redline tables live in the table stream, not the piece table). protection (docx: w:documentProtection in word/settings.xml - w:edit says what kind of editing is restricted and w:enforcement says whether it is on; odt: the ProtectForm/ProtectBookmarks/ProtectFields config-items in settings.xml, which is a different place and does NOT carry the docx restriction across - the same document converted to .odt reports false for all three, measured); numbering usage, headers and footers, embedded objects and custom XML, plus which optional parts the package actually carries. statistics answers 'how many words/pages': ours (characters, characters_no_spaces and words_by_space - the last split on whitespace only, which is why it is named that way and not 'words') next to the producer's own numbers (docx docProps/app.xml, ODF meta.xml document-statistic) because the two disagree by design - python-docx writes app.xml with Words/Characters at 0 (it never counted), and LibreOffice counts Chinese words rather than whitespace runs, while on the same text our character counts match its character-count exactly. For legacy .doc it falls back to what the piece table can honestly tell: paragraph count from the CP total plus the marker characters it dropped (cell ends, field boundaries), not a claim about tables it cannot see. For .odt it reports the same account from content.xml's office:text (headings from text:outline-level, comments from text:annotation, pictures from draw:image, footnotes and endnotes split out of the single text:note element by its note:class) and additionally echoes meta.xml's own document-statistic so the producer's numbers are visible next to ours. `contents` answers 'is there a table of contents and how many levels does it pull in', reported per family because the spellings share almost nothing: OOXML wraps a w:sdt whose docPartGallery reads Table of Contents (Word and LibreOffice both write it) and keeps the levels INSIDE the field instruction text - a form like TOC \\o \"1-2\" \\h, with the producer's own quoting - while the wrapper can also be absent and only the field present, so both are looked for; ODF keeps a text:table-of-content block whose name is on text:name and whose level is the source element's outline-level attribute, and LibreOffice additionally writes all ten entry templates whether or not they are used (entry_templates reports what is written, not what is used); RTF has no wrapper at all, only a field group whose instruction spells each switch with a DOUBLED backslash (a single one would open a control word instead), and the stream reader decodes that pair - which is why the levels string coming back from toc.rtf is byte-identical to the one from toc.docx and one switch reader serves both families, while the OOXML-only gallery and sdt keys stay absent rather than invented. A file without one reports present false - false, not missing; legacy .doc reports null because this reader does not look there. RTF is not a package but one stream, so that branch answers with only what the stream itself proves: structure.paragraphs is the lines the par control word cuts, footnotes and endnotes are counted apart from their destination groups (an endnote is a footnote group that additionally carries ftnalt), and pictures / embedded_objects / skipped_destinations / note_destinations / page_destinations come from the same walk, while sections, revisions and protection stay null, comments is a count of the annotation groups the stream holds (author and words come back from office-text, where an undecodable atndate stays null and the raw digits are handed over as written), and the break words are counted at word boundaries into structure.break_words - a substring count would be wrong twice over, because \\pard contains \\par and \\sectd contains \\sect, and a Word page break reaches this family as \\pagebb rather than \\page (page_breaks sums the three spellings; \\sect is a terminator the last section never writes, so section_breaks is reported while sections stays null) - null means 'this reader did not look', 0 would mean 'there are none'. Styles and fonts are read out of the fonttbl and stylesheet groups with a lookahead: those groups are still skipped as far as the body is concerned (so skipped_destinations did not move when this was added), but their entries come back as styles (name to how many paragraphs use it, taken from the body's own \\sN) plus style_definitions / font_definitions counts and a font_list; a font name written in a non-ANSI charset with non-ASCII bytes comes back as name null with that charset number, because decoding those as cp1252 would be a made-up name. Tables are the interesting middle case there: table_rows and table_cells ARE reported (they are simply how many times the row and cell control words appear, and on two measured files those counts match the same document's docx and odt ledgers exactly), while tables itself stays null because the rule for grouping rows into separate tables was tried against one single-table file and one two-table file and counted two as one. Links come from a lookahead into the field group (the HYPERLINK address inside the instruction, plus the display text of the result group - which stays in the body, because that is what the page shows), and fields counts how many field groups the stream holds since page numbers and dates are fields too but are not links. Headings on this branch are read from the style names: the \\sN in a paragraph's own properties is looked up in the stylesheet group and only an entry named `heading N` (case-insensitive, whitespace required between the word and the number, nothing after it) makes that paragraph a heading at level N - a custom style name yields no heading rather than a guessed one, and the character-style namespace is not consulted because \\csN numbering is separate. `page_setup` answers 'how big is the paper and what are the margins', per family because the three spellings share nothing but the number: OOXML writes twips (1/1440 inch) on each w:sectPr's w:pgSz and w:pgMar (a two-section document writes two entries, one per section), ODF writes self-describing lengths (fo:page-width=\"21.59cm\") on the page-layout in styles.xml - NOT content.xml, and the page-layout-properties entry that carries only grid settings is not a sheet of paper so it is neither reported nor numbered, and RTF writes a document-level \\paperw / \\paperh / \\marg* string (a per-section override would sit in the {\\*\\sectx} group, which this branch does not judge, so RTF gives exactly one entry). All of them convert to integer hundredths of a millimetre with one shared integer formula (round half up, no floating point, so the second reader cannot disagree in the last digit), and every entry also carries `written` - what the file literally says - because producers differ across families on the very same words: on notes-hf the docx writes 1440 twips top and bottom while LibreOffice's own odt and rtf exports both write 720 / 1.27cm, and this reports the three numbers instead of picking a winner. Orientation is only ever what the file wrote: OOXML and RTF omit it for portrait, so those come back null while ODF says portrait. Legacy .doc reports null because its section properties live in the table stream, which this reader does not walk. `tables[].grid` answers 'what is IN this table': rows of cells, each with its text (the cell's own paragraphs joined with newlines - a table nested inside a cell contributes nothing here), plus only the merge numbers the file actually wrote: OOXML spells a horizontal merge as w:gridSpan and OMITS the covered cell entirely (so a merged row has fewer w:tc than the table is wide), while ODF writes the covered cell as an empty table:covered-table-cell and spells the span as number-columns-spanned / number-rows-spanned / number-columns-repeated - on the measured 2x3 table with one horizontal merge the same visual row comes back as 2 cells in docx and 3 in odt, so cell counts are a property of the storage, not of the page, and rows / cells (counted with descendants, which is the 'how many row and cell markers does this file hold' question that also folds nested tables in) stay a separate account from grid.rows (direct children only). Legacy .doc reports null because its section properties live in the table stream, which this reader does not walk. Returns { path, format, kind, structure, page_setup, headings, styles, tables, images, hyperlinks, contents, revisions, protection, statistics, parts, notes }. Read-only (safety T0)."
+    about = "Report the structure of a Word document: paragraph count (empty ones counted separately, because Word's own statistics do), headings with their level and text, every style used and how often, tables with rows and cells, inline shapes and pictures, hyperlinks split into internal and external with their targets, sections, explicit page/column breaks, footnotes and endnotes and comments (read from their own parts when present), tracked-change presence (w:ins / w:del counts) plus a revision ledger (revisions): one entry per logical change with its kind, author, date, the paragraph index it sits in and the words it carries - elements are merged only when adjacent with the same kind/author/date/paragraph, because a producer writes one edit as several runs (LibreOffice splits the number from the unit into two w:ins), while the ODF export of the very same file states them as one changed-region, which is what this merge rule was measured against. Paragraph-mark insertions (w:pPr/w:rPr/w:ins) are counted apart from the paragraph's text and are not merged with it; ODF keeps deleted words inside the region and inserted words between text:change-start and text:change-end in the body, and both are read. Legacy .doc reports revisions as null rather than guess (the redline tables live in the table stream, not the piece table). protection (docx: w:documentProtection in word/settings.xml - w:edit says what kind of editing is restricted and w:enforcement says whether it is on; odt: the ProtectForm/ProtectBookmarks/ProtectFields config-items in settings.xml, which is a different place and does NOT carry the docx restriction across - the same document converted to .odt reports false for all three, measured); numbering usage, headers and footers, embedded objects and custom XML, plus which optional parts the package actually carries. statistics answers 'how many words/pages': ours (characters, characters_no_spaces and words_by_space - the last split on whitespace only, which is why it is named that way and not 'words') next to the producer's own numbers (docx docProps/app.xml, ODF meta.xml document-statistic) because the two disagree by design - python-docx writes app.xml with Words/Characters at 0 (it never counted), and LibreOffice counts Chinese words rather than whitespace runs, while on the same text our character counts match its character-count exactly. For legacy .doc it falls back to what the piece table can honestly tell: paragraph count from the CP total plus the marker characters it dropped (cell ends, field boundaries), not a claim about tables it cannot see. For .odt it reports the same account from content.xml's office:text (headings from text:outline-level, comments from text:annotation, pictures from draw:image, footnotes and endnotes split out of the single text:note element by its note:class) and additionally echoes meta.xml's own document-statistic so the producer's numbers are visible next to ours. `contents` answers 'is there a table of contents and how many levels does it pull in', reported per family because the spellings share almost nothing: OOXML wraps a w:sdt whose docPartGallery reads Table of Contents (Word and LibreOffice both write it) and keeps the levels INSIDE the field instruction text - a form like TOC \\o \"1-2\" \\h, with the producer's own quoting - while the wrapper can also be absent and only the field present, so both are looked for; ODF keeps a text:table-of-content block whose name is on text:name and whose level is the source element's outline-level attribute, and LibreOffice additionally writes all ten entry templates whether or not they are used (entry_templates reports what is written, not what is used); RTF has no wrapper at all, only a field group whose instruction spells each switch with a DOUBLED backslash (a single one would open a control word instead), and the stream reader decodes that pair - which is why the levels string coming back from toc.rtf is byte-identical to the one from toc.docx and one switch reader serves both families, while the OOXML-only gallery and sdt keys stay absent rather than invented. A file without one reports present false - false, not missing; legacy .doc reports null because this reader does not look there. RTF is not a package but one stream, so that branch answers with only what the stream itself proves: structure.paragraphs is the lines the par control word cuts, footnotes and endnotes are counted apart from their destination groups (an endnote is a footnote group that additionally carries ftnalt), and pictures / embedded_objects / skipped_destinations / note_destinations / page_destinations come from the same walk, while sections, revisions and protection stay null, comments is a count of the annotation groups the stream holds (author and words come back from office-text, where an undecodable atndate stays null and the raw digits are handed over as written), and the break words are counted at word boundaries into structure.break_words - a substring count would be wrong twice over, because \\pard contains \\par and \\sectd contains \\sect, and a Word page break reaches this family as \\pagebb rather than \\page (page_breaks sums the three spellings; \\sect is a terminator the last section never writes, so section_breaks is reported while sections stays null) - null means 'this reader did not look', 0 would mean 'there are none'. Styles and fonts are read out of the fonttbl and stylesheet groups with a lookahead: those groups are still skipped as far as the body is concerned (so skipped_destinations did not move when this was added), but their entries come back as styles (name to how many paragraphs use it, taken from the body's own \\sN) plus style_definitions / font_definitions counts and a font_list; a font name written in a non-ANSI charset with non-ASCII bytes comes back as name null with that charset number, because decoding those as cp1252 would be a made-up name. Tables are the interesting middle case there: table_rows and table_cells ARE reported (they are simply how many times the row and cell control words appear, and on two measured files those counts match the same document's docx and odt ledgers exactly), while tables itself stays null because the rule for grouping rows into separate tables was tried against one single-table file and one two-table file and counted two as one. Links come from a lookahead into the field group (the HYPERLINK address inside the instruction, plus the display text of the result group - which stays in the body, because that is what the page shows), and fields counts how many field groups the stream holds since page numbers and dates are fields too but are not links. Headings on this branch are read from the style names: the \\sN in a paragraph's own properties is looked up in the stylesheet group and only an entry named `heading N` (case-insensitive, whitespace required between the word and the number, nothing after it) makes that paragraph a heading at level N - a custom style name yields no heading rather than a guessed one, and the character-style namespace is not consulted because \\csN numbering is separate. `page_setup` answers 'how big is the paper and what are the margins', per family because the three spellings share nothing but the number: OOXML writes twips (1/1440 inch) on each w:sectPr's w:pgSz and w:pgMar (a two-section document writes two entries, one per section), ODF writes self-describing lengths (fo:page-width=\"21.59cm\") on the page-layout in styles.xml - NOT content.xml, and the page-layout-properties entry that carries only grid settings is not a sheet of paper so it is neither reported nor numbered, and RTF writes a document-level \\paperw / \\paperh / \\marg* string (a per-section override would sit in the {\\*\\sectx} group, which this branch does not judge, so RTF gives exactly one entry). All of them convert to integer hundredths of a millimetre with one shared integer formula (round half up, no floating point, so the second reader cannot disagree in the last digit), and every entry also carries `written` - what the file literally says - because producers differ across families on the very same words: on notes-hf the docx writes 1440 twips top and bottom while LibreOffice's own odt and rtf exports both write 720 / 1.27cm, and this reports the three numbers instead of picking a winner. Orientation is only ever what the file wrote: OOXML and RTF omit it for portrait, so those come back null while ODF says portrait. Legacy .doc reports null because its section properties live in the table stream, which this reader does not walk. structure.paragraph_formats answers 'what did THIS paragraph say about how it is laid out', and per family because the two families do not put the answer in the same place: OOXML writes it on the paragraph's own w:pPr (w:jc for alignment, w:ind and w:spacing as attribute tables, the style named by w:pStyle), so entries carry index, style, elements (the child names the paragraph actually wrote), alignment, indent, spacing and chars_written - a second unit lives beside the twips on w:ind (w:leftChars=\"200\" means two character widths, and this reports the string it wrote rather than converting it); ODF writes nothing on the paragraph but a style name (text:p/@text:style-name) and keeps the properties one hop away on that style's style:paragraph-properties (fo:text-align, fo:margin-*, fo:line-height - which may be a percentage or an absolute length, and a hanging indent arrives as a NEGATIVE fo:text-indent), so an entry says resolved true/false and, when the style is not the one this reader can see (a paragraph styled Standard lives in styles.xml, not content.xml), written stays null instead of borrowing a neighbour's numbers. Alignment values come back as written - OOXML says both/right/center, ODF says justify/start/end - because 'both' and 'justify' are a producer difference to show, not to normalize. structure.columns answers 'is this set in more than one column', again per family: OOXML writes one w:cols per w:sectPr, and num is only written by a producer that chose to write it, so sections / written / multi are counted apart from each other (a one-column section still has a w:cols); ODF wraps the columns in a text:section whose family=section style carries style:columns (fo:column-count, fo:column-gap) plus one style:column per column with a relative width (style:rel-width=\"32767*\", and two columns measured at 32767* and 32768* - the halves come from the producer's rounding, not from ours), and style:dont-balance-text-columns is echoed under the key dont_balance because the value \"true\" means the opposite of what a key called 'balance' would promise. RTF and legacy .doc write neither key at all: an absent key means 'this reader did not look in this family', which is not the same claim as 0 or null - LibreOffice's RTF export re-emits the style defaults on every paragraph (so a paragraph ledger there would list the same numbers on every line and prove nothing) and no \\cols control word is written to look for. Both readers drop namespace declarations from every attribute table (xmlns= and xmlns:fo= say how to read a name, not a value the file set) and the ODF tables keep their prefixes on purpose, because fo:text-indent and loext:text-indent are two different properties that a local-name-only merge would collide. `tables[].grid` answers 'what is IN this table': rows of cells, each with its text (the cell's own paragraphs joined with newlines - a table nested inside a cell contributes nothing here), plus only the merge numbers the file actually wrote: OOXML spells a horizontal merge as w:gridSpan and OMITS the covered cell entirely (so a merged row has fewer w:tc than the table is wide), while ODF writes the covered cell as an empty table:covered-table-cell and spells the span as number-columns-spanned / number-rows-spanned / number-columns-repeated - on the measured 2x3 table with one horizontal merge the same visual row comes back as 2 cells in docx and 3 in odt, so cell counts are a property of the storage, not of the page, and rows / cells (counted with descendants, which is the 'how many row and cell markers does this file hold' question that also folds nested tables in) stay a separate account from grid.rows (direct children only). Legacy .doc reports null because its section properties live in the table stream, which this reader does not walk. Returns { path, format, kind, structure, page_setup, headings, styles, tables, images, hyperlinks, contents, revisions, protection, statistics, parts, notes }. Read-only (safety T0)."
 )]
 pub struct OfficeDoc {
     /// Word 文档（docx / docm / doc / odt / rtf）
@@ -240,6 +240,271 @@ fn odf_page_breaks(root: &xmlscan::Node, text_body: &xmlscan::Node) -> usize {
     hits
 }
 
+/// docx 的属性交**局部名**（`w:left` → `left`）：这一族的前缀不是契约的一部分。
+/// 命名空间声明（`xmlns=` / `xmlns:前缀=`）不算属性 —— 标准库的 XML 读者也不把它放进 attrib
+fn attr_map(node: &xmlscan::Node) -> Value {
+    let mut out = serde_json::Map::new();
+    for (key, value) in &node.attrs {
+        if key == "xmlns" || key.starts_with("xmlns:") {
+            continue;
+        }
+        let local = key.rsplit(':').next().unwrap_or(key).to_string();
+        out.insert(local, json!(value));
+    }
+    Value::Object(out)
+}
+
+/// ODF 的属性按**文件写的名字**交（前缀留着）：`fo:margin-left` 是 `3cm`，
+/// `loext:margin-left` 是「两个字」—— 只按局部名收就会互相盖掉，那是替文件编东西。
+/// 同上：`xmlns:` 那些是声明，不是属性
+fn kept_attrs(node: &xmlscan::Node) -> Value {
+    let mut out = serde_json::Map::new();
+    for (key, value) in &node.attrs {
+        if key == "xmlns" || key.starts_with("xmlns:") {
+            continue;
+        }
+        out.insert(key.clone(), json!(value));
+    }
+    Value::Object(out)
+}
+
+/// 从一份属性里挑出「局部名在这张表上」的那些，键仍按文件写的名字留着
+fn pick_attrs(map: &serde_json::Map<String, Value>, want: &[&str]) -> Value {
+    let mut out = serde_json::Map::new();
+    for (key, value) in map {
+        if want
+            .iter()
+            .any(|one| *one == key.rsplit(':').next().unwrap_or(key))
+        {
+            out.insert(key.clone(), value.clone());
+        }
+    }
+    Value::Object(out)
+}
+
+/// ODF 段落格式里算「缩进」与「段距」的那两组属性名
+const ODF_INDENT: [&str; 4] = [
+    "margin-left",
+    "margin-right",
+    "text-indent",
+    "auto-text-indent",
+];
+const ODF_SPACING: [&str; 4] = [
+    "margin-top",
+    "margin-bottom",
+    "line-height",
+    "contextual-spacing",
+];
+
+/// docx 的段落格式：`w:jc` / `w:ind` / `w:spacing` 就写在段自己的 `w:pPr` 上
+///
+/// 样式表里那份不算（那不是「这一段写的」），也不去解继承链；`w:leftChars="200"`
+/// 是第二种单位（两个字），照字符串交，`chars_written` 只说「出现了 Chars 后缀」
+fn docx_paragraph_formats(paragraphs: &[&xmlscan::Node], limit: usize) -> Value {
+    let mut entries: Vec<Value> = Vec::new();
+    let mut alignment = 0usize;
+    let mut indents = 0usize;
+    let mut spacings = 0usize;
+    for (index, one) in paragraphs.iter().enumerate() {
+        let Some(holder) = one.child("pPr") else {
+            continue;
+        };
+        let elements: Vec<String> = holder
+            .children
+            .iter()
+            .map(|kid| kid.local().to_string())
+            .collect();
+        let jc = holder.child("jc");
+        let ind = holder.child("ind");
+        let spacing = holder.child("spacing");
+        let chars_written = ind
+            .map(|kid| {
+                kid.attrs
+                    .iter()
+                    .any(|(key, _)| key.rsplit(':').next().unwrap_or(key).ends_with("Chars"))
+            })
+            .unwrap_or(false);
+        if jc.is_some() {
+            alignment += 1;
+        }
+        if ind.is_some() {
+            indents += 1;
+        }
+        if spacing.is_some() {
+            spacings += 1;
+        }
+        entries.push(json!({
+            "index": index,
+            "style": holder.child("pStyle").and_then(|kid| kid.attr_local("val")).map(String::from),
+            "elements": elements,
+            "alignment": jc.and_then(|kid| kid.attr_local("val")).map(String::from),
+            "indent": ind.map(attr_map).unwrap_or(Value::Null),
+            "spacing": spacing.map(attr_map).unwrap_or(Value::Null),
+            "chars_written": chars_written,
+        }));
+    }
+    json!({
+        "checked": paragraphs.len(),
+        "listed": entries.len(),
+        "with_alignment": alignment,
+        "with_indent": indents,
+        "with_spacing": spacings,
+        "list": entries.into_iter().take(limit).collect::<Vec<Value>>(),
+    })
+}
+
+/// docx 的分栏：一节一条 `sectPr/w:cols`（只有 `w:space` 没有 `w:num` 就是「一栏」的写法）
+fn docx_columns(body: &xmlscan::Node, limit: usize) -> Value {
+    let mut entries: Vec<Value> = Vec::new();
+    for (at, sect) in body
+        .descendants("sectPr")
+        .into_iter()
+        .take(limit)
+        .enumerate()
+    {
+        let cols = sect.child("cols");
+        entries.push(json!({
+            "at": at,
+            "present": cols.is_some(),
+            "written": cols.map(attr_map).unwrap_or(Value::Null),
+            "count": cols.and_then(|kid| kid.attr_local("num")).map(String::from),
+            "space": cols.and_then(|kid| kid.attr_local("space")).map(String::from),
+            "parts": cols
+                .map(|kid| {
+                    kid.children
+                        .iter()
+                        .filter(|had| had.local() == "column")
+                        .map(attr_map)
+                        .collect::<Vec<Value>>()
+                })
+                .unwrap_or_default(),
+        }));
+    }
+    let written = entries
+        .iter()
+        .filter(|one| one["present"] == json!(true))
+        .count();
+    let multi = entries
+        .iter()
+        .filter(|one| {
+            one["count"]
+                .as_str()
+                .and_then(|raw| raw.parse::<usize>().ok())
+                > Some(1)
+        })
+        .count();
+    json!({"sections": entries.len(), "written": written, "multi": multi, "list": entries})
+}
+
+/// ODF 的段落格式：段上只有一个样式名，属性在那个样式的 `style:paragraph-properties` 上
+///
+/// 一跳，只看段落自己点名的那个样式，而且**只找得到 content.xml 里那一份**：
+/// 点名 `Standard` 的那一段的样式住在 styles.xml，那是文档默认不是这一段写的 ——
+/// 所以那条交 `resolved: false`、`written: null`，父样式链更不去猜
+fn odf_paragraph_formats(
+    paragraphs: &[&xmlscan::Node],
+    root: &xmlscan::Node,
+    limit: usize,
+) -> Value {
+    let mut styles: Vec<(String, String, Option<String>, Option<Value>)> = Vec::new();
+    for one in root.descendants("style").into_iter() {
+        let family = one.attr_local("family").unwrap_or_default();
+        if family != "paragraph" && family != "text" {
+            continue;
+        }
+        let Some(name) = one.attr_local("name") else {
+            continue;
+        };
+        styles.push((
+            name.to_string(),
+            family.to_string(),
+            one.attr_local("parent-style-name").map(String::from),
+            one.child("paragraph-properties").map(kept_attrs),
+        ));
+    }
+    let mut entries: Vec<Value> = Vec::new();
+    let mut resolved = 0usize;
+    for (index, one) in paragraphs.iter().enumerate() {
+        let name = one.attr_local("style-name");
+        let found = name.and_then(|want| styles.iter().find(|one| one.0 == want));
+        let written = found.and_then(|one| one.3.clone());
+        let mut entry = json!({
+            "index": index,
+            "style": name.map(String::from),
+            "resolved": found.is_some(),
+            "family": found.map(|one| one.1.clone()),
+            "parent": found.and_then(|one| one.2.clone()),
+            "written": written.clone(),
+        });
+        if let Some(object) = written.as_ref().and_then(|had| had.as_object()) {
+            entry["alignment"] = object.get("fo:text-align").cloned().unwrap_or(Value::Null);
+            entry["indent"] = pick_attrs(object, &ODF_INDENT);
+            entry["spacing"] = pick_attrs(object, &ODF_SPACING);
+            resolved += 1;
+        }
+        entries.push(entry);
+    }
+    json!({
+        "checked": paragraphs.len(),
+        "listed": entries.len(),
+        "resolved": resolved,
+        "list": entries.into_iter().take(limit).collect::<Vec<Value>>(),
+    })
+}
+
+/// ODF 的分栏：`text:section` 点名一个 family=section 的样式，栏在它的
+/// `style:section-properties` 里，而且每一栏还各写一份 `style:column`（相对宽度）
+fn odf_columns(root: &xmlscan::Node, limit: usize) -> Value {
+    let mut styles: Vec<(String, Option<Value>, Vec<Value>, Option<String>, bool)> = Vec::new();
+    for one in root.descendants("style").into_iter() {
+        if one.attr_local("family") != Some("section") {
+            continue;
+        }
+        let Some(name) = one.attr_local("name") else {
+            continue;
+        };
+        let props = one.child("section-properties");
+        let cols = props.and_then(|kid| kid.child("columns"));
+        let parts: Vec<Value> = cols
+            .map(|kid| {
+                kid.children
+                    .iter()
+                    .filter(|had| had.local() == "column")
+                    .map(kept_attrs)
+                    .collect::<Vec<Value>>()
+            })
+            .unwrap_or_default();
+        styles.push((
+            name.to_string(),
+            cols.map(kept_attrs),
+            parts,
+            props
+                .and_then(|kid| kid.attr_local("dont-balance-text-columns"))
+                .map(String::from),
+            props.is_some(),
+        ));
+    }
+    let mut entries: Vec<Value> = Vec::new();
+    for one in root.descendants("section").into_iter().take(limit) {
+        let name = one.attr_local("style-name");
+        let found = name.and_then(|want| styles.iter().find(|one| one.0 == want));
+        entries.push(json!({
+            "name": one.attr_local("name").map(String::from),
+            "style": name.map(String::from),
+            "resolved": found.is_some(),
+            "has_properties": found.map(|one| one.4).unwrap_or(false),
+            "written": found.and_then(|one| one.1.clone()).unwrap_or(Value::Null),
+            "parts": found.map(|one| Value::Array(one.2.clone())).unwrap_or(Value::Array(Vec::new())),
+            "dont_balance": found.and_then(|one| one.3.clone()),
+        }));
+    }
+    let written = entries
+        .iter()
+        .filter(|one| !one["written"].is_null())
+        .count();
+    json!({"sections": entries.len(), "written": written, "list": entries})
+}
+
 fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
     let start = std::time::Instant::now();
     let blob = read_blob(&app.path, app.max_bytes).map_err(AppError::InvalidInput)?;
@@ -370,6 +635,9 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
                 "insertions": body.descendants("ins").len(),
                 "deletions": body.descendants("del").len(),
                 "bookmarks": body.descendants("bookmarkStart").len(),
+                // 这一族把段的对齐/缩进/段距写在段自己身上，分栏写在节上
+                "paragraph_formats": docx_paragraph_formats(&paragraphs, limit),
+                "columns": docx_columns(&body, limit),
                 "fields": body.descendants("fldSimple").len() + body.descendants("fldChar").len(),
                 // 部件存在 ≠ 文档用到了编号：notes.docx 带着 numbering.xml，
                 // 正文里却一个 numPr 都没有（python-docx 没往里写列表）
@@ -561,6 +829,9 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
                 // `text:soft-page-break` 是另一件事（渲染时落下的那一格），另给一个键
                 "page_breaks": odf_page_breaks(&root, text_body),
                 "soft_page_breaks": text_body.descendants("soft-page-break").len(),
+                // 这一族两段都不写在正文里：格式在段点名的样式上，栏在内联区点名的区样式上
+                "paragraph_formats": odf_paragraph_formats(&paragraphs, &root, limit),
+                "columns": odf_columns(&root, limit),
                 "drawings": text_body.descendants("frame").len(),
                 "annotations": text_body.descendants("annotation").len(),
                 "lists": text_body.descendants("list").len(),
@@ -819,6 +1090,153 @@ mod tests {
         };
         let (tx, _rx) = mpsc::channel();
         run_office_doc(&app, &Context::new_test(tx)).expect("office-doc 应成功")
+    }
+
+    /// 段落的格式与分栏：docx 写在段自己身上，ODF 跳一跳在样式里，RTF 这一族不判归属
+    #[test]
+    fn paragraph_formats_and_columns_sit_where_each_family_put_them() {
+        let hand = run("para.docx");
+        let formats = &hand["structure"]["paragraph_formats"];
+        assert_eq!(formats["checked"], 6, "{formats}");
+        assert_eq!(formats["listed"], 4, "没有 pPr 的段不上榜：{formats}");
+        assert_eq!(formats["with_alignment"], 3);
+        assert_eq!(formats["with_indent"], 3);
+        assert_eq!(formats["with_spacing"], 2);
+        let first = &formats["list"][0];
+        assert_eq!(first["index"], 0);
+        assert_eq!(
+            first["elements"],
+            json!(["spacing", "ind", "jc"]),
+            "按文件写的顺序交：{first}"
+        );
+        assert_eq!(first["alignment"], "both");
+        assert_eq!(first["indent"], json!({"left": "1701", "firstLine": "480"}));
+        assert_eq!(
+            first["spacing"],
+            json!({"before": "120", "after": "60", "line": "360", "lineRule": "auto"}),
+            "{first}"
+        );
+        assert_eq!(first["chars_written"], json!(false));
+        assert_eq!(first["style"], Value::Null, "这一族没点名样式");
+        let chars = &formats["list"][2];
+        assert_eq!(chars["index"], 3, "第三段整个没有 pPr，所以不在账里");
+        assert_eq!(chars["alignment"], "center");
+        assert_eq!(
+            chars["indent"],
+            json!({"left": "0", "leftChars": "200", "firstLineChars": "150"}),
+            "{chars}"
+        );
+        assert_eq!(
+            chars["chars_written"],
+            json!(true),
+            "缩进的第二种单位：按字数"
+        );
+        assert_eq!(chars["spacing"], Value::Null);
+        let sect = &formats["list"][3];
+        assert_eq!(
+            sect["elements"],
+            json!(["sectPr"]),
+            "段里只挂着节属性：{sect}"
+        );
+        assert_eq!(sect["alignment"], Value::Null);
+
+        let columns = &hand["structure"]["columns"];
+        assert_eq!(columns["sections"], 2, "{columns}");
+        assert_eq!(columns["written"], 2);
+        assert_eq!(columns["multi"], 1, "只有一节说了要两栏：{columns}");
+        assert_eq!(
+            columns["list"][0]["written"],
+            json!({"space": "720"}),
+            "「一栏」的写法就是没有 num"
+        );
+        assert_eq!(columns["list"][0]["count"], Value::Null);
+        assert_eq!(
+            columns["list"][1]["written"],
+            json!({"space": "425", "num": "2"})
+        );
+        assert_eq!(columns["list"][1]["count"], "2");
+
+        let odt = run("para.odt");
+        let theirs = &odt["structure"]["paragraph_formats"];
+        assert_eq!(theirs["checked"], 5, "{theirs}");
+        assert_eq!(
+            theirs["listed"], 5,
+            "这一族每段都点名一个样式，所以全都上榜"
+        );
+        assert_eq!(
+            theirs["resolved"], 4,
+            "点名 Standard 那一段的样式在 styles.xml，这一跳不通"
+        );
+        let p1 = &theirs["list"][0];
+        assert_eq!(p1["style"], "P1", "{p1}");
+        assert_eq!(p1["parent"], "Standard");
+        assert_eq!(
+            p1["alignment"], "justify",
+            "同一件事 docx 叫 both、这一族叫 justify"
+        );
+        assert_eq!(p1["indent"]["fo:margin-left"], "3cm");
+        assert_eq!(p1["written"]["fo:line-height"], "150%");
+        let plain = &theirs["list"][2];
+        assert_eq!(plain["style"], "Standard");
+        assert_eq!(plain["resolved"], json!(false));
+        assert_eq!(plain["written"], Value::Null);
+        let bychars = &theirs["list"][3];
+        assert_eq!(
+            bychars["indent"]["loext:margin-left"], "2ic",
+            "按字数的缩进换了 namespace：{bychars}"
+        );
+        assert_eq!(
+            bychars["indent"]["fo:margin-left"],
+            Value::Null,
+            "这一段 fo 里没有左边距：{bychars}"
+        );
+        assert_eq!(bychars["written"]["fo:text-align"], "center");
+        assert_eq!(bychars["alignment"], "center");
+        let end = &theirs["list"][4];
+        assert_eq!(
+            end["written"],
+            json!({"style:page-number": "auto"}),
+            "{end}"
+        );
+        assert_eq!(
+            end["indent"],
+            json!({}),
+            "两组都不挨着，交空表而不是不交：{end}"
+        );
+        assert_eq!(end["spacing"], json!({}));
+        let odt_columns = &odt["structure"]["columns"];
+        assert_eq!(odt_columns["sections"], 1, "{odt_columns}");
+        assert_eq!(odt_columns["written"], 1);
+        let section = &odt_columns["list"][0];
+        assert_eq!(section["name"], "TextSection", "{section}");
+        assert_eq!(section["style"], "Sect1");
+        assert_eq!(section["dont_balance"], "true");
+        assert_eq!(
+            section["written"],
+            json!({"fo:column-count": "2", "fo:column-gap": "0.751cm"}),
+            "{section}"
+        );
+        assert_eq!(section["parts"].as_array().expect("是数组").len(), 2);
+        assert_eq!(section["parts"][0]["style:rel-width"], "32767*");
+        assert_eq!(section["parts"][1]["fo:start-indent"], "0.375cm");
+
+        // RTF 这一族不报：LibreOffice 的导出在每一段前面把样式的默认重发一遍
+        // （`\pard\plain\s0…\sa200` 段段都有），「这一段自己写了什么」与样式分不开；
+        // 分栏更是全文没有一个 `\cols`
+        let rtf = run("para.rtf");
+        assert!(
+            rtf["structure"].get("paragraph_formats").is_none(),
+            "RTF 不判归属"
+        );
+        assert!(
+            rtf["structure"].get("columns").is_none(),
+            "这一族的分栏没读"
+        );
+        let legacy = run("notes.doc");
+        assert!(
+            legacy["structure"].get("paragraph_formats").is_none(),
+            "{legacy}"
+        );
     }
 
     /// 「谁在什么时候改了哪一段」这一问。期望值全部来自 `lyco_revisions.py`，
