@@ -4,8 +4,8 @@
 odt 走 styles.xml 里带 `fo:page-width` 的那些 `style:page-layout-properties`。
 RTF 不在这里 —— 它是一条流，读法在 `lyco_rtf.py`（与正文同一次走查）。
 
-单位统一换成 **0.1mm 的整数**：三家各写各的（twips 与 `21.59cm` 这种带单位的十进制串），
-换成浮点毫米会让两个读者在最后一位上各说各话，换成整数就不存在这件事。
+单位统一换成 **0.01mm（百分之一毫米）的整数**：三家各写各的（twips 与 `21.59cm` 这种带单位的十进制串），
+换成浮点毫米会让两个读者在最后一位上各说各话（21590 就是 215.9mm），换成整数就不存在这件事。
 换算用「逢半进一」的整数算法，python 这边不用 `round()` —— 它的舍入是「逢半取偶」，
 两边就会在 .5 上分家。
 """
@@ -15,16 +15,16 @@ import re
 import xml.etree.ElementTree as ET
 import zipfile
 
-UNIT = "0.1mm"
+UNIT = "0.01mm"
 MARGIN_KEYS = ("top", "right", "bottom", "left", "header", "footer", "gutter")
 
-# 每一「书写单位」等于多少个 0.1mm，用分数表示免得浮点
+# 每一「书写单位」等于多少个 0.01mm，用分数表示免得浮点
 SCALE = {
     "twips": (254, 144),  # 1/1440 英寸
     "cm": (1000, 1),
     "mm": (100, 1),
-    "in": (254, 1),
-    "pt": (127, 36),  # 1/72 英寸
+    "in": (2540, 1),
+    "pt": (635, 18),  # 2540/72，磅没有整数比
 }
 LENGTH = re.compile(r"^(-?[\d.]+)\s*(cm|mm|in|pt)$")
 
@@ -37,7 +37,7 @@ def split_length(raw: str) -> tuple:
     return hit.group(1), hit.group(2)
 
 
-def to_0p1mm(digits: str, unit: str) -> int:
+def to_0p01mm(digits: str, unit: str) -> int:
     """文件里写的长度换成 0.1mm 的整数：十进制精确展开，再逢半进一，全程整数。"""
     num, den = SCALE[unit]
     hit = re.fullmatch(r"(\d+)(?:\.(\d+))?", digits)
@@ -56,9 +56,9 @@ def convert(raw, unit_hint):
     if raw is None:
         return None, None
     if unit_hint == "twips":
-        return to_0p1mm(raw, "twips"), raw
+        return to_0p01mm(raw, "twips"), raw
     digits, unit = split_length(raw)
-    return to_0p1mm(digits, unit), raw
+    return to_0p01mm(digits, unit), raw
 
 
 def entry_from(frm: str, section: int, unit_hint, size, box, orient) -> dict:

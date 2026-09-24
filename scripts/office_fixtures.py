@@ -56,6 +56,10 @@ MARK_ENDNOTE = "Endnote: the totals exclude the carry-over."
 # 那张纸的第二尺寸（A4）与横过来的那一节：两份件的标题句，见 write_paper_a4_docx
 MARK_PAPER_A4 = "A4 纵向的这一节"
 MARK_PAPER_LAND = "横过来的那一节"
+# 合并格那两张表的锚点句，见 write_merged_tables_docx
+MARK_MERGED_HEAD = "合并格的样本"
+MARK_MERGED_WIDE = "跨两列"
+MARK_MERGED_TALL = "跨两行"
 
 
 def need_soffice() -> str:
@@ -306,6 +310,39 @@ def write_paper_a4_docx(path: Path) -> None:
     doc.add_heading(MARK_PAPER_LAND, level=1)
     doc.add_paragraph("同一份文件里两节，纸的宽高对调，边距也不同。")
     doc.core_properties.title = MARK_PAPER_A4
+    doc.save(str(path))
+
+
+def write_merged_tables_docx(path: Path) -> None:
+    """两张带合并格的表：一张横向合并（gridSpan），一张纵向合并（vMerge）
+
+    这份样本存在的理由：`office-doc` 的 `tables` 只交行数与格子数，而现在这两张件
+    （`tables.docx` / `.odt`）恰好都没有合并格，所以「格子数」在两家是一样的。
+    一旦有合并，两家的**写法**就不一样了 —— 同一张视觉上 2×3 的表：
+    OOXML 把横向合掉的那一格**不写**（第一个格子带 `w:gridSpan="2"`，所以那一行只有 2 个 `w:tc`），
+    而 LibreOffice 的 ODF 把被盖住的那一格照样写出来（空格子 + 前一个格子
+    `number-columns-spanned="2"`，所以那一行是 3 个 `table-cell`）。
+    纵向合并两家都是「继续的那一格照样写、字是空的」（`vMerge` 无值 = continue /
+    ODF 什么都不写）。也就是说格子数与「这一行有几个格子」是**存储的数**，
+    不是页面上那张表的数 —— 这份件就是这条口径的唯一出处。
+    """
+    from docx import Document
+
+    doc = Document()
+    doc.add_paragraph(MARK_MERGED_HEAD)
+    wide = doc.add_table(rows=2, cols=3)
+    wide.cell(0, 0).merge(wide.cell(0, 1))
+    wide.cell(0, 0).text = MARK_MERGED_WIDE
+    wide.cell(0, 2).text = "第三列"
+    for column, text in enumerate(("a", "b", "c")):
+        wide.cell(1, column).text = text
+    doc.add_paragraph("两张表之间")
+    tall = doc.add_table(rows=2, cols=2)
+    tall.cell(0, 0).merge(tall.cell(1, 0))
+    tall.cell(0, 0).text = MARK_MERGED_TALL
+    tall.cell(0, 1).text = "右上"
+    tall.cell(1, 1).text = "右下"
+    doc.core_properties.title = MARK_MERGED_HEAD
     doc.save(str(path))
 
 
@@ -1085,6 +1122,10 @@ def main() -> int:
     paper = OUT / "paper-a4.docx"
     write_paper_a4_docx(paper)
 
+    # 合并格那两份：同一张表在 OOXML 与 ODF 里格子数不一样，这条口径只有这份件能给
+    merged = OUT / "tables-merged.docx"
+    write_merged_tables_docx(merged)
+
     # 修订这一份账：python-docx 注入四种改动，再让 LibreOffice 转一次。两份都留：
     # LibreOffice 会把一次编辑拆成几个 run（数字与单位各一条），又会丢掉段落标记那一条，
     # 而它自己导出的 ODF 把一次编辑写回一个 changed-region —— 这条对照是合并规则的唯一出处
@@ -1204,6 +1245,7 @@ def main() -> int:
         (twotables, "odt"),
         # 那张纸的第二尺寸：ODF 的 `fo:page-width` 与 OOXML 的 twips 是两家写法
         (paper, "odt"),
+        (merged, "odt"),
     ):
         convert(exe, src, fmt, SCRATCH)
     for name in (
@@ -1215,6 +1257,7 @@ def main() -> int:
         "toc.odt",
         "tables.odt",
         "paper-a4.odt",
+        "tables-merged.odt",
     ):
         src = SCRATCH / name
         if src.exists():

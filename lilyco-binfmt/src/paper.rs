@@ -1,6 +1,6 @@
 //! 「那张纸」写着什么：docx 的 `w:sectPr`、odt 的 `style:page-layout-properties`、
 //! RTF 文档级的那一串 `\paperw`。三家各写各的单位 —— docx 与 RTF 写 twips（1/1440 英寸），
-//! ODF 写 `21.59cm` 这种自带单位的十进制串 —— 这里统一换成 **0.1mm 的整数**。
+//! ODF 写 `21.59cm` 这种自带单位的十进制串 —— 这里统一换成 **0.01mm（百分之一毫米）的整数**。
 //!
 //! 为什么不用浮点毫米：浮点在最后一位上会因式子的写法而不同，而第二读者
 //! （`scripts/acceptance/lyco_pages.py`）要用同一条式子逐位对上。整数 + 分数单位
@@ -15,8 +15,12 @@ use serde_json::{json, Value};
 
 use crate::xmlscan::Node;
 
-/// 每一条长度都换成这个单位交出来（整数，免得两边读者在浮点最后一位上分家）
-pub const UNIT: &str = "0.1mm";
+/// 每一条长度都换成这个单位交出来：**百分之一毫米**的整数
+/// （21590 就是 215.9mm = 8.5 英寸）。用整数不用浮点，是为了两边读者逐位一样；
+/// 用百分之一而不是十分之一，是因为 ODF 会写 `21.001cm` 这种三位小数，
+/// 十分之一那一档就把文件写了的精度抹掉了。
+/// （上一版把这个单位标成了 0.1mm —— 数值一直是百分之一，标签错了，两家读者一起错的。）
+pub const UNIT: &str = "0.01mm";
 
 /// 那份账的外壳：单位说一次，纸按条列出来（docx 一份一节，odt 一个真写了尺寸的页布局一条，
 /// RTF 只有一条文档默认的）
@@ -29,15 +33,16 @@ const MARGIN_KEYS: [&str; 7] = [
     "top", "right", "bottom", "left", "header", "footer", "gutter",
 ];
 
-/// 一 twip 是多少个 0.1mm：254/144（1 英寸 = 254 个 0.1mm = 1440 twips）
+/// 一 twip 是多少个 0.01mm：254/144（1 英寸 = 2540 个 0.01mm = 1440 twips）
 const TWIPS: (i64, i64) = (254, 144);
 
-/// ODF 的长度串自带单位，各自的分数（多少个 0.1mm）
+/// ODF 的长度串自带单位，各自的分数（多少个 0.01mm）。
+/// 磅没有整数比：1pt = 2540/72 = 635/18，按分数走，不查表也不四舍五成整数
 const ODF_UNITS: [(&str, (i64, i64)); 4] = [
     ("cm", (1000, 1)),
     ("mm", (100, 1)),
-    ("in", (254, 1)),
-    ("pt", (127, 36)),
+    ("in", (2540, 1)),
+    ("pt", (635, 18)),
 ];
 
 /// `12240` / `21.59` 这种十进制串展开成 (整数, 缩放)，全程不用浮点。
@@ -74,13 +79,13 @@ fn convert(digits: i64, scale: i64, unit: (i64, i64)) -> Option<i64> {
     (a + b).checked_div(2 * b)
 }
 
-/// twips（docx 与 RTF 的单位）换成 0.1mm
+/// twips（docx 与 RTF 的单位）换成 0.01mm
 pub fn twips(raw: &str) -> Option<i64> {
     let (digits, scale) = decimal(raw)?;
     convert(digits, scale, TWIPS)
 }
 
-/// ODF 那种自带单位的长度串换成 0.1mm。单位不认识就 None（不猜它是厘米）
+/// ODF 那种自带单位的长度串换成 0.01mm。单位不认识就 None（不猜它是厘米）
 pub fn length(raw: &str) -> Option<i64> {
     let raw = raw.trim();
     for (name, unit) in ODF_UNITS {
@@ -281,13 +286,14 @@ mod tests {
         assert_eq!(length("0mm"), Some(0));
     }
 
-    /// 其它单位与别的进位：一英寸就是 254 个 0.1mm；磅按分数走，不查表
+    /// 其它单位与别的进位：一英寸就是 2540 个 0.01mm（= 25.4mm）；磅按分数走，不查表
     #[test]
     fn other_units_take_their_own_fraction() {
-        assert_eq!(length("1in"), Some(254));
-        assert_eq!(length("72pt"), Some(254));
-        assert_eq!(length("10mm"), Some(100));
-        assert_eq!(length("0.5in"), Some(127));
+        assert_eq!(length("1in"), Some(2540), "一英寸 = 25.4mm");
+        assert_eq!(length("72pt"), Some(2540), "72 磅就是一英寸");
+        assert_eq!(length("10mm"), Some(1000));
+        assert_eq!(length("0.5in"), Some(1270));
+        assert_eq!(length("1pt"), Some(35), "25.4/72 = 0.3528mm，逢半进一");
     }
 
     /// 不像长度的串一律 None：不猜单位，也不把坏值换算成一个看着像数的数

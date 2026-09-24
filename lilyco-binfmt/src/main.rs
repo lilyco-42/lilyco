@@ -55,6 +55,7 @@ mod regions;
 mod revise;
 mod rtf;
 mod symbols;
+mod table_grid;
 mod word;
 mod xmlscan;
 mod zipread;

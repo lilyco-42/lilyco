@@ -27,6 +27,7 @@ sys.path.insert(0, str(HERE))
 
 import office_reader  # noqa: E402  第二读者（标准库实现）
 import lyco_pages  # noqa: E402  那张纸（尺寸与边距）的第二读者：docx 与 odt 两家的独立实现
+import lyco_grid  # noqa: E402  表格网格的第二读者（每行几个格、哪格被合并）
 
 BIN = Path(os.path.abspath(sys.argv[1])) if len(sys.argv) > 1 else Path("target/debug/lbin")
 FIXTURES = Path(
@@ -105,6 +106,8 @@ def main() -> int:
         "paper-a4.docx": ("ooxml", "word", "docx"),
         "paper-a4.odt": ("opendocument", "word", "odt"),
         "paper-a4.rtf": ("rtf", "word", "rtf"),
+        "tables-merged.docx": ("ooxml", "word", "docx"),
+        "tables-merged.odt": ("opendocument", "word", "odt"),
         "notes-end.odt": ("opendocument", "word", "odt"),
         "notes-hf.odt": ("opendocument", "word", "odt"),
         "notes-hf.rtf": ("rtf", "word", "rtf"),
@@ -387,7 +390,7 @@ def main() -> int:
     )
 
     # ── 2d) 那张纸：三家各写各的单位（docx 与 RTF 写 twips，odt 写「21.59cm」），
-    # 换成 0.1mm 的整数之后逐条与 `lyco_pages.py` 对；三家之间谁不一致也照实交 ──────
+    # 换成 0.01mm 的整数之后逐条与 `lyco_pages.py` 对；三家之间谁不一致也照实交 ──────
     print("=== 2d) office-doc 的那张纸（尺寸与边距，三家三种单位） ===")
     # 四边边距三家不同的那一份件：docx 上下写 1440 twips，LibreOffice 的 odt 与 rtf
     # 两个导出都写 720 / 1.27cm。这是生产者的不一致，单独在下面钉住，不在这里当一致要求
@@ -405,7 +408,7 @@ def main() -> int:
                 want = lyco_pages.pages_of(FIXTURES / name)["papers"]
             setup = got.get("page_setup") or {}
             check("%s 那张纸整份账与读者一致" % name, setup.get("papers"), want)
-            check("%s 单位在壳上说一次" % name, setup.get("unit"), "0.1mm")
+            check("%s 单位在壳上说一次" % name, setup.get("unit"), "0.01mm")
             ledger[ext] = want
         rows = min(len(one) for one in ledger.values())
         for i in range(rows):
@@ -422,7 +425,7 @@ def main() -> int:
     # notes-hf：三家各报各的，谁也不替谁合并（OOXML 还另外写出两节）
     hf = {ext: lbin("office-doc", fixture("notes-hf." + ext)) for ext in ("docx", "odt", "rtf")}
     check(
-        "notes-hf 上下边距：docx 2540，odt 与 rtf 1270（0.1mm）",
+        "notes-hf 上下边距：docx 2540，odt 与 rtf 1270（0.01mm）",
         [dig(hf[ext], "page_setup.papers[0].margins.top") for ext in ("docx", "odt", "rtf")],
         [2540, 1270, 1270],
     )
@@ -446,7 +449,7 @@ def main() -> int:
         None,
     )
     # 第二份尺寸（A4 + 一节横排）：换一个尺寸才知道换算不是凑上 Letter 的。
-    # 三家的文档默认那一份在 0.1mm 上完全一致（21001×29700 —— 注意不是整数 21000×29700：
+    # 三家的文档默认那一份在 0.01mm 上完全一致（21001×29700 —— 注意不是整数 21000×29700：
     # OOXML 与 RTF 把 A4 的短边写作 11906 twips，LibreOffice 的 ODF 又照抄成 21.001cm，
     # 所以这里**不给尺寸起名**，「A4」那种查表会在这三份件上全部落空）
     a4 = {ext: lbin("office-doc", fixture("paper-a4." + ext)) for ext in ("docx", "odt", "rtf")}
@@ -483,6 +486,65 @@ def main() -> int:
         (fixture("paper-a4.rtf").read_bytes().count(b"\\landscape"),
          dig(a4["rtf"], "page_setup.papers[0].orient")),
         [0, None],
+    )
+
+    # ── 2e) 表格的那张网：这张表自己几行、每行几个格子、哪一格被合并掉了 ─────
+    # 与 `structure.table_rows` / `table_cells` 是两本账：那两个用 descendants 数
+    # （嵌套表算进来），网格里走的是直接孩子
+    print("=== 2e) office-doc 的表格网格（两家把合并写得不一样） ===")
+    for name in ("notes.docx", "notes.odt", "tables.docx", "tables.odt",
+                 "tables-merged.docx", "tables-merged.odt"):
+        got = lbin("office-doc", fixture(name))
+        want = lyco_grid.grids_of(FIXTURES / name)
+        check(
+            "%s 每张表的网格与读者一致" % name,
+            [one.get("grid") for one in got.get("tables", [])],
+            want,
+        )
+    # 同一张视觉上 2×3 的表：OOXML 那一行只写 2 个格（合掉的那一格整个不在文件里），
+    # ODF 那一行写 3 个格（被盖住的那一格照样在，只是空的）。所以「格子数」是存储的数
+    mdocx = lbin("office-doc", fixture("tables-merged.docx"))
+    modt = lbin("office-doc", fixture("tables-merged.odt"))
+    check(
+        "横向合并那一行：docx 2 个格、odt 3 个格",
+        [
+            len(dig(mdocx, "tables[0].grid.rows[0]") or []),
+            len(dig(modt, "tables[0].grid.rows[0]") or []),
+        ],
+        [2, 3],
+    )
+    check(
+        "合并的写法两家不同：vMerge 说两头，ODF 直接写跨几行",
+        [
+            dig(mdocx, "tables[1].grid.rows[0][0].row_merge"),
+            dig(mdocx, "tables[1].grid.rows[1][0].row_merge"),
+            dig(modt, "tables[1].grid.rows[0][0].row_span"),
+            dig(modt, "tables[1].grid.rows[1][0].covered"),
+        ],
+        ["restart", "continue", 2, True],
+    )
+    check(
+        "跨几列两家都写 2，被盖住的那一格只有 ODF 有",
+        [
+            dig(mdocx, "tables[0].grid.rows[0][0].col_span"),
+            dig(modt, "tables[0].grid.rows[0][0].col_span"),
+            [one.get("covered") for one in (dig(mdocx, "tables[0].grid.rows[0]") or [])],
+            [one.get("covered") for one in (dig(modt, "tables[0].grid.rows[0]") or [])],
+        ],
+        [2, 2, [False, False], [False, True, False]],
+    )
+    # 没有合并的那两份件：两家给出的网格必须一字不差（有合并的上面刚说清哪里不一样）
+    plain_docx = lbin("office-doc", fixture("tables.docx"))
+    plain_odt = lbin("office-doc", fixture("tables.odt"))
+    check(
+        "没合并的那两份件：两家的网格一字不差",
+        [one.get("grid") for one in plain_docx.get("tables", [])],
+        [one.get("grid") for one in plain_odt.get("tables", [])],
+    )
+    check(
+        "网格的截断旗标：全交出来就是 false",
+        [one.get("grid", {}).get("cut") for one in plain_docx.get("tables", [])],
+        [False, False],
     )
 
     # 尾注那一条分支第一次有真件：notes-end.docx 的 word/endnotes.xml 是 LibreOffice 的

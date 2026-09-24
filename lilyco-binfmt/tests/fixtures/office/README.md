@@ -28,7 +28,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `cell-notes-many.xls` | LibreOffice（从 `cell-notes-many.xlsx`） | 批注的第四种存法：字与「哪个格子 + 谁写的」分在**同一条流**的两类记录上（后者住在该表子流的末尾），编码旗标那一位与 BIFF8 的 `fCompressed` 惯例**相反** |
 | `notes-end.rtf` | LibreOffice（从 `notes-end.docx`） | 注的第三种存法：脚注与尾注**都**写成 `{\*\footnote …}` 这一个群，尾注只在群里多一个 `\ftnalt`；分隔符另走 `{\*\ftnsep\chftnsep}` |
 | `tables.docx` / `tables.odt` / `tables.rtf` | python-docx 与 LibreOffice（两张表：3×2 与 2×2，中间夹一段正文，首尾各一个标题） | 表那一份的对照件：三家都给 5 行 10 格，而 RTF 只敢给行数与格子数 —— 「几张表」的分组规则在 `notes.rtf`（一张）与这份（两张）上试过，单表对、两表数成一张 |
-| `paper-a4.docx` / `paper-a4.odt` / `paper-a4.rtf` | python-docx 与 LibreOffice（A4 纵向一节 + 横过来的一节） | 那张纸的第二尺寸：三家换算到 0.1mm 后短边都是 **21001**（不是 21000 —— OOXML 与 RTF 写 11906 twips，ODF 照抄成 `21.001cm`），所以这一支不给尺寸起名；横排那一节 docx 与 odt 都有第二条并写着 `orient=landscape`，而 RTF 全文一个 `\landscape` 都没有 → 那一条流只交文档默认的纵向 |
+| `paper-a4.docx` / `paper-a4.odt` / `paper-a4.rtf` | python-docx 与 LibreOffice（A4 纵向一节 + 横过来的一节） | 那张纸的第二尺寸：三家换算到 0.01mm 后短边都是 **21001**（不是 21000 —— OOXML 与 RTF 写 11906 twips，ODF 照抄成 `21.001cm`），所以这一支不给尺寸起名；横排那一节 docx 与 odt 都有第二条并写着 `orient=landscape`，而 RTF 全文一个 `\landscape` 都没有 → 那一条流只交文档默认的纵向 |
+| `tables-merged.docx` / `tables-merged.odt` | python-docx 与 LibreOffice（一张横向合并的 2×3 + 一张纵向合并的 2×2） | 合并格的两种写法：OOXML 把横向合掉的那一格**整个不写**（第一格带 `w:gridSpan="2"`，那一行 2 个 `w:tc`），ODF 把被盖住的那一格照样写出来（空的 `covered-table-cell`，那一行 3 个格）；纵向合并 OOXML 写 `vMerge`（restart / continue 两头），ODF 只在起头那格写 `number-rows-spanned="2"` |
 | `toc.docx` | LibreOffice 的 **docx 导出器**（把目录注进 `notes.docx` 再让它照抄） | 真目录：`<w:sdt>` + `<w:docPartGallery w:val="Table of Contents"/>`，级别在域指令文字里 —— LibreOffice 把引号写成 `&quot;`，所以 `TOC \o "1-2" \h` 要还原实体才读得对 |
 | `toc.odt` | LibreOffice（从 `toc.docx`） | 同一件东西的另一副面孔：`text:table-of-content`（名字 `目录1`）、级别在 `text:table-of-content-source/@outline-level="2"`，另外**十级条目模板全写出来**（`entry_templates` 报的是文件写了几个，不是用上了几级） |
 | `notes-hf.odt` | LibreOffice（从 `notes-hf.docx`） | 同一批字的 ODF 存法：页眉页脚在 **styles.xml 的 master-page** 里，两个节 = 两个 master-page（`Standard` 与 `Converted1`），各带一份 header + footer |
@@ -452,13 +453,13 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     而 `notes-end.rtf` 全用 `Normal`，交回**空数组**而不是 null ——
     这一支确实看过样式表，「没有」与「没看」还是两件事。
     末尾没有 `\par` 的那一段不收：段以回车收，与 `lines` 同一口径，两边读者也是同一口径。
-40. **那张纸：三家三种单位，换成 0.1mm 的整数才能对表**（五份件 × 三家 = 十四对）。
+40. **那张纸：三家三种单位，换成 0.01mm 的整数才能对表**（五份件 × 三家 = 十四对）。
     docx 与 RTF 写 twips（1/1440 英寸）：`w:pgSz w="12240" h="15840"`、
     `\paperw12240\paperh15840\margl1800`；odt 写**自带单位**的十进制串：
     `fo:page-width="21.59cm"`。换算不用浮点 —— 两个读者会在最后一位上各说各话，
     所以两边都走「十进制精确展开 + 乘分数单位 + 逢半进一」的整数式子
     （`round()` 在 python 里是**逢半取偶**，正好会在 .5 上分家，故不用它）。
-    12240 twips 与 21.59cm 都换成 21590（0.1mm），十四对全部如此 —— 这是这条链的地基。
+    12240 twips 与 21.59cm 都换成 21590（0.01mm），十四对全部如此 —— 这是这条链的地基。
     **两家会不一致，也照实报三个数**：`notes-hf` 的 docx 上下边距写 1440 twips，
     而 LibreOffice 自己导出的 odt 与 rtf 都写 720 / `1.27cm`（= 1270）——
     不挑一个当准，也不替文件合并。三条口径上的坑各自钉住：
@@ -469,10 +470,10 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     `\paperw` 也不算文档默认值 —— 那一群整个另读，主循环看不见它。
 41. **换一份尺寸才看得出来：A4 在这三家都不是「210×297」**（`paper-a4.docx` / `.odt` / `.rtf`）。
     Letter 恰好是 python-docx 模板的默认值，光在它上面量，换算式子凑对了也不知道。
-    A4 的短边 OOXML 与 RTF 写 **11906 twips** → 21001（0.1mm），LibreOffice 的 ODF 又
+    A4 的短边 OOXML 与 RTF 写 **11906 twips** → 21001（0.01mm），LibreOffice 的 ODF 又
     照抄成 `21.001cm` → 同一个 21001；长边 16838 twips → 29700。
     **这三份 A4 件全部落在 21001×29700 上，三家互相一致** —— 但「210mm×297mm」那个名字谁都够不着。
-    这就是这一支**不报纸张叫什么**的原因：查表认「A4」要在 0.1mm 上开容差，
+    这就是这一支**不报纸张叫什么**的原因：查表认「A4」要在 0.01mm 上开容差，
     而开了容差就得回答「那 JIS B5 与 ISO B5 差 4mm 算不算同一张」，
     不如把 21001×29700 这个数交出去，让人自己认。
     同一份件还量出两件事：横过来的那一节在 OOXML 与 ODF 里都写着
@@ -480,6 +481,19 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     而 LibreOffice 的 **RTF 导出整份文件一个 `\landscape` 都没有** ——
     那一副里只剩文档默认的纵向，所以它的 `orient` 只能是 null、`papers` 只有一条。
     两份件的这种差是**文件的差**，不是读者的差：第二个读者与 Rust 在同一份件上读到同一个东西。
+42. **合并格让「这张表几个格子」变成两家不同的答案**（`tables-merged.docx` / `.odt`）。
+    两张视觉上完全一样的表（2×3，第一行的前两格合成一格）：
+    OOXML 把被合掉的那一格**整个不写** —— 第一格带 `w:gridSpan="2"`，那一行只有 2 个 `w:tc`；
+    ODF 把被盖住的那一格照样写出来（一个空的 `table:covered-table-cell`），
+    同时在第一格上写 `number-columns-spanned="2"` —— 同一行 3 个格。
+    纵向合并也是两种写法：OOXML 在**两头上**都写（起头 `vMerge val="restart"`、
+    接上去那格 `vMerge` 不写值 = `continue`，那一格照样在、字是空的），
+    ODF 只在起头那格写 `number-rows-spanned="2"`，接上去的那格是 covered、什么都不带。
+    所以 `office-doc` 交两本账：`tables[].rows` / `cells` 是 `descendants` 数出来的
+    （那是「这份文件里有几个行/格标记」，嵌套表也算进来），
+    `tables[].grid` 走**直接孩子**（这张表自己几行、每行几个格、每格的字与合并）。
+    没合并的 `tables.docx` / `tables.odt` 两本账恰好一致 —— 那份合并件才是这条分别的出处。
+    合并与重复的数只交文件写了的：没写 null，不补 1。
 
 ## 这些数字从哪来
 
@@ -490,7 +504,7 @@ Rust 测试里每个期望值都来自第二读者对这些文件的独立读取
 `ods_facts()`（`.ods` 的重复计数、覆盖格与自动样式可见性）。
 那张纸（纸面尺寸与四边）另有 `scripts/acceptance/lyco_pages.py`：同样只吃标准库，
 docx 用 ElementTree 找 `w:sectPr` 的 `w:pgSz` / `w:pgMar`，odt 找 `styles.xml` 里真写了
-`fo:page-width` 的那些页布局，两边都按同一条整数式子换成 0.1mm（RTF 的那一串在
+`fo:page-width` 的那些页布局，两边都按同一条整数式子换成 0.01mm（RTF 的那一串在
 `lyco_rtf.py` 的走查里，交给 `lyco_pages.rtf_entry` 换算）。
 修订那一份另有 `scripts/acceptance/lyco_revisions.py`：ElementTree 的 `.tail` 天然带着
 「插入的字夹在两个标记之间」那个顺序，而 Rust 那边靠 xmlscan 的 `#text` 子节点走同一条路 ——
