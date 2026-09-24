@@ -88,10 +88,16 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
         let mut grid_names: Vec<String> = Vec::new();
         let mut grids: Vec<Vec<(usize, usize, String)>> = Vec::new();
         let mut grid_skipped = 0usize;
+        // 条件格式的规则只写一个 dxfId，真样式在 styles.xml 的 dxfs 那一跳上
+        let (dxf_written, dxfs) = dxf_table(bytes);
+        let dxf_whole = match &dxf_written {
+            None => true,
+            Some(raw) => raw.trim().parse::<usize>().ok() == Some(dxfs.len()),
+        };
         let mut totals = json!({
             "cells": 0, "formulas": 0, "numeric": 0, "shared_strings": 0,
             "inline_strings": 0, "merged": 0, "hidden_rows": 0, "hidden_cols": 0,
-            "dates": 0, "comments": 0, "charts": 0,
+            "dates": 0, "comments": 0, "charts": 0, "conditional_rules": 0, "validations": 0,
         });
         for (index, one) in root.descendants("sheet").iter().enumerate() {
             let name = one.attr("name").unwrap_or_default().to_string();
@@ -138,6 +144,22 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                         .iter()
                         .filter(|one| one["cached"].as_bool() != Some(true))
                         .count();
+                    let rules = sheet_rules(&sheet_root, &dxfs, limit);
+                    let conditioned = rules["conditional"]
+                        .as_array()
+                        .map(|one| {
+                            one.iter()
+                                .map(|had| had["rules"].as_u64().unwrap_or(0) as usize)
+                                .sum::<usize>()
+                        })
+                        .unwrap_or_default();
+                    let validated = rules["validations"]["list"]
+                        .as_array()
+                        .map(|one| one.len())
+                        .unwrap_or_default();
+                    bump(&mut totals, "conditional_rules", conditioned);
+                    bump(&mut totals, "validations", validated);
+                    entry["rules"] = rules;
                     entry["charts"] = json!(charted);
                     entry["chart_list"] = Value::Array(charts);
                     bump(&mut totals, "charts", charted);
@@ -330,6 +352,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "views": root.descendants("workbookView").len(),
                 "calculation_mode": root.descendants("calcPr").first().and_then(|one| one.attr("fullCalcOnLoad")).map(|one| one.to_string()),
                 "has_calc_chain": xml(bytes, "xl/calcChain.xml").is_some(),
+                "dxfs": {"written": dxf_written, "found": dxfs.len(), "whole": dxf_whole},
                 "styles_part": xml(bytes, "xl/styles.xml").is_some(),
                 "tables": doc.entries.iter().filter(|one| one.name.starts_with("xl/tables/")).count(),
                 "charts": doc.entries.iter().filter(|one| one.name.starts_with("xl/charts/")).count(),
@@ -593,12 +616,7 @@ fn xlsx_print_setup(sheet_root: &xmlscan::Node) -> Value {
         let Some(node) = sheet_root.descendants(name).into_iter().next() else {
             return Value::Null;
         };
-        let mut out = serde_json::Map::new();
-        for (key, value) in &node.attrs {
-            let local = key.rsplit(':').next().unwrap_or(key).to_string();
-            out.insert(local, json!(value));
-        }
-        Value::Object(out)
+        written_attrs(node)
     };
     json!({
         // 边距在这一族是「英寸的浮点串」，照文件写的交出去，不换算成 0.01mm：
@@ -607,6 +625,141 @@ fn xlsx_print_setup(sheet_root: &xmlscan::Node) -> Value {
         "setup": written("pageSetup"),
         "options": written("printOptions"),
         "margin_unit": "inch",
+    })
+}
+
+/// 一个元素上写着的属性，按局部名原样交出去（名字去掉前缀，值不做任何解释）
+fn written_attrs(node: &xmlscan::Node) -> Value {
+    let mut out = serde_json::Map::new();
+    for (key, value) in &node.attrs {
+        let local = key.rsplit(':').next().unwrap_or(key).to_string();
+        out.insert(local, json!(value));
+    }
+    Value::Object(out)
+}
+
+/// `xl/styles.xml` 里 `dxfs` 那一跳：条件格式的规则只写一个下标（`dxfId`），真正的字色
+/// 住在这里。`count` 自报的数与实际条数一起交；每条 dxf 交它里面出现的元素路径
+/// （`font/b` 这种一层到底的写法）—— openpyxl 那一份写两个元素，LibreOffice 重写同一份
+/// 东西给五个（多出的 `name` / `family` / `sz` 是它自己补的），所以只交出现过的名字，
+/// 不替两边凑成「加粗的深红」那种共同的形状
+fn dxf_table(bytes: &[u8]) -> (Option<String>, Vec<Vec<String>>) {
+    let Some(member) = xml(bytes, "xl/styles.xml") else {
+        return (None, Vec::new());
+    };
+    let root = xmlscan::parse_str(&member.as_text());
+    let holder = root.descendants("dxfs").into_iter().next();
+    let written = holder.and_then(|one| one.attr("count")).map(String::from);
+    let kinds: Vec<Vec<String>> = holder
+        .iter()
+        .flat_map(|one| one.children.iter())
+        .filter(|one| one.local() == "dxf")
+        .map(|one| {
+            let mut out: Vec<String> = Vec::new();
+            for kid in &one.children {
+                if kid.children.is_empty() {
+                    out.push(kid.local().to_string());
+                } else {
+                    for deep in &kid.children {
+                        out.push(format!("{}/{}", kid.local(), deep.local()));
+                    }
+                }
+            }
+            out
+        })
+        .collect();
+    (written, kinds)
+}
+
+/// 这一张表上的规则：条件格式（`conditionalFormatting` 一块一套范围，里面若干条 `cfRule`）
+/// 与数据验证（`dataValidations` 那个容器自报 `count`）。两边的属性全部按文件写的交，
+/// 只把 `type` / `priority` / `operator` / `sqref` 另外点名，因为断言要看的就是这几个
+fn sheet_rules(sheet_root: &xmlscan::Node, dxfs: &[Vec<String>], limit: usize) -> Value {
+    let mut blocks: Vec<Value> = Vec::new();
+    for block in sheet_root.descendants("conditionalFormatting") {
+        let mut rules: Vec<Value> = Vec::new();
+        for rule in block
+            .children
+            .iter()
+            .filter(|one| one.local() == "cfRule")
+            .take(limit)
+        {
+            let index = rule
+                .attr("dxfId")
+                .and_then(|raw| raw.trim().parse::<usize>().ok());
+            let dxf = match (rule.attr("dxfId"), index.and_then(|at| dxfs.get(at))) {
+                (Some(raw), Some(kinds)) => json!({"written": raw, "found": true, "kinds": kinds}),
+                (Some(raw), None) => {
+                    json!({"written": raw, "found": false, "kinds": []})
+                }
+                None => json!({"written": Value::Null, "found": false, "kinds": []}),
+            };
+            // 图标集与色阶那两种把形状写在子元素里（`cfvo` 的 type/val 与 color 的 rgb）
+            let detail = rule
+                .children
+                .iter()
+                .find(|one| matches!(one.local(), "iconSet" | "colorScale" | "dataBar" | "extLst"));
+            let scale = match detail {
+                Some(one) if one.local() != "extLst" => json!({
+                    "kind": one.local(),
+                    "written": written_attrs(one),
+                    "cfvo": one.children.iter().filter(|had| had.local() == "cfvo")
+                        .map(written_attrs).collect::<Vec<Value>>(),
+                    "colors": one.children.iter().filter(|had| had.local() == "color")
+                        .filter_map(|had| had.attr("rgb")).map(String::from)
+                        .collect::<Vec<String>>(),
+                }),
+                _ => Value::Null,
+            };
+            rules.push(json!({
+                "type": rule.attr("type"),
+                "priority": rule.attr("priority"),
+                "operator": rule.attr("operator"),
+                "dxf": dxf,
+                "formulas": rule.children.iter().filter(|one| one.local() == "formula")
+                    .map(|one| one.text().trim().to_string()).collect::<Vec<String>>(),
+                "scale": scale,
+                "written": written_attrs(rule),
+            }));
+        }
+        blocks.push(json!({
+            "sqref": block.attr("sqref"),
+            "rules": rules.len(),
+            "rule_list": rules,
+        }));
+    }
+    let holder = sheet_root.descendants("dataValidations").into_iter().next();
+    let list: Vec<Value> = holder
+        .iter()
+        .flat_map(|one| one.children.iter())
+        .filter(|one| one.local() == "dataValidation")
+        .take(limit)
+        .map(|one| {
+            json!({
+                "sqref": one.attr("sqref"),
+                "type": one.attr("type"),
+                "operator": one.attr("operator"),
+                "formulas": one.children.iter()
+                    .filter(|had| matches!(had.local(), "formula1" | "formula2"))
+                    .map(|had| had.text().trim().to_string()).collect::<Vec<String>>(),
+                "written": written_attrs(one),
+            })
+        })
+        .collect();
+    let written = holder.and_then(|one| one.attr("count")).map(String::from);
+    let found = list.len();
+    let whole = match &written {
+        None => true,
+        Some(raw) => raw.trim().parse::<usize>().ok() == Some(found),
+    };
+    json!({
+        "conditional": blocks,
+        "validations": {
+            "written": written,
+            "found": found,
+            "whole": whole,
+            "list": list,
+        },
     })
 }
 
@@ -1819,7 +1972,7 @@ mod tests {
     fn charts_are_reached_through_the_drawing_and_report_only_cached_values() {
         let hand = run("chart.xlsx");
         let sheets = hand["sheets"].as_array().expect("是数组");
-        assert_eq!(sheets.len(), 2, "{sheets}");
+        assert_eq!(sheets.len(), 2, "{sheets:?}");
         assert_eq!(sheets[0]["charts"], 2, "两张图挂在同一张表上");
         assert_eq!(sheets[1]["charts"], 0, "没有图的那张表报 0，不是缺这个键");
         assert_eq!(hand["workbook"]["totals"]["charts"], 2);
