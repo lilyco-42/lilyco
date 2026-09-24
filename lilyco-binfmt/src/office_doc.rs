@@ -210,6 +210,36 @@ fn rtf_contents(instructions: &[String]) -> Value {
     })
 }
 
+/// ODF 的换页不写在正文里：`text:p` 只带一个 `text:style-name`，而
+/// `fo:break-before="page"` 坐在**那个样式自己的** `style:paragraph-properties` 上 ——
+/// 与 .ods 的数据样式是同一类两跳。只看段落点名的那个样式：父样式链上也可能写，
+/// 但手上四份件都写在自己身上，没有样本就不去猜那条链
+fn odf_page_breaks(root: &xmlscan::Node, text_body: &xmlscan::Node) -> usize {
+    let named: Vec<String> = root
+        .descendants("style")
+        .iter()
+        .filter(|one| one.attr_local("family") == Some("paragraph"))
+        .filter(|one| {
+            one.child("paragraph-properties")
+                .and_then(|had| had.attr_local("break-before"))
+                == Some("page")
+        })
+        .filter_map(|one| one.attr_local("name").map(String::from))
+        .collect();
+    let mut hits = 0usize;
+    for which in ["p", "h"] {
+        for one in text_body.descendants(which) {
+            if one
+                .attr_local("style-name")
+                .is_some_and(|had| named.iter().any(|want| want == had))
+            {
+                hits += 1;
+            }
+        }
+    }
+    hits
+}
+
 fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
     let start = std::time::Instant::now();
     let blob = read_blob(&app.path, app.max_bytes).map_err(AppError::InvalidInput)?;
@@ -527,7 +557,10 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
                 "covered_cells": text_body.descendants("covered-table-cell").len(),
                 "sections": text_body.descendants("section").len(),
                 "breaks": text_body.descendants("line-break").len(),
-                "page_breaks": text_body.descendants("soft-page-break").len(),
+                // 换页在 ODF 里不写在正文里，写在段落样式上（四份件都这样）；
+                // `text:soft-page-break` 是另一件事（渲染时落下的那一格），另给一个键
+                "page_breaks": odf_page_breaks(&root, text_body),
+                "soft_page_breaks": text_body.descendants("soft-page-break").len(),
                 "drawings": text_body.descendants("frame").len(),
                 "annotations": text_body.descendants("annotation").len(),
                 "lists": text_body.descendants("list").len(),
@@ -1059,6 +1092,26 @@ mod tests {
             "那条域是 HYPERLINK，不是 TOC：不算目录"
         );
         assert!(run("notes.doc")["contents"].is_null(), ".doc 没看就给 null");
+    }
+
+    /// 换页在 ODF 里是**段落样式上**的一个属性（`fo:break-before="page"`），正文里
+    /// 没有任何换页元素。以前这一条数的是 `text:soft-page-break`（渲染时落下的那一格），
+    /// 于是四份明明换了页的件全报 0。两家读者现在都走「段落的 style-name → 那个样式的
+    /// paragraph-properties」这两跳；父样式链上也可能写，但手上没有那种样本，不跟那条链
+    /// （期望值来自 `office_reader.py` 的 `odf_page_breaks()`）
+    #[test]
+    fn a_page_break_in_odf_sits_on_the_paragraph_style() {
+        for name in ("notes.odt", "toc.odt", "notes-hf.odt", "protected.odt") {
+            assert_eq!(run(name)["structure"]["page_breaks"], 1, "{name}");
+        }
+        for name in ("comments.odt", "paper-a4.odt", "tables.odt") {
+            assert_eq!(run(name)["structure"]["page_breaks"], 0, "{name}");
+        }
+        // 「作者要的换页」与「渲染时落下的那一格」是两件事，两个键各自交
+        assert_eq!(run("notes.odt")["structure"]["soft_page_breaks"], 0);
+        // 同一批字在另两家的写法不同，数出来是同一个 1
+        assert_eq!(run("notes.docx")["structure"]["page_breaks"], 1);
+        assert_eq!(run("notes.rtf")["structure"]["page_breaks"], 1);
     }
 
     /// RTF 也终于有这一问了：它不是包，是一条流 —— 数得清的是段（par 切的行）、

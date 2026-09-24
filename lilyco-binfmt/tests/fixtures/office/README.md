@@ -541,8 +541,18 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     `page_breaks` 是三种换页词的和；`\sect` 是分节的**收尾**符，最后一节自己不带一个，
     两份两节的件（`notes-hf.rtf`、`paper-a4.rtf`）都只写 1 个 —— 所以只交 `section_breaks`，
     `sections` 仍然 null（+1 是推断，不是文件写的）。
-    ODF 那一族的换页住在段落样式上（`fo:break-before="page"`），不在正文元素里，
-    现在这一支还读不出来（`notes.odt` 报 0 而同一批字的 docx 报 1）—— 记在这里，不装看不见。
+    ODF 那一族的换页住在段落样式上（`fo:break-before="page"`），不在正文元素里 ——
+    那一条见下一条（46），两家以前都读成 0。
+
+46. **ODF 的换页写在段落样式上，不写在正文里**（`notes.odt` / `toc.odt` / `notes-hf.odt` / `protected.odt` 各 1 处）。
+    正文里的 `text:p` 只带一个 `text:style-name="P2"`，`fo:break-before="page"` 坐在同一个
+    content.xml 里那个 `style:style` 的 `style:paragraph-properties` 上（与 .ods 的数据样式
+    同一类两跳）。以前这一条数的是 `text:soft-page-break` —— 那是渲染时落下的位置，
+    七份 odt 件里一个都没有，于是四份明明换了页的件两家读者一起报 0（同一批字的
+    `notes.docx` 报 1，因为 Word 把它写成正文里的 `w:br w:type="page"`）。
+    现在两个键分开：`page_breaks` 走样式那一跳，`soft_page_breaks` 保留原来那条数。
+    父样式链（`style:parent-style-name`）上也可能写这条属性，但四份件都写在自己身上，
+    没有样本就不跟那条链。docx / odt / rtf 三家现在对 `notes` 与 `toc` 都报 1。
 
 ## 这些数字从哪来
 

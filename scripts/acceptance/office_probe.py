@@ -699,9 +699,9 @@ def main() -> int:
     check(
         "同一批字的换页：docx 与 rtf 都是 1 处（写法两种）",
         [
-            lbin("office-doc", fixture("notes.docx")).get("page_breaks"),
+            dig(lbin("office-doc", fixture("notes.docx")), "structure.page_breaks"),
             dig(lbin("office-doc", fixture("notes.rtf")), "structure.page_breaks"),
-            lbin("office-doc", fixture("toc.docx")).get("page_breaks"),
+            dig(lbin("office-doc", fixture("toc.docx")), "structure.page_breaks"),
             dig(lbin("office-doc", fixture("toc.rtf")), "structure.page_breaks"),
         ],
         [1, 1, 1, 1],
@@ -726,6 +726,31 @@ def main() -> int:
             dig(lbin("office-doc", fixture("notes.rtf")), "structure.break_words.pagebb"),
         ],
         [1, 0, 1],
+    )
+    # 同一份文档里的那一处换页，三家写成三种东西：docx 是正文里的 `w:br type="page"`，
+    # ODF 是段落样式上的 `fo:break-before="page"`（正文里什么元素都没有），
+    # RTF 是段属性上的 `\pagebb`。三家必须报同一个数 —— 以前 ODF 报 0（只数了
+    # text:soft-page-break，那是渲染时落下的位置，不是作者要的换页）
+    for stem in ("notes", "toc"):
+        check(
+            "%s 的那一处换页三家同一个数（三种写法）" % stem,
+            [
+                dig(lbin("office-doc", fixture("%s.%s" % (stem, ext))), "structure.page_breaks")
+                for ext in ("docx", "odt", "rtf")
+            ],
+            [1, 1, 1],
+        )
+    check(
+        "没有换页的三份件三家都是 0（soft-page-break 另给一个键）",
+        [
+            [
+                dig(lbin("office-doc", fixture("%s.%s" % (stem, ext))), "structure.page_breaks")
+                for ext in ("docx", "odt", "rtf")
+            ]
+            + [dig(lbin("office-doc", fixture("%s.odt" % stem)), "structure.soft_page_breaks")]
+            for stem in ("comments", "paper-a4", "tables")
+        ],
+        [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
     )
 
     # 尾注那一条分支第一次有真件：notes-end.docx 的 word/endnotes.xml 是 LibreOffice 的
@@ -1243,7 +1268,8 @@ def main() -> int:
     dwant = files["notes.odt"]["odt"]
     for field in (
         "paragraphs", "empty_paragraphs", "tables", "table_rows", "table_cells",
-        "covered_cells", "sections", "breaks", "page_breaks", "drawings",
+        "covered_cells", "sections", "breaks", "page_breaks", "soft_page_breaks",
+        "drawings",
         "annotations", "lists", "list_styles", "bookmarks", "sequences",
         "tracked_changes",
     ):

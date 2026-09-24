@@ -1415,19 +1415,26 @@ mod tests {
             ],
             "{side:?}"
         );
-        // 没有页眉的那份一份都不许多
+        // 没有页眉的那份一份都不许多：notes.rtf 只有那一条批注是侧账，正文七段
         let plain = run("notes.rtf", 20000, false);
+        let items = plain["paragraphs"].as_array().expect("是数组");
+        let side: Vec<(&str, &str)> = items
+            .iter()
+            .filter(|one| one["from"] != Value::Null)
+            .map(|one| {
+                (
+                    one["from"].as_str().unwrap_or_default(),
+                    one["text"].as_str().unwrap_or_default(),
+                )
+            })
+            .collect();
+        assert_eq!(side, vec![("comment", "这里要补上不含税口径")], "{side:?}");
         assert_eq!(
-            plain["paragraphs"].as_array().expect("是数组").len(),
-            7,
-            "{plain}"
-        );
-        assert!(
-            plain["paragraphs"]
-                .as_array()
-                .expect("是数组")
+            items
                 .iter()
-                .all(|one| one["from"] == Value::Null),
+                .filter(|one| one["from"] == Value::Null)
+                .count(),
+            7,
             "{plain}"
         );
     }

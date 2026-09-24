@@ -591,6 +591,33 @@ def count_local(root, want: str) -> int:
     return sum(1 for one in root.iter() if xml_local(one.tag) == want)
 
 
+def odf_page_breaks(root, body) -> int:
+    r"""ODF 的换页有几处：段落自己并不带换页元素，换页写在**它的样式**上
+
+    `text:p` 上只有 `text:style-name="P2"`，而 `fo:break-before="page"` 坐在同一个部件里
+    那个 `style:style` 的 `style:paragraph-properties` 上 —— 与 .ods 的数据样式同一类两跳。
+    只看段落点名的那一个样式：父样式链上也可能写，但四份真件都写在自己身上，
+    没有样本就不去猜那条链（`style:parent-style-name` 因此不跟）。
+    """
+    named = set()
+    for one in root.iter():
+        if xml_local(one.tag) != "style" or of_local(one, "family") != "paragraph":
+            continue
+        for kid in one:
+            if xml_local(kid.tag) == "paragraph-properties" and of_local(kid, "break-before") == "page":
+                which = of_local(one, "name")
+                if which:
+                    named.add(which)
+                break
+    hits = 0
+    for one in body.iter():
+        if xml_local(one.tag) not in ("p", "h"):
+            continue
+        if of_local(one, "style-name") in named:
+            hits += 1
+    return hits
+
+
 def style_counts(paras: list) -> dict:
     """样式名 → 用了它几段（口径与 `office-doc` 的 styles 字段一致）"""
     out: dict[str, int] = {}
@@ -693,7 +720,10 @@ def odt_structure(path: Path) -> dict:
         "covered_cells": count_local(body, "covered-table-cell"),
         "sections": count_local(body, "section"),
         "breaks": count_local(body, "line-break"),
-        "page_breaks": count_local(body, "soft-page-break"),
+        # 换页写在段落样式上（`fo:break-before="page"`），不是正文里的元素：见 odf_page_breaks
+        "page_breaks": odf_page_breaks(root, body),
+        # text:soft-page-break 是另一件事：渲染时落下的那个位置，不是作者要的换页
+        "soft_page_breaks": count_local(body, "soft-page-break"),
         "drawings": count_local(body, "frame"),
         "annotations": count_local(body, "annotation"),
         "lists": count_local(body, "list"),
