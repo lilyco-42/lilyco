@@ -33,6 +33,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `toc.docx` | LibreOffice 的 **docx 导出器**（把目录注进 `notes.docx` 再让它照抄） | 真目录：`<w:sdt>` + `<w:docPartGallery w:val="Table of Contents"/>`，级别在域指令文字里 —— LibreOffice 把引号写成 `&quot;`，所以 `TOC \o "1-2" \h` 要还原实体才读得对 |
 | `toc.odt` | LibreOffice（从 `toc.docx`） | 同一件东西的另一副面孔：`text:table-of-content`（名字 `目录1`）、级别在 `text:table-of-content-source/@outline-level="2"`，另外**十级条目模板全写出来**（`entry_templates` 报的是文件写了几个，不是用上了几级） |
 | `toc.rtf` | LibreOffice（从 `toc.docx`） | 目录的第三种写法：没有 OOXML 那个 `w:sdt` 壳，也没有 ODF 那个 `outline-level` 属性，只有流里的一条域 `{\*\fldinst { TOC \\o "1-2" \\h}}` —— 开关前面的反斜杠**成对写**（单个会开出一个控制字），解掉那一对之后与 `toc.docx` 的 `w:instrText` 逐字相同。全文两条域（这一条 TOC 与目录条目上那一条 HYPERLINK）、`line_count` 9、`skipped_destinations` 120 |
+| `comments.docx` / `comments.odt` / `comments.rtf` | python-docx 写两条批注，LibreOffice 转 ODF 与 RTF | 批注的三种存法：docx 有 `word/comments.xml` 那个部件（作者与 ISO 日期都在 `<w:comment>` 的属性上）、odt 的 `office:annotation` **嵌在正文段里面**、RTF 分两格写 —— `{\*\atnauthor 名字}` 在前、`{\*\annotation 正文}` 在后，注自己带一个号 `{\*\atnref N}`（与锚区两头 `{\*\atrfstart N}` / `{\*\atrfend N}` 同一个数）。两条注故意让第二个作者是中文名「刘奇」：**LibreOffice 的 RTF 导出把这个名字写成两个问号**，而它自己的 docx 导出照抄 —— 生产者的差，按各家的文件交 |
 | `notes-hf.odt` | LibreOffice（从 `notes-hf.docx`） | 同一批字的 ODF 存法：页眉页脚在 **styles.xml 的 master-page** 里，两个节 = 两个 master-page（`Standard` 与 `Converted1`），各带一份 header + footer |
 | `notes-hf.rtf` | LibreOffice（从 `notes-hf.docx`） | 第三种存法：`\header` / `\headerl` / `\footer` 这些**目标（destination）**里的字，与正文混在一个流里 |
 | `revisions.docx` | python-docx + 手注入 `w:ins` / `w:del` / `w:rPrChange` / 段落标记 | 四种修订各一处，而且**没被拆开**：3 个 `w:ins`（含段落标记那一条）、1 个 `w:del`、1 个 `w:rPrChange` → 5 条逻辑改动 |
@@ -510,6 +511,23 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     一条 TOC 与目录条目上那条 HYPERLINK），`contents.fields` 只留以 `TOC` 开头的那几条；
     有域却没指令（只有 `\fldrslt`）时空着交出来，不替文件编一条。
     `skipped_destinations` 仍然是 120 —— 前瞻不改游标也不改跳过标记，那笔诊断数才可比。
+
+44. **批注的第三种存法：作者与正文分在两格里，日期谁都解不出来**（`comments.*` 三份 + `notes.rtf` / `toc.rtf`）。
+    docx 把注放在 `word/comments.xml` 那个部件里（作者、时间都是 `<w:comment>` 的属性），
+    ODF 把 `office:annotation` 嵌在正文段里面，RTF 则是流里的两格：
+    `{{\*\atnid L}{\*\atnauthor 名字}\chatn{\*\annotation{\*\atnref 0}{\*\atndate 1743371367}正文}}`。
+    三条口径都是量出来的，不是推的：
+    **一、作者与注按文件的顺序配**（作者那一格在注之前），两家的条数各交一份
+    （`comments` 与 `structure.annotation_authors`），配不上时看得见，不替文件对齐；
+    **二、注自己带一个号** `atnref`，与锚区两头的 `atrfstart` / `atrfend` 是同一个数
+    （两份件的 0 / 1 都对上了），所以「这条注钉在哪一段」有文件自己的号可查；
+    **三、`atndate` 解不出来** —— 这两份件写的 `-2014723526` 与 `1743371367`
+    都对不上同一批字的 docx 里那个 `w:date="2026-09-24T08:58:48Z"`（按 epoch 秒解一份
+    得到 2042-04-04、另一份得到 2025-03-30，都不是），所以日期交 null、原样那串交在
+    `date_written` 里，不挑一个历法冒充读懂了。
+    还有一条是**生产者的差**：第二个作者的中文名「刘奇」在 LibreOffice 自己的 docx 导出里
+    完好，到了 RTF 那一族就成了两个问号（`{\*\atnauthor ??}`）—— 那两个字面问号就是文件写的，
+    照交，不去猜回来。注的字一个也不落进正文（那一群照旧整群跳过，`skipped_destinations` 没动）。
 
 ## 这些数字从哪来
 

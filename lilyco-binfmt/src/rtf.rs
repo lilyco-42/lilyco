@@ -222,6 +222,55 @@ fn definition_of(child: &[u8]) -> Option<Value> {
     Some(json!({"kind": kind, "index": index, "charset": kind_of, "name": shown}))
 }
 
+/// 批注住在星号群（`{\*\…}`）里，本域认得其中两个词：注的那一群带着正文与自己的号
+/// （`{\*\atnref N}` 与 `{\*\atndate D}` 就坐在它里面），紧挨在它前面那条
+/// `{\*\atnauthor …}` 是「谁写的」。`{\*\atnid …}` 那个字母（批注框里显示什么）没人问，
+/// 锚区两头的 `{\*\atrfstart N}` / `{\*\atrfend N}` 也不单独进账 —— 那个号已经在注
+/// 自己的 `ref` 里交出来了，两边按号对。
+/// Word 那一族另写 `atncluster` / `atnatom` 一条链，手上没有那种生产者，这里不猜
+const ATN_WORDS: &[&str] = &["annotation", "atnauthor"];
+/// 注的那一群里另坐着自己的两个值（它们不单独进账，跟着这一条注交）
+const ATN_CHILDREN: &[&str] = &["atnref", "atndate"];
+
+/// 从 `from`（紧跟 `\*\` 的那个控制字的第一个字母）起那一群：交回「解过一遍的字」
+/// 与群里那几个认识的子群（`{\*\atnref 0}` 那种）。**前瞻**用的 —— 调用方照旧把
+/// 这一群整群跳过，所以这里的 extract 只读那一段，正文一个字也不会多
+fn starred_body(bytes: &[u8], from: usize, named: &str) -> (String, Vec<(String, String)>) {
+    let (_stop, inner) = group_end(bytes, from);
+    // 群内容从这个控制字的位置起截，那几个字母本身要剥掉才剩下值
+    let body = match inner.get(named.len()..) {
+        Some(one) => one,
+        None => &inner[..0],
+    };
+    let text = extract(body).text;
+    let kids: Vec<(String, String)> = child_groups(body)
+        .iter()
+        .filter_map(|one| atn_child(one))
+        .collect();
+    (text.trim().to_string(), kids)
+}
+
+/// 一个子群是不是 `{\*\atnref N}` / `{\*\atndate D}` 那种「控制字紧跟一个值」的形状
+fn atn_child(child: &[u8]) -> Option<(String, String)> {
+    let rest = child.strip_prefix(b"\\*\\")?;
+    let mut name: Vec<u8> = Vec::new();
+    let mut k = 0usize;
+    while k < rest.len() && rest[k].is_ascii_alphabetic() {
+        name.push(rest[k]);
+        k += 1;
+    }
+    let name = String::from_utf8_lossy(&name).into_owned();
+    if !ATN_CHILDREN.contains(&name.as_str()) {
+        return None;
+    }
+    let had = extract(&rest[k..]).text;
+    let had = had.trim();
+    if had.is_empty() {
+        return None;
+    }
+    Some((name, had.to_string()))
+}
+
 /// 从 `from` 起那一串数字（没有数字就交回 None）
 fn digits_after(bytes: &[u8], from: usize) -> Option<u64> {
     let mut num: Vec<u8> = Vec::new();
@@ -361,6 +410,16 @@ pub struct Rtf {
     /// 第一次写的那一个（后面 `{\*\sectx …}` 里的那些是某一节的覆写，而这一族不判分节归属）。
     /// 换算在 `crate::paper`（三家同一条式子），这里不预先换成毫米
     pub paper_writes: Vec<(String, String)>,
+    /// 批注（`{\*\annotation …}` 那一群）。每条是 `{author, text, ref, date_written}`：
+    /// 作者是紧跟在注之前那条 `{\*\atnauthor …}`（按文件的顺序配，配不上就是 null），
+    /// `ref` 是注自己那条 `{\*\atnref N}` —— 那个号与锚区两头的 `{\*\atrfstart N}` /
+    /// `{\*\atrfend N}` 是同一个数，所以「钉在哪一段」有文件自己的号可查，不靠我们猜。
+    /// `date` 一律 null：那一群写的 `{\*\atndate …}` 两个样本都对不上 docx 那边的
+    /// `w:date`（一份 1743371367、一份 -2014723526），解不动就只交原样那串（`date_written`）
+    pub annotations: Vec<Value>,
+    /// `{\*\atnauthor …}` 出现了几条：与 `annotations.len()` 不等就是文件自己没配上
+    /// （与 .xls 那两支列表同一个做法 —— 配不上时把两个数都交出来，不替它对齐）
+    pub annotation_authors: usize,
     /// 表那份账。这六个数都是**控制字本身的条数**（`\trowd` / `\row` / `\cell` / `\intbl`
     /// 与嵌套表那两个），不是「有几张表」的推断 —— 那条规则拿两份件试过：
     /// 一张 2×2 的对，两张（3×2 与 2×2）的把两张数成一张，所以这里只交数得清的
@@ -393,6 +452,8 @@ impl Rtf {
             "styles": self.styles,
             "style_uses": self.style_uses,
             "headings": self.headings,
+            "annotations": self.annotations,
+            "annotation_authors": self.annotation_authors,
             "paper_writes": self.paper_writes,
             "line_count": self.lines.len(),
             "chars": self.text.chars().count(),
@@ -433,6 +494,9 @@ pub fn extract(bytes: &[u8]) -> Rtf {
     let mut para_style: Option<u64> = None;
     // 文档级那张纸的原样（`paper_writes`）：只收第一次写的那一个，见下面那条判断
     let mut paper: Vec<(String, String)> = Vec::new();
+    // 刚读到、还没配上注的那条 `{\*\atnauthor …}`：文件把作者写在注的前面一格，
+    // 所以「读到注」时取走它；取不到就交 null（有一格没作者就是文件的账，不补）
+    let mut pending_author: Option<String> = None;
     let mut me = Rtf {
         text: String::new(),
         lines: Vec::new(),
@@ -454,6 +518,8 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         styles: Vec::new(),
         style_uses: Vec::new(),
         headings: Vec::new(),
+        annotations: Vec::new(),
+        annotation_authors: 0,
         paper_writes: Vec::new(),
         table_row_defines: 0,
         table_rows: 0,
@@ -501,7 +567,8 @@ pub fn extract(bytes: &[u8]) -> Rtf {
             // `\*` 说的是「**紧跟它的那个目标群**你不认识就整群跳过」。
             // 所以先看清那是个什么群：认识的就不跳 —— LibreOffice 的脚注与尾注恰恰写成
             // `{\\*\\footnote …}`，一见 `\*` 就跳会把整条注丢掉（这份件就是这么发现的）。
-            // 不认识才跳：fldinst（域指令原文）、userprops、批注的内部文本都从这一条走。
+            // 不认识才跳：fldinst（域指令原文）、userprops 都从这一条走。批注那两群
+            // 认得，但**照样跳**（值只前瞻读一份，见下面那条），所以跳过的笔账不变
             flush(&mut out, &mut pending, codepage, &mut notes);
             let named = peek_word(bytes, i + 2);
             if NOTE_DESTINATIONS.contains(&named.as_str())
@@ -509,6 +576,35 @@ pub fn extract(bytes: &[u8]) -> Rtf {
             {
                 i += 2;
                 continue;
+            }
+            // 批注那两个词：认得，但这一群仍然整个跳过（注的字不是页面上的正文）——
+            // 只**前瞻**把值读出来，所以 skipped_destinations 一个也不因为这个改动而变
+            if ATN_WORDS.contains(&named.as_str()) && !*skip.last().unwrap_or(&false) {
+                let mut head = i + 2;
+                while head < bytes.len() && matches!(bytes[head], b' ' | b'\r' | b'\n' | b'\\') {
+                    head += 1;
+                }
+                let (had, kids) = starred_body(bytes, head, &named);
+                let find = |key: &str| -> Value {
+                    match kids.iter().find(|(one, _)| one == key) {
+                        Some((_, value)) => json!(value),
+                        None => Value::Null,
+                    }
+                };
+                if named == "annotation" {
+                    me.annotations.push(json!({
+                        "author": match pending_author.take() {
+                            Some(one) => json!(one),
+                            None => Value::Null,
+                        },
+                        "text": had,
+                        "ref": find("atnref"),
+                        "date_written": find("atndate"),
+                    }));
+                } else if !had.is_empty() {
+                    me.annotation_authors += 1;
+                    pending_author = Some(had);
+                }
             }
             let last = skip.len() - 1;
             skip[last] = true;
@@ -1347,6 +1443,110 @@ mod tests {
     fn starred_groups_are_skipped() {
         let one = rtf("{\\rtf1{\\*\\fldinst HYPERLINK \"https://example.com\"}{\\fldrslt 链接}{\\*\\userprops{\\propname AppVersion}}完}");
         assert_eq!(one.text, "链接\n完".replace('\n', ""), "域指令文本不许出现");
+    }
+
+    /// 批注住在一个星号群里，而作者写在注的**前面那一格**：两条列表按文件的顺序配，
+    /// 配不上就交 null。`{\*\atndate …}` 那串两个样本都对不上同一批字的 docx 里的
+    /// `w:date`，所以这里只交原样（`date_written`），解不动的事由调用方交 null
+    #[test]
+    fn annotations_come_from_the_starred_group_with_their_own_author() {
+        let one = rtf(
+            "{\\rtf1正文{{\\*\\atnauthor 张三}\\chatn{\\*\\annotation{\\*\\atnref 0}{\\*\\atndate 123}注的字。}}}",
+        );
+        assert_eq!(one.text, "正文", "注的字不许进正文：{}", one.text);
+        assert_eq!(one.annotations.len(), 1, "{:?}", one.annotations);
+        assert_eq!(
+            one.annotations[0]["author"],
+            json!("张三"),
+            "{:?}",
+            one.annotations
+        );
+        assert_eq!(
+            one.annotations[0]["text"], "注的字。",
+            "{:?}",
+            one.annotations
+        );
+        assert_eq!(
+            one.annotations[0]["ref"],
+            json!("0"),
+            "{:?}",
+            one.annotations
+        );
+        assert_eq!(
+            one.annotations[0]["date_written"],
+            json!("123"),
+            "{:?}",
+            one.annotations
+        );
+        assert_eq!(one.annotation_authors, 1);
+        // 没有作者的注：交 null，不拿别处的名字顶上去；群里没写 atnref / atndate
+        // 也各自 null，不补 0
+        let bare = rtf("{\\rtf1{\\*\\annotation 只有注}尾}");
+        assert_eq!(bare.text, "尾", "{:?}", bare.text);
+        assert_eq!(bare.annotations.len(), 1, "{:?}", bare.annotations);
+        assert!(
+            bare.annotations[0]["author"].is_null(),
+            "{:?}",
+            bare.annotations
+        );
+        assert!(
+            bare.annotations[0]["ref"].is_null(),
+            "{:?}",
+            bare.annotations
+        );
+        assert!(
+            bare.annotations[0]["date_written"].is_null(),
+            "{:?}",
+            bare.annotations
+        );
+        assert_eq!(bare.annotation_authors, 0);
+        // 真件：两条注。第二条的作者中文名 LibreOffice 在 RTF 里写不出来（两个问号），
+        // 而它自己的 docx 导出把「刘奇」照抄 —— 那一份差在 office_doc 的探针里钉住
+        let real = extract(&fixture("comments.rtf"));
+        let authors: Vec<Value> = real
+            .annotations
+            .iter()
+            .map(|one| one["author"].clone())
+            .collect();
+        assert_eq!(
+            authors,
+            vec![json!("liuqi"), json!("??")],
+            "{:?}",
+            real.annotations
+        );
+        assert_eq!(real.annotation_authors, 2, "{:?}", real.annotations);
+        assert_eq!(
+            real.annotations
+                .iter()
+                .map(|one| one["text"].as_str().unwrap_or_default())
+                .collect::<Vec<&str>>(),
+            vec![
+                "这里要补上不含税口径",
+                "这个数要找财务确认一下，第二行接着写"
+            ],
+            "{:?}",
+            real.annotations
+        );
+        assert_eq!(
+            real.annotations
+                .iter()
+                .map(|one| one["ref"].clone())
+                .collect::<Vec<Value>>(),
+            vec![json!("0"), json!("1")],
+            "注自己的号与锚区两头是同一个数：{:?}",
+            real.annotations
+        );
+        // 注的字一份都不许落到正文里
+        assert_eq!(
+            real.lines,
+            vec![
+                "第一段：不含税口径".to_string(),
+                "第二段：金额待确认".to_string(),
+                "第三段：这一段没有批注".to_string(),
+            ],
+            "{:?}",
+            real.lines
+        );
     }
 
     /// 域指令原文要**解掉那一双反斜杠**再交：文件里 `\\o` 是两个字节（单反斜杠会开出

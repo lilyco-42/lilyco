@@ -113,6 +113,9 @@ def main() -> int:
         "toc.docx": ("ooxml", "word", "docx"),
         "toc.odt": ("opendocument", "word", "odt"),
         "toc.rtf": ("rtf", "word", "rtf"),
+        "comments.docx": ("ooxml", "word", "docx"),
+        "comments.odt": ("opendocument", "word", "odt"),
+        "comments.rtf": ("rtf", "word", "rtf"),
         "tables.docx": ("ooxml", "word", "docx"),
         "tables.odt": ("opendocument", "word", "odt"),
         "tables.rtf": ("rtf", "word", "rtf"),
@@ -265,7 +268,7 @@ def main() -> int:
 
     # ── 2c) RTF 的结构这一问：它不是包，是一条流，能数清的才报 ─────────────
     print("=== 2c) office-doc 读 RTF（段、注、图、跳过与注的口袋数） ===")
-    for name in ("notes.rtf", "notes-hf.rtf", "notes-end.rtf", "tables.rtf", "toc.rtf"):
+    for name in ("notes.rtf", "notes-hf.rtf", "notes-end.rtf", "tables.rtf", "toc.rtf", "comments.rtf"):
         got = lbin("office-doc", fixture(name))
         rwant = files[name]["rtf"]
         check(
@@ -432,7 +435,7 @@ def main() -> int:
     # 四边边距三家不同的那一份件：docx 上下写 1440 twips，LibreOffice 的 odt 与 rtf
     # 两个导出都写 720 / 1.27cm。这是生产者的不一致，单独在下面钉住，不在这里当一致要求
     MARGIN_DIFFERS = {"notes-hf"}
-    for stem in ("notes", "notes-hf", "notes-end", "tables", "toc", "paper-a4"):
+    for stem in ("notes", "notes-hf", "notes-end", "tables", "toc", "paper-a4", "comments"):
         ledger = {}
         for ext in ("docx", "odt", "rtf"):
             name = "%s.%s" % (stem, ext)
@@ -586,6 +589,99 @@ def main() -> int:
         [False, False],
     )
 
+    # ── 2f) 批注：同一段字在三家的第三种存法（RTF 把它写在流里） ──────────────
+    # docx 有 word/comments.xml 那个部件，odt 的注嵌在正文段里面，RTF 两条列表分着写：
+    # `{\*\atnauthor 名字}` 在前、`{\*\annotation 正文}` 在后，注自己带一个号 `atnref`
+    print("=== 2f) office-doc / office-text 的批注（三家三种存法） ===")
+    counts = {
+        "docx": lbin("office-doc", fixture("comments.docx")).get("comments"),
+        "odt": lbin("office-doc", fixture("comments.odt")).get("comments"),
+        "rtf": lbin("office-doc", fixture("comments.rtf")).get("comments"),
+    }
+    check("comments 三家都数到两条", counts, {"docx": 2, "odt": 2, "rtf": 2})
+    check(
+        "notes 那一份也数到（docx 一个部件、RTF 一条注）",
+        [
+            lbin("office-doc", fixture("notes.docx")).get("comments"),
+            lbin("office-doc", fixture("notes.rtf")).get("comments"),
+            lbin("office-doc", fixture("notes-end.rtf")).get("comments"),
+        ],
+        [
+            files["notes.docx"]["ooxml"]["comments"],
+            len(files["notes.rtf"]["rtf"]["annotations"]),
+            len(files["notes-end.rtf"]["rtf"]["annotations"]),
+        ],
+    )
+    rcomments = files["comments.rtf"]["rtf"]
+    rtext = lbin("office-text", fixture("comments.rtf"))
+    # RTF 的侧账逐条比：出处、作者、字、注自己的号，以及「日期解不出来 = null、
+    # 原样在 date_written 里」这一条口径（reader 那边的 `ref` 就是这里的 `anchor`）
+    check(
+        "comments.rtf 侧账逐条（出处 / 作者 / 字 / 号 / 日期）",
+        [
+            [
+                one.get("from"),
+                one.get("part"),
+                one.get("author"),
+                one.get("text"),
+                one.get("anchor"),
+                one.get("date"),
+                one.get("date_written"),
+            ]
+            for one in rtext.get("paragraphs", [])
+            if one.get("from")
+        ],
+        [
+            ["comment", "rtf", one["author"], one["text"], one["ref"], None, one["date_written"]]
+            for one in rcomments["annotations"]
+        ],
+    )
+    check(
+        "两条列表的条数各交一份（配不上时看得出来）",
+        [
+            dig(lbin("office-doc", fixture("comments.rtf")), "structure.annotation_authors"),
+            lbin("office-doc", fixture("comments.rtf")).get("comments"),
+            [rcomments["annotation_authors"], len(rcomments["annotations"])],
+        ],
+        [2, 2, [2, 2]],
+    )
+    # 注的字一份都不许混进正文：三行正文里没有一条注的字
+    check(
+        "comments.rtf 的字不混进正文",
+        [
+            any(one["text"] in (line.get("text") or "") for one in rcomments["annotations"])
+            for line in rtext.get("paragraphs", [])
+            if not line.get("from")
+        ],
+        [False, False, False],
+    )
+    # docx 那一份：作者与日期都齐（ISO），存法换了一个部件
+    dwant = [one for one in files["comments.docx"]["ooxml"]["side_texts"] if one["from"] == "comment"]
+    check(
+        "comments.docx 侧账逐条（出处 / 部件 / 作者 / 日期 / 字）",
+        [
+            [one.get("from"), one.get("part"), one.get("author"), one.get("date"), one.get("text")]
+            for one in lbin("office-text", fixture("comments.docx")).get("paragraphs", [])
+            if one.get("from") == "comment"
+        ],
+        [[one["from"], one["part"], one["author"], one["date"], one["text"]] for one in dwant],
+    )
+    # 生产者的差（不是读者的差）：同一批字，中文作者名在 RTF 里被写成两个问号，
+    # 而 LibreOffice 自己的 docx 导出照抄「刘奇」；两边都按文件写的交，不互相冒充
+    check(
+        "同一批字的作者名两家不同（RTF 丢了中文）",
+        [
+            [one.get("author") for one in rtext.get("paragraphs", []) if one.get("from")],
+            [one.get("author") for one in dwant],
+        ],
+        [["liuqi", "??"], ["liuqi", "刘奇"]],
+    )
+    check(
+        "批注的字两家一字不差（丢的只是作者名）",
+        [one.get("text") for one in rtext.get("paragraphs", []) if one.get("from")],
+        [one["text"] for one in dwant],
+    )
+
     # 尾注那一条分支第一次有真件：notes-end.docx 的 word/endnotes.xml 是 LibreOffice 的
     # docx 导出器写的（它把两条分隔符写成 <w:separator/> 那一族），
     # 于是「有几条真尾注」这一半也有了对证，不再只是「部件不在=0」
@@ -711,7 +807,10 @@ def main() -> int:
     check("deck.ppt 与 deck.pptx 每页标题", [one["title"] for one in slide97.get("slides", [])],
           [one["title"] for one in slide.get("slides", [])])
     rtf = lbin("office-text", fixture("notes.rtf"))
-    check("notes.rtf 逐行文本", [one["text"] for one in rtf.get("paragraphs", [])], files["notes.rtf"]["rtf"]["lines"])
+    # 这一支现在也有侧账了（那一份流里有一条批注），所以正文行要挑「没有 from 的那些」——
+    # 与页眉页脚、注那几条同一个口径
+    check("notes.rtf 逐行正文", [one["text"] for one in rtf.get("paragraphs", []) if not one.get("from")],
+          files["notes.rtf"]["rtf"]["lines"])
     # RTF 的页眉页脚与正文在同一个流里，只靠目标群分开：正文不许带上页眉的字
     hf_rtf = lbin("office-text", fixture("notes-hf.rtf"))
     rwant = files["notes-hf.rtf"]["rtf"]

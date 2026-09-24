@@ -262,8 +262,51 @@ def field_instruction(group: str) -> str:
     return had or None
 
 
+# 批注那两个词（星号群）是本域认得的：注的那一群带着正文与自己的号，紧挨在它前面
+# 那条 `{\*\atnauthor …}` 是「谁写的」。锚区两头的 `{\*\atrfstart N}` / `{\*\atrfend N}`
+# 不单独进账 —— 那个号已经在注自己的 `ref` 里，两边按号对
+ATN_WORDS = {"annotation", "atnauthor"}
+ATN_CHILDREN = {"atnref", "atndate"}
+
+
+def atn_child(child: str):
+    r"""`{\*\atnref 0}` 那种「控制字紧跟一个值」的子群：交回 (词, 值)，不是认识的就 None
+
+    与 Rust 的 `atn_child` 同一步法：剥掉开头的 `\*\`，取字母段当词，剩下的整段解一遍
+    再 trim —— 不用正则限定值的形状，两家各自限定就会在第三种生产者上分家。
+    """
+    if not child.startswith(BS + "*" + BS):
+        return None
+    rest = child[3:]
+    name = ""
+    k = 0
+    while k < len(rest) and rest[k].isalpha():
+        name += rest[k]
+        k += 1
+    if name not in ATN_CHILDREN:
+        return None
+    had = rtf_text(rest[k:].encode("latin-1", "replace"))["text"].strip()
+    return (name, had) if had else None
+
+
+def starred_body(text: str, head: int, named: str) -> tuple:
+    r"""从控制字的第一个字母起那一个星号群：交回（解过的字, 群里认识的那几个值）
+
+    只**前瞻**读 —— 调用方照旧把这一群整群跳过，所以注的字不进正文。
+    """
+    _stop, inner = group_end(text, head)
+    body = inner[len(named):]
+    had = rtf_text(body.encode("latin-1", "replace"))["text"].strip()
+    kids: dict = {}
+    for child in child_groups(body):
+        got = atn_child(child)
+        if got:
+            kids[got[0]] = got[1]
+    return had, kids
+
+
 def contents_of(instructions: list) -> dict:
-    """目录那份账：RTF 没有 OOXML 那个 w:sdt 壳，也没有 ODF 的 outline-level 属性，
+    r"""目录那份账：RTF 没有 OOXML 那个 w:sdt 壳，也没有 ODF 的 outline-level 属性，
     只有流里一条自报家门的 `TOC …` 域。所以这份账只有这四个键，那两家的键不造假"""
     toc = [one for one in instructions if one.upper().startswith("TOC")]
     levels = None
@@ -300,7 +343,10 @@ def rtf_text(data: bytes) -> dict:
     """返回 `{text, lines, line_count, chars, ...}`：计数都是文件自己账上的数"""
     text = data.decode("latin-1", "replace")
     out: list[str] = []
-    page: dict = {"headers": [], "footers": [], "notes": [], "links": [], "instructions": [], "destinations": 0}
+    page: dict = {
+        "headers": [], "footers": [], "notes": [], "links": [],
+        "instructions": [], "annotations": [], "destinations": 0,
+    }
     # 定义类（字体与样式）不是页面上的字，也不进 page 那几个口袋
     found: dict = {"fonts": [], "styles": []}
     # 段那一份账：每段收尾时记下「这一段的字」与「这一段用的样式号」。
@@ -309,6 +355,8 @@ def rtf_text(data: bytes) -> dict:
     mark = {"start": 0, "style": None}
     # 文档级的那张纸：每个词只认第一次写的（`\landscape` 是个旗标，没有数字参数）
     paper_writes: dict = {}
+    # 刚读到、还没配上注的那条作者：文件把 `{\*\atnauthor …}` 写在注的前面一格
+    pending_author = None
     pending = bytearray()  # 连续的 \'hh 字节，攒着按字符集一起解
     skip: list[bool] = [False]
     codepage = 1252
@@ -332,6 +380,8 @@ def rtf_text(data: bytes) -> dict:
         "nest_rows": 0,
         "nest_cells": 0,
         "fields": 0,
+        # `{\*\atnauthor …}` 出现了几条：与 annotations 的条数不等就是文件自己没配上
+        "atnauthors": 0,
         # 样式被用了几次：样式号 → 条数（正文里出现的 \sN，不含样式表自己的那些）
         "style_uses": {},
     }
@@ -376,6 +426,26 @@ def rtf_text(data: bytes) -> dict:
             if named in NOTE_DESTINATIONS or named in PAGE_DESTINATIONS:
                 i += 2
                 continue
+            if named in ATN_WORDS and not skip[-1]:
+                # 批注那一群**照样跳**（注的字不是页面上的正文），只是前瞻读一遍值 ——
+                # 所以 destinations 那一笔账不因为这个改动而变
+                head = i + 2
+                while head < len(text) and text[head] in " \r\n\\":
+                    head += 1
+                had, kids = starred_body(text, head, named)
+                if named == "annotation":
+                    page["annotations"].append(
+                        {
+                            "author": pending_author,
+                            "text": had,
+                            "ref": kids.get("atnref"),
+                            "date_written": kids.get("atndate"),
+                        }
+                    )
+                    pending_author = None
+                elif had:
+                    stats["atnauthors"] += 1
+                    pending_author = had
             skip[-1] = True
             stats["destinations"] += 1
             i += 2
@@ -588,6 +658,11 @@ def rtf_text(data: bytes) -> dict:
         "field_instructions": page["instructions"],
         # 目录那份账：TOC 域在这份表里挑出来，级数在它自己的开关上
         "contents": contents_of(page["instructions"]),
+        # 批注：`{\*\annotation …}` 那一群前瞻读出来的（字不混进正文）。`date` 在
+        # 这边压根没有 —— 文件写的 `atndate` 两个样本都对不上 docx 的 w:date，
+        # 解不动就只交原样那串（date_written），不替它挑历法
+        "annotations": page["annotations"],
+        "annotation_authors": stats["atnauthors"],
         "note_destinations": stats["note_destinations"],
         # 表那份账：六个数都是控制字的条数，不是「表」的推断
         "table_row_defines": stats["row_defines"],

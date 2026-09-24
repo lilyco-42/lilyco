@@ -346,6 +346,25 @@ def write_merged_tables_docx(path: Path) -> None:
     doc.save(str(path))
 
 
+def write_comments_docx(path: Path) -> None:
+    """两条批注的一份 docx：作者名一个纯 ASCII、一个纯中文
+
+    这份样本存在的理由：RTF 那一族把批注写在流里（`{\\*\\atnauthor …}` + `{\\*\\annotation …}`），
+    而两条列表怎么配、日期是什么历法，一份只有一条注的件判不出来。第二条故意用中文作者名 ——
+    LibreOffice 的 RTF 导出**写不出那个名字**（那一群里剩下两个问号），而它自己的 docx
+    导出把「刘奇」照抄：同一批字在两家是两个答案，这一族照文件写的交，不替它认回来。
+    """
+    from docx import Document
+
+    doc = Document()
+    first = doc.add_paragraph("第一段：不含税口径")
+    second = doc.add_paragraph("第二段：金额待确认")
+    doc.add_paragraph("第三段：这一段没有批注")
+    doc.add_comment(first.runs, text="这里要补上不含税口径", author="liuqi", initials="L")
+    doc.add_comment(second.runs, text="这个数要找财务确认一下，第二行接着写", author="刘奇", initials="刘")
+    doc.save(str(path))
+
+
 def write_revisions_docx(path: Path) -> None:
     """带修订的一份 docx：插入、删除、改格式、整段新加（含段落标记）各一处
 
@@ -1126,6 +1145,11 @@ def main() -> int:
     merged = OUT / "tables-merged.docx"
     write_merged_tables_docx(merged)
 
+    # 批注那三份：两条注 + 一个中文作者名。RTF 那一族把注写在流里，列表怎么配、
+    # 日期是什么历法，一份只有一条注的件判不出来（见 write_comments_docx）
+    commented = OUT / "comments.docx"
+    write_comments_docx(commented)
+
     # 修订这一份账：python-docx 注入四种改动，再让 LibreOffice 转一次。两份都留：
     # LibreOffice 会把一次编辑拆成几个 run（数字与单位各一条），又会丢掉段落标记那一条，
     # 而它自己导出的 ODF 把一次编辑写回一个 changed-region —— 这条对照是合并规则的唯一出处
@@ -1246,6 +1270,8 @@ def main() -> int:
         # 那张纸的第二尺寸：ODF 的 `fo:page-width` 与 OOXML 的 twips 是两家写法
         (paper, "odt"),
         (merged, "odt"),
+        # 批注那一族也走 ODF 一副：注是嵌在正文段里的 office:annotation
+        (commented, "odt"),
     ):
         convert(exe, src, fmt, SCRATCH)
     for name in (
@@ -1258,6 +1284,7 @@ def main() -> int:
         "tables.odt",
         "paper-a4.odt",
         "tables-merged.odt",
+        "comments.odt",
     ):
         src = SCRATCH / name
         if src.exists():
@@ -1306,6 +1333,9 @@ def main() -> int:
         # 目录的第三种写法：RTF 把同一串指令写在 `{\*\fldinst { TOC \\o "1-2" \\h}}` 里，
         # 开关前面的反斜杠在文件里必须成对写（解掉那一对才与 docx 的 instrText 一样）
         (OUT / "toc.docx", "rtf"),
+        # 批注的第三种存法：作者与正文分在注的前后两格，中文作者名在 RTF 里被写成
+        # 两个问号（同一批字的 docx 那边照抄「刘奇」）—— 两种答案都要留着
+        (commented, "rtf"),
     ):
         convert(exe, src, fmt, SCRATCH)
     for name in (
@@ -1323,6 +1353,7 @@ def main() -> int:
         "tables.rtf",
         "paper-a4.rtf",
         "notes-hf.odt",
+        "comments.rtf",
     ):
         src = SCRATCH / name
         if src.exists():
