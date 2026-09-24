@@ -2104,7 +2104,7 @@ mod tests {
             b"1 0 obj\n<</Type/Font/Subtype/TrueType/ToUnicode 2 0 R/FirstChar 0/Widths[0 1000 1000 1000]>>\nendobj\n",
         );
         body.extend_from_slice(b"2 0 obj\n<</Length ");
-        body.extend_from_slice(cmap.len().to_string().into_bytes());
+        body.extend_from_slice(&cmap.len().to_string().into_bytes());
         body.extend_from_slice(b">>\nstream\n");
         body.extend_from_slice(cmap);
         body.extend_from_slice(b"\nendstream\nendobj\n");
