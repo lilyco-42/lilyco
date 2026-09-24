@@ -138,6 +138,9 @@ def main() -> int:
         "deck-lo.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-chart.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-chart-lo.pptx": ("ooxml", "powerpoint", "pptx"),
+        "errors.xlsx": ("ooxml", "excel", "xlsx"),
+        "errors-lo.xlsx": ("ooxml", "excel", "xlsx"),
+        "errors.ods": ("opendocument", "excel", "ods"),
         "chart.xlsx": ("ooxml", "excel", "xlsx"),
         "chart-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "rules.xlsx": ("ooxml", "excel", "xlsx"),
@@ -3098,7 +3101,17 @@ def main() -> int:
 
     # ── 3f) --csv：把一张表铺平成 RFC4180（期望文本逐字来自 csv_facts/biff_csv）──
     print("=== 3f) office-sheet --csv：铺平一张表 ===")
-    for name in ("book.xlsx", "formats.xlsx", "book.xls", "book.ods", "formats.ods"):
+    for name in (
+        "book.xlsx",
+        "formats.xlsx",
+        "book.xls",
+        "book.ods",
+        "formats.ods",
+        # 「结果不是数」那三副：除零的字、拼出来的字、没重算的空
+        "errors.xlsx",
+        "errors-lo.xlsx",
+        "errors.ods",
+    ):
         want = {one["name"]: one["csv"] for one in files[name]["csv"]["sheets"]}
         plain = lbin("office-sheet", fixture(name))
         record(
@@ -3125,6 +3138,62 @@ def main() -> int:
             )
         bad = lbin("office-sheet", fixture(name), "--csv", "--sheet", "没这张表")
         check("%s --csv 认错表名就把候选说清楚" % name, isinstance(dig(bad, "csv.error"), str), True)
+
+    # ── 3f2) 结果不是数的那几种：文件写着什么就交什么，一家没重算就什么都没有 ──
+    print("=== 3f2) 错误格、文本结果与「没重算」 ===")
+    for name in ("errors.xlsx", "errors-lo.xlsx"):
+        got = lbin("office-sheet", fixture(name))
+        want = files[name]["ooxml"]
+        check(
+            "%s 那三本新账与读者一致（几个格算错、几个格是字、几个格写了 t）" % name,
+            [dig(got, "workbook.totals.error_cells"),
+             dig(got, "workbook.totals.string_result_cells"),
+             dig(got, "workbook.totals.cells_with_written_type"),
+             dig(got, "workbook.totals.cells")],
+            [want["error_cells"], want["string_result_cells"],
+             want["cells_with_written_type"], want["cells"]],
+        )
+    errs = lbin("office-sheet", fixture("errors-lo.xlsx"))
+    check(
+        "错误格交文件自己写的那一串：#DIV/0! 而不是读者替它加的一句「#错误」",
+        [dig(errs, "sheets[0].cell_list[1].kind"), dig(errs, "sheets[0].cell_list[1].value"),
+         dig(errs, "sheets[0].cell_list[4].kind"), dig(errs, "sheets[0].cell_list[4].value"),
+         dig(errs, "sheets[0].cell_list[2].kind"), dig(errs, "sheets[0].cell_list[2].value"),
+         dig(errs, "sheets[0].error_cells"), dig(errs, "sheets[0].string_result_cells")],
+        ["e", "#DIV/0!", "str", "甲乙", "b", "TRUE", 3, 1],
+    )
+    check(
+        "「文件写了 t」与「按规范默认 n」分两键：一家每格都写，另一家公式格一个不写",
+        [dig(errs, "sheets[0].cells_with_written_type"),
+         dig(errs, "sheets[0].cell_list[1].kind_written"),
+         dig(lbin("office-sheet", fixture("errors.xlsx")), "sheets[0].cells_with_written_type"),
+         dig(lbin("office-sheet", fixture("errors.xlsx")), "sheets[0].cell_list[1].kind"),
+         dig(lbin("office-sheet", fixture("errors.xlsx")), "sheets[0].cell_list[1].kind_written"),
+         dig(lbin("office-sheet", fixture("errors.xlsx")), "sheets[0].error_cells")],
+        [9, True, 3, "n", False, 0],
+    )
+    check(
+        "同一批格子两种生产者：重算过才看得见错误，没重算全是空",
+        [dig(errs, "csv.text"),
+         dig(lbin("office-sheet", fixture("errors.xlsx"), "--csv"), "csv.text")],
+        ["7,#DIV/0!,,TRUE\n5,甲乙,,\n,#N/A,,\n,#VALUE!,,\n,14,10,\n",
+         "7,,,TRUE\n5,,,\n,,,\n,,,\n,,,\n"],
+    )
+    ods_err = lbin("office-sheet", fixture("errors.ods"))
+    their_cells = files["errors.ods"]["ods"]["sheets"][0]["cell_list"]
+    check(
+        "errors.ods 每一格的类型与字整串与读者一致（错误那几格文件写的是 string）",
+        [[one.get("kind"), one.get("text")] for one in dig(ods_err, "sheets[0].cell_list") or []],
+        [[one.get("value_type"), one.get("text")] for one in their_cells],
+    )
+    check(
+        "同一个错误在三副件里是三个名字：按各自文件写的那个交，不替它们对上",
+        [dig(errs, "sheets[0].cell_list[6].value"),
+         dig(ods_err, "sheets[0].cell_list[6].text"),
+         dig(ods_err, "sheets[0].cell_list[1].kind"),
+         dig(ods_err, "sheets[0].cell_list[1].value")],
+        ["#VALUE!", "错误:502", "string", None],
+    )
 
     # ── 3g) 隐藏的行与列：藏起来的是「看不看得到」，不是「在不在」────────
     print("=== 3g) 隐藏行/隐藏列：三种存法，同一个数 ===")

@@ -1772,6 +1772,9 @@ def xlsx_facts(path: Path) -> dict:
     cells = 0
     formulas = 0
     numbers = 0
+    typed = 0
+    errored = 0
+    str_results = 0
     strings_inline = 0
     merged = 0
     dims: dict[str, str] = {}
@@ -1793,7 +1796,15 @@ def xlsx_facts(path: Path) -> dict:
             elif tag == "c":
                 cells += 1
                 t = one.get("t")
-                if t == "s":
+                # 「文件写了 t」与「t 没写、按规范默认 n」是两件事：openpyxl 给公式格一个
+                # 都不写，LibreOffice 重写同一份时连数字格都写 t="n"
+                if t is not None:
+                    typed += 1
+                if t == "e":
+                    errored += 1
+                elif t == "str":
+                    str_results += 1
+                elif t == "s":
                     pass  # 共享字符串索引：值本身在 sharedStrings 里，这里只数格子
                 elif t == "inlineStr":
                     strings_inline += 1
@@ -1811,6 +1822,9 @@ def xlsx_facts(path: Path) -> dict:
         "cells": cells,
         "formula_cells": formulas,
         "numeric_cells": numbers,
+        "error_cells": errored,
+        "string_result_cells": str_results,
+        "cells_with_written_type": typed,
         "merged": merged,
         "dimensions": dims,
         "print_setup": print_setups,
@@ -3615,7 +3629,10 @@ def xlsx_csv(path: Path) -> list:
             elif kind == "b":
                 display = "TRUE" if value == "1" else "FALSE"
             elif kind == "e":
-                display = f"#错误 {value}"
+                # 文件自己就写着显示的那串（`<v>#DIV/0!</v>`）：一字不加。
+                # 这一支以前与 Rust 一起编成 `#错误 #DIV/0!` —— 两份读者一起错，
+                # 谁也没撞上，因为手上一直没有真写出 t="e" 的生产者（现在有了：errors-lo.xlsx）
+                display = value
             elif kind in ("str", "n"):
                 display = value if kind == "str" or not value else number_text(value)
             else:

@@ -43,6 +43,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `rules-lo.xlsx` | LibreOffice（`rules.xlsx` → .ods → .xlsx） | 同一批规则的第二种写法：`priority` 换成自己排的 2/4/5、开关从 `1/0` 换成 `true/false`、给 list 补了 `operator="equal"`、给每条验证补了 `formula2=0`、把 custom 公式开头的 `=` 去掉、色阶的白写成 `FFFFFFFF`，而且同一条 dxf 里多补了 `name`/`family`/`sz` |
 | `view.xlsx` | openpyxl | 窗口与页眉页脚的第一种写法：`pane state="frozen"` 冻在 `B3`、`showGridLines="0"`、`tabSelected="1"`、`zoomScale="150"`、三条 `selection`（第一条不点 `topLeft`），页眉页脚写四段字（含一个字面 `&&`）与 `differentOddEven="1"`；第二张表用 `state="split"`（拆分不是冻结），第三张表什么都不设 —— **`headerFooter` 那个元素整个不写** |
 | `view-lo.xlsx` | LibreOffice（`view.xlsx` → .xlsx，同一个格式重写） | 同一张表的第二种写法：十五个属性全写出来、布尔换成 `true/false`、`selection` 变成四条人手一份还补 `activeCellId="0"`、每段字前面多一个 `&"Calibri"`、给每张表都写出 `headerFooter`（哪怕里面是空的）；**而那个 split 的 pane 整个不见了**（冻住的那张留着） |
+| `errors.xlsx` | openpyxl（`write_errors_xlsx`） | 六条公式一个都不算：`<c r="B1"><f>1/0</f><v></v></c>` —— 没有 `t`、`<v>` 是空的，于是「除零长什么样」在这份里根本不存在（`error_cells` 0、`cells_with_written_type` 3）；另有一格布尔常量 `D1`（`t="b"` 写 `1`） |
+| `errors-lo.xlsx` | LibreOffice（`errors.xlsx` → .xlsx，同一个格式重算一遍） | 同一批格子第二种写法：`t="e"` 三格（`#DIV/0!`、`#N/A`、`#VALUE!`，显示串就是文件写的）、`t="str"` 一格（`甲乙`，不走共享字符串表）、九格全写 `t`，而那个布尔常量被写成 `<f>TRUE()</f>` 一条公式（6 条公式变 7 条） |
+| `errors.ods` | LibreOffice（`errors.xlsx` → .ods） | 第三种摆法：错误格 `office:value-type="string"`（不是 error）加一个空的 `office:string-value`，显示的那串只在 `<text:p>` 里；`calcext:value-type="error"` 那条副本不跟；同一个坏掉的 VLOOKUP 在这里叫 `错误:502` 而不是 `#VALUE!` |
 | `size.xlsx` | openpyxl | 列宽行高与筛选/表对象的第一种写法：A 列 `22.5`、C 列 `4` 且藏着，第 2 行 `40`、第 3 行 `8`（第 1 行什么都不写），默认行高 18 写在 `sheetFormatPr`（那一族管默认宽度叫 **`baseColWidth`**），筛选范围 `A1:C3` 带一个筛掉的值「甲」，另挂一个范围**不同**的表对象 `A1:B3`（列名拿范围第一行的字当，于是第二列叫 `10`）；`tableParts` 自己写 `count="1"` |
 | `size-lo.xlsx` | LibreOffice（`size.xlsx` → .xlsx，同一个格式重写） | 换一家换算就换一套数：同一列成 `20.47` 与 `3.64`、同一行成 `39.75` 与 `7.5`，连没说过话的那一行也被补上 `ht="18"`；「默认列宽」改叫 **`defaultColWidth="7.7734375"`**、`baseColWidth` 不见；两张表都写 `sheetPr filterMode`（`true` 与 `false`），`filterColumn` 上那两个开关反倒不写；表对象补 `totalsRowCount`/`totalsRowShown`、样式开关从 2 个变 5 个，**而 `tableParts` 的 `count` 不写了** |
 | `notes-end.rtf` | LibreOffice（从 `notes-end.docx`） | 注的第三种存法：脚注与尾注**都**写成 `{\*\footnote …}` 这一个群，尾注只在群里多一个 `\ftnalt`；分隔符另走 `{\*\ftnsep\chftnsep}` |
@@ -1033,6 +1036,26 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     * 修好后 `deck.pptx` 第一页交三条（版式 / 备注页 / 图，内部的 `Target` 已解成包内全名），
       `deck-links.pptx` 第一页交四条（那三条链本来就是这页关系表里的三条，外部的 `Target`
       不按包内解，照原样）—— 两本的账由 `office_reader.py` 的 `slide_rels()` 各读一遍核对。
+
+65. **一格算出来的结果不是数，三家各摆各的**（`errors.xlsx`、`errors-lo.xlsx`、`errors.ods`）。
+    * OOXML 的错误格自己就写着显示那一串：`<c r="B1" t="e"><f>1/0</f><v>#DIV/0!</v></c>`。
+      这一支此前两份读者**一起**在它前面加了一句 `#错误 `（`#错误 #DIV/0!`）—— 那串字不在任何文件里。
+      两边一起错而谁也没撞上，原因很实在：手上一直没有一个会重算的生产者，`t="e"` 这个分支
+      从来没被走到。现在有了（`errors-lo.xlsx` 是 LibreOffice 重算过的那一份），
+      与 LibreOffice 自己的 CSV 导出逐格对过：它交的也是 `#DIV/0!`，一字不加。
+    * `t="str"` 是第二种「结果不是数」：公式算出来的那句字（`"甲"&"乙"` → `甲乙`），
+      LO 不走共享字符串表，那一句直接住在 `<v>` 里。`t="b"` 是第三种：文件写 `1`，显示 `TRUE`。
+    * 「文件写了 `t`」与「`t` 没写、按规范默认 n」分两键（`kind_written` / `cells_with_written_type`）：
+      openpyxl 六个公式格一个都不写（`<c r="B1"><f>1/0</f><v></v></c>`），LibreOffice 重写同一批格子
+      九格全写、连数字格也写 `t="n"`。只交 `kind` 就会把一家的沉默读成另一家的表态。
+    * 同一份格子换一家生产者，连「几条公式」都不同：openpyxl 6 条，LO 7 条 ——
+      它把那个布尔常量 `D1` 写成了 `<f>TRUE()</f><v>1</v>`，一条常量成了一条公式。
+    * ODF 是第三种摆法：错误格写 `office:value-type="string"`（**不是 error**）、
+      `office:string-value=""`（空的），显示的那串只在 `<text:p>` 里；LibreOffice 另写了一条
+      `calcext:value-type="error"`，这一族不跟（与所有 .ods 里那些 calcext 副本同一个口径）。
+    * 最要紧的一条跨家对照：同一个坏掉的 `VLOOKUP`，LO 的 xlsx 导出缓存成 `#VALUE!`，
+      它的 ods 导出写成 **`错误:502`**。同一个错误在三副件里是三个名字，各按各的文件交，
+      不替它们对上一个 —— 而 `--csv` 交的是文件里缓存的那一串，不是读者重算的结果。
 
 ## 这些数字从哪来
 

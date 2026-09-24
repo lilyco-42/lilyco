@@ -911,6 +911,33 @@ def write_size_xlsx(path: Path) -> None:
     wb.save(path)
 
 
+def write_errors_xlsx(path: Path) -> None:
+    """算错的格与算成文本的格：一次只改一个变量，各测一种「结果不是数」
+
+    openpyxl 只把公式抄进去，不算，所以它自己写出来的那份里那些格是
+    `<c r="B1"><f>1/0</f><v></v></c>` —— 连 `t` 都不写。真正写了 `t="e"` 与
+    `<v>#DIV/0!</v>` 的是 LibreOffice 重算过的那一份（两份都收进仓库，见 main 里那一转）。
+    四行各测一件事：除零、拼出来的文本（`t="str"`，且 LO 不走共享字符串表）、
+    `NA()`、指不到东西的 `VLOOKUP`（LO 重算成 `#VALUE!`，公式里的 `FALSE` 还被补成 `FALSE()`）。
+    另有一格布尔（`t="b"`，文件里写的是 `1` 不是 TRUE）与两格正常的数字结果做对照。
+    """
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "错误"
+    ws["A1"] = 7
+    ws["B1"] = "=1/0"
+    ws["A2"] = 5
+    ws["B2"] = '="甲"&"乙"'
+    ws["B3"] = "=NA()"
+    ws["B4"] = "=VLOOKUP(99,A1:A2,2,FALSE)"
+    ws["B5"] = "=A1*2"
+    ws["C5"] = "=A2*2"
+    ws["D1"] = True
+    wb.save(path)
+
+
 def write_para_docx(path: Path) -> None:
     """python-docx：四种段落写法 + 一节两栏 —— 「这一段到底排成什么样」
 
@@ -1960,6 +1987,23 @@ def main() -> int:
         shutil.copyfile(made, OUT / "size-lo.xlsx")
     else:
         print("⚠️  没拿到 size-lo.xlsx（xlsx → xlsx 那一转）")
+
+    # 「结果不是数」那三副：openpyxl 写的那份没有缓存值（`t` 都不写），所以除零长什么样
+    # 只有让 LibreOffice 重算一遍才看得见；同一份再转一次 .ods，看 ODF 怎么摆同一个错误
+    errors = OUT / "errors.xlsx"
+    write_errors_xlsx(errors)
+    convert(exe, errors, "xlsx", SCRATCH / "errors-back")
+    made = SCRATCH / "errors-back" / "errors.xlsx"
+    if made.exists():
+        shutil.copyfile(made, OUT / "errors-lo.xlsx")
+    else:
+        print("⚠️  没拿到 errors-lo.xlsx（xlsx → xlsx 那一转）")
+    convert(exe, errors, "ods", SCRATCH / "errors-ods")
+    made = SCRATCH / "errors-ods" / "errors.ods"
+    if made.exists():
+        shutil.copyfile(made, OUT / "errors.ods")
+    else:
+        print("⚠️  没拿到 errors.ods")
 
     # 段落格式与分栏那三件套：docx 由 python-docx 写，odt / rtf 都由 LibreOffice 导出
     para = OUT / "para.docx"
