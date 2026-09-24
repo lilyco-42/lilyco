@@ -21,6 +21,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `notes-end.docx` | LibreOffice 的 **docx 导出器**（把尾注注进 `notes-foot.docx` 再让它照抄一遍） | 一条真尾注 + 一条脚注：`word/endnotes.xml` 的字节全是它写的（两条分隔符是它自己的 `<w:separator/>` 那一族写法），尾注这一支第一次有件可走 |
 | `notes-end.odt` | LibreOffice（从 `notes-end.docx`） | 同一笔账的 ODF 存法：`text:note-class="endnote"` 那条是它的 ODT 导出器写的，编号还换成罗马数字 `i`（`footnote` 仍是阿拉伯数字） |
 | `hidden.xls` | LibreOffice（从 `hidden.xlsx`） | 第四种存法：行藏在 ROW(0x0208) 的一个位、列藏在 COLINFO 的一段范围（首末都含），而 LibreOffice 写的 COLINFO 用的是老 record id **0x007D**（MS-XLS 给 BIFF8 的名字是 0x07D0） |
+| `cell-notes.xlsx` | openpyxl | 三条表格批注，部件在 **`xl/comments/comment1.xml`**，表的关系用**绝对** Target（`/xl/comments/comment1.xml`）、关系 Id 还不是 rId 而是字面量 `comments`；作者住在同部件的 `<authors>` 列表里，格子上只有 `authorId` 下标 |
+| `cell-notes-lo.xlsx` | LibreOffice（`cell-notes.xlsx` → .ods → .xlsx） | 同一批字的另一副面孔：部件在 **`xl/comments1.xml`**、Target 是相对的 `../comments1.xml`、注文字包在 `<r><rPr>…<t>` 里，而且条目顺序都变了（A3 排在 B2 前面） |
+| `cell-notes.ods` | LibreOffice（从 `cell-notes.xlsx`） | ODF 的存法：批注是 `office:annotation`，**坐在格子里面**（`dc:creator` 给作者、`<meta:date-string/>` 是空的），一锅端取格子的字就会把注当成这一格的内容 |
 | `notes-hf.odt` | LibreOffice（从 `notes-hf.docx`） | 同一批字的 ODF 存法：页眉页脚在 **styles.xml 的 master-page** 里，两个节 = 两个 master-page（`Standard` 与 `Converted1`），各带一份 header + footer |
 | `notes-hf.rtf` | LibreOffice（从 `notes-hf.docx`） | 第三种存法：`\header` / `\headerl` / `\footer` 这些**目标（destination）**里的字，与正文混在一个流里 |
 | `revisions.docx` | python-docx + 手注入 `w:ins` / `w:del` / `w:rPrChange` / 段落标记 | 四种修订各一处，而且**没被拆开**：3 个 `w:ins`（含段落标记那一条）、1 个 `w:del`、1 个 `w:rPrChange` → 5 条逻辑改动 |
@@ -294,6 +297,27 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     不代表它那样写。四种存法（openpyxl 一列一条、LibreOffice 的 xlsx 并成一段、
     ODF 的 `collapse`、BIFF 的字段位）在 `hidden_rows_and_columns_are_counted_whichever_way_they_are_written`
     与 probe 的 3a5 里必须报同一个数：2 行、3 列。
+
+31. **表格批注是「两跳」的东西，两个生产者把部件放在两个地方**（`cell-notes.xlsx` 一族）。
+    批注**不在** `xl/worksheets/sheet1.xml` 里：要先从这张表自己的
+    `xl/worksheets/_rels/sheet1.xml.rels` 找到 Type 结尾是 `/comments` 的那条关系，
+    再解 Target 才有部件。这一跳上有三件事只有对照着量才看得见：
+    * **部件名与 Target 拼法都不同**：openpyxl 写 `xl/comments/comment1.xml` 并把关系
+      Target 写成**绝对**的 `/xl/comments/comment1.xml`（而且关系的 `Id` 是字面量
+      `comments`，不是 `rId4`）；LibreOffice 写 `xl/comments1.xml`，Target 是相对的
+      `../comments1.xml`。只按一种拼法解路径，另一家的件就报「没有批注」。
+    * **作者名不在格子上**：`<comment authorId="1">` 是个**下标**，指向同一部件开头
+      `<authors><author>` 那个有序列表；按名字找会一条也找不到。
+    * **注文字的元素层级也不同**：openpyxl 直接写 `<text><t>…</t></text>`，
+      LibreOffice 包成 `<text><r><rPr>…</rPr><t>…</t></r></text>`；两边都按 `t` 收才对。
+      连条目的**顺序**都不一样（LO 那份 A3 排在 B2 前面），所以对账按格子配对而不是比列表顺序。
+    ODF 那边是同批字的第三种存法，也是最容易读错的一种：`office:annotation`
+    **就是格子的孩子元素**，`text:p` 与格子的正文并排坐着 —— 一锅端取格子的字，
+    B2 就成了「124000\n这里要补上不含税口径」。这一条与 .odt 那边
+    「批注（`text:annotation`）与修订表（`text:tracked-changes`）里的段不算正文」是同一条规矩。
+    最后：`Comment(text, author, dt)` 里那个时间戳，openpyxl **根本没写进部件**，
+    LibreOffice 转出的 ODF 也只留一个空的 `<meta:date-string/>` —— 两边都交回 null，
+    不替文件编一个创建时间。`.xls` 那一支不报这一问（缺 `comments` 键 = 没看）。
 
 ## 这些数字从哪来
 

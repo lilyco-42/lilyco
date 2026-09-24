@@ -79,6 +79,48 @@ pub struct Sheet {
     /// 也可以只写在它引的那个自动样式里，两边都得看
     pub hidden_rows: usize,
     pub hidden_cols: usize,
+    /// 这张表里的批注：`{ref, author, date, text}`。ODF 的批注**坐在格子里面**
+    /// （`office:annotation` 是 `table:table-cell` 的孩子），所以取格子的字时要跳过它 ——
+    /// 与 .odt 那边「批注与修订表里的段不算正文」是同一条规矩
+    pub comments: Vec<Value>,
+}
+
+/// 格子里那些「算这一格内容」的段：批注子树整个跳过
+fn plain_paragraphs(node: &xmlscan::Node, out: &mut Vec<String>) {
+    for one in node.children.iter() {
+        if one.is("annotation") {
+            continue;
+        }
+        if one.is("p") {
+            out.push(one.text().trim().to_string());
+            continue;
+        }
+        plain_paragraphs(one, out);
+    }
+}
+
+/// 这一格上的批注元素（可以有不止一条）
+fn annotation_nodes<'a>(node: &'a xmlscan::Node) -> Vec<&'a xmlscan::Node> {
+    let mut out: Vec<&'a xmlscan::Node> = Vec::new();
+    for one in node.children.iter() {
+        if one.is("annotation") {
+            out.push(one);
+        } else {
+            out.extend(annotation_nodes(one));
+        }
+    }
+    out
+}
+
+/// 批注的作者与时间挂在它的孩子元素上：`dc:creator`、`meta:date-string`（或 `dc:date`）。
+/// 空的 `<meta:date-string/>` 算「没写」而不是「写了空时间」
+fn note_field(node: &xmlscan::Node, wants: &[&str]) -> Option<String> {
+    wants.iter().find_map(|want| {
+        node.descendants(want)
+            .first()
+            .map(|one| one.text().trim().to_string())
+            .filter(|had| !had.is_empty())
+    })
 }
 
 impl Sheet {
@@ -224,6 +266,7 @@ pub fn read(bytes: &[u8]) -> Book {
             merged: 0,
             hidden_rows: 0,
             hidden_cols: 0,
+            comments: Vec::new(),
         };
         if let Some(style) = attr_of(table, "style-name") {
             if let Some((_, flag)) = shown.iter().find(|(one, _)| one == style) {
@@ -270,12 +313,21 @@ pub fn read(bytes: &[u8]) -> Book {
                     col_at += span;
                     continue;
                 }
-                let text = cell
-                    .all("p")
-                    .iter()
-                    .map(|one| one.text().trim().to_string())
-                    .collect::<Vec<String>>()
-                    .join("\n");
+                let reference = format!("{}{}", col_letter(col_at), row_at + 1);
+                let mut paragraphs: Vec<String> = Vec::new();
+                plain_paragraphs(cell, &mut paragraphs);
+                let text = paragraphs.join("\n");
+                // 批注不算这一格的字，但它自己要交账：作者、时间（没写就 null）、正文
+                for had in annotation_nodes(cell) {
+                    let mut body: Vec<String> = Vec::new();
+                    plain_paragraphs(had, &mut body);
+                    sheet.comments.push(json!({
+                        "ref": reference.clone(),
+                        "author": note_field(had, &["creator"]),
+                        "date": note_field(had, &["date-string", "date"]),
+                        "text": body.join("\n"),
+                    }));
+                }
                 let value = attr_of(cell, "value").map(|one| one.to_string());
                 let date_value = attr_of(cell, "date-value").map(|one| one.to_string());
                 let boolean_value = attr_of(cell, "boolean-value").map(|one| one.to_string());
@@ -293,7 +345,7 @@ pub fn read(bytes: &[u8]) -> Book {
                     }
                     sheet.columns = sheet.columns.max(col_at + 1);
                     sheet.cells.push(Cell {
-                        reference: format!("{}{}", col_letter(col_at), row_at + 1),
+                        reference,
                         value_type: value_type(cell),
                         value,
                         date_value,
@@ -352,6 +404,52 @@ mod tests {
             .iter()
             .find(|one| one.reference == want)
             .unwrap_or_else(|| panic!("{sheet} 里没有格子 {want}"))
+    }
+
+    /// 批注坐在格子里面：那一格的字还是那一格的字，注另交一份账
+    /// （期望值来自 `office_reader.py` 的 ods_facts）
+    #[test]
+    fn a_comment_lives_inside_its_cell_without_becoming_its_text() {
+        let book = read(&bytes_of("cell-notes.ods"));
+        assert_eq!(
+            cell(&book, "预算表", "B2").text,
+            "124000",
+            "注的字没混进格子"
+        );
+        let first = find(&book, "预算表");
+        let refs: Vec<&str> = first
+            .comments
+            .iter()
+            .map(|one| one["ref"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(refs, ["B2", "A3", "B3"], "{refs:?}");
+        assert_eq!(
+            first.comments[0]["author"],
+            json!("张三"),
+            "{:?}",
+            first.comments[0]
+        );
+        assert_eq!(
+            first.comments[0]["text"],
+            json!("这里要补上不含税口径"),
+            "{:?}",
+            first.comments[0]
+        );
+        assert!(
+            first.comments.iter().all(|one| one["date"].is_null()),
+            "两个生产者都没往批注里写时间，那就交回 null"
+        );
+        // 反面对照：另一份没有批注的件不能凭空报出批注
+        let clean = read(&bytes_of("book.ods"));
+        assert!(
+            clean.sheets.iter().all(|one| one.comments.is_empty()),
+            "{:?}",
+            clean
+                .sheets
+                .iter()
+                .map(|one| one.comments.len())
+                .collect::<Vec<usize>>()
+        );
     }
 
     /// LibreOffice 写的三张表：名字、可见性、合并与覆盖、公式带缓存值

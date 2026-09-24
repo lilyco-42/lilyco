@@ -40,6 +40,9 @@ MARK_COMMENT = "这里要补上不含税口径"
 MARK_AUTHOR = "liuqi"
 MARK_COMPANY = "lilyco"
 MARK_KEYWORD = "budget,quarterly"
+# 表格批注那两句（MARK_COMMENT 已经被文档批注用了，这两句只住在这两份表格里）
+MARK_CELL_NOTE = "第二张单已确认"
+MARK_CELL_NOTE_2 = "同一个作者再来一条"
 # 尾注那句：notes-foot.docx 只有脚注，notes-end.docx 在这句上才走得到 `endnote` 那一支
 MARK_ENDNOTE = "Endnote: the totals exclude the carry-over."
 
@@ -436,6 +439,37 @@ def write_mulrk_xlsx(path: Path) -> None:
     ws["A4"] = "隔开一行就不是一程"
     for column in range(1, 4):
         ws.cell(row=5, column=column, value=column * 7)
+    wb.save(path)
+
+
+def write_cell_notes_xlsx(path: Path) -> None:
+    """带批注的表格：一格一条 `xl/comments*.xml` 里的 `<comment ref authorId>`。
+
+    为什么要专门造这一份：批注不在 `sheet1.xml` 里，它在**另一个部件**里，
+    要靠这张表自己的 `xl/worksheets/_rels/sheet1.xml.rels` 才能找到 ——
+    少一跳就报成「这份表没有批注」。两个生产者把那个部件放在两个地方：
+    openpyxl 写 `xl/comments/comment1.xml`（关系 Target 还是绝对路径 `/xl/...`，
+    关系 Id 甚至不是 rId 而是字面量 `comments`），LibreOffice 写 `xl/comments1.xml`
+    （Target 是 `../comments1.xml`）—— 两种都要走得到。
+    同一批字再转一份 .ods：那里批注是 `office:annotation`，**坐在格子里面**，
+    一锅端地取格子的字就会把注的文字当成这一格的内容（这一条与 .odt 里
+    「批注与修订表那段不算正文」是同一条规矩）。
+    """
+    import datetime as dt
+
+    from openpyxl import Workbook
+    from openpyxl.comments import Comment
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = MARK_SHEET
+    ws["A1"], ws["B1"] = MARK_CELL_A1, "金额"
+    ws["A2"], ws["B2"] = "服务器", 124000
+    ws["A3"], ws["B3"] = "网络", 18000
+    # 带时间戳的那一条：openpyxl 到底把时间写不写进 XML，是这份件要回答的问题之一
+    ws["B2"].comment = Comment(MARK_COMMENT, "张三", dt.datetime(2026, 3, 5, 9, 8, 7))
+    ws["A3"].comment = Comment(MARK_CELL_NOTE, "李四")
+    ws["B3"].comment = Comment(MARK_CELL_NOTE_2, "李四")
     wb.save(path)
 
 
@@ -886,6 +920,9 @@ def main() -> int:
     write_xlsx(xlsx)
     write_formats_xlsx(OUT / "formats.xlsx")
     write_mulrk_xlsx(OUT / "mulrk.xlsx")
+    # 表格批注那两跳：openpyxl 写一份（批注部件在 xl/comments/comment1.xml），
+    # LibreOffice 转 .ods 一份（批注坐在格子里面），两个生产者两种存法
+    write_cell_notes_xlsx(OUT / "cell-notes.xlsx")
     pptx = OUT / "deck.pptx"
     write_pptx(pptx, art)
     add_macro_part(docx, OUT / "notes.docm")
@@ -996,14 +1033,31 @@ def main() -> int:
         print("⚠️  没拿到 notes-end.docx")
 
     # 真 ODF 写入者是 LibreOffice：从 OOXML 转过去，比手搓的 content.xml 有说服力
-    for src, fmt in ((docx, "odt"), (xlsx, "ods"), (pptx, "odp"), (OUT / "formats.xlsx", "ods")):
+    for src, fmt in (
+        (docx, "odt"),
+        (xlsx, "ods"),
+        (pptx, "odp"),
+        (OUT / "formats.xlsx", "ods"),
+        (OUT / "cell-notes.xlsx", "ods"),
+    ):
         convert(exe, src, fmt, SCRATCH)
-    for name in ("notes.odt", "book.ods", "deck.odp", "formats.ods"):
+    for name in ("notes.odt", "book.ods", "deck.odp", "formats.ods", "cell-notes.ods"):
         src = SCRATCH / name
         if src.exists():
             shutil.copyfile(src, OUT / name)
         else:
             print(f"⚠️  没拿到 {name}")
+
+    # 同一批字的第三种写法：LibreOffice 自己导出的 xlsx。它把批注部件放在
+    # `xl/comments1.xml`（openpyxl 放 `xl/comments/comment1.xml`），关系 Target
+    # 也从绝对 `/xl/...` 变成相对 `../comments1.xml` —— 两条路都得走得到才算读过批注
+    if (OUT / "cell-notes.ods").exists():
+        convert(exe, OUT / "cell-notes.ods", "xlsx", SCRATCH / "notes-back")
+        back = SCRATCH / "notes-back" / "cell-notes.xlsx"
+        if back.exists():
+            shutil.copyfile(back, OUT / "cell-notes-lo.xlsx")
+        else:
+            print("⚠️  没拿到 cell-notes-lo.xlsx（.ods → .xlsx 那一转）")
 
     # 遗留二进制格式：这些就是 MS-CFB 复合文档
     for src, fmt in (

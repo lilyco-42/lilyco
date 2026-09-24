@@ -271,6 +271,114 @@ def docx_facts(path: Path) -> dict:
     return out
 
 
+REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+
+def opc_target(source: str, target: str) -> str:
+    """把一条关系的 Target 解成包内路径。
+
+    以 `/` 开头是相对包根的绝对路径（openpyxl 就这么写），否则相对**宿主部件所在目录**
+    （LibreOffice 写 `../comments1.xml`）。少认一种写法就会把「有批注」读成「没有」。
+    """
+    if target.startswith("/"):
+        return target[1:]
+    head = source.rsplit("/", 1)[0] if "/" in source else ""
+    parts: list[str] = [one for one in head.split("/") if one] if head else []
+    for piece in target.split("/"):
+        if piece in ("", "."):
+            continue
+        if piece == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(piece)
+    return "/".join(parts)
+
+
+def rel_target(parts: dict, source: str, kind: str) -> str | None:
+    """宿主部件的关系表里第一条 Type 以 `kind` 结尾的关系，解析成包内路径。"""
+    head, _, base = source.rpartition("/")
+    rels = f"{head}/_rels/{base}.rels"
+    if rels not in parts:
+        return None
+    root = ET.fromstring(parts[rels])
+    for one in root.iter():
+        if xml_local(one.tag) != "Relationship":
+            continue
+        if not (one.get("Type") or "").endswith("/" + kind):
+            continue
+        target = one.get("Target") or ""
+        if (one.get("TargetMode") or "") == "External":
+            continue
+        return opc_target(source, target)
+    return None
+
+
+def xlsx_comments(path: Path) -> dict:
+    """这张工作簿里每**张表**的批注：批注不住在 sheetN.xml 里。
+
+    路径是 `xl/workbook.xml` →（rels）→ 这张表的部件 →（这张表自己的 rels）→
+    批注部件。两个生产者把那个部件放在两个地方（`xl/comments/comment1.xml` 与
+    `xl/comments1.xml`），关系 Target 也一个绝对一个相对，所以两跳都要真走。
+    作者名不在 `<comment>` 上，是一个 `authorId` 下标，指向同一个部件开头的
+    `<authors><author>` 列表 —— 按名字找会一条也找不到。
+    """
+    with zipfile.ZipFile(path) as box:
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    if "xl/workbook.xml" not in parts:
+        return {}
+    book = ET.fromstring(parts["xl/workbook.xml"])
+    out: dict = {}
+    for sheet in [one for one in book.iter() if xml_local(one.tag) == "sheet"]:
+        rid = sheet.get("{%s}id" % REL_NS)
+        # 表的部件名不在 workbook.xml 里，只有 r:id；工作簿的关系表里 Id 才是键
+        part = next(
+            (
+                opc_target("xl/workbook.xml", one.get("Target") or "")
+                for one in (
+                    ET.fromstring(parts["xl/_rels/workbook.xml.rels"]).iter()
+                    if "xl/_rels/workbook.xml.rels" in parts
+                    else []
+                )
+                if xml_local(one.tag) == "Relationship" and one.get("Id") == rid
+            ),
+            None,
+        )
+        name = sheet.get("name") or ""
+        notes: list = []
+        if part and part in parts:
+            located = rel_target(parts, part, "comments")
+            if located and located in parts:
+                root = ET.fromstring(parts[located])
+                authors = [
+                    "".join(one.itertext())
+                    for one in root.iter()
+                    if xml_local(one.tag) == "author"
+                ]
+                for one in root.iter():
+                    if xml_local(one.tag) != "comment":
+                        continue
+                    try:
+                        who = authors[int(one.get("authorId") or 0)]
+                    except (ValueError, IndexError):
+                        who = None
+                    notes.append(
+                        {
+                            "ref": one.get("ref"),
+                            "author": who,
+                            "date": one.get("date"),
+                            "text": "".join(
+                                got
+                                for kid in one.iter()
+                                if xml_local(kid.tag) == "t"
+                                for got in kid.itertext()
+                            ),
+                        }
+                    )
+        out[name] = notes
+    return out
+
+
 def xlsx_facts(path: Path) -> dict:
     parts = {}
     with zipfile.ZipFile(path) as box:
@@ -738,6 +846,37 @@ def col_letter(index: int) -> str:
             return name
 
 
+def _cell_paragraphs(node) -> list:
+    """这一格「算内容」的段：批注（`office:annotation`）整个子树跳过。
+
+    要递归而不只看直子：`text:list` 里的段也算这一格的字。
+    LibreOffice 把批注写成格子的孩子元素，一锅端就会把注的文字当成格子的内容 ——
+    与 .odt 那边「批注与修订表里的段不算正文」是同一条规矩。
+    """
+    out: list = []
+    for kid in node:
+        tag = xml_local(kid.tag)
+        if tag == "annotation":
+            continue
+        if tag == "p":
+            out.append("".join(kid.itertext()).strip())
+            continue
+        out.extend(_cell_paragraphs(kid))
+    return out
+
+
+def _first_text(node, wants: tuple) -> str | None:
+    """孩子元素里第一条有字的（空的 `<meta:date-string/>` 算没写，不算写了空时间）"""
+    for want in wants:
+        for one in node.iter():
+            if xml_local(one.tag) == want:
+                got = "".join(one.itertext()).strip()
+                if got:
+                    return got
+                break
+    return None
+
+
 def ods_facts(path: Path) -> dict | None:
     """ODF 电子表格：格子内**不写数字**，写的是 office:value / date-value / boolean-value，
     位置要靠 table:number-columns-repeated 累加出来 —— 那属性一填就是 16381，
@@ -806,6 +945,7 @@ def ods_facts(path: Path) -> dict | None:
         widest = 0
         hidden_rows = 0
         hidden_cols = 0
+        cell_notes: list = []
         for column in table:
             if xml_local(column.tag) != "table-column":
                 continue
@@ -834,11 +974,18 @@ def ods_facts(path: Path) -> dict | None:
                     covered += 1
                     col_at += span
                     continue
-                text = "\n".join(
-                    "".join(one.itertext())
-                    for one in cell
-                    if xml_local(one.tag) == "p"
-                )
+                text = "\n".join(_cell_paragraphs(cell))
+                # 批注不算这一格的字，但它自己要交账（作者、时间、正文）
+                for had in [one for one in cell.iter() if xml_local(one.tag) == "annotation"]:
+                    stamp = _first_text(had, ("date-string", "date"))
+                    cell_notes.append(
+                        {
+                            "ref": f"{col_letter(col_at)}{row_at + 1}",
+                            "author": _first_text(had, ("creator",)),
+                            "date": stamp,
+                            "text": "\n".join(_cell_paragraphs(had)),
+                        }
+                    )
                 value = attr(cell, "value")
                 stamp = attr(cell, "date-value")
                 flag = attr(cell, "boolean-value")
@@ -881,6 +1028,7 @@ def ods_facts(path: Path) -> dict | None:
                 "merged": merged,
                 "hidden_rows": hidden_rows,
                 "hidden_cols": hidden_cols,
+                "comments": cell_notes,
                 "formulas": sum(1 for one in cells if one["formula"]),
             }
         )
@@ -1845,6 +1993,7 @@ def facts(path: Path) -> dict:
                 out["formats"] = xlsx_formats(path)
             out["csv"] = csv_facts(path)
             out["hidden"] = xlsx_hidden(path)
+            out["comments"] = xlsx_comments(path)
         elif "ppt/presentation.xml" in parts:
             out["app"] = "powerpoint"
             out["ooxml"] = pptx_facts(path)

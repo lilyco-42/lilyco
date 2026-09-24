@@ -23,7 +23,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-sheet",
     run = "run_office_sheet",
-    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader, and its hidden rows and columns come out of the two records the flags actually live in: bit 0x20 of the ROW record, and bit 0 of the COLINFO record (which states a range, expanded here - LibreOffice writes that record under the older id 0x007D while MS-XLS names 0x07D0 for BIFF8, so both ids are accepted). Which ROW bit means hidden was measured rather than recalled: three comparison files separate the two variables - row heights from 4pt to 250pt leave that bit alone, while hiding a single row sets exactly that bit. Hidden cells still count as cells. Whether a sheet can still be edited is reported per format, because the three spellings do not map onto one another: xlsx keeps two layers (workbookProtection plus each sheet's own sheetProtection, switches read in both the 1/0 and true/false spellings with an omitted one left omitted rather than false), .ods writes table:protected on the table itself together with the digest URI, and .xls has no workbook layer at all - PROTECT (0x0012), PASSWORD (0x0013) and SCENPROTECT (0x00DD) sit inside the locked sheet's own substream, so they are attributed per sheet and their raw values kept. ODF spreadsheets (.ods) are read on their own terms: cells carry an explicit value-type with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, a sheet's visibility is resolved through the automatic style it names, and hidden rows/columns are counted from table:visibility="collapse" on the element or in the row/column style it names (multiplying number-columns-repeated, so one element standing for three collapsed columns reports 3, not 1); each ODS cell additionally carries the number format it inherits - cell style, then style:data-style-name, then that number:*-style element (which lives in content.xml or styles.xml, and is reached through parent-style-name when the cell style itself names none) - reported as format_kind (taken from the element's own name, so a ¥ written as a literal text token stays a number-style), plus decimals, currency_symbol and a faithful format_tokens transcription; ODF has no format string, so none is invented. With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (legacy .xls takes the same hop too - the cell's ixfe indexes the XF records, whose format number names either a FORMAT record or a built-in id, and the epoch comes from DATEMODE; a file that never wrote DATEMODE gets the serial rather than a guessed 1900), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. Returns { path, format, sheets, protection, csv, workbook, defined_names, tables, external_links, parts, notes }."
+    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader, and its hidden rows and columns come out of the two records the flags actually live in: bit 0x20 of the ROW record, and bit 0 of the COLINFO record (which states a range, expanded here - LibreOffice writes that record under the older id 0x007D while MS-XLS names 0x07D0 for BIFF8, so both ids are accepted). Which ROW bit means hidden was measured rather than recalled: three comparison files separate the two variables - row heights from 4pt to 250pt leave that bit alone, while hiding a single row sets exactly that bit. Hidden cells still count as cells. Spreadsheet comments are another hop: they are not in sheetN.xml at all - the sheet's own relationship part names the comments part, and the two producers measured here put it in two different places (openpyxl `xl/comments/comment1.xml` reached through an absolute target, LibreOffice `xl/comments1.xml` through `../comments1.xml`), with the author's name indexed through the `<authors>` list rather than written on the comment; ODF instead keeps the comment INSIDE the cell as `office:annotation`, which is exactly why the cell's own text skips that subtree. Authoring timestamps come back null on both producers because neither wrote one. Legacy .xls reports no comments at all: the key is absent there, which means 'this reader did not look', not 'this sheet has none'. Whether a sheet can still be edited is reported per format, because the three spellings do not map onto one another: xlsx keeps two layers (workbookProtection plus each sheet's own sheetProtection, switches read in both the 1/0 and true/false spellings with an omitted one left omitted rather than false), .ods writes table:protected on the table itself together with the digest URI, and .xls has no workbook layer at all - PROTECT (0x0012), PASSWORD (0x0013) and SCENPROTECT (0x00DD) sit inside the locked sheet's own substream, so they are attributed per sheet and their raw values kept. ODF spreadsheets (.ods) are read on their own terms: cells carry an explicit value-type with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, a sheet's visibility is resolved through the automatic style it names, and hidden rows/columns are counted from table:visibility="collapse" on the element or in the row/column style it names (multiplying number-columns-repeated, so one element standing for three collapsed columns reports 3, not 1); each ODS cell additionally carries the number format it inherits - cell style, then style:data-style-name, then that number:*-style element (which lives in content.xml or styles.xml, and is reached through parent-style-name when the cell style itself names none) - reported as format_kind (taken from the element's own name, so a ¥ written as a literal text token stays a number-style), plus decimals, currency_symbol and a faithful format_tokens transcription; ODF has no format string, so none is invented. With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (legacy .xls takes the same hop too - the cell's ixfe indexes the XF records, whose format number names either a FORMAT record or a built-in id, and the epoch comes from DATEMODE; a file that never wrote DATEMODE gets the serial rather than a guessed 1900), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. Returns { path, format, sheets, protection, csv, workbook, defined_names, tables, external_links, parts, notes }."
 )]
 pub struct OfficeSheet {
     /// 表格文件（xlsx / xlsm / xls / ods）
@@ -91,7 +91,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
         let mut totals = json!({
             "cells": 0, "formulas": 0, "numeric": 0, "shared_strings": 0,
             "inline_strings": 0, "merged": 0, "hidden_rows": 0, "hidden_cols": 0,
-            "dates": 0,
+            "dates": 0, "comments": 0,
         });
         for (index, one) in root.descendants("sheet").iter().enumerate() {
             let name = one.attr("name").unwrap_or_default().to_string();
@@ -106,6 +106,9 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "veryHidden" => "very-hidden",
                 _ => "visible",
             };
+            // 批注那两跳：表 → 它自己的关系表 → 批注部件
+            let comments = sheet_comments(bytes, &part, limit);
+            let counted = comments.len();
             let mut entry = json!({
                 "index": index,
                 "name": name,
@@ -113,7 +116,10 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "state": state,
                 "r_id": rid,
                 "part": part,
+                "comments": counted,
+                "comment_list": comments,
             });
+            bump(&mut totals, "comments", counted);
             match xml(bytes, &part) {
                 Some(member) => {
                     let sheet_root = xmlscan::parse_str(&member.as_text());
@@ -359,7 +365,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
         let mut sheets: Vec<Value> = Vec::new();
         let mut totals = json!({
             "cells": 0, "formulas": 0, "dates": 0, "merged": 0, "covered": 0,
-            "hidden_rows": 0, "hidden_cols": 0,
+            "hidden_rows": 0, "hidden_cols": 0, "comments": 0,
         });
         for (index, one) in book.sheets.iter().enumerate() {
             let mut types = serde_json::Map::new();
@@ -381,6 +387,8 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "covered": one.covered,
                 "hidden_rows": one.hidden_rows,
                 "hidden_cols": one.hidden_cols,
+                "comments": one.comments.len(),
+                "comment_list": one.comments.iter().cloned().take(limit).collect::<Vec<Value>>(),
                 "value_types": Value::Object(types),
                 "cell_list": one.cells.iter().take(limit).map(|had| merge(had.to_json(), styles.for_cell(had.style_name.as_deref()))).collect::<Vec<Value>>(),
             }));
@@ -391,6 +399,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             bump(&mut totals, "covered", one.covered);
             bump(&mut totals, "hidden_rows", one.hidden_rows);
             bump(&mut totals, "hidden_cols", one.hidden_cols);
+            bump(&mut totals, "comments", one.comments.len());
         }
         let cut = book
             .sheets
@@ -444,6 +453,11 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             .ok_or_else(|| AppError::InvalidInput("复合文档打不开".to_string()))?;
         let book = crate::biff::read(cfb, bytes).map_err(AppError::InvalidInput)?;
         let mut notes = book.notes.clone();
+        notes.push(
+            "这一支不报批注：.xls 的批注住在另一族记录里（这一版没解，手上也没有能对照的第二读者），\
+             所以每张表没有 comments 这个键 —— 缺键是「没看」，不是「这份表没有批注」"
+                .to_string(),
+        );
         let grid_names: Vec<String> = book.sheets.iter().map(|one| one.name.clone()).collect();
         let grids: Vec<Vec<(usize, usize, String)>> = book
             .sheets
@@ -534,6 +548,70 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
         doc.app,
         doc.format
     )))
+}
+
+/// 这张表的批注。它们**不在** `sheetN.xml` 里：要靠这张表自己的关系表
+/// （`xl/worksheets/_rels/sheet1.xml.rels`，Type 结尾是 `/comments` 那一条）
+/// 跳到批注部件。两个生产者把那个部件放在两个地方 —— openpyxl 写
+/// `xl/comments/comment1.xml`（Target 还是绝对的 `/xl/...`），LibreOffice 写
+/// `xl/comments1.xml`（Target 是相对的 `../comments1.xml`）—— `resolve_target` 两种都吃。
+/// 作者名也不在格子上，只有一个 `authorId` 下标，指向同一部件开头 `<authors>` 那个列表
+fn sheet_comments(bytes: &[u8], part: &str, limit: usize) -> Vec<Value> {
+    let dir = match part.rsplit_once('/') {
+        Some((head, _)) => head.to_string(),
+        None => String::new(),
+    };
+    let base = part.rsplit('/').next().unwrap_or(part);
+    let rels_name = if dir.is_empty() {
+        format!("_rels/{base}.rels")
+    } else {
+        format!("{dir}/_rels/{base}.rels")
+    };
+    let Some(rels) = xml(bytes, &rels_name) else {
+        return Vec::new();
+    };
+    let rel_root = xmlscan::parse_str(&rels.as_text());
+    let Some(target) = rel_root
+        .descendants("Relationship")
+        .iter()
+        .filter(|one| one.attr("TargetMode") != Some("External"))
+        .find(|one| one.attr("Type").unwrap_or_default().ends_with("/comments"))
+        .and_then(|one| one.attr("Target"))
+    else {
+        return Vec::new();
+    };
+    let located = resolve_target(&dir, target);
+    let Some(member) = xml(bytes, &located) else {
+        return Vec::new();
+    };
+    let root = xmlscan::parse_str(&member.as_text());
+    let authors: Vec<String> = root
+        .descendants("author")
+        .iter()
+        .map(|one| one.text().trim().to_string())
+        .collect();
+    let mut out: Vec<Value> = Vec::new();
+    for one in root.descendants("comment").iter() {
+        let index = one
+            .attr("authorId")
+            .and_then(|had| had.parse::<usize>().ok())
+            .unwrap_or(usize::MAX);
+        out.push(json!({
+            "ref": one.attr("ref"),
+            "author": authors.get(index).cloned(),
+            "date": one.attr("date"),
+            "text": one
+                .descendants("t")
+                .iter()
+                .map(|had| had.text())
+                .collect::<Vec<String>>()
+                .join(""),
+        }));
+        if out.len() >= limit {
+            break;
+        }
+    }
+    out
 }
 
 /// 能当数看的就当数给出：xlsx 的 `<v>` 与 .xls 的 RK 是同一个数，别一个报字串一个报浮点
@@ -1219,6 +1297,69 @@ mod tests {
                 assert_eq!(xlsx["csv"]["text"], ods["csv"]["text"], "sheet={sheet}");
             }
         }
+    }
+
+    /// 表格里的批注**不在** `sheetN.xml` 里，要靠这张表自己的关系表跳到批注部件。
+    /// 两个生产者把那个部件放在两个地方（openpyxl `xl/comments/comment1.xml`、
+    /// LibreOffice `xl/comments1.xml`），关系 Target 一个绝对一个相对，条目顺序还不一样
+    /// —— 三份件（两份 xlsx 加一份 .ods）必须读出同一批 (格子, 作者, 字)。
+    /// 期望值来自 `office_reader.py` 的 `xlsx_comments()` 与 `ods_facts()`
+    #[test]
+    fn spreadsheet_comments_are_reached_through_the_sheet_relationships() {
+        let expect: Vec<(String, String, String)> = vec![
+            (
+                "A3".to_string(),
+                "李四".to_string(),
+                "第二张单已确认".to_string(),
+            ),
+            (
+                "B2".to_string(),
+                "张三".to_string(),
+                "这里要补上不含税口径".to_string(),
+            ),
+            (
+                "B3".to_string(),
+                "李四".to_string(),
+                "同一个作者再来一条".to_string(),
+            ),
+        ];
+        for name in ["cell-notes.xlsx", "cell-notes-lo.xlsx", "cell-notes.ods"] {
+            let out = run(name);
+            let sheet = &out["sheets"][0];
+            assert_eq!(sheet["comments"], 3, "{name}：{sheet}");
+            let mut got: Vec<(String, String, String)> = sheet["comment_list"]
+                .as_array()
+                .expect("是数组")
+                .iter()
+                .map(|one| {
+                    (
+                        one["ref"].as_str().unwrap_or_default().to_string(),
+                        one["author"].as_str().unwrap_or_default().to_string(),
+                        one["text"].as_str().unwrap_or_default().to_string(),
+                    )
+                })
+                .collect();
+            got.sort();
+            assert_eq!(got, expect.clone(), "{name}");
+            assert_eq!(out["workbook"]["totals"]["comments"], 3, "{name} 的总账");
+        }
+        // ODF 那份尤其容易混：注就坐在格子里面，一锅端取字就会把它当这一格的内容
+        let ods = run("cell-notes.ods");
+        let noted = ods["sheets"][0]["cell_list"]
+            .as_array()
+            .expect("是数组")
+            .iter()
+            .find(|one| one["ref"] == json!("B2"))
+            .expect("有 B2 这一格");
+        assert_eq!(noted["text"], json!("124000"), "{noted}");
+        // 两个生产者都没往批注里写时间：那就交回 null，不替它编一个
+        let dated = run("cell-notes.xlsx")["sheets"][0]["comment_list"]
+            .as_array()
+            .expect("是数组")
+            .clone();
+        assert!(dated.iter().all(|one| one["date"].is_null()), "{dated:?}");
+        // 反面对照：没有批注的那份报 0，而不是没有这个键
+        assert_eq!(run("book.xlsx")["workbook"]["totals"]["comments"], 0);
     }
 
     /// 隐藏的行与列有四种写法：openpyxl 一列一条 `hidden="1"`、LibreOffice 把连续

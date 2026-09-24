@@ -117,6 +117,9 @@ def main() -> int:
         "hidden.xlsx": ("ooxml", "excel", "xlsx"),
         "hidden-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "hidden.ods": ("opendocument", "excel", "ods"),
+        "cell-notes.xlsx": ("ooxml", "excel", "xlsx"),
+        "cell-notes-lo.xlsx": ("ooxml", "excel", "xlsx"),
+        "cell-notes.ods": ("opendocument", "excel", "ods"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -476,6 +479,63 @@ def main() -> int:
         sorted(set(ledger.values())),
         [(2, 3)],
     )
+
+    # ── 3a6) 表格批注：两跳才找得到那个部件，两个生产者放在两个地方 ──────────
+    print("=== 3a6) 表格批注（openpyxl / LibreOffice / ODF 三种写法） ===")
+
+    def mine_notes(book: dict) -> dict:
+        return {
+            one.get("name"): {
+                had.get("ref"): (had.get("author"), had.get("text"), had.get("date"))
+                for had in one.get("comment_list", [])
+            }
+            for one in book.get("sheets", [])
+        }
+
+    for name in ("cell-notes.xlsx", "cell-notes-lo.xlsx"):
+        got = lbin("office-sheet", fixture(name))
+        want = files[name]["comments"]
+        check(
+            "%s 每张表的批注（按格子对）" % name,
+            mine_notes(got),
+            {
+                key: {
+                    had["ref"]: (had["author"], had["text"], had["date"]) for had in value
+                }
+                for key, value in want.items()
+            },
+        )
+        check(
+            "%s 批注总账" % name,
+            dig(got, "workbook.totals.comments"),
+            sum(len(value) for value in want.values()),
+        )
+    odsbook = lbin("office-sheet", fixture("cell-notes.ods"))
+    check(
+        "cell-notes.ods 每张表的批注（按格子对）",
+        mine_notes(odsbook),
+        {
+            one.get("name"): {
+                had["ref"]: (had["author"], had["text"], had["date"])
+                for had in one.get("comments", [])
+            }
+            for one in files["cell-notes.ods"]["ods"]["sheets"]
+        },
+    )
+    # ODF 的注就坐在格子里面：一锅端取字就会把注当成这一格的内容
+    mixed = [
+        one.get("ref")
+        for one in odsbook.get("sheets", [{}])[0].get("cell_list", [])
+        if "不含税" in (one.get("text") or "")
+    ]
+    record("cell-notes.ods 批注的字不混进格子", mixed == [], json.dumps(mixed, ensure_ascii=False))
+    # 反面对照：没批注的件报 0，而不是缺这个键
+    for name in ("book.xlsx", "hidden.xlsx"):
+        check(
+            "%s 没批注就是 0" % name,
+            dig(lbin("office-sheet", fixture(name)), "workbook.totals.comments"),
+            sum(len(value) for value in files[name]["comments"].values()),
+        )
 
     # ── 3b) 数字格式：格子写的是 cellXfs 的下标，日期藏在样式里 ──────────
     print("=== 3b) formats.xlsx：格式号、判定与换算出来的日期 ===")
