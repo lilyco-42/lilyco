@@ -176,6 +176,13 @@ def rtf_text(data: bytes) -> dict:
         # 这一群里出现过 `\ftnalt`：LibreOffice 用它把脚注口袋标成尾注
         "alt": 0,
         "note_destinations": 0,
+        # 表的四个计数：这几个控制字本身就在那里，数一条是一条（见返回字典里那六个键）
+        "row_defines": 0,
+        "row_ends": 0,
+        "cell_ends": 0,
+        "cell_paras": 0,
+        "nest_rows": 0,
+        "nest_cells": 0,
     }
 
     def flush() -> None:
@@ -317,6 +324,20 @@ def rtf_text(data: bytes) -> dict:
                 out.append("\n")
             elif word in TAB_WORDS:
                 out.append("\t")
+            # 表的账就是数这几个控制字本身（它们在不在跳过区，由上面那条顺序决定）。
+            # 「几张表」不敢这么算：那条规则在两份件上试过，单表对、两表数成一张
+            if word == "trowd":
+                stats["row_defines"] += 1
+            elif word == "row":
+                stats["row_ends"] += 1
+            elif word == "cell":
+                stats["cell_ends"] += 1
+            elif word == "intbl":
+                stats["cell_paras"] += 1
+            elif word == "nestrow":
+                stats["nest_rows"] += 1
+            elif word == "nestcell":
+                stats["nest_cells"] += 1
         i = j
     flush()
     body = "".join(out).strip()
@@ -337,6 +358,13 @@ def rtf_text(data: bytes) -> dict:
         "page_destinations": page["destinations"],
         "notes": page["notes"],
         "note_destinations": stats["note_destinations"],
+        # 表那份账：六个数都是控制字的条数，不是「表」的推断
+        "table_row_defines": stats["row_defines"],
+        "table_rows": stats["row_ends"],
+        "table_cells": stats["cell_ends"],
+        "table_cell_paras": stats["cell_paras"],
+        "nested_table_rows": stats["nest_rows"],
+        "nested_table_cells": stats["nest_cells"],
         "ftnalt": bool(stats["alt"]),
         "replacement_chars": stats["replacements"],
     }

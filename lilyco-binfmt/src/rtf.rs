@@ -148,6 +148,15 @@ pub struct Rtf {
     /// 注的字**不混进正文** —— 它住在正文流里的一个目标群里，位置就在引用点后面
     pub note_list: Vec<Value>,
     pub note_destinations: usize,
+    /// 表那份账。这六个数都是**控制字本身的条数**（`\trowd` / `\row` / `\cell` / `\intbl`
+    /// 与嵌套表那两个），不是「有几张表」的推断 —— 那条规则拿两份件试过：
+    /// 一张 2×2 的对，两张（3×2 与 2×2）的把两张数成一张，所以这里只交数得清的
+    pub table_row_defines: usize,
+    pub table_rows: usize,
+    pub table_cells: usize,
+    pub table_cell_paras: usize,
+    pub nested_table_rows: usize,
+    pub nested_table_cells: usize,
     /// 这一群里出现过 `\ftnalt`：LibreOffice 用它把 `footnote` 口袋标成尾注。
     /// 只在提取子群时用来判 kind，不单独交出去
     pub ftnalt: bool,
@@ -172,6 +181,12 @@ impl Rtf {
             "pictures": self.pictures,
             "embedded_objects": self.embedded_objects,
             "skipped_destinations": self.skipped_destinations,
+            "table_row_defines": self.table_row_defines,
+            "table_rows": self.table_rows,
+            "table_cells": self.table_cells,
+            "table_cell_paras": self.table_cell_paras,
+            "nested_table_rows": self.nested_table_rows,
+            "nested_table_cells": self.nested_table_cells,
             "notes": self.notes,
         })
     }
@@ -200,6 +215,12 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         page_destinations: 0,
         note_list: Vec::new(),
         note_destinations: 0,
+        table_row_defines: 0,
+        table_rows: 0,
+        table_cells: 0,
+        table_cell_paras: 0,
+        nested_table_rows: 0,
+        nested_table_cells: 0,
         ftnalt: false,
         notes: Vec::new(),
     };
@@ -400,6 +421,17 @@ pub fn extract(bytes: &[u8]) -> Rtf {
                 out.push(b'\n');
             } else if TAB_WORDS.contains(&word.as_str()) {
                 out.push(b'\t');
+            }
+            // 表那份账：数的就是这几个控制字本身（在不在跳过区由上面那条顺序决定）。
+            // 「几张表」不在这儿 —— 那条推断规则拿两张件的对照试过，判不住
+            match word.as_str() {
+                "trowd" => me.table_row_defines += 1,
+                "row" => me.table_rows += 1,
+                "cell" => me.table_cells += 1,
+                "intbl" => me.table_cell_paras += 1,
+                "nestrow" => me.nested_table_rows += 1,
+                "nestcell" => me.nested_table_cells += 1,
+                _ => {}
             }
         }
         i = j;

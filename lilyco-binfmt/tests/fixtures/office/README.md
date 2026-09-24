@@ -27,6 +27,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `cell-notes-many.xlsx` | openpyxl | 第四种存法的种子：一次只改一个变量 —— 作者名有 ASCII 的（`AB`）也有中文的、字数有 2 也有 3、注的字带换行、格子拉到 `AA100`、注还分到两张表上 |
 | `cell-notes-many.xls` | LibreOffice（从 `cell-notes-many.xlsx`） | 批注的第四种存法：字与「哪个格子 + 谁写的」分在**同一条流**的两类记录上（后者住在该表子流的末尾），编码旗标那一位与 BIFF8 的 `fCompressed` 惯例**相反** |
 | `notes-end.rtf` | LibreOffice（从 `notes-end.docx`） | 注的第三种存法：脚注与尾注**都**写成 `{\*\footnote …}` 这一个群，尾注只在群里多一个 `\ftnalt`；分隔符另走 `{\*\ftnsep\chftnsep}` |
+| `tables.docx` / `tables.odt` / `tables.rtf` | python-docx 与 LibreOffice（两张表：3×2 与 2×2，中间夹一段正文，首尾各一个标题） | 表那一份的对照件：三家都给 5 行 10 格，而 RTF 只敢给行数与格子数 —— 「几张表」的分组规则在 `notes.rtf`（一张）与这份（两张）上试过，单表对、两表数成一张 |
 | `toc.docx` | LibreOffice 的 **docx 导出器**（把目录注进 `notes.docx` 再让它照抄） | 真目录：`<w:sdt>` + `<w:docPartGallery w:val="Table of Contents"/>`，级别在域指令文字里 —— LibreOffice 把引号写成 `&quot;`，所以 `TOC \o "1-2" \h` 要还原实体才读得对 |
 | `toc.odt` | LibreOffice（从 `toc.docx`） | 同一件东西的另一副面孔：`text:table-of-content`（名字 `目录1`）、级别在 `text:table-of-content-source/@outline-level="2"`，另外**十级条目模板全写出来**（`entry_templates` 报的是文件写了几个，不是用上了几级） |
 | `notes-hf.odt` | LibreOffice（从 `notes-hf.docx`） | 同一批字的 ODF 存法：页眉页脚在 **styles.xml 的 master-page** 里，两个节 = 两个 master-page（`Standard` 与 `Converted1`），各带一份 header + footer |
@@ -389,6 +390,20 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     第二个读者是 LibreOffice 自己：把这份 .xls 再转回 .xlsx，`xl/comments` 那一条路读出来的
     (表, 格子, 字) 与这里逐条一致；而它转回去时**作者整个丢了**（写成「未知作者」），
     所以作者那一半只有字节层面的对证，这一点如实记下。
+
+36. **RTF 的表：数得出行与格子，数不出「几张表」**（`notes.rtf` 一张 2×2，
+    `tables.rtf` 两张 3×2 与 2×2）。这条流里表的证据是四个控制字的条数：
+    `\trowd`（一行一条行定义）、`\row`（一行一条行结束）、`\cell`（一格一个）、
+    `\intbl`（一格一个表内段落），嵌套表另走 `\nestrow` / `\nestcell`。
+    实测：`notes.rtf` 给 2/2/4/4，`tables.rtf` 给 5/5/10/10 —— 与**同一份文档**的
+    docx 与 odt 两副账里的 `table_rows` / `table_cells` 一字不差。
+    所以 `office-doc` 的 RTF 分支把行数与格子数交出来，并把两个原始条数
+    （`table_row_defines`、`table_cell_paras`）一起交，嵌套的两个另给、不混进主账。
+    **但 `tables` 仍是 null**：试过一条看起来很像的规则 ——
+    「连续的 `\trowd` 算一张表，遇到一个不带 `\intbl` 的段落就结束这一张」——
+    它在单表件上给出 1（对），在两张表件上给出 1（错，应是 2）。
+    一条会在真件上静默数错的推断，不如一个 null：null 说的是「这一判断不住」，
+    报 1 说的是一份主张，而它是假的。要补上这一问，得先有一个能区分两张件的判据。
 
 ## 这些数字从哪来
 

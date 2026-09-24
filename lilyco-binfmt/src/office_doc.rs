@@ -21,7 +21,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-doc",
     run = "run_office_doc",
-    about = "Report the structure of a Word document: paragraph count (empty ones counted separately, because Word's own statistics do), headings with their level and text, every style used and how often, tables with rows and cells, inline shapes and pictures, hyperlinks split into internal and external with their targets, sections, explicit page/column breaks, footnotes and endnotes and comments (read from their own parts when present), tracked-change presence (w:ins / w:del counts) plus a revision ledger (revisions): one entry per logical change with its kind, author, date, the paragraph index it sits in and the words it carries - elements are merged only when adjacent with the same kind/author/date/paragraph, because a producer writes one edit as several runs (LibreOffice splits the number from the unit into two w:ins), while the ODF export of the very same file states them as one changed-region, which is what this merge rule was measured against. Paragraph-mark insertions (w:pPr/w:rPr/w:ins) are counted apart from the paragraph's text and are not merged with it; ODF keeps deleted words inside the region and inserted words between text:change-start and text:change-end in the body, and both are read. Legacy .doc reports revisions as null rather than guess (the redline tables live in the table stream, not the piece table). protection (docx: w:documentProtection in word/settings.xml - w:edit says what kind of editing is restricted and w:enforcement says whether it is on; odt: the ProtectForm/ProtectBookmarks/ProtectFields config-items in settings.xml, which is a different place and does NOT carry the docx restriction across - the same document converted to .odt reports false for all three, measured); numbering usage, headers and footers, embedded objects and custom XML, plus which optional parts the package actually carries. statistics answers 'how many words/pages': ours (characters, characters_no_spaces and words_by_space - the last split on whitespace only, which is why it is named that way and not 'words') next to the producer's own numbers (docx docProps/app.xml, ODF meta.xml document-statistic) because the two disagree by design - python-docx writes app.xml with Words/Characters at 0 (it never counted), and LibreOffice counts Chinese words rather than whitespace runs, while on the same text our character counts match its character-count exactly. For legacy .doc it falls back to what the piece table can honestly tell: paragraph count from the CP total plus the marker characters it dropped (cell ends, field boundaries), not a claim about tables it cannot see. For .odt it reports the same account from content.xml's office:text (headings from text:outline-level, comments from text:annotation, pictures from draw:image, footnotes and endnotes split out of the single text:note element by its note:class) and additionally echoes meta.xml's own document-statistic so the producer's numbers are visible next to ours. `contents` answers 'is there a table of contents and how many levels does it pull in', reported per family because the two spellings share nothing: OOXML wraps a w:sdt whose docPartGallery reads Table of Contents (Word and LibreOffice both write it) and keeps the levels INSIDE the field instruction text - a form like TOC \\o \"1-2\" \\h, with the producer's own quoting - while the wrapper can also be absent and only the field present, so both are looked for; ODF keeps a text:table-of-content block whose name is on text:name and whose level is the source element's outline-level attribute, and LibreOffice additionally writes all ten entry templates whether or not they are used (entry_templates reports what is written, not what is used). A file without one reports present false - false, not missing; legacy .doc reports null because this reader does not look there. RTF is not a package but one stream, so that branch answers with only what the stream itself proves: structure.paragraphs is the lines the par control word cuts, footnotes and endnotes are counted apart from their destination groups (an endnote is a footnote group that additionally carries ftnalt), and pictures / embedded_objects / skipped_destinations / note_destinations / page_destinations come from the same walk, while styles, tables, sections, contents, comments, revisions and protection stay null - null means 'this reader did not look', 0 would mean 'there are none'. Returns { path, format, kind, structure, styles, tables, images, hyperlinks, contents, revisions, protection, statistics, parts, notes }. Read-only (safety T0)."
+    about = "Report the structure of a Word document: paragraph count (empty ones counted separately, because Word's own statistics do), headings with their level and text, every style used and how often, tables with rows and cells, inline shapes and pictures, hyperlinks split into internal and external with their targets, sections, explicit page/column breaks, footnotes and endnotes and comments (read from their own parts when present), tracked-change presence (w:ins / w:del counts) plus a revision ledger (revisions): one entry per logical change with its kind, author, date, the paragraph index it sits in and the words it carries - elements are merged only when adjacent with the same kind/author/date/paragraph, because a producer writes one edit as several runs (LibreOffice splits the number from the unit into two w:ins), while the ODF export of the very same file states them as one changed-region, which is what this merge rule was measured against. Paragraph-mark insertions (w:pPr/w:rPr/w:ins) are counted apart from the paragraph's text and are not merged with it; ODF keeps deleted words inside the region and inserted words between text:change-start and text:change-end in the body, and both are read. Legacy .doc reports revisions as null rather than guess (the redline tables live in the table stream, not the piece table). protection (docx: w:documentProtection in word/settings.xml - w:edit says what kind of editing is restricted and w:enforcement says whether it is on; odt: the ProtectForm/ProtectBookmarks/ProtectFields config-items in settings.xml, which is a different place and does NOT carry the docx restriction across - the same document converted to .odt reports false for all three, measured); numbering usage, headers and footers, embedded objects and custom XML, plus which optional parts the package actually carries. statistics answers 'how many words/pages': ours (characters, characters_no_spaces and words_by_space - the last split on whitespace only, which is why it is named that way and not 'words') next to the producer's own numbers (docx docProps/app.xml, ODF meta.xml document-statistic) because the two disagree by design - python-docx writes app.xml with Words/Characters at 0 (it never counted), and LibreOffice counts Chinese words rather than whitespace runs, while on the same text our character counts match its character-count exactly. For legacy .doc it falls back to what the piece table can honestly tell: paragraph count from the CP total plus the marker characters it dropped (cell ends, field boundaries), not a claim about tables it cannot see. For .odt it reports the same account from content.xml's office:text (headings from text:outline-level, comments from text:annotation, pictures from draw:image, footnotes and endnotes split out of the single text:note element by its note:class) and additionally echoes meta.xml's own document-statistic so the producer's numbers are visible next to ours. `contents` answers 'is there a table of contents and how many levels does it pull in', reported per family because the two spellings share nothing: OOXML wraps a w:sdt whose docPartGallery reads Table of Contents (Word and LibreOffice both write it) and keeps the levels INSIDE the field instruction text - a form like TOC \\o \"1-2\" \\h, with the producer's own quoting - while the wrapper can also be absent and only the field present, so both are looked for; ODF keeps a text:table-of-content block whose name is on text:name and whose level is the source element's outline-level attribute, and LibreOffice additionally writes all ten entry templates whether or not they are used (entry_templates reports what is written, not what is used). A file without one reports present false - false, not missing; legacy .doc reports null because this reader does not look there. RTF is not a package but one stream, so that branch answers with only what the stream itself proves: structure.paragraphs is the lines the par control word cuts, footnotes and endnotes are counted apart from their destination groups (an endnote is a footnote group that additionally carries ftnalt), and pictures / embedded_objects / skipped_destinations / note_destinations / page_destinations come from the same walk, while styles, sections, contents, comments, revisions and protection stay null - null means 'this reader did not look', 0 would mean 'there are none'. Tables are the interesting middle case there: table_rows and table_cells ARE reported (they are simply how many times the row and cell control words appear, and on two measured files those counts match the same document's docx and odt ledgers exactly), while tables itself stays null because the rule for grouping rows into separate tables was tried against one single-table file and one two-table file and counted two as one. Returns { path, format, kind, structure, styles, tables, images, hyperlinks, contents, revisions, protection, statistics, parts, notes }. Read-only (safety T0)."
 )]
 pub struct OfficeDoc {
     /// Word 文档（docx / docm / doc / odt / rtf）
@@ -536,8 +536,11 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
         let mut notes = one.notes.clone();
         notes.push(
             "RTF 这一支只报流里数得清的东西：段落按 par 控制字切，注按目标群分\
-             （尾注靠群里的 ftnalt 判）；样式名、表格线、批注与目录都不判，\
-             所以那些项是 null —— null 是「没看」，不是「没有」"
+             （尾注靠群里的 ftnalt 判），表给行数与格子数 —— 那两个数就是 row 与 cell \
+             这两个控制字的条数（嵌套表的 nestrow / nestcell 另给，不混进去）。\
+             「几张表」要判行与行之间的段落边界，这条规则拿一张表与两张表的对照件试过：\
+             单表对、两张数成一张，所以 tables 留 null。样式名、批注与目录也不判，\
+             那些项同样是 null —— null 是「没看」或「判不住」，不是「这份文件没有」"
                 .to_string(),
         );
         json!({
@@ -547,9 +550,14 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             "structure": {
                 "paragraphs": one.lines.len(),
                 "empty_paragraphs": Value::Null,
+                // 「几张表」判不住（见上面那条说明）；行数与格子数是控制字的条数
                 "tables": Value::Null,
-                "table_rows": Value::Null,
-                "table_cells": Value::Null,
+                "table_rows": one.table_rows,
+                "table_cells": one.table_cells,
+                "table_row_defines": one.table_row_defines,
+                "table_cell_paras": one.table_cell_paras,
+                "nested_table_rows": one.nested_table_rows,
+                "nested_table_cells": one.nested_table_cells,
                 "sections": Value::Null,
                 "breaks": Value::Null,
                 "page_breaks": Value::Null,
@@ -927,16 +935,56 @@ mod tests {
             json!({"characters": 116, "characters_no_spaces": 100, "words_by_space": 20}),
             "{out}"
         );
-        // 另一份带一张图的：注是零条，图数得出来
+        // 另一份带一张图的：注是零条，图数得出来，表的行与格子也数得出来
         let pic = run("notes.rtf");
         assert_eq!(pic["structure"]["pictures"], 1, "{pic}");
         assert_eq!(pic["structure"]["paragraphs"], 7, "{pic}");
         assert_eq!(pic["footnotes"], 0);
         assert_eq!(pic["endnotes"], 0);
-        // 页眉页脚那份：口袋数也要交，注仍是零
+        assert_eq!(pic["structure"]["table_rows"], 2, "{pic}");
+        assert_eq!(pic["structure"]["table_cells"], 4, "{pic}");
+        assert_eq!(pic["structure"]["table_row_defines"], 2, "{pic}");
+        assert_eq!(pic["structure"]["table_cell_paras"], 4, "{pic}");
+        // 页眉页脚那份：口袋数也要交，注仍是零，表也仍是零
         let hf = run("notes-hf.rtf");
         assert_eq!(hf["structure"]["page_destinations"], 6, "{hf}");
         assert_eq!(hf["structure"]["paragraphs"], 3, "{hf}");
+        assert_eq!(hf["structure"]["table_rows"], 0, "{hf}");
+        assert_eq!(hf["structure"]["table_cells"], 0, "{hf}");
+    }
+
+    /// RTF 的表：行数与格子数是控制字的条数（同一份文档的 docx 与 odt 两副账给一样的数），
+    /// 「几张表」却判不住 —— 那条把连续的 row 定义算成一张表的规则，在一份单表件上对、
+    /// 在一份两张表（3×2 与 2×2）的件上把两张数成一张，所以 tables 交回 null 并写明理由。
+    /// 期望值来自 `lyco_rtf.py` 的 rtf_text 与 `office_reader.py` 的 docx_facts / odt_facts
+    #[test]
+    fn rtf_counts_table_rows_and_cells_but_not_tables() {
+        let out = run("tables.rtf");
+        assert_eq!(out["kind"], "rtf", "{out}");
+        assert_eq!(out["structure"]["paragraphs"], 10, "{out}");
+        assert_eq!(out["structure"]["table_rows"], 5, "五个 row 结束符：{out}");
+        assert_eq!(out["structure"]["table_cells"], 10, "十个 cell：{out}");
+        assert_eq!(
+            out["structure"]["table_row_defines"], 5,
+            "五个 trowd：{out}"
+        );
+        assert_eq!(
+            out["structure"]["table_cell_paras"], 10,
+            "十个 intbl：{out}"
+        );
+        assert_eq!(out["structure"]["nested_table_rows"], 0, "{out}");
+        assert_eq!(out["structure"]["nested_table_cells"], 0, "{out}");
+        assert!(
+            out["structure"]["tables"].is_null(),
+            "几张表判不住，就留 null：{out}"
+        );
+        // 同一批字的另两副账：那一份是敢报表数的
+        for name in ["tables.docx", "tables.odt"] {
+            let other = run(name);
+            assert_eq!(other["structure"]["tables"], 2, "{name}：{other}");
+            assert_eq!(other["structure"]["table_rows"], 5, "{name}");
+            assert_eq!(other["structure"]["table_cells"], 10, "{name}");
+        }
     }
 
     /// 结构数字要与独立读者算出来的逐项一致（期望值：office_reader.py 的 docx_facts）

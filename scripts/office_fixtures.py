@@ -243,6 +243,30 @@ def write_header_docx(path: Path) -> None:
     doc.save(str(path))
 
 
+def write_tables_docx(path: Path) -> None:
+    """两张表的 docx：3×2 与 2×2，中间夹一段正文，首尾各一个标题
+
+    这份样本存在的理由：RTF 那条流里「几张表」判不住。`\row` 与 `\cell` 的条数在两份件上
+    都与 docx 那副账一字不差（2 行 4 格、5 行 10 格），可「连续的 \trowd 算一张表」这条
+    规则在单表上对、在两表上把两张数成一张 —— 所以要能同时摆一张与两张，
+    才知道哪一半敢报、哪一半只能留 null。
+    """
+    from docx import Document
+
+    doc = Document()
+    doc.add_heading("两张表的样本", level=1)
+    doc.add_paragraph("中间一段普通话")
+    for rows, cols in ((3, 2), (2, 2)):
+        table = doc.add_table(rows=rows, cols=cols)
+        for row in range(rows):
+            for column in range(cols):
+                table.cell(row, column).text = "R%dC%d" % (row, column)
+        doc.add_paragraph("两张表之间的一段")
+    doc.add_heading("二级标题", level=2)
+    doc.core_properties.title = "两张表的样本"
+    doc.save(str(path))
+
+
 def write_revisions_docx(path: Path) -> None:
     """带修订的一份 docx：插入、删除、改格式、整段新加（含段落标记）各一处
 
@@ -1009,6 +1033,11 @@ def main() -> int:
     headers = OUT / "notes-hf.docx"
     write_header_docx(headers)
 
+    # 表这一份要两张：同一批行与格子在 RTF 那条流里数得出（\row 与 \cell 的条数），
+    # 数不出一张还是两张 —— 两份件的对照就是这条结论的出处，见 write_tables_docx
+    twotables = OUT / "tables.docx"
+    write_tables_docx(twotables)
+
     # 修订这一份账：python-docx 注入四种改动，再让 LibreOffice 转一次。两份都留：
     # LibreOffice 会把一次编辑拆成几个 run（数字与单位各一条），又会丢掉段落标记那一条，
     # 而它自己导出的 ODF 把一次编辑写回一个 changed-region —— 这条对照是合并规则的唯一出处
@@ -1125,6 +1154,7 @@ def main() -> int:
         (OUT / "formats.xlsx", "ods"),
         (OUT / "cell-notes.xlsx", "ods"),
         (OUT / "toc.docx", "odt"),
+        (twotables, "odt"),
     ):
         convert(exe, src, fmt, SCRATCH)
     for name in (
@@ -1134,6 +1164,7 @@ def main() -> int:
         "formats.ods",
         "cell-notes.ods",
         "toc.odt",
+        "tables.odt",
     ):
         src = SCRATCH / name
         if src.exists():
@@ -1176,6 +1207,7 @@ def main() -> int:
         # 脚注与尾注的 RTF 存法：两条都是 `{\*\footnote …}` 群，尾注只多一个 `\ftnalt`；
         # 分隔符另走 `{\*\ftnsep …}` —— 与 OOXML 那两条分隔符是同一件事的第三种写法
         (OUT / "notes-end.docx", "rtf"),
+        (twotables, "rtf"),
     ):
         convert(exe, src, fmt, SCRATCH)
     for name in (
@@ -1190,6 +1222,7 @@ def main() -> int:
         "notes.rtf",
         "notes-hf.rtf",
         "notes-end.rtf",
+        "tables.rtf",
         "notes-hf.odt",
     ):
         src = SCRATCH / name

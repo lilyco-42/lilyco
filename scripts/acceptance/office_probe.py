@@ -98,6 +98,9 @@ def main() -> int:
         "notes-end.docx": ("ooxml", "word", "docx"),
         "toc.docx": ("ooxml", "word", "docx"),
         "toc.odt": ("opendocument", "word", "odt"),
+        "tables.docx": ("ooxml", "word", "docx"),
+        "tables.odt": ("opendocument", "word", "odt"),
+        "tables.rtf": ("rtf", "word", "rtf"),
         "notes-end.odt": ("opendocument", "word", "odt"),
         "notes-hf.odt": ("opendocument", "word", "odt"),
         "notes-hf.rtf": ("rtf", "word", "rtf"),
@@ -265,6 +268,77 @@ def main() -> int:
             ],
             [True, True, True],
         )
+        # 表那一份：行数与格子数是控制字的条数，两个读者各数一遍
+        check(
+            "%s 表的四个计数（row / cell / trowd / intbl）" % name,
+            [
+                dig(got, "structure.table_rows"),
+                dig(got, "structure.table_cells"),
+                dig(got, "structure.table_row_defines"),
+                dig(got, "structure.table_cell_paras"),
+                dig(got, "structure.nested_table_rows"),
+                dig(got, "structure.nested_table_cells"),
+            ],
+            [
+                rwant["table_rows"],
+                rwant["table_cells"],
+                rwant["table_row_defines"],
+                rwant["table_cell_paras"],
+                rwant["nested_table_rows"],
+                rwant["nested_table_cells"],
+            ],
+        )
+
+    # 两张表那份（3×2 与 2×2）：同一批字的三副账要在行与格子上对得上，
+    # 而「几张表」只有包着的两家敢报 —— RTF 那条流里判不住（规则在两份件上试过）
+    print("=== 2c2) 表：三副账同样、tables 只两家报 ===")
+    trtf = lbin("office-doc", fixture("tables.rtf"))
+    tdocx = lbin("office-doc", fixture("tables.docx"))
+    todt = lbin("office-doc", fixture("tables.odt"))
+    check(
+        "tables 三副账的行数与格子数",
+        [
+            [dig(trtf, "structure.table_rows"), dig(trtf, "structure.table_cells")],
+            [
+                dig(tdocx, "structure.table_rows"),
+                dig(tdocx, "structure.table_cells"),
+            ],
+            [
+                dig(todt, "structure.table_rows"),
+                dig(todt, "structure.table_cells"),
+            ],
+        ],
+        [[5, 10], [5, 10], [5, 10]],
+    )
+    check(
+        "tables 那两张表：docx 与 odt 报 2，rtf 留 null",
+        [
+            trtf.get("structure", {}).get("tables") is None,
+            tdocx.get("structure", {}).get("tables"),
+            todt.get("structure", {}).get("tables"),
+        ],
+        [True, 2, 2],
+    )
+    check(
+        "tables.rtf 的表账与读者一致",
+        [
+            dig(trtf, "structure.table_rows"),
+            dig(trtf, "structure.table_cells"),
+            dig(trtf, "structure.table_row_defines"),
+            dig(trtf, "structure.table_cell_paras"),
+            dig(trtf, "structure.paragraphs"),
+        ],
+        [
+            files["tables.rtf"]["rtf"][k]
+            for k in (
+                "table_rows",
+                "table_cells",
+                "table_row_defines",
+                "table_cell_paras",
+                "line_count",
+            )
+        ],
+    )
 
     # 尾注那一条分支第一次有真件：notes-end.docx 的 word/endnotes.xml 是 LibreOffice 的
     # docx 导出器写的（它把两条分隔符写成 <w:separator/> 那一族），
