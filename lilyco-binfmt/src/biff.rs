@@ -719,6 +719,7 @@ mod tests {
             text: None,
             number: None,
             sheet: None,
+            ixfe: None,
         };
         assert_eq!(at(0, 0).reference(), "A1");
         assert_eq!(at(3, 1).reference(), "B4");
