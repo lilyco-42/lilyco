@@ -12,6 +12,7 @@
 | 自己的项目里写命令，CLI/TUI/Web/MCP 四端白拿 | [B](#路径-b在自己的-crate-里写命令推荐) | `lilyco` 一个包 |
 | 只想要参数 schema + 执行宿主，界面自己管 | [C](#路径-c不引-facade只要-core--宏) | `lilyco-core` + `lilyco-macros` |
 | 多命令一行启动的现成样板 | 看 `lilyco-binfmt/src/main.rs`（`lbin`，4 条全 T0） | —— |
+| 从零造一个新域应用（脚手架起步） | 元 CLI `lilyco new <name>`（`lilyco-dev`） | 仓库内：`cargo run -p lilyco-dev -- new <name>` |
 
 ## 路径 A：用现成的域二进制（零 Rust 依赖）
 

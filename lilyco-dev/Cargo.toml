@@ -1,0 +1,23 @@
+[package]
+name = "lilyco-dev"
+version.workspace = true
+edition = "2021"
+description = "lilyco meta CLI — new / build / run / doc: the cargo-style developer loop for four-surface (CLI / TUI / Web / MCP) apps"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+keywords = ["cli", "mcp", "scaffold", "code-generator", "developer-tools"]
+categories = ["command-line-interface", "development-tools"]
+
+[[bin]]
+name = "lilyco"
+path = "src/main.rs"
+
+[dependencies]
+# 元 CLI 本身就是框架消费者（dogfooding）：四个子命令全是 #[derive(App)]，
+# 经 facade 走 Registry 四端 —— 这是对「30 行最小应用」的持续验收。
+# headless（default = []）即可：元 CLI 只需要 CLI / MCP 面。
+lilyco = { version = "0.3", path = "../lilyco", default-features = false }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

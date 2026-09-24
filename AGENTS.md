@@ -28,6 +28,8 @@ workspace 依赖图、全部关键符号（带 `文件:行号`）、四端调用
 cargo test --workspace
 cargo run -p lilyco-example --example multi -- ping --name 世界   # 多命令冒烟
 cargo bench -p lilyco-example                     # schema 性能基准
+cargo run -p lilyco-dev -- new <name>             # 元 CLI：脚手架新域 crate（内嵌模板）
+cargo run -p lilyco-dev -- doc [--bin <bin>]      # 元 CLI：生成能力表 CAPABILITIES.md + capabilities.json
 ```
 
 ## 约定

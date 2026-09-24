@@ -6,6 +6,10 @@
 >
 > 配套必读：[AGENTS.md](../AGENTS.md)（硬性规则）、[CODEGRAPH.md](CODEGRAPH.md)（代码图谱）。
 > 本文只讲「怎么做」；「为什么」看 AGENTS.md 每条规则的注释。
+>
+> **最快路径**：在 lilyco 仓库内跑 `cargo run -p lilyco-dev -- new <name>`，
+> 直接从内嵌模板（`scripts/domain-template/`）生成 §2 那套多命令骨架
+> （crate `lilyco-<name>`、二进制 `l<name>`、含四端契约测试）—— 本文解释生成的每一行。
 
 ## 0. 心法：什么是「给 AI 用的软件」
 

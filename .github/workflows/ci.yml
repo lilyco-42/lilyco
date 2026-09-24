@@ -62,10 +62,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy (apps, all targets)
-        run: cargo clippy -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt --all-targets
+        run: cargo clippy -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt -p lilyco-dev --all-targets
 
       - name: Run tests (apps)
-        run: cargo test -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt
+        run: cargo test -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt -p lilyco-dev
 
       # 办公文件这一摊的证据制度：同一批字节，两套独立实现必须给出同样的答案。
       # 编译只在这里发生（本机不跑 cargo build），fixture 是提交进来的真实生产者文件，

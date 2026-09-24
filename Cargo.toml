@@ -21,6 +21,7 @@ members = [
     "lilyco-letsgal",
     "lilyco-pet",
     "lilyco-bitnet",
+    "lilyco-dev",
     "lilyco",
 ]
 resolver = "2"
