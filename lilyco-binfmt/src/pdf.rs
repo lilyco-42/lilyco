@@ -929,8 +929,8 @@ fn scan_objects(data: &[u8], out: &mut BTreeMap<u64, Object>, duplicates: &mut u
             continue;
         }
         let word_at = skip_spaces(data, j);
-        let obj_here =
-            data[word_at..].starts_with(b"obj") && !data.get(word_at + 3).is_some_and(is_name_char);
+        let obj_here = data[word_at..].starts_with(b"obj")
+            && !data.get(word_at + 3).is_some_and(|one| is_name_char(*one));
         if !obj_here {
             at = i + 1;
             continue;
