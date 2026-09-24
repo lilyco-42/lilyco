@@ -85,6 +85,18 @@ pub fn twips(raw: &str) -> Option<i64> {
     convert(digits, scale, TWIPS)
 }
 
+/// 一个 EMU 是多少个 0.01mm：1/914400 英寸 = 2540/914400，约分之后是 127/45720。
+/// OOXML 的画幅与表格尺寸都用这个整数单位（`a:gridCol/@w`、`a:tr/@h`、`a:xfrm` 的 cx/cy）。
+/// 这条换算不是照着规范抄的分数算出来的就算数：同一张表被 LibreOffice 转成 .odp 之后
+/// 列宽写成 `7.62cm` 与 `5.08cm`（`deck-tables.odp`），三个数换算到 0.01mm 一模一样
+const EMU: (i64, i64) = (127, 45720);
+
+/// EMU（OOXML 那一族）换成 0.01mm
+pub fn emu(raw: &str) -> Option<i64> {
+    let (digits, scale) = decimal(raw)?;
+    convert(digits, scale, EMU)
+}
+
 /// ODF 那种自带单位的长度串换成 0.01mm。单位不认识就 None（不猜它是厘米）
 pub fn length(raw: &str) -> Option<i64> {
     let raw = raw.trim();

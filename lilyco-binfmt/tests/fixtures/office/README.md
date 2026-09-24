@@ -14,6 +14,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `formats.xlsx` | openpyxl 3.1（`write_formats_xlsx`） | 日期格的 `s=` 指向 `cellXfs` 的**下标**而不是格式号；日期/百分比/货币被写成自定义号 164-168（内置表查不到）；`C5` 的格式串带引号汉字字面量；**`C7` 是长得像日期的文本** |
 | `deck.pptx` | python-pptx | 两页：标题 + 正文 + 备注 + 图片；第二页一张 2×2 表；4:3 尺寸 |
 | `deck-lo.pptx` | LibreOffice（`deck.pptx` → .odp → .pptx） | 同一份稿子的第二个生产者：母版从 1 份变 11 份、版式从 11 变 9、`p:sldSz` 上那个 `type` 属性**整个省掉**（尺寸两个数一字不差），备注里多出一个页码占位（字面量 `<编号>`），而第一页那句「新增两台 64 核应用服务器」被切成三个 `a:t` —— 段落数仍然是 3 |
+| `deck-tables.pptx` | python-pptx | 一页一张 3×3 的表，**一次只改一个变量**：横合（第一行前两格）、竖合（第三列后两行）、只给第二行设行高 `914400`、只给第一列设列宽 `2743200`、只给 `B2` 那格设垂直对齐与左右边距、只给一格设填充色、还有一格写两段 |
+| `deck-tables-lo.pptx` | LibreOffice（`deck-tables.pptx` → .odp → .pptx） | 同一张表的第二种写法：`tblPr` 变成**空的**（`firstRow` / `bandRow` 与那条 `tableStyleId` 全没了），没说过话的两行行高从 `609600` 变成 `609480`，每格的 `a:tcPr` 反倒补满四道边、一个填充与五个边距 —— 而合并那四个字（`gridSpan` / `hMerge` / `rowSpan` / `vMerge`）与列宽一字未变 |
+| `deck-tables.odp` | LibreOffice（上面那一转的中间件） | 同一张表的第三种写法：列宽换成 `7.62cm` 与 `5.08cm`、行高换成 `1.693cm` 与 `2.54cm`，而合并改成**另写一格** `table:covered-table-cell`（既不是 docx 的不写、也不是 pptx 的 `hMerge`） |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
@@ -898,6 +901,30 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     * 换算用与「那张纸」同一条整数式子：`1.672cm` / `0.529cm` / `2.545cm` 落在
       `1672` / `529` / `2545`（0.01mm），两家读者逐位一样。
 
+60. **一张表在演示稿里有三种写法，而「几个格」与「跨度之和」不是一个数**（`deck-tables.pptx`、`-lo.pptx`、`.odp`）。
+    * **`a:tblPr` 的「在而没说」**：python-pptx 写 `firstRow="1" bandRow="1"` 并且里面带一条
+      `<a:tableStyleId>{5C22544A-…}</a:tableStyleId>`；LibreOffice 重写同一张表写成
+      **空的** `<a:tblPr></a:tblPr>` —— 一个属性都没有、也没有样式 id。所以「元素在不在」与
+      「说了什么」分两个键（与 docx 那面空的 `<w:tcBorders>` 同一条道理）。
+    * **合并是第三种存法**：起点那格写 `gridSpan="2"` / `rowSpan="2"`，而被合掉的那一格
+      **照样在场**，只多一个 `hMerge="1"` / `vMerge="1"`，字是空的、一个 `a:r` 也没有。
+      docx 是「不写被合掉的那格」、ODF 是「另写一格 `table:covered-table-cell`」，三家三样。
+    * 于是**一行的三个数**：第一行 3 个格、跨度之和 **4**、网格只有 3 列 —— 整张表 9 个格、
+      跨度之和 10。谁也不替谁圆场，三个都交（`cell_elements` / `span_sum` / `column_elements`）。
+    * **重写换了写法没换换算**：没说过话的那两行一家写 `h="609600"`、另一家写 `609480`，
+      而换到 0.01mm 两边都是 `1693`；说过话的那一行两家都是 `914400` → `2540`。
+      列宽两家一字不差：`2743200` + `1828800` + `1828800` = `6400800` → `17780`。
+    * **EMU 那条换算是第三方对过的**：同一张表 LibreOffice 转成 odp 之后列宽写 `7.62cm`、
+      `5.08cm`，行高写 `1.693cm`、`2.54cm` —— 换算到 0.01mm 是 `7620 / 5080 / 5080` 与
+      `1693 / 2540 / 1693`，与两副 pptx 完全一样。`127/45720` 那个分数不是自己凑的。
+    * **格子的边距有两处**：`a:tcPr` 的 `marL/marR/marT/marB` 与 `a:bodyPr` 的
+      `lIns/tIns/rIns/bIns`。python-pptx 两处都不写（`<a:tcPr/>` 是空的），LibreOffice 每格补满
+      `tcPr`（外加 `lnL/lnR/lnT/lnB` 与一个 `solidFill`），而**只有个别格**把同一份边距又抄进
+      `bodyPr` —— 实测：被合掉的那两格抄了（还是 90000 / 45000 这一组，别的格是 91440 / 45720），
+      我手工设过 `marR` 的那格也抄了一个 `rIns`。两个键分开放，不替它们合并成「一个边距」。
+    * 一格两段的字用换行拼（`网络\n设备`），段数与 run 数各交一个键；`a:tab` / `a:br` 在两副
+      读者里都还原成制表与换行（只拼 `a:t` 会把它们读没了）。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
@@ -905,6 +932,15 @@ Rust 测试里每个期望值都来自第二读者对这些文件的独立读取
 `lyco_rtf.py`（RTF）、`lyco_legacy.py`（`.doc` piece 表、`.xls` BIFF8、`.ppt` 记录树）、
 `lyco_formats.py`（`.xlsx` 的数字格式与日期换算），以及 `office_reader.py` 里的
 `ods_facts()`（`.ods` 的重复计数、覆盖格与自动样式可见性）。
+`.ods` 的列宽与行高也在 `ods_facts()` 里（`layout` 那一份）：一跳的样式表、`repeated` 的累加、
+两条 visibility 来路与那四个表级的数，全部照 Rust 那边一条一条写，两边交回的
+`layout` 整份相等（含 `listed` / `shown` 这两个「看见多少」）。
+页上那张表是 `office_reader.py` 的 `slide_tables_of()`：`tblPr` 在不在、网格与行高按写的交
+再换一次算、每格的 `tcPr` 属性与孩子名、`bodyPr` 那份第二处边距、段数与 run 数；
+段里的字用 `ooxml_para_text()` 按文档顺序拼 `.text` 与孩子的 `.tail`（把 `a:tab` / `a:br`
+还原成制表与换行），与 Rust 的 `run_text` 走的是同一条路。同一张表的第三副账在
+`lyco_grid.py`：`odp_table_sizes()` 从 odp 的列样式里读 cm 再换成 0.01mm，`grids_of()` 现在也认
+`.odp`（那一族的合并是另写一格 `covered-table-cell`）。
 每张表的打印设置是同一份文件里的 `xlsx_print_setup()`：三个元素各自取第一个（与 Rust 那边
 `descendants(name).first()` 同一条规则），属性名去掉前缀原样交，缺的元素留 null。
 规则那一份是同一份文件里的 `sheet_rules()` 与 `dxf_table()`：与 Rust 一样先看 `cfRule` 的

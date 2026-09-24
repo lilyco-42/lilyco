@@ -21,6 +21,7 @@ MARGIN_KEYS = ("top", "right", "bottom", "left", "header", "footer", "gutter")
 # 每一「书写单位」等于多少个 0.01mm，用分数表示免得浮点
 SCALE = {
     "twips": (254, 144),  # 1/1440 英寸
+    "emu": (127, 45720),  # 1/914400 英寸 = 2540/914400，约分之后（OOXML 的画幅与表尺寸）
     "cm": (1000, 1),
     "mm": (100, 1),
     "in": (2540, 1),
@@ -55,8 +56,8 @@ def convert(raw, unit_hint):
     """交回（换算值, 文件写的那一串）。没写就是 (None, None)。"""
     if raw is None:
         return None, None
-    if unit_hint == "twips":
-        return to_0p01mm(raw, "twips"), raw
+    if unit_hint in ("twips", "emu"):
+        return to_0p01mm(raw, unit_hint), raw
     digits, unit = split_length(raw)
     return to_0p01mm(digits, unit), raw
 

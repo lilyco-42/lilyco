@@ -174,6 +174,10 @@ def main() -> int:
         "cell-notes.ods": ("opendocument", "excel", "ods"),
         "cell-notes-many.xlsx": ("ooxml", "excel", "xlsx"),
         "cell-notes-many.xls": ("compound", "excel", "xls"),
+        # 页上那张表那三件：一张表的三种写法（python-pptx、LibreOffice 的 pptx、LibreOffice 的 odp）
+        "deck-tables.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-tables-lo.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-tables.odp": ("opendocument", "powerpoint", "odp"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -1582,6 +1586,130 @@ def main() -> int:
         "同一批字的 RTF 与 docx 两份注账",
         sorted(one.get("text") for one in footdoc2.get("paragraphs", []) if one.get("from")),
         sorted(one["text"] for one in rwant2["notes"]),
+    )
+
+    # ── 2k) 页上那张表：一张表的三种写法（pptx 两家 + odp 那一转） ────────────
+    print("=== 2k) office-slide 的表：网格、行高、tcPr 与合并的三本账 ===")
+    for name in ("deck.pptx", "deck-lo.pptx", "deck-tables.pptx", "deck-tables-lo.pptx"):
+        want = files[name]["ooxml"]
+        got = lbin("office-slide", fixture(name))
+        check(
+            "%s 每页那张表的整份账与读者一致" % name,
+            [one.get("table_list") for one in got.get("slides", [])],
+            [one.get("table_list") for one in want["slides"]],
+        )
+    first = lbin("office-slide", fixture("deck-tables.pptx"))
+    second = lbin("office-slide", fixture("deck-tables-lo.pptx"))
+    T = "slides[0].table_list[0]"
+    check(
+        "同一张表：一家把三个开关写在 tblPr 上并点名一条 tableStyleId，另一家这个元素在场但一个字没说",
+        [dig(first, T + ".pr_present"), dig(first, T + ".written"), dig(first, T + ".style_present"),
+         dig(first, T + ".style_id"),
+         dig(second, T + ".pr_present"), dig(second, T + ".written"), dig(second, T + ".style_present"),
+         dig(second, T + ".style_id")],
+        [True, {"firstRow": "1", "bandRow": "1"}, True,
+         "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}",
+         True, {}, False, None],
+    )
+    check(
+        "列宽两家一字不差（EMU 与换算出来的 0.01mm 都是同一批数）",
+        [dig(first, T + ".column_elements"), dig(first, T + ".grid_sum"), dig(first, T + ".grid_sum_mm"),
+         [dig(first, T + ".grid[%d].mm" % i) for i in range(3)],
+         dig(second, T + ".grid_sum"), dig(second, T + ".grid_sum_mm")],
+        [3, 6400800, 17780, [7620, 5080, 5080], 6400800, 17780],
+    )
+    check(
+        "重写不是无损的：没说过话的那一行一家写 609600、另一家写 609480，而换算都是 1693",
+        [dig(first, T + ".rows[0].written.h"), dig(second, T + ".rows[0].written.h"),
+         dig(first, T + ".rows[0].h"), dig(second, T + ".rows[0].h"),
+         dig(first, T + ".rows[0].mm"), dig(second, T + ".rows[0].mm"),
+         dig(first, T + ".rows[1].h"), dig(second, T + ".rows[1].h"), dig(second, T + ".rows[1].mm")],
+        ["609600", "609480", 609600, 609480, 1693, 1693, 914400, 914400, 2540],
+    )
+    check(
+        "几个格、跨度之和、网格几列是三本账：9 个格、跨度之和 10、三列",
+        [dig(first, T + ".cell_elements"), dig(first, T + ".span_sum"), dig(first, T + ".column_elements"),
+         dig(first, T + ".rows[0].cells"), dig(first, T + ".rows[0].span_sum"),
+         dig(second, T + ".cell_elements"), dig(second, T + ".span_sum")],
+        [9, 10, 3, 3, 4, 9, 10],
+    )
+    check(
+        "被合掉的那一格照样在场：字是空的、一个 run 也没有，两家倒是一样",
+        [dig(first, T + ".merged_from"), dig(second, T + ".merged_from"),
+         dig(first, T + ".spanning"), dig(second, T + ".spanning"),
+         [dig(first, "%s.rows[0].list[%d].%s" % (T, i, k))
+          for i in range(3) for k in ("merge_from", "text", "runs")],
+         dig(second, "slides[0].table_list[0].rows[0].list[1].merge_from"),
+         dig(second, "slides[0].table_list[0].rows[0].list[1].text")],
+        [2, 2, 2, 2, [False, "科目\n金额", 2, True, "", 0, False, "备注", 1], True, ""],
+    )
+    check(
+        "起点的跨度照写的交：横向两列、纵向两行，没写的按 1",
+        [dig(first, T + ".rows[0].list[0].written"), dig(first, T + ".rows[0].list[0].span_cols"),
+         dig(first, T + ".rows[1].list[2].written"), dig(first, T + ".rows[1].list[2].span_rows"),
+         dig(first, T + ".rows[0].list[2].span_cols"), dig(first, T + ".rows[0].list[2].span_rows")],
+        [{"gridSpan": "2"}, 2, {"rowSpan": "2"}, 2, 1, 1],
+    )
+    check(
+        "一格两段：段的字用换行拼起来，段数与 run 数各交一个",
+        [dig(first, T + ".rows[2].list[0].text"), dig(first, T + ".rows[2].list[0].paragraphs"),
+         dig(first, T + ".rows[2].list[0].runs"), dig(second, T + ".rows[2].list[0].text"),
+         dig(second, T + ".rows[2].list[0].paragraphs"), dig(second, T + ".rows[2].list[0].runs")],
+        ["网络\n设备", 2, 2, "网络\n设备", 2, 2],
+    )
+    check(
+        "tcPr 里有什么也是一家的事：一家每格都有四道边加一个填充，另一家的格子是空的",
+        [dig(first, T + ".rows[0].list[0].tcpr_present"), dig(first, T + ".rows[0].list[0].tcpr"),
+         dig(first, T + ".rows[0].list[0].tcpr_paths"),
+         dig(second, T + ".rows[0].list[0].tcpr_paths"),
+         dig(second, T + ".rows[0].list[0].tcpr")],
+        [True, {}, [], ["lnL", "lnR", "lnT", "lnB", "solidFill"],
+         {"anchor": "t", "marL": "91440", "marR": "91440", "marT": "45720", "marB": "45720"}],
+    )
+    check(
+        "同一件事写在两个地方：LibreOffice 把边距又往 a:bodyPr 里抄了一遍（两家分开交）",
+        [dig(first, T + ".rows[1].list[0].body"), dig(second, T + ".rows[1].list[0].body"),
+         dig(second, T + ".rows[1].list[0].tcpr.marR"), dig(second, T + ".rows[0].list[1].body")],
+        [{}, {"rIns": "45720", "anchor": "b"}, "45720",
+         {"lIns": "90000", "tIns": "45000", "rIns": "90000", "bIns": "45000", "anchor": "t"}],
+    )
+    check(
+        "有字的格数两家一样（合掉的那两格没字）",
+        [dig(first, T + ".with_text"), dig(second, T + ".with_text"),
+         dig(first, T + ".rows[0].with_text"), dig(second, T + ".rows[2].with_text")],
+        [7, 7, 2, 2],
+    )
+    # 第三种写法：LibreOffice 自己转出来的 odp。尺寸换成 cm、合并换成「另写一格 covered」
+    odp_sizes = lyco_grid.odp_table_sizes(fixture("deck-tables.odp"))
+    check(
+        "同一张表的第三副账（odp）：列宽与行高换算成 0.01mm 与 pptx 两家一模一样",
+        [[one["columns"] for one in odp_sizes], [one["rows"] for one in odp_sizes],
+         [dig(first, T + ".grid[%d].mm" % i) for i in range(3)],
+         [dig(second, T + ".rows[%d].mm" % i) for i in range(3)],
+         [dig(first, T + ".rows[%d].mm" % i) for i in range(3)]],
+        [[[7620, 5080, 5080]], [[1693, 2540, 1693]], [7620, 5080, 5080],
+         [1693, 2540, 1693], [1693, 2540, 1693]],
+    )
+    odp_grid = lyco_grid.grids_of(fixture("deck-tables.odp"))
+    check(
+        "合并的第三种写法：ODF 把被盖住的那格另写成 covered-table-cell（不是 hMerge）",
+        [[(cell["text"], cell["col_span"], cell["row_span"], cell["covered"])
+          for row in odp_grid[0]["rows"] for cell in row],
+         [dig(first, "%s.rows[%d].list[%d].text" % (T, r, c))
+          for r in range(3) for c in range(3)]],
+        [[("科目\n金额", 2, None, False), ("", None, None, True), ("备注", None, None, False),
+          ("服务器", None, None, False), ("124000", None, None, False),
+          ("含税", None, 2, False), ("网络\n设备", None, None, False),
+          ("8000", None, None, False), ("", None, None, True)],
+         ["科目\n金额", "", "备注", "服务器", "124000", "含税", "网络\n设备", "8000", ""]],
+    )
+    odp_slide = lbin("office-slide", fixture("deck-tables.odp"))
+    check(
+        "odp 那一份只数表不铺网（table_list 这个键干脆不交）",
+        [dig(odp_slide, "slides[0].tables"),
+         [had.get("name") for had in odp_slide.get("slides", [])
+          if had.get("table_list") is not None]],
+        [1, []],
     )
 
     # ── 表格结构：表名、可见性、范围、格子 ──────────────────────────

@@ -1836,6 +1836,194 @@ def xlsx_facts(path: Path) -> dict:
     }
 
 
+def ooxml_attr(node, want: str):
+    """按局部名取属性（`r:id` 与 `id` 都算 `id`，与 Rust 的 `attr_local` 同一条）"""
+    for key, value in node.attrib.items():
+        _, _, tail = key.rpartition("}")
+        if (tail or key).rsplit(":", 1)[-1] == want:
+            return value
+    return None
+
+
+def emu_written(raw):
+    """画幅那个整数字符串：只认一串纯数字（Rust 那边 parse::<u64> 就是这个口径，
+    带符号、带空格、带小数点都不算数），否则照原样把串交出去"""
+    if raw is None:
+        return None
+    if raw and all(one in "0123456789" for one in raw):
+        return int(raw)
+    return raw
+
+
+def emu_summand(raw):
+    """加进「网格之和」的那个数：这里允许首尾空白（与 Rust 的 `trim().parse::<i64>()` 同一口径），
+    数不出来就不加"""
+    if raw is None:
+        return None
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return None
+
+
+def span_written(node, want: str) -> int:
+    """「这一元素顶几个」：没写、写坏、写成 0 都按 1（与 .ods 那族同一口径）"""
+    got = emu_summand(ooxml_attr(node, want))
+    return got if got is not None and got > 0 else 1
+
+
+def ooxml_para_text(node) -> str:
+    """一个段的字：按文档顺序拼 `.text` 与每个孩子的 `.tail`（Rust 那边把每段文字都存成
+    `#text` 孩子，所以「前 span 中 /span 后」两边都读成「前中后」），
+    而 `a:tab` 给一个制表、`a:br` / `a:cr` 给一个换行 —— 那两个是空元素，
+    只拼 itertext 就把它们读没了。带换行的纯空白整段丢掉（pretty-print 的缩进噪声），
+    不带换行的空白留着（`<w:t xml:space="preserve"> </w:t>` 真是一个空格）"""
+    out: list = []
+
+    def keep(chunk: str) -> bool:
+        if not chunk:
+            return False
+        return not (chunk.strip() == "" and ("\n" in chunk or "\r" in chunk))
+
+    def walk(one):
+        name = xml_local(one.tag)
+        if name == "tab":
+            out.append("\t")
+            return
+        if name in ("br", "cr"):
+            out.append("\n")
+            return
+        if one.text and keep(one.text):
+            out.append(one.text)
+        for kid in one:
+            walk(kid)
+            if kid.tail and keep(kid.tail):
+                out.append(kid.tail)
+
+    walk(node)
+    return "".join(out).strip()
+
+
+def slide_tables_of(root, limit: int = 100) -> list:
+    """这一页上那张表（pptx）：与 src/office_slide.rs 的 `slide_tables` 同一份账。
+
+    合并在这一族是「被合掉的那一格照样在场」（`hMerge` / `vMerge`），起点那格写
+    `gridSpan` / `rowSpan` —— 所以几个格、跨度之和、网格几列是三个数，这里三个都交。
+    `limit` 是 office-slide 的 LIMIT_DEFAULT（100），不是 office-sheet 的那个 200。
+    """
+    out: list = []
+    tables = [one for one in root.iter() if xml_local(one.tag) == "tbl"]
+    for index, tbl in enumerate(tables):
+        holder = _kid(tbl, "tblPr")
+        style = _kid(holder, "tableStyleId") if holder is not None else None
+        grid_holder = _kid(tbl, "tblGrid")
+        cols = _kids(grid_holder, "gridCol") if grid_holder is not None else []
+        grid: list = []
+        grid_sum = 0
+        for one in cols:
+            raw = ooxml_attr(one, "w")
+            part = emu_summand(raw)
+            if part is not None:
+                grid_sum += part
+            if len(grid) < limit:
+                grid.append(
+                    {
+                        "written": written_attrs(one),
+                        "w": emu_written(raw),
+                        "mm": mm_of(raw, "emu"),
+                    }
+                )
+        rows: list = []
+        row_elements = cell_elements = span_total = 0
+        with_text = merged_from = spanning = 0
+        for row in _kids(tbl, "tr"):
+            row_elements += 1
+            cells: list = []
+            row_cells = row_spans = row_text = 0
+            for at, tc in enumerate(_kids(row, "tc")):
+                row_cells += 1
+                span_cols = span_written(tc, "gridSpan")
+                span_rows = span_written(tc, "rowSpan")
+                row_spans += span_cols
+                if span_cols > 1 or span_rows > 1:
+                    spanning += 1
+                from_merge = ooxml_attr(tc, "hMerge") is not None or ooxml_attr(
+                    tc, "vMerge"
+                ) is not None
+                if from_merge:
+                    merged_from += 1
+                props = _kid(tc, "tcPr")
+                body = _kid(tc, "txBody")
+                paras = _kids(body, "p") if body is not None else []
+                text = "\n".join(ooxml_para_text(one) for one in paras)
+                if text:
+                    with_text += 1
+                    row_text += 1
+                runs = (
+                    len([one for one in body.iter() if xml_local(one.tag) == "r"])
+                    if body is not None
+                    else 0
+                )
+                paths = [xml_local(one.tag) for one in props] if props is not None else []
+                inner = None
+                if body is not None:
+                    got = _kid(body, "bodyPr")
+                    if got is not None:
+                        inner = written_attrs(got)
+                if len(cells) < limit:
+                    cells.append(
+                        {
+                            "at": at,
+                            "written": written_attrs(tc),
+                            "span_cols": span_cols,
+                            "span_rows": span_rows,
+                            "merge_from": from_merge,
+                            "tcpr_present": props is not None,
+                            "tcpr": written_attrs(props) if props is not None else None,
+                            "tcpr_paths": paths,
+                            "body": inner,
+                            "text": text,
+                            "paragraphs": len(paras),
+                            "runs": runs,
+                        }
+                    )
+            cell_elements += row_cells
+            span_total += row_spans
+            if len(rows) < limit:
+                rows.append(
+                    {
+                        "written": written_attrs(row),
+                        "h": emu_written(ooxml_attr(row, "h")),
+                        "mm": mm_of(ooxml_attr(row, "h"), "emu"),
+                        "cells": row_cells,
+                        "span_sum": row_spans,
+                        "with_text": row_text,
+                        "list": cells,
+                    }
+                )
+        out.append(
+            {
+                "at": index,
+                "pr_present": holder is not None,
+                "written": written_attrs(holder) if holder is not None else None,
+                "style_present": style is not None,
+                "style_id": "".join(style.itertext()).strip() if style is not None else None,
+                "grid": grid,
+                "column_elements": len(cols),
+                "grid_sum": grid_sum,
+                "grid_sum_mm": mm_of(str(grid_sum), "emu"),
+                "rows": rows,
+                "row_elements": row_elements,
+                "cell_elements": cell_elements,
+                "span_sum": span_total,
+                "with_text": with_text,
+                "merged_from": merged_from,
+                "spanning": spanning,
+            }
+        )
+    return out
+
+
 def pptx_facts(path: Path) -> dict:
     with zipfile.ZipFile(path) as box:
         names = [one.filename for one in box.infolist()]
@@ -1897,6 +2085,8 @@ def pptx_facts(path: Path) -> dict:
                 "notes": notes.strip(),
                 "charts": len(page_charts),
                 "chart_list": page_charts,
+                # 这一页上那张表的网（与 src/office_slide.rs 的 slide_tables 同一份账）
+                "table_list": slide_tables_of(root),
             }
         )
     pres = ET.fromstring(parts["ppt/presentation.xml"])

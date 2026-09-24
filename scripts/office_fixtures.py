@@ -42,6 +42,8 @@ MARK_CELL_A1 = "科目"
 MARK_CELL_B2 = "服务器"
 MARK_TOTAL_LABEL = "合计"
 MARK_SLIDE_TITLE = "预算评审"
+# 页上那张表那两件的页标题（改了它就得同时改 office-slide 的表断言）
+MARK_TABLE_PAGE = "表格那一页"
 MARK_SLIDE_BODY = "新增两台 64 核应用服务器"
 MARK_NOTES = "评审时先讲口径再讲数字"
 MARK_COMMENT = "这里要补上不含税口径"
@@ -1124,6 +1126,52 @@ def write_pptx(path: Path, art: Path) -> None:
     pres.save(str(path))
 
 
+def write_pptx_tables(path: Path) -> None:
+    """python-pptx：一页一张 3×3 的表，**一次只改一个变量**
+
+    合并（横的与竖的各一处）、只给第二行设行高、只给第一列设列宽、只给一个格子设
+    垂直对齐与左右边距、只给一个格子设填充色、还有一个格子写两段。
+    这一族的合并与 docx 不一样：被合掉的那一格**照样在场**（`hMerge` / `vMerge`，字是空的），
+    起点那格写 `gridSpan` / `rowSpan` —— 于是「几个格」「几个有字的格」与「跨度之和」是三本账。
+    """
+    from pptx import Presentation
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import MSO_ANCHOR
+    from pptx.util import Emu, Inches
+
+    pres = Presentation()
+    slide = pres.slides.add_slide(pres.slide_layouts[5])
+    slide.shapes.title.text = MARK_TABLE_PAGE
+    table = slide.shapes.add_table(3, 3, Inches(1), Inches(2), Inches(6), Inches(2)).table
+    words = {
+        (0, 0): MARK_CELL_A1,
+        (0, 1): "金额",  # 与 (0,0) 横向合并掉
+        (0, 2): "备注",
+        (1, 0): MARK_CELL_B2,
+        (1, 1): "124000",
+        (1, 2): "含税",  # 与 (2,2) 纵向合并掉
+        (2, 0): "网络\n设备",  # 一格两段
+        (2, 1): "8000",
+        (2, 2): "",
+    }
+    for (row, col), text in words.items():
+        if text:
+            table.cell(row, col).text = text
+    table.cell(0, 0).merge(table.cell(0, 1))
+    table.cell(1, 2).merge(table.cell(2, 2))
+    table.rows[1].height = Emu(914400)
+    table.columns[0].width = Emu(2743200)
+    table.cell(1, 0).vertical_anchor = MSO_ANCHOR.BOTTOM
+    table.cell(1, 0).margin_left = Emu(91440)
+    table.cell(1, 0).margin_right = Emu(45720)
+    table.cell(2, 1).fill.solid()
+    table.cell(2, 1).fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0x00)
+    core = pres.core_properties
+    core.title = MARK_TITLE
+    core.author = MARK_AUTHOR
+    pres.save(str(path))
+
+
 def add_macro_part(path: Path, out: Path) -> None:
     """把 docx 复制成一份带 `word/vbaProject.bin` 的 docm —— 宏检测要有样本
 
@@ -1755,6 +1803,29 @@ def main() -> int:
             print("⚠️  没拿到 deck-lo.pptx（.odp → .pptx 那一转）")
     else:
         print("⚠️  没拿到 deck.odp（第二轮的中间件）")
+
+    # 页上那张表那两件：一张 3×3、一次只改一个变量（横合、竖合、行高、列宽、一个格子的
+    # 对齐与边距、一个格子的填充色、一格两段），再让 LibreOffice 转 odp 转回来 ——
+    # 两家对同一张表说的数不一样（行高 609600 与 609480、`tblPr` 一个带三个开关一个空着），
+    # 而合并那四个字两家倒是一字不差
+    tables = OUT / "deck-tables.pptx"
+    write_pptx_tables(tables)
+    tableslo = OUT / "deck-tables-lo.pptx"
+    convert(exe, tables, "odp", SCRATCH / "tables-odp")
+    middle = SCRATCH / "tables-odp" / "tbl-middle.odp"
+    src_middle = SCRATCH / "tables-odp" / "deck-tables.odp"
+    if src_middle.exists():
+        shutil.copyfile(src_middle, middle)
+        convert(exe, middle, "pptx", SCRATCH / "tables-back")
+        back = SCRATCH / "tables-back" / "tbl-middle.pptx"
+        if back.exists():
+            shutil.copyfile(back, tableslo)
+            # 中间那份 odp 也留着：它是同一张表的第三种写法（列宽换成 cm）
+            shutil.copyfile(src_middle, OUT / "deck-tables.odp")
+        else:
+            print("⚠️  没拿到 deck-tables-lo.pptx（.odp → .pptx 那一转）")
+    else:
+        print("⚠️  没拿到 deck-tables.odp（表那一转的中间件）")
 
     charts = OUT / "deck-chart.pptx"
     write_pptx_charts(charts)

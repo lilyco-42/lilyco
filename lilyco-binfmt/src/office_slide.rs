@@ -18,6 +18,7 @@ use std::path::PathBuf;
 
 use lilyco::prelude::*;
 
+use crate::office_sheet::written_attrs;
 use crate::opack::{open, resolve_target, Family};
 use crate::read::read_blob;
 use crate::xmlscan;
@@ -28,7 +29,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-slide",
     run = "run_office_slide",
-    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP answers with its own ladder: pages are draw:page (name on draw:name), the title comes from the frame whose presentation:class is title, speaker notes are the presentation:class=notes frame inside presentation:notes - the page-number placeholder sitting next to it holds the literal sample text <编号> and is never reported as slide content - and the page size is resolved through draw:master-page-name to styles.xml's style:master-page and then its style:page-layout. A file may name a presentation page layout (presentation-page-layout-name) without carrying any definition for it, which this command reports instead of inventing one. Legacy .ppt is a PowerPoint 97 record tree rather than a package: it reports the record / container / text-atom counts and one entry per slide, because containers of recType 0x03EE occur exactly one per slide and their subtrees hold that slide's text atoms - a correspondence this reader measured against the very same document's .pptx form (count, order, and every line), not a name it copied from the spec, which is why the entries carry record offsets and not spec names. Text that belongs to no such container (master and layout placeholder wording) is counted but not attributed to a page. A slide's charts are read from the page's own relationships (only entries whose Type ends in `chart`), never by listing ppt/charts/: LibreOffice drops style and colors parts into that same directory, so counting files there would report six charts where the page carries two. Each chart reports its part, title, whether any value was cached, and per plot group the kind (barChart / pieChart ...), the direct children's val attributes as written, the axis ids kept apart (each producer numbers them differently, and python-pptx even writes negative ones) and one entry per series with the reference string and the cached points. The reference strings are NOT comparable across producers here: python-pptx writes the real hop into the chart's own embedded workbook (`Sheet1!$B$1`), while LibreOffice's pptx export puts literal labels in the same place (`label 0`, `categories`, `0`) - the cached numbers survive that rewrite unchanged, which is why both are reported instead of a single reconciled answer. Two counters keep runs and paragraphs apart: paragraph_total counts a:p inside p:sp, text_runs counts a:t, and the same deck from the two producers reads 3/1 paragraphs with 3 versus 5 runs - joining runs into paragraph text is what makes the wording comparable at all. The slide size's own type attribute is reported only when written: python-pptx says screen4x3, LibreOffice omits it for the identical cx/cy, and it is left null rather than being called custom. ODF answers the same question its own way: a `draw:frame` holds a `draw:object` whose `xlink:href` names an `Object N/` directory - the notes frame holds no such thing, so it is not a chart - and there the type sits on each `chart:series` (`chart:bar`, and `chart:circle` for a pie) rather than on an outer plot group, points are self-stated with `chart:repeated`, and a range can name the chart's own `local-table` (`local-table.$B$2:.$B$3`) instead of the deck's data, so those strings go over as written. Frame names count the notes frame too, which is why a page's first chart can be called Chart 2. Legacy .ppt keeps charts inside the record tree and is not read. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
+    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP answers with its own ladder: pages are draw:page (name on draw:name), the title comes from the frame whose presentation:class is title, speaker notes are the presentation:class=notes frame inside presentation:notes - the page-number placeholder sitting next to it holds the literal sample text <编号> and is never reported as slide content - and the page size is resolved through draw:master-page-name to styles.xml's style:master-page and then its style:page-layout. A file may name a presentation page layout (presentation-page-layout-name) without carrying any definition for it, which this command reports instead of inventing one. Legacy .ppt is a PowerPoint 97 record tree rather than a package: it reports the record / container / text-atom counts and one entry per slide, because containers of recType 0x03EE occur exactly one per slide and their subtrees hold that slide's text atoms - a correspondence this reader measured against the very same document's .pptx form (count, order, and every line), not a name it copied from the spec, which is why the entries carry record offsets and not spec names. Text that belongs to no such container (master and layout placeholder wording) is counted but not attributed to a page. A slide's charts are read from the page's own relationships (only entries whose Type ends in `chart`), never by listing ppt/charts/: LibreOffice drops style and colors parts into that same directory, so counting files there would report six charts where the page carries two. Each chart reports its part, title, whether any value was cached, and per plot group the kind (barChart / pieChart ...), the direct children's val attributes as written, the axis ids kept apart (each producer numbers them differently, and python-pptx even writes negative ones) and one entry per series with the reference string and the cached points. The reference strings are NOT comparable across producers here: python-pptx writes the real hop into the chart's own embedded workbook (`Sheet1!$B$1`), while LibreOffice's pptx export puts literal labels in the same place (`label 0`, `categories`, `0`) - the cached numbers survive that rewrite unchanged, which is why both are reported instead of a single reconciled answer. Two counters keep runs and paragraphs apart: paragraph_total counts a:p inside p:sp, text_runs counts a:t, and the same deck from the two producers reads 3/1 paragraphs with 3 versus 5 runs - joining runs into paragraph text is what makes the wording comparable at all. The slide size's own type attribute is reported only when written: python-pptx says screen4x3, LibreOffice omits it for the identical cx/cy, and it is left null rather than being called custom. ODF answers the same question its own way: a `draw:frame` holds a `draw:object` whose `xlink:href` names an `Object N/` directory - the notes frame holds no such thing, so it is not a chart - and there the type sits on each `chart:series` (`chart:bar`, and `chart:circle` for a pie) rather than on an outer plot group, points are self-stated with `chart:repeated`, and a range can name the chart's own `local-table` (`local-table.$B$2:.$B$3`) instead of the deck's data, so those strings go over as written. Frame names count the notes frame too, which is why a page's first chart can be called Chart 2. Legacy .ppt keeps charts inside the record tree and is not read. Per pptx slide the tables are a ledger of their own (`table_list`): the `a:tblPr` attributes as written next to whether that element exists at all (python-pptx writes firstRow/bandRow plus an `a:tableStyleId`, while LibreOffice rewrites the same table with an EMPTY tblPr - present, saying nothing), the grid columns with their EMU width as written plus its 0.01mm reading, each row's h the same way, and every cell with its a:tc attributes, its a:tcPr attributes and child element names, the a:bodyPr attributes kept separately because LibreOffice writes the cell margins a second time in there, the paragraph text, and how many paragraphs and runs it holds. Merging is a third convention in this family and the reason three counters exist: the covered cell STAYS in the file (marked hMerge or vMerge, with empty text) while the origin carries gridSpan / rowSpan, so one row of a three-column table holds 3 cells whose spans add up to 4 - cells, spans and grid columns go out side by side instead of being reconciled. Row heights do not survive the rewrite either: the same unspecified row is 609600 EMU in one file and 609480 in the other, and the .odp written in between says 1.693cm - all three land on 1693 in 0.01mm, which is what makes the EMU conversion something a reader can check rather than take on trust. ODP keeps page tables as table:table: they are counted, not laid out here, because their widths sit one hop away in column styles exactly as in .ods. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
 )]
 pub struct OfficeSlide {
     /// 演示文稿（pptx / pptm / odp / ppt）
@@ -206,6 +207,7 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
                 "shapes": slide_root.descendants("sp").len(),
                 "pictures": slide_root.descendants("pic").len(),
                 "tables": slide_root.descendants("tbl").len(),
+                "table_list": slide_tables(&slide_root, limit),
                 "graphic_frames": slide_root.descendants("graphicFrame").len(),
                 "media_frames": slide_root.descendants("videoFile").len()
                     + slide_root.descendants("audioCd").len(),
@@ -516,6 +518,178 @@ fn emu(raw: Option<&str>) -> Value {
         Some(one) => json!(one),
         None => raw.map(|one| json!(one)).unwrap_or(Value::Null),
     }
+}
+
+/// 「这一元素顶几个」：没写或写坏了按 1（与 .ods 那族 `number-columns-repeated` 同一口径）
+fn span_of(node: &xmlscan::Node, want: &str) -> usize {
+    node.attr_local(want)
+        .and_then(|one| one.trim().parse::<usize>().ok())
+        .filter(|one| *one > 0)
+        .unwrap_or(1)
+}
+
+/// 换成 0.01mm 的那一份：数不出来就交 null（不替它猜单位）
+fn emu_mm(node: &xmlscan::Node, want: &str) -> Value {
+    match node.attr_local(want).and_then(|one| crate::paper::emu(one)) {
+        Some(one) => json!(one),
+        None => Value::Null,
+    }
+}
+
+/// 这一页上那张表的网（pptx）：`a:tblPr`（表自己说的开关与那条 `tableStyleId`）、
+/// `a:tblGrid/a:gridCol`（列宽是 EMU）、`a:tr`（行高也是 EMU）、每格 `a:tc` 与它的 `a:tcPr`。
+///
+/// 合并在这一族是**被合掉的那一格照样在场**（`hMerge` / `vMerge`，字是空的），
+/// 起点那格写 `gridSpan` / `rowSpan` —— 所以「一行的几个格」「跨度之和」与网格的「几列」
+/// 是三个数：实测这张三列的表第一行是 3 个格、跨度之和 4。三个都交，不替它们对成一个
+fn slide_tables(slide_root: &xmlscan::Node, limit: usize) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::new();
+    for (index, tbl) in slide_root.descendants("tbl").into_iter().enumerate() {
+        let holder = tbl.child("tblPr");
+        let style = holder.and_then(|one| one.child("tableStyleId"));
+        let mut grid: Vec<Value> = Vec::new();
+        let mut columns = 0usize;
+        let mut grid_sum: i64 = 0;
+        if let Some(one) = tbl.child("tblGrid") {
+            for column in one.all("gridCol") {
+                columns += 1;
+                if let Some(raw) = column
+                    .attr_local("w")
+                    .and_then(|one| one.trim().parse::<i64>().ok())
+                {
+                    grid_sum = grid_sum.saturating_add(raw);
+                }
+                if grid.len() < limit {
+                    grid.push(json!({
+                        "written": written_attrs(column),
+                        "w": emu(column.attr_local("w")),
+                        "mm": emu_mm(column, "w"),
+                    }));
+                }
+            }
+        }
+        let mut rows: Vec<Value> = Vec::new();
+        let mut row_elements = 0usize;
+        let mut cell_elements = 0usize;
+        let mut span_total = 0usize;
+        let mut with_text = 0usize;
+        let mut merged_from = 0usize;
+        let mut spanning = 0usize;
+        for row in tbl.all("tr") {
+            row_elements += 1;
+            let mut cells: Vec<Value> = Vec::new();
+            let mut row_cells = 0usize;
+            let mut row_spans = 0usize;
+            let mut row_text = 0usize;
+            for (at, tc) in row.all("tc").iter().enumerate() {
+                row_cells += 1;
+                let span_cols = span_of(tc, "gridSpan");
+                let span_rows = span_of(tc, "rowSpan");
+                row_spans += span_cols;
+                if span_cols > 1 || span_rows > 1 {
+                    spanning += 1;
+                }
+                if tc.attr_local("hMerge").is_some() || tc.attr_local("vMerge").is_some() {
+                    merged_from += 1;
+                }
+                let props = tc.child("tcPr");
+                let body = tc.child("txBody");
+                let mut paragraphs: Vec<&xmlscan::Node> = Vec::new();
+                if let Some(one) = body {
+                    paragraphs = one.all("p");
+                }
+                let text = paragraphs
+                    .iter()
+                    .map(|one| crate::office_text::paragraph_text(one))
+                    .collect::<Vec<String>>()
+                    .join("\n");
+                if !text.is_empty() {
+                    with_text += 1;
+                    row_text += 1;
+                }
+                let mut runs = 0usize;
+                if let Some(one) = body {
+                    runs = one.descendants("r").len();
+                }
+                let mut paths: Vec<String> = Vec::new();
+                if let Some(one) = props {
+                    paths = one
+                        .children
+                        .iter()
+                        .filter(|kid| kid.local() != "#text")
+                        .map(|kid| kid.local().to_string())
+                        .collect();
+                }
+                let mut inner = Value::Null;
+                if let Some(one) = body {
+                    if let Some(holder) = one.child("bodyPr") {
+                        inner = written_attrs(holder);
+                    }
+                }
+                if cells.len() < limit {
+                    cells.push(json!({
+                        "at": at,
+                        "written": written_attrs(tc),
+                        "span_cols": span_cols,
+                        "span_rows": span_rows,
+                        "merge_from": tc.attr_local("hMerge").is_some()
+                            || tc.attr_local("vMerge").is_some(),
+                        "tcpr_present": props.is_some(),
+                        "tcpr": match props {
+                            Some(one) => written_attrs(one),
+                            None => Value::Null,
+                        },
+                        "tcpr_paths": paths,
+                        "body": inner,
+                        "text": text,
+                        "paragraphs": paragraphs.len(),
+                        "runs": runs,
+                    }));
+                }
+            }
+            cell_elements += row_cells;
+            span_total += row_spans;
+            if rows.len() < limit {
+                rows.push(json!({
+                    "written": written_attrs(row),
+                    "h": emu(row.attr_local("h")),
+                    "mm": emu_mm(row, "h"),
+                    "cells": row_cells,
+                    "span_sum": row_spans,
+                    "with_text": row_text,
+                    "list": cells,
+                }));
+            }
+        }
+        out.push(json!({
+            "at": index,
+            "pr_present": holder.is_some(),
+            "written": match holder {
+                Some(one) => written_attrs(one),
+                None => Value::Null,
+            },
+            "style_present": style.is_some(),
+            "style_id": match style {
+                Some(one) => json!(one.text().trim()),
+                None => Value::Null,
+            },
+            "grid": grid,
+            "column_elements": columns,
+            "grid_sum": json!(grid_sum),
+            "grid_sum_mm": match crate::paper::emu(&grid_sum.to_string()) {
+                Some(one) => json!(one),
+                None => Value::Null,
+            },
+            "rows": rows,
+            "row_elements": row_elements,
+            "cell_elements": cell_elements,
+            "span_sum": span_total,
+            "with_text": with_text,
+            "merged_from": merged_from,
+            "spanning": spanning,
+        }));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -858,6 +1032,108 @@ mod tests {
         assert!(
             note.contains("我手上没有"),
             "recType 的名字没有出处这件事要写明：{note}"
+        );
+    }
+
+    /// 页上那张表：一张表的两种写法（`deck-tables.pptx` 与 LibreOffice 重写的那份）。
+    /// 期望值来自 `office_reader.py` 的 `slide_tables_of`（同一批字的两副读者）
+    #[test]
+    fn one_slide_table_is_written_two_ways_and_measured_three_ways() {
+        let mine = run("deck-tables.pptx");
+        let theirs = run("deck-tables-lo.pptx");
+        let one = &mine["slides"][0]["table_list"][0];
+        let two = &theirs["slides"][0]["table_list"][0];
+        // 表自己说了什么：一家写两个开关外加一条样式 id，另一家元素在场而一个字没说
+        assert_eq!(
+            one["written"],
+            json!({"firstRow": "1", "bandRow": "1"}),
+            "{one}"
+        );
+        assert_eq!(one["style_id"], "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}");
+        assert_eq!(two["pr_present"], true, "空元素也算在场");
+        assert_eq!(two["written"], json!({}));
+        assert_eq!(two["style_present"], false, "这一家干脆不写那条样式 id");
+        // 列宽两家一字不差（EMU 与换算出来的 0.01mm 是同一批数）
+        assert_eq!(
+            (one["column_elements"].as_u64(), one["grid_sum"].as_u64()),
+            (Some(3), Some(6400800))
+        );
+        assert_eq!(one["grid_sum_mm"], 17780);
+        assert_eq!(two["grid_sum_mm"], 17780);
+        assert_eq!(one["grid"][0]["mm"], 7620);
+        assert_eq!(one["grid"][1]["mm"], 5080);
+        // 行高：重写换了写法，可换算的数没换
+        assert_eq!(one["rows"][0]["h"], 609600);
+        assert_eq!(two["rows"][0]["h"], 609480);
+        assert_eq!(one["rows"][0]["mm"], 1693);
+        assert_eq!(two["rows"][0]["mm"], 1693);
+        assert_eq!(one["rows"][1]["h"], 914400);
+        assert_eq!(one["rows"][1]["mm"], 2540);
+        // 三本账：几个格、跨度之和、网格几列
+        assert_eq!(one["cell_elements"], 9);
+        assert_eq!(one["span_sum"], 10, "三列的表跨度之和能比列数多：{one}");
+        assert_eq!(one["rows"][0]["cells"], 3);
+        assert_eq!(one["rows"][0]["span_sum"], 4);
+        assert_eq!(one["merged_from"], 2);
+        assert_eq!(one["spanning"], 2);
+        assert_eq!(two["merged_from"], 2, "合并的两家写法一样");
+        assert_eq!(two["spanning"], 2);
+        // 被合掉的那一格照样在，字是空的、一个 run 也没有
+        assert_eq!(one["rows"][0]["list"][0]["text"], "科目\n金额");
+        assert_eq!(
+            one["rows"][0]["list"][0]["written"],
+            json!({"gridSpan": "2"})
+        );
+        assert_eq!(one["rows"][0]["list"][1]["merge_from"], true);
+        assert_eq!(one["rows"][0]["list"][1]["text"], "");
+        assert_eq!(one["rows"][0]["list"][1]["runs"], 0);
+        assert_eq!(
+            one["rows"][1]["list"][2]["written"],
+            json!({"rowSpan": "2"})
+        );
+        assert_eq!(one["rows"][1]["list"][2]["span_rows"], 2);
+        assert_eq!(one["with_text"], 7);
+        assert_eq!(two["with_text"], 7);
+        // 同一格的两段：段数与 run 数各一个键
+        assert_eq!(one["rows"][2]["list"][0]["text"], "网络\n设备");
+        assert_eq!(one["rows"][2]["list"][0]["paragraphs"], 2);
+        // tcPr 里有什么是各家的事；边距还有第二份住在 a:bodyPr 上
+        assert_eq!(one["rows"][0]["list"][0]["tcpr_present"], true);
+        assert_eq!(one["rows"][0]["list"][0]["tcpr"], json!({}));
+        assert_eq!(one["rows"][0]["list"][0]["tcpr_paths"], json!([]));
+        assert_eq!(
+            two["rows"][0]["list"][0]["tcpr_paths"],
+            json!(["lnL", "lnR", "lnT", "lnB", "solidFill"])
+        );
+        assert_eq!(one["rows"][1]["list"][0]["body"], json!({}));
+        assert_eq!(two["rows"][1]["list"][0]["body"]["rIns"], "45720");
+        assert_eq!(two["rows"][1]["list"][0]["tcpr"]["anchor"], "b");
+    }
+
+    /// 没有表的页交空表而不是缺键；odp 这一族的表只数不铺
+    #[test]
+    fn a_page_without_tables_gets_an_empty_ledger_and_odp_gets_none_at_all() {
+        let deck = run("deck.pptx");
+        let first = &deck["slides"][0]["table_list"];
+        assert_eq!(
+            first.as_array().expect("是数组").len(),
+            0,
+            "第一页一张表也没有"
+        );
+        assert_eq!(deck["slides"][1]["tables"], 1);
+        assert_eq!(
+            deck["slides"][1]["table_list"]
+                .as_array()
+                .expect("是数组")
+                .len(),
+            1
+        );
+        let odp = run("deck-tables.odp");
+        assert_eq!(odp["slides"][0]["tables"], 1, "odp 数得出这一页有一张表");
+        assert!(
+            odp["slides"][0].get("table_list").is_none(),
+            "odp 的表宽在样式那一跳上，这一族没读就是不交：{}",
+            odp["slides"][0]
         );
     }
 

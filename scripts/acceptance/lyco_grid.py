@@ -144,9 +144,45 @@ def grids_of(path: pathlib.Path) -> list:
     name = path.name.lower()
     if name.endswith((".docx", ".docm")):
         return docx(path)
-    if name.endswith(".odt"):
+    if name.endswith((".odt", ".odp")):
+        # odp 的表与 odt 的是同一棵树（table:table / table-cell / covered-table-cell），
+        # 只有页容器不一样 —— 页归位由 office-slide 管，这里只管这张表自己长什么样
         return odt(path)
     return []
+
+
+def odp_table_sizes(path: pathlib.Path) -> list:
+    """一张 odp 页表的列宽与行高，换成 0.01mm。
+
+    这一族与 .ods 同一类一跳：`table:table-column` 只点名样式，尺寸在
+    `family=table-column` 的那份 `style:column-width` 上。这一份存在的理由是**对照**：
+    同一张表，LibreOffice 在 odp 里把列宽写成 `7.62cm`，在 pptx 里写成 `2743200`（EMU），
+    两边换算到 0.01mm 都是 7620 —— pptx 那本 EMU 账因此有一个不是自己的读者能对。
+    """
+    from lyco_pages import convert
+
+    with zipfile.ZipFile(path) as z:
+        root = ET.fromstring(z.read("content.xml"))
+    sized = {}
+    for st in [one for one in root.iter() if local(one.tag) == "style"]:
+        family = attr(st, "family")
+        if family not in ("table-column", "table-row"):
+            continue
+        want = "column-width" if family == "table-column" else "row-height"
+        holder = "table-column-properties" if family == "table-column" else "table-row-properties"
+        props = direct(st, (holder,))
+        sized[attr(st, "name")] = (
+            convert(attr(props[0], want), None)[0] if props else None
+        )
+    out = []
+    for tbl in [one for one in root.iter() if local(one.tag) == "table"]:
+        out.append(
+            {
+                "columns": [sized.get(attr(one, "style-name")) for one in direct(tbl, "table-column")],
+                "rows": [sized.get(attr(one, "style-name")) for one in direct(tbl, "table-row")],
+            }
+        )
+    return out
 
 
 if __name__ == "__main__":
