@@ -59,10 +59,21 @@ fn find(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
 fn key_positions(body: &[u8], key: &[u8]) -> Vec<usize> {
     let mut out = Vec::new();
     let mut at = 0usize;
+    // `/` 本身是 PDF 的分隔符：一个名字里不会再有第二个 `/`，所以键带着 `/` 时
+    // 前一个字节是什么都不重要。这条很重要 —— 生产者写紧凑字典时是
+    // `/Size 76/Root 74 0 R` 这样连着写的，若按「前面不许粘着名字字符」判，
+    // 整个 `/Root` 就找不到了（CI 上真就这么丢的：页数、页树、ToUnicode 全线失效）
+    let slashed = key.first() == Some(&b'/');
     while let Some(found) = find(body, key, at) {
         let after = found + key.len();
         let tail_ok = body.get(after).is_none_or(|one| !is_name_char(*one));
-        let head_ok = found == 0 || !is_name_char(body[found - 1]);
+        let head_ok = slashed
+            || found == 0
+            || matches!(
+                body[found - 1],
+                b'<' | b'>' | b'/' | b'[' | b']' | b'(' | b')' | b'{' | b'}'
+            )
+            || is_space(body[found - 1]);
         if tail_ok && head_ok {
             out.push(found);
         }
@@ -1863,7 +1874,12 @@ mod tests {
     fn literal_strings_honor_escapes_and_nested_parens() {
         let body = bytes(b"(a\\(b\\)c\\\\d\\101e)");
         let (raw, next) = literal(&body, 1);
-        assert_eq!(raw, b"a(b)c\\Ae");
+        // `\\` 是一个反斜杠，其后那个 `d` 是正文里的字（规范说：不认识的转义，
+        // 反斜杠自己作废、后面的字符照留），`\101` 是八进制的 A
+        assert_eq!(
+            raw,
+            vec![b'a', b'(', b'b', b')', b'c', 0x5c, b'd', b'A', b'e']
+        );
         assert_eq!(next, body.len());
     }
 
@@ -1903,7 +1919,8 @@ mod tests {
         let body = bytes(b"<</Title(Obj stream fixture)>>");
         assert_eq!(stream_keyword(&body), None);
         let real = bytes(b"<</Length 4>>\nstream\nabcd\nendstream");
-        assert_eq!(stream_keyword(&real), Some(15));
+        // 交回的是关键字自己的位置：`<</Length 4>>` 占 0..12，`\n` 在 13，`stream` 从 14 起
+        assert_eq!(stream_keyword(&real), Some(14));
     }
 
     #[test]
@@ -2075,7 +2092,10 @@ mod tests {
                 text: "另一行".to_string(),
             },
         ];
-        assert_eq!(layout(&runs, 11.0), "服务器 124000\n另一行");
+        // PDF 的 y 朝上，所以读的顺序是 y 大的在前：660.85 那行先出来。
+        // 580.5 与 584.8 差 4.3 个百分点（右对齐的数字与同行文字的基线就是这么差开的），
+        // 在半字高以内 —— 合成一行
+        assert_eq!(layout(&runs, 11.0), "另一行\n服务器 124000");
     }
 
     #[test]
@@ -2096,7 +2116,7 @@ mod tests {
         let cmap = b"begincodespacerange\n<00> <FF>\nendcodespacerange\n\
                      2 beginbfchar\n<01> <7532>\n<02> <4E59>\nendbfchar\n\
                      1 beginbfrange\n<10> <12> <0041>\nendbfrange\n\
-                     1 beginbfrange\n<20> <21> [<6f62> <6364>]\nendbfrange\n";
+                     1 beginbfrange\n<20> <21> [<006f0062> <006364>]\nendbfrange\n";
         let mut body = Vec::new();
         body.extend_from_slice(b"%PDF-1.4\n");
         body.extend_from_slice(
@@ -2116,7 +2136,7 @@ mod tests {
         // 连续加一的那种：0x10→A、0x11→B、0x12→C
         assert_eq!(done.table.get(&[0x10u8][..]).map(String::as_str), Some("A"));
         assert_eq!(done.table.get(&[0x12u8][..]).map(String::as_str), Some("C"));
-        // 数组那种：逐个对应，两个字节一个码元
+        // 数组那种：一个码元对一串码元（这里每条是两个 UTF-16 码元，正好「ob」「cd」）
         assert_eq!(
             done.table.get(&[0x20u8][..]).map(String::as_str),
             Some("ob")
