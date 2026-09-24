@@ -145,16 +145,36 @@ pub struct Run {
     /// release profile
     pub release: bool,
 
-    /// 转发给 app 的表面标志（cli 不传 / tui / web / mcp）
-    pub surface: Option<Surface>,
+    /// 转发给 app 的表面标志：cli|tui|web|mcp（cli 不传标志）
+    /// ⚠️ 故意是 Option<String> 而不是 Option<Surface>：derive 宏的 Enum 分支
+    /// 拿**外层**字段类型找 ValueEnum（`<Option<Surface> as ValueEnum>`），不支持
+    /// Option<Enum>；且 Web/MCP 对省略参数送零值不送 schema default——字符串
+    /// 在 run 里手动解析才是四端安全的写法
+    pub surface: Option<String>,
 
     /// 原样转发给 app 的参数（放在表面标志之后）
     pub app_args: Vec<String>,
 }
 
+/// Option<String> → Surface（空串/缺省 = None；大小写按 ValueEnum 的
+/// pascal_to_snake 约定只认小写）。抽成纯函数可单测。
+fn parse_surface(raw: Option<&str>) -> Result<Option<Surface>, AppError> {
+    match raw {
+        None | Some("") => Ok(None),
+        Some("cli") => Ok(Some(Surface::Cli)),
+        Some("tui") => Ok(Some(Surface::Tui)),
+        Some("web") => Ok(Some(Surface::Web)),
+        Some("mcp") => Ok(Some(Surface::Mcp)),
+        Some(other) => Err(AppError::InvalidArg(format!(
+            "invalid value for surface: {other}（可选 cli|tui|web|mcp）"
+        ))),
+    }
+}
+
 fn run_run(app: &Run, ctx: &Context) -> Result<Value, AppError> {
     let start = std::time::Instant::now();
-    let args = run_args(app.release, app.surface, &app.app_args);
+    let surface = parse_surface(app.surface.as_deref())?;
+    let args = run_args(app.release, surface, &app.app_args);
     ctx.emit(Progress::Started {
         total: Some(1),
         message: Some(format!("cargo {}", args.join(" "))),
@@ -227,5 +247,17 @@ mod tests {
         );
         assert_eq!(Surface::Mcp.app_flag(), Some("--mcp"));
         assert_eq!(Surface::Cli.app_flag(), None);
+    }
+
+    #[test]
+    fn surface_string_parse_is_four_surface_safe() {
+        // 缺省与空串 = 不转发（Web/MCP 对省略参数送零值，不送 schema default）
+        assert_eq!(parse_surface(None).unwrap(), None);
+        assert_eq!(parse_surface(Some("")).unwrap(), None);
+        assert_eq!(parse_surface(Some("tui")).unwrap(), Some(Surface::Tui));
+        assert_eq!(parse_surface(Some("mcp")).unwrap(), Some(Surface::Mcp));
+        // 非法值必须报错并给出可选值（不能静默当 cli）
+        let err = parse_surface(Some("TUI")).expect_err("大小写敏感，认不出要报错");
+        assert!(err.to_string().contains("cli|tui|web|mcp"), "{err}");
     }
 }

@@ -118,8 +118,9 @@ fn kind_label(kind: &Value) -> String {
             }
         }
         "list" => {
-            let inner = kind["item"]
-                .as_ref()
+            // Index 已返回 &Value（缺失键是 &Value::Null，不 panic）——用 .get 拿 Option
+            let inner = kind
+                .get("item")
                 .map(kind_label)
                 .unwrap_or_else(|| "text".to_string());
             format!("list<{inner}>")
