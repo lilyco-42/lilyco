@@ -16,6 +16,10 @@ pub struct Story {
 
 const CHAR_NS: &str = "letsgal-ai:character";
 const SCENE_NS: &str = "letsgal-ai:scene";
+// 与 letsgal-ai Node 版 lib/story.js 的 NS 常量逐字一致（stableId 是跨实现契约：
+// id 漂移 = 工程引用关系断裂 + 双实现产物无法 diff）
+const CHAPTER_NS: &str = "letsgal-ai:chapter";
+const FRAGMENT_NS: &str = "letsgal-ai:fragment";
 
 /// 解析一行 `角色(表情)：台词` / `旁白：…`
 enum LineKind {
@@ -61,11 +65,18 @@ pub fn parse_story(text: &str) -> Story {
     let ensure_frag = |chapters: &mut Vec<Value>, cur: Option<usize>, frag: &mut Option<usize>| {
         if frag.is_none() {
             if let Some(ci) = cur {
+                let ch_name = chapters[ci]["name"].as_str().unwrap_or("").to_string();
                 if let Some(frags) = chapters[ci]
                     .get_mut("fragments")
                     .and_then(|f| f.as_array_mut())
                 {
-                    frags.push(json!({"id": uid(), "name": "main", "blocks": []}));
+                    // fragment id 与 Node 版同款：stableId(FRAGMENT_NS, "章节名::片段名")
+                    // —— 确定 id 是工程引用（choice/call）的锚点，绝不能用 uid()
+                    frags.push(json!({
+                        "id": stable_id(FRAGMENT_NS, &format!("{ch_name}::main")),
+                        "name": "main",
+                        "blocks": []
+                    }));
                     *frag = Some(frags.len() - 1);
                 }
             }
@@ -91,25 +102,40 @@ pub fn parse_story(text: &str) -> Story {
 
         if let Some(name) = line.strip_prefix("## ") {
             if let Some(ci) = cur {
+                let ch_name = chapters[ci]["name"].as_str().unwrap_or("").to_string();
+                let frag_name = name.trim();
                 if let Some(frags) = chapters[ci]
                     .get_mut("fragments")
                     .and_then(|f| f.as_array_mut())
                 {
-                    frags.push(json!({"id": uid(), "name": name.trim(), "blocks": []}));
+                    frags.push(json!({
+                        "id": stable_id(FRAGMENT_NS, &format!("{ch_name}::{frag_name}")),
+                        "name": frag_name,
+                        "blocks": []
+                    }));
                     frag = Some(frags.len() - 1);
                 }
             }
             continue;
         }
         if let Some(name) = line.strip_prefix('#') {
-            chapters.push(json!({"id": uid(), "name": name.trim(), "fragments": []}));
+            let cname = name.trim();
+            chapters.push(json!({
+                "id": stable_id(CHAPTER_NS, cname),
+                "name": cname,
+                "fragments": []
+            }));
             cur = Some(chapters.len() - 1);
             frag = None;
             ensure_frag(&mut chapters, cur, &mut frag);
             continue;
         }
         if cur.is_none() {
-            chapters.push(json!({"id": uid(), "name": "序章", "fragments": []}));
+            chapters.push(json!({
+                "id": stable_id(CHAPTER_NS, "序章"),
+                "name": "序章",
+                "fragments": []
+            }));
             cur = Some(chapters.len() - 1);
             ensure_frag(&mut chapters, cur, &mut frag);
         }
@@ -261,12 +287,12 @@ pub fn parse_story(text: &str) -> Story {
                             .unwrap_or_default();
                             for o in opts.iter_mut() {
                                 let fid = o["fragmentId"].as_str().unwrap_or("").to_string();
-                                if !fid.starts_with("frag-") {
-                                    if let Some((_, real)) =
-                                        frag_id_by_name.iter().find(|(n, _)| *n == fid)
-                                    {
-                                        o["fragmentId"] = json!(real);
-                                    }
+                                // fragment id 已全部确定性（uuid 形状）；按名称查得到就解析，
+                                // 查不到（用户直调写完整 id）保持原值
+                                if let Some((_, real)) =
+                                    frag_id_by_name.iter().find(|(n, _)| *n == fid)
+                                {
+                                    o["fragmentId"] = json!(real);
                                 }
                             }
                             b["props"]["optionsJson"] =
@@ -274,12 +300,9 @@ pub fn parse_story(text: &str) -> Story {
                         }
                         if b["type"] == "callFragment" {
                             let fid = b["props"]["fragmentId"].as_str().unwrap_or("").to_string();
-                            if !fid.starts_with("frag-") {
-                                if let Some((_, real)) =
-                                    frag_id_by_name.iter().find(|(n, _)| *n == fid)
-                                {
-                                    b["props"]["fragmentId"] = json!(real);
-                                }
+                            if let Some((_, real)) = frag_id_by_name.iter().find(|(n, _)| *n == fid)
+                            {
+                                b["props"]["fragmentId"] = json!(real);
                             }
                         }
                     }

@@ -1,5 +1,5 @@
-//! 集成测试：DSL 解析 → 工程写入 → 校验（对齐 Node 版 smoke test）
-use lilyco_letsgal::{init_project, parse_story, validate_project, write_chapters};
+//! 集成测试：DSL 解析 → 工程写入 → 校验（对齐 Node 版语义 + 确定性验收）
+use lilyco_letsgal::{init_project, parse_story, stable_id, validate_project, write_chapters};
 use tempfile::tempdir;
 
 const DEMO_DSL: &str = r#"
@@ -22,6 +22,25 @@ const DEMO_DSL: &str = r#"
 我：我们把医院系统 CLI 化。
 "#;
 
+/// 递归剥掉随机 id 字段（块 id / effectId 与 Node 版一样是随机的，不参与确定性对比）
+fn strip_ids(v: &mut serde_json::Value) {
+    match v {
+        serde_json::Value::Object(m) => {
+            m.remove("id");
+            m.remove("effectId");
+            for child in m.values_mut() {
+                strip_ids(child);
+            }
+        }
+        serde_json::Value::Array(a) => {
+            for child in a {
+                strip_ids(child);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[test]
 fn dsl_parse_and_build() {
     let story = parse_story(DEMO_DSL);
@@ -40,8 +59,9 @@ fn dsl_parse_and_build() {
     assert_eq!(dlg.len(), 1);
     assert_eq!(dlg[0]["props"]["keepCharacter"], false);
 
-    // 终章分支：fragmentId 解析为 frag- id
+    // 终章分支：fragmentId 解析为 qa1 的**确定性** fragment id
     let ch1 = &story.chapters[1];
+    let qa1_id = ch1["fragments"][1]["id"].as_str().unwrap();
     let br = ch1["fragments"][0]["blocks"]
         .as_array()
         .unwrap()
@@ -51,9 +71,11 @@ fn dsl_parse_and_build() {
     let opts: Vec<serde_json::Value> =
         serde_json::from_str(br["props"]["optionsJson"].as_str().unwrap()).unwrap();
     assert_eq!(opts.len(), 2);
-    assert!(opts
-        .iter()
-        .all(|o| o["fragmentId"].as_str().unwrap().starts_with("frag-")));
+    assert_eq!(
+        opts[0]["fragmentId"].as_str().unwrap(),
+        qa1_id,
+        "choice 的目标必须解析为「章节名::片段名」的 stable id"
+    );
 }
 
 #[test]
@@ -79,4 +101,104 @@ fn project_roundtrip() {
         serde_json::from_str(&std::fs::read_to_string(dir.path().join("project.json")).unwrap())
             .unwrap();
     assert_eq!(project["chapterOrder"].as_array().unwrap().len(), 2);
+}
+
+// ---------- 确定性 / Node 对齐验收（任务 #21 ③） ----------
+
+/// 黄金向量由 Node letsgal-ai 同算法（md5("{ns}:{name}")，lib/project.js 的
+/// CHAPTER_NS/FRAGMENT_NS 常量）独立计算。注意：D:/Code/gal/groundtruth 的 id
+/// 是随机 uuid 时代的旧基准，**不作**逐字 id 对比；对齐基准 = Node 现源码。
+#[test]
+fn stable_id_matches_node_reference_vectors() {
+    assert_eq!(
+        stable_id("letsgal-ai:chapter", "序章"),
+        "6ec1ac53-32a7-4e3d-8b52-bbef1c58b298"
+    );
+    assert_eq!(
+        stable_id("letsgal-ai:fragment", "序章::main"),
+        "beaaf751-9574-44e2-8203-a144181c6c21"
+    );
+    assert_eq!(
+        stable_id("letsgal-ai:character", "穗"),
+        "c473a4d4-645a-4e41-8000-71612d877cb2"
+    );
+    assert_eq!(
+        stable_id("letsgal-ai:scene", "河边草地"),
+        "28296c3b-7869-4330-88e6-462d659ba671"
+    );
+}
+
+/// 同一 DSL 两次解析：chapter/fragment/character/scene 的 id 必须确定
+/// （曾经 chapter/fragment 用 uid() 时间戳随机 —— 跨次构建 id 全漂，
+/// choice/call 的引用锚点也就不稳定），只有块级 id（与 Node 同为随机）除外。
+#[test]
+fn same_dsl_parses_deterministically() {
+    let a = parse_story(DEMO_DSL);
+    let b = parse_story(DEMO_DSL);
+    let mut va = serde_json::to_value(&a).unwrap();
+    let mut vb = serde_json::to_value(&b).unwrap();
+    strip_ids(&mut va);
+    strip_ids(&mut vb);
+    assert_eq!(va, vb, "同输入两次解析，除块 id 外必须逐字一致");
+    // 章节锚点显式对账：id == stable_id(CHAPTER_NS, 章节名)
+    let want = stable_id("letsgal-ai:chapter", "终章");
+    assert_eq!(a.chapters[1]["id"].as_str().unwrap(), want);
+}
+
+/// 真实手稿端到端（任务 #21 ①）：demo.txt 的句子逐字 DSL 化（fixture 是
+/// 真实生产者文件）→ build → validate 零 issues → 两次构建确定性。
+#[test]
+fn demo_story_builds_end_to_end_with_zero_issues() {
+    let dsl = include_str!("fixtures/demo-story.txt");
+    let story = parse_story(dsl);
+    assert_eq!(story.chapters.len(), 2, "序章/清晨");
+    let names: Vec<&str> = story
+        .characters
+        .iter()
+        .filter_map(|c| c["name"].as_str())
+        .collect();
+    for want in ["穗", "心理", "游戏菜单", "广告"] {
+        assert!(
+            names.contains(&want),
+            "手稿角色 `{want}` 应自动注册: {names:?}"
+        );
+    }
+
+    let dir = tempdir().unwrap();
+    init_project(dir.path(), "回忆序章").unwrap();
+    for c in &story.characters {
+        let _ = lilyco_letsgal::upsert_character(dir.path(), c["name"].as_str().unwrap());
+    }
+    for s in &story.scenes {
+        let _ = lilyco_letsgal::upsert_scene(dir.path(), s["name"].as_str().unwrap());
+    }
+    write_chapters(dir.path(), &story.chapters, Some("回忆序章")).unwrap();
+
+    let (issues, warnings) = validate_project(dir.path()).unwrap();
+    assert!(issues.is_empty(), "demo 真实剧本必须零 issues: {issues:?}");
+    assert!(!warnings.is_empty(), "资产未登记应有 warnings");
+
+    // 章节文件可读且 fragment 锚点稳定
+    for ch in &story.chapters {
+        let fname = format!("{}.json", ch["name"].as_str().unwrap());
+        let on_disk: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("chapters").join(fname)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            on_disk["id"].as_str().unwrap(),
+            ch["id"].as_str().unwrap(),
+            "盘上章节 id 与解析树一致"
+        );
+    }
+
+    // 两次构建：除块 id 外逐字一致（同 stable_id_matches_node_reference_vectors 的算法锚点）
+    let again = parse_story(dsl);
+    let (mut va, mut vb) = (
+        serde_json::to_value(&story).unwrap(),
+        serde_json::to_value(&again).unwrap(),
+    );
+    strip_ids(&mut va);
+    strip_ids(&mut vb);
+    assert_eq!(va, vb, "真实手稿两次构建必须确定性");
 }

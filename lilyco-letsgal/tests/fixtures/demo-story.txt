@@ -1,0 +1,28 @@
+; 来源：D:/Code/gal/demo.txt（用户真实手稿，句子逐字保留，仅加 DSL 结构标记）。
+; groundtruth 对齐说明：本 fixture 是任务 #21 ①「真实内容端到端」的生产者文件。
+# 序章
+!scene 河边草地 backgrounds/river-summer.png td=500
+!bgm bgm/夏之风.mp3 vol=40 loop
+旁白：当时间的河流缓缓流向彼方。
+旁白：河边沉睡的少年缓缓睁开双眼。
+旁白：一位短发白长裙轻轻抚摸着少年头。
+旁白：少年枕在少女的膝间。
+穗(微笑): “我们还会再见的，对吧”
+!wait 800
+!curtain close dur=400
+
+# 清晨
+!scene 少年房间 backgrounds/room-morning.png
+!se se/phone-unlock.mp3
+（惊醒过来）
+（望向窗外）
+!curtain open dur=300
+游戏菜单：凌晨6:00
+旁白：8月20日。你的名字是____。
+（打开手机）
+心理：果然还是很想她的说，算了吧。
+（看了看了新的聊天记录，很不错的生活呢）
+广告：QQ 来看看五年前的你的动态吧。
+!wait 600
+!camera zoom=1.05 dur=3000
+!end
