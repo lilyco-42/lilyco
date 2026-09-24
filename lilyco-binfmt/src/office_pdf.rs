@@ -41,7 +41,7 @@ const INFO_KEYS: [(&str, &[u8]); 8] = [
 #[app(
     name = "office-pdf",
     run = "run_office_pdf",
-    about = "Report what a PDF file is made of without decrypting or rendering it. Reads objects by scanning N G obj markers instead of trusting the cross-reference table, then unpacks the second layer that scan alone would miss: objects packed inside object streams (/Type /ObjStm, where the header pairs an object number with an offset relative to /First) and trailer keys that live in a /Type /XRef stream dict in files with no trailer keyword at all - both rules measured against real Word 2013 and qpdf files, not recalled from memory. Gives { path, version, binary_comment, objects, xref, encryption, pages, metadata, tags, fonts, images, features, watch, outline, links, permissions, notes }: page count cross-checked between /Count and the real /Type/Page objects (the one-name match matters: /Pages is a tree node, not a page), per-page MediaBox with the inheritance walk up /Parent (MediaBox and Rotate may be written once on the tree), rotation, contents reference and annotation count, the Info dictionary with PDF string rules (backslash escapes, octal, nested parens, hex strings, FEFF-prefixed UTF-16BE), tagged/PDF-X flags (/Lang, /MarkInfo /Marked, /StructTreeRoot), font inventory (/BaseFont, /Subtype, /Encoding, whether a /ToUnicode map exists, whether the font object was hidden in an object stream), image inventory, and the watch list for what runs by itself: /Encrypt parameters (reported, never decrypted - no password here and none should be), document-level /JavaScript, /Launch and /SubmitForm and /GoToR actions, /AcroForm fields, /EmbeddedFiles attachments, /OpenAction and page /AA triggers. Encrypted files report structure only: strings and streams are ciphertext, so metadata and /Lang come back null with a note rather than as decoded garbage. Object numbers that appear more than once (incremental updates) are counted and the first occurrence wins. With --text it also walks the content streams and returns { order_from_page_tree, chars, chars_no_spaces, lines, pages, text }: pages in /Kids order, glyph codes mapped through each font's /ToUnicode CMap (bfchar plus both bfrange forms - a range written as one number means consecutive code points, written as an array means one per code), and lines rebuilt from positions rather than from stream order, because LibreOffice splits a single Chinese heading across several TJ arrays with large negative kerns between them. Three position rules make the difference between reading that heading and reading its characters shuffled: BT resets the text matrix to identity, glyph advance moves x only (never y), and a TJ number moves the pen the OPPOSITE way (positive left, negative right). It also answers where the file points: outline (the /Outlines tree - /First then /Next, children under /First, each entry with its title, depth, target page object and which page that is in /Kids order, the root self-reported /Count, and the open/closed sign of each /Count), links (every /Subtype /Link annotation split into outbound URI, page-to-page with the resolved page number, and actions that go nowhere such as /Launch - the last kind carries its /S value in `action`, because a bare category cannot tell a launch from a form submit), and permissions (the /Encrypt /P bits, read as the signed integer it is: bits 3-6 always, 9-12 only from R3, otherwise null). Encrypted files still report structure, page numbers and permission bits, because numbers and names are not ciphertext, while titles and URIs come back null. Not provided: form field values, signature validation, the text of encrypted files (streams are ciphertext there), graphics-stream text, and CID fonts' widths, which live in a /W array this reader does not follow - such a font's characters are recognised but its spacing is not."
+    about = "Report what a PDF file is made of without decrypting or rendering it. Reads objects by scanning N G obj markers instead of trusting the cross-reference table, then unpacks the second layer that scan alone would miss: objects packed inside object streams (/Type /ObjStm, where the header pairs an object number with an offset relative to /First) and trailer keys that live in a /Type /XRef stream dict in files with no trailer keyword at all - both rules measured against real Word 2013 and qpdf files, not recalled from memory. Gives { path, version, binary_comment, objects, xref, encryption, pages, metadata, tags, fonts, images, features, watch, outline, links, permissions, notes }: page count cross-checked between /Count and the real /Type/Page objects (the one-name match matters: /Pages is a tree node, not a page), per-page MediaBox with the inheritance walk up /Parent (MediaBox and Rotate may be written once on the tree), rotation, contents reference and annotation count, the Info dictionary with PDF string rules (backslash escapes, octal, nested parens, hex strings, FEFF-prefixed UTF-16BE), tagged/PDF-X flags (/Lang, /MarkInfo /Marked, /StructTreeRoot), font inventory (/BaseFont, /Subtype, /Encoding, whether a /ToUnicode map exists, whether the font object was hidden in an object stream), image inventory, and the watch list for what runs by itself: /Encrypt parameters (reported, never decrypted - no password here and none should be), document-level /JavaScript, /Launch and /SubmitForm and /GoToR actions, /AcroForm fields, /EmbeddedFiles attachments, /OpenAction and page /AA triggers. Encrypted files report structure only: strings and streams are ciphertext, so metadata and /Lang come back null with a note rather than as decoded garbage. Object numbers that appear more than once (incremental updates) are counted and the first occurrence wins. With --text it also walks the content streams and returns { order_from_page_tree, chars, chars_no_spaces, lines, pages, text }: pages in /Kids order, glyph codes mapped through each font's /ToUnicode CMap (bfchar plus both bfrange forms - a range written as one number means consecutive code points, written as an array means one per code), and lines rebuilt from positions rather than from stream order, because LibreOffice splits a single Chinese heading across several TJ arrays with large negative kerns between them. Three position rules make the difference between reading that heading and reading its characters shuffled: BT resets the text matrix to identity, glyph advance moves x only (never y), and a TJ number moves the pen the OPPOSITE way (positive left, negative right). It also answers where the file points: outline (the /Outlines tree - /First then /Next, children under /First, each entry with its title, depth, target page object and which page that is in /Kids order, the root self-reported /Count, and the open/closed sign of each /Count), links (every /Subtype /Link annotation split into outbound URI, page-to-page with the resolved page number, and actions that go nowhere such as /Launch - the last kind carries its /S value in `action`, because a bare category cannot tell a launch from a form submit), and permissions (the /Encrypt /P bits, read as the signed integer it is: bits 3-6 always, 9-12 only from R3, otherwise null). Encrypted files still report structure, page numbers and permission bits, because numbers and names are not ciphertext, while titles and URIs come back null. `form` answers 'what did the file already have filled in': /AcroForm -> /Fields -> /Kids, each field with the /T it wrote itself plus a qualified name joined from the ancestors (that join is ours, the spec defines the period), the effective /FT and /Ff with a boolean saying whether this dictionary wrote them or inherited them from its parent, /V and /DV decoded with the same three PDF-string rules as metadata, /Opt in the written order, /MaxLen, and kids / parent / depth so a hierarchy is visible without flattening it. value_present is a separate key because 'wrote an empty /V' and 'wrote no /V' are different claims. Appearance streams are not computed and signatures are not validated - a /FT Sig or a /Sig key is reported as such and nothing more, the same line this reader holds for encrypted files. Caveat kept honest: so far a real producer has only been measured with single-level fields that write their own /FT and no /Ff, so the inheritance counters are 0 on every fixture here and the parent-walk path is exercised as 'counted, none found' rather than verified.  Not provided: signature validation, the text of encrypted files (streams are ciphertext there), graphics-stream text, and CID fonts' widths, which live in a /W array this reader does not follow - such a font's characters are recognised but its spacing is not."
 )]
 pub struct OfficePdf {
     /// PDF 文件
@@ -164,6 +164,56 @@ fn link_report(doc: &Pdf, limit: usize) -> Value {
             "uri": one.uri,
             "via": one.form,
             "action": one.action,
+        })).collect::<Vec<Value>>(),
+    })
+}
+
+/// 表单那一份账：`/AcroForm` 那一层与逐条字段。值只交文件写的，不替它算 appearance，
+/// 也不校验签名 —— 签名那一条只认「`/FT` 是 Sig」与「`/Sig` 这个键在」两件事
+fn form_report(doc: &Pdf, limit: usize) -> Value {
+    let (form, fields) = doc.form();
+    let named = fields.iter().filter(|one| one.value_present).count();
+    json!({
+        "present": form.present,
+        "object": form.object,
+        "roots": form.roots,
+        "total": form.total,
+        "listed": form.total.min(limit),
+        "with_v": named,
+        "default_appearance": form.default_appearance,
+        "need_appearances": form.need_appearances,
+        "sig_flags": form.sig_flags,
+        "xfa": form.xfa,
+        "by_type": {
+            "text": fields.iter().filter(|one| one.field_type.as_deref() == Some("Tx")).count(),
+            "button": fields.iter().filter(|one| one.field_type.as_deref() == Some("Btn")).count(),
+            "choice": fields.iter().filter(|one| one.field_type.as_deref() == Some("Ch")).count(),
+            "signature": fields.iter().filter(|one| one.field_type.as_deref() == Some("Sig")).count(),
+            "unknown": fields.iter().filter(|one| one.field_type.is_none()).count(),
+        },
+        "inherited_type": fields.iter().filter(|one| one.type_inherited).count(),
+        "inherited_flags": fields.iter().filter(|one| one.flags_inherited).count(),
+        "widgets": fields.iter().filter(|one| one.widget).count(),
+        "deepest": fields.iter().map(|one| one.depth).max().unwrap_or(0),
+        "items": fields.iter().take(limit).map(|one| json!({
+            "object": one.object,
+            "depth": one.depth,
+            "order": one.order,
+            "partial": one.partial,
+            "qualified": one.qualified,
+            "type": one.field_type,
+            "type_inherited": one.type_inherited,
+            "value": one.value,
+            "value_present": one.value_present,
+            "default": one.default_value,
+            "flags": one.flags,
+            "flags_inherited": one.flags_inherited,
+            "max_len": one.max_len,
+            "options": one.options,
+            "kids": one.kids,
+            "parent": one.parent,
+            "widget": one.widget,
+            "subtype": one.subtype,
         })).collect::<Vec<Value>>(),
     })
 }
@@ -441,6 +491,7 @@ fn run_office_pdf(app: &OfficePdf, ctx: &Context) -> Result<Value, AppError> {
         "outline": outline_report(&doc, limit),
         "links": link_report(&doc, limit),
         "permissions": permission_report(&doc),
+        "form": form_report(&doc, limit),
         "text": text_report,
         "notes": notes,
         "elapsed_ms": start.elapsed().as_millis() as u64,
@@ -848,5 +899,61 @@ mod tests {
     fn text_is_absent_until_asked_for() {
         let out = run("notes.pdf");
         assert!(matches!(out.get("text"), Some(one) if one.is_null()));
+    }
+
+    /// 表单那一份账：`/AcroForm` → `/Fields` → `/Kids`，值只交文件写了的
+    ///
+    /// 期望值全部来自 `lyco_pdf.py` 的 `form_of`（同一份件两边各读一遍）
+    #[test]
+    fn the_form_ledger_reports_only_what_the_file_wrote() {
+        let out = run("risk.pdf");
+        let form = &out["form"];
+        assert_eq!(form["present"], json!(true), "{form}");
+        assert_eq!(form["object"], json!(12), "AcroForm 自己住在 12 号对象");
+        assert_eq!(form["roots"], json!(1), "/Fields 数组顶层一条");
+        assert_eq!(form["total"], json!(1));
+        assert_eq!(form["with_v"], json!(1), "这一条自己写了 /V");
+        assert_eq!(form["by_type"]["text"], json!(1));
+        assert_eq!(form["by_type"]["button"], json!(0));
+        assert_eq!(
+            form["inherited_type"],
+            json!(0),
+            "这一条自己写了 /FT，没走继承"
+        );
+        assert_eq!(form["default_appearance"], Value::Null, "/DA 没写就是没写");
+        assert_eq!(
+            form["need_appearances"],
+            Value::Null,
+            "键不在，不替它填 false"
+        );
+        assert_eq!(form["sig_flags"], Value::Null);
+        assert_eq!(form["xfa"], json!(false));
+        let one = &form["items"][0];
+        assert_eq!(one["object"], json!(15));
+        assert_eq!(one["partial"], "name");
+        assert_eq!(one["qualified"], "name", "只有一层时全名就是那一截");
+        assert_eq!(one["type"], "Tx");
+        assert_eq!(one["value"], "x");
+        assert_eq!(one["value_present"], json!(true));
+        assert_eq!(one["default"], Value::Null);
+        assert_eq!(one["flags"], Value::Null, "这一条没写 /Ff");
+        assert_eq!(one["options"], json!([]));
+        assert_eq!(one["widget"], json!(true));
+        assert_eq!(one["kids"], json!(0));
+        assert_eq!(one["parent"], Value::Null);
+
+        // 没有表单的件：present 是 false、几本账都是 0 —— 不是整个没有这个键
+        for name in [
+            "notes.pdf",
+            "deck.pdf",
+            "perms.pdf",
+            "locked.pdf",
+            "objstm.pdf",
+        ] {
+            let quiet = run(name);
+            assert_eq!(quiet["form"]["present"], json!(false), "{name}");
+            assert_eq!(quiet["form"]["total"], json!(0), "{name}");
+            assert_eq!(quiet["form"]["with_v"], json!(0), "{name}");
+        }
     }
 }

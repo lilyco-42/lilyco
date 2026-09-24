@@ -2914,6 +2914,34 @@ def main() -> int:
     risk = lbin("office-pdf", fixture("risk.pdf"))
     check("risk.pdf 的 Launch 动作进了 watch",
           [one["kind"] for one in risk.get("watch", [])].count("launch-action"), 1)
+    # 表单那一份账：`/AcroForm` → `/Fields` → `/Kids`。值只交文件写的，不算 appearance、
+    # 不验签名（签名那一件与「加密件不解密」同一个说法：只认 `/FT` 是 Sig 与 `/Sig` 在不在）
+    for name in ("notes.pdf", "deck.pdf", "objstm.pdf", "perms.pdf", "locked.pdf", "risk.pdf"):
+        check("%s 表单那份账与读者一致" % name,
+              lbin("office-pdf", fixture(name)).get("form"),
+              files[name]["pdf"].get("form"))
+    rform = risk.get("form") or {}
+    check(
+        "risk.pdf 那一条字段：名字、类型与值都按写的交",
+        [rform.get("present"), rform.get("object"), rform.get("roots"), rform.get("total"),
+         rform.get("with_v"), (rform.get("by_type") or {}).get("text"), rform.get("widgets"),
+         dig(risk, "form.items[0].partial"), dig(risk, "form.items[0].qualified"),
+         dig(risk, "form.items[0].type"), dig(risk, "form.items[0].value"),
+         dig(risk, "form.items[0].value_present"), dig(risk, "form.items[0].widget")],
+        [True, 12, 1, 1, 1, 1, 1, "name", "name", "Tx", "x", True, True],
+    )
+    check(
+        "没表单的三份：present 是 false，不是整个没有这个键",
+        [(lbin("office-pdf", fixture(name)).get("form") or {}).get("present")
+         for name in ("notes.pdf", "deck.pdf", "perms.pdf")],
+        [False, False, False],
+    )
+    check(
+        "没表单的那几份：一条也没数出来",
+        [(lbin("office-pdf", fixture(name)).get("form") or {}).get("total")
+         for name in ("notes.pdf", "deck.pdf", "perms.pdf", "locked.pdf", "objstm.pdf")],
+        [0, 0, 0, 0, 0],
+    )
 
     # ── 6b) PDF 的正文：两套读者逐页对字 ───────────────────────────
     # 这一层的价值全在「顺序对」上：字都认得、顺序排错，输出看着像读通了其实没有

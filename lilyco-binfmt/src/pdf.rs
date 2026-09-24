@@ -424,6 +424,251 @@ pub struct Pdf {
     pub notes: Vec<String>,
 }
 
+/// 一个表单字段：`/AcroForm` → `/Fields` 那条链上的一项（父与子都算一项）。
+///
+/// 规范让 `/FT`、`/Ff`、`/DR`、`/AA` 沿 `/Parent` 继承，所以「这一条自己写的」与
+/// 「从父上来的」是两件事：`type_inherited` / `flags_inherited` 各自说清是哪一种，
+/// 而值不继承 —— `/V` 只交这一条自己写了的（没写就是 null，`value_present` 说键在不在）
+#[derive(Default)]
+pub struct Field {
+    /// 这个字段对象自己的号
+    pub object: u64,
+    /// 第几层：`/Fields` 直接指的那一层是 0
+    pub depth: usize,
+    /// 文件里出现的顺序（从 0 起）
+    pub order: usize,
+    /// `/T`：这一条自己写的那一截名字（不是全名）
+    pub partial: Option<String>,
+    /// 沿 `/Parent` 往上拼出来的全名（点号分隔是规范定的拼法，不是文件写的整串）
+    pub qualified: Option<String>,
+    /// 生效的 `/FT`（本条没写就取父上的）
+    pub field_type: Option<String>,
+    /// `field_type` 是从父上继承来的
+    pub type_inherited: bool,
+    /// `/V`：本条自己写的值（解码规则与文档字符串同一套）
+    pub value: Option<String>,
+    /// `/V` 这个键在不在（写了空串与整个不写是两件事）
+    pub value_present: bool,
+    /// `/DV`：默认值
+    pub default_value: Option<String>,
+    /// 生效的 `/Ff`（整数原样，位含义另说）
+    pub flags: Option<i64>,
+    /// `flags` 是从父上继承来的
+    pub flags_inherited: bool,
+    /// `/MaxLen`
+    pub max_len: Option<i64>,
+    /// `/Opt`： choice 的候选串，按写的顺序
+    pub options: Vec<String>,
+    /// `/Kids` 里几个引用（字段树与注记共用这一条数组）
+    pub kids: usize,
+    /// `/Parent` 指的号
+    pub parent: Option<u64>,
+    /// `/Subtype /Widget`
+    pub widget: bool,
+    /// `/Subtype` 交出来路（Widget 之外是什么也看得见）
+    pub subtype: Option<String>,
+}
+
+/// `/AcroForm` 那一层的账
+#[derive(Default)]
+pub struct Form {
+    /// Catalog 里有没有 `/AcroForm` 这一项
+    pub present: bool,
+    /// 那个对象的号
+    pub object: Option<u64>,
+    /// `/Fields` 数组里数出来的顶层条数
+    pub roots: usize,
+    /// 连子字段一共几条（走 `/Kids`，带环保护）
+    pub total: usize,
+    /// `/DA` 默认外观那一串（原文，不换行）
+    pub default_appearance: Option<String>,
+    /// `/NeedAppearances`：写了才交，没写是 null 而不是 false
+    pub need_appearances: Option<bool>,
+    /// `/SigFlags` 原值
+    pub sig_flags: Option<i64>,
+    /// 有没有 `/XFA`（PDF 的表单可以完全活在 XFA 里，那一版这里不解）
+    pub xfa: bool,
+}
+
+impl Pdf {
+    /// 走 `/AcroForm` → `/Fields` → `/Kids`，交回根上那份账与逐条字段
+    ///
+    /// 只从 `/Fields` 走：同一个 `/Kids` 数组里的注记也挂在页的 `/Annots` 上，
+    /// 两边都走会把一条数两次
+    pub fn form(&self) -> (Form, Vec<Field>) {
+        let mut out: Vec<Field> = Vec::new();
+        let Some(catalog) = self.root_id().and_then(|id| self.object(id)) else {
+            return (Form::default(), out);
+        };
+        let Some(acro_id) = ref_after(&catalog.dict, b"/AcroForm") else {
+            return (Form::default(), out);
+        };
+        let Some(acro) = self.object(acro_id) else {
+            return (
+                Form {
+                    present: true,
+                    object: Some(acro_id),
+                    ..Form::default()
+                },
+                out,
+            );
+        };
+        let dict = &acro.dict;
+        let need = if key_present(dict, b"/NeedAppearances") {
+            match key_positions(dict, b"/NeedAppearances").into_iter().next() {
+                Some(at) => {
+                    let rest = &dict[skip_spaces(dict, at + b"/NeedAppearances".len())..];
+                    if rest.starts_with(b"true") {
+                        Some(true)
+                    } else if rest.starts_with(b"false") {
+                        Some(false)
+                    } else {
+                        // `true` 是关键字不是字符串；这个键后面跟的不是这两个词
+                        // （例如又指到一个对象）时判不出来，交 null 而不是猜一个
+                        None
+                    }
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+        let mut form = Form {
+            present: true,
+            object: Some(acro_id),
+            roots: refs_of(dict, b"/Fields").len(),
+            total: 0,
+            default_appearance: one_string(dict, b"/DA"),
+            need_appearances: need,
+            sig_flags: int_after(dict, b"/SigFlags"),
+            xfa: key_present(dict, b"/XFA"),
+        };
+        let mut seen: BTreeSet<u64> = BTreeSet::new();
+        for id in refs_of(dict, b"/Fields") {
+            self.field_walk(id, 0, &mut seen, &mut out);
+        }
+        form.total = out.len();
+        (form, out)
+    }
+
+    /// 一个字段对象与它的子树；`/Kids` 里指回来的东西一律当字段记（规范如此），
+    /// 环（父指子、子又指父）靠 `seen` 挡住
+    fn field_walk(&self, id: u64, depth: usize, seen: &mut BTreeSet<u64>, out: &mut Vec<Field>) {
+        if !seen.insert(id) {
+            return;
+        }
+        let Some(one) = self.object(id) else {
+            return;
+        };
+        let dict = &one.dict;
+        let parent = ref_after(dict, b"/Parent");
+        let mut names: Vec<String> = Vec::new();
+        if let Some(text) = one_string(dict, b"/T") {
+            names.push(text);
+        }
+        let mut cursor = parent;
+        let mut hops = 0usize;
+        while let Some(at) = cursor {
+            if hops > 16 {
+                break;
+            }
+            hops += 1;
+            let text = self
+                .object(at)
+                .and_then(|had| one_string(&had.dict, b"/T"))
+                .unwrap_or_default();
+            if !text.is_empty() {
+                names.push(text);
+            }
+            cursor = self
+                .object(at)
+                .and_then(|had| ref_after(&had.dict, b"/Parent"));
+        }
+        names.reverse();
+        let qualified = if names.is_empty() {
+            None
+        } else {
+            Some(names.join("."))
+        };
+        let ft_here = name_after(dict, b"/FT");
+        let mut field_type = ft_here.clone();
+        let mut type_inherited = false;
+        if field_type.is_none() {
+            field_type = self.inherited_name(parent, b"/FT", hops);
+            type_inherited = field_type.is_some();
+        }
+        let flags_here = int_after(dict, b"/Ff");
+        let mut flags = flags_here;
+        let mut flags_inherited = false;
+        if flags.is_none() {
+            flags = self.inherited_int(parent, b"/Ff", hops);
+            flags_inherited = flags.is_some();
+        }
+        out.push(Field {
+            object: id,
+            depth,
+            order: out.len(),
+            partial: one_string(dict, b"/T"),
+            qualified,
+            field_type,
+            type_inherited,
+            value: one_string(dict, b"/V"),
+            value_present: key_present(dict, b"/V"),
+            default_value: one_string(dict, b"/DV"),
+            flags,
+            flags_inherited,
+            max_len: int_after(dict, b"/MaxLen"),
+            options: strings_of(dict, b"/Opt")
+                .iter()
+                .map(|raw| decode_text(raw))
+                .collect(),
+            kids: refs_of(dict, b"/Kids").len(),
+            parent,
+            widget: name_after(dict, b"/Subtype").as_deref() == Some("Widget"),
+            subtype: name_after(dict, b"/Subtype"),
+        });
+        for kid in refs_of(dict, b"/Kids") {
+            self.field_walk(kid, depth + 1, seen, out);
+        }
+    }
+
+    /// 沿 `/Parent` 往上找第一个写了这个名字键的父
+    fn inherited_name(&self, parent: Option<u64>, key: &[u8], hops: usize) -> Option<String> {
+        let mut cursor = parent;
+        let mut used = 0usize;
+        while let Some(at) = cursor {
+            if used > hops {
+                return None;
+            }
+            used += 1;
+            let had = self.object(at)?;
+            if let Some(one) = name_after(&had.dict, key) {
+                return Some(one);
+            }
+            cursor = ref_after(&had.dict, b"/Parent");
+        }
+        None
+    }
+
+    /// 同一条规则，换成整数键
+    fn inherited_int(&self, parent: Option<u64>, key: &[u8], hops: usize) -> Option<i64> {
+        let mut cursor = parent;
+        let mut used = 0usize;
+        while let Some(at) = cursor {
+            if used > hops {
+                return None;
+            }
+            used += 1;
+            let had = self.object(at)?;
+            if let Some(one) = int_after(&had.dict, key) {
+                return Some(one);
+            }
+            cursor = ref_after(&had.dict, b"/Parent");
+        }
+        None
+    }
+}
+
 impl Pdf {
     pub fn read(data: &[u8]) -> Pdf {
         let mut notes: Vec<String> = Vec::new();

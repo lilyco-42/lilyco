@@ -422,6 +422,244 @@ def pdf_facts(data: bytes) -> dict:
     }
 
 
+def key_positions(body: bytes, key: bytes) -> list[int]:
+    """整个名字都要匹配上才算：`/Page` 不能算 `/Pages`（与 Rust 的 key_positions 同一条）"""
+    out = []
+    pat = re.compile(re.escape(key) + rb"(?![A-Za-z0-9._+\-])")
+    pos = 0
+    while True:
+        m = pat.search(body, pos)
+        if not m:
+            return out
+        out.append(m.start())
+        pos = m.end()
+
+
+def skip_spaces(body: bytes, at: int) -> int:
+    while at < len(body) and body[at : at + 1] in (b" ", b"\t", b"\r", b"\n", b"\x00", b"\x0c"):
+        at += 1
+    return at
+
+
+def refs_in(raw: bytes) -> list[int]:
+    return [int(m.group(1)) for m in re.finditer(rb"(\d+)\s+\d+\s+R", raw)]
+
+
+def ref_of(body: bytes, key: bytes) -> int | None:
+    """`/Key 12 0 R` 里的对象号"""
+    for at in key_positions(body, key):
+        m = re.match(rb"\s*(\d+)\s+\d+\s+R", body[at + len(key) :])
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def refs_of(body: bytes, key: bytes) -> list[int]:
+    """`/Key[a 0 R b 0 R]` 与 `/Key N G R` 两种写法都收（与 Rust 同一条）"""
+    out: list[int] = []
+    for at in key_positions(body, key):
+        from_ = skip_spaces(body, at + len(key))
+        if body[from_ : from_ + 1] == b"[":
+            stop = body.find(b"]", from_)
+            out.extend(refs_in(body[from_ + 1 : stop if stop > 0 else len(body)]))
+            continue
+        m = re.match(rb"\s*(\d+)\s+\d+\s+R", body[at + len(key) :])
+        if m:
+            out.append(int(m.group(1)))
+    return out
+
+
+def keyword_after(body: bytes, key: bytes) -> bool | None:
+    """`/NeedAppearances true` 那种关键字：写了才交布尔，写了别的东西交 None"""
+    for at in key_positions(body, key):
+        rest = body[skip_spaces(body, at + len(key)) :]
+        if rest.startswith(b"true"):
+            return True
+        if rest.startswith(b"false"):
+            return False
+        return None
+    return None
+
+
+def one_str(body: bytes, key: bytes) -> str | None:
+    """这个键的第一个字符串值，按 PDF 字符串那三件事解（与 Rust 的 one_string 同一条）"""
+    got = strings_of(body, key)
+    return decode_pdf_text(got[0]) if got else None
+
+
+def form_of(by_id: dict[int, bytes]) -> tuple[dict, list]:
+    """`/AcroForm` → `/Fields` → `/Kids` 那一份账（只从 /Fields 走，避免与 /Annots 数两遍）"""
+    empty = {
+        "present": False,
+        "object": None,
+        "roots": 0,
+        "total": 0,
+        "listed": 0,
+        "with_v": 0,
+        "default_appearance": None,
+        "need_appearances": None,
+        "sig_flags": None,
+        "xfa": False,
+        "by_type": {"text": 0, "button": 0, "choice": 0, "signature": 0, "unknown": 0},
+        "inherited_type": 0,
+        "inherited_flags": 0,
+        "widgets": 0,
+        "deepest": 0,
+        "items": [],
+    }
+    root = None
+    for num, body in sorted(by_id.items()):
+        if b"/XRef" in body:
+            root = ref_of(body, b"/Root")
+            if root is not None:
+                break
+    catalog_body = None
+    if root is not None:
+        catalog_body = by_id.get(root)
+    else:
+        for _num, body in sorted(by_id.items()):
+            if b"/Catalog" in dict_head(body):
+                catalog_body = body
+                break
+    if catalog_body is None or not key_positions(catalog_body, b"/AcroForm"):
+        return empty, []
+    acro = ref_of(catalog_body, b"/AcroForm")
+    if acro is None:
+        return empty, []
+    head = by_id.get(acro)
+    if head is None:
+        one = dict(empty)
+        one["present"] = True
+        one["object"] = acro
+        return one, []
+    fields: list = []
+    seen: set[int] = set()
+
+    def inherited(kind: str, parent: int | None, key: bytes, hops: int):
+        cursor, used = parent, 0
+        while cursor is not None and used <= hops:
+            used += 1
+            body = by_id.get(cursor)
+            if body is None:
+                return None
+            if kind == "name":
+                m = re.search(re.escape(key) + rb"\s*/([A-Za-z0-9._+\-]+)", body)
+                if m:
+                    return m.group(1).decode("latin-1")
+            else:
+                got = number(body, key)
+                if got is not None:
+                    return got
+            cursor = ref_of(body, b"/Parent")
+        return None
+
+    def walk(num: int, depth: int) -> None:
+        if num in seen:
+            return
+        seen.add(num)
+        body = by_id.get(num)
+        if body is None:
+            return
+        names: list[str] = []
+        own = one_str(body, b"/T")
+        if own:
+            names.append(own)
+        parent = ref_of(body, b"/Parent")
+        hops, cursor = 0, parent
+        while cursor is not None and hops <= 16:
+            hops += 1
+            had = by_id.get(cursor)
+            if had is None:
+                break
+            text = one_str(had, b"/T") or ""
+            if text:
+                names.append(text)
+            cursor = ref_of(had, b"/Parent")
+        names.reverse()
+        ft_here = name_of(body, b"/FT") or None
+        ft, ft_inherited = ft_here, False
+        if ft is None:
+            ft = inherited("name", parent, b"/FT", hops)
+            ft_inherited = ft is not None
+        flags_here = number(body, b"/Ff")
+        flags, flags_inherited = flags_here, False
+        if flags is None:
+            flags = inherited("int", parent, b"/Ff", hops)
+            flags_inherited = flags is not None
+        subtype = name_of(body, b"/Subtype") or None
+        fields.append(
+            {
+                "object": num,
+                "depth": depth,
+                "order": len(fields),
+                "partial": own,
+                "qualified": ".".join(names) if names else None,
+                "type": ft,
+                "type_inherited": ft_inherited,
+                "value": one_str(body, b"/V"),
+                "value_present": bool(key_positions(body, b"/V")),
+                "default": one_str(body, b"/DV"),
+                "flags": flags,
+                "flags_inherited": flags_inherited,
+                "max_len": number(body, b"/MaxLen"),
+                "options": [decode_pdf_text(one) for one in strings_of(body, b"/Opt")],
+                "kids": len(refs_of(body, b"/Kids")),
+                "parent": parent,
+                "widget": subtype == "Widget",
+                "subtype": subtype,
+            }
+        )
+        for kid in refs_of(body, b"/Kids"):
+            walk(kid, depth + 1)
+
+    for top in refs_of(head, b"/Fields"):
+        walk(top, 0)
+    kinds = {"Tx": 0, "Btn": 0, "Ch": 0, "Sig": 0, "none": 0}
+    for one in fields:
+        if one["type"] in kinds:
+            kinds[one["type"]] += 1
+        else:
+            kinds["none"] += 1
+    info = dict(empty)
+    info.update(
+        {
+            "present": True,
+            "object": acro,
+            "roots": len(refs_of(head, b"/Fields")),
+            "total": len(fields),
+            "listed": len(fields),
+            "with_v": sum(1 for one in fields if one["value_present"]),
+            "default_appearance": one_str(head, b"/DA"),
+            "need_appearances": keyword_after(head, b"/NeedAppearances"),
+            "sig_flags": number(head, b"/SigFlags"),
+            "xfa": bool(key_positions(head, b"/XFA")),
+            "by_type": {
+                "text": kinds["Tx"],
+                "button": kinds["Btn"],
+                "choice": kinds["Ch"],
+                "signature": kinds["Sig"],
+                "unknown": kinds["none"],
+            },
+            "inherited_type": sum(1 for one in fields if one["type_inherited"]),
+            "inherited_flags": sum(1 for one in fields if one["flags_inherited"]),
+            "widgets": sum(1 for one in fields if one["widget"]),
+            "deepest": max([one["depth"] for one in fields], default=0),
+            "items": fields,
+        }
+    )
+    return info, fields
+
+
+def form_facts(data: bytes) -> dict:
+    """`/AcroForm` 那一份账的入口：对象两层都扫（对象流里的字段也算），再走 `/Fields`"""
+    plain, duplicates = scan_objects(data)
+    inner, streams = unpack_object_streams(data, plain)
+    by_id = dict(plain)
+    for num, body in inner.items():
+        by_id.setdefault(num, body)
+    return form_of(by_id)[0]
+
+
 def _tokens(raw: bytes):
     """内容流的记号流：数字、`/名字`、`(串)`、`<十六进制>`、`[` `]`、`<<` `>>`、操作符
 
