@@ -29,7 +29,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-slide",
     run = "run_office_slide",
-    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP answers with its own ladder: pages are draw:page (name on draw:name), the title comes from the frame whose presentation:class is title, speaker notes are the presentation:class=notes frame inside presentation:notes - the page-number placeholder sitting next to it holds the literal sample text <编号> and is never reported as slide content - and the page size is resolved through draw:master-page-name to styles.xml's style:master-page and then its style:page-layout. A file may name a presentation page layout (presentation-page-layout-name) without carrying any definition for it, which this command reports instead of inventing one. Legacy .ppt is a PowerPoint 97 record tree rather than a package: it reports the record / container / text-atom counts and one entry per slide, because containers of recType 0x03EE occur exactly one per slide and their subtrees hold that slide's text atoms - a correspondence this reader measured against the very same document's .pptx form (count, order, and every line), not a name it copied from the spec, which is why the entries carry record offsets and not spec names. Text that belongs to no such container (master and layout placeholder wording) is counted but not attributed to a page. A slide's charts are read from the page's own relationships (only entries whose Type ends in `chart`), never by listing ppt/charts/: LibreOffice drops style and colors parts into that same directory, so counting files there would report six charts where the page carries two. Each chart reports its part, title, whether any value was cached, and per plot group the kind (barChart / pieChart ...), the direct children's val attributes as written, the axis ids kept apart (each producer numbers them differently, and python-pptx even writes negative ones) and one entry per series with the reference string and the cached points. The reference strings are NOT comparable across producers here: python-pptx writes the real hop into the chart's own embedded workbook (`Sheet1!$B$1`), while LibreOffice's pptx export puts literal labels in the same place (`label 0`, `categories`, `0`) - the cached numbers survive that rewrite unchanged, which is why both are reported instead of a single reconciled answer. Two counters keep runs and paragraphs apart: paragraph_total counts a:p inside p:sp, text_runs counts a:t, and the same deck from the two producers reads 3/1 paragraphs with 3 versus 5 runs - joining runs into paragraph text is what makes the wording comparable at all. The slide size's own type attribute is reported only when written: python-pptx says screen4x3, LibreOffice omits it for the identical cx/cy, and it is left null rather than being called custom. ODF answers the same question its own way: a `draw:frame` holds a `draw:object` whose `xlink:href` names an `Object N/` directory - the notes frame holds no such thing, so it is not a chart - and there the type sits on each `chart:series` (`chart:bar`, and `chart:circle` for a pie) rather than on an outer plot group, points are self-stated with `chart:repeated`, and a range can name the chart's own `local-table` (`local-table.$B$2:.$B$3`) instead of the deck's data, so those strings go over as written. Frame names count the notes frame too, which is why a page's first chart can be called Chart 2. Legacy .ppt keeps charts inside the record tree and is not read. Per pptx slide the tables are a ledger of their own (`table_list`): the `a:tblPr` attributes as written next to whether that element exists at all (python-pptx writes firstRow/bandRow plus an `a:tableStyleId`, while LibreOffice rewrites the same table with an EMPTY tblPr - present, saying nothing), the grid columns with their EMU width as written plus its 0.01mm reading, each row's h the same way, and every cell with its a:tc attributes, its a:tcPr attributes and child element names, the a:bodyPr attributes kept separately because LibreOffice writes the cell margins a second time in there, the paragraph text, and how many paragraphs and runs it holds. Merging is a third convention in this family and the reason three counters exist: the covered cell STAYS in the file (marked hMerge or vMerge, with empty text) while the origin carries gridSpan / rowSpan, so one row of a three-column table holds 3 cells whose spans add up to 4 - cells, spans and grid columns go out side by side instead of being reconciled. Row heights do not survive the rewrite either: the same unspecified row is 609600 EMU in one file and 609480 in the other, and the .odp written in between says 1.693cm - all three land on 1693 in 0.01mm, which is what makes the EMU conversion something a reader can check rather than take on trust. ODP keeps page tables as table:table inside a draw:frame, and the frame is the only place that names one: measured on deck-tables.odp the table element itself writes NO attribute at all while the frame carries name, x, y, width and height (17.779cm - the same grid the two pptx files write as 6400800 EMU), so the odp entry reports the frame's attributes, the table's own (empty here) attribute map, and the very same size ledger .ods uses, because a page table and a spreadsheet table are the same element and their widths again sit one hop away in the column styles. Merging is the third spelling of the three: the covered cell gets its own covered-table-cell element while the origin says number-columns-spanned / number-rows-spanned. A cell's value type is NOT guessed: Impress writes office:value-type on none of the nine cell elements of deck-tables.odp, seven of which hold text, so every odp cell comes back with kind null. The same rule now covers .ods cells, where the two readers had been guessing differently - one from whether the cell had text, one always calling an unwritten type "empty" - and only agreed because every .ods cell that reaches the ledger does write the attribute (measured over all six files). Not read for odp: what those cell styles say. A fill, a vertical alignment and four paddings do live in there - but in loext:graphic-properties, LibreOffice's own experimental namespace rather than style:, and the border the same style carries (fo:border) sits on style:paragraph-properties, while the style:table-cell-properties an odt table uses appears in none of the nine table-family styles of deck-tables.odp. Three spellings of one thing and the values are still not read, only the names of the styles the cells point at. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
+    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP answers with its own ladder: pages are draw:page (name on draw:name), the title comes from the frame whose presentation:class is title, speaker notes are the presentation:class=notes frame inside presentation:notes - the page-number placeholder sitting next to it holds the literal sample text <编号> and is never reported as slide content - and the page size is resolved through draw:master-page-name to styles.xml's style:master-page and then its style:page-layout. A file may name a presentation page layout (presentation-page-layout-name) without carrying any definition for it, which this command reports instead of inventing one. Legacy .ppt is a PowerPoint 97 record tree rather than a package: it reports the record / container / text-atom counts and one entry per slide, because containers of recType 0x03EE occur exactly one per slide and their subtrees hold that slide's text atoms - a correspondence this reader measured against the very same document's .pptx form (count, order, and every line), not a name it copied from the spec, which is why the entries carry record offsets and not spec names. Text that belongs to no such container (master and layout placeholder wording) is counted but not attributed to a page. A slide's charts are read from the page's own relationships (only entries whose Type ends in `chart`), never by listing ppt/charts/: LibreOffice drops style and colors parts into that same directory, so counting files there would report six charts where the page carries two. Each chart reports its part, title, whether any value was cached, and per plot group the kind (barChart / pieChart ...), the direct children's val attributes as written, the axis ids kept apart (each producer numbers them differently, and python-pptx even writes negative ones) and one entry per series with the reference string and the cached points. The reference strings are NOT comparable across producers here: python-pptx writes the real hop into the chart's own embedded workbook (`Sheet1!$B$1`), while LibreOffice's pptx export puts literal labels in the same place (`label 0`, `categories`, `0`) - the cached numbers survive that rewrite unchanged, which is why both are reported instead of a single reconciled answer. Two counters keep runs and paragraphs apart: paragraph_total counts a:p inside p:sp, text_runs counts a:t, and the same deck from the two producers reads 3/1 paragraphs with 3 versus 5 runs - joining runs into paragraph text is what makes the wording comparable at all. The slide size's own type attribute is reported only when written: python-pptx says screen4x3, LibreOffice omits it for the identical cx/cy, and it is left null rather than being called custom. ODF answers the same question its own way: a `draw:frame` holds a `draw:object` whose `xlink:href` names an `Object N/` directory - the notes frame holds no such thing, so it is not a chart - and there the type sits on each `chart:series` (`chart:bar`, and `chart:circle` for a pie) rather than on an outer plot group, points are self-stated with `chart:repeated`, and a range can name the chart's own `local-table` (`local-table.$B$2:.$B$3`) instead of the deck's data, so those strings go over as written. Frame names count the notes frame too, which is why a page's first chart can be called Chart 2. Legacy .ppt keeps charts inside the record tree and is not read. Per pptx slide the tables are a ledger of their own (`table_list`): the `a:tblPr` attributes as written next to whether that element exists at all (python-pptx writes firstRow/bandRow plus an `a:tableStyleId`, while LibreOffice rewrites the same table with an EMPTY tblPr - present, saying nothing), the grid columns with their EMU width as written plus its 0.01mm reading, each row's h the same way, and every cell with its a:tc attributes, its a:tcPr attributes and child element names, the a:bodyPr attributes kept separately because LibreOffice writes the cell margins a second time in there, the paragraph text, and how many paragraphs and runs it holds. Merging is a third convention in this family and the reason three counters exist: the covered cell STAYS in the file (marked hMerge or vMerge, with empty text) while the origin carries gridSpan / rowSpan, so one row of a three-column table holds 3 cells whose spans add up to 4 - cells, spans and grid columns go out side by side instead of being reconciled. Row heights do not survive the rewrite either: the same unspecified row is 609600 EMU in one file and 609480 in the other, and the .odp written in between says 1.693cm - all three land on 1693 in 0.01mm, which is what makes the EMU conversion something a reader can check rather than take on trust. ODP keeps page tables as table:table inside a draw:frame, and the frame is the only place that names one: measured on deck-tables.odp the table element itself writes NO attribute at all while the frame carries name, x, y, width and height (17.779cm - the same grid the two pptx files write as 6400800 EMU), so the odp entry reports the frame's attributes, the table's own (empty here) attribute map, and the very same size ledger .ods uses, because a page table and a spreadsheet table are the same element and their widths again sit one hop away in the column styles. Merging is the third spelling of the three: the covered cell gets its own covered-table-cell element while the origin says number-columns-spanned / number-rows-spanned. A cell's value type is NOT guessed: Impress writes office:value-type on none of the nine cell elements of deck-tables.odp, seven of which hold text, so every odp cell comes back with kind null. The same rule now covers .ods cells, where the two readers had been guessing differently - one from whether the cell had text, one always calling an unwritten type "empty" - and only agreed because every .ods cell that reaches the ledger does write the attribute (measured over all six files). A cell's own style is one hop and it is read: style_props resolves the name the cell wrote against the family=table-cell styles of BOTH parts: measured here all five cell styles sit in content.xml and styles.xml holds no table-cell style at all, while the covered cells' standard is a family=graphic style of another kind - walking only one part would turn this reader's guess about the producer into a rule. The three property elements are handed over separately and each carries its own written name: the fill, the vertical alignment and the four paddings sit on loext:graphic-properties, LibreOffice's own experimental namespace rather than style:, the border that same style carries sits on style:paragraph-properties, and the style:table-cell-properties an odt table uses is written by none of the nine table-family styles of deck-tables.odp. Attribute names keep their prefixes for the same reason fo:text-indent and loext:text-indent must never collide. style / found / part tell which of the three cases a cell is in - wrote no name, named one nobody defines, or resolved - and the table adds the same counts as a tally. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
 )]
 pub struct OfficeSlide {
     /// 演示文稿（pptx / pptm / odp / ppt）
@@ -297,6 +297,9 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
         // （`table:table` 自己实测一个字都不写），所以这张表的账要两份数据：frame 那一份
         // 与 ODF 表自己那一份。表的读法与 .ods 完全同一条（`odsheet`），配对按文档顺序
         let workbook = crate::odsheet::read(bytes);
+        // 格子点的那份样式另要一遍：三处 properties 的名字与值都在样式文件里，
+        // 而页上的表只写一个名字（`table:style-name`）
+        let cell_styles = odp_cell_styles(bytes);
         let mut table_at = 0usize;
         let mut slides: Vec<Value> = Vec::new();
         let mut masters: Vec<String> = Vec::new();
@@ -393,7 +396,14 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
                 match workbook.sheets.get(table_at) {
                     Some(sheet) => {
                         table_at += 1;
-                        page_tables.push(odp_page_table(holder, tbl, sheet, on_page, limit));
+                        page_tables.push(odp_page_table(
+                            holder,
+                            tbl,
+                            sheet,
+                            &cell_styles,
+                            on_page,
+                            limit,
+                        ));
                         on_page += 1;
                     }
                     None => {
@@ -728,6 +738,154 @@ fn slide_tables(slide_root: &xmlscan::Node, limit: usize) -> Vec<Value> {
     out
 }
 
+/// 一处 properties：元素名按文件写的交（`loext:graphic-properties` 与
+/// `style:graphic-properties` 是两回事），属性也按文件写的名字交（前缀留着）
+#[derive(Clone, Default)]
+struct OdpProps {
+    element: String,
+    attrs: Value,
+}
+
+/// 一格点的那份 `style:style`（family=table-cell）：三处 properties 分别住在哪儿、写了什么
+#[derive(Clone, Default)]
+struct OdpCellStyle {
+    name: String,
+    part: &'static str,
+    family: Option<String>,
+    parent: Option<String>,
+    graphic: Option<OdpProps>,
+    paragraph: Option<OdpProps>,
+    table_cell: Option<OdpProps>,
+}
+
+fn odp_props_of(style: &xmlscan::Node, local: &str) -> Option<OdpProps> {
+    let had = style.children.iter().find(|one| one.local() == local)?;
+    Some(OdpProps {
+        element: had.name.clone(),
+        attrs: crate::office_doc::kept_attrs(had),
+    })
+}
+
+/// 两份件里所有 family=table-cell 的样式。两份都走，而不是只走 content.xml：这一族的
+/// 五份格子样式实测全在 content.xml，`styles.xml` 里一份 family=table-cell 都没有，
+/// 而占位格点的那份 `standard` 是 **family=graphic** 的另一个东西（占位格不进账本，
+/// 所以这里数不到它）。只读一份就等于替文件定规矩；同名先到的一条算数
+fn odp_cell_styles(bytes: &[u8]) -> Vec<OdpCellStyle> {
+    let mut out: Vec<OdpCellStyle> = Vec::new();
+    for part in ["content.xml", "styles.xml"] {
+        let Some(member) = xml(bytes, part) else {
+            continue;
+        };
+        let root = xmlscan::parse_str(&member.as_text());
+        for one in root.descendants("style") {
+            if crate::odsheet::attr_of(one, "family") != Some("table-cell") {
+                continue;
+            }
+            let Some(name) = crate::odsheet::attr_of(one, "name") else {
+                continue;
+            };
+            let name = name.to_string();
+            if out.iter().any(|had: &OdpCellStyle| had.name == name) {
+                continue;
+            }
+            out.push(OdpCellStyle {
+                graphic: odp_props_of(one, "graphic-properties"),
+                paragraph: odp_props_of(one, "paragraph-properties"),
+                table_cell: odp_props_of(one, "table-cell-properties"),
+                family: crate::odsheet::attr_of(one, "family").map(|had| had.to_string()),
+                parent: crate::odsheet::attr_of(one, "parent-style-name")
+                    .map(|had| had.to_string()),
+                name,
+                part,
+            });
+        }
+    }
+    out
+}
+
+/// 一格的样式那一跳：没点名、点了名却没有那份样式、点到了 —— 三件事都要看得出来，
+/// 所以 `found` 之外还留着 `style` 那个名字，而找不着时下面几样一律 null（不是空对象）
+fn odp_style_props(styles: &[OdpCellStyle], named: Option<&str>) -> Value {
+    let Some(had) = named.and_then(|want| styles.iter().find(|one| one.name == want)) else {
+        return json!({
+            "style": named,
+            "found": false,
+            "part": Value::Null,
+            "family": Value::Null,
+            "parent": Value::Null,
+            "graphic_element": Value::Null,
+            "graphic": Value::Null,
+            "paragraph_element": Value::Null,
+            "paragraph": Value::Null,
+            "table_cell_element": Value::Null,
+            "table_cell": Value::Null,
+        });
+    };
+    json!({
+        "style": named,
+        "found": true,
+        "part": had.part,
+        "family": had.family.clone(),
+        "parent": had.parent.clone(),
+        "graphic_element": had.graphic.as_ref().map(|one| one.element.clone()),
+        "graphic": had.graphic.as_ref().map(|one| one.attrs.clone()),
+        "paragraph_element": had.paragraph.as_ref().map(|one| one.element.clone()),
+        "paragraph": had.paragraph.as_ref().map(|one| one.attrs.clone()),
+        "table_cell_element": had.table_cell.as_ref().map(|one| one.element.clone()),
+        "table_cell": had.table_cell.as_ref().map(|one| one.attrs.clone()),
+    })
+}
+
+/// 这张表上的格子与那三处 properties：几格点了名、几格解开、几格根本没点，
+/// 以及解开的那些里每一处 properties 各有几格（元素名按写的去重列出来）
+fn odp_cell_tally(sheet: &crate::odsheet::Sheet, styles: &[OdpCellStyle]) -> Value {
+    let mut named = 0usize;
+    let mut resolved = 0usize;
+    let mut unwritten = 0usize;
+    let mut graphic = 0usize;
+    let mut paragraph = 0usize;
+    let mut table_cell = 0usize;
+    let mut elements: Vec<String> = Vec::new();
+    for had in &sheet.cells {
+        let Some(want) = had.style_name.as_deref() else {
+            unwritten += 1;
+            continue;
+        };
+        named += 1;
+        let Some(style) = styles.iter().find(|one| one.name == want) else {
+            continue;
+        };
+        resolved += 1;
+        if let Some(one) = &style.graphic {
+            graphic += 1;
+            if !elements.contains(&one.element) {
+                elements.push(one.element.clone());
+            }
+        }
+        if let Some(one) = &style.paragraph {
+            paragraph += 1;
+            if !elements.contains(&one.element) {
+                elements.push(one.element.clone());
+            }
+        }
+        if let Some(one) = &style.table_cell {
+            table_cell += 1;
+            if !elements.contains(&one.element) {
+                elements.push(one.element.clone());
+            }
+        }
+    }
+    json!({
+        "named": named,
+        "resolved": resolved,
+        "unwritten": unwritten,
+        "with_graphic": graphic,
+        "with_paragraph": paragraph,
+        "with_table_cell_properties": table_cell,
+        "elements": elements,
+    })
+}
+
 /// 一页 odp 上的那张表：`draw:frame` 那一份（名字、位置、大小都在这儿 —— 实测
 /// `table:table` 自己**一个字都不写**，所以「这张表叫什么」只能从容器上拿）
 /// + ODF 表那一份（行、列、格子、跨度与被盖住的那些）。
@@ -737,6 +895,7 @@ fn odp_page_table(
     frame: &xmlscan::Node,
     tbl: &xmlscan::Node,
     sheet: &crate::odsheet::Sheet,
+    styles: &[OdpCellStyle],
     at: usize,
     limit: usize,
 ) -> Value {
@@ -762,8 +921,10 @@ fn odp_page_table(
                 "span_cols": had.columns_spanned,
                 "span_rows": had.rows_spanned,
                 "style": had.style_name,
+                "style_props": odp_style_props(styles, had.style_name.as_deref()),
             }))
             .collect::<Vec<Value>>(),
+        "cell_styles": odp_cell_tally(sheet, styles),
         "layout": crate::office_sheet::ods_layout(sheet, limit),
     })
 }
@@ -1272,6 +1433,49 @@ mod tests {
             Value::Null,
             "四格没点任何样式"
         );
+        // 那一跳到样式文件里拿：底色与垂直对齐在 `loext:graphic-properties`（LibreOffice
+        // 自己的实验命名空间），边在 `style:paragraph-properties`，而 odt 表格用的
+        // `style:table-cell-properties` 这一族一个都没有
+        let props = &one["cell_list"][2]["style_props"];
+        assert_eq!(props["style"], "ce2");
+        assert_eq!(props["found"], json!(true));
+        assert_eq!(props["part"], "content.xml");
+        assert_eq!(props["family"], "table-cell");
+        assert_eq!(props["parent"], Value::Null, "这份样式没有父链");
+        assert_eq!(
+            props["graphic_element"], "loext:graphic-properties",
+            "前缀就是这一条的全部意义：不是 style: 那一族"
+        );
+        assert_eq!(props["graphic"]["draw:fill"], "solid");
+        assert_eq!(props["graphic"]["draw:fill-color"], "#d0d8e7");
+        assert_eq!(props["graphic"]["draw:textarea-vertical-align"], "bottom");
+        assert_eq!(props["graphic"]["fo:padding-left"], "0.254cm");
+        assert_eq!(props["paragraph_element"], "style:paragraph-properties");
+        assert_eq!(props["paragraph"]["fo:border"], "0.48pt solid #ffffff");
+        assert_eq!(props["table_cell_element"], Value::Null, "这一族没有那一处");
+        assert_eq!(
+            one["cell_list"][6]["style_props"]["graphic"]["draw:fill-color"], "#ffff00",
+            "pptx 那面 a:tcPr 里那个黄，在 odp 是 ce5 的底色"
+        );
+        let tally = &one["cell_styles"];
+        assert_eq!(tally["named"], json!(3));
+        assert_eq!(tally["resolved"], json!(3), "点名的三条都解开了");
+        assert_eq!(tally["unwritten"], json!(4));
+        assert_eq!(tally["with_graphic"], json!(3));
+        assert_eq!(tally["with_paragraph"], json!(3));
+        assert_eq!(tally["with_table_cell_properties"], json!(0));
+        assert_eq!(
+            tally["elements"].as_array().expect("是数组").len(),
+            2,
+            "两处 properties：{tally}"
+        );
+        assert_eq!(
+            one["cell_list"][0]["style_props"]["found"],
+            json!(false),
+            "没点名与点了找不到是两件事"
+        );
+        assert_eq!(one["cell_list"][0]["style_props"]["style"], Value::Null);
+        assert_eq!(one["cell_list"][0]["style_props"]["graphic"], Value::Null);
         // 没有表的页交空表而不是缺键
         let charts = run("deck-chart.odp");
         assert!(charts["slides"][0]["table_list"]

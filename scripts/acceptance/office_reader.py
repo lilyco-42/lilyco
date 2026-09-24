@@ -2965,6 +2965,156 @@ def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) ->
     }
 
 
+def _ns_prefixes(raw: bytes) -> dict:
+    """那份件自己声明的 xmlns：URI → 文件用的前缀（默认命名空间记成空前缀）
+
+    ElementTree 解析时把前缀丢了，只剩 `{URI}局部名`。这一族要交的就是「文件怎么写」，
+    所以按这份表把前缀还回去。
+    """
+    out = {}
+    for prefix, uri in re.findall(rb'xmlns:([\w.\-]+)="([^"]+)"', raw):
+        out[uri.decode("utf-8")] = prefix.decode("utf-8")
+    for uri in re.findall(rb'xmlns="([^"]+)"', raw):
+        out.setdefault(uri.decode("utf-8"), "")
+    return out
+
+
+def _written_name(tag: str, nsmap: dict) -> str:
+    """`{URI}local` → 文件写的那个名字（`loext:graphic-properties` 这种）"""
+    if not tag.startswith("{"):
+        return tag
+    uri, local = tag[1:].split("}", 1)
+    prefix = nsmap.get(uri)
+    return f"{prefix}:{local}" if prefix else local
+
+
+def _written_attrs(node, nsmap: dict) -> dict:
+    """一个元素的全部属性，键按文件写的名字（前缀留着）—— 与 Rust 的 kept_attrs 同一条"""
+    return {_written_name(key, nsmap): value for key, value in node.attrib.items()}
+
+
+ODP_STYLE_PARTS = ("content.xml", "styles.xml")
+ODP_PROPS = {
+    "graphic-properties": "graphic",
+    "paragraph-properties": "paragraph",
+    "table-cell-properties": "table_cell",
+}
+
+
+def odp_cell_styles(path: Path) -> dict:
+    """两份件里所有 `style:style`（family=table-cell）：格子样式那三处 properties 各住在哪儿
+
+    两份都走：实测这一族的五份格子样式全在 content.xml 的 automatic-styles 里，`styles.xml`
+    里一份 family=table-cell 都没有，而占位格点的 `standard` 是 family=graphic 的另一个东西
+    （占位格不进账本，所以这里数不到它）—— 只读一份就等于替文件定规矩。同名先到的一条算数
+    （与 Rust 那边同一条规则）。
+    """
+    out: dict = {}
+
+    def attr(node, want: str):
+        """按局部名取属性，躲开 LibreOffice 抄的那份副本（与 ods_facts 里同一条）"""
+        for key, value in node.attrib.items():
+            if key.rsplit("}", 1)[-1] != want or "documentfoundation" in key:
+                continue
+            return value
+        return None
+
+    with zipfile.ZipFile(path) as box:
+        names = set(one.filename for one in box.infolist())
+        for part in ODP_STYLE_PARTS:
+            if part not in names:
+                continue
+            raw = box.read(part)
+            nsmap = _ns_prefixes(raw)
+            for one in ET.fromstring(raw).iter():
+                if xml_local(one.tag) != "style" or attr(one, "family") != "table-cell":
+                    continue
+                name = attr(one, "name")
+                if not name or name in out:
+                    continue
+                had = {
+                    "name": name,
+                    "part": part,
+                    "family": attr(one, "family"),
+                    "parent": attr(one, "parent-style-name"),
+                }
+                for key in ODP_PROPS.values():
+                    had[f"{key}_element"] = None
+                    had[f"{key}_attrs"] = None
+                for kid in one:
+                    slot = ODP_PROPS.get(xml_local(kid.tag))
+                    if slot is None:
+                        continue
+                    had[f"{slot}_element"] = _written_name(kid.tag, nsmap)
+                    had[f"{slot}_attrs"] = _written_attrs(kid, nsmap)
+                out[name] = had
+    return out
+
+
+def odp_style_props(styles: dict, name):
+    """一格点的那份样式找到了没有、找到了就把它写的东西原样交"""
+    had = styles.get(name) if name else None
+    if had is None:
+        return {
+            "style": name,
+            "found": False,
+            "part": None,
+            "family": None,
+            "parent": None,
+            "graphic_element": None,
+            "graphic": None,
+            "paragraph_element": None,
+            "paragraph": None,
+            "table_cell_element": None,
+            "table_cell": None,
+        }
+    return {
+        "style": name,
+        "found": True,
+        "part": had["part"],
+        "family": had["family"],
+        "parent": had["parent"],
+        "graphic_element": had["graphic_element"],
+        "graphic": had["graphic_attrs"],
+        "paragraph_element": had["paragraph_element"],
+        "paragraph": had["paragraph_attrs"],
+        "table_cell_element": had["table_cell_element"],
+        "table_cell": had["table_cell_attrs"],
+    }
+
+
+def odp_cell_tally(cell_list: list, styles: dict) -> dict:
+    """这张表上的格子有多少点了样式、点到的解开了没有、那三处 properties 各有几格"""
+    named = resolved = unwritten = 0
+    with_props = {"graphic": 0, "paragraph": 0, "table_cell": 0}
+    elements: list = []
+    for one in cell_list:
+        name = one["style"]
+        if not name:
+            unwritten += 1
+            continue
+        named += 1
+        had = styles.get(name)
+        if had is None:
+            continue
+        resolved += 1
+        for slot in with_props:
+            if had[f"{slot}_element"] is None:
+                continue
+            with_props[slot] += 1
+            if had[f"{slot}_element"] not in elements:
+                elements.append(had[f"{slot}_element"])
+    return {
+        "named": named,
+        "resolved": resolved,
+        "unwritten": unwritten,
+        "with_graphic": with_props["graphic"],
+        "with_paragraph": with_props["paragraph"],
+        "with_table_cell_properties": with_props["table_cell"],
+        "elements": elements,
+    }
+
+
 def odp_slide_tables(path: Path, limit: int = 100) -> list:
     """每一页上那些表：`draw:frame` 那一份（名字与位置都只在容器上）+ ODF 表那一份。
 
@@ -2976,6 +3126,7 @@ def odp_slide_tables(path: Path, limit: int = 100) -> list:
     facts = ods_facts(path, limit=limit, require_spreadsheet=False)
     if facts is None:
         return []
+    styles = odp_cell_styles(path)
     with zipfile.ZipFile(path) as box:
         root = ET.fromstring(box.read("content.xml"))
     tables = facts["sheets"]
@@ -2994,6 +3145,18 @@ def odp_slide_tables(path: Path, limit: int = 100) -> list:
                 break
             one = tables[seen]
             seen += 1
+            rows = [
+                {
+                    "ref": had["ref"],
+                    "text": had["text"],
+                    "kind": had["value_type"],
+                    "span_cols": had["columns_spanned"],
+                    "span_rows": had["rows_spanned"],
+                    "style": had["style"],
+                    "style_props": odp_style_props(styles, had["style"]),
+                }
+                for had in one["cell_list"][:limit]
+            ]
             group.append(
                 {
                     "at": at,
@@ -3006,17 +3169,8 @@ def odp_slide_tables(path: Path, limit: int = 100) -> list:
                     "cells": one["cells"],
                     "covered": one["covered"],
                     "merged": one["merged"],
-                    "cell_list": [
-                        {
-                            "ref": had["ref"],
-                            "text": had["text"],
-                            "kind": had["value_type"],
-                            "span_cols": had["columns_spanned"],
-                            "span_rows": had["rows_spanned"],
-                            "style": had["style"],
-                        }
-                        for had in one["cell_list"][:limit]
-                    ],
+                    "cell_list": rows,
+                    "cell_styles": odp_cell_tally(rows, styles),
                     "layout": one["layout"],
                 }
             )

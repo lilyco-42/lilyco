@@ -1778,6 +1778,42 @@ def main() -> int:
          dig(lbin("office-sheet", fixture("book.ods")), "sheets[0].cell_list[1].kind")],
         [None, None, None, "string", "string"],
     )
+    # 那一跳到样式文件里去拿：实测演示稿把底色与垂直对齐写在 `loext:graphic-properties`
+    # （LibreOffice 自己的实验命名空间），边写在 `style:paragraph-properties`，
+    # 而 odt 表格用的 `style:table-cell-properties` 这一族一个都没有
+    props = dig(odp_slide, O + ".cell_list[2].style_props") or {}
+    check(
+        "格子样式那一跳：底色住在 loext:graphic-properties，边住在 paragraph-properties",
+        [props.get("style"), props.get("found"), props.get("part"), props.get("family"),
+         props.get("parent"), props.get("graphic_element"),
+         (props.get("graphic") or {}).get("draw:fill"),
+         (props.get("graphic") or {}).get("draw:fill-color"),
+         (props.get("graphic") or {}).get("draw:textarea-vertical-align"),
+         (props.get("graphic") or {}).get("fo:padding-left"),
+         props.get("paragraph_element"),
+         (props.get("paragraph") or {}).get("fo:border"),
+         props.get("table_cell_element")],
+        ["ce2", True, "content.xml", "table-cell", None, "loext:graphic-properties",
+         "solid", "#d0d8e7", "bottom", "0.254cm",
+         "style:paragraph-properties", "0.48pt solid #ffffff", None],
+    )
+    check(
+        "这张表上的样式账：三格点了名、三格解开、四格根本没点，properties 只两处",
+        dig(odp_slide, O + ".cell_styles"),
+        {"named": 3, "resolved": 3, "unwritten": 4, "with_graphic": 3, "with_paragraph": 3,
+         "with_table_cell_properties": 0,
+         "elements": ["loext:graphic-properties", "style:paragraph-properties"]},
+    )
+    check(
+        "没点样式的格子说「没点」，不是「点了找不到」：style 与 found 分两笔",
+        [dig(odp_slide, O + ".cell_list[0].style_props.style"),
+         dig(odp_slide, O + ".cell_list[0].style_props.found"),
+         dig(odp_slide, O + ".cell_list[0].style_props.graphic"),
+         dig(odp_slide, O + ".cell_list[6].style_props.style"),
+         dig(odp_slide, O + ".cell_list[6].style_props.found"),
+         dig(odp_slide, O + ".cell_list[6].style_props.graphic.draw:fill-color")],
+        [None, False, None, "ce5", True, "#ffff00"],
+    )
 
     # ── 表格结构：表名、可见性、范围、格子 ──────────────────────────
     print("=== 3) office-sheet：布局 ===")

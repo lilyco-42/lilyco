@@ -257,7 +257,7 @@ fn attr_map(node: &xmlscan::Node) -> Value {
 /// ODF 的属性按**文件写的名字**交（前缀留着）：`fo:margin-left` 是 `3cm`，
 /// `loext:margin-left` 是「两个字」—— 只按局部名收就会互相盖掉，那是替文件编东西。
 /// 同上：`xmlns:` 那些是声明，不是属性
-fn kept_attrs(node: &xmlscan::Node) -> Value {
+pub(crate) fn kept_attrs(node: &xmlscan::Node) -> Value {
     let mut out = serde_json::Map::new();
     for (key, value) in &node.attrs {
         if key == "xmlns" || key.starts_with("xmlns:") {

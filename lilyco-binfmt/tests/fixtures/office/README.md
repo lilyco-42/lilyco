@@ -956,6 +956,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       （`fo:border="0.48pt solid #ffffff"`）挂在 **`style:paragraph-properties`** 上 ——
       odt 表格用的 `style:table-cell-properties` 这一族**一个都没有**（9 份 table 家族样式里
       2 份列样式、2 份行样式各带自己的 properties，5 份格子样式各带 graphic + paragraph）。
+      五份格子样式**全在 content.xml**，`styles.xml` 里一份 family=table-cell 都没有；
+      占位格点的 `standard` 更是 **family=graphic** 的另一个东西（占位格不进账本，数不到它）。
+      两份都读不是因为有件需要第二份，而是只读一份就等于替文件定规矩。
       这一跳在文档那一族量过、在演示稿这一族还没量准，所以只交名字、不猜值。
 
 62. **PDF 的表单可以把类型只写在祖父上，而 `/Opt` 按规范只有数组一种写法**（`forms-hier.pdf`）。
