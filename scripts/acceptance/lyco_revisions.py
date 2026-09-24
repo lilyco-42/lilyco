@@ -83,11 +83,13 @@ def docx_revisions(document: ET.Element, settings: ET.Element | None) -> dict:
         # 段落自己的子树，按文档顺序走，但不进嵌套的 w:p（它有自己的序号）
         ordered: list = []
 
-        def walk(node, mark: bool) -> None:
+        def walk(node, mark: bool, run_text: str = "") -> None:
             for child in node:
                 name = _local(child.tag)
                 if name == "p":
                     continue
+                # 一个 run 自己的字：改格式那条要用（见下）
+                own = _revision_text(child) if name == "r" else ""
                 kind = DOCX_KINDS.get(name)
                 if kind is not None:
                     ordered.append(
@@ -95,11 +97,14 @@ def docx_revisions(document: ET.Element, settings: ET.Element | None) -> dict:
                             kind,
                             _attr(child, "author"),
                             _attr(child, "date"),
-                            "" if kind == "format-change" else _revision_text(child),
+                            # `rPrChange` 里装的是**新的那些格式**，动的字在所在的那个
+                            # run 身上 —— 不留这一步，docx 这条就永远是空串，而 ODF 那边
+                            # region 的区间里有字，两份账不同形（这条是比出来的，不是想到的）
+                            run_text if kind == "format-change" else _revision_text(child),
                             mark,
                         )
                     )
-                walk(child, mark or name == "pPr")
+                walk(child, mark or name == "pPr", own or run_text)
 
         walk(para, False)
         for kind, author, date, text, mark in ordered:

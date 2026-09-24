@@ -72,7 +72,8 @@ def dig(payload: dict, dotted: str):
 
 def check(name: str, got, want) -> None:
     ok = got == want
-    record(name, ok, "" if ok else f"lbin={json.dumps(got, ensure_ascii=False)[:90]} 读者={json.dumps(want, ensure_ascii=False)[:90]}")
+    # 两边各留 400 字：留少了就只看得到共同的前缀，差的偏偏在后头（修订那一条就这样）
+    record(name, ok, "" if ok else f"lbin={json.dumps(got, ensure_ascii=False)[:400]} 读者={json.dumps(want, ensure_ascii=False)[:400]}")
 
 
 def fixture(name: str) -> Path:
@@ -607,7 +608,9 @@ def main() -> int:
         check("%s 每张表一层" % name,
               [(one.get("name"), one.get("element"), one.get("protected"), one.get("password"), one.get("written"))
                for one in got.get("sheets", [])],
-              [(one["name"], one["element"], one["protected"], one.get("password", False), one.get("written"))
+              # 没有 sheetProtection 的那张表，两边都是「这一项没写」—— 拿 .get(..., False)
+              # 一补就成了「写了没锁」，那是读者没说的话
+              [(one["name"], one["element"], one["protected"], one.get("password"), one.get("written"))
                for one in want["sheets"]])
     # 拼法这一条是分水岭：openpyxl 写 1/0，LibreOffice 重写同一份东西写 true/false
     check("两种拼法读出同一个结论",
@@ -808,9 +811,11 @@ def main() -> int:
         check("%s 链接条数" % name, dig(got, "links.total"), len(want["links"]["internal"]) + len(want["links"]["external"]) + len(want["links"]["other"]))
         check(
             "%s 链接逐条" % name,
+            # 加密件里 URI 是密文（两边都给 null），所以「算不算站外」要按类别看，
+            # 不能只看有没有解出地址 —— 只看 uri 就会把 locked/perms 那条整个漏掉
             [(one.get("page"), one.get("to_object"), one.get("to_page"), one.get("uri"), one.get("via"))
              for one in got.get("links", {}).get("items", [])
-             if one.get("uri") or one.get("to_object")],
+             if one.get("uri") or one.get("to_object") or one.get("via") == "uri"],
             [(one["page"], one.get("target_object"), one.get("target_page"), None, one["via"])
              for one in want["links"]["internal"]]
             + [(one["page"], None, None, one["uri"], "uri") for one in want["links"]["external"]],
@@ -900,7 +905,10 @@ def main() -> int:
     check("objstm.pdf 解出来的对象数", dig(stm, "objects.object_streams[0].unpacked"), 51)
     check("objstm.pdf 对象流没有毛病", dig(stm, "objects.object_streams[0].problem"), None)
     check("objstm.pdf /Info 只在 XRef 流里指得出", dig(stm, "xref.info"), 52)
-    check("objstm.pdf /Root 也只在 XRef 流里", dig(stm, "xref.root"), 9)
+    # 51 不是抄来的：那份件唯一的 XRef 流写着 /Root 51 0 R，51 号对象的 /Type 就是
+    # /Catalog，pikepdf 读同一份也报 (51, 0)。上一版这里写 9 —— 那是把注释里举的例子
+    # 当成了量到的数，9 号在那份件里是一个 /StructElem
+    check("objstm.pdf /Root 也只在 XRef 流里", dig(stm, "xref.root"), 51)
     plain = lbin("office-pdf", fixture("notes.pdf"))
     check("notes.pdf 的 /Root 从 trailer 指", dig(plain, "xref.root"), 74)
     check("notes.pdf 明写的对象比 objstm 多", dig(plain, "objects.plain") > dig(stm, "objects.plain"), True)

@@ -168,16 +168,29 @@ fn collect_docx_text(node: &Node, out: &mut String) {
     }
 }
 
-fn walk_docx(node: &Node, paragraph: usize, mark: bool, out: &mut Vec<Raw>) {
+fn walk_docx(node: &Node, paragraph: usize, mark: bool, run_text: &str, out: &mut Vec<Raw>) {
     for one in &node.children {
         let local = one.local();
         // 嵌套的段落（文本框里那种）按它自己的序号算，这里不重复收
         if local == "p" {
             continue;
         }
+        // 这个 run 自己的那些字，往下传着给「改格式」那条用
+        let own = if local == "r" {
+            let mut text = String::new();
+            collect_docx_text(one, &mut text);
+            text
+        } else {
+            String::new()
+        };
         if let Some(kind) = docx_kind(local) {
             let mut text = String::new();
-            if kind != "format-change" {
+            if kind == "format-change" {
+                // `rPrChange` 里装的是**新的那些格式**，动的字在所在的 run 身上。
+                // 不留这一步，docx 这条永远是空串，而 ODF 那边的 region 区间里有字 ——
+                // 两份账就不同形了（这条差别是拿 LibreOffice 自己写的两件比出来的）
+                text.push_str(run_text);
+            } else {
                 collect_docx_text(one, &mut text);
             }
             out.push(Raw {
@@ -190,7 +203,13 @@ fn walk_docx(node: &Node, paragraph: usize, mark: bool, out: &mut Vec<Raw>) {
             });
         }
         // 段落标记的修订住在 pPr 的 rPr 里：下去的时候要带着这个记号
-        walk_docx(one, paragraph, mark || local == "pPr", out);
+        walk_docx(
+            one,
+            paragraph,
+            mark || local == "pPr",
+            if own.is_empty() { run_text } else { &own },
+            out,
+        );
     }
 }
 
@@ -198,7 +217,7 @@ fn walk_docx(node: &Node, paragraph: usize, mark: bool, out: &mut Vec<Raw>) {
 pub fn docx_ledger(paragraphs: &[&Node], settings: Option<&Node>) -> Ledger {
     let mut raws: Vec<Raw> = Vec::new();
     for (index, one) in paragraphs.iter().enumerate() {
-        walk_docx(one, index, false, &mut raws);
+        walk_docx(one, index, false, "", &mut raws);
     }
     let mut ledger = Ledger::default();
     for one in raws {
@@ -391,8 +410,9 @@ mod tests {
         assert_eq!(ledger.changes[1].kind, "deletion");
         assert_eq!(ledger.changes[1].text, "89000 元");
         assert_eq!(ledger.changes[2].kind, "format-change");
-        // 改格式那条不带字：它的正文是原来那段，不是新加的字
-        assert_eq!(ledger.changes[2].text, "");
+        // 改格式那条带的是**被改的那些字**（在所在的 run 身上，不在这个元素里）：
+        // 与 ODF 那侧同一个形状，两份账才比得动
+        assert_eq!(ledger.changes[2].text, "，请复核。");
         let note = ledger.notes.join(" ");
         assert!(note.contains("5 个修订元素合成 3 条"), "{note}");
         assert!(ledger.track_changes.is_none(), "没给 settings 就不假装有值");

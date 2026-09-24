@@ -538,10 +538,12 @@ mod tests {
         assert_eq!(changes[1]["author"], "李四");
         assert_eq!(changes[1]["text"], "89000 元");
         assert_eq!(changes[1]["elements"], 2);
-        // 改格式这一条不带字：字没动，动的是字的样子
+        // 改格式这一条带着**被改了格式的那些字**：字没动，但「改了哪里的样子」就是这几个字。
+        // 这几个字不在这个元素里（那装的是新的 rPr），在它所在的 run 身上 —— 不留这一步，
+        // docx 这条永远是空的，而 ODF 那侧的 region 区间里有字，两份账就不平（CI 比出来的）
         assert_eq!(changes[2]["kind"], "format-change");
         assert_eq!(changes[2]["author"], "王五");
-        assert_eq!(changes[2]["text"], "");
+        assert_eq!(changes[2]["text"], "，请复核。");
         assert_eq!(changes[3]["text"], "整段是新加的。");
         assert_eq!(changes[3]["paragraph"], 2 + 1, "整段新加的是下一段");
         // 段落序号的基准与 structure.paragraphs 同一份列表：标题算第 0 段

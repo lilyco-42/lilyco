@@ -200,7 +200,10 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     两份文件的账逐字相同（4 条：插 124000 元 / 删 89000 元 / 王五改了那半句的字样 / 整段新加）。
     这条合并规则不是照规范抄的（规范没说一次编辑只能一个元素），是这两份 fixture 对出来的。
     顺带记三处差别：段落标记的 `w:ins` 在 LibreOffice 导出时丢掉（python-docx 那份有，5 条 vs 4 条）；
-    ODF 的日期不写那个 `Z`；ODF 的 `format-change` 带着被改格式的字，OOXML 的 `w:rPrChange` 不带字。
+    ODF 的日期不写那个 `Z`。「改了格式」那一条也得带着**被改的那些字**，两家住的地方不一样：
+    ODF 在 region 引出来的那段区间里，OOXML 的 `w:rPrChange` 只装新的 `rPr`，字在它所住的那个
+    `w:r` 身上 —— 两边都绕这一步，四份账才逐字相同（这一条是 CI 头一次真跑对账比出来的：
+    当时 docx 那条永远是空串，与 ODF 不同形）。
     还有一条是这三份 fixture 修出来的：`text:tracked-changes` 里那份 `text:p` 是**被删掉**的段落，
     从前 `office-doc` 的段落数与 `office-text` 的正文都会把它当现存的读回来。
 
