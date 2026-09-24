@@ -158,6 +158,39 @@ def _read_members(
     return out, top, i
 
 
+def _value_at(raw: bytes, key: bytes) -> int:
+    """这个键第一个出现处的值从哪一字节开始；整个没有这个键交回 -1"""
+    hits = key_positions(raw, key)
+    if not hits:
+        return -1
+    at = hits[0] + len(key)
+    while at < len(raw) and raw[at] in SPACES:
+        at += 1
+    return at
+
+
+def value_shape_of(raw: bytes, key: bytes) -> str | None:
+    """`/V` 是按什么形状写的：串 / 数组（多选列表框）/ 别的；没这个键是 None"""
+    at = _value_at(raw, key)
+    if at < 0:
+        return None
+    one = raw[at : at + 1]
+    if one == b"[":
+        return "array"
+    if one in (b"(", b"<"):
+        return "string"
+    return "other"
+
+
+def array_strings(raw: bytes, key: bytes) -> list[bytes]:
+    """数组值里那几个串（按写的顺序）；值不是数组就交回空"""
+    at = _value_at(raw, key)
+    if at < 0 or raw[at : at + 1] != b"[":
+        return []
+    found, _top, _nxt = _read_members(raw, at + 1, [])
+    return found
+
+
 def options_of(raw: bytes, key: bytes) -> tuple[list[bytes], str | None]:
     """`/Opt [ … ]`：choice 的候选值只有数组这一种写法，而数组里两种存法都合法
 
@@ -165,13 +198,8 @@ def options_of(raw: bytes, key: bytes) -> tuple[list[bytes], str | None]:
     两种都摊平成同一个顺序交回，怎么存的另说（flat / pairs / mixed / empty）；
     键整个没有或值不是数组交回 None，不当成「空数组」。与 Rust 的 `options_of` 同一条。
     """
-    hits = key_positions(raw, key)
-    if not hits:
-        return [], None
-    at = hits[0] + len(key)
-    while at < len(raw) and raw[at] in SPACES:
-        at += 1
-    if raw[at : at + 1] != b"[":
+    at = _value_at(raw, key)
+    if at < 0 or raw[at : at + 1] != b"[":
         return [], None
     nested: list[int] = []
     found, top, _nxt = _read_members(raw, at + 1, nested)
@@ -565,7 +593,7 @@ def keyword_after(body: bytes, key: bytes) -> bool | None:
 
 
 def one_str(body: bytes, key: bytes) -> str | None:
-    """这个键的第一个字符串值，按 PDF 字符串那三件事解（与 Rust 的 one_string 同一条）"""
+    """这个键的第一个字符串值，按 PDF 字符串那三件事解（与 Rust 的 one_string 同一条）；值是一个数组时这里交 None（几段值在 value_parts 上）"""
     got = strings_of(body, key)
     return decode_pdf_text(got[0]) if got else None
 
@@ -682,6 +710,10 @@ def form_of(by_id: dict[int, bytes]) -> tuple[dict, list]:
                 "type_inherited": ft_inherited,
                 "value": one_str(body, b"/V"),
                 "value_present": bool(key_positions(body, b"/V")),
+                "value_shape": value_shape_of(body, b"/V"),
+                "value_parts": [
+                    decode_pdf_text(one) for one in array_strings(body, b"/V")
+                ],
                 "default": one_str(body, b"/DV"),
                 "flags": flags,
                 "flags_inherited": flags_inherited,

@@ -978,8 +978,10 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       字段读出来都是空候选，且不报错。现在 `options` 交摊平的串、`options_shape` 说怎么写的
       （`flat` / `pairs` / `mixed` / `empty`），整个没这个键是 null 而不是空数组。
     * `/V` 是三件事，不是一件：`Ghost` 写了 `/V ()`（值就是空串）、`Flags` 把值写成一个数组
-      （多选列表框，`/Ff` 第 22 位 = 524288）→ `value_present` true 而 `value` null，
-      几段值不摊平成一个串、判不住就交 null、`Person` 整个没写是第三种。
+      （多选列表框，`/Ff` 第 22 位 = 524288）→ `value_present` true、`value_shape` "array"、
+      `value` 仍是 null 而那两段在 `value_parts` 里（`["甲", "丙"]`）—— 几段值不并成一个串；
+      `Person` 整个没写是第三种（`value_shape` null）。
+      `value_shape` 就是为这三件事各留一个名字而加的（string / array / other，没这个键才是 null）。
     * 两条控件（`First`、`City`）**同时挂在页的 `/Annots` 上**（那一页三个注记：两条 Widget
       加一条链接），字段树只从 `/Fields` 走，所以是七条不是九条 —— 这是那条规则第一次有件可走。
     * 文档级那三个开关也第一次有了非 null 的样本：`/NeedAppearances true`、`/SigFlags 1`、

@@ -379,13 +379,10 @@ fn read_members(body: &[u8], from: usize, nested: &mut Vec<usize>) -> (Vec<Vec<u
 /// 交回摊平的串（写出的顺序）与形状：`flat` / `pairs` / `mixed` / `empty`；
 /// 键整个没有、或值不是数组，交回 `None` 而不是「空数组」—— 那是两件事
 fn options_of(body: &[u8], key: &[u8]) -> (Vec<String>, Option<&'static str>) {
-    let Some(at) = key_positions(body, key).into_iter().next() else {
-        return (Vec::new(), None);
+    let open = match array_open(body, key) {
+        Some(one) => one,
+        None => return (Vec::new(), None),
     };
-    let open = skip_spaces(body, at + key.len());
-    if body.get(open) != Some(&b'[') {
-        return (Vec::new(), None);
-    }
     let mut nested: Vec<usize> = Vec::new();
     let (raw, top, _next) = read_members(body, open + 1, &mut nested);
     let shape = if raw.is_empty() && nested.is_empty() {
@@ -401,6 +398,43 @@ fn options_of(body: &[u8], key: &[u8]) -> (Vec<String>, Option<&'static str>) {
         raw.iter().map(|one| decode_text(one)).collect(),
         Some(shape),
     )
+}
+
+/// 这个键的值是不是一个数组：是就交回 `[` 之后那个位置
+fn array_open(body: &[u8], key: &[u8]) -> Option<usize> {
+    let at = *key_positions(body, key).first()?;
+    let open = skip_spaces(body, at + key.len());
+    if body.get(open) == Some(&b'[') {
+        Some(open)
+    } else {
+        None
+    }
+}
+
+/// `/V` 那一族值是按什么形状写的：串、数组（多选列表框）、还是别的什么。
+/// 键整个没有是 None —— 那与「写了个数组」不是同一件事
+fn value_shape_of(body: &[u8], key: &[u8]) -> Option<&'static str> {
+    if !key_present(body, key) {
+        return None;
+    }
+    if array_open(body, key).is_some() {
+        return Some("array");
+    }
+    let at = *key_positions(body, key).first()?;
+    match body.get(skip_spaces(body, at + key.len())) {
+        Some(b'(') | Some(b'<') => Some("string"),
+        _ => Some("other"),
+    }
+}
+
+/// 数组值里那几个串（按写的顺序）。值不是数组时交回空 —— 那边有 `value` 这一条
+fn array_strings(body: &[u8], key: &[u8]) -> Vec<String> {
+    let Some(open) = array_open(body, key) else {
+        return Vec::new();
+    };
+    let mut nested: Vec<usize> = Vec::new();
+    let (raw, _top, _next) = read_members(body, open + 1, &mut nested);
+    raw.iter().map(|one| decode_text(one)).collect()
 }
 
 /// `stream` 关键字：前面得是行尾，后面得跟一个行尾 —— 按这三个字母切会被
@@ -529,6 +563,10 @@ pub struct Field {
     pub value: Option<String>,
     /// `/V` 这个键在不在（写了空串与整个不写是两件事）
     pub value_present: bool,
+    /// `/V` 是按什么形状写的：`string` / `array`（多选列表框）/ `other`；没这个键是 None
+    pub value_shape: Option<&'static str>,
+    /// `/V` 写成数组时里面那几个串（按写的顺序）；值是单个串时交空，那一条在 `value` 上
+    pub value_parts: Vec<String>,
     /// `/DV`：默认值
     pub default_value: Option<String>,
     /// 生效的 `/Ff`（整数原样，位含义另说）
@@ -688,6 +726,8 @@ impl Pdf {
             flags_inherited = flags.is_some();
         }
         let (options, options_shape) = options_of(dict, b"/Opt");
+        let value_shape = value_shape_of(dict, b"/V");
+        let value_parts = array_strings(dict, b"/V");
         out.push(Field {
             object: id,
             depth,
@@ -698,6 +738,8 @@ impl Pdf {
             type_inherited,
             value: one_string(dict, b"/V"),
             value_present: key_present(dict, b"/V"),
+            value_shape,
+            value_parts,
             default_value: one_string(dict, b"/DV"),
             flags,
             flags_inherited,

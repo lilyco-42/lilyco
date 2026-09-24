@@ -3315,11 +3315,14 @@ def main() -> int:
         [["1", "一", "2", "二"], "pairs", ["甲", "乙", "丙"], "flat", None],
     )
     check(
-        "/V 的三件事：写了空串、写成数组、整个没写",
-        [dig(hier, "form.items[6].value"), dig(hier, "form.items[6].value_present"),
-         dig(hier, "form.items[5].value"), dig(hier, "form.items[5].value_present"),
-         dig(hier, "form.items[0].value_present")],
-        ["", True, None, True, False],
+        "/V 的三件事：写了空串、写成数组、整个没写（形状与那几段值都按写的交）",
+        [dig(hier, "form.items[6].value"), dig(hier, "form.items[6].value_shape"),
+         dig(hier, "form.items[6].value_parts"),
+         dig(hier, "form.items[5].value"), dig(hier, "form.items[5].value_shape"),
+         dig(hier, "form.items[5].value_parts"),
+         dig(hier, "form.items[4].value_shape"), dig(hier, "form.items[4].value_parts"),
+         dig(hier, "form.items[0].value_shape"), dig(hier, "form.items[0].value_present")],
+        ["", "string", [], None, "array", ["甲", "丙"], "string", [], None, False],
     )
     check(
         "两条控件同时挂在页的 /Annots 上：字段树只从 /Fields 走，一条没数两遍",
