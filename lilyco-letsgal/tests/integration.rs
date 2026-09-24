@@ -1,6 +1,14 @@
 //! 集成测试：DSL 解析 → 工程写入 → 校验（对齐 Node 版语义 + 确定性验收）
-use lilyco_letsgal::{init_project, parse_story, stable_id, validate_project, write_chapters};
+use lilyco_letsgal::{
+    init_project, parse_story, stable_id, validate_project, write_chapters, Story,
+};
 use tempfile::tempdir;
+
+/// Story 未派生 Serialize（字段全是 Vec<Value>），测试就地组装 Value——
+/// 不为测试给 lib 加依赖面。与 to_value(&story) 语义等价。
+fn story_json(s: &Story) -> serde_json::Value {
+    serde_json::json!({ "chapters": s.chapters, "characters": s.characters, "scenes": s.scenes })
+}
 
 const DEMO_DSL: &str = r#"
 # 序章
@@ -135,8 +143,8 @@ fn stable_id_matches_node_reference_vectors() {
 fn same_dsl_parses_deterministically() {
     let a = parse_story(DEMO_DSL);
     let b = parse_story(DEMO_DSL);
-    let mut va = serde_json::to_value(&a).unwrap();
-    let mut vb = serde_json::to_value(&b).unwrap();
+    let mut va = story_json(&a);
+    let mut vb = story_json(&b);
     strip_ids(&mut va);
     strip_ids(&mut vb);
     assert_eq!(va, vb, "同输入两次解析，除块 id 外必须逐字一致");
@@ -194,10 +202,7 @@ fn demo_story_builds_end_to_end_with_zero_issues() {
 
     // 两次构建：除块 id 外逐字一致（同 stable_id_matches_node_reference_vectors 的算法锚点）
     let again = parse_story(dsl);
-    let (mut va, mut vb) = (
-        serde_json::to_value(&story).unwrap(),
-        serde_json::to_value(&again).unwrap(),
-    );
+    let (mut va, mut vb) = (story_json(&story), story_json(&again));
     strip_ids(&mut va);
     strip_ids(&mut vb);
     assert_eq!(va, vb, "真实手稿两次构建必须确定性");
