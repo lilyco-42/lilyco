@@ -103,6 +103,89 @@ def strings_of(body: bytes, key: bytes) -> list[bytes]:
     return out
 
 
+SPACES = b" \t\r\n\x0c\x00"  # 规范列的六个空白字符（与 Rust 的 is_space 同一套）
+
+
+def _read_members(
+    raw: bytes, at: int, nested: list[int]
+) -> tuple[list[bytes], int, int]:
+    """从 `[` 之后扫一层数组成员，直到配对的 `]`
+
+    交回（这一层摊平的串, 顶层直接是串的个数, `]` 之后的位置），子数组各装了几个串记在
+    `nested` 里。串里可以出现 `[` `]`，所以不能先数括号再切 —— 必须一路认串、一路配对。
+    与 `lilyco-binfmt/src/pdf.rs` 的 `read_members` 是同一条式子。
+    """
+    out: list[bytes] = []
+    top = 0
+    i = at
+    while i < len(raw):
+        while i < len(raw) and raw[i] in SPACES:
+            i += 1
+        if i >= len(raw):
+            break
+        ch = raw[i]
+        if ch == 0x5D:  # ]
+            i += 1
+            break
+        if ch == 0x5B:  # [
+            had, _had_top, nxt = _read_members(raw, i + 1, [])
+            nested.append(len(had))
+            out.extend(had)
+            i = nxt
+            continue
+        if ch == 0x28:  # (
+            value, nxt = literal(raw, i + 1)
+            out.append(value)
+            top += 1
+            i = nxt
+            continue
+        if ch == 0x3C and raw[i + 1 : i + 2] != b"<":
+            close = raw.find(b">", i + 1)
+            if close < 0:
+                break
+            hexits = re.sub(rb"[^0-9A-Fa-f]", b"", raw[i + 1 : close])
+            if len(hexits) % 2:
+                hexits += b"0"
+            try:
+                out.append(bytes.fromhex(hexits.decode("ascii")))
+            except ValueError:
+                pass
+            else:
+                top += 1
+            i = close + 1
+            continue
+        i += 1
+    return out, top, i
+
+
+def options_of(raw: bytes, key: bytes) -> tuple[list[bytes], str | None]:
+    """`/Opt [ … ]`：choice 的候选值只有数组这一种写法，而数组里两种存法都合法
+
+    `[(甲) (乙)]` 是「显示值就是导出值」，`[[1 一] [2 二]]` 是「导出值与显示值分开写」。
+    两种都摊平成同一个顺序交回，怎么存的另说（flat / pairs / mixed / empty）；
+    键整个没有或值不是数组交回 None，不当成「空数组」。与 Rust 的 `options_of` 同一条。
+    """
+    hits = key_positions(raw, key)
+    if not hits:
+        return [], None
+    at = hits[0] + len(key)
+    while at < len(raw) and raw[at] in SPACES:
+        at += 1
+    if raw[at : at + 1] != b"[":
+        return [], None
+    nested: list[int] = []
+    found, top, _nxt = _read_members(raw, at + 1, nested)
+    if not found and not nested:
+        shape = "empty"
+    elif not nested:
+        shape = "flat"
+    elif top == 0 and all(one == 2 for one in nested):
+        shape = "pairs"
+    else:
+        shape = "mixed"
+    return found, shape
+
+
 def decode_pdf_text(raw: bytes) -> str:
     """`FEFF` 开的是 UTF-16BE；其余按 Latin-1 交出去，并说明这是**近似**"""
     if raw.startswith(b"\xfe\xff"):
@@ -587,6 +670,7 @@ def form_of(by_id: dict[int, bytes]) -> tuple[dict, list]:
             flags = inherited("int", parent, b"/Ff", hops)
             flags_inherited = flags is not None
         subtype = name_of(body, b"/Subtype") or None
+        opts, opts_shape = options_of(body, b"/Opt")
         fields.append(
             {
                 "object": num,
@@ -602,7 +686,8 @@ def form_of(by_id: dict[int, bytes]) -> tuple[dict, list]:
                 "flags": flags,
                 "flags_inherited": flags_inherited,
                 "max_len": number(body, b"/MaxLen"),
-                "options": [decode_pdf_text(one) for one in strings_of(body, b"/Opt")],
+                "options": [decode_pdf_text(one) for one in opts],
+                "options_shape": opts_shape,
                 "kids": len(refs_of(body, b"/Kids")),
                 "parent": parent,
                 "widget": subtype == "Widget",

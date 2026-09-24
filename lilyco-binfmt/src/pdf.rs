@@ -323,6 +323,86 @@ pub fn one_string(body: &[u8], key: &[u8]) -> Option<String> {
         .map(|raw| decode_text(&raw))
 }
 
+/// 从 `from`（`[` 之后的第一个字节）扫一层成员，直到配对的 `]`
+///
+/// 交回「这一层里摊平的串、顶层直接是串的个数、`]` 之后的位置」。子数组里的串也摊进来
+/// （`[[1 一] [2 二]]` 的四个都要），各自几个记在 `nested` 里 —— 形状是调用方判的，
+/// 这里只数。串里可以出现 `[` `]`，所以不能先数括号再切：必须一路认串、一路配对。
+fn read_members(body: &[u8], from: usize, nested: &mut Vec<usize>) -> (Vec<Vec<u8>>, usize, usize) {
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    let mut top = 0usize;
+    let mut i = from;
+    loop {
+        i = skip_spaces(body, i);
+        let Some(ch) = body.get(i).copied() else {
+            break;
+        };
+        if ch == b']' {
+            i += 1;
+            break;
+        }
+        if ch == b'[' {
+            let mut deeper: Vec<usize> = Vec::new();
+            let (had, _had_top, next) = read_members(body, i + 1, &mut deeper);
+            nested.push(had.len());
+            out.extend(had);
+            i = next;
+            continue;
+        }
+        if ch == b'(' {
+            let (raw, next) = literal(body, i + 1);
+            out.push(raw);
+            top += 1;
+            i = next;
+            continue;
+        }
+        if ch == b'<' && body.get(i + 1) != Some(&b'<') {
+            let Some(close) = find(body, b">", i + 1) else {
+                break;
+            };
+            if let Some(raw) = hex_bytes(&body[i + 1..close]) {
+                out.push(raw);
+                top += 1;
+            }
+            i = close + 1;
+            continue;
+        }
+        i += 1;
+    }
+    (out, top, i)
+}
+
+/// `/Key [ … ]` 那一种值：choice 字段的 `/Opt` 按规范只有数组这一种写法，而数组里
+/// 两种存法都合法 —— `[(甲) (乙)]` 是「显示值就是导出值」，`[[1 一] [2 二]]` 是
+/// 「导出值与显示值分开写」。只认一种就会把整条候选读成空（两个读者的第一版都是）。
+///
+/// 交回摊平的串（写出的顺序）与形状：`flat` / `pairs` / `mixed` / `empty`；
+/// 键整个没有、或值不是数组，交回 `None` 而不是「空数组」—— 那是两件事
+fn options_of(body: &[u8], key: &[u8]) -> (Vec<String>, Option<&'static str>) {
+    let Some(at) = key_positions(body, key).into_iter().next() else {
+        return (Vec::new(), None);
+    };
+    let open = skip_spaces(body, at + key.len());
+    if body.get(open) != Some(&b'[') {
+        return (Vec::new(), None);
+    }
+    let mut nested: Vec<usize> = Vec::new();
+    let (raw, top, _next) = read_members(body, open + 1, &mut nested);
+    let shape = if raw.is_empty() && nested.is_empty() {
+        "empty"
+    } else if nested.is_empty() {
+        "flat"
+    } else if top == 0 && nested.iter().all(|one| *one == 2) {
+        "pairs"
+    } else {
+        "mixed"
+    };
+    (
+        raw.iter().map(|one| decode_text(one)).collect(),
+        Some(shape),
+    )
+}
+
 /// `stream` 关键字：前面得是行尾，后面得跟一个行尾 —— 按这三个字母切会被
 /// 字典里的字（`/Title(Obj stream fixture)`）撞倒，这条规则两边读者共用
 fn stream_keyword(body: &[u8]) -> Option<usize> {
@@ -457,8 +537,11 @@ pub struct Field {
     pub flags_inherited: bool,
     /// `/MaxLen`
     pub max_len: Option<i64>,
-    /// `/Opt`： choice 的候选串，按写的顺序
+    /// `/Opt`： choice 的候选串，按写的顺序（两种存法都摊平在这一条里）
     pub options: Vec<String>,
+    /// `/Opt` 这个数组自己是哪种写法：flat（显示值即导出值）/ pairs（成对分开写）/
+    /// mixed / empty；整个没这个键是 None，不是「空数组」
+    pub options_shape: Option<&'static str>,
     /// `/Kids` 里几个引用（字段树与注记共用这一条数组）
     pub kids: usize,
     /// `/Parent` 指的号
@@ -604,6 +687,7 @@ impl Pdf {
             flags = self.inherited_int(parent, b"/Ff", hops);
             flags_inherited = flags.is_some();
         }
+        let (options, options_shape) = options_of(dict, b"/Opt");
         out.push(Field {
             object: id,
             depth,
@@ -618,10 +702,8 @@ impl Pdf {
             flags,
             flags_inherited,
             max_len: int_after(dict, b"/MaxLen"),
-            options: strings_of(dict, b"/Opt")
-                .iter()
-                .map(|raw| decode_text(raw))
-                .collect(),
+            options,
+            options_shape,
             kids: refs_of(dict, b"/Kids").len(),
             parent,
             widget: name_after(dict, b"/Subtype").as_deref() == Some("Widget"),

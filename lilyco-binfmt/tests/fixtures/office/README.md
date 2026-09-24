@@ -92,6 +92,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `locked.pdf` | qpdf（`Encryption(R=6)`，从 `notes.pdf`） | AES-256 真加密，口令 `lbin-test`（owner `lbin-owner`；这是测试件，口令不是秘密）。`pdfinfo` 不给口令直接 `Incorrect password`；`/Encrypt` 指着的字典是 `/Filter /Standard`、`/V 5`、`/R 6`、`/Length 32`、带 `/O` `/U` `/OE` `/UE` `/P` |
 | `perms.pdf` | qpdf（pikepdf，从 `notes.pdf`） | **只设 owner 口令**的一份（用户口令为空）：于是 `/P` 那些位真的生效，工具也进得去 —— pdfinfo 读成 `Encrypted: yes (print:no copy:no change:yes addNotes:no algorithm:AES-256)`，与 `lyco_pdf_nav.py` 从 `/P -3384` 算出的位逐条一致 |
 | `risk.pdf` | **手搓**（`office_fixtures.py` 的 `write_risk_pdf`，逐对象自数 `<<`/`>>`） | LibreOffice 不肯写的五种形状：`/AcroForm` + 一个 `Tx` 字段、文档级 `/JavaScript`（名字树 + 流）、页 `/AA` 触发的脚本、`/Launch` 动作（打开 `winword.exe`）、`/EmbeddedFiles` 附件 `badge.exe`；页对象**不写** `MediaBox`/`Rotate`，从 `/Pages` 继承。写完用 `pdfinfo` 验：`Form: AcroForm`、`JavaScript: yes`、`Pages: 1`、`Page size: 612 x 792`、`Page rot: 90` —— 五条都被第三方读者认了才算 fixture |
+| `forms-hier.pdf` | **pikepdf 挂出来的**（`office_fixtures.py` 的 `write_forms_hier_pdf`，底本 `notes.pdf`）；写完用 pypdf 独立读回一遍 | 表单那一份账要的几种形状，编辑器没一个肯写：`/FT /Tx` 与 `/Ff 4` 只写在祖父 `Person` 上（`Address` 往上跳一跳、`City` 跳两跳才拿到）、`/Kids` 三层、`/Opt` 的两种合法写法各一份（成对 `[[1 一] [2 二]]` 与摊平 `[(甲) (乙) (丙)]`）、`/V` 的三种情形（写空串 / 写成数组 / 整个没写）、两条 Widget 同时挂在页的 `/Annots` 上。**这一份不是编辑器导的** —— 见事实 62 |
 
 ## 几件只有踩过才会记下来的事
 
@@ -947,6 +948,33 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       `style:graphic-properties` 而不是 odt 表格用的 `style:table-cell-properties`，
       这一跳在演示稿这一族还没量准，所以只交名字、不猜值。
 
+62. **PDF 的表单可以把类型只写在祖父上，而 `/Opt` 按规范只有数组一种写法**（`forms-hier.pdf`）。
+    这一份**不是任何编辑器导的**：量过的几个生产者（Word 2013、LibreOffice、手搓的 `risk.pdf`）
+    都没在父字段上写过 `/FT` 或 `/Ff`，继承那几条分支因此一直停在「数过了，没有」。
+    现在由 pikepdf 把形状挂出来，让分支真的走一遍；第三个读者 pypdf 独立数过。
+    * 形状：`/Fields` 上四条根、连子字段七条、最深第三层
+      （`Person` → `Address` → `City`）。全名 `Person.Address.City` 里的点号**是我们拼的**，
+      规范只定义了拼法；每条另交自己写的 `/T`。
+    * `/FT /Tx` 与 `/Ff 4` 只写在 `Person` 上：`Address` 往上走一跳拿到、`City` 走两跳，
+      于是 `inherited_type` 2、`inherited_flags` 2 —— 这两个数以前在每一件上都是 0。
+      `First` 自己写 `/Ff 1` 把父上那个 4 盖掉（继承不是叠加）。
+      pypdf 数同一份时这两条的 `/FT`、`/Ff` 显示为 None：它不把继承摊开，这条路只能自己走。
+    * `/Opt` 的两种合法写法**各留一份**：成对 `[[1 一] [2 二]]`（导出值与显示值分开）与
+      摊平 `[(甲) (乙) (丙)]`（同一串）。这一条是这份件量出来的**缺陷**：两个读者的第一版
+      都只认 `/Key (…)` 与 `/Key <…>` 两种值，而 `/Opt` 永远是数组 —— 于是**任何** choice
+      字段读出来都是空候选，且不报错。现在 `options` 交摊平的串、`options_shape` 说怎么写的
+      （`flat` / `pairs` / `mixed` / `empty`），整个没这个键是 null 而不是空数组。
+    * `/V` 是三件事，不是一件：`Ghost` 写了 `/V ()`（值就是空串）、`Flags` 把值写成一个数组
+      （多选列表框，`/Ff` 第 22 位 = 524288）→ `value_present` true 而 `value` null，
+      几段值不摊平成一个串、判不住就交 null、`Person` 整个没写是第三种。
+    * 两条控件（`First`、`City`）**同时挂在页的 `/Annots` 上**（那一页三个注记：两条 Widget
+      加一条链接），字段树只从 `/Fields` 走，所以是七条不是九条 —— 这是那条规则第一次有件可走。
+    * 文档级那三个开关也第一次有了非 null 的样本：`/NeedAppearances true`、`/SigFlags 1`、
+      `/DA (/Helv 0 Tf 0 g )` —— 有 AcroForm 的另一份（`risk.pdf`）三个都没写，
+      其余五份连 AcroForm 都没有。
+    * 字符串全带 `FE FF`：没有 BOM 的 `/V (李)` 会被两个读者都按 PDFDocEncoding 读成两个
+      拉丁字母 —— 写的时候就得按规范写。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
@@ -963,6 +991,11 @@ Rust 测试里每个期望值都来自第二读者对这些文件的独立读取
 还原成制表与换行），与 Rust 的 `run_text` 走的是同一条路。同一张表的第三副账在
 `lyco_grid.py`：`odp_table_sizes()` 从 odp 的列样式里读 cm 再换成 0.01mm，`grids_of()` 现在也认
 `.odp`（那一族的合并是另写一格 `covered-table-cell`）。
+表单那一份是 `lyco_pdf.py` 的 `form_of()`：`/Fields` → `/Kids` 那条链、沿 `/Parent` 往上取
+`/FT` 与 `/Ff`、`/Opt` 的两种数组写法（`options_of()` 与 Rust 那边同一条「一路认串、一路配对」
+的扫法）都一条一条照写。`forms-hier.pdf` 还另有**第三个**读者：pypdf 自己那套字段枚举数到
+同样七条、同样的两种 `/Opt` 与同样的 `/V` 三件事，但它不把继承摊开（`Address` / `City` 的
+`/FT`、`/Ff` 在那边是 None），所以那一条只能我们自己量出来。
 每张表的打印设置是同一份文件里的 `xlsx_print_setup()`：三个元素各自取第一个（与 Rust 那边
 `descendants(name).first()` 同一条规则），属性名去掉前缀原样交，缺的元素留 null。
 规则那一份是同一份文件里的 `sheet_rules()` 与 `dxf_table()`：与 Rust 一样先看 `cfRule` 的

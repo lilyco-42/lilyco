@@ -1394,6 +1394,124 @@ def write_risk_pdf(path: Path) -> None:
     path.write_bytes(bytes(out))
 
 
+def write_forms_hier_pdf(source: Path, path: Path) -> None:
+    """在 LibreOffice 导的 `notes.pdf` 上挂一套**分层**表单，另存为 `forms-hier.pdf`。
+
+    为什么要有这一份：手上有真生产者的件只到「一层、自己写 /FT、没写 /Ff」为止（`risk.pdf`
+    就是），所以 `form` 那一份账里继承、分层、成对候选那几条分支全停在「数过了，没有」。
+    这一份把它们一条条摊开：/FT 与 /Ff 只写在祖父上（孩子两级都靠继承）、/Kids 三层、
+    `/Opt` 的两种合法写法各一份、一个只写空串 /V 的字段（与「整个不写」是两件事）、
+    一个 /V 写成数组的多选字段，并把两个控件同时挂在页的 /Annots 上 —— 字段树与注记
+    共用那几条引用，只从 /Fields 走才不会把一条数两遍。
+
+    它**不是**任何编辑器导出的：由 pikepdf（qpdf）写出，README 里要说清这一点。
+    写完用 pypdf 独立读回来数过一遍（第三个读者，不参与 CI 对账），见 fixture README。
+    """
+    import pikepdf
+
+    def text(value: str):
+        # 带 FE FF：PDF 文本串没有 BOM 就按 PDFDocEncoding 读，两个字节的中国字会变成
+        # 两个拉丁字母 —— 两个读者都照规范读，所以写的时候必须把 BOM 带上
+        return pikepdf.String(bytes([0xFE, 0xFF]) + value.encode("utf-16-be"))
+
+    with pikepdf.open(source) as pdf:
+        new = pdf.make_indirect
+        # 第三层：Person.Address.City —— 只有 /V，类型与开关都靠往上继承
+        city = new(
+            pikepdf.Dictionary(
+                Type=pikepdf.Name.Annot,
+                Subtype=pikepdf.Name.Widget,
+                T=text("City"),
+                V=text("杭州"),
+                Rect=pikepdf.Array([0, 0, 100, 20]),
+            )
+        )
+        # 第二层：Person.Address —— 有 /T 与 /Kids，自己一个开关都不写
+        address = new(
+            pikepdf.Dictionary(
+                T=text("Address"),
+                Kids=pikepdf.Array([city]),
+            )
+        )
+        # 根上第一条的另一个孩子：自己写 /FT /Tx 与 /Ff，把父上的那两个盖掉
+        first = new(
+            pikepdf.Dictionary(
+                Type=pikepdf.Name.Annot,
+                Subtype=pikepdf.Name.Widget,
+                T=text("First"),
+                FT=pikepdf.Name.Tx,
+                Ff=pikepdf.Integer(1),
+                V=text("李"),
+                DV=text("李"),
+                MaxLen=pikepdf.Integer(4),
+                Rect=pikepdf.Array([0, 0, 80, 16]),
+            )
+        )
+        person = new(
+            pikepdf.Dictionary(
+                T=text("Person"),
+                FT=pikepdf.Name.Tx,
+                Ff=pikepdf.Integer(4),
+                Kids=pikepdf.Array([first, address]),
+            )
+        )
+        # 选择框，成对写法：[导出值 显示值] —— 显示值是中国字，导出值是 ASCII
+        level = new(
+            pikepdf.Dictionary(
+                T=text("Level"),
+                FT=pikepdf.Name.Ch,
+                Opt=pikepdf.Array(
+                    [
+                        pikepdf.Array([pikepdf.String("1"), text("一")]),
+                        pikepdf.Array([pikepdf.String("2"), text("二")]),
+                    ]
+                ),
+                V=pikepdf.String("1"),
+                Kids=pikepdf.Array([]),
+            )
+        )
+        # 选择框，摊平写法：一个数组里就是三个显示值，导出值与它们同一串
+        # 多选位（第 22 位，524288）下 /V 也是一个数组 —— 这一条也顺便量出「值是数组时
+        # 这里交 null」这一族行为
+        flags = new(
+            pikepdf.Dictionary(
+                T=text("Flags"),
+                FT=pikepdf.Name.Ch,
+                Ff=pikepdf.Integer(524288),
+                Opt=pikepdf.Array([text("甲"), text("乙"), text("丙")]),
+                V=pikepdf.Array([text("甲"), text("丙")]),
+                Kids=pikepdf.Array([]),
+            )
+        )
+        # 孤儿：根上第三条，没有 /FT，也没有任何孩子与控件；/V 写了，但写的是空串
+        orphan = new(
+            pikepdf.Dictionary(
+                T=text("Ghost"),
+                V=pikepdf.String(""),
+            )
+        )
+        # 真表单两头都写：孩子的 /Parent 回填上
+        for parent, kids in ((person, [first, address]), (address, [city])):
+            for kid in kids:
+                kid.Parent = parent
+        page = pdf.Root.Pages.Kids[0]
+        annots = page.get("/Annots")
+        if annots is None:
+            page["/Annots"] = pikepdf.Array()
+            annots = page["/Annots"]
+        for widget in (first, city):
+            annots.append(widget)
+        pdf.Root.AcroForm = new(
+            pikepdf.Dictionary(
+                Fields=pikepdf.Array([person, level, flags, orphan]),
+                DA=pikepdf.String("/Helv 0 Tf 0 g "),
+                NeedAppearances=True,
+                SigFlags=pikepdf.Integer(1),
+            )
+        )
+        pdf.save(path)
+
+
 FOOTNOTE_RTF = r"""{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0 Calibri;}}
 \pard Quarterly budget note.\par
 This sentence carries a footnote{\footnote\fs16 Footnote: the numbers are gross.} and keeps going.\par
@@ -2040,6 +2158,10 @@ def main() -> int:
                 )
             print("  objstm.pdf / locked.pdf 由 qpdf 写出（口令 lbin-test，只为测加密检测）")
             print("  perms.pdf 只设 owner 口令：/P 的位生效，pdfinfo 能读出来对账")
+            # 4) 表单那一份账要的三种形状（继承、分层、成对候选）没有编辑器肯写：
+            #    在 notes.pdf 上挂一套分层字段，另存一份（详见函数说明）
+            write_forms_hier_pdf(source, OUT / "forms-hier.pdf")
+            print("  forms-hier.pdf 由 pikepdf 挂上三层字段：这一份不是编辑器导的")
 
     print("fixture 清单（每个文件的生产者见函数注释）：")
     for one in sorted(OUT.iterdir()):

@@ -3090,7 +3090,8 @@ def main() -> int:
     # 对象流里那 51 个对象、没有 trailer 这个词的文件、以及加密时不许把密文当元数据
     print("=== 6) office-pdf：对象表、页树、加密与风险面 ===")
     # 去哪儿那一层：书签 / 页内链接 / 权限位（三份都是同一份读者的另一段代码）
-    for name in ("notes.pdf", "deck.pdf", "objstm.pdf", "risk.pdf", "locked.pdf", "perms.pdf"):
+    for name in ("notes.pdf", "deck.pdf", "objstm.pdf", "risk.pdf", "locked.pdf", "perms.pdf",
+                 "forms-hier.pdf"):
         want = files[name]["pdf"]
         got = lbin("office-pdf", fixture(name))
         check("%s 书签树在不在" % name, dig(got, "outline.present"), want["outline"]["present"])
@@ -3142,7 +3143,8 @@ def main() -> int:
           [dig(sealed, "permissions." + key) for key in ("print", "copy", "modify", "annotate")],
           [False, False, True, False])
 
-    for name in ("notes.pdf", "deck.pdf", "objstm.pdf", "locked.pdf", "risk.pdf"):
+    for name in ("notes.pdf", "deck.pdf", "objstm.pdf", "locked.pdf", "risk.pdf",
+                 "forms-hier.pdf"):
         got = lbin("office-pdf", fixture(name))
         want = files[name]["pdf"]
         check("%s 版本号" % name, dig(got, "version"), want["version"])
@@ -3217,7 +3219,8 @@ def main() -> int:
           [one["kind"] for one in risk.get("watch", [])].count("launch-action"), 1)
     # 表单那一份账：`/AcroForm` → `/Fields` → `/Kids`。值只交文件写的，不算 appearance、
     # 不验签名（签名那一件与「加密件不解密」同一个说法：只认 `/FT` 是 Sig 与 `/Sig` 在不在）
-    for name in ("notes.pdf", "deck.pdf", "objstm.pdf", "perms.pdf", "locked.pdf", "risk.pdf"):
+    for name in ("notes.pdf", "deck.pdf", "objstm.pdf", "perms.pdf", "locked.pdf", "risk.pdf",
+                 "forms-hier.pdf"):
         check("%s 表单那份账与读者一致" % name,
               lbin("office-pdf", fixture(name)).get("form"),
               files[name]["pdf"].get("form"))
@@ -3237,6 +3240,45 @@ def main() -> int:
          for name in ("notes.pdf", "deck.pdf", "perms.pdf")],
         [False, False, False],
     )
+    # 分层那一件：/FT 与 /Ff 只写在祖父上，两级孩子各自往上走一跳、两跳才拿到。
+    # 这一份是 pikepdf 挂出来的（编辑器没一个肯在父字段上写 /FT），第三个读者 pypdf 数过
+    hier = lbin("office-pdf", fixture("forms-hier.pdf"))
+    check(
+        "forms-hier.pdf 那三层字段：四条根、七条账、最深第三层",
+        [dig(hier, "form.roots"), dig(hier, "form.total"), dig(hier, "form.deepest"),
+         dig(hier, "form.inherited_type"), dig(hier, "form.inherited_flags"),
+         dig(hier, "form.with_v"), dig(hier, "form.widgets"),
+         dig(hier, "form.by_type.choice"), dig(hier, "form.by_type.unknown"),
+         dig(hier, "form.need_appearances"), dig(hier, "form.sig_flags")],
+        [4, 7, 2, 2, 2, 5, 2, 2, 1, True, 1],
+    )
+    check(
+        "继承来的类型与开关：City 自己一个字都没写",
+        [dig(hier, "form.items[3].qualified"), dig(hier, "form.items[3].type"),
+         dig(hier, "form.items[3].type_inherited"), dig(hier, "form.items[3].flags"),
+         dig(hier, "form.items[3].flags_inherited"), dig(hier, "form.items[3].value"),
+         dig(hier, "form.items[1].flags"), dig(hier, "form.items[1].max_len")],
+        ["Person.Address.City", "Tx", True, 4, True, "杭州", 1, 4],
+    )
+    check(
+        "/Opt 的两种合法写法：成对与摊平各是一份账，键整个没有不是空数组",
+        [dig(hier, "form.items[4].options"), dig(hier, "form.items[4].options_shape"),
+         dig(hier, "form.items[5].options"), dig(hier, "form.items[5].options_shape"),
+         dig(hier, "form.items[0].options_shape")],
+        [["1", "一", "2", "二"], "pairs", ["甲", "乙", "丙"], "flat", None],
+    )
+    check(
+        "/V 的三件事：写了空串、写成数组、整个没写",
+        [dig(hier, "form.items[6].value"), dig(hier, "form.items[6].value_present"),
+         dig(hier, "form.items[5].value"), dig(hier, "form.items[5].value_present"),
+         dig(hier, "form.items[0].value_present")],
+        ["", True, None, True, False],
+    )
+    check(
+        "两条控件同时挂在页的 /Annots 上：字段树只从 /Fields 走，一条没数两遍",
+        [dig(hier, "form.total"), dig(hier, "form.widgets"), dig(hier, "features.fields")],
+        [7, 2, 4],
+    )
     check(
         "没表单的那几份：一条也没数出来",
         [(lbin("office-pdf", fixture(name)).get("form") or {}).get("total")
@@ -3246,7 +3288,8 @@ def main() -> int:
 
     # ── 6b) PDF 的正文：两套读者逐页对字 ───────────────────────────
     # 这一层的价值全在「顺序对」上：字都认得、顺序排错，输出看着像读通了其实没有
-    for name in ("notes.pdf", "deck.pdf", "objstm.pdf", "locked.pdf", "risk.pdf"):
+    for name in ("notes.pdf", "deck.pdf", "objstm.pdf", "locked.pdf", "risk.pdf",
+                 "forms-hier.pdf"):
         got = lbin("office-pdf", fixture(name), "--text")
         want = files[name]["pdf"]["text"]
         check("%s 每页正文逐字一致" % name,
