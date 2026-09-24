@@ -92,8 +92,10 @@ pub fn length(raw: &str) -> Option<i64> {
     None
 }
 
-/// 从这个元素上按**局部名**取一个属性（前缀是各家自己绑的，不认前缀）
-fn attr_from(node: Option<&Node>, local: &str) -> Option<&str> {
+/// 从这个元素上按**局部名**取一个属性（前缀是各家自己绑的，不认前缀）。
+/// 返回的字借的是 `node` 那棵树，所以那个生命周期要写出来 —— 有两个入参引用时
+/// 省略规则推不出该借谁（这一条是 CI 教我的：本机不编译）
+fn attr_from<'a>(node: Option<&'a Node>, local: &str) -> Option<&'a str> {
     node.and_then(|one| one.attr_local(local))
 }
 
@@ -212,8 +214,8 @@ pub fn odf(styles: &Node, limit: usize) -> Vec<Value> {
         .collect()
 }
 
-/// 一串控制字里按词找**第一次**写的那个值
-fn written_of(writes: &[(String, String)], word: &str) -> Option<&str> {
+/// 一串控制字里按词找**第一次**写的那个值（借的是那一张表，理由同 `attr_from`）
+fn written_of<'a>(writes: &'a [(String, String)], word: &str) -> Option<&'a str> {
     writes
         .iter()
         .find(|(one, _)| one == word)
