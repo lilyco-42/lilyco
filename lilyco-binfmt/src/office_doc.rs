@@ -21,7 +21,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-doc",
     run = "run_office_doc",
-    about = "Report the structure of a Word document: paragraph count (empty ones counted separately, because Word's own statistics do), headings with their level and text, every style used and how often, tables with rows and cells, inline shapes and pictures, hyperlinks split into internal and external with their targets, sections, explicit page/column breaks, footnotes and endnotes and comments (read from their own parts when present), tracked-change presence (w:ins / w:del counts), numbering usage, headers and footers, embedded objects and custom XML, plus which optional parts the package actually carries. statistics answers 'how many words/pages': ours (characters, characters_no_spaces and words_by_space - the last split on whitespace only, which is why it is named that way and not 'words') next to the producer's own numbers (docx docProps/app.xml, ODF meta.xml document-statistic) because the two disagree by design - python-docx writes app.xml with Words/Characters at 0 (it never counted), and LibreOffice counts Chinese words rather than whitespace runs, while on the same text our character counts match its character-count exactly. For legacy .doc it falls back to what the piece table can honestly tell: paragraph count from the CP total plus the marker characters it dropped (cell ends, field boundaries), not a claim about tables it cannot see. For .odt it reports the same account from content.xml's office:text (headings from text:outline-level, comments from text:annotation, pictures from draw:image, footnotes and endnotes split out of the single text:note element by its note:class) and additionally echoes meta.xml's own document-statistic so the producer's numbers are visible next to ours. Returns { path, format, kind, structure, styles, tables, images, hyperlinks, statistics, parts, notes }. Read-only (safety T0)."
+    about = "Report the structure of a Word document: paragraph count (empty ones counted separately, because Word's own statistics do), headings with their level and text, every style used and how often, tables with rows and cells, inline shapes and pictures, hyperlinks split into internal and external with their targets, sections, explicit page/column breaks, footnotes and endnotes and comments (read from their own parts when present), tracked-change presence (w:ins / w:del counts) plus a revision ledger (revisions): one entry per logical change with its kind, author, date, the paragraph index it sits in and the words it carries - elements are merged only when adjacent with the same kind/author/date/paragraph, because a producer writes one edit as several runs (LibreOffice splits the number from the unit into two w:ins), while the ODF export of the very same file states them as one changed-region, which is what this merge rule was measured against. Paragraph-mark insertions (w:pPr/w:rPr/w:ins) are counted apart from the paragraph's text and are not merged with it; ODF keeps deleted words inside the region and inserted words between text:change-start and text:change-end in the body, and both are read. Legacy .doc reports revisions as null rather than guess (the redline tables live in the table stream, not the piece table). numbering usage, headers and footers, embedded objects and custom XML, plus which optional parts the package actually carries. statistics answers 'how many words/pages': ours (characters, characters_no_spaces and words_by_space - the last split on whitespace only, which is why it is named that way and not 'words') next to the producer's own numbers (docx docProps/app.xml, ODF meta.xml document-statistic) because the two disagree by design - python-docx writes app.xml with Words/Characters at 0 (it never counted), and LibreOffice counts Chinese words rather than whitespace runs, while on the same text our character counts match its character-count exactly. For legacy .doc it falls back to what the piece table can honestly tell: paragraph count from the CP total plus the marker characters it dropped (cell ends, field boundaries), not a claim about tables it cannot see. For .odt it reports the same account from content.xml's office:text (headings from text:outline-level, comments from text:annotation, pictures from draw:image, footnotes and endnotes split out of the single text:note element by its note:class) and additionally echoes meta.xml's own document-statistic so the producer's numbers are visible next to ours. Returns { path, format, kind, structure, styles, tables, images, hyperlinks, revisions, statistics, parts, notes }. Read-only (safety T0)."
 )]
 pub struct OfficeDoc {
     /// Word 文档（docx / docm / doc / odt）
@@ -206,6 +206,12 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
                 })
                 .unwrap_or(0)
         };
+        // 修订这份账。`word/settings.xml` 里的 `w:trackChanges` 说的是「往后还记不记」，
+        // 与正文里已经存着的那些改动是两件事，所以两个都报
+        let settings = zipread::member(bytes, "word/settings.xml", DEFAULT_MEMBER_CAP)
+            .ok()
+            .map(|one| xmlscan::parse_str(&one.as_text()));
+        let revisions = crate::revise::docx_ledger(&paragraphs, settings.as_ref());
         json!({
             "path": app.path.to_string_lossy(),
             "format": doc.format,
@@ -241,6 +247,7 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             "footnotes": count("footnote", "word/footnotes.xml"),
             "endnotes": count("endnote", "word/endnotes.xml"),
             "comments": count("comment", "word/comments.xml"),
+            "revisions": revisions.to_json(limit),
             // 「多少字、多少页」这一问有两份账：自己数的与生产者自报的
             "statistics": {
                 "ours": tally.to_json(),
@@ -367,6 +374,9 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
              不是 Word 那种分页设置"
                 .to_string(),
         );
+        // ODF 的修订存在两处：`text:changed-region` 是账（谁、什么时候、哪一类），
+        // 删掉的字在 region 里，插入的字在正文那两个标记之间
+        let revisions = crate::revise::odt_ledger(text_body, &paragraphs);
         json!({
             "path": app.path.to_string_lossy(),
             "format": doc.format,
@@ -400,6 +410,7 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             "footnotes": of_class("footnote"),
             "endnotes": of_class("endnote"),
             "comments": text_body.descendants("annotation").len(),
+            "revisions": revisions.to_json(limit),
             // 与 docx 那一份同一个形状：自己数的与生产者自报的并排
             // （ODF 的生产者账在 meta.xml 的 document-statistic，值全是字符串）
             "statistics": {
@@ -442,8 +453,10 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             "footnotes": null,
             "endnotes": null,
             "comments": null,
+            // 遗留 .doc 的修订在表流的 LVC/PAPX 那套结构里，piece 表给不出「谁改了什么」
+            "revisions": null,
             "parts": cfb.stream_names(),
-            "notes": concat_notes(&body.notes, "遗留 .doc 的段落样式、表格与图形在表流的其它记录里，本版本只数正文里的结构标记"),
+            "notes": concat_notes(&body.notes, "遗留 .doc 的段落样式、表格与图形在表流的其它记录里，本版本只数正文里的结构标记；修订那份账（谁、什么时候）也住在表流里，这里读不出，宁可给 null"),
         })
     } else {
         return Err(AppError::InvalidInput(format!(
@@ -479,6 +492,126 @@ mod tests {
         };
         let (tx, _rx) = mpsc::channel();
         run_office_doc(&app, &Context::new_test(tx)).expect("office-doc 应成功")
+    }
+
+    /// 「谁在什么时候改了哪一段」这一问。期望值全部来自 `lyco_revisions.py`，
+    /// 而这份 fixture 是 LibreOffice 写的 OOXML：它把一次插入拆成两个 `w:ins`
+    /// （数字与单位各一条），所以**元素数 6 与逻辑改动 4 不是一回事**，两个都要报
+    #[test]
+    fn the_revision_ledger_says_who_changed_what_where() {
+        let out = run("revisions-lo.docx");
+        let rev = &out["revisions"];
+        assert_eq!(rev["changes_total"], 4, "{rev}");
+        assert_eq!(rev["elements"]["insertions"], 3, "一次编辑被拆成两条");
+        assert_eq!(rev["elements"]["deletions"], 2);
+        assert_eq!(rev["elements"]["format_changes"], 1);
+        assert_eq!(
+            rev["paragraph_marks"], 0,
+            "LibreOffice 导出时丢了段落标记那条"
+        );
+        assert_eq!(rev["track_changes"], json!(false), "文件自己说没开着记录");
+        let changes = rev["changes"].as_array().expect("是数组");
+        assert_eq!(
+            changes[0],
+            json!({
+                "index": 0, "kind": "insertion", "author": "张三",
+                "date": "2026-03-05T09:12:00Z", "paragraph": 2,
+                "text": "124000 元", "elements": 2, "paragraph_mark": false,
+            }),
+            "{changes[0]}"
+        );
+        assert_eq!(changes[1]["kind"], "deletion");
+        assert_eq!(changes[1]["author"], "李四");
+        assert_eq!(changes[1]["text"], "89000 元");
+        assert_eq!(changes[1]["elements"], 2);
+        // 改格式这一条不带字：字没动，动的是字的样子
+        assert_eq!(changes[2]["kind"], "format-change");
+        assert_eq!(changes[2]["author"], "王五");
+        assert_eq!(changes[2]["text"], "");
+        assert_eq!(changes[3]["text"], "整段是新加的。");
+        assert_eq!(changes[3]["paragraph"], 2 + 1, "整段新加的是下一段");
+        // 段落序号的基准与 structure.paragraphs 同一份列表：标题算第 0 段
+        assert_eq!(out["structure"]["paragraphs"], 4);
+        assert_eq!(out["structure"]["insertions"], 3);
+        assert_eq!(out["structure"]["deletions"], 2);
+        let note = rev["notes"]
+            .as_array()
+            .expect("有 notes")
+            .iter()
+            .map(|one| one.as_str().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(note.contains("6 个修订元素合成 4 条"), "{note}");
+    }
+
+    /// 同一条规则的另一种形状：python-docx 手写的那份没被拆开，而且段落标记自己
+    /// 也算一处改动 —— 它与同段同作者同时间的正文那条**不许合并**
+    #[test]
+    fn a_paragraph_mark_revision_stays_apart_from_its_text() {
+        let out = run("revisions.docx");
+        let rev = &out["revisions"];
+        assert_eq!(rev["changes_total"], 5, "{rev}");
+        assert_eq!(rev["elements"]["insertions"], 3);
+        assert_eq!(rev["elements"]["deletions"], 1);
+        assert_eq!(rev["paragraph_marks"], 1);
+        let marks: Vec<&Value> = rev["changes"]
+            .as_array()
+            .expect("是数组")
+            .iter()
+            .filter(|one| one["paragraph_mark"].as_bool() == Some(true))
+            .collect();
+        assert_eq!(marks.len(), 1, "{rev}");
+        assert_eq!(marks[0]["text"], "", "段落标记自己没有正文");
+        assert_eq!(marks[0]["author"], "张三");
+        assert_eq!(marks[0]["paragraph"], 3);
+        // 没被拆开，所以每条就是一个元素
+        assert!(rev["changes"]
+            .as_array()
+            .expect("是数组")
+            .iter()
+            .all(|one| one["elements"] == 1));
+        assert!(rev["notes"].as_array().expect("有 notes").is_empty());
+    }
+
+    /// 同一批改动在 ODF 里的样子：region 自己就是逻辑改动（LO 已经把拆开的那份合回去了），
+    /// 所以 4 处与 OOXML 那边合成后的 4 条对上；日期少一个 `Z`、格式改动带着字，
+    /// 是这两个格式自己的差别，不替文件统一
+    #[test]
+    fn the_same_revisions_read_from_the_opendocument_side() {
+        let out = run("revisions.odt");
+        let rev = &out["revisions"];
+        assert_eq!(rev["changes_total"], 4, "{rev}");
+        assert_eq!(rev["elements"]["insertions"], 2);
+        assert_eq!(rev["elements"]["deletions"], 1);
+        assert_eq!(rev["elements"]["format_changes"], 1);
+        assert_eq!(rev["paragraph_marks"], 0);
+        assert_eq!(rev["track_changes"], json!(false));
+        let changes = rev["changes"].as_array().expect("是数组");
+        assert_eq!(
+            changes
+                .iter()
+                .map(|one| one["kind"].as_str().unwrap_or(""))
+                .collect::<Vec<_>>(),
+            vec!["insertion", "deletion", "format-change", "insertion"]
+        );
+        assert_eq!(changes[0]["text"], "124000 元", "插入的字在正文的区间里");
+        assert_eq!(changes[0]["date"], "2026-03-05T09:12:00");
+        assert_eq!(changes[1]["text"], "89000 元", "删掉的字在 region 里");
+        assert_eq!(
+            changes[2]["text"], "，请复核。",
+            "ODF 的格式改动带着被改的字"
+        );
+        assert_eq!(changes[3]["text"], "整段是新加的。");
+        assert_eq!(changes[0]["paragraph"], 1, "标题是 text:h，不占正文段的号");
+        assert_eq!(changes[3]["paragraph"], 2);
+        assert_eq!(
+            out["structure"]["paragraphs"], 3,
+            "region 里那份删掉的段不算正文"
+        );
+        let authors = rev["authors"].as_array().expect("是数组");
+        assert_eq!(authors.len(), 3, "{authors}");
+        assert_eq!(authors[0]["name"], "张三");
+        assert_eq!(authors[0]["changes"], 2);
     }
 
     /// LibreOffice 从 RTF 导入写出的那份脚注样本：`word/footnotes.xml` 里有四条

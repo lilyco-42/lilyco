@@ -684,6 +684,11 @@ fn gather_text_nodes<'a>(node: &'a Node, into: &mut Vec<(&'a Node, bool)>) {
         if one.local() == "annotation" {
             continue;
         }
+        // 修订表里的那些 `text:p` 装的是**被删掉**的字：正文里那个位置只剩一个
+        // `text:change` 标记，把 region 也当成正文就会把删掉的段落读回来
+        if one.local() == "tracked-changes" {
+            continue;
+        }
         if one.local() == "p" || one.local() == "h" {
             into.push((one, one.local() == "h"));
             continue;
@@ -729,6 +734,11 @@ pub fn paragraph_text(node: &Node) -> String {
 pub fn odf_paragraphs<'a>(node: &'a Node, into: &mut Vec<&'a Node>) {
     for one in &node.children {
         if one.local() == "annotation" {
+            continue;
+        }
+        // 修订表里那份 `text:p` 装的是**被删掉**的字：它不是正文段落，
+        // 算进去等于段落数多一个、还把删掉的字当现存的读
+        if one.local() == "tracked-changes" {
             continue;
         }
         if one.local() == "p" {
@@ -1426,6 +1436,34 @@ mod tests {
             .expect("有母版");
         assert!(first_master < first_body, "母版在前、正文在后：{lines:?}");
         assert_eq!(out["line_count"], lines.len());
+    }
+
+    /// ODF 的修订表里那份 `text:p` 装的是**被删掉**的字：它不是正文，读回来就等于
+    /// 把作者删掉的东西又替他写一遍（正文那个位置只剩一个 `text:change` 标记）。
+    /// 期望值来自 `lyco_revisions.py` 之外的那份段落走法：标题 + 三段
+    #[test]
+    fn deleted_odt_paragraphs_do_not_come_back_as_body_text() {
+        let out = run("revisions.odt", 20000, false);
+        let lines: Vec<&str> = out["paragraphs"]
+            .as_array()
+            .expect("是数组")
+            .iter()
+            .map(|one| one["text"].as_str().unwrap_or(""))
+            .collect();
+        assert_eq!(
+            lines,
+            vec![
+                "预算说明（带修订）",
+                "第一段没有改动。",
+                "预算总额为124000 元，请复核。",
+                "整段是新加的。",
+            ],
+            "{lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|one| one.contains("89000")),
+            "删掉的那笔不许回到正文：{lines:?}"
+        );
     }
 
     /// Web / MCP 端省略 `max-chars` 时 derive 给的是 0，不是 schema 的 default：

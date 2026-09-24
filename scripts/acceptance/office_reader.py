@@ -26,6 +26,7 @@ _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 from lyco_rtf import rtf_info, rtf_text  # 独立 RTF 实现，与 lilyco-binfmt/src/rtf.rs 对账
 from lyco_formats import xlsx_formats  # xlsx 数字格式的第二读者（与 numfmt.rs 对账）
 from lyco_legacy import biff_workbook, doc_pieces, ppt_text  # 遗留格式的第二读者
+from lyco_revisions import docx_revisions, odt_revisions  # 修订那份账的第二读者
 import lyco_pdf  # PDF 那份读者：对象表 + 对象流 + 字符串三件事（lbin office-pdf 对账）
 
 END = "END"  # CFB 的链结束标记
@@ -534,16 +535,39 @@ def odt_structure(path: Path) -> dict:
     }
 
 
+def docx_revision_ledger(path: Path) -> dict:
+    """修订这份账的第二读者（Rust 那边是 `lilyco-binfmt/src/revise.rs`）"""
+    with zipfile.ZipFile(path) as box:
+        names = set(box.namelist())
+        document = ET.fromstring(box.read("word/document.xml"))
+        settings = (
+            ET.fromstring(box.read("word/settings.xml"))
+            if "word/settings.xml" in names
+            else None
+        )
+    return docx_revisions(document, settings)
+
+
+def odt_revision_ledger(path: Path) -> dict | None:
+    """ODF 那一侧同一条规则的另一份实现；不是文字文档就交回 None"""
+    with zipfile.ZipFile(path) as box:
+        if "content.xml" not in box.namelist():
+            return None
+        return odt_revisions(ET.fromstring(box.read("content.xml")))
+
+
 def body_paragraphs(root) -> list:
-    """正文段：批注（`text:annotation`）里的那些 `text:p` 不算。
+    """正文段：批注（`text:annotation`）与修订表（`text:tracked-changes`）里的那些不算。
 
     ODF 的批注是嵌在正文段**里面**的，不是像 docx 那样另有一个 comments.xml 部件，
     所以「这一段有几段字」这件事得先把批注子树挖掉再数。
-    ElementTree 没有父指针，就反过来做：先把批注里的段挑出来，按 id 排除。
+    修订表里那份 `text:p` 装的是**被删掉**的字，正文那个位置只剩一个 `text:change`
+    标记 —— 不挖掉就等于把删掉的段落读回正文。
+    ElementTree 没有父指针，就反过来做：先把这些子树里的段挑出来，按 id 排除。
     """
     inside = set()
     for owner in root.iter():
-        if xml_local(owner.tag) != "annotation":
+        if xml_local(owner.tag) not in ("annotation", "tracked-changes"):
             continue
         for one in owner.iter():
             if xml_local(one.tag) == "p":
@@ -561,11 +585,12 @@ def body_paragraph_and_heading_nodes(root) -> list:
     这两份账本来就不是一个问句：office-doc 问「有几段」（只认 `text:p`，
     标题另有一份带层级的清单），office-text 问「页面上能读到哪几块字」，
     `text:h` 也是字。共用一份清单会让其中一边说谎，所以分开列。
-    批注子树同样挖掉，理由与 `body_paragraphs` 一致。
+    批注子树同样挖掉，理由与 `body_paragraphs` 一致；修订表（`text:tracked-changes`）
+    里那份 `text:p` 装的是**被删掉**的字，页面上读不到，也得挖掉。
     """
     inside = set()
     for owner in root.iter():
-        if xml_local(owner.tag) != "annotation":
+        if xml_local(owner.tag) not in ("annotation", "tracked-changes"):
             continue
         for one in owner.iter():
             if xml_local(one.tag) in ("p", "h"):
@@ -1762,6 +1787,7 @@ def facts(path: Path) -> dict:
         if "word/document.xml" in parts:
             out["app"] = "word"
             out["ooxml"] = docx_facts(path)
+            out["revisions"] = docx_revision_ledger(path)
         elif "xl/workbook.xml" in parts:
             out["app"] = "excel"
             out["ooxml"] = xlsx_facts(path)
@@ -1778,6 +1804,9 @@ def facts(path: Path) -> dict:
             out["links"] = odf_links(path)
             out["page_text"] = odf_page_text(path)
             out["odt"] = odt_structure(path)
+            ledger = odt_revision_ledger(path)
+            if ledger is not None:
+                out["revisions"] = ledger
             sheets = ods_facts(path)
             if sheets is not None:
                 out["ods"] = sheets

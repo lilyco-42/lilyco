@@ -489,6 +489,62 @@ def main() -> int:
         )[:160],
     )
 
+    # ── 3ez) 修订这份账：谁在什么时候改了哪一段（OOXML 与 ODF 两套走法、一份账）
+    print("=== 3ez) revisions.*：office-doc 的修订账 ===")
+    ledger_of = {}
+    for name in ("revisions.docx", "revisions-lo.docx", "revisions.odt"):
+        whole = lbin("office-doc", fixture(name))
+        got = whole.get("revisions") or {}
+        want = files[name]["revisions"]
+        key = ("kind", "author", "date", "paragraph", "text", "elements", "paragraph_mark")
+        ledger_of[name] = [(one["kind"], one["author"], one["text"]) for one in want["changes"]]
+        check(
+            "%s 逐条修订" % name,
+            [{field: one.get(field) for field in key} for one in got.get("changes", [])],
+            [{field: one.get(field) for field in key} for one in want["changes"]],
+        )
+        check("%s 修订元素计数" % name, got.get("elements"), want["elements"])
+        check("%s 段落标记数" % name, got.get("paragraph_marks"), want["paragraph_marks"])
+        check("%s 有没有开着记录修订" % name, got.get("track_changes"), want["track_changes"])
+        check("%s 条数" % name, got.get("changes_total"), len(want["changes"]))
+    # 分水岭一：一次编辑被生产者拆成几个 run 时，元素数与逻辑条数必须分开
+    hand = lbin("office-doc", fixture("revisions.docx")).get("revisions", {})
+    lo = lbin("office-doc", fixture("revisions-lo.docx")).get("revisions", {})
+    check(
+        "revisions-lo.docx 元素 6 而改动 4",
+        (sum(lo.get("elements", {}).values()), lo.get("changes_total")),
+        (6, 4),
+    )
+    check(
+        "revisions.docx 元素 5 而改动 5（没被拆开）",
+        (sum(hand.get("elements", {}).values()), hand.get("changes_total")),
+        (5, 5),
+    )
+    # 分水岭二：OOXML 合成后的四条与 ODF 的四个 region 逐字相同 —— 两个格式、两套走法，
+    # 同一份账。日期不比对（OOXML 写 Z，ODF 不写），段落序号也不比对（标题在 ODF 里是 text:h）
+    check(
+        "docx 与 odt 的修订逐条对上",
+        ledger_of["revisions-lo.docx"],
+        ledger_of["revisions.odt"],
+    )
+    # 修订表里那份被删掉的段落不是正文：office-doc 的段落数与 office-text 的行都要证明这点
+    check(
+        "revisions.odt 正文段数（删掉的那段不算）",
+        dig(lbin("office-doc", fixture("revisions.odt")), "structure.paragraphs"),
+        files["revisions.odt"]["odt"]["paragraphs"],
+    )
+    revtext = lbin("office-text", fixture("revisions.odt"))
+    check(
+        "revisions.odt 正文行",
+        [one["text"] for one in revtext.get("paragraphs", [])],
+        files["revisions.odt"]["odf"]["paragraphs"],
+    )
+    check(
+        "revisions.odt 正文里没有被删掉的那笔",
+        any("89000" in one["text"] for one in revtext.get("paragraphs", [])),
+        False,
+    )
+
     # ── 3e) ODP：页、备注与母版那一跳 ────────────────────────────────
     print("=== 3e) deck.odp：office-slide 的 ODF 分支 ===")
     slide = lbin("office-slide", fixture("deck.odp"))

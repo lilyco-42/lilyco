@@ -20,6 +20,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `notes-foot.docx` | LibreOffice（从 `office_fixtures.py` 里的 `FOOTNOTE_RTF` 导入写出） | 两条真脚注 + `word/footnotes.xml` 里那**两条分隔符**（`w:type="separator"` / `"continuationSeparator"`，没有正文）：数脚注不能只数 `w:footnote` 元素 |
 | `notes-hf.odt` | LibreOffice（从 `notes-hf.docx`） | 同一批字的 ODF 存法：页眉页脚在 **styles.xml 的 master-page** 里，两个节 = 两个 master-page（`Standard` 与 `Converted1`），各带一份 header + footer |
 | `notes-hf.rtf` | LibreOffice（从 `notes-hf.docx`） | 第三种存法：`\header` / `\headerl` / `\footer` 这些**目标（destination）**里的字，与正文混在一个流里 |
+| `revisions.docx` | python-docx + 手注入 `w:ins` / `w:del` / `w:rPrChange` / 段落标记 | 四种修订各一处，而且**没被拆开**：3 个 `w:ins`（含段落标记那一条）、1 个 `w:del`、1 个 `w:rPrChange` → 5 条逻辑改动 |
+| `revisions-lo.docx` | LibreOffice（从 `revisions.docx`） | 同一批字的 OOXML 另一副面孔：一次插入被拆成两个 run（数字与单位各一条），段落标记那一条反而被丢掉 → 6 个元素、4 条改动 |
+| `revisions.odt` | LibreOffice（从 `revisions-lo.docx`） | 同一批字的 ODF 存法：4 个 `text:changed-region`（2 插 1 删 1 改格式），日期没有那个 `Z`，改格式那条带着被改的字，删掉的那段只住在 region 里 |
 | `notes.doc` | LibreOffice（从 `notes.docx`） | MS-CFB 复合文档 + WordDocument 流 + `1Table` 里的 piece 表 |
 | `notes-en.doc` | LibreOffice（从纯 ASCII 的 `notes-en.docx`） | 中英一视同仁仍写 16 位 piece —— 记下这个事实，见下 |
 | `book.xls` | LibreOffice（从 `book.xlsx`） | BIFF8：BOUNDSHEET（含隐藏表）、SST + CONTINUE、LABELSST / RK / FORMULA |
@@ -172,6 +175,16 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     这一处不同是**两种口径**，不是谁读错了，记在这里。
 22. **PDF 的界也记全**：内容流是密文的加密件不给正文（只说解不出来）、图形流里的字不做、
     CID 字体的宽度在 `/W` 数组里（不跟，那种字体认得出字但位置会偏）、表单字段值与签名校验不做。
+23. **「一次编辑」不是一个元素，也不是一条 region**（`revisions.docx` / `revisions-lo.docx` /
+    `revisions.odt` 是同一批字的三副面孔）。LibreOffice 写 OOXML 会把「插入 124000 元」拆成两个
+    `w:ins`（数字与单位各一条），而它自己导出的 ODF 把同一次编辑写成**一个** `text:changed-region` ——
+    于是 OOXML 那侧把**相邻**且同（类型 + 作者 + 时间 + 所在段 + 是否段落标记）的元素并起来之后，
+    两份文件的账逐字相同（4 条：插 124000 元 / 删 89000 元 / 王五改了那半句的字样 / 整段新加）。
+    这条合并规则不是照规范抄的（规范没说一次编辑只能一个元素），是这两份 fixture 对出来的。
+    顺带记三处差别：段落标记的 `w:ins` 在 LibreOffice 导出时丢掉（python-docx 那份有，5 条 vs 4 条）；
+    ODF 的日期不写那个 `Z`；ODF 的 `format-change` 带着被改格式的字，OOXML 的 `w:rPrChange` 不带字。
+    还有一条是这三份 fixture 修出来的：`text:tracked-changes` 里那份 `text:p` 是**被删掉**的段落，
+    从前 `office-doc` 的段落数与 `office-text` 的正文都会把它当现存的读回来。
 
 ## 这些数字从哪来
 
@@ -180,6 +193,9 @@ Rust 测试里每个期望值都来自第二读者对这些文件的独立读取
 `lyco_rtf.py`（RTF）、`lyco_legacy.py`（`.doc` piece 表、`.xls` BIFF8、`.ppt` 记录树）、
 `lyco_formats.py`（`.xlsx` 的数字格式与日期换算），以及 `office_reader.py` 里的
 `ods_facts()`（`.ods` 的重复计数、覆盖格与自动样式可见性）。
+修订那一份另有 `scripts/acceptance/lyco_revisions.py`：ElementTree 的 `.tail` 天然带着
+「插入的字夹在两个标记之间」那个顺序，而 Rust 那边靠 xmlscan 的 `#text` 子节点走同一条路 ——
+同一份 `revisions-lo.docx` 与 `revisions.odt` 两边逐条对得上，才对得起「合成规则」这四个字。
 CI 的 `apps` job 会把编出来的 `lbin` 再跑一遍 `office_probe.py` 与它们逐字段对账，
 不一致就红 —— 而不是只跑一遍单元测试说"自己跟自己也挺一致"。
 

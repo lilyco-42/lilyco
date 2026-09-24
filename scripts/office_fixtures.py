@@ -230,6 +230,64 @@ def write_header_docx(path: Path) -> None:
     doc.save(str(path))
 
 
+def write_revisions_docx(path: Path) -> None:
+    """带修订的一份 docx：插入、删除、改格式、整段新加（含段落标记）各一处
+
+    这份样本存在的理由：`office-doc` 从前只报 `w:ins` / `w:del` 的**个数**，答不了
+    「谁在什么时候改了哪一段」。四种修订要分开摆，因为它们在文件里的存法各不相同：
+    删除的字存在 `w:del` 里（`w:delText`），改格式存在 `w:rPrChange` 里（不带字），
+    整段新加还额外在 `w:pPr/w:rPr/w:ins` 标一次段落标记。
+    """
+    from docx import Document
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import nsdecls
+
+    W = nsdecls("w")
+    doc = Document()
+    doc.add_heading("预算说明（带修订）", level=1)
+    doc.add_paragraph("第一段没有改动。")
+
+    p2 = doc.add_paragraph()
+    p2.add_run("预算总额为")
+    p2._p.append(
+        parse_xml(
+            f'<w:ins {W} w:id="11" w:author="张三" w:date="2026-03-05T09:12:00Z">'
+            f'<w:r><w:t>124000 元</w:t></w:r></w:ins>'
+        )
+    )
+    p2._p.append(
+        parse_xml(
+            f'<w:del {W} w:id="12" w:author="李四" w:date="2026-03-06T11:45:00Z">'
+            f'<w:r><w:delText>89000 元</w:delText></w:r></w:del>'
+        )
+    )
+    tail = p2.add_run("，请复核。")
+    tail.bold = True
+    # 改格式这一条不带字：它说的是「这段字变成粗体」，字本身没动
+    tail._r.get_or_add_rPr().append(
+        parse_xml(
+            f'<w:rPrChange {W} w:id="16" w:author="王五" w:date="2026-03-07T08:00:00Z">'
+            f'<w:rPr><w:b w:val="0"/></w:rPr></w:rPrChange>'
+        )
+    )
+
+    # 整段是新加的：正文那条 w:ins 之外，段落标记自己也标一条
+    body = doc.element.body
+    sect = body[-1]
+    body.insert(
+        list(body).index(sect),
+        parse_xml(
+            f'<w:p {W}>'
+            f'<w:pPr><w:rPr><w:ins {W} w:id="14" w:author="张三" w:date="2026-03-05T09:20:00Z"/></w:rPr></w:pPr>'
+            f'<w:ins {W} w:id="15" w:author="张三" w:date="2026-03-05T09:20:00Z">'
+            f'<w:r><w:t>整段是新加的。</w:t></w:r></w:ins></w:p>'
+        ),
+    )
+    doc.core_properties.title = "预算说明（带修订）"
+    doc.core_properties.author = "liuqi"
+    doc.save(str(path))
+
+
 def write_xlsx(path: Path) -> None:
     """openpyxl：多表、隐藏表、公式、合并格、命名区域、真表格 —— 一个电子表格里
     `lbin office-sheet` 要报的东西基本都在这里，而这些东西 LibreOffice 转出来的样本未必有。
@@ -634,6 +692,24 @@ def main() -> int:
 
     headers = OUT / "notes-hf.docx"
     write_header_docx(headers)
+
+    # 修订这一份账：python-docx 注入四种改动，再让 LibreOffice 转一次。两份都留：
+    # LibreOffice 会把一次编辑拆成几个 run（数字与单位各一条），又会丢掉段落标记那一条，
+    # 而它自己导出的 ODF 把一次编辑写回一个 changed-region —— 这条对照是合并规则的唯一出处
+    revisions = OUT / "revisions.docx"
+    write_revisions_docx(revisions)
+    convert(exe, revisions, "docx", SCRATCH)
+    lo_rev = SCRATCH / "revisions.docx"
+    if lo_rev.exists():
+        shutil.copyfile(lo_rev, OUT / "revisions-lo.docx")
+        convert(exe, OUT / "revisions-lo.docx", "odt", SCRATCH)
+        odt_rev = SCRATCH / "revisions-lo.odt"
+        if odt_rev.exists():
+            shutil.copyfile(odt_rev, OUT / "revisions.odt")
+        else:
+            print("⚠️  没拿到 revisions.odt")
+    else:
+        print("⚠️  没拿到 revisions-lo.docx")
 
     # 隐藏行/列那一档：openpyxl 写 xlsx，LibreOffice 转 ods，再转回 xlsx（跨列写法）
     hidden = OUT / "hidden.xlsx"

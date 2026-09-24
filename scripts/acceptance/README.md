@@ -67,7 +67,7 @@ python scripts/acceptance/binfmt_probe.py "$BIN" /绝对路径/某个真实二�
        [winpty 用工作目录] /绝对路径/某个办公文件
 ```
 
-`lbin` 十二条命令全 T0 只读：四条二进制结构（`identify` / `entries` / `regions` / `symbols`）读第 2 个参数，八条办公文件（`office-info` / `office-text` / `office-meta` / `office-doc` / `office-sheet` / `office-slide` / `office-package` / `office-objects`）读第 4 个（默认是仓库里那份 `notes.docx`）。比对基准是
+`lbin` 十三条命令全 T0 只读：四条二进制结构（`identify` / `entries` / `regions` / `symbols`）读第 2 个参数，九条办公文件（`office-info` / `office-text` / `office-meta` / `office-doc` / `office-sheet` / `office-slide` / `office-package` / `office-objects` / `office-pdf`）读第 4 个（默认是仓库里那份 `notes.docx`）。比对基准是
 **同一个文件在四端拿到同一份 JSON**：脚本先取 CLI `--json` 作基准，再逐端比对——
 Web（CSRF 401 → 带令牌 SSE → 逐字比对 → 未知命令 400）、MCP（握手 → `tools/list` 全部工具且
 `path` 必填 → 逐条调用与 CLI 逐字比对 → 缺参 `-32602`）、TUI（winpty 真 PTY：选择页滚一遍能列出全部命令 →

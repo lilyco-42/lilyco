@@ -50,6 +50,7 @@ mod ppt;
 mod props;
 mod read;
 mod regions;
+mod revise;
 mod rtf;
 mod symbols;
 mod word;
