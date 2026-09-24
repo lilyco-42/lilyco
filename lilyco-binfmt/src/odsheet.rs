@@ -637,7 +637,10 @@ mod tests {
         assert_eq!(cell(&book, "预算表", "A5").text, "口径：含税");
         // 值是数、文本是给人看的：两者都要，但不混
         assert_eq!(cell(&book, "预算表", "B2").value.as_deref(), Some("124000"));
-        assert_eq!(cell(&book, "预算表", "A1").value_type, Some("string"));
+        assert_eq!(
+            cell(&book, "预算表", "A1").value_type.as_deref(),
+            Some("string")
+        );
     }
 
     /// 那一行 `number-columns-repeated="16381"` 是本模块存在的理由：照字面数就是
@@ -654,23 +657,35 @@ mod tests {
             cell(&book, "格式", "C1").date_value.as_deref(),
             Some("2013-12-23")
         );
-        assert_eq!(cell(&book, "格式", "C1").value_type, Some("date"));
+        assert_eq!(
+            cell(&book, "格式", "C1").value_type.as_deref(),
+            Some("date")
+        );
         assert_eq!(
             cell(&book, "格式", "C2").date_value.as_deref(),
             Some("2013-12-23T15:15:00")
         );
-        assert_eq!(cell(&book, "格式", "C3").value_type, Some("percentage"));
+        assert_eq!(
+            cell(&book, "格式", "C3").value_type.as_deref(),
+            Some("percentage")
+        );
         assert_eq!(cell(&book, "格式", "C3").value.as_deref(), Some("0.125"));
         assert_eq!(cell(&book, "格式", "C3").text, "12.5%");
         // 货币在这里只是显示：值类型还是 float，¥ 在文本里
-        assert_eq!(cell(&book, "格式", "C4").value_type, Some("float"));
+        assert_eq!(
+            cell(&book, "格式", "C4").value_type.as_deref(),
+            Some("float")
+        );
         assert_eq!(cell(&book, "格式", "C4").text, "¥124,000.00");
         assert_eq!(
             cell(&book, "格式", "C5").text,
             "2013年12月23日",
             "中文格式显示出来的样子"
         );
-        assert_eq!(cell(&book, "格式", "C7").value_type, Some("string"));
+        assert_eq!(
+            cell(&book, "格式", "C7").value_type.as_deref(),
+            Some("string")
+        );
         assert_eq!(cell(&book, "格式", "C7").text, "12/23/2013");
         assert_eq!(
             cell(&book, "格式", "C8").boolean_value.as_deref(),

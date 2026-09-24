@@ -949,10 +949,14 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       odp 一有字又没写类型的格子就把分歧翻了出来（同一件事一边报 string、一边报 empty）。
       现在两边都只交文件写了的：没写就是 null，`.ods` 那一份账的输出一个字没变（全量对过）。
     * 格子点的样式只交**名字**：`ce2` / `ce4` / `ce5` 三份，另有四格什么都没点。
-      实测那些样式里写着 `draw:fill-color="#ffff00"`（就是 pptx 那面 `a:tcPr` 里那个填充）与
-      `style:textarea-vertical-align="bottom"`（就是那面的 `anchor="b"`）—— 但属性住在
-      `style:graphic-properties` 而不是 odt 表格用的 `style:table-cell-properties`，
-      这一跳在演示稿这一族还没量准，所以只交名字、不猜值。
+      实测那些样式里写着底色与垂直对齐（`ce2` `#d0d8e7` + bottom、`ce4` `#e9ecf3` + top、
+      `ce5` `#ffff00` + top —— 那个黄就是 pptx 那面 `a:tcPr` 里的同一个填充）——
+      但摆法又是第三种：底色与对齐住在 **`loext:graphic-properties`**（LibreOffice 自己的
+      实验命名空间，不是 `style:`），`fo:padding-*` 四条也在那里，而那份样式里的边
+      （`fo:border="0.48pt solid #ffffff"`）挂在 **`style:paragraph-properties`** 上 ——
+      odt 表格用的 `style:table-cell-properties` 这一族**一个都没有**（9 份 table 家族样式里
+      2 份列样式、2 份行样式各带自己的 properties，5 份格子样式各带 graphic + paragraph）。
+      这一跳在文档那一族量过、在演示稿这一族还没量准，所以只交名字、不猜值。
 
 62. **PDF 的表单可以把类型只写在祖父上，而 `/Opt` 按规范只有数组一种写法**（`forms-hier.pdf`）。
     这一份**不是任何编辑器导的**：量过的几个生产者（Word 2013、LibreOffice、手搓的 `risk.pdf`）
