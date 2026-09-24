@@ -548,6 +548,124 @@ def xlsx_header_footer_of(root) -> dict:
     }
 
 
+def xlsx_layout_of(root, limit: int = 200) -> dict:
+    """这一张表的尺寸账：sheetFormatPr、cols 里每一条 col、带高度的 row
+
+    宽度与高度都按文件写的字符串交：同一列在一家是 22.5、在另一家是 20.47，同一行
+    一家写 40、另一家写 39.75 —— 那是两个生产者各自的换算，折成一个数就是替文件编东西。
+    `col` 一条可以顶很多列（min 与 max），所以「几条」与「盖住几列」分开交，不展开。
+    """
+    holder = first_descendant(root, "sheetFormatPr")
+    cols = [one for one in root.iter() if xml_local(one.tag) == "col"]
+    covered = 0
+    exact = bool(cols)
+    for one in cols:
+        low, high = one.get("min"), one.get("max")
+        try:
+            low, high = int(low), int(high)
+        except (TypeError, ValueError):
+            exact = False
+            continue
+        if high < low:
+            exact = False
+            continue
+        covered += high - low + 1
+    rows = [one for one in root.iter() if xml_local(one.tag) == "row"]
+    tall = [one for one in rows
+            if any(one.get(name) is not None for name in ("ht", "customHeight", "hidden"))]
+    return {
+        "format": written_attrs(holder) if holder is not None else None,
+        "columns": {"written": len(cols),
+                    "covered": covered if exact else None,
+                    "list": [written_attrs(one) for one in cols[:limit]]},
+        "rows": {"elements": len(rows),
+                 "with_height": len([one for one in rows if one.get("ht") is not None]),
+                 "spoken": len(tall),
+                 "list": [written_attrs(one) for one in tall[:limit]]},
+    }
+
+
+def xlsx_filter_of(root, limit: int = 200) -> dict:
+    """这一张表的筛选：autoFilter 在不在、范围、哪几列在筛、筛掉之后 sheetPr 怎么说
+
+    `filterColumn` 上的 `hiddenButton` / `showButton` 只有一家写，`filters` 上的 `blank`
+    也是；被筛掉的值（`<filter val="甲"/>`）按文件写的顺序交出来。
+    """
+    holder = first_descendant(root, "autoFilter")
+    columns = []
+    for one in [one for one in root.iter() if xml_local(one.tag) == "filterColumn"][:limit]:
+        kinds, vals = [], []
+        for kid in one:
+            if xml_local(kid.tag) != "filters":
+                continue
+            kinds.append("filters")
+            for deep in kid:
+                if xml_local(deep.tag) == "filter":
+                    vals.append(deep.get("val"))
+                else:
+                    kinds.append("filters/%s" % xml_local(deep.tag))
+        columns.append({"written": written_attrs(one), "kinds": kinds, "vals": vals})
+    sheet_pr = first_descendant(root, "sheetPr")
+    return {
+        "present": holder is not None,
+        "written": written_attrs(holder) if holder is not None else None,
+        "mode": sheet_pr.get("filterMode") if sheet_pr is not None else None,
+        "columns": columns,
+    }
+
+
+def xlsx_table_one(parts: dict, name: str, limit: int = 200) -> dict:
+    """表对象那一跳指到的部件：属性照交，列名单独列出（名字是文件自己写的）"""
+    if name not in parts:
+        return {"part": name, "present": False}
+    root = ET.fromstring(parts[name])
+    holder = first_descendant(root, "table")
+    columns = [one for one in root.iter() if xml_local(one.tag) == "tableColumn"]
+    holder_cols = first_descendant(root, "tableColumns")
+    written = holder_cols.get("count") if holder_cols is not None else None
+    found = len(columns)
+    inner = first_descendant(root, "autoFilter")
+    style = first_descendant(root, "tableStyleInfo")
+    return {
+        "part": name,
+        "present": True,
+        "written": written_attrs(holder) if holder is not None else None,
+        "columns": {"written": written, "found": found,
+                    "whole": written is None or _as_int(written) == found,
+                    "names": [one.get("name") for one in columns[:limit]],
+                    "list": [written_attrs(one) for one in columns[:limit]]},
+        "filter": {"present": inner is not None,
+                   "written": written_attrs(inner) if inner is not None else None},
+        "style": written_attrs(style) if style is not None else None,
+    }
+
+
+def _as_int(raw):
+    text = str(raw).strip()
+    return int(text) if text.isdigit() else None
+
+
+def xlsx_tables_of(parts: dict, source: str, limit: int = 200) -> dict:
+    """这一张表挂上的表对象：tableParts 自报的数与实际条数并排，部件顺着关系表找"""
+    name = source
+    if not (name.startswith("xl/worksheets/sheet") and name.endswith(".xml")):
+        return {"tables": 0, "table_list": [], "parts": {"written": None, "found": 0, "whole": True}}
+    root = ET.fromstring(parts[name])
+    holder = first_descendant(root, "tableParts")
+    refs = [one for one in root.iter() if xml_local(one.tag) == "tablePart"]
+    written = holder.get("count") if holder is not None else None
+    targets = [target for kind, target in rels_of_parts(parts, name) if kind == "table"]
+    listed = [xlsx_table_one(parts, one, limit) for one in targets[:limit]]
+    found = len(refs)
+    return {
+        "tables": len(listed),
+        "table_list": listed,
+        "parts": {"written": written, "found": found,
+                  "whole": written is None or _as_int(written) == found,
+                  "resolved": len(listed)},
+    }
+
+
 def xlsx_views(parts: dict) -> dict:
     out: dict = {}
     for name in sorted(parts):
@@ -852,11 +970,17 @@ def xlsx_facts(path: Path) -> dict:
     strings_inline = 0
     merged = 0
     dims: dict[str, str] = {}
+    layouts: dict = {}
+    filters: dict = {}
+    sheet_tables: dict = {}
     for name in sorted(parts):
         if not (name.startswith("xl/worksheets/sheet") and name.endswith(".xml")):
             continue
         root = ET.fromstring(parts[name])
         local = name.rsplit("/", 1)[-1][: -len(".xml")]
+        layouts[local] = xlsx_layout_of(root)
+        filters[local] = xlsx_filter_of(root)
+        sheet_tables[local] = xlsx_tables_of(parts, name)
         for one in root.iter():
             tag = xml_local(one.tag)
             if tag == "dimension":
@@ -887,6 +1011,9 @@ def xlsx_facts(path: Path) -> dict:
         "print_setup": print_setups,
         "views": views,
         "headers": headers,
+        "layouts": layouts,
+        "filters": filters,
+        "sheet_tables": sheet_tables,
         "charts": chart_lists,
         "dxfs": {"written": dxf_written, "found": len(dxf_kinds),
                  "whole": dxf_written is None or int(dxf_written) == len(dxf_kinds)},

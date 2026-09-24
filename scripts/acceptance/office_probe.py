@@ -142,6 +142,8 @@ def main() -> int:
         "rules-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "view.xlsx": ("ooxml", "excel", "xlsx"),
         "view-lo.xlsx": ("ooxml", "excel", "xlsx"),
+        "size.xlsx": ("ooxml", "excel", "xlsx"),
+        "size-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "notes.odt": ("opendocument", "word", "odt"),
         "book.ods": ("opendocument", "excel", "ods"),
         "deck.odp": ("opendocument", "powerpoint", "odp"),
@@ -1691,6 +1693,134 @@ def main() -> int:
         missed = [one.get("name") for one in lbin("office-sheet", fixture(name)).get("sheets", [])
                   if one.get("view") is not None or one.get("header_footer") is not None]
         check("%s 这一族的窗口与页眉页脚没读：键整个不在" % name, missed, [])
+
+    # ── 3a13) 列宽行高、筛选与表对象：两家的换算互不相等，重写一次就换一套数 ──
+    print("=== 3a13) office-sheet 的尺寸、筛选与表对象 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.xlsx")):
+        got = lbin("office-sheet", fixture(name))
+        want = files[name]["ooxml"]
+        by_part = {(one.get("part") or "").rsplit("/", 1)[-1][: -len(".xml")]: one
+                   for one in got.get("sheets", [])}
+        for key in ("layout", "filter"):
+            check(
+                "%s 每张表的 %s 与读者一致" % (name, key),
+                {one: value.get(key) for one, value in by_part.items()},
+                want[key + "s"],
+            )
+        check(
+            "%s 每张表的表对象与读者一致" % name,
+            {
+                one: {
+                    "tables": value.get("tables"),
+                    "table_list": value.get("table_list"),
+                    "parts": value.get("table_parts"),
+                }
+                for one, value in by_part.items()
+            },
+            want["sheet_tables"],
+        )
+    hand = lbin("office-sheet", fixture("size.xlsx"))
+    lo = lbin("office-sheet", fixture("size-lo.xlsx"))
+    check(
+        "「默认列宽」两家写的不是同一个属性：baseColWidth 与 defaultColWidth",
+        [dig(hand, "sheets[0].layout.format.baseColWidth"),
+         dig(hand, "sheets[0].layout.format.defaultColWidth"),
+         dig(lo, "sheets[0].layout.format.baseColWidth"),
+         dig(lo, "sheets[0].layout.format.defaultColWidth")],
+        ["8", None, None, "7.7734375"],
+    )
+    check(
+        "同一列换一家就换一套数：22.5 与 20.47、4 与 3.64（照文件交，不折算）",
+        [dig(hand, "sheets[0].layout.columns.list[0].width"),
+         dig(lo, "sheets[0].layout.columns.list[0].width"),
+         dig(hand, "sheets[0].layout.columns.list[1].width"),
+         dig(lo, "sheets[0].layout.columns.list[1].width")],
+        ["22.5", "20.47", "4", "3.64"],
+    )
+    check(
+        "一条 col 顶几列按 min/max 加出来，几条与盖住几列分开交",
+        [dig(hand, "sheets[0].layout.columns.written"),
+         dig(hand, "sheets[0].layout.columns.covered"),
+         dig(lo, "sheets[0].layout.columns.written"),
+         dig(lo, "sheets[0].layout.columns.covered")],
+        [2, 2, 2, 2],
+    )
+    check(
+        "藏起来的那一列：同一条开关的两种拼法",
+        [dig(hand, "sheets[0].layout.columns.list[1].hidden"),
+         dig(lo, "sheets[0].layout.columns.list[1].hidden")],
+        ["1", "true"],
+    )
+    check(
+        "行高度：一家只给说过话的两行写，另一家三行全写（40 换成 39.75）",
+        [dig(hand, "sheets[0].layout.rows.elements"), dig(hand, "sheets[0].layout.rows.with_height"),
+         dig(hand, "sheets[0].layout.rows.spoken"), dig(hand, "sheets[0].layout.rows.list[0].ht"),
+         dig(lo, "sheets[0].layout.rows.elements"), dig(lo, "sheets[0].layout.rows.with_height"),
+         dig(lo, "sheets[0].layout.rows.list[0].ht"), dig(lo, "sheets[0].layout.rows.list[1].ht")],
+        [3, 2, 2, "40", 3, 3, "18", "39.75"],
+    )
+    check(
+        "第二张表什么都没收：几条与盖住几列分开（没有 col 时判不住）",
+        [dig(hand, "sheets[1].layout.columns.written"),
+         dig(hand, "sheets[1].layout.columns.covered"),
+         dig(hand, "sheets[1].layout.rows.elements"),
+         dig(lo, "sheets[1].layout.columns.covered")],
+        [0, None, 0, None],
+    )
+    check(
+        "筛选范围与表对象的范围是两件事，两个都交",
+        [dig(hand, "sheets[0].filter.written.ref"),
+         dig(hand, "sheets[0].tables"), dig(hand, "sheets[0].table_list[0].written.ref"),
+         dig(lo, "sheets[0].filter.written.ref"), dig(lo, "sheets[0].table_list[0].written.ref")],
+        ["A1:C3", 1, "A1:B3", "A1:C3", "A1:B3"],
+    )
+    check(
+        "filterMode 只有一家写：筛着的那张 true、没筛的那张 false，另一家两样都没有",
+        [dig(hand, "sheets[0].filter.mode"), dig(hand, "sheets[1].filter.mode"),
+         dig(lo, "sheets[0].filter.mode"), dig(lo, "sheets[1].filter.mode")],
+        [None, None, "true", "false"],
+    )
+    check(
+        "筛选列上的开关也只有一家写；被筛掉的值两家一字不差",
+        [dig(hand, "sheets[0].filter.columns[0].written"),
+         dig(lo, "sheets[0].filter.columns[0].written"),
+         dig(hand, "sheets[0].filter.columns[0].vals"),
+         dig(lo, "sheets[0].filter.columns[0].vals"),
+         dig(hand, "sheets[1].filter.columns")],
+        [{"colId": "0", "hiddenButton": "0", "showButton": "1"}, {"colId": "0"},
+         ["甲"], ["甲"], []],
+    )
+    check(
+        "表对象的列名是文件自己写的（一家拿范围第一行的字当列名，第二列就叫 10）",
+        [dig(hand, "sheets[0].table_list[0].columns.names"),
+         dig(lo, "sheets[0].table_list[0].columns.names"),
+         dig(hand, "sheets[0].table_list[0].written.name"),
+         dig(hand, "sheets[0].table_list[0].written.displayName")],
+        [["一月", "10"], ["一月", "10"], "台账", "台账"],
+    )
+    check(
+        "自报的条数与实际条数一起交：tableColumns 两家都写，tableParts 的 count 只有一家写",
+        [dig(hand, "sheets[0].table_list[0].columns.written"),
+         dig(hand, "sheets[0].table_list[0].columns.found"),
+         dig(hand, "sheets[0].table_list[0].columns.whole"),
+         dig(hand, "sheets[0].table_parts.written"), dig(hand, "sheets[0].table_parts.found"),
+         dig(lo, "sheets[0].table_parts.written"), dig(lo, "sheets[0].table_parts.found"),
+         dig(lo, "sheets[0].table_parts.whole")],
+        ["2", 2, True, "1", 1, None, 1, True],
+    )
+    check(
+        "表样式那几个开关：一家写两个，另一家五个全写（等于默认的也不省）",
+        [len(dig(hand, "sheets[0].table_list[0].style") or {}),
+         len(dig(lo, "sheets[0].table_list[0].style") or {}),
+         dig(hand, "sheets[0].table_list[0].style.showRowStripes"),
+         dig(lo, "sheets[0].table_list[0].style.showColumnStripes")],
+        [2, 5, "1", "0"],
+    )
+    for name in ("book.ods", "hidden.ods", "chart.ods", "book.xls", "hidden.xls"):
+        missed = [one.get("name") for one in lbin("office-sheet", fixture(name)).get("sheets", [])
+                  if one.get("layout") is not None or one.get("filter") is not None
+                  or one.get("tables") is not None]
+        check("%s 这一族的尺寸、筛选与表对象没读：键整个不在" % name, missed, [])
 
     # ── 3b) 数字格式：格子写的是 cellXfs 的下标，日期藏在样式里 ──────────
     print("=== 3b) formats.xlsx：格式号、判定与换算出来的日期 ===")

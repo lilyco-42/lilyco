@@ -859,6 +859,42 @@ def write_view_xlsx(path: Path) -> None:
     wb.save(path)
 
 
+def write_size_xlsx(path: Path) -> None:
+    """openpyxl：列宽、行高、筛选与表对象 —— 「这一列为什么显示不全」
+
+    这四样都在同一张表上，而两家的数**互不相等**（重写一次就换一套换算），所以一次把变量摆开：
+    * A 列宽 22.5、C 列宽 4 并且藏起来（同一份件里两种列状态）；
+    * 第 2 行高 40、第 3 行高 8（第 1 行什么都不写 —— 「没说过话」的行是一种，说了话的另一种）；
+    * 默认行高改成 18（这一条写在 `sheetFormatPr` 上，而「默认列宽」两家写的属性名都不一样）；
+    * 一条筛选范围 A1:C3 带一个筛选列（值是甲），另外再挂一个**范围不同**的表对象 `A1:B3`
+      —— 表对象自己带一套 `autoFilter`，与表上那一条不是一回事，两个范围都要交出来；
+    * 表对象的列名是文件自己写的（openpyxl 拿范围第一行的字当列名，于是第二列叫 `10`）；
+    * 第二张表什么都不设，用来钉「没写」的形状。
+    """
+    from openpyxl import Workbook
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "尺寸"
+    for index, one in enumerate([("一月", 10, "甲"), ("二月", 25, "乙"), ("三月", 30, "丙")], start=1):
+        for col, value in enumerate(one, start=1):
+            ws.cell(row=index, column=col, value=value)
+    ws.column_dimensions["A"].width = 22.5
+    ws.column_dimensions["C"].width = 4
+    ws.column_dimensions["C"].hidden = True
+    ws.row_dimensions[2].height = 40
+    ws.row_dimensions[3].height = 8
+    ws.sheet_format.defaultRowHeight = 18
+    ws.auto_filter.ref = "A1:C3"
+    ws.auto_filter.add_filter_column(0, ["甲"])
+    table = Table(displayName="台账", ref="A1:B3")
+    table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
+    ws.add_table(table)
+    wb.create_sheet("素面")
+    wb.save(path)
+
+
 def write_pptx_charts(path: Path) -> None:
     """python-pptx：同一页两张图（柱形与饼图），第二页一张也没有。
 
@@ -1471,6 +1507,16 @@ def main() -> int:
         shutil.copyfile(made, OUT / "view-lo.xlsx")
     else:
         print("⚠️  没拿到 view-lo.xlsx（xlsx → xlsx 那一转）")
+
+    # 列宽行高与筛选/表对象那一份：同一个格式重写同一个格式，才量得出「换一家换算就换一套数」
+    size = OUT / "size.xlsx"
+    write_size_xlsx(size)
+    convert(exe, size, "xlsx", SCRATCH / "size-back")
+    made = SCRATCH / "size-back" / "size.xlsx"
+    if made.exists():
+        shutil.copyfile(made, OUT / "size-lo.xlsx")
+    else:
+        print("⚠️  没拿到 size-lo.xlsx（xlsx → xlsx 那一转）")
 
     # 演示稿的第二生产者与图那两份：同一份 pptx 让 LibreOffice 转 odp 再转回来，
     # 版式与母版的条数、段落被拆成几个 run、`sldSz` 上那个 type 属性都会变

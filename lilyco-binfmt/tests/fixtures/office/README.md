@@ -37,6 +37,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `rules-lo.xlsx` | LibreOffice（`rules.xlsx` → .ods → .xlsx） | 同一批规则的第二种写法：`priority` 换成自己排的 2/4/5、开关从 `1/0` 换成 `true/false`、给 list 补了 `operator="equal"`、给每条验证补了 `formula2=0`、把 custom 公式开头的 `=` 去掉、色阶的白写成 `FFFFFFFF`，而且同一条 dxf 里多补了 `name`/`family`/`sz` |
 | `view.xlsx` | openpyxl | 窗口与页眉页脚的第一种写法：`pane state="frozen"` 冻在 `B3`、`showGridLines="0"`、`tabSelected="1"`、`zoomScale="150"`、三条 `selection`（第一条不点 `topLeft`），页眉页脚写四段字（含一个字面 `&&`）与 `differentOddEven="1"`；第二张表用 `state="split"`（拆分不是冻结），第三张表什么都不设 —— **`headerFooter` 那个元素整个不写** |
 | `view-lo.xlsx` | LibreOffice（`view.xlsx` → .xlsx，同一个格式重写） | 同一张表的第二种写法：十五个属性全写出来、布尔换成 `true/false`、`selection` 变成四条人手一份还补 `activeCellId="0"`、每段字前面多一个 `&"Calibri"`、给每张表都写出 `headerFooter`（哪怕里面是空的）；**而那个 split 的 pane 整个不见了**（冻住的那张留着） |
+| `size.xlsx` | openpyxl | 列宽行高与筛选/表对象的第一种写法：A 列 `22.5`、C 列 `4` 且藏着，第 2 行 `40`、第 3 行 `8`（第 1 行什么都不写），默认行高 18 写在 `sheetFormatPr`（那一族管默认宽度叫 **`baseColWidth`**），筛选范围 `A1:C3` 带一个筛掉的值「甲」，另挂一个范围**不同**的表对象 `A1:B3`（列名拿范围第一行的字当，于是第二列叫 `10`）；`tableParts` 自己写 `count="1"` |
+| `size-lo.xlsx` | LibreOffice（`size.xlsx` → .xlsx，同一个格式重写） | 换一家换算就换一套数：同一列成 `20.47` 与 `3.64`、同一行成 `39.75` 与 `7.5`，连没说过话的那一行也被补上 `ht="18"`；「默认列宽」改叫 **`defaultColWidth="7.7734375"`**、`baseColWidth` 不见；两张表都写 `sheetPr filterMode`（`true` 与 `false`），`filterColumn` 上那两个开关反倒不写；表对象补 `totalsRowCount`/`totalsRowShown`、样式开关从 2 个变 5 个，**而 `tableParts` 的 `count` 不写了** |
 | `notes-end.rtf` | LibreOffice（从 `notes-end.docx`） | 注的第三种存法：脚注与尾注**都**写成 `{\*\footnote …}` 这一个群，尾注只在群里多一个 `\ftnalt`；分隔符另走 `{\*\ftnsep\chftnsep}` |
 | `tables.docx` / `tables.odt` / `tables.rtf` | python-docx 与 LibreOffice（两张表：3×2 与 2×2，中间夹一段正文，首尾各一个标题） | 表那一份的对照件：三家都给 5 行 10 格，而 RTF 只敢给行数与格子数 —— 「几张表」的分组规则在 `notes.rtf`（一张）与这份（两张）上试过，单表对、两表数成一张 |
 | `paper-a4.docx` / `paper-a4.odt` / `paper-a4.rtf` | python-docx 与 LibreOffice（A4 纵向一节 + 横过来的一节） | 那张纸的第二尺寸：三家换算到 0.01mm 后短边都是 **21001**（不是 21000 —— OOXML 与 RTF 写 11906 twips，ODF 照抄成 `21.001cm`），所以这一支不给尺寸起名；横排那一节 docx 与 odt 都有第二条并写着 `orient=landscape`，而 RTF 全文一个 `\landscape` 都没有 → 那一条流只交文档默认的纵向 |
@@ -689,6 +691,32 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     ODF 的窗口状态与页眉页脚在页面样式那一套里（与 `print_setup` 是同一道没有的跳），
     .xls 的那些开关在 BIFF 的 WINDOW1 / WINDOW2 与 HEADER / FOOTER 记录里，两边都没有能核对的
     第二个读者 —— 所以这两族的两份账都是**键整个不在**，不是 0、也不是 null。
+
+53. **列宽、行高、筛选与表对象：重写一次就换一套数**（`size.xlsx` 与 `size-lo.xlsx`）。
+    这两份也是 xlsx → xlsx 的直接重写，量出来的第一件事就是**没有一个数是对得上的**：
+    * 同一列宽 `22.5` 变成 `20.47`、藏着那列的 `4` 变成 `3.64`；同一行高 `40` 变成 `39.75`、
+      `8` 变成 `7.5`。所以「这一列到底多宽」没有唯一答案，只能把文件自己写的数交出去 ——
+      折算或取整就是替两家编一个共同的数。
+    * 「默认列宽」两家写的**不是同一个属性**：一家 `baseColWidth="8"`，另一家
+      `defaultColWidth="7.7734375"`，各自都没有对方那个键。
+    * 一家只给说过话的行写高度（三行里两行），另一家**三行全写**（连没说过话的那行也补 `ht="18"`），
+      所以这里有三本账：`elements`（几行）、`with_height`（写了 `ht` 的几行）、`spoken`
+      （`ht`/`customHeight`/`hidden` 里说过任何一个的几行），另附说过话的那几行原样。
+    * `col` 一条可以顶很多列（按 `min`/`max`），所以「几条」与「盖住几列」分开交，
+      而且**一条也没有时交 null 而不是 0** —— 没有 col 元素时「这张表几列宽」是判不住的。
+    * 筛选有两种范围：表上那一条 `autoFilter ref="A1:C3"` 与表对象自己带的
+      `A1:B3` 在同一张表上并存，**它们不是一回事**，两个都交；被筛掉的值（「甲」）两家一字不差，
+      但 `filterColumn` 上那两个开关（`hiddenButton` / `showButton`）只有一家写，
+      而 LibreOffice 还会在 `sheetPr` 上写一个 `filterMode`（没筛的那张表也写 `false`），
+      openpyxl 一个都不写。
+    * 表对象那一跳是关系表那一类（`tableParts` 只写 id）：名字 `台账`、范围、`headerRowCount`
+      两家都一样，LibreOffice 多补 `totalsRowCount`/`totalsRowShown` 与三个等于默认的样式开关
+      （2 个属性变 5 个），**反倒不写 `tableParts` 那个 `count="1"`** —— 自报数与实际条数并排交，
+      没有自报数时 `whole` 为 true（那句「没说」不算说错）。
+    * 表对象的**列名是文件自己写的**：openpyxl 拿范围第一行的字当列名，于是第二列叫 `10`，
+      两家都照抄 —— 这不是笔误，是这一族真的会写成这样。
+    ODF 与 .xls 这三份账同样没读（键整个不在）：ODF 的列宽行高与页眉页脚一样住在样式里，
+    .xls 的在 BIFF 的 COLINFO / ROW 与 FILTER 记录里，没有一个读者能核对。
 
 ## 这些数字从哪来
 
