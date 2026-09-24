@@ -1303,6 +1303,9 @@ def main() -> int:
         (twotables, "rtf"),
         # 那张纸的第二尺寸也要 RTF 那一副：`\paperw` / `\landscape` 是第三种写法
         (paper, "rtf"),
+        # 目录的第三种写法：RTF 把同一串指令写在 `{\*\fldinst { TOC \\o "1-2" \\h}}` 里，
+        # 开关前面的反斜杠在文件里必须成对写（解掉那一对才与 docx 的 instrText 一样）
+        (OUT / "toc.docx", "rtf"),
     ):
         convert(exe, src, fmt, SCRATCH)
     for name in (

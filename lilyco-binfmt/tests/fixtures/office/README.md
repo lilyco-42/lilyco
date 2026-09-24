@@ -32,6 +32,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `tables-merged.docx` / `tables-merged.odt` | python-docx 与 LibreOffice（一张横向合并的 2×3 + 一张纵向合并的 2×2） | 合并格的两种写法：OOXML 把横向合掉的那一格**整个不写**（第一格带 `w:gridSpan="2"`，那一行 2 个 `w:tc`），ODF 把被盖住的那一格照样写出来（空的 `covered-table-cell`，那一行 3 个格）；纵向合并 OOXML 写 `vMerge`（restart / continue 两头），ODF 只在起头那格写 `number-rows-spanned="2"` |
 | `toc.docx` | LibreOffice 的 **docx 导出器**（把目录注进 `notes.docx` 再让它照抄） | 真目录：`<w:sdt>` + `<w:docPartGallery w:val="Table of Contents"/>`，级别在域指令文字里 —— LibreOffice 把引号写成 `&quot;`，所以 `TOC \o "1-2" \h` 要还原实体才读得对 |
 | `toc.odt` | LibreOffice（从 `toc.docx`） | 同一件东西的另一副面孔：`text:table-of-content`（名字 `目录1`）、级别在 `text:table-of-content-source/@outline-level="2"`，另外**十级条目模板全写出来**（`entry_templates` 报的是文件写了几个，不是用上了几级） |
+| `toc.rtf` | LibreOffice（从 `toc.docx`） | 目录的第三种写法：没有 OOXML 那个 `w:sdt` 壳，也没有 ODF 那个 `outline-level` 属性，只有流里的一条域 `{\*\fldinst { TOC \\o "1-2" \\h}}` —— 开关前面的反斜杠**成对写**（单个会开出一个控制字），解掉那一对之后与 `toc.docx` 的 `w:instrText` 逐字相同。全文两条域（这一条 TOC 与目录条目上那一条 HYPERLINK）、`line_count` 9、`skipped_destinations` 120 |
 | `notes-hf.odt` | LibreOffice（从 `notes-hf.docx`） | 同一批字的 ODF 存法：页眉页脚在 **styles.xml 的 master-page** 里，两个节 = 两个 master-page（`Standard` 与 `Converted1`），各带一份 header + footer |
 | `notes-hf.rtf` | LibreOffice（从 `notes-hf.docx`） | 第三种存法：`\header` / `\headerl` / `\footer` 这些**目标（destination）**里的字，与正文混在一个流里 |
 | `revisions.docx` | python-docx + 手注入 `w:ins` / `w:del` / `w:rPrChange` / 段落标记 | 四种修订各一处，而且**没被拆开**：3 个 `w:ins`（含段落标记那一条）、1 个 `w:del`、1 个 `w:rPrChange` → 5 条逻辑改动 |
@@ -494,6 +495,21 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     `tables[].grid` 走**直接孩子**（这张表自己几行、每行几个格、每格的字与合并）。
     没合并的 `tables.docx` / `tables.odt` 两本账恰好一致 —— 那份合并件才是这条分别的出处。
     合并与重复的数只交文件写了的：没写 null，不补 1。
+
+43. **域指令里的开关成对写反斜杠，解掉之后 RTF 与 OOXML 是同一串字**（接 33，`toc.rtf`）。
+    第 33 条说「两家的写法毫无共同点」，那份对照缺了一副：RTF。它既没有 `w:sdt` 那个壳，
+    也没有 `outline-level` 那个属性，只有一条自报家门的域：
+    `{\field{\*\fldinst { TOC \\o "1-2" \\h}}{\fldrslt {…}}}`。
+    关键是那两个反斜杠**不是笔误**：RTF 里单个反斜杠开一个控制字，`\o` 就不是指令里的
+    字母 `o` 了，所以文件必须写 `\\o`。读者把 `{\*\fldinst …}` 那一群按「不认识就跳」
+    跳过（一个字不进正文），只**前瞻**解一遍，解完交出来的就是 `TOC \o "1-2" \h` ——
+    与 `toc.docx` 那条 `w:instrText`（还原 `&quot;` 之后）**逐字相同**。
+    于是「收几级」这把读取器两家共用一把，`levels` 两边都是 `1-2`；
+    ODF 那边还是 `outline-level="2"` 那个数，不强行归一。
+    这一族另有两条口径钉住：`fields` 数的是 `\field` 控制字出现几次（这份件 2 次：
+    一条 TOC 与目录条目上那条 HYPERLINK），`contents.fields` 只留以 `TOC` 开头的那几条；
+    有域却没指令（只有 `\fldrslt`）时空着交出来，不替文件编一条。
+    `skipped_destinations` 仍然是 120 —— 前瞻不改游标也不改跳过标记，那笔诊断数才可比。
 
 ## 这些数字从哪来
 

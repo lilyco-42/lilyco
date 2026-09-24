@@ -116,6 +116,22 @@ fn field_link(group: &[u8]) -> Option<Value> {
     Some(json!({ "target": target, "text": text }))
 }
 
+/// 一群 `\field …` 里的**域指令原文**（`{\*\fldinst { TOC \\o "1-2" \\h}}` 那一段）。
+/// 这里要解一遍，是因为文件里的开关必须写成双反斜杠（单反斜杠会开出一个控制字，
+/// `\o` 就不再是指令里的字母 o）；解完那一串 `TOC \o "1-2" \h` 与 docx 的
+/// `w:instrText` **逐字同一个形状**，所以「收几级」那把读取器两家共用一把。
+/// 解不出字（空群）交回 None，不替文件补一条指令
+fn field_instruction(group: &[u8]) -> Option<String> {
+    let at = windows_position(group, 0, FLDINST_HEAD)?;
+    let (_stop, instruction) = group_end(group, at + FLDINST_HEAD.len());
+    let had = extract(&instruction).text;
+    let had = had.trim();
+    if had.is_empty() {
+        return None;
+    }
+    Some(had.to_string())
+}
+
 /// `HYPERLINK "地址"` 里那段引号包住的地址。指令原文的大小写各家不同，这里按
 /// ASCII 大小写无关找字面量；地址本身照文件写的字节交回
 fn hyperlink_target(inst: &[u8]) -> Option<String> {
@@ -325,6 +341,11 @@ pub struct Rtf {
     pub links: Vec<Value>,
     /// `\field` 出现了几次（一份文档里域比链接多：页码、日期都是域）
     pub fields: usize,
+    /// 每个域自己写的指令原文，按文件里的顺序（`TOC \o "1-2" \h`、`PAGEREF _Toc… \h`…）。
+    /// 与 `fields` 是两本账：那一条只数控制字 `\field`，这一条要群里真有指令才算。
+    /// `\fldinst` 那一群照旧是「不认识就跳」的目标群 —— 这里只**前瞻**读一眼，
+    /// 一个字不进正文
+    pub field_instructions: Vec<String>,
     /// 字体表与样式表里的定义（前瞻读出来的，那一群照旧不进正文）。
     /// 每条是 `{kind, index, charset, name}`；字体条目自己声明了非 ANSI 字符集
     /// （`\fcharset128` 是 Shift-JIS）而名字里又有非 ASCII 字节时交回 `name: null` ——
@@ -367,6 +388,7 @@ impl Rtf {
             "note_destinations": self.note_destinations,
             "links": self.links,
             "fields": self.fields,
+            "field_instructions": self.field_instructions,
             "fonts": self.fonts,
             "styles": self.styles,
             "style_uses": self.style_uses,
@@ -427,6 +449,7 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         note_destinations: 0,
         links: Vec::new(),
         fields: 0,
+        field_instructions: Vec::new(),
         fonts: Vec::new(),
         styles: Vec::new(),
         style_uses: Vec::new(),
@@ -657,6 +680,9 @@ pub fn extract(bytes: &[u8]) -> Rtf {
                     let (_stop, inner) = group_end(bytes, at);
                     if let Some(link) = field_link(&inner) {
                         me.links.push(link);
+                    }
+                    if let Some(had) = field_instruction(&inner) {
+                        me.field_instructions.push(had);
                     }
                 }
             }
@@ -1321,6 +1347,60 @@ mod tests {
     fn starred_groups_are_skipped() {
         let one = rtf("{\\rtf1{\\*\\fldinst HYPERLINK \"https://example.com\"}{\\fldrslt 链接}{\\*\\userprops{\\propname AppVersion}}完}");
         assert_eq!(one.text, "链接\n完".replace('\n', ""), "域指令文本不许出现");
+    }
+
+    /// 域指令原文要**解掉那一双反斜杠**再交：文件里 `\\o` 是两个字节（单反斜杠会开出
+    /// 一个控制字），解完才是指令本身 `\o` —— 与 docx 的 `w:instrText` 逐字同一个形状。
+    /// 没有 `\*\fldinst` 的域只算条数，不替它编一条指令
+    #[test]
+    fn field_instructions_unescape_their_backslashes() {
+        let one = rtf(
+            "{\\rtf1{\\field{\\*\\fldinst { TOC \\\\o \"1-2\" \\\\h}}{\\fldrslt {目录的字}}}完}",
+        );
+        assert_eq!(
+            one.field_instructions,
+            vec!["TOC \\o \"1-2\" \\h".to_string()],
+            "{:?}",
+            one.field_instructions
+        );
+        assert_eq!(one.fields, 1);
+        assert_eq!(one.text, "目录的字完", "指令原文不许进正文：{:?}", one.text);
+        // 链接的指令也在同一本账上（这一族不止认 TOC）
+        let link = rtf(
+            "{\\rtf1{\\field{\\*\\fldinst HYPERLINK \"https://example.com\"}{\\fldrslt 链接}}}",
+        );
+        assert_eq!(
+            link.field_instructions,
+            vec!["HYPERLINK \"https://example.com\"".to_string()],
+            "{:?}",
+            link.field_instructions
+        );
+        assert_eq!(link.links.len(), 1, "{:?}", link.links);
+        // 有域没指令：条数照记，指令表留空
+        let bare = rtf("{\\rtf1{\\field{\\fldrslt 只有结果}}}");
+        assert_eq!(bare.fields, 1);
+        assert!(
+            bare.field_instructions.is_empty(),
+            "{:?}",
+            bare.field_instructions
+        );
+        // 真件：LibreOffice 从 toc.docx 转出来的那一份，两条域一条 TOC 一条 HYPERLINK
+        let real = extract(&fixture("toc.rtf"));
+        assert_eq!(real.fields, 2, "{:?}", real.field_instructions);
+        assert_eq!(
+            real.field_instructions,
+            vec![
+                "TOC \\o \"1-2\" \\h".to_string(),
+                "HYPERLINK \"https://example.com/budget\"".to_string(),
+            ],
+            "{:?}",
+            real.field_instructions
+        );
+        // 指令里不许有换行/制表：那说明群切错了，把正文卷了进来
+        for had in &real.field_instructions {
+            assert!(!had.contains('\n') && !had.contains('\t'), "{had:?}");
+            assert!(!had.contains("\\\\o"), "{had:?} 双反斜杠没解掉");
+        }
     }
 
     /// `\uN` 之后的回退字节要按 `\ucN` 丢，且 `\'hh` 算一个字符

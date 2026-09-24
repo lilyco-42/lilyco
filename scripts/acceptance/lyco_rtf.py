@@ -226,6 +226,57 @@ NOTE_DEFINITION_DESTINATIONS = {
 FLDINST_HEAD = "{" + BS + "*" + BS + "fldinst"
 FLDRSLT_HEAD = "{" + BS + "fldrslt"
 LINK_INSTRUCTION = re.compile('HYPERLINK\\s+"([^"]*)"', re.IGNORECASE)
+# 目录收几级写在域指令的开关上：`TOC \o "1-2" \h`。文件里那两个反斜杠是成对写的
+# （单个反斜杠会开出一个控制字），解掉之后这一串与 docx 的 w:instrText 逐字相同 ——
+# 所以 `switch_value` 这一家与 `office_doc.rs` 里 OOXML 用的那一把规则一样
+LEVEL_SWITCH = BS + "o "
+
+
+def switch_value(instruction: str, switch: str) -> str:
+    r"""指令里 `\o "1-2"` 那一对引号之间的字；没有这个开关就交回 None"""
+    at = instruction.find(switch)
+    if at < 0:
+        return None
+    rest = instruction[at + len(switch):]
+    start = rest.find('"')
+    if start < 0:
+        return None
+    stop = rest.find('"', start + 1)
+    if stop < 0:
+        return None
+    return rest[start + 1:stop]
+
+
+def field_instruction(group: str) -> str:
+    r"""`\field` 那一群里的域指令原文，**解掉成对的反斜杠**之后。
+
+    与 Rust 那边同一个做法：`{\*\fldinst` 是「不认识就跳」的目标群，一个字不许进正文，
+    这里只前瞻读它一眼。群里那一段整个交给 `rtf_text` 解一遍 —— `\\o` 是「一个反斜杠
+    转义出的字面反斜杠」后面跟字母 o，解完才是指令本身 `\o`。没有指令的域交回 None
+    """
+    at = group.find(FLDINST_HEAD)
+    if at < 0:
+        return None
+    _stop, instruction = group_end(group, at + len(FLDINST_HEAD))
+    had = rtf_text(instruction.encode("latin-1", "replace"))["text"].strip()
+    return had or None
+
+
+def contents_of(instructions: list) -> dict:
+    """目录那份账：RTF 没有 OOXML 那个 w:sdt 壳，也没有 ODF 的 outline-level 属性，
+    只有流里一条自报家门的 `TOC …` 域。所以这份账只有这四个键，那两家的键不造假"""
+    toc = [one for one in instructions if one.upper().startswith("TOC")]
+    levels = None
+    for one in toc:
+        levels = switch_value(one, LEVEL_SWITCH)
+        if levels:
+            break
+    return {
+        "present": bool(toc),
+        "via": None if not toc else "field",
+        "fields": toc,
+        "levels": levels,
+    }
 
 
 def field_link(group: str) -> dict:
@@ -249,7 +300,7 @@ def rtf_text(data: bytes) -> dict:
     """返回 `{text, lines, line_count, chars, ...}`：计数都是文件自己账上的数"""
     text = data.decode("latin-1", "replace")
     out: list[str] = []
-    page: dict = {"headers": [], "footers": [], "notes": [], "links": [], "destinations": 0}
+    page: dict = {"headers": [], "footers": [], "notes": [], "links": [], "instructions": [], "destinations": 0}
     # 定义类（字体与样式）不是页面上的字，也不进 page 那几个口袋
     found: dict = {"fonts": [], "styles": []}
     # 段那一份账：每段收尾时记下「这一段的字」与「这一段用的样式号」。
@@ -439,6 +490,9 @@ def rtf_text(data: bytes) -> dict:
                     link = field_link(inner)
                     if link:
                         page["links"].append(link)
+                    had = field_instruction(inner)
+                    if had:
+                        page["instructions"].append(had)
         elif not skip[-1]:
             if word in BREAK_WORDS or word in ROW_WORDS:
                 out.append("\n")
@@ -530,6 +584,10 @@ def rtf_text(data: bytes) -> dict:
         # 链接：`{\field{\*\fldinst HYPERLINK "地址"}{\fldrslt 显示文字}}` 那一群读出来的
         "links": page["links"],
         "fields": stats["fields"],
+        # 每个域自己写的指令原文（解掉成对反斜杠之后），按文件里的顺序
+        "field_instructions": page["instructions"],
+        # 目录那份账：TOC 域在这份表里挑出来，级数在它自己的开关上
+        "contents": contents_of(page["instructions"]),
         "note_destinations": stats["note_destinations"],
         # 表那份账：六个数都是控制字的条数，不是「表」的推断
         "table_row_defines": stats["row_defines"],

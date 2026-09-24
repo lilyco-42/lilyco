@@ -54,21 +54,33 @@ def lbin(command: str, fixture: Path, *extra: str) -> dict:
 
 
 def dig(payload: dict, dotted: str):
-    """按点号取值，支持 a.b[0].c 这种一步下标"""
+    """按点号取值，支持 a.b[0].c，也支持一步两个下标 a.b[0][1] —— 表格的网格是
+    「行的数组，每一行又是格的数组」，只认一个下标就只能取到整行，比对不了单个格子"""
     here = payload
     for chunk in dotted.split("."):
         if here is None:
             return None
-        name, _, index = chunk.partition("[")
+        at = chunk.find("[")
+        if at < 0:
+            name, rest = chunk, ""
+        else:
+            name, rest = chunk[:at], chunk[at:]
         if name:
             if not isinstance(here, dict) or name not in here:
                 return None
             here = here[name]
-        if index:
-            which = int(index.rstrip("]"))
+        while rest.startswith("["):
+            stop = rest.find("]")
+            if stop < 0:
+                return None
+            try:
+                which = int(rest[1:stop])
+            except ValueError:
+                return None
             if not isinstance(here, list) or which >= len(here):
                 return None
             here = here[which]
+            rest = rest[stop + 1:]
     return here
 
 
@@ -100,6 +112,7 @@ def main() -> int:
         "notes-end.docx": ("ooxml", "word", "docx"),
         "toc.docx": ("ooxml", "word", "docx"),
         "toc.odt": ("opendocument", "word", "odt"),
+        "toc.rtf": ("rtf", "word", "rtf"),
         "tables.docx": ("ooxml", "word", "docx"),
         "tables.odt": ("opendocument", "word", "odt"),
         "tables.rtf": ("rtf", "word", "rtf"),
@@ -216,20 +229,43 @@ def main() -> int:
     check("notes-foot.docx 脚注数", footdoc.get("footnotes"), fwant["footnotes"])
     check("notes-foot.docx 尾注数（部件不在包里就是零）", footdoc.get("endnotes"), fwant["endnotes"])
 
-    # 目录这一问两家的存法毫无共同点：OOXML 的级别在域指令的文字里（外面那层 w:sdt
-    # 还可能没有），ODF 的级别在 source 元素的 outline-level 属性上 —— 所以整份账
-    # 按各自的形状比，不强行归一
-    print("=== 2b) 有没有目录、收了几级（toc.docx / toc.odt） ===")
-    for name in ("toc.docx", "notes.docx", "toc.odt", "notes.odt"):
+    # 目录这一问三家的存法毫无共同点：OOXML 的级别在域指令的文字里（外面那层 w:sdt
+    # 还可能没有），ODF 的级别在 source 元素的 outline-level 属性上，RTF 没有壳只有域
+    # —— 所以整份账按各自的形状比，不强行归一（OOXML 专属的那两键 RTF 这边不该出现）
+    print("=== 2b) 有没有目录、收了几级（toc.docx / toc.odt / toc.rtf） ===")
+    for name in ("toc.docx", "notes.docx", "toc.odt", "notes.odt", "toc.rtf", "notes.rtf"):
         # 这个循环外头还有一个 `want` 装着 notes.docx 的整份账（后面十几条检查在用），
         # 所以这里必须换个名字 —— 复用 `want` 会把那份账换成本条循环的小字典
-        cwant = files[name]["ooxml"]["contents"] if name.endswith(".docx") else files[name]["odt"]["contents"]
+        if name.endswith(".docx"):
+            cwant = files[name]["ooxml"]["contents"]
+        elif name.endswith(".odt"):
+            cwant = files[name]["odt"]["contents"]
+        else:
+            cwant = files[name]["rtf"]["contents"]
         check("%s 目录那份账" % name, lbin("office-doc", fixture(name)).get("contents"), cwant)
     check("notes.doc 没读就不报目录", lbin("office-doc", fixture("notes.doc")).get("contents"), None)
+    # 同一份文档的两种写法：RTF 解掉那一对反斜杠之后，级数与 docx 是同一个字 ——
+    # 这不是两边凑出来的，是那把读取器本来就只有一把（office_doc.rs 里 docx / rtf 共用）
+    check(
+        "toc 的级数：docx 与 rtf 同一个字（两家共用一把开关读取器）",
+        [
+            dig(lbin("office-doc", fixture("toc.docx")), "contents.levels"),
+            dig(lbin("office-doc", fixture("toc.rtf")), "contents.levels"),
+        ],
+        ["1-2", "1-2"],
+    )
+    check(
+        "toc.rtf 里没有 OOXML 那两键（不造假）",
+        [
+            (lbin("office-doc", fixture("toc.rtf")).get("contents") or {}).get(key, "没有这个键")
+            for key in ("galleries", "sdt")
+        ],
+        ["没有这个键", "没有这个键"],
+    )
 
     # ── 2c) RTF 的结构这一问：它不是包，是一条流，能数清的才报 ─────────────
     print("=== 2c) office-doc 读 RTF（段、注、图、跳过与注的口袋数） ===")
-    for name in ("notes.rtf", "notes-hf.rtf", "notes-end.rtf", "tables.rtf"):
+    for name in ("notes.rtf", "notes-hf.rtf", "notes-end.rtf", "tables.rtf", "toc.rtf"):
         got = lbin("office-doc", fixture(name))
         rwant = files[name]["rtf"]
         check(
@@ -265,15 +301,16 @@ def main() -> int:
             got.get("statistics", {}).get("ours"),
             office_reader.tally_of(rwant["lines"]),
         )
-        # 「没看」与「没有」不是一件事：这几项两边都必须是 null
+        # 「没看」与「没有」不是一件事：这几项两边都必须是 null。
+        # 目录（contents）从这一批里出去了 —— 那一条流里有没有 TOC 域是数得出的，
+        # 2b 那条循环按各自的形状比那份账（present=false 也要交，不装看不见）
         check(
-            "%s 没判的项交回 null（tables / sections / contents）" % name,
+            "%s 没判的项交回 null（tables / sections）" % name,
             [
-                got.get("contents") is None,
                 dig(got, "structure.sections") is None,
                 (got.get("structure") or {}).get("tables") is None,
             ],
-            [True, True, True],
+            [True, True],
         )
         # 字体与样式：那两群照旧整群跳过，但里面的名字要交出来；
         # 名字是不是敢读，由每个条目自己声明的字符集说
@@ -483,8 +520,10 @@ def main() -> int:
     )
     check(
         "paper-a4.rtf 全文没有 landscape 这个词（所以那一条只能给 null）",
-        (fixture("paper-a4.rtf").read_bytes().count(b"\\landscape"),
-         dig(a4["rtf"], "page_setup.papers[0].orient")),
+        [
+            fixture("paper-a4.rtf").read_bytes().count(b"\\landscape"),
+            dig(a4["rtf"], "page_setup.papers[0].orient"),
+        ],
         [0, None],
     )
 
