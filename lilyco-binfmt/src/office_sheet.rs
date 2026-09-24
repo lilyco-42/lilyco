@@ -961,8 +961,11 @@ mod tests {
         assert!(plain["notes"]
             .as_array()
             .expect("说明")
+            // 这里查的是「没锁就别谈锁」，所以要用只有那条锁说明才会用的词。
+            // 先前查的是「子流」，而批注那条说明（每次都交）也说注住在表子流末尾 ——
+            // 一个偶然同词就把这条守卫弄红了，换一个专有的
             .iter()
-            .all(|one| !one.as_str().unwrap_or_default().contains("子流")));
+            .all(|one| !one.as_str().unwrap_or_default().contains("表锁")));
     }
 
     /// `.xls` 的数字格式那一跳：格子的 ixfe 是 XF 记录的**出现序号**，XF 自报的格式号
