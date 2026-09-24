@@ -1912,6 +1912,9 @@ pub struct Link {
     pub to_index: Option<usize>,
     pub uri: Option<String>,
     pub form: &'static str,
+    /// 既不去页也不去站外的那类动作，动作名记在这里（`/Launch` 这种）：
+    /// 光靠 form 一个 "action"，清单里两条就分不出哪条会启动外部程序
+    pub action: Option<String>,
 }
 
 /// `/P` 那一位位的开关。位号按规范的数法（从 1 起），R2 只有 3~6 位有意义，
@@ -2186,6 +2189,11 @@ impl Pdf {
                 } else {
                     None
                 };
+                let action = if target.form == "action" {
+                    target.via.clone()
+                } else {
+                    None
+                };
                 out.push(Link {
                     page_index: index + 1,
                     to: target.page,
@@ -2195,6 +2203,7 @@ impl Pdf {
                         .map(|at| at + 1),
                     uri,
                     form: target.form,
+                    action,
                 });
             }
         }
