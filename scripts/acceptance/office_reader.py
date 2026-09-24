@@ -1491,7 +1491,7 @@ def odt_structure(path: Path) -> dict:
         # 换页写在段落样式上（`fo:break-before="page"`），不是正文里的元素：见 odf_page_breaks
         "page_breaks": odf_page_breaks(root, body),
         # 段落格式与分栏：这一族都住在样式那一跳上（不是正文元素），见上面两个函数
-        "paragraph_formats": odf_paragraph_formats(paras, root, prefixes),
+        "paragraph_formats": odf_paragraph_formats(odf_body_paragraphs(body), root, prefixes),
         "columns": odf_columns(root, prefixes),
         # text:soft-page-break 是另一件事：渲染时落下的那个位置，不是作者要的换页
         "soft_page_breaks": count_local(body, "soft-page-break"),
@@ -1604,6 +1604,33 @@ def body_paragraphs(root) -> list:
         for one in root.iter()
         if xml_local(one.tag) == "p" and id(one) not in inside
     ]
+
+
+def odf_body_paragraphs(root) -> list:
+    """`office-doc` 的 ODF 口径：走到 `text:p` 就停，**不钻进它里面**
+
+    为什么与 `body_paragraphs` 不是一份清单：ODF 的注坐在正文段**里面**
+    （`text:p > text:note > text:note-body > text:p`），全树数会把注里那几段
+    也算成正文段。`notes-end.odt` 实测两个数：不落进段里 4、全树数 7，
+    而 LibreOffice 自己写在 meta.xml 的 `paragraph-count` 是那个 7 ——
+    「这份文档有几段」没有唯一答案，office-doc 这一族取 4（与它自己那份
+    `structure.paragraphs` 同一份清单，段格式与编号那两份账的 index 才对得上），
+    生产者那个 7 在 `statistics.producer` 里并排交。
+    """
+    out: list = []
+
+    def walk(node) -> None:
+        for kid in node:
+            tag = xml_local(kid.tag)
+            if tag in ("annotation", "tracked-changes"):
+                continue
+            if tag == "p":
+                out.append(kid)
+                continue
+            walk(kid)
+
+    walk(root)
+    return out
 
 
 def body_paragraph_and_heading_nodes(root) -> list:

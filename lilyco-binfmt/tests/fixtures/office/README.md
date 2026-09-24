@@ -750,6 +750,14 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       第二段那个右对齐整个没写出来（全文 `\qr` 0 次，`\qj` 与 `\qc` 各 1 次）；按字数的那两个缩进被抹平成
       `\li0\fi0`；而全文 `\cols` 0 次 —— 两栏在这条流里不存在。归属判不住就不交：键整个不在，
       不是 0、也不是 null。`.doc` 同理（段格式住在那张表流里，这一族的读者不走过去）。
+    * 「这份文档有几段」在 ODF 有**两个诚实的数**：注是坐在带它的那一段**里面**的
+      （`text:p > text:note > text:note-body > text:p`），走到 `text:p` 就停数得 4，
+      整棵树数得 7（`notes-end.odt` 实测：三段正文里嵌着三条注，每条注自己也是一段）。
+      LibreOffice 自己写在 meta.xml 的 `paragraph-count` 是那个 **7** —— 所以这一族的段格式
+      账取 4 这一份清单（与它自己的 `structure.paragraphs` 同一份，否则 `index` 对不上），
+      而生产者那个 7 原样留在 `statistics.producer` 里并排交。这一条是这批对账唯一的失败项
+      量出来的：两边各数各的时，镜像数到 7、读者数到 4。
+
     命名空间声明在这两族都不算属性（`xmlns=` 与 `xmlns:fo=` 说的是「这个名字怎么读」，不是文件给的属性），
     标准库那个 XML 读者本来也不把它们放进 attrib —— 这条口径是上一批对账失败量出来的：
     `<table xmlns="…spreadsheetml/2006/main">` 让 Rust 多报一个 `xmlns` 键，而 `size.xlsx` 与

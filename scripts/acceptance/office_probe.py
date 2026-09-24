@@ -951,6 +951,21 @@ def main() -> int:
         check("%s 也不报：段格式在表流里" % name,
               [one for one in ("paragraph_formats", "columns") if got.get(one) is not None], [])
 
+    # ODF 那句「这份文档有几段」有两个答案，两个都得看得见：注是坐在正文段**里面**的
+    # （`text:p > text:note > text:note-body > text:p`），不落进段里数得 4、全树数得 7，
+    # 而 LibreOffice 自己写在 meta.xml 的那个 `paragraph-count` 是 7。
+    # 段格式那份账取的是 4 这一份清单（与 `structure.paragraphs` 同一份，index 才对得上）；
+    # 这一条钉住的就是「两份账用的是同一份段清单」，别再让 7 与 4 在同一栏里各数各的
+    endoff = lbin("office-doc", fixture("notes-end.odt"))
+    check(
+        "notes-end.odt 的「几段」：正文段 4、连注里的段 7（生产者自己写 7）",
+        [dig(endoff, "structure.paragraphs"),
+         dig(endoff, "structure.paragraph_formats.checked"),
+         dig(endoff, "statistics.producer.paragraph-count"),
+         files["notes-end.odt"]["odt"]["paragraphs"]],
+        [4, 4, "7", 7],
+    )
+
     # ── 2f) 演示稿的第二生产者与那两张图：同一份稿子中一家会重写什么 ──────
     print("=== 2f) 两家写的 pptx 与页上的图 ===")
     for name in ("deck.pptx", "deck-lo.pptx", "deck-chart.pptx", "deck-chart-lo.pptx"):

@@ -68,6 +68,14 @@ MARK_PAPER_LAND = "横过来的那一节"
 MARK_MERGED_HEAD = "合并格的样本"
 MARK_MERGED_WIDE = "跨两列"
 MARK_MERGED_TALL = "跨两行"
+# 列表与编号那七段：一次把「编号从哪来」的三条路都摆开，见 write_list_docx
+MARK_LIST_PLAIN = "这一段不在列表里"
+MARK_LIST_NUM_1 = "编号列表第一项"
+MARK_LIST_NUM_2 = "编号列表第二项"
+MARK_LIST_BULLET = "圆点列表第一项"
+MARK_LIST_DEEP_1 = "直接挂在段上的第一级"
+MARK_LIST_DEEP_2 = "直接挂在段上的第二级"
+MARK_LIST_DANGLING = "点了一个不存在的编号"
 
 
 def need_soffice() -> str:
@@ -953,6 +961,51 @@ def write_para_docx(path: Path) -> None:
     doc.save(path)
 
 
+def write_list_docx(path: Path) -> None:
+    """python-docx：一份文档把「这一段是不是列表项、编号从哪来」的三条路各走一遍
+
+    为什么存这一份：这三条路在 OOXML 里住的地方完全不同，只看段上是读不全的 ——
+    * 走**样式**的那三段（两份 `List Number` 与一份 `List Bullet`）段上没有任何 `w:numPr`，
+      编号来自样式定义里的 `w:numPr`（python-docx 写这三段时一个编号属性都不往段上放）；
+    * 走**直接挂段上**的那两段：`w:numPr` 里 `w:ilvl` 与 `w:numId` 成对写，
+      而模板给这九份 abstractNum 写的都是 `multiLevelType="singleLevel"`、
+      每份只带一条 `w:lvl w:ilvl="0"` —— 于是那句 `ilvl="1"` 在定义里根本没有对应的那一条，
+      「numId 解得到、级别解不到」这一种必须有真件撑着；
+    * 最后一段点一个不存在的 `numId="77"`：这条要交「解不开」，不能交 0 也不能交默认。
+    另外 `w:num` 与 `w:abstractNum` 的对应是**反的**（`numId 1 → abstractNumId 8`），
+    而 abstract 里那一级的 `w:lvlText` 圆点不是 `•` 是 Symbol 字体的 `U+F0B7`，
+    并且 `w:lvl` 里还有一条 `<w:pStyle w:val="ListNumber"/>` 反向指回样式表 ——
+    编号与样式是一个环，读的人只能挑一条边走，挑的那条要写在账上。
+    """
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    doc.add_paragraph(MARK_LIST_PLAIN)
+    doc.add_paragraph(MARK_LIST_NUM_1, style="List Number")
+    doc.add_paragraph(MARK_LIST_NUM_2, style="List Number")
+    doc.add_paragraph(MARK_LIST_BULLET, style="List Bullet")
+
+    def numbered(text: str, num_id: str, ilvl: str):
+        one = doc.add_paragraph(text)
+        num_pr = OxmlElement("w:numPr")
+        level = OxmlElement("w:ilvl")
+        level.set(qn("w:val"), ilvl)
+        ident = OxmlElement("w:numId")
+        ident.set(qn("w:val"), num_id)
+        num_pr.append(level)
+        num_pr.append(ident)
+        one._p.get_or_add_pPr().insert(0, num_pr)
+        return one
+
+    numbered(MARK_LIST_DEEP_1, "3", "0")
+    numbered(MARK_LIST_DEEP_2, "3", "1")
+    numbered(MARK_LIST_DANGLING, "77", "0")
+    doc.core_properties.title = MARK_LIST_NUM_1
+    doc.save(str(path))
+
+
 def write_pptx_charts(path: Path) -> None:
     """python-pptx：同一页两张图（柱形与饼图），第二页一张也没有。
 
@@ -1589,6 +1642,22 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "para.rtf", OUT / "para.rtf")
     else:
         print("⚠️  没拿到 para.rtf")
+
+    # 列表与编号那三件套：docx 由 python-docx 写，odt 由 LibreOffice 导出，
+    # lists-lo.docx 是「同一个格式重写」那一份（LibreOffice 读进自己的模型再写回 OOXML）
+    lists = OUT / "lists.docx"
+    write_list_docx(lists)
+    convert(exe, lists, "odt", SCRATCH)
+    if (SCRATCH / "lists.odt").exists():
+        shutil.copyfile(SCRATCH / "lists.odt", OUT / "lists.odt")
+    else:
+        print("⚠️  没拿到 lists.odt")
+    convert(exe, lists, "docx", SCRATCH / "lists-back")
+    made = SCRATCH / "lists-back" / "lists.docx"
+    if made.exists():
+        shutil.copyfile(made, OUT / "lists-lo.docx")
+    else:
+        print("⚠️  没拿到 lists-lo.docx（docx → docx 那一转）")
 
     # 演示稿的第二生产者与图那两份：同一份 pptx 让 LibreOffice 转 odp 再转回来，
     # 版式与母版的条数、段落被拆成几个 run、`sldSz` 上那个 type 属性都会变
