@@ -123,6 +123,8 @@ def main() -> int:
         "cell-notes.xlsx": ("ooxml", "excel", "xlsx"),
         "cell-notes-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "cell-notes.ods": ("opendocument", "excel", "ods"),
+        "cell-notes-many.xlsx": ("ooxml", "excel", "xlsx"),
+        "cell-notes-many.xls": ("compound", "excel", "xls"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -614,6 +616,58 @@ def main() -> int:
             }
             for one in files["cell-notes.ods"]["ods"]["sheets"]
         },
+    )
+    # 第四种存法：.xls 的注在同一条流的两类记录里（一条给字、一条给格子与作者），
+    # 这份件一次只改一个变量：ASCII 与中文的作者名、2 与 3 个字、带换行的字、
+    # AA100 这种两位列名、以及分到两张表上
+    xlsbook = lbin("office-sheet", fixture("cell-notes-many.xls"))
+    xwant = files["cell-notes-many.xls"]["biff"]["comments"]
+    check(
+        "cell-notes-many.xls 每张表的批注（按格子对）",
+        mine_notes(xlsbook),
+        {
+            key: {had["ref"]: (had["author"], had["text"], had["date"]) for had in value["list"]}
+            for key, value in xwant.items()
+        },
+    )
+    check("cell-notes-many.xls 批注总账", dig(xlsbook, "workbook.totals.comments"),
+          sum(len(value["list"]) for value in xwant.values()))
+    check(
+        "cell-notes-many.xls 两类记录的条数一起交",
+        {
+            one.get("name"): (one.get("note_text_records"), one.get("note_cell_records"), one.get("comments"))
+            for one in xlsbook.get("sheets", [])
+        },
+        {
+            key: (value["text_records"], value["cell_records"], len(value["list"]))
+            for key, value in xwant.items()
+        },
+    )
+    check(
+        "cell-notes-many.xls 每条都说自报的字数切满了",
+        [had.get("whole") for one in xlsbook.get("sheets", []) for had in one.get("comment_list", [])],
+        [had["whole"] for value in xwant.values() for had in value["list"]],
+    )
+    # 同一批字跨存法：LibreOffice 写的那份 .xls 与 openpyxl 写的那份 xlsx 必须一字不差
+    check(
+        "同一批字的 .xls 与 xlsx 两份批注账",
+        sorted(
+            (one.get("name"), had.get("ref"), had.get("author"), had.get("text"))
+            for one in xlsbook.get("sheets", [])
+            for had in one.get("comment_list", [])
+        ),
+        sorted(
+            (key, had["ref"], had["author"], had["text"])
+            for key, value in files["cell-notes-many.xlsx"]["comments"].items()
+            for had in value
+        ),
+    )
+    # 反面对照：没有注的那几份 .xls 报 0 条（键在、值为零），而不是缺键
+    check(
+        "book.xls 没有注就报 0 条",
+        [dig(lbin("office-sheet", fixture(one)), "workbook.totals.comments") for one in
+         ("book.xls", "hidden.xls", "formats.xls", "mulrk.xls")],
+        [0, 0, 0, 0],
     )
     # ODF 的注就坐在格子里面：一锅端取字就会把注当成这一格的内容
     mixed = [

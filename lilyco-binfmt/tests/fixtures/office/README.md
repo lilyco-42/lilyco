@@ -24,6 +24,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `cell-notes.xlsx` | openpyxl | 三条表格批注，部件在 **`xl/comments/comment1.xml`**，表的关系用**绝对** Target（`/xl/comments/comment1.xml`）、关系 Id 还不是 rId 而是字面量 `comments`；作者住在同部件的 `<authors>` 列表里，格子上只有 `authorId` 下标 |
 | `cell-notes-lo.xlsx` | LibreOffice（`cell-notes.xlsx` → .ods → .xlsx） | 同一批字的另一副面孔：部件在 **`xl/comments1.xml`**、Target 是相对的 `../comments1.xml`、注文字包在 `<r><rPr>…<t>` 里，而且条目顺序都变了（A3 排在 B2 前面） |
 | `cell-notes.ods` | LibreOffice（从 `cell-notes.xlsx`） | ODF 的存法：批注是 `office:annotation`，**坐在格子里面**（`dc:creator` 给作者、`<meta:date-string/>` 是空的），一锅端取格子的字就会把注当成这一格的内容 |
+| `cell-notes-many.xlsx` | openpyxl | 第四种存法的种子：一次只改一个变量 —— 作者名有 ASCII 的（`AB`）也有中文的、字数有 2 也有 3、注的字带换行、格子拉到 `AA100`、注还分到两张表上 |
+| `cell-notes-many.xls` | LibreOffice（从 `cell-notes-many.xlsx`） | 批注的第四种存法：字与「哪个格子 + 谁写的」分在**同一条流**的两类记录上（后者住在该表子流的末尾），编码旗标那一位与 BIFF8 的 `fCompressed` 惯例**相反** |
 | `notes-end.rtf` | LibreOffice（从 `notes-end.docx`） | 注的第三种存法：脚注与尾注**都**写成 `{\*\footnote …}` 这一个群，尾注只在群里多一个 `\ftnalt`；分隔符另走 `{\*\ftnsep\chftnsep}` |
 | `toc.docx` | LibreOffice 的 **docx 导出器**（把目录注进 `notes.docx` 再让它照抄） | 真目录：`<w:sdt>` + `<w:docPartGallery w:val="Table of Contents"/>`，级别在域指令文字里 —— LibreOffice 把引号写成 `&quot;`，所以 `TOC \o "1-2" \h` 要还原实体才读得对 |
 | `toc.odt` | LibreOffice（从 `toc.docx`） | 同一件东西的另一副面孔：`text:table-of-content`（名字 `目录1`）、级别在 `text:table-of-content-source/@outline-level="2"`，另外**十级条目模板全写出来**（`entry_templates` 报的是文件写了几个，不是用上了几级） |
@@ -320,7 +322,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     「批注（`text:annotation`）与修订表（`text:tracked-changes`）里的段不算正文」是同一条规矩。
     最后：`Comment(text, author, dt)` 里那个时间戳，openpyxl **根本没写进部件**，
     LibreOffice 转出的 ODF 也只留一个空的 `<meta:date-string/>` —— 两边都交回 null，
-    不替文件编一个创建时间。`.xls` 那一支不报这一问（缺 `comments` 键 = 没看）。
+    不替文件编一个创建时间。`.xls` 是第四种存法，见下面第 35 条。
 
 32. **RTF 的 `\*` 修饰的是紧跟它的那个群，不是一句「见 `\*` 就跳」**（`notes-end.rtf`）。
     RTF 里 `\*` 的意思规范写成「不认识这个目标群就把整群跳过」—— 重点在**认识与否**。
@@ -361,6 +363,32 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     null 是一句实话（「这一支没看」）。段口径两边也统一：`\par` 切出来、逐行 trim、
     丢空行，与 `lyco_rtf.py` 的 `lines` 同一条规则，所以 `statistics.ours`
     那三个数（116 / 100 / 20）是拿同四行字两边各数一遍对出来的。
+
+35. **批注的第四种存法：`.xls` 把一条注拆成同一条流里的两类记录**（`cell-notes-many.xls`）。
+    前三种是「换部件」（OOXML 靠表自己的关系表跳过去）与「换元素」（ODF 让注坐在格子里面），
+    这一种连部件都不换：
+    * 一条记录（这份件里是 `0x01B6`）给**字** —— 正文偏移 0 是它自报的头长 18、
+      偏移 10 是它自报的**字数**，紧跟的第一条 CONTINUE 的**首字节是编码旗标**：
+      0 = 一格一字节、1 = 一格两字节。这一位与 BIFF8 那个 `fCompressed` 的惯例**相反**，
+      是拿一份 ASCII 作者的件与三份中文作者的件对出来的，不是引来的。
+      那条 CONTINUE 之后还有一条 CONTINUE，它是注的**扩展头**不是字的续块 ——
+      拼进来就会多出一串不像字的字节，所以只吃第一条并按自报的字数切。
+    * 另一条记录（这份件里是 `0x001C`）给**哪个格子 + 谁写的**：
+      `row(2) col(2) 留零(2) 自报的序号(2) 作者字数(2) 编码旗标(1) 作者串`，串后面还有一个 `0x00`。
+      它住在**这张表自己的子流末尾**，所以两张表的注不会串门。
+    * 两份列表按出现顺序配（量的这几份件里字的记录与格子记录同序），
+      每条再带 `whole` 说两边自报的字数是不是都正好切出来，两类记录各自的条数也一起交 ——
+      对不上时那是一个看得见的数，不是被悄悄截短的一份账。
+    为什么这份件要一次改四个变量：作者名 ASCII 与中文（练那一位旗标）、作者字数 2 与 3
+    （练串长）、注的字带换行（练 `0x000A` 不成为分隔符）、格子拉到 `AA100`（练两位列名），
+    再加第二张表（练按子流归位）。
+    两个**边界**也写在这里：① 这套读法只在 LibreOffice 写的 .xls 上量过，
+    Excel 自己怎么写注手上没有件可以对证，所以「0 条」说的是「这套读法没找到」；
+    ② 那两个记录号**不替它们编规范名** —— MS-XLS 把 `0x001C` 那个位置留给 EXTERNSHEET，
+    而这里量到的内容是「格子 + 作者」，硬套名字就是编话。
+    第二个读者是 LibreOffice 自己：把这份 .xls 再转回 .xlsx，`xl/comments` 那一条路读出来的
+    (表, 格子, 字) 与这里逐条一致；而它转回去时**作者整个丢了**（写成「未知作者」），
+    所以作者那一半只有字节层面的对证，这一点如实记下。
 
 ## 这些数字从哪来
 

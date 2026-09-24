@@ -240,6 +240,24 @@ def _owner(sheets: list, offset: int):
     return None
 
 
+def a1(col: int, row: int) -> str:
+    """`(列, 行)` → `A1` 那种写法：列是 26 进制但没有「0 列」这一位"""
+    letters = ""
+    while True:
+        letters = chr(ord("A") + col % 26) + letters
+        if col < 26:
+            break
+        col = col // 26 - 1
+    return "%s%d" % (letters, row + 1)
+
+
+# 批注在这条流里的三条记录。记录号只在这份件的意义上用 —— 手上没有第二个能写
+# .xls 批注的生产者，所以不替它们编规范名（MS-XLS 把 0x001C 那个位置留给 EXTERNSHEET，
+# 而这里量到的内容是「哪个格子 + 谁写的」，硬套名字就是编话）
+NOTE_TEXT = 0x01B6
+NOTE_CELL = 0x001C
+
+
 def biff_workbook(cfb_bytes: dict) -> dict:
     """把 Workbook 流的记录表读成：工作表清单、共享字符串、带值的单元格（按表归位）"""
     raw = cfb_bytes.get("Workbook") or cfb_bytes.get("Book")
@@ -267,6 +285,9 @@ def biff_workbook(cfb_bytes: dict) -> dict:
     # 隐藏行与隐藏列：BIFF 不写开关，写在 ROW 与 COLINFO 的字段位上
     hidden_rows: dict = {}
     hidden_cols: dict = {}
+    # 批注那三条记录分两处住：字在表子流里跟着格子走，格子与作者在子流末尾
+    note_texts: dict = {}
+    note_cells: dict = {}
     for index, (offset, op, body) in enumerate(records):
         belongs = _owner(sheets, offset)
         if op == 0x0809:  # BOF
@@ -416,6 +437,47 @@ def biff_workbook(cfb_bytes: dict) -> dict:
                 )
         elif op == 0x0200:  # DIMENSIONS
             dimensions.append((_u32(body, 0), _u32(body, 4)))
+        elif op == NOTE_TEXT:
+            # 注的字：正文偏移 10 是这条记录自报的字数（偏移 0 是它自报的头长 18，
+            # 偏移 12 那份件一律写 0x0010），紧跟的第一条 CONTINUE 首字节是编码旗标
+            # （0 = 一格一字节，1 = 一格两字节）。这个位义与 BIFF8 那个
+            # fCompressed 的惯例**相反**，是拿一份 ASCII 作者的件与三份中文作者的件
+            # 对出来的，不是引来的。后面那条 CONTINUE 是注的扩展头（不是字的续块），
+            # 所以只吃第一条，并按自报的字数切 —— 字比这个数长时如实报不完整
+            cch = _u16(body, 10) or 0
+            text, wide, whole = None, None, False
+            probe = index + 1
+            while probe < len(records) and records[probe][1] == 0x003C:
+                blob = records[probe][2]
+                probe += 1
+                if text is not None or not blob:
+                    continue
+                wide = blob[0] == 1
+                need = cch * (2 if wide else 1)
+                cut = blob[1 : 1 + need]
+                text = cut.decode("utf-16-le" if wide else "cp1252", "replace")
+                whole = len(cut) == need
+            note_texts.setdefault(belongs, []).append(
+                {"text": text, "wide": wide, "whole": whole, "cch": cch}
+            )
+        elif op == NOTE_CELL:
+            # 注住在哪个格子、谁写的：row(2) col(2) 那位留零(2) 自报的序号(2)
+            # 作者字数(2) 编码旗标(1) 作者串（这一族的串后面还跟一个 0x00）
+            row = _u16(body, 0) or 0
+            col = _u16(body, 2) or 0
+            acch = _u16(body, 8) or 0
+            wide = bool((_u8(body, 10) or 0) & 1)
+            need = acch * (2 if wide else 1)
+            cut = body[11 : 11 + need]
+            note_cells.setdefault(belongs, []).append(
+                {
+                    "row": row,
+                    "col": col,
+                    "slot": _u16(body, 6),
+                    "author": cut.decode("utf-16-le" if wide else "cp1252", "replace"),
+                    "whole": len(cut) == need,
+                }
+            )
         elif op in (0x0012, 0x0013, 0x00DD):
             # PROTECT / PASSWORD / SCENPROTECT。为什么按「落在谁的子流里」记：
             # 对照 locked-sheet.xls 与 locked-second.xls（唯一差别是锁在第一张还是
@@ -431,7 +493,32 @@ def biff_workbook(cfb_bytes: dict) -> dict:
     per_sheet: dict = {}
     for one in cells:
         per_sheet[one["sheet"]] = per_sheet.get(one["sheet"], 0) + 1
+    # 两份列表按出现顺序配：量的这三份件里字的记录与格子记录同序，而格子记录自己
+    # 还写着一个 1 起的序号 —— 两个都对上才算读过。对不上时两份计数都交出来，
+    # 让「配了几条」与「各有几条」在同一份账上看得见，而不是只报一个小的数
+    comments: dict = {}
+    for name in [one["name"] for one in sheets]:
+        anchors = note_cells.get(name, [])
+        texts = note_texts.get(name, [])
+        got = []
+        for position in range(min(len(anchors), len(texts))):
+            anchor, had = anchors[position], texts[position]
+            got.append(
+                {
+                    "ref": a1(anchor["col"], anchor["row"]),
+                    "author": anchor["author"],
+                    "date": None,
+                    "text": had["text"],
+                    "whole": bool(anchor["whole"] and had["whole"]),
+                }
+            )
+        comments[name] = {
+            "list": got,
+            "text_records": len(texts),
+            "cell_records": len(anchors),
+        }
     return {
+        "comments": comments,
         "records": len(records),
         "bofs": bofs,
         "sheets": sheets,

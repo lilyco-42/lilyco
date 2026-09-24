@@ -43,6 +43,14 @@ MARK_KEYWORD = "budget,quarterly"
 # 表格批注那两句（MARK_COMMENT 已经被文档批注用了，这两句只住在这两份表格里）
 MARK_CELL_NOTE = "第二张单已确认"
 MARK_CELL_NOTE_2 = "同一个作者再来一条"
+# 批注的第四种存法（.xls 那条记录流）要一次只改一个变量的样本：作者名有 ASCII 的也有
+# 中文的、字数有 2 也有 3，注的字有单行也有带换行的，格子拉到 AA100 让列名进两位数，
+# 而且分到两张表上 —— 这四件事各自决定那三条记录里的某一位（编码旗标、字数、按表归位）
+MARK_NOTE_SHEET_2 = "第二张"
+MARK_NOTE_ASCII_AUTHOR = "AB"
+MARK_NOTE_ASCII_TEXT = "one"
+MARK_NOTE_LONG_AUTHOR = "欧阳锋"
+MARK_NOTE_TWO_LINE = "第一行\n第二行"
 # 尾注那句：notes-foot.docx 只有脚注，notes-end.docx 在这句上才走得到 `endnote` 那一支
 MARK_ENDNOTE = "Endnote: the totals exclude the carry-over."
 
@@ -470,6 +478,32 @@ def write_cell_notes_xlsx(path: Path) -> None:
     ws["B2"].comment = Comment(MARK_COMMENT, "张三", dt.datetime(2026, 3, 5, 9, 8, 7))
     ws["A3"].comment = Comment(MARK_CELL_NOTE, "李四")
     ws["B3"].comment = Comment(MARK_CELL_NOTE_2, "李四")
+    wb.save(path)
+
+
+def write_cell_notes_many(path: Path) -> None:
+    """给 .xls 那第四种存法当种子：两份表、四条注，每条各动一个变量。
+
+    LibreOffice 的 .xls 导出器把一条注拆成三条记录（字、格子与作者、还有一条自报的
+    序号），那三条里的每一位都要有件走过：作者名 ASCII 的与中文的（那一族里编码旗标
+    与 BIFF8 的惯例相反）、字数 2 与 3、注的字带不带换行、格子拉到 AA100 让列名进
+    两位数、以及注分落在两张表上（不按子流归位就会把第二张表的注挂到第一张上）。
+    """
+    from openpyxl import Workbook
+    from openpyxl.comments import Comment
+
+    wb = Workbook()
+    first = wb.active
+    first.title = MARK_SHEET
+    first["A1"] = 1
+    first["A1"].comment = Comment(MARK_NOTE_ASCII_TEXT, MARK_NOTE_ASCII_AUTHOR)
+    first["C5"] = 2
+    first["C5"].comment = Comment(MARK_NOTE_TWO_LINE, "张三")
+    first["AA100"] = 3
+    first["AA100"].comment = Comment(MARK_COMMENT, MARK_NOTE_LONG_AUTHOR)
+    second = wb.create_sheet(MARK_NOTE_SHEET_2)
+    second["B2"] = 4
+    second["B2"].comment = Comment(MARK_CELL_NOTE, "李四")
     wb.save(path)
 
 
@@ -963,6 +997,8 @@ def main() -> int:
     # 表格批注那两跳：openpyxl 写一份（批注部件在 xl/comments/comment1.xml），
     # LibreOffice 转 .ods 一份（批注坐在格子里面），两个生产者两种存法
     write_cell_notes_xlsx(OUT / "cell-notes.xlsx")
+    # 第四种存法（.xls 的记录流）的种子，转出的 .xls 在下面那个遗留格式循环里
+    write_cell_notes_many(OUT / "cell-notes-many.xlsx")
     pptx = OUT / "deck.pptx"
     write_pptx(pptx, art)
     add_macro_part(docx, OUT / "notes.docm")
@@ -1130,6 +1166,9 @@ def main() -> int:
         # 隐藏行/列那一族也转一份 .xls：BIFF 把这两件事写在 ROW 与 COLINFO 的字段位上，
         # 这一份是那条路的真件样本（ground truth 是 openpyxl 写的 hidden.xlsx）
         (OUT / "hidden.xlsx", "xls"),
+        # 批注的第四种存法：LibreOffice 把一条注拆成三条 BIFF 记录（字、格子与作者、
+        # 一个自报的序号），这一份是那条路的真件样本（种子是 cell-notes-many.xlsx）
+        (OUT / "cell-notes-many.xlsx", "xls"),
         # 页眉页脚那两份再转两个格式：ODF 的页眉坐在 master-page 的样式里，
         # RTF 的坐在 \header / \footer 目标里 —— 两边都是同一批字的另一种存法
         (headers, "rtf"),
@@ -1146,6 +1185,7 @@ def main() -> int:
         "formats.xls",
         "mulrk.xls",
         "hidden.xls",
+        "cell-notes-many.xls",
         "deck.ppt",
         "notes.rtf",
         "notes-hf.rtf",

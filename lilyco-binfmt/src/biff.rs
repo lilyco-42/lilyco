@@ -51,6 +51,11 @@ const ROW: u64 = 0x0208;
 /// 用的是老 id 0x007D（正文布局一样）—— 两个都认，见 `Sheet::hidden_cols`
 const COLINFO: u64 = 0x07D0;
 const COLINFO_OLD: u64 = 0x007D;
+/// 批注的字。这两个记录号只在「LibreOffice 写的 .xls」这个意义上用：手上没有第二个
+/// 能写 .xls 批注的生产者，MS-XLS 又把 0x001C 那个位置留给 EXTERNSHEET，
+/// 而这里量到的内容是「哪个格子 + 谁写的」—— 硬套规范名就是编话
+const NOTE_TEXT: u64 = 0x01B6;
+const NOTE_CELL: u64 = 0x001C;
 
 #[derive(Debug, Clone)]
 pub struct Sheet {
@@ -66,6 +71,23 @@ pub struct Sheet {
     pub hidden_rows: Vec<u64>,
     /// 同上，列。COLINFO 写的是首末都含的一段，这里已经展开
     pub hidden_cols: Vec<u64>,
+    /// 这一张表的批注：字与「哪个格子、谁写的」在这条流里是两类记录，按出现顺序配
+    pub comments: Vec<Comment>,
+    /// 那两类记录各几条。配的条数只能到两者中小的那个，所以这两个数要一起交出去
+    pub note_text_records: usize,
+    pub note_cell_records: usize,
+}
+
+/// 一条批注。这里没有日期字段：这一族的三条记录里都不写作者时间，
+/// 所以调用方把那一项交回 None，不替文件编一个
+#[derive(Debug, Clone)]
+pub struct Comment {
+    pub reference: String,
+    pub author: String,
+    pub text: String,
+    /// 两边自报的字数是不是都正好切出来。长的注会跨多条 CONTINUE，
+    /// 而这一版只吃第一条 —— 那条 CONTINUE 之后还有一条是注的扩展头，不能拼进来
+    pub whole: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -82,20 +104,35 @@ pub struct Cell {
     pub ixfe: Option<u64>,
 }
 
-impl Cell {
-    /// 单元格引用：`(0,0)` → `A1`。列是 26 进制但没有「0 列」这一位
-    pub fn reference(&self) -> String {
-        let mut col = self.col;
-        let mut letters: Vec<char> = Vec::new();
-        loop {
-            letters.push(char::from(b'A' + (col % 26) as u8));
-            if col < 26 {
-                break;
-            }
-            col = col / 26 - 1;
+/// 16 位单元拼回文字（little-endian，落单的尾字节丢掉）
+fn wide_text(bytes: &[u8]) -> String {
+    let mut units: Vec<u16> = Vec::new();
+    for pair in bytes.chunks(2) {
+        if pair.len() == 2 {
+            units.push(u16::from_le_bytes([pair[0], pair[1]]));
         }
-        letters.reverse();
-        format!("{}{}", letters.iter().collect::<String>(), self.row + 1)
+    }
+    String::from_utf16_lossy(&units)
+}
+
+/// 单元格引用：`(0,0)` → `A1`。列是 26 进制但没有「0 列」这一位
+fn a1(row: u32, col: u32) -> String {
+    let mut col = col;
+    let mut letters: Vec<char> = Vec::new();
+    loop {
+        letters.push(char::from(b'A' + (col % 26) as u8));
+        if col < 26 {
+            break;
+        }
+        col = col / 26 - 1;
+    }
+    letters.reverse();
+    format!("{}{}", letters.iter().collect::<String>(), row + 1)
+}
+
+impl Cell {
+    pub fn reference(&self) -> String {
+        a1(self.row, self.col)
     }
 
     pub fn to_json(&self) -> Value {
@@ -156,6 +193,10 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
     let mut formats: BTreeMap<u64, String> = BTreeMap::new();
     let mut date1904: Option<bool> = None;
     let mut notes: Vec<String> = Vec::new();
+    // 批注那两类记录分两处住：字跟着格子走，格子与作者在表子流的末尾。
+    // 先各自收下，走完再按出现顺序配
+    let mut texts_of: BTreeMap<String, Vec<(String, bool)>> = BTreeMap::new();
+    let mut cells_of: BTreeMap<String, Vec<Comment>> = BTreeMap::new();
     for index in 0..records.len() {
         let (offset, op, body) = &records[index];
         // 这条记录落在哪张表的子流里。BOUNDSHEET 全部待在全局区，所以走到任何一条
@@ -193,6 +234,9 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                     protection: BTreeMap::new(),
                     hidden_rows: Vec::new(),
                     hidden_cols: Vec::new(),
+                    comments: Vec::new(),
+                    note_text_records: 0,
+                    note_cell_records: 0,
                 });
             }
             SST => {
@@ -390,6 +434,61 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                     one.hidden_cols.push(column);
                 }
             }
+            NOTE_TEXT => {
+                let Some(name) = belongs else { continue };
+                // 正文偏移 10 是这条记录自报的字数（偏移 0 是它自报的头长 18）
+                let count = usize::try_from(le16(10)(body).unwrap_or(0)).unwrap_or(0);
+                let mut one: Option<(String, bool)> = None;
+                let mut probe = index + 1;
+                while probe < records.len() && records[probe].1 == CONTINUE {
+                    let blob = &records[probe].2;
+                    probe += 1;
+                    // 只吃第一条：它后面那条 CONTINUE 是注的扩展头，不是字的续块，
+                    // 拼进来就会多出些不像字的字节
+                    if one.is_some() || blob.is_empty() {
+                        continue;
+                    }
+                    // 首字节是编码旗标：0 = 一格一字节，1 = 一格两字节。这一位与 BIFF8
+                    // 那个 fCompressed 的惯例相反，是拿一份 ASCII 作者的件与几份中文作者
+                    // 的件对出来的，不是引来的
+                    let wide = blob[0] == 1;
+                    let need = count * if wide { 2 } else { 1 };
+                    let cut = blob.get(1..1 + need).unwrap_or(&[]);
+                    let text = if wide {
+                        wide_text(cut)
+                    } else {
+                        decode_cp1252(cut)
+                    };
+                    one = Some((text, cut.len() == need));
+                }
+                texts_of
+                    .entry(name)
+                    .or_default()
+                    .push(one.unwrap_or_else(|| (String::new(), false)));
+            }
+            NOTE_CELL => {
+                let Some(name) = belongs else { continue };
+                // row(2) col(2) 那位留零(2) 文件自报的序号(2) 作者字数(2) 编码旗标(1)
+                // 作者串（这一族的串后面还跟着一个 0x00）
+                let (Some(row), Some(col)) = (le16(0)(body), le16(2)(body)) else {
+                    continue;
+                };
+                let count = usize::try_from(le16(8)(body).unwrap_or(0)).unwrap_or(0);
+                let wide = body.get(10).copied().unwrap_or(0) & 1 != 0;
+                let need = count * if wide { 2 } else { 1 };
+                let cut = body.get(11..11 + need).unwrap_or(&[]);
+                let author = if wide {
+                    wide_text(cut)
+                } else {
+                    decode_cp1252(cut)
+                };
+                cells_of.entry(name).or_default().push(Comment {
+                    reference: a1(u32::from(row), u32::from(col)),
+                    author,
+                    text: String::new(),
+                    whole: cut.len() == need,
+                });
+            }
             _ => {}
         }
     }
@@ -399,6 +498,19 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
         one.hidden_rows.dedup();
         one.hidden_cols.sort_unstable();
         one.hidden_cols.dedup();
+        // 批注按出现顺序配：量的这几份件里字的记录与格子记录同序，而格子记录自己
+        // 还写着一个 1 起的序号。配不上的那几条不硬凑 —— 两类记录各自的条数一起交出去
+        let texts = texts_of.remove(&one.name).unwrap_or_default();
+        let mut cells = cells_of.remove(&one.name).unwrap_or_default();
+        one.note_text_records = texts.len();
+        one.note_cell_records = cells.len();
+        let paired = cells.len().min(texts.len());
+        for (cell, (text, whole)) in cells.iter_mut().take(paired).zip(texts.iter()) {
+            cell.text = text.clone();
+            cell.whole = cell.whole && *whole;
+        }
+        cells.truncate(paired);
+        one.comments = cells;
     }
     Ok(Book {
         records: records.len(),
