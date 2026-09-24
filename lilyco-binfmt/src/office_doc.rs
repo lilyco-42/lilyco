@@ -674,6 +674,40 @@ mod tests {
         assert_eq!(out["structure"]["paragraphs"], 4, "注的字不在正文里");
     }
 
+    /// 尾注那一条分支第一次有真件可走。这份是 LibreOffice 的 docx 导出器写的
+    /// （Writer 自己没有尾注概念，RTF 的 `\endnote` 在导入时就被摊进正文，
+    /// 所以只有「注进去再让它照抄」这条路）：部件里三条 `w:endnote`，
+    /// 它自己写的两条分隔符是 `<w:separator/>` / `<w:continuationSeparator/>` 那种写法。
+    /// 期望值来自 `office_reader.py` 的 docx_facts
+    #[test]
+    fn endnotes_are_counted_from_a_part_the_producer_wrote() {
+        let out = run("notes-end.docx");
+        assert_eq!(out["endnotes"], json!(1), "{out}");
+        assert_eq!(out["footnotes"], json!(2), "同一份文件里脚注仍占两条");
+        assert_eq!(out["comments"], json!(0));
+        assert_eq!(out["structure"]["paragraphs"], 4, "尾注的字不算正文");
+        assert!(
+            out["parts"]
+                .as_array()
+                .expect("parts 是数组")
+                .iter()
+                .any(|one| one == "word/endnotes.xml"),
+            "{:?}",
+            out["parts"]
+        );
+        // 同一件事在遗留 .doc 那一支只能说「看不见」：注住在表流的另一段，给 null
+        assert!(
+            run("notes.doc")["endnotes"].is_null(),
+            ".doc 看不见就交回 null"
+        );
+        // ODF 那一支也第一次有真尾注：LibreOffice 的 ODT 导出器写
+        // `text:note-class="endnote"`（编号还换成罗马数字），与 OOXML 那份同一笔账
+        let odt = run("notes-end.odt");
+        assert_eq!(odt["kind"], "opendocument-text", "{odt}");
+        assert_eq!(odt["endnotes"], json!(1), "{odt}");
+        assert_eq!(odt["footnotes"], json!(2), "同一份 ODT 里脚注仍占两条");
+    }
+
     /// 结构数字要与独立读者算出来的逐项一致（期望值：office_reader.py 的 docx_facts）
     #[test]
     fn counts_a_real_docx_structure() {

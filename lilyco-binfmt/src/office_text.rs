@@ -1275,6 +1275,66 @@ mod tests {
         assert_eq!(out["total_paragraphs"], 6, "4 段正文 + 2 条脚注：{out}");
     }
 
+    /// 尾注第一次有真件可走：这份的 `word/endnotes.xml` 是 LibreOffice 的 docx 导出器写的。
+    /// 两个读者都按部件名排，`word/endnotes.xml` 在 `word/footnotes.xml` 之前，
+    /// 所以尾注那条排在两条脚注前面 —— 出处、部件、字，三条一起比
+    /// （期望值来自 `office_reader.py` 的 `side_texts()`）
+    #[test]
+    fn endnotes_come_out_labelled_as_such() {
+        let out = run("notes-end.docx", 20000, true);
+        let side: Vec<(&str, &str, &str)> = out["paragraphs"]
+            .as_array()
+            .expect("是数组")
+            .iter()
+            .filter(|one| one["from"] != Value::Null)
+            .map(|one| {
+                (
+                    one["from"].as_str().unwrap_or_default(),
+                    one["part"].as_str().unwrap_or_default(),
+                    one["text"].as_str().unwrap_or_default(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            side,
+            [
+                (
+                    "endnote",
+                    "word/endnotes.xml",
+                    "Endnote: the totals exclude the carry-over."
+                ),
+                (
+                    "footnote",
+                    "word/footnotes.xml",
+                    "Footnote: the numbers are gross."
+                ),
+                (
+                    "footnote",
+                    "word/footnotes.xml",
+                    "Second footnote: see the budget policy."
+                ),
+            ],
+            "{side:?}"
+        );
+        assert_eq!(
+            out["total_paragraphs"], 7,
+            "4 段正文 + 1 条尾注 + 2 条脚注：{out}"
+        );
+        assert!(
+            out["paragraphs"]
+                .as_array()
+                .expect("是数组")
+                .iter()
+                .filter(|one| one["from"] == Value::Null)
+                .all(|one| !one["text"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("carry-over")),
+            "尾注的字混进正文了：{}",
+            out["paragraphs"]
+        );
+    }
+
     /// 页眉与页脚第一次有真件可走：两个节的页眉不一样，而它们按部件名排在正文后面
     /// （期望值来自 `office_reader.py` 的 `side_texts()`）
     #[test]

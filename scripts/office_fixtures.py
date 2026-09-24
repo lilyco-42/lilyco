@@ -40,6 +40,8 @@ MARK_COMMENT = "这里要补上不含税口径"
 MARK_AUTHOR = "liuqi"
 MARK_COMPANY = "lilyco"
 MARK_KEYWORD = "budget,quarterly"
+# 尾注那句：notes-foot.docx 只有脚注，notes-end.docx 在这句上才走得到 `endnote` 那一支
+MARK_ENDNOTE = "Endnote: the totals exclude the carry-over."
 
 
 def need_soffice() -> str:
@@ -774,6 +776,98 @@ def write_footnote_rtf(path: Path) -> None:
     path.write_text(FOOTNOTE_RTF, encoding="ascii")
 
 
+ENDNOTE_NS = (
+    'xmlns:o="urn:schemas-microsoft-com:office:office" '
+    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+    'xmlns:v="urn:schemas-microsoft-com:vml" '
+    'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+    'xmlns:w10="urn:schemas-microsoft-com:office:word" '
+    'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" '
+    'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" '
+    'xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" '
+    'xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" '
+    'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" '
+    'xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" '
+    'xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" '
+    'xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml" '
+    'mc:Ignorable="w14 wp14 w15"'
+)
+
+ENDNOTE_PART = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+    f"<w:endnotes {ENDNOTE_NS}>"
+    '<w:endnote w:id="0" w:type="separator"><w:p><w:pPr><w:rPr><w:sz w:val="12"/></w:rPr></w:pPr>'
+    "<w:r></w:r></w:p></w:endnote>"
+    '<w:endnote w:id="1" w:type="continuationSeparator">'
+    "<w:p><w:pPr><w:rPr><w:sz w:val=\"12\"/></w:rPr></w:pPr><w:r></w:r></w:p></w:endnote>"
+    '<w:endnote w:id="2">'
+    '<w:p><w:pPr><w:pStyle w:val="EndnoteText"/><w:bidi w:val="0"/><w:rPr></w:rPr></w:pPr>'
+    '<w:r><w:rPr><w:rStyle w:val="Style14"/></w:rPr><w:endnoteRef/></w:r>'
+    '<w:r><w:rPr><w:sz w:val="16"/></w:rPr>'
+    f"<w:t>{MARK_ENDNOTE}</w:t></w:r>"
+    "</w:p></w:endnote>"
+    "</w:endnotes>"
+)
+
+
+def write_endnote_seed(src: Path, dst: Path) -> None:
+    """把一条尾注注进 notes-foot.docx，只为让 LibreOffice 照着再写一份。
+
+    尾注这一条分支一直没有真件：Writer 没有「尾注」这个概念，RTF 的
+    `\\endnote` 在导入时就被摊进正文（所以 RTF → docx 那一条路上根本不会有
+    `word/endnotes.xml`）。但它的 **docx 导出器**会写这个部件 —— 实测过一次：
+    注进去的文件交进去，吐出来的包里 `word/endnotes.xml` 还在，而且两条分隔符
+    被它改写成自己那套写法（`<w:separator/>` / `<w:continuationSeparator/>`，
+    注样式也叫它自己的 `Style15`）。
+    所以手搓的只有「这里有一条尾注」这一个意图与那句字，部件的字节仍是生产者写的。
+    """
+    src_zip = zipfile.ZipFile(src)
+    doc = src_zip.read("word/document.xml").decode("utf-8")
+    rels = src_zip.read("word/_rels/document.xml.rels").decode("utf-8")
+    types = src_zip.read("[Content_Types].xml").decode("utf-8")
+
+    anchor = '<w:footnoteReference w:id="2"/></w:r>'
+    if doc.count(anchor) != 1:
+        sys.exit(f"尾注种子锚点不唯一：{doc.count(anchor)} —— 别改 notes-foot.docx 的那条脚注")
+    doc = doc.replace(
+        anchor,
+        anchor
+        + '<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr>'
+        '<w:endnoteReference w:id="2"/></w:r>',
+        1,
+    )
+
+    new_id = max(int(one) for one in re.findall(r'Id="rId(\d+)"', rels)) + 1
+    rels = rels.replace(
+        "</Relationships>",
+        f'<Relationship Id="rId{new_id}" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes" '
+        'Target="endnotes.xml"/></Relationships>',
+    )
+    types = types.replace(
+        "</Types>",
+        '<Override PartName="/word/endnotes.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument'
+        '.wordprocessingml.endnotes+xml"/></Types>',
+    )
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    replaced = {
+        "word/document.xml": doc,
+        "word/_rels/document.xml.rels": rels,
+        "[Content_Types].xml": types,
+    }
+    with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as out:
+        for item in src_zip.infolist():
+            text = replaced.get(item.filename)
+            out.writestr(
+                item.filename,
+                text.encode("utf-8") if text is not None else src_zip.read(item.filename),
+            )
+        out.writestr("word/endnotes.xml", ENDNOTE_PART)
+    src_zip.close()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="重跑前先清掉输出目录")
@@ -883,6 +977,23 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "notes-foot.docx", OUT / "notes-foot.docx")
     else:
         print("⚠️  没拿到 notes-foot.docx")
+
+    # 尾注那一条分支：Writer 没有尾注概念，只有它的 docx 导出器会写这个部件，
+    # 所以先注进一份 docx，再让它照抄一遍（见 write_endnote_seed）
+    end_seed = SCRATCH / "end" / "notes-end.docx"
+    write_endnote_seed(OUT / "notes-foot.docx", end_seed)
+    convert(exe, end_seed, "docx", SCRATCH / "end-out")
+    if (SCRATCH / "end-out" / "notes-end.docx").exists():
+        shutil.copyfile(SCRATCH / "end-out" / "notes-end.docx", OUT / "notes-end.docx")
+        # ODF 那一支同样第一次有真尾注可走：Writer 没有尾注概念，但它的 ODT
+        # 导出器写 `text:note-class="endnote"`（编号还换成罗马数字 `i`）
+        convert(exe, OUT / "notes-end.docx", "odt", SCRATCH / "end-odt")
+        if (SCRATCH / "end-odt" / "notes-end.odt").exists():
+            shutil.copyfile(SCRATCH / "end-odt" / "notes-end.odt", OUT / "notes-end.odt")
+        else:
+            print("⚠️  没拿到 notes-end.odt")
+    else:
+        print("⚠️  没拿到 notes-end.docx")
 
     # 真 ODF 写入者是 LibreOffice：从 OOXML 转过去，比手搓的 content.xml 有说服力
     for src, fmt in ((docx, "odt"), (xlsx, "ods"), (pptx, "odp"), (OUT / "formats.xlsx", "ods")):

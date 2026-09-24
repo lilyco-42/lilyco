@@ -18,6 +18,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `notes.odt`（结构） | 同上 | 10 段（2 段是空的）、两个带 `text:outline-level` 的标题、1 张 2×2 表（名叫「表格1」）、一条 `text:annotation` 批注、一个 `draw:frame`+`draw:image`、一个 `text:a` 超链接、5 个 `text:sequence-decl`；`meta.xml` 自报 paragraph-count 10 / page-count 2 / word-count 61 |
 | `formats.ods` | LibreOffice（从 `formats.xlsx`） | 同一份格式账的 ODF 写法：日期是 `office:date-value` 的 ISO 串、百分比带 `12.5%` 这种显示文本、货币只剩显示里的 ¥；每行尾部 `number-columns-repeated="16381"` 的填空、行首还有重复 2 的空格 |
 | `notes-foot.docx` | LibreOffice（从 `office_fixtures.py` 里的 `FOOTNOTE_RTF` 导入写出） | 两条真脚注 + `word/footnotes.xml` 里那**两条分隔符**（`w:type="separator"` / `"continuationSeparator"`，没有正文）：数脚注不能只数 `w:footnote` 元素 |
+| `notes-end.docx` | LibreOffice 的 **docx 导出器**（把尾注注进 `notes-foot.docx` 再让它照抄一遍） | 一条真尾注 + 一条脚注：`word/endnotes.xml` 的字节全是它写的（两条分隔符是它自己的 `<w:separator/>` 那一族写法），尾注这一支第一次有件可走 |
+| `notes-end.odt` | LibreOffice（从 `notes-end.docx`） | 同一笔账的 ODF 存法：`text:note-class="endnote"` 那条是它的 ODT 导出器写的，编号还换成罗马数字 `i`（`footnote` 仍是阿拉伯数字） |
 | `notes-hf.odt` | LibreOffice（从 `notes-hf.docx`） | 同一批字的 ODF 存法：页眉页脚在 **styles.xml 的 master-page** 里，两个节 = 两个 master-page（`Standard` 与 `Converted1`），各带一份 header + footer |
 | `notes-hf.rtf` | LibreOffice（从 `notes-hf.docx`） | 第三种存法：`\header` / `\headerl` / `\footer` 这些**目标（destination）**里的字，与正文混在一个流里 |
 | `revisions.docx` | python-docx + 手注入 `w:ins` / `w:del` / `w:rPrChange` / 段落标记 | 四种修订各一处，而且**没被拆开**：3 个 `w:ins`（含段落标记那一条）、1 个 `w:del`、1 个 `w:rPrChange` → 5 条逻辑改动 |
@@ -252,6 +254,26 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     逐格相同（C1 2013-12-23、C2 2013-12-23T15:15:00、C5 汉字那格、另一张 A1 2026-09-23）。
     一处按字面判：168 号是 `\¥#,##0.00`，币符是**转义的字面量**，所以判成 number 而不是 currency ——
     与 ODF 那边「¥ 写成字面量的就还是 number-style」同一条规矩。
+
+29. **尾注部件这台机器上有生产者，但不在 RTF 那条路上**（`notes-end.docx`）。
+    `office-doc` / `office-text` 都有 `endnote` 那一支，此前只有「包里没有 `word/endnotes.xml`
+    就是 0 条」这一半有证据，「真有几条尾注」那一半没有。试过两条路都拿不到：
+    RTF 的 `\endnote` 被 LibreOffice 的导入器摊进正文（所以 `notes-foot.docx` 只有脚注），
+    ODT 里手搓的 `text:endnote` 它读不见（没有 `text:notes-configuration` 就不认）。
+    真路是 **docx 导出器**：把一条尾注注进 `notes-foot.docx`（`office_fixtures.py` 的
+    `write_endnote_seed`）再让它 `--convert-to docx` 照抄一遍，出来的包里
+    `word/endnotes.xml` 还在，而且两条分隔符被它**改写成自己那套写法** ——
+    我注进去的是空的 `<w:r/>`，它写出来的是 `<w:r><w:separator/></w:r>` 与
+    `<w:continuationSeparator/>`，注引用的样式名也从 `Style14` 换成它自己的 `Style15`。
+    这两条就是「分隔符不是一条注」与「注的字不混进正文」在尾注这一支上的真件证据：
+    部件里三条 `w:endnote`，读出来一条。手搓的只有「这里有一条尾注」那个意图和那句字。
+    同一条路顺手把 **ODF 那一支**也点亮了：`notes-end.docx → notes-end.odt` 那一转里，
+    LibreOffice 写出 `text:note-class="endnote"`（`text:id="ftn3"`，编号是罗马数字 `i`，
+    段样式叫 `Endnote`）—— 之前「ODT 里手搓的 endnote 它读不见」是**导入**那一侧的事，
+    导出这一侧一直是全的。还量到一件 RTF 的事：它的 RTF **导出**把尾注写成
+    `{\*\footnote\ftnalt …}`，也就是脚注套子加 `\ftnalt` 这个反标志（外加一条
+    `\aendnotes` 注解）—— 尾注与脚注在 RTF 里靠这一个词区分，而这条目前只是量到，
+    还没有读者去判它（`office-doc` 压根没有 rtf 那一支，「有几条注」这一问在 RTF 上没人答）。
 
 ## 这些数字从哪来
 

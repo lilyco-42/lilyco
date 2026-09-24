@@ -95,6 +95,8 @@ def main() -> int:
         "notes.docx": ("ooxml", "word", "docx"),
         "notes-hf.docx": ("ooxml", "word", "docx"),
         "notes-foot.docx": ("ooxml", "word", "docx"),
+        "notes-end.docx": ("ooxml", "word", "docx"),
+        "notes-end.odt": ("opendocument", "word", "odt"),
         "notes-hf.odt": ("opendocument", "word", "odt"),
         "notes-hf.rtf": ("rtf", "word", "rtf"),
         "notes.docm": ("ooxml", "word", "docm"),
@@ -194,6 +196,38 @@ def main() -> int:
     footdoc = lbin("office-doc", fixture("notes-foot.docx"))
     check("notes-foot.docx 脚注数", footdoc.get("footnotes"), fwant["footnotes"])
     check("notes-foot.docx 尾注数（部件不在包里就是零）", footdoc.get("endnotes"), fwant["endnotes"])
+
+    # 尾注那一条分支第一次有真件：notes-end.docx 的 word/endnotes.xml 是 LibreOffice 的
+    # docx 导出器写的（它把两条分隔符写成 <w:separator/> 那一族），
+    # 于是「有几条真尾注」这一半也有了对证，不再只是「部件不在=0」
+    end = lbin("office-text", fixture("notes-end.docx"))
+    ewant = files["notes-end.docx"]["ooxml"]
+    eside = [one for one in ewant["side_texts"] if one["text"]]
+    check(
+        "notes-end.docx 尾注与脚注逐条出处（两边同按部件名排）",
+        [
+            (one.get("from"), one.get("part"), one.get("text"))
+            for one in end.get("paragraphs", [])
+            if one.get("from")
+        ],
+        [(one["from"], one["part"], one["text"]) for one in eside],
+    )
+    check(
+        "notes-end.docx 正文+尾注+脚注条数",
+        end.get("total_paragraphs"),
+        len([one for one in ewant["paragraphs"] if one]) + len(eside),
+    )
+    endoc = lbin("office-doc", fixture("notes-end.docx"))
+    check("notes-end.docx 尾注数（office-doc 那一支）", endoc.get("endnotes"), ewant["endnotes"])
+    check("notes-end.docx 脚注数（同一份文件两条腿）", endoc.get("footnotes"), ewant["footnotes"])
+    check("notes-end.docx 正文段数", endoc.get("structure", {}).get("paragraphs"), ewant["paragraph_count"])
+
+    # 同一批字换 ODF 的存法：`text:note-class` 那一条分支也第一次有真尾注可走
+    # （LibreOffice 的 ODT 导出器写 `endnote` 那一类，编号换成罗马数字）
+    endodt = lbin("office-doc", fixture("notes-end.odt"))
+    ewant2 = files["notes-end.odt"]["odt"]
+    check("notes-end.odt 尾注数（按 note:class 分）", endodt.get("endnotes"), ewant2["endnotes"])
+    check("notes-end.odt 脚注数", endodt.get("footnotes"), ewant2["footnotes"])
 
     # 同一批字换 ODF 的存法：页眉页脚在 styles.xml 的 master-page 里，一节一个 master-page
     hfodt = lbin("office-text", fixture("notes-hf.odt"))
