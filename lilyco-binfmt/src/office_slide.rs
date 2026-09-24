@@ -624,12 +624,14 @@ mod tests {
         assert_eq!(
             slides[0]["texts"],
             json!(["预算评审", "新增两台 64 核应用服务器", "第二条要点"]),
-            "{slides[0]}"
+            "第一页：{}",
+            slides[0]
         );
         assert_eq!(
             slides[1]["texts"],
             json!(["第二页：数字", "科目", "金额", "服务器", "124000"]),
-            "{slides[1]}"
+            "第二页：{}",
+            slides[1]
         );
         // 每页那条 CString 是 LibreOffice 写的版式名，不能混进正文行
         assert_eq!(slides[0]["layout_name"], "___PPT10");
@@ -649,7 +651,7 @@ mod tests {
             .iter()
             .map(|one| one["text_atoms"].as_u64().unwrap_or(0) as usize)
             .sum();
-        assert_eq!(grouped, 9, "{slides}");
+        assert_eq!(grouped, 9, "按页归好的原子：{slides:?}");
         assert!(grouped < out["record_tree"]["text_atoms"].as_u64().unwrap_or(0) as usize);
         let note = out["notes"]
             .as_array()
