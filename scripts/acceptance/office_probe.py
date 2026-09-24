@@ -141,6 +141,8 @@ def main() -> int:
         "errors.xlsx": ("ooxml", "excel", "xlsx"),
         "errors-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "errors.ods": ("opendocument", "excel", "ods"),
+        "epoch.xlsx": ("ooxml", "excel", "xlsx"),
+        "epoch-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "chart.xlsx": ("ooxml", "excel", "xlsx"),
         "chart-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "rules.xlsx": ("ooxml", "excel", "xlsx"),
@@ -2806,28 +2808,58 @@ def main() -> int:
     )
 
     # ── 3b) 数字格式：格子写的是 cellXfs 的下标，日期藏在样式里 ──────────
-    print("=== 3b) formats.xlsx：格式号、判定与换算出来的日期 ===")
-    fx = lbin("office-sheet", fixture("formats.xlsx"))
-    fw = files["formats.xlsx"]["formats"]
-    flat = {}
-    for one_sheet in fx.get("sheets", []):
-        for cell in one_sheet.get("cell_list", []):
-            flat["%s!%s" % (one_sheet.get("name"), cell.get("ref"))] = cell
-    want = {("%s!%s" % (one["sheet"], one["ref"])): one for one in fw["cells"]}
-    check("formats.xlsx 格子数", len(flat), len(want))
-    check("formats.xlsx 1904 基准", dig(fx, "workbook.date1904"), fw["date1904"])
-    for key in sorted(want):
-        got = flat.get(key, {})
-        mine = {k: got.get(k) for k in ("format_kind", "num_fmt", "format", "as_date")}
-        theirs = {
-            "format_kind": want[key].get("kind"),
-            "num_fmt": want[key].get("num_fmt_id"),
-            "format": want[key].get("format_code"),
-            "as_date": want[key].get("as_date"),
-        }
-        # 日期格两边都要有 as_date；非日期格两边都不许有
-        record("formats %s 判成 %s" % (key, theirs["format_kind"]), mine == theirs,
-               json.dumps({"got": mine, "want": theirs}, ensure_ascii=False)[:130])
+    print("=== 3b) formats.xlsx 与 epoch 那两件：格式号、判定与换算出来的日期 ===")
+    for what in ("formats.xlsx", "epoch.xlsx", "epoch-lo.xlsx"):
+        fx = lbin("office-sheet", fixture(what))
+        fw = files[what]["formats"]
+        flat = {}
+        for one_sheet in fx.get("sheets", []):
+            for cell in one_sheet.get("cell_list", []):
+                flat["%s!%s" % (one_sheet.get("name"), cell.get("ref"))] = cell
+        want = {("%s!%s" % (one["sheet"], one["ref"])): one for one in fw["cells"]}
+        check("%s 格子数" % what, len(flat), len(want))
+        check("%s 1904 基准" % what, dig(fx, "workbook.date1904"), fw["date1904"])
+        for key in sorted(want):
+            got = flat.get(key, {})
+            mine = {k: got.get(k) for k in ("format_kind", "num_fmt", "format", "as_date")}
+            theirs = {
+                "format_kind": want[key].get("kind"),
+                "num_fmt": want[key].get("num_fmt_id"),
+                "format": want[key].get("format_code"),
+                "as_date": want[key].get("as_date"),
+            }
+            # 日期格两边都要有 as_date；非日期格两边都不许有
+            record("%s %s 判成 %s" % (what, key, theirs["format_kind"]), mine == theirs,
+                   json.dumps({"got": mine, "want": theirs}, ensure_ascii=False)[:130])
+    epoch_one = lbin("office-sheet", fixture("epoch.xlsx"))
+    epoch_two = lbin("office-sheet", fixture("epoch-lo.xlsx"))
+    check(
+        "同一批序列数在 1904 基准下是另一套日子（两家写 date1904 的拼法不同而数相同）",
+        [dig(epoch_one, "workbook.date1904"), dig(epoch_two, "workbook.date1904"),
+         dig(epoch_one, "sheets[0].cell_list[0].as_date"),
+         dig(epoch_two, "sheets[0].cell_list[0].as_date"),
+         dig(epoch_one, "sheets[0].cell_list[2].as_date"),
+         dig(epoch_two, "sheets[0].cell_list[2].as_date")],
+        [True, True, "2013-12-23", "2013-12-23",
+         "2020-01-02T03:04:05", "2020-01-02T03:04:05"],
+    )
+    check(
+        "序列号 60 的那个闰年 bug 只属于 1900 基准：1904 这里它是 1904-03-01",
+        [dig(epoch_one, "sheets[0].cell_list[3].value"),
+         dig(epoch_one, "sheets[0].cell_list[3].as_date"),
+         dig(epoch_two, "sheets[0].cell_list[3].as_date")],
+        [60, "1904-03-01", "1904-03-01"],
+    )
+    check(
+        "长得像日期的那一格本来就是字：两种存法（inlineStr 与共享字符串）都不许换算成日子",
+        [dig(epoch_one, "sheets[0].cell_list[4].kind"),
+         dig(epoch_one, "sheets[0].cell_list[4].value"),
+         dig(epoch_one, "sheets[0].cell_list[4].as_date"),
+         dig(epoch_two, "sheets[0].cell_list[4].kind"),
+         dig(epoch_two, "sheets[0].cell_list[4].value"),
+         dig(epoch_two, "sheets[0].cell_list[4].as_date")],
+        ["inlineStr", "12/23/2013", None, "s", "12/23/2013", None],
+    )
 
     # ── 3c) ODS：另一套脾气的表格 ────────────────────────────────────
     print("=== 3c) ODS：重复计数、覆盖格、值类型与隐藏表 ===")
@@ -3111,6 +3143,9 @@ def main() -> int:
         "errors.xlsx",
         "errors-lo.xlsx",
         "errors.ods",
+        # 1904 基准那两件：同一批序列数换一套基准就是另一套日子
+        "epoch.xlsx",
+        "epoch-lo.xlsx",
     ):
         want = {one["name"]: one["csv"] for one in files[name]["csv"]["sheets"]}
         plain = lbin("office-sheet", fixture(name))

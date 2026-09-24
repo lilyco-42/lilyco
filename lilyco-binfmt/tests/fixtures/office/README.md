@@ -46,6 +46,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `errors.xlsx` | openpyxl（`write_errors_xlsx`） | 六条公式一个都不算：`<c r="B1"><f>1/0</f><v></v></c>` —— 没有 `t`、`<v>` 是空的，于是「除零长什么样」在这份里根本不存在（`error_cells` 0、`cells_with_written_type` 3）；另有一格布尔常量 `D1`（`t="b"` 写 `1`） |
 | `errors-lo.xlsx` | LibreOffice（`errors.xlsx` → .xlsx，同一个格式重算一遍） | 同一批格子第二种写法：`t="e"` 三格（`#DIV/0!`、`#N/A`、`#VALUE!`，显示串就是文件写的）、`t="str"` 一格（`甲乙`，不走共享字符串表）、九格全写 `t`，而那个布尔常量被写成 `<f>TRUE()</f>` 一条公式（6 条公式变 7 条） |
 | `errors.ods` | LibreOffice（`errors.xlsx` → .ods） | 第三种摆法：错误格 `office:value-type="string"`（不是 error）加一个空的 `office:string-value`，显示的那串只在 `<text:p>` 里；`calcext:value-type="error"` 那条副本不跟；同一个坏掉的 VLOOKUP 在这里叫 `错误:502` 而不是 `#VALUE!` |
+| `epoch.xlsx` | openpyxl（`write_epoch_xlsx`，`wb.epoch` 换成 1904） | 全套断言里第一份写 `date1904` 的件（`date1904="1"`）：`2013-12-23` 在这里的序列号是 **40169**（1900 基准下不是这个数），另有一格序列号正好 **60**（1904 基准下是 1904-03-01，那个闰年 bug 的特例只许在 1900 那一边生效），还有一格像日期的字（`t="inlineStr"`） |
+| `epoch-lo.xlsx` | LibreOffice（`epoch.xlsx` → .xlsx，同一个格式重写） | 同一个开关换成 `date1904="true"`、序列数照旧，而带时刻那一格的小数从 15 位截到 10 位（换算出来的秒不变）；那格字换成了 `t="s"` 指共享字符串，日期格式串也换成小写带转义的 `yyyy\-mm\-dd` |
 | `size.xlsx` | openpyxl | 列宽行高与筛选/表对象的第一种写法：A 列 `22.5`、C 列 `4` 且藏着，第 2 行 `40`、第 3 行 `8`（第 1 行什么都不写），默认行高 18 写在 `sheetFormatPr`（那一族管默认宽度叫 **`baseColWidth`**），筛选范围 `A1:C3` 带一个筛掉的值「甲」，另挂一个范围**不同**的表对象 `A1:B3`（列名拿范围第一行的字当，于是第二列叫 `10`）；`tableParts` 自己写 `count="1"` |
 | `size-lo.xlsx` | LibreOffice（`size.xlsx` → .xlsx，同一个格式重写） | 换一家换算就换一套数：同一列成 `20.47` 与 `3.64`、同一行成 `39.75` 与 `7.5`，连没说过话的那一行也被补上 `ht="18"`；「默认列宽」改叫 **`defaultColWidth="7.7734375"`**、`baseColWidth` 不见；两张表都写 `sheetPr filterMode`（`true` 与 `false`），`filterColumn` 上那两个开关反倒不写；表对象补 `totalsRowCount`/`totalsRowShown`、样式开关从 2 个变 5 个，**而 `tableParts` 的 `count` 不写了** |
 | `notes-end.rtf` | LibreOffice（从 `notes-end.docx`） | 注的第三种存法：脚注与尾注**都**写成 `{\*\footnote …}` 这一个群，尾注只在群里多一个 `\ftnalt`；分隔符另走 `{\*\ftnsep\chftnsep}` |
@@ -1056,6 +1058,25 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     * 最要紧的一条跨家对照：同一个坏掉的 `VLOOKUP`，LO 的 xlsx 导出缓存成 `#VALUE!`，
       它的 ods 导出写成 **`错误:502`**。同一个错误在三副件里是三个名字，各按各的文件交，
       不替它们对上一个 —— 而 `--csv` 交的是文件里缓存的那一串，不是读者重算的结果。
+
+66. **序列数与日期之间没有唯一的换算：`date1904` 那件真来了**（`epoch.xlsx`、`epoch-lo.xlsx`）。
+    * 全套断言里从来没有一份件写过 `date1904`，而 `serial_to_iso` 里那一支 `days - 24_107`
+      与「60 号那一天的闰年 bug 只属于 1900 基准」两个特例一直在等人验（与上面 `t="e"` 同一件事：
+      **没被走到过的分支不算读过**）。openpyxl 把 `wb.epoch` 换成 1904 就写出这个开关。
+    * 同一个序列数换一套基准差 1462 天：`40169` 在 1904 基准下是 **2013-12-23**，
+      在 1900 基准下它是另一天。第三方见证是 LibreOffice 自己 `--convert-to csv` 的渲染：
+      `2013-12-23,1,2020-01-02 03:04:05,1904-03-01,12/23/2013`。
+    * `D1` 那一格是这一件存在的另一半理由：它的序列号正是 **60** —— 1900 基准里那个号
+      对应 Excel 闰年 bug 造出来的、根本不存在的 1900-02-29（读取器按文件原样报那一串），
+      而在 1904 基准里它是好好的一天 **1904-03-01**。那个特例必须只在一边生效，
+      两边都数一遍才算验过。
+    * 两家写这个开关的拼法又是那两种：openpyxl `date1904="1"`，LibreOffice `date1904="true"`；
+      认出来的基准相同，序列数一字未变（`40169` 两边都是 `40169`）。带时刻的那一格
+      LO 只留了 10 位小数（`42370.1278356482` 对 `42370.12783564815`），
+      而两边换算出来的都是 `2020-01-02T03:04:05` —— 差在第 11 位小数上，不到一秒。
+    * 顺手撞见的同族事实：那格长得像日期的**字**（`12/23/2013`）在 openpyxl 手里是
+      `t="inlineStr"`（`<is><t>…`），LibreOffice 重写时换成 `t="s"` 指共享字符串 ——
+      同一条字两种存法，两边都不许换算成日子。
 
 ## 这些数字从哪来
 

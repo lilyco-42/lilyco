@@ -911,6 +911,37 @@ def write_size_xlsx(path: Path) -> None:
     wb.save(path)
 
 
+def write_epoch_xlsx(path: Path) -> None:
+    """1904 基准的那套日期：openpyxl 写 `date1904="1"`，LibreOffice 重写写 `"true"`
+
+    同一个序列数在两套基准下不是同一天（差 1462 天），所以「这一格是几号」完全取决于
+    读不读 `workbookPr/@date1904`。五格各测一件事：一个日期（40169 → 2013-12-23）、
+    一个普通数（1）、一个带时刻的（42370.12783564815 → 2020-01-02 03:04:05）、
+    **序列号 60** 那一格（1904 基准下是 1904-03-01，而 1900 基准下那个号是 Excel
+    闰年 bug 里不存在的 1900-02-29 —— 那个特例必须只在 1900 那一边生效）、
+    还有一格长得像日期而**本来就是字**的（`12/23/2013`，openpyxl 把它写成 `t="inlineStr"`，
+    LibreOffice 重写时换成共享字符串 `t="s"` —— 同一条字两种存法）。
+    """
+    import datetime
+
+    from openpyxl import Workbook
+    from openpyxl.utils.datetime import CALENDAR_MAC_1904
+
+    wb = Workbook()
+    wb.epoch = CALENDAR_MAC_1904
+    ws = wb.active
+    ws.title = "日期"
+    ws["A1"] = datetime.date(2013, 12, 23)
+    ws["A1"].number_format = "YYYY-MM-DD"
+    ws["B1"] = 1
+    ws["C1"] = datetime.datetime(2020, 1, 2, 3, 4, 5)
+    ws["C1"].number_format = "YYYY-MM-DD HH:MM:SS"
+    ws["D1"] = 60
+    ws["D1"].number_format = "YYYY-MM-DD"
+    ws["E1"] = "12/23/2013"
+    wb.save(path)
+
+
 def write_errors_xlsx(path: Path) -> None:
     """算错的格与算成文本的格：一次只改一个变量，各测一种「结果不是数」
 
@@ -2004,6 +2035,16 @@ def main() -> int:
         shutil.copyfile(made, OUT / "errors.ods")
     else:
         print("⚠️  没拿到 errors.ods")
+
+    # 1904 基准那两件：date1904 一个键决定整套日期差四年，而手上从来没有一份真写过它的件
+    epoch = OUT / "epoch.xlsx"
+    write_epoch_xlsx(epoch)
+    convert(exe, epoch, "xlsx", SCRATCH / "epoch-back")
+    made = SCRATCH / "epoch-back" / "epoch.xlsx"
+    if made.exists():
+        shutil.copyfile(made, OUT / "epoch-lo.xlsx")
+    else:
+        print("⚠️  没拿到 epoch-lo.xlsx（xlsx → xlsx 那一转）")
 
     # 段落格式与分栏那三件套：docx 由 python-docx 写，odt / rtf 都由 LibreOffice 导出
     para = OUT / "para.docx"

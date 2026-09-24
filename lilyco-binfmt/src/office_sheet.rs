@@ -2174,6 +2174,49 @@ mod tests {
         );
     }
 
+    /// 1904 基准：同一批序列数换一套基准就是另一套日子
+    /// （期望值来自 `lyco_formats.py` 与 LibreOffice 自己的 CSV 渲染）
+    #[test]
+    fn a_1904_workbook_counts_days_from_the_epoch_it_stated() {
+        for name in ["epoch.xlsx", "epoch-lo.xlsx"] {
+            let out = run(name);
+            // 两家写这个开关的拼法不同（`"1"` 与 `"true"`），认出来的基准是同一个
+            assert_eq!(out["workbook"]["date1904"], json!(true), "{name}");
+            let cells = out["sheets"][0]["cell_list"].as_array().expect("是数组");
+            assert_eq!(cells[0]["value"].as_f64(), Some(40169.0), "{name}");
+            assert_eq!(cells[0]["as_date"], "2013-12-23", "{name}");
+            assert_eq!(cells[2]["as_date"], "2020-01-02T03:04:05", "{name}");
+            // 序列号 60 那个不存在的 1900-02-29 只属于 1900 基准，这里它是好好的一天
+            assert_eq!(cells[3]["value"].as_f64(), Some(60.0), "{name}");
+            assert_eq!(cells[3]["as_date"], "1904-03-01", "{name}");
+            assert_eq!(
+                cells[4]["as_date"],
+                Value::Null,
+                "看着像日期的那一格本来就是字：{name}"
+            );
+            assert_eq!(
+                run_csv(name, "")["csv"]["text"],
+                "2013-12-23,1,2020-01-02T03:04:05,1904-03-01,12/23/2013\n",
+                "{name}"
+            );
+        }
+        let openpyxl = run("epoch.xlsx");
+        let cells = openpyxl["sheets"][0]["cell_list"]
+            .as_array()
+            .expect("是数组");
+        assert_eq!(
+            cells[4]["kind"], "inlineStr",
+            "openpyxl 把那条字写成 inline 的"
+        );
+        assert_eq!(cells[4]["value"], "12/23/2013");
+        let rewritten = run("epoch-lo.xlsx");
+        let cells = rewritten["sheets"][0]["cell_list"]
+            .as_array()
+            .expect("是数组");
+        assert_eq!(cells[4]["kind"], "s", "LibreOffice 重写时换成共享字符串");
+        assert_eq!(cells[4]["value"], "12/23/2013", "换存法不换字");
+    }
+
     /// `--sheet` 认表名也认命令报出的序号，认不出来就把候选说清楚
     #[test]
     fn csv_picks_a_sheet_by_name_or_by_index() {
