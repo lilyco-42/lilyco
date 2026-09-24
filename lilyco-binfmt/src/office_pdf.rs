@@ -41,7 +41,7 @@ const INFO_KEYS: [(&str, &[u8]); 8] = [
 #[app(
     name = "office-pdf",
     run = "run_office_pdf",
-    about = "Report what a PDF file is made of without decrypting or rendering it. Reads objects by scanning N G obj markers instead of trusting the cross-reference table, then unpacks the second layer that scan alone would miss: objects packed inside object streams (/Type /ObjStm, where the header pairs an object number with an offset relative to /First) and trailer keys that live in a /Type /XRef stream dict in files with no trailer keyword at all - both rules measured against real Word 2013 and qpdf files, not recalled from memory. Gives { path, version, binary_comment, objects, xref, encryption, pages, metadata, tags, fonts, images, features, watch, outline, links, permissions, notes }: page count cross-checked between /Count and the real /Type/Page objects (the one-name match matters: /Pages is a tree node, not a page), per-page MediaBox with the inheritance walk up /Parent (MediaBox and Rotate may be written once on the tree), rotation, contents reference and annotation count, the Info dictionary with PDF string rules (backslash escapes, octal, nested parens, hex strings, FEFF-prefixed UTF-16BE), tagged/PDF-X flags (/Lang, /MarkInfo /Marked, /StructTreeRoot), font inventory (/BaseFont, /Subtype, /Encoding, whether a /ToUnicode map exists, whether the font object was hidden in an object stream), image inventory, and the watch list for what runs by itself: /Encrypt parameters (reported, never decrypted - no password here and none should be), document-level /JavaScript, /Launch and /SubmitForm and /GoToR actions, /AcroForm fields, /EmbeddedFiles attachments, /OpenAction and page /AA triggers. Encrypted files report structure only: strings and streams are ciphertext, so metadata and /Lang come back null with a note rather than as decoded garbage. Object numbers that appear more than once (incremental updates) are counted and the first occurrence wins. With --text it also walks the content streams and returns { order_from_page_tree, chars, chars_no_spaces, lines, pages, text }: pages in /Kids order, glyph codes mapped through each font's /ToUnicode CMap (bfchar plus both bfrange forms - a range written as one number means consecutive code points, written as an array means one per code), and lines rebuilt from positions rather than from stream order, because LibreOffice splits a single Chinese heading across several TJ arrays with large negative kerns between them. Three position rules make the difference between reading that heading and reading its characters shuffled: BT resets the text matrix to identity, glyph advance moves x only (never y), and a TJ number moves the pen the OPPOSITE way (positive left, negative right). It also answers where the file points: outline (the /Outlines tree - /First then /Next, children under /First, each entry with its title, depth, target page object and which page that is in /Kids order, the root self-reported /Count, and the open/closed sign of each /Count), links (every /Subtype /Link annotation split into outbound URI, page-to-page with the resolved page number, and actions that go nowhere such as /Launch - the last kind carries its /S value in `action`, because a bare category cannot tell a launch from a form submit), and permissions (the /Encrypt /P bits, read as the signed integer it is: bits 3-6 always, 9-12 only from R3, otherwise null). Encrypted files still report structure, page numbers and permission bits, because numbers and names are not ciphertext, while titles and URIs come back null. `form` answers 'what did the file already have filled in': /AcroForm -> /Fields -> /Kids, each field with the /T it wrote itself plus a qualified name joined from the ancestors (that join is ours, the spec defines the period), the effective /FT and /Ff with a boolean saying whether this dictionary wrote them or inherited them from its parent, /V and /DV decoded with the same three PDF-string rules as metadata, /MaxLen, and kids / parent / depth so a hierarchy is visible without flattening it. value_present is a separate key because 'wrote an empty /V' and 'wrote no /V' are different claims, and value_shape names all four ways a /V can be written: string; array (a multi-select list box - value stays null while the parts go out as value_parts rather than being joined into one string the file never wrote); other, i.e. a NAME, which is how checkboxes and radio groups write it (that name comes back as value_name); and null for no /V key at all. Whether a checkbox is ticked is three separate facts and none of them is folded into a boolean: the field's /V, the widget's /AS (the state it shows now, reported as as_state) and the names keyed in the /AP /N dictionary (ap_states - which states exist at all; empty when the widget carries no /AP, which is 'nothing said', not 'none'). A radio group writes /V on the parent while each kid widget writes its own /AS, and a kid whose /AS disagrees with the parent's /V is reported that way instead of being reconciled. options holds every string /Opt wrote, in written order, and options_shape says how that array was written - /Opt is array-only in the spec and two writings are legal: [(a) (b)] means the display value is also the export value (flat), [[export display] ...] means the two are written apart (pairs); mixed and empty name the other two shapes, and a field with no /Opt key at all is null rather than an empty list. Appearance streams are not computed and signatures are not validated - a /FT Sig or a /Sig key is reported as such and nothing more, the same line this reader holds for encrypted files. Caveat kept honest: the inheritance and hierarchy path is exercised on forms-hier.pdf, and that file is not editor output - no editor measured here writes /FT or /Ff on a parent field, so pikepdf wrote it. The counters therefore say what this file says, not what a real form tool exports; on the editor-made PDFs here the inheritance counters stay 0 because each field writes its own /FT.  Not provided: signature validation, the text of encrypted files (streams are ciphertext there), graphics-stream text, and CID fonts' widths, which live in a /W array this reader does not follow - such a font's characters are recognised but its spacing is not."
+    about = "Report what a PDF file is made of without decrypting or rendering it. Reads objects by scanning N G obj markers instead of trusting the cross-reference table, then unpacks the second layer that scan alone would miss: objects packed inside object streams (/Type /ObjStm, where the header pairs an object number with an offset relative to /First) and trailer keys that live in a /Type /XRef stream dict in files with no trailer keyword at all - both rules measured against real Word 2013 and qpdf files, not recalled from memory. Gives { path, version, binary_comment, objects, xref, encryption, pages, metadata, tags, fonts, images, features, watch, outline, links, annotations, permissions, notes }: page count cross-checked between /Count and the real /Type/Page objects (the one-name match matters: /Pages is a tree node, not a page), per-page MediaBox with the inheritance walk up /Parent (MediaBox and Rotate may be written once on the tree), rotation, contents reference and annotation count, the Info dictionary with PDF string rules (backslash escapes, octal, nested parens, hex strings, FEFF-prefixed UTF-16BE), tagged/PDF-X flags (/Lang, /MarkInfo /Marked, /StructTreeRoot), font inventory (/BaseFont, /Subtype, /Encoding, whether a /ToUnicode map exists, whether the font object was hidden in an object stream), image inventory, and the watch list for what runs by itself: /Encrypt parameters (reported, never decrypted - no password here and none should be), document-level /JavaScript, /Launch and /SubmitForm and /GoToR actions, /AcroForm fields, /EmbeddedFiles attachments, /OpenAction and page /AA triggers. Encrypted files report structure only: strings and streams are ciphertext, so metadata and /Lang come back null with a note rather than as decoded garbage. Object numbers that appear more than once (incremental updates) are counted and the first occurrence wins. With --text it also walks the content streams and returns { order_from_page_tree, chars, chars_no_spaces, lines, pages, text }: pages in /Kids order, glyph codes mapped through each font's /ToUnicode CMap (bfchar plus both bfrange forms - a range written as one number means consecutive code points, written as an array means one per code), and lines rebuilt from positions rather than from stream order, because LibreOffice splits a single Chinese heading across several TJ arrays with large negative kerns between them. Three position rules make the difference between reading that heading and reading its characters shuffled: BT resets the text matrix to identity, glyph advance moves x only (never y), and a TJ number moves the pen the OPPOSITE way (positive left, negative right). It also answers where the file points: outline (the /Outlines tree - /First then /Next, children under /First, each entry with its title, depth, target page object and which page that is in /Kids order, the root self-reported /Count, and the open/closed sign of each /Count), links (every /Subtype /Link annotation split into outbound URI, page-to-page with the resolved page number, and actions that go nowhere such as /Launch - the last kind carries its /S value in `action`, because a bare category cannot tell a launch from a form submit), and permissions (the /Encrypt /P bits, read as the signed integer it is: bits 3-6 always, 9-12 only from R3, otherwise null). Encrypted files still report structure, page numbers and permission bits, because numbers and names are not ciphertext, while titles and URIs come back null. `annotations` is the whole `/Annots` ledger, not just the links: every annotation the page names, with the /Subtype it wrote (absent stays a separate count rather than an empty name), its /T author, /Contents text and /M stamp handed over as written - LibreOffice writes `D:00000000000000Z` for a note's modification date, and that string is reported instead of being turned into a date or into null - plus the two pointers between annotations (`/Popup` on the note, `/Parent` on the box), because a note usually arrives with a popup that is itself listed in the same array: total annotations and number of notes are therefore two different counts and neither stands in for the other. `form` answers 'what did the file already have filled in': /AcroForm -> /Fields -> /Kids, each field with the /T it wrote itself plus a qualified name joined from the ancestors (that join is ours, the spec defines the period), the effective /FT and /Ff with a boolean saying whether this dictionary wrote them or inherited them from its parent, /V and /DV decoded with the same three PDF-string rules as metadata, /MaxLen, and kids / parent / depth so a hierarchy is visible without flattening it. value_present is a separate key because 'wrote an empty /V' and 'wrote no /V' are different claims, and value_shape names all four ways a /V can be written: string; array (a multi-select list box - value stays null while the parts go out as value_parts rather than being joined into one string the file never wrote); other, i.e. a NAME, which is how checkboxes and radio groups write it (that name comes back as value_name); and null for no /V key at all. Whether a checkbox is ticked is three separate facts and none of them is folded into a boolean: the field's /V, the widget's /AS (the state it shows now, reported as as_state) and the names keyed in the /AP /N dictionary (ap_states - which states exist at all; empty when the widget carries no /AP, which is 'nothing said', not 'none'). A radio group writes /V on the parent while each kid widget writes its own /AS, and a kid whose /AS disagrees with the parent's /V is reported that way instead of being reconciled. options holds every string /Opt wrote, in written order, and options_shape says how that array was written - /Opt is array-only in the spec and two writings are legal: [(a) (b)] means the display value is also the export value (flat), [[export display] ...] means the two are written apart (pairs); mixed and empty name the other two shapes, and a field with no /Opt key at all is null rather than an empty list. Appearance streams are not computed and signatures are not validated - a /FT Sig or a /Sig key is reported as such and nothing more, the same line this reader holds for encrypted files. Caveat kept honest: the inheritance and hierarchy path is exercised on forms-hier.pdf, and that file is not editor output - no editor measured here writes /FT or /Ff on a parent field, so pikepdf wrote it. The counters therefore say what this file says, not what a real form tool exports; on the editor-made PDFs here the inheritance counters stay 0 because each field writes its own /FT.  Not provided: signature validation, the text of encrypted files (streams are ciphertext there), graphics-stream text, and CID fonts' widths, which live in a /W array this reader does not follow - such a font's characters are recognised but its spacing is not."
 )]
 pub struct OfficePdf {
     /// PDF 文件
@@ -164,6 +164,50 @@ fn link_report(doc: &Pdf, limit: usize) -> Value {
             "uri": one.uri,
             "via": one.form,
             "action": one.action,
+        })).collect::<Vec<Value>>(),
+    })
+}
+
+/// 页上的注记：链接、批注与它的弹出框都在同一本 `/Annots` 账里 —— 所以
+/// 「几条注记」与「几条批注」是两个数，谁也不替谁圆场（一条 `/Text` 通常另配一条
+/// `/Popup`，那条框自己也在数组里）。`by_subtype` 里那个空串是「整个没写 `/Subtype`」，
+/// 与写了一个不认识的名字不是一回事，`no_subtype` 单数一本。
+fn annotation_report(doc: &Pdf, limit: usize) -> Value {
+    let all = doc.annotations();
+    let mut kinds: Vec<(String, usize)> = Vec::new();
+    for one in &all {
+        let key = one.subtype.clone().unwrap_or_default();
+        match kinds.iter_mut().find(|hit| hit.0 == key) {
+            Some(hit) => hit.1 += 1,
+            None => kinds.push((key, 1)),
+        }
+    }
+    kinds.sort();
+    let of = |want: &str| {
+        all.iter()
+            .filter(|one| one.subtype.as_deref() == Some(want))
+            .count()
+    };
+    json!({
+        "total": all.len(),
+        "listed": all.len().min(limit),
+        "notes": of("Text"),
+        "popups": of("Popup"),
+        "links": of("Link"),
+        "no_subtype": all.iter().filter(|one| one.subtype.is_none()).count(),
+        "by_subtype": kinds
+            .iter()
+            .map(|(had, n)| json!({"subtype": had, "count": n}))
+            .collect::<Vec<Value>>(),
+        "items": all.iter().take(limit).map(|one| json!({
+            "page": one.page_index,
+            "object": one.object,
+            "subtype": one.subtype,
+            "author": one.author,
+            "contents": one.contents,
+            "modified": one.modified,
+            "popup": one.popup,
+            "parent": one.parent,
         })).collect::<Vec<Value>>(),
     })
 }
@@ -496,6 +540,7 @@ fn run_office_pdf(app: &OfficePdf, ctx: &Context) -> Result<Value, AppError> {
         "watch": watch_list(&doc, &features),
         "outline": outline_report(&doc, limit),
         "links": link_report(&doc, limit),
+        "annotations": annotation_report(&doc, limit),
         "permissions": permission_report(&doc),
         "form": form_report(&doc, limit),
         "text": text_report,
@@ -905,6 +950,55 @@ mod tests {
     fn text_is_absent_until_asked_for() {
         let out = run("notes.pdf");
         assert!(matches!(out.get("text"), Some(one) if one.is_null()));
+    }
+
+    /// 页上的注记：`/Annots` 那本账不止链接。一条批注带着自己的弹出框，而那个框
+    /// 也在同一个数组里 —— 所以「几条注记」与「几条批注」是两个数。
+    /// （期望值来自 `lyco_pdf.py` 与 pypdf 对这些字典的直接读取）
+    #[test]
+    fn a_note_on_a_page_goes_out_with_the_two_pointers_it_wrote() {
+        let annots = run("pdf-comments.pdf")["annotations"].clone();
+        assert_eq!(annots["total"], json!(3), "{annots}");
+        assert_eq!(annots["notes"], json!(1));
+        assert_eq!(annots["popups"], json!(1));
+        assert_eq!(annots["links"], json!(1));
+        assert_eq!(annots["no_subtype"], json!(0), "三条都自己写了名字");
+        assert_eq!(annots["by_subtype"][0]["subtype"], "Link");
+        assert_eq!(annots["by_subtype"][1]["subtype"], "Popup");
+        assert_eq!(annots["by_subtype"][2]["subtype"], "Text");
+        let note = &annots["items"][1];
+        assert_eq!(note["page"], json!(2), "注记在第二页");
+        assert_eq!(note["object"], json!(11));
+        assert_eq!(note["subtype"], "Text");
+        assert_eq!(
+            note["author"], "liuqi, 09/23/26, ",
+            "作者与日期被拼成了一条串"
+        );
+        assert_eq!(note["contents"], "这里要补上不含税口径");
+        assert_eq!(
+            note["modified"], "D:00000000000000Z",
+            "全零那个日期原样交，不解也不编"
+        );
+        assert_eq!(note["popup"], json!(12));
+        assert_eq!(note["parent"], Value::Null, "这一条自己没写 /Parent");
+        let popup = &annots["items"][2];
+        assert_eq!(popup["subtype"], "Popup");
+        assert_eq!(popup["parent"], json!(11), "反向那一条指着批注");
+        assert_eq!(popup["popup"], Value::Null);
+        assert_eq!(popup["author"], Value::Null, "弹出框自己不带作者");
+        assert_eq!(popup["contents"], Value::Null);
+
+        // 生产者不带那个选项导同一份 docx，批注整个不见：只剩那一条链接
+        let quiet = run("notes.pdf");
+        assert_eq!(quiet["annotations"]["total"], json!(1), "只剩链接那一条");
+        assert_eq!(
+            quiet["annotations"]["notes"],
+            json!(0),
+            "0 是数过了没有，不是没看"
+        );
+        assert_eq!(quiet["annotations"]["popups"], json!(0));
+        // 一条注记都没有的件：交 0，不是缺这个键
+        assert_eq!(run("deck.pdf")["annotations"]["total"], json!(0));
     }
 
     /// 表单那一份账：`/AcroForm` → `/Fields` → `/Kids`，值只交文件写了的

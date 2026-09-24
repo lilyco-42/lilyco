@@ -4340,6 +4340,7 @@ def facts(path: Path) -> dict:
         one["form"] = lyco_pdf.form_facts(data)
         one["outline"] = lyco_pdf_nav.outlines(data, encrypted=sealed)
         one["links"] = lyco_pdf_nav.links(data, encrypted=sealed)
+        one["annotations"] = lyco_pdf_nav.annotations(data, encrypted=sealed)
         out["pdf"] = one
         return out
     out["container"] = "other"

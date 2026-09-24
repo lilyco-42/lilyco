@@ -2330,6 +2330,21 @@ def main() -> int:
             shutil.copyfile(src, OUT / name)
         else:
             print(f"⚠️  没拿到 {name}（LibreOffice 的 pdf 导出）")
+    # 批注导进 PDF：LibreOffice 的 headless 默认那一转**把 docx 的批注整个丢掉**
+    # （上面那份 notes.pdf 就是证据：一条 /Text 都没有，只剩一条链接）。要显式给
+    # filter 选项才带得出来，而那一条 /Text 还顺手配了一条 /Popup —— 两个都在
+    # 这一页的 /Annots 数组里，所以「几条注记」与「几条批注」是两个数
+    convert(
+        exe,
+        docx,
+        'pdf:writer_pdf_Export:{"ExportAnnotations":{"type":"boolean","value":"true"}}',
+        SCRATCH / "annots",
+    )
+    made = SCRATCH / "annots" / "notes.pdf"
+    if made.exists():
+        shutil.copyfile(made, OUT / "pdf-comments.pdf")
+    else:
+        print("⚠️  没拿到 pdf-comments.pdf（带 ExportAnnotations 的那一转）")
     # 2) qpdf（pikepdf 带的）再存一次，造出 LibreOffice 不写的两种形状：
     #    `object_stream_mode=generate` 把大部分对象搬进 /Type /ObjStm 并写出
     #    /Type /XRef —— 那种文件里根本没有 `trailer` 这个词，/Info 只住在那个流字典里；

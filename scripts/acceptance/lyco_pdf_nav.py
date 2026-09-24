@@ -202,6 +202,60 @@ def links(data: bytes, encrypted: bool = False) -> dict:
     }
 
 
+def annotations(data: bytes, encrypted: bool = False) -> dict:
+    """页上 `/Annots` 的整本账：链接、批注与弹出框都算一条注记
+
+    一条 `/Text` 通常另配一条 `/Popup`，而那个框自己也在同一个数组里 —— 所以
+    「几条注记」与「几条批注」是两个数，谁也不替谁圆场。`modified` 连 `D:` 前缀
+    原样交（LibreOffice 在那里写的是一串全零），不替它解成日期也不替它改成 null。
+    """
+    by_id = all_objects(data)
+    order = page_order(by_id)
+    items: list = []
+    for index, page in enumerate(order):
+        body = by_id.get(page, rb"")
+        refs: list = []
+        for hit in key(body, rb"Annots"):
+            tail = body[hit.end(): hit.end() + 400]
+            inline = re.match(rb"\s*\[([^\]]*)\]", tail)
+            if inline:
+                refs += [int(one) for one in re.findall(rb"(\d+)\s+\d+\s+R", inline.group(1))]
+                continue
+            got = re.match(rb"\s*(\d+)\s+\d+\s+R", tail)
+            if got:
+                refs.append(int(got.group(1)))
+        for num in refs:
+            annot = by_id.get(num)
+            if annot is None:
+                continue
+            had = re.search(rb"/Subtype\s*/([A-Za-z0-9._+-]+)" + NOT_NAME, annot)
+            items.append(
+                {
+                    "page": index + 1,
+                    "object": num,
+                    "subtype": had.group(1).decode("latin-1") if had else None,
+                    "author": None if encrypted else one_text(annot, rb"T"),
+                    "contents": None if encrypted else one_text(annot, rb"Contents"),
+                    "modified": None if encrypted else one_text(annot, rb"M"),
+                    "popup": ref(annot, rb"Popup"),
+                    "parent": ref(annot, rb"Parent"),
+                }
+            )
+    kinds: dict = {}
+    for one in items:
+        key_name = one["subtype"] if one["subtype"] is not None else ""
+        kinds[key_name] = kinds.get(key_name, 0) + 1
+    return {
+        "total": len(items),
+        "notes": sum(1 for one in items if one["subtype"] == "Text"),
+        "popups": sum(1 for one in items if one["subtype"] == "Popup"),
+        "links": sum(1 for one in items if one["subtype"] == "Link"),
+        "no_subtype": sum(1 for one in items if one["subtype"] is None),
+        "by_subtype": [{"subtype": one, "count": kinds[one]} for one in sorted(kinds)],
+        "items": items,
+    }
+
+
 def permissions(data: bytes) -> dict:
     """`/Encrypt` 的 `/P`：位号从 1 起算（规范就是这么编号的），R2 只有 3~6 位有意义"""
     by_id = all_objects(data)

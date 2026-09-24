@@ -2338,6 +2338,27 @@ pub struct Link {
     pub action: Option<String>,
 }
 
+/// 页上的一条注记：`/Annots` 里那个东西，链接与批注都算
+///
+/// `subtype` 按文件自己写的名字交（`Link` / `Text` / `Popup` / `Highlight` …），
+/// 没写就是 null —— 与「写了一个不认识的名字」是两件事。`author` 与 `contents`
+/// 走元数据那同一套 PDF 字符串规则；`modified` 连 `D:` 前缀一起原样交，不替它解成
+/// 某个日期（LibreOffice 在这里写的是一串全零的 `D:00000000000000Z`）。
+/// `popup` 与 `parent` 是注记之间的两条指向：一条批注可以带一个弹出框，
+/// 而那个框自己也在页的 `/Annots` 里、反过来指着批注 —— 所以「几条注记」与
+/// 「几条批注」是两个数，谁也不替谁圆场。
+#[derive(Debug, Clone)]
+pub struct Annotation {
+    pub page_index: usize,
+    pub object: u64,
+    pub subtype: Option<String>,
+    pub author: Option<String>,
+    pub contents: Option<String>,
+    pub modified: Option<String>,
+    pub popup: Option<u64>,
+    pub parent: Option<u64>,
+}
+
 /// `/P` 那一位位的开关。位号按规范的数法（从 1 起），R2 只有 3~6 位有意义，
 /// R3 起才多出 9~12 位（表单、无障碍抽取、拼页、高质量打印）
 #[derive(Debug, Clone)]
@@ -2625,6 +2646,50 @@ impl Pdf {
                     uri,
                     form: target.form,
                     action,
+                });
+            }
+        }
+        out
+    }
+
+    /// 页上的注记整份清单（不只链接）：`/Annots` 里每一条都算，按页序、按数组里的顺序
+    pub fn annotations(&self) -> Vec<Annotation> {
+        let (order, _) = self.page_order();
+        let encrypted = self.encryption.is_some();
+        let mut out: Vec<Annotation> = Vec::new();
+        for (index, page) in order.iter().enumerate() {
+            let Some(one) = self.object(*page) else {
+                continue;
+            };
+            for id in self.annotation_ids(&one.dict) {
+                let Some(annot) = self.object(id) else {
+                    continue;
+                };
+                // 加密件里字符串是密文：与元数据同一口径，宁可交 null 也不交一串乱码
+                let author = if encrypted {
+                    None
+                } else {
+                    one_string(&annot.dict, b"/T")
+                };
+                let contents = if encrypted {
+                    None
+                } else {
+                    one_string(&annot.dict, b"/Contents")
+                };
+                let modified = if encrypted {
+                    None
+                } else {
+                    one_string(&annot.dict, b"/M")
+                };
+                out.push(Annotation {
+                    page_index: index + 1,
+                    object: id,
+                    subtype: name_after(&annot.dict, b"/Subtype"),
+                    author,
+                    contents,
+                    modified,
+                    popup: ref_after(&annot.dict, b"/Popup"),
+                    parent: ref_after(&annot.dict, b"/Parent"),
                 });
             }
         }

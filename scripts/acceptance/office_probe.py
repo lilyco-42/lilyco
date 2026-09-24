@@ -3209,7 +3209,7 @@ def main() -> int:
     )
     check(
         "同一批格子两种生产者：重算过才看得见错误，没重算全是空",
-        [dig(errs, "csv.text"),
+        [dig(lbin("office-sheet", fixture("errors-lo.xlsx"), "--csv"), "csv.text"),
          dig(lbin("office-sheet", fixture("errors.xlsx"), "--csv"), "csv.text")],
         ["7,#DIV/0!,,TRUE\n5,甲乙,,\n,#N/A,,\n,#VALUE!,,\n,14,10,\n",
          "7,,,TRUE\n5,,,\n,,,\n,,,\n,,,\n"],
@@ -3333,9 +3333,42 @@ def main() -> int:
     # PDF 不是容器，是「对象表 + 若干流」。这一族的三条分水岭都单独钉住：
     # 对象流里那 51 个对象、没有 trailer 这个词的文件、以及加密时不许把密文当元数据
     print("=== 6) office-pdf：对象表、页树、加密与风险面 ===")
+    # 注记整本账：`/Annots` 里不止链接。一条批注带着自己的弹出框，而那个框也在同一个
+    # 数组里 —— 所以「几条注记」与「几条批注」是两个数
+    ANNOT_KEYS = ("total", "notes", "popups", "links", "no_subtype", "by_subtype", "items")
+    for name in ("pdf-comments.pdf", "notes.pdf", "deck.pdf", "risk.pdf"):
+        mine = lbin("office-pdf", fixture(name)).get("annotations") or {}
+        theirs = files[name]["pdf"].get("annotations") or {}
+        check("%s 注记整本账与读者一致" % name,
+              {k: mine.get(k) for k in ANNOT_KEYS}, {k: theirs.get(k) for k in ANNOT_KEYS})
+    noted = lbin("office-pdf", fixture("pdf-comments.pdf"))
+    check(
+        "一条批注三条注记：作者与日期在文件里本来就是一条串，那个全零的 /M 原样交",
+        [dig(noted, "annotations.total"), dig(noted, "annotations.notes"),
+         dig(noted, "annotations.popups"), dig(noted, "annotations.links"),
+         dig(noted, "annotations.no_subtype"),
+         dig(noted, "annotations.items[1].page"), dig(noted, "annotations.items[1].object"),
+         dig(noted, "annotations.items[1].subtype"),
+         dig(noted, "annotations.items[1].author"),
+         dig(noted, "annotations.items[1].contents"),
+         dig(noted, "annotations.items[1].modified"),
+         dig(noted, "annotations.items[1].popup"),
+         dig(noted, "annotations.items[1].parent"),
+         dig(noted, "annotations.items[2].parent")],
+        [3, 1, 1, 1, 0, 2, 11, "Text", "liuqi, 09/23/26, ", "这里要补上不含税口径",
+         "D:00000000000000Z", 12, None, 11],
+    )
+    check(
+        "同一份 docx 不带生产者那个开关导出去，批注就整个不见：notes 交 0 而不是缺键",
+        [dig(lbin("office-pdf", fixture("notes.pdf")), "annotations.total"),
+         dig(lbin("office-pdf", fixture("notes.pdf")), "annotations.notes"),
+         dig(lbin("office-pdf", fixture("deck.pdf")), "annotations.total"),
+         dig(lbin("office-pdf", fixture("deck.pdf")), "annotations.by_subtype")],
+        [1, 0, 0, []],
+    )
     # 去哪儿那一层：书签 / 页内链接 / 权限位（三份都是同一份读者的另一段代码）
     for name in ("notes.pdf", "deck.pdf", "objstm.pdf", "risk.pdf", "locked.pdf", "perms.pdf",
-                 "forms-hier.pdf"):
+                 "forms-hier.pdf", "pdf-comments.pdf"):
         want = files[name]["pdf"]
         got = lbin("office-pdf", fixture(name))
         check("%s 书签树在不在" % name, dig(got, "outline.present"), want["outline"]["present"])

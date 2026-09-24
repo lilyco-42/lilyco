@@ -96,6 +96,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `hidden.ods` | LibreOffice（从 `hidden.xlsx`） | 隐藏换成 `table:visibility="collapse"`，列那一跳还带 `number-columns-repeated="3"` |
 | `notes.pdf` | LibreOffice（从 `notes.docx` 导出） | Writer 那份的 PDF：2 页 letter、5 张子集 TrueType 字体（每张都带 `/ToUnicode`）、2 张 8×8 图、`/Lang (en-US)`、`/MarkInfo /Marked true`、一个 URI 批注、Info 里七个键（`/Title` 是 `<FEFF…>` 的 UTF-16BE 中文） |
 | `deck.pdf` | LibreOffice（从 `deck.pptx` 导出） | 同一批字的 Impress 存法：页面 `0 0 720 540`、`/Lang (zh-CN)`、6 张字体、没有批注 —— 与 `notes.pdf` 一起把「不同应用 → 不同页尺寸与语言」钉住 |
+| `pdf-comments.pdf` | LibreOffice（从 `notes.docx` 导出，带 `ExportAnnotations=true`） | 同一份 docx 的第二种导出：页上三条注记（13 号链接、11 号 `/Text` 批注、12 号 `/Popup`），批注的 `/T` 把作者与日期拼成一条串 `"liuqi, 09/23/26, "`、`/Contents` 是那句中文、`/M` 是一串全零的 `D:00000000000000Z`；那条 `/Popup` 也在同一个 `/Annots` 数组里并用 `/Parent` 指回批注，`/Rect` 在页面外 |
 | `objstm.pdf` | qpdf 12.3.2（经 pikepdf 10.13，从 `notes.pdf` 再存） | **68 个对象里只有 17 个是明写的**：另外 51 个挤在一个 `/Type /ObjStm`（`/N 51 /First 388`）里；文件里**没有 `trailer` 这个词**，`/Root`、`/Info` 只写在 `/Type /XRef` 的流字典里（`/Size 69`）。只扫 `obj` 的读者会报「0 页」，只认 `trailer` 的读者找不到元数据 |
 | `locked.pdf` | qpdf（`Encryption(R=6)`，从 `notes.pdf`） | AES-256 真加密，口令 `lbin-test`（owner `lbin-owner`；这是测试件，口令不是秘密）。`pdfinfo` 不给口令直接 `Incorrect password`；`/Encrypt` 指着的字典是 `/Filter /Standard`、`/V 5`、`/R 6`、`/Length 32`、带 `/O` `/U` `/OE` `/UE` `/P` |
 | `perms.pdf` | qpdf（pikepdf，从 `notes.pdf`） | **只设 owner 口令**的一份（用户口令为空）：于是 `/P` 那些位真的生效，工具也进得去 —— pdfinfo 读成 `Encrypted: yes (print:no copy:no change:yes addNotes:no algorithm:AES-256)`，与 `lyco_pdf_nav.py` 从 `/P -3384` 算出的位逐条一致 |
@@ -1077,6 +1078,25 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     * 顺手撞见的同族事实：那格长得像日期的**字**（`12/23/2013`）在 openpyxl 手里是
       `t="inlineStr"`（`<is><t>…`），LibreOffice 重写时换成 `t="s"` 指共享字符串 ——
       同一条字两种存法，两边都不许换算成日子。
+
+67. **一条批注在 PDF 里是两条注记**（`pdf-comments.pdf`，另见不带开关的那份 `notes.pdf`）。
+    * 生产者这一侧先撞上一条：LibreOffice 的 headless `--convert-to pdf` **把 docx 的批注
+      整个丢掉** —— 上面那份 `notes.pdf` 里一条 `/Text` 都没有，只剩一条链接。要显式给
+      filter 选项 `pdf:writer_pdf_Export:{"ExportAnnotations":{"type":"boolean","value":"true"}}`
+      才带得出来。所以这一族有两份件：带着批注的那一份，和「默认那一转」这一份 ——
+      后者让 `notes: 0` 有了一件真文件可指，不是空谈。
+    * 一条批注落地是**两条注记**：`/Subtype /Text` 那一条（11 号）自己指着 `/Popup`（12 号），
+      而那条 `/Popup` **也在同一页的 `/Annots` 数组里**、反过来用 `/Parent` 指回 11 号，
+      它的 `/Rect` 更是摆在页面外（`-14.2, 1612.35`）。于是「几条注记」（3）与
+      「几条批注」（1）是两个数，谁也不替谁圆场。
+    * 作者与时间在 PDF 里**是一条串**：`/T = "liuqi, 09/23/26, "`（第三个位子空着，
+      后面那两句是逗号加空格）—— 与 docx 那边 `w:author` / `w:date` 两个属性是两回事，
+      所以这里只交 `/T` 那一串，不替它拆成两个字段。
+    * `/M`（修改时间）LibreOffice 写的是 **`D:00000000000000Z`** —— 一串全零。
+      读取器把这一串原样交出去：既不替它解成某个日期，也不因为它解不出来就报 null。
+      （`D:` 前缀与 `Z` 后缀都留着：那是文件自己写的。）
+    * 注记与链接走的是同一条路：`/Annots` 可以是内联数组也可以是间接引用，
+      两份读者都两种认（这一件里三条都是内联的）。
 
 ## 这些数字从哪来
 
