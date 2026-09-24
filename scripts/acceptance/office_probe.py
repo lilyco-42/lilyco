@@ -1181,9 +1181,9 @@ def main() -> int:
     )
     check(
         "合并那张表的 ODF 侧：三条列宽 5.08cm（= 2880 twips）",
-        [dig(otdw, "structure.table_layouts.covered"),
-         dig(otdw, "structure.table_layouts.list[0].columns[0].repeated"),
-         dig(otdw, "structure.table_layouts.list[0].columns[0].mm"),
+        [dig(odtw, "structure.table_layouts.covered"),
+         dig(odtw, "structure.table_layouts.list[0].columns[0].repeated"),
+         dig(odtw, "structure.table_layouts.list[0].columns[0].mm"),
          dig(wide, "structure.table_layouts.list[0].grid[0].w")],
         [5, 3, 5080, "2880"],
     )
