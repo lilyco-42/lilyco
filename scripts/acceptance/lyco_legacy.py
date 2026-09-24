@@ -309,10 +309,17 @@ def biff_workbook(cfb_bytes: dict) -> dict:
         elif op == 0x0022:  # DATEMODE：0 = 1900 基准，1 = 1904
             date1904 = bool(_u16(body, 0))
         elif op == 0x00FD:  # LABELSST
-            r, col, _xf, sst_index = struct.unpack_from("<HHHI", body, 0)
+            r, col, xf, sst_index = struct.unpack_from("<HHHI", body, 0)
             value = strings[sst_index] if sst_index < len(strings) else None
             cells.append(
-                {"row": r, "col": col, "type": "sst", "value": value, "sheet": belongs}
+                {
+                    "row": r,
+                    "col": col,
+                    "type": "sst",
+                    "value": value,
+                    "ixfe": xf,
+                    "sheet": belongs,
+                }
             )
         elif op == 0x0203:  # NUMBER
             r, col, xf, value = struct.unpack_from("<HHHd", body, 0)
@@ -339,7 +346,7 @@ def biff_workbook(cfb_bytes: dict) -> dict:
                 }
             )
         elif op == 0x0204:  # LABEL（老式：字符串直接跟在记录里）
-            r, col, _xf = struct.unpack_from("<HHH", body, 0)
+            r, col, xf = struct.unpack_from("<HHH", body, 0)
             cch = _u16(body, 6) or 0
             grbit = body[8] if len(body) > 8 else 0
             raw_text = body[9 : 9 + cch * (2 if grbit & 1 else 1)]
@@ -351,6 +358,7 @@ def biff_workbook(cfb_bytes: dict) -> dict:
                     "value": raw_text.decode(
                         "utf-16-le" if grbit & 1 else "cp1252", "replace"
                     ),
+                    "ixfe": xf,
                     "sheet": belongs,
                 }
             )

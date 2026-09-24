@@ -384,6 +384,40 @@ def main() -> int:
     # mulrk.xls 读回 .ods 交出来的 A2:H2 / A5:C5 同一批数（README 记着那一转）
     check("mulrk.xls 那 11 个数", sorted(mine), sorted([1000.5, 2000.5, 3000.5, 4000.5, 5000.5, 6000.5, 7000.5, 8000.5, 7.0, 14.0, 21.0]))
 
+    # ── 3b2) .xls 的数字格式那一跳：ixfe → XF 表 → FORMAT 记录 ─────────────
+    print("=== 3b2) .xls 的数字格式那一跳 ===")
+
+    def a1(one: dict) -> str:
+        col, row = int(one["col"]), int(one["row"])
+        letters = ""
+        col += 1
+        while col:
+            col, back = divmod(col - 1, 26)
+            letters = chr(65 + back) + letters
+        return "%s%d" % (letters, row + 1)
+
+    for name in ("book.xls", "formats.xls", "mulrk.xls"):
+        got = lbin("office-sheet", fixture(name))
+        want = files[name]["biff"]
+        check("%s XF 表（按出现顺序的格式号）" % name, dig(got, "workbook.xfs"), want["xfs"])
+        check(
+            "%s 自定义号的格式串" % name,
+            dig(got, "workbook.formats"),
+            {str(key): value for key, value in want["formats"].items()},
+        )
+        check("%s 日期基准来自 DATEMODE" % name, dig(got, "workbook.date1904"), want["date1904"])
+        mine = {
+            "%s!%s" % (one.get("sheet"), one.get("ref")): one.get("num_fmt")
+            for one in got.get("cells", [])
+            if one.get("num_fmt") is not None
+        }
+        theirs = {
+            "%s!%s" % (one["sheet"], a1(one)): want["xfs"][one["ixfe"]]
+            for one in want["cells"]
+            if one.get("ixfe") is not None and one["ixfe"] < len(want["xfs"])
+        }
+        check("%s 每格查到的格式号" % name, mine, theirs)
+
     # ── 3b) 数字格式：格子写的是 cellXfs 的下标，日期藏在样式里 ──────────
     print("=== 3b) formats.xlsx：格式号、判定与换算出来的日期 ===")
     fx = lbin("office-sheet", fixture("formats.xlsx"))

@@ -25,6 +25,7 @@ use std::collections::BTreeMap;
 use serde_json::{json, Value};
 
 use crate::cfb::Cfb;
+use crate::numfmt;
 use crate::read::{le16, le32, le64};
 use crate::word::decode_cp1252;
 
@@ -42,6 +43,9 @@ const FORMULA: u64 = 0x0006;
 const PROTECT: u64 = 0x0012;
 const PASSWORD: u64 = 0x0013;
 const SCENPROTECT: u64 = 0x00DD;
+const XF: u64 = 0x00E0;
+const FORMAT: u64 = 0x041E;
+const DATEMODE: u64 = 0x0022;
 
 #[derive(Debug, Clone)]
 pub struct Sheet {
@@ -63,6 +67,9 @@ pub struct Cell {
     pub number: Option<f64>,
     /// 这条记录落在哪张表的子流里（由 BOUNDSHEET 的字节偏移判出；全局区里的为 None）
     pub sheet: Option<String>,
+    /// 数字格式那一跳的入口：XF 记录（0x00E0）的出现序号。文字格也带着它，
+    /// 但那一格是字还是数由记录类型说，不由格式说，所以查格式只在要用的时候查
+    pub ixfe: Option<u64>,
 }
 
 impl Cell {
@@ -102,6 +109,12 @@ pub struct Book {
     pub strings: Vec<String>,
     pub cells: Vec<Cell>,
     pub formula_cells: usize,
+    /// XF 记录（0x00E0）自报的格式号，按出现顺序 —— 格子的 ixfe 就是这里的下标
+    pub xfs: Vec<u64>,
+    /// FORMAT 记录（0x041E）：只有自定义号（>=164）才写串，内置号在这张表里没有
+    pub formats: BTreeMap<u64, String>,
+    /// DATEMODE（0x0022）：文件自己没说就交回 None，不默认成 1900
+    pub date1904: Option<bool>,
     pub notes: Vec<String>,
 }
 
@@ -129,6 +142,9 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
     let mut cells: Vec<Cell> = Vec::new();
     let mut bofs: Vec<(u64, u64)> = Vec::new();
     let mut formula_cells = 0usize;
+    let mut xfs: Vec<u64> = Vec::new();
+    let mut formats: BTreeMap<u64, String> = BTreeMap::new();
+    let mut date1904: Option<bool> = None;
     let mut notes: Vec<String> = Vec::new();
     for index in 0..records.len() {
         let (offset, op, body) = &records[index];
@@ -194,6 +210,7 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                     kind: "sst",
                     text,
                     number: None,
+                    ixfe: le16(4)(body).map(u64::from),
                     sheet: belongs.clone(),
                 });
             }
@@ -206,6 +223,7 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                     kind: "number",
                     text: None,
                     number: Some(f64::from_bits(le64(6)(body).unwrap_or(0))),
+                    ixfe: le16(4)(body).map(u64::from),
                     sheet: belongs.clone(),
                 });
             }
@@ -218,6 +236,7 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                     kind: "rk",
                     text: None,
                     number: Some(decode_rk(le32(6)(body).unwrap_or(0) as u32)),
+                    ixfe: le16(4)(body).map(u64::from),
                     sheet: belongs.clone(),
                 });
             }
@@ -238,6 +257,7 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                         kind: "mulrk",
                         text: None,
                         number: Some(decode_rk(packed)),
+                        ixfe: le16(4 + i * 6)(body).map(u64::from),
                         sheet: belongs.clone(),
                     });
                 }
@@ -267,6 +287,7 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                         decode_cp1252(raw_text)
                     }),
                     number: None,
+                    ixfe: le16(4)(body).map(u64::from),
                     sheet: belongs.clone(),
                 });
             }
@@ -279,6 +300,7 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                     kind: "formula",
                     text: None,
                     number: None,
+                    ixfe: le16(4)(body).map(u64::from),
                     sheet: belongs.clone(),
                 });
                 formula_cells += 1;
@@ -292,6 +314,39 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                     one.protection.insert(code, u64::from(value));
                 }
             }
+            XF => {
+                // 格子记的 ixfe 就是 XF 记录在这条流里的**出现序号**，所以这里只能按顺序收。
+                // 格式号在正文偏移 2（前两个字节是父样式索引）
+                if let Some(done) = le16(2)(body) {
+                    xfs.push(u64::from(done));
+                }
+            }
+            FORMAT => {
+                // 量出来的布局：ifmt(2) + cch(2) + 拼法(1) + 串（cch 个字节或码元）。
+                // 两条记录的总长正好都对得上（12 = 5+7、29 = 5+12×2），所以不是猜的
+                let Some(ifmt) = le16(0)(body) else { continue };
+                let count = usize::try_from(le16(2)(body).unwrap_or(0)).unwrap_or(0);
+                let wide = body.get(4).copied().unwrap_or(0) & 0x01 != 0;
+                let raw = body
+                    .get(5..5 + count * if wide { 2 } else { 1 })
+                    .unwrap_or(&[]);
+                let code = if wide {
+                    let mut units: Vec<u16> = Vec::new();
+                    for pair in raw.chunks(2) {
+                        if pair.len() == 2 {
+                            units.push(u16::from_le_bytes([pair[0], pair[1]]));
+                        }
+                    }
+                    String::from_utf16_lossy(&units)
+                } else {
+                    decode_cp1252(raw)
+                };
+                formats.insert(u64::from(ifmt), code);
+            }
+            DATEMODE => {
+                // 0 = 1900 基准，1 = 1904 —— 序列数换日期要用它
+                date1904 = Some(le16(0)(body).unwrap_or(0) == 1);
+            }
             _ => {}
         }
     }
@@ -302,8 +357,87 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
         strings,
         cells,
         formula_cells,
+        xfs,
+        formats,
+        date1904,
         notes,
     })
+}
+
+impl Book {
+    /// 这一格的格式号与格式串。串只有自定义号（>=164）才写；内置号交回 None，
+    /// 由调用方去查那张内置表（`numfmt::builtin_code`，xlsx 那侧已经在用同一张）
+    pub fn format_of(&self, one: &Cell) -> Option<(u64, Option<&String>)> {
+        let index = usize::try_from(one.ixfe?).ok()?;
+        let ifmt = *self.xfs.get(index)?;
+        Some((ifmt, self.formats.get(&ifmt)))
+    }
+
+    /// 与 xlsx 那侧同一组字段名，让「同一个问题的三种存法」能并排看：
+    /// `num_fmt` / `format` / `format_kind` / `style`，日期格式再加 `as_date`。
+    /// 那一格是字还是数由记录类型说（LABELSST 就是字），所以文字格的 `format_kind`
+    /// 交回 text，不拿格式串去猜
+    pub fn cell_format(&self, one: &Cell) -> Option<Value> {
+        let (ifmt, code) = self.format_of(one)?;
+        let shown: Option<String> = match code {
+            Some(done) => Some(done.clone()),
+            None => numfmt::builtin_code(ifmt).map(|done| done.to_string()),
+        };
+        let judged = match &shown {
+            Some(done) => numfmt::kind_of(done),
+            None => numfmt::Kind::Unknown,
+        };
+        let kind = if one.text.is_some() {
+            "text"
+        } else {
+            judged.as_str()
+        };
+        let mut out = serde_json::Map::new();
+        out.insert("num_fmt".to_string(), json!(ifmt));
+        out.insert("format".to_string(), json!(shown));
+        out.insert("format_kind".to_string(), json!(kind));
+        out.insert("style".to_string(), json!(one.ixfe));
+        if matches!(
+            judged,
+            numfmt::Kind::Date | numfmt::Kind::Datetime | numfmt::Kind::Time
+        ) {
+            let stamp = match (one.number, self.date1904) {
+                (Some(done), Some(year1904)) => json!(numfmt::serial_to_iso(done, year1904)),
+                _ => Value::Null,
+            };
+            out.insert("as_date".to_string(), stamp);
+        }
+        Some(Value::Object(out))
+    }
+
+    /// 数字格换算成日期了就给 ISO，否则照旧给序列数 —— CSV 与 `as_date` 走同一个判断，
+    /// 不许一条路换了一条路不换
+    pub fn shown(&self, one: &Cell) -> String {
+        if let Some(done) = &one.text {
+            return done.clone();
+        }
+        let Some(number) = one.number else {
+            return String::new();
+        };
+        if let Some((ifmt, code)) = self.format_of(one) {
+            let judged = match code {
+                Some(done) => numfmt::kind_of(done),
+                None => match numfmt::builtin_code(ifmt) {
+                    Some(done) => numfmt::kind_of(done),
+                    None => numfmt::Kind::Unknown,
+                },
+            };
+            if matches!(
+                judged,
+                numfmt::Kind::Date | numfmt::Kind::Datetime | numfmt::Kind::Time
+            ) {
+                if let Some(year1904) = self.date1904 {
+                    return numfmt::serial_to_iso(number, year1904);
+                }
+            }
+        }
+        format!("{number}")
+    }
 }
 
 /// 这条记录属于哪张表：BOUNDSHEET 自报的子流起点里，不超过该记录偏移的最后一条。
