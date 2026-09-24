@@ -1728,6 +1728,12 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "lists.odt", OUT / "lists.odt")
     else:
         print("⚠️  没拿到 lists.odt")
+    # RTF 那一族也照一份转出来：`\ilvl` / `\ls` 与那一句 `{\listtext…}` 标签的出处
+    convert(exe, lists, "rtf", SCRATCH)
+    if (SCRATCH / "lists.rtf").exists():
+        shutil.copyfile(SCRATCH / "lists.rtf", OUT / "lists.rtf")
+    else:
+        print("⚠️  没拿到 lists.rtf")
     convert(exe, lists, "docx", SCRATCH / "lists-back")
     made = SCRATCH / "lists-back" / "lists.docx"
     if made.exists():

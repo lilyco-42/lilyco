@@ -157,7 +157,9 @@ PAGE_DESTINATIONS = {
 # 那两群里坐着几十个「不认识就跳」的子群（`{\*\falt …}`、`{\*\csN …}`），
 # 整群吃掉会让 skipped_destinations 从 65 掉到 23，那个诊断数就不可比了。
 # 所以走 `field` 那一条路：照旧跳过（一个字不进正文），只**前瞻**读一遍里面的定义
-DEF_DESTINATIONS = {"fonttbl", "stylesheet"}
+# `listtable` 与 `listoverridetable` 也走这一条：列表定义不是页面上的字，但段上那个
+# `\ls` 点的就是这里的某一份，不读等于把号的来源丢掉（整群照样跳，destinations 不变）
+DEF_DESTINATIONS = {"fonttbl", "stylesheet", "listtable", "listoverridetable"}
 # 一群里的第一条控制字决定它是什么定义：`\fN` 字体、`\sN` 段落样式、`\csN` 字符样式
 FIRST_DEF = re.compile(r"^\\(?:\*\\)?(cs|s|f)(\d+)")
 KIND_OF_PREFIX = {"f": "font", "s": "paragraph", "cs": "character"}
@@ -234,6 +236,125 @@ LINK_INSTRUCTION = re.compile('HYPERLINK\\s+"([^"]*)"', re.IGNORECASE)
 # （单个反斜杠会开出一个控制字），解掉之后这一串与 docx 的 w:instrText 逐字相同 ——
 # 所以 `switch_value` 这一家与 `office_doc.rs` 里 OOXML 用的那一把规则一样
 LEVEL_SWITCH = BS + "o "
+
+
+def starts_word(group: str, want: str) -> bool:
+    """一群的开头是不是控制字 `want`（`\list{` 与 `\listlevel{` 不是一回事）"""
+    if not group.startswith(BS):
+        return False
+    rest = group[1:]
+    k = 0
+    while k < len(rest) and rest[k].isalpha():
+        k += 1
+    if rest[:k] != want:
+        return False
+    return k >= len(rest) or not rest[k].isalnum()
+
+
+def word_len(group: str) -> int:
+    """开头那个控制字占了几个字：名字、紧跟的数字（`-` 也算），以及后面那**一个**空格。
+    `\'hh` 不是控制字，只占四个字节"""
+    if group.startswith(BS + "'"):
+        return min(4, len(group))
+    if not group.startswith(BS):
+        return 0
+    k = 1
+    while k < len(group) and group[k].isalpha():
+        k += 1
+    while k < len(group) and (group[k].isdigit() or group[k] == "-"):
+        k += 1
+    if k < len(group) and group[k] == " ":
+        k += 1
+    return k
+
+
+def payload_of(group: str) -> str:
+    """去掉开头控制字之后的部分：`{\\leveltext \\'02\\'01.;}` 要说的是 `\\'02\\'01.;`"""
+    return group[min(word_len(group), len(group)):]
+
+
+def written_of(group: str) -> str:
+    """一群去掉开头控制字之后的原样串（`\'hh` 与 `\\uN` 按字节交，不猜字面）"""
+    return payload_of(group)
+
+
+def word_in_group(group: str, want: str):
+    """一群里第一个叫 `want` 的控制字后面那串数字（词在而没数字时交空串），没有交 None"""
+    i = 0
+    while i < len(group):
+        if group[i] != BS:
+            i += 1
+            continue
+        k = i + 1
+        name = ""
+        while k < len(group) and group[k].isalpha():
+            name += group[k]
+            k += 1
+        from_ = k
+        while k < len(group) and (group[k].isdigit() or group[k] == "-"):
+            k += 1
+        if name == want:
+            return group[from_:k]
+        i = k if k > i + 1 else i + 1
+    return None
+
+
+def list_level_of(group: str, at: int) -> dict:
+    """`{\\listlevel\\levelnfc0…{\\leveltext …;}…}` 一群：这一级的账。
+    级别号是**这一份 list 里第几个 `\\listlevel`**（实测 LibreOffice 一份 `\ilvl` 也不写在
+    级上），所以号是读者按顺序给的，不是文件写的"""
+    kids = child_groups(group)
+
+    def pick(want: str):
+        for one in kids:
+            if starts_word(one, want):
+                return written_of(one)
+        return None
+
+    return {
+        "at": at,
+        "nfc": word_in_group(group, "levelnfc"),
+        "jc": word_in_group(group, "leveljc"),
+        "startat": word_in_group(group, "levelstartat"),
+        "follow": word_in_group(group, "levelfollow"),
+        "font": (word_in_group(group, "f") or None),
+        "first_indent": word_in_group(group, "fi"),
+        "indent": word_in_group(group, "li"),
+        "level_text": pick("leveltext"),
+        "level_numbers": pick("levelnumbers"),
+        "children": [written_of(one) for one in kids],
+    }
+
+
+def list_definition_of(group: str) -> dict:
+    """`{\\list\\listtemplateid1 {…九级…}\\listid1}` 一群：一份列表定义。
+    **`\\listid` 写在群的最后**（按 `{\list\listid` 去抓一条也抓不到，而全文 `\listid`
+    有 14 次 —— 这里 7 次、`listoverridetable` 里 7 次），所以整群读完才拿得到号"""
+    levels = []
+    for one in child_groups(group):
+        if starts_word(one, "listlevel"):
+            levels.append(list_level_of(one, len(levels)))
+    return {
+        "template_id": word_in_group(group, "listtemplateid"),
+        "list_id": word_in_group(group, "listid"),
+        "levels": len(levels),
+        "nfc": [one["nfc"] for one in levels],
+        "list_level": levels,
+    }
+
+
+def list_override_of(group: str):
+    """`{\\listoverride\\listid4\\listoverridecount0\\ls4}` 一群：段上那个 `\ls` 号
+    指的是哪一份定义。群里的 `listoverridecount` 说的是「这一条覆写了几级」
+    （实测 LibreOffice 写 0 —— 只换个号，一级也没改），与群名不是一回事"""
+    ls = word_in_group(group, "ls")
+    if ls is None:
+        return None
+    return {
+        "ls": ls,
+        "list_id": word_in_group(group, "listid"),
+        "override_count": word_in_group(group, "listoverridecount"),
+    }
 
 
 def switch_value(instruction: str, switch: str) -> str:
@@ -352,11 +473,15 @@ def rtf_text(data: bytes) -> dict:
         "instructions": [], "annotations": [], "destinations": 0,
     }
     # 定义类（字体与样式）不是页面上的字，也不进 page 那几个口袋
-    found: dict = {"fonts": [], "styles": []}
+    found: dict = {"fonts": [], "styles": [], "list_defs": [], "list_over": []}
     # 段那一份账：每段收尾时记下「这一段的字」与「这一段用的样式号」。
     # 样式号在段属性里（`\pard\s1`），所以它一定出现在这一段的 `\par` 之前
     paras: list = []
     mark = {"start": 0, "style": None}
+    # 与 `paras` 一条一条对着收：`\ilvl` / `\ls` / `\li` / `\fi` 与那段正文前那个
+    # `{\listtext…}` 群。收在同一处、跟着同一次走，段号才不会分家
+    flows: list = []
+    para: dict = {"ilvl": None, "ls": None, "li": None, "fi": None, "label": None}
     # 文档级的那张纸：每个词只认第一次写的（`\landscape` 是个旗标，没有数字参数）
     paper_writes: dict = {}
     # 刚读到、还没配上注的那条作者：文件把 `{\*\atnauthor …}` 写在注的前面一格
@@ -390,6 +515,8 @@ def rtf_text(data: bytes) -> dict:
         "atnauthors": 0,
         # 样式被用了几次：样式号 → 条数（正文里出现的 \sN，不含样式表自己的那些）
         "style_uses": {},
+        # `{\listtext…}` 那种群出现了几次（与「几个段带标签」是两个数）
+        "label_words": 0,
     }
 
     def flush() -> None:
@@ -432,6 +559,23 @@ def rtf_text(data: bytes) -> dict:
             if named in NOTE_DESTINATIONS or named in PAGE_DESTINATIONS:
                 i += 2
                 continue
+            if named in DEF_DESTINATIONS and not skip[-1]:
+                # `{{\}*\}listtable`：列表定义写在星号群里（实测同一份件里
+                # `listtable` 带星号、`listoverridetable` 不带 —— 只认一条路径就会一份读到
+                # 一份读不到）。整群照旧跳，destinations 那一笔也不动
+                head = i + 2 + len(named)
+                if text.startswith(" ", head):
+                    head += 1
+                _stop, inner = group_end(text, head)
+                if named == "listtable":
+                    for child in child_groups(inner):
+                        if starts_word(child, "list"):
+                            found["list_defs"].append(list_definition_of(child))
+                elif named == "listoverridetable":
+                    for child in child_groups(inner):
+                        got = list_override_of(child)
+                        if got:
+                            found["list_over"].append(got)
             if named in ATN_WORDS and not skip[-1]:
                 # 批注那一群**照样跳**（注的字不是页面上的正文），只是前瞻读一遍值 ——
                 # 所以 destinations 那一笔账不因为这个改动而变
@@ -542,12 +686,39 @@ def rtf_text(data: bytes) -> dict:
                 # 前瞻：这一群照旧整群跳过（里面的一个字都不进正文），
                 # 但本域认得这些定义，所以读一遍再走 —— 不推进游标、不改 skip
                 _stop, inner = group_end(text, j)
-                for child in child_groups(inner):
-                    got = definition_of(child)
-                    if got:
-                        found["fonts" if word == "fonttbl" else "styles"].append(got)
+                if word == "listtable":
+                    for child in child_groups(inner):
+                        if starts_word(child, "list"):
+                            found["list_defs"].append(list_definition_of(child))
+                elif word == "listoverridetable":
+                    for child in child_groups(inner):
+                        got = list_override_of(child)
+                        if got:
+                            found["list_over"].append(got)
+                else:
+                    for child in child_groups(inner):
+                        got = definition_of(child)
+                        if got:
+                            found["fonts" if word == "fonttbl" else "styles"].append(got)
             skip[-1] = True
             stats["destinations"] += 1
+        elif word == "listtext":
+            # 前瞻那一句标签：`{\listtext\pard\plain  1.\tab}`。那是生产者**算好之后写进
+            # 文件**的号，不是我们数出来的，所以解出来的字、它点的字体、那条 `\tab` 在不在
+            # 与文件那一串原样一起交。字照旧留在正文里（这一群不跳）
+            if not skip[-1]:
+                stats["label_words"] += 1
+                if para["label"] is None:
+                    # 读到 `\listtext` 时已经站在这个群里了：从 `j` 到关掉这一群的那个
+                    # `}` 就是那一句标签（找下一个 `{` 会一路读到后面好几个段）
+                    _stop, inner = group_end(text, j)
+                    got = word_in_group(inner, "f")
+                    para["label"] = {
+                        "text": rtf_text(inner.encode("latin-1", "replace"))["text"],
+                        "font": got or None,
+                        "tab": word_in_group(inner, "tab") is not None,
+                        "written": inner,
+                    }
         elif word == "pict":
             skip[-1] = True
             stats["pictures"] += 1
@@ -577,6 +748,9 @@ def rtf_text(data: bytes) -> dict:
                 paras.append(
                     {"text": "".join(out[mark["start"] :]).strip(), "style": mark["style"]}
                 )
+                flows.append(dict(para))
+                for key in ("ilvl", "ls", "li", "fi", "label"):
+                    para[key] = None
                 mark["start"] = len(out)
                 mark["style"] = None
             elif word in TAB_WORDS:
@@ -607,6 +781,11 @@ def rtf_text(data: bytes) -> dict:
                 which = int(digits)
                 stats["style_uses"][which] = stats["style_uses"].get(which, 0) + 1
                 mark["style"] = which
+            # 段自己说过的号：`\ilvl` 与 `\ls`（号本在 listoverridetable 那一头，这里只记
+            # 文件写在段上的那两串，不拿号当号用）。`\li` / `\fi` 记最后写下的那一个 ——
+            # 这一族段上写了一份，列表定义里另有一份
+            if word in ("ilvl", "ls", "li", "fi") and digits:
+                para[word] = digits
             # 那张纸写在文档级的属性里（`\paperw12240\paperh15840\margl1800…`，单位 twips）。
             # 只认**没被跳过的那一层**里第一次写的那一个：后面 `{\*\sectx …}` 里的那些是
             # 某一节的覆写，不是文档默认值（这一族不看分节归属，所以也不去数它）
@@ -641,8 +820,89 @@ def rtf_text(data: bytes) -> dict:
         hit = HEADING_NAME.match(named)
         if hit:
             headings.append({"level": int(hit.group(1)), "text": one["text"]})
+    # 列表那份账：段上的 `\ls` → `listoverridetable` 里那一条 → 它点名的 `\listid` →
+    # `listtable` 里那一份定义 → 定义里第 `\ilvl` 个 `{\listlevel`。
+    # 四步各自一个布尔，指不到就交到那一步为止，不拿邻居的数顶上
+    entries = []
+    checked = len(paras)
+    with_ilvl = with_ls = with_label = 0
+    override_found = definition_found = level_found = 0
+    for at, had in enumerate(flows):
+        if not (had["ilvl"] or had["ls"] or had["label"]):
+            continue
+        with_ilvl += 1 if had["ilvl"] else 0
+        with_ls += 1 if had["ls"] else 0
+        with_label += 1 if had["label"] else 0
+        over = None
+        if had["ls"]:
+            over = next((one for one in found["list_over"] if one["ls"] == had["ls"]), None)
+        list_id = over["list_id"] if over else None
+        held = None
+        if list_id:
+            held = next((one for one in found["list_defs"] if one["list_id"] == list_id), None)
+        level = None
+        if held is not None and (had["ilvl"] or "").lstrip("-").isdigit():
+            want = int(had["ilvl"])
+            if 0 <= want < len(held["list_level"]):
+                level = held["list_level"][want]
+        override_found += 1 if over else 0
+        definition_found += 1 if held else 0
+        level_found += 1 if level else 0
+        label = had["label"] or {}
+        style = paras[at]["style"]
+        entries.append(
+            {
+                "at": at,
+                "text": paras[at]["text"],
+                "style_index": style,
+                "style_name": by_index.get(style) if style is not None else None,
+                "ilvl": had["ilvl"],
+                "ls": had["ls"],
+                "indent": {"li": had["li"], "fi": had["fi"]},
+                "override_found": over is not None,
+                "list_id": list_id,
+                "template_id": held["template_id"] if held else None,
+                "definition_found": held is not None,
+                "level_found": level is not None,
+                "level": level,
+                "label": label.get("text"),
+                "label_font": label.get("font"),
+                "label_tab": bool(label.get("tab")),
+                "label_written": label.get("written"),
+            }
+        )
+    defs = [
+        {
+            "at": at,
+            "list_id": one["list_id"],
+            "template_id": one["template_id"],
+            "levels": one["levels"],
+            "nfc": one["nfc"],
+            "used_by": sum(1 for had in entries if had["list_id"] == one["list_id"]),
+        }
+        for at, one in enumerate(found["list_defs"])
+    ]
+    numbering = {
+        "checked": checked,
+        "listed": len(entries),
+        "with_ilvl": with_ilvl,
+        "with_ls": with_ls,
+        "with_label": with_label,
+        "label_words": stats["label_words"],
+        "list_definitions": len(found["list_defs"]),
+        "overrides": len(found["list_over"]),
+        "override_list": [dict(one) for one in found["list_over"]],
+        "levels": sum(one["levels"] for one in found["list_defs"]),
+        "override_found": override_found,
+        "definition_found": definition_found,
+        "level_found": level_found,
+        "resolved": definition_found,
+        "definitions": defs,
+        "list": entries,
+    }
     return {
         "headings": headings,
+        "numbering": numbering,
         # 文档级那张纸的原样（`{"paperw":"12240","margt":"1440","landscape":"1"}`）——
         # 换成 0.1mm 的换算放在 `lyco_pages.py`，三家共用同一条换算规则才好对账
         "paper_writes": paper_writes,

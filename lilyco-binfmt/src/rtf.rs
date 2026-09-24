@@ -47,10 +47,12 @@ const SKIP_DESTINATIONS: &[&str] = &[
     "operator",
 ];
 
-/// 这两群仍然整群跳过（里面的一个字都不是页面上的字），但本域**认得**它们，
+/// 这几群仍然整群跳过（里面的一个字都不是页面上的字），但本域**认得**它们，
 /// 所以跳过之前先前瞻读一遍里面的定义 —— 与 `\*` 那条同一个道理：
-/// 「不认识才跳」不等于「认识了就不许跳」，只是认识了就别连里面的名字一起丢
-const DEF_DESTINATIONS: &[&str] = &["fonttbl", "stylesheet"];
+/// 「不认识才跳」不等于「认识了就不许跳」，只是认识了就别连里面的名字一起丢。
+/// `listtable` 与 `listoverridetable` 也走这一条：列表定义不是页面上的字，
+/// 但段上那个 `\ls` 点的就是这里的某一份，不读等于把号的来源丢掉
+const DEF_DESTINATIONS: &[&str] = &["fonttbl", "stylesheet", "listtable", "listoverridetable"];
 
 /// 断点类：输出一个换行
 const BREAK_WORDS: &[&str] = &["par", "line", "sect", "page", "pbb"];
@@ -170,6 +172,157 @@ fn child_groups(text: &[u8]) -> Vec<Vec<u8>> {
         i = stop + 1;
     }
     out
+}
+
+/// 一群的开头是不是控制字 `want`（`\list{` 与 `\listlevel{` 不是一回事，
+/// 所以认完名字还要看下一个字节还是不是字母数字）
+fn starts_word(group: &[u8], want: &str) -> bool {
+    let rest = match group.strip_prefix(b"\\") {
+        Some(one) => one,
+        None => return false,
+    };
+    let name = rest
+        .iter()
+        .take_while(|one| one.is_ascii_alphabetic())
+        .copied()
+        .collect::<Vec<u8>>();
+    if name != want.as_bytes() {
+        return false;
+    }
+    match rest.get(name.len()) {
+        None => true,
+        Some(one) => !one.is_ascii_alphanumeric(),
+    }
+}
+
+/// 开头那个控制字占了几个字节：名字、紧跟的数字参数（`-` 也算，`\fi-360` 是负数），
+/// 以及跟在后面的那**一个**空格（RTF 里它是分隔符，不是字）。
+/// `\'hh` 那种转义不是控制字，只占那四个字节
+fn word_len(group: &[u8]) -> usize {
+    if group.first() != Some(&b'\\') {
+        if group.first() == Some(&b'\'') {
+            return 4.min(group.len());
+        }
+        return 0;
+    }
+    let mut k = 1usize;
+    while k < group.len() && group[k].is_ascii_alphabetic() {
+        k += 1;
+    }
+    while k < group.len() && (group[k].is_ascii_digit() || group[k] == b'-') {
+        k += 1;
+    }
+    if k < group.len() && group[k] == b' ' {
+        k += 1;
+    }
+    k
+}
+
+/// 去掉开头那个控制字之后的部分：`{\leveltext \'\02\'01.;}` 里真正要说的是
+/// `\'\02\'01.;` 这一段，而它按文件写的字节交，不替它解成「第 1 级后面一个点」
+fn payload_of(group: &[u8]) -> &[u8] {
+    &group[word_len(group).min(group.len())..]
+}
+
+/// 一群去掉开头控制字之后的原样串（`\'hh` 与 `\uN` 都按字节交，不猜字面）。
+/// 用在**整群交出来**的那些子群上（`{\leveltext …}`）；标签那一句不走这里，
+/// 因为读到 `\listtext` 时已经站在群里，群里的字一个控制字也没多剥
+fn written_of(group: &[u8]) -> String {
+    String::from_utf8_lossy(payload_of(group)).into_owned()
+}
+
+/// 一群里第一个叫 `want` 的控制字：交回紧跟它的那串数字（没有数字时交空串），
+/// 整群没有才交 None
+fn word_in_group(group: &[u8], want: &str) -> Option<String> {
+    let mut i = 0usize;
+    while i < group.len() {
+        if group[i] != b'\\' {
+            i += 1;
+            continue;
+        }
+        let mut k = i + 1;
+        let mut name: Vec<u8> = Vec::new();
+        while k < group.len() && group[k].is_ascii_alphabetic() {
+            name.push(group[k]);
+            k += 1;
+        }
+        let from = k;
+        while k < group.len() && (group[k].is_ascii_digit() || group[k] == b'-') {
+            k += 1;
+        }
+        if name == want.as_bytes() {
+            return Some(String::from_utf8_lossy(&group[from..k]).into_owned());
+        }
+        i = if k > i + 1 { k } else { i + 1 };
+    }
+    None
+}
+
+/// `{\listlevel\levelnfc0…{\leveltext …;}{\levelnumbers…;}\fi-360\li1080}` 一群：
+/// 这一级的账。级别号是**这一份 list 里第几个 `{\listlevel`**（实测 LibreOffice 不在
+/// 级上写 `\ilvl`，一份也没有），所以号是读者按顺序给的，不是文件写的
+fn list_level_of(group: &[u8], at: usize) -> Value {
+    let kids = child_groups(group);
+    let pick = |want: &str| -> Option<String> {
+        kids.iter()
+            .find(|one| starts_word(one, want))
+            .map(|one| written_of(one))
+    };
+    json!({
+        "at": at,
+        "nfc": word_in_group(group, "levelnfc"),
+        "jc": word_in_group(group, "leveljc"),
+        "startat": word_in_group(group, "levelstartat"),
+        "follow": word_in_group(group, "levelfollow"),
+        "font": word_in_group(group, "f").filter(|one| !one.is_empty()),
+        "first_indent": word_in_group(group, "fi"),
+        "indent": word_in_group(group, "li"),
+        "level_text": pick("leveltext"),
+        "level_numbers": pick("levelnumbers"),
+        "children": kids.into_iter().map(|one| written_of(&one)).collect::<Vec<String>>(),
+    })
+}
+
+/// `{\list\listtemplateid1 {…九级…}\listid1}` 一群：一份列表定义。
+/// **`\listid` 写在群的最后**（实测：按 `{\list\listid` 去抓一条也抓不到，
+/// 而全文 `\listid` 有 14 次 —— 这里 7 次、`listoverridetable` 里 7 次），
+/// 所以整群读完才拿得到号
+fn list_definition_of(group: &[u8]) -> Value {
+    let levels: Vec<Value> = child_groups(group)
+        .into_iter()
+        .filter(|one| starts_word(one, "listlevel"))
+        .enumerate()
+        .map(|(at, one)| list_level_of(&one, at))
+        .collect();
+    let nfc: Vec<Value> = levels.iter().map(|one| one["nfc"].clone()).collect();
+    json!({
+        "template_id": word_in_group(group, "listtemplateid"),
+        "list_id": word_in_group(group, "listid"),
+        "levels": levels.len(),
+        "nfc": nfc,
+        "list_level": levels,
+    })
+}
+
+/// `{\listoverride\listid4\listoverridecount0\ls4}` 一群：段上那个 `\ls` 号
+/// 指的是哪一份定义。群里的 `listoverridecount` 说的是「这一条覆写了几级」
+/// （实测 LibreOffice 写 0 —— 它只换个号，一级也没改），与群名不是一回事
+fn list_override_of(group: &[u8]) -> Option<Value> {
+    let ls = word_in_group(group, "ls")?;
+    Some(json!({
+        "ls": ls,
+        "list_id": word_in_group(group, "listid"),
+        "override_count": word_in_group(group, "listoverridecount"),
+    }))
+}
+
+/// 一段自己说过的「列表上的话」（与 `marks` 一条一条对着收，所以段号不会分家）
+struct ParaFlow {
+    ilvl: Option<String>,
+    ls: Option<String>,
+    li: Option<String>,
+    fi: Option<String>,
+    label: Option<Value>,
 }
 
 /// 一条 `{\f0 … Times New Roman;}` / `{\s1 … heading 1;}` / `{\*\cs15 … Name;}`：
@@ -447,6 +600,11 @@ pub struct Rtf {
     /// 这一群里出现过 `\ftnalt`：LibreOffice 用它把 `footnote` 口袋标成尾注。
     /// 只在提取子群时用来判 kind，不单独交出去
     pub ftnalt: bool,
+    /// `{\listtext…}` 那种群一共出现了几次（与「几个段带标签」是两个数：
+    /// 一段里如果有两条，只交第一条，另一条只在这个数里）
+    pub label_words: usize,
+    /// 列表那一份账（`structure.numbering` 的 RTF 那一支）：段的账 + 号本 + 定义的账
+    pub numbering: Value,
     pub notes: Vec<String>,
 }
 
@@ -492,6 +650,8 @@ impl Rtf {
             "table_cell_paras": self.table_cell_paras,
             "nested_table_rows": self.nested_table_rows,
             "nested_table_cells": self.nested_table_cells,
+            "label_words": self.label_words,
+            "numbering": self.numbering.clone(),
             "notes": self.notes,
         })
     }
@@ -513,8 +673,19 @@ pub fn extract(bytes: &[u8]) -> Rtf {
     // 只写起点会把后面整篇字都当成这一段的内容（那个 bug 由 CI 抓出来：标题变成整份文档）。
     // 这一段与 `lines` 是两本账：这里空段也留
     let mut marks: Vec<(usize, usize, Option<u64>)> = Vec::new();
+    // 与 `marks` 一条一条对着来的段属性：`\ilvl` / `\ls` / `\li` / `\fi`，以及那段
+    // 正文前那个 `{\listtext…}` 群。收在同一处、跟着同一次走，段号才不会分家
+    let mut flows: Vec<ParaFlow> = Vec::new();
     let mut para_start = 0usize;
     let mut para_style: Option<u64> = None;
+    let mut para_ilvl: Option<String> = None;
+    let mut para_ls: Option<String> = None;
+    let mut para_li: Option<String> = None;
+    let mut para_fi: Option<String> = None;
+    let mut para_label: Option<Value> = None;
+    // 列表那两群里读出来的东西：定义与号本，各自按文件里的顺序
+    let mut list_defs: Vec<Value> = Vec::new();
+    let mut list_over: Vec<Value> = Vec::new();
     // 文档级那张纸的原样（`paper_writes`）：只收第一次写的那一个，见下面那条判断
     let mut paper: Vec<(String, String)> = Vec::new();
     // 刚读到、还没配上注的那条 `{\*\atnauthor …}`：文件把作者写在注的前面一格，
@@ -552,6 +723,8 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         nested_table_rows: 0,
         nested_table_cells: 0,
         ftnalt: false,
+        label_words: 0,
+        numbering: Value::Null,
         notes: Vec::new(),
     };
     let mut i = 0usize;
@@ -603,6 +776,30 @@ pub fn extract(bytes: &[u8]) -> Rtf {
             }
             // 批注那两个词：认得，但这一群仍然整个跳过（注的字不是页面上的正文）——
             // 只**前瞻**把值读出来，所以 skipped_destinations 一个也不因为这个改动而变
+            // `{{\}*\}listtable`：这一族的列表定义写在**星号群**里（实测 LibreOffice 在
+            // 同一份件里把 `listtable` 带星号写、把 `listoverridetable` 不带星号写 ——
+            // 只认一条路径就会一份读到、一份读不到）。整群照旧跳，`skipped_destinations`
+            // 那一笔也不动，只是里面的定义不再跟着群一起丢
+            if DEF_DESTINATIONS.contains(&named.as_str()) && !*skip.last().unwrap_or(&false) {
+                let mut head = i + 2 + named.len();
+                if bytes.get(head) == Some(&b' ') {
+                    head += 1;
+                }
+                let (_stop, inner) = group_end(bytes, head);
+                if named == "listtable" {
+                    for child in child_groups(&inner) {
+                        if starts_word(&child, "list") {
+                            list_defs.push(list_definition_of(&child));
+                        }
+                    }
+                } else if named == "listoverridetable" {
+                    for child in child_groups(&inner) {
+                        if let Some(one) = list_override_of(&child) {
+                            list_over.push(one);
+                        }
+                    }
+                }
+            }
             if ATN_WORDS.contains(&named.as_str()) && !*skip.last().unwrap_or(&false) {
                 let mut head = i + 2;
                 while head < bytes.len() && matches!(bytes[head], b' ' | b'\r' | b'\n' | b'\\') {
@@ -765,14 +962,28 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         {
             if !skipping && DEF_DESTINATIONS.contains(&word.as_str()) {
                 // 前瞻：不推进游标、不改这里的 skip —— 那一群照旧整群跳过，
-                // 只是里面的 `{\fN …名字;}` / `{\sN …名字;}` 别再丢了
+                // 只是里面的 `{\fN …名字;}` / `{\sN …名字;}` / `{\list…}` 别再丢了
                 let (_stop, inner) = group_end(bytes, j);
-                for child in child_groups(&inner) {
-                    if let Some(one) = definition_of(&child) {
-                        if word == "fonttbl" {
-                            me.fonts.push(one);
-                        } else {
-                            me.styles.push(one);
+                if word == "listtable" {
+                    for child in child_groups(&inner) {
+                        if starts_word(&child, "list") {
+                            list_defs.push(list_definition_of(&child));
+                        }
+                    }
+                } else if word == "listoverridetable" {
+                    for child in child_groups(&inner) {
+                        if let Some(one) = list_override_of(&child) {
+                            list_over.push(one);
+                        }
+                    }
+                } else {
+                    for child in child_groups(&inner) {
+                        if let Some(one) = definition_of(&child) {
+                            if word == "fonttbl" {
+                                me.fonts.push(one);
+                            } else {
+                                me.styles.push(one);
+                            }
                         }
                     }
                 }
@@ -780,6 +991,26 @@ pub fn extract(bytes: &[u8]) -> Rtf {
             let last = skip.len() - 1;
             skip[last] = true;
             me.skipped_destinations += 1;
+        } else if word == "listtext" {
+            // 前瞻那一句标签：`{\listtext\pard\plain  1.\tab}`。那是生产者**算好之后
+            // 写进文件**的号，不是我们数出来的，所以解出来的字（`text`）、它点的字体
+            // （`font`）、后面那条 `\tab` 在不在（`tab`）与文件那一串原样（`written`）一起交。
+            // 字照旧留在正文里（这一群不跳），所以 lines 与段落数都不因为这个变
+            if !skipping {
+                me.label_words += 1;
+                if para_label.is_none() {
+                    // `\listtext` 就是这一群开群之后的第一个控制字，所以**我们已经站在
+                    // 群里了**：从 `j` 起到关掉这一群的那个 `}` 就是那一句标签。
+                    // （找下一个 `{` 是错的 —— 那会一路读到后面好几个段）
+                    let (_stop, inner) = group_end(bytes, j);
+                    para_label = Some(json!({
+                        "text": extract(&inner).text,
+                        "font": word_in_group(&inner, "f").filter(|one| !one.is_empty()),
+                        "tab": word_in_group(&inner, "tab").is_some(),
+                        "written": String::from_utf8_lossy(&inner).into_owned(),
+                    }));
+                }
+            }
         } else if word == "pict" {
             let last = skip.len() - 1;
             skip[last] = true;
@@ -810,6 +1041,13 @@ pub fn extract(bytes: &[u8]) -> Rtf {
             if BREAK_WORDS.contains(&word.as_str()) || ROW_WORDS.contains(&word.as_str()) {
                 out.push(b'\n');
                 marks.push((para_start, out.len(), para_style));
+                flows.push(ParaFlow {
+                    ilvl: para_ilvl.take(),
+                    ls: para_ls.take(),
+                    li: para_li.take(),
+                    fi: para_fi.take(),
+                    label: para_label.take(),
+                });
                 para_start = out.len();
                 para_style = None;
             } else if TAB_WORDS.contains(&word.as_str()) {
@@ -837,6 +1075,18 @@ pub fn extract(bytes: &[u8]) -> Rtf {
                     uses.push(index);
                     para_style = Some(index);
                 }
+            }
+            // 段自己说过的号：`\ilvl` 与 `\ls`（号本在 listoverridetable 那一头，
+            // 这里只记文件写在段上的那两串，不拿号当号用）。`\li` / `\fi` 也照最后
+            // 写下的那个收 —— 这一族段上写了一份，列表定义里另有一份
+            if word == "ilvl" && !digits.is_empty() {
+                para_ilvl = Some(digits.clone());
+            } else if word == "ls" && !digits.is_empty() {
+                para_ls = Some(digits.clone());
+            } else if word == "li" && !digits.is_empty() {
+                para_li = Some(digits.clone());
+            } else if word == "fi" && !digits.is_empty() {
+                para_fi = Some(digits.clone());
             }
             // 那张纸写在文档级的属性里。每个词只记第一次写的，而且只看没被跳过的那一层 ——
             // 后面 `{\*\sectx …}` 里的那些是某一节的覆写，`\header` 那种已知目标群整个另读，
@@ -884,6 +1134,148 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         })
         .collect();
     me.style_uses = resolved;
+    // 列表那份账：段上的 `\ls` → `listoverridetable` 里那一条 → 它点名的 `\listid` →
+    // `listtable` 里那一份定义 → 定义里第 `\ilvl` 个 `{\listlevel`。
+    // 四步各自一个布尔，指不到就交到那一步为止，不拿邻居的数顶上
+    let name_of = |index: Option<u64>| -> Option<String> {
+        let want = index?;
+        let named = me
+            .styles
+            .iter()
+            .find(|one| one["kind"] == json!("paragraph") && one["index"] == json!(want));
+        named
+            .and_then(|one| one["name"].as_str())
+            .map(|one| one.to_string())
+    };
+    let mut entries: Vec<Value> = Vec::new();
+    let mut checked = 0usize;
+    let mut with_ilvl = 0usize;
+    let mut with_ls = 0usize;
+    let mut with_label = 0usize;
+    let mut override_found = 0usize;
+    let mut definition_found = 0usize;
+    let mut level_found = 0usize;
+    for (at, (start, end, style)) in marks.iter().enumerate() {
+        let had = match flows.get(at) {
+            Some(one) => one,
+            None => continue,
+        };
+        checked += 1;
+        if had.ilvl.is_none() && had.ls.is_none() && had.label.is_none() {
+            continue;
+        }
+        with_ilvl += usize::from(had.ilvl.is_some());
+        with_ls += usize::from(had.ls.is_some());
+        with_label += usize::from(had.label.is_some());
+        let over = had.ls.as_ref().and_then(|want| {
+            list_over
+                .iter()
+                .find(|one| one["ls"].as_str() == Some(want.as_str()))
+        });
+        let list_id = over.and_then(|one| one["list_id"].as_str());
+        let held = list_id.and_then(|want| {
+            list_defs
+                .iter()
+                .find(|one| one["list_id"].as_str() == Some(want))
+        });
+        let level = match (
+            held,
+            had.ilvl.as_ref().and_then(|raw| raw.parse::<usize>().ok()),
+        ) {
+            (Some(one), Some(want)) => one["list_level"].get(want),
+            _ => None,
+        };
+        override_found += usize::from(over.is_some());
+        definition_found += usize::from(held.is_some());
+        level_found += usize::from(level.is_some());
+        let said = out
+            .get(*start..*end)
+            .map(|raw| String::from_utf8_lossy(raw).trim().to_string())
+            .unwrap_or_default();
+        entries.push(json!({
+            "at": at,
+            "text": said,
+            "style_index": style.clone(),
+            "style_name": name_of(*style),
+            "ilvl": had.ilvl.clone(),
+            "ls": had.ls.clone(),
+            "indent": {"li": had.li.clone(), "fi": had.fi.clone()},
+            "override_found": over.is_some(),
+            "list_id": list_id.map(|one| one.to_string()),
+            "template_id": held
+                .and_then(|one| one["template_id"].as_str())
+                .map(String::from),
+            "definition_found": held.is_some(),
+            "level_found": level.is_some(),
+            "level": level.cloned(),
+            "label": had
+                .label
+                .as_ref()
+                .and_then(|one| one["text"].as_str())
+                .map(String::from),
+            "label_font": had
+                .label
+                .as_ref()
+                .and_then(|one| one["font"].as_str())
+                .map(String::from),
+            "label_tab": had
+                .label
+                .as_ref()
+                .map(|one| one["tab"] == json!(true))
+                .unwrap_or(false),
+            "label_written": had
+                .label
+                .as_ref()
+                .and_then(|one| one["written"].as_str())
+                .map(String::from),
+        }));
+    }
+    let listed = entries.len();
+    let want_used = |want: &str| -> usize {
+        entries
+            .iter()
+            .filter(|had| had["list_id"].as_str() == Some(want))
+            .count()
+    };
+    let defs: Vec<Value> = list_defs
+        .iter()
+        .enumerate()
+        .map(|(at, one)| {
+            json!({
+                "at": at,
+                "list_id": one["list_id"],
+                "template_id": one["template_id"],
+                "levels": one["levels"],
+                "nfc": one["nfc"],
+                "used_by": want_used(one["list_id"].as_str().unwrap_or_default()),
+            })
+        })
+        .collect();
+    let levels_all: usize = list_defs
+        .iter()
+        .map(|one| one["levels"].as_u64().unwrap_or(0) as usize)
+        .sum();
+    // `checked` 就是「这一族按 par / row 切出来看了几段」—— 表里的 `at` 是这个序号，
+    // 与 `structure.paragraphs`（去掉空段的那本）是两个数，所以两个都在表上
+    me.numbering = json!({
+        "checked": checked,
+        "listed": listed,
+        "with_ilvl": with_ilvl,
+        "with_ls": with_ls,
+        "with_label": with_label,
+        "label_words": me.label_words,
+        "list_definitions": list_defs.len(),
+        "overrides": list_over.len(),
+        // 号本也整份交（与 docx 那一份 `definitions` 是同一类东西：段的号先落在这里）
+        "override_list": list_over.clone(),
+        "levels": levels_all,
+        "override_found": override_found,
+        "definition_found": definition_found,
+        "level_found": level_found,
+        "resolved": definition_found,
+        "definitions": defs,
+        "list": entries,
+    });
     // 标题：样式名写成 `heading N` 的那些段。层级不是猜出来的 —— 某一段用的是哪个样式号
     // 写在段属性里，那个号叫什么名字写在样式表里，两头都在文件上。
     // 用了却没定义的号（样式表里查不到）不算标题，也不给它编一个名字

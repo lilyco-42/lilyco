@@ -49,6 +49,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `lists.docx` | python-docx（`write_list_docx`） | 编号的三个来源一次摆开：走样式那三段（两份 `List Number` 与一份 `List Bullet`）段上**一个编号属性都没写**；写 `w:numPr` 那三段里有一段点 `numId="3" ilvl="1"`，而模板那九份抽象全是 `multiLevelType="singleLevel"`、每份只带一条 `w:lvl w:ilvl="0"`（那一级根本不存在）；最后一段点 `numId="77"`，`numbering.xml` 里没有这一条。另外三处实测：`numId 1 → abstractNumId 8`（**两本号分开编**）、圆点那级的 `w:lvlText` 是 **Symbol 字体的 `U+F0B7`**（字体名写在同级的 `w:rPr/w:rFonts` 上），而 `w:lvl` 里还有一条 `<w:pStyle w:val="ListNumber"/>` 反指回样式表 —— 样式与编号是一个环 |
 | `lists-lo.docx` | LibreOffice（`lists.docx` → .docx，同一个格式重写） | 重写一次每段都换了样子：编号**段上写一份、样式里那份也留着**（`both` 三段），级别补齐九级、`ilvl` 也写出来了，`w:ind` 从 `left` 换成 `start`、`lvlJc` 也从 `left` 换成 `start`，抽象上那三个 `nsid`/`tmpl`/`multiLevelType` 一个都不写（`written` 是空表），号改成自己那本（`numId N → abstractNumId N`），**而那个不存在的 77 被改写成 `numId="0"`**（0 这一条同样不存在）|
 | `lists.odt` | LibreOffice（从 `lists.docx`） | 换 ODF 的形状：第二级是**套两层 `text:list`** 表达出来的（套在里面那一层连样式名都不写，`chain` 交 `[WWNum3, null]`），段上只剩样式名 P1..P4 而列表样式名挂在样式上（`text:list-style-name`），级别是 **1 基的 `text:level`**（docx 那边是 0 基的 `w:ilvl`），十份 `text:list-style` 定义**全在 styles.xml**（`in_content` 0、`in_styles` 10），而那个解不开的 77 在这里写成 `text:list-style-name=""` —— 空串是这一族说「不套列表」的写法，与「点了一个没有的名字」不是一回事 |
+| `lists.rtf` | LibreOffice（`lists.docx` → .rtf） | 列表的第三种存法：号写在**段上**（`\ilvl0\ls4` 五段各一对，紧挨着还有一份段自己的 `\li360\fi-360`），段的号先落 `{\listoverride\listidN\listoverridecount0\lsN}` 那本号（`listoverridecount` 说的是「这一条覆写了几级」，实测 0），号本再点 `{\list\listtemplateidN …}` 那一份定义 —— 而**那份群自己的 `\listid` 写在最后**（按 `{\list\listid` 抓一条也抓不到）。级上不写 `\ilvl`（级别号＝第几条 `{\listlevel`），九级全写（7 × 9 = 63 级）；每段正文前还有一句 `{\listtext\pard\plain  1.\tab}` —— 那是**生产者算好写进流的标签**，圆点那一段写的 `\f7` 与定义里点的 `\f1` 还不是同一个号。见事实 58 |
 | `tables-lo.docx` | LibreOffice（`tables.docx` → .docx，同一个格式重写） | 那三本账里第一本变了：`w:tblW` 从 `type=auto w=0` 换成实数 **`8640 dxa`**，另外补出 `w:jc=start`、`w:tblInd=108`、`w:tblLayout=fixed` 与一个**空的** `w:tblCellMar`；网格与每格那两本**一字不差**（`4320` 与 `4320`），`w:tblLook` 的 `val` 从 `04A0` 变成小写 `04a0` |
 | `shaded.docx` | python-docx（`write_shaded_docx`） | 一张 2×3 的表，三格各带一样：`w:shd`（`val=clear color=auto fill=FFFF00`）、`w:tcBorders/w:top`（`double sz=6 space=0 color=FF0000`）、`w:vAlign="bottom"`；另外三格只有 `w:tcW` —— 「什么都没设」必须留着当对照 |
 | `shaded-lo.docx` | LibreOffice（`shaded.docx` → .docx，同一个格式重写） | **每一格**都被补上一个**空的** `<w:tcBorders></w:tcBorders>`（六格里五格是「元素在而一条边都没有」），`w:shd` / 那条 `w:top` / `w:vAlign` 的值一字不改（连 `FFFF00` 的大小写都保住了），只把属性顺序换了 —— 所以 `borders_present` 与 `borders` 要分两个键交 |
@@ -848,6 +849,30 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       （`attrs: {}`、`style: null`、`written: null`），纵向那格还留着样式名 —— 「一格什么都没写」与
       「一格没被数」又不是一回事。跨了几列几行照原样留在 `attrs` 的 `number-columns-spanned` /
       `number-rows-spanned` 里，不并进「这一行几个格」。
+
+58. **RTF 的号写在段上，那一句标签是生产者算好写进流的**（`lists.rtf`，LibreOffice 从 `lists.docx` 转的）。
+    四步一跳一步布尔：段上的 `\ls4` → `{\*\listoverridetable` 里那一条（`{\listoverride\listid4\listoverridecount0\ls4}`，
+    `listoverridecount` 是「这一条覆写了几级」，实测 0）→ 它点名的 `\listid` → `{\list\listtemplateidN …}` 那一份定义。
+    * **定义群的 `\listid` 写在最后**：按 `{\list\listid` 去抓一条也抓不到（实测 0 条），
+      而全文 `\listid` 有 14 次 —— 两份表各 7 次。整群读完才拿得到号。
+    * 同一份文件里 `{\*\listtable` **带星号**而 `\listoverridetable` **不带** ——
+      前瞻只挂一条路径就会一份读到、一份读不到；两条都挂之后 `skipped_destinations` 一个字也没变。
+    * 级上**一个 `\ilvl` 也不写**，所以级别号是「这份 list 里第几条 `{\listlevel`」（读者按顺序给的号），
+      而且每份定义**九级全写**（7 × 9 = 63 级），每一级的 `levelnfc` / `leveljc` / `levelstartat` /
+      `levelfollow` 与 `{\leveltext …}`、`{\levelnumbers …}` 按写的字节交（`\'02\'00.;` 那种占位记法
+      不替它解成格式串）。
+    * 圆点那一段是跨家族最干净的一条对照：`lvlText` 在 docx 是 Symbol 字体的 `U+F0B7`，
+      在这里定义里点 `\f1`（字体表里那一个才是 Symbol），而**文件自己算出来的标签点的是 `\f7`**
+      （`{\listtext\pard\plain \f7 \u-3913\'3f\tab}`）—— 两个号各按各的交，不挑一个当准。
+    * 那一句标签是**算好写进流的**，所以 `label`（解出来的字）、`label_written`（那一句原样，
+      连前面那个空格）、`label_tab`、`label_font` 一起交 —— 这一族的「第几号」有两个出处。
+    * 段上还另写了一份 `\li360\fi-360`，那是**段自己的缩进**，与级别定义里的 `li` 不是一回事
+      （这份件里两处都是 `360`，但两家可以不同），所以并排放着。
+    * 跨家族最狠的一条：同一段点第二级（`\ilvl1`），docx 那边抽象是 `singleLevel` → `level_found: false`，
+      而 LibreOffice 的 RTF 导出把九级都写全 → `level_found: true`。
+    * 「定义了没人用」在这里是常态：`notes.rtf` / `para.rtf` / `tables.rtf` / `comments.rtf` …
+      都带着整个模板的 7 份定义、63 级，而 `listed: 0`；`notes-end.rtf` 只带一份 ——
+      与 `notes.odt` 的「十份定义一段没套」同一类事实，各按各的交。
 
 ## 这些数字从哪来
 

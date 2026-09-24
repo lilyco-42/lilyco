@@ -154,6 +154,7 @@ def main() -> int:
         "lists.docx": ("ooxml", "word", "docx"),
         "lists-lo.docx": ("ooxml", "word", "docx"),
         "lists.odt": ("opendocument", "word", "odt"),
+        "lists.rtf": ("rtf", "word", "rtf"),
         "notes.odt": ("opendocument", "word", "odt"),
         "book.ods": ("opendocument", "excel", "ods"),
         "deck.odp": ("opendocument", "powerpoint", "odp"),
@@ -1101,12 +1102,103 @@ def main() -> int:
          dig(plainodt, "structure.numbering.in_list")],
         [0, 10, 0],
     )
-    # RTF 与 .doc 这一族不交这份账：键整个不在（那一族的列表住在 \listtable 与
-    # \pntext 那一套里，还没读到；.doc 的在表流里）
-    for name in ("notes.rtf", "toc.rtf", "para.rtf"):
+    # RTF 这一族现在也交这份账：号写在段上（`\ilvl` + `\ls`），定义在 `{\*\listtable`
+    # 那个星号群里，而 `listoverridetable` 在同一份文件里却是**不带星号**写的 ——
+    # 只认一条路径就会一份读到、一份读不到，所以两边都要走
+    for name in sorted(one.name for one in FIXTURES.glob("*.rtf")):
         got = lbin("office-doc", fixture(name)).get("structure", {})
-        check("%s 不报编号：这个键整个不在" % name,
-              [one for one in ("numbering",) if got.get(one) is not None], [])
+        want = files[name]["rtf"]
+        check("%s 编号与读者一致" % name, got.get("numbering"), want.get("numbering"))
+    listrtf = lbin("office-doc", fixture("lists.rtf"))
+    check(
+        "RTF 的三本账：七份定义、七条号本、一份九级",
+        [dig(listrtf, "structure.numbering.list_definitions"),
+         dig(listrtf, "structure.numbering.overrides"),
+         dig(listrtf, "structure.numbering.levels"),
+         dig(listrtf, "structure.numbering.checked"),
+         dig(listrtf, "structure.numbering.listed"),
+         dig(listrtf, "structure.numbering.with_ls"),
+         dig(listrtf, "structure.numbering.label_words")],
+        [7, 7, 63, 7, 5, 5, 5],
+    )
+    check(
+        "段上的号先落号本，号本再点名定义（三跳各自一个布尔）",
+        [dig(listrtf, "structure.numbering.override_list[3]"),
+         dig(listrtf, "structure.numbering.list[0].ls"),
+         dig(listrtf, "structure.numbering.list[0].list_id"),
+         dig(listrtf, "structure.numbering.list[0].template_id"),
+         dig(listrtf, "structure.numbering.list[0].definition_found"),
+         dig(listrtf, "structure.numbering.list[0].level_found")],
+        [{"ls": "4", "list_id": "4", "override_count": "0"}, "4", "4", "4", True, True],
+    )
+    # 这一族不在级上写 `\ilvl`（一份也没有），所以级别号是「这份 list 里第几个
+    # {\listlevel」—— 号是读者按顺序给的，这一点要看得见
+    check(
+        "级别号是第几条 {\\listlevel，号型按写的交",
+        [dig(listrtf, "structure.numbering.definitions[0].levels"),
+         dig(listrtf, "structure.numbering.definitions[0].nfc[0]"),
+         dig(listrtf, "structure.numbering.definitions[3].nfc[0]"),
+         dig(listrtf, "structure.numbering.definitions[6].nfc[0]"),
+         dig(listrtf, "structure.numbering.list[4].level.at")],
+        [9, "23", "0", "255", 1],
+    )
+    # 圆点那一级：定义里点 `\f1`（字体表里那一个就是 Symbol），
+    # 而文件自己算出来的那一句标签点的是 `\f7` —— 两个号各按各的交，不替它对齐
+    check(
+        "同一枚圆点：定义里的字体号与标签里的字体号不是一号",
+        [dig(listrtf, "structure.numbering.list[2].level.nfc"),
+         dig(listrtf, "structure.numbering.list[2].level.font"),
+         dig(listrtf, "structure.numbering.list[2].label_font"),
+         dig(listrtf, "structure.numbering.list[2].level.level_text"),
+         dig(listrtf, "structure.numbering.list[2].label_written"),
+         dig(listrtf, "structure.numbering.list[2].label_tab")],
+        ["23", "1", "7", "\\'01\\u-3913 ?;", "\\pard\\plain \\f7 \\u-3913\\'3f\\tab", True],
+    )
+    # 那一句标签是**生产者算好写进流的**，不是我们数出来的：原样与解出来的字一起交
+    check(
+        "标签那一跳：原样一句与解出来的字并存",
+        [dig(listrtf, "structure.numbering.list[0].label_written"),
+         dig(listrtf, "structure.numbering.list[0].label"),
+         dig(listrtf, "structure.numbering.list[0].level.level_text"),
+         dig(listrtf, "structure.numbering.list[0].indent.li"),
+         dig(listrtf, "structure.numbering.list[0].level.indent")],
+        ["\\pard\\plain  1.\\tab", "1.", "\\'02\\'00.;", "360", "360"],
+    )
+    # 跨家族最狠的一条：同一段（第二级）在 docx 手里那一级没定义，
+    # 在 LibreOffice 的 RTF 导出里九级都写全了 —— 于是 level_found 一边 false 一边 true
+    check(
+        "同一段落在 docx 与 RTF 手里的两级答案",
+        [dig(listdoc, "structure.numbering.list[4].level_found"),
+         dig(listrtf, "structure.numbering.list[4].level_found"),
+         dig(listdoc, "structure.numbering.list[4].ilvl"),
+         dig(listrtf, "structure.numbering.list[4].ilvl")],
+        [False, True, "1", "1"],
+    )
+    check(
+        "样式名与段号：段上的 `\\sN` 到样式表里查名字",
+        [dig(listrtf, "structure.numbering.list[0].style_index"),
+         dig(listrtf, "structure.numbering.list[0].style_name"),
+         dig(listrtf, "structure.numbering.list[2].style_name"),
+         dig(listrtf, "structure.numbering.list[0].at"),
+         dig(listrtf, "structure.numbering.list[4].at")],
+        [70, "List Number", "List Bullet", 1, 5],
+    )
+    # 「定义了没人用」在这一族更夸张：六份 RTF 都带着整个模板的七份定义，
+    # 而榜上一条都没有（`notes-end.rtf` 那份只带一份）
+    empty_rtf = {}
+    for name in ("para.rtf", "toc.rtf", "notes.rtf", "tables.rtf", "comments.rtf",
+                 "notes-hf.rtf", "notes-end.rtf"):
+        had = lbin("office-doc", fixture(name)).get("structure", {}).get("numbering") or {}
+        empty_rtf[name] = [had.get("list_definitions"), had.get("levels"), had.get("listed")]
+    check(
+        "带着定义没人用：六份 RTF 七份定义九级一段也没套",
+        [one for name, one in sorted(empty_rtf.items()) if name != "notes-end.rtf"],
+        [[7, 63, 0]] * 6,
+    )
+    check(
+        "少带一份的那条：notes-end.rtf 只有一份定义",
+        empty_rtf["notes-end.rtf"], [1, 9, 0],
+    )
     for name in ("notes.doc", "notes-en.doc"):
         got = (lbin("office-doc", fixture(name)).get("structure") or {})
         check("%s 也不报编号：那一份在表流里" % name,
