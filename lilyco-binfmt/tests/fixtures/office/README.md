@@ -1160,6 +1160,12 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       `<patternFill/>`（元素在而没写 `patternType`），在 LibreOffice 手里写明
       `patternType="none"`；`fills[1]` 两家都写 `gray125`。所以「这格有没有底色」交
       `style_filled`，而它为什么是 false 在 `style_fill` 那份原样账里看得见。
+    * **颜色还要再下一层**：`D2` 那条底色的字面住在 `fill > patternFill > fgColor` 的第三层，
+      而第一版的行账本只走到 `patternFill` 自己身上 —— 于是「这格什么颜色」在文件里明明写着
+      而交回 null。这一条最难看的部分是它**藏得住**：`patternType` 在第一层，读得到，
+      `style_filled` 也算得对，整份账看上去是通的，只有把颜色串按文件钉死那一条检查会露出来。
+      现在一行往下带两层，两份读者同一条规则（实测 `FF00B050` 与重写后的 `FF90DDB3`
+      各在自己那一层，`bgColor` 也在）。
     * 三种开关是三种形状，不混：粗体是**孩子元素**（`<b val="1"/>` / `<b val="true"/>`，
       元素在而没写 `val` 按 true 算 —— 那是 OOXML 的写法），换行是**属性**
       （`<alignment wrapText="1"/>`，属性没写就是「文件没说」→ null，**不按默认 false 算**），

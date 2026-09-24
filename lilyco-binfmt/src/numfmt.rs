@@ -222,15 +222,32 @@ fn attrs_json(node: &Node) -> Value {
     Value::Object(out)
 }
 
-/// 一行表内容：自己的属性 + 孩子元素（名字与各自的属性）
+/// 一行表内容：自己的属性 + 孩子元素（名字与各自的属性），孩子再往下带**一层**
+/// （共两层）—— 底色与字色正是写在第三层的：`fill > patternFill > fgColor`，
+/// 只走一层的话「这格什么颜色」在文件里明明有答案而交不出来
+const ROW_DEPTH: usize = 2;
+
 fn row_json(node: &Node) -> Value {
-    let parts: Vec<Value> = node
-        .children
+    json!({"attrs": attrs_json(node), "parts": row_parts(node, ROW_DEPTH)})
+}
+
+/// 深度用完了就交空表（不交 null）：形状得跟有孩子的那些一样，
+/// 否则读这份账的人要为「到底是没写还是没往下走」再猜一次
+fn row_parts(node: &Node, depth: usize) -> Vec<Value> {
+    if depth == 0 {
+        return Vec::new();
+    }
+    node.children
         .iter()
         .filter(|one| one.local() != "#text")
-        .map(|one| json!({"element": one.name, "attrs": attrs_json(one)}))
-        .collect();
-    json!({"attrs": attrs_json(node), "parts": parts})
+        .map(|one| {
+            json!({
+                "element": one.name,
+                "attrs": attrs_json(one),
+                "parts": row_parts(one, depth - 1),
+            })
+        })
+        .collect()
 }
 
 /// 一张表的条数账：`count` 是文件自己说的，`found` 是数出来的

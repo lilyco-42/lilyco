@@ -4167,13 +4167,18 @@ def _said_on(had):
     return value.strip().lower() not in ("0", "false", "none")
 
 
-def _style_row(node):
-    """一张表的一行：自己写着的属性 + 孩子元素（名字与各自的属性），按文件原样"""
+def _style_row(node, depth: int = 2):
+    """一张表的一行：自己写着的属性 + 孩子元素（名字与各自的属性），按文件原样
+
+    与 Rust 的 `row_json` 同一条：往下走两层，因为底色字色写在第三层
+    （`fill > patternFill > fgColor`），只走一层就看不见那个颜色串。
+    """
     parts = [
         {"element": xml_local(kid.tag),
-         "attrs": dict(sorted((xml_local(key), value) for key, value in kid.attrib.items()))}
+         "attrs": dict(sorted((xml_local(key), value) for key, value in kid.attrib.items())),
+         "parts": _style_row(kid, depth - 1)["parts"]}
         for kid in node
-    ]
+    ] if depth > 0 else []
     return {
         "attrs": dict(sorted((xml_local(key), value) for key, value in node.attrib.items())),
         "parts": parts,
