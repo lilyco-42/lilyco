@@ -297,6 +297,13 @@ def docx_facts(path: Path) -> dict:
         # 段落自己写的格式（这一族不用跳样式）与一节一条的分栏
         "paragraph_formats": docx_paragraph_formats(paras),
         "columns": docx_columns(body),
+        # 编号那一路要跳三跳，段上没写的那些要看样式里那份 numPr
+        "numbering": docx_numbering(
+            paras,
+            ET.fromstring(parts["word/numbering.xml"]) if "word/numbering.xml" in parts else None,
+            ET.fromstring(parts["word/styles.xml"]) if "word/styles.xml" in parts else None,
+            "word/numbering.xml" in parts,
+        ),
         # 部件在 ≠ 文档用了编号：notes.docx 带着 numbering.xml，正文里一个 numPr 都没有
         "has_numbering": any(xml_local(one.tag) == "numPr" for one in body.iter()),
         "numbering_part": "word/numbering.xml" in parts,
@@ -311,6 +318,9 @@ def docx_facts(path: Path) -> dict:
         "statistics": {"ours": tally_of([one.strip() for one in paragraphs])},
     }
     return out
+
+
+W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
 REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -897,6 +907,303 @@ def odf_columns(root, prefixes: dict, limit: int = 200) -> dict:
         # 一个 `<style:columns/>` 在两家都算说过话，所以这里判 is not None 而不是判真假）
         "written": len([one for one in entries if one["written"] is not None]),
         "list": entries,
+    }
+
+
+def odf_attr(node, want: str):
+    """按局部名取属性，但躲开 LibreOffice 抄的那份 `calcext:`（与 Rust 的 `attr_of` 同一条）"""
+    for key, value in node.attrib.items():
+        head, _, local = key.rpartition("}")
+        local = local.rsplit(":", 1)[-1]
+        if local != want:
+            continue
+        if "calcext" in head:
+            continue
+        return value
+    return None
+
+
+def _kid(node, want: str):
+    """直接儿子里第一个局部名等于 want 的（与 Rust 的 `child` 同一条）"""
+    for one in node:
+        if xml_local(one.tag) == want:
+            return one
+    return None
+
+
+def docx_num_pr(pPr):
+    """`w:pPr` 里那个 `w:numPr`：两个开关各交自己写的那个数，没写交 None"""
+    if pPr is None:
+        return None, None, False
+    inner = _kid(pPr, "numPr")
+    if inner is None:
+        return None, None, False
+    ilvl = _kid(inner, "ilvl")
+    num_id = _kid(inner, "numId")
+    return (
+        ilvl.get(W_NS + "val") if ilvl is not None else None,
+        num_id.get(W_NS + "val") if num_id is not None else None,
+        True,
+    )
+
+
+def docx_val_children(node) -> dict:
+    """一个元素下那些「子元素各带一个 `w:val`」的收成一张表，同名取第一条"""
+    out = {}
+    for kid in node:
+        name = xml_local(kid.tag)
+        if name in ("pPr", "rPr") or name in out:
+            continue
+        val = kid.get(W_NS + "val")
+        if val is not None:
+            out[name] = val
+    return out
+
+
+def docx_level_written(node) -> dict:
+    """一份 `w:lvl`：格式串与起始值在 `written`，缩进与字体各一份属性表"""
+    pPr = _kid(node, "pPr")
+    rPr = _kid(node, "rPr")
+    ind = _kid(pPr, "ind") if pPr is not None else None
+    fonts = _kid(rPr, "rFonts") if rPr is not None else None
+    return {
+        "ilvl": node.get(W_NS + "ilvl"),
+        "written": docx_val_children(node),
+        "indent": written_attrs(ind) if ind is not None else None,
+        "fonts": written_attrs(fonts) if fonts is not None else None,
+    }
+
+
+def docx_numbering(paras: list, numbering, style_root, has_part: bool, limit: int = 200) -> dict:
+    """docx 的编号：段上那份 `w:numPr` 与段点名的样式里那份，两路都看，三跳走到底"""
+    nums: dict[str, str | None] = {}
+    abstracts: dict[str, dict] = {}
+    if numbering is not None:
+        for one in numbering:
+            if xml_local(one.tag) != "num":
+                continue
+            ident = one.get(W_NS + "numId")
+            if ident is None or ident in nums:
+                continue
+            held = _kid(one, "abstractNumId")
+            nums[ident] = held.get(W_NS + "val") if held is not None else None
+        for one in numbering:
+            if xml_local(one.tag) != "abstractNum":
+                continue
+            ident = one.get(W_NS + "abstractNumId")
+            if ident is None or ident in abstracts:
+                continue
+            abstracts[ident] = {
+                "written": docx_val_children(one),
+                "levels": [
+                    docx_level_written(kid)
+                    for kid in list(one)
+                    if xml_local(kid.tag) == "lvl"
+                ][:limit],
+            }
+    style_nums: dict[str, tuple] = {}
+    if style_root is not None:
+        for one in style_root:
+            if xml_local(one.tag) != "style":
+                continue
+            ident = one.get(W_NS + "styleId")
+            if ident is None or ident in style_nums:
+                continue
+            style_nums[ident] = docx_num_pr(_kid(one, "pPr"))[0:2]
+    entries = []
+    used: list[str] = []
+    on_paragraph = via_style = both = unresolved = 0
+    for index, one in enumerate(paras):
+        holder = _kid(one, "pPr")
+        if holder is None:
+            continue
+        ilvl, num_id, para_has = docx_num_pr(holder)
+        style = _kid(holder, "pStyle")
+        style_name = style.get(W_NS + "val") if style is not None else None
+        got = style_nums.get(style_name) if style_name else None
+        style_has = bool(got and got[1] is not None)
+        if not para_has and not style_has:
+            continue
+        if para_has and style_has:
+            from_where = "both"
+            both += 1
+        elif para_has:
+            from_where = "paragraph"
+            on_paragraph += 1
+        else:
+            from_where = "style"
+            via_style += 1
+        chosen_id = num_id if num_id is not None else (got[1] if got else None)
+        chosen_ilvl = ilvl if ilvl is not None else (got[0] if got else None)
+        abstract = nums.get(chosen_id) if chosen_id in nums else None
+        held = abstract is not None and chosen_id in nums
+        definition = abstracts.get(abstract) if abstract else None
+        level = None
+        if definition:
+            for one2 in definition["levels"]:
+                if one2["ilvl"] == chosen_ilvl:
+                    level = one2
+                    break
+        if chosen_id is not None and chosen_id not in used:
+            used.append(chosen_id)
+        if chosen_id is not None and chosen_id not in nums:
+            unresolved += 1
+        entries.append(
+            {
+                "index": index,
+                "style": style_name,
+                "from": from_where,
+                "num_id": chosen_id,
+                "ilvl": chosen_ilvl,
+                "para_num_id": num_id,
+                "style_num_id": got[1] if got else None,
+                "abstract": abstract,
+                "resolved": chosen_id in nums if chosen_id is not None else False,
+                "abstract_found": definition is not None,
+                "level_found": level is not None,
+                "level": level,
+            }
+        )
+    definitions = []
+    for key in list(nums)[:limit]:
+        definition = abstracts.get(nums[key]) if nums[key] in abstracts else None
+        definitions.append(
+            {
+                "num_id": key,
+                "abstract": nums[key],
+                "abstract_found": definition is not None,
+                "written": definition["written"] if definition else None,
+                "referenced": key in used,
+                "levels": definition["levels"] if definition else [],
+            }
+        )
+    return {
+        "part": has_part,
+        "nums": len(nums),
+        "abstracts": len(abstracts),
+        "checked": len(paras),
+        "listed": len(entries),
+        "on_paragraph": on_paragraph,
+        "via_style": via_style,
+        "both": both,
+        "unresolved": unresolved,
+        "used": used,
+        "list": entries[:limit],
+        "definitions": definitions,
+    }
+
+
+def odf_list_depths(node, depth: int, chain: list, into: list) -> None:
+    """与 Rust 的 `odf_list_depths` 同一条：`text:list` 进一层加一档，批注与修订表绕开"""
+    for kid in node:
+        tag = xml_local(kid.tag)
+        if tag in ("annotation", "tracked-changes"):
+            continue
+        if tag == "p":
+            into.append((depth, list(chain)))
+            continue
+        if tag == "list":
+            chain.append(odf_attr(kid, "style-name"))
+            odf_list_depths(kid, depth + 1, chain, into)
+            chain.pop()
+            continue
+        odf_list_depths(kid, depth, chain, into)
+
+
+def odf_numbering(paras: list, body, content_root, style_root, prefixes: dict,
+                  limit: int = 200) -> dict:
+    """ODF 的编号：级别是嵌套层数，定义常在另一个部件里"""
+    depths: list = []
+    odf_list_depths(body, 0, [], depths)
+    roots = [(content_root, "content.xml")]
+    if style_root is not None:
+        roots.append((style_root, "styles.xml"))
+    para_styles: dict[str, tuple] = {}
+    list_styles: dict[str, dict] = {}
+    for root, part in roots:
+        for one in root.iter():
+            if xml_local(one.tag) != "style":
+                continue
+            name = odf_attr(one, "name")
+            if name is None or name in para_styles:
+                continue
+            para_styles[name] = (odf_attr(one, "list-style-name"), part)
+        for one in root.iter():
+            if xml_local(one.tag) != "list-style":
+                continue
+            name = odf_attr(one, "name")
+            if name is None or name in list_styles:
+                continue
+            kids = list(one)
+            list_styles[name] = {
+                "found": len(kids),
+                "part": part,
+                "levels": [
+                    {
+                        "kind": xml_local(kid.tag),
+                        "level": odf_attr(kid, "level"),
+                        "written": written_kept(kid, prefixes),
+                    }
+                    for kid in kids
+                ][:limit],
+            }
+    entries = []
+    in_list = max_depth = resolved = 0
+    for index, one in enumerate(paras):
+        depth, chain = depths[index] if index < len(depths) else (0, [])
+        style = odf_attr(one, "style-name")
+        got = para_styles.get(style) if style else None
+        named = got[0] if got else None
+        style_part = got[1] if got else None
+        if depth == 0 and named is None:
+            continue
+        definition = list_styles.get(named) if named else None
+        if depth > 0:
+            in_list += 1
+        max_depth = max(max_depth, depth)
+        if definition is not None:
+            resolved += 1
+        level = None
+        if definition:
+            for one2 in definition["levels"]:
+                try:
+                    if one2["level"] is not None and int(one2["level"]) == depth:
+                        level = one2
+                        break
+                except ValueError:
+                    continue
+        entries.append(
+            {
+                "index": index,
+                "style": style,
+                "style_part": style_part,
+                "list_style": named,
+                "list_part": definition["part"] if definition else None,
+                "depth": depth,
+                "chain": chain,
+                "resolved": definition is not None,
+                "level_found": level is not None,
+                "level": level,
+            }
+        )
+    definitions = [
+        {"name": key, "found": list_styles[key]["found"], "part": list_styles[key]["part"],
+         "levels": list_styles[key]["levels"]}
+        for key in list(list_styles)[:limit]
+    ]
+    return {
+        "lists": sum(1 for one in body.iter() if xml_local(one.tag) == "list"),
+        "items": sum(1 for one in body.iter() if xml_local(one.tag) == "list-item"),
+        "checked": len(paras),
+        "listed": len(entries),
+        "in_list": in_list,
+        "max_depth": max_depth,
+        "resolved": resolved,
+        "styles": len(list_styles),
+        "in_content": sum(1 for one in list_styles.values() if one["part"] == "content.xml"),
+        "in_styles": sum(1 for one in list_styles.values() if one["part"] == "styles.xml"),
+        "list": entries[:limit],
+        "definitions": definitions,
     }
 
 
@@ -1493,6 +1800,20 @@ def odt_structure(path: Path) -> dict:
         # 段落格式与分栏：这一族都住在样式那一跳上（不是正文元素），见上面两个函数
         "paragraph_formats": odf_paragraph_formats(odf_body_paragraphs(body), root, prefixes),
         "columns": odf_columns(root, prefixes),
+        # 那份定义 LibreOffice 全写在 styles.xml，段样式在 content.xml：跨部件的一跳
+        # （前缀要按**各自那份件**自己声明的 xmlns 还原，所以两张表并起来用，content 优先）
+        "numbering": odf_numbering(
+            odf_body_paragraphs(body),
+            body,
+            root,
+            ET.fromstring(parts["styles.xml"]) if "styles.xml" in parts else None,
+            {
+                **ns_prefixes(parts["styles.xml"].decode("utf8", "replace")),
+                **prefixes,
+            }
+            if "styles.xml" in parts
+            else prefixes,
+        ),
         # text:soft-page-break 是另一件事：渲染时落下的那个位置，不是作者要的换页
         "soft_page_breaks": count_local(body, "soft-page-break"),
         "drawings": count_local(body, "frame"),

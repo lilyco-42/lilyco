@@ -147,6 +147,9 @@ def main() -> int:
         "para.docx": ("ooxml", "word", "docx"),
         "para.odt": ("opendocument", "word", "odt"),
         "para.rtf": ("rtf", "word", "rtf"),
+        "lists.docx": ("ooxml", "word", "docx"),
+        "lists-lo.docx": ("ooxml", "word", "docx"),
+        "lists.odt": ("opendocument", "word", "odt"),
         "notes.odt": ("opendocument", "word", "odt"),
         "book.ods": ("opendocument", "excel", "ods"),
         "deck.odp": ("opendocument", "powerpoint", "odp"),
@@ -965,6 +968,145 @@ def main() -> int:
          files["notes-end.odt"]["odt"]["paragraphs"]],
         [4, 4, "7", 7],
     )
+
+    # ── 2i) 列表与编号：三条来源、三跳、两家的级别数法 ────────────────────
+    print("=== 2i) office-doc 的编号那份账（docx 那一路与 ODF 那一跳） ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name)).get("structure", {})
+        want = files[name]["ooxml"]
+        check("%s 编号与读者一致" % name, got.get("numbering"), want.get("numbering"))
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name)).get("structure", {})
+        want = files[name]["odt"]
+        check("%s 编号与读者一致" % name, got.get("numbering"), want.get("numbering"))
+    lists = {ext: lbin("office-doc", fixture("lists." + ext)) for ext in ("docx", "odt")}
+    listdoc, listodt = lists["docx"], lists["odt"]
+    # 那三段是样式替它们点的编号：段上一个编号属性都没有
+    check(
+        "编号有三个来源：段上、样式上、以及两家都写",
+        [dig(listdoc, "structure.numbering.list[0].from"),
+         dig(listdoc, "structure.numbering.list[3].from"),
+         dig(listdoc, "structure.numbering.via_style"),
+         dig(listdoc, "structure.numbering.on_paragraph"),
+         dig(listdoc, "structure.numbering.both")],
+        ["style", "paragraph", 3, 3, 0],
+    )
+    # numId 与 abstractNumId 是分开编号的：5 指的是 7，1 指的是 8
+    check(
+        "那两本号是分开编的，照着号跳就跳错了",
+        [dig(listdoc, "structure.numbering.list[0].num_id"),
+         dig(listdoc, "structure.numbering.list[0].abstract"),
+         dig(listdoc, "structure.numbering.definitions[0].num_id"),
+         dig(listdoc, "structure.numbering.definitions[0].abstract")],
+        ["5", "7", "1", "8"],
+    )
+    # 圆点不是 •：那是 Symbol 字体里的私用区码位，字体名挂在同一级的 w:rPr 上
+    check(
+        "圆点那一级的字是私用区码位，字体写在 rPr 上",
+        [dig(listdoc, "structure.numbering.list[3].level.written.numFmt"),
+         dig(listdoc, "structure.numbering.list[3].level.written.lvlText"),
+         dig(listdoc, "structure.numbering.list[3].level.fonts.ascii"),
+         dig(listdoc, "structure.numbering.list[3].level.written.pStyle")],
+        ["bullet", "\uf0b7", "Symbol", "ListBullet3"],
+    )
+    # 一份定义只有一级（multiLevelType=singleLevel）时，点第二级就是点空的
+    check(
+        "点了没有的那一级：交「没找到」而不是交第一级",
+        [dig(listdoc, "structure.numbering.list[4].ilvl"),
+         dig(listdoc, "structure.numbering.list[4].abstract"),
+         dig(listdoc, "structure.numbering.list[4].level_found"),
+         dig(listdoc, "structure.numbering.list[0].ilvl"),
+         dig(listdoc, "structure.numbering.list[0].level_found")],
+        ["1", "5", False, None, False],
+    )
+    # 点了一个不存在的 numId：解不开这一段要看得见，不能与「没编号」混成一谈
+    check(
+        "点名点空的那一段：numId 77 在 numbering.xml 里没有",
+        [dig(listdoc, "structure.numbering.list[5].num_id"),
+         dig(listdoc, "structure.numbering.list[5].resolved"),
+         dig(listdoc, "structure.numbering.unresolved"),
+         dig(listdoc, "structure.numbering.used")],
+        ["77", False, 1, ["5", "1", "3", "77"]],
+    )
+    lstlo = lbin("office-doc", fixture("lists-lo.docx"))
+    # 同一个格式重写一次：编号搬到段上也留在样式上（两份都说），级别补齐九级，
+    # 缩进换了属性名（start 而不是 left），对齐词也换了（start 而不是 left），
+    # 而那个不存在的 77 被改写成 0 —— 两家都没有 numId 那一条
+    check(
+        "重写一次之后：两份都写、级别补齐、属性换名",
+        [dig(lstlo, "structure.numbering.both"),
+         dig(lstlo, "structure.numbering.list[0].from"),
+         dig(lstlo, "structure.numbering.list[0].ilvl"),
+         dig(lstlo, "structure.numbering.list[0].level.written.lvlJc"),
+         dig(lstlo, "structure.numbering.list[0].level.indent")],
+        [3, "both", "0", "start", {"start": "360", "hanging": "360"}],
+    )
+    check(
+        "重写那一家把 77 改写成了 0，也还是点空的",
+        [dig(lstlo, "structure.numbering.used"),
+         dig(lstlo, "structure.numbering.list[5].num_id"),
+         dig(lstlo, "structure.numbering.list[5].resolved"),
+         dig(lstlo, "structure.numbering.nums"),
+         dig(lstlo, "structure.numbering.definitions[0].written")],
+        [["4", "1", "3", "0"], "0", False, 7, {}],
+    )
+    # ODF：级别是嵌套层数（不是属性），而且那一份定义整个不在 content.xml 里
+    check(
+        "ODF 的级别是套出来的：四层 list、五段坐在 list-item 里",
+        [dig(listodt, "structure.numbering.lists"),
+         dig(listodt, "structure.numbering.items"),
+         dig(listodt, "structure.numbering.in_list"),
+         dig(listodt, "structure.numbering.max_depth")],
+        [4, 5, 5, 2],
+    )
+    # 两家的级别数法不同：docx 写 0 基的 w:ilvl，ODF 写 1 基的 text:level
+    check(
+        "那一跳跨部件：段样式在 content.xml，定义全在 styles.xml",
+        [dig(listodt, "structure.numbering.list[0].style_part"),
+         dig(listodt, "structure.numbering.list[0].list_part"),
+         dig(listodt, "structure.numbering.in_content"),
+         dig(listodt, "structure.numbering.in_styles"),
+         dig(listodt, "structure.numbering.styles")],
+        ["content.xml", "styles.xml", 0, 10, 10],
+    )
+    check(
+        "同一级在两家的号不同：docx 的 0 与 ODF 的 1",
+        [dig(listdoc, "structure.numbering.list[3].ilvl"),
+         dig(listodt, "structure.numbering.list[3].depth"),
+         dig(listodt, "structure.numbering.list[3].level.level"),
+         dig(listodt, "structure.numbering.list[0].level.kind"),
+         dig(listodt, "structure.numbering.list[0].level.written.style:num-format")],
+        ["0", 1, "1", "list-level-style-number", "1"],
+    )
+    # 套在里面那一层的 text:list 连样式名都不写；点空的那一段在 ODF 写成空串
+    check(
+        "嵌套那一层不点名，「不套列表」写成空串",
+        [dig(listodt, "structure.numbering.list[4].chain"),
+         dig(listodt, "structure.numbering.list[4].depth"),
+         dig(listodt, "structure.numbering.list[5].list_style"),
+         dig(listodt, "structure.numbering.list[5].depth"),
+         dig(listodt, "structure.numbering.list[5].resolved")],
+        [["WWNum3", None], 2, "", 0, False],
+    )
+    # 定义了但整份文档没用上，是常事（模板与 LibreOffice 都会留十份）
+    plainodt = lbin("office-doc", fixture("notes.odt"))
+    check(
+        "定义了没人用：notes.odt 一份列表都没套，却带着十份定义",
+        [dig(plainodt, "structure.numbering.listed"),
+         dig(plainodt, "structure.numbering.styles"),
+         dig(plainodt, "structure.numbering.in_list")],
+        [0, 10, 0],
+    )
+    # RTF 与 .doc 这一族不交这份账：键整个不在（那一族的列表住在 \listtable 与
+    # \pntext 那一套里，还没读到；.doc 的在表流里）
+    for name in ("notes.rtf", "toc.rtf", "para.rtf"):
+        got = lbin("office-doc", fixture(name)).get("structure", {})
+        check("%s 不报编号：这个键整个不在" % name,
+              [one for one in ("numbering",) if got.get(one) is not None], [])
+    for name in ("notes.doc", "notes-en.doc"):
+        got = (lbin("office-doc", fixture(name)).get("structure") or {})
+        check("%s 也不报编号：那一份在表流里" % name,
+              [one for one in ("numbering",) if got.get(one) is not None], [])
 
     # ── 2f) 演示稿的第二生产者与那两张图：同一份稿子中一家会重写什么 ──────
     print("=== 2f) 两家写的 pptx 与页上的图 ===")

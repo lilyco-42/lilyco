@@ -46,6 +46,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `para.docx` | python-docx（`write_para_docx`） | 「这一段自己排成什么样」的四种情况：第一段两端对齐 + 左缩进 `1701`（3cm 换算）+ 首行 `480` + 段前 `120` 段后 `60` + `line="360" lineRule="auto"`；第二段右对齐 + `hanging="360"` + **同一个 `line="360"` 配 `lineRule="exact"`**；第三段一条 `w:pPr` 都不写（`checked` 6 与 `listed` 4 的差就是它）；第四段居中之外把**第二种单位**摆出来 —— `w:left="0"` 与 `w:leftChars="200"`、`firstLineChars="150"` 并排；末尾一节改成两栏（`w:num="2" w:space="425"`），模板自带那一节只有 `w:space="720"` 没有 `num` —— 两条 `w:cols` 都在，所以 `sections` 2、`written` 2 而 `multi` 只有 1 |
 | `para.odt` | LibreOffice（从 `para.docx`） | 同样的话换了地方住：段上只有 `text:style-name="P1"`，属性在 `style:paragraph-properties` 上（一跳）；`both`→`justify`、`right`→`end`、`1701`→`fo:margin-left="3cm"`、`hanging="360"`→**负的** `fo:text-indent="-0.635cm"`；`line 360 + auto/exact` 换成 `fo:line-height="150%"` 与 `"0.635cm"`（靠单位分别）；按字数那段改用另一个前缀 —— `loext:margin-left="2ic"`、`loext:text-indent="1.5ic"`，`fo:` 上什么都没有；第三段点名的 `Standard` 住在 styles.xml → `resolved: false`、`written: null`；两栏变成 `text:section` + family=section 的样式（`fo:column-count="2"`、`fo:column-gap="0.751cm"`，每栏一份 `style:rel-width` = `32767*` 与 `32768*`，另写 `style:dont-balance-text-columns="true"`） |
 | `para.rtf` | LibreOffice（从 `para.docx`） | 这一族两份账**都不交**，理由量在这份件里：正文五段每段前面都把样式默认重发一遍（`\sl276\sb0\sa200\ltrpar…` 段段都有，「写了什么」与「继承了什么」分不开）；第二段那个右对齐整个没写出来（全文 `\qr` 0 次、`\qj` 与 `\qc` 各 1 次）；按字数的那两个缩进被抹平成 `\li0\fi0`；1.5 倍与固定 18 磅它用**符号**分别（`\sl360\slmult1` 与 `\sl-360\slmult0`）；全文 `\cols` 0 次 → 两栏在这条流里不存在 |
+| `lists.docx` | python-docx（`write_list_docx`） | 编号的三个来源一次摆开：走样式那三段（两份 `List Number` 与一份 `List Bullet`）段上**一个编号属性都没写**；写 `w:numPr` 那三段里有一段点 `numId="3" ilvl="1"`，而模板那九份抽象全是 `multiLevelType="singleLevel"`、每份只带一条 `w:lvl w:ilvl="0"`（那一级根本不存在）；最后一段点 `numId="77"`，`numbering.xml` 里没有这一条。另外三处实测：`numId 1 → abstractNumId 8`（**两本号分开编**）、圆点那级的 `w:lvlText` 是 **Symbol 字体的 `U+F0B7`**（字体名写在同级的 `w:rPr/w:rFonts` 上），而 `w:lvl` 里还有一条 `<w:pStyle w:val="ListNumber"/>` 反指回样式表 —— 样式与编号是一个环 |
+| `lists-lo.docx` | LibreOffice（`lists.docx` → .docx，同一个格式重写） | 重写一次每段都换了样子：编号**段上写一份、样式里那份也留着**（`both` 三段），级别补齐九级、`ilvl` 也写出来了，`w:ind` 从 `left` 换成 `start`、`lvlJc` 也从 `left` 换成 `start`，抽象上那三个 `nsid`/`tmpl`/`multiLevelType` 一个都不写（`written` 是空表），号改成自己那本（`numId N → abstractNumId N`），**而那个不存在的 77 被改写成 `numId="0"`**（0 这一条同样不存在）|
+| `lists.odt` | LibreOffice（从 `lists.docx`） | 换 ODF 的形状：第二级是**套两层 `text:list`** 表达出来的（套在里面那一层连样式名都不写，`chain` 交 `[WWNum3, null]`），段上只剩样式名 P1..P4 而列表样式名挂在样式上（`text:list-style-name`），级别是 **1 基的 `text:level`**（docx 那边是 0 基的 `w:ilvl`），十份 `text:list-style` 定义**全在 styles.xml**（`in_content` 0、`in_styles` 10），而那个解不开的 77 在这里写成 `text:list-style-name=""` —— 空串是这一族说「不套列表」的写法，与「点了一个没有的名字」不是一回事 |
 | `toc.docx` | LibreOffice 的 **docx 导出器**（把目录注进 `notes.docx` 再让它照抄） | 真目录：`<w:sdt>` + `<w:docPartGallery w:val="Table of Contents"/>`，级别在域指令文字里 —— LibreOffice 把引号写成 `&quot;`，所以 `TOC \o "1-2" \h` 要还原实体才读得对 |
 | `toc.odt` | LibreOffice（从 `toc.docx`） | 同一件东西的另一副面孔：`text:table-of-content`（名字 `目录1`）、级别在 `text:table-of-content-source/@outline-level="2"`，另外**十级条目模板全写出来**（`entry_templates` 报的是文件写了几个，不是用上了几级） |
 | `toc.rtf` | LibreOffice（从 `toc.docx`） | 目录的第三种写法：没有 OOXML 那个 `w:sdt` 壳，也没有 ODF 那个 `outline-level` 属性，只有流里的一条域 `{\*\fldinst { TOC \\o "1-2" \\h}}` —— 开关前面的反斜杠**成对写**（单个会开出一个控制字），解掉那一对之后与 `toc.docx` 的 `w:instrText` 逐字相同。全文两条域（这一条 TOC 与目录条目上那一条 HYPERLINK）、`line_count` 9、`skipped_destinations` 120 |
@@ -763,6 +766,36 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     `<table xmlns="…spreadsheetml/2006/main">` 让 Rust 多报一个 `xmlns` 键，而 `size.xlsx` 与
     `size-lo.xlsx` 的表根元素上都写着它（一家把它放在最后一个属性、另一家放在第一个）。
 
+55. **这一段是不是列表项、第几级、编号从哪来**（`lists.docx`、`lists-lo.docx`、`lists.odt`）。
+    「把文档里的列表读出来」是常见需求，而这一问在 OOXML 里**没有唯一的地方**可看：
+    * 三个来源。段自己写 `w:numPr`；或者段点名的那份样式替它写（Word 的 `List Number` 就是这样，
+      python-docx 照抄 —— 这份件六段里三段自己一个字都没写）；或者**两边都写**
+      （LibreOffice 的 docx 导出把编号搬到段上、样式里那份留着，于是 `from` 读到 `both`）。
+      只看段就会漏掉一半，所以每条都写清是从哪来的。
+    * 解一个号要跳三跳（`w:num` → `abstractNumId` → `w:abstractNum` → 对得上的那条 `w:lvl`），
+      而**两本号是分开编的**：实测 `numId 1 → abstractNumId 8`、`5 → 7`。
+      每一跳各给一个布尔（`resolved` / `abstract_found` / `level_found`），
+      拿上一跳的「到了」当下一跳的「到了」就是把没读到的东西当成读到了。
+    * 文件没点的那一级不替它填。模板那九份抽象全是 `singleLevel`、只带一条 `ilvl="0"` 的 `w:lvl`，
+      所以点 `ilvl="1"` 的那段拿 `level_found: false`，而不是第 0 级的数；
+      点名点空也分两种写法：这边是 `numId="77"`，同一份件被 LibreOffice 重写后变成 `numId="0"`，
+      两条 `numbering.xml` 里都没有 —— 两家各指各的「没有」，都按写的交。
+    * 圆点不是 `•`：那一级的 `w:lvlText` 写的是 Symbol 字体里的私用区码位 `U+F0B7`，
+      字体名挂在同级的 `w:rPr/w:rFonts` 上。不带字体名交回去，那就是一枚看不见的方块。
+      而 `w:lvl` 里还有一条 `w:pStyle` 反指回样式表 —— 编号与样式是一个环，
+      读者只能挑一条边走，挑了哪条要写在账上（这里走「段 → 样式 → num → abstract → lvl」）。
+    * ODF 换了形状：第二级不是属性而是**套两层 `text:list`**（深度由读者数出来，
+      套在里面那一层连样式名都不写，`chain` 把每一层写了什么照实交）；两家的级别**数法不同**
+      （`text:level` 从 1、`w:ilvl` 从 0），所以两个都不换算；那十份 `text:list-style` 定义
+      全在 **styles.xml**，段样式在 content.xml —— 这一跳跨部件，每条都带 `style_part` / `list_part`
+      说清在哪份件里解到的（`in_content` 0、`in_styles` 10）。顺带一提：已有的
+      `structure.list_styles` 数的是 content.xml 里的那一份，所以它一直是 0，不是这份文档没有列表样式。
+    * 「定义了但没人用」是常事：`notes.odt` 一份列表都没套，样式表里躺着十份定义；
+      `lists.docx` 的 `numbering.xml` 带着九条，正文只点了四条（`referenced` 逐条说）。
+    RTF 那一族的列表住在 `\listtable` / `\ilvl` / `\ls` 那一套里，每段前面还带一个
+    `\listtext` 群（实测 `lists` 那批件转出的 RTF：`\ls4`、`\ilvl0`、标签 `1.` 就写在流里，
+    `\listtable` 里 7 条 `\list` × 9 级 `\listlevel`）—— 量过了但还没读，所以这个键整族不交。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
@@ -786,6 +819,11 @@ docx 用 ElementTree 找 `w:sectPr` 的 `w:pgSz` / `w:pgMar`，odt 找 `styles.x
 同一份 `revisions-lo.docx` 与 `revisions.odt` 两边逐条对得上，才对得起「合成规则」这四个字。
 保护那一份另有 `scripts/acceptance/lyco_protect.py`：同样只吃标准库，
 按 ElementTree 的属性取法把四家的开关与两层结构各读一遍，与 `protect.rs` 逐字段对。
+编号那一份也在同一份 `office_reader.py` 里（`docx_numbering` / `odf_numbering`）：
+跳数、去重（同名取第一条）、`limit` 封顶与三个布尔的判据都照 Rust 那边一条一条写，
+ODF 那一路的 `text:list-style-name` 与 `text:list` 上的 `text:style-name` 是分开的两处，
+而前缀还原要按**各自那份件**自己声明的 `xmlns:` 来（样式定义在 styles.xml，段样式在 content.xml），
+所以两张前缀表并起来用、content 优先。
 段落格式与分栏那一份在同一份 `office_reader.py` 里（`docx_paragraph_formats` / `docx_columns` /
 `odf_paragraph_formats` / `odf_columns`）：ODF 那边要按前缀交属性，而 ElementTree 会把
 `fo:margin-left` 折成 `{uri}margin-left` —— 于是先从这份 `content.xml` 自己的 `xmlns:fo=` 那几条声明里
