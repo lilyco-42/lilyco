@@ -258,6 +258,250 @@ fn word_in_group(group: &[u8], want: &str) -> Option<String> {
     None
 }
 
+/// 一张 `{\pict …}` 群的**群头**最多看这么多字节：两个生产者都把形状写在数据之前
+/// （`{\*\picprop …}` 那格、`\picscalex` 一串、最后才是 `\pngblip` 与那几个兆的
+/// 十六进制），而数据本身可以长到几万个字符 —— 抄一遍不值，扫到底也不值
+const PICTURE_SCAN_CAP: usize = 16 * 1024;
+
+/// 逐张账本最多存几张图（`pictures` 那个条数不受它影响，一直数到底）
+const PICTURE_ROW_CAP: usize = 512;
+
+/// 跳过 `\*` 那个「不认识就整群跳过」的标记：`{\*\picprop …}` 那一群的内容开头是
+/// `\*\picprop`，而这一族确实认得 picprop 里写的是什么，所以要能看见那个名字
+fn unstar(group: &[u8]) -> &[u8] {
+    if group.starts_with(b"\\*") {
+        return &group[2..];
+    }
+    group
+}
+
+/// 从 `at` 起走到「关掉当前这一群」的那个 `}`，只交那个下标（不抄整群）
+fn group_stop(bytes: &[u8], at: usize) -> usize {
+    let mut depth = 0i32;
+    let mut i = at;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => depth += 1,
+            b'}' => {
+                if depth == 0 {
+                    return i;
+                }
+                depth -= 1;
+            }
+            b'\\' => {
+                if matches!(bytes.get(i + 1), Some(&b'{') | Some(&b'}')) {
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    bytes.len()
+}
+
+/// 一群里第一个「说这是哪种图」的控制字（`\pngblip`、`\jpegblip`、`\dibitmap` 这些）：
+/// 交回它自己的名字与它写完之后的位置 —— 紧跟其后的就是那串十六进制
+fn blip_word(group: &[u8]) -> Option<(String, usize)> {
+    let mut i = 0usize;
+    while i < group.len() {
+        if group[i] != b'\\' {
+            i += 1;
+            continue;
+        }
+        let mut k = i + 1;
+        let mut name: Vec<u8> = Vec::new();
+        while k < group.len() && group[k].is_ascii_alphabetic() {
+            name.push(group[k]);
+            k += 1;
+        }
+        while k < group.len() && (group[k].is_ascii_digit() || group[k] == b'-') {
+            k += 1;
+        }
+        let text = String::from_utf8_lossy(&name).into_owned();
+        if text.ends_with("blip") || matches!(text.as_str(), "dibitmap" | "pictbitmap" | "macpict")
+        {
+            return Some((text, k));
+        }
+        i = if k > i + 1 { k } else { i + 1 };
+    }
+    None
+}
+
+/// 一个十六进制字符的值（不是十六进制就 None —— 这里要分「读到了」与「读不下去了」）
+fn hex_nibble(one: u8) -> Option<u8> {
+    match one {
+        b'0'..=b'9' => Some(one - b'0'),
+        b'a'..=b'f' => Some(one - b'a' + 10),
+        b'A'..=b'F' => Some(one - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// 从 `from` 起那串十六进制的前 8 个字节。数据行里可以夹着换行与空格（实测
+/// LibreOffice 就是这么折行的），所以空白跳过而不是停下；碰上一个不是十六进制
+/// 也不是空白的字节才停（那已经是群里的别的东西了）
+fn hex_head(group: &[u8], from: usize) -> Vec<u8> {
+    let mut out: Vec<u8> = Vec::new();
+    let mut high: Option<u8> = None;
+    let mut i = from;
+    while i < group.len() && out.len() < 8 {
+        let one = group[i];
+        if matches!(one, b' ' | b'\t' | b'\r' | b'\n') {
+            i += 1;
+            continue;
+        }
+        let Some(digit) = hex_nibble(one) else { break };
+        match high {
+            None => high = Some(digit),
+            Some(first) => {
+                out.push(first << 4 | digit);
+                high = None;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+/// 那几个字节是什么图。认不出名字的交 "unknown"（读到了字节但不替它编名字），
+/// 一个字节都没读到才交 None
+fn picture_kind(head: &[u8]) -> Option<&'static str> {
+    if head.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        return Some("png");
+    }
+    if head.starts_with(&[0xFF, 0xD8]) {
+        return Some("jpeg");
+    }
+    if head.starts_with(&[0x42, 0x4D]) {
+        return Some("bmp");
+    }
+    if head.starts_with(&[0x47, 0x49, 0x46, 0x38]) {
+        return Some("gif");
+    }
+    if head.starts_with(&[0xD7, 0xCD, 0xC6, 0x9A]) {
+        return Some("emf");
+    }
+    if head.starts_with(&[0x49, 0x49, 0x2A, 0x00]) || head.starts_with(&[0x4D, 0x4D, 0x00, 0x2A]) {
+        return Some("tiff");
+    }
+    if head.is_empty() {
+        return None;
+    }
+    Some("unknown")
+}
+
+/// 「文件说这是什么格式」与「那串字节自己说这是什么格式」对不对得上。
+/// 只在两边说的是同一个词表里的东西时才比：`\pngblip` 的词干是 `png`，
+/// 而 `\dibitmap` 那种没有词干可读 —— 那种交 null 而不是猜一个「不一致」
+fn blip_agrees(kind: &str, sig: Option<&str>) -> Option<bool> {
+    let said = kind.strip_suffix("blip")?;
+    let got = sig?;
+    if said.is_empty() || got == "unknown" {
+        return None;
+    }
+    Some(said == got)
+}
+
+/// `{\*\picprop …}` 那一格里是一堆 `{\sp{\sn 名字}{\sv 值}}`：按文件的顺序一对一条交，
+/// 名字与值都解掉 `\uN` 与 `\'hh`。值可以是**空串**（`notes.rtf` 的两条都是），
+/// 那与「这一对根本没写 `{\sv}` 那一格」是两件事，所以另给 `value_written`。
+/// 第一个布尔说「有没有见过 picprop 那一格」—— 「整个没有」与「有而一条都不认得」
+/// 也不是同一句话
+fn shape_props(group: &[u8]) -> (bool, Vec<Value>) {
+    let mut seen = false;
+    let mut out: Vec<Value> = Vec::new();
+    for holder in child_groups(group) {
+        if !starts_word(unstar(&holder), "picprop") {
+            continue;
+        }
+        seen = true;
+        for one in child_groups(&holder) {
+            let mut name: Option<String> = None;
+            let mut value: Option<String> = None;
+            for had in child_groups(&one) {
+                let body = unstar(&had);
+                if starts_word(body, "sn") {
+                    name = Some(extract(payload_of(body)).text);
+                } else if starts_word(body, "sv") {
+                    value = Some(extract(payload_of(body)).text);
+                }
+            }
+            out.push(json!({
+                "name": name,
+                "value": value.clone(),
+                "value_written": value.is_some(),
+            }));
+        }
+    }
+    (seen, out)
+}
+
+/// 一张 `{\pict …}` 群的账。这一族把「多大」写在**三种单位**上：`picw`/`pich` 是像素、
+/// `picwgoal`/`pichgoal` 是 twips（换成 0.01mm，与「那张纸」同一条整数式子）、
+/// `picscalex`/`picscaley` 是百分比。文件里没有一个地方写 DPI，所以像素那两个
+/// 不换算法；而页面上那一个尺寸要把三者合起来才得到 —— 那是推算，不交，
+/// 三个数各按各的原样给出（实测 `images.rtf` 的 `480` twips 与同一批字的 docx 里
+/// 那个 `1440000` EMU 不是同一个数，这一族把尺寸拆成了「目标 × 缩放」两半）。
+/// 「这是什么格式的图」有两份凭据：`pngblip` 那个控制字说的，与紧跟其后那串
+/// 十六进制自己带的前八个字节，两个都交，再给一个只在两边都认得时才比的 `sig_agrees`。
+/// 替代文字住在 `{\*\picprop}` 的 `wzDescription` 那一条里（`notes.rtf` 写的是空值，
+/// 所以 `alt_written` 与「alt 非空」是两件事）。
+fn picture_ledger(bytes: &[u8], at: usize) -> Value {
+    let stop = group_stop(bytes, at);
+    let from = at.min(bytes.len());
+    let to = stop.min(from + PICTURE_SCAN_CAP).max(from);
+    let head = &bytes[from..to];
+    let blip = blip_word(head);
+    let kind: Option<String> = blip.as_ref().map(|one| one.0.clone());
+    let read: Vec<u8> = match blip.as_ref().map(|one| one.1) {
+        Some(at_data) => hex_head(head, at_data),
+        None => Vec::new(),
+    };
+    let sig = picture_kind(&read);
+    let agrees = match kind.as_deref() {
+        Some(raw) => blip_agrees(raw, sig),
+        None => None,
+    };
+    let side = |want: &str| -> Option<String> { word_in_group(head, want) };
+    let mm = |want: &str| -> Option<i64> {
+        word_in_group(head, want).and_then(|raw| crate::paper::twips(&raw))
+    };
+    let (props_written, props) = shape_props(head);
+    let alt = props
+        .iter()
+        .find(|one| one["name"].as_str() == Some("wzDescription"))
+        .and_then(|one| one["value"].as_str().map(|raw| raw.to_string()));
+    json!({
+        "blip": kind,
+        "sig": sig,
+        "sig_agrees": agrees,
+        "head_hex": read.iter().map(|one| format!("{:02x}", one)).collect::<String>(),
+        "pixels": {"w": side("picw"), "h": side("pich")},
+        "goal": {
+            "w": side("picwgoal"),
+            "h": side("pichgoal"),
+            "unit": "twips",
+            "mm_w": mm("picwgoal"),
+            "mm_h": mm("pichgoal"),
+        },
+        "scale": {"x": side("picscalex"), "y": side("picscaley")},
+        "crop": {
+            "left": side("piccropl"),
+            "right": side("piccropr"),
+            "top": side("piccropt"),
+            "bottom": side("piccropb"),
+        },
+        "props_written": props_written,
+        "props": props,
+        "alt": alt,
+        "alt_written": props
+            .iter()
+            .any(|one| one["name"].as_str() == Some("wzDescription")),
+        "truncated": stop > at + PICTURE_SCAN_CAP,
+    })
+}
+
 /// `{\listlevel\levelnfc0…{\leveltext …;}{\levelnumbers…;}\fi-360\li1080}` 一群：
 /// 这一级的账。级别号是**这一份 list 里第几个 `{\listlevel`**（实测 LibreOffice 不在
 /// 级上写 `\ilvl`，一份也没有），所以号是读者按顺序给的，不是文件写的
@@ -537,6 +781,9 @@ pub struct Rtf {
     pub hex_bytes: usize,
     pub unicode_escapes: usize,
     pub pictures: usize,
+    /// 逐张图的账本（`picture_ledger`）：条数与 `pictures` 是同一趟走出来的，
+    /// 只是这一本多存到 `PICTURE_ROW_CAP` 张为止
+    pub picture_rows: Vec<Value>,
     pub embedded_objects: usize,
     pub skipped_destinations: usize,
     /// 页眉与页脚的字：它们与正文混在同一个流里，靠目标群分开。
@@ -642,6 +889,7 @@ impl Rtf {
             "hex_bytes": self.hex_bytes,
             "unicode_escapes": self.unicode_escapes,
             "pictures": self.pictures,
+            "picture_list": self.picture_rows.clone(),
             "embedded_objects": self.embedded_objects,
             "skipped_destinations": self.skipped_destinations,
             "table_row_defines": self.table_row_defines,
@@ -698,6 +946,7 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         hex_bytes: 0,
         unicode_escapes: 0,
         pictures: 0,
+        picture_rows: Vec::new(),
         embedded_objects: 0,
         skipped_destinations: 0,
         headers: Vec::new(),
@@ -1015,6 +1264,12 @@ pub fn extract(bytes: &[u8]) -> Rtf {
             let last = skip.len() - 1;
             skip[last] = true;
             me.pictures += 1;
+            // 前瞻这一群的群头（不推进游标、也不改 skip —— 那串数据照旧一个字节
+            // 都不进正文，所以 skipped_destinations 一个也没因为这个改动而变）：
+            // 三种单位、格式的两种凭据与那格形状属性都写在数据之前
+            if me.picture_rows.len() < PICTURE_ROW_CAP {
+                me.picture_rows.push(picture_ledger(bytes, j));
+            }
         } else if OBJECT_WORDS.contains(&word.as_str()) {
             let last = skip.len() - 1;
             skip[last] = true;

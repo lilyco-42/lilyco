@@ -3513,12 +3513,48 @@ def main() -> int:
         ["as-char", "char", "一个红点",
          "Pictures/100000000000002800000018CB9DEC0B.png", "image/png"],
     )
+    for name in ("images.rtf", "notes.rtf", "toc.rtf"):
+        got = lbin("office-doc", fixture(name))
+        want = files[name]["rtf"]["picture_rows"]
+        with_alt = sum(1 for one in want if one["alt"])
+        check("%s 每张图整份账与读者一致（三种单位、格式的两份凭据、形状属性那格）" % name,
+              dig(got, "structure.picture_list"), want)
+        check("%s 几张图、几张有替代文字" % name,
+              [dig(got, "structure.pictures"), dig(got, "structure.pictures_with_alt_text"),
+               dig(got, "structure.pictures_without_alt_text")],
+              [len(want), with_alt, len(want) - with_alt])
     rtf = lbin("office-doc", fixture("images.rtf"))
     check(
-        "第三种存法只数得出「几张图」：那一族的逐张账本不交（键整个不在），流里没有那些元素可走",
-        [dig(rtf, "structure.pictures"), "picture_list" in (rtf.get("structure") or {}),
-         dig(rtf, "structure.pictures_with_alt_text")],
-        [1, False, None],
+        "RTF 把「多大」拆成三种单位写：像素、twips 目标与缩放百分比都在，而这一族没有 DPI 可换算像素",
+        [dig(rtf, "structure.picture_list[0].pixels.w"),
+         dig(rtf, "structure.picture_list[0].goal.w"),
+         dig(rtf, "structure.picture_list[0].goal.mm_w"),
+         dig(rtf, "structure.picture_list[0].goal.unit"),
+         dig(rtf, "structure.picture_list[0].scale.x"),
+         dig(rtf, "structure.picture_list[0].blip"),
+         dig(rtf, "structure.picture_list[0].sig"),
+         dig(rtf, "structure.picture_list[0].sig_agrees"),
+         dig(rtf, "structure.picture_list[0].head_hex")],
+        ["40", "480", 847, "twips", "472", "pngblip", "png", True, "89504e470d0a1a0a"],
+    )
+    logo_rtf = lbin("office-doc", fixture("notes.rtf"))
+    check(
+        "那一格形状属性写了而值是空的：alt_written 是 true 而「有替代文字」是 0 —— 说了与说了字是两件事",
+        [dig(logo_rtf, "structure.picture_list[0].props_written"),
+         dig(logo_rtf, "structure.picture_list[0].alt_written"),
+         dig(logo_rtf, "structure.picture_list[0].alt"),
+         dig(logo_rtf, "structure.picture_list[0].props[1].name"),
+         dig(logo_rtf, "structure.pictures"),
+         dig(logo_rtf, "structure.pictures_with_alt_text")],
+        [True, True, "", "wzName", 1, 0],
+    )
+    check(
+        "同一句替代文字在三家写在三个地方，而字一字不差：docx 的属性、odt 的孩子元素、rtf 的形状属性表",
+        [dig(plain, "structure.picture_list[0].alt.descr"),
+         dig(odt, "structure.picture_list[0].alt"),
+         dig(rtf, "structure.picture_list[0].alt"),
+         dig(rtf, "structure.picture_list[0].props[0].name")],
+        ["一个红点", "一个红点", "一个红点", "wzDescription"],
     )
     # 模板自带的另一枚小图（手上本来就有的三份件）：零替代文字与跨家换算的第二个凭据
     logo = lbin("office-doc", fixture("notes.docx"))

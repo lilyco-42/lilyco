@@ -1221,12 +1221,25 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       同一个东西的两种拼法，是来回一趟之后 LO 自己改的口径 —— 照文件各交各的，
       折成一个词就是替文件说话。同一趟来回还把 OOXML 那侧的 `wp:anchor` 与绕排整个丢了
       （重写不是无损的，这里正看得见）。
-    * RTF 是第三种存法而**这一族只交张数**：`{\pict …}` 那群里只有
-      `\picscalex472 \picw40 \pich24 \picwgoal480 \pichgoal288`（三种单位：像素、
-      目标 twips、缩放百分比），而替代文字搬进了 `{\*\picprop}` 的形状属性表，
-      名字写在 `{\sn wzDescription}` 那条的**值**里（`wzName` 那格是空的）。
-      逐张账本这一族不交（键整个不在，不是空表）—— 那张表要读的是一组
-      `\sn` / `\sv` 配对，是另一批件的活。
+    * RTF 是第三种存法而**逐张也读**：`{\pict …}` 那一格里「多大」一次写在**三种单位**上
+      （`\picw40 \pich24` 像素、`\picwgoal480 \pichgoal288` twips、`\picscalex472` 百分比），
+      而文件里没有一个字写 DPI —— 所以像素那两个不换算法，只把 twips 那一对照「那张纸」
+      同一条整数式子换成 0.01mm（`480` → `847`），把三者乘回去是推算，不交。
+      凭此正看得见一趟转换做了什么：同一批字的 docx 写的是 `1440000` EMU（4000），
+      而 LibreOffice 的 RTF 导出把它拆成了「目标 847 × 缩放 472%」。
+    * RTF 那一族「这是什么格式的图」有**两份凭据**：数据前那个控制字（`\pngblip`）与
+      那串十六进制自己带的前八个字节（`89504e470d0a1a0a` → png）。两个都交，
+      `sig_agrees` 只在两边都说得出同一个词时才比（`\dibitmap` 没有词干 → null，
+      不替它编一个「不一致」）。数据是折行写的，所以读字节那一段跳空白、碰上第一个
+      既非十六进制又非空白的字符才停；只看群头 16KB（两个生产者都把形状写在数据之前）。
+    * RTF 的替代文字又搬了一次家：住在 `{\*\picprop}` 那张形状属性表里的一对群
+      （`{\sn wzDescription}` 给名字、`{\sv …}` 给值）。最要紧的是这一族给了
+      **「写了而值是空的」**那一格：`notes.rtf` 与 `toc.rtf` 那枚模板小图两条
+      `wzDescription` / `wzName` 都在而值都是空串 —— 于是那里 `props_written` 与
+      `alt_written` 都是 true、`alt` 是 `""`，而 `pictures_with_alt_text` 是 0。
+      说了，与说了句空话，是两件事；docx 那边对应的键是 `descr_written`（属性在不在），
+      三家各处不一样。同一句「一个红点」在三家写在三个地方（`wp:docPr/@descr`、
+      `svg:desc` 的字、`wzDescription` 的值），而字一字不差 —— 三处都读，谁也不替谁圆场。
     * 「两种摆法都不是」的那种 `w:drawing` 也不造一条占位记录：这一族另有 `w:pict`，
       手上没有件可量。缺口由 `structure.drawings` 与 `structure.pictures` 的差自己说。
 
@@ -1236,6 +1249,8 @@ Rust 测试里每个期望值都来自第二读者对这些文件的独立读取
 `scripts/acceptance/office_reader.py`（OOXML / ODF / MS-CFB / OLE 属性集，只用标准库）、
 文档里那几张图在它的 `docx_picture_rows()` / `odt_picture_rows()` 里：两处尺寸各自换算、
 两处替代文字、两处锁、绕排与摆放那三合一的元素，与 Rust 逐字段整份对（`.docx` 三副、`.odt` 两副）。
+RTF 那第三种存法在 `lyco_rtf.py` 的 `picture_ledger()`（三种单位、形状属性那一对一对、
+数据头八个字节与折行），三份件（`images.rtf` / `notes.rtf` / `toc.rtf`）逐张整份对。
 `lyco_rtf.py`（RTF）、`lyco_legacy.py`（`.doc` piece 表、`.xls` BIFF8、`.ppt` 记录树）、
 `lyco_formats.py`（`.xlsx` 的数字格式与日期换算），以及 `office_reader.py` 里的
 `ods_facts()`（`.ods` 的重复计数、覆盖格与自动样式可见性）。

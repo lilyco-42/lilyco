@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import re
 
+from lyco_pages import convert
+
 BS = "\\"  # 一个反斜杠
 
 # 见到这些控制字就把所在群整群跳过：它们是表 / 元数据，不是正文
@@ -298,6 +300,185 @@ def word_in_group(group: str, want: str):
         i = k if k > i + 1 else i + 1
     return None
 
+PIC_CAP = 16 * 1024
+PIC_ROW_CAP = 512
+PIC_MAGIC = [
+    (b"\x89PNG", "png"),
+    (b"\xff\xd8", "jpeg"),
+    (b"BM", "bmp"),
+    (b"GIF8", "gif"),
+    (b"\xd7\xcd\xc6\x9a", "emf"),
+    (b"II*\x00", "tiff"),
+    (b"MM\x00*", "tiff"),
+]
+
+
+def unstar(one: str) -> str:
+    """跳过 `\*` 那个「不认识就整群跳过」的标记：`{\*\picprop …}` 里面开头是 `\*\picprop`"""
+    return one[2:] if one.startswith(BS + "*") else one
+
+
+def group_stop(text: str, at: int) -> int:
+    """从 `at` 起走到「关掉当前这一群」的那个 `}`，只交那个下标（不抄整群）"""
+    depth = 0
+    i = at
+    while i < len(text):
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            if depth == 0:
+                return i
+            depth -= 1
+        elif ch == BS and text[i + 1:i + 2] in ("{", "}"):
+            i += 1
+        i += 1
+    return len(text)
+
+
+def blip_word(group: str):
+    """第一个「说这是哪种图」的控制字：交回名字与它写完之后的位置"""
+    i = 0
+    while i < len(group):
+        if group[i] != BS:
+            i += 1
+            continue
+        k = i + 1
+        name = ""
+        while k < len(group) and group[k].isalpha():
+            name += group[k]
+            k += 1
+        while k < len(group) and (group[k].isdigit() or group[k] == "-"):
+            k += 1
+        if name.endswith("blip") or name in ("dibitmap", "pictbitmap", "macpict"):
+            return name, k
+        i = k if k > i + 1 else i + 1
+    return None, None
+
+
+def hex_head(group: str, frm: int) -> bytes:
+    """那串十六进制的前 8 个字节：数据行里可以夹着换行与空格（LibreOffice 就是折行写的），
+    碰上既不是十六进制也不是空白的字节才停"""
+    got: list[int] = []
+    pending = None
+    i = frm
+    while i < len(group) and len(got) < 8:
+        ch = group[i]
+        if ch in " \t\r\n":
+            i += 1
+            continue
+        try:
+            digit = int(ch, 16)
+        except ValueError:
+            break
+        if pending is None:
+            pending = digit
+        else:
+            got.append(pending * 16 + digit)
+            pending = None
+        i += 1
+    return bytes(got)
+
+
+def picture_kind(head: bytes):
+    """那几个字节是什么图。认不出名字交 "unknown"，一个字节都没读到才交 None"""
+    for want, name in PIC_MAGIC:
+        if head.startswith(want):
+            return name
+    return "unknown" if head else None
+
+
+def blip_agrees(kind, sig):
+    """「文件说这是什么格式」与「字节自己说这是什么格式」对不对得上。
+    只在两边都认得时才比（`\dibitmap` 那种没有词干可读 → null，不猜一个「不一致」）"""
+    if not kind or not kind.endswith("blip"):
+        return None
+    said = kind[: -len("blip")]
+    if not said or sig == "unknown" or sig is None:
+        return None
+    return said == sig
+
+
+def shape_props(group: str):
+    """`{\*\picprop …}` 那一格里的 `{\sp{\sn 名字}{\sv 值}}`：一对一条按文件顺序交。
+    值可以是空串（`notes.rtf` 两条都是），那与整对没写 `{\sv}` 是两件事。
+    第一个布尔说有没有见过 picprop 那一格"""
+    seen = False
+    out: list[dict] = []
+    for holder in child_groups(group):
+        if not starts_word(unstar(holder), "picprop"):
+            continue
+        seen = True
+        for one in child_groups(holder):
+            pair: dict = {}
+            for had in child_groups(one):
+                body = unstar(had)
+                if starts_word(body, "sn"):
+                    pair["name"] = rtf_text(payload_of(body).encode(
+                        "latin-1", "replace"))["text"]
+                elif starts_word(body, "sv"):
+                    pair["value"] = rtf_text(payload_of(body).encode(
+                        "latin-1", "replace"))["text"]
+            out.append({
+                "name": pair.get("name"),
+                "value": pair.get("value"),
+                "value_written": "value" in pair,
+            })
+    return seen, out
+
+
+def picture_ledger(text: str, at: int) -> dict:
+    """一张 `{\pict …}` 群的账（与 Rust 的 `picture_ledger` 同一条）：只看群头 16KB，
+    两个生产者都把形状写在数据之前。尺寸写在三种单位上（像素、twips 目标、缩放百分比），
+    文件里没有一个地方写 DPI，所以像素那两个不换算法"""
+    stop = group_stop(text, at)
+    head = text[at:min(stop, at + PIC_CAP)]
+    kind, data_at = blip_word(head)
+    read = hex_head(head, data_at) if data_at is not None else b""
+    sig = picture_kind(read)
+    seen, props = shape_props(head)
+    alt = None
+    for one in props:
+        if one["name"] == "wzDescription":
+            alt = one["value"]
+            break
+    return {
+        "blip": kind,
+        "sig": sig,
+        "sig_agrees": blip_agrees(kind, sig),
+        "head_hex": read.hex(),
+        "pixels": {"w": word_in_group(head, "picw"), "h": word_in_group(head, "pich")},
+        "goal": {
+            "w": word_in_group(head, "picwgoal"),
+            "h": word_in_group(head, "pichgoal"),
+            "unit": "twips",
+            "mm_w": _twips_mm(word_in_group(head, "picwgoal")),
+            "mm_h": _twips_mm(word_in_group(head, "pichgoal")),
+        },
+        "scale": {"x": word_in_group(head, "picscalex"), "y": word_in_group(head, "picscaley")},
+        "crop": {
+            "left": word_in_group(head, "piccropl"),
+            "right": word_in_group(head, "piccropr"),
+            "top": word_in_group(head, "piccropt"),
+            "bottom": word_in_group(head, "piccropb"),
+        },
+        "props_written": seen,
+        "props": props,
+        "alt": alt,
+        "alt_written": any(one["name"] == "wzDescription" for one in props),
+        "truncated": stop > at + PIC_CAP,
+    }
+
+
+def _twips_mm(raw):
+    """twips 换成 0.01mm：与 Rust 的 `paper::twips` 同一条整数式子（lyco_pages.convert）"""
+    if raw is None:
+        return None
+    try:
+        return convert(raw, "twips")[0]
+    except (ValueError, KeyError, IndexError):
+        return None
+
 
 def list_level_of(group: str, at: int) -> dict:
     """`{\\listlevel\\levelnfc0…{\\leveltext …;}…}` 一群：这一级的账。
@@ -495,6 +676,7 @@ def rtf_text(data: bytes) -> dict:
         "hex_bytes": 0,
         "unicode_escapes": 0,
         "pictures": 0,
+        "picture_rows": [],
         "destinations": 0,
         "objects": 0,
         "replacements": 0,
@@ -722,6 +904,9 @@ def rtf_text(data: bytes) -> dict:
         elif word == "pict":
             skip[-1] = True
             stats["pictures"] += 1
+            # 前瞻这一群的群头（不推进游标、也不改 skip —— 那串数据照旧一个字节都不进正文）
+            if len(stats["picture_rows"]) < PIC_ROW_CAP:
+                stats["picture_rows"].append(picture_ledger(text, j))
         elif word in OBJECT_WORDS:
             skip[-1] = True
             stats["objects"] += 1
@@ -917,6 +1102,7 @@ def rtf_text(data: bytes) -> dict:
         "hex_bytes": stats["hex_bytes"],
         "unicode_escapes": stats["unicode_escapes"],
         "pictures": stats["pictures"],
+        "picture_rows": stats["picture_rows"],
         "embedded_objects": stats["objects"],
         "skipped_destinations": stats["destinations"],
         "headers": page["headers"],
