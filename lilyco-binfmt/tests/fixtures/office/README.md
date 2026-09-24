@@ -35,6 +35,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `notes.doc` | LibreOffice（从 `notes.docx`） | MS-CFB 复合文档 + WordDocument 流 + `1Table` 里的 piece 表 |
 | `notes-en.doc` | LibreOffice（从纯 ASCII 的 `notes-en.docx`） | 中英一视同仁仍写 16 位 piece —— 记下这个事实，见下 |
 | `book.xls` | LibreOffice（从 `book.xlsx`） | BIFF8：BOUNDSHEET（含隐藏表）、SST + CONTINUE、LABELSST / RK / FORMULA |
+| `formats.xls` | LibreOffice（从 `formats.xlsx`） | 数字格式那一跳的真件：格子的 ixfe → XF 记录（0x00E0，格式号在正文偏移 2）→ FORMAT 记录（0x041E）；这份里自定义号 165~169 是日期/日期时间/百分比/¥/汉字日期，另有内置号 9 与 41~44 |
+| `mulrk.xlsx` | openpyxl | 一行连续的八个数字 + 隔开一行三个 —— 就是为了逼出 MULRK 那种记录 |
+| `mulrk.xls` | LibreOffice（从 `mulrk.xlsx`） | BIFF8 的 MULRK(0x00BD)：一行连续格子共用一条记录，每格自己带 `{ixfe(2), rkmac(4)}`；这份件里正好两条（8 格与 3 格） |
 | `deck.ppt` | LibreOffice（从 `deck.pptx`） | PowerPoint 97 记录树 + 一个 59 万字节、走 FAT 的属性集流（大流那条分支的样本）；按 `0x03EE` 归出 2 页，与 `deck.pptx` 每页逐张一致 |
 | `notes.rtf` | LibreOffice（从 `notes.docx`） | 字体表、颜色表、样式表、`\*\userprops`、域代码与 `\'hh` 回退字节 |
 | `hidden.xlsx` | openpyxl 3.1（`write_hidden_xlsx`） | 第 3、4 行隐藏，C/D/E 三列隐藏，**D2/E2 里有字**；一列一条 `<col min="3" max="3" hidden="1">` |
@@ -229,6 +232,16 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     两处不猜：`0x00DD` 没找到第二个读者认得它，所以只交回原值、不替它编开关名；`0x0013` 那格是
     Excel 那套 16 位旧哈希（这批件里是 `6e4e`），不是口令 —— 而且它算不出来：`locked-sheet.ods`
     那一路（`table:protection-key` 是摘要）转成 .xls 时，这一格写的是 0。
+
+27. **没被真件走到的代码，两份读者会一起错**（`mulrk.xls`）。MULRK(0x00BD) 一行连续格子
+    共用一条记录：`rw(2) + colFirst(2) + 每格 {ixfe(2), rkmac(4)} + colLast(2)` ——
+    值是每条的**后**四个字节。Rust 与 `lyco_legacy.py` 都曾写成 `4 + i * 6`，于是第一格
+    解出来是 1144750.11 这种看着像浮点误差的乱数；两边同一个错，对账永远绿。
+    这份件是专门造来走这条路 的：`mulrk.xlsx` 一行八个连续数字，LibreOffice 转 .xls 后
+    确实并成一条 54 字节的 MULRK，按正确偏移解出 1000.5…8000.5，与 LibreOffice 自己把这份
+    .xls 读回 .ods 交出来的 A2:H2 逐格相同（第二行三个整数 7/14/21 同理）。
+    记下这条是因为方法：`book.xls` / `formats.xls` 里都没有 MULRK，所以「两边一致」
+    从来不是「两边都对」的证据 —— 对账只能覆盖真件走得到的部分。
 
 ## 这些数字从哪来
 

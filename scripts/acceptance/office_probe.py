@@ -366,6 +366,24 @@ def main() -> int:
             ],
         )
 
+    # ── 3a3) MULRK：一行连续的数在 .xls 里共用一条记录 ────────────────────
+    # 两边的读者都曾把 rkmac 读早两个字节（把每格的 ixfe 当成了数），而手上的
+    # .xls 样本里没有 MULRK —— 这一族要靠专门一份件才走得到
+    print("=== 3a3) mulrk：一行连续的数共用一条记录 ===")
+    got = lbin("office-sheet", fixture("mulrk.xls"))
+    want = files["mulrk.xls"]["biff"]
+    mine = [one.get("number") for one in got.get("cells", []) if one.get("kind") == "mulrk"]
+    theirs = [one.get("value") for one in want["cells"] if one.get("type") == "mulrk"]
+    check("mulrk.xls 每条里的数逐个对", mine, theirs)
+    check(
+        "mulrk.xls 位置按列走",
+        [one.get("ref") for one in got.get("cells", []) if one.get("kind") == "mulrk"],
+        ["%s%d" % (chr(65 + one["col"]), one["row"] + 1) for one in want["cells"] if one.get("type") == "mulrk"],
+    )
+    # 这条不看键名，只看「一份件里那 11 个数是不是那几个」：与 LibreOffice 自己把
+    # mulrk.xls 读回 .ods 交出来的 A2:H2 / A5:C5 同一批数（README 记着那一转）
+    check("mulrk.xls 那 11 个数", sorted(mine), sorted([1000.5, 2000.5, 3000.5, 4000.5, 5000.5, 6000.5, 7000.5, 8000.5, 7.0, 14.0, 21.0]))
+
     # ── 3b) 数字格式：格子写的是 cellXfs 的下标，日期藏在样式里 ──────────
     print("=== 3b) formats.xlsx：格式号、判定与换算出来的日期 ===")
     fx = lbin("office-sheet", fixture("formats.xlsx"))

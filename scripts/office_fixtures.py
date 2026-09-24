@@ -414,6 +414,29 @@ def write_xlsx(path: Path) -> None:
     wb.save(str(path))
 
 
+def write_mulrk_xlsx(path: Path) -> None:
+    """一行连续的八个数字 —— LibreOffice 写 .xls 时把这种行程并成一条 MULRK
+
+    为什么要专门造这一份：MULRK(0x00BD) 每格是 `{ixfe(2), rkmac(4)}`，值在**后**四字节。
+    两边的读者都曾读早两个字节（把 ixfe 当成数），而 book.xls / formats.xls 里
+    根本没有 MULRK —— 没被真件走到的代码，两份实现一起错也对账不出来。
+    这份件转成 .xls 后确实只有一条 MULRK（54 字节正文 = rw + colFirst + 8×6 + colLast），
+    值 1000.5…8000.5 与 LibreOffice 自己读回 .ods 的 A2:H2 逐格一致。
+    """
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "连续"
+    ws["A1"] = "一行连续的数（LibreOffice 会写成一条 MULRK）"
+    for column in range(1, 9):
+        ws.cell(row=2, column=column, value=column * 1000 + 0.5)
+    ws["A4"] = "隔开一行就不是一程"
+    for column in range(1, 4):
+        ws.cell(row=5, column=column, value=column * 7)
+    wb.save(path)
+
+
 def write_formats_xlsx(path: Path) -> None:
     """openpyxl：一个格子的 `s=` 指向 styles.xml 的 cellXfs，那里才写着它是日期还是数。
 
@@ -768,6 +791,7 @@ def main() -> int:
     xlsx = OUT / "book.xlsx"
     write_xlsx(xlsx)
     write_formats_xlsx(OUT / "formats.xlsx")
+    write_mulrk_xlsx(OUT / "mulrk.xlsx")
     pptx = OUT / "deck.pptx"
     write_pptx(pptx, art)
     add_macro_part(docx, OUT / "notes.docm")
@@ -877,6 +901,10 @@ def main() -> int:
         (xlsx, "xls"),
         (pptx, "ppt"),
         (docx, "rtf"),
+        # 数字格式那一族也转一份 .xls：BIFF 把格式坐在 XF → FORMAT 那一跳上，
+        # 这一份是那条路的真件样本（见 formats.ods 那一条）
+        (OUT / "formats.xlsx", "xls"),
+        (OUT / "mulrk.xlsx", "xls"),
         # 页眉页脚那两份再转两个格式：ODF 的页眉坐在 master-page 的样式里，
         # RTF 的坐在 \header / \footer 目标里 —— 两边都是同一批字的另一种存法
         (headers, "rtf"),
@@ -887,6 +915,8 @@ def main() -> int:
         "notes.doc",
         "notes-en.doc",
         "book.xls",
+        "formats.xls",
+        "mulrk.xls",
         "deck.ppt",
         "notes.rtf",
         "notes-hf.rtf",

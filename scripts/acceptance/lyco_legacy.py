@@ -259,6 +259,11 @@ def biff_workbook(cfb_bytes: dict) -> dict:
     formulas = 0
     dimensions = []
     locks: dict = {}
+    # 数字格式那一跳：格子的 ixfe 是 XF 记录的**出现序号**，XF 正文偏移 2 是格式号，
+    # 自定义号（>=164）的格式串在 FORMAT 记录里，内置号没有串
+    xfs: list = []
+    formats: dict = {}
+    date1904 = None
     for index, (offset, op, body) in enumerate(records):
         belongs = _owner(sheets, offset)
         if op == 0x0809:  # BOF
@@ -290,6 +295,19 @@ def biff_workbook(cfb_bytes: dict) -> dict:
                     "record_start": _u32(body, 0),
                 }
             )
+        elif op == 0x00E0:  # XF：ixfeParent(2) + ifmt(2) + 样式位，格式号在偏移 2
+            xfs.append(_u16(body, 2))
+        elif op == 0x041E:  # FORMAT：内置号（<164）不在这里，自定义号才写串
+            ifmt = _u16(body, 0)
+            cch = _u16(body, 2) or 0
+            flags = _u8(body, 4) or 0
+            wide = bool(flags & 0x01)
+            raw = body[5 : 5 + cch * (2 if wide else 1)]
+            formats[ifmt or 0] = (
+                raw.decode("utf-16-le", "replace") if wide else raw.decode("cp1252", "replace")
+            )
+        elif op == 0x0022:  # DATEMODE：0 = 1900 基准，1 = 1904
+            date1904 = bool(_u16(body, 0))
         elif op == 0x00FD:  # LABELSST
             r, col, _xf, sst_index = struct.unpack_from("<HHHI", body, 0)
             value = strings[sst_index] if sst_index < len(strings) else None
@@ -297,18 +315,26 @@ def biff_workbook(cfb_bytes: dict) -> dict:
                 {"row": r, "col": col, "type": "sst", "value": value, "sheet": belongs}
             )
         elif op == 0x0203:  # NUMBER
-            r, col, _xf, value = struct.unpack_from("<HHHd", body, 0)
+            r, col, xf, value = struct.unpack_from("<HHHd", body, 0)
             cells.append(
-                {"row": r, "col": col, "type": "number", "value": value, "sheet": belongs}
+                {
+                    "row": r,
+                    "col": col,
+                    "type": "number",
+                    "value": value,
+                    "ixfe": xf,
+                    "sheet": belongs,
+                }
             )
         elif op == 0x027E:  # RK
-            r, col, _xf = struct.unpack_from("<HHH", body, 0)
+            r, col, xf = struct.unpack_from("<HHH", body, 0)
             cells.append(
                 {
                     "row": r,
                     "col": col,
                     "type": "rk",
                     "value": decode_rk(_u32(body, 6) or 0),
+                    "ixfe": xf,
                     "sheet": belongs,
                 }
             )
@@ -329,22 +355,33 @@ def biff_workbook(cfb_bytes: dict) -> dict:
                 }
             )
         elif op == 0x0006:  # FORMULA
-            r, col, _xf = struct.unpack_from("<HHH", body, 0)
+            r, col, xf = struct.unpack_from("<HHH", body, 0)
             cells.append(
-                {"row": r, "col": col, "type": "formula", "value": None, "sheet": belongs}
+                {
+                    "row": r,
+                    "col": col,
+                    "type": "formula",
+                    "value": None,
+                    "ixfe": xf,
+                    "sheet": belongs,
+                }
             )
             formulas += 1
-        elif op == 0x00BD:  # MULRK：一行里连续若干列，每 6 字节一个 {xf(2), rk(4)}
+        elif op == 0x00BD:  # MULRK：一行里连续若干列
+            # rw(2) + colFirst(2) + 每 6 字节一个 {ixfe(2), rkmac(4)} + colLast(2)。
+            # rkmac 是每条的**后**四个字节：读早两字节就把 ixfe 当成了数，解出来是
+            # 一个看着像浮点误差的乱数（真件量出来的，见 mulrk.xls）
             r = _u16(body, 0) or 0
             col_from = _u16(body, 2) or 0
             for i in range((len(body) - 6) // 6):
-                packed = _u32(body, 4 + i * 6) or 0
+                packed = _u32(body, 6 + i * 6) or 0
                 cells.append(
                     {
                         "row": r,
                         "col": col_from + i,
                         "type": "mulrk",
                         "value": decode_rk(packed),
+                        "ixfe": _u16(body, 4 + i * 6),
                         "sheet": belongs,
                     }
                 )
@@ -375,6 +412,9 @@ def biff_workbook(cfb_bytes: dict) -> dict:
         "dimensions": dimensions,
         "cells_per_sheet": per_sheet,
         "locks": locks,
+        "xfs": xfs,
+        "formats": {str(k): v for k, v in formats.items()},
+        "date1904": date1904,
     }
 
 

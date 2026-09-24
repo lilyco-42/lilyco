@@ -222,12 +222,16 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                 });
             }
             MUL_RK => {
-                // 一行里连续若干列的 RK：colFrom(2) 之后每 6 字节一个 {xf(2), rk(4)}
+                // 一行里连续若干列的 RK：rw(2) + colFirst(2) + 每 6 字节一个
+                // {ixfe(2), rkmac(4)} + colLast(2)。值是每条的**后**四个字节，
+                // 不是紧跟 colFirst 那四个 —— 早两字节就把 ixfe 当成了数，解出的是
+                // 一个看着像浮点误差的乱数。这条是在真件上量出来的：手边的 .xls 样本
+                // 里没有 MULRK，两份实现一起读早了也没人发现
                 let row = le16(0)(body).unwrap_or(0) as u32;
                 let first = le16(2)(body).unwrap_or(0) as u32;
                 let room = body.len().saturating_sub(6);
                 for i in 0..room / 6 {
-                    let packed = le32(4 + i * 6)(body).unwrap_or(0) as u32;
+                    let packed = le32(6 + i * 6)(body).unwrap_or(0) as u32;
                     cells.push(Cell {
                         row,
                         col: first + i as u32,
@@ -638,5 +642,68 @@ mod tests {
         let got = shared_strings(&[Vec::new()], 3, &mut notes);
         assert!(got.is_empty(), "{got:?}");
         assert!(!notes.is_empty(), "读不出条数时要留话");
+    }
+
+    /// MULRK(0x00BD) 的正文，从 `mulrk.xls` 里那条 24 字节的记录原样抄下来
+    /// （LibreOffice 把第 5 行三个连续整数并成了一条）
+    fn a_real_run_record() -> Vec<u8> {
+        vec![
+            0x04, 0x00, 0x00, 0x00, 0x0f, 0x00, 0x1e, 0x00, 0x00, 0x00, 0x0f, 0x00, 0x3a, 0x00,
+            0x00, 0x00, 0x0f, 0x00, 0x56, 0x00, 0x00, 0x00, 0x02, 0x00,
+        ]
+    }
+
+    /// 这条记录自己说的是什么：rw + colFirst + 每格 {ixfe(2), rkmac(4)} + colLast。
+    /// `rkmac` 是每条的**后**四个字节 —— 早两字节读就把 ixfe(15) 当成了数
+    #[test]
+    fn a_run_record_names_each_cell_format_before_its_value() {
+        let body = a_real_run_record();
+        assert_eq!(le16(0)(&body), Some(4), "行号");
+        assert_eq!(le16(2)(&body), Some(0), "起始列");
+        assert_eq!(le16(4)(&body), Some(15), "第一格的格式索引");
+        assert_eq!(le32(6)(&body), Some(0x1e), "第一格的值在这");
+        assert_eq!(le32(12)(&body), Some(0x3a));
+        assert_eq!(le32(18)(&body), Some(0x56));
+        assert_eq!(le16(22)(&body), Some(2), "colLast：三格占到第 2 列");
+        assert_eq!(decode_rk(0x1e), 7.0);
+        assert_eq!(decode_rk(0x3a), 14.0);
+        assert_eq!(decode_rk(0x56), 21.0);
+    }
+
+    /// 一行连续数字在 .xls 里是两条 MULRK：值、格子位置与表名都要逐格对得上。
+    /// 期望值来自 `lyco_legacy.py` 读同一份件，而这份件与 LibreOffice 自己读回
+    /// .ods 交出来的 A2:H2 / A5:C5 逐格一致
+    #[test]
+    fn a_row_of_numbers_written_as_runs_reads_back_cell_by_cell() {
+        let (bytes, cfb) = open("mulrk.xls");
+        let book = read(&cfb, &bytes).expect("读得出 BIFF8");
+        assert_eq!(book.bofs.len(), 2, "一个全局 BOF + 一张表");
+        assert_eq!(book.sheets.len(), 1);
+        assert_eq!(book.sheets[0].name, "连续");
+        assert_eq!(book.cells.len(), 13, "{:?}", book.cells);
+        let run: Vec<(String, f64)> = book
+            .cells
+            .iter()
+            .filter(|one| one.kind == "mulrk")
+            .map(|one| (one.reference(), one.number.unwrap_or_default()))
+            .collect();
+        assert_eq!(
+            run,
+            vec![
+                ("A2".to_string(), 1000.5),
+                ("B2".to_string(), 2000.5),
+                ("C2".to_string(), 3000.5),
+                ("D2".to_string(), 4000.5),
+                ("E2".to_string(), 5000.5),
+                ("F2".to_string(), 6000.5),
+                ("G2".to_string(), 7000.5),
+                ("H2".to_string(), 8000.5),
+                ("A5".to_string(), 7.0),
+                ("B5".to_string(), 14.0),
+                ("C5".to_string(), 21.0),
+            ],
+            "{run:?}"
+        );
+        assert_eq!(book.strings.len(), 2, "两条文字格");
     }
 }
