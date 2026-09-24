@@ -35,6 +35,7 @@ from lyco_protect import (
     xlsx_protection,
 )  # 「还能动吗」那份账的第二读者
 from lyco_pages import convert  # 长度与 twips 换成 0.01mm 的那条整数式子（与 paper.rs 同一条）
+from lyco_pages import UNIT as MM_UNIT  # 那个单位的名字，只说一次
 import lyco_pdf  # PDF 那份读者：对象表 + 对象流 + 字符串三件事（lbin office-pdf 对账）
 import lyco_pdf_nav  # PDF 的「去哪儿」那一层：书签 / 链接 / 权限位
 
@@ -2519,7 +2520,19 @@ def odf_charts_of(parts: dict, host) -> list:
     return found
 
 
-def ods_facts(path: Path) -> dict | None:
+# 逐条尺寸账的上限，与 src/odsheet.rs 的 MAX_SIZE_ELEMENTS 同一个数：
+# 总账按全部元素加，账本只存前这么多条
+MAX_SIZE_ELEMENTS = 4096
+# 表元素自己可以写的那四个数（没写的交 null，「没写」与「写了 0」不是一回事）
+STATED_ON_TABLE = (
+    "number-columns",
+    "number-rows",
+    "default-column-width",
+    "default-row-height",
+)
+
+
+def ods_facts(path: Path, limit: int = 200) -> dict | None:
     """ODF 电子表格：格子内**不写数字**，写的是 office:value / date-value / boolean-value，
     位置要靠 table:number-columns-repeated 累加出来 —— 那属性一填就是 16381，
     照字面数就是每张表一万六千格。表是不是隐藏，也不在表上，在它引的那个自动样式里。
@@ -2576,6 +2589,72 @@ def ods_facts(path: Path) -> dict | None:
         )
         folded[attr(style, "name") or ""] = flag
 
+    # 尺寸也不在列/行元素上：一跳在它点名的那份自动样式里（与 src/odsheet.rs 同一条路）。
+    # 顺路把 visibility 与 parent-style-name 也抄下来：前者是隐藏的第二条来路，
+    # 后者在这里不顺链再跳，只是让「样式找着了却没有尺寸」这件事有个说法
+    SIZED = {
+        "table-column": ("table-column-properties", "column-width", "use-optimal-column-width"),
+        "table-row": ("table-row-properties", "row-height", "use-optimal-row-height"),
+    }
+    col_sized: dict[str, dict] = {}
+    row_sized: dict[str, dict] = {}
+    for style in root.iter():
+        if xml_local(style.tag) != "style":
+            continue
+        shape = SIZED.get(attr(style, "family") or "")
+        if shape is None:
+            continue
+        holder, want_size, want_optimal = shape
+        props = next((one for one in style if xml_local(one.tag) == holder), None)
+        got = {
+            "size": attr(props, want_size) if props is not None else None,
+            "optimal": attr(props, want_optimal) if props is not None else None,
+            "visibility": attr(props, "visibility") if props is not None else None,
+            "parent": attr(style, "parent-style-name"),
+        }
+        (col_sized if shape[0] == "table-column-properties" else row_sized)[
+            attr(style, "name") or ""
+        ] = got
+
+    def axis_of(elems: list, kind: str) -> dict:
+        """列或行：逐条账本（读的一边最多存 MAX_SIZE_ELEMENTS 条）+ 按全部元素加的总账。
+        三个「看见多少」各是各的：elements/spans 全量，listed 是账本存下的，shown 是这次交的"""
+        styled = col_sized if kind == "column" else row_sized
+        rep_attr = "number-columns-repeated" if kind == "column" else "number-rows-repeated"
+        listed: list = []
+        whole = {
+            "elements": 0,
+            "spans": 0,
+            "resolved": 0,
+            "with_size": 0,
+            "optimal": 0,
+            "spoken_visibility": 0,
+        }
+        for one in elems:
+            named = attr(one, "style-name")
+            hit = styled.get(named) if named is not None else None
+            had = {
+                "style": named,
+                "repeated": rep(one, rep_attr),
+                "element_visibility": attr(one, "visibility"),
+                "size": (hit or {}).get("size"),
+                "size_mm": mm_of((hit or {}).get("size"), None),
+                "optimal": (hit or {}).get("optimal"),
+                "style_visibility": (hit or {}).get("visibility"),
+                "style_parent": (hit or {}).get("parent"),
+                "resolved": hit is not None,
+            }
+            whole["elements"] += 1
+            whole["spans"] += had["repeated"]
+            whole["resolved"] += int(had["resolved"])
+            whole["with_size"] += int(had["size"] is not None)
+            whole["optimal"] += int(had["optimal"] is not None)
+            whole["spoken_visibility"] += int(had["element_visibility"] is not None)
+            if len(listed) < MAX_SIZE_ELEMENTS:
+                listed.append(had)
+        shown = min(len(listed), limit)
+        return dict(whole, listed=len(listed), shown=shown, list=listed[:shown])
+
     sheets = []
     for table in root.iter():
         if xml_local(table.tag) != "table":
@@ -2588,18 +2667,17 @@ def ods_facts(path: Path) -> dict | None:
         hidden_rows = 0
         hidden_cols = 0
         cell_notes: list = []
-        for column in table:
-            if xml_local(column.tag) != "table-column":
-                continue
+        # 一次收集，两份账共用（尺寸账与隐藏账必须走同一批元素）
+        col_elems = [one for one in table if xml_local(one.tag) == "table-column"]
+        row_elems = [one for one in table if xml_local(one.tag) == "table-row"]
+        for column in col_elems:
             if attr(column, "visibility") == "collapse" or folded.get(
                 attr(column, "style-name") or ""
             ):
                 # 一条元素盖几列，看它自己的 number-columns-repeated
                 hidden_cols += rep(column, "number-columns-repeated")
         row_at = 0
-        for row in table:
-            if xml_local(row.tag) != "table-row":
-                continue
+        for row in row_elems:
             row_repeat = rep(row, "number-rows-repeated")
             if attr(row, "visibility") == "collapse" or folded.get(
                 attr(row, "style-name") or ""
@@ -2674,6 +2752,12 @@ def ods_facts(path: Path) -> dict | None:
                 "formulas": sum(1 for one in cells if one["formula"]),
                 # 这一张表上的图：ODS 的 draw:frame 就住在 table:table 里面
                 "charts": odf_charts_of(parts, table),
+                "layout": {
+                    "unit": MM_UNIT,
+                    "columns": axis_of(col_elems, "column"),
+                    "rows": axis_of(row_elems, "row"),
+                    "stated": {one: attr(table, one) for one in STATED_ON_TABLE},
+                },
             }
         )
     statistic = {}

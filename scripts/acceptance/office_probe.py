@@ -2355,11 +2355,128 @@ def main() -> int:
          dig(lo, "sheets[0].table_list[0].style.showColumnStripes")],
         [2, 5, "1", "0"],
     )
-    for name in ("book.ods", "hidden.ods", "chart.ods", "book.xls", "hidden.xls"):
+    for name in ("book.xls", "hidden.xls"):
         missed = [one.get("name") for one in lbin("office-sheet", fixture(name)).get("sheets", [])
                   if one.get("layout") is not None or one.get("filter") is not None
                   or one.get("tables") is not None]
         check("%s 这一族的尺寸、筛选与表对象没读：键整个不在" % name, missed, [])
+    # ODS 的尺寸这一族读到了（见 3a14），筛选与表对象则是 OOXML 才有的东西
+    for name in ("book.ods", "hidden.ods", "chart.ods"):
+        missed = [one.get("name") for one in lbin("office-sheet", fixture(name)).get("sheets", [])
+                  if one.get("filter") is not None or one.get("tables") is not None]
+        check("%s 这一族的筛选与表对象没读：键整个不在" % name, missed, [])
+
+    # ── 3a14) ODS 的列宽与行高：尺寸不在元素上，一跳在它点名的自动样式里 ──
+    print("=== 3a14) office-sheet 的 ODS 尺寸（16384 那一本账） ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.ods")):
+        got = lbin("office-sheet", fixture(name))
+        want = files[name]["ods"]
+        check(
+            "%s 每张表的列宽账与读者一致" % name,
+            {one.get("name"): (one.get("layout") or {}).get("columns")
+             for one in got.get("sheets", [])},
+            {one["name"]: one["layout"]["columns"] for one in want["sheets"]},
+        )
+        check(
+            "%s 每张表的行高账与读者一致" % name,
+            {one.get("name"): (one.get("layout") or {}).get("rows")
+             for one in got.get("sheets", [])},
+            {one["name"]: one["layout"]["rows"] for one in want["sheets"]},
+        )
+        check(
+            "%s 表元素自己写的那四个数与读者一致" % name,
+            {one.get("name"): (one.get("layout") or {}).get("stated")
+             for one in got.get("sheets", [])},
+            {one["name"]: one["layout"]["stated"] for one in want["sheets"]},
+        )
+    # 「几条元素」「盖住几列」「有内容的最右一列」是三本账：LibreOffice 每张表都补到 16384 列
+    booked = lbin("office-sheet", fixture("book.ods"))
+    check(
+        "一张表 2 条列元素、盖住 16384 列、有内容的最右一格在第 2 列",
+        [dig(booked, "sheets[0].layout.columns.elements"),
+         dig(booked, "sheets[0].layout.columns.spans"), dig(booked, "sheets[0].columns")],
+        [2, 16384, 2],
+    )
+    check(
+        "六份 .ods 里每一张表都被补到整 16384 列",
+        sorted(
+            {dig(one, "layout.columns.spans")
+             for name in sorted(item.name for item in FIXTURES.glob("*.ods"))
+             for one in lbin("office-sheet", fixture(name)).get("sheets", [])}
+        ),
+        [16384],
+    )
+    check(
+        "一条列元素顶几列写在 repeated 里：2 + 16382，两个数各自交",
+        [dig(booked, "sheets[0].layout.columns.list[0].repeated"),
+         dig(booked, "sheets[0].layout.columns.list[1].repeated"),
+         dig(booked, "sheets[0].layout.columns.list[0].style"),
+         dig(booked, "sheets[0].layout.columns.list[0].size"),
+         dig(booked, "sheets[0].layout.columns.list[0].size_mm")],
+        [2, 16382, "co1", "1.672cm", 1672],
+    )
+    # 行也一样：一份件里 5 条行元素可以盖住 20 行
+    charted = lbin("office-sheet", fixture("chart.ods"))
+    check(
+        "行也一样：5 条行元素盖住 20 行（其中一条 repeated=16）",
+        [dig(charted, "sheets[0].layout.rows.elements"),
+         dig(charted, "sheets[0].layout.rows.spans"),
+         dig(charted, "sheets[0].layout.rows.list[3].repeated"),
+         dig(charted, "sheets[0].layout.rows.list[3].size"),
+         dig(charted, "sheets[0].layout.rows.list[3].size_mm")],
+        [5, 20, 16, "0.529cm", 529],
+    )
+    check(
+        "高度与「按最优」是同时写的两句，宽度这一族却没有 use-optimal-column-width",
+        [dig(booked, "sheets[0].layout.rows.optimal"),
+         dig(booked, "sheets[0].layout.rows.with_size"),
+         dig(booked, "sheets[0].layout.rows.list[0].optimal"),
+         dig(booked, "sheets[0].layout.columns.optimal"),
+         dig(booked, "sheets[0].layout.columns.list[0].optimal")],
+        [5, 5, "true", 0, None],
+    )
+    hidden = lbin("office-sheet", fixture("hidden.ods"))
+    check(
+        "隐藏写在元素自己身上（不是样式里）：那一条顶 3 列，样式叫 co2",
+        [dig(hidden, "sheets[0].layout.columns.elements"),
+         dig(hidden, "sheets[0].layout.columns.spoken_visibility"),
+         dig(hidden, "sheets[0].layout.columns.list[1].element_visibility"),
+         dig(hidden, "sheets[0].layout.columns.list[1].style"),
+         dig(hidden, "sheets[0].layout.columns.list[1].repeated"),
+         dig(hidden, "sheets[0].layout.columns.list[1].size_mm")],
+        [3, 1, "collapse", "co2", 3, 2545],
+    )
+    check(
+        "两条来路分开交：元素上的 visibility 数出来的与样式里那条（这批件里样式都没写）",
+        [dig(hidden, "sheets[0].layout.rows.spoken_visibility"),
+         dig(hidden, "sheets[0].layout.rows.list[2].element_visibility"),
+         dig(hidden, "sheets[0].layout.rows.list[2].style_visibility"),
+         dig(hidden, "sheets[0].layout.columns.list[1].style_visibility")],
+        [2, "collapse", None, None],
+    )
+    check(
+        "点了名又找着了样式才算报得出尺寸：这批件里每一条都 resolved，所以 with_size 与 elements 相等",
+        [dig(booked, "sheets[0].layout.columns.resolved"),
+         dig(booked, "sheets[0].layout.columns.with_size"),
+         dig(booked, "sheets[0].layout.columns.list[0].resolved"),
+         dig(booked, "sheets[0].layout.columns.list[0].style_parent")],
+        [2, 2, True, None],
+    )
+    check(
+        "那四个表级自报的数 LibreOffice 一个都不写：交回四个 null，而不是四个 0",
+        [dig(booked, "sheets[0].layout.stated.number-columns"),
+         dig(booked, "sheets[0].layout.stated.number-rows"),
+         dig(booked, "sheets[0].layout.stated.default-column-width"),
+         dig(booked, "sheets[0].layout.stated.default-row-height")],
+        [None, None, None, None],
+    )
+    check(
+        "单位说一次：0.01mm（1672 就是 1.672cm）",
+        [dig(booked, "sheets[0].layout.unit"), dig(booked, "sheets[0].layout.columns.listed"),
+         dig(booked, "sheets[0].layout.columns.shown"),
+         len(dig(booked, "sheets[0].layout.columns.list") or [])],
+        ["0.01mm", 2, 2, 2],
+    )
 
     # ── 3b) 数字格式：格子写的是 cellXfs 的下标，日期藏在样式里 ──────────
     print("=== 3b) formats.xlsx：格式号、判定与换算出来的日期 ===")

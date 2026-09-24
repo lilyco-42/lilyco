@@ -32,6 +32,18 @@ const MEMBER_CAP: u64 = 8 << 20;
 /// 一行里最多走多少个格子元素：生产者把整行的空白压成一个重复元素，
 /// 但坏文件可以一个接一个写，这里给一个足够大又不至于转不完的数
 const MAX_CELL_ELEMENTS: usize = 20_000;
+/// 列/行的逐条尺寸账同样要有上限：一条 `<table:table-row/>` 只要十几个字节，
+/// 一份 8 MB 的件能写几十万条，逐条存下去就是把内存交给生产者。
+/// 计数照数，存不下就不存，并在这条族里说清楚
+const MAX_SIZE_ELEMENTS: usize = 4096;
+/// 表元素自己可以写的那四个数。逐个查、逐个交，没写的交 null ——
+/// 实测 LibreOffice 转出来的六份 .ods 一个都不写，但「没写」与「写了 0」不是一回事
+const STATED_ON_TABLE: [&str; 4] = [
+    "number-columns",
+    "number-rows",
+    "default-column-width",
+    "default-row-height",
+];
 
 /// 一个有内容的格子
 #[derive(Debug, Clone)]
@@ -65,6 +77,58 @@ impl Cell {
     }
 }
 
+/// 一条列/行元素的尺寸账。这一族的宽度与高度**一律不在元素上**：元素只写
+/// `number-columns-repeated` / `number-rows-repeated` 与（偶尔）`table:visibility`，
+/// 尺寸在它点名的那份自动样式里，所以每条都说清「点了哪个名」「样式找着没找着」
+#[derive(Debug, Clone, Default)]
+pub struct SizeInfo {
+    /// 元素点名的样式（`table:style-name`），没点名是 None
+    pub style: Option<String>,
+    /// 这一条顶几列 / 几行（文件写的 repeated，没写按 1 算）
+    pub repeated: usize,
+    /// 元素自己写的 `table:visibility`（没写是 None，不替它填 visible）
+    pub element_visibility: Option<String>,
+    /// 样式里那条 `style:column-width` / `style:row-height`，按写的串交
+    pub size: Option<String>,
+    /// 样式里的 `style:use-optimal-column-width` / `…-row-height` 串
+    pub optimal: Option<String>,
+    /// 样式里的 `style:visibility`（隐藏的另一条来路，与上面那条各记各的）
+    pub style_visibility: Option<String>,
+    /// 样式自己的 `style:parent-style-name`。**这里不顺父链再跳**：实测的文件里
+    /// 一个都没写，尺寸挂在父样式上时这一条就正好说出「为什么不认识」
+    pub style_parent: Option<String>,
+    /// 点名的样式在这份件里找着了吗（没点名也算没找着）
+    pub resolved: bool,
+}
+
+/// 一份行/列自动样式上抄下来的那几样 —— 就是上面那一跳的落点
+#[derive(Debug, Clone, Default)]
+struct SizeStyle {
+    name: String,
+    size: Option<String>,
+    optimal: Option<String>,
+    visibility: Option<String>,
+    parent: Option<String>,
+}
+
+/// 一条轴（列或行）上的总账。逐条账本可能因为上限只存了前一段，
+/// 而这几个数是**全部**元素加出来的：「几条元素」「盖住几列」「看得见的几列」是三本账
+#[derive(Debug, Clone, Default)]
+pub struct SizeTally {
+    /// 走到的元素条数
+    pub elements: usize,
+    /// 这些元素一共盖住几列 / 几行（`number-*-repeated` 累加）
+    pub spans: usize,
+    /// 点了名、且那份样式在这件里找着的条数
+    pub resolved: usize,
+    /// 样式里报得出尺寸的条数
+    pub with_size: usize,
+    /// 样式里写了 `use-optimal-*` 的条数
+    pub optimal: usize,
+    /// 元素自己写了 `table:visibility` 的条数（没写的交 null，不替它填 visible）
+    pub spoken_visibility: usize,
+}
+
 /// 一张表
 #[derive(Debug, Clone)]
 pub struct Sheet {
@@ -79,6 +143,15 @@ pub struct Sheet {
     /// 也可以只写在它引的那个自动样式里，两边都得看
     pub hidden_rows: usize,
     pub hidden_cols: usize,
+    /// 逐条列元素的尺寸账
+    pub col_sizes: Vec<SizeInfo>,
+    /// 逐条行元素的尺寸账
+    pub row_sizes: Vec<SizeInfo>,
+    /// 列/行的总账（全部元素加出来的，账本截断了也照加）
+    pub col_tally: SizeTally,
+    pub row_tally: SizeTally,
+    /// 表元素自己写的那四个数（见 `STATED_ON_TABLE`）：按名字列出来，没写的交 null
+    pub stated: Vec<(String, Option<String>)>,
     /// 这张表里的批注：`{ref, author, date, text}`。ODF 的批注**坐在格子里面**
     /// （`office:annotation` 是 `table:table-cell` 的孩子），所以取格子的字时要跳过它 ——
     /// 与 .odt 那边「批注与修订表里的段不算正文」是同一条规矩
@@ -181,6 +254,17 @@ fn repeated(node: &Node, local: &str) -> usize {
         .unwrap_or(1)
 }
 
+/// 一条轴的总账：逐条存不存得下都要照加（存不下只发生在坏文件身上，
+/// 而那时候更要让「几条元素」「盖住几列」这两个数是真的）
+fn tally(had_tally: &mut SizeTally, had: &SizeInfo) {
+    had_tally.elements += 1;
+    had_tally.spans += had.repeated;
+    had_tally.resolved += usize::from(had.resolved);
+    had_tally.with_size += usize::from(had.size.is_some());
+    had_tally.optimal += usize::from(had.optimal.is_some());
+    had_tally.spoken_visibility += usize::from(had.element_visibility.is_some());
+}
+
 fn col_letter(index: usize) -> String {
     let mut out = String::new();
     let mut at = index;
@@ -226,6 +310,10 @@ pub fn read(bytes: &[u8]) -> Book {
     // 或者只写在它引的那个自动样式的 row/column-properties 里。LibreOffice 转出来
     // 的这份用前一种，而只查一种的读者会把藏起来的行整批当成正常的
     let mut folded: Vec<(String, bool)> = Vec::new();
+    // 同一跳顺手把尺寸也抄下来：列的 `style:column-width` 与行的 `style:row-height`，
+    // 连 `style:use-optimal-*` 一起（LibreOffice 常常两根都写：给了高度又说「按最优」）
+    let mut col_sized: Vec<SizeStyle> = Vec::new();
+    let mut row_sized: Vec<SizeStyle> = Vec::new();
     for style in root.descendants("style") {
         let family = attr_of(style, "family").unwrap_or_default();
         let props = match family {
@@ -247,7 +335,33 @@ pub fn read(bytes: &[u8]) -> Book {
             .and_then(|one| attr_of(one, "visibility"))
             .unwrap_or("visible")
             == "collapse";
-        folded.push((name, hidden));
+        folded.push((name.clone(), hidden));
+        let size = match family {
+            "table-column" => props.and_then(|one| attr_of(one, "column-width")),
+            "table-row" => props.and_then(|one| attr_of(one, "row-height")),
+            _ => None,
+        }
+        .map(String::from);
+        let optimal = match family {
+            "table-column" => props.and_then(|one| attr_of(one, "use-optimal-column-width")),
+            "table-row" => props.and_then(|one| attr_of(one, "use-optimal-row-height")),
+            _ => None,
+        }
+        .map(String::from);
+        let found = SizeStyle {
+            name: name.clone(),
+            size,
+            optimal,
+            visibility: props
+                .and_then(|one| attr_of(one, "visibility"))
+                .map(String::from),
+            parent: attr_of(style, "parent-style-name").map(String::from),
+        };
+        if family == "table-column" {
+            col_sized.push(found);
+        } else if family == "table-row" {
+            row_sized.push(found);
+        }
     }
     let folded_by_style = |name: Option<&str>| -> bool {
         match name {
@@ -266,6 +380,14 @@ pub fn read(bytes: &[u8]) -> Book {
             merged: 0,
             hidden_rows: 0,
             hidden_cols: 0,
+            col_sizes: Vec::new(),
+            row_sizes: Vec::new(),
+            col_tally: SizeTally::default(),
+            row_tally: SizeTally::default(),
+            stated: STATED_ON_TABLE
+                .iter()
+                .map(|want| ((*want).to_string(), attr_of(table, *want).map(String::from)))
+                .collect(),
             comments: Vec::new(),
         };
         if let Some(style) = attr_of(table, "style-name") {
@@ -276,10 +398,28 @@ pub fn read(bytes: &[u8]) -> Book {
         // 列：LibreOffice 把一片连续的同款列压成一个带 repeated 的元素，
         // 隐藏的三列就写成一条 visibility="collapse" + repeated="3"
         for column in table.all("table-column") {
-            let hidden = attr_of(column, "visibility") == Some("collapse")
-                || folded_by_style(attr_of(column, "style-name"));
+            let span = repeated(column, "number-columns-repeated");
+            let seen = attr_of(column, "visibility");
+            let hidden = seen == Some("collapse") || folded_by_style(attr_of(column, "style-name"));
             if hidden {
-                sheet.hidden_cols += repeated(column, "number-columns-repeated");
+                sheet.hidden_cols += span;
+            }
+            // 宽度不在这个元素上：一跳在它点名的那份自动样式里
+            let style = attr_of(column, "style-name");
+            let hit = style.and_then(|want| col_sized.iter().find(|one| one.name == want));
+            let had = SizeInfo {
+                style: style.map(String::from),
+                repeated: span,
+                element_visibility: seen.map(String::from),
+                size: hit.and_then(|one| one.size.clone()),
+                optimal: hit.and_then(|one| one.optimal.clone()),
+                style_visibility: hit.and_then(|one| one.visibility.clone()),
+                style_parent: hit.and_then(|one| one.parent.clone()),
+                resolved: hit.is_some(),
+            };
+            tally(&mut sheet.col_tally, &had);
+            if sheet.col_sizes.len() < MAX_SIZE_ELEMENTS {
+                sheet.col_sizes.push(had);
             }
         }
         let mut row_at = 0usize;
@@ -287,10 +427,26 @@ pub fn read(bytes: &[u8]) -> Book {
         let mut walked = 0usize;
         for row in table.all("table-row") {
             let row_repeat = repeated(row, "number-rows-repeated");
-            if attr_of(row, "visibility") == Some("collapse")
-                || folded_by_style(attr_of(row, "style-name"))
-            {
+            let seen = attr_of(row, "visibility");
+            if seen == Some("collapse") || folded_by_style(attr_of(row, "style-name")) {
                 sheet.hidden_rows += row_repeat;
+            }
+            // 高度同理：一跳在行样式上，而且常与 use-optimal-row-height 同时写
+            let row_style = attr_of(row, "style-name");
+            let sized = row_style.and_then(|want| row_sized.iter().find(|one| one.name == want));
+            let had = SizeInfo {
+                style: row_style.map(String::from),
+                repeated: row_repeat,
+                element_visibility: seen.map(String::from),
+                size: sized.and_then(|one| one.size.clone()),
+                optimal: sized.and_then(|one| one.optimal.clone()),
+                style_visibility: sized.and_then(|one| one.visibility.clone()),
+                style_parent: sized.and_then(|one| one.parent.clone()),
+                resolved: sized.is_some(),
+            };
+            tally(&mut sheet.row_tally, &had);
+            if sheet.row_sizes.len() < MAX_SIZE_ELEMENTS {
+                sheet.row_sizes.push(had);
             }
             let mut col_at = 0usize;
             let mut hit = false;
@@ -366,6 +522,14 @@ pub fn read(bytes: &[u8]) -> Book {
             row_at += row_repeat;
         }
         sheet.rows = used_rows;
+        if sheet.col_tally.elements > sheet.col_sizes.len()
+            || sheet.row_tally.elements > sheet.row_sizes.len()
+        {
+            book.notes.push(format!(
+                "表 {} 走到的列/行元素有 {} / {} 条，逐条尺寸只存前 {} 条（总账按全部元素加）",
+                sheet.name, sheet.col_tally.elements, sheet.row_tally.elements, MAX_SIZE_ELEMENTS
+            ));
+        }
         book.sheets.push(sheet);
     }
     book
@@ -537,5 +701,107 @@ mod tests {
         let one = find(&book, "表格1");
         assert_eq!((one.rows, one.columns, one.cells.len()), (2, 2, 4));
         assert_eq!(cell(&book, "表格1", "B2").text, "124000");
+    }
+
+    /// 列宽与行高**不在列/行元素上**：元素只写「我顶几个」，尺寸在它点名的那份自动样式里。
+    /// 「几条元素」「盖住几列」「有内容的最右一列」是三本账（期望值来自 office_reader.py 的 ods_facts）
+    #[test]
+    fn a_column_width_is_one_hop_away_in_the_style_it_names() {
+        let book = read(&bytes_of("book.ods"));
+        let one = find(&book, "预算表");
+        assert_eq!(
+            (one.col_tally.elements, one.col_tally.spans, one.columns),
+            (2, 16384, 2),
+            "2 条列元素盖住 16384 列，而有内容的最右一格在第 2 列"
+        );
+        assert_eq!(
+            (
+                one.col_tally.resolved,
+                one.col_tally.with_size,
+                one.col_tally.optimal,
+                one.col_tally.spoken_visibility
+            ),
+            (2, 2, 0, 0)
+        );
+        assert_eq!(one.col_sizes[0].style.as_deref(), Some("co1"));
+        assert_eq!(
+            (one.col_sizes[0].repeated, one.col_sizes[1].repeated),
+            (2, 16382),
+            "那一条 16382 就是补到一万六千列的那片空白"
+        );
+        assert_eq!(one.col_sizes[0].size.as_deref(), Some("1.672cm"));
+        assert_eq!(one.col_sizes[0].style_parent, None, "这份件里样式没有父链");
+        assert!(
+            one.col_sizes[0].optimal.is_none(),
+            "列这一族没有 use-optimal-column-width，不替它填"
+        );
+        // 行：高度与「按最优」是同时写的两句，而且两条来路都没说隐藏
+        assert_eq!(
+            (
+                one.row_tally.elements,
+                one.row_tally.spans,
+                one.row_tally.optimal,
+                one.row_tally.spoken_visibility
+            ),
+            (5, 5, 5, 0)
+        );
+        assert_eq!(one.row_sizes[0].size.as_deref(), Some("0.529cm"));
+        assert_eq!(one.row_sizes[0].optimal.as_deref(), Some("true"));
+        // 换算是另算的：文件自己写的那一串原样留着
+        assert_eq!(crate::paper::length("1.672cm"), Some(1672));
+        assert_eq!(crate::paper::length("0.529cm"), Some(529));
+        // 表元素自己那四个数 LibreOffice 一个都不写：交回四个 None，而不是四个 0
+        assert_eq!(one.stated.len(), 4, "{:?}", one.stated);
+        assert!(
+            one.stated.iter().all(|(_, raw)| raw.is_none()),
+            "{:?}",
+            one.stated
+        );
+    }
+
+    /// 隐藏有两条来路：这个文件是**元素自己**说了 `collapse`（一条顶三列），
+    /// 而 5 条行元素盖 20 行的是另一份件 —— 数几条与数盖住几格永远分开
+    #[test]
+    fn a_collapsed_column_speaks_for_itself_and_a_run_covers_twenty() {
+        let book = read(&bytes_of("hidden.ods"));
+        assert!(book.notes.is_empty(), "{:?}", book.notes);
+        let one = find(&book, "预算表");
+        assert_eq!(
+            (
+                one.col_tally.elements,
+                one.col_tally.spans,
+                one.col_tally.spoken_visibility,
+                one.hidden_cols
+            ),
+            (3, 16384, 1, 3)
+        );
+        assert_eq!(one.col_sizes[1].style.as_deref(), Some("co2"));
+        assert_eq!(one.col_sizes[1].size.as_deref(), Some("2.545cm"));
+        assert_eq!(crate::paper::length("2.545cm"), Some(2545));
+        assert_eq!(
+            one.col_sizes[1].element_visibility.as_deref(),
+            Some("collapse")
+        );
+        assert_eq!(one.col_sizes[1].repeated, 3, "一条元素藏了三列");
+        assert!(
+            one.col_sizes[1].style_visibility.is_none(),
+            "样式那条来路这个文件没写，两条账各记各的"
+        );
+        assert_eq!((one.row_tally.spoken_visibility, one.hidden_rows), (2, 2));
+        assert_eq!(
+            one.row_tally.elements, one.row_tally.spans,
+            "行这边没有合并"
+        );
+
+        let charts = read(&bytes_of("chart.ods"));
+        assert!(charts.notes.is_empty(), "{:?}", charts.notes);
+        let data = find(&charts, "数据");
+        assert_eq!(
+            (data.row_tally.elements, data.row_tally.spans, data.rows),
+            (5, 20, 3),
+            "5 条行元素盖 20 行（其中一条 repeated=16），而有内容的只有 3 行"
+        );
+        assert_eq!(data.row_sizes[3].repeated, 16);
+        assert_eq!((data.col_tally.elements, data.col_tally.spans), (2, 16384));
     }
 }

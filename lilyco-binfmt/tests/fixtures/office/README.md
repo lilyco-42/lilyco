@@ -874,6 +874,30 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       都带着整个模板的 7 份定义、63 级，而 `listed: 0`；`notes-end.rtf` 只带一份 ——
       与 `notes.odt` 的「十份定义一段没套」同一类事实，各按各的交。
 
+59. **.ods 的宽与高不在列/行元素上，而且每张表都被补到整 16384 列**（六份 .ods 全量过）。
+    一条 `table:table-column` 写的只有「我顶几列」（`number-columns-repeated`）与偶尔一句
+    `table:visibility`，`style:column-width` 住在它点名的那份自动样式里 —— 与 .ods 的数据样式、
+    odt 的段落格式同一类账：值在别处。
+    * **每张表都是 16384 列**：`book.ods/预算表` 是「2 条元素 = 2 + 16382」，同件的另两张是
+      1 + 16383；`formats.ods/格式` 是 3 + 16381；`hidden.ods` 是 2 + 3 + 16379。
+      所以「几条元素」「盖住几列」「有内容的最右一列」
+      是三本账：`book.ods/预算表` 是 2 / 16384 / 2，谁也不替谁圆场。
+    * 行也一样，而且更明白：`chart.ods/数据` 5 条行元素盖住 **20** 行（其中一条 `repeated="16"`），
+      而**有内容的只有 3 行** —— 那一片空白是一整条元素，不是一行一行写的。
+    * 那两堆样式**全在 content.xml**：六份件的 `styles.xml` 里 `family=table-column` 与
+      `family=table-row` **一条都没有**（只有 graphic 与 table-cell 两族）—— 所以这一族只跳一跳、
+      就在同一份件里，与编号那批「定义整个搬到 styles.xml」正相反。
+    * **行两根都写、列一根不写**：每条行样式既有 `style:row-height="0.529cm"` 又写
+      `style:use-optimal-row-height="true"`，而列样式只有 `style:column-width="1.672cm"`，
+      没有 `use-optimal-column-width` —— 于是那两栏的 `optimal` 一个是 5、一个是 0。
+    * 隐藏的三列是**元素自己**说的（`hidden.ods` 里那条 `table:visibility="collapse"` + `repeated="3"`），
+      它点名的 `co2` 样式里反而什么都没有 —— 所以 `element_visibility` 与 `style_visibility` 分两个键，
+      合成一个就把「谁说的」这件事读丢了。
+    * 表级那四个自报的数（`number-columns` / `number-rows` / `default-column-width` /
+      `default-row-height`）六份件**一个都不写** → 四个 null，而不是四个 0。
+    * 换算用与「那张纸」同一条整数式子：`1.672cm` / `0.529cm` / `2.545cm` 落在
+      `1672` / `529` / `2545`（0.01mm），两家读者逐位一样。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
