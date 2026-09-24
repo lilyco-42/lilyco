@@ -181,19 +181,22 @@ pub fn parse_story(text: &str) -> Story {
                     "BGM",
                     &arg,
                     &get("vol").unwrap_or_else(|| "45".into()),
-                    get("loop").is_some(),
+                    // Node: loop = kv.loop !== 'false' —— bool，缺省 true，loop=false 显式关
+                    json!(get("loop").map(|v| v != "false").unwrap_or(true)),
                 )),
                 "se" => Some(sound(
                     "SE",
                     &arg,
                     &get("vol").unwrap_or_else(|| "60".into()),
-                    get("loop").is_some(),
+                    // Node: loop = kv.loop === 'true' —— bool，缺省 false
+                    json!(get("loop").map(|v| v == "true").unwrap_or(false)),
                 )),
                 "voice" => Some(sound(
-                    "VOICE",
+                    // Node 的 soundType 是 VOCAL，loop 固定字符串 "false"
+                    "VOCAL",
                     &arg,
                     &get("vol").unwrap_or_else(|| "80".into()),
-                    false,
+                    json!("false"),
                 )),
                 "stopbgm" => Some(stop_sound(
                     "BGM",
@@ -295,8 +298,11 @@ pub fn parse_story(text: &str) -> Story {
                                     o["fragmentId"] = json!(real);
                                 }
                             }
-                            b["props"]["optionsJson"] =
-                                json!(serde_json::to_string(&opts).unwrap_or_default());
+                            // 结构化 choices 与 legacy optionsJson 锁步更新
+                            // （Node compile.js：二次解析后两份同步重写）
+                            let opts_str = serde_json::to_string(&opts).unwrap_or_default();
+                            b["props"]["choices"] = json!(opts);
+                            b["props"]["optionsJson"] = json!(opts_str);
                         }
                         if b["type"] == "callFragment" {
                             let fid = b["props"]["fragmentId"].as_str().unwrap_or("").to_string();

@@ -1,7 +1,8 @@
 //! LetsGal 工程读写（project.json / characters.json / scenes.json / chapters/*.json / assets/.manifest.json）
 
-use crate::{stable_id, uid};
+use crate::{stable_id, uid, Story};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -202,6 +203,74 @@ pub fn validate_project(dir: &Path) -> Result<(Vec<String>, Vec<String>), String
         }
     }
     Ok((issues, warnings))
+}
+
+/// compile.js 的「无立绘不显形」后处理：没有任何表情素材的角色
+/// （电话/录音/广播中的声音）不要求运行时显示不存在的立绘 ——
+/// 其对白块 expression 清空、showCharacter/keepCharacter 置 false。
+/// has_portrait 为 false 才改写（缺省/未知角色不动，与 Node 语义一致）。
+pub fn apply_no_portrait_pass(chapters: &mut [Value], has_portrait: &HashMap<String, bool>) {
+    for ch in chapters {
+        if let Some(frags) = ch.get_mut("fragments").and_then(|f| f.as_array_mut()) {
+            for f in frags {
+                if let Some(blocks) = f.get_mut("blocks").and_then(|b| b.as_array_mut()) {
+                    for b in blocks.iter_mut() {
+                        if b["type"] != "dialogue" {
+                            continue;
+                        }
+                        let name = b["props"]["characterName"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string();
+                        if has_portrait.get(&name) == Some(&false) {
+                            if let Some(props) = b["props"].as_object_mut() {
+                                props.insert("expression".into(), json!(""));
+                                props.insert("showCharacter".into(), json!(false));
+                                props.insert("keepCharacter".into(), json!(false));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// DSL 解析树 → 完整工程（对齐 Node lib/compile.js compileStory 的落地段）：
+/// upsert 角色/场景 + 以磁盘已有表情判定立绘 + 无立绘不显形 + 写章节。
+/// 四端共用的唯一生产路径，测试也走它 —— 测的就是生产代码。
+pub fn write_story_project(
+    dir: &Path,
+    story: &mut Story,
+    name: Option<&str>,
+) -> Result<(), String> {
+    // 磁盘已有角色的表情状态（Studio 工程重编译时保留现有立绘）
+    let mut has_portrait: HashMap<String, bool> = HashMap::new();
+    let cp = dir.join("characters.json");
+    if cp.exists() {
+        let data: Value =
+            serde_json::from_str(&fs::read_to_string(&cp).map_err(|e| e.to_string())?)
+                .map_err(|e| format!("{}: {e}", cp.display()))?;
+        if let Some(chars) = data["characters"].as_array() {
+            for c in chars {
+                let cname = c["name"].as_str().unwrap_or("").to_string();
+                let has = c["expressions"].as_array().map_or(false, |a| !a.is_empty());
+                has_portrait.insert(cname, has);
+            }
+        }
+    }
+    for c in &story.characters {
+        let cname = c["name"].as_str().unwrap_or("").to_string();
+        upsert_character(dir, &cname)?;
+        has_portrait
+            .entry(cname)
+            .or_insert_with(|| c["expressions"].as_array().map_or(false, |a| !a.is_empty()));
+    }
+    for s in &story.scenes {
+        upsert_scene(dir, s["name"].as_str().unwrap_or(""))?;
+    }
+    apply_no_portrait_pass(&mut story.chapters, &has_portrait);
+    write_chapters(dir, &story.chapters, name)
 }
 
 fn read_json(p: &Path) -> Result<Value, String> {

@@ -7,7 +7,8 @@ pub mod project;
 
 pub use dsl::{parse_story, Story};
 pub use project::{
-    init_project, register_asset, upsert_character, upsert_scene, validate_project, write_chapters,
+    apply_no_portrait_pass, init_project, register_asset, upsert_character, upsert_scene,
+    validate_project, write_chapters, write_story_project,
 };
 
 use serde_json::{json, Value};
@@ -93,10 +94,12 @@ pub fn camera(zoom: &str, dur: &str) -> Value {
     }})
 }
 
-pub fn sound(sound_type: &str, uri: &str, volume: &str, loop_flag: bool) -> Value {
+/// loop 值由调用方按 Node 语义给：bgm=bool（缺省 true，`loop=false` 显式关）、
+/// se=bool（缺省 false）、voice=字符串 "false"（与 Node lib/story.js 逐字一致）
+pub fn sound(sound_type: &str, uri: &str, volume: &str, loop_value: Value) -> Value {
     json!({"id": uid(), "type": "sound", "props": {
         "disabled": false, "soundType": sound_type, "soundId": "", "uri": uri,
-        "volume": volume, "loop": if loop_flag { "true" } else { "false" }, "fadeDuration": ""
+        "volume": volume, "loop": loop_value, "fadeDuration": ""
     }})
 }
 
@@ -145,8 +148,14 @@ pub fn show_title_ui() -> Value {
     }})
 }
 
-pub fn branch(branch_id: &str, options_json: Value) -> Value {
-    json!({"id": uid(), "type": "branch", "props": {"disabled": false, "branchId": branch_id, "optionsJson": serde_json::to_string(&options_json).unwrap_or_default()}})
+/// 分支选项：结构化 choices 与 legacy optionsJson 双份并存且锁步
+/// （Studio 持久化 legacy 字符串，播放器读结构化字段 —— Node lib/blocks.js 同款）
+pub fn branch(branch_id: &str, options: Value) -> Value {
+    json!({"id": uid(), "type": "branch", "props": {
+        "disabled": false, "branchId": branch_id,
+        "choices": options.clone(),
+        "optionsJson": serde_json::to_string(&options).unwrap_or_default()
+    }})
 }
 
 pub fn return_to_entry() -> Value {

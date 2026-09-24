@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use lilyco_letsgal::{init_project, parse_story, validate_project, write_chapters};
+use lilyco_letsgal::{init_project, parse_story, validate_project, write_story_project};
 
 /// 构建注册表（策略必须在 register 前就位 —— 门在注册那一刻包住 handler）
 pub fn build_registry_with_policy(policy: Arc<dyn SafetyPolicy>) -> Registry {
@@ -91,7 +91,7 @@ fn run_init(app: &Init, ctx: &Context) -> Result<serde_json::Value, AppError> {
     name = "build",
     run = "run_build",
     safety = "t1",
-    about = "Compile a story DSL file into a LetsGal project at --dir: parses the DSL (# chapter, ## fragment, !scene name uri, !bgm uri vol=45, !se uri, !curtain close, !wait 800, !particle LIGHT_SNOW particles/snow.png, !camera zoom=1.1 dur=3000, !choice opt->frag | opt2->frag, !call frag, Char(expr): line, 旁白：line, （stage action）; characters and scenes are auto-registered with deterministic stableId ids matching the Node letsgal-ai), upserts characters and scenes, writes chapters/*.json plus project.json chapterOrder, then validates the project in place. Writes files (safety T1); returns { ok, chapters, characters, scenes, issues, warnings } where ok is true iff issues is empty."
+    about = "Compile a story DSL file into a LetsGal project at --dir: parses the DSL (# chapter, ## fragment, !scene name uri, !bgm uri vol=45, !se uri, !curtain close, !wait 800, !particle LIGHT_SNOW particles/snow.png, !camera zoom=1.1 dur=3000, !choice opt->frag | opt2->frag, !call frag, Char(expr): line, 旁白：line, （stage action）; characters and scenes are auto-registered with deterministic stableId ids matching the Node letsgal-ai), upserts characters and scenes, clears expression/showCharacter for characters without portrait assets (phone/broadcast voices), writes chapters/*.json plus project.json chapterOrder with structured choices kept in lockstep with legacy optionsJson, then validates the project in place. Writes files (safety T1); returns { ok, chapters, characters, scenes, issues, warnings } where ok is true iff issues is empty."
 )]
 struct Build {
     /// Story DSL 文件
@@ -112,16 +112,10 @@ fn run_build(app: &Build, ctx: &Context) -> Result<serde_json::Value, AppError> 
         total: Some(2),
         message: Some("解析故事 DSL…".into()),
     });
-    let story = parse_story(&dsl);
+    let mut story = parse_story(&dsl);
     ctx.tick(1, Some(2), "写入工程…");
     init_project(&app.dir, app.name.as_deref().unwrap_or("新游戏")).map_err(AppError::Runtime)?;
-    for c in &story.characters {
-        let _ = lilyco_letsgal::upsert_character(&app.dir, c["name"].as_str().unwrap_or(""));
-    }
-    for s in &story.scenes {
-        let _ = lilyco_letsgal::upsert_scene(&app.dir, s["name"].as_str().unwrap_or(""));
-    }
-    write_chapters(&app.dir, &story.chapters, app.name.as_deref()).map_err(AppError::Runtime)?;
+    write_story_project(&app.dir, &mut story, app.name.as_deref()).map_err(AppError::Runtime)?;
     let (issues, warnings) = validate_project(&app.dir).map_err(AppError::Runtime)?;
     let result = serde_json::json!({
         "ok": issues.is_empty(),

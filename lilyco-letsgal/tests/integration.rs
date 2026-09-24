@@ -1,6 +1,6 @@
 //! 集成测试：DSL 解析 → 工程写入 → 校验（对齐 Node 版语义 + 确定性验收）
 use lilyco_letsgal::{
-    init_project, parse_story, stable_id, validate_project, write_chapters, Story,
+    init_project, parse_story, stable_id, validate_project, write_story_project, Story,
 };
 use tempfile::tempdir;
 
@@ -69,7 +69,8 @@ fn dsl_parse_and_build() {
     assert_eq!(dlg.len(), 1);
     assert_eq!(dlg[0]["props"]["keepCharacter"], false);
 
-    // 终章分支：fragmentId 解析为 qa1 的**确定性** fragment id
+    // 终章分支：fragmentId 解析为 qa1 的**确定性** fragment id；
+    // 结构化 choices 与 legacy optionsJson 锁步（Node compile.js 语义）
     let ch1 = &story.chapters[1];
     let qa1_id = ch1["fragments"][1]["id"].as_str().unwrap();
     let br = ch1["fragments"][0]["blocks"]
@@ -78,13 +79,18 @@ fn dsl_parse_and_build() {
         .iter()
         .find(|b| b["type"] == "branch")
         .unwrap();
-    let opts: Vec<serde_json::Value> =
-        serde_json::from_str(br["props"]["optionsJson"].as_str().unwrap()).unwrap();
+    let opts = br["props"]["choices"].as_array().unwrap();
     assert_eq!(opts.len(), 2);
     assert_eq!(
         opts[0]["fragmentId"].as_str().unwrap(),
         qa1_id,
         "choice 的目标必须解析为「章节名::片段名」的 stable id"
+    );
+    let legacy: serde_json::Value =
+        serde_json::from_str(br["props"]["optionsJson"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        br["props"]["choices"], legacy,
+        "choices 与 optionsJson 必须锁步"
     );
 }
 
@@ -92,14 +98,8 @@ fn dsl_parse_and_build() {
 fn project_roundtrip() {
     let dir = tempdir().unwrap();
     init_project(dir.path(), "测试").unwrap();
-    let story = parse_story(DEMO_DSL);
-    for c in &story.characters {
-        let _ = lilyco_letsgal::upsert_character(dir.path(), c["name"].as_str().unwrap());
-    }
-    for s in &story.scenes {
-        let _ = lilyco_letsgal::upsert_scene(dir.path(), s["name"].as_str().unwrap());
-    }
-    write_chapters(dir.path(), &story.chapters, Some("测试")).unwrap();
+    let mut story = parse_story(DEMO_DSL);
+    write_story_project(dir.path(), &mut story, Some("测试")).unwrap();
 
     let (issues, warnings) = validate_project(dir.path()).unwrap();
     assert!(issues.is_empty(), "结构问题应为空: {issues:?}");
@@ -160,7 +160,7 @@ fn same_dsl_parses_deterministically() {
 #[test]
 fn demo_story_builds_end_to_end_with_zero_issues() {
     let dsl = include_str!("fixtures/demo-story.txt");
-    let story = parse_story(dsl);
+    let mut story = parse_story(dsl);
     assert_eq!(story.chapters.len(), 2, "序章/清晨");
     let names: Vec<&str> = story
         .characters
@@ -177,13 +177,22 @@ fn demo_story_builds_end_to_end_with_zero_issues() {
 
     let dir = tempdir().unwrap();
     init_project(dir.path(), "回忆序章").unwrap();
-    for c in &story.characters {
-        let _ = lilyco_letsgal::upsert_character(dir.path(), c["name"].as_str().unwrap());
-    }
-    for s in &story.scenes {
-        let _ = lilyco_letsgal::upsert_scene(dir.path(), s["name"].as_str().unwrap());
-    }
-    write_chapters(dir.path(), &story.chapters, Some("回忆序章")).unwrap();
+    write_story_project(dir.path(), &mut story, Some("回忆序章")).unwrap();
+
+    // 无立绘不显形（Node compile.js 后处理）：DSL 未登记表情素材 →
+    // 对白块 expression 清空、showCharacter/keepCharacter=false（parse 层是 微笑/true）
+    let dlg = story.chapters[0]["fragments"][0]["blocks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["type"] == "dialogue")
+        .unwrap();
+    assert_eq!(
+        dlg["props"]["expression"], "",
+        "无立绘角色的表情必须清空（穗 parse 层是「微笑」）"
+    );
+    assert_eq!(dlg["props"]["showCharacter"], false);
+    assert_eq!(dlg["props"]["keepCharacter"], false);
 
     let (issues, warnings) = validate_project(dir.path()).unwrap();
     assert!(issues.is_empty(), "demo 真实剧本必须零 issues: {issues:?}");
