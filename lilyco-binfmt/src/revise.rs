@@ -439,7 +439,10 @@ mod tests {
                </office:text>"#,
         );
         let paragraphs = odt_body(&root);
-        let ledger = odt_ledger(&root, &paragraphs);
+        // 递的是 `office:text` 那一层，与 office-doc 的调用点一致：`track-changes`
+        // 那个开关挂在它的直接孩子上，`all()` 只看一层，递伪根就什么都看不见
+        let text = root.child("text").expect("office:text 在");
+        let ledger = odt_ledger(text, &paragraphs);
         assert_eq!(ledger.changes.len(), 2, "{:?}", ledger.changes);
         assert_eq!(paragraphs.len(), 2, "region 里那份被删的段落不算正文段落");
         assert_eq!(ledger.track_changes, Some(false));
@@ -467,7 +470,9 @@ mod tests {
             r#"<office:text><text:p>这里引了一个不存在的改动<text:change text:change-id="nope"/></text:p></office:text>"#,
         );
         let paragraphs = odt_body(&root);
-        let ledger = odt_ledger(&root, &paragraphs);
+        // 与 office-doc 的调用点同一层：`odt_ledger` 拿的是 `office:text`，不是伪根
+        let text = root.child("text").expect("office:text 在");
+        let ledger = odt_ledger(text, &paragraphs);
         assert!(ledger.changes.is_empty());
         assert!(
             ledger.notes.join(" ").contains("没把修订表写全"),

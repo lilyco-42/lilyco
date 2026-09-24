@@ -238,10 +238,13 @@ mod tests {
     /// 从 docx 转过来时那三个全是 false（这条是 fixture 实测的，见 README）
     #[test]
     fn opendocument_keeps_table_locks_on_the_table() {
-        let one = parse(
+        // `ods_table` 拿的是**那张表**（保护是表上的属性），不是伪根：
+        // 递 `#doc` 进去看到的是「没有这些属性」，那不是文件说的话
+        let doc = parse(
             r#"<table:table table:name="预算表" table:protected="true" table:protection-key="abc==" table:protection-key-digest-algorithm="http://docs.oasis-open.org/office/ns/table/legacy-hash-excel"/>"#,
         );
-        let done = ods_table(&one, "预算表");
+        let one = doc.child("table:table").expect("表元素在");
+        let done = ods_table(one, "预算表");
         assert_eq!(done["protected"], json!(true), "{done}");
         assert_eq!(done["password"], json!(true));
         assert_eq!(
@@ -251,7 +254,8 @@ mod tests {
         );
 
         let bare = parse(r#"<table:table table:name="说明"/>"#);
-        assert_eq!(ods_table(&bare, "说明")["protected"], json!(false));
+        let two = bare.child("table:table").expect("表元素在");
+        assert_eq!(ods_table(two, "说明")["protected"], json!(false));
 
         let settings = parse(
             r#"<office:settings><config:config-item-set>

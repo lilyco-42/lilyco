@@ -1824,11 +1824,14 @@ fn name_refs(body: &[u8]) -> Vec<(String, u64)> {
         while k < body.len() && body[k].is_ascii_digit() {
             k += 1;
         }
-        if j > digits_at && k > gen_at && body.get(k) == Some(&b'R') {
+        // 与 `ref_after` 同一件事：`/F1 60 0 R` 里版本号与 `R` 之间必有那一步空白，
+        // 不吃掉它整张字体表就一个名字都解不出来（正文于是全交回字形码）
+        let r_at = skip_spaces(body, k);
+        if j > digits_at && k > gen_at && body.get(r_at) == Some(&b'R') {
             if let Ok(done) = String::from_utf8_lossy(&body[digits_at..j]).parse::<u64>() {
                 out.push((name, done));
             }
-            at = k + 1;
+            at = r_at + 1;
             continue;
         }
         at = i;
@@ -2068,6 +2071,16 @@ fn target_of(pdf: &Pdf, dict: &[u8], hops: usize) -> Target {
                 via: Some(kind.clone())
                     .filter(|one| !one.is_empty())
                     .or(inner.via),
+            };
+        }
+        // 既不去页也不去站外的动作（`/Launch`、`/NamedAction`、`/GoTo` 到看不见的页）：
+        // 把动作名交回去。记成「没有动作」就等于把这一条最该看见的东西抹平了 ——
+        // 清单里两条链接都写 none，读的人分不出哪条是启动外部程序的那条
+        if !kind.is_empty() {
+            return Target {
+                page: None,
+                form: "action",
+                via: Some(kind),
             };
         }
     }
@@ -2483,7 +2496,7 @@ mod tests {
         let cmap = b"begincodespacerange\n<00> <FF>\nendcodespacerange\n\
                      2 beginbfchar\n<01> <7532>\n<02> <4E59>\nendbfchar\n\
                      1 beginbfrange\n<10> <12> <0041>\nendbfrange\n\
-                     1 beginbfrange\n<20> <21> [<006f0062> <006364>]\nendbfrange\n";
+                     1 beginbfrange\n<20> <21> [<006f0062> <00630064>]\nendbfrange\n";
         let mut body = Vec::new();
         body.extend_from_slice(b"%PDF-1.4\n");
         body.extend_from_slice(

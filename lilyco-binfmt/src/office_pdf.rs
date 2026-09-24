@@ -347,6 +347,9 @@ fn run_office_pdf(app: &OfficePdf, ctx: &Context) -> Result<Value, AppError> {
             }));
             joined.push(one);
         }
+        // 只把有字的页拼起来：两份空页之间那个换行会凭空算成一个字符，
+        // 于是「正文一个字没有」的文件自报 chars 1（加密那份就这样）
+        joined.retain(|one| !one.is_empty());
         let all = joined.join("\n");
         if !from_tree {
             notes.push(
@@ -497,9 +500,12 @@ mod tests {
         assert_eq!(fonts.len(), 5);
         assert!(fonts.iter().all(|one| one["to_unicode"] == json!(true)));
         assert!(fonts.iter().all(|one| one["subtype"] == json!("TrueType")));
-        assert!(fonts
-            .iter()
-            .all(|one| one["encoding"] == json!("WinAnsiEncoding")));
+        // 这五张子集字体**没有** `/Encoding` 这个键：`pdffonts` 那一列写 "WinAnsi" 是
+        // xpdf 给 TrueType 补的默认值，不是文件里有的字。这边不替文件编一个编码出来
+        assert!(
+            fonts.iter().all(|one| one["encoding"] == json!("")),
+            "{fonts:?}"
+        );
         assert_eq!(out["images"].as_array().map(|one| one.len()), Some(2));
         // 正文里的脚注链接是一个 URI 批注；没有脚本、没有表单、没有附件
         assert_eq!(out["features"]["javascript"], json!(0));
@@ -573,8 +579,13 @@ mod tests {
         assert_eq!(risk["links"]["total"], json!(2), "{risk}");
         assert_eq!(risk["links"]["external"], json!(1));
         assert_eq!(risk["links"]["other"], json!(1), "/Launch 那一条哪儿也不去");
+        // `/Annots[10 0 R 11 0 R]` 里先出现的是 /Launch 那条：站外地址是第二条。
+        // 动作名要留在清单上，两条都写 none 就分不出哪条会启动外部程序
+        assert_eq!(risk["links"]["items"][0]["form"], json!("action"));
+        assert_eq!(risk["links"]["items"][0]["via"], json!("Launch"));
+        assert_eq!(risk["links"]["items"][0]["uri"], Value::Null);
         assert_eq!(
-            risk["links"]["items"][0]["uri"],
+            risk["links"]["items"][1]["uri"],
             json!("https://example.invalid/doc")
         );
         assert_eq!(risk["outline"]["present"], json!(false), "这份没书签");
