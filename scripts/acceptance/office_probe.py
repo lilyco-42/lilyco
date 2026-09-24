@@ -135,6 +135,9 @@ def main() -> int:
         "deck.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-links.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-links-lo.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-hidden.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-hidden-lo.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-hidden.odp": ("opendocument", "powerpoint", "odp"),
         "deck-lo.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-chart.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-chart-lo.pptx": ("ooxml", "powerpoint", "pptx"),
@@ -1911,6 +1914,47 @@ def main() -> int:
         "文本框被 Impress 改写成了 custom-shape：链接不因此不见，页上的 frame 却少一个",
         [dig(odp_links, "slides[0].frames"), dig(odp_links, "slides[0].links.total")],
         [2, 3],
+    )
+
+    # ── 2m) 放映时隐藏这一页：三家各写一处，ODF 那一处还要跳一跳 ──────
+    hidden_pptx = lbin("office-slide", fixture("deck-hidden.pptx"))
+    hidden_lo = lbin("office-slide", fixture("deck-hidden-lo.pptx"))
+    hidden_odp = lbin("office-slide", fixture("deck-hidden.odp"))
+    for name, got in (
+        ("deck-hidden.pptx", hidden_pptx),
+        ("deck-hidden-lo.pptx", hidden_lo),
+        ("deck-hidden.odp", hidden_odp),
+    ):
+        deck = files[name].get("ooxml") or files[name].get("odp") or {}
+        check(
+            "%s 每页藏不藏与读者一致" % name,
+            [one.get("hidden") for one in got.get("slides", [])],
+            [one.get("hidden") for one in deck.get("slides", [])],
+        )
+    check(
+        "deck-hidden.odp 那一跳整份账与读者一致（页只点名样式）",
+        [one.get("visibility") for one in hidden_odp.get("slides", [])],
+        [one.get("visibility") for one in (files["deck-hidden.odp"].get("odp") or {}).get("slides", [])],
+    )
+    check(
+        "同一件事三处写法：pptx 在根上的 show，odp 在页点名的那份样式里",
+        [dig(hidden_pptx, "slides[0].hidden"), dig(hidden_pptx, "slides[1].hidden"),
+         dig(hidden_lo, "slides[1].hidden"),
+         dig(hidden_odp, "slides[0].hidden"), dig(hidden_odp, "slides[1].hidden"),
+         dig(hidden_odp, "slides[0].visibility.page_style"),
+         dig(hidden_odp, "slides[1].visibility.page_style"),
+         dig(hidden_odp, "slides[1].visibility.visibility_written"),
+         dig(hidden_odp, "slides[0].visibility.visibility_written"),
+         dig(hidden_odp, "slides[0].visibility.style_found")],
+        [False, True, True, False, True, "dp1", "dp3", "hidden", None, True],
+    )
+    check(
+        "藏起来那页照样在账上：两页都在，标题与字一条不少（dp2 那份没人点名的样式不替它说话）",
+        [len(hidden_pptx.get("slides", [])), len(hidden_odp.get("slides", [])),
+         dig(hidden_pptx, "slides[1].title"),
+         dig(hidden_odp, "slides[1].title"),
+         dig(hidden_odp, "slides[0].hidden")],
+        [2, 2, "第二页：放映时藏起来", "第二页：放映时藏起来", False],
     )
 
     # ── 表格结构：表名、可见性、范围、格子 ──────────────────────────

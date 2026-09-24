@@ -19,6 +19,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `deck-links.pptx` | python-pptx（`write_pptx_links`） | 页上三条链接（站外 http 且字与地址不同、`mailto:`、字就是地址）+ 一页一条也不链；链接不住在字里，只在 run 的 `a:rPr/a:hlinkClick/@r:id` 留一个号 |
 | `deck-links-lo.pptx` | LibreOffice（从 `deck-links.odp` 回转） | 同样三条链接、同一个地址，但号被重排成 `rId1/2/3`（一家从 rId2 起，一家从 rId1 起）—— 号是生产者自己排的，只交不比 |
 | `deck-links.odp` | LibreOffice（从 `deck-links.pptx` 导出） | 第三种写法：地址直接挂在字上（`text:a/@xlink:href` + `xlink:type="simple"`），没有第二跳也没有「站内/站外」那个开关；而那个文本框在这里成了 `draw:custom-shape`，不再是 `draw:frame` |
+| `deck-hidden.pptx` | python-pptx（`write_pptx_hidden`） | 第二页根元素上 `show="0"`（= PowerPoint 那句「隐藏幻灯片」；python-pptx 没这个开关，包是它写的，这里只设 UI 会设的那一个属性），第一页什么都不写 |
+| `deck-hidden-lo.pptx` | LibreOffice（从 `deck-hidden.odp` 回转） | 同一句话过了一遍 ODF 再回来，`show="0"` 一字不动 —— 隐藏不是会被重写吃掉的那种信息 |
+| `deck-hidden.odp` | LibreOffice（从 `deck-hidden.pptx` 导出） | ODF 的第三种摆法：页上只有 `draw:style-name="dp1"` / `"dp3"`，那句 `presentation:visibility="hidden"` 在 dp3 那份 drawing-page 样式里；**同一份文件里 dp2 也写着 hidden 而没有任何页点它的名** —— 只 grep 全文就数错 |
 | `deck-tables.odp` | LibreOffice（上面那一转的中间件） | 同一张表的第三种写法：列宽换成 `7.62cm` 与 `5.08cm`、行高换成 `1.693cm` 与 `2.54cm`，而合并改成**另写一格** `table:covered-table-cell`（既不是 docx 的不写、也不是 pptx 的 `hMerge`） |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
@@ -1097,6 +1100,23 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       （`D:` 前缀与 `Z` 后缀都留着：那是文件自己写的。）
     * 注记与链接走的是同一条路：`/Annots` 可以是内联数组也可以是间接引用，
       两份读者都两种认（这一件里三条都是内联的）。
+
+68. **一页藏不藏，三家写在三处地方**（`deck-hidden.pptx`、`deck-hidden-lo.pptx`、`.odp`）。
+    * OOXML 就一个属性：`<p:sld … show="0">`（PowerPoint 界面里那句「隐藏幻灯片」）。
+      python-pptx 没有这个开关，但包是它写的 —— 这里只把 UI 会设的那一个属性设上。
+      LibreOffice 把这份转成 odp 再转回 pptx，`show="0"` 一字不动地留着（两副都收进仓库）。
+    * ODF 不写在页上：`draw:page` 只点名一份 `family="drawing-page"` 的自动样式，
+      那句话在那份样式的 `style:drawing-page-properties/@presentation:visibility="hidden"` 里。
+      实测这两页在 `draw:page` 上的属性表**只差 `draw:style-name` 一个值**（dp1 / dp3），
+      所以「这一页藏不藏」要跳一跳才知道。
+    * 这一件专门备着的坑：同一份 `content.xml` 里 **dp2 与 dp3 两份样式都写着 hidden**，
+      而没有任何一页点 dp2 的名 —— 只 grep 全文会把看得见的那页也判成藏的。所以读法是按
+      页自己点的名去找（两份件都找，`content.xml` 与 `styles.xml`，不赌自动样式在哪一份），
+      找到之后 `visibility_written` 交它自己写的那一串（dp1 那份**根本没有这个属性** → null，
+      `hidden` 因此是 false 而不是 null：ODF 的默认就是 visible），
+      点名点不到那份样式时 `hidden` 交 null（判不住），`style_found: false` 说清为什么。
+    * 三家都有 `hidden` 这一键了：没藏就是 false，不是缺键；藏起来那页的标题、字与
+      段落照旧整份交出来（「放映时不演」不等于「这份文件里没有这一页」）。
 
 ## 这些数字从哪来
 

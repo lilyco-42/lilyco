@@ -1156,6 +1156,30 @@ def write_pptx_links(path: Path) -> None:
     pres.save(path)
 
 
+def write_pptx_hidden(path: Path) -> None:
+    """python-pptx：一页看得见、一页「放映时隐藏」—— 三家把同一件事写在三个地方
+
+    OOXML 是一个 `p:sld@show="0"`（python-pptx 没有开关，但包是它写的，这里只设
+    PowerPoint 界面上那个「隐藏幻灯片」会设的唯一一个属性）；ODF 不写在页上，而是
+    写在页点名的那份 family=drawing-page 的自动样式里
+    （`style:drawing-page-properties/@presentation:visibility="hidden"` —— 实测两页的
+    `draw:page` 属性表差别只有 `draw:style-name`，藏不藏要跳一跳才知道）。
+    两页都有标题与字，读的人别把藏起来那页当没有这页。
+    """
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    pres = Presentation()
+    first = pres.slides.add_slide(pres.slide_layouts[5])
+    first.shapes.title.text = "第一页：看得见"
+    second = pres.slides.add_slide(pres.slide_layouts[5])
+    second.shapes.title.text = "第二页：放映时藏起来"
+    second._element.set("show", "0")
+    box = second.shapes.add_textbox(Inches(1), Inches(3), Inches(5), Inches(1))
+    box.text_frame.paragraphs[0].add_run().text = "藏起来那页也有字"
+    pres.save(path)
+
+
 def write_pptx_charts(path: Path) -> None:
     """python-pptx：同一页两张图（柱形与饼图），第二页一张也没有。
 
@@ -2318,6 +2342,23 @@ def main() -> int:
             shutil.copyfile(src, OUT / name)
         else:
             print(f"⚠️  没拿到 {name}（LibreOffice 版本可能不支持该目标格式）")
+
+    # 「放映时隐藏这一页」那三副：python-pptx 写 `show="0"`，LibreOffice 重写同一个格式
+    # 留着它，而它转出去的 .odp 把同一句话搬进了页点名的那份 drawing-page 样式里
+    hidden_deck = OUT / "deck-hidden.pptx"
+    write_pptx_hidden(hidden_deck)
+    convert(exe, hidden_deck, "odp", SCRATCH / "hidden-odp")
+    made = SCRATCH / "hidden-odp" / "deck-hidden.odp"
+    if made.exists():
+        shutil.copyfile(made, OUT / "deck-hidden.odp")
+        convert(exe, made, "pptx", SCRATCH / "hidden-back")
+        again = SCRATCH / "hidden-back" / "deck-hidden.pptx"
+        if again.exists():
+            shutil.copyfile(again, OUT / "deck-hidden-lo.pptx")
+        else:
+            print("⚠️  没拿到 deck-hidden-lo.pptx（.odp → .pptx 那一转）")
+    else:
+        print("⚠️  没拿到 deck-hidden.odp（隐藏那一转的中间件）")
 
     # ── PDF：这一族的三条路各要一个真件 ─────────────────────────────
     # 1) LibreOffice 导出（Writer 与 Impress 各一份：页面尺寸、/Lang、字体数都不同）

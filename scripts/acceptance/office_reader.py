@@ -2096,6 +2096,8 @@ def pptx_facts(path: Path) -> dict:
                 "part": name,
                 "links": pptx_slide_links(root, rels_root),
                 "relationships": slide_rels(rels_root, name),
+                # 「放映时隐藏」这一族就写在根元素上一个 show="0"；没写等于没藏
+                "hidden": root.get("show") == "0",
                 "title": texts[0] if texts else "",
                 "texts": texts,
                 "text_runs": len(texts),
@@ -3419,6 +3421,50 @@ def odf_links(path: Path) -> dict:
     return {"links": out, "external": [one for one in out if one["external"]]}
 
 
+def odp_drawing_page_styles(parts: dict) -> dict:
+    """两份件里 family=drawing-page 的样式：名字 → (在哪个部件, 那份 properties 写的 visibility)
+
+    同名取第一个（与 Rust 那边 `find` 同一条规则）。`visibility` 没写是 None ——
+    那与「写了 visible」是两件事，而**没找到那份样式**又是第三件事（交回 hidden None）。
+    """
+    out: dict = {}
+    for part in ("content.xml", "styles.xml"):
+        if part not in parts:
+            continue
+        for one in ET.fromstring(parts[part]).iter():
+            if xml_local(one.tag) != "style" or of_local(one, "family") != "drawing-page":
+                continue
+            name = of_local(one, "name")
+            if name is None or name in out:
+                continue
+            props = None
+            for kid in one:
+                if xml_local(kid.tag) == "drawing-page-properties":
+                    props = kid
+                    break
+            out[name] = (part, of_local(props, "visibility") if props is not None else None)
+    return out
+
+
+def odp_page_visibility(styles: dict, named) -> dict:
+    """一页在放映时藏不藏：ODF 不写在页上，写在页点名的那份 drawing-page 样式里"""
+    if named is None or named not in styles:
+        return {
+            "hidden": None,
+            "page_style": named,
+            "style_found": False,
+            "visibility_written": None,
+        }
+    part, written = styles[named]
+    return {
+        "hidden": written == "hidden",
+        "page_style": named,
+        "style_found": True,
+        "visibility_written": written,
+        "style_part": part,
+    }
+
+
 def odp_facts(path: Path) -> dict | None:
     """ODF 演示稿：页面上的字与备注里的字是两件事，尺寸还得绕 master-page 那一跳。
 
@@ -3432,6 +3478,9 @@ def odp_facts(path: Path) -> dict | None:
         return None
     root = ET.fromstring(parts["content.xml"])
     styles = ET.fromstring(parts["styles.xml"]) if "styles.xml" in parts else None
+    # 页的「放映时隐藏」在那份 family=drawing-page 的样式里，两份件都要收（不赌自动样式
+    # 一定在 content.xml）
+    page_styles = odp_drawing_page_styles(parts)
 
     layout_of_master: dict = {}
     size_of_layout: dict = {}
@@ -3505,6 +3554,11 @@ def odp_facts(path: Path) -> dict | None:
                 "links": odp_slide_links(
                     [one for one in page if xml_local(one.tag) != "notes"]
                 ),
+                # 藏不藏要跳一跳：页只点名样式，那句话在那份样式里
+                "hidden": odp_page_visibility(
+                    page_styles, of_local(page, "style-name")
+                )["hidden"],
+                "visibility": odp_page_visibility(page_styles, of_local(page, "style-name")),
                 "size": size_of_layout.get(layout_of_master.get(master)),
             }
         )
