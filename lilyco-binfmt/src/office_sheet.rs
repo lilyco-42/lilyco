@@ -1042,7 +1042,7 @@ fn sheet_tables(bytes: &[u8], part: &str, sheet_root: &xmlscan::Node, limit: usi
 /// 命名空间声明不算属性：`xmlns=` 与 `xmlns:fo=` 是「这一族怎么读这个名字」的声明，
 /// 不是这个元素携带的数据，标准库的 XML 读者也不把它放进 attrib —— 两边同一口径，
 /// 否则部件根元素那份账会凭空多出一条谁都没当它是值的串
-fn written_attrs(node: &xmlscan::Node) -> Value {
+pub(crate) fn written_attrs(node: &xmlscan::Node) -> Value {
     let mut out = serde_json::Map::new();
     for (key, value) in &node.attrs {
         if key == "xmlns" || key.starts_with("xmlns:") {
@@ -2912,22 +2912,23 @@ mod tests {
             "没筛的表它也写一条 false"
         );
 
-        // ODS 与 .xls 两族没读：键整个不在
-        for name in ["book.ods", "hidden.ods", "book.xls"] {
+        // ODS 读了尺寸这一族（每一张表都被补到 16384 列，见 ods 那两条测试），
+        // 但筛选与表对象是 OOXML 才有的东西；.xls 三份都没读 —— 都是「键整个不在」
+        for name in ["book.ods", "hidden.ods"] {
             for one in run(name)["sheets"].as_array().expect("是数组") {
-                assert!(
-                    one.get("layout").is_none(),
-                    "{name} 这一族的尺寸没读：{one}"
-                );
-                assert!(
-                    one.get("filter").is_none(),
-                    "{name} 这一族的筛选没读：{one}"
-                );
-                assert!(
-                    one.get("tables").is_none(),
-                    "{name} 这一族的表对象没读：{one}"
-                );
+                let spans = one["layout"]["columns"]["spans"].as_u64();
+                assert_eq!(spans, Some(16384), "每张表都被补到整 16384 列：{one}");
+                assert!(one.get("filter").is_none(), "这一族的筛选没读：{one}");
+                assert!(one.get("tables").is_none(), "这一族的表对象没读：{one}");
             }
+        }
+        for one in run("book.xls")["sheets"].as_array().expect("是数组") {
+            assert!(one.get("layout").is_none(), ".xls 这一族的尺寸没读：{one}");
+            assert!(one.get("filter").is_none(), ".xls 这一族的筛选没读：{one}");
+            assert!(
+                one.get("tables").is_none(),
+                ".xls 这一族的表对象没读：{one}"
+            );
         }
     }
 
