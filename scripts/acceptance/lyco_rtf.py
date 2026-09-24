@@ -146,6 +146,63 @@ PAGE_DESTINATIONS = {
     "footer", "footerl", "footerr", "footert", "footerf",
 }
 
+# 字体表与样式表也住在群里面，本域认得它们 —— 但认得不等于要把那一群收下：
+# 那两群里坐着几十个「不认识就跳」的子群（`{\*\falt …}`、`{\*\csN …}`），
+# 整群吃掉会让 skipped_destinations 从 65 掉到 23，那个诊断数就不可比了。
+# 所以走 `field` 那一条路：照旧跳过（一个字不进正文），只**前瞻**读一遍里面的定义
+DEF_DESTINATIONS = {"fonttbl", "stylesheet"}
+# 一群里的第一条控制字决定它是什么定义：`\fN` 字体、`\sN` 段落样式、`\csN` 字符样式
+FIRST_DEF = re.compile(r"^\\(?:\*\\)?(cs|s|f)(\d+)")
+KIND_OF_PREFIX = {"f": "font", "s": "paragraph", "cs": "character"}
+# 一个字体条目自己声明的字符集：`\fcharset0` 是 ANSI，非 0 的那一串（128 是 Shift-JIS、
+# 134 是 GB2312 …）意味着名字里的字节不是 cp1252 —— 按 cp1252 解出来就是乱码，
+# 所以那种条目只交字符集号与原始字节，不交一个我们解错的名字
+FCHARSET = re.compile(r"\\fcharset(\d+)")
+
+
+def child_groups(text: str) -> list:
+    """一群之内的**顶层**子群：交回每个子群的内容（不含外面那对花括号）"""
+    out: list[str] = []
+    i = 0
+    while i < len(text):
+        if text[i] != "{":
+            i += 1
+            continue
+        stop, inner = group_end(text, i + 1)
+        out.append(inner)
+        i = stop + 1
+    return out
+
+
+def definition_of(child: str) -> dict:
+    """一条 `{\f0 … Times New Roman;}` / `{\s1 … heading 1;}` 读出种类、编号与名字。
+
+    名字用 `rtf_text` 自己解：控制字不产字，嵌套的 `{\\*\\falt …}` 那一群按「不认识就跳」
+    跳掉，所以剩下的那段文字就是这一个定义的名字（末尾跟着一个分号）。
+    """
+    hit = FIRST_DEF.match(child)
+    if not hit:
+        return {}
+    kind = KIND_OF_PREFIX[hit.group(1)]
+    charset = 0
+    mark = FCHARSET.search(child)
+    if mark:
+        charset = int(mark.group(1))
+    text = rtf_text(child.encode("latin-1", "replace"))["text"].strip()
+    if text.endswith(";"):
+        text = text[:-1].rstrip()
+    # 全 ASCII 的名字与字符集无关（RTF 用的每一种字符集都含 ASCII）；
+    # 否则只有 ANSI(0) 那份能按 cp1252 读。非 ANSI 又含非 ASCII 的：交 null 加字符集号，
+    # 不交那串按 cp1252 解出来的乱码字（"‚l‚r ƒSƒVƒbƒN" 就是它 —— 文件写的是 Shift-JIS）
+    ascii_name = all(ord(one) < 0x80 for one in text)
+    one = {
+        "kind": kind,
+        "index": int(hit.group(2)),
+        "charset": charset if kind == "font" else None,
+        "name": (text or None) if (kind != "font" or charset == 0 or ascii_name) else None,
+    }
+    return one
+
 # 注的两个口袋。LibreOffice 的 RTF 导出**只用 `footnote` 这一个口袋**，
 # 尾注靠群里的 `\ftnalt` 反标志区分（Word 那族还会另写 `endnote` 口袋），
 # 所以两个词都认、再看 `\ftnalt`
@@ -188,6 +245,8 @@ def rtf_text(data: bytes) -> dict:
     text = data.decode("latin-1", "replace")
     out: list[str] = []
     page: dict = {"headers": [], "footers": [], "notes": [], "links": [], "destinations": 0}
+    # 定义类（字体与样式）不是页面上的字，也不进 page 那几个口袋
+    found: dict = {"fonts": [], "styles": []}
     pending = bytearray()  # 连续的 \'hh 字节，攒着按字符集一起解
     skip: list[bool] = [False]
     codepage = 1252
@@ -211,6 +270,8 @@ def rtf_text(data: bytes) -> dict:
         "nest_rows": 0,
         "nest_cells": 0,
         "fields": 0,
+        # 样式被用了几次：样式号 → 条数（正文里出现的 \sN，不含样式表自己的那些）
+        "style_uses": {},
     }
 
     def flush() -> None:
@@ -339,6 +400,14 @@ def rtf_text(data: bytes) -> dict:
             i = stop + 1
             continue
         if word in SKIP_DESTINATIONS or word in NOTE_DEFINITION_DESTINATIONS:
+            if word in DEF_DESTINATIONS and not skip[-1]:
+                # 前瞻：这一群照旧整群跳过（里面的一个字都不进正文），
+                # 但本域认得这些定义，所以读一遍再走 —— 不推进游标、不改 skip
+                _stop, inner = group_end(text, j)
+                for child in child_groups(inner):
+                    got = definition_of(child)
+                    if got:
+                        found["fonts" if word == "fonttbl" else "styles"].append(got)
             skip[-1] = True
             stats["destinations"] += 1
         elif word == "pict":
@@ -378,11 +447,25 @@ def rtf_text(data: bytes) -> dict:
                 stats["nest_rows"] += 1
             elif word == "nestcell":
                 stats["nest_cells"] += 1
+            # 样式被用了几次：正文里的 \sN（样式表那一群已被吃掉，不会自己数自己）
+            if word == "s" and digits.isdigit():
+                which = int(digits)
+                stats["style_uses"][which] = stats["style_uses"].get(which, 0) + 1
         i = j
     flush()
     body = "".join(out).strip()
     lines = [one.strip() for one in body.split("\n") if one.strip()]
+    # 用了几次的样式按名字合：文件写的是 `\s1`，名字在样式表那一群里；
+    # 用了却没定义的样式号也照交（名字给 `sN` 这种占位，不编一个好看的）
+    by_index = {one["index"]: one["name"] for one in found["styles"]}
+    uses = [
+        {"index": which, "name": by_index.get(which, "s%d" % which), "count": count}
+        for which, count in sorted(stats["style_uses"].items())
+    ]
     return {
+        "fonts": found["fonts"],
+        "styles": found["styles"],
+        "style_uses": uses,
         "text": body,
         "lines": lines,
         "line_count": len(lines),

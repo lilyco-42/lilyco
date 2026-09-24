@@ -260,13 +260,35 @@ def main() -> int:
         )
         # 「没看」与「没有」不是一件事：这几项两边都必须是 null
         check(
-            "%s 没判的项交回 null（tables / styles / contents）" % name,
+            "%s 没判的项交回 null（tables / sections / contents）" % name,
             [
-                got.get("styles") is None,
                 got.get("contents") is None,
+                dig(got, "structure.sections") is None,
                 (got.get("structure") or {}).get("tables") is None,
             ],
             [True, True, True],
+        )
+        # 字体与样式：那两群照旧整群跳过，但里面的名字要交出来；
+        # 名字是不是敢读，由每个条目自己声明的字符集说
+        check(
+            "%s 字体与样式的账" % name,
+            [
+                [one.get("index") for one in got.get("font_list", [])],
+                [one.get("name") for one in got.get("font_list", [])],
+                got.get("styles"),
+                [
+                    dig(got, "structure.font_definitions"),
+                    dig(got, "structure.style_definitions"),
+                ],
+            ],
+            [
+                [one["index"] for one in rwant["fonts"]],
+                [one["name"] for one in rwant["fonts"]],
+                {
+                    one["name"]: one["count"] for one in rwant["style_uses"]
+                },
+                [len(rwant["fonts"]), len(rwant["styles"])],
+            ],
         )
         # 表那一份：行数与格子数是控制字的条数，两个读者各数一遍
         check(

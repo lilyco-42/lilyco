@@ -47,6 +47,11 @@ const SKIP_DESTINATIONS: &[&str] = &[
     "operator",
 ];
 
+/// 这两群仍然整群跳过（里面的一个字都不是页面上的字），但本域**认得**它们，
+/// 所以跳过之前先前瞻读一遍里面的定义 —— 与 `\*` 那条同一个道理：
+/// 「不认识才跳」不等于「认识了就不许跳」，只是认识了就别连里面的名字一起丢
+const DEF_DESTINATIONS: &[&str] = &["fonttbl", "stylesheet"];
+
 /// 断点类：输出一个换行
 const BREAK_WORDS: &[&str] = &["par", "line", "sect", "page", "pbb"];
 /// 页眉与页脚的目标群：字是真的，但它们不是正文。
@@ -135,6 +140,86 @@ fn hyperlink_target(inst: &[u8]) -> Option<String> {
     Some(String::from_utf8_lossy(&inst[start..k]).into_owned())
 }
 
+/// 一群之内的**顶层**子群：交回每个子群的内容（不含外面那对花括号）
+fn child_groups(text: &[u8]) -> Vec<Vec<u8>> {
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    let mut i = 0usize;
+    while i < text.len() {
+        if text[i] != b'{' {
+            i += 1;
+            continue;
+        }
+        let (stop, inner) = group_end(text, i + 1);
+        out.push(inner);
+        i = stop + 1;
+    }
+    out
+}
+
+/// 一条 `{\f0 … Times New Roman;}` / `{\s1 … heading 1;}` / `{\*\cs15 … Name;}`：
+/// 种类、编号、字符集与名字。名字用本模块自己解（控制字不产字，
+/// 嵌套的 `{\*\falt …}` 那一群按「不认识就跳」跳掉），末尾那个分号去掉。
+fn definition_of(child: &[u8]) -> Option<Value> {
+    const CHARSET_HEAD: &[u8] = b"\\fcharset";
+    let rest = if let Some(tail) = child.strip_prefix(b"\\*\\") {
+        tail
+    } else if let Some(tail) = child.strip_prefix(b"\\") {
+        tail
+    } else {
+        return None;
+    };
+    let (prefix, kind) = if rest.starts_with(b"cs") {
+        (2usize, "character")
+    } else if rest.starts_with(b's') {
+        (1usize, "paragraph")
+    } else if rest.starts_with(b'f') {
+        (1usize, "font")
+    } else {
+        return None;
+    };
+    let index = digits_after(rest, prefix)?;
+    let mut charset = 0u64;
+    if let Some(at) = windows_position(child, 0, CHARSET_HEAD) {
+        charset = digits_after(child, at + CHARSET_HEAD.len()).unwrap_or(0);
+    }
+    let name = extract(child)
+        .text
+        .trim()
+        .trim_end_matches(';')
+        .trim_end()
+        .to_string();
+    // 全 ASCII 的名字与字符集无关（RTF 用的每一种字符集都含 ASCII）；
+    // 否则只有 ANSI(0) 那份能按 cp1252 读。非 ANSI 又含非 ASCII 的名字交回 null ——
+    // 按 cp1252 硬解会得出「‚l‚r ƒSƒVƒbƒN」这种串（文件写的是 Shift-JIS），
+    // 那不是名字，是我们解错了
+    let ascii_name = name.chars().all(|one| (one as u32) < 0x80);
+    let shown = if name.is_empty() || (kind == "font" && charset != 0 && !ascii_name) {
+        Value::Null
+    } else {
+        json!(name)
+    };
+    let kind_of = if kind == "font" {
+        json!(charset)
+    } else {
+        Value::Null
+    };
+    Some(json!({"kind": kind, "index": index, "charset": kind_of, "name": shown}))
+}
+
+/// 从 `from` 起那一串数字（没有数字就交回 None）
+fn digits_after(bytes: &[u8], from: usize) -> Option<u64> {
+    let mut num: Vec<u8> = Vec::new();
+    let mut k = from;
+    while k < bytes.len() && bytes[k].is_ascii_digit() {
+        num.push(bytes[k]);
+        k += 1;
+    }
+    if num.is_empty() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&num).parse().unwrap_or(0))
+}
+
 /// 单元格分隔：输出一个制表符
 const TAB_WORDS: &[&str] = &["tab", "cell", "nestcell"];
 /// 行结束：一行表格就是一行文本 —— 把 \row 当制表符会把整张表挤成一行
@@ -197,6 +282,13 @@ pub struct Rtf {
     pub links: Vec<Value>,
     /// `\field` 出现了几次（一份文档里域比链接多：页码、日期都是域）
     pub fields: usize,
+    /// 字体表与样式表里的定义（前瞻读出来的，那一群照旧不进正文）。
+    /// 每条是 `{kind, index, charset, name}`；非 ANSI 又含非 ASCII 字节的名字
+    /// 交回 `name: null` 加 `name_bytes`（那是文件的字节，不是我们敢读的名字）
+    pub fonts: Vec<Value>,
+    pub styles: Vec<Value>,
+    /// 正文里用了哪些样式号、各几次（样式表那一群自己不算）
+    pub style_uses: Vec<Value>,
     /// 表那份账。这六个数都是**控制字本身的条数**（`\trowd` / `\row` / `\cell` / `\intbl`
     /// 与嵌套表那两个），不是「有几张表」的推断 —— 那条规则拿两份件试过：
     /// 一张 2×2 的对，两张（3×2 与 2×2）的把两张数成一张，所以这里只交数得清的
@@ -224,6 +316,9 @@ impl Rtf {
             "note_destinations": self.note_destinations,
             "links": self.links,
             "fields": self.fields,
+            "fonts": self.fonts,
+            "styles": self.styles,
+            "style_uses": self.style_uses,
             "line_count": self.lines.len(),
             "chars": self.text.chars().count(),
             "declared_codepage": self.declared_codepage,
@@ -252,6 +347,8 @@ pub fn extract(bytes: &[u8]) -> Rtf {
     let mut codepage: u32 = 1252;
     let mut ucount: usize = 1;
     let mut notes: Vec<String> = Vec::new();
+    // 正文里用到的样式号（样式表那一群自己不算，跳过的区域里也不算）
+    let mut uses: Vec<u64> = Vec::new();
     let mut me = Rtf {
         text: String::new(),
         lines: Vec::new(),
@@ -268,6 +365,9 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         note_destinations: 0,
         links: Vec::new(),
         fields: 0,
+        fonts: Vec::new(),
+        styles: Vec::new(),
+        style_uses: Vec::new(),
         table_row_defines: 0,
         table_rows: 0,
         table_cells: 0,
@@ -456,6 +556,20 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         if SKIP_DESTINATIONS.contains(&word.as_str())
             || NOTE_DEFINITION_WORDS.contains(&word.as_str())
         {
+            if !skipping && DEF_DESTINATIONS.contains(&word.as_str()) {
+                // 前瞻：不推进游标、不改这里的 skip —— 那一群照旧整群跳过，
+                // 只是里面的 `{\fN …名字;}` / `{\sN …名字;}` 别再丢了
+                let (_stop, inner) = group_end(bytes, j);
+                for child in child_groups(&inner) {
+                    if let Some(one) = definition_of(&child) {
+                        if word == "fonttbl" {
+                            me.fonts.push(one);
+                        } else {
+                            me.styles.push(one);
+                        }
+                    }
+                }
+            }
             let last = skip.len() - 1;
             skip[last] = true;
             me.skipped_destinations += 1;
@@ -501,12 +615,43 @@ pub fn extract(bytes: &[u8]) -> Rtf {
                 "nestcell" => me.nested_table_cells += 1,
                 _ => {}
             }
+            // 样式被用了几次：正文里的 `\sN`（数字参数就在 digits 里）
+            if word == "s" {
+                if let Some(index) = digits_after(digits.as_bytes(), 0) {
+                    uses.push(index);
+                }
+            }
         }
         i = j;
     }
     flush(&mut out, &mut pending, codepage, &mut notes);
     me.declared_codepage = codepage;
     me.notes = notes;
+    // 用了几次的样式按名字合：文件写的是 `\s1`，名字在样式表那一群里
+    uses.sort_unstable();
+    let mut seen: Vec<(u64, usize)> = Vec::new();
+    for one in &uses {
+        match seen.last_mut() {
+            Some(last) if last.0 == *one => last.1 += 1,
+            _ => seen.push((*one, 1)),
+        }
+    }
+    let resolved: Vec<Value> = seen
+        .iter()
+        .map(|(index, count)| {
+            let named = me
+                .styles
+                .iter()
+                .find(|one| one["kind"] == json!("paragraph") && one["index"] == json!(*index));
+            // 用了却没定义的样式号也照交：名字给 `sN` 这种占位，不替文件编一个
+            let name = match named.and_then(|one| one["name"].as_str()) {
+                Some(text) => text.to_string(),
+                None => format!("s{}", index),
+            };
+            json!({"index": index, "name": name, "count": count})
+        })
+        .collect();
+    me.style_uses = resolved;
     let text = String::from_utf8_lossy(&out).into_owned();
     let text = text.trim().to_string();
     me.lines = text
