@@ -214,6 +214,57 @@ def options_of(raw: bytes, key: bytes) -> tuple[list[bytes], str | None]:
     return found, shape
 
 
+NAME_END = bytes([32, 9, 10, 13, 12, 0]) + b"()<>[]{}/%"
+
+
+def _name_char(one: int) -> bool:
+    """PDF 名字里的字符：分隔符与空白以外都算（与 Rust 的 is_name_char 同一条）"""
+    return one not in NAME_END
+
+
+def ap_states_of(body: bytes) -> list:
+    """控件 `/AP` 里 `/N` 那本字典的键：这一格有哪几种可显示的状态，按写的顺序
+
+    勾选框「打没打上」住三处：`/V`（字段的值）、控件的 `/AS`（当前显示哪一种）、
+    这一本（可显示的那几种）。`/V` 甚至可以整个不写而 `/AS` 写着 —— 所以三处各交各的，
+    不合成一个布尔。与 Rust 的 `ap_states_of` 同一条：数 `<<` `>>` 的层，键都收进来。
+    """
+    hits = key_positions(body, b"/AP")
+    if not hits:
+        return []
+    ap = hits[0]
+    n = next((one for one in key_positions(body, b"/N") if one > ap), None)
+    if n is None:
+        return []
+    at = n + 2
+    while at < len(body) and body[at] in SPACES:
+        at += 1
+    if body[at : at + 2] != b"<<":
+        return []
+    at += 2
+    depth = 1
+    out: list = []
+    while at < len(body) and depth:
+        pair = body[at : at + 2]
+        if pair == b"<<":
+            depth += 1
+            at += 2
+            continue
+        if pair == b">>":
+            depth -= 1
+            at += 2
+            continue
+        if body[at] == 0x2F:  # /
+            end = at + 1
+            while end < len(body) and _name_char(body[end]):
+                end += 1
+            out.append(body[at + 1 : end].decode("latin-1"))
+            at = end
+            continue
+        at += 1
+    return out
+
+
 def decode_pdf_text(raw: bytes) -> str:
     """`FEFF` 开的是 UTF-16BE；其余按 Latin-1 交出去，并说明这是**近似**"""
     if raw.startswith(b"\xfe\xff"):
@@ -718,6 +769,10 @@ def form_of(by_id: dict[int, bytes]) -> tuple[dict, list]:
                 "flags": flags,
                 "flags_inherited": flags_inherited,
                 "max_len": number(body, b"/MaxLen"),
+                "as_state": name_of(body, b"/AS") or None,
+                "ap_states": ap_states_of(body),
+                # `/V` 写的是名字（勾选框那一族）：名字不是字符串，不进 value
+                "value_name": name_of(body, b"/V") or None,
                 "options": [decode_pdf_text(one) for one in opts],
                 "options_shape": opts_shape,
                 "kids": len(refs_of(body, b"/Kids")),

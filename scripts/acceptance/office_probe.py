@@ -3353,13 +3353,14 @@ def main() -> int:
     # 这一份是 pikepdf 挂出来的（编辑器没一个肯在父字段上写 /FT），第三个读者 pypdf 数过
     hier = lbin("office-pdf", fixture("forms-hier.pdf"))
     check(
-        "forms-hier.pdf 那三层字段：四条根、七条账、最深第三层",
+        "forms-hier.pdf 那三层字段：七条根、十二条账、最深第三层",
         [dig(hier, "form.roots"), dig(hier, "form.total"), dig(hier, "form.deepest"),
          dig(hier, "form.inherited_type"), dig(hier, "form.inherited_flags"),
          dig(hier, "form.with_v"), dig(hier, "form.widgets"),
-         dig(hier, "form.by_type.choice"), dig(hier, "form.by_type.unknown"),
-         dig(hier, "form.need_appearances"), dig(hier, "form.sig_flags")],
-        [4, 7, 2, 2, 2, 5, 2, 2, 1, True, 1],
+         dig(hier, "form.by_type.choice"), dig(hier, "form.by_type.button"),
+         dig(hier, "form.by_type.unknown"), dig(hier, "form.need_appearances"),
+         dig(hier, "form.sig_flags")],
+        [7, 12, 2, 4, 4, 7, 6, 2, 5, 1, True, 1],
     )
     check(
         "继承来的类型与开关：City 自己一个字都没写",
@@ -3377,9 +3378,9 @@ def main() -> int:
         [["1", "一", "2", "二"], "pairs", ["甲", "乙", "丙"], "flat", None],
     )
     check(
-        "/V 的三件事：写了空串、写成数组、整个没写（形状与那几段值都按写的交）",
-        [dig(hier, "form.items[6].value"), dig(hier, "form.items[6].value_shape"),
-         dig(hier, "form.items[6].value_parts"),
+        "/V 的四件事：写空串、写数组、写名字、整个没写（形状与几段值都按写的交）",
+        [dig(hier, "form.items[11].value"), dig(hier, "form.items[11].value_shape"),
+         dig(hier, "form.items[11].value_parts"),
          dig(hier, "form.items[5].value"), dig(hier, "form.items[5].value_shape"),
          dig(hier, "form.items[5].value_parts"),
          dig(hier, "form.items[4].value_shape"), dig(hier, "form.items[4].value_parts"),
@@ -3387,9 +3388,24 @@ def main() -> int:
         ["", "string", [], None, "array", ["甲", "丙"], "string", [], None, False],
     )
     check(
-        "两条控件同时挂在页的 /Annots 上：字段树只从 /Fields 走，一条没数两遍",
+        "勾选框那三处：/V 是名字、当前显示在控件的 /AS、可显示的几种在 /AP 的 /N 键上",
+        [dig(hier, "form.items[6].value_shape"), dig(hier, "form.items[6].value"),
+         dig(hier, "form.items[6].value_name"), dig(hier, "form.items[6].as_state"),
+         dig(hier, "form.items[6].ap_states"),
+         dig(hier, "form.items[7].value_present"), dig(hier, "form.items[7].value_name"),
+         dig(hier, "form.items[7].as_state"),
+         dig(hier, "form.items[9].qualified"), dig(hier, "form.items[9].as_state"),
+         dig(hier, "form.items[9].type_inherited"),
+         dig(hier, "form.items[10].as_state"), dig(hier, "form.items[10].ap_states")],
+        ["other", None, "Yes", "Yes", ["Off", "Yes"],
+         False, None, "Off",
+         "Pick.On", "One", True,
+         "Two", []],
+    )
+    check(
+        "六条控件同时挂在页的 /Annots 上：字段树只从 /Fields 走，一条没数两遍",
         [dig(hier, "form.total"), dig(hier, "form.widgets"), dig(hier, "features.fields")],
-        [7, 2, 4],
+        [12, 6, 7],
     )
     check(
         "没表单的那几份：一条也没数出来",

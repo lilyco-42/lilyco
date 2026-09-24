@@ -1521,6 +1521,82 @@ def write_forms_hier_pdf(source: Path, path: Path) -> None:
                 Kids=pikepdf.Array([]),
             )
         )
+        # 勾选框那两条：值在字段上（/V /Yes），**显示状态在控件上**（/AS），
+        # 可用的那几种状态写在 /AP 的 /N 字典的键上 —— 三处分开，才说得清「打没打上」
+        # 第二条故意不写 /V：文件没说值，只说控件当前是 Off
+        agreed = new(
+            pikepdf.Dictionary(
+                Type=pikepdf.Name.Annot,
+                Subtype=pikepdf.Name.Widget,
+                T=text("Agreed"),
+                FT=pikepdf.Name.Btn,
+                Ff=pikepdf.Integer(65536),
+                V=pikepdf.Name.Yes,
+                AS=pikepdf.Name.Yes,
+                AP=pikepdf.Dictionary(
+                    N=pikepdf.Dictionary(
+                        Yes=new(pikepdf.Stream(pdf, b"q Q n")),
+                        Off=new(pikepdf.Stream(pdf, b"q Q n")),
+                    )
+                ),
+                Rect=pikepdf.Array([0, 0, 12, 12]),
+            )
+        )
+        extra = new(
+            pikepdf.Dictionary(
+                Type=pikepdf.Name.Annot,
+                Subtype=pikepdf.Name.Widget,
+                T=text("Extra"),
+                FT=pikepdf.Name.Btn,
+                Ff=pikepdf.Integer(65536),
+                AS=pikepdf.Name.Off,
+                AP=pikepdf.Dictionary(
+                    N=pikepdf.Dictionary(
+                        Yes=new(pikepdf.Stream(pdf, b"q Q n")),
+                        Off=new(pikepdf.Stream(pdf, b"q Q n")),
+                    )
+                ),
+                Rect=pikepdf.Array([0, 0, 12, 12]),
+            )
+        )
+        # 单选那一族：父上写 /FT /Btn 与 /V，两个孩子各是一个控件、各写自己的 /AS；
+        # 其中一个与父上的 /V 对得上，另一个不对 —— 那份不一致要能看出来，不替它圆
+        pick = new(
+            pikepdf.Dictionary(
+                T=text("Pick"),
+                FT=pikepdf.Name.Btn,
+                Ff=pikepdf.Integer(131072),
+                V=pikepdf.Name.One,
+                Kids=pikepdf.Array([]),
+            )
+        )
+        on_one = new(
+            pikepdf.Dictionary(
+                Type=pikepdf.Name.Annot,
+                Subtype=pikepdf.Name.Widget,
+                T=text("On"),
+                AS=pikepdf.Name.One,
+                AP=pikepdf.Dictionary(
+                    N=pikepdf.Dictionary(
+                        One=new(pikepdf.Stream(pdf, b"q Q n")),
+                        Two=new(pikepdf.Stream(pdf, b"q Q n")),
+                    )
+                ),
+                Rect=pikepdf.Array([0, 0, 12, 12]),
+            )
+        )
+        on_two = new(
+            pikepdf.Dictionary(
+                Type=pikepdf.Name.Annot,
+                Subtype=pikepdf.Name.Widget,
+                T=text("Two"),
+                AS=pikepdf.Name.Two,
+                Rect=pikepdf.Array([0, 0, 12, 12]),
+            )
+        )
+        for kid in (on_one, on_two):
+            kid.Parent = pick
+            pick.Kids.append(kid)
         # 孤儿：根上第三条，没有 /FT，也没有任何孩子与控件；/V 写了，但写的是空串
         orphan = new(
             pikepdf.Dictionary(
@@ -1537,11 +1613,11 @@ def write_forms_hier_pdf(source: Path, path: Path) -> None:
         if annots is None:
             page["/Annots"] = pikepdf.Array()
             annots = page["/Annots"]
-        for widget in (first, city):
+        for widget in (first, city, agreed, extra, on_one, on_two):
             annots.append(widget)
         pdf.Root.AcroForm = new(
             pikepdf.Dictionary(
-                Fields=pikepdf.Array([person, level, flags, orphan]),
+                Fields=pikepdf.Array([person, level, flags, agreed, extra, pick, orphan]),
                 DA=pikepdf.String("/Helv 0 Tf 0 g "),
                 NeedAppearances=True,
                 SigFlags=pikepdf.Integer(1),

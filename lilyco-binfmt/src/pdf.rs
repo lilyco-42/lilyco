@@ -315,6 +315,48 @@ pub fn decode_text(raw: &[u8]) -> String {
     raw.iter().map(|one| *one as char).collect()
 }
 
+/// 控件那两样：`/AS` 是当前显示的状态，`/AP` 的 `/N` 字典的键是「有哪几种可显示」。
+/// 勾选框的「打没打上」住在这两处而不只在 `/V` 上 —— 而且 `/V` 可以整个不写（那时
+/// 文件只说了控件现在是 Off，没说字段的值），所以两处都得单独交，不能合成一个布尔
+fn ap_states_of(body: &[u8]) -> Vec<String> {
+    let Some(ap) = key_positions(body, b"/AP").into_iter().next() else {
+        return Vec::new();
+    };
+    let Some(n) = key_positions(body, b"/N").into_iter().find(|one| *one > ap) else {
+        return Vec::new();
+    };
+    let mut at = skip_spaces(body, n + 2);
+    if body.get(at) != Some(&b'<') || body.get(at + 1) != Some(&b'<') {
+        return Vec::new();
+    }
+    at += 2;
+    let mut depth = 1usize;
+    let mut out: Vec<String> = Vec::new();
+    while at < body.len() && depth > 0 {
+        if body[at] == b'<' && body.get(at + 1) == Some(&b'<') {
+            depth += 1;
+            at += 2;
+            continue;
+        }
+        if body[at] == b'>' && body.get(at + 1) == Some(&b'>') {
+            depth -= 1;
+            at += 2;
+            continue;
+        }
+        if body[at] == b'/' {
+            let mut end = at + 1;
+            while end < body.len() && is_name_char(body[end]) {
+                end += 1;
+            }
+            out.push(String::from_utf8_lossy(&body[at + 1..end]).to_string());
+            at = end;
+            continue;
+        }
+        at += 1;
+    }
+    out
+}
+
 /// 这个键的第一个字符串值（`/Title (…)`、`/Lang (en-US)`、`/Producer <…>`）
 pub fn one_string(body: &[u8], key: &[u8]) -> Option<String> {
     strings_of(body, key)
@@ -567,6 +609,9 @@ pub struct Field {
     pub value_shape: Option<&'static str>,
     /// `/V` 写成数组时里面那几个串（按写的顺序）；值是单个串时交空，那一条在 `value` 上
     pub value_parts: Vec<String>,
+    /// `/V` 写的是一个**名字**时那一个名字（勾选框与单选都这么写：`/V /Yes`）。
+    /// 名字不是字符串，所以它不进 `value`，也不能被当成空
+    pub value_name: Option<String>,
     /// `/DV`：默认值
     pub default_value: Option<String>,
     /// 生效的 `/Ff`（整数原样，位含义另说）
@@ -575,6 +620,10 @@ pub struct Field {
     pub flags_inherited: bool,
     /// `/MaxLen`
     pub max_len: Option<i64>,
+    /// 控件的 `/AS`：当前显示的是哪一种状态（勾选框就看这一条与 `/V` 对不对得上）
+    pub as_state: Option<String>,
+    /// `/AP` 里 `/N` 字典的键：这一格有哪几种可显示的状态，按写的顺序
+    pub ap_states: Vec<String>,
     /// `/Opt`： choice 的候选串，按写的顺序（两种存法都摊平在这一条里）
     pub options: Vec<String>,
     /// `/Opt` 这个数组自己是哪种写法：flat（显示值即导出值）/ pairs（成对分开写）/
@@ -740,10 +789,13 @@ impl Pdf {
             value_present: key_present(dict, b"/V"),
             value_shape,
             value_parts,
+            value_name: name_after(dict, b"/V").map(|one| one.to_string()),
             default_value: one_string(dict, b"/DV"),
             flags,
             flags_inherited,
             max_len: int_after(dict, b"/MaxLen"),
+            as_state: name_after(dict, b"/AS").map(|one| one.to_string()),
+            ap_states: ap_states_of(dict),
             options,
             options_shape,
             kids: refs_of(dict, b"/Kids").len(),

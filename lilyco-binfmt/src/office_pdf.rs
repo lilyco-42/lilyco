@@ -41,7 +41,7 @@ const INFO_KEYS: [(&str, &[u8]); 8] = [
 #[app(
     name = "office-pdf",
     run = "run_office_pdf",
-    about = "Report what a PDF file is made of without decrypting or rendering it. Reads objects by scanning N G obj markers instead of trusting the cross-reference table, then unpacks the second layer that scan alone would miss: objects packed inside object streams (/Type /ObjStm, where the header pairs an object number with an offset relative to /First) and trailer keys that live in a /Type /XRef stream dict in files with no trailer keyword at all - both rules measured against real Word 2013 and qpdf files, not recalled from memory. Gives { path, version, binary_comment, objects, xref, encryption, pages, metadata, tags, fonts, images, features, watch, outline, links, permissions, notes }: page count cross-checked between /Count and the real /Type/Page objects (the one-name match matters: /Pages is a tree node, not a page), per-page MediaBox with the inheritance walk up /Parent (MediaBox and Rotate may be written once on the tree), rotation, contents reference and annotation count, the Info dictionary with PDF string rules (backslash escapes, octal, nested parens, hex strings, FEFF-prefixed UTF-16BE), tagged/PDF-X flags (/Lang, /MarkInfo /Marked, /StructTreeRoot), font inventory (/BaseFont, /Subtype, /Encoding, whether a /ToUnicode map exists, whether the font object was hidden in an object stream), image inventory, and the watch list for what runs by itself: /Encrypt parameters (reported, never decrypted - no password here and none should be), document-level /JavaScript, /Launch and /SubmitForm and /GoToR actions, /AcroForm fields, /EmbeddedFiles attachments, /OpenAction and page /AA triggers. Encrypted files report structure only: strings and streams are ciphertext, so metadata and /Lang come back null with a note rather than as decoded garbage. Object numbers that appear more than once (incremental updates) are counted and the first occurrence wins. With --text it also walks the content streams and returns { order_from_page_tree, chars, chars_no_spaces, lines, pages, text }: pages in /Kids order, glyph codes mapped through each font's /ToUnicode CMap (bfchar plus both bfrange forms - a range written as one number means consecutive code points, written as an array means one per code), and lines rebuilt from positions rather than from stream order, because LibreOffice splits a single Chinese heading across several TJ arrays with large negative kerns between them. Three position rules make the difference between reading that heading and reading its characters shuffled: BT resets the text matrix to identity, glyph advance moves x only (never y), and a TJ number moves the pen the OPPOSITE way (positive left, negative right). It also answers where the file points: outline (the /Outlines tree - /First then /Next, children under /First, each entry with its title, depth, target page object and which page that is in /Kids order, the root self-reported /Count, and the open/closed sign of each /Count), links (every /Subtype /Link annotation split into outbound URI, page-to-page with the resolved page number, and actions that go nowhere such as /Launch - the last kind carries its /S value in `action`, because a bare category cannot tell a launch from a form submit), and permissions (the /Encrypt /P bits, read as the signed integer it is: bits 3-6 always, 9-12 only from R3, otherwise null). Encrypted files still report structure, page numbers and permission bits, because numbers and names are not ciphertext, while titles and URIs come back null. `form` answers 'what did the file already have filled in': /AcroForm -> /Fields -> /Kids, each field with the /T it wrote itself plus a qualified name joined from the ancestors (that join is ours, the spec defines the period), the effective /FT and /Ff with a boolean saying whether this dictionary wrote them or inherited them from its parent, /V and /DV decoded with the same three PDF-string rules as metadata, /MaxLen, and kids / parent / depth so a hierarchy is visible without flattening it. value_present is a separate key because 'wrote an empty /V' and 'wrote no /V' are different claims, and a /V written as an array (a multi-select list box) is a third claim: value_present true with value null and the several strings coming back in value_parts; value_shape names which of the three it is (string / array / other), and is null only when the file wrote no /V at all. options holds every string /Opt wrote, in written order, and options_shape says how that array was written - /Opt is array-only in the spec and two writings are legal: [(a) (b)] means the display value is also the export value (flat), [[export display] ...] means the two are written apart (pairs); mixed and empty name the other two shapes, and a field with no /Opt key at all is null rather than an empty list. Appearance streams are not computed and signatures are not validated - a /FT Sig or a /Sig key is reported as such and nothing more, the same line this reader holds for encrypted files. Caveat kept honest: the inheritance and hierarchy path is exercised on forms-hier.pdf, and that file is not editor output - no editor measured here writes /FT or /Ff on a parent field, so pikepdf wrote it. The counters therefore say what this file says, not what a real form tool exports; on the editor-made PDFs here the inheritance counters stay 0 because each field writes its own /FT.  Not provided: signature validation, the text of encrypted files (streams are ciphertext there), graphics-stream text, and CID fonts' widths, which live in a /W array this reader does not follow - such a font's characters are recognised but its spacing is not."
+    about = "Report what a PDF file is made of without decrypting or rendering it. Reads objects by scanning N G obj markers instead of trusting the cross-reference table, then unpacks the second layer that scan alone would miss: objects packed inside object streams (/Type /ObjStm, where the header pairs an object number with an offset relative to /First) and trailer keys that live in a /Type /XRef stream dict in files with no trailer keyword at all - both rules measured against real Word 2013 and qpdf files, not recalled from memory. Gives { path, version, binary_comment, objects, xref, encryption, pages, metadata, tags, fonts, images, features, watch, outline, links, permissions, notes }: page count cross-checked between /Count and the real /Type/Page objects (the one-name match matters: /Pages is a tree node, not a page), per-page MediaBox with the inheritance walk up /Parent (MediaBox and Rotate may be written once on the tree), rotation, contents reference and annotation count, the Info dictionary with PDF string rules (backslash escapes, octal, nested parens, hex strings, FEFF-prefixed UTF-16BE), tagged/PDF-X flags (/Lang, /MarkInfo /Marked, /StructTreeRoot), font inventory (/BaseFont, /Subtype, /Encoding, whether a /ToUnicode map exists, whether the font object was hidden in an object stream), image inventory, and the watch list for what runs by itself: /Encrypt parameters (reported, never decrypted - no password here and none should be), document-level /JavaScript, /Launch and /SubmitForm and /GoToR actions, /AcroForm fields, /EmbeddedFiles attachments, /OpenAction and page /AA triggers. Encrypted files report structure only: strings and streams are ciphertext, so metadata and /Lang come back null with a note rather than as decoded garbage. Object numbers that appear more than once (incremental updates) are counted and the first occurrence wins. With --text it also walks the content streams and returns { order_from_page_tree, chars, chars_no_spaces, lines, pages, text }: pages in /Kids order, glyph codes mapped through each font's /ToUnicode CMap (bfchar plus both bfrange forms - a range written as one number means consecutive code points, written as an array means one per code), and lines rebuilt from positions rather than from stream order, because LibreOffice splits a single Chinese heading across several TJ arrays with large negative kerns between them. Three position rules make the difference between reading that heading and reading its characters shuffled: BT resets the text matrix to identity, glyph advance moves x only (never y), and a TJ number moves the pen the OPPOSITE way (positive left, negative right). It also answers where the file points: outline (the /Outlines tree - /First then /Next, children under /First, each entry with its title, depth, target page object and which page that is in /Kids order, the root self-reported /Count, and the open/closed sign of each /Count), links (every /Subtype /Link annotation split into outbound URI, page-to-page with the resolved page number, and actions that go nowhere such as /Launch - the last kind carries its /S value in `action`, because a bare category cannot tell a launch from a form submit), and permissions (the /Encrypt /P bits, read as the signed integer it is: bits 3-6 always, 9-12 only from R3, otherwise null). Encrypted files still report structure, page numbers and permission bits, because numbers and names are not ciphertext, while titles and URIs come back null. `form` answers 'what did the file already have filled in': /AcroForm -> /Fields -> /Kids, each field with the /T it wrote itself plus a qualified name joined from the ancestors (that join is ours, the spec defines the period), the effective /FT and /Ff with a boolean saying whether this dictionary wrote them or inherited them from its parent, /V and /DV decoded with the same three PDF-string rules as metadata, /MaxLen, and kids / parent / depth so a hierarchy is visible without flattening it. value_present is a separate key because 'wrote an empty /V' and 'wrote no /V' are different claims, and value_shape names all four ways a /V can be written: string; array (a multi-select list box - value stays null while the parts go out as value_parts rather than being joined into one string the file never wrote); other, i.e. a NAME, which is how checkboxes and radio groups write it (that name comes back as value_name); and null for no /V key at all. Whether a checkbox is ticked is three separate facts and none of them is folded into a boolean: the field's /V, the widget's /AS (the state it shows now, reported as as_state) and the names keyed in the /AP /N dictionary (ap_states - which states exist at all; empty when the widget carries no /AP, which is 'nothing said', not 'none'). A radio group writes /V on the parent while each kid widget writes its own /AS, and a kid whose /AS disagrees with the parent's /V is reported that way instead of being reconciled. options holds every string /Opt wrote, in written order, and options_shape says how that array was written - /Opt is array-only in the spec and two writings are legal: [(a) (b)] means the display value is also the export value (flat), [[export display] ...] means the two are written apart (pairs); mixed and empty name the other two shapes, and a field with no /Opt key at all is null rather than an empty list. Appearance streams are not computed and signatures are not validated - a /FT Sig or a /Sig key is reported as such and nothing more, the same line this reader holds for encrypted files. Caveat kept honest: the inheritance and hierarchy path is exercised on forms-hier.pdf, and that file is not editor output - no editor measured here writes /FT or /Ff on a parent field, so pikepdf wrote it. The counters therefore say what this file says, not what a real form tool exports; on the editor-made PDFs here the inheritance counters stay 0 because each field writes its own /FT.  Not provided: signature validation, the text of encrypted files (streams are ciphertext there), graphics-stream text, and CID fonts' widths, which live in a /W array this reader does not follow - such a font's characters are recognised but its spacing is not."
 )]
 pub struct OfficePdf {
     /// PDF 文件
@@ -207,10 +207,13 @@ fn form_report(doc: &Pdf, limit: usize) -> Value {
             "value_present": one.value_present,
             "value_shape": one.value_shape,
             "value_parts": one.value_parts,
+            "value_name": one.value_name,
             "default": one.default_value,
             "flags": one.flags,
             "flags_inherited": one.flags_inherited,
             "max_len": one.max_len,
+            "as_state": one.as_state,
+            "ap_states": one.ap_states,
             "options": one.options,
             "options_shape": one.options_shape,
             "kids": one.kids,
@@ -961,7 +964,7 @@ mod tests {
         }
     }
 
-    /// 三层字段、两种 `/Opt` 写法、一个只写空串的值 —— 继承那几条分支真的走了一遍
+    /// 三层字段、两种 `/Opt` 写法、勾选框那三处、`/V` 的四种写法 —— 继承那几条分支真的走了一遍
     ///
     /// 上一条形成的账只到「一层、自己写 /FT、没写 /Ff」为止，所以 `inherited_type` /
     /// `inherited_flags` 那两条一直停在「数过了，没有」。这份件（pikepdf 挂的，不是编辑器
@@ -971,24 +974,33 @@ mod tests {
     fn a_three_level_form_inherits_and_reads_both_option_writings() {
         let deck = run("forms-hier.pdf");
         let form = &deck["form"];
-        assert_eq!(form["roots"], json!(4), "/Fields 数组四条顶层");
-        assert_eq!(form["total"], json!(7), "连子字段一共七条");
-        assert_eq!(form["listed"], json!(7));
-        assert_eq!(form["with_v"], json!(5));
+        assert_eq!(form["roots"], json!(7), "/Fields 数组七条顶层");
+        assert_eq!(form["total"], json!(12), "连子字段一共十二条");
+        assert_eq!(form["listed"], json!(12));
+        assert_eq!(
+            form["with_v"],
+            json!(7),
+            "写了 /V 的条数（值可以是名、串或数组）"
+        );
         assert_eq!(form["deepest"], json!(2), "/Kids 三层");
         assert_eq!(
             form["inherited_type"],
-            json!(2),
-            "Address 与 City 的 /FT 在祖父上"
+            json!(4),
+            "两级孩子加单选的两个控件：四条都靠往上走"
         );
         assert_eq!(
             form["inherited_flags"],
-            json!(2),
-            "/Ff 同样只在祖父上写了一次"
+            json!(4),
+            "/Ff 同样只在根上写了一次"
         );
-        assert_eq!(form["widgets"], json!(2));
+        assert_eq!(form["widgets"], json!(6), "六个控件同时挂在页的 /Annots 上");
         assert_eq!(form["by_type"]["text"], json!(4));
         assert_eq!(form["by_type"]["choice"], json!(2));
+        assert_eq!(
+            form["by_type"]["button"],
+            json!(5),
+            "两条勾选框加一个单选三条线"
+        );
         assert_eq!(
             form["by_type"]["unknown"],
             json!(1),
@@ -998,7 +1010,7 @@ mod tests {
         assert_eq!(form["sig_flags"], json!(1));
         assert_eq!(form["default_appearance"], "/Helv 0 Tf 0 g ");
         let items = form["items"].as_array().expect("是数组");
-        assert_eq!(items.len(), 7);
+        assert_eq!(items.len(), 12);
         assert_eq!(items[0]["qualified"], "Person");
         assert_eq!(items[2]["qualified"], "Person.Address");
         assert_eq!(
@@ -1023,13 +1035,14 @@ mod tests {
         assert_eq!(items[5]["options"], json!(["甲", "乙", "丙"]));
         assert_eq!(items[5]["options_shape"], "flat");
         assert_eq!(
-            items[6]["options_shape"],
+            items[0]["options_shape"],
             Value::Null,
             "没写，不是写了空数组"
         );
-        // 值这一件：写了空串、写成数组、整个没写，是三件事
-        assert_eq!(items[6]["value_present"], json!(true));
-        assert_eq!(items[6]["value"], "", "/V 写了，写的是空串");
+        // 值这一件：串、数组、名字、整个没写，是四件事
+        assert_eq!(items[11]["value_present"], json!(true));
+        assert_eq!(items[11]["value"], "", "/V 写了，写的是空串");
+        assert_eq!(items[11]["value_shape"], "string");
         assert_eq!(
             items[5]["value_present"],
             json!(true),
@@ -1040,15 +1053,33 @@ mod tests {
             Value::Null,
             "几段值不并成一个串：那一份在 value_parts 上"
         );
-        assert_eq!(items[5]["value_shape"], "array", "多选列表框：值是一个数组");
+        assert_eq!(items[5]["value_shape"], "array");
         assert_eq!(items[5]["value_parts"], json!(["甲", "丙"]));
-        assert_eq!(
-            items[6]["value_shape"], "string",
-            "写的是空串，形状照旧是串"
-        );
-        assert_eq!(items[6]["value_parts"], json!([]), "单个串不摊进 parts");
-        assert_eq!(items[1]["value_shape"], "string");
-        assert_eq!(items[0]["value_shape"], Value::Null, "整个没写 /V");
         assert_eq!(items[0]["value_present"], json!(false), "父上整个没写 /V");
+        assert_eq!(items[0]["value_shape"], Value::Null);
+        // 勾选框：/V 是一个名字（不是字符串），当前显示哪一种在控件的 /AS 上，
+        // 可显示的那几种在 /AP 的 /N 字典的键上 —— 三处各交各的，不合成一个布尔
+        assert_eq!(items[6]["value_shape"], "other", "/V /Yes 是名字不是串");
+        assert_eq!(items[6]["value_name"], "Yes");
+        assert_eq!(items[6]["as_state"], "Yes");
+        assert_eq!(items[6]["ap_states"], json!(["Off", "Yes"]));
+        assert_eq!(items[6]["type"], "Btn");
+        assert_eq!(items[7]["value_name"], Value::Null, "第二条整个没写 /V");
+        assert_eq!(items[7]["as_state"], "Off", "但控件说了它现在是 Off");
+        assert_eq!(items[7]["ap_states"], json!(["Off", "Yes"]));
+        // 单选：父上写 /V /One，两个孩子各是自己的控件、各写 /AS —— 有一个对不上，那是文件的话
+        assert_eq!(items[8]["qualified"], "Pick");
+        assert_eq!(items[8]["value_name"], "One");
+        assert_eq!(
+            items[8]["as_state"],
+            Value::Null,
+            "父上没有显示状态，那在控件上"
+        );
+        assert_eq!(items[9]["qualified"], "Pick.On");
+        assert_eq!(items[9]["as_state"], "One");
+        assert_eq!(items[9]["type_inherited"], json!(true), "/FT /Btn 写在父上");
+        assert_eq!(items[9]["ap_states"], json!(["One", "Two"]));
+        assert_eq!(items[10]["as_state"], "Two");
+        assert_eq!(items[10]["ap_states"], json!([]), "这一个控件没带 /AP");
     }
 }

@@ -968,7 +968,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     这一份**不是任何编辑器导的**：量过的几个生产者（Word 2013、LibreOffice、手搓的 `risk.pdf`）
     都没在父字段上写过 `/FT` 或 `/Ff`，继承那几条分支因此一直停在「数过了，没有」。
     现在由 pikepdf 把形状挂出来，让分支真的走一遍；第三个读者 pypdf 独立数过。
-    * 形状：`/Fields` 上四条根、连子字段七条、最深第三层
+    * 形状：`/Fields` 上七条根、连子字段十二条、最深第三层
       （`Person` → `Address` → `City`）。全名 `Person.Address.City` 里的点号**是我们拼的**，
       规范只定义了拼法；每条另交自己写的 `/T`。
     * `/FT /Tx` 与 `/Ff 4` 只写在 `Person` 上：`Address` 往上走一跳拿到、`City` 走两跳，
@@ -980,13 +980,23 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       都只认 `/Key (…)` 与 `/Key <…>` 两种值，而 `/Opt` 永远是数组 —— 于是**任何** choice
       字段读出来都是空候选，且不报错。现在 `options` 交摊平的串、`options_shape` 说怎么写的
       （`flat` / `pairs` / `mixed` / `empty`），整个没这个键是 null 而不是空数组。
-    * `/V` 是三件事，不是一件：`Ghost` 写了 `/V ()`（值就是空串）、`Flags` 把值写成一个数组
-      （多选列表框，`/Ff` 第 22 位 = 524288）→ `value_present` true、`value_shape` "array"、
-      `value` 仍是 null 而那两段在 `value_parts` 里（`["甲", "丙"]`）—— 几段值不并成一个串；
-      `Person` 整个没写是第三种（`value_shape` null）。
-      `value_shape` 就是为这三件事各留一个名字而加的（string / array / other，没这个键才是 null）。
-    * 两条控件（`First`、`City`）**同时挂在页的 `/Annots` 上**（那一页三个注记：两条 Widget
-      加一条链接），字段树只从 `/Fields` 走，所以是七条不是九条 —— 这是那条规则第一次有件可走。
+    * `/V` 是**四件事**，不是一件：`Ghost` 写 `/V ()`（空串：`value_shape` string、值就是 ""）、
+      `Flags` 写成数组（多选列表框，`/Ff` 第 22 位 = 524288 → `value_shape` array、`value` 仍 null
+      而那两段在 `value_parts` 里 = `["甲","丙"]`，几段不并成一个串）、
+      `Agreed` 写成一个**名字** `/V /Yes`（勾选框与单选全是这么写的 → `value_shape` other、
+      `value` null、那一个名字在 `value_name` 里）、`Person` 整个没写（`value_shape` null）。
+      三个键 `value_shape` / `value_parts` / `value_name` 就是为了这四件事各有名字，
+      挤成一个 `value` 就得替文件选一种说法。
+    * **勾选框「打没打上」住三处，一处都不合成布尔**：`Agreed` 三处都写（`/V /Yes` +
+      控件 `/AS /Yes` + `/AP` 里 `/N` 的键 `Off`/`Yes`）；`Extra` 故意**不写 `/V`** ——
+      文件只说控件现在是 Off，于是 `value_present` false 而 `as_state` "Off"；
+      单选 `Pick` 把 `/V /One` 写在父上，两个孩子各是一个控件、各写自己的 `/AS`
+      （`One` 与 `Two`），其中 `Two` 与父上的值对不上 —— **那份不一致照交**，不替它挑一个。
+      可显示的状态从 `/AP` 的 `/N` 字典的键读来（`Pick` 第二个孩子没带 `/AP` → 空表：
+      那是「没说是哪几种」，不是「一种都没有」）。
+    * 六条控件（`First`、`City`、两条勾选框、单选的那两个）**同时挂在页的 `/Annots` 上**
+      （那一页八个注记：六条 Widget 加两条链接），字段树只从 `/Fields` 走，所以是十二条
+      不是十八条 —— 这是那条规则第一次有件可走。
     * 文档级那三个开关也第一次有了非 null 的样本：`/NeedAppearances true`、`/SigFlags 1`、
       `/DA (/Helv 0 Tf 0 g )` —— 有 AcroForm 的另一份（`risk.pdf`）三个都没写，
       其余五份连 AcroForm 都没有。
