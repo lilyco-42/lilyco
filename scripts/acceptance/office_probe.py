@@ -1714,7 +1714,15 @@ def main() -> int:
             [one.get("table_list") for one in want.get("slides", [])],
         )
     odp_slide = lbin("office-slide", fixture("deck-tables.odp"))
-    O = "slides[1].table_list[0]"
+    # 这张表在第 0 页上（`deck.odp` 那张在第 1 页，两条钉各按各的页号写）
+    O = "slides[0].table_list[0]"
+    check(
+        "deck-tables.odp 的表住在第 0 页：先钉页号，下面那几条路径才有意义",
+        [len(dig(odp_slide, "slides") or []),
+         [len(one.get("table_list") or []) for one in odp_slide.get("slides", [])],
+         dig(odp_slide, "slides[0].tables")],
+        [1, [1], 1],
+    )
     check(
         "odp 的表名与位置在 frame 上，而 `table:table` 自己一个字都不写",
         [dig(lbin("office-slide", fixture("deck.odp")), "slides[1].tables"),
