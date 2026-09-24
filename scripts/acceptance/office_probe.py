@@ -1174,6 +1174,55 @@ def main() -> int:
             sum(len(value) for value in files[name]["comments"].values()),
         )
 
+    # ── 3a7) 每张表的打印设置：三个元素各自在不在，缺的交 null，单位按各家原样 ──
+    print("=== 3a7) office-sheet 的打印设置（xlsx 的两个生产者） ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.xlsx")):
+        want = files[name]["ooxml"]["print_setup"]
+        got = lbin("office-sheet", fixture(name))
+        mine = {
+            (one.get("part") or "").rsplit("/", 1)[-1][: -len(".xml")]: one.get("print_setup")
+            for one in got.get("sheets", [])
+        }
+        # 整份账逐属性对：边距的 0.5 与 0.511811023622047 那种差也必须留在两边
+        check("%s 每张表的打印设置与读者一致" % name, mine, want)
+    op = lbin("office-sheet", fixture("hidden.xlsx"))
+    lo = lbin("office-sheet", fixture("hidden-lo.xlsx"))
+    check(
+        "同一张表：openpyxl 不写 pageSetup 与 printOptions（null，不是 false）",
+        [dig(op, "sheets[0].print_setup.setup") is None,
+         dig(op, "sheets[0].print_setup.options") is None],
+        [True, True],
+    )
+    check(
+        "同一张表：LibreOffice 连 paperSize 与两个 dpi 都不省",
+        [dig(lo, "sheets[0].print_setup.setup.paperSize"),
+         dig(lo, "sheets[0].print_setup.setup.orientation"),
+         dig(lo, "sheets[0].print_setup.setup.horizontalDpi"),
+         dig(lo, "sheets[0].print_setup.setup.verticalDpi"),
+         dig(lo, "sheets[0].print_setup.setup.copies")],
+        ["9", "portrait", "300", "300", "1"],
+    )
+    check(
+        "边距按文件原样交：0.5 与 0.511811023622047 是两个生产者的差",
+        [dig(op, "sheets[0].print_setup.margins.header"),
+         dig(lo, "sheets[0].print_setup.margins.header"),
+         dig(op, "sheets[0].print_setup.margins.left"),
+         dig(lo, "sheets[0].print_setup.margins.left")],
+        ["0.5", "0.511811023622047", "0.75", "0.75"],
+    )
+    check(
+        "单位在壳上说一次：这一族是英寸（不是文档那一族的 0.01mm）",
+        [dig(op, "sheets[0].print_setup.margin_unit"), dig(lo, "sheets[0].print_setup.margin_unit")],
+        ["inch", "inch"],
+    )
+    # 另两族：量过才知道读不了。ODF 的表不点名自己的版式（五份 ods 件全没有那一跳，
+    # 只有 LibreOffice 自己那套 PageStyle_表名 的命名约定 —— 不是规格里的链接）；
+    # .xls 每条 SETUP(0x00A1) 记录都在（每张表一条，长 34），可字段位没有一个读者能核对
+    for name in ("hidden.ods", "book.ods", "hidden.xls", "book.xls"):
+        missing = [one.get("name") for one in lbin("office-sheet", fixture(name)).get("sheets", [])
+                   if one.get("print_setup") is not None]
+        check("%s 这一族的打印设置没读：键整个不在" % name, missing, [])
+
     # ── 3b) 数字格式：格子写的是 cellXfs 的下标，日期藏在样式里 ──────────
     print("=== 3b) formats.xlsx：格式号、判定与换算出来的日期 ===")
     fx = lbin("office-sheet", fixture("formats.xlsx"))

@@ -418,11 +418,39 @@ def xlsx_comments(path: Path) -> dict:
     return out
 
 
+PRINT_ELEMENTS = {"pageMargins": "margins", "pageSetup": "setup", "printOptions": "options"}
+
+
+def xlsx_print_setup(parts: dict) -> dict:
+    """每张表的打印设置：三个元素各自「在不在」
+
+    openpyxl 只写 `pageMargins`（`pageSetup` 与 `printOptions` 整个不存在 —— 那些开关是
+    「没说」，不是 false），LibreOffice 重写同一份东西把十个属性全写出来，连
+    `paperSize="9"` 与两个 dpi 都不省。边距这一族是英寸的浮点串，照文件写的交：
+    openpyxl 的 0.5 与 LibreOffice 的 0.511811023622047 是两个生产者的差。
+    """
+    out: dict = {}
+    for name in sorted(parts):
+        if not (name.startswith("xl/worksheets/sheet") and name.endswith(".xml")):
+            continue
+        root = ET.fromstring(parts[name])
+        one = {"margins": None, "setup": None, "options": None, "margin_unit": "inch"}
+        for node in root.iter():
+            which = PRINT_ELEMENTS.get(xml_local(node.tag))
+            # 只取第一个：Rust 那份是 `descendants(name).first()`，两边必须是同一条规则，
+            # 否则真出现两个同名元素时两家会各挑一个
+            if which and one[which] is None:
+                one[which] = {key.rsplit("}", 1)[-1]: value for key, value in node.attrib.items()}
+        out[name.rsplit("/", 1)[-1][: -len(".xml")]] = one
+    return out
+
+
 def xlsx_facts(path: Path) -> dict:
     parts = {}
     with zipfile.ZipFile(path) as box:
         names = [one.filename for one in box.infolist()]
         parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    print_setups = xlsx_print_setup(parts)
     wb = ET.fromstring(parts["xl/workbook.xml"])
     sheets = []
     for one in wb.iter():
@@ -479,6 +507,7 @@ def xlsx_facts(path: Path) -> dict:
         "numeric_cells": numbers,
         "merged": merged,
         "dimensions": dims,
+        "print_setup": print_setups,
         "defined_names": len([
             one
             for one in wb.iter()

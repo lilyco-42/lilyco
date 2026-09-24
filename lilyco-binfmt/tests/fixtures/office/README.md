@@ -554,6 +554,23 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     父样式链（`style:parent-style-name`）上也可能写这条属性，但四份件都写在自己身上，
     没有样本就不跟那条链。docx / odt / rtf 三家现在对 `notes` 与 `toc` 都报 1。
 
+47. **打印设置按表交，缺的元素是 null 不是 false**（11 份 xlsx，两个生产者正好相反）。
+    同一张表的打印那份东西在 `sheetN.xml` 里是三个平铺的元素：`pageMargins`、`pageSetup`、
+    `printOptions`。openpyxl 只写第一个（左/右 0.75、上/下 1、页眉页脚 0.5 英寸），后两个
+    **整个不存在** —— 那里面的开关是「没说」，不是 false，所以缺的元素交 null，
+    属性一个也不补。LibreOffice 重写同一份东西把十二个 `pageSetup` 属性全写出来
+    （连 `paperSize="9"`、`horizontalDpi="300"` 与 `verticalDpi="300"` 都不省），
+    `printOptions` 另写五个。边距这一族照文件原样交，单位在每张表上说一次（`margin_unit: inch`），
+    **不**折算成 office-doc 那一族的 0.01mm 整数：`header="0.5"` 与 `header="0.511811023622047"`
+    正是两个生产者的差（后者是 13mm 换算成英寸的浮点串），折算一次就抹平了。
+    另两族量过之后**没读**，键整个不在（不是空对象）：五份 LibreOffice 写的 .ods 里
+    `style:page-layout-properties` 确有打印属性（`print-orientation` / `print-page-order` / `print`…，
+    而且只有 Mpm3 那一份写了），可**表元素不点名自己的版式** —— `table:table` 上根本没有
+    `style:page-layout-name`，剩下的只有 `PageStyle_5f_表名` 那条该生产者自己的命名约定，
+    那不是规格里的跳；.xls 每张表都写了一条 SETUP(0x00A1)（长 34，头十二个 u16 是
+    9 100 0 1 1 2 300 300 …，与同一批字的 LO 版 xlsx 那些数对得上），可是里面的字段位
+    在本机没有一个读者能核对 —— 只有规格的一句话，就还是没量过。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
@@ -561,6 +578,8 @@ Rust 测试里每个期望值都来自第二读者对这些文件的独立读取
 `lyco_rtf.py`（RTF）、`lyco_legacy.py`（`.doc` piece 表、`.xls` BIFF8、`.ppt` 记录树）、
 `lyco_formats.py`（`.xlsx` 的数字格式与日期换算），以及 `office_reader.py` 里的
 `ods_facts()`（`.ods` 的重复计数、覆盖格与自动样式可见性）。
+每张表的打印设置是同一份文件里的 `xlsx_print_setup()`：三个元素各自取第一个（与 Rust 那边
+`descendants(name).first()` 同一条规则），属性名去掉前缀原样交，缺的元素留 null。
 那张纸（纸面尺寸与四边）另有 `scripts/acceptance/lyco_pages.py`：同样只吃标准库，
 docx 用 ElementTree 找 `w:sectPr` 的 `w:pgSz` / `w:pgMar`，odt 找 `styles.xml` 里真写了
 `fo:page-width` 的那些页布局，两边都按同一条整数式子换成 0.01mm（RTF 的那一串在
