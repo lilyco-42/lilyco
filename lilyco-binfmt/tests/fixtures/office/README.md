@@ -351,6 +351,17 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     （两份读者在这一条上给出同样的 `1-2`，是因为都走各自的 XML 解码头，不是靠字符串猜）。
     没有目录的件报 `present: false`（键在、值为假），不是缺键；`.doc` 报 null（这一版没看）。
 
+34. **同一份 RTF 在两条命令里答的是两个问题，但必须出自同一次读取**（`notes.rtf` /
+    `notes-hf.rtf` / `notes-end.rtf`）。`office-text` 问「写了什么」，`office-doc`
+    问「结构数得清几项」，两边都调 `rtf::extract`，所以段数与注数必须一致：
+    `notes-end.rtf` 是 4 段 + 2 脚注 + 1 尾注（注的目标群 3 个），`notes.rtf` 是 7 段
+    零注一张图，`notes-hf.rtf` 是 3 段 + 6 个页眉页脚群。差别只在 RTF **不是包，是一条流**：
+    样式名、表格线、分节归属、目录、批注、修订、保护这一版都没判，于是 `office-doc`
+    在这一支把这些项交回 `null` 而不是 `0` —— 0 是一份主张（「这份文件里没有表格」），
+    null 是一句实话（「这一支没看」）。段口径两边也统一：`\par` 切出来、逐行 trim、
+    丢空行，与 `lyco_rtf.py` 的 `lines` 同一条规则，所以 `statistics.ours`
+    那三个数（116 / 100 / 20）是拿同四行字两边各数一遍对出来的。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：

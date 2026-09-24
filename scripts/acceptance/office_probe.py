@@ -213,6 +213,55 @@ def main() -> int:
         check("%s 目录那份账" % name, lbin("office-doc", fixture(name)).get("contents"), want)
     check("notes.doc 没读就不报目录", lbin("office-doc", fixture("notes.doc")).get("contents"), None)
 
+    # ── 2c) RTF 的结构这一问：它不是包，是一条流，能数清的才报 ─────────────
+    print("=== 2c) office-doc 读 RTF（段、注、图、跳过与注的口袋数） ===")
+    for name in ("notes.rtf", "notes-hf.rtf", "notes-end.rtf"):
+        got = lbin("office-doc", fixture(name))
+        rwant = files[name]["rtf"]
+        check(
+            "%s 段数（RTF 的段 = par 切出来的行）" % name,
+            dig(got, "structure.paragraphs"),
+            rwant["line_count"],
+        )
+        check(
+            "%s 注按 kind 分（尾注靠 ftnalt）" % name,
+            [got.get("footnotes"), got.get("endnotes")],
+            [
+                len([one for one in rwant["notes"] if one["kind"] == "footnote"]),
+                len([one for one in rwant["notes"] if one["kind"] == "endnote"]),
+            ],
+        )
+        check(
+            "%s 图 / 嵌入对象 / 跳过的群 / 注的口袋数" % name,
+            [
+                dig(got, "structure.pictures"),
+                dig(got, "structure.embedded_objects"),
+                dig(got, "structure.skipped_destinations"),
+                dig(got, "structure.note_destinations"),
+            ],
+            [
+                rwant["pictures"],
+                rwant["embedded_objects"],
+                rwant["skipped_destinations"],
+                rwant["note_destinations"],
+            ],
+        )
+        check(
+            "%s 自己数的那份字账" % name,
+            got.get("statistics", {}).get("ours"),
+            office_reader.tally_of(rwant["lines"]),
+        )
+        # 「没看」与「没有」不是一件事：这几项两边都必须是 null
+        check(
+            "%s 没判的项交回 null（tables / styles / contents）" % name,
+            [
+                got.get("styles") is None,
+                got.get("contents") is None,
+                (got.get("structure") or {}).get("tables") is None,
+            ],
+            [True, True, True],
+        )
+
     # 尾注那一条分支第一次有真件：notes-end.docx 的 word/endnotes.xml 是 LibreOffice 的
     # docx 导出器写的（它把两条分隔符写成 <w:separator/> 那一族），
     # 于是「有几条真尾注」这一半也有了对证，不再只是「部件不在=0」
