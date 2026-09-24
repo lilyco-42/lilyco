@@ -61,6 +61,21 @@ ROW_WORDS = {"row", "nestrow"}
 OBJECT_WORDS = {"object", "objattph", "objdata", "objclass", "objname", "objemb", "objhide"}
 
 
+def peek_word(text: str, at: int) -> str:
+    """`at` 之后第一个控制字的名字（可能隔着一个反斜杠与空白），没有就交回空串
+
+    `\*` 修饰的是紧跟它的那个目标群，所以要跳之前得先看清那是个什么群。
+    """
+    k = at
+    while k < len(text) and (text[k] in " \r\n" or text[k] == "\\"):
+        k += 1
+    word = ""
+    while k < len(text) and text[k].isalpha():
+        word += text[k]
+        k += 1
+    return word
+
+
 def skip_rtf_chars(text: str, at: int, how_many: int) -> int:
     """从 `at` 起丢掉 `how_many` 个 **RTF 字符**
 
@@ -129,12 +144,23 @@ PAGE_DESTINATIONS = {
     "footer", "footerl", "footerr", "footert", "footerf",
 }
 
+# 注的两个口袋。LibreOffice 的 RTF 导出**只用 `footnote` 这一个口袋**，
+# 尾注靠群里的 `\ftnalt` 反标志区分（Word 那族还会另写 `endnote` 口袋），
+# 所以两个词都认、再看 `\ftnalt`
+NOTE_DESTINATIONS = {"footnote", "endnote"}
+
+# 这些是注的**排版定义**（分隔符、续分符、编号占位），不是一条注：
+# 这份件里就写着 `{\*\ftnsep\chftnsep}` —— 当成注就会凭空多出几条空注
+NOTE_DEFINITION_DESTINATIONS = {
+    "ftnsep", "ftnsepc", "ftncn", "aftnsep", "aftnsepc", "aftncn",
+}
+
 
 def rtf_text(data: bytes) -> dict:
     """返回 `{text, lines, line_count, chars, ...}`：计数都是文件自己账上的数"""
     text = data.decode("latin-1", "replace")
     out: list[str] = []
-    page: dict = {"headers": [], "footers": [], "destinations": 0}
+    page: dict = {"headers": [], "footers": [], "notes": [], "destinations": 0}
     pending = bytearray()  # 连续的 \'hh 字节，攒着按字符集一起解
     skip: list[bool] = [False]
     codepage = 1252
@@ -147,6 +173,9 @@ def rtf_text(data: bytes) -> dict:
         "destinations": 0,
         "objects": 0,
         "replacements": 0,
+        # 这一群里出现过 `\ftnalt`：LibreOffice 用它把脚注口袋标成尾注
+        "alt": 0,
+        "note_destinations": 0,
     }
 
     def flush() -> None:
@@ -180,10 +209,15 @@ def rtf_text(data: bytes) -> dict:
             i += 1
             continue
         if text.startswith(BS + "*", i):
-            # \* 的语义是「不认识这个目标群就整群跳过」。本域不认识任何带 \* 的目标：
-            # fldinst（域指令原文，如 HYPERLINK 的 URL）、userprops、atncluster（批注的
-            # 内部控制文本）都从这里过 —— 不跳就会把指令与二进制混进正文。
+            # `\*` 说的是「**后面那个目标群**你不认识就整群跳过」。
+            # 所以先看一眼那个词：认识的就不跳 —— LibreOffice 的脚注与尾注恰恰写成
+            # `{\*\footnote …}`，照「见 \* 就跳」处理会把整条注弄丢（这份件就是这么发现的）。
+            # 不认识才跳：fldinst（域指令原文）、userprops、atncluster 都从这一条走。
             flush()
+            named = peek_word(text, i + 2)
+            if named in NOTE_DESTINATIONS or named in PAGE_DESTINATIONS:
+                i += 2
+                continue
             skip[-1] = True
             stats["destinations"] += 1
             i += 2
@@ -241,6 +275,20 @@ def rtf_text(data: bytes) -> dict:
             j = skip_rtf_chars(text, j, max(ucount, 0))
             i = j
             continue
+        if word in NOTE_DESTINATIONS and not skip[-1]:
+            stop, inner = group_end(text, j)
+            sub = rtf_text(inner.encode("latin-1", "replace"))
+            # 尾注的判法：自己叫 endnote，或者群里带了 \ftnalt（LibreOffice 的写法）
+            kind = "endnote" if word == "endnote" or sub["ftnalt"] else "footnote"
+            for line in sub["lines"]:
+                page["notes"].append({"kind": kind, "slot": word, "text": line})
+            stats["note_destinations"] += 1
+            if len(skip) > 1:
+                skip.pop()
+            i = stop + 1
+            continue
+        if word == "ftnalt":
+            stats["alt"] += 1
         if word in PAGE_DESTINATIONS and not skip[-1]:
             # 目标群到「关掉当前这一群」的那个 } 止；里面递归走一遍（页眉也有 \par、\u）
             stop, inner = group_end(text, j)
@@ -255,7 +303,7 @@ def rtf_text(data: bytes) -> dict:
                 skip.pop()
             i = stop + 1
             continue
-        if word in SKIP_DESTINATIONS:
+        if word in SKIP_DESTINATIONS or word in NOTE_DEFINITION_DESTINATIONS:
             skip[-1] = True
             stats["destinations"] += 1
         elif word == "pict":
@@ -287,6 +335,9 @@ def rtf_text(data: bytes) -> dict:
         "headers": page["headers"],
         "footers": page["footers"],
         "page_destinations": page["destinations"],
+        "notes": page["notes"],
+        "note_destinations": stats["note_destinations"],
+        "ftnalt": bool(stats["alt"]),
         "replacement_chars": stats["replacements"],
     }
 

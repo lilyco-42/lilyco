@@ -101,6 +101,33 @@ const OBJECT_WORDS: &[&str] = &[
     "object", "objattph", "objdata", "objclass", "objname", "objemb", "objhide",
 ];
 
+/// 注的两个口袋。**LibreOffice 的 RTF 导出只用 `footnote` 这一个**，
+/// 尾注靠群里的 `\ftnalt` 反标志区分（Word 那族还会另写 `endnote` 口袋），
+/// 所以两个词都认、再看那个标志
+const NOTE_DESTINATIONS: &[&str] = &["footnote", "endnote"];
+
+/// 注的**排版定义**（分隔符、续分符、编号占位）不是一条注：
+/// 这份件里就明写着 `{\\*\\ftnsep\\chftnsep}` —— 当成注就会凭空多出几条空注
+const NOTE_DEFINITION_WORDS: &[&str] = &[
+    "ftnsep", "ftnsepc", "ftncn", "aftnsep", "aftnsepc", "aftncn",
+];
+
+/// `\*` 之后紧跟的那个控制字叫什么（可能隔着空白与另一个反斜杠）
+fn peek_word(bytes: &[u8], at: usize) -> String {
+    let mut k = at;
+    while k < bytes.len()
+        && (bytes[k] == b' ' || bytes[k] == b'\r' || bytes[k] == b'\n' || bytes[k] == b'\\')
+    {
+        k += 1;
+    }
+    let mut word: Vec<u8> = Vec::new();
+    while k < bytes.len() && bytes[k].is_ascii_alphabetic() {
+        word.push(bytes[k]);
+        k += 1;
+    }
+    String::from_utf8_lossy(&word).into_owned()
+}
+
 #[derive(Debug, Clone)]
 pub struct Rtf {
     pub text: String,
@@ -117,6 +144,13 @@ pub struct Rtf {
     pub headers: Vec<Value>,
     pub footers: Vec<Value>,
     pub page_destinations: usize,
+    /// 脚注与尾注：每条带 `kind`（footnote / endnote）、`slot`（文件用的哪个口袋名）与字。
+    /// 注的字**不混进正文** —— 它住在正文流里的一个目标群里，位置就在引用点后面
+    pub note_list: Vec<Value>,
+    pub note_destinations: usize,
+    /// 这一群里出现过 `\ftnalt`：LibreOffice 用它把 `footnote` 口袋标成尾注。
+    /// 只在提取子群时用来判 kind，不单独交出去
+    pub ftnalt: bool,
     pub notes: Vec<String>,
 }
 
@@ -128,6 +162,8 @@ impl Rtf {
             "headers": self.headers,
             "footers": self.footers,
             "page_destinations": self.page_destinations,
+            "note_list": self.note_list,
+            "note_destinations": self.note_destinations,
             "line_count": self.lines.len(),
             "chars": self.text.chars().count(),
             "declared_codepage": self.declared_codepage,
@@ -162,6 +198,9 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         headers: Vec::new(),
         footers: Vec::new(),
         page_destinations: 0,
+        note_list: Vec::new(),
+        note_destinations: 0,
+        ftnalt: false,
         notes: Vec::new(),
     };
     let mut i = 0usize;
@@ -198,9 +237,18 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         }
         // 反斜杠开头
         if bytes.get(i + 1) == Some(&b'*') {
-            // `\*` 的语义就是「不认识这个目标群就整群跳过」。本域不认识任何带 \* 的目标：
-            // fldinst（域指令原文）、userprops、批注的内部文本都从这里过。
+            // `\*` 说的是「**紧跟它的那个目标群**你不认识就整群跳过」。
+            // 所以先看清那是个什么群：认识的就不跳 —— LibreOffice 的脚注与尾注恰恰写成
+            // `{\\*\\footnote …}`，一见 `\*` 就跳会把整条注丢掉（这份件就是这么发现的）。
+            // 不认识才跳：fldinst（域指令原文）、userprops、批注的内部文本都从这一条走。
             flush(&mut out, &mut pending, codepage, &mut notes);
+            let named = peek_word(bytes, i + 2);
+            if NOTE_DESTINATIONS.contains(&named.as_str())
+                || PAGE_DESTINATIONS.contains(&named.as_str())
+            {
+                i += 2;
+                continue;
+            }
             let last = skip.len() - 1;
             skip[last] = true;
             me.skipped_destinations += 1;
@@ -283,6 +331,32 @@ pub fn extract(bytes: &[u8]) -> Rtf {
             }
             _ => {}
         }
+        if word == "ftnalt" {
+            // 只在「这是注的群」时被读到；判 kind 用
+            me.ftnalt = true;
+        }
+        if !skipping && NOTE_DESTINATIONS.contains(&word.as_str()) {
+            // 注住在自己的群里（`\footnote` 或 `{\*\footnote …}`，外层已经由 `\*` 那一支放行）：
+            // 整群提出来单独交账，正文里一份不留
+            let (stop, inner) = group_end(bytes, j);
+            let sub = extract(&inner);
+            let kind = if word == "endnote" || sub.ftnalt {
+                "endnote"
+            } else {
+                "footnote"
+            };
+            for line in sub.lines {
+                me.note_list
+                    .push(json!({"kind": kind, "slot": word.clone(), "text": line}));
+            }
+            me.note_destinations += 1;
+            // 这一跳吃掉了收尾的那个 `}`，群里层的跳过标记要自己弹掉
+            if skip.len() > 1 {
+                skip.pop();
+            }
+            i = stop + 1;
+            continue;
+        }
         if !skipping && PAGE_DESTINATIONS.contains(&word.as_str()) {
             // 目标群从这一位起，到关掉「当前这一群」的那个 `}` 止。
             // 里面递归走一遍：页眉也会有 \par、\u 与字段。
@@ -305,7 +379,9 @@ pub fn extract(bytes: &[u8]) -> Rtf {
             i = stop + 1;
             continue;
         }
-        if SKIP_DESTINATIONS.contains(&word.as_str()) {
+        if SKIP_DESTINATIONS.contains(&word.as_str())
+            || NOTE_DEFINITION_WORDS.contains(&word.as_str())
+        {
             let last = skip.len() - 1;
             skip[last] = true;
             me.skipped_destinations += 1;
@@ -835,6 +911,45 @@ mod tests {
 
     fn rtf(input: &str) -> Rtf {
         extract(input.as_bytes())
+    }
+
+    /// `\*` 修饰的是**紧跟它的那个群**：认识的（脚注、尾注、页眉）就不跳。
+    /// LibreOffice 把脚注与尾注都写进 `\footnote` 口袋，尾注只多一个 `\ftnalt`；
+    /// 注的排版定义（`\ftnsep` 那一族）不是一条注
+    #[test]
+    fn star_destinations_are_read_when_the_domain_knows_them() {
+        let one = rtf(
+            "{\\rtf1\\ansi 正文{\\super \\chftn{\\*\\footnote \\chftn 脚注的字。}}{\\super \\chftn{\\*\\footnote\\ftnalt \\chftn 尾注的字。}}}",
+        );
+        assert_eq!(one.lines, vec!["正文".to_string()], "{:?}", one.lines);
+        let kinds: Vec<&str> = one
+            .note_list
+            .iter()
+            .map(|had| had["kind"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(kinds, ["footnote", "endnote"], "{:?}", one.note_list);
+        assert_eq!(one.note_destinations, 2);
+        // 分隔符定义里没有「一条注」
+        let sep = rtf("{\\rtf1\\ansi 正文{\\*\\ftnsep\\chftnsep}{\\*\\ftncn\\chftncn}}");
+        assert!(sep.note_list.is_empty(), "{:?}", sep.note_list);
+        assert_eq!(sep.lines, vec!["正文".to_string()], "{:?}", sep.lines);
+        // 真件：一份 LibreOffice 写的 RTF，两条脚注一条尾注
+        let real = extract(&fixture("notes-end.rtf"));
+        assert_eq!(real.note_destinations, 3, "{:?}", real.note_list);
+        assert_eq!(
+            real.note_list
+                .iter()
+                .filter(|had| had["kind"] == json!("endnote"))
+                .count(),
+            1,
+            "{:?}",
+            real.note_list
+        );
+        assert!(
+            !real.text.contains("gross"),
+            "注的字混进正文了：{}",
+            real.text
+        );
     }
 
     /// 词边界：`\pard` 不是 `\par` 加一个字面 `d`

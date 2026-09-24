@@ -1077,6 +1077,9 @@ def main() -> int:
         # RTF 的坐在 \header / \footer 目标里 —— 两边都是同一批字的另一种存法
         (headers, "rtf"),
         (headers, "odt"),
+        # 脚注与尾注的 RTF 存法：两条都是 `{\*\footnote …}` 群，尾注只多一个 `\ftnalt`；
+        # 分隔符另走 `{\*\ftnsep …}` —— 与 OOXML 那两条分隔符是同一件事的第三种写法
+        (OUT / "notes-end.docx", "rtf"),
     ):
         convert(exe, src, fmt, SCRATCH)
     for name in (
@@ -1089,6 +1092,7 @@ def main() -> int:
         "deck.ppt",
         "notes.rtf",
         "notes-hf.rtf",
+        "notes-end.rtf",
         "notes-hf.odt",
     ):
         src = SCRATCH / name

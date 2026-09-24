@@ -99,6 +99,7 @@ def main() -> int:
         "notes-end.odt": ("opendocument", "word", "odt"),
         "notes-hf.odt": ("opendocument", "word", "odt"),
         "notes-hf.rtf": ("rtf", "word", "rtf"),
+        "notes-end.rtf": ("rtf", "word", "rtf"),
         "notes.docm": ("ooxml", "word", "docm"),
         "notes-en.docx": ("ooxml", "word", "docx"),
         "book.xlsx": ("ooxml", "excel", "xlsx"),
@@ -343,6 +344,33 @@ def main() -> int:
         + [("footer", one["slot"], one["text"]) for one in rwant["footers"]],
     )
     check("notes-hf.rtf 目标群数", rwant["page_destinations"], 6)
+
+    # RTF 的注：LibreOffice 把脚注与尾注都写进 `{\*\footnote …}`，尾注只多一个 `\ftnalt`。
+    # `\*` 的语义是「不认识那个群才跳」—— 一见 `\*` 就跳会把整条注丢掉
+    endrtf = lbin("office-text", fixture("notes-end.rtf"))
+    rwant2 = files["notes-end.rtf"]["rtf"]
+    check(
+        "notes-end.rtf 正文行（注的字不留正文）",
+        [one["text"] for one in endrtf.get("paragraphs", []) if not one.get("from")],
+        rwant2["lines"],
+    )
+    check(
+        "notes-end.rtf 注逐条（kind 与字）",
+        [
+            (one.get("from"), one.get("text"))
+            for one in endrtf.get("paragraphs", [])
+            if one.get("from")
+        ],
+        [(one["kind"], one["text"]) for one in rwant2["notes"]],
+    )
+    check("notes-end.rtf 注的目标群数", endrtf.get("total_paragraphs"), len(rwant2["lines"]) + len(rwant2["notes"]))
+    # 跨格式同形：同一批字在 OOXML 那份里的三条注必须一模一样
+    footdoc2 = lbin("office-text", fixture("notes-end.docx"))
+    check(
+        "同一批字的 RTF 与 docx 两份注账",
+        sorted(one.get("text") for one in footdoc2.get("paragraphs", []) if one.get("from")),
+        sorted(one["text"] for one in rwant2["notes"]),
+    )
 
     # ── 表格结构：表名、可见性、范围、格子 ──────────────────────────
     print("=== 3) office-sheet：布局 ===")

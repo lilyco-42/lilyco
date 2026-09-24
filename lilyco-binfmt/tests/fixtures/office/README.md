@@ -24,6 +24,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `cell-notes.xlsx` | openpyxl | 三条表格批注，部件在 **`xl/comments/comment1.xml`**，表的关系用**绝对** Target（`/xl/comments/comment1.xml`）、关系 Id 还不是 rId 而是字面量 `comments`；作者住在同部件的 `<authors>` 列表里，格子上只有 `authorId` 下标 |
 | `cell-notes-lo.xlsx` | LibreOffice（`cell-notes.xlsx` → .ods → .xlsx） | 同一批字的另一副面孔：部件在 **`xl/comments1.xml`**、Target 是相对的 `../comments1.xml`、注文字包在 `<r><rPr>…<t>` 里，而且条目顺序都变了（A3 排在 B2 前面） |
 | `cell-notes.ods` | LibreOffice（从 `cell-notes.xlsx`） | ODF 的存法：批注是 `office:annotation`，**坐在格子里面**（`dc:creator` 给作者、`<meta:date-string/>` 是空的），一锅端取格子的字就会把注当成这一格的内容 |
+| `notes-end.rtf` | LibreOffice（从 `notes-end.docx`） | 注的第三种存法：脚注与尾注**都**写成 `{\*\footnote …}` 这一个群，尾注只在群里多一个 `\ftnalt`；分隔符另走 `{\*\ftnsep\chftnsep}` |
 | `notes-hf.odt` | LibreOffice（从 `notes-hf.docx`） | 同一批字的 ODF 存法：页眉页脚在 **styles.xml 的 master-page** 里，两个节 = 两个 master-page（`Standard` 与 `Converted1`），各带一份 header + footer |
 | `notes-hf.rtf` | LibreOffice（从 `notes-hf.docx`） | 第三种存法：`\header` / `\headerl` / `\footer` 这些**目标（destination）**里的字，与正文混在一个流里 |
 | `revisions.docx` | python-docx + 手注入 `w:ins` / `w:del` / `w:rPrChange` / 段落标记 | 四种修订各一处，而且**没被拆开**：3 个 `w:ins`（含段落标记那一条）、1 个 `w:del`、1 个 `w:rPrChange` → 5 条逻辑改动 |
@@ -318,6 +319,21 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     最后：`Comment(text, author, dt)` 里那个时间戳，openpyxl **根本没写进部件**，
     LibreOffice 转出的 ODF 也只留一个空的 `<meta:date-string/>` —— 两边都交回 null，
     不替文件编一个创建时间。`.xls` 那一支不报这一问（缺 `comments` 键 = 没看）。
+
+32. **RTF 的 `\*` 修饰的是紧跟它的那个群，不是一句「见 `\*` 就跳」**（`notes-end.rtf`）。
+    RTF 里 `\*` 的意思规范写成「不认识这个目标群就把整群跳过」—— 重点在**认识与否**。
+    这一版原先的实现是「本域不认识任何带 `\*` 的目标」，于是见到 `\*` 就整群丢：
+    `fldinst`（域指令原文）、`userprops`、批注的内部文本确实该丢，
+    但 LibreOffice 的脚注与尾注恰恰写成 `{\*\footnote …}` —— **一句注都不剩**。
+    这份件量的就是这一条：改完之后 `{\*\footnote …}` 与 `{\*\footnote\ftnalt …}`
+    分别读成一条脚注、一条尾注（同一条 docx 转出来的三份件：OOXML 两条脚注一条尾注、
+    ODF 按 `text:note-class`、RTF 按 `\ftnalt`，字一模一样）。
+    两条附带的判据也都是量出来的：
+    * 尾注**没有自己的口袋名** —— LO 两条都用 `footnote`，靠群里的 `\ftnalt` 反标志分开
+      （Word 那族才会另写 `endnote` 口袋，所以两个词都认，`endnote` 直接算尾注）。
+    * `{\*\ftnsep\chftnsep}` 与 `{\*\ftncn\chftncn}` 是注的**排版定义**（分隔符、续分符、
+      编号占位），不是一条注 —— 与 OOXML 部件里那两条 `separator` 是同一件事的第三种写法。
+    注的字一份都不留在正文行里：`Body` 那行还是 `Body`，不跟着拖出「Footnote: …」。
 
 ## 这些数字从哪来
 
