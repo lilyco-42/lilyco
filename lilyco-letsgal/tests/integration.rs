@@ -30,12 +30,14 @@ const DEMO_DSL: &str = r#"
 我：我们把医院系统 CLI 化。
 "#;
 
-/// 递归剥掉随机 id 字段（块 id / effectId 与 Node 版一样是随机的，不参与确定性对比）
+/// 递归剥掉随机 id 字段（块 id / effectId / branchId 与 Node 版一样是随机的，
+/// 不参与确定性对比）。branchId 在 props 里，递归会进 props 对象层所以同法可剥。
 fn strip_ids(v: &mut serde_json::Value) {
     match v {
         serde_json::Value::Object(m) => {
             m.remove("id");
             m.remove("effectId");
+            m.remove("branchId");
             for child in m.values_mut() {
                 strip_ids(child);
             }
@@ -165,7 +167,8 @@ fn demo_story_builds_end_to_end_with_zero_issues() {
         .iter()
         .filter_map(|c| c["name"].as_str())
         .collect();
-    for want in ["穗", "心理", "游戏菜单", "广告"] {
+    // 「心理」是 DSL 的旁白别名（旁白|心理|n|narration）→ 进 narration 块，不注册角色
+    for want in ["穗", "游戏菜单", "广告"] {
         assert!(
             names.contains(&want),
             "手稿角色 `{want}` 应自动注册: {names:?}"
