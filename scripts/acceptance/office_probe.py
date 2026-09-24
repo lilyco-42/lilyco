@@ -545,6 +545,51 @@ def main() -> int:
         False,
     )
 
+    # ── 3ez2) 保护这份账：docx / xlsx / odt / ods 四家各存各的
+    print("=== 3ez2) protected.* / locked-sheet.*：还能动吗 ===")
+    for name in ("protected.docx", "protected-lo.docx"):
+        got = lbin("office-doc", fixture(name)).get("protection") or {}
+        want = files[name]["protection"]
+        check("%s 保护逐字段" % name,
+              {key: got.get(key) for key in ("element", "protected", "edit", "enforcement", "password")},
+              {key: want.get(key) for key in ("element", "protected", "edit", "enforcement", "password")})
+    # 分水岭：同一份内容转成 .odt 之后，LO 并没有把 docx 的编辑限制搬过去
+    check("protected.odt 带着那份限制", files["protected.odt"]["protection"]["protected"], False)
+    check("protected.odt 与 protected-lo.docx 结论不同",
+          (bool((lbin("office-doc", fixture("protected.docx")).get("protection") or {}).get("protected")),
+           bool((lbin("office-doc", fixture("protected.odt")).get("protection") or {}).get("protected"))),
+          (True, False))
+    for name in ("locked-sheet.xlsx", "locked-sheet-lo.xlsx"):
+        got = lbin("office-sheet", fixture(name)).get("protection") or {}
+        want = files[name]["protection"]
+        check("%s 工作簿一层" % name,
+              {key: (got.get("workbook") or {}).get(key) for key in ("element", "lock_structure", "book_password")},
+              {key: (want.get("workbook") or {}).get(key) for key in ("element", "lock_structure", "book_password")})
+        check("%s 每张表一层" % name,
+              [(one.get("name"), one.get("element"), one.get("protected"), one.get("password"), one.get("written"))
+               for one in got.get("sheets", [])],
+              [(one["name"], one["element"], one["protected"], one.get("password", False), one.get("written"))
+               for one in want["sheets"]])
+    # 拼法这一条是分水岭：openpyxl 写 1/0，LibreOffice 重写同一份东西写 true/false
+    check("两种拼法读出同一个结论",
+          [bool((lbin("office-sheet", fixture(one)).get("protection") or {}).get("sheets", [{}])[0].get("protected"))
+           for one in ("locked-sheet.xlsx", "locked-sheet-lo.xlsx")],
+          [True, True])
+    ods = lbin("office-sheet", fixture("locked-sheet.ods")).get("protection") or {}
+    check("locked-sheet.ods 每张表",
+          [(one.get("name"), one.get("protected"), one.get("password"), one.get("digest"))
+           for one in ods.get("sheets", [])],
+          [(one["name"], one["protected"], one["password"], one["digest"])
+           for one in files["locked-sheet.ods"]["protection"]["sheets"]])
+    # 没写的东西不许被报成写了：book.xlsx 里 openpyxl 留了一个空的 workbookProtection
+    plain = lbin("office-sheet", fixture("book.xlsx")).get("protection") or {}
+    check("book.xlsx 空元素不等于锁上",
+          (bool((plain.get("workbook") or {}).get("element")), (plain.get("workbook") or {}).get("lock_structure")),
+          (True, None))
+    check("book.xlsx 没有一张表被锁",
+          [one.get("protected") for one in plain.get("sheets", [])],
+          [one["protected"] for one in files["book.xlsx"]["protection"]["sheets"]])
+
     # ── 3e) ODP：页、备注与母版那一跳 ────────────────────────────────
     print("=== 3e) deck.odp：office-slide 的 ODF 分支 ===")
     slide = lbin("office-slide", fixture("deck.odp"))

@@ -21,7 +21,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-doc",
     run = "run_office_doc",
-    about = "Report the structure of a Word document: paragraph count (empty ones counted separately, because Word's own statistics do), headings with their level and text, every style used and how often, tables with rows and cells, inline shapes and pictures, hyperlinks split into internal and external with their targets, sections, explicit page/column breaks, footnotes and endnotes and comments (read from their own parts when present), tracked-change presence (w:ins / w:del counts) plus a revision ledger (revisions): one entry per logical change with its kind, author, date, the paragraph index it sits in and the words it carries - elements are merged only when adjacent with the same kind/author/date/paragraph, because a producer writes one edit as several runs (LibreOffice splits the number from the unit into two w:ins), while the ODF export of the very same file states them as one changed-region, which is what this merge rule was measured against. Paragraph-mark insertions (w:pPr/w:rPr/w:ins) are counted apart from the paragraph's text and are not merged with it; ODF keeps deleted words inside the region and inserted words between text:change-start and text:change-end in the body, and both are read. Legacy .doc reports revisions as null rather than guess (the redline tables live in the table stream, not the piece table). numbering usage, headers and footers, embedded objects and custom XML, plus which optional parts the package actually carries. statistics answers 'how many words/pages': ours (characters, characters_no_spaces and words_by_space - the last split on whitespace only, which is why it is named that way and not 'words') next to the producer's own numbers (docx docProps/app.xml, ODF meta.xml document-statistic) because the two disagree by design - python-docx writes app.xml with Words/Characters at 0 (it never counted), and LibreOffice counts Chinese words rather than whitespace runs, while on the same text our character counts match its character-count exactly. For legacy .doc it falls back to what the piece table can honestly tell: paragraph count from the CP total plus the marker characters it dropped (cell ends, field boundaries), not a claim about tables it cannot see. For .odt it reports the same account from content.xml's office:text (headings from text:outline-level, comments from text:annotation, pictures from draw:image, footnotes and endnotes split out of the single text:note element by its note:class) and additionally echoes meta.xml's own document-statistic so the producer's numbers are visible next to ours. Returns { path, format, kind, structure, styles, tables, images, hyperlinks, revisions, statistics, parts, notes }. Read-only (safety T0)."
+    about = "Report the structure of a Word document: paragraph count (empty ones counted separately, because Word's own statistics do), headings with their level and text, every style used and how often, tables with rows and cells, inline shapes and pictures, hyperlinks split into internal and external with their targets, sections, explicit page/column breaks, footnotes and endnotes and comments (read from their own parts when present), tracked-change presence (w:ins / w:del counts) plus a revision ledger (revisions): one entry per logical change with its kind, author, date, the paragraph index it sits in and the words it carries - elements are merged only when adjacent with the same kind/author/date/paragraph, because a producer writes one edit as several runs (LibreOffice splits the number from the unit into two w:ins), while the ODF export of the very same file states them as one changed-region, which is what this merge rule was measured against. Paragraph-mark insertions (w:pPr/w:rPr/w:ins) are counted apart from the paragraph's text and are not merged with it; ODF keeps deleted words inside the region and inserted words between text:change-start and text:change-end in the body, and both are read. Legacy .doc reports revisions as null rather than guess (the redline tables live in the table stream, not the piece table). protection (docx: w:documentProtection in word/settings.xml - w:edit says what kind of editing is restricted and w:enforcement says whether it is on; odt: the ProtectForm/ProtectBookmarks/ProtectFields config-items in settings.xml, which is a different place and does NOT carry the docx restriction across - the same document converted to .odt reports false for all three, measured); numbering usage, headers and footers, embedded objects and custom XML, plus which optional parts the package actually carries. statistics answers 'how many words/pages': ours (characters, characters_no_spaces and words_by_space - the last split on whitespace only, which is why it is named that way and not 'words') next to the producer's own numbers (docx docProps/app.xml, ODF meta.xml document-statistic) because the two disagree by design - python-docx writes app.xml with Words/Characters at 0 (it never counted), and LibreOffice counts Chinese words rather than whitespace runs, while on the same text our character counts match its character-count exactly. For legacy .doc it falls back to what the piece table can honestly tell: paragraph count from the CP total plus the marker characters it dropped (cell ends, field boundaries), not a claim about tables it cannot see. For .odt it reports the same account from content.xml's office:text (headings from text:outline-level, comments from text:annotation, pictures from draw:image, footnotes and endnotes split out of the single text:note element by its note:class) and additionally echoes meta.xml's own document-statistic so the producer's numbers are visible next to ours. Returns { path, format, kind, structure, styles, tables, images, hyperlinks, revisions, protection, statistics, parts, notes }. Read-only (safety T0)."
 )]
 pub struct OfficeDoc {
     /// Word 文档（docx / docm / doc / odt）
@@ -212,6 +212,8 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             .ok()
             .map(|one| xmlscan::parse_str(&one.as_text()));
         let revisions = crate::revise::docx_ledger(&paragraphs, settings.as_ref());
+        // 保护与修订是两件事：一个是「这份文件让不让你改」，一个是「改过的那些痕迹」
+        let protection = crate::protect::docx_document(settings.as_ref());
         json!({
             "path": app.path.to_string_lossy(),
             "format": doc.format,
@@ -248,6 +250,7 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             "endnotes": count("endnote", "word/endnotes.xml"),
             "comments": count("comment", "word/comments.xml"),
             "revisions": revisions.to_json(limit),
+            "protection": protection,
             // 「多少字、多少页」这一问有两份账：自己数的与生产者自报的
             "statistics": {
                 "ours": tally.to_json(),
@@ -377,6 +380,14 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
         // ODF 的修订存在两处：`text:changed-region` 是账（谁、什么时候、哪一类），
         // 删掉的字在 region 里，插入的字在正文那两个标记之间
         let revisions = crate::revise::odt_ledger(text_body, &paragraphs);
+        // ODF 的文档级保护不在 content.xml 里，在 settings.xml 的那几个 config-item 上
+        let protection = match zipread::member(bytes, "settings.xml", DEFAULT_MEMBER_CAP) {
+            Ok(member) => {
+                let settings_root = xmlscan::parse_str(&member.as_text());
+                crate::protect::odt_document(&settings_root)
+            }
+            Err(_) => json!({"items": {}, "protected": false, "part": false}),
+        };
         json!({
             "path": app.path.to_string_lossy(),
             "format": doc.format,
@@ -411,6 +422,7 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             "endnotes": of_class("endnote"),
             "comments": text_body.descendants("annotation").len(),
             "revisions": revisions.to_json(limit),
+            "protection": protection,
             // 与 docx 那一份同一个形状：自己数的与生产者自报的并排
             // （ODF 的生产者账在 meta.xml 的 document-statistic，值全是字符串）
             "statistics": {
@@ -455,6 +467,7 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             "comments": null,
             // 遗留 .doc 的修订在表流的 LVC/PAPX 那套结构里，piece 表给不出「谁改了什么」
             "revisions": null,
+            "protection": null,
             "parts": cfb.stream_names(),
             "notes": concat_notes(&body.notes, "遗留 .doc 的段落样式、表格与图形在表流的其它记录里，本版本只数正文里的结构标记；修订那份账（谁、什么时候）也住在表流里，这里读不出，宁可给 null"),
         })
@@ -518,7 +531,8 @@ mod tests {
                 "date": "2026-03-05T09:12:00Z", "paragraph": 2,
                 "text": "124000 元", "elements": 2, "paragraph_mark": false,
             }),
-            "{changes[0]}"
+            "第一处：{}",
+            changes[0]
         );
         assert_eq!(changes[1]["kind"], "deletion");
         assert_eq!(changes[1]["author"], "李四");
@@ -612,6 +626,38 @@ mod tests {
         assert_eq!(authors.len(), 3, "{authors:?}");
         assert_eq!(authors[0]["name"], "张三");
         assert_eq!(authors[0]["changes"], 2);
+    }
+
+    /// 「这份能动吗」：docx 的保护写在 `word/settings.xml`，与修订是两份账。
+    /// 两份 fixture 都要读出来（一份 python-docx 手注入、一份 LibreOffice 重写）
+    #[test]
+    fn protection_says_which_kind_of_editing_is_restricted() {
+        for name in ["protected.docx", "protected-lo.docx"] {
+            let out = run(name);
+            let one = &out["protection"];
+            assert_eq!(one["element"], json!(true), "{name}: {one}");
+            assert_eq!(one["protected"], json!(true), "{name}");
+            assert_eq!(one["edit"], json!("readOnly"), "{name}");
+            assert_eq!(one["password"], json!(true), "有 hash 就是设了口令：{name}");
+            assert_eq!(one["algorithm"], json!("typeAny"), "{name}");
+            assert_eq!(one["spin_count"], json!("100000"), "{name}");
+        }
+        assert_eq!(run("notes.docx")["protection"]["element"], json!(false));
+    }
+
+    /// ODF 那一侧：文档级保护在 `settings.xml` 的 config-item 上，而 docx 的编辑限制
+    /// **不会**跟着转换过来（这条是 LibreOffice 实测，见 fixture README）
+    #[test]
+    fn the_odt_side_does_not_carry_a_docx_restriction() {
+        let out = run("protected.odt");
+        let one = &out["protection"];
+        assert_eq!(one["protected"], json!(false), "{one}");
+        assert_eq!(one["items"]["ProtectForm"], json!(false));
+        assert_eq!(one["items"]["ProtectBookmarks"], json!(false));
+        assert_eq!(one["items"]["ProtectFields"], json!(false));
+        assert_eq!(run("notes.odt")["protection"]["protected"], json!(false));
+        // 遗留 .doc 读不出：给 null，不假称「没保护」
+        assert!(run("notes.doc")["protection"].is_null(), "读不出就说读不出");
     }
 
     /// LibreOffice 从 RTF 导入写出的那份脚注样本：`word/footnotes.xml` 里有四条

@@ -288,6 +288,70 @@ def write_revisions_docx(path: Path) -> None:
     doc.save(str(path))
 
 
+def patch_part(path: Path, edits: dict) -> None:
+    """按部件改 zip 里的 XML：锚点出现次数不对就抛，不做静默的 no-op
+
+    （`str.replace` 没匹配上是这里最容易犯的错 —— 那样提交出去的 fixture 根本没有那个元素。）
+    """
+    with zipfile.ZipFile(path) as box:
+        items = {one.filename: box.read(one.filename) for one in box.infolist()}
+    for part, (anchor, replacement) in edits.items():
+        text = items[part].decode("utf-8")
+        if text.count(anchor) != 1:
+            raise SystemExit("%s 里锚点 %r 出现 %d 次，不是 1 次" % (part, anchor[:24], text.count(anchor)))
+        items[part] = text.replace(anchor, replacement).encode("utf-8")
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as box:
+        for name, blob in items.items():
+            box.writestr(name, blob)
+
+
+def write_protected_docx(src: Path, out: Path) -> None:
+    """带编辑限制的 docx：保护写在 `word/settings.xml` 的 `w:documentProtection` 上
+
+    存在的理由：`office-doc` 要回答「这份能动吗」。Word 的保护有三个地方 —— 编辑限制
+    （`w:documentProtection`，`w:edit` 是限制类型、`w:enforcement` 才是开没开）、
+    真正加密（另一回事，office-info 已经报），以及 `w:readModeInkLock` 那种无关的东西。
+    """
+    shutil.copyfile(src, out)
+    patch_part(
+        out,
+        {
+            "word/settings.xml": (
+                "</w:settings>",
+                '<w:documentProtection w:edit="readOnly" w:enforcement="1" '
+                'w:cryptProviderType="rsaAES" w:cryptAlgorithmClass="hash" '
+                'w:cryptAlgorithmType="typeAny" w:cryptAlgorithmSid="14" '
+                'w:cryptSpinCount="100000" w:hash="AAAA" w:salt="BBBB"/></w:settings>',
+            )
+        },
+    )
+
+
+def write_locked_sheet_xlsx(src: Path, out: Path) -> None:
+    """带表级保护与工作簿结构锁的 xlsx（在 openpyxl 写的那份 book.xlsx 上补两处）
+
+    元素的位置是 schema 定死的：`sheetProtection` 在 `sheetData` 之后、`mergeCells` 之前，
+    `workbookProtection` 在 `bookViews` 之前 —— 摆错了 LibreOffice 就读不出来。
+    openpyxl 已经写了一个空的 `<workbookProtection/>`，所以这里是**改那一个**而不是再插一个：
+    插第二个会造出同一段里两个同名元素（`maxOccurs=1`），而 LibreOffice 只读第一个，
+    于是锁就"凭空丢了" —— 这个坑是第一次跑这脚本时踩到的。
+    """
+    shutil.copyfile(src, out)
+    patch_part(
+        out,
+        {
+            "xl/worksheets/sheet1.xml": (
+                "<mergeCells",
+                '<sheetProtection sheet="1" formatCells="0" insertRows="1" password="6E4E"/><mergeCells',
+            ),
+            "xl/workbook.xml": (
+                "<workbookProtection/>",
+                '<workbookProtection lockStructure="1" password="1234"/>',
+            ),
+        },
+    )
+
+
 def write_xlsx(path: Path) -> None:
     """openpyxl：多表、隐藏表、公式、合并格、命名区域、真表格 —— 一个电子表格里
     `lbin office-sheet` 要报的东西基本都在这里，而这些东西 LibreOffice 转出来的样本未必有。
@@ -710,6 +774,30 @@ def main() -> int:
             print("⚠️  没拿到 revisions.odt")
     else:
         print("⚠️  没拿到 revisions-lo.docx")
+
+    # 保护这份账：docx 的编辑限制写在 settings.xml，xlsx 的写在 workbook 与每张表上。
+    # 手注入的那两份留着（它们带 LibreOffice 导出时会丢的东西），LO 重写的三份是主样本
+    protected = OUT / "protected.docx"
+    write_protected_docx(docx, protected)
+    convert(exe, protected, "docx", SCRATCH)
+    if (SCRATCH / "protected.docx").exists():
+        shutil.copyfile(SCRATCH / "protected.docx", OUT / "protected-lo.docx")
+    convert(exe, protected, "odt", SCRATCH)
+    if (SCRATCH / "protected.odt").exists():
+        shutil.copyfile(SCRATCH / "protected.odt", OUT / "protected.odt")
+    else:
+        print("⚠️  没拿到 protected.odt")
+
+    locked = OUT / "locked-sheet.xlsx"
+    write_locked_sheet_xlsx(xlsx, locked)
+    convert(exe, locked, "xlsx", SCRATCH)
+    if (SCRATCH / "locked-sheet.xlsx").exists():
+        shutil.copyfile(SCRATCH / "locked-sheet.xlsx", OUT / "locked-sheet-lo.xlsx")
+    convert(exe, locked, "ods", SCRATCH)
+    if (SCRATCH / "locked-sheet.ods").exists():
+        shutil.copyfile(SCRATCH / "locked-sheet.ods", OUT / "locked-sheet.ods")
+    else:
+        print("⚠️  没拿到 locked-sheet.ods")
 
     # 隐藏行/列那一档：openpyxl 写 xlsx，LibreOffice 转 ods，再转回 xlsx（跨列写法）
     hidden = OUT / "hidden.xlsx"

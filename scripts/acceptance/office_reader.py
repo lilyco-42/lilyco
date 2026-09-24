@@ -27,6 +27,12 @@ from lyco_rtf import rtf_info, rtf_text  # 独立 RTF 实现，与 lilyco-binfmt
 from lyco_formats import xlsx_formats  # xlsx 数字格式的第二读者（与 numfmt.rs 对账）
 from lyco_legacy import biff_workbook, doc_pieces, ppt_text  # 遗留格式的第二读者
 from lyco_revisions import docx_revisions, odt_revisions  # 修订那份账的第二读者
+from lyco_protect import (
+    docx_protection,
+    ods_protection,
+    odt_protection,
+    xlsx_protection,
+)  # 「还能动吗」那份账的第二读者
 import lyco_pdf  # PDF 那份读者：对象表 + 对象流 + 字符串三件事（lbin office-pdf 对账）
 
 END = "END"  # CFB 的链结束标记
@@ -554,6 +560,47 @@ def odt_revision_ledger(path: Path) -> dict | None:
         if "content.xml" not in box.namelist():
             return None
         return odt_revisions(ET.fromstring(box.read("content.xml")))
+
+
+def protection_for(path: Path) -> dict | None:
+    """保护这份账的第二读者（Rust 那边是 `lilyco-binfmt/src/protect.rs`）
+
+    认四家：docx / xlsx / odt / ods。其余（pptx、rtf…）交回 None，不硬套一个形状。
+    """
+    with zipfile.ZipFile(path) as box:
+        names = set(box.namelist())
+
+        def read(part: str):
+            return ET.fromstring(box.read(part)) if part in names else None
+
+        if "word/document.xml" in names:
+            return docx_protection(read("word/settings.xml"))
+        if "xl/workbook.xml" in names:
+            workbook = read("xl/workbook.xml")
+            rels = {}
+            raw = read("xl/_rels/workbook.xml.rels")
+            if raw is not None:
+                for one in raw.iter():
+                    if xml_local(one.tag) == "Relationship":
+                        rels[one.get("Id")] = one.get("Target") or ""
+            sheets = []
+            for one in workbook.iter():
+                if xml_local(one.tag) != "sheet":
+                    continue
+                rid = next(
+                    (value for key, value in one.attrib.items() if xml_local(key) == "id"), ""
+                )
+                target = rels.get(rid, "")
+                part = target.lstrip("/") if target.startswith("/") else "xl/" + target
+                if part in names:
+                    sheets.append((one.get("name"), ET.fromstring(box.read(part))))
+            return xlsx_protection(workbook, sheets)
+        if "content.xml" in names:
+            content = read("content.xml")
+            if any(xml_local(one.tag) == "spreadsheet" for one in content.iter()):
+                return ods_protection(content)
+            return odt_protection(read("settings.xml"))
+        return None
 
 
 def body_paragraphs(root) -> list:
@@ -1788,9 +1835,11 @@ def facts(path: Path) -> dict:
             out["app"] = "word"
             out["ooxml"] = docx_facts(path)
             out["revisions"] = docx_revision_ledger(path)
+            out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
             out["app"] = "excel"
             out["ooxml"] = xlsx_facts(path)
+            out["protection"] = protection_for(path)
             if path.suffix.lower() == ".xlsx":
                 out["formats"] = xlsx_formats(path)
             out["csv"] = csv_facts(path)
@@ -1807,6 +1856,7 @@ def facts(path: Path) -> dict:
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger
+            out["protection"] = protection_for(path)
             sheets = ods_facts(path)
             if sheets is not None:
                 out["ods"] = sheets

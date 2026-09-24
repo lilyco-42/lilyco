@@ -48,6 +48,7 @@ mod opack;
 mod pdf;
 mod ppt;
 mod props;
+mod protect;
 mod read;
 mod regions;
 mod revise;

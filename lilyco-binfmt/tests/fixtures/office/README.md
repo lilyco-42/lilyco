@@ -23,6 +23,12 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `revisions.docx` | python-docx + 手注入 `w:ins` / `w:del` / `w:rPrChange` / 段落标记 | 四种修订各一处，而且**没被拆开**：3 个 `w:ins`（含段落标记那一条）、1 个 `w:del`、1 个 `w:rPrChange` → 5 条逻辑改动 |
 | `revisions-lo.docx` | LibreOffice（从 `revisions.docx`） | 同一批字的 OOXML 另一副面孔：一次插入被拆成两个 run（数字与单位各一条），段落标记那一条反而被丢掉 → 6 个元素、4 条改动 |
 | `revisions.odt` | LibreOffice（从 `revisions-lo.docx`） | 同一批字的 ODF 存法：4 个 `text:changed-region`（2 插 1 删 1 改格式），日期没有那个 `Z`，改格式那条带着被改的字，删掉的那段只住在 region 里 |
+| `protected.docx` | python-docx（`notes.docx` 的副本 + 手注入 `w:documentProtection`） | 编辑限制写在 `word/settings.xml`：`w:edit="readOnly"` + `w:enforcement="1"` + 一套 crypt 属性 |
+| `protected-lo.docx` | LibreOffice（从 `protected.docx`） | 同一份限制被 LibreOffice 原样重写回来（真生产者也会这么写） |
+| `protected.odt` | LibreOffice（从 `protected.docx`） | **同一份内容换了 ODF 就没保护了**：`settings.xml` 里 ProtectForm / ProtectBookmarks / ProtectFields 全是 false —— 那条编辑限制没跟着搬过来 |
+| `locked-sheet.xlsx` | openpyxl 的 `book.xlsx` + 手注入 | 两层保护：`workbookProtection lockStructure="1"`（改 openpyxl 留的那个空元素，不是再加一个）与 `sheetProtection sheet="1" formatCells="0" insertRows="1"` |
+| `locked-sheet-lo.xlsx` | LibreOffice（从 `locked-sheet.xlsx`） | 同一家族的另一种拼法：`sheet="true" formatCells="false"`、等于默认的开关省掉，而 **`workbookProtection` 被写成了空的**（结构锁丢了） |
+| `locked-sheet.ods` | LibreOffice（从 `locked-sheet.xlsx`） | ODF 的表保护是 `table:table` 身上的属性：`table:protected="true"` + `table:protection-key` + 摘要算法那条 URI |
 | `notes.doc` | LibreOffice（从 `notes.docx`） | MS-CFB 复合文档 + WordDocument 流 + `1Table` 里的 piece 表 |
 | `notes-en.doc` | LibreOffice（从纯 ASCII 的 `notes-en.docx`） | 中英一视同仁仍写 16 位 piece —— 记下这个事实，见下 |
 | `book.xls` | LibreOffice（从 `book.xlsx`） | BIFF8：BOUNDSHEET（含隐藏表）、SST + CONTINUE、LABELSST / RK / FORMULA |
@@ -186,6 +192,19 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     还有一条是这三份 fixture 修出来的：`text:tracked-changes` 里那份 `text:p` 是**被删掉**的段落，
     从前 `office-doc` 的段落数与 `office-text` 的正文都会把它当现存的读回来。
 
+24. **「这份还能动吗」四家写在四个地方，而且互相不搬**（`protected.*` 与 `locked-sheet.*`）。
+    docx 在 `word/settings.xml` 的 `w:documentProtection`（`w:edit` 说限制成什么、
+    `w:enforcement` 才说开没开）；xlsx 分两层，`workbookProtection` 与每张表的 `sheetProtection`；
+    ODF 的表保护是 `table:table` 身上的 `table:protected` + `table:protection-key`，文档级则在
+    `settings.xml` 的 config-item 里。三条实测出来的坑：① 同一句话两种拼法 —— openpyxl 写
+    `sheet="1" formatCells="0"`，LibreOffice 重写同一份东西写 `sheet="true" formatCells="false"`
+    并且把等于默认的 `insertRows="1"` 整个省掉，所以省掉的不能补成 false；② LibreOffice 导出 xlsx
+    时把 `lockStructure="1"` 写成了一个**空的** `<workbookProtection/>`，结构锁就这么丢了（openpyxl
+    本来也爱留一个空元素 —— 元素在场不等于锁上）；③ 把带 `w:documentProtection` 的 docx 转成 .odt，
+    LibreOffice 不搬那份限制，三个 Protect* 全是 false —— 同一份内容换个格式就"没保护"了。
+    还有一条是自己踩的：往 `xl/workbook.xml` 里**再插**一个 `workbookProtection` 会造出同段两个
+    同名元素（`maxOccurs=1`），LibreOffice 只读第一个，锁就"凭空丢了" —— 要改 openpyxl 留的那个空的。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
@@ -196,6 +215,8 @@ Rust 测试里每个期望值都来自第二读者对这些文件的独立读取
 修订那一份另有 `scripts/acceptance/lyco_revisions.py`：ElementTree 的 `.tail` 天然带着
 「插入的字夹在两个标记之间」那个顺序，而 Rust 那边靠 xmlscan 的 `#text` 子节点走同一条路 ——
 同一份 `revisions-lo.docx` 与 `revisions.odt` 两边逐条对得上，才对得起「合成规则」这四个字。
+保护那一份另有 `scripts/acceptance/lyco_protect.py`：同样只吃标准库，
+按 ElementTree 的属性取法把四家的开关与两层结构各读一遍，与 `protect.rs` 逐字段对。
 CI 的 `apps` job 会把编出来的 `lbin` 再跑一遍 `office_probe.py` 与它们逐字段对账，
 不一致就红 —— 而不是只跑一遍单元测试说"自己跟自己也挺一致"。
 

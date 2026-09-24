@@ -280,6 +280,20 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             .map(|one| one.name.clone())
             .filter(|one| one.starts_with("xl/externalLinks/externalLink"))
             .collect();
+        // 保护这份账：工作簿一层、每张表一层，两层的开关还各说各的话
+        // （openpyxl 写 `sheet="1"`，LibreOffice 重写同一份东西写 `sheet="true"`）
+        let mut locks: Vec<Value> = Vec::new();
+        for one in &sheets {
+            let name = one["name"].as_str().unwrap_or_default().to_string();
+            let part = one["part"].as_str().unwrap_or_default().to_string();
+            match xml(bytes, &part) {
+                Some(member) => {
+                    let sheet_root = xmlscan::parse_str(&member.as_text());
+                    locks.push(crate::protect::xlsx_sheet(&sheet_root, &name));
+                }
+                None => locks.push(json!({"name": name, "element": false, "protected": false})),
+            }
+        }
         let result = json!({
             "path": app.path.to_string_lossy(),
             "format": doc.format,
@@ -299,6 +313,10 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "totals": totals,
             },
             "sheets": sheets,
+            "protection": json!({
+                "workbook": crate::protect::xlsx_workbook(&root),
+                "sheets": locks,
+            }),
             "csv": csv_report(app.csv, &grid_names, &grids, &app.sheet, grid_skipped),
             "defined_names": defined,
             "external_links": external,
@@ -383,6 +401,17 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
         if !cut.is_empty() {
             notes.push(cut.to_string());
         }
+        // ODF 的表保护写在 `table:table` 自己身上的属性里（不像 OOXML 那样另有一层）
+        let mut locks: Vec<Value> = Vec::new();
+        if let Some(member) = xml(bytes, "content.xml") {
+            let content_root = xmlscan::parse_str(&member.as_text());
+            for one in content_root.descendants("table") {
+                locks.push(crate::protect::ods_table(
+                    one,
+                    crate::odsheet::attr_of(one, "name").unwrap_or_default(),
+                ));
+            }
+        }
         let result = json!({
             "path": app.path.to_string_lossy(),
             "format": doc.format,
@@ -398,6 +427,10 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "totals": totals,
             },
             "sheets": sheets,
+            "protection": json!({
+                "sheets": locks,
+                "workbook": json!({"element": false}),
+            }),
             "csv": csv_report(app.csv, &grid_names, &grids, &app.sheet, 0),
             "notes": notes,
         });
@@ -472,6 +505,8 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "records": book.records,
                 "totals": {"cells": book.cells.len(), "formulas": book.formula_cells},
             },
+            // BIFF 的表保护是一条 PROTECT 记录（写在表流里），本版本读不出：给 null
+            "protection": Value::Null,
             "sheets": book.sheets.iter().map(|one| json!({
                 "name": one.name,
                 "state": one.state,
@@ -708,6 +743,81 @@ mod tests {
         };
         let (tx, _rx) = mpsc::channel();
         run_office_sheet(&app, &Context::new_test(tx)).expect("office-sheet 应成功")
+    }
+
+    /// 保护这份账分两层，还有两种拼法（期望值来自 `lyco_protect.py`）：
+    /// openpyxl 写 `sheet="1" formatCells="0"`，LibreOffice 重写同一份东西写
+    /// `sheet="true" formatCells="false"` 并把等于默认的开关省掉
+    #[test]
+    fn protection_is_accounted_for_at_both_levels() {
+        let hand = run("locked-sheet.xlsx");
+        let prot = &hand["protection"];
+        assert_eq!(prot["workbook"]["element"], json!(true), "{prot}");
+        assert_eq!(prot["workbook"]["lock_structure"], json!(true));
+        assert_eq!(prot["workbook"]["book_password"], json!(true));
+        let sheets = prot["sheets"].as_array().expect("是数组");
+        assert_eq!(sheets.len(), 3, "{prot}");
+        assert_eq!(sheets[0]["name"], "预算表");
+        assert_eq!(sheets[0]["protected"], json!(true));
+        assert_eq!(sheets[0]["written"]["formatCells"], json!(false));
+        assert_eq!(sheets[0]["written"]["insertRows"], json!(true));
+        assert_eq!(sheets[1]["element"], json!(false), "没写的表要说「没写」");
+        assert_eq!(sheets[1]["protected"], json!(false));
+
+        let lo = run("locked-sheet-lo.xlsx");
+        let two = &lo["protection"];
+        assert_eq!(
+            two["sheets"][0]["protected"],
+            json!(true),
+            "两种拼法同一个结论"
+        );
+        assert_eq!(two["sheets"][0]["written"]["formatCells"], json!(false));
+        assert_eq!(
+            two["sheets"][0]["written"].get("insertRows"),
+            None,
+            "省掉的不补上"
+        );
+        // LibreOffice 导出 xlsx 时把结构锁丢成了一个空元素 —— 照实报，不替它补
+        assert_eq!(two["workbook"]["element"], json!(true));
+        assert_eq!(two["workbook"]["lock_structure"], Value::Null);
+        assert_eq!(two["workbook"]["book_password"], json!(false));
+
+        // openpyxl 本来就在 book.xlsx 里留了一个空的 workbookProtection：
+        // 元素在场不等于锁上
+        let plain = run("book.xlsx");
+        assert_eq!(plain["protection"]["workbook"]["element"], json!(true));
+        assert_eq!(
+            plain["protection"]["workbook"]["lock_structure"],
+            Value::Null
+        );
+        assert!(plain["protection"]["sheets"]
+            .as_array()
+            .expect("是数组")
+            .iter()
+            .all(|one| one["protected"] == json!(false)));
+    }
+
+    /// ODF 的表保护是 `table:table` 身上的属性，摘要那条 URI 只留最后一段
+    #[test]
+    fn opendocument_table_locks_come_off_the_table() {
+        let out = run("locked-sheet.ods");
+        let sheets = out["protection"]["sheets"].as_array().expect("是数组");
+        assert_eq!(sheets.len(), 3, "{out}");
+        assert_eq!(sheets[0]["name"], "预算表");
+        assert_eq!(sheets[0]["protected"], json!(true));
+        assert_eq!(
+            sheets[0]["password"],
+            json!(true),
+            "table:protection-key 在"
+        );
+        assert_eq!(sheets[0]["digest"], json!("legacy-hash-excel"));
+        assert_eq!(sheets[1]["protected"], json!(false));
+        assert_eq!(sheets[1]["digest"], Value::Null);
+        assert_eq!(
+            out["protection"]["workbook"]["element"],
+            json!(false),
+            "ODF 没有工作簿那一层"
+        );
     }
 
     /// 开 `--csv` 的那条路：`sheet` 是给 `--sheet` 的原样字符串（空=第一张）
