@@ -34,6 +34,7 @@ from lyco_protect import (
     xlsx_protection,
 )  # 「还能动吗」那份账的第二读者
 import lyco_pdf  # PDF 那份读者：对象表 + 对象流 + 字符串三件事（lbin office-pdf 对账）
+import lyco_pdf_nav  # PDF 的「去哪儿」那一层：书签 / 链接 / 权限位
 
 END = "END"  # CFB 的链结束标记
 FREE = "FREE"
@@ -1880,6 +1881,12 @@ def facts(path: Path) -> dict:
         out["app"] = "pdf"
         one = lyco_pdf.pdf_facts(data)
         one["text"] = lyco_pdf.page_text(data)
+        # 去哪儿那一层：书签、页内链接、权限位（lbin office-pdf 的 outline/links/permissions）
+        nav = lyco_pdf_nav.permissions(data)
+        sealed = bool(nav.get("encrypted"))
+        one["permissions"] = nav
+        one["outline"] = lyco_pdf_nav.outlines(data, encrypted=sealed)
+        one["links"] = lyco_pdf_nav.links(data, encrypted=sealed)
         out["pdf"] = one
         return out
     out["container"] = "other"

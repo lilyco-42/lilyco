@@ -1867,6 +1867,368 @@ fn refs_in(raw: &[u8]) -> Vec<u64> {
     out
 }
 
+/// 一处目标（书签或链接）想去哪里。三种写法都得认：
+/// `/Dest [页 X Y /XYZ a b c]`（显式数组）、`/Dest (名字)`（要去 `/Names /Dests` 里查）、
+/// `/A << /S /GoTo /D [...] >>`（动作），往站外则是 `/A << /S /URI /URI (…) >>`。
+#[derive(Debug, Clone)]
+pub struct Target {
+    pub page: Option<u64>,
+    pub form: &'static str,
+    pub via: Option<String>,
+}
+
+impl Default for Target {
+    fn default() -> Target {
+        Target {
+            page: None,
+            form: "none",
+            via: None,
+        }
+    }
+}
+
+/// 一条书签
+#[derive(Debug, Clone)]
+pub struct OutlineItem {
+    pub depth: usize,
+    /// 加密的件里标题是密文，照实给 None（解出来那串乱码不是标题）
+    pub title: Option<String>,
+    pub page: Option<u64>,
+    pub page_index: Option<usize>,
+    pub form: &'static str,
+    pub via: Option<String>,
+    pub children: usize,
+    pub closed: bool,
+}
+
+/// 一条页内链接
+#[derive(Debug, Clone)]
+pub struct Link {
+    pub page_index: usize,
+    pub to: Option<u64>,
+    pub to_index: Option<usize>,
+    pub uri: Option<String>,
+    pub form: &'static str,
+}
+
+/// `/P` 那一位位的开关。位号按规范的数法（从 1 起），R2 只有 3~6 位有意义，
+/// R3 起才多出 9~12 位（表单、无障碍抽取、拼页、高质量打印）
+#[derive(Debug, Clone)]
+pub struct Permissions {
+    pub object: u64,
+    pub revision: Option<i64>,
+    pub raw: i64,
+    pub print: bool,
+    pub modify: bool,
+    pub copy: bool,
+    pub annotate: bool,
+    pub forms: Option<bool>,
+    pub extract_for_screen: Option<bool>,
+    pub assemble: Option<bool>,
+    pub print_high_quality: Option<bool>,
+}
+
+/// 从 `at` 起读 `N G R`，交回对象号与 R 之后的位置
+fn ref_at(dict: &[u8], at: usize) -> Option<(u64, usize)> {
+    let mut i = at;
+    while i < dict.len() && dict[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == at {
+        return None;
+    }
+    let number: u64 = std::str::from_utf8(&dict[at..i]).ok()?.parse().ok()?;
+    let gen_at = skip_spaces(dict, i);
+    let mut j = gen_at;
+    while j < dict.len() && dict[j].is_ascii_digit() {
+        j += 1;
+    }
+    if j == gen_at {
+        return None;
+    }
+    let r_at = skip_spaces(dict, j);
+    if dict.get(r_at) != Some(&b'R') || dict.get(r_at + 1).is_some_and(|one| is_name_char(*one)) {
+        return None;
+    }
+    Some((number, r_at + 1))
+}
+
+/// 从 `at` 起读一个名字（`/XYZ` 那样）
+fn name_at(dict: &[u8], at: usize) -> Option<(String, usize)> {
+    if dict.get(at) != Some(&b'/') {
+        return None;
+    }
+    let start = at + 1;
+    let mut i = start;
+    while i < dict.len() && is_name_char(dict[i]) {
+        i += 1;
+    }
+    if i == start {
+        return None;
+    }
+    Some((String::from_utf8_lossy(&dict[start..i]).into_owned(), i))
+}
+
+fn target_of(pdf: &Pdf, dict: &[u8], hops: usize) -> Target {
+    for key in [b"/Dest".as_slice(), b"/D".as_slice()] {
+        for at in key_positions(dict, key) {
+            let mut from = skip_spaces(dict, at + key.len());
+            let bracketed = dict.get(from) == Some(&b'[');
+            if bracketed {
+                from = skip_spaces(dict, from + 1);
+            }
+            if let Some((number, next)) = ref_at(dict, from) {
+                if bracketed {
+                    let via = name_at(dict, skip_spaces(dict, next))
+                        .map(|(name, _)| name)
+                        .filter(|one| !one.is_empty());
+                    return Target {
+                        page: Some(number),
+                        form: "explicit",
+                        via,
+                    };
+                }
+                return Target {
+                    page: Some(number),
+                    form: "page-object",
+                    via: None,
+                };
+            }
+            if bracketed {
+                if let Some((name, _)) = name_at(dict, from) {
+                    return Target {
+                        page: None,
+                        form: "current-page",
+                        via: Some(name),
+                    };
+                }
+            }
+            if dict.get(from) == Some(&b'(') {
+                let (raw, _) = literal(dict, from + 1);
+                return Target {
+                    page: None,
+                    form: "named",
+                    via: Some(String::from_utf8_lossy(&raw).into_owned()),
+                };
+            }
+            if dict.get(from) == Some(&b'<') {
+                // 十六进制的具名目标：不去猜它的编码，只说「这是个名字」
+                return Target {
+                    page: None,
+                    form: "named",
+                    via: None,
+                };
+            }
+        }
+    }
+    if hops > 4 {
+        return Target::default();
+    }
+    for at in key_positions(dict, b"/A") {
+        let mut from = skip_spaces(dict, at + b"/A".len());
+        // 动作可以是间接引用：`/A 12 0 R`，那样正身住在另一个对象里
+        if let Some((number, _)) = ref_at(dict, from) {
+            let Some(one) = pdf.object(number) else {
+                continue;
+            };
+            let inner = target_of(pdf, &one.dict, hops + 1);
+            if inner.page.is_some() || inner.form != "none" {
+                return inner;
+            }
+            continue;
+        }
+        if dict.get(from) != Some(&b'<') {
+            continue;
+        }
+        from = if dict.get(from + 1) == Some(&b'<') {
+            from + 2
+        } else {
+            from + 1
+        };
+        let stop = std::cmp::min(
+            find(dict, b">", from).unwrap_or(dict.len()),
+            std::cmp::min(dict.len(), from + 512),
+        );
+        let act = &dict[from..stop];
+        let Some(kind) = name_after(act, b"/S") else {
+            continue;
+        };
+        if kind == "URI" {
+            return Target {
+                page: None,
+                form: "uri",
+                via: one_string(act, b"/URI"),
+            };
+        }
+        let inner = target_of(pdf, act, hops + 1);
+        if inner.page.is_some() || inner.form != "none" {
+            return Target {
+                page: inner.page,
+                form: inner.form,
+                via: Some(kind.clone())
+                    .filter(|one| !one.is_empty())
+                    .or(inner.via),
+            };
+        }
+    }
+    Target::default()
+}
+
+impl Pdf {
+    /// 书签：`/Outlines` 那个字典**不是**一条书签，第一条在它的 `/First` 上；
+    /// 同级按 `/Next` 串起来，子层再走 `/First`。`seen` 与 400 条上限防的是自己转圈的文件。
+    /// 交回 (按读的顺序排好的条目, 根上自报的 /Count, 有没有这张树)
+    pub fn outlines(&self) -> (Vec<OutlineItem>, Option<i64>, bool) {
+        let Some(catalog) = self.root_id().and_then(|id| self.object(id)) else {
+            return (Vec::new(), None, false);
+        };
+        let Some(root) = ref_after(&catalog.dict, b"/Outlines") else {
+            return (Vec::new(), None, false);
+        };
+        let Some(head) = self.object(root) else {
+            return (Vec::new(), None, false);
+        };
+        let declared = int_after(&head.dict, b"/Count");
+        let (order, _) = self.page_order();
+        let encrypted = self.encryption.is_some();
+        let mut items: Vec<OutlineItem> = Vec::new();
+        let mut seen: BTreeSet<u64> = BTreeSet::new();
+        self.outline_walk(
+            ref_after(&head.dict, b"/First"),
+            0,
+            &order,
+            encrypted,
+            &mut seen,
+            &mut items,
+        );
+        (items, declared, true)
+    }
+
+    fn outline_walk(
+        &self,
+        first: Option<u64>,
+        depth: usize,
+        order: &[u64],
+        encrypted: bool,
+        seen: &mut BTreeSet<u64>,
+        items: &mut Vec<OutlineItem>,
+    ) {
+        let mut node = first;
+        while let Some(id) = node {
+            if items.len() >= 400 || !seen.insert(id) {
+                return;
+            }
+            let Some(one) = self.object(id) else { return };
+            let body = &one.dict;
+            let count = int_after(body, b"/Count").unwrap_or(0);
+            let target = target_of(self, body, 0);
+            items.push(OutlineItem {
+                depth,
+                title: if encrypted {
+                    None
+                } else {
+                    one_string(body, b"/Title")
+                },
+                page: target.page,
+                page_index: target
+                    .page
+                    .and_then(|num| order.iter().position(|one| *one == num))
+                    .map(|at| at + 1),
+                form: target.form,
+                via: target.via,
+                children: count.abs().try_into().unwrap_or(0usize),
+                closed: count < 0,
+            });
+            self.outline_walk(
+                ref_after(body, b"/First"),
+                depth + 1,
+                order,
+                encrypted,
+                seen,
+                items,
+            );
+            node = ref_after(body, b"/Next");
+        }
+    }
+
+    /// 页内链接：`/Annots` 可以是内联数组也可以是间接引用；只认 `/Subtype /Link`
+    pub fn links(&self) -> Vec<Link> {
+        let (order, _) = self.page_order();
+        let encrypted = self.encryption.is_some();
+        let mut out: Vec<Link> = Vec::new();
+        for (index, page) in order.iter().enumerate() {
+            let Some(one) = self.object(*page) else {
+                continue;
+            };
+            for id in self.annotation_ids(&one.dict) {
+                let Some(annot) = self.object(id) else {
+                    continue;
+                };
+                if count_name(&annot.dict, b"/Subtype", "Link") == 0 {
+                    continue;
+                }
+                let target = target_of(self, &annot.dict, 0);
+                let uri = if target.form == "uri" && !encrypted {
+                    target.via.clone()
+                } else {
+                    None
+                };
+                out.push(Link {
+                    page_index: index + 1,
+                    to: target.page,
+                    to_index: target
+                        .page
+                        .and_then(|num| order.iter().position(|one| *one == num))
+                        .map(|at| at + 1),
+                    uri,
+                    form: target.form,
+                });
+            }
+        }
+        out
+    }
+
+    /// 一个对象字典里 `/Annots` 指的那些注记对象号（数组或间接引用都算）
+    fn annotation_ids(&self, dict: &[u8]) -> Vec<u64> {
+        for at in key_positions(dict, b"/Annots") {
+            let from = skip_spaces(dict, at + b"/Annots".len());
+            if dict.get(from) == Some(&b'[') {
+                let stop = find(dict, b"]", from).unwrap_or(dict.len());
+                return refs_in(&dict[from + 1..stop]);
+            }
+            if let Some((number, _)) = ref_at(dict, from) {
+                if let Some(one) = self.object(number) {
+                    return refs_in(&one.dict);
+                }
+                return Vec::new();
+            }
+        }
+        Vec::new()
+    }
+
+    /// 加密件的 `/P`：数字与名字**不是**密文，所以这一份在加密的 PDF 里也报得出
+    pub fn permission_bits(&self) -> Option<Permissions> {
+        let enc = self.encryption.as_ref()?;
+        let dict = &self.object(enc.id)?.dict;
+        let raw = int_after(dict, b"/P")?;
+        let wide = enc.revision.unwrap_or(0) >= 3;
+        let bit = |n: u32| -> bool { ((raw >> (n - 1)) & 1) != 0 };
+        Some(Permissions {
+            object: enc.id,
+            revision: enc.revision,
+            raw,
+            print: bit(3),
+            modify: bit(4),
+            copy: bit(5),
+            annotate: bit(6),
+            forms: wide.then(|| bit(9)),
+            extract_for_screen: wide.then(|| bit(10)),
+            assemble: wide.then(|| bit(11)),
+            print_high_quality: wide.then(|| bit(12)),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

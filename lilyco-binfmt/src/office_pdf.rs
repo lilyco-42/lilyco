@@ -41,7 +41,7 @@ const INFO_KEYS: [(&str, &[u8]); 8] = [
 #[app(
     name = "office-pdf",
     run = "run_office_pdf",
-    about = "Report what a PDF file is made of without decrypting or rendering it. Reads objects by scanning N G obj markers instead of trusting the cross-reference table, then unpacks the second layer that scan alone would miss: objects packed inside object streams (/Type /ObjStm, where the header pairs an object number with an offset relative to /First) and trailer keys that live in a /Type /XRef stream dict in files with no trailer keyword at all - both rules measured against real Word 2013 and qpdf files, not recalled from memory. Gives { path, version, binary_comment, objects, xref, encryption, pages, metadata, tags, fonts, images, features, watch, notes }: page count cross-checked between /Count and the real /Type/Page objects (the one-name match matters: /Pages is a tree node, not a page), per-page MediaBox with the inheritance walk up /Parent (MediaBox and Rotate may be written once on the tree), rotation, contents reference and annotation count, the Info dictionary with PDF string rules (backslash escapes, octal, nested parens, hex strings, FEFF-prefixed UTF-16BE), tagged/PDF-X flags (/Lang, /MarkInfo /Marked, /StructTreeRoot), font inventory (/BaseFont, /Subtype, /Encoding, whether a /ToUnicode map exists, whether the font object was hidden in an object stream), image inventory, and the watch list for what runs by itself: /Encrypt parameters (reported, never decrypted - no password here and none should be), document-level /JavaScript, /Launch and /SubmitForm and /GoToR actions, /AcroForm fields, /EmbeddedFiles attachments, /OpenAction and page /AA triggers. Encrypted files report structure only: strings and streams are ciphertext, so metadata and /Lang come back null with a note rather than as decoded garbage. Object numbers that appear more than once (incremental updates) are counted and the first occurrence wins. With --text it also walks the content streams and returns { order_from_page_tree, chars, chars_no_spaces, lines, pages, text }: pages in /Kids order, glyph codes mapped through each font's /ToUnicode CMap (bfchar plus both bfrange forms - a range written as one number means consecutive code points, written as an array means one per code), and lines rebuilt from positions rather than from stream order, because LibreOffice splits a single Chinese heading across several TJ arrays with large negative kerns between them. Three position rules make the difference between reading that heading and reading its characters shuffled: BT resets the text matrix to identity, glyph advance moves x only (never y), and a TJ number moves the pen the OPPOSITE way (positive left, negative right). Not provided: form field values, signature validation, the text of encrypted files (streams are ciphertext there), graphics-stream text, and CID fonts' widths, which live in a /W array this reader does not follow - such a font's characters are recognised but its spacing is not."
+    about = "Report what a PDF file is made of without decrypting or rendering it. Reads objects by scanning N G obj markers instead of trusting the cross-reference table, then unpacks the second layer that scan alone would miss: objects packed inside object streams (/Type /ObjStm, where the header pairs an object number with an offset relative to /First) and trailer keys that live in a /Type /XRef stream dict in files with no trailer keyword at all - both rules measured against real Word 2013 and qpdf files, not recalled from memory. Gives { path, version, binary_comment, objects, xref, encryption, pages, metadata, tags, fonts, images, features, watch, outline, links, permissions, notes }: page count cross-checked between /Count and the real /Type/Page objects (the one-name match matters: /Pages is a tree node, not a page), per-page MediaBox with the inheritance walk up /Parent (MediaBox and Rotate may be written once on the tree), rotation, contents reference and annotation count, the Info dictionary with PDF string rules (backslash escapes, octal, nested parens, hex strings, FEFF-prefixed UTF-16BE), tagged/PDF-X flags (/Lang, /MarkInfo /Marked, /StructTreeRoot), font inventory (/BaseFont, /Subtype, /Encoding, whether a /ToUnicode map exists, whether the font object was hidden in an object stream), image inventory, and the watch list for what runs by itself: /Encrypt parameters (reported, never decrypted - no password here and none should be), document-level /JavaScript, /Launch and /SubmitForm and /GoToR actions, /AcroForm fields, /EmbeddedFiles attachments, /OpenAction and page /AA triggers. Encrypted files report structure only: strings and streams are ciphertext, so metadata and /Lang come back null with a note rather than as decoded garbage. Object numbers that appear more than once (incremental updates) are counted and the first occurrence wins. With --text it also walks the content streams and returns { order_from_page_tree, chars, chars_no_spaces, lines, pages, text }: pages in /Kids order, glyph codes mapped through each font's /ToUnicode CMap (bfchar plus both bfrange forms - a range written as one number means consecutive code points, written as an array means one per code), and lines rebuilt from positions rather than from stream order, because LibreOffice splits a single Chinese heading across several TJ arrays with large negative kerns between them. Three position rules make the difference between reading that heading and reading its characters shuffled: BT resets the text matrix to identity, glyph advance moves x only (never y), and a TJ number moves the pen the OPPOSITE way (positive left, negative right). It also answers where the file points: outline (the /Outlines tree - /First then /Next, children under /First, each entry with its title, depth, target page object and which page that is in /Kids order, the root self-reported /Count, and the open/closed sign of each /Count), links (every /Subtype /Link annotation split into outbound URI, page-to-page with the resolved page number, and actions that go nowhere such as /Launch), and permissions (the /Encrypt /P bits, read as the signed integer it is: bits 3-6 always, 9-12 only from R3, otherwise null). Encrypted files still report structure, page numbers and permission bits, because numbers and names are not ciphertext, while titles and URIs come back null. Not provided: form field values, signature validation, the text of encrypted files (streams are ciphertext there), graphics-stream text, and CID fonts' widths, which live in a /W array this reader does not follow - such a font's characters are recognised but its spacing is not."
 )]
 pub struct OfficePdf {
     /// PDF 文件
@@ -122,6 +122,69 @@ fn image_json(one: &pdf::Image) -> Value {
         "filter": one.filter,
         "color_space": one.color_space,
         "bits_per_component": one.bits,
+    })
+}
+
+/// 书签这份账：`/Outlines` 的树与每条想去第几页。
+/// 加密的件里标题是密文，那一律给 null —— 而对象号、层级、页号不是密文，照报得出
+fn outline_report(doc: &Pdf, limit: usize) -> Value {
+    let (items, declared, present) = doc.outlines();
+    json!({
+        "present": present,
+        "declared_count": declared,
+        "total": items.len(),
+        "listed": items.len().min(limit),
+        "items": items.iter().take(limit).map(|one| json!({
+            "depth": one.depth,
+            "title": one.title,
+            "target_object": one.page,
+            "page": one.page_index,
+            "form": one.form,
+            "via": one.via,
+            "children": one.children,
+            "closed": one.closed,
+        })).collect::<Vec<Value>>(),
+    })
+}
+
+/// 页内链接：往站外的给地址（加密的件里那是密文，给 null），往页内的是页对象号 +
+/// 按 `/Kids` 顺序数出来的第几页
+fn link_report(doc: &Pdf, limit: usize) -> Value {
+    let links = doc.links();
+    json!({
+        "total": links.len(),
+        "listed": links.len().min(limit),
+        "internal": links.iter().filter(|one| one.to.is_some()).count(),
+        "external": links.iter().filter(|one| one.form == "uri").count(),
+        "other": links.iter().filter(|one| one.form != "uri" && one.to.is_none()).count(),
+        "items": links.iter().take(limit).map(|one| json!({
+            "page": one.page_index,
+            "to_object": one.to,
+            "to_page": one.to_index,
+            "uri": one.uri,
+            "via": one.form,
+        })).collect::<Vec<Value>>(),
+    })
+}
+
+/// `/P` 那一份权限账。规范把开关住在第 3 位起（不是第 0 位），R2 只有 3~6 位有意义，
+/// R3 起才多出 9~12 位 —— 那几位在 R2 的文件里交回 null，不假装知道
+fn permission_report(doc: &Pdf) -> Value {
+    let Some(one) = doc.permission_bits() else {
+        return Value::Null;
+    };
+    json!({
+        "object": one.object,
+        "revision": one.revision,
+        "raw": one.raw,
+        "print": one.print,
+        "modify": one.modify,
+        "copy": one.copy,
+        "annotate": one.annotate,
+        "forms": one.forms,
+        "extract_for_screen": one.extract_for_screen,
+        "assemble": one.assemble,
+        "print_high_quality": one.print_high_quality,
     })
 }
 
@@ -371,6 +434,9 @@ fn run_office_pdf(app: &OfficePdf, ctx: &Context) -> Result<Value, AppError> {
             "self_running_total": features.dangerous,
         },
         "watch": watch_list(&doc, &features),
+        "outline": outline_report(&doc, limit),
+        "links": link_report(&doc, limit),
+        "permissions": permission_report(&doc),
         "text": text_report,
         "notes": notes,
         "elapsed_ms": start.elapsed().as_millis() as u64,
@@ -441,6 +507,114 @@ mod tests {
         assert_eq!(out["features"]["link_annotations"], json!(1));
         assert_eq!(out["features"]["attachments"], json!(0));
         assert_eq!(out["watch"], json!([]));
+    }
+
+    /// 书签这份账：LibreOffice 从标题写出的那棵树，两条都指向第 1 页，根上自报
+    /// `/Count` 2（期望值来自 `lyco_pdf_nav.py`，也与 pikepdf 的对象走法对过）
+    #[test]
+    fn the_outline_tree_reports_which_page_each_entry_jumps_to() {
+        let out = run("notes.pdf");
+        let ol = &out["outline"];
+        assert_eq!(ol["present"], json!(true), "{ol}");
+        assert_eq!(ol["declared_count"], json!(2));
+        assert_eq!(ol["total"], json!(2));
+        let items = ol["items"].as_array().expect("是数组");
+        assert_eq!(items[0]["title"], json!("一级标题：预算口径"));
+        assert_eq!(items[0]["depth"], json!(0));
+        assert_eq!(items[0]["page"], json!(1));
+        assert_eq!(items[0]["form"], json!("explicit"));
+        assert_eq!(items[0]["via"], json!("XYZ"));
+        assert_eq!(items[0]["children"], json!(1));
+        assert_eq!(items[1]["title"], json!("二级标题：明细"));
+        assert_eq!(items[1]["depth"], json!(1), "第二条挂在第一条下面");
+        assert_eq!(items[1]["page"], json!(1));
+        // 换 Impress 那份：两条都在第 0 层，各指一页，顺序跟着 /Kids 走
+        let deck = run("deck.pdf");
+        let items = deck["outline"]["items"].as_array().expect("是数组");
+        assert_eq!(items.len(), 2, "{deck}");
+        assert_eq!(items[0]["page"], json!(1));
+        assert_eq!(items[1]["page"], json!(2));
+        assert_eq!(items[1]["depth"], json!(0));
+    }
+
+    /// 书签躲在对象流里的那种文件也要走得通（`objstm.pdf` 与 `notes.pdf` 是同一批字）
+    #[test]
+    fn the_outline_tree_survives_a_file_whose_objects_are_packed() {
+        let out = run("objstm.pdf");
+        let ol = &out["outline"];
+        assert_eq!(ol["present"], json!(true), "{ol}");
+        assert_eq!(ol["total"], json!(2));
+        assert_eq!(ol["items"][0]["title"], json!("一级标题：预算口径"));
+        assert_eq!(
+            ol["items"][0]["target_object"],
+            json!(2),
+            "那份的页对象是 2 号"
+        );
+        assert_eq!(ol["items"][0]["page"], json!(1));
+        assert_eq!(ol["items"][1]["depth"], json!(1));
+    }
+
+    /// 页内链接：往站外的给地址；`risk.pdf` 还有一条 `/Launch` —— 它既不去页也不去站外，
+    /// 照实记成「别的动作」，不硬归进前两类
+    #[test]
+    fn link_targets_split_into_outbound_and_page_to_page() {
+        let out = run("notes.pdf");
+        let links = &out["links"];
+        assert_eq!(links["total"], json!(1), "{links}");
+        assert_eq!(links["external"], json!(1));
+        assert_eq!(links["internal"], json!(0));
+        assert_eq!(links["items"][0]["page"], json!(1));
+        assert_eq!(
+            links["items"][0]["uri"],
+            json!("https://example.com/budget")
+        );
+        assert_eq!(links["items"][0]["via"], json!("uri"));
+        let risk = run("risk.pdf");
+        assert_eq!(risk["links"]["total"], json!(2), "{risk}");
+        assert_eq!(risk["links"]["external"], json!(1));
+        assert_eq!(risk["links"]["other"], json!(1), "/Launch 那一条哪儿也不去");
+        assert_eq!(
+            risk["links"]["items"][0]["uri"],
+            json!("https://example.invalid/doc")
+        );
+        assert_eq!(risk["outline"]["present"], json!(false), "这份没书签");
+    }
+
+    /// 权限位：`/P` 是**带符号**的整数，位号从 3 起。`perms.pdf` 关掉了打印/复制/批注/表单，
+    /// 而 pdfinfo 把同一份读成 `print:no copy:no change:yes addNotes:no` —— 逐位一致。
+    /// 加密字典本身不是密文，所以连 `locked.pdf`（要口令）也报得出这些位
+    #[test]
+    fn permission_bits_come_from_the_signed_p_value() {
+        let out = run("perms.pdf");
+        let p = &out["permissions"];
+        assert_eq!(p["raw"], json!(-3384), "{p}");
+        assert_eq!(p["revision"], json!(6));
+        assert_eq!(p["print"], json!(false));
+        assert_eq!(p["copy"], json!(false));
+        assert_eq!(p["annotate"], json!(false));
+        assert_eq!(p["forms"], json!(false));
+        assert_eq!(
+            p["modify"],
+            json!(true),
+            "改文档那位是开的（pdfinfo: change:yes）"
+        );
+        assert_eq!(p["assemble"], json!(false));
+        assert_eq!(p["print_high_quality"], json!(false));
+        // 没加密的件：这一项是 null，不假装有值
+        assert!(run("notes.pdf")["permissions"].is_null());
+        let locked = run("locked.pdf");
+        assert_eq!(
+            locked["permissions"]["raw"],
+            json!(-1028),
+            "加密字典不是密文"
+        );
+        assert_eq!(locked["permissions"]["print"], json!(true));
+        assert_eq!(locked["permissions"]["assemble"], json!(false));
+        // 但字符串是：书签条数、页号照报，标题与 URI 一律 null
+        assert_eq!(locked["outline"]["total"], json!(2));
+        assert_eq!(locked["outline"]["items"][0]["title"], Value::Null);
+        assert_eq!(locked["outline"]["items"][0]["page"], json!(1));
+        assert_eq!(locked["links"]["items"][0]["uri"], Value::Null);
     }
 
     /// 同一份文档换 Impress 导出：页面尺寸与 /Lang 都不同，字体多一张

@@ -750,6 +750,57 @@ def main() -> int:
     # PDF 不是容器，是「对象表 + 若干流」。这一族的三条分水岭都单独钉住：
     # 对象流里那 51 个对象、没有 trailer 这个词的文件、以及加密时不许把密文当元数据
     print("=== 6) office-pdf：对象表、页树、加密与风险面 ===")
+    # 去哪儿那一层：书签 / 页内链接 / 权限位（三份都是同一份读者的另一段代码）
+    for name in ("notes.pdf", "deck.pdf", "objstm.pdf", "risk.pdf", "locked.pdf", "perms.pdf"):
+        want = files[name]["pdf"]
+        got = lbin("office-pdf", fixture(name))
+        check("%s 书签树在不在" % name, dig(got, "outline.present"), want["outline"]["present"])
+        check("%s 书签条数" % name, dig(got, "outline.total"), len(want["outline"]["items"]))
+        check(
+            "%s 书签逐条" % name,
+            [(one.get("depth"), one.get("title"), one.get("page"), one.get("target_object"),
+              one.get("form"), one.get("children"), one.get("closed"))
+             for one in (got.get("outline") or {}).get("items", [])],
+            [(one["depth"], one["title"], one["page"], one["page_object"],
+              one["target"], one["children"], one["closed"])
+             for one in want["outline"]["items"]],
+        )
+        check("%s 书签自报的 /Count" % name, dig(got, "outline.declared_count"), want["outline"]["declared_count"])
+        check("%s 链接条数" % name, dig(got, "links.total"), len(want["links"]["internal"]) + len(want["links"]["external"]) + len(want["links"]["other"]))
+        check(
+            "%s 链接逐条" % name,
+            [(one.get("page"), one.get("to_object"), one.get("to_page"), one.get("uri"), one.get("via"))
+             for one in got.get("links", {}).get("items", [])
+             if one.get("uri") or one.get("to_object")],
+            [(one["page"], one.get("target_object"), one.get("target_page"), None, one["via"])
+             for one in want["links"]["internal"]]
+            + [(one["page"], None, None, one["uri"], "uri") for one in want["links"]["external"]],
+        )
+        check("%s 外往条数" % name, dig(got, "links.external"), len(want["links"]["external"]))
+        perm = want["permissions"]
+        if perm.get("permissions") is None:
+            check("%s 没权限这份账" % name, got.get("permissions"), None)
+        else:
+            check("%s /P 原值" % name, dig(got, "permissions.raw"), perm["raw"])
+            check(
+                "%s 权限逐位" % name,
+                {key: dig(got, "permissions." + key) for key in
+                 ("print", "modify", "copy", "annotate", "forms", "assemble", "print_high_quality")},
+                {key: perm["permissions"][key] for key in
+                 ("print", "modify", "copy", "annotate", "forms", "assemble", "print_high_quality")},
+            )
+    # 分水岭：加密的件里字符串是密文 —— 书签标题与 URI 必须是 null，而页号与位必须报得出
+    sealed = lbin("office-pdf", fixture("perms.pdf"))
+    check("perms.pdf 加密件的标题是 null 而页号有值",
+          [(one.get("title"), one.get("page")) for one in sealed.get("outline", {}).get("items", [])],
+          [(None, 1), (None, 1)])
+    check("perms.pdf 加密件的 URI 是 null",
+          [one.get("uri") for one in sealed.get("links", {}).get("items", [])], [None])
+    # pdfinfo 读同一份：Encrypted: yes (print:no copy:no change:yes addNotes:no)
+    check("perms.pdf 与 pdfinfo 的四个词一致",
+          [dig(sealed, "permissions." + key) for key in ("print", "copy", "modify", "annotate")],
+          [False, False, True, False])
+
     for name in ("notes.pdf", "deck.pdf", "objstm.pdf", "locked.pdf", "risk.pdf"):
         got = lbin("office-pdf", fixture(name))
         want = files[name]["pdf"]

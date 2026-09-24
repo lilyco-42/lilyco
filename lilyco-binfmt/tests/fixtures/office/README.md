@@ -41,6 +41,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `deck.pdf` | LibreOffice（从 `deck.pptx` 导出） | 同一批字的 Impress 存法：页面 `0 0 720 540`、`/Lang (zh-CN)`、6 张字体、没有批注 —— 与 `notes.pdf` 一起把「不同应用 → 不同页尺寸与语言」钉住 |
 | `objstm.pdf` | qpdf 12.3.2（经 pikepdf 10.13，从 `notes.pdf` 再存） | **68 个对象里只有 17 个是明写的**：另外 51 个挤在一个 `/Type /ObjStm`（`/N 51 /First 388`）里；文件里**没有 `trailer` 这个词**，`/Root`、`/Info` 只写在 `/Type /XRef` 的流字典里（`/Size 69`）。只扫 `obj` 的读者会报「0 页」，只认 `trailer` 的读者找不到元数据 |
 | `locked.pdf` | qpdf（`Encryption(R=6)`，从 `notes.pdf`） | AES-256 真加密，口令 `lbin-test`（owner `lbin-owner`；这是测试件，口令不是秘密）。`pdfinfo` 不给口令直接 `Incorrect password`；`/Encrypt` 指着的字典是 `/Filter /Standard`、`/V 5`、`/R 6`、`/Length 32`、带 `/O` `/U` `/OE` `/UE` `/P` |
+| `perms.pdf` | qpdf（pikepdf，从 `notes.pdf`） | **只设 owner 口令**的一份（用户口令为空）：于是 `/P` 那些位真的生效，工具也进得去 —— pdfinfo 读成 `Encrypted: yes (print:no copy:no change:yes addNotes:no algorithm:AES-256)`，与 `lyco_pdf_nav.py` 从 `/P -3384` 算出的位逐条一致 |
 | `risk.pdf` | **手搓**（`office_fixtures.py` 的 `write_risk_pdf`，逐对象自数 `<<`/`>>`） | LibreOffice 不肯写的五种形状：`/AcroForm` + 一个 `Tx` 字段、文档级 `/JavaScript`（名字树 + 流）、页 `/AA` 触发的脚本、`/Launch` 动作（打开 `winword.exe`）、`/EmbeddedFiles` 附件 `badge.exe`；页对象**不写** `MediaBox`/`Rotate`，从 `/Pages` 继承。写完用 `pdfinfo` 验：`Form: AcroForm`、`JavaScript: yes`、`Pages: 1`、`Page size: 612 x 792`、`Page rot: 90` —— 五条都被第三方读者认了才算 fixture |
 
 ## 几件只有踩过才会记下来的事
@@ -181,6 +182,14 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     这一处不同是**两种口径**，不是谁读错了，记在这里。
 22. **PDF 的界也记全**：内容流是密文的加密件不给正文（只说解不出来）、图形流里的字不做、
     CID 字体的宽度在 `/W` 数组里（不跟，那种字体认得出字但位置会偏）、表单字段值与签名校验不做。
+25. **加密的 PDF 里「哪儿」不是密文，「什么」才是**（`perms.pdf` 与 `locked.pdf`）。
+    `/Encrypt` 字典本身、对象的**编号**、`/P` 那个数、页树与书签的 `/First`→`/Next` 结构全都读得出，
+    所以加密件照样报「有几条书签、跳到第几页、允不允许打印/复制/批注/填表」；
+    而 `/Title`、`/URI` 这些**字符串**是密文，解出来是乱码 —— 那一律给 null。
+    另外两条是这一族自己踩的：`/Outlines` 那个字典**不是**一条书签（第一条在它的 `/First` 上），
+    以及 `/P` 是**负数**（-3384 / -1028），不带符号的整数读法直接读不出来。
+    权限的位号从 **3** 起（规范就是这么数的）：3 打印、4 改、5 复制、6 批注，R3 才有 9 填表、
+    10 无障碍抽取、11 拼页、12 高质量打印；R2 的文件里后四位交回 null，不假装知道。
 23. **「一次编辑」不是一个元素，也不是一条 region**（`revisions.docx` / `revisions-lo.docx` /
     `revisions.odt` 是同一批字的三副面孔）。LibreOffice 写 OOXML 会把「插入 124000 元」拆成两个
     `w:ins`（数字与单位各一条），而它自己导出的 ODF 把同一次编辑写成**一个** `text:changed-region` ——
