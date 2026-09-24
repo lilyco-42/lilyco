@@ -1416,12 +1416,17 @@ def main() -> int:
         [one.get("charts") for one in lbin("office-sheet", fixture("book.xlsx")).get("sheets", [])],
         [0, 0, 0],
     )
-    # 这一族另两家的图还没读：ODS 把图存成嵌入对象（Object 1/ 那一份部件），.xls 走的是
-    # BIFF 的 OBJ/CLID 那条链，都没有量过的第二个读者 —— 键整个不在，不交空对象
-    for name in ("book.ods", "hidden.ods", "hidden.xls"):
-        check("%s 这一族的图没读：键整个不在" % name,
-              [one.get("name") for one in lbin("office-sheet", fixture(name)).get("sheets", [])
-               if one.get("charts") is not None], [])
+    # ODS 的图是嵌入对象（见 3a11），那两份没挂图的表报 0；.xls 走 BIFF 的对象链，
+    # 本机没有一个读者量过 —— 那一族的键整个不在，不交空对象
+    for name in ("book.ods", "hidden.ods"):
+        check(
+            "%s 没挂图的表报 0（数过了没有）" % name,
+            [one.get("charts") for one in lbin("office-sheet", fixture(name)).get("sheets", [])],
+            [0] * len(files[name]["ods"]["sheets"]),
+        )
+    check("hidden.xls 这一族的图没读：键整个不在",
+          [one.get("name") for one in lbin("office-sheet", fixture("hidden.xls")).get("sheets", [])
+           if one.get("charts") is not None], [])
 
     # ── 3a9) 规则那两份账：条件格式的样式在 dxf 那一跳上，数据验证的开关两种拼法 ──
     print("=== 3a9) office-sheet 的条件格式与数据验证 ===")

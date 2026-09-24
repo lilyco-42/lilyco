@@ -2101,18 +2101,15 @@ mod tests {
             "两张图的类型与先后次序两家一致"
         );
 
-        // 没挂图的表报 0（数过了没有）；这一族另两家的图还没读，键整个不在
-        for one in run("hidden.xlsx")["sheets"].as_array().expect("是数组") {
-            assert_eq!(one["charts"], 0, "没有图就说没有：{one}");
-        }
-        for name in ["book.ods", "hidden.xls"] {
-            let out = run(name);
-            for one in out["sheets"].as_array().expect("是数组") {
-                assert!(
-                    one.get("charts").is_none(),
-                    "{name} 这一族的图还没读：{one}"
-                );
+        // 没挂图的表报 0（数过了没有）：xlsx 与 ods 两家都是这个口径
+        for name in ["hidden.xlsx", "book.ods", "hidden.ods"] {
+            for one in run(name)["sheets"].as_array().expect("是数组") {
+                assert_eq!(one["charts"], 0, "{name} 没有图就说没有：{one}");
             }
+        }
+        // .xls 这一族的图还没读（BIFF 的对象链没有一个读者量过）：键整个不在
+        for one in run("hidden.xls")["sheets"].as_array().expect("是数组") {
+            assert!(one.get("charts").is_none(), "xls 这一族的图还没读：{one}");
         }
     }
 
