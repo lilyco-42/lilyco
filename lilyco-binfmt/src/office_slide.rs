@@ -568,14 +568,12 @@ fn rels_member(bytes: &[u8], part: &str) -> Option<zipread::Member> {
         Some((head, tail)) => (head, tail),
         None => ("", part),
     };
-    xml(
-        bytes,
-        if dir.is_empty() {
-            format!("_rels/{base}.rels")
-        } else {
-            format!("{dir}/_rels/{base}.rels")
-        },
-    )
+    let name = if dir.is_empty() {
+        format!("_rels/{base}.rels")
+    } else {
+        format!("{dir}/_rels/{base}.rels")
+    };
+    xml(bytes, &name)
 }
 
 /// `<p:sldId id="256" r:id="rId2"/>`：两个属性的**局部名**都叫 `id`，按局部名去找
@@ -1285,7 +1283,7 @@ mod tests {
         // 这一页自己的关系表：三条都在，且内部的 Target 已按源部件解成包内全名。
         // 这一族此前一直交空表 —— 部件名少了中间那段 `_rels/`，而 member 按名字精确匹配
         let rels = slides[0]["relationships"].as_array().expect("是数组");
-        assert_eq!(rels.len(), 3, "{rels}");
+        assert_eq!(rels.len(), 3, "{}", json!(rels));
         assert_eq!(rels[0]["kind"], "slideLayout");
         assert_eq!(rels[0]["target"], "ppt/slideLayouts/slideLayout2.xml");
         assert_eq!(rels[0]["external"], json!(false));
@@ -1700,7 +1698,7 @@ mod tests {
         let rels = deck["slides"][0]["relationships"]
             .as_array()
             .expect("是数组");
-        assert_eq!(rels.len(), 4, "{rels}");
+        assert_eq!(rels.len(), 4, "{}", json!(rels));
         assert_eq!(rels[0]["kind"], "slideLayout");
         assert_eq!(rels[1]["kind"], "hyperlink");
         assert_eq!(rels[1]["external"], json!(true));
