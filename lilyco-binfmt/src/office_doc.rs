@@ -1101,10 +1101,10 @@ mod tests {
     /// （期望值来自 `office_reader.py` 的 `odf_page_breaks()`）
     #[test]
     fn a_page_break_in_odf_sits_on_the_paragraph_style() {
-        for name in ("notes.odt", "toc.odt", "notes-hf.odt", "protected.odt") {
+        for name in ["notes.odt", "toc.odt", "notes-hf.odt", "protected.odt"] {
             assert_eq!(run(name)["structure"]["page_breaks"], 1, "{name}");
         }
-        for name in ("comments.odt", "paper-a4.odt", "tables.odt") {
+        for name in ["comments.odt", "paper-a4.odt", "tables.odt"] {
             assert_eq!(run(name)["structure"]["page_breaks"], 0, "{name}");
         }
         // 「作者要的换页」与「渲染时落下的那一格」是两件事，两个键各自交
