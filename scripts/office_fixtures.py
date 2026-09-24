@@ -44,6 +44,7 @@ MARK_TOTAL_LABEL = "合计"
 MARK_SLIDE_TITLE = "预算评审"
 # 页上那张表那两件的页标题（改了它就得同时改 office-slide 的表断言）
 MARK_TABLE_PAGE = "表格那一页"
+MARK_LINK_PAGE = "链接那一页"
 MARK_SLIDE_BODY = "新增两台 64 核应用服务器"
 MARK_NOTES = "评审时先讲口径再讲数字"
 MARK_COMMENT = "这里要补上不含税口径"
@@ -1060,6 +1061,43 @@ def write_list_docx(path: Path) -> None:
     doc.save(str(path))
 
 
+def write_pptx_links(path: Path) -> None:
+    """python-pptx：一页三条链接 + 一页一条也没有，一次只改一个变量
+
+    链接在 OOXML 的演示稿里**不住在字里**：那个 run 只写一个 `a:hlinkClick/@r:id`，
+    真正的地址在这一页自己的关系表里（与图、与表对象同一类两跳的找法）。
+    三条各测一件事：一条站外 http 且显示的字与地址不同、一条 `mailto:`、
+    一条整个 run 的字就是地址本身（那种最容易只留一个字）。第二页一个字都链不到，
+    所以那一页要交 0，不是缺键。
+    """
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    pres = Presentation()
+    slide = pres.slides.add_slide(pres.slide_layouts[5])
+    slide.shapes.title.text = MARK_LINK_PAGE
+    box = slide.shapes.add_textbox(Inches(1), Inches(2), Inches(7), Inches(2))
+    frame = box.text_frame
+    frame.word_wrap = True
+
+    def line(text_of: str, url: str | None) -> None:
+        one = frame.add_paragraph() if frame.paragraphs[0].runs else frame.paragraphs[0]
+        had = one.add_run()
+        had.text = text_of
+        if url:
+            had.hyperlink.address = url
+
+    line("第三季度的说明", "https://example.com/budget")
+    line("（口径见附页，这一段没链）", None)
+    line("发邮件问预算", "mailto:liuqi@example.com")
+    line("https://example.com/raw", "https://example.com/raw")
+    quiet = pres.slides.add_slide(pres.slide_layouts[5])
+    quiet.shapes.title.text = "第二页"
+    plain = quiet.shapes.add_textbox(Inches(1), Inches(2), Inches(6), Inches(1)).text_frame
+    plain.paragraphs[0].add_run().text = "这一页一条链接也没有"
+    pres.save(path)
+
+
 def write_pptx_charts(path: Path) -> None:
     """python-pptx：同一页两张图（柱形与饼图），第二页一张也没有。
 
@@ -1944,6 +1982,26 @@ def main() -> int:
             print("⚠️  没拿到 deck-tables-lo.pptx（.odp → .pptx 那一转）")
     else:
         print("⚠️  没拿到 deck-tables.odp（表那一转的中间件）")
+
+    # 页上那几条链接那三件：python-pptx 写一份，LibreOffice 转 odp 再转回 pptx ——
+    # 同一条链接两家写的地方不一样（一家 `a:hlinkClick` 指一个关系 id，一家在字上直接
+    # 挂 `text:a xlink:href`），所以两跳的找法与地址的写法都要各自量
+    links = OUT / "deck-links.pptx"
+    write_pptx_links(links)
+    convert(exe, links, "odp", SCRATCH / "links-odp")
+    links_middle = SCRATCH / "links-odp" / "deck-links.odp"
+    if links_middle.exists():
+        keep = SCRATCH / "links-odp" / "lnk-middle.odp"
+        shutil.copyfile(links_middle, keep)
+        convert(exe, keep, "pptx", SCRATCH / "links-back")
+        back = SCRATCH / "links-back" / "lnk-middle.pptx"
+        if back.exists():
+            shutil.copyfile(back, OUT / "deck-links-lo.pptx")
+            shutil.copyfile(links_middle, OUT / "deck-links.odp")
+        else:
+            print("⚠️  没拿到 deck-links-lo.pptx（.odp → .pptx 那一转）")
+    else:
+        print("⚠️  没拿到 deck-links.odp（链接那一转的中间件）")
 
     charts = OUT / "deck-chart.pptx"
     write_pptx_charts(charts)
