@@ -1223,6 +1223,93 @@ def main() -> int:
                    if one.get("print_setup") is not None]
         check("%s 这一族的打印设置没读：键整个不在" % name, missing, [])
 
+    # ── 3a8) 表格里的图：三跳才到那个部件，两个生产者的引用写法与缓存值各交各的 ──
+    print("=== 3a8) office-sheet 的图（openpyxl 与 LibreOffice 两份件） ===")
+    for name in ("chart.xlsx", "chart-lo.xlsx"):
+        want = files[name]["ooxml"]["charts"]
+        got = lbin("office-sheet", fixture(name))
+        mine = {
+            (one.get("part") or "").rsplit("/", 1)[-1][: -len(".xml")]: one.get("chart_list")
+            for one in got.get("sheets", [])
+        }
+        check("%s 每张表上的图整份账" % name, mine, want)
+        check("%s 图的总账" % name, dig(got, "workbook.totals.charts"),
+              sum(len(value) for value in want.values()))
+    hand = lbin("office-sheet", fixture("chart.xlsx"))
+    lo = lbin("office-sheet", fixture("chart-lo.xlsx"))
+    SER0 = "sheets[0].chart_list[0].groups[0].series_list[0]"
+    check(
+        "两张图挂在同一张表上，另一张表 0 张",
+        [one.get("charts") for one in hand.get("sheets", [])],
+        [2, 0],
+    )
+    check(
+        "图要跳三跳才到：表 → 自己的关系表 → 画法部件 → 它的关系表 → 图",
+        [dig(hand, "sheets[0].chart_list[0].part"), dig(hand, "sheets[0].chart_list[1].part"),
+         dig(lo, "sheets[0].chart_list[0].part")],
+        ["xl/charts/chart1.xml", "xl/charts/chart2.xml", "xl/charts/chart1.xml"],
+    )
+    check(
+        "图类型、柱形方向与系列数（柱形两条、折线一条）",
+        [[dig(hand, "sheets[0].chart_list[0].groups[0].kind"),
+          dig(hand, "sheets[0].chart_list[0].groups[0].written.barDir"),
+          dig(hand, "sheets[0].chart_list[0].groups[0].written.grouping"),
+          dig(hand, "sheets[0].chart_list[0].groups[0].series")],
+         [dig(hand, "sheets[0].chart_list[1].groups[0].kind"),
+          dig(hand, "sheets[0].chart_list[1].groups[0].written.barDir"),
+          dig(hand, "sheets[0].chart_list[1].groups[0].written.grouping"),
+          dig(hand, "sheets[0].chart_list[1].groups[0].series")]],
+        [["barChart", "col", "clustered", 2], ["lineChart", None, "standard", 1]],
+    )
+    check(
+        "同一段格子在两个生产者手里是两种写法，引用串照文件交",
+        [dig(hand, SER0 + ".name.ref"), dig(lo, SER0 + ".name.ref"),
+         dig(hand, SER0 + ".val.ref"), dig(lo, SER0 + ".val.ref")],
+        ["'数据'!B1", "数据!$B$1", "'数据'!$B$2:$B$3", "数据!$B$2:$B$3"],
+    )
+    check(
+        "缓存这份差一个数量级：openpyxl 一条 pt 不写，LibreOffice 把数都缓存了",
+        [dig(hand, "sheets[0].chart_list[0].cached"), dig(lo, "sheets[0].chart_list[0].cached"),
+         dig(hand, SER0 + ".val.cache.points"), dig(lo, SER0 + ".val.cache.points"),
+         dig(hand, SER0 + ".val.cache.written"), dig(lo, SER0 + ".val.cache.written"),
+         dig(lo, SER0 + ".val.cache.values")],
+        [False, True, 0, 2, None, "2", [10.0, 25.0]],
+    )
+    check(
+        "类目的走法两家不同（numRef 与 strRef），字还是同一批字",
+        [dig(hand, SER0 + ".cat.via"), dig(lo, SER0 + ".cat.via"),
+         dig(lo, SER0 + ".cat.cache.values"), dig(lo, SER0 + ".name.cache.values")],
+        ["numRef", "strRef", ["一月", "二月"], ["收入"]],
+    )
+    check(
+        "标题两家都写成字面量（c:rich），一个字母也不落在引用上",
+        [dig(hand, "sheets[0].chart_list[0].title.via"),
+         dig(hand, "sheets[0].chart_list[0].title.text"),
+         dig(lo, "sheets[0].chart_list[0].title.text"),
+         dig(lo, "sheets[0].chart_list[1].title.text"),
+         dig(lo, "sheets[0].chart_list[0].title.ref")],
+        ["text", "逐月收支", "逐月收支", "收入折线", None],
+    )
+    check(
+        "轴 id 是生产者自己编的号：个数一致、值本来就不可比",
+        [len(dig(hand, "sheets[0].chart_list[0].groups[0].axis_ids") or []),
+         len(dig(lo, "sheets[0].chart_list[0].groups[0].axis_ids") or []),
+         dig(hand, "sheets[0].chart_list[0].groups[0].axis_ids")
+         == dig(lo, "sheets[0].chart_list[0].groups[0].axis_ids")],
+        [2, 2, False],
+    )
+    check(
+        "没挂图的表报 0（数过了没有）",
+        [one.get("charts") for one in lbin("office-sheet", fixture("book.xlsx")).get("sheets", [])],
+        [0, 0, 0],
+    )
+    # 这一族另两家的图还没读：ODS 把图存成嵌入对象（Object 1/ 那一份部件），.xls 走的是
+    # BIFF 的 OBJ/CLID 那条链，都没有量过的第二个读者 —— 键整个不在，不交空对象
+    for name in ("book.ods", "hidden.ods", "hidden.xls"):
+        check("%s 这一族的图没读：键整个不在" % name,
+              [one.get("name") for one in lbin("office-sheet", fixture(name)).get("sheets", [])
+               if one.get("charts") is not None], [])
+
     # ── 3b) 数字格式：格子写的是 cellXfs 的下标，日期藏在样式里 ──────────
     print("=== 3b) formats.xlsx：格式号、判定与换算出来的日期 ===")
     fx = lbin("office-sheet", fixture("formats.xlsx"))

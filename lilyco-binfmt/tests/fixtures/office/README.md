@@ -26,6 +26,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `cell-notes.ods` | LibreOffice（从 `cell-notes.xlsx`） | ODF 的存法：批注是 `office:annotation`，**坐在格子里面**（`dc:creator` 给作者、`<meta:date-string/>` 是空的），一锅端取格子的字就会把注当成这一格的内容 |
 | `cell-notes-many.xlsx` | openpyxl | 第四种存法的种子：一次只改一个变量 —— 作者名有 ASCII 的（`AB`）也有中文的、字数有 2 也有 3、注的字带换行、格子拉到 `AA100`、注还分到两张表上 |
 | `cell-notes-many.xls` | LibreOffice（从 `cell-notes-many.xlsx`） | 批注的第四种存法：字与「哪个格子 + 谁写的」分在**同一条流**的两类记录上（后者住在该表子流的末尾），编码旗标那一位与 BIFF8 的 `fCompressed` 惯例**相反** |
+| `chart.xlsx` | openpyxl 3.1.5（`write_chart_xlsx`） | 两张图挂在同一张表上（柱形与折线，系列数还不相等）：`c:f` 里同一段格子写成 **`'数据'!B1`**（带引号、不带 `$`），类目是文本格却写成 **`c:numRef`**，而且**一条 `c:pt` 缓存都没有** —— 「图里画的是哪些数」在这里只能交引用 |
+| `chart-lo.xlsx` | LibreOffice（`chart.xlsx` → .ods → .xlsx） | 同一批图的另一副面孔：`c:f` 写成 **`数据!$B$1`**（不引号、绝对），类目改用 **`c:strRef`**，并且 `strCache` / `numCache` 把 `ptCount` 与每格的值都缓存了（一月/二月、10/25）；两个轴 id 是随机数，与 openpyxl 那两份的 10/100 没有任何关系 |
 | `notes-end.rtf` | LibreOffice（从 `notes-end.docx`） | 注的第三种存法：脚注与尾注**都**写成 `{\*\footnote …}` 这一个群，尾注只在群里多一个 `\ftnalt`；分隔符另走 `{\*\ftnsep\chftnsep}` |
 | `tables.docx` / `tables.odt` / `tables.rtf` | python-docx 与 LibreOffice（两张表：3×2 与 2×2，中间夹一段正文，首尾各一个标题） | 表那一份的对照件：三家都给 5 行 10 格，而 RTF 只敢给行数与格子数 —— 「几张表」的分组规则在 `notes.rtf`（一张）与这份（两张）上试过，单表对、两表数成一张 |
 | `paper-a4.docx` / `paper-a4.odt` / `paper-a4.rtf` | python-docx 与 LibreOffice（A4 纵向一节 + 横过来的一节） | 那张纸的第二尺寸：三家换算到 0.01mm 后短边都是 **21001**（不是 21000 —— OOXML 与 RTF 写 11906 twips，ODF 照抄成 `21.001cm`），所以这一支不给尺寸起名；横排那一节 docx 与 odt 都有第二条并写着 `orient=landscape`，而 RTF 全文一个 `\landscape` 都没有 → 那一条流只交文档默认的纵向 |
@@ -567,9 +569,35 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     `style:page-layout-properties` 确有打印属性（`print-orientation` / `print-page-order` / `print`…，
     而且只有 Mpm3 那一份写了），可**表元素不点名自己的版式** —— `table:table` 上根本没有
     `style:page-layout-name`，剩下的只有 `PageStyle_5f_表名` 那条该生产者自己的命名约定，
-    那不是规格里的跳；.xls 每张表都写了一条 SETUP(0x00A1)（长 34，头十二个 u16 是
-    9 100 0 1 1 2 300 300 …，与同一批字的 LO 版 xlsx 那些数对得上），可是里面的字段位
-    在本机没有一个读者能核对 —— 只有规格的一句话，就还是没量过。
+    那不是规格里的跳；.xls 每张表确实写了一条 SETUP(0x00A1)（长 34 字节 = 17 个 u16，
+    基准值是 9 100 0 1 1 2 300 300 + 两个 double + 1），但来回量过之后只认得出三个字段位：
+    **改 xlsx 的属性让 LO 写成 .xls**，只有 `paperSize`（槽 0）、`scale`（槽 1）与那个旗标字
+    （槽 10：`0x2` 那一位是竖排，`0x1` 那一位是 overThenDown）跟着动，dpi / copies / 边距 /
+    draft / blackAndWhite / gridLines 六样 LO 的导入根本没接住；**反过来改 .xls 的槽位再让 LO 读回
+    xlsx**，也只有这三样跟着动（槽 0 改 1 就报 `paperSize=1`，改 8 就报 8；槽 1 改 150 就报
+    `scale=150`；槽 10 改 0 就横过来、改 1 就横排 + overThenDown、改 3 只换排序），槽 6/7 那两个
+    看着像 dpi 的 300 与槽 2..4 与末尾那个 1 两个方向都不动 —— 只有一个读者（还是写出它们的那个）
+    认得的字段，就还是没量过，所以这一族的键整个不在。
+
+48. **图要跳三跳，而「图里画的是哪些数」有一半是文件没说的**（`chart.xlsx` 与 `chart-lo.xlsx`）。
+    图不在 `sheetN.xml` 里，也不在表的关系表里一步就到：表 →（自己的关系表，`Type` 结尾是
+    `drawing`）→ `xl/drawings/drawing1.xml` →（那张关系表，`Type` 结尾是 `chart`）→
+    `xl/charts/chartN.xml`。两个生产者三种 Target 写法都在这两份件里（openpyxl 一路绝对
+    `/xl/drawings/…`，LibreOffice 一路相对 `../drawings/…`、`../charts/…`）。归位是按表的：
+    两张图（柱形两条系列、折线一条）都挂在 `数据` 那张表上，另一张表报 0。
+    跨生产者对不齐的三件事都照文件交，不归一化：
+    * 同一段格子的引用串 —— openpyxl 写 `'数据'!B1`（表名带引号、地址不带 `$`），
+      LibreOffice 写 `数据!$B$1`；
+    * 同一批文本类目的走法 —— openpyxl 写成 `c:numRef`，LibreOffice 写成 `c:strRef`；
+    * 轴 id —— 一家写 10/100，另一家写 27806046/9803817，那是各自内部的编号，
+      所以只交个数，不替它们配。
+    缓存才是这一条的真岔口：**openpyxl 一条 `c:pt` 都不写**（`cached: false`，于是
+    「图里画的是哪些数」判不住，只能交出引用），LibreOffice 把 2 个点连值一起写进来
+    （`一月`/`二月`、10/25）并自报 `ptCount`；两家都自报过的写法才谈得上对不上，所以
+    `written` 与 `points` 一起交，`whole` 是它们合不合。标题目前两家都写成 `c:rich` 的字面量
+    （`逐月收支`），`c:strRef` 那一条支路只有镜像与单测走过，没等到真生产者写的件。
+    ODS 的图是嵌入对象（`Object 1/content.xml` 那一堆部件），.xls 走 BIFF 的对象链 ——
+    两家都没有第二个读者量过，所以那一族的 `charts` 键整个不在。
 
 ## 这些数字从哪来
 
@@ -580,6 +608,9 @@ Rust 测试里每个期望值都来自第二读者对这些文件的独立读取
 `ods_facts()`（`.ods` 的重复计数、覆盖格与自动样式可见性）。
 每张表的打印设置是同一份文件里的 `xlsx_print_setup()`：三个元素各自取第一个（与 Rust 那边
 `descendants(name).first()` 同一条规则），属性名去掉前缀原样交，缺的元素留 null。
+图那一份是 `xlsx_charts()` 与 `rels_of_parts()`：走的就是「表 → 关系表 → 画法部件 → 它的关系表 →
+图部件」那三跳，`Type` 结尾与 `Target` 的解法与 Rust 的 `rels_of` / `resolve_target` 一条规则，
+两边对同一批件交回的 `chart_list` 整份相等（含 `whole` 与引用串）。
 那张纸（纸面尺寸与四边）另有 `scripts/acceptance/lyco_pages.py`：同样只吃标准库，
 docx 用 ElementTree 找 `w:sectPr` 的 `w:pgSz` / `w:pgMar`，odt 找 `styles.xml` 里真写了
 `fo:page-width` 的那些页布局，两边都按同一条整数式子换成 0.01mm（RTF 的那一串在

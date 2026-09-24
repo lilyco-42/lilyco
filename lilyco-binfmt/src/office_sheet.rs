@@ -23,7 +23,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-sheet",
     run = "run_office_sheet",
-    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader, and its hidden rows and columns come out of the two records the flags actually live in: bit 0x20 of the ROW record, and bit 0 of the COLINFO record (which states a range, expanded here - LibreOffice writes that record under the older id 0x007D while MS-XLS names 0x07D0 for BIFF8, so both ids are accepted). Which ROW bit means hidden was measured rather than recalled: three comparison files separate the two variables - row heights from 4pt to 250pt leave that bit alone, while hiding a single row sets exactly that bit. Hidden cells still count as cells. Spreadsheet comments are another hop: they are not in sheetN.xml at all - the sheet's own relationship part names the comments part, and the two producers measured here put it in two different places (openpyxl `xl/comments/comment1.xml` reached through an absolute target, LibreOffice `xl/comments1.xml` through `../comments1.xml`), with the author's name indexed through the `<authors>` list rather than written on the comment; ODF instead keeps the comment INSIDE the cell as `office:annotation`, which is exactly why the cell's own text skips that subtree. Authoring timestamps come back null on both producers because neither wrote one. Legacy .xls is a fourth spelling and stays inside the same stream: one record kind carries the text (offset 10 of its body is the character count it states for itself, and the first CONTINUE right after it opens with an encoding byte - 0 means one byte per character, 1 means two, which is the OPPOSITE of the BIFF8 fCompressed convention), while another record at the end of that sheet's own substream says which cell the note is on and who wrote it. The two lists are paired in order of appearance, every entry carries whole (were both self-stated counts satisfied), and both record counts are published per sheet so a mismatch shows up as data instead of a silently truncated list. This family writes no authoring timestamp, so date is null there; the reading was measured on LibreOffice-written .xls, and those two record numbers are not given spec names because MS-XLS assigns 0x001C to something else entirely. Whether a sheet can still be edited is reported per format, because the three spellings do not map onto one another: xlsx keeps two layers (workbookProtection plus each sheet's own sheetProtection, switches read in both the 1/0 and true/false spellings with an omitted one left omitted rather than false), .ods writes table:protected on the table itself together with the digest URI, and .xls has no workbook layer at all - PROTECT (0x0012), PASSWORD (0x0013) and SCENPROTECT (0x00DD) sit inside the locked sheet's own substream, so they are attributed per sheet and their raw values kept. ODF spreadsheets (.ods) are read on their own terms: cells carry an explicit value-type with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, a sheet's visibility is resolved through the automatic style it names, and hidden rows/columns are counted from table:visibility="collapse" on the element or in the row/column style it names (multiplying number-columns-repeated, so one element standing for three collapsed columns reports 3, not 1); each ODS cell additionally carries the number format it inherits - cell style, then style:data-style-name, then that number:*-style element (which lives in content.xml or styles.xml, and is reached through parent-style-name when the cell style itself names none) - reported as format_kind (taken from the element's own name, so a ¥ written as a literal text token stays a number-style), plus decimals, currency_symbol and a faithful format_tokens transcription; ODF has no format string, so none is invented. With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (legacy .xls takes the same hop too - the cell's ixfe indexes the XF records, whose format number names either a FORMAT record or a built-in id, and the epoch comes from DATEMODE; a file that never wrote DATEMODE gets the serial rather than a guessed 1900), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. Each xlsx sheet additionally carries its own print setup: the three elements `pageMargins`, `pageSetup` and `printOptions` are reported separately, and an element the file never wrote stays null rather than turning into false - openpyxl writes only the margins, while LibreOffice rewrites the same sheet with twelve `pageSetup` attributes (paperSize 9 and both dpi values included). Margins are handed over exactly as written, in the unit that family uses (`margin_unit`: inch, said once per sheet), rather than normalised to the 0.01mm integers office-doc reports - 0.5 versus 0.511811023622047 is the two producers' difference, and converting it away would erase the thing worth seeing. ODS and .xls print setup is deliberately not read: five LibreOffice-written .ods files name no page layout on the table element (the only link left is that producer's own `PageStyle_<sheet>` naming convention, not a spec hop), and while every .xls sheet does write a SETUP (0x00A1) record, nothing here can be a second reader for the field offsets inside it. Returns { path, format, sheets, protection, csv, workbook, defined_names, tables, external_links, parts, notes }."
+    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader, and its hidden rows and columns come out of the two records the flags actually live in: bit 0x20 of the ROW record, and bit 0 of the COLINFO record (which states a range, expanded here - LibreOffice writes that record under the older id 0x007D while MS-XLS names 0x07D0 for BIFF8, so both ids are accepted). Which ROW bit means hidden was measured rather than recalled: three comparison files separate the two variables - row heights from 4pt to 250pt leave that bit alone, while hiding a single row sets exactly that bit. Hidden cells still count as cells. Spreadsheet comments are another hop: they are not in sheetN.xml at all - the sheet's own relationship part names the comments part, and the two producers measured here put it in two different places (openpyxl `xl/comments/comment1.xml` reached through an absolute target, LibreOffice `xl/comments1.xml` through `../comments1.xml`), with the author's name indexed through the `<authors>` list rather than written on the comment; ODF instead keeps the comment INSIDE the cell as `office:annotation`, which is exactly why the cell's own text skips that subtree. Authoring timestamps come back null on both producers because neither wrote one. Legacy .xls is a fourth spelling and stays inside the same stream: one record kind carries the text (offset 10 of its body is the character count it states for itself, and the first CONTINUE right after it opens with an encoding byte - 0 means one byte per character, 1 means two, which is the OPPOSITE of the BIFF8 fCompressed convention), while another record at the end of that sheet's own substream says which cell the note is on and who wrote it. The two lists are paired in order of appearance, every entry carries whole (were both self-stated counts satisfied), and both record counts are published per sheet so a mismatch shows up as data instead of a silently truncated list. This family writes no authoring timestamp, so date is null there; the reading was measured on LibreOffice-written .xls, and those two record numbers are not given spec names because MS-XLS assigns 0x001C to something else entirely. Whether a sheet can still be edited is reported per format, because the three spellings do not map onto one another: xlsx keeps two layers (workbookProtection plus each sheet's own sheetProtection, switches read in both the 1/0 and true/false spellings with an omitted one left omitted rather than false), .ods writes table:protected on the table itself together with the digest URI, and .xls has no workbook layer at all - PROTECT (0x0012), PASSWORD (0x0013) and SCENPROTECT (0x00DD) sit inside the locked sheet's own substream, so they are attributed per sheet and their raw values kept. ODF spreadsheets (.ods) are read on their own terms: cells carry an explicit value-type with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, a sheet's visibility is resolved through the automatic style it names, and hidden rows/columns are counted from table:visibility="collapse" on the element or in the row/column style it names (multiplying number-columns-repeated, so one element standing for three collapsed columns reports 3, not 1); each ODS cell additionally carries the number format it inherits - cell style, then style:data-style-name, then that number:*-style element (which lives in content.xml or styles.xml, and is reached through parent-style-name when the cell style itself names none) - reported as format_kind (taken from the element's own name, so a ¥ written as a literal text token stays a number-style), plus decimals, currency_symbol and a faithful format_tokens transcription; ODF has no format string, so none is invented. With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (legacy .xls takes the same hop too - the cell's ixfe indexes the XF records, whose format number names either a FORMAT record or a built-in id, and the epoch comes from DATEMODE; a file that never wrote DATEMODE gets the serial rather than a guessed 1900), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. Each xlsx sheet additionally carries its own print setup: the three elements `pageMargins`, `pageSetup` and `printOptions` are reported separately, and an element the file never wrote stays null rather than turning into false - openpyxl writes only the margins, while LibreOffice rewrites the same sheet with twelve `pageSetup` attributes (paperSize 9 and both dpi values included). Margins are handed over exactly as written, in the unit that family uses (`margin_unit`: inch, said once per sheet), rather than normalised to the 0.01mm integers office-doc reports - 0.5 versus 0.511811023622047 is the two producers' difference, and converting it away would erase the thing worth seeing. ODS and .xls print setup is deliberately not read: five LibreOffice-written .ods files name no page layout on the table element (the only link left is that producer's own `PageStyle_<sheet>` naming convention, not a spec hop), and while every .xls sheet does write a SETUP (0x00A1) record, nothing here can be a second reader for the field offsets inside it. A sheet's charts are two more hops: the sheet's own relationship part names a drawing part, and that drawing's relationships name the chart parts (openpyxl writes those targets absolute, LibreOffice relative - `resolve_target` eats both). So charts are attributed per sheet (`charts` and `chart_list`, and a sheet with none reports 0 rather than omitting the key): each entry reports its part, its title (a literal through `c:rich`, or a cell reference), whether the file cached any plotted values, and per plot group the kind (`barChart` / `lineChart`), every direct child's `val` as written (`barDir`, `grouping`, `gapWidth`...) with the axis ids kept separate because those are the producer's own numbering. The cached flag matters: openpyxl writes not one `c:pt`, so what the picture actually plots stays unknown and only the reference is handed over, while LibreOffice caches every point and self-states `ptCount` - that count and the number of points really found are both published, with whole saying whether they agree. Reference strings go out exactly as the file wrote them: the same cells read `'数据'!B1` in one producer's file and `数据!$B$1` in the other's, and the same text categories are a `c:numRef` in one and a `c:strRef` in the other - normalising either would be inventing what the file did not say. ODS keeps charts as embedded objects (`Object 1/` parts) and .xls through the BIFF object chain; neither is read yet. Returns { path, format, sheets, protection, csv, workbook, defined_names, tables, external_links, parts, notes }."
 )]
 pub struct OfficeSheet {
     /// 表格文件（xlsx / xlsm / xls / ods）
@@ -91,7 +91,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
         let mut totals = json!({
             "cells": 0, "formulas": 0, "numeric": 0, "shared_strings": 0,
             "inline_strings": 0, "merged": 0, "hidden_rows": 0, "hidden_cols": 0,
-            "dates": 0, "comments": 0,
+            "dates": 0, "comments": 0, "charts": 0,
         });
         for (index, one) in root.descendants("sheet").iter().enumerate() {
             let name = one.attr("name").unwrap_or_default().to_string();
@@ -131,6 +131,22 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                         .to_string();
                     // 打印那份设置是这张表自己的（三个元素各自在不在）
                     entry["print_setup"] = xlsx_print_setup(&sheet_root);
+                    // 图要再跳两跳才到：表 → 自己的关系表 → 画法部件 → 它的关系表 → 图
+                    let charts = sheet_charts(bytes, &part, limit);
+                    let charted = charts.len();
+                    let uncached = charts
+                        .iter()
+                        .filter(|one| one["cached"].as_bool() != Some(true))
+                        .count();
+                    entry["charts"] = json!(charted);
+                    entry["chart_list"] = Value::Array(charts);
+                    bump(&mut totals, "charts", charted);
+                    if uncached > 0 {
+                        notes.push(format!(
+                            "这张表上 {} 张图的数值没有缓存（图里画的是哪些数判不住，只能交引用）",
+                            uncached
+                        ));
+                    }
                     let mut cells: Vec<Value> = Vec::new();
                     let mut count = 0usize;
                     let mut formulas = 0usize;
@@ -671,6 +687,193 @@ fn numeric_or_text(text: Option<String>) -> Value {
 
 fn xml(bytes: &[u8], want: &str) -> Option<zipread::Member> {
     zipread::member(bytes, want, DEFAULT_MEMBER_CAP).ok()
+}
+
+/// 这个部件自己的关系表：交回「Type 结尾那个名字」与「解析成包内全名的 Target」。
+/// 批注、图这些都从这一张表上跳；两种生产者的 Target 写法不同（绝对的 `/xl/...`
+/// 与相对的 `../...`）由 `resolve_target` 吃掉
+fn rels_of(bytes: &[u8], part: &str) -> Vec<(String, String)> {
+    let dir = match part.rsplit_once('/') {
+        Some((head, _)) => head.to_string(),
+        None => String::new(),
+    };
+    let base = part.rsplit('/').next().unwrap_or(part);
+    let rels_name = if dir.is_empty() {
+        format!("_rels/{base}.rels")
+    } else {
+        format!("{dir}/_rels/{base}.rels")
+    };
+    let Some(rels) = xml(bytes, &rels_name) else {
+        return Vec::new();
+    };
+    let root = xmlscan::parse_str(&rels.as_text());
+    root.descendants("Relationship")
+        .iter()
+        .filter(|one| one.attr("TargetMode") != Some("External"))
+        .filter_map(|one| {
+            let kind = one.attr("Type").unwrap_or_default();
+            let tail = kind.rsplit('/').next().unwrap_or(kind).to_string();
+            let target = one.attr("Target")?;
+            Some((tail, resolve_target(&dir, target)))
+        })
+        .collect()
+}
+
+/// 那张表上的图：要跳三跳 —— 表 →（自己的关系表）→ 画法部件 →（它的关系表）→ 图部件。
+/// 两个生产者三种 Target 写法都在样本里（`/xl/drawings/…`、`../drawings/…`、`../charts/…`）
+fn sheet_charts(bytes: &[u8], part: &str, limit: usize) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::new();
+    for (_, drawing) in rels_of(bytes, part) {
+        if !drawing.ends_with(".xml") || !drawing.contains("/drawings/") {
+            continue;
+        }
+        for (kind, target) in rels_of(bytes, &drawing) {
+            if kind != "chart" || !target.contains("/charts/") {
+                continue;
+            }
+            let Some(member) = xml(bytes, &target) else {
+                continue;
+            };
+            let root = xmlscan::parse_str(&member.as_text());
+            out.push(chart_one(&root, &target));
+            if out.len() >= limit {
+                return out;
+            }
+        }
+    }
+    out
+}
+
+/// 一个引用（`c:tx` / `c:cat` / `c:val` 里面那一个）。走法只有三种：`strRef`、`numRef`
+/// 与 openpyxl 那种没有引用的 `rich`；引用串**照文件写的交**（`'数据'!B1` 与 `数据!$B$1`
+/// 是两个生产者对同一段格子的两种写法，替它们归一化就是替文件编东西）。
+/// 缓存那份另说：openpyxl 一个字都不写（于是「图里画的是哪些数」判不住），
+/// LibreOffice 写 `ptCount` 自报的点数与实际点数一起交，对不上就看得见
+fn chart_ref(node: &xmlscan::Node) -> Value {
+    let Some(one) = node
+        .children
+        .iter()
+        .find(|had| had.local().ends_with("Ref"))
+    else {
+        let joined: String = node
+            .descendants("t")
+            .iter()
+            .map(|had| had.text())
+            .collect::<Vec<String>>()
+            .join("");
+        let text = joined.trim().to_string();
+        return json!({
+            "via": if text.is_empty() { Value::Null } else { json!("text") },
+            "ref": Value::Null,
+            "text": if text.is_empty() { Value::Null } else { json!(text) },
+            "cache": null_cache(),
+        });
+    };
+    let reference = one
+        .descendants("f")
+        .first()
+        .map(|had| had.text().trim().to_string());
+    let cache = one
+        .descendants("ptCount")
+        .first()
+        .and_then(|had| had.attr("val"));
+    let points: Vec<Value> = one
+        .descendants("pt")
+        .iter()
+        .map(|had| {
+            had.child("v")
+                .map(|inner| json!(numeric_or_text(Some(inner.text().trim().to_string()))))
+                .unwrap_or(Value::Null)
+        })
+        .collect();
+    let written = cache.map(|raw| raw.trim().to_string());
+    let whole = match &written {
+        None => true,
+        Some(raw) => raw.parse::<usize>().ok() == Some(points.len()),
+    };
+    json!({
+        "via": one.local(),
+        "ref": reference,
+        "text": Value::Null,
+        "cache": {"written": written, "points": points.len(), "values": points, "whole": whole},
+    })
+}
+
+fn null_cache() -> Value {
+    json!({"written": Value::Null, "points": 0usize, "values": [], "whole": true})
+}
+
+/// 整个引用不在（这张图没写 `c:cat`，或标题是个空 `c:title`）：形状与「写了引用但
+/// 没有缓存」要能分开，所以 via/ref/text 三个都是 null，而不是缺键
+fn no_ref() -> Value {
+    json!({"via": Value::Null, "ref": Value::Null, "text": Value::Null, "cache": null_cache()})
+}
+
+/// 一张图：类型那一组（`barChart` 与 `lineChart` 这些）、标题的两种写法、每条系列
+fn chart_one(root: &xmlscan::Node, part: &str) -> Value {
+    let Some(chart) = root.descendants("chart").first().copied() else {
+        return json!({"part": part, "present": false});
+    };
+    // 标题的三种写法都从 `c:title/c:tx` 那一个元素上分：`c:strRef`（引用一个格子）、
+    // `c:rich`（字面量，两个生产者目前都走这条）与整个 title 不在
+    let title = match chart.child("title").and_then(|one| one.child("tx")) {
+        Some(tx) => chart_ref(tx),
+        None => match chart.child("title") {
+            Some(node) => chart_ref(node),
+            None => no_ref(),
+        },
+    };
+    let mut groups: Vec<Value> = Vec::new();
+    let mut any_cached = false;
+    for group in chart
+        .child("plotArea")
+        .into_iter()
+        .flat_map(|one| one.children.iter())
+        .filter(|one| one.local().ends_with("Chart"))
+    {
+        let mut written = serde_json::Map::new();
+        let mut axis_ids: Vec<String> = Vec::new();
+        let mut series: Vec<Value> = Vec::new();
+        for one in &group.children {
+            match one.local() {
+                "ser" => series.push(json!({
+                    "index": one.child("idx").and_then(|had| had.attr("val")).map(String::from),
+                    "order": one.child("order").and_then(|had| had.attr("val")).map(String::from),
+                    "name": one.child("tx").map(chart_ref).unwrap_or_else(no_ref),
+                    "cat": one.child("cat").map(chart_ref).unwrap_or_else(no_ref),
+                    "val": one.child("val").map(chart_ref).unwrap_or_else(no_ref),
+                })),
+                "axId" => {
+                    if let Some(raw) = one.attr("val") {
+                        axis_ids.push(raw.to_string());
+                    }
+                }
+                _ => {
+                    if let Some(raw) = one.attr("val") {
+                        written.insert(one.local().to_string(), json!(raw));
+                    }
+                }
+            }
+        }
+        // 「图里画的是哪些数」只有文件自己缓存过才算判得住：openpyxl 一条 pt 都不写
+        any_cached |= series
+            .iter()
+            .any(|one| one["val"]["cache"]["points"].as_u64().unwrap_or(0) > 0);
+        groups.push(json!({
+            "kind": group.local(),
+            "written": written,
+            "axis_ids": axis_ids,
+            "series": series.len(),
+            "series_list": series,
+        }));
+    }
+    json!({
+        "part": part,
+        "present": true,
+        "title": title,
+        "cached": any_cached,
+        "groups": groups,
+    })
 }
 
 fn shared_strings(bytes: &[u8]) -> Vec<String> {
@@ -1605,6 +1808,135 @@ mod tests {
                 assert!(
                     one.get("print_setup").is_none(),
                     "{name} 这一族没读，别交出空对象：{one}"
+                );
+            }
+        }
+    }
+
+    /// 图那份账：三跳找到图部件，两个生产者的引用写法与缓存值各交各的。
+    /// 期望值逐字来自 `.scratch/measure_chart_parts.py` 与 python 侧的镜像 `xlsx_charts()`
+    #[test]
+    fn charts_are_reached_through_the_drawing_and_report_only_cached_values() {
+        let hand = run("chart.xlsx");
+        let sheets = hand["sheets"].as_array().expect("是数组");
+        assert_eq!(sheets.len(), 2, "{sheets}");
+        assert_eq!(sheets[0]["charts"], 2, "两张图挂在同一张表上");
+        assert_eq!(sheets[1]["charts"], 0, "没有图的那张表报 0，不是缺这个键");
+        assert_eq!(hand["workbook"]["totals"]["charts"], 2);
+
+        let first = &sheets[0]["chart_list"][0];
+        assert_eq!(first["part"], "xl/charts/chart1.xml", "{first}");
+        assert_eq!(first["present"], json!(true));
+        assert_eq!(first["cached"], json!(false), "openpyxl 一条 pt 都不缓存");
+        assert_eq!(
+            first["title"]["via"], "text",
+            "字面标题走 `c:rich`：{first}"
+        );
+        assert_eq!(first["title"]["text"], "逐月收支");
+        assert_eq!(first["title"]["ref"], Value::Null);
+        let group = &first["groups"][0];
+        assert_eq!(group["kind"], "barChart", "{group}");
+        assert_eq!(group["written"]["barDir"], "col");
+        assert_eq!(group["written"]["grouping"], "clustered");
+        assert_eq!(group["written"]["gapWidth"], "150");
+        assert_eq!(group["axis_ids"], json!(["10", "100"]));
+        assert_eq!(group["series"], 2);
+        let ser = &group["series_list"][0];
+        assert_eq!(ser["index"], "0", "{ser}");
+        assert_eq!(ser["order"], "0", "idx 与 order 各是文件自己写的那一个号");
+        assert_eq!(group["series_list"][1]["index"], "1");
+        assert_eq!(ser["name"]["via"], "strRef");
+        assert_eq!(ser["name"]["text"], Value::Null);
+        let line = &sheets[0]["chart_list"][1];
+        assert_eq!(line["groups"][0]["kind"], "lineChart", "{line}");
+        assert_eq!(line["groups"][0]["series"], 1);
+        assert_eq!(line["title"]["text"], "收入折线");
+        // 判不住的那一句要说出来：这张表的图没有缓存，图里画的是哪些数只能交引用
+        assert!(
+            hand["notes"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .any(|one| one.as_str().unwrap_or_default().contains("没有缓存")),
+            "{:?}",
+            hand["notes"]
+        );
+
+        let lo = run("chart-lo.xlsx");
+        assert_eq!(lo["workbook"]["totals"]["charts"], 2);
+        let one = &lo["sheets"][0]["chart_list"][0];
+        assert_eq!(one["cached"], json!(true), "{one}");
+        assert_eq!(
+            one["title"]["text"], "逐月收支",
+            "标题两家都写成字面量：{one}"
+        );
+        let mine = &one["groups"][0]["series_list"][0];
+        assert_eq!(mine["index"], "0");
+        assert_eq!(
+            mine["name"]["ref"], "数据!$B$1",
+            "同一段格子的第二种写法：{mine}"
+        );
+        assert_eq!(mine["name"]["cache"]["written"], "1");
+        assert_eq!(mine["name"]["cache"]["values"], json!(["收入"]));
+        assert_eq!(
+            mine["cat"]["via"], "strRef",
+            "类目在第二家换成了 strRef：{mine}"
+        );
+        assert_eq!(mine["cat"]["ref"], "数据!$A$2:$A$3");
+        assert_eq!(mine["cat"]["cache"]["points"], 2);
+        assert_eq!(mine["cat"]["cache"]["values"], json!(["一月", "二月"]));
+        assert_eq!(mine["val"]["via"], "numRef");
+        assert_eq!(mine["val"]["cache"]["written"], "2");
+        assert_eq!(mine["val"]["cache"]["values"], json!([10.0, 25.0]));
+        assert_eq!(mine["val"]["cache"]["whole"], json!(true));
+        // 轴 id 是生产者自己编的号：两家都是两个，但值本来就不可比，所以只比个数
+        assert_eq!(
+            one["groups"][0]["axis_ids"]
+                .as_array()
+                .expect("是数组")
+                .len(),
+            2
+        );
+        // 同一批字的两份件：系列数、类目引用与图类型必须一致（引用串除外）
+        let count = |one: &Value| {
+            one["groups"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .map(|had| had["series"].as_u64().unwrap_or(0))
+                .collect::<Vec<u64>>()
+        };
+        assert_eq!(count(first), count(one), "两家喂的是同一批格子");
+        let kinds = |list: &Value| {
+            list.as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .map(|had| {
+                    had["groups"]
+                        .as_array()
+                        .unwrap_or(&Vec::new())
+                        .iter()
+                        .map(|one| one["kind"].as_str().unwrap_or_default().to_string())
+                        .collect::<Vec<String>>()
+                })
+                .collect::<Vec<Vec<String>>>()
+        };
+        assert_eq!(
+            kinds(&sheets[0]["chart_list"]),
+            kinds(&lo["sheets"][0]["chart_list"]),
+            "两张图的类型与先后次序两家一致"
+        );
+
+        // 没挂图的表报 0（数过了没有）；这一族另两家的图还没读，键整个不在
+        for one in run("hidden.xlsx")["sheets"].as_array().expect("是数组") {
+            assert_eq!(one["charts"], 0, "没有图就说没有：{one}");
+        }
+        for name in ["book.ods", "hidden.xls"] {
+            let out = run(name);
+            for one in out["sheets"].as_array().expect("是数组") {
+                assert!(
+                    one.get("charts").is_none(),
+                    "{name} 这一族的图还没读：{one}"
                 );
             }
         }

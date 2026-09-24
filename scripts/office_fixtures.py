@@ -696,6 +696,49 @@ def write_hidden_xlsx(path: Path) -> None:
     wb.save(str(path))
 
 
+def write_chart_xlsx(path: Path) -> None:
+    """openpyxl：两张图挂在同一张表上，第三张表一张也没有。
+
+    图是办公表格里最常见也最容易「只数得出部件、说不清内容」的东西，所以这份样本
+    一次把这几个变量都摆开：
+    * 两张图**类型不同**（柱形 `barChart` 与折线 `lineChart`），挂在同一张表 —— 一张表
+      两张图才量得出「按表归位」不是按部件序号凑的；
+    * 系列名从表头来（`titles_from_data=True`），于是系列的名字是一个**格子引用**
+      （`数据!$B$1`），不是字符串 —— 而且那张表的名字是中文，引号与转义都要过一遍；
+    * 类目是文本格（月份），数值是数字格：同一张图里两种引用并存；
+    * 折线那张只喂一个系列，柱形那张喂两个 —— 系列数不等；
+    * 标题写成字面量（`chart.title = "…"`），openpyxl 会写成 `c:rich` 的一段字，
+      而 LibreOffice 重写同一份东西时可能改成 `c:strRef` —— 那正是要量的第二种写法；
+    * 第三张表完全不挂图，用来钉「这张表没有图」是 0 而不是缺键。
+    """
+    from openpyxl import Workbook
+    from openpyxl.chart import BarChart, LineChart, Reference
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "数据"
+    ws.append(["月份", "收入", "支出"])
+    ws.append(["一月", 10, 4])
+    ws.append(["二月", 25, 9])
+    cats = Reference(ws, min_col=1, min_row=2, max_row=3)
+
+    bar = BarChart()
+    bar.type = "col"
+    bar.title = "逐月收支"
+    bar.add_data(Reference(ws, min_col=2, min_row=1, max_col=3, max_row=3), titles_from_data=True)
+    bar.set_categories(cats)
+    ws.add_chart(bar, "E2")
+
+    line = LineChart()
+    line.title = "收入折线"
+    line.add_data(Reference(ws, min_col=2, min_row=1, max_row=3), titles_from_data=True)
+    line.set_categories(cats)
+    ws.add_chart(line, "E20")
+
+    wb.create_sheet("无图")
+    wb.save(path)
+
+
 def write_pptx(path: Path, art: Path) -> None:
     """python-pptx：两页、标题+正文占位符、备注、图片、表格、切换与母版"""
     from pptx import Presentation
@@ -1222,6 +1265,24 @@ def main() -> int:
             print("⚠️  没拿到 hidden-lo.xlsx（.ods → .xlsx 那一转）")
     else:
         print("⚠️  没拿到 hidden.ods")
+
+    # 图那一份账：openpyxl 把两张图挂在同一张表上（字面标题 + 格子引用当系列名）；
+    # 转 .ods 再转回 .xlsx 的那一份是第二个生产者 —— LibreOffice 重写整个 chart 部件，
+    # 缓存值、标题的写法、系列的对齐都可能是另一种，两份都留件才量得出差别
+    chart = OUT / "chart.xlsx"
+    write_chart_xlsx(chart)
+    convert(exe, chart, "ods", SCRATCH)
+    if (SCRATCH / "chart.ods").exists():
+        shutil.copyfile(SCRATCH / "chart.ods", OUT / "chart.ods")
+        shutil.copyfile(SCRATCH / "chart.ods", SCRATCH / "chart-copy.ods")
+        convert(exe, SCRATCH / "chart-copy.ods", "xlsx", SCRATCH / "chart-back")
+        back = SCRATCH / "chart-back" / "chart-copy.xlsx"
+        if back.exists():
+            shutil.copyfile(back, OUT / "chart-lo.xlsx")
+        else:
+            print("⚠️  没拿到 chart-lo.xlsx（.ods → .xlsx 那一转）")
+    else:
+        print("⚠️  没拿到 chart.ods")
 
     # 脚注那一条分支：python-docx 给不出 word/footnotes.xml，让 LibreOffice 从 RTF 导入再写出
     foot_rtf = SCRATCH / "notes-foot.rtf"

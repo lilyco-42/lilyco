@@ -445,12 +445,156 @@ def xlsx_print_setup(parts: dict) -> dict:
     return out
 
 
+def null_cache() -> dict:
+    return {"written": None, "points": 0, "values": [], "whole": True}
+
+
+def no_ref() -> dict:
+    """整个引用不在：形状要能跟「写了引用但没有缓存」分开（三个都是 null，不是缺键）"""
+    return {"via": None, "ref": None, "text": None, "cache": null_cache()}
+
+
+def number_or_text(raw: str):
+    """Rust 那边 `numeric_or_text` 的同一条式子：能当数看就当数，否则原样交字串"""
+    try:
+        return float(raw)
+    except ValueError:
+        return raw
+
+
+def chart_ref(node) -> dict:
+    """一个引用：`c:strRef` / `c:numRef`，或者 openpyxl 那种只有 `c:rich` 的字面量
+
+    引用串**照文件写的交** —— 同一段格子在两个生产者手里是两种写法（`'数据'!B1`
+    与 `数据!$B$1`），替它们归一化就是替文件编东西。缓存那份把 `ptCount` 自报的数
+    与实际点数一起交，对不上就看得见。
+    """
+    for kid in node:
+        if not xml_local(kid.tag).endswith("Ref"):
+            continue
+        found = [t.text or "" for t in kid.iter() if xml_local(t.tag) == "f"]
+        pts = [t for t in kid.iter() if xml_local(t.tag) == "pt"]
+        values = []
+        for pt in pts:
+            inner = [t for t in pt if xml_local(t.tag) == "v"]
+            values.append(number_or_text((inner[0].text or "").strip()) if inner else None)
+        stated = [t for t in kid.iter() if xml_local(t.tag) == "ptCount"]
+        written = stated[0].get("val") if stated else None
+        whole = written is None or (
+            written.strip().isdigit() and int(written.strip()) == len(pts)
+        )
+        return {
+            "via": xml_local(kid.tag),
+            "ref": (found[0].strip() if found else None),
+            "text": None,
+            "cache": {"written": written, "points": len(pts), "values": values, "whole": whole},
+        }
+    joined = "".join(t.text or "" for t in node.iter() if xml_local(t.tag) == "t").strip()
+    return {
+        "via": "text" if joined else None,
+        "ref": None,
+        "text": joined or None,
+        "cache": null_cache(),
+    }
+
+
+def chart_one(root, part: str) -> dict:
+    """一张图：类型那一组、标题的两种写法、每条系列，以及有没有缓存过数值"""
+    charts = [t for t in root.iter() if xml_local(t.tag) == "chart"]
+    if not charts:
+        return {"part": part, "present": False}
+    chart = charts[0]
+    titled = [t for t in chart if xml_local(t.tag) == "title"]
+    if titled:
+        inside = [t for t in titled[0] if xml_local(t.tag) == "tx"]
+        title = chart_ref(inside[0] if inside else titled[0])
+    else:
+        title = no_ref()
+    areas = [t for t in chart if xml_local(t.tag) == "plotArea"]
+    groups = []
+    cached = False
+    for group in [t for area in areas for t in area if xml_local(t.tag).endswith("Chart")]:
+        written: dict = {}
+        axis_ids: list = []
+        series: list = []
+        for one in group:
+            which = xml_local(one.tag)
+            if which == "ser":
+                idx = [t for t in one if xml_local(t.tag) == "idx"]
+                order = [t for t in one if xml_local(t.tag) == "order"]
+                entry = {}
+                for key in ("tx", "cat", "val"):
+                    kids = [t for t in one if xml_local(t.tag) == key]
+                    entry[key] = chart_ref(kids[0]) if kids else no_ref()
+                series.append({
+                    "index": idx[0].get("val") if idx else None,
+                    "order": order[0].get("val") if order else None,
+                    "name": entry["tx"],
+                    "cat": entry["cat"],
+                    "val": entry["val"],
+                })
+            elif which == "axId":
+                if one.get("val") is not None:
+                    axis_ids.append(one.get("val"))
+            elif one.get("val") is not None:
+                written[which] = one.get("val")
+        cached = cached or any(one["val"]["cache"]["points"] > 0 for one in series)
+        groups.append({
+            "kind": xml_local(group.tag),
+            "written": written,
+            "axis_ids": axis_ids,
+            "series": len(series),
+            "series_list": series,
+        })
+    return {"part": part, "present": True, "title": title, "cached": cached, "groups": groups}
+
+
+def xlsx_charts(parts: dict) -> dict:
+    """每张表上的图：表 →（自己的关系表）→ 画法部件 →（它的关系表）→ 图部件"""
+    out: dict = {}
+    for name in sorted(parts):
+        if not (name.startswith("xl/worksheets/sheet") and name.endswith(".xml")):
+            continue
+        found: list = []
+        for relation in rels_of_parts(parts, name):
+            target = relation[1]
+            if not (relation[0] == "drawing" and target.endswith(".xml") and "/drawings/" in target):
+                continue
+            for kind, chart in rels_of_parts(parts, target):
+                if kind != "chart" or "/charts/" not in chart or chart not in parts:
+                    continue
+                found.append(chart_one(ET.fromstring(parts[chart]), chart))
+        out[name.rsplit("/", 1)[-1][: -len(".xml")]] = found
+    return out
+
+
+def rels_of_parts(parts: dict, source: str) -> list:
+    """那个部件自己的关系表：(Type 结尾那个名字, 解成包内全名的 Target)，按文件里的顺序"""
+    dir_name = source.rsplit("/", 1)[0] if "/" in source else ""
+    base = source.rsplit("/", 1)[-1]
+    name = ("_rels/%s.rels" % base) if not dir_name else ("%s/_rels/%s.rels" % (dir_name, base))
+    if name not in parts:
+        return []
+    root = ET.fromstring(parts[name])
+    out = []
+    for one in root.iter():
+        if xml_local(one.tag) != "Relationship" or one.get("TargetMode") == "External":
+            continue
+        kind = (one.get("Type") or "").rsplit("/", 1)[-1]
+        target = one.get("Target")
+        if target is None:
+            continue
+        out.append((kind, opc_target(source, target)))
+    return out
+
+
 def xlsx_facts(path: Path) -> dict:
     parts = {}
     with zipfile.ZipFile(path) as box:
         names = [one.filename for one in box.infolist()]
         parts = {one.filename: box.read(one.filename) for one in box.infolist()}
     print_setups = xlsx_print_setup(parts)
+    chart_lists = xlsx_charts(parts)
     wb = ET.fromstring(parts["xl/workbook.xml"])
     sheets = []
     for one in wb.iter():
@@ -508,6 +652,7 @@ def xlsx_facts(path: Path) -> dict:
         "merged": merged,
         "dimensions": dims,
         "print_setup": print_setups,
+        "charts": chart_lists,
         "defined_names": len([
             one
             for one in wb.iter()
