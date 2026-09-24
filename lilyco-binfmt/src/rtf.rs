@@ -386,10 +386,11 @@ pub fn extract(bytes: &[u8]) -> Rtf {
     let mut notes: Vec<String> = Vec::new();
     // 正文里用到的样式号（样式表那一群自己不算，跳过的区域里也不算）
     let mut uses: Vec<u64> = Vec::new();
-    // 段那一份账：每段收尾时记下「这一段的字从哪儿起」与「这一段用的是哪个样式号」。
-    // 收尾点就是段控制字（`\par` 那几个）与行控制字（`\row`），样式号在段属性里，
-    // 一定写在收尾之前。这一段与 `lines` 是两本账：这里空段也留
-    let mut marks: Vec<(usize, Option<u64>)> = Vec::new();
+    // 段那一份账：每段收尾时记下「这一段的字从哪儿到哪儿」与「这一段用的是哪个样式号」。
+    // 收尾点就是段控制字（`\par` 那几个）与行控制字（`\row`）；两端都记下，是因为切片
+    // 只写起点会把后面整篇字都当成这一段的内容（那个 bug 由 CI 抓出来：标题变成整份文档）。
+    // 这一段与 `lines` 是两本账：这里空段也留
+    let mut marks: Vec<(usize, usize, Option<u64>)> = Vec::new();
     let mut para_start = 0usize;
     let mut para_style: Option<u64> = None;
     let mut me = Rtf {
@@ -643,7 +644,7 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         } else if !skipping {
             if BREAK_WORDS.contains(&word.as_str()) || ROW_WORDS.contains(&word.as_str()) {
                 out.push(b'\n');
-                marks.push((para_start, para_style));
+                marks.push((para_start, out.len(), para_style));
                 para_start = out.len();
                 para_style = None;
             } else if TAB_WORDS.contains(&word.as_str()) {
@@ -704,9 +705,9 @@ pub fn extract(bytes: &[u8]) -> Rtf {
     // 用了却没定义的号（样式表里查不到）不算标题，也不给它编一个名字
     let headings: Vec<Value> = marks
         .iter()
-        .filter_map(|(start, style)| {
+        .filter_map(|(start, end, style)| {
             let level = heading_level(&me.styles, (*style)?)?;
-            let text = String::from_utf8_lossy(out.get(*start..)?)
+            let text = String::from_utf8_lossy(out.get(*start..*end)?)
                 .trim()
                 .to_string();
             if text.is_empty() {
@@ -1403,6 +1404,13 @@ mod tests {
             "{:?}",
             extract(&fixture("notes-end.rtf")).headings
         );
+        // 一条标题就是**一段**：换行与制表都不该混进它的字里。
+        // 这一条要单独守 —— 上一版把切片写成「从起点到文末」，层级数全对、文本却吃掉整篇文档，
+        // 只比条数与层级的断言抓不住
+        for one in real.headings.iter().chain(one.headings.iter()) {
+            let text = one["text"].as_str().unwrap_or_default();
+            assert!(!text.contains('\n') && !text.contains('\t'), "{text}");
+        }
     }
 
     /// 空输入与只有控制字的输入：给空文本，而不是 panic
