@@ -177,6 +177,9 @@ fn demo_story_builds_end_to_end_with_zero_issues() {
 
     let dir = tempdir().unwrap();
     init_project(dir.path(), "回忆序章").unwrap();
+    // write_story_project 会按 compile.js 语义**原地改写**解析树（无立绘不显形）——
+    // 确定性验收对象是「同 DSL 两次 parse」，改写前先存原始快照
+    let original = story_json(&story);
     write_story_project(dir.path(), &mut story, Some("回忆序章")).unwrap();
 
     // 无立绘不显形（Node compile.js 后处理）：DSL 未登记表情素材 →
@@ -212,9 +215,10 @@ fn demo_story_builds_end_to_end_with_zero_issues() {
         );
     }
 
-    // 两次构建：除块 id 外逐字一致（同 stable_id_matches_node_reference_vectors 的算法锚点）
+    // 两次构建：除块 id 外逐字一致（同 stable_id_matches_node_reference_vectors 的算法锚点）；
+    // 对比对象 = 改写前的原始 parse 树（落盘树含「无立绘不显形」改写，是预期差异）
     let again = parse_story(dsl);
-    let (mut va, mut vb) = (story_json(&story), story_json(&again));
+    let (mut va, mut vb) = (original, story_json(&again));
     strip_ids(&mut va);
     strip_ids(&mut vb);
     assert_eq!(va, vb, "真实手稿两次构建必须确定性");
