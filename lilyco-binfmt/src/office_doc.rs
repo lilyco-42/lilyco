@@ -117,7 +117,7 @@ fn switch_value(instruct: &str, switch: &str) -> Option<String> {
 }
 
 /// 一处尺寸（`wp:extent` 或 `pic:spPr/a:xfrm/a:ext`）：写的数与换算出来的 0.01mm
-fn size_row(node: Option<&xmlscan::Node>) -> Value {
+pub(crate) fn size_row(node: Option<&xmlscan::Node>) -> Value {
     let Some(one) = node else { return Value::Null };
     let mm = |want: &str| -> Value {
         one.attr_local(want)
@@ -241,7 +241,7 @@ fn docx_pictures(body: &xmlscan::Node, rels: &[crate::opack::Rel], limit: usize)
 /// 从那份带 `wp:anchor` 的 docx 转回来成了 `char`，照文件交，不折成同一个词。
 /// 属性表按文件写的名字交（`svg:` 与 `draw:` 留着），与 ODF 别处同一口径。
 /// 只数带 `draw:image` 的那些 frame —— 装嵌入对象与图的是 `draw:object`，另有一份账。
-fn odt_pictures(body: &xmlscan::Node, limit: usize) -> Vec<Value> {
+pub(crate) fn odt_pictures(body: &xmlscan::Node, limit: usize) -> Vec<Value> {
     let mut out: Vec<Value> = Vec::new();
     for frame in body
         .descendants("frame")
@@ -401,7 +401,7 @@ fn odf_page_breaks(root: &xmlscan::Node, text_body: &xmlscan::Node) -> usize {
 
 /// docx 的属性交**局部名**（`w:left` → `left`）：这一族的前缀不是契约的一部分。
 /// 命名空间声明（`xmlns=` / `xmlns:前缀=`）不算属性 —— 标准库的 XML 读者也不把它放进 attrib
-fn attr_map(node: &xmlscan::Node) -> Value {
+pub(crate) fn attr_map(node: &xmlscan::Node) -> Value {
     let mut out = serde_json::Map::new();
     for (key, value) in &node.attrs {
         if key == "xmlns" || key.starts_with("xmlns:") {

@@ -349,6 +349,64 @@ def docx_picture_rows(body, parts: dict) -> list:
     return out
 
 
+def pptx_picture_rows(root, parts: dict, name: str) -> list:
+    """页上那张图（与 Rust 的 `slide_pictures` 同一条规则）
+
+    pptx 只把尺寸写在 `p:spPr/a:xfrm/a:ext` **一处**（docx 那边有 `wp:extent` 与
+    `a:ext` 两处而两家写的数不同），位置 `a:off` 倒写在这一层；替代文字也只有
+    `p:cNvPr/@descr` 一处。python-pptx 在没给替代文字时把**源文件名**写进那个键
+    （`descr="dot.png"`），所以 `descr` 按写的交、`descr_written` 只说这个属性在不在，
+    「那是不是一句描述」不归读者判。号只在这页自己的关系表里解成包内路径。
+    """
+    stem = name[: -len(".xml")]
+    rel_part = f"{stem[: stem.rindex('/')]}/_rels/{stem[stem.rindex('/') + 1 :]}.xml.rels"
+    hop: dict[str, tuple] = {}
+    if rel_part in parts:
+        for one in ET.fromstring(parts[rel_part]):
+            if xml_local(one.tag) != "Relationship" or one.get("Id") in hop:
+                continue
+            hop[one.get("Id")] = (one.get("Target"), one.get("TargetMode") or "")
+    out = []
+    for pic in [one for one in root.iter() if xml_local(one.tag) == "pic"]:
+        named = _first_any(pic, "cNvPr")
+        blip = _first_any(pic, "blip")
+        embed = local_attr(blip, "embed") if blip is not None else None
+        raw_target, mode = hop.get(embed, (None, "")) if embed else (None, "")
+        target_part = None
+        if raw_target is not None and mode != "External":
+            got = opc_target(name, raw_target)
+            target_part = got if got in parts else None
+        xfrm = _first_any(pic, "xfrm")
+        off = _first_kid(xfrm, "off") if xfrm is not None else None
+        ext = _first_kid(xfrm, "ext") if xfrm is not None else None
+        locks = _first_any(pic, "picLocks")
+        stretch = _first_any(pic, "stretch")
+        geom = _first_any(pic, "prstGeom")
+        off_x = local_attr(off, "x") if off is not None else None
+        off_y = local_attr(off, "y") if off is not None else None
+        out.append({
+            "id": local_attr(named, "id") if named is not None else None,
+            "name": local_attr(named, "name") if named is not None else None,
+            "descr": local_attr(named, "descr") if named is not None else None,
+            "descr_written": named is not None and local_attr(named, "descr") is not None,
+            "written": written_attrs(named) if named is not None else None,
+            "blip_id": embed,
+            "target": target_part,
+            "ext": _size_row(ext),
+            "off": {
+                "x": off_x,
+                "y": off_y,
+                "mm_x": mm_of(off_x, "emu"),
+                "mm_y": mm_of(off_y, "emu"),
+            },
+            "locks": written_attrs(locks) if locks is not None else None,
+            # 拉伸那份写法：`<a:stretch><a:fillRect/></a:stretch>` 与一个空的 `<a:stretch/>`
+            "stretch": [xml_local(one.tag) for one in stretch] if stretch is not None else None,
+            "prst": local_attr(geom, "prst") if geom is not None else None,
+        })
+    return out
+
+
 def odf_text_root(root):
     """`office:body` 里那个 `office:text`（与 Rust 那边同一条：找不到就退回整份根）"""
     for one in root.iter():
@@ -2422,6 +2480,7 @@ def pptx_facts(path: Path) -> dict:
                 "text_runs": len(texts),
                 "shapes": len(shapes),
                 "pictures": len(pics),
+                "picture_rows": pptx_picture_rows(root, parts, name),
                 "graphic_frames": len(tables),
                 "placeholders": placeholders,
                 "notes": notes.strip(),
@@ -3930,6 +3989,9 @@ def odp_facts(path: Path) -> dict | None:
                 "notes": notes,
                 "notes_frame_classes": note_classes,
                 "pictures": sum(1 for one in page.iter() if xml_local(one.tag) == "image"),
+                "picture_rows": odt_picture_rows(
+                    page, ns_prefixes(parts["content.xml"].decode("utf8"))
+                ),
                 "tables": sum(1 for one in page.iter() if xml_local(one.tag) == "table"),
                 # 这一族的链接直接写在字上，且只走页上的 frame（备注那一块另算）
                 "links": odp_slide_links(

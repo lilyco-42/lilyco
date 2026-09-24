@@ -138,6 +138,9 @@ def main() -> int:
         "deck-hidden.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-hidden-lo.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-hidden.odp": ("opendocument", "powerpoint", "odp"),
+        "deck-pictures.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-pictures-lo.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-pictures.odp": ("opendocument", "powerpoint", "odp"),
         "deck-lo.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-chart.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-chart-lo.pptx": ("ooxml", "powerpoint", "pptx"),
@@ -3429,6 +3432,72 @@ def main() -> int:
          dig(styled, "sheets[0].cell_list[5].style_font.parts[0].attrs.indexed"),
          dig(styled_lo, "sheets[0].cell_list[5].style_font.parts[1].attrs.rgb")],
         ["lightGrid", "solid", "FF00B050", "FF90DDB3", "64", "FF000000"],
+    )
+
+    # ── 3j) 页上那张图：alt 只有一处，而那一处写的可以是文件名 ─────────
+    print("=== 3j) 页上的图：一处尺寸一处位置，alt 只有一处而它可以不是描述 ===")
+    for name in ("deck-pictures.pptx", "deck-pictures-lo.pptx"):
+        got = lbin("office-slide", fixture(name))
+        want = {one["part"]: one["picture_rows"] for one in files[name]["ooxml"]["slides"]}
+        mine = {one["part"]: one for one in (dig(got, "slides") or [])}
+        check("%s 每页那张图的整份账与读者一致（尺寸、位置、锁、拉伸、alt）" % name,
+              {k: (mine.get(k) or {}).get("picture_list") for k in want}, want)
+        check("%s 每页几张图、几张写着非空的 descr" % name,
+              {k: [(mine.get(k) or {}).get("pictures"),
+                   (mine.get(k) or {}).get("pictures_with_alt_text")] for k in want},
+              {k: [len(v), sum(1 for one in v if one["descr"])] for k, v in want.items()})
+    odpic = lbin("office-slide", fixture("deck-pictures.odp"))
+    want = {one["name"]: one["picture_rows"] for one in files["deck-pictures.odp"]["odp"]["slides"]}
+    mine = {one["name"]: one for one in (dig(odpic, "slides") or [])}
+    check("deck-pictures.odp 每页那张图的整份账与读者一致（frame 那份账与 odt 同一条）",
+          {k: (mine.get(k) or {}).get("picture_list") for k in want}, want)
+    check("deck-pictures.odp 每页几张图、几张有替代文字",
+          {k: [(mine.get(k) or {}).get("pictures"),
+               (mine.get(k) or {}).get("pictures_with_alt_text")] for k in want},
+          {k: [len(v), sum(1 for one in v if one["alt"])] for k, v in want.items()})
+
+    pics = lbin("office-slide", fixture("deck-pictures.pptx"))
+    pics_lo = lbin("office-slide", fixture("deck-pictures-lo.pptx"))
+    check(
+        "没给替代文字那一张：python-pptx 把源文件名写进了 descr —— 数出来「有 alt」而那句不是描述",
+        [dig(pics, "slides[1].picture_list[0].name"),
+         dig(pics, "slides[1].picture_list[0].descr"),
+         dig(pics, "slides[1].picture_list[0].descr_written"),
+         dig(pics, "slides[1].pictures_with_alt_text")],
+        ["Picture 1", "dot.png", True, 1],
+    )
+    check(
+        "来回一趟换掉的三样：号被重排、锁整个不见、尺寸从 4000 变成 3999",
+        [dig(pics, "slides[0].picture_list[0].blip_id"),
+         dig(pics_lo, "slides[0].picture_list[0].blip_id"),
+         dig(pics, "slides[0].picture_list[0].locks"),
+         dig(pics_lo, "slides[0].picture_list[0].locks"),
+         dig(pics, "slides[0].picture_list[0].ext.mm_w"),
+         dig(pics_lo, "slides[0].picture_list[0].ext.mm_w"),
+         dig(pics, "slides[0].picture_list[0].stretch"),
+         dig(pics_lo, "slides[0].picture_list[0].stretch")],
+        ["rId2", "rId1", {"noChangeAspect": "1"}, None, 4000, 3999, ["fillRect"], []],
+    )
+    check(
+        "位置与尺寸同层（off 360000 = 1cm），而 odp 那一族的图框不写 anchor-type，摆法交 null",
+        [dig(pics, "slides[0].picture_list[0].off.mm_x"),
+         dig(pics, "slides[0].picture_list[0].off.mm_y"),
+         dig(pics, "slides[1].picture_list[0].off.mm_x"),
+         dig(pics, "slides[0].picture_list[0].target"),
+         dig(odpic, "slides[0].picture_list[0].placed"),
+         dig(odpic, "slides[0].picture_list[0].mm_w"),
+         dig(odpic, "slides[0].picture_list[0].alt")],
+        [1000, 1000, 10000, "ppt/media/image1.png", None, 3999, "一个红点"],
+    )
+    check(
+        "不写宽高那一张：python-pptx 按 72 DPI 把 40px 换成 508000 EMU，LO 重写又换成 507600",
+        [dig(pics, "slides[1].picture_list[0].ext.cx"),
+         dig(pics, "slides[1].picture_list[0].ext.mm_w"),
+         dig(pics_lo, "slides[1].picture_list[0].ext.cx"),
+         dig(pics_lo, "slides[1].picture_list[0].ext.mm_w"),
+         dig(odpic, "slides[1].picture_list[0].mm_h"),
+         dig(odpic, "slides[1].picture_list[0].style")],
+        ["508000", 1411, "507600", 1410, 846, "gr1"],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──

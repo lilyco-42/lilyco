@@ -1107,6 +1107,32 @@ def poke_anchor(src: Path, dst: Path) -> None:
             zout.writestr(item, data)
 
 
+def write_pictures_pptx(path: Path, dot: Path) -> None:
+    """页上那两张图：一张给了替代文字，另一张什么都没给
+
+    什么都没给那一张才是这条分支的理由：python-pptx 把**源文件名**写进了
+    `p:cNvPr/@descr`（`descr="dot.png"`），于是文件上「有 alt」而那句话不是描述。
+    尺寸一处（`a:xfrm/a:ext`）而位置（`a:off`）写在同一层；第二张不写宽高，
+    由 python-pptx 按 72 DPI 从像素换算出 `508000`（40px）—— 那一句假设在文件里
+    没有任何地方写出来，所以只交这个数，不替它解释。
+    替代文字那格用的是私有 XML（python-pptx 没有公开 setter），写的是文件那一层。
+    """
+    from pptx import Presentation
+    from pptx.util import Cm
+
+    prs = Presentation()
+    blank = prs.slide_layouts[6]
+    first = prs.slides.add_slide(blank)
+    pic = first.shapes.add_picture(str(dot), Cm(1), Cm(1), width=Cm(4), height=Cm(2.4))
+    pic.name = "红点"
+    pic._element.nvPicPr.cNvPr.set("descr", "一个红点")
+    second = prs.slides.add_slide(blank)
+    second.shapes.add_picture(str(dot), Cm(10), Cm(5))
+    third = prs.slides.add_slide(blank)
+    third.shapes.add_textbox(Cm(1), Cm(1), Cm(8), Cm(2)).text_frame.text = "没有图的一页"
+    prs.save(path)
+
+
 def write_para_docx(path: Path) -> None:
     """python-docx：四种段落写法 + 一节两栏 —— 「这一段到底排成什么样」
 
@@ -2278,6 +2304,23 @@ def main() -> int:
                 shutil.copyfile(again, OUT / "images-float.odt")
             else:
                 print("⚠️  没拿到 images-float.odt（anchor 那一族转回 ODF）")
+
+    # 页上那两张图：pptx 由 python-pptx 写，odp 由 LibreOffice 导出，再转回一份 pptx
+    # （第三份正是那条来回：LO 的 OOXML 会丢掉 a:picLocks 并把尺寸换成另一个 EMU 数）
+    deck_pics = OUT / "deck-pictures.pptx"
+    write_pictures_pptx(deck_pics, dot)
+    convert(exe, deck_pics, "odp", SCRATCH / "pic-odp")
+    made = SCRATCH / "pic-odp" / "deck-pictures.odp"
+    if not made.exists():
+        print("⚠️  没拿到 deck-pictures.odp")
+    else:
+        shutil.copyfile(made, OUT / "deck-pictures.odp")
+        convert(exe, made, "pptx", SCRATCH / "pic-back")
+        again = SCRATCH / "pic-back" / "deck-pictures.pptx"
+        if again.exists():
+            shutil.copyfile(again, OUT / "deck-pictures-lo.pptx")
+        else:
+            print("⚠️  没拿到 deck-pictures-lo.pptx（odp → pptx 那一转）")
 
     # 段落格式与分栏那三件套：docx 由 python-docx 写，odt / rtf 都由 LibreOffice 导出
     para = OUT / "para.docx"

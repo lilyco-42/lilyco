@@ -115,6 +115,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `images.odt` / `images.rtf` | LibreOffice（从 `images.docx` 导出） | 另两种存法：ODF 把尺寸写成**自带单位的串**（`svg:width="4.001cm"` → 同一个 4001）、摆法写在**属性** `text:anchor-type="as-char"` 上、替代文字搬到**孩子元素** `svg:desc`、地址是 `draw:image/@xlink:href`（没有关系表这一层，路径是生产者按图片尺寸自己拼出来的那个长名）；RTF 只留 `\picscalex472 / picw40 / pich24 / picwgoal480` 那一串与 `pngblip`，而替代文字搬进了 `{\*\picprop}` 里的 `{\sn wzDescription}` |
 | `images-float.docx` | LibreOffice（从 `poke_anchor` 改过锚点的那份 ODT 导出） | 「浮在页上、文字绕着排」那一种，**手上没有一个生产者会自己写出来**（python-docx 只写 inline，LibreOffice 插入默认也是 inline），所以输入是把 `images.odt` 那格的 `text:anchor-type` 改成 `page`、样式换成同一份 `styles.xml` 里带 `style:wrap="dynamic"` 的 `Graphics`；**输出那份 docx 的每个字节都是 LibreOffice 写的**：`wp:anchor` 带十个属性、`wp:simplePos`、`wp:positionH relativeFrom="column"` 里面写 `<wp:align>center`（词在字里）、`wp:positionV relativeFrom="paragraph"` 里面写 `<wp:posOffset>635`（数在字里）、`wp:wrapSquare wrapText="largest"` |
 | `images-float.odt` | LibreOffice（从 `images-float.docx` 转回 ODF） | 那一种摆法换到 ODF 里成了**另一个词**：`text:anchor-type="char"`（不是 `as-char`），另补 `svg:y="0.002cm"` 与 `draw:z-index="0"` —— 同一个选择在两家的文件里是两个串，各按各的交；来回一圈之后 OOXML 那一侧的 `wp:anchor` 与绕排也不见了（重写不是无损的，这里正看得见） |
+| `deck-pictures.pptx` | python-pptx（`write_pictures_pptx`，图仍是那张 40×24 的 `dot.png`） | 页上那张图的第一种摆法：尺寸只有 `a:xfrm/a:ext` **一处**（`1440000` = 4000）而位置 `a:off` 也在同一层（`360000` = 1cm）、alt 只有 `p:cNvPr/@descr` 一处（第一页写「一个红点」，**第二页什么都没给，python-pptx 把文件名 `dot.png` 填进了那个键**）、第二页不写宽高，于是按 72 DPI 换成 `508000`（=1411），另有 `a:picLocks noChangeAspect="1"` 与 `<a:stretch><a:fillRect/></a:stretch>`；第三页一张图也没有（交空表） |
+| `deck-pictures.odp` | LibreOffice（从 `deck-pictures.pptx` 导出） | 换一家：`svg:width="3.999cm"`（同一个 3999）、alt 搬成孩子元素 `svg:desc`、地址是 `draw:image/@xlink:href`，而**图框不写** `text:anchor-type`（odt 那边写 `as-char`）→ 那一族的 `placed` 是 null |
+| `deck-pictures-lo.pptx` | LibreOffice（`deck-pictures.odp` → .pptx，一趟来回） | 来回之后不见的三样：`a:picLocks` 整个没了、`<a:stretch/>` 缩成空的（`fillRect` 没了）、尺寸从 `1440000` 换成 `1439640`（4000 → 3999）；留下的：名字与两句 alt 一字未变、`a:off` 分毫未动，而号全被重排（`rId2` → `rId1`、形状 id 2 → 63） |
 
 ## 几件只有踩过才会记下来的事
 
@@ -1242,6 +1245,22 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       `svg:desc` 的字、`wzDescription` 的值），而字一字不差 —— 三处都读，谁也不替谁圆场。
     * 「两种摆法都不是」的那种 `w:drawing` 也不造一条占位记录：这一族另有 `w:pict`，
       手上没有件可量。缺口由 `structure.drawings` 与 `structure.pictures` 的差自己说。
+
+72. **「这页的图有替代文字吗」在 pptx 只有一处可问，而那一处可以写着文件名**（`deck-pictures.pptx`、`deck-pictures.odp`、`deck-pictures-lo.pptx`）。
+    * 与文档那一族相反：pptx 一页一张图只写**一处**尺寸（`p:spPr/a:xfrm/a:ext`），alt 也只有一处
+      （`p:cNvPr/@descr`）。少了「两处不一样」的余地，也少了一处可以躲的地方。
+    * 坑在第二页：调用者**没有**给替代文字，python-pptx 于是把源文件名写进 `@descr`
+      （`descr="dot.png"`）。所以「有几张图有 alt」这一问在文件上答案是 1，而那句根本不是描述。
+      这本账的三个键各说一件事 —— `descr` 照写、`descr_written` 只说属性在不在、
+      `pictures_with_alt_text` 只数非空串；把「是不是人在描述」交给读的人，就是替文件下结论。
+    * 不写宽高那一张：python-pptx 用 72 DPI 把 40px 换成 `508000` EMU，**文件里没有一个字写这个假设**。
+      所以交数不交解释（`mm_w` 1411 是同一条整数式子的结果，不是读者的猜测）。
+    * 来回一趟在图上看得最清楚：`a:picLocks` 整个不见、`<a:stretch>` 还在而里面的 `fillRect` 没了、
+      `1440000` 换成 `1439640`（4000 → 3999），而 `a:off` 与两句 alt 一字未动，号则全被重排
+      （`rId2` → `rId1`，形状 id 2 → 63）。留下的与不见的都按文件交。
+    * odp 走的是文档那一族同一份 frame 账（尺寸自带单位、alt 是孩子元素），但 Impress 给图框
+      **不写** `text:anchor-type` —— 那一族的 `placed` 是 null。同一个 ODF 家族里，odt 写了 `as-char`
+      而 odp 什么都没写，所以这不是「默认值」问题，是两家的写法本来就不一样。
 
 ## 这些数字从哪来
 
