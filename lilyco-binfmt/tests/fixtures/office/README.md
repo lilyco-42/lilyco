@@ -23,7 +23,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `notes.doc` | LibreOffice（从 `notes.docx`） | MS-CFB 复合文档 + WordDocument 流 + `1Table` 里的 piece 表 |
 | `notes-en.doc` | LibreOffice（从纯 ASCII 的 `notes-en.docx`） | 中英一视同仁仍写 16 位 piece —— 记下这个事实，见下 |
 | `book.xls` | LibreOffice（从 `book.xlsx`） | BIFF8：BOUNDSHEET（含隐藏表）、SST + CONTINUE、LABELSST / RK / FORMULA |
-| `deck.ppt` | LibreOffice（从 `deck.pptx`） | PowerPoint 97 记录树 + 一个 59 万字节、走 FAT 的属性集流（大流那条分支的样本） |
+| `deck.ppt` | LibreOffice（从 `deck.pptx`） | PowerPoint 97 记录树 + 一个 59 万字节、走 FAT 的属性集流（大流那条分支的样本）；按 `0x03EE` 归出 2 页，与 `deck.pptx` 每页逐张一致 |
 | `notes.rtf` | LibreOffice（从 `notes.docx`） | 字体表、颜色表、样式表、`\*\userprops`、域代码与 `\'hh` 回退字节 |
 | `hidden.xlsx` | openpyxl 3.1（`write_hidden_xlsx`） | 第 3、4 行隐藏，C/D/E 三列隐藏，**D2/E2 里有字**；一列一条 `<col min="3" max="3" hidden="1">` |
 | `hidden-lo.xlsx` | LibreOffice（`hidden.ods` 转回 OOXML） | 同一份账的另一种写法：`<col min="3" max="5" hidden="true">` 一条盖三列，没隐藏的行也写着 `hidden="false"` |
@@ -46,12 +46,15 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
    `2013-12-23T23:15:00Z`（python-docx 的模板默认值），LibreOffice 转成 `.doc` 后
    OLE 属性集里的 FILETIME 换算是 `2013-12-23T15:15:00`。两边都照文件里的数报，
    谁也不许被"修正"成跟对方一样 —— 那是替文件编话。
-4. **`.ppt` 的「一张幻灯片」不是能从记录里直接数出来的**。`deck.ppt` 的 PowerPoint Document
+4. **`.ppt` 的「一张幻灯片」不是从记录名数出来的，是拿内容对出来的**。`deck.ppt` 的 PowerPoint Document
    流按 8 字节表头（`+0` recVer、`+2` recType、`+4` 长度）走满 1427 条记录、零处错位，
-   67 个文本原子（`0x0FA0` / `0x0FA8` / `0x0FBA`）全在里面 —— 但 `SlideContainer`
-   有 11 个（母版、备注页都算），**它不等于 2 张幻灯片**。所以 `office-slide` 对 `.ppt`
-   只报原子、`slides` 留空，并在 notes 里写明"要 SlideContainer 与 SlidePersistAtom 配对
-   才定得下页"。另一处只有踩过才知道的：`TextCharsAtom` 规范写"16 位字符、低字节
+   67 个文本原子（`0x0FA0` / `0x0FA8` / `0x0FBA`）全在里面 —— 但 `SlideContainer`（`0x03F8`）
+   有 11 个（母版、备注页都算），**它不等于 2 张幻灯片**。
+   真正一页一个的是 `recType 0x03EE` 的容器：这份文件里 2 个，各自子树里的文字与 `deck.pptx` 的
+   `ppt/slides/slide1.xml` / `slide2.xml` 逐张一致（张数、顺序、每行的字都对得上），所以
+   `office-slide` 按它归页，交回每页的行与原子数，并带上那条记录在流里的偏移 —— [MS-PPT] 的
+   规范文本我手上没有，故只报数值，不编 recType 的名字。归了页的原子 9 个，剩下 58 个不归任何一页 ——
+   备注页的字、母版与版式里的占位文字都在其中（`office-text` 逐条列，`office-slide` 不硬塞给某页）。另一处只有踩过才知道的：`TextCharsAtom` 规范写"16 位字符、低字节
    Windows-1252"，而 LibreOffice 对非 ASCII 写的是真 UTF-16 —— 高字节全零时两种读法结果
    相同，所以判据用字节自己给（见 `ppt.rs` 模块注释第 3 条）。
 

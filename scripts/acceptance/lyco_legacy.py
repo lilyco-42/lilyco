@@ -369,6 +369,9 @@ def biff_workbook(cfb_bytes: dict) -> dict:
 
 PPT_TEXT_ATOMS = {0x0FA0: "text-chars", 0x0FA8: "text-bytes", 0x0FBA: "c-string"}
 PPT_SLIDE_CONTAINER = 0x03F8
+PPT_C_STRING = 0x0FBA
+# 一页一个的容器（数值是实测出来的，与 pptx 侧逐张对过；名字我没有）
+PPT_SLIDE_RECORD = 0x03EE
 PPT_MAX_DEPTH = 8
 
 
@@ -418,9 +421,10 @@ def ppt_text(cfb_bytes: dict) -> dict:
         return {"error": "容器里没有 PowerPoint Document 流"}
     atoms: list = []
     notes: list = []
+    slides: list = []
     box = {"records": 0, "containers": 0, "slide_containers": 0}
 
-    def walk(buf: bytes, depth: int) -> None:
+    def walk(buf: bytes, depth: int, current: int | None) -> None:
         at = 0
         while at + 8 <= len(buf) and box["records"] < 200000:
             head = _ppt_head(buf, at)
@@ -433,23 +437,44 @@ def ppt_text(cfb_bytes: dict) -> dict:
                 return
             box["records"] += 1
             body = buf[at + 8 : end]
+            tiles_here = depth < PPT_MAX_DEPTH and bool(body) and _ppt_tiles(bytes(body))
+            # 按页归位：recType 0x03EE 的容器一页一个（这条对应关系是拿同一份文档的
+            # pptx 那一份逐张对出来的，不是照 recType 的名字猜的 —— 名字我没有）
+            child = current
+            if kind == PPT_SLIDE_RECORD and tiles_here:
+                slides.append({"record_offset": at, "depth": depth, "name": "", "atoms": 0, "lines": []})
+                # 只往**这一条记录的子树**里传，不复用 current：改了它，同一层后面的
+                # 兄弟记录（母版、备注…）就会被算进上一页
+                child = len(slides) - 1
             if kind in PPT_TEXT_ATOMS:
+                text = ppt_decode_atom(kind, body)
                 atoms.append(
                     {
                         "kind": PPT_TEXT_ATOMS[kind],
                         "depth": depth,
                         "offset": at,
-                        "text": ppt_decode_atom(kind, body),
+                        "text": text,
                     }
                 )
+                if child is not None:
+                    one = slides[child]
+                    one["atoms"] += 1
+                    if kind == PPT_C_STRING:
+                        # LibreOffice 每页写一条版式名（`___PPT10`），不是页面上的字
+                        if not one["name"]:
+                            one["name"] = text
+                    else:
+                        for part in text.replace("\r", "\n").replace("\x0b", "\n").split("\n"):
+                            if part.strip():
+                                one["lines"].append(part)
             if kind == PPT_SLIDE_CONTAINER:
                 box["slide_containers"] += 1
-            if depth < PPT_MAX_DEPTH and body and _ppt_tiles(bytes(body)):
+            if tiles_here:
                 box["containers"] += 1
-                walk(bytes(body), depth + 1)
+                walk(bytes(body), depth + 1, child)
             at = end
 
-    walk(bytes(raw), 0)
+    walk(bytes(raw), 0, None)
     lines: list = []
     for one in atoms:
         for part in one["text"].replace("\r", "\n").replace("\x0b", "\n").split("\n"):
@@ -461,5 +486,6 @@ def ppt_text(cfb_bytes: dict) -> dict:
         "lines": lines,
         "containers": box["containers"],
         "slide_containers": box["slide_containers"],
+        "slides": slides,
         "notes": notes,
     }

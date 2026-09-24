@@ -9,6 +9,9 @@
 //! 那个框旁边还坐着页码占位（样字「<编号>」）与缩略图，混着读就等于把占位符当正文。
 //! 尺寸也不在页上：`draw:master-page-name` → 样式文件里的 `style:master-page`
 //! → `style:page-layout-name` → 那个版式的 `style:page-layout-properties`。
+//!
+//! 遗留的 `.ppt`（PowerPoint 97）连包都不是，是一棵记录树：页按 `recType 0x03EE` 的容器
+//! 归（一页一个），这条对应关系是拿同一份文件的 pptx 逐张对出来的 —— 见 `ppt.rs`。
 
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -25,7 +28,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-slide",
     run = "run_office_slide",
-    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP answers with its own ladder: pages are draw:page (name on draw:name), the title comes from the frame whose presentation:class is title, speaker notes are the presentation:class=notes frame inside presentation:notes - the page-number placeholder sitting next to it holds the literal sample text <编号> and is never reported as slide content - and the page size is resolved through draw:master-page-name to styles.xml's style:master-page and then its style:page-layout. A file may name a presentation page layout (presentation-page-layout-name) without carrying any definition for it, which this command reports instead of inventing one. Legacy .ppt answers with what its PowerPoint 97 record tree honestly gives (record / container / text-atom counts) and an empty slide list, because per-slide attribution needs a pairing this reader will not guess. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
+    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP answers with its own ladder: pages are draw:page (name on draw:name), the title comes from the frame whose presentation:class is title, speaker notes are the presentation:class=notes frame inside presentation:notes - the page-number placeholder sitting next to it holds the literal sample text <编号> and is never reported as slide content - and the page size is resolved through draw:master-page-name to styles.xml's style:master-page and then its style:page-layout. A file may name a presentation page layout (presentation-page-layout-name) without carrying any definition for it, which this command reports instead of inventing one. Legacy .ppt is a PowerPoint 97 record tree rather than a package: it reports the record / container / text-atom counts and one entry per slide, because containers of recType 0x03EE occur exactly one per slide and their subtrees hold that slide's text atoms - a correspondence this reader measured against the very same document's .pptx form (count, order, and every line), not a name it copied from the spec, which is why the entries carry record offsets and not spec names. Text that belongs to no such container (master and layout placeholder wording) is counted but not attributed to a page. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
 )]
 pub struct OfficeSlide {
     /// 演示文稿（pptx / pptm / odp / ppt）
@@ -395,22 +398,42 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
         return Ok(result);
     }
     if doc.format == "ppt" {
-        // 97 的 .ppt 是一棵记录树：文本原子能读，但「第几页」要 SlideContainer 与
-        // SlidePersistAtom 配对才定得下来，定不下来就不报页数（报一个错的比不报更坏）。
+        // 97 的 .ppt 是一棵记录树。按页归位这条不是照规范背的（recType 的名字我
+        // 没有出处）：它是拿同一份文档的另一副面孔对出来的 —— 流里 recType 0x03EE
+        // 的容器恰好一页一个，各自子树里的文字原子与 deck.pptx 的
+        // ppt/slides/slideN.xml 逐张一致（张数、顺序、每行的字都对得上）。
         let mut deck_json = Value::Null;
+        let mut ppt_slides: Vec<Value> = Vec::new();
         match doc
             .compound
             .as_ref()
             .map(|cfb| crate::ppt::read(cfb, bytes))
         {
             Some(Ok(deck)) => {
+                for (index, one) in deck.slides.iter().enumerate() {
+                    ppt_slides.push(json!({
+                        "index": index,
+                        "title": one.lines.first().cloned().unwrap_or_default(),
+                        "texts": one.lines,
+                        "paragraph_total": one.lines.len(),
+                        "record_offset": one.offset,
+                        "depth": one.depth,
+                        "text_atoms": one.atoms,
+                        "layout_name": one.name,
+                    }));
+                }
                 notes.push(format!(
-                    "记录树走过 {} 条记录，文本原子 {} 个（其中 SlideContainer {} 个）；\
-                     幻灯片张数要从 SlideContainer 与 SlidePersistAtom 的配对读出，\
-                     这一版不猜，正文逐条见 office-text",
+                    "记录树走过 {} 条记录，文本原子 {} 个；按页归好 {} 页 \
+                     （recType 0x03EE 的容器一页一个，这个对应关系是与同一份文件的 \
+                     pptx 逐张对出来的，不是照规范命名 —— 那份规范我手上没有）；\
+                     没归进页的那 {} 个原子是备注页的字与母版、版式里的占位文字，\
+                     逐条见 office-text",
                     deck.records,
                     deck.atoms.len(),
-                    deck.slide_containers,
+                    deck.slides.len(),
+                    deck.atoms
+                        .len()
+                        .saturating_sub(deck.slides.iter().map(|one| one.atoms).sum::<usize>()),
                 ));
                 notes.extend(deck.notes.iter().cloned());
                 deck_json = json!({
@@ -418,6 +441,7 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
                     "text_atoms": deck.atoms.len(),
                     "containers": deck.containers,
                     "slide_containers": deck.slide_containers,
+                    "grouped_pages": deck.slides.len(),
                     "atoms": deck.atoms.iter().map(|one| json!({
                         "kind": one.kind, "depth": one.depth, "text": one.text,
                     })).collect::<Vec<Value>>(),
@@ -430,7 +454,7 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
             "path": app.path.to_string_lossy(),
             "format": doc.format,
             "kind": "powerpoint-binary",
-            "slides": [],
+            "slides": ppt_slides,
             "record_tree": deck_json,
             "notes": notes,
         });
@@ -583,23 +607,50 @@ mod tests {
         );
     }
 
-    /// .ppt 的记录树现在读得出文本原子，但**不猜页数**：张数要靠 SlideContainer 与
-    /// SlidePersistAtom 的配对，那一层没做就把 `slides` 留空并把局限写在 notes 里
+    /// .ppt 按页归位：recType 0x03EE 的容器一页一个，页里的文字与**同一份文档的
+    /// pptx 那一副面孔**逐张一致（上面那个 pptx 测试里的两张标题、每行的字）。
+    /// 归属关系有这份实测撑着，recType 的**规范名字**没有出处，所以只报数值
     #[test]
-    fn legacy_ppt_reads_the_record_tree_but_refuses_to_guess_pages() {
+    fn legacy_ppt_groups_its_record_tree_one_entry_per_slide() {
         let out = run("deck.ppt");
         assert_eq!(out["kind"], "powerpoint-binary");
-        assert!(out["slides"].as_array().expect("是数组").is_empty());
         assert_eq!(out["record_tree"]["text_atoms"], 67, "{out}");
         assert_eq!(out["record_tree"]["records"], 1427);
         assert_eq!(out["record_tree"]["slide_containers"], 11);
-        let atoms = out["record_tree"]["atoms"].as_array().expect("是数组");
-        assert!(
-            atoms
-                .iter()
-                .any(|one| one["text"].as_str().unwrap_or("") == "预算评审"),
-            "幻灯片标题要在原子里"
+        let slides = out["slides"].as_array().expect("是数组");
+        assert_eq!(slides.len(), 2, "{out}");
+        assert_eq!(slides[0]["title"], "预算评审");
+        assert_eq!(slides[1]["title"], "第二页：数字");
+        assert_eq!(
+            slides[0]["texts"],
+            json!(["预算评审", "新增两台 64 核应用服务器", "第二条要点"]),
+            "{slides[0]}"
         );
+        assert_eq!(
+            slides[1]["texts"],
+            json!(["第二页：数字", "科目", "金额", "服务器", "124000"]),
+            "{slides[1]}"
+        );
+        // 每页那条 CString 是 LibreOffice 写的版式名，不能混进正文行
+        assert_eq!(slides[0]["layout_name"], "___PPT10");
+        for one in slides.iter() {
+            let lines = one["texts"].as_array().expect("texts 是数组");
+            assert!(
+                !lines
+                    .iter()
+                    .any(|line| line.as_str().unwrap_or("").starts_with("___PPT")),
+                "版式名不算页面上的字：{one}"
+            );
+        }
+        assert_eq!(slides[0]["record_offset"], 48900);
+        assert_eq!(slides[1]["record_offset"], 50474);
+        // 母版与版式里的占位文字不归任何一页：按页归好的原子总数比全流少
+        let grouped: usize = slides
+            .iter()
+            .map(|one| one["text_atoms"].as_u64().unwrap_or(0) as usize)
+            .sum();
+        assert_eq!(grouped, 9, "{slides}");
+        assert!(grouped < out["record_tree"]["text_atoms"].as_u64().unwrap_or(0) as usize);
         let note = out["notes"]
             .as_array()
             .expect("有 notes")
@@ -608,7 +659,10 @@ mod tests {
             .collect::<Vec<_>>()
             .join(" ");
         assert!(note.contains("记录树"), "{note}");
-        assert!(note.contains("不猜"), "说不清的局限要写明：{note}");
+        assert!(
+            note.contains("我手上没有"),
+            "recType 的名字没有出处这件事要写明：{note}"
+        );
     }
 
     #[test]

@@ -270,6 +270,19 @@ def main() -> int:
     check("deck.ppt 行数一致", ppt97.get("total_paragraphs"), len(ppt_want["lines"]))
     slide97 = lbin("office-slide", fixture("deck.ppt"))
     check("deck.ppt office-slide 也说记录树", dig(slide97, "record_tree.text_atoms"), len(ppt_want["text_atoms"]))
+    # 按页归位：两位读者对同一棵树分组，逐页比行、原子数、偏移与那条版式名
+    check("deck.ppt 按页归位的行数", [one["texts"] for one in slide97.get("slides", [])],
+          [one["lines"] for one in ppt_want["slides"]])
+    check("deck.ppt 每页原子数", [one["text_atoms"] for one in slide97.get("slides", [])],
+          [one["atoms"] for one in ppt_want["slides"]])
+    check("deck.ppt 每页记录偏移", [one["record_offset"] for one in slide97.get("slides", [])],
+          [one["record_offset"] for one in ppt_want["slides"]])
+    check("deck.ppt 每页版式名", [one["layout_name"] for one in slide97.get("slides", [])],
+          [one["name"] for one in ppt_want["slides"]])
+    # 归属的出处在这里：同一份文档的 pptx 那副面孔，每页标题逐张相同
+    check("deck.ppt 与 deck.pptx 页数相同", len(slide97.get("slides", [])), len(slide.get("slides", [])))
+    check("deck.ppt 与 deck.pptx 每页标题", [one["title"] for one in slide97.get("slides", [])],
+          [one["title"] for one in slide.get("slides", [])])
     rtf = lbin("office-text", fixture("notes.rtf"))
     check("notes.rtf 逐行文本", [one["text"] for one in rtf.get("paragraphs", [])], files["notes.rtf"]["rtf"]["lines"])
     # RTF 的页眉页脚与正文在同一个流里，只靠目标群分开：正文不许带上页眉的字

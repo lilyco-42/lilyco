@@ -583,7 +583,9 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                         parts_read.push("PowerPoint Document".to_string());
                         notes.extend(deck.notes.iter().cloned());
                         notes.push(format!(
-                            "97 记录树里文本原子有 {} 个（走过 {} 条记录）；母版、备注与幻灯片正文同在一棵树里，按页归位要靠 SlideContainer 与 SlidePersistAtom 的配对，这里不猜",
+                            "97 记录树里文本原子有 {} 个（走过 {} 条记录）；母版、备注与幻灯片正文同在一棵树里，\
+                             这一条按流的顺序全列，按页归位在 office-slide（它按 recType 0x03EE 的容器分组，\
+                             那个对应关系是与同一份文件的 pptx 逐张对出来的）",
                             deck.atoms.len(),
                             deck.records,
                         ));
