@@ -1703,13 +1703,69 @@ def main() -> int:
           ("8000", None, None, False), ("", None, None, True)],
          ["科目\n金额", "", "备注", "服务器", "124000", "含税", "网络\n设备", "8000", ""]],
     )
+    # odp 是第三种写法：表在 `draw:frame` 里，而**表名与位置只在 frame 上**
+    # （`table:table` 自己实测一个字都不写），读表的那一份与 .ods 是同一条路
+    for name in ("deck-tables.odp", "deck.odp", "deck-chart.odp"):
+        want = files[name].get("odp") or {}
+        got = lbin("office-slide", fixture(name))
+        check(
+            "%s 每页那些表整份账与读者一致" % name,
+            [one.get("table_list") for one in got.get("slides", [])],
+            [one.get("table_list") for one in want.get("slides", [])],
+        )
     odp_slide = lbin("office-slide", fixture("deck-tables.odp"))
+    O = "slides[1].table_list[0]"
     check(
-        "odp 那一份只数表不铺网（table_list 这个键干脆不交）",
-        [dig(odp_slide, "slides[0].tables"),
-         [had.get("name") for had in odp_slide.get("slides", [])
-          if had.get("table_list") is not None]],
-        [1, []],
+        "odp 的表名与位置在 frame 上，而 `table:table` 自己一个字都不写",
+        [dig(lbin("office-slide", fixture("deck.odp")), "slides[1].tables"),
+         dig(lbin("office-slide", fixture("deck.odp")), "slides[1].table_list[0].frame.name"),
+         dig(lbin("office-slide", fixture("deck.odp")), "slides[1].table_list[0].written"),
+         dig(lbin("office-slide", fixture("deck.odp")), "slides[1].table_list[0].name")],
+        [1, "Table 2", {}, ""],
+    )
+    check(
+        "同一张表的第三副账：frame 的宽 17.779cm 与两副 pptx 的 6400800 EMU 是同一个数",
+        [dig(odp_slide, O + ".frame.width"), dig(odp_slide, O + ".frame.x"),
+         dig(odp_slide, O + ".frame.y"), dig(odp_slide, O + ".frame.height"),
+         [dig(odp_slide, "%s.layout.columns.list[%d].size_mm" % (O, i)) for i in range(3)],
+         [dig(odp_slide, "%s.layout.rows.list[%d].size_mm" % (O, i)) for i in range(3)]],
+        ["17.779cm", "2.54cm", "5.08cm", "6.097cm", [7620, 5080, 5080],
+         [1693, 2540, 1693]],
+    )
+    check(
+        "Impress 不把列补齐：三张列元素就盖三列（.ods 那边每张表都补到 16384 列）",
+        [dig(odp_slide, O + ".layout.columns.elements"),
+         dig(odp_slide, O + ".layout.columns.spans"),
+         dig(odp_slide, O + ".layout.rows.elements"),
+         dig(odp_slide, O + ".layout.rows.spans"),
+         dig(odp_slide, O + ".rows"), dig(odp_slide, O + ".columns")],
+        [3, 3, 3, 3, 3, 3],
+    )
+    check(
+        "同一个生产者换个应用，连「写不写 use-optimal」都不一样：odp 的列上写 false，.ods 的列上根本不写",
+        [dig(odp_slide, "%s.layout.columns.list[0].optimal" % O),
+         dig(odp_slide, "%s.layout.rows.list[0].optimal" % O),
+         dig(lbin("office-sheet", fixture("book.ods")), "sheets[0].layout.columns.list[0].optimal"),
+         dig(lbin("office-sheet", fixture("book.ods")), "sheets[0].layout.rows.list[0].optimal")],
+        ["false", "false", None, "true"],
+    )
+    check(
+        "合并的第三种写法：起头那格写 number-*-spanned，被盖住的那格照样在（covered 另数一本）",
+        [dig(odp_slide, O + ".cells"), dig(odp_slide, O + ".covered"),
+         dig(odp_slide, O + ".merged"),
+         dig(odp_slide, O + ".cell_list[0].span_cols"),
+         dig(odp_slide, O + ".cell_list[0].text"),
+         dig(odp_slide, O + ".cell_list[4].span_rows")],
+        [7, 2, 2, 2, "科目\n金额", 2],
+    )
+    check(
+        "格子点到的样式与 .ods 同一类（实测四格没点名、两格是占位格叫 standard）",
+        [dig(odp_slide, O + ".cell_list[2].style"),
+         dig(odp_slide, O + ".cell_list[6].style"),
+         dig(odp_slide, O + ".cell_list[0].style"),
+         dig(odp_slide, O + ".layout.stated.number-columns"),
+         dig(odp_slide, O + ".layout.unit")],
+        ["ce2", "ce5", None, None, "0.01mm"],
     )
 
     # ── 表格结构：表名、可见性、范围、格子 ──────────────────────────

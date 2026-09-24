@@ -2722,7 +2722,7 @@ STATED_ON_TABLE = (
 )
 
 
-def ods_facts(path: Path, limit: int = 200) -> dict | None:
+def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) -> dict | None:
     """ODF 电子表格：格子内**不写数字**，写的是 office:value / date-value / boolean-value，
     位置要靠 table:number-columns-repeated 累加出来 —— 那属性一填就是 16381，
     照字面数就是每张表一万六千格。表是不是隐藏，也不在表上，在它引的那个自动样式里。
@@ -2731,7 +2731,7 @@ def ods_facts(path: Path, limit: int = 200) -> dict | None:
     with zipfile.ZipFile(path) as box:
         parts = {one.filename: box.read(one.filename) for one in box.infolist()}
     root = ET.fromstring(parts["content.xml"])
-    if not any(xml_local(one.tag) == "spreadsheet" for one in root.iter()):
+    if require_spreadsheet and not any(xml_local(one.tag) == "spreadsheet" for one in root.iter()):
         return None
 
     def attr(node, want: str):
@@ -2960,6 +2960,66 @@ def ods_facts(path: Path, limit: int = 200) -> dict | None:
         "cell_total": sum(one["cells"] for one in sheets),
         "statistic": statistic,
     }
+
+
+def odp_slide_tables(path: Path, limit: int = 100) -> list:
+    """每一页上那些表：`draw:frame` 那一份（名字与位置都只在容器上）+ ODF 表那一份。
+
+    表的读法直接复用 `ods_facts`（页上的表与 .ods 里的表是同一种元素，两本账不该各写一遍）；
+    配对按文档顺序 —— `ods_facts` 走的是全局 `table` 元素的文档顺序，这边按页取「带表的
+    frame」，两边看到的必然是同一批元素。返回的是**按页分组**的一个列表，与 office-slide
+    每页那个 `table_list` 一对一。`limit` 是 office-slide 的那个 100（不是 office-sheet 的 200）。
+    """
+    facts = ods_facts(path, limit=limit, require_spreadsheet=False)
+    if facts is None:
+        return []
+    with zipfile.ZipFile(path) as box:
+        root = ET.fromstring(box.read("content.xml"))
+    tables = facts["sheets"]
+    out: list = []
+    seen = 0
+    for page in [one for one in root.iter() if xml_local(one.tag) == "page"]:
+        group: list = []
+        at = 0
+        for frame in page:
+            if xml_local(frame.tag) != "frame":
+                continue
+            tbl = _kid(frame, "table")
+            if tbl is None or at >= limit:
+                continue
+            if seen >= len(tables):
+                break
+            one = tables[seen]
+            seen += 1
+            group.append(
+                {
+                    "at": at,
+                    "frame": written_attrs(frame),
+                    "written": written_attrs(tbl),
+                    "name": one["name"],
+                    "state": "visible" if one["visible"] else "hidden",
+                    "rows": one["rows"],
+                    "columns": one["columns"],
+                    "cells": one["cells"],
+                    "covered": one["covered"],
+                    "merged": one["merged"],
+                    "cell_list": [
+                        {
+                            "ref": had["ref"],
+                            "text": had["text"],
+                            "kind": had["value_type"],
+                            "span_cols": had["columns_spanned"],
+                            "span_rows": had["rows_spanned"],
+                            "style": had["style"],
+                        }
+                        for had in one["cell_list"][:limit]
+                    ],
+                    "layout": one["layout"],
+                }
+            )
+            at += 1
+        out.append(group)
+    return out
 
 
 def odf_page_text(path: Path) -> list:
@@ -3933,6 +3993,10 @@ def facts(path: Path) -> dict:
                 out["ods_styles"] = ods_styles(path)
             deck = odp_facts(path)
             if deck is not None:
+                # 每页那张表的账（frame 那一份 + ODF 表那一份），按页一对一挂上去
+                groups = odp_slide_tables(path)
+                for which, slide in enumerate(deck["slides"]):
+                    slide["table_list"] = groups[which] if which < len(groups) else []
                 out["odp"] = deck
         else:
             out["app"] = "unknown-zip"

@@ -29,7 +29,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-slide",
     run = "run_office_slide",
-    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP answers with its own ladder: pages are draw:page (name on draw:name), the title comes from the frame whose presentation:class is title, speaker notes are the presentation:class=notes frame inside presentation:notes - the page-number placeholder sitting next to it holds the literal sample text <编号> and is never reported as slide content - and the page size is resolved through draw:master-page-name to styles.xml's style:master-page and then its style:page-layout. A file may name a presentation page layout (presentation-page-layout-name) without carrying any definition for it, which this command reports instead of inventing one. Legacy .ppt is a PowerPoint 97 record tree rather than a package: it reports the record / container / text-atom counts and one entry per slide, because containers of recType 0x03EE occur exactly one per slide and their subtrees hold that slide's text atoms - a correspondence this reader measured against the very same document's .pptx form (count, order, and every line), not a name it copied from the spec, which is why the entries carry record offsets and not spec names. Text that belongs to no such container (master and layout placeholder wording) is counted but not attributed to a page. A slide's charts are read from the page's own relationships (only entries whose Type ends in `chart`), never by listing ppt/charts/: LibreOffice drops style and colors parts into that same directory, so counting files there would report six charts where the page carries two. Each chart reports its part, title, whether any value was cached, and per plot group the kind (barChart / pieChart ...), the direct children's val attributes as written, the axis ids kept apart (each producer numbers them differently, and python-pptx even writes negative ones) and one entry per series with the reference string and the cached points. The reference strings are NOT comparable across producers here: python-pptx writes the real hop into the chart's own embedded workbook (`Sheet1!$B$1`), while LibreOffice's pptx export puts literal labels in the same place (`label 0`, `categories`, `0`) - the cached numbers survive that rewrite unchanged, which is why both are reported instead of a single reconciled answer. Two counters keep runs and paragraphs apart: paragraph_total counts a:p inside p:sp, text_runs counts a:t, and the same deck from the two producers reads 3/1 paragraphs with 3 versus 5 runs - joining runs into paragraph text is what makes the wording comparable at all. The slide size's own type attribute is reported only when written: python-pptx says screen4x3, LibreOffice omits it for the identical cx/cy, and it is left null rather than being called custom. ODF answers the same question its own way: a `draw:frame` holds a `draw:object` whose `xlink:href` names an `Object N/` directory - the notes frame holds no such thing, so it is not a chart - and there the type sits on each `chart:series` (`chart:bar`, and `chart:circle` for a pie) rather than on an outer plot group, points are self-stated with `chart:repeated`, and a range can name the chart's own `local-table` (`local-table.$B$2:.$B$3`) instead of the deck's data, so those strings go over as written. Frame names count the notes frame too, which is why a page's first chart can be called Chart 2. Legacy .ppt keeps charts inside the record tree and is not read. Per pptx slide the tables are a ledger of their own (`table_list`): the `a:tblPr` attributes as written next to whether that element exists at all (python-pptx writes firstRow/bandRow plus an `a:tableStyleId`, while LibreOffice rewrites the same table with an EMPTY tblPr - present, saying nothing), the grid columns with their EMU width as written plus its 0.01mm reading, each row's h the same way, and every cell with its a:tc attributes, its a:tcPr attributes and child element names, the a:bodyPr attributes kept separately because LibreOffice writes the cell margins a second time in there, the paragraph text, and how many paragraphs and runs it holds. Merging is a third convention in this family and the reason three counters exist: the covered cell STAYS in the file (marked hMerge or vMerge, with empty text) while the origin carries gridSpan / rowSpan, so one row of a three-column table holds 3 cells whose spans add up to 4 - cells, spans and grid columns go out side by side instead of being reconciled. Row heights do not survive the rewrite either: the same unspecified row is 609600 EMU in one file and 609480 in the other, and the .odp written in between says 1.693cm - all three land on 1693 in 0.01mm, which is what makes the EMU conversion something a reader can check rather than take on trust. ODP keeps page tables as table:table: they are counted, not laid out here, because their widths sit one hop away in column styles exactly as in .ods. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
+    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP answers with its own ladder: pages are draw:page (name on draw:name), the title comes from the frame whose presentation:class is title, speaker notes are the presentation:class=notes frame inside presentation:notes - the page-number placeholder sitting next to it holds the literal sample text <编号> and is never reported as slide content - and the page size is resolved through draw:master-page-name to styles.xml's style:master-page and then its style:page-layout. A file may name a presentation page layout (presentation-page-layout-name) without carrying any definition for it, which this command reports instead of inventing one. Legacy .ppt is a PowerPoint 97 record tree rather than a package: it reports the record / container / text-atom counts and one entry per slide, because containers of recType 0x03EE occur exactly one per slide and their subtrees hold that slide's text atoms - a correspondence this reader measured against the very same document's .pptx form (count, order, and every line), not a name it copied from the spec, which is why the entries carry record offsets and not spec names. Text that belongs to no such container (master and layout placeholder wording) is counted but not attributed to a page. A slide's charts are read from the page's own relationships (only entries whose Type ends in `chart`), never by listing ppt/charts/: LibreOffice drops style and colors parts into that same directory, so counting files there would report six charts where the page carries two. Each chart reports its part, title, whether any value was cached, and per plot group the kind (barChart / pieChart ...), the direct children's val attributes as written, the axis ids kept apart (each producer numbers them differently, and python-pptx even writes negative ones) and one entry per series with the reference string and the cached points. The reference strings are NOT comparable across producers here: python-pptx writes the real hop into the chart's own embedded workbook (`Sheet1!$B$1`), while LibreOffice's pptx export puts literal labels in the same place (`label 0`, `categories`, `0`) - the cached numbers survive that rewrite unchanged, which is why both are reported instead of a single reconciled answer. Two counters keep runs and paragraphs apart: paragraph_total counts a:p inside p:sp, text_runs counts a:t, and the same deck from the two producers reads 3/1 paragraphs with 3 versus 5 runs - joining runs into paragraph text is what makes the wording comparable at all. The slide size's own type attribute is reported only when written: python-pptx says screen4x3, LibreOffice omits it for the identical cx/cy, and it is left null rather than being called custom. ODF answers the same question its own way: a `draw:frame` holds a `draw:object` whose `xlink:href` names an `Object N/` directory - the notes frame holds no such thing, so it is not a chart - and there the type sits on each `chart:series` (`chart:bar`, and `chart:circle` for a pie) rather than on an outer plot group, points are self-stated with `chart:repeated`, and a range can name the chart's own `local-table` (`local-table.$B$2:.$B$3`) instead of the deck's data, so those strings go over as written. Frame names count the notes frame too, which is why a page's first chart can be called Chart 2. Legacy .ppt keeps charts inside the record tree and is not read. Per pptx slide the tables are a ledger of their own (`table_list`): the `a:tblPr` attributes as written next to whether that element exists at all (python-pptx writes firstRow/bandRow plus an `a:tableStyleId`, while LibreOffice rewrites the same table with an EMPTY tblPr - present, saying nothing), the grid columns with their EMU width as written plus its 0.01mm reading, each row's h the same way, and every cell with its a:tc attributes, its a:tcPr attributes and child element names, the a:bodyPr attributes kept separately because LibreOffice writes the cell margins a second time in there, the paragraph text, and how many paragraphs and runs it holds. Merging is a third convention in this family and the reason three counters exist: the covered cell STAYS in the file (marked hMerge or vMerge, with empty text) while the origin carries gridSpan / rowSpan, so one row of a three-column table holds 3 cells whose spans add up to 4 - cells, spans and grid columns go out side by side instead of being reconciled. Row heights do not survive the rewrite either: the same unspecified row is 609600 EMU in one file and 609480 in the other, and the .odp written in between says 1.693cm - all three land on 1693 in 0.01mm, which is what makes the EMU conversion something a reader can check rather than take on trust. ODP keeps page tables as table:table inside a draw:frame, and the frame is the only place that names one: measured on deck-tables.odp the table element itself writes NO attribute at all while the frame carries name, x, y, width and height (17.779cm - the same grid the two pptx files write as 6400800 EMU), so the odp entry reports the frame's attributes, the table's own (empty here) attribute map, and the very same size ledger .ods uses, because a page table and a spreadsheet table are the same element and their widths again sit one hop away in the column styles. Merging is the third spelling of the three: the covered cell gets its own covered-table-cell element while the origin says number-columns-spanned / number-rows-spanned. Not read for odp: what those cell styles say - a fill and a vertical alignment do live in there, in graphic-properties rather than the table-cell-properties an odt table uses, a hop measured for documents but not yet for decks. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
 )]
 pub struct OfficeSlide {
     /// 演示文稿（pptx / pptm / odp / ppt）
@@ -293,6 +293,11 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
             }
         }
         let pages = root.descendants("page");
+        // 页上那张表：表住在 `draw:frame` 里，**表名与位置都写在 frame 上**
+        // （`table:table` 自己实测一个字都不写），所以这张表的账要两份数据：frame 那一份
+        // 与 ODF 表自己那一份。表的读法与 .ods 完全同一条（`odsheet`），配对按文档顺序
+        let workbook = crate::odsheet::read(bytes);
+        let mut table_at = 0usize;
         let mut slides: Vec<Value> = Vec::new();
         let mut masters: Vec<String> = Vec::new();
         let mut layouts: Vec<String> = Vec::new();
@@ -373,10 +378,39 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
             }
             // 这一页上的图：ODP 与 ODS 同一家存法 —— frame 里那条 draw:object 指过去
             let charts = crate::odfchart::charts_in(bytes, one);
+            // 这一页上带表的 frame：表名与位置在 frame 上，行的账与列的账在 ODF 表那一份上
+            let mut page_tables: Vec<Value> = Vec::new();
+            let mut on_page = 0usize;
+            for holder in one
+                .all("frame")
+                .iter()
+                .filter(|had| had.child("table").is_some())
+                .take(limit)
+            {
+                let Some(tbl) = holder.child("table") else {
+                    continue;
+                };
+                match workbook.sheets.get(table_at) {
+                    Some(sheet) => {
+                        table_at += 1;
+                        page_tables.push(odp_page_table(holder, tbl, sheet, on_page, limit));
+                        on_page += 1;
+                    }
+                    None => {
+                        notes.push(format!(
+                            "第 {} 页上还有带表的 frame，可表那一份只数到 {} 张，后面不配了",
+                            index + 1,
+                            table_at
+                        ));
+                        break;
+                    }
+                }
+            }
             slides.push(json!({
                 "index": index,
                 "charts": charts.len(),
                 "chart_list": charts,
+                "table_list": page_tables,
                 "name": crate::odsheet::attr_of(one, "name").unwrap_or_default(),
                 "title": title,
                 "master": master,
@@ -390,6 +424,8 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
                 "tables": one.descendants("table").len(),
             }));
         }
+        // 表那一份读的时候也有自己的话要说（格子元素太多、content.xml 读不出来…）
+        notes.extend(workbook.notes.iter().cloned());
         notes.push(format!(
             "ODP 的层级是 draw:page → master-page-name → 样式文件里的 page-layout：\
              这份用到 {} 个母版页、{} 个版式名；尺寸是按这条链从 styles.xml 读出来的\
@@ -690,6 +726,46 @@ fn slide_tables(slide_root: &xmlscan::Node, limit: usize) -> Vec<Value> {
         }));
     }
     out
+}
+
+/// 一页 odp 上的那张表：`draw:frame` 那一份（名字、位置、大小都在这儿 —— 实测
+/// `table:table` 自己**一个字都不写**，所以「这张表叫什么」只能从容器上拿）
+/// + ODF 表那一份（行、列、格子、跨度与被盖住的那些）。
+/// 行高列宽那本账与 .ods 是同一条（`ods_layout`），合并的第三种写法在这里：
+/// 被合掉的那一格照样写成 `covered-table-cell`，起点那格写 `number-*-spanned`
+fn odp_page_table(
+    frame: &xmlscan::Node,
+    tbl: &xmlscan::Node,
+    sheet: &crate::odsheet::Sheet,
+    at: usize,
+    limit: usize,
+) -> Value {
+    json!({
+        "at": at,
+        "frame": written_attrs(frame),
+        "written": written_attrs(tbl),
+        "name": sheet.name,
+        "state": if sheet.visible { "visible" } else { "hidden" },
+        "rows": sheet.rows,
+        "columns": sheet.columns,
+        "cells": sheet.cells.len(),
+        "covered": sheet.covered,
+        "merged": sheet.merged,
+        "cell_list": sheet
+            .cells
+            .iter()
+            .take(limit)
+            .map(|had| json!({
+                "ref": had.reference,
+                "text": had.text,
+                "kind": had.value_type,
+                "span_cols": had.columns_spanned,
+                "span_rows": had.rows_spanned,
+                "style": had.style_name,
+            }))
+            .collect::<Vec<Value>>(),
+        "layout": crate::office_sheet::ods_layout(sheet, limit),
+    })
 }
 
 #[cfg(test)]
@@ -1110,9 +1186,9 @@ mod tests {
         assert_eq!(two["rows"][1]["list"][0]["tcpr"]["anchor"], "b");
     }
 
-    /// 没有表的页交空表而不是缺键；odp 这一族的表只数不铺
+    /// 没有表的页交空表而不是缺键 —— pptx 与 odp 两家都是这条口径
     #[test]
-    fn a_page_without_tables_gets_an_empty_ledger_and_odp_gets_none_at_all() {
+    fn a_page_without_tables_gets_an_empty_ledger_not_a_missing_one() {
         let deck = run("deck.pptx");
         let first = &deck["slides"][0]["table_list"];
         assert_eq!(
@@ -1128,12 +1204,84 @@ mod tests {
                 .len(),
             1
         );
-        let odp = run("deck-tables.odp");
-        assert_eq!(odp["slides"][0]["tables"], 1, "odp 数得出这一页有一张表");
-        assert!(
-            odp["slides"][0].get("table_list").is_none(),
-            "odp 的表宽在样式那一跳上，这一族没读就是不交：{}",
-            odp["slides"][0]
+        let odp = run("deck.odp");
+        assert_eq!(odp["slides"][0]["tables"], 0, "第一页没有表");
+        assert_eq!(
+            odp["slides"][1]["table_list"]
+                .as_array()
+                .expect("是数组")
+                .len(),
+            1,
+            "第二页那张表也交账：{}",
+            odp["slides"][1]
+        );
+    }
+
+    /// odp 是第三种写法：**表名与位置只在 `draw:frame` 上**（`table:table` 自己实测一个字都不写），
+    /// 而且 Impress 不把列补齐 —— 同一份账在 .ods 那边每张表都是 16384 列
+    #[test]
+    fn an_odp_page_table_is_named_by_the_frame_that_holds_it() {
+        let deck = run("deck-tables.odp");
+        let one = &deck["slides"][0]["table_list"][0];
+        assert_eq!(one["frame"]["name"], "Table 2", "表名只在容器上：{one}");
+        assert_eq!(one["frame"]["width"], "17.779cm");
+        assert_eq!(one["written"], json!({}), "表自己一个字都不写");
+        assert_eq!(one["name"], "", "而表名那个位置是空的");
+        assert_eq!(
+            (one["rows"].as_u64(), one["columns"].as_u64()),
+            (Some(3), Some(3))
+        );
+        assert_eq!(
+            (
+                one["cells"].as_u64(),
+                one["covered"].as_u64(),
+                one["merged"].as_u64()
+            ),
+            (Some(7), Some(2), Some(2)),
+            "被盖住的两格另数一本：{one}"
+        );
+        let cols = &one["layout"]["columns"];
+        assert_eq!(cols["elements"], 3);
+        assert_eq!(
+            cols["spans"], 3,
+            "Impress 不把列补齐（.ods 那边每张表都是 16384）"
+        );
+        assert_eq!(
+            cols["optimal"], 3,
+            "而 use-optimal-column-width 在这里是写了的（false），.ods 的列上一个都没写"
+        );
+        assert_eq!(cols["list"][0]["size"], "7.62cm");
+        assert_eq!(cols["list"][0]["size_mm"], 7620);
+        assert_eq!(cols["list"][0]["optimal"], "false");
+        assert_eq!(one["layout"]["rows"]["list"][0]["size_mm"], 1693);
+        assert_eq!(one["layout"]["stated"]["number-columns"], Value::Null);
+        assert_eq!(one["layout"]["unit"], "0.01mm");
+        // 合并写在本格的属性上，字与 .ods 一样按段拼
+        assert_eq!(one["cell_list"][0]["span_cols"], 2);
+        assert_eq!(one["cell_list"][0]["text"], "科目\n金额");
+        assert_eq!(one["cell_list"][0]["kind"], "empty");
+        assert_eq!(one["cell_list"][4]["span_rows"], 2);
+        assert_eq!(one["cell_list"][2]["style"], "ce2");
+        assert_eq!(one["cell_list"][6]["style"], "ce5");
+        assert_eq!(
+            one["cell_list"][0]["style"],
+            Value::Null,
+            "四格没点任何样式"
+        );
+        // 没有表的页交空表而不是缺键
+        let charts = run("deck-chart.odp");
+        assert!(charts["slides"][0]["table_list"]
+            .as_array()
+            .expect("是数组")
+            .is_empty());
+        let plain = run("deck.odp");
+        assert_eq!(plain["slides"][0]["tables"], 0);
+        assert_eq!(
+            plain["slides"][1]["table_list"]
+                .as_array()
+                .expect("是数组")
+                .len(),
+            1
         );
     }
 

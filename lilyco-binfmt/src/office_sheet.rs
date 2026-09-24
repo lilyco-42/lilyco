@@ -914,8 +914,9 @@ fn ods_axis(
 }
 
 /// 一张 ODF 表的布局：两条轴各一份账，外加表元素自己写的那四个数（没写的交 null，
-/// 而「没写」与「写了 0」不是一回事）
-fn ods_layout(one: &crate::odsheet::Sheet, limit: usize) -> Value {
+/// 而「没写」与「写了 0」不是一回事）。`office-slide` 的 odp 分支交的是同一份账，
+/// 所以这里给整个 crate 用（一张 .ods 的表与一页 odp 上的表是同一种元素）
+pub(crate) fn ods_layout(one: &crate::odsheet::Sheet, limit: usize) -> Value {
     let mut stated = serde_json::Map::new();
     for (name, raw) in one.stated.iter() {
         stated.insert(

@@ -925,6 +925,28 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     * 一格两段的字用换行拼（`网络\n设备`），段数与 run 数各交一个键；`a:tab` / `a:br` 在两副
       读者里都还原成制表与换行（只拼 `a:t` 会把它们读没了）。
 
+61. **odp 的表名不写在表上，而在装它的那个 `draw:frame` 上**（`deck-tables.odp`、`deck.odp`）。
+    页上的表与 .ods 里的表是**同一种元素**（`table:table`），所以这一份账直接走 .ods 那条读法；
+    差别全在容器与应用上。
+    * `table:table` 自己的属性是**一个都不写**（`written: {}`，表名那个位置是空串），
+      而 frame 写着 `name="Table 2"`、`style-name`、`layer="layout"`、`x="2.54cm"`、`y="5.08cm"`、
+      `width="17.779cm"`、`height="6.097cm"` —— 「这张表叫什么、放在哪、多大」三个问题都只能从这儿答。
+      两份 odp 件里那张表都叫 `Table 2`（frame 的序号连标题框与备注框一起数，与图同一件事）。
+    * **Impress 不把列补齐**：3 条列元素盖 3 列（.ods 那边每张表都是 16384 列），
+      行同理 3 条盖 3 行 —— 同一个生产者换个应用，「几条元素」与「盖住几列」这两本账就都变了。
+    * `use-optimal-column-width` 在这里**写了**（每一列都写 `false`）、`use-optimal-row-height` 也写 `false`；
+      而 .ods 的列上**根本不写**这个属性、行上写 `true`。同一个属性名在三个地方三种说法。
+    * 换算是同一把尺：`17.779cm` 这个 frame 宽与两副 pptx 里 `2743200 + 1828800 + 1828800 = 6400800` EMU
+      换成 0.01mm 都是 `17780`；行高 `1.693cm` / `2.54cm` = `1693` / `2540` 与 pptx 的 `609600` / `914400` 对上。
+    * 合并的第三种写法：起头那格 `number-columns-spanned="2"` / `number-rows-spanned="2"`，
+      被盖住的那格**另写一个** `table:covered-table-cell`（点的样式是 `standard`）——
+      于是 `cells` 7、`covered` 2、`merged` 2 是三本账（pptx 那边是「照样在场但打上 hMerge」，docx 是「整个不写」）。
+    * 格子点的样式只交**名字**：`ce2` / `ce4` / `ce5` 三份，另有四格什么都没点。
+      实测那些样式里写着 `draw:fill-color="#ffff00"`（就是 pptx 那面 `a:tcPr` 里那个填充）与
+      `style:textarea-vertical-align="bottom"`（就是那面的 `anchor="b"`）—— 但属性住在
+      `style:graphic-properties` 而不是 odt 表格用的 `style:table-cell-properties`，
+      这一跳在演示稿这一族还没量准，所以只交名字、不猜值。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
