@@ -230,6 +230,162 @@ def docx_contents(root) -> dict:
     }
 
 
+def _first_kid(node, want: str):
+    """直接儿子里第一个局部名等于 want 的（与 Rust 的 `Node::child` 同一条）"""
+    for one in node:
+        if xml_local(one.tag) == want:
+            return one
+    return None
+
+
+def _first_any(node, want: str):
+    """往下找第一个局部名等于 want 的，不含自己（与 Rust 的 `descendants(..).next()` 同一条）"""
+    for one in node.iter():
+        if one is not node and xml_local(one.tag) == want:
+            return one
+    return None
+
+
+def _size_row(node):
+    """一处尺寸：文件写的数与按 `paper::emu` 那条整数式子换出来的 0.01mm"""
+    if node is None:
+        return None
+    cx = local_attr(node, "cx")
+    cy = local_attr(node, "cy")
+    return {
+        "cx": cx,
+        "cy": cy,
+        "mm_w": mm_of(cx, "emu"),
+        "mm_h": mm_of(cy, "emu"),
+    }
+
+
+def _alt_row(node):
+    """一句替代文字：`descr` 在不在单列一个键（空的 `descr=""` 与没写不是一回事）"""
+    if node is None:
+        return None
+    return {
+        "id": local_attr(node, "id"),
+        "name": local_attr(node, "name"),
+        "descr": local_attr(node, "descr"),
+        "descr_written": local_attr(node, "descr") is not None,
+    }
+
+
+def _position_row(node):
+    """浮起来的那张图摆在哪里：相对什么写在属性上，摆在哪写在孩子的名字与文字里"""
+    if node is None:
+        return None
+    kids = [one for one in node]
+    kid = kids[0] if kids else None
+    return {
+        "written": written_attrs(node),
+        "element": xml_local(kid.tag) if kid is not None else None,
+        "value": "".join(kid.itertext()) if kid is not None else None,
+    }
+
+
+def docx_picture_rows(body, parts: dict) -> list:
+    """文档里的图（与 Rust 的 `docx_pictures` 同一条规则）
+
+    尺寸两处（`wp:extent` 与 `pic:spPr/a:xfrm/a:ext`）、替代文字两处（`wp:docPr` 与
+    `pic:cNvPr`）、锁两处（`a:graphicFrameLocks` 与 `a:picLocks`）—— 两处的数可以不一样，
+    所以两处都交、不挑一个。地址只有号（`a:blip/@r:embed`），要顺着**这份件自己的**关系表
+    解成包内路径，解出来而包里又没有就交 null（Rust 那边 `resolved` 同一条）。
+    """
+    rels: dict[str, tuple] = {}
+    if "word/_rels/document.xml.rels" in parts:
+        for one in ET.fromstring(parts["word/_rels/document.xml.rels"]):
+            if xml_local(one.tag) != "Relationship" or one.get("Id") in rels:
+                continue
+            rels[one.get("Id")] = (one.get("Target"), one.get("TargetMode") or "")
+    names = set(parts)
+    out = []
+    for drawing in [one for one in body.iter() if xml_local(one.tag) == "drawing"]:
+        frames = [one for one in drawing.iter() if xml_local(one.tag) == "inline"]
+        if not frames:
+            frames = [one for one in drawing.iter() if xml_local(one.tag) == "anchor"]
+        if not frames:
+            continue
+        frame = frames[0]
+        blip = _first_any(frame, "blip")
+        embed = local_attr(blip, "embed") if blip is not None else None
+        raw, mode = rels.get(embed, (None, "")) if embed else (None, "")
+        target = None
+        if raw is not None and mode != "External":
+            got = opc_target("word/document.xml", raw)
+            target = got if got in names else None
+        wrap = next((one for one in frame
+                     if xml_local(one.tag).startswith("wrap")), None)
+        data = _first_any(frame, "graphicData")
+        # 这里不能写 `a or b`：ElementTree 里一个没有孩子的元素是**假**的，
+        # 而 `wp:extent` 恰好就是没有孩子的那个元素
+        extent = _first_kid(frame, "extent")
+        if extent is None:
+            extent = _first_any(frame, "extent")
+        out.append({
+            "placed": xml_local(frame.tag),
+            "written": written_attrs(frame),
+            "effect_extent": written_attrs(_first_kid(frame, "effectExtent"))
+            if _first_kid(frame, "effectExtent") is not None else None,
+            "extent": _size_row(extent),
+            "pic_extent": _size_row(_first_any(frame, "ext")),
+            "simple_pos": written_attrs(_first_kid(frame, "simplePos"))
+            if _first_kid(frame, "simplePos") is not None else None,
+            "position_h": _position_row(_first_kid(frame, "positionH")),
+            "position_v": _position_row(_first_kid(frame, "positionV")),
+            "alt": _alt_row(_first_any(frame, "docPr")),
+            "alt_in_picture": _alt_row(_first_any(frame, "cNvPr")),
+            "blip_id": embed,
+            "target": target,
+            "locks": written_attrs(_first_any(frame, "graphicFrameLocks"))
+            if _first_any(frame, "graphicFrameLocks") is not None else None,
+            "pic_locks": written_attrs(_first_any(frame, "picLocks"))
+            if _first_any(frame, "picLocks") is not None else None,
+            "wrap": xml_local(wrap.tag) if wrap is not None else None,
+            "wrap_written": written_attrs(wrap) if wrap is not None else None,
+            "graphic_children": [xml_local(one.tag) for one in data] if data is not None else [],
+        })
+    return out
+
+
+def odf_text_root(root):
+    """`office:body` 里那个 `office:text`（与 Rust 那边同一条：找不到就退回整份根）"""
+    for one in root.iter():
+        if xml_local(one.tag) != "body":
+            continue
+        kid = _first_kid(one, "text")
+        return kid if kid is not None else root
+    return root
+
+
+def odt_picture_rows(text_root, prefixes: dict) -> list:
+    """ODF 里的图（与 Rust 的 `odt_pictures` 同一条规则）
+
+    摆法写在**属性** `text:anchor-type` 上而 OOXML 写在元素名上，尺寸是自带单位的串
+    （`svg:width="4.001cm"`），替代文字是**孩子元素** `svg:desc`（所以「有没有」要另问），
+    地址直接写在 `draw:image/@xlink:href` 而没有关系表这一层。只数带 `draw:image` 的 frame。
+    """
+    out = []
+    for frame in [one for one in text_root.iter()
+                  if xml_local(one.tag) == "frame" and _first_kid(one, "image") is not None]:
+        image = _first_kid(frame, "image")
+        desc = _first_kid(frame, "desc")
+        out.append({
+            "written": written_kept(frame, prefixes),
+            "placed": local_attr(frame, "anchor-type"),
+            "style": local_attr(frame, "style-name"),
+            "mm_w": mm_of(local_attr(frame, "width"), None),
+            "mm_h": mm_of(local_attr(frame, "height"), None),
+            "href": local_attr(image, "href"),
+            "mime": local_attr(image, "mime-type"),
+            "image_written": written_kept(image, prefixes),
+            "alt": "".join(desc.itertext()) if desc is not None else None,
+            "alt_written": desc is not None,
+        })
+    return out
+
+
 def docx_facts(path: Path) -> dict:
     with zipfile.ZipFile(path) as box:
         names = [one.filename for one in box.infolist()]
@@ -293,6 +449,8 @@ def docx_facts(path: Path) -> dict:
             for one in links
         ],
         "media": sorted(one for one in names if one.startswith("word/media/")),
+        # 正文里那几张图逐张的账（两处尺寸、两处替代文字、两处锁、绕排与摆放）
+        "picture_rows": docx_picture_rows(body, parts),
         "comments": comments,
         "side_texts": side_texts(parts),
         "sections": len([one for one in body.iter() if xml_local(one.tag) == "sectPr"]),
@@ -2717,6 +2875,10 @@ def odt_facts(path: Path) -> dict:
         "text": "\n".join(blocks),
         "paragraphs": [one for one in blocks if one],
         "media": sorted(one for one in names if one.startswith("Pictures/")),
+        # 正文里那几张图逐张的账：摆法在属性上、尺寸自带单位、替代文字是孩子元素
+        "picture_rows": odt_picture_rows(
+            odf_text_root(root), ns_prefixes(parts["content.xml"].decode("utf8"))
+        ),
         "meta": metas,
         "parts": sorted(names),
         # 批注单独一份：作者与时间在 meta:creator / meta:date 这些孩子上

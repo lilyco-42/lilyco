@@ -110,6 +110,11 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `perms.pdf` | qpdf（pikepdf，从 `notes.pdf`） | **只设 owner 口令**的一份（用户口令为空）：于是 `/P` 那些位真的生效，工具也进得去 —— pdfinfo 读成 `Encrypted: yes (print:no copy:no change:yes addNotes:no algorithm:AES-256)`，与 `lyco_pdf_nav.py` 从 `/P -3384` 算出的位逐条一致 |
 | `risk.pdf` | **手搓**（`office_fixtures.py` 的 `write_risk_pdf`，逐对象自数 `<<`/`>>`） | LibreOffice 不肯写的五种形状：`/AcroForm` + 一个 `Tx` 字段、文档级 `/JavaScript`（名字树 + 流）、页 `/AA` 触发的脚本、`/Launch` 动作（打开 `winword.exe`）、`/EmbeddedFiles` 附件 `badge.exe`；页对象**不写** `MediaBox`/`Rotate`，从 `/Pages` 继承。写完用 `pdfinfo` 验：`Form: AcroForm`、`JavaScript: yes`、`Pages: 1`、`Page size: 612 x 792`、`Page rot: 90` —— 五条都被第三方读者认了才算 fixture |
 | `forms-hier.pdf` | **pikepdf 挂出来的**（`office_fixtures.py` 的 `write_forms_hier_pdf`，底本 `notes.pdf`）；写完用 pypdf 独立读回一遍 | 表单那一份账要的几种形状，编辑器没一个肯写：`/FT /Tx` 与 `/Ff 4` 只写在祖父 `Person` 上（`Address` 往上跳一跳、`City` 跳两跳才拿到）、`/Kids` 三层、`/Opt` 的两种合法写法各一份（成对 `[[1 一] [2 二]]` 与摊平 `[(甲) (乙) (丙)]`）、`/V` 的三种情形（写空串 / 写成数组 / 整个没写）、两条 Widget 同时挂在页的 `/Annots` 上。**这一份不是编辑器导的** —— 见事实 62 |
+| `images.docx` | python-docx（`write_images_docx`，图是 `write_dot_png` 现写的 40×24 PNG） | 文档里那张图的第一种摆法：只有 `wp:inline`（属性一个不写，`xmlns:` 那几条声明不算）、`wp:extent cx="1440000"`（换算 4000）与 `pic:spPr/a:xfrm/a:ext` 同一个数、替代文字只写在外头 `wp:docPr` 上（`descr="一个红点"`）而 `pic:cNvPr` 那里写的是**原文件名** `dot.png` 且根本没有 `descr`、锁只有 `a:graphicFrameLocks noChangeAspect="1"` 一份、`a:blip` 的号是 `rId9` |
+| `images-lo.docx` | LibreOffice（`images.odt` → .docx，同一条 LO 写的第二副 OOXML） | 同一张图的第二种摆法：`wp:inline` 补四个 `dist*="0"`、两处尺寸都换成 `1440180`/`864235`（**换算成 4001 与 2401，与 python-docx 那份不是一个数**）、补一条 `wp:effectExtent l/t/r/b`、把名字与那句替代文字**抄进 `pic:cNvPr`**、另补一份 `a:picLocks`（两个开关），而号换成了 `rId2` —— 解出来的部件还是同一个 `word/media/image1.png` |
+| `images.odt` / `images.rtf` | LibreOffice（从 `images.docx` 导出） | 另两种存法：ODF 把尺寸写成**自带单位的串**（`svg:width="4.001cm"` → 同一个 4001）、摆法写在**属性** `text:anchor-type="as-char"` 上、替代文字搬到**孩子元素** `svg:desc`、地址是 `draw:image/@xlink:href`（没有关系表这一层，路径是生产者按图片尺寸自己拼出来的那个长名）；RTF 只留 `\picscalex472 / picw40 / pich24 / picwgoal480` 那一串与 `pngblip`，而替代文字搬进了 `{\*\picprop}` 里的 `{\sn wzDescription}` |
+| `images-float.docx` | LibreOffice（从 `poke_anchor` 改过锚点的那份 ODT 导出） | 「浮在页上、文字绕着排」那一种，**手上没有一个生产者会自己写出来**（python-docx 只写 inline，LibreOffice 插入默认也是 inline），所以输入是把 `images.odt` 那格的 `text:anchor-type` 改成 `page`、样式换成同一份 `styles.xml` 里带 `style:wrap="dynamic"` 的 `Graphics`；**输出那份 docx 的每个字节都是 LibreOffice 写的**：`wp:anchor` 带十个属性、`wp:simplePos`、`wp:positionH relativeFrom="column"` 里面写 `<wp:align>center`（词在字里）、`wp:positionV relativeFrom="paragraph"` 里面写 `<wp:posOffset>635`（数在字里）、`wp:wrapSquare wrapText="largest"` |
+| `images-float.odt` | LibreOffice（从 `images-float.docx` 转回 ODF） | 那一种摆法换到 ODF 里成了**另一个词**：`text:anchor-type="char"`（不是 `as-char`），另补 `svg:y="0.002cm"` 与 `draw:z-index="0"` —— 同一个选择在两家的文件里是两个串，各按各的交；来回一圈之后 OOXML 那一侧的 `wp:anchor` 与绕排也不见了（重写不是无损的，这里正看得见） |
 
 ## 几件只有踩过才会记下来的事
 
@@ -1182,10 +1187,55 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       与 xlsx 这三张表没有对应关系；`.xls` 的在 BIFF 的 `XF` 记录里（数字格式那一条已走过）。
       两家都不交这些键 —— 键整个不在，不是 0、也不是 null。
 
+71. **文档里那张图把同一件话说在三处，而三家各处不一样**（`images.docx`、`images-lo.docx`、
+    `images-float.docx`、`images.odt`、`images-float.odt`、`images.rtf`）。
+    * 尺寸有**两处**：`wp:extent`（画法那层）与 `pic:spPr/a:xfrm/a:ext`（图自己那层）。
+      两家恰好都写了两处而**写的不是同一个数**：python-docx 两处都是 `1440000`（4cm → 4000），
+      LibreOffice 两处都是 `1440180`（4001）。所以「这张图多大」在这一族不是一个数，
+      两处都交、不替它们挑一个（`864235` 那一个是 2401 也是同一件事）。
+    * 替代文字有**两处**（`wp:docPr` 与 `pic:cNvPr`）：一家只在外面那处写 `descr`，
+      里面那处 `name` 写的还是**原始文件名** `dot.png`；LibreOffice 重写时把名字与那句
+      替代文字**一起抄进了里面那处**。无障碍检查问的是「有没有」，所以两处各交一份，
+      另给 `descr_written` 把「空的 `descr=""`」与「整个没写」分开。
+    * 锁也有**两处**（`a:graphicFrameLocks` 与 `a:picLocks`）：一家只写外面那一份，
+      重写那份两份都写。合并成「锁了纵横比」就把生产者的习惯读成了文档的说法。
+    * 号是生产者自己排的：同一个部件（`word/media/image1.png`）在一家是 `rId9`、
+      在另一家是 `rId2`。所以号照交、解出来的部件也照交，两个一起才说得清这件事。
+      顺带一条踩过的坑：号只能在**这份件自己的**关系表里查 —— 同一个包里
+      `word/header1.xml.rels` 也敢再来一条 `rId2`，全包查就会串台。
+    * **`wp:anchor` 那一种（浮在页上、文字绕着排）手上没有一个生产者会自己写**：
+      python-docx 只写 inline，LibreOffice 插入默认也是 inline。所以那份件是把
+      `images.odt` 的锚点改成 `page` 之后由 LibreOffice 导出的（输出全是它写的），
+      于是那条分支第一次有了真件可走：摆法写在**元素名**上，绕排是
+      `wp:wrapSquare wrapText="largest"`（名字与属性一处一半），摆放更怪 ——
+      `relativeFrom` 在属性上而值在**孩子的文字里**（`<wp:align>center` 是一个词、
+      `<wp:posOffset>635` 是一个 EMU 数），所以 `position_h` / `position_v` 各交三份：
+      属性、元素名、那个元素写的字。
+    * ODF 换了一套地方：尺寸是**自带单位的串**（`svg:width="4.001cm"`，与那份 OOXML 的
+      `1440180` 换算到 0.01mm 都是 4001 —— 两家读者用同一条整数式子），摆法在**属性**
+      `text:anchor-type` 上，地址直接在 `draw:image/@xlink:href`（没有关系表这一层），
+      而替代文字从属性搬成了**孩子元素** `svg:desc`（所以「写没写这个元素」要另问一句
+      `alt_written`，而元素在而里面是空的是另一种情形）。
+    * 最出人意料的一条：**同一个选择在 ODF 里有两个词**。`images.odt` 写 `as-char`，
+      而 `images-float.odt`（那份 anchor 的 docx 转回 ODF）写 `char`。这两个串不是
+      同一个东西的两种拼法，是来回一趟之后 LO 自己改的口径 —— 照文件各交各的，
+      折成一个词就是替文件说话。同一趟来回还把 OOXML 那侧的 `wp:anchor` 与绕排整个丢了
+      （重写不是无损的，这里正看得见）。
+    * RTF 是第三种存法而**这一族只交张数**：`{\pict …}` 那群里只有
+      `\picscalex472 \picw40 \pich24 \picwgoal480 \pichgoal288`（三种单位：像素、
+      目标 twips、缩放百分比），而替代文字搬进了 `{\*\picprop}` 的形状属性表，
+      名字写在 `{\sn wzDescription}` 那条的**值**里（`wzName` 那格是空的）。
+      逐张账本这一族不交（键整个不在，不是空表）—— 那张表要读的是一组
+      `\sn` / `\sv` 配对，是另一批件的活。
+    * 「两种摆法都不是」的那种 `w:drawing` 也不造一条占位记录：这一族另有 `w:pict`，
+      手上没有件可量。缺口由 `structure.drawings` 与 `structure.pictures` 的差自己说。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
 `scripts/acceptance/office_reader.py`（OOXML / ODF / MS-CFB / OLE 属性集，只用标准库）、
+文档里那几张图在它的 `docx_picture_rows()` / `odt_picture_rows()` 里：两处尺寸各自换算、
+两处替代文字、两处锁、绕排与摆放那三合一的元素，与 Rust 逐字段整份对（`.docx` 三副、`.odt` 两副）。
 `lyco_rtf.py`（RTF）、`lyco_legacy.py`（`.doc` piece 表、`.xls` BIFF8、`.ppt` 记录树）、
 `lyco_formats.py`（`.xlsx` 的数字格式与日期换算），以及 `office_reader.py` 里的
 `ods_facts()`（`.ods` 的重复计数、覆盖格与自动样式可见性）。

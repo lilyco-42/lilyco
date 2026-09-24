@@ -1042,6 +1042,71 @@ def write_styled_xlsx(path: Path) -> None:
     wb.save(path)
 
 
+def write_dot_png(path: Path) -> None:
+    """一张 40×24 的红点：图那一份账要的只是「有一张真图被嵌进去」"""
+    from PIL import Image
+
+    Image.new("RGB", (40, 24), (200, 30, 30)).save(path)
+
+
+def write_images_docx(path: Path, dot: Path) -> None:
+    """文档里那张图：尺寸有两处、替代文字在 `wp:docPr`、地址在关系表里
+
+    python-docx 只会写 `wp:inline`；`wp:anchor`（浮在页上、带绕排那一种）由
+    `poke_anchor` + LibreOffice 的导出得到，见 `images-float.docx`。
+    `descr` 就是 Word「查看替代文字」里那一句 —— 有没有它是无障碍检查真正在问的事，
+    因此单独交 `alt_written`。两处尺寸（`wp:extent` 与 `pic:spPr/a:xfrm/a:ext`）都交：
+    LibreOffice 重写时把它们换成了另一个数（4cm → 4.001cm → `1440180`），而且把名字
+    与那句替代文字**抄进了 `pic:cNvPr`**（python-docx 在那儿写的是原文件名 `dot.png`），
+    另外补了一份 `a:picLocks` —— python-docx 只写 `a:graphicFrameLocks` 那一份。
+    """
+    from docx import Document
+    from docx.shared import Cm
+
+    doc = Document()
+    doc.add_paragraph("图前的一段。")
+    doc.add_picture(str(dot), width=Cm(4), height=Cm(2.4))
+    run = doc.paragraphs[-1].runs[-1]
+    drawing = run._element.find(
+        ".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}drawing"
+    )
+    if drawing is not None:
+        frame = drawing.find(
+            ".//{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}inline"
+        )
+        data = None if frame is None else frame.find(
+            ".//{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}docPr"
+        )
+        if data is not None:
+            data.set("name", "图 1")
+            data.set("descr", "一个红点")
+    doc.add_paragraph("图后的一段。")
+    doc.save(path)
+
+
+def poke_anchor(src: Path, dst: Path) -> None:
+    """把 `images.odt` 那一格的锚点改成 page，让 LibreOffice 有理由写出 `wp:anchor`
+
+    两个生产者（python-docx 与 LibreOffice 的默认插入）都只往文字流里塞图
+    （`wp:inline` / `text:anchor-type="as-char"`），手上没有一份「浮在页上、文字绕着排」
+    的件，那一条分支就成了没人走过的路。这一份输入只改两个属性：锚点改 `page`、
+    样式换成 `styles.xml` 里那份 `family=graphic` 而带 `style:wrap="dynamic"` 的
+    `Graphics` —— 输出那份 docx 里每一个字节都是 LibreOffice 自己写的。
+    """
+    with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w") as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "content.xml":
+                text = data.decode("utf8")
+                for want in ('text:anchor-type="as-char"', 'draw:style-name="fr1"'):
+                    if want not in text:
+                        raise SystemExit("⚠️  %s 里找不到 %s" % (src.name, want))
+                text = text.replace('text:anchor-type="as-char"', 'text:anchor-type="page"')
+                text = text.replace('draw:style-name="fr1"', 'draw:style-name="Graphics"')
+                data = text.encode("utf8")
+            zout.writestr(item, data)
+
+
 def write_para_docx(path: Path) -> None:
     """python-docx：四种段落写法 + 一节两栏 —— 「这一段到底排成什么样」
 
@@ -2169,6 +2234,50 @@ def main() -> int:
         shutil.copyfile(made, OUT / "styled-lo.xlsx")
     else:
         print("⚠️  没拿到 styled-lo.xlsx（xlsx → xlsx 那一转）")
+
+    # 文档里那张图那四副：docx 由 python-docx 写，odt / rtf 由 LibreOffice 导出，
+    # 再把那份 odt 转回 docx —— 同一条 LO 的两副 OOXML（一处 inline、一处带 dist* 与 effectExtent）
+    dot = SCRATCH / "dot.png"
+    write_dot_png(dot)
+    images = OUT / "images.docx"
+    write_images_docx(images, dot)
+    convert(exe, images, "odt", SCRATCH / "img-odt")
+    made = SCRATCH / "img-odt" / "images.odt"
+    if made.exists():
+        shutil.copyfile(made, OUT / "images.odt")
+    else:
+        print("⚠️  没拿到 images.odt")
+    convert(exe, images, "rtf", SCRATCH / "img-rtf")
+    made = SCRATCH / "img-rtf" / "images.rtf"
+    if made.exists():
+        shutil.copyfile(made, OUT / "images.rtf")
+    else:
+        print("⚠️  没拿到 images.rtf")
+    if (OUT / "images.odt").exists():
+        convert(exe, OUT / "images.odt", "docx", SCRATCH / "img-back")
+        made = SCRATCH / "img-back" / "images.docx"
+        if made.exists():
+            shutil.copyfile(made, OUT / "images-lo.docx")
+        else:
+            print("⚠️  没拿到 images-lo.docx（odt → docx 那一转）")
+    # 「浮在页上、文字绕着排」那一种摆法：手上没有一个生产者自己会写出来，
+    # 所以把上面那份 odt 的锚点改一页，再让 LibreOffice 导出 docx（输出全是它写的）
+    if (OUT / "images.odt").exists():
+        poked = SCRATCH / "images-float.odt"
+        poke_anchor(OUT / "images.odt", poked)
+        convert(exe, poked, "docx", SCRATCH / "img-float")
+        made = SCRATCH / "img-float" / "images-float.docx"
+        if not made.exists():
+            print("⚠️  没拿到 images-float.docx（锚点那一转）")
+        else:
+            shutil.copyfile(made, OUT / "images-float.docx")
+            # 那一种摆法换到 ODF 里是另一个词（实测 char 而不是 as-char），所以要有一份它自己的件
+            convert(exe, made, "odt", SCRATCH / "img-float-back")
+            again = SCRATCH / "img-float-back" / "images-float.odt"
+            if again.exists():
+                shutil.copyfile(again, OUT / "images-float.odt")
+            else:
+                print("⚠️  没拿到 images-float.odt（anchor 那一族转回 ODF）")
 
     # 段落格式与分栏那三件套：docx 由 python-docx 写，odt / rtf 都由 LibreOffice 导出
     para = OUT / "para.docx"

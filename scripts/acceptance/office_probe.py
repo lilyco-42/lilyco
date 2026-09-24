@@ -160,6 +160,12 @@ def main() -> int:
         "size.xlsx": ("ooxml", "excel", "xlsx"),
         "size-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "para.docx": ("ooxml", "word", "docx"),
+        "images.docx": ("ooxml", "word", "docx"),
+        "images-lo.docx": ("ooxml", "word", "docx"),
+        "images-float.docx": ("ooxml", "word", "docx"),
+        "images.odt": ("opendocument", "word", "odt"),
+        "images-float.odt": ("opendocument", "word", "odt"),
+        "images.rtf": ("rtf", "word", "rtf"),
         "para.odt": ("opendocument", "word", "odt"),
         "para.rtf": ("rtf", "word", "rtf"),
         "tables-lo.docx": ("ooxml", "word", "docx"),
@@ -3423,6 +3429,109 @@ def main() -> int:
          dig(styled, "sheets[0].cell_list[5].style_font.parts[0].attrs.indexed"),
          dig(styled_lo, "sheets[0].cell_list[5].style_font.parts[1].attrs.rgb")],
         ["lightGrid", "solid", "FF00B050", "FF90DDB3", "64", "FF000000"],
+    )
+
+    # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
+    print("=== 3i) 文档里的图：一处号一次跳，两处答案各按各的文件交 ===")
+    for name in ("images.docx", "images-lo.docx", "images-float.docx",
+                 "notes.docx", "protected.docx", "protected-lo.docx", "toc.docx"):
+        got = lbin("office-doc", fixture(name))
+        want = files[name]["ooxml"]["picture_rows"]
+        with_alt = sum(1 for one in want if (one["alt"] or {}).get("descr"))
+        check("%s 每张图整份账与读者一致（尺寸两处、替代文字两处、锁两处）" % name,
+              dig(got, "structure.picture_list"), want)
+        check("%s 几张图、几张有替代文字、几个 drawing" % name,
+              [dig(got, "structure.pictures"), dig(got, "structure.pictures_with_alt_text"),
+               dig(got, "structure.pictures_without_alt_text"), dig(got, "structure.drawings")],
+              [len(want), with_alt, len(want) - with_alt, files[name]["ooxml"]["drawings"]])
+    for name in ("images.odt", "images-float.odt", "notes.odt", "protected.odt", "toc.odt"):
+        got = lbin("office-doc", fixture(name))
+        want = files[name]["odf"]["picture_rows"]
+        with_alt = sum(1 for one in want if one["alt"])
+        check("%s 每张图整份账与读者一致（尺寸自带单位、替代文字是孩子元素）" % name,
+              dig(got, "structure.picture_list"), want)
+        check("%s 几张图、几张有替代文字" % name,
+              [dig(got, "structure.pictures"), dig(got, "structure.pictures_with_alt_text"),
+               dig(got, "structure.pictures_without_alt_text")],
+              [len(want), with_alt, len(want) - with_alt])
+
+    plain = lbin("office-doc", fixture("images.docx"))
+    lo = lbin("office-doc", fixture("images-lo.docx"))
+    floaty = lbin("office-doc", fixture("images-float.docx"))
+    odt = lbin("office-doc", fixture("images.odt"))
+    odtf = lbin("office-doc", fixture("images-float.odt"))
+    check(
+        "同一条 4cm 在两家手里是两个数：两处尺寸一起跟着重写换，ODF 那个串落到同一个 0.01mm",
+        [dig(plain, "structure.picture_list[0].extent.cx"),
+         dig(plain, "structure.picture_list[0].extent.mm_w"),
+         dig(lo, "structure.picture_list[0].extent.mm_w"),
+         dig(lo, "structure.picture_list[0].pic_extent.mm_w"),
+         dig(odt, "structure.picture_list[0].mm_w"),
+         dig(odt, "structure.picture_list[0].mm_h"),
+         dig(lo, "structure.picture_list[0].extent.mm_h")],
+        ["1440000", 4000, 4001, 4001, 4001, 2401, 2401],
+    )
+    check(
+        "替代文字两处、锁两处：一家只写外头那处，重写那份把两句都抄进图里而且自己多补一份锁",
+        [dig(plain, "structure.picture_list[0].alt.descr"),
+         dig(plain, "structure.picture_list[0].alt_in_picture.name"),
+         dig(plain, "structure.picture_list[0].alt_in_picture.descr_written"),
+         dig(plain, "structure.picture_list[0].pic_locks"),
+         dig(lo, "structure.picture_list[0].alt_in_picture.descr"),
+         dig(lo, "structure.picture_list[0].pic_locks")],
+        ["一个红点", "dot.png", False, None, "一个红点",
+         {"noChangeAspect": "1", "noChangeArrowheads": "1"}],
+    )
+    check(
+        "号是生产者自己排的而解出来的部件是同一个：rId9 与 rId2 都到 word/media/image1.png",
+        [dig(plain, "structure.picture_list[0].blip_id"), dig(lo, "structure.picture_list[0].blip_id"),
+         dig(plain, "structure.picture_list[0].target"), dig(lo, "structure.picture_list[0].target")],
+        ["rId9", "rId2", "word/media/image1.png", "word/media/image1.png"],
+    )
+    check(
+        "浮起来那一种：摆法写在元素名上，绕排写在元素名与属性上，位置一半在属性一半在字里",
+        [dig(plain, "structure.picture_list[0].placed"),
+         dig(floaty, "structure.picture_list[0].placed"),
+         dig(floaty, "structure.picture_list[0].wrap"),
+         dig(floaty, "structure.picture_list[0].wrap_written"),
+         dig(floaty, "structure.picture_list[0].position_h"),
+         dig(floaty, "structure.picture_list[0].position_v"),
+         dig(floaty, "structure.picture_list[0].simple_pos"),
+         dig(plain, "structure.picture_list[0].wrap")],
+        ["inline", "anchor", "wrapSquare", {"wrapText": "largest"},
+         {"written": {"relativeFrom": "column"}, "element": "align", "value": "center"},
+         {"written": {"relativeFrom": "paragraph"}, "element": "posOffset", "value": "635"},
+         {"x": "0", "y": "0"}, None],
+    )
+    check(
+        "同一种摆法换到 ODF 是另一个词：as-char 与 char 各按各的文件交，不折成一个词",
+        [dig(odt, "structure.picture_list[0].placed"),
+         dig(odtf, "structure.picture_list[0].placed"),
+         dig(odt, "structure.picture_list[0].alt"),
+         dig(odtf, "structure.picture_list[0].href"),
+         dig(odt, "structure.picture_list[0].mime")],
+        ["as-char", "char", "一个红点",
+         "Pictures/100000000000002800000018CB9DEC0B.png", "image/png"],
+    )
+    rtf = lbin("office-doc", fixture("images.rtf"))
+    check(
+        "第三种存法只数得出「几张图」：那一族的逐张账本不交（键整个不在），流里没有那些元素可走",
+        [dig(rtf, "structure.pictures"), "picture_list" in (rtf.get("structure") or {}),
+         dig(rtf, "structure.pictures_with_alt_text")],
+        [1, False, None],
+    )
+    # 模板自带的另一枚小图（手上本来就有的三份件）：零替代文字与跨家换算的第二个凭据
+    logo = lbin("office-doc", fixture("notes.docx"))
+    logo_lo = lbin("office-doc", fixture("notes.odt"))
+    check(
+        "模板那枚 101600 EMU 的小图：docx 与 odt 两边换算撞在同一个 282 上，而替代文字整个没写",
+        [dig(logo, "structure.picture_list[0].extent.mm_w"),
+         dig(logo_lo, "structure.picture_list[0].mm_w"),
+         dig(logo, "structure.picture_list[0].alt.descr_written"),
+         dig(logo_lo, "structure.picture_list[0].alt_written"),
+         dig(logo, "structure.pictures"),
+         dig(logo, "structure.pictures_with_alt_text")],
+        [282, 282, False, False, 1, 0],
     )
 
     # ── 3g) 隐藏的行与列：藏起来的是「看不看得到」，不是「在不在」────────
