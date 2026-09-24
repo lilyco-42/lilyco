@@ -40,10 +40,12 @@ mod office_info;
 mod office_meta;
 mod office_objects;
 mod office_package;
+mod office_pdf;
 mod office_sheet;
 mod office_slide;
 mod office_text;
 mod opack;
+mod pdf;
 mod ppt;
 mod props;
 mod read;
@@ -75,6 +77,7 @@ pub fn build_registry_with_policy(policy: Arc<dyn SafetyPolicy>) -> Registry {
         RegisteredCommand::from_app::<office_slide::OfficeSlide>(),
         RegisteredCommand::from_app::<office_package::OfficePackage>(),
         RegisteredCommand::from_app::<office_objects::OfficeObjects>(),
+        RegisteredCommand::from_app::<office_pdf::OfficePdf>(),
     ];
     for c in cmds {
         let name = c.name.clone();
@@ -84,7 +87,7 @@ pub fn build_registry_with_policy(policy: Arc<dyn SafetyPolicy>) -> Registry {
     reg
 }
 
-/// 按后端选择安全策略（四条命令都是 T0，所以两面都放行；这里仍按约定显式区分）
+/// 按后端选择安全策略（本域全部命令都是 T0，所以两面都放行；这里仍按约定显式区分）
 pub fn policy_for(backend: lilyco::Backend) -> Arc<dyn SafetyPolicy> {
     match backend {
         lilyco::Backend::Mcp => Arc::new(DenyElevated),
@@ -108,7 +111,7 @@ mod tests {
         build_registry_with_policy(Arc::new(Interactive))
     }
 
-    /// 十二条命令、名字与顺序都对
+    /// 十三条命令、名字与顺序都对
     #[test]
     fn registry_has_expected_commands() {
         let reg = build_registry();
@@ -126,11 +129,12 @@ mod tests {
             "office-slide",
             "office-package",
             "office-objects",
+            "office-pdf",
         ] {
             assert!(names.contains(&want.to_string()), "缺少 {want}: {names:?}");
         }
-        assert_eq!(reg.iter().count(), 12, "{names:?}");
-        assert_eq!(reg.visible().count(), 12, "十二条命令都要可见");
+        assert_eq!(reg.iter().count(), 13, "{names:?}");
+        assert_eq!(reg.visible().count(), 13, "十三条命令都要可见");
     }
 
     /// 这个域全部只读：出现任何高于 T0 的命令都是越界（它凭什么改文件？）
@@ -202,7 +206,7 @@ mod tests {
     #[test]
     fn mcp_policy_admits_this_domain() {
         let reg = build_registry_with_policy(Arc::new(DenyElevated));
-        assert_eq!(reg.iter().count(), 12);
+        assert_eq!(reg.iter().count(), 13);
         for c in reg.iter() {
             assert_eq!(c.schema.safety, SafetyTier::ReadOnly);
         }
@@ -238,6 +242,7 @@ mod tests {
             "office-slide",
             "office-package",
             "office-objects",
+            "office-pdf",
         ] {
             let cmd = reg.get(name).expect("命令已注册");
             let err = cmd

@@ -28,6 +28,11 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `hidden.xlsx` | openpyxl 3.1（`write_hidden_xlsx`） | 第 3、4 行隐藏，C/D/E 三列隐藏，**D2/E2 里有字**；一列一条 `<col min="3" max="3" hidden="1">` |
 | `hidden-lo.xlsx` | LibreOffice（`hidden.ods` 转回 OOXML） | 同一份账的另一种写法：`<col min="3" max="5" hidden="true">` 一条盖三列，没隐藏的行也写着 `hidden="false"` |
 | `hidden.ods` | LibreOffice（从 `hidden.xlsx`） | 隐藏换成 `table:visibility="collapse"`，列那一跳还带 `number-columns-repeated="3"` |
+| `notes.pdf` | LibreOffice（从 `notes.docx` 导出） | Writer 那份的 PDF：2 页 letter、5 张子集 TrueType 字体（每张都带 `/ToUnicode`）、2 张 8×8 图、`/Lang (en-US)`、`/MarkInfo /Marked true`、一个 URI 批注、Info 里七个键（`/Title` 是 `<FEFF…>` 的 UTF-16BE 中文） |
+| `deck.pdf` | LibreOffice（从 `deck.pptx` 导出） | 同一批字的 Impress 存法：页面 `0 0 720 540`、`/Lang (zh-CN)`、6 张字体、没有批注 —— 与 `notes.pdf` 一起把「不同应用 → 不同页尺寸与语言」钉住 |
+| `objstm.pdf` | qpdf 12.3.2（经 pikepdf 10.13，从 `notes.pdf` 再存） | **68 个对象里只有 17 个是明写的**：另外 51 个挤在一个 `/Type /ObjStm`（`/N 51 /First 388`）里；文件里**没有 `trailer` 这个词**，`/Root`、`/Info` 只写在 `/Type /XRef` 的流字典里（`/Size 69`）。只扫 `obj` 的读者会报「0 页」，只认 `trailer` 的读者找不到元数据 |
+| `locked.pdf` | qpdf（`Encryption(R=6)`，从 `notes.pdf`） | AES-256 真加密，口令 `lbin-test`（owner `lbin-owner`；这是测试件，口令不是秘密）。`pdfinfo` 不给口令直接 `Incorrect password`；`/Encrypt` 指着的字典是 `/Filter /Standard`、`/V 5`、`/R 6`、`/Length 32`、带 `/O` `/U` `/OE` `/UE` `/P` |
+| `risk.pdf` | **手搓**（`office_fixtures.py` 的 `write_risk_pdf`，逐对象自数 `<<`/`>>`） | LibreOffice 不肯写的五种形状：`/AcroForm` + 一个 `Tx` 字段、文档级 `/JavaScript`（名字树 + 流）、页 `/AA` 触发的脚本、`/Launch` 动作（打开 `winword.exe`）、`/EmbeddedFiles` 附件 `badge.exe`；页对象**不写** `MediaBox`/`Rotate`，从 `/Pages` 继承。写完用 `pdfinfo` 验：`Form: AcroForm`、`JavaScript: yes`、`Pages: 1`、`Page size: 612 x 792`、`Page rot: 90` —— 五条都被第三方读者认了才算 fixture |
 
 ## 几件只有踩过才会记下来的事
 
@@ -127,6 +132,27 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     另：`notes-hf.odt` 我们数 40 个字符而生产者数 86 —— 差的是页眉页脚那份，
     我们只数正文（`statistics.ours`），这条口径差也是有意留出来的。
 
+16. **PDF 的「不追交叉引用表」要补两层才成立**（`objstm.pdf` 就是为这两层留的）。
+    对象在文件里以 `N G obj … endobj` 明写，xref 只是索引，所以容忍读法从扫标记开始 ——
+    但 qpdf 那份里 **68 个对象只有 17 个是明写的**，另外 51 个住在 `/Type /ObjStm` 的压缩流里
+    （头部是「对象号 体内偏移」成对，偏移**相对 `/First`**；这条不是背出来的，是拿一份真的
+    Word 2013 文件对出来的：它 `/N 6 /First 39`，头部 `14 0 13 51 10 101 …`）。
+    第二层：PDF 1.5 起 trailer 的键可以整个搬进 `/Type /XRef` 的流字典 —— 那份文件里
+    `trailer` 出现 **0 次**，只认 `trailer` 的读者连元数据都找不到。
+17. **`/Type/Page` 与 `/Type/Pages` 差一个 s，含义差一整页**。子串匹配会把树节点数成页，
+    页数立刻多一；两边的读者都用「名字整段比对」，`objstm.pdf` 的 2 页 / `/Count 2` 就是这条的哨兵。
+18. **`MediaBox` 与 `Rotate` 可以不写在页上**（`risk.pdf` 故意这样写：页对象两个都没有，
+    `/Pages` 上写一份）。不沿 `/Parent` 往上走就会报「这页没有尺寸」，而 `pdfinfo` 照样报
+    612×792 —— 报不出就是读者的错，不是文件的错。
+19. **加密的 PDF 里「读得出来」的不等于「是真的」**。`locked.pdf` 的 `/Lang` 按字符串规则
+    能解出一串乱码（`*Þ1s~A%¹QkXo»åPV*…`），第一版读者就把它当成语言标记交了出去。
+    加密只对**字符串与流正文**下手，名字与数字不动，所以那份文件里页数、页面尺寸、字体名
+    照样报得出，而 `/Lang` 与 Info 各项**刻意给 null** 并说明为什么。
+20. **手搓的 fixture 必须先过第三方读者**。`risk.pdf` 第一版被 `pdfinfo` 判为
+    `Kid object (page 1) is wrong type (stream)` —— 起因是某个字典少了一个 `>`，
+    一个字符的错让页对象变成了流；现在生成器每个对象先自数 `<<`/`>>` 再写文件，
+    写完仍要 `pdfinfo` 报出预期页数与标志位才算数。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
@@ -136,3 +162,12 @@ Rust 测试里每个期望值都来自第二读者对这些文件的独立读取
 `ods_facts()`（`.ods` 的重复计数、覆盖格与自动样式可见性）。
 CI 的 `apps` job 会把编出来的 `lbin` 再跑一遍 `office_probe.py` 与它们逐字段对账，
 不一致就红 —— 而不是只跑一遍单元测试说"自己跟自己也挺一致"。
+
+PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_pdf.py`
+（对象表、对象流那一层、trailer 与 `/Type /XRef` 两处找 `/Info`、字符串三件事、
+页树与继承、字体与图片清单、脚本与动作）。这一族还有**第三、四个读者**可查：
+本机 MiKTeX 带的 `pdfinfo` / `pdffonts` / `pdftotext`（xpdf 系，与本仓两套实现都无关）。
+页数、页面尺寸、`Page rot`、`Encrypted`、`Form`、`JavaScript`、`Tagged` 逐项与它对过，
+字体清单的对象号（含「这个字体对象住在对象流里」）与 `pdffonts` 的 `object ID` 列一致；
+`locked.pdf` 不给口令时 `pdfinfo` 直接拒绝打开，而这边照样报得出结构 —— 这两件事
+都不在 CI 里跑（Runner 上没有这些程序），是留在这里供复核的出处。

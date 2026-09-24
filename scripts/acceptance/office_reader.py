@@ -26,6 +26,7 @@ _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 from lyco_rtf import rtf_info, rtf_text  # 独立 RTF 实现，与 lilyco-binfmt/src/rtf.rs 对账
 from lyco_formats import xlsx_formats  # xlsx 数字格式的第二读者（与 numfmt.rs 对账）
 from lyco_legacy import biff_workbook, doc_pieces, ppt_text  # 遗留格式的第二读者
+import lyco_pdf  # PDF 那份读者：对象表 + 对象流 + 字符串三件事（lbin office-pdf 对账）
 
 END = "END"  # CFB 的链结束标记
 FREE = "FREE"
@@ -1794,6 +1795,12 @@ def facts(path: Path) -> dict:
         out["rtf"]["info"] = rtf_info(data)
         out["app"] = "word"
         return out
+    if data[:5] == b"%PDF-":
+        # PDF 不是容器，是一张对象表：读法自成一份（lyco_pdf.py），这边只做转发
+        out["container"] = "pdf"
+        out["app"] = "pdf"
+        out["pdf"] = lyco_pdf.pdf_facts(data)
+        return out
     out["container"] = "other"
     return out
 
@@ -1805,7 +1812,7 @@ def main() -> int:
     report = {}
     for one in files:
         if one.name.startswith(".") or one.suffix.lower() not in {
-            ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp", ".rtf", ".docm", ".dotx", ".xltm", ".xlsm", ".potx",
+            ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp", ".rtf", ".docm", ".dotx", ".xltm", ".xlsm", ".potx", ".pdf",
         }:
             continue
         try:

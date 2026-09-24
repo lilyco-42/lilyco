@@ -632,6 +632,81 @@ def main() -> int:
         ["Pictures/1000000100000008000000088E4DF5D4.png", "Pictures/TablePreview1.svm"],
     )
 
+    # ── 6) office-pdf：PDF 这张对象表 ───────────────────────────────
+    # PDF 不是容器，是「对象表 + 若干流」。这一族的三条分水岭都单独钉住：
+    # 对象流里那 51 个对象、没有 trailer 这个词的文件、以及加密时不许把密文当元数据
+    print("=== 6) office-pdf：对象表、页树、加密与风险面 ===")
+    for name in ("notes.pdf", "deck.pdf", "objstm.pdf", "locked.pdf", "risk.pdf"):
+        got = lbin("office-pdf", fixture(name))
+        want = files[name]["pdf"]
+        check("%s 版本号" % name, dig(got, "version"), want["version"])
+        check("%s 二进制注释行" % name, dig(got, "binary_comment"), want["binary_comment"])
+        check("%s 明写的对象数" % name, dig(got, "objects.plain"), want["objects"]["plain"])
+        check("%s 对象流里的对象数" % name, dig(got, "objects.in_object_streams"),
+              want["objects"]["in_object_streams"])
+        check("%s 看得见的对象总数" % name, dig(got, "objects.total_seen"), want["objects"]["total_seen"])
+        check("%s 重复对象号" % name, dig(got, "objects.duplicated_ids"), want["objects"]["duplicated_ids"])
+        check("%s trailer 关键字次数" % name, dig(got, "xref.trailer_keyword"), want["xref"]["trailer_keyword"])
+        check("%s 交叉引用流的号" % name, dig(got, "xref.xref_streams"), want["xref"]["xref_streams"])
+        check("%s 页数" % name, dig(got, "pages.page_objects"), want["pages"]["page_objects"])
+        check("%s 页树节点数" % name, dig(got, "pages.tree_nodes"), want["pages"]["pages_tree_nodes"])
+        check("%s /Count 自报" % name, dig(got, "pages.counts"), want["pages"]["counts"])
+        check("%s 页面尺寸" % name, dig(got, "pages.distinct_boxes"), want["pages"]["distinct_sizes"])
+        check("%s 继承来的 MediaBox" % name, dig(got, "pages.inherited_boxes"),
+              want["pages"]["inherited_mediabox"])
+        check("%s 每页旋转" % name, dig(got, "pages.rotations"),
+              [int(one or 0) for one in want["pages"]["rotations"]])
+        ge, we = got.get("encryption"), want.get("encryption")
+        check("%s 加密与否" % name, ge is None, we is None)
+        if we is not None:
+            check("%s 加密 Filter" % name, dig(got, "encryption.filter"), we["filter"])
+            check("%s 加密 V" % name, dig(got, "encryption.v"), we["v"])
+            check("%s 加密 R" % name, dig(got, "encryption.revision"), we["revision"])
+            check("%s 密钥位数" % name, dig(got, "encryption.key_bits"), we["length_bits"])
+            # 密文不当元数据：两边都不给
+            check("%s 加密时不给元数据" % name, got.get("metadata"), None)
+            check("%s 加密时 /Lang 不猜" % name, dig(got, "tags.lang"), None)
+        else:
+            check("%s 元数据逐项一致" % name, got.get("metadata") or {}, want["info"])
+            check("%s /Lang" % name, dig(got, "tags.lang"), want["tags"]["lang"] or None)
+        check("%s tagged 标志" % name, bool(dig(got, "tags.marked")), want["tags"]["marked"])
+        check("%s StructTreeRoot" % name, bool(dig(got, "tags.struct_tree_root")),
+              want["tags"]["struct_tree_root"])
+        check(
+            "%s 字体清单" % name,
+            [(one["object"], one["base_font"], one["subtype"], one["encoding"],
+              one["to_unicode"], one["from_object_stream"]) for one in got.get("fonts", [])],
+            [(one["id"], one["base_font"], one["subtype"], one["encoding"],
+              one["to_unicode"], one["in_object_stream"]) for one in want["fonts"]],
+        )
+        check(
+            "%s 图片清单" % name,
+            [(one["object"], one["width"], one["height"], one["filter"], one["color_space"],
+              one["bits_per_component"]) for one in got.get("images", [])],
+            [(one["id"], one["width"], one["height"], one["filter"], one["color_space"], one["bits"])
+             for one in want["images"]],
+        )
+        for key in ("javascript", "launch", "uri_actions", "attachments", "acroform",
+                    "fields", "open_action"):
+            check("%s 风险项 %s" % (name, key), dig(got, "features.%s" % key), want["features"][key])
+
+    # 三条分水岭各自的具体数：这三条只要有一条没做，上面的合计就会歪
+    stm = lbin("office-pdf", fixture("objstm.pdf"))
+    check("objstm.pdf 那个对象流自报 /N", dig(stm, "objects.object_streams[0].declared_n"), 51)
+    check("objstm.pdf 解出来的对象数", dig(stm, "objects.object_streams[0].unpacked"), 51)
+    check("objstm.pdf 对象流没有毛病", dig(stm, "objects.object_streams[0].problem"), None)
+    check("objstm.pdf /Info 只在 XRef 流里指得出", dig(stm, "xref.info"), 52)
+    check("objstm.pdf /Root 也只在 XRef 流里", dig(stm, "xref.root"), 9)
+    plain = lbin("office-pdf", fixture("notes.pdf"))
+    check("notes.pdf 的 /Root 从 trailer 指", dig(plain, "xref.root"), 74)
+    check("notes.pdf 明写的对象比 objstm 多", dig(plain, "objects.plain") > dig(stm, "objects.plain"), True)
+    lock = lbin("office-pdf", fixture("locked.pdf"))
+    check("locked.pdf 的 watch 第一条是加密", dig(lock, "watch[0].kind"), "encrypted")
+    check("locked.pdf 声明没解密", dig(lock, "encryption.decrypted"), False)
+    risk = lbin("office-pdf", fixture("risk.pdf"))
+    check("risk.pdf 的 Launch 动作进了 watch",
+          [one["kind"] for one in risk.get("watch", [])].count("launch-action"), 1)
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:

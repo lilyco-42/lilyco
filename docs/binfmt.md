@@ -1,12 +1,12 @@
 # lbin — 二进制 / 容器结构查看使用文档
 
 `lilyco-binfmt` 是 lilyco 框架的**第二个纯只读域二进制**：一个 `lbin` 挂「看一个文件到底是什么结构」
-这一整域的 4 条命令，照 `lilyco-files` 的样板获得 **CLI / TUI / Web / MCP** 四端 + AI 可调用。
+这一整域的 13 条命令，照 `lilyco-files` 的样板获得 **CLI / TUI / Web / MCP** 四端 + AI 可调用。
 
 - 仓库：`https://github.com/lilyco-42/lilyco`
 - 二进制名：`lbin`
 - 依赖：`object`（符号层）+ 自己写的字节走查（识别 / 成员表 / 分区图），**不执行、不解压、不写盘**
-- 安全级：**4 条命令全是 T0 只读**，MCP 的 `DenyElevated` 策略下照样放行
+- 安全级：**13 条命令全是 T0 只读**，MCP 的 `DenyElevated` 策略下照样放行
 
 ---
 
@@ -36,11 +36,12 @@ cargo run -p lilyco-binfmt -- identify --path /usr/bin/ls --json
 | `office-slide` | **T0** 只读 | 演示文稿的结构：放映顺序、每页标题与**演讲者备注**、版式与母版、尺寸与媒体；pptx 与 odp 各按自己的层级走（odp 的尺寸要绕 master-page 那一跳） |
 | `office-package` | **T0** 只读 | 包自证：关系指着不存在的部件、部件没声明内容类型、解压过不了自己的 CRC-32 |
 | `office-objects` | **T0** 只读 | 正文之外装了什么：图片、嵌入对象、字体、自定义 XML + 该留心的宏/外链/加密/签名；ODF 没有 OPC 关系表，引用按 `xlink:href` 逐条扫（带 scheme 的才算站外），宏那一条只判 OOXML/复合文档 —— 手上没有含 Basic 库的 ODF 样本 |
+| `office-pdf` | **T0** 只读 | PDF 这张对象表：几页（`/Count` 与真的 `/Type/Page` 对账，`/Pages` 是树节点不算页）、每页尺寸与旋转（**页上不写就沿 `/Parent` 继承**）、Info 元数据（PDF 字符串那三件事：转义、八进制、嵌套括号；`<FEFF…>` 是 UTF-16BE）、tagged 标志、字体清单（含 `/ToUnicode` 有没有、这个对象是不是藏在对象流里）、图片清单、以及会自己动的东西（`/JavaScript`、`/Launch`、`/SubmitForm`、`/AcroForm` 字段、`/EmbeddedFiles` 附件、`/OpenAction`、页 `/AA`）。对象靠扫 `N G obj` 认，**不追交叉引用表**，但补了两层：`/Type /ObjStm` 里打包的对象与「没有 `trailer` 这个词、trailer 的键住在 `/Type /XRef` 流字典里」的文件。加密的 PDF 只报结构与加密参数，**不解密**，元数据与 `/Lang` 宁可给 null 也不交乱码。不含：`/Kids` 的真实阅读顺序、内容流里的正文（下一步）、表单字段值、签名校验 |
 
-十二条命令都要 `--path`（`must_exist`）。规模控制两个开关：
+十三条命令都要 `--path`（`must_exist`）。规模控制两个开关：
 `--max-bytes`（默认 `identify` 1 MiB、`regions` 32 MiB、`entries`/`symbols` 与 `office-*` 64 MiB；
 **写 0 = 不设上限**）与 `--limit`（`entries` 默认 200、`symbols` 默认 128、
-`office-sheet`/`office-package` 200、其余 office 命令 100；`regions` 上限固定 256 区；
+`office-sheet`/`office-package`/`office-pdf` 200、其余 office 命令 100；`regions` 上限固定 256 区；
 `office-text` 还有一个 `--max-chars`，默认 20000）。
 `--json` 出结构化结果，人读格式在结果超过 500 字节时只报进度——**给脚本和 AI 用请加 `--json`**。
 

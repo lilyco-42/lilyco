@@ -521,6 +521,71 @@ def write_odt(path: Path) -> None:
         box.writestr("meta.xml", meta)
 
 
+def write_risk_pdf(path: Path) -> None:
+    """手搓一份「会自己动」的 PDF：表单、文档级 JavaScript、附件、Launch 动作，
+    外加 MediaBox / Rotate 写在 /Pages 上让页去继承 —— 这五种形状 LibreOffice
+    都不肯写（它导出的 PDF 没有脚本、没有表单、每页自带 MediaBox）。
+
+    手搓的风险是「我以为规范是这么写的」，所以这份写完立刻用 pdfinfo 验：
+    它报 Form: AcroForm、JavaScript: yes、Pages: 1、Page size 612 x 792、
+    Page rot: 90，五个形状就都被第三方读者认了（rot 90 与尺寸正是继承来的）。
+    字典少一个 `>` 会让后面的解析全歪且歪得看不出所以然，所以每个对象先自数括号。
+    """
+    import zlib
+
+    js = b"app.alert('from the document')"
+    objects: dict[int, bytes] = {
+        1: b"<</Type/Catalog/Pages 2 0 R/AcroForm 12 0 R"
+        b"/Names<</JavaScript 13 0 R/EmbeddedFiles 14 0 R>>"
+        b"/OpenAction<</S/GoTo/D 3 0 R>>/Lang(en-US)>>",
+        2: b"<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 612 792]/Rotate 90>>",
+        # 页自己不写 MediaBox 与 Rotate：这两项从 /Pages 继承
+        3: b"<</Type/Page/Parent 2 0 R"
+        b"/Annots[10 0 R 11 0 R]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>"
+        b"/AA<</E<</S/JavaScript/JS 16 0 R>>>>>>",
+        5: b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
+        6: b"<</Title(Risk fixture)/Author(nobody)/Producer(hand-built)>>",
+        7: b"<</Type/Filespec/F(badge.exe)/UF(badge.exe)/EF<</F 8 0 R>>>>",
+        8: b"<</Type/EmbeddedFile/Length 10>>\nstream\nMZ........\nendstream",
+        10: b"<</Type/Annot/Subtype/Link/Rect[10 700 200 740]"
+        b"/A<</S/Launch/F(winword.exe)/P<</O/Open>>>>>>",
+        11: b"<</Type/Annot/Subtype/Link/Rect[10 640 200 680]"
+        b"/A<</S/URI/URI(https://example.invalid/doc)>>>>",
+        12: b"<</Fields[15 0 R]/DR<</Font<</F1 5 0 R>>>>>>",
+        13: b"<</Names[(EmbeddedJS) 9 0 R]>>",
+        14: b"<</Names[(badge.exe) 7 0 R]>>",
+        15: b"<</Type/Annot/Subtype/Widget/FT/Tx/T(name)/V(x)/Rect[0 0 1 1]"
+        b"/P 3 0 R>>",
+        16: b"<</S/JavaScript/JS(%s)>>" % js,
+    }
+    body = bytearray(b"BT /F1 12 Tf 72 720 Td (Risk surface fixture) Tj ET")
+    packed = zlib.compress(bytes(body), 9)
+    objects[4] = (
+        b"<</Filter/FlateDecode/Length %d>>\nstream\n" % len(packed) + packed + b"\nendstream"
+    )
+    stream_js = zlib.compress(js, 9)
+    objects[9] = (
+        b"<</Filter/FlateDecode/Length %d>>\nstream\n" % len(stream_js)
+        + stream_js
+        + b"\nendstream"
+    )
+
+    out = bytearray(b"%PDF-1.7\n%\xe2\xe3\xcf\xdc\n")  # 头 + 规范建议的二进制注释行
+    offsets: dict[int, int] = {}
+    for num in sorted(objects):
+        head = objects[num].split(b"\nstream\n", 1)[0]
+        assert head.count(b"<<") == head.count(b">>"), (num, head)
+        offsets[num] = len(out)
+        out += b"%d 0 obj\n" % num + objects[num] + b"\nendobj\n"
+    top = max(offsets) + 1
+    out += b"xref\n0 %d\n" % top + b"0000000000 65535 f \n"
+    for i in range(1, top):
+        out += (b"%010d 00000 n \n" % offsets[i]) if i in offsets else b"0000000000 65535 f \n"
+    xref_at = len(out)
+    out += b"trailer\n<</Size %d/Root 1 0 R/Info 6 0 R>>\nstartxref\n%d\n%%%%EOF\n" % (top, xref_at)
+    path.write_bytes(bytes(out))
+
+
 FOOTNOTE_RTF = r"""{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0 Calibri;}}
 \pard Quarterly budget note.\par
 This sentence carries a footnote{\footnote\fs16 Footnote: the numbers are gross.} and keeps going.\par
@@ -632,6 +697,42 @@ def main() -> int:
             shutil.copyfile(src, OUT / name)
         else:
             print(f"⚠️  没拿到 {name}（LibreOffice 版本可能不支持该目标格式）")
+
+    # ── PDF：这一族的三条路各要一个真件 ─────────────────────────────
+    # 1) LibreOffice 导出（Writer 与 Impress 各一份：页面尺寸、/Lang、字体数都不同）
+    write_risk_pdf(OUT / "risk.pdf")
+    for src in (docx, pptx):
+        convert(exe, src, "pdf", SCRATCH)
+    for name in ("notes.pdf", "deck.pdf"):
+        src = SCRATCH / name
+        if src.exists():
+            shutil.copyfile(src, OUT / name)
+        else:
+            print(f"⚠️  没拿到 {name}（LibreOffice 的 pdf 导出）")
+    # 2) qpdf（pikepdf 带的）再存一次，造出 LibreOffice 不写的两种形状：
+    #    `object_stream_mode=generate` 把大部分对象搬进 /Type /ObjStm 并写出
+    #    /Type /XRef —— 那种文件里根本没有 `trailer` 这个词，/Info 只住在那个流字典里；
+    #    `Encryption(R=6)` 是 AES-256 真加密，pdfinfo 不给口令直接拒绝打开。
+    #    这两份都经 pdfinfo / pdffonts 第三方读者核对过（见 fixture README）
+    try:
+        import pikepdf
+    except Exception:  # noqa: BLE001 - 没有就让主脚本照常跑完其余 fixture
+        print("⚠️  没有 pikepdf（python -m pip install pikepdf）：跳过 objstm.pdf / locked.pdf")
+    else:
+        source = OUT / "notes.pdf"
+        if source.exists():
+            with pikepdf.open(source) as box:
+                box.save(
+                    OUT / "objstm.pdf",
+                    force_version="1.5",
+                    object_stream_mode=pikepdf.ObjectStreamMode.generate,
+                )
+            with pikepdf.open(source) as box:
+                box.save(
+                    OUT / "locked.pdf",
+                    encryption=pikepdf.Encryption(user="lbin-test", owner="lbin-owner", R=6),
+                )
+            print("  objstm.pdf / locked.pdf 由 qpdf 写出（口令 lbin-test，只为测加密检测）")
 
     print("fixture 清单（每个文件的生产者见函数注释）：")
     for one in sorted(OUT.iterdir()):
