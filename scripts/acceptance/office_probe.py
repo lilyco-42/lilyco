@@ -209,8 +209,10 @@ def main() -> int:
     # 按各自的形状比，不强行归一
     print("=== 2b) 有没有目录、收了几级（toc.docx / toc.odt） ===")
     for name in ("toc.docx", "notes.docx", "toc.odt", "notes.odt"):
-        want = files[name]["ooxml"]["contents"] if name.endswith(".docx") else files[name]["odt"]["contents"]
-        check("%s 目录那份账" % name, lbin("office-doc", fixture(name)).get("contents"), want)
+        # 这个循环外头还有一个 `want` 装着 notes.docx 的整份账（后面十几条检查在用），
+        # 所以这里必须换个名字 —— 复用 `want` 会把那份账换成本条循环的小字典
+        cwant = files[name]["ooxml"]["contents"] if name.endswith(".docx") else files[name]["odt"]["contents"]
+        check("%s 目录那份账" % name, lbin("office-doc", fixture(name)).get("contents"), cwant)
     check("notes.doc 没读就不报目录", lbin("office-doc", fixture("notes.doc")).get("contents"), None)
 
     # ── 2c) RTF 的结构这一问：它不是包，是一条流，能数清的才报 ─────────────
@@ -314,18 +316,21 @@ def main() -> int:
     )
 
     doc = lbin("office-doc", fixture("notes.docx"))
-    check("notes.docx 表格数", dig(doc, "structure.tables"), want["tables"])
+    # 这份账自己取一份，不借那个一路被循环复用的 `want`（be00afa 就是被它带崩的：
+    # 目录那条循环把 `want` 换成了一本小字典，下面十几条检查还当它是 notes.docx 的整份账）
+    dwant = files["notes.docx"]["ooxml"]
+    check("notes.docx 表格数", dig(doc, "structure.tables"), dwant["tables"])
     # 「多少字」那份账有两边：自己数的与生产者自报的（python-docx 写的那份全是 0）
-    check("notes.docx 自己数的字与读者一致", dig(doc, "statistics.ours"), want["statistics"]["ours"])
+    check("notes.docx 自己数的字与读者一致", dig(doc, "statistics.ours"), dwant["statistics"]["ours"])
     check("notes.docx 生产者自报的字数", dig(doc, "statistics.producer.words"), 0)
     check("notes.docx 生产者自报的页数", dig(doc, "statistics.producer.pages"), 1)
-    check("notes.docx 行数", dig(doc, "structure.table_rows"), want["table_rows"])
-    check("notes.docx 格子数", dig(doc, "structure.table_cells"), want["table_cells"])
-    check("notes.docx 节数", dig(doc, "structure.sections"), want["sections"])
-    check("notes.docx 批注数", doc.get("comments"), want["comments"])
-    check("notes.docx 标题", doc.get("headings"), [{"level": one["level"], "text": one["text"]} for one in want["headings"]])
-    check("notes.docx 链接", [one["target"] for one in doc.get("hyperlinks", [])], [one["target"] for one in want["hyperlinks"]])
-    check("notes.docx 图片", doc.get("images"), want["media"])
+    check("notes.docx 行数", dig(doc, "structure.table_rows"), dwant["table_rows"])
+    check("notes.docx 格子数", dig(doc, "structure.table_cells"), dwant["table_cells"])
+    check("notes.docx 节数", dig(doc, "structure.sections"), dwant["sections"])
+    check("notes.docx 批注数", doc.get("comments"), dwant["comments"])
+    check("notes.docx 标题", doc.get("headings"), [{"level": one["level"], "text": one["text"]} for one in dwant["headings"]])
+    check("notes.docx 链接", [one["target"] for one in doc.get("hyperlinks", [])], [one["target"] for one in dwant["hyperlinks"]])
+    check("notes.docx 图片", doc.get("images"), dwant["media"])
 
     deck = lbin("office-text", fixture("deck.pptx"))
     deck_want = files["deck.pptx"]["ooxml"]
