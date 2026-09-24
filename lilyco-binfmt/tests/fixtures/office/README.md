@@ -1021,6 +1021,19 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       （`#那一页` 这种站内跳法）、或者**只有一个字母**（那是 Windows 的盘符不是 scheme）都交 null。
     * 第二页一条也不链：那一份交 `total: 0`，不是缺这个键。
 
+64. **关系表的成员名中间那一段 `_rels/` 不是可选的**（`deck.pptx`、`deck-links.pptx`）。
+    * OPC 把「这一页指着什么」写在 `ppt/slides/_rels/slide1.xml.rels`，而 `slide1.xml` 只是
+      宿主部件的名字。`zipread::member` 按名字精确匹配、不会替你猜，所以把成员拼成
+      `ppt/slides/slide1.xml.rels` 永远读不到 —— 于是每页的 `relationships` 一直是**空表**：
+      键在、形状对、值也自洽，只有跟第二读者逐字段对一遍才露出来（那条链的 `links` 之所以
+      对，是因为图与备注各走各的读法，两边都没用到这一处）。
+    * 同一次修复里踩到第二条：`a:hlinkClick` 上那个号是 `r:id`，按 `attr("id")` 精确匹配读不到，
+      三条链于是全成了「指不到」—— 这与本页另一处 `<p:sldId id="256" r:id="rId2"/>` 是同一个坑，
+      区别只在那次两个 `id` 都在、拿到的是放映序号，这次一个都不在、拿到的是空串。
+    * 修好后 `deck.pptx` 第一页交三条（版式 / 备注页 / 图，内部的 `Target` 已解成包内全名），
+      `deck-links.pptx` 第一页交四条（那三条链本来就是这页关系表里的三条，外部的 `Target`
+      不按包内解，照原样）—— 两本的账由 `office_reader.py` 的 `slide_rels()` 各读一遍核对。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：

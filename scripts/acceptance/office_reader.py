@@ -2081,6 +2081,7 @@ def pptx_facts(path: Path) -> dict:
             {
                 "part": name,
                 "links": pptx_slide_links(root, rels_root),
+                "relationships": slide_rels(rels_root, name),
                 "title": texts[0] if texts else "",
                 "texts": texts,
                 "text_runs": len(texts),
@@ -3146,11 +3147,38 @@ def _link_rows(rows: list) -> dict:
     }
 
 
+def slide_rels(rels_root, source: str) -> list:
+    """一个部件自己的关系表，内、外都要（按文件写的顺序）：kind / target / external
+
+    内部那条的 `target` 按源部件解成包内全名，外部的照原样交。`Type` 或 `Target`
+    没写的条目不收 —— 那在两边都不成一条关系。Rust 侧同名账在 src/office_slide.rs。
+    """
+    if rels_root is None:
+        return []
+    out: list = []
+    for one in rels_root.iter():
+        if xml_local(one.tag) != "Relationship":
+            continue
+        had_type, raw = one.get("Type"), one.get("Target")
+        if had_type is None or raw is None:
+            continue
+        external = one.get("TargetMode") == "External"
+        out.append(
+            {
+                "kind": had_type.rsplit("/", 1)[-1],
+                "target": raw if external else opc_target(source, raw),
+                "external": external,
+            }
+        )
+    return out
+
+
 def pptx_slide_links(root, rels_root, limit: int = 200) -> dict:
     """OOXML 一页上的链接：run 的 `a:rPr/a:hlinkClick` 只写一个号，地址在页自己的关系表里
 
     `TargetMode` 没写时交 None（那与写了 `External` 是两件事）；号在关系表里找不到时
     `target` / `external` 都交 None，而那个号照交 —— 「写了个指不到东西的号」是文件说的话。
+    连号都没写时 `id` 也交 None（不是空串）。
     """
     pool: dict = {}
     if rels_root is not None:
@@ -3175,8 +3203,9 @@ def pptx_slide_links(root, rels_root, limit: int = 200) -> dict:
                 break
         if click is None:
             continue
-        rid = of_local(click, "id") or ""
-        target, mode = pool.get(rid, (None, None))
+        # 关系号一定带前缀（`r:id`）：那个名字是文档自己声明的，按局部名去找
+        rid = of_local(click, "id")
+        target, mode = pool.get(rid, (None, None)) if rid else (None, None)
         rows.append(
             {
                 "text": "".join(

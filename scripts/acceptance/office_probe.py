@@ -1836,6 +1836,37 @@ def main() -> int:
             [one.get("links") for one in deck.get("slides", [])],
         )
     link_deck = lbin("office-slide", fixture("deck-links.pptx"))
+    # 那一页的关系表整份账：Rust 侧曾因部件名少了中间那段 `_rels/` 而全是空表，
+    # 键在、值也自洽，只有跟读者对一遍才露出来
+    for name in ("deck-links.pptx", "deck-links-lo.pptx", "deck.pptx", "deck-chart.pptx"):
+        deck = files[name].get("ooxml") or {}
+        check(
+            "%s 每页那张关系表与读者一致" % name,
+            [one.get("relationships") for one in lbin("office-slide", fixture(name)).get("slides", [])],
+            [one.get("relationships") for one in deck.get("slides", [])],
+        )
+    check(
+        "关系表里内、外两种 Target：内部的解成包内全名，外部的照原样",
+        [dig(link_deck, "slides[0].relationships[0].kind"),
+         dig(link_deck, "slides[0].relationships[0].target"),
+         dig(link_deck, "slides[0].relationships[0].external"),
+         dig(link_deck, "slides[0].relationships[1].kind"),
+         dig(link_deck, "slides[0].relationships[1].target"),
+         dig(link_deck, "slides[0].relationships[1].external"),
+         len(dig(link_deck, "slides[0].relationships")),
+         len(dig(link_deck, "slides[1].relationships"))],
+        ["slideLayout", "ppt/slideLayouts/slideLayout6.xml", False,
+         "hyperlink", "https://example.com/budget", True, 4, 1],
+    )
+    check(
+        "一条链都指不到的那页，关系表仍然把图片与备注页记着（两本账不是一回事）",
+        [dig(lbin("office-slide", fixture("deck.pptx")), "slides[0].links.total"),
+         dig(lbin("office-slide", fixture("deck.pptx")), "slides[0].relationships[1].kind"),
+         dig(lbin("office-slide", fixture("deck.pptx")), "slides[0].relationships[1].target"),
+         dig(lbin("office-slide", fixture("deck.pptx")), "slides[0].relationships[2].kind"),
+         dig(lbin("office-slide", fixture("deck.pptx")), "slides[0].relationships[2].target")],
+        [0, "notesSlide", "ppt/notesSlides/notesSlide1.xml", "image", "ppt/media/image1.png"],
+    )
     check(
         "OOXML 那一族要跳两跳：run 里只有一个号，地址在这一页自己的关系表里",
         [dig(link_deck, "slides[0].links.total"), dig(link_deck, "slides[0].links.external"),
