@@ -1310,6 +1310,104 @@ def main() -> int:
               [one.get("name") for one in lbin("office-sheet", fixture(name)).get("sheets", [])
                if one.get("charts") is not None], [])
 
+    # ── 3a9) 规则那两份账：条件格式的样式在 dxf 那一跳上，数据验证的开关两种拼法 ──
+    print("=== 3a9) office-sheet 的条件格式与数据验证 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.xlsx")):
+        want = files[name]["ooxml"]
+        got = lbin("office-sheet", fixture(name))
+        mine = {
+            (one.get("part") or "").rsplit("/", 1)[-1][: -len(".xml")]: one.get("rules")
+            for one in got.get("sheets", [])
+        }
+        check("%s 每张表的规则整份账（条件格式 + 数据验证）" % name, mine, want["rules"])
+        check("%s dxfs 那一跳的自报数与实际条数" % name, dig(got, "workbook.dxfs"), want["dxfs"])
+    hand = lbin("office-sheet", fixture("rules.xlsx"))
+    lo = lbin("office-sheet", fixture("rules-lo.xlsx"))
+    FIRST = "sheets[0].rules.conditional[0].rule_list[0]"
+    check(
+        "一张表三块范围、四条件格式规则与三条验证",
+        [len(dig(hand, "sheets[0].rules.conditional") or []),
+         dig(hand, "workbook.totals.conditional_rules"),
+         dig(hand, "workbook.totals.validations"),
+         len(dig(hand, "sheets[1].rules.conditional") or [])],
+        [3, 4, 3, 0],
+    )
+    check(
+        "dxfId 那一跳：规则只写下标，字与色住在 styles.xml 的 dxfs 里",
+        [dig(hand, FIRST + ".dxf.written"), dig(hand, FIRST + ".dxf.found"),
+         dig(hand, FIRST + ".dxf.kinds"), dig(lo, FIRST + ".dxf.kinds")],
+        ["0", True, ["font/b", "font/color"],
+         ["font/name", "font/family", "font/b", "font/color", "font/sz"]],
+    )
+    check(
+        "同一条 sqref 里可以塞两段区间，照文件交",
+        [dig(hand, "sheets[0].rules.conditional[0].sqref"),
+         dig(hand, "sheets[0].rules.conditional[1].sqref"),
+         dig(hand, "sheets[0].rules.conditional[2].sqref")],
+        ["B2:B6", "A2:A6 B2:B4", "A2:A6"],
+    )
+    check(
+        "色阶的三个 cfvo 与三个颜色：alpha 那两位是两个生产者的差",
+        [dig(hand, "sheets[0].rules.conditional[1].rule_list[0].scale.colors"),
+         dig(lo, "sheets[0].rules.conditional[1].rule_list[0].scale.colors"),
+         len(dig(hand, "sheets[0].rules.conditional[1].rule_list[0].scale.cfvo") or [])],
+        [["00FFFFFF", "00FFEB84", "00F8696B"],
+         ["FFFFFFFF", "FFFFEB84", "FFF8696B"], 3],
+    )
+    check(
+        "图标集把形状写在子元素里（iconSet 与每条 cfvo 的 type/val）",
+        [dig(hand, "sheets[0].rules.conditional[0].rule_list[1].type"),
+         dig(hand, "sheets[0].rules.conditional[0].rule_list[1].scale.written.iconSet"),
+         dig(hand, "sheets[0].rules.conditional[0].rule_list[1].scale.cfvo[2]")],
+        ["iconSet", "3Arrows", {"type": "percent", "val": "67"}],
+    )
+    check(
+        "公式规则里那个 > 是实体，解掉才是文件写的那条式子",
+        [dig(hand, "sheets[0].rules.conditional[2].rule_list[0].formulas"),
+         dig(lo, "sheets[0].rules.conditional[2].rule_list[0].formulas")],
+        [["$B2>200"], ["$B2>200"]],
+    )
+    check(
+        "priority 是生产者自己排的号：同一批规则两家排得不一样",
+        [[dig(hand, "sheets[0].rules.conditional[%d].rule_list[0].priority" % i) for i in (0, 1, 2)],
+         [dig(lo, "sheets[0].rules.conditional[%d].rule_list[0].priority" % i) for i in (0, 1, 2)]],
+        [["1", "2", "4"], ["2", "4", "5"]],
+    )
+    check(
+        "数据验证：容器自报 count，属性一个也不替它补",
+        [dig(hand, "sheets[0].rules.validations.written"),
+         dig(hand, "sheets[0].rules.validations.found"),
+         dig(hand, "sheets[0].rules.validations.whole"),
+         dig(hand, "sheets[0].rules.validations.list[0].type"),
+         dig(hand, "sheets[0].rules.validations.list[0].operator"),
+         dig(hand, "sheets[0].rules.validations.list[0].formulas")],
+        ["3", 3, True, "list", None, ['"红,黄,绿"']],
+    )
+    check(
+        "同一条开关的两种拼法（1/0 与 true/false）与 LibreOffice 补的那三样",
+        [dig(hand, "sheets[0].rules.validations.list[0].written.allowBlank"),
+         dig(lo, "sheets[0].rules.validations.list[0].written.allowBlank"),
+         dig(lo, "sheets[0].rules.validations.list[0].operator"),
+         dig(lo, "sheets[0].rules.validations.list[0].written.errorStyle"),
+         dig(lo, "sheets[0].rules.validations.list[0].formulas"),
+         dig(lo, "sheets[0].rules.validations.list[2].formulas")],
+        ["1", "true", "equal", "stop", ['"红,黄,绿"', "0"], ["ISNUMBER(B2)", "0"]],
+    )
+    check(
+        "没挂规则的表：块数 0、验证是「没写」而不是空表",
+        [len(dig(lo, "sheets[1].rules.conditional") or []),
+         dig(lo, "sheets[1].rules.validations.written"),
+         dig(lo, "sheets[1].rules.validations.found")],
+        [0, None, 0],
+    )
+    # 另两家：ODS 的条件格式在 number:* 样式与 table:style 那一套上，.xls 是 BIFF 的
+    # CONDFMT/DCON 记录 —— 都没有量过的第二个读者，所以 rules 这个键整个不在
+    for name in ("book.ods", "hidden.ods", "book.xls", "hidden.xls"):
+        check("%s 这一族的规则没读：键整个不在" % name,
+              [one.get("name") for one in lbin("office-sheet", fixture(name)).get("sheets", [])
+               if one.get("rules") is not None], [])
+
+
     # ── 3b) 数字格式：格子写的是 cellXfs 的下标，日期藏在样式里 ──────────
     print("=== 3b) formats.xlsx：格式号、判定与换算出来的日期 ===")
     fx = lbin("office-sheet", fixture("formats.xlsx"))

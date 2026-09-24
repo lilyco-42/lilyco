@@ -588,6 +588,112 @@ def rels_of_parts(parts: dict, source: str) -> list:
     return out
 
 
+def written_attrs(node) -> dict:
+    """一个元素上写着的属性：去掉命名空间前缀，值原样交（与 Rust 的 written_attrs 同一条）"""
+    return {xml_local(key): value for key, value in node.attrib.items()}
+
+
+def dxf_table(parts: dict):
+    """styles.xml 里 dxfs 那一跳：(自报的 count, 每条 dxf 里出现过的元素路径)
+
+    路径一层到底写成 `font/b` 这样：openpyxl 的一条 dxf 只写 font/b 与 font/color，
+    LibreOffice 重写同一条会补上 name / family / sz —— 只交出现过的名字，不替两边凑形状。
+    """
+    if "xl/styles.xml" not in parts:
+        return None, []
+    root = ET.fromstring(parts["xl/styles.xml"])
+    holder = [one for one in root.iter() if xml_local(one.tag) == "dxfs"]
+    if not holder:
+        return None, []
+    written = holder[0].get("count")
+    kinds = []
+    for one in holder[0]:
+        if xml_local(one.tag) != "dxf":
+            continue
+        paths = []
+        for kid in one:
+            kids = list(kid)
+            if not kids:
+                paths.append(xml_local(kid.tag))
+            else:
+                paths += ["%s/%s" % (xml_local(kid.tag), xml_local(deep.tag)) for deep in kids]
+        kinds.append(paths)
+    return written, kinds
+
+
+def sheet_rules(root, dxfs: list, limit: int = 200) -> dict:
+    """这一张表上的规则：条件格式那块（一块一套范围，里面若干条 cfRule）与数据验证"""
+    blocks = []
+    for block in [one for one in root.iter() if xml_local(one.tag) == "conditionalFormatting"]:
+        rules = []
+        for rule in [one for one in block if xml_local(one.tag) == "cfRule"][:limit]:
+            index = rule.get("dxfId")
+            at = None
+            try:
+                at = int(index.strip()) if index is not None else None
+            except ValueError:
+                at = None
+            if index is None:
+                dxf = {"written": None, "found": False, "kinds": []}
+            elif at is not None and at < len(dxfs):
+                dxf = {"written": index, "found": True, "kinds": dxfs[at]}
+            else:
+                dxf = {"written": index, "found": False, "kinds": []}
+            found = [one for one in rule
+                     if xml_local(one.tag) in ("iconSet", "colorScale", "dataBar", "extLst")]
+            detail = found[0] if found else None
+            scale = None
+            if detail is not None and xml_local(detail.tag) != "extLst":
+                scale = {
+                    "kind": xml_local(detail.tag),
+                    "written": written_attrs(detail),
+                    "cfvo": [written_attrs(one) for one in detail if xml_local(one.tag) == "cfvo"],
+                    "colors": [one.get("rgb") for one in detail
+                               if xml_local(one.tag) == "color" and one.get("rgb") is not None],
+                }
+            rules.append({
+                "type": rule.get("type"),
+                "priority": rule.get("priority"),
+                "operator": rule.get("operator"),
+                "dxf": dxf,
+                "formulas": [(one.text or "").strip() for one in rule
+                             if xml_local(one.tag) == "formula"],
+                "scale": scale,
+                "written": written_attrs(rule),
+            })
+        blocks.append({"sqref": block.get("sqref"), "rules": len(rules), "rule_list": rules})
+    holders = [one for one in root.iter() if xml_local(one.tag) == "dataValidations"]
+    items = []
+    if holders:
+        for one in [t for t in holders[0] if xml_local(t.tag) == "dataValidation"][:limit]:
+            items.append({
+                "sqref": one.get("sqref"),
+                "type": one.get("type"),
+                "operator": one.get("operator"),
+                "formulas": [(t.text or "").strip() for t in one
+                             if xml_local(t.tag) in ("formula1", "formula2")],
+                "written": written_attrs(one),
+            })
+    written = holders[0].get("count") if holders else None
+    whole = written is None or (written.strip().isdigit() and int(written.strip()) == len(items))
+    return {
+        "conditional": blocks,
+        "validations": {"written": written, "found": len(items), "whole": whole, "list": items},
+    }
+
+
+def xlsx_rules(parts: dict, dxfs: list) -> dict:
+    """每张表上的规则那份账（条件格式 + 数据验证），按 sheetN 归位"""
+    out: dict = {}
+    for name in sorted(parts):
+        if not (name.startswith("xl/worksheets/sheet") and name.endswith(".xml")):
+            continue
+        out[name.rsplit("/", 1)[-1][: -len(".xml")]] = sheet_rules(
+            ET.fromstring(parts[name]), dxfs
+        )
+    return out
+
+
 def xlsx_facts(path: Path) -> dict:
     parts = {}
     with zipfile.ZipFile(path) as box:
@@ -595,6 +701,8 @@ def xlsx_facts(path: Path) -> dict:
         parts = {one.filename: box.read(one.filename) for one in box.infolist()}
     print_setups = xlsx_print_setup(parts)
     chart_lists = xlsx_charts(parts)
+    dxf_written, dxf_kinds = dxf_table(parts)
+    rules_by_sheet = xlsx_rules(parts, dxf_kinds)
     wb = ET.fromstring(parts["xl/workbook.xml"])
     sheets = []
     for one in wb.iter():
@@ -653,6 +761,9 @@ def xlsx_facts(path: Path) -> dict:
         "dimensions": dims,
         "print_setup": print_setups,
         "charts": chart_lists,
+        "dxfs": {"written": dxf_written, "found": len(dxf_kinds),
+                 "whole": dxf_written is None or int(dxf_written) == len(dxf_kinds)},
+        "rules": rules_by_sheet,
         "defined_names": len([
             one
             for one in wb.iter()

@@ -28,6 +28,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `cell-notes-many.xls` | LibreOffice（从 `cell-notes-many.xlsx`） | 批注的第四种存法：字与「哪个格子 + 谁写的」分在**同一条流**的两类记录上（后者住在该表子流的末尾），编码旗标那一位与 BIFF8 的 `fCompressed` 惯例**相反** |
 | `chart.xlsx` | openpyxl 3.1.5（`write_chart_xlsx`） | 两张图挂在同一张表上（柱形与折线，系列数还不相等）：`c:f` 里同一段格子写成 **`'数据'!B1`**（带引号、不带 `$`），类目是文本格却写成 **`c:numRef`**，而且**一条 `c:pt` 缓存都没有** —— 「图里画的是哪些数」在这里只能交引用 |
 | `chart-lo.xlsx` | LibreOffice（`chart.xlsx` → .ods → .xlsx） | 同一批图的另一副面孔：`c:f` 写成 **`数据!$B$1`**（不引号、绝对），类目改用 **`c:strRef`**，并且 `strCache` / `numCache` 把 `ptCount` 与每格的值都缓存了（一月/二月、10/25）；两个轴 id 是随机数，与 openpyxl 那两份的 10/100 没有任何关系 |
+| `rules.xlsx` | openpyxl 3.1.5（`write_rules_xlsx`） | 条件格式四种规则与数据验证三种：一条 `sqref` 里塞两段区间（`A2:A6 B2:B4`）、`cellIs`/`expression` 只写 **`dxfId` 下标**（真样式在 `styles.xml` 的 `dxfs` 里，那一条只有 `font/b` 与 `font/color`）、色阶的颜色写成 `00FFFFFF` 这种 alpha 为 00 的串、`dataValidations` 自报 `count="3"`，而 list 那条**不写 operator** |
+| `rules-lo.xlsx` | LibreOffice（`rules.xlsx` → .ods → .xlsx） | 同一批规则的第二种写法：`priority` 换成自己排的 2/4/5、开关从 `1/0` 换成 `true/false`、给 list 补了 `operator="equal"`、给每条验证补了 `formula2=0`、把 custom 公式开头的 `=` 去掉、色阶的白写成 `FFFFFFFF`，而且同一条 dxf 里多补了 `name`/`family`/`sz` |
 | `notes-end.rtf` | LibreOffice（从 `notes-end.docx`） | 注的第三种存法：脚注与尾注**都**写成 `{\*\footnote …}` 这一个群，尾注只在群里多一个 `\ftnalt`；分隔符另走 `{\*\ftnsep\chftnsep}` |
 | `tables.docx` / `tables.odt` / `tables.rtf` | python-docx 与 LibreOffice（两张表：3×2 与 2×2，中间夹一段正文，首尾各一个标题） | 表那一份的对照件：三家都给 5 行 10 格，而 RTF 只敢给行数与格子数 —— 「几张表」的分组规则在 `notes.rtf`（一张）与这份（两张）上试过，单表对、两表数成一张 |
 | `paper-a4.docx` / `paper-a4.odt` / `paper-a4.rtf` | python-docx 与 LibreOffice（A4 纵向一节 + 横过来的一节） | 那张纸的第二尺寸：三家换算到 0.01mm 后短边都是 **21001**（不是 21000 —— OOXML 与 RTF 写 11906 twips，ODF 照抄成 `21.001cm`），所以这一支不给尺寸起名；横排那一节 docx 与 odt 都有第二条并写着 `orient=landscape`，而 RTF 全文一个 `\landscape` 都没有 → 那一条流只交文档默认的纵向 |
@@ -599,6 +601,27 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     ODS 的图是嵌入对象（`Object 1/content.xml` 那一堆部件），.xls 走 BIFF 的对象链 ——
     两家都没有第二个读者量过，所以那一族的 `charts` 键整个不在。
 
+49. **规则那一份账里，两样东西不能替文件补：`dxfId` 与 `priority`**（`rules.xlsx` 与 `rules-lo.xlsx`）。
+    条件格式的规则**不写样式**，只写一个下标 `dxfId`，字与色住在 `xl/styles.xml` 的 `dxfs` 里
+    （与格子的 `s=` 指向 `cellXfs` 是同一类两跳）。所以一条规则要同时说清三件事：文件写的下标是几
+    （`written`）、这一跳指没指到（`found`，`dxfId="5"` 而 dxfs 只有两条时它就是 false）、
+    指到的那一条里有哪些元素路径（`font/b`、`font/color` 这种一层到底的写法）。
+    两份件对同一条 dxf 给的东西不一样：openpyxl 两个元素，LibreOffice **五个**（自己补了
+    `name`/`family`/`sz`）—— 这正是不能把两边折成「加粗的深红」那种共同形状的原因，折了就看不见
+    谁补了谁。
+    `priority` 更是各排各的：同一批四条规则，一份写 1/2/3/4，另一份写 2/3/4/5（LibreOffice 重排过），
+    所以只交不比 —— 两家一致的那部分是**类型、范围与公式**，测试钉的也只有这些。
+    颜色的 `rgb` 串按文件写的交：同一个白，一份 `00FFFFFF`、一份 `FFFFFFFF`，alpha 那两位不归一化。
+    数据验证这一份更直白：容器自报 `count="3"`，与实际条数一起交（`whole`）；每条交范围、`type`、
+    `operator` 与 `formula1`/`formula2` 的**原文**，另把写着的属性整个交出来，于是这几件事都看得见 ——
+    `allowBlank` 一家写 `1` 一家写 `true`（与保护那份账同一种分歧）、一家给 list 写了
+    `operator="equal"`（规范里 list 不需要）、一家给自己没有第二条公式的那两条补了 `formula2=0`、
+    还有一家把 custom 的公式写成 `ISNUMBER(B2)` 而 openpyxl 写 `=ISNUMBER(B2)`。
+    第二条范围那条是**一条 `sqref` 里两段区间**（`A2:A6 B2:B4`）：空格分开，照文件交，不替它拆成两块。
+    第二张表两样都没有 → `conditional` 是空表、`validations.written` 是 null（「没写」）而 `found` 是 0。
+    ODS 的条件格式住在 number 样式与 table 样式那一套上，.xls 是 BIFF 的 CONDFMT/DCON 记录 ——
+    两边都没有量过的第二个读者，所以那一族的 `rules` 键整个不在。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
@@ -608,6 +631,8 @@ Rust 测试里每个期望值都来自第二读者对这些文件的独立读取
 `ods_facts()`（`.ods` 的重复计数、覆盖格与自动样式可见性）。
 每张表的打印设置是同一份文件里的 `xlsx_print_setup()`：三个元素各自取第一个（与 Rust 那边
 `descendants(name).first()` 同一条规则），属性名去掉前缀原样交，缺的元素留 null。
+规则那一份是同一份文件里的 `sheet_rules()` 与 `dxf_table()`：与 Rust 一样先看 `cfRule` 的
+直接子元素、把 `dxfId` 解到 `dxfs` 的第几条上，属性一个也不替它补。
 图那一份是 `xlsx_charts()` 与 `rels_of_parts()`：走的就是「表 → 关系表 → 画法部件 → 它的关系表 →
 图部件」那三跳，`Type` 结尾与 `Target` 的解法与 Rust 的 `rels_of` / `resolve_target` 一条规则，
 两边对同一批件交回的 `chart_list` 整份相等（含 `whole` 与引用串）。

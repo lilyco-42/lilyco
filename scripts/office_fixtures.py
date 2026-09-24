@@ -739,6 +739,76 @@ def write_chart_xlsx(path: Path) -> None:
     wb.save(path)
 
 
+def write_rules_xlsx(path: Path) -> None:
+    """openpyxl：条件格式与数据验证 —— 「这个格子为什么长这样」与「为什么不让填」
+
+    一次把两边都会碰到的变量摆开：
+    * 四种规则类型：`cellIs`（大于 100 就涂红加粗，样式在 dxf 那一跳上）、
+      `colorScale`（三色阶，不带 dxf）、`iconSet`（三向箭头）、`expression`（公式规则）
+      —— 各自的属性不一样，带不带 dxf 下标也不一样；
+    * 范围两种写法：一条 `sqref` 里塞两段区间（openpyxl 就是这么写的）与一段连续区间；
+    * 数据验证三种：`list`（下拉，选项直接写在 `formula1` 那对引号里）、
+      `whole`（介于 1 与 12，两个公式）、`custom`（一条公式），另带 prompt 与 error 两段字
+      与两个开关；
+    * 第二张表两样都没有 —— 「没有」要报 0，不是缺键。
+    """
+    from openpyxl import Workbook
+    from openpyxl.formatting.rule import CellIsRule, ColorScaleRule, FormulaRule, IconSetRule
+    from openpyxl.styles import Font
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "规则"
+    for row, (label, value) in enumerate(
+        [("一月", 60), ("二月", 120), ("三月", 300), ("四月", 45), ("五月", 90)], start=2
+    ):
+        ws.cell(row=row, column=1, value=label)
+        ws.cell(row=row, column=2, value=value)
+    ws.conditional_formatting.add(
+        "B2:B6",
+        CellIsRule(operator="greaterThan", formula=["100"], font=Font(bold=True, color="FF9C0006")),
+    )
+    ws.conditional_formatting.add(
+        "A2:A6 B2:B4",
+        ColorScaleRule(
+            start_type="min", start_color="FFFFFF",
+            mid_type="percentile", mid_value=50, mid_color="FFEB84",
+            end_type="max", end_color="F8696B",
+        ),
+    )
+    ws.conditional_formatting.add(
+        "B2:B6",
+        IconSetRule("3Arrows", "percent", [0, 33, 67]),
+    )
+    ws.conditional_formatting.add(
+        "A2:A6",
+        FormulaRule(formula=['$B2>200'], font=Font(italic=True)),
+    )
+    picks = DataValidation(
+        type="list",
+        formula1='"红,黄,绿"',
+        allow_blank=True,
+        showErrorMessage=True,
+        showInputMessage=True,
+        errorTitle="不在选项里",
+        error="只能选 红/黄/绿 三个之一",
+        promptTitle="选一个",
+        prompt="下拉里有三个颜色",
+    )
+    ws.add_data_validation(picks)
+    picks.add("D2:D6")
+    months = DataValidation(type="whole", operator="between", formula1="1", formula2="12")
+    ws.add_data_validation(months)
+    months.add("E2:E6")
+    check = DataValidation(type="custom", formula1="=ISNUMBER(B2)", allow_blank=False)
+    ws.add_data_validation(check)
+    check.add("F2")
+
+    wb.create_sheet("干净")
+    wb.save(path)
+
+
 def write_pptx(path: Path, art: Path) -> None:
     """python-pptx：两页、标题+正文占位符、备注、图片、表格、切换与母版"""
     from pptx import Presentation
@@ -1283,6 +1353,22 @@ def main() -> int:
             print("⚠️  没拿到 chart-lo.xlsx（.ods → .xlsx 那一转）")
     else:
         print("⚠️  没拿到 chart.ods")
+
+    # 条件格式与数据验证那一份：openpyxl 写四种规则与三种验证；LibreOffice 经 .ods 转回
+    # 的那一份是第二个生产者 —— dxf 的下标、规则的属性与验证的公式都可能换写法
+    rules = OUT / "rules.xlsx"
+    write_rules_xlsx(rules)
+    convert(exe, rules, "ods", SCRATCH)
+    if (SCRATCH / "rules.ods").exists():
+        shutil.copyfile(SCRATCH / "rules.ods", SCRATCH / "rules-copy.ods")
+        convert(exe, SCRATCH / "rules-copy.ods", "xlsx", SCRATCH / "rules-back")
+        back = SCRATCH / "rules-back" / "rules-copy.xlsx"
+        if back.exists():
+            shutil.copyfile(back, OUT / "rules-lo.xlsx")
+        else:
+            print("⚠️  没拿到 rules-lo.xlsx（.ods → .xlsx 那一转）")
+    else:
+        print("⚠️  没拿到 rules.ods")
 
     # 脚注那一条分支：python-docx 给不出 word/footnotes.xml，让 LibreOffice 从 RTF 导入再写出
     foot_rtf = SCRATCH / "notes-foot.rtf"
