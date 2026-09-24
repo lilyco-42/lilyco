@@ -896,7 +896,30 @@ def main() -> int:
                     OUT / "locked.pdf",
                     encryption=pikepdf.Encryption(user="lbin-test", owner="lbin-owner", R=6),
                 )
+            # 3) 还有一份**只设 owner 口令**的：用户能打开，但 /P 里那些位就生效了
+            #    （locked.pdf 连用户口令都要，工具根本进不去，权限位读不到）。
+            #    pdfinfo 能把它读成 `Encrypted: yes (print:no copy:no change:yes
+            #    addNotes:no algorithm:AES-256)` —— 那就是 /P 各位的第三方译法。
+            with pikepdf.open(source) as box:
+                box.save(
+                    OUT / "perms.pdf",
+                    encryption=pikepdf.Encryption(
+                        user="",
+                        owner="lbin-owner",
+                        R=6,
+                        allow=pikepdf.Permissions(
+                            print_lowres=False,
+                            print_highres=False,
+                            modify_assembly=False,
+                            modify_annotation=False,
+                            modify_form=False,
+                            extract=False,
+                            accessibility=True,
+                        ),
+                    ),
+                )
             print("  objstm.pdf / locked.pdf 由 qpdf 写出（口令 lbin-test，只为测加密检测）")
+            print("  perms.pdf 只设 owner 口令：/P 的位生效，pdfinfo 能读出来对账")
 
     print("fixture 清单（每个文件的生产者见函数注释）：")
     for one in sorted(OUT.iterdir()):
