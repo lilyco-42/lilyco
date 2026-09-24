@@ -61,6 +61,9 @@ TAB_WORDS = {"tab", "cell", "nestcell"}
 ROW_WORDS = {"row", "nestrow"}
 # 嵌套对象类：整个跳过并计数（办公文件里常见的是 OLE 对象与图片）
 OBJECT_WORDS = {"object", "objattph", "objdata", "objclass", "objname", "objemb", "objhide"}
+# 文档级「那张纸」写在哪几个控制字上（单位是 twips，1/1440 英寸）。
+# `landscape` 是个旗标（写了就是横的），其余都带一个数字参数
+PAPER_WORDS = {"paperw", "paperh", "margl", "margr", "margt", "margb", "landscape"}
 
 
 def peek_word(text: str, at: int) -> str:
@@ -253,6 +256,8 @@ def rtf_text(data: bytes) -> dict:
     # 样式号在段属性里（`\pard\s1`），所以它一定出现在这一段的 `\par` 之前
     paras: list = []
     mark = {"start": 0, "style": None}
+    # 文档级的那张纸：每个词只认第一次写的（`\landscape` 是个旗标，没有数字参数）
+    paper_writes: dict = {}
     pending = bytearray()  # 连续的 \'hh 字节，攒着按字符集一起解
     skip: list[bool] = [False]
     codepage = 1252
@@ -466,6 +471,12 @@ def rtf_text(data: bytes) -> dict:
                 which = int(digits)
                 stats["style_uses"][which] = stats["style_uses"].get(which, 0) + 1
                 mark["style"] = which
+            # 那张纸写在文档级的属性里（`\paperw12240\paperh15840\margl1800…`，单位 twips）。
+            # 只认**没被跳过的那一层**里第一次写的那一个：后面 `{\*\sectx …}` 里的那些是
+            # 某一节的覆写，不是文档默认值（这一族不看分节归属，所以也不去数它）
+            if word in PAPER_WORDS and word not in paper_writes:
+                if word == "landscape" or digits.isdigit():
+                    paper_writes[word] = "1" if word == "landscape" else digits
         i = j
     flush()
     body = "".join(out).strip()
@@ -496,6 +507,9 @@ def rtf_text(data: bytes) -> dict:
             headings.append({"level": int(hit.group(1)), "text": one["text"]})
     return {
         "headings": headings,
+        # 文档级那张纸的原样（`{"paperw":"12240","margt":"1440","landscape":"1"}`）——
+        # 换成 0.1mm 的换算放在 `lyco_pages.py`，三家共用同一条换算规则才好对账
+        "paper_writes": paper_writes,
         "fonts": found["fonts"],
         "styles": found["styles"],
         "style_uses": uses,
