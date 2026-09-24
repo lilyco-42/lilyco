@@ -22,6 +22,7 @@ use crate::xmlscan::Node;
 
 /// 一张表的网格。`rows` 每一行是一格一格的数组（被 `limit` 截断时后面的行/格不出现在这里），
 /// `cut` 说这次交出来的是不是被截过的
+#[derive(Debug, Clone)]
 pub struct Grid {
     pub rows: Vec<Value>,
     pub cut: bool,
