@@ -1101,10 +1101,7 @@ fn odf_table_layouts(
                 "repeated": repeated,
                 "width": got.and_then(|one| one.1.clone()),
                 "mm": got
-                    .and_then(|one| one.1.clone())
-                    .and_then(|had| had["style:column-width"].as_str().map(|raw| raw.to_string()))
-                    .and_then(|had| had.as_str().map(|raw| raw.to_string()))
-                    .and_then(|raw| crate::paper::length(&raw)),
+                    .and_then(|one| crate::paper::length(one.1.as_ref()?["style:column-width"].as_str()?)),
             }));
         }
         entries.push(json!({
@@ -1114,10 +1111,7 @@ fn odf_table_layouts(
             "style_part": held.map(|one| one.2),
             "written": held.and_then(|one| one.1.clone()).unwrap_or(Value::Null),
             "mm": held
-                .and_then(|one| one.1.clone())
-                .and_then(|had| had["style:width"].as_str().map(|raw| raw.to_string()))
-                .and_then(|had| had.as_str().map(|raw| raw.to_string()))
-                .and_then(|raw| crate::paper::length(&raw)),
+                .and_then(|one| crate::paper::length(one.1.as_ref()?["style:width"].as_str()?)),
             "columns": cols.into_iter().take(limit).collect::<Vec<Value>>(),
         }));
     }
