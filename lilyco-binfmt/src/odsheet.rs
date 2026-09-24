@@ -49,7 +49,13 @@ const STATED_ON_TABLE: [&str; 4] = [
 #[derive(Debug, Clone)]
 pub struct Cell {
     pub reference: String,
-    pub value_type: String,
+    /// `office:value-type`：**文件写了的那个类型，没写就是 null**。
+    /// 这个属性可以省略，而省略时该按什么算，两份读者原本的猜法并不一样：
+    /// 一份按「有没有字」推 string / empty，另一份一律写 empty —— 它们在 .ods 上
+    /// 恰好一直没撞见（六份件里进了账本的格子全部写了这个属性），到 odp 就撞开了。
+    /// 实测 Impress 页上那张表 9 个格子元素一个都没写，其中 7 个还是有字的 ——
+    /// 所以这里不推断：没写就交 null，两种猜法都不替文件圆话
+    pub value_type: Option<String>,
     pub value: Option<String>,
     pub date_value: Option<String>,
     pub boolean_value: Option<String>,
@@ -200,7 +206,7 @@ impl Sheet {
     pub fn count_of(&self, want: &str) -> usize {
         self.cells
             .iter()
-            .filter(|one| one.value_type == want)
+            .filter(|one| one.value_type.as_deref() == Some(want))
             .count()
     }
 
@@ -278,19 +284,10 @@ fn col_letter(index: usize) -> String {
 }
 
 /// `office:value-type` 与 `calcext:value-type` 局部名相同（后者是 LibreOffice 的实验
-/// 命名空间，抄了一份出来）。`attr_of` 已经躲开那个副本，这里再兜一层：
-/// 没写类型的格子按其有没有字判 string / empty。
-fn value_type(cell: &Node) -> String {
-    match attr_of(cell, "value-type") {
-        Some(one) => one.to_string(),
-        None => {
-            if cell.text().trim().is_empty() {
-                "empty".to_string()
-            } else {
-                "string".to_string()
-            }
-        }
-    }
+/// 命名空间，抄了一份出来）。`attr_of` 已经躲开那个副本，这里只要那一句原话：
+/// 没写就是没写，不替文件推一个类型出来
+fn value_type(cell: &Node) -> Option<String> {
+    attr_of(cell, "value-type").map(|one| one.to_string())
 }
 
 /// 读一份 ODF 表格的 `content.xml`。读不出来不报错，写进 notes。
@@ -640,7 +637,7 @@ mod tests {
         assert_eq!(cell(&book, "预算表", "A5").text, "口径：含税");
         // 值是数、文本是给人看的：两者都要，但不混
         assert_eq!(cell(&book, "预算表", "B2").value.as_deref(), Some("124000"));
-        assert_eq!(cell(&book, "预算表", "A1").value_type, "string");
+        assert_eq!(cell(&book, "预算表", "A1").value_type, Some("string"));
     }
 
     /// 那一行 `number-columns-repeated="16381"` 是本模块存在的理由：照字面数就是
@@ -657,23 +654,23 @@ mod tests {
             cell(&book, "格式", "C1").date_value.as_deref(),
             Some("2013-12-23")
         );
-        assert_eq!(cell(&book, "格式", "C1").value_type, "date");
+        assert_eq!(cell(&book, "格式", "C1").value_type, Some("date"));
         assert_eq!(
             cell(&book, "格式", "C2").date_value.as_deref(),
             Some("2013-12-23T15:15:00")
         );
-        assert_eq!(cell(&book, "格式", "C3").value_type, "percentage");
+        assert_eq!(cell(&book, "格式", "C3").value_type, Some("percentage"));
         assert_eq!(cell(&book, "格式", "C3").value.as_deref(), Some("0.125"));
         assert_eq!(cell(&book, "格式", "C3").text, "12.5%");
         // 货币在这里只是显示：值类型还是 float，¥ 在文本里
-        assert_eq!(cell(&book, "格式", "C4").value_type, "float");
+        assert_eq!(cell(&book, "格式", "C4").value_type, Some("float"));
         assert_eq!(cell(&book, "格式", "C4").text, "¥124,000.00");
         assert_eq!(
             cell(&book, "格式", "C5").text,
             "2013年12月23日",
             "中文格式显示出来的样子"
         );
-        assert_eq!(cell(&book, "格式", "C7").value_type, "string");
+        assert_eq!(cell(&book, "格式", "C7").value_type, Some("string"));
         assert_eq!(cell(&book, "格式", "C7").text, "12/23/2013");
         assert_eq!(
             cell(&book, "格式", "C8").boolean_value.as_deref(),

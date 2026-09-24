@@ -2908,7 +2908,10 @@ def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) ->
                     row_cells.append(
                         {
                             "ref": f"{col_letter(col_at)}{row_at + 1}",
-                            "value_type": attr(cell, "value-type") or "empty",
+                            # 没写 `office:value-type` 就是 null：以前这里兜一个 "empty"，
+                            # 而 Rust 那边按「有没有字」推 string / empty —— 两种猜法在 .ods
+                            # 上恰好撞不到一起（进了账本的格子全写了类型），到 odp 就分家了
+                            "value_type": attr(cell, "value-type"),
                             "value": value,
                             "date_value": stamp,
                             "boolean_value": flag,

@@ -1767,6 +1767,17 @@ def main() -> int:
          dig(odp_slide, O + ".layout.unit")],
         ["ce2", "ce5", None, None, "0.01mm"],
     )
+    # 同一批字，两家对「这格是什么类型」的说法完全不同：.ods 每格都写 office:value-type，
+    # 而 Impress 九个格子元素一个都没写（其中七个有字）。没写就交 null，不替它推
+    check(
+        "格子的类型只交文件写了的：odp 全是 null，.ods 那边同样有字的格子写着 string",
+        [dig(odp_slide, O + ".cell_list[0].kind"),
+         dig(odp_slide, O + ".cell_list[2].kind"),
+         dig(odp_slide, O + ".cell_list[3].kind"),
+         dig(lbin("office-sheet", fixture("book.ods")), "sheets[0].cell_list[0].kind"),
+         dig(lbin("office-sheet", fixture("book.ods")), "sheets[0].cell_list[1].kind")],
+        [None, None, None, "string", "string"],
+    )
 
     # ── 表格结构：表名、可见性、范围、格子 ──────────────────────────
     print("=== 3) office-sheet：布局 ===")

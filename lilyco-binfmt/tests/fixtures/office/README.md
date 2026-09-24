@@ -942,6 +942,12 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     * 合并的第三种写法：起头那格 `number-columns-spanned="2"` / `number-rows-spanned="2"`，
       被盖住的那格**另写一个** `table:covered-table-cell`（点的样式是 `standard`）——
       于是 `cells` 7、`covered` 2、`merged` 2 是三本账（pptx 那边是「照样在场但打上 hMerge」，docx 是「整个不写」）。
+    * 格子的类型这一族**一个字都不写**：`office:value-type` 在 9 个格子元素上全都缺席
+      （其中 7 个是有字的），所以 `kind` 交 null。这一条是两份读者撞出来的：
+      .ods 那边一份按「有没有字」推 string / empty、另一份一律兜成 "empty"，
+      而六份 .ods 里进了账本的格子**恰好全部写了**这个属性，两种猜法一直没撞上；
+      odp 一有字又没写类型的格子就把分歧翻了出来（同一件事一边报 string、一边报 empty）。
+      现在两边都只交文件写了的：没写就是 null，`.ods` 那一份账的输出一个字没变（全量对过）。
     * 格子点的样式只交**名字**：`ce2` / `ce4` / `ce5` 三份，另有四格什么都没点。
       实测那些样式里写着 `draw:fill-color="#ffff00"`（就是 pptx 那面 `a:tcPr` 里那个填充）与
       `style:textarea-vertical-align="bottom"`（就是那面的 `anchor="b"`）—— 但属性住在
