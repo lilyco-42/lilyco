@@ -6,13 +6,16 @@
 //!    窗口锁）与每张表自己的 `sheetProtection`。
 //! 3. ODF 的表格保护是 `table:table` 上的属性（`table:protected` + `table:protection-key`
 //!    + 摘要算法 URI）；文档级的「保护表单/书签/字段」在 `settings.xml` 的 config-item 里。
-//! 4. 遗留的 `.doc` / `.xls` / `.ppt`：保护写在表流的记录里（BIFF 的 PROTECT、Word 的
-//!    flag 位），本模块读不出那些，就照实交回 null，不猜。
+//! 4. 遗留的 `.xls`：表保护是 BIFF 记录（`0x0012` 那三条），而且**写在被锁那张表自己的
+//!    子流里** —— 见 [`xls_sheet`]。`.doc` / `.ppt` 的保护在表流的记录与 flag 位里，
+//!    本模块读不出那些，就照实交回 null，不猜。
 //!
 //! 布尔值的写法两家不一样，这条是实测出来的：openpyxl 写 `sheet="1" formatCells="0"`，
 //! LibreOffice 重写同一份东西时写 `sheet="true" formatCells="false"`（还把等于默认的
 //! `insertRows="1"` 整个省掉）—— 所以判开关要两种拼法都认，见 [`on_off`]。
 //! 哈希与密钥只报「在不在」与算法名：那是校验值，不是能还原的东西，也不必搬进答案里。
+
+use std::collections::BTreeMap;
 
 use serde_json::{json, Value};
 
@@ -84,6 +87,28 @@ pub fn ods_table(one: &Node, name: &str) -> Value {
         // 摘要算法写成一个 URI：只留最后一段（那是人要看的东西），整串留在文件里
         "digest": attr_of(one, "protection-key-digest-algorithm")
             .map(|one| one.rsplit('/').next().unwrap_or(one).to_string()),
+    })
+}
+
+/// `.xls`（BIFF8）的表级保护：那三条记录的原值，按**它所在子流那张表**归位。
+///
+/// 哪几笔有对证、哪一笔只有原值：`0x0012` 的位 0 与 `0x0013` 有 LibreOffice 自己的
+/// import 对上（同一张表读出 `table:protected="true"` 与 `table:protection-key`），
+/// `0x00DD` 这一条没找到第二个读者认它，所以只交回原值、不替它编一个开关名。
+/// 口令那格是 Excel 那套 16 位旧哈希（`0x0013`），报的是十六进制原值：它既不是口令，
+/// 也不是能还原出什么的东西。
+pub fn xls_sheet(name: &str, records: &BTreeMap<u64, u64>) -> Value {
+    let hash = records.get(&0x0013).copied();
+    let raw = records
+        .iter()
+        .map(|(key, value)| (format!("0x{key:04x}"), json!(value)))
+        .collect::<serde_json::Map<String, Value>>();
+    json!({
+        "name": name,
+        "protected": records.get(&0x0012).is_some_and(|one| one & 1 != 0),
+        "password": hash.is_some_and(|one| one != 0),
+        "password_hash": hash.map(|one| format!("{one:04x}")),
+        "records": raw,
     })
 }
 
@@ -267,5 +292,34 @@ mod tests {
         assert_eq!(done["protected"], json!(true), "{done}");
         assert_eq!(done["items"]["ProtectForm"], json!(false));
         assert_eq!(done["items"]["ProtectBookmarks"], json!(true));
+    }
+
+    /// BIFF 那三条的原值一律留着，因为「在场」与「开着」是两件事：`0x0012` 要位 0 为 1
+    /// 才算锁上，`0x0013` 写成 0 是「有这一格、没有哈希」（ODF 那边的摘要搬不进这一族）
+    #[test]
+    fn biff_locks_keep_the_raw_values_that_carry_them() {
+        let none = BTreeMap::new();
+        let done = xls_sheet("说明", &none);
+        assert_eq!(done["protected"], json!(false));
+        assert_eq!(done["password"], json!(false));
+        assert_eq!(
+            done["password_hash"],
+            Value::Null,
+            "没有这条记录就不假装有哈希"
+        );
+        assert_eq!(done["records"], json!({}));
+
+        let mut one = BTreeMap::new();
+        one.insert(0x0012u64, 0u64);
+        one.insert(0x0013u64, 0u64);
+        one.insert(0x00DDu64, 1u64);
+        let two = xls_sheet("预算表", &one);
+        assert_eq!(two["protected"], json!(false), "记录在场但那位是 0");
+        assert_eq!(two["password"], json!(false));
+        assert_eq!(two["password_hash"], json!("0000"));
+        assert_eq!(
+            two["records"],
+            json!({"0x0012": 0, "0x0013": 0, "0x00dd": 1})
+        );
     }
 }

@@ -20,6 +20,8 @@
 //! 真实生产者文件（openpyxl 写的 xlsx 经 LibreOffice 转成 xls）必须给出同样的表名、
 //! 可见性与单元格值。
 
+use std::collections::BTreeMap;
+
 use serde_json::{json, Value};
 
 use crate::cfb::Cfb;
@@ -37,12 +39,19 @@ const RK: u64 = 0x027E;
 const MUL_RK: u64 = 0x00BD;
 const LABEL: u64 = 0x0204;
 const FORMULA: u64 = 0x0006;
+const PROTECT: u64 = 0x0012;
+const PASSWORD: u64 = 0x0013;
+const SCENPROTECT: u64 = 0x00DD;
 
 #[derive(Debug, Clone)]
 pub struct Sheet {
     pub name: String,
     pub state: &'static str,
     pub record_start: u64,
+    /// 这一张表自己子流里那几条保护记录（记录号 → 16 位原值）。
+    /// 不按子流归位就说不清「锁的是哪一张」：对照过两份件，锁挪到第二张表时
+    /// 这几条记录跟着挪窝（见 `protect::xls_sheet`）
+    pub protection: BTreeMap<u64, u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -155,6 +164,7 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                         _ => "unknown",
                     },
                     record_start: le32(0)(body).unwrap_or(0),
+                    protection: BTreeMap::new(),
                 });
             }
             SST => {
@@ -268,6 +278,15 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                     sheet: belongs.clone(),
                 });
                 formula_cells += 1;
+            }
+            // 表级保护那三条，记在**它所在子流那张表**名下：对照 locked-sheet.xls 与
+            // locked-second.xls（唯一差别是锁在第一张还是第二张表），这几条跟着锁挪窝
+            code @ (PROTECT | PASSWORD | SCENPROTECT) => {
+                let Some(name) = belongs else { continue };
+                let Some(value) = le16(0)(body) else { continue };
+                if let Some(one) = sheets.iter_mut().rev().find(|had| had.name == name) {
+                    one.protection.insert(code, u64::from(value));
+                }
             }
             _ => {}
         }

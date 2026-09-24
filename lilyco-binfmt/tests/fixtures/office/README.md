@@ -29,6 +29,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `locked-sheet.xlsx` | openpyxl 的 `book.xlsx` + 手注入 | 两层保护：`workbookProtection lockStructure="1"`（改 openpyxl 留的那个空元素，不是再加一个）与 `sheetProtection sheet="1" formatCells="0" insertRows="1"` |
 | `locked-sheet-lo.xlsx` | LibreOffice（从 `locked-sheet.xlsx`） | 同一家族的另一种拼法：`sheet="true" formatCells="false"`、等于默认的开关省掉，而 **`workbookProtection` 被写成了空的**（结构锁丢了） |
 | `locked-sheet.ods` | LibreOffice（从 `locked-sheet.xlsx`） | ODF 的表保护是 `table:table` 身上的属性：`table:protected="true"` + `table:protection-key` + 摘要算法那条 URI |
+| `locked-second.xlsx` | openpyxl 的 `book.xlsx` + 手注入（锁在**第二张**表） | 与 `locked-sheet.xlsx` 是一组对照，唯一的差别是锁放在第几张表上 |
+| `locked-sheet.xls` | LibreOffice（从 `locked-sheet.xlsx`） | BIFF8 的表级保护：`0x0012` + `0x0013` + `0x00DD` 三条，写在**被锁那张表自己的子流**里 |
+| `locked-second.xls` | LibreOffice（从 `locked-second.xlsx`） | 对照的另一半：锁挪到第二张，这三条跟着挪窝 —— 「按表记」是这么量出来的，不是按记录名推的 |
 | `notes.doc` | LibreOffice（从 `notes.docx`） | MS-CFB 复合文档 + WordDocument 流 + `1Table` 里的 piece 表 |
 | `notes-en.doc` | LibreOffice（从纯 ASCII 的 `notes-en.docx`） | 中英一视同仁仍写 16 位 piece —— 记下这个事实，见下 |
 | `book.xls` | LibreOffice（从 `book.xlsx`） | BIFF8：BOUNDSHEET（含隐藏表）、SST + CONTINUE、LABELSST / RK / FORMULA |
@@ -213,6 +216,16 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     LibreOffice 不搬那份限制，三个 Protect* 全是 false —— 同一份内容换个格式就"没保护"了。
     还有一条是自己踩的：往 `xl/workbook.xml` 里**再插**一个 `workbookProtection` 会造出同段两个
     同名元素（`maxOccurs=1`），LibreOffice 只读第一个，锁就"凭空丢了" —— 要改 openpyxl 留的那个空的。
+
+26. **`.xls` 的锁是「按哪张表」记的，而且靠子流位置认表**（`locked-sheet.xls` 与 `locked-second.xls`）。
+    BIFF8 没有 OOXML 那种「工作簿一层 + 表一层」：`PROTECT`(0x0012)、`PASSWORD`(0x0013)、
+    `SCENPROTECT`(0x00DD) 是写在**被锁那张表自己的子流**里的记录。这一条是量出来的而不是按记录名推的：
+    那两份件唯一的差别是锁放在第一张还是第二张表，而三条记录跟着挪窝；LibreOffice 自己把这两份 .xls
+    import 回 .ods，也只在同一张表上写 `table:protected="true"` + `table:protection-key` ——
+    归属关系两边一致。归位的判据是 BOUNDSHEET(0x0085) 自报的子流起点，不是「第几条子流」。
+    两处不猜：`0x00DD` 没找到第二个读者认得它，所以只交回原值、不替它编开关名；`0x0013` 那格是
+    Excel 那套 16 位旧哈希（这批件里是 `6e4e`），不是口令 —— 而且它算不出来：`locked-sheet.ods`
+    那一路（`table:protection-key` 是摘要）转成 .xls 时，这一格写的是 0。
 
 ## 这些数字从哪来
 

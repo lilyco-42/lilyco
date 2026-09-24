@@ -23,7 +23,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-sheet",
     run = "run_office_sheet",
-    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader. ODF spreadsheets (.ods) are read on their own terms: cells carry an explicit value-type with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, a sheet's visibility is resolved through the automatic style it names, and hidden rows/columns are counted from table:visibility="collapse" on the element or in the row/column style it names (multiplying number-columns-repeated, so one element standing for three collapsed columns reports 3, not 1); each ODS cell additionally carries the number format it inherits - cell style, then style:data-style-name, then that number:*-style element (which lives in content.xml or styles.xml, and is reached through parent-style-name when the cell style itself names none) - reported as format_kind (taken from the element's own name, so a ¥ written as a literal text token stays a number-style), plus decimals, currency_symbol and a faithful format_tokens transcription; ODF has no format string, so none is invented. With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (for legacy .xls there is no style hop yet, so a date goes out as the serial and a note says so), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. Returns { path, format, sheets, csv, workbook, defined_names, tables, external_links, parts, notes }."
+    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader. Whether a sheet can still be edited is reported per format, because the three spellings do not map onto one another: xlsx keeps two layers (workbookProtection plus each sheet's own sheetProtection, switches read in both the 1/0 and true/false spellings with an omitted one left omitted rather than false), .ods writes table:protected on the table itself together with the digest URI, and .xls has no workbook layer at all - PROTECT (0x0012), PASSWORD (0x0013) and SCENPROTECT (0x00DD) sit inside the locked sheet's own substream, so they are attributed per sheet and their raw values kept. ODF spreadsheets (.ods) are read on their own terms: cells carry an explicit value-type with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, a sheet's visibility is resolved through the automatic style it names, and hidden rows/columns are counted from table:visibility="collapse" on the element or in the row/column style it names (multiplying number-columns-repeated, so one element standing for three collapsed columns reports 3, not 1); each ODS cell additionally carries the number format it inherits - cell style, then style:data-style-name, then that number:*-style element (which lives in content.xml or styles.xml, and is reached through parent-style-name when the cell style itself names none) - reported as format_kind (taken from the element's own name, so a ¥ written as a literal text token stays a number-style), plus decimals, currency_symbol and a faithful format_tokens transcription; ODF has no format string, so none is invented. With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (for legacy .xls there is no style hop yet, so a date goes out as the serial and a note says so), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. Returns { path, format, sheets, protection, csv, workbook, defined_names, tables, external_links, parts, notes }."
 )]
 pub struct OfficeSheet {
     /// 表格文件（xlsx / xlsm / xls / ods）
@@ -493,6 +493,20 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 })
             })
             .collect();
+        // 这一族的锁写在**被锁那张表自己的子流**里，不在工作簿那层：与 xlsx 的两层、
+        // ODF 的属性各是一种写法，所以这里按表交账
+        let locks: Vec<Value> = book
+            .sheets
+            .iter()
+            .map(|one| crate::protect::xls_sheet(&one.name, &one.protection))
+            .collect();
+        if book.sheets.iter().any(|one| !one.protection.is_empty()) {
+            notes.push(
+                "这一族没有「整本工作簿一层」的表锁：那几条记录住在表自己的子流里，\
+                 锁哪张记在哪张名下（与 xlsx 的 workbookProtection + sheetProtection 两层不同）"
+                    .to_string(),
+            );
+        }
         let result = json!({
             "path": app.path.to_string_lossy(),
             "format": doc.format,
@@ -505,8 +519,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "records": book.records,
                 "totals": {"cells": book.cells.len(), "formulas": book.formula_cells},
             },
-            // BIFF 的表保护是一条 PROTECT 记录（写在表流里），本版本读不出：给 null
-            "protection": Value::Null,
+            "protection": json!({"kind": "biff8", "sheets": locks}),
             "sheets": book.sheets.iter().map(|one| json!({
                 "name": one.name,
                 "state": one.state,
@@ -818,6 +831,49 @@ mod tests {
             json!(false),
             "ODF 没有工作簿那一层"
         );
+    }
+
+    /// `.xls` 那一族的锁按表记：两份件唯一的差别是锁在第一张还是第二张表，
+    /// 而那三条记录跟着挪窝。期望值来自 `lyco_legacy.py` 对同两份件的读取；
+    /// 「这位为真就是锁上了」另有一证 —— LibreOffice 自己 import 回 .ods 时
+    /// 只在同一张表上写 `table:protected="true"`
+    #[test]
+    fn legacy_xls_attributes_its_lock_to_the_sheet_that_carries_it() {
+        let hand = run("locked-sheet.xls");
+        let locks = hand["protection"]["sheets"].as_array().expect("是数组");
+        assert_eq!(locks.len(), 3, "{hand}");
+        assert_eq!(locks[0]["name"], json!("预算表"));
+        assert_eq!(locks[0]["protected"], json!(true));
+        assert_eq!(locks[0]["password"], json!(true));
+        assert_eq!(locks[0]["password_hash"], json!("6e4e"));
+        assert_eq!(
+            locks[0]["records"],
+            json!({"0x0012": 1, "0x0013": 28238, "0x00dd": 1}),
+            "原值也要留着：0x00DD 这一条没有第二个读者认得，不替它编开关名"
+        );
+        assert_eq!(locks[1]["protected"], json!(false), "锁不在第二张");
+        assert_eq!(locks[1]["records"], json!({}));
+        assert_eq!(locks[2]["records"], json!({}));
+
+        let second = run("locked-second.xls");
+        let moved = second["protection"]["sheets"].as_array().expect("是数组");
+        assert_eq!(moved[0]["protected"], json!(false), "{second}");
+        assert_eq!(moved[1]["name"], json!("说明"));
+        assert_eq!(moved[1]["protected"], json!(true));
+        assert_eq!(moved[1]["password_hash"], json!("6e4e"));
+        assert_eq!(moved[2]["records"], json!({}));
+
+        let plain = run("book.xls");
+        assert!(plain["protection"]["sheets"]
+            .as_array()
+            .expect("是数组")
+            .iter()
+            .all(|one| one["protected"] == json!(false) && one["records"] == json!({})));
+        assert!(plain["notes"]
+            .as_array()
+            .expect("说明")
+            .iter()
+            .all(|one| !one.as_str().unwrap_or_default().contains("子流")));
     }
 
     /// 开 `--csv` 的那条路：`sheet` 是给 `--sheet` 的原样字符串（空=第一张）

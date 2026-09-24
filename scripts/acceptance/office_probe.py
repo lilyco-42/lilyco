@@ -326,6 +326,45 @@ def main() -> int:
     check("book.xls 按表计数", {str(one.get("name")): int(one.get("cells") or 0) for one in b.get("sheets", [])},
           {str(k): int(v) for k, v in bw["cells_per_sheet"].items()})
 
+    # ── 3a2) .xls 的表级保护：那三条记录住在**被锁那张表自己的子流**里 ─────
+    # 两份件唯一的差别是锁在第一张还是第二张表，所以「按表归位」是量出来的；
+    # 「位 0 为 1 就是锁上了」另有一证：LibreOffice 自己 import 回 .ods 时
+    # 只在同一张表上写 table:protected（见 fixtures README）
+    print("=== 3a2) .xls 的锁按子流归位 ===")
+    for name in ("book.xls", "locked-sheet.xls", "locked-second.xls"):
+        got = lbin("office-sheet", fixture(name))
+        want = files[name]["biff"]["locks"]
+        mine = {
+            str(one.get("name")): {
+                str(k).replace("0x", "").lower(): int(v)
+                for k, v in (one.get("records") or {}).items()
+            }
+            for one in (got.get("protection") or {}).get("sheets", [])
+            if one.get("records")
+        }
+        theirs = {
+            str(k): {str(kk): int(vv.get("grbit") or 0) for kk, vv in v.items()}
+            for k, v in want.items()
+        }
+        check("%s 哪张表带着锁" % name, mine, theirs)
+        check(
+            "%s 锁上的表、开没开与口令哈希" % name,
+            [
+                (one.get("name"), bool(one.get("protected")), one.get("password_hash"))
+                for one in (got.get("protection") or {}).get("sheets", [])
+                if one.get("protected")
+            ],
+            [
+                (
+                    str(k),
+                    bool((v.get("0012") or {}).get("grbit", 0) & 1),
+                    "%04x" % ((v.get("0013") or {}).get("grbit") or 0) if v.get("0013") else None,
+                )
+                for k, v in want.items()
+                if (v.get("0012") or {}).get("grbit", 0) & 1
+            ],
+        )
+
     # ── 3b) 数字格式：格子写的是 cellXfs 的下标，日期藏在样式里 ──────────
     print("=== 3b) formats.xlsx：格式号、判定与换算出来的日期 ===")
     fx = lbin("office-sheet", fixture("formats.xlsx"))

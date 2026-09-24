@@ -352,6 +352,27 @@ def write_locked_sheet_xlsx(src: Path, out: Path) -> None:
     )
 
 
+def write_locked_second_xlsx(src: Path, out: Path) -> None:
+    """与上一份唯一的差别：锁放在**第二张**表上（sheet2.xml = 「说明」）
+
+    为什么要费这个事：`.xls` 那一族的 PROTECT(0x0012) / PASSWORD(0x0013) /
+    SCENPROTECT(0x00DD) 到底是「整本工作簿一层」还是「每张表一层」，凭印象说不得。
+    拿这两份一对，三条记录跟着锁挪窝（锁第二张时它们在第二个子流里），而
+    LibreOffice 自己 import 回 .ods 也只在被锁那张上写 `table:protected` —— 于是
+    「按表记」是量出来的。`sheetProtection` 的位置照 schema：`sheetData` 之后。
+    """
+    shutil.copyfile(src, out)
+    patch_part(
+        out,
+        {
+            "xl/worksheets/sheet2.xml": (
+                "<pageMargins",
+                '<sheetProtection sheet="1" formatCells="0" password="6E4E"/><pageMargins',
+            )
+        },
+    )
+
+
 def write_xlsx(path: Path) -> None:
     """openpyxl：多表、隐藏表、公式、合并格、命名区域、真表格 —— 一个电子表格里
     `lbin office-sheet` 要报的东西基本都在这里，而这些东西 LibreOffice 转出来的样本未必有。
@@ -798,6 +819,21 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "locked-sheet.ods", OUT / "locked-sheet.ods")
     else:
         print("⚠️  没拿到 locked-sheet.ods")
+
+    # .xls 那一层：同一句话的第三种写法（记录住在被锁那张表自己的子流里）。
+    # 两份是一组对照 —— 锁从第一张挪到第二张，三条记录跟着挪窝
+    convert(exe, locked, "xls", SCRATCH)
+    if (SCRATCH / "locked-sheet.xls").exists():
+        shutil.copyfile(SCRATCH / "locked-sheet.xls", OUT / "locked-sheet.xls")
+    else:
+        print("⚠️  没拿到 locked-sheet.xls")
+    second_locked = OUT / "locked-second.xlsx"
+    write_locked_second_xlsx(xlsx, second_locked)
+    convert(exe, second_locked, "xls", SCRATCH)
+    if (SCRATCH / "locked-second.xls").exists():
+        shutil.copyfile(SCRATCH / "locked-second.xls", OUT / "locked-second.xls")
+    else:
+        print("⚠️  没拿到 locked-second.xls")
 
     # 隐藏行/列那一档：openpyxl 写 xlsx，LibreOffice 转 ods，再转回 xlsx（跨列写法）
     hidden = OUT / "hidden.xlsx"

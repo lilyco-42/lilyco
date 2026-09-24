@@ -258,6 +258,7 @@ def biff_workbook(cfb_bytes: dict) -> dict:
     bofs: list = []
     formulas = 0
     dimensions = []
+    locks: dict = {}
     for index, (offset, op, body) in enumerate(records):
         belongs = _owner(sheets, offset)
         if op == 0x0809:  # BOF
@@ -349,6 +350,18 @@ def biff_workbook(cfb_bytes: dict) -> dict:
                 )
         elif op == 0x0200:  # DIMENSIONS
             dimensions.append((_u32(body, 0), _u32(body, 4)))
+        elif op in (0x0012, 0x0013, 0x00DD):
+            # PROTECT / PASSWORD / SCENPROTECT。为什么按「落在谁的子流里」记：
+            # 对照 locked-sheet.xls 与 locked-second.xls（唯一差别是锁在第一张还是
+            # 第二张表），这三条记录跟着锁挪窝；而 LibreOffice 自己 import 回 .ods
+            # 也只在被锁那张上写 table:protected —— 于是「.xls 的锁是按表的」是量出来的
+            where = belongs if belongs is not None else "工作簿全局"
+            got = locks.setdefault(where, {})
+            got["%04x" % op] = {
+                "grbit": _u16(body, 0),
+                "hex": body[:8].hex(),
+                "length": len(body),
+            }
     per_sheet: dict = {}
     for one in cells:
         per_sheet[one["sheet"]] = per_sheet.get(one["sheet"], 0) + 1
@@ -361,6 +374,7 @@ def biff_workbook(cfb_bytes: dict) -> dict:
         "formula_cells": formulas,
         "dimensions": dimensions,
         "cells_per_sheet": per_sheet,
+        "locks": locks,
     }
 
 
