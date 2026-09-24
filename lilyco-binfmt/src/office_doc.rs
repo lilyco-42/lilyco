@@ -609,7 +609,7 @@ mod tests {
             "region 里那份删掉的段不算正文"
         );
         let authors = rev["authors"].as_array().expect("是数组");
-        assert_eq!(authors.len(), 3, "{authors}");
+        assert_eq!(authors.len(), 3, "{authors:?}");
         assert_eq!(authors[0]["name"], "张三");
         assert_eq!(authors[0]["changes"], 2);
     }

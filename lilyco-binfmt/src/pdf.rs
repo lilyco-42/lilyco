@@ -185,7 +185,12 @@ fn ref_after(body: &[u8], key: &[u8]) -> Option<u64> {
         if j == gen_at {
             continue;
         }
-        if body.get(j) == Some(&b'R') {
+        // 版本号与 `R` 之间也可以有空白：`/Root 74 0 R` 是绝大多数生产者的写法，
+        // 不留这一步就什么都找不到（页树、内容流、ToUnicode 全线失效）
+        let r_at = skip_spaces(body, j);
+        if body.get(r_at) == Some(&b'R')
+            && !body.get(r_at + 1).is_some_and(|one| is_name_char(*one))
+        {
             return Some(number);
         }
     }
