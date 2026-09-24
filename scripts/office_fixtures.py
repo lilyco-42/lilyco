@@ -1016,6 +1016,9 @@ def main() -> int:
         # 这一份是那条路的真件样本（见 formats.ods 那一条）
         (OUT / "formats.xlsx", "xls"),
         (OUT / "mulrk.xlsx", "xls"),
+        # 隐藏行/列那一族也转一份 .xls：BIFF 把这两件事写在 ROW 与 COLINFO 的字段位上，
+        # 这一份是那条路的真件样本（ground truth 是 openpyxl 写的 hidden.xlsx）
+        (OUT / "hidden.xlsx", "xls"),
         # 页眉页脚那两份再转两个格式：ODF 的页眉坐在 master-page 的样式里，
         # RTF 的坐在 \header / \footer 目标里 —— 两边都是同一批字的另一种存法
         (headers, "rtf"),
@@ -1028,6 +1031,7 @@ def main() -> int:
         "book.xls",
         "formats.xls",
         "mulrk.xls",
+        "hidden.xls",
         "deck.ppt",
         "notes.rtf",
         "notes-hf.rtf",

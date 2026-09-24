@@ -111,6 +111,7 @@ def main() -> int:
         "formats.xlsx": ("ooxml", "excel", "xlsx"),
         "formats.ods": ("opendocument", "excel", "ods"),
         "book.xls": ("compound", "excel", "xls"),
+        "hidden.xls": ("compound", "excel", "xls"),
         "deck.ppt": ("compound", "powerpoint", "ppt"),
         "notes.rtf": ("rtf", "word", "rtf"),
         "hidden.xlsx": ("ooxml", "excel", "xlsx"),
@@ -451,6 +452,30 @@ def main() -> int:
             if one.get("ixfe") is not None and one["ixfe"] < len(want["xfs"])
         }
         check("%s 每格查到的格式号" % name, mine, theirs)
+
+    # ── 3a5) .xls 的隐藏行与隐藏列：ROW 的 0x20 位与 COLINFO 的第 0 位 ────────
+    print("=== 3a5) .xls 的隐藏行/隐藏列 ===")
+    for name in ("book.xls", "formats.xls", "mulrk.xls", "hidden.xls"):
+        got = lbin("office-sheet", fixture(name))
+        want = files[name]["biff"]["hidden"]
+        mine = {
+            one.get("name"): (one.get("hidden_rows"), one.get("hidden_cols"))
+            for one in got.get("sheets", [])
+        }
+        theirs = {
+            key: (len(value["rows"]), len(value["cols"])) for key, value in want.items()
+        }
+        check("%s 每张表藏了几行几列" % name, mine, theirs)
+    # 跨格式同形：同一批字在四种存法下必须报同一个数（少一写法就会少报，早先栽过）
+    ledger = {}
+    for name in ("hidden.xlsx", "hidden-lo.xlsx", "hidden.ods", "hidden.xls"):
+        only = lbin("office-sheet", fixture(name)).get("sheets", [{}])[0]
+        ledger[name] = (only.get("hidden_rows"), only.get("hidden_cols"))
+    check(
+        "隐藏行/列：四种写法报出同一个数",
+        sorted(set(ledger.values())),
+        [(2, 3)],
+    )
 
     # ── 3b) 数字格式：格子写的是 cellXfs 的下标，日期藏在样式里 ──────────
     print("=== 3b) formats.xlsx：格式号、判定与换算出来的日期 ===")

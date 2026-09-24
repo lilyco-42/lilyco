@@ -23,7 +23,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-sheet",
     run = "run_office_sheet",
-    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader. Whether a sheet can still be edited is reported per format, because the three spellings do not map onto one another: xlsx keeps two layers (workbookProtection plus each sheet's own sheetProtection, switches read in both the 1/0 and true/false spellings with an omitted one left omitted rather than false), .ods writes table:protected on the table itself together with the digest URI, and .xls has no workbook layer at all - PROTECT (0x0012), PASSWORD (0x0013) and SCENPROTECT (0x00DD) sit inside the locked sheet's own substream, so they are attributed per sheet and their raw values kept. ODF spreadsheets (.ods) are read on their own terms: cells carry an explicit value-type with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, a sheet's visibility is resolved through the automatic style it names, and hidden rows/columns are counted from table:visibility="collapse" on the element or in the row/column style it names (multiplying number-columns-repeated, so one element standing for three collapsed columns reports 3, not 1); each ODS cell additionally carries the number format it inherits - cell style, then style:data-style-name, then that number:*-style element (which lives in content.xml or styles.xml, and is reached through parent-style-name when the cell style itself names none) - reported as format_kind (taken from the element's own name, so a ¥ written as a literal text token stays a number-style), plus decimals, currency_symbol and a faithful format_tokens transcription; ODF has no format string, so none is invented. With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (legacy .xls takes the same hop too - the cell's ixfe indexes the XF records, whose format number names either a FORMAT record or a built-in id, and the epoch comes from DATEMODE; a file that never wrote DATEMODE gets the serial rather than a guessed 1900), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. Returns { path, format, sheets, protection, csv, workbook, defined_names, tables, external_links, parts, notes }."
+    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader, and its hidden rows and columns come out of the two records the flags actually live in: bit 0x20 of the ROW record, and bit 0 of the COLINFO record (which states a range, expanded here - LibreOffice writes that record under the older id 0x007D while MS-XLS names 0x07D0 for BIFF8, so both ids are accepted). Which ROW bit means hidden was measured rather than recalled: three comparison files separate the two variables - row heights from 4pt to 250pt leave that bit alone, while hiding a single row sets exactly that bit. Hidden cells still count as cells. Whether a sheet can still be edited is reported per format, because the three spellings do not map onto one another: xlsx keeps two layers (workbookProtection plus each sheet's own sheetProtection, switches read in both the 1/0 and true/false spellings with an omitted one left omitted rather than false), .ods writes table:protected on the table itself together with the digest URI, and .xls has no workbook layer at all - PROTECT (0x0012), PASSWORD (0x0013) and SCENPROTECT (0x00DD) sit inside the locked sheet's own substream, so they are attributed per sheet and their raw values kept. ODF spreadsheets (.ods) are read on their own terms: cells carry an explicit value-type with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, a sheet's visibility is resolved through the automatic style it names, and hidden rows/columns are counted from table:visibility="collapse" on the element or in the row/column style it names (multiplying number-columns-repeated, so one element standing for three collapsed columns reports 3, not 1); each ODS cell additionally carries the number format it inherits - cell style, then style:data-style-name, then that number:*-style element (which lives in content.xml or styles.xml, and is reached through parent-style-name when the cell style itself names none) - reported as format_kind (taken from the element's own name, so a ¥ written as a literal text token stays a number-style), plus decimals, currency_symbol and a faithful format_tokens transcription; ODF has no format string, so none is invented. With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (legacy .xls takes the same hop too - the cell's ixfe indexes the XF records, whose format number names either a FORMAT record or a built-in id, and the epoch comes from DATEMODE; a file that never wrote DATEMODE gets the serial rather than a guessed 1900), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. Returns { path, format, sheets, protection, csv, workbook, defined_names, tables, external_links, parts, notes }."
 )]
 pub struct OfficeSheet {
     /// 表格文件（xlsx / xlsm / xls / ods）
@@ -444,11 +444,6 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             .ok_or_else(|| AppError::InvalidInput("复合文档打不开".to_string()))?;
         let book = crate::biff::read(cfb, bytes).map_err(AppError::InvalidInput)?;
         let mut notes = book.notes.clone();
-        notes.push(
-            "这一支不报隐藏行/列：BIFF 把它们写在 ROW 与 COLINFO 记录的字段里，\
-             本版本没解那两个字段，所以每张表都没有 hidden_rows / hidden_cols 这两个键"
-                .to_string(),
-        );
         let grid_names: Vec<String> = book.sheets.iter().map(|one| one.name.clone()).collect();
         let grids: Vec<Vec<(usize, usize, String)>> = book
             .sheets
@@ -508,13 +503,22 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "date1904": book.date1904,
                 "xfs": book.xfs,
                 "formats": book.formats,
-                "totals": {"cells": book.cells.len(), "formulas": book.formula_cells},
+                "totals": {
+                    "cells": book.cells.len(),
+                    "formulas": book.formula_cells,
+                    "hidden_rows": book.sheets.iter().map(|one| one.hidden_rows.len()).sum::<usize>(),
+                    "hidden_cols": book.sheets.iter().map(|one| one.hidden_cols.len()).sum::<usize>(),
+                },
             },
             "protection": json!({"kind": "biff8", "sheets": locks}),
             "sheets": book.sheets.iter().map(|one| json!({
                 "name": one.name,
                 "state": one.state,
                 "record_start": one.record_start,
+                // 隐藏的是「看不见」，那些格子照样算在 cells 里；只报条数，
+                // 与 xlsx / ods 那两支同一个形状（位置在 biff 的单测里逐条断言）
+                "hidden_rows": one.hidden_rows.len(),
+                "hidden_cols": one.hidden_cols.len(),
                 "cells": book.cells.iter().filter(|had| had.sheet.as_deref() == Some(one.name.as_str())).count(),
             })).collect::<Vec<Value>>(),
             "cells": cells,
@@ -1217,13 +1221,14 @@ mod tests {
         }
     }
 
-    /// 隐藏的行与列有三种写法：openpyxl 一列一条 `hidden="1"`、LibreOffice 把连续
+    /// 隐藏的行与列有四种写法：openpyxl 一列一条 `hidden="1"`、LibreOffice 把连续
     /// 三列并成一条 `min="3" max="5" hidden="true"`、ODF 用
-    /// `table:visibility="collapse"` 压在一整条 `number-columns-repeated="3"` 上。
-    /// 三种存法必须报出同一个数
+    /// `table:visibility="collapse"` 压在一整条 `number-columns-repeated="3"` 上，
+    /// .xls 把它们写成 ROW 记录的一个位与 COLINFO 的一段范围。
+    /// 四种存法必须报出同一个数
     #[test]
     fn hidden_rows_and_columns_are_counted_whichever_way_they_are_written() {
-        for name in ["hidden.xlsx", "hidden-lo.xlsx", "hidden.ods"] {
+        for name in ["hidden.xlsx", "hidden-lo.xlsx", "hidden.ods", "hidden.xls"] {
             let out = run(name);
             let sheet = &out["sheets"][0];
             assert_eq!(sheet["name"], "预算表", "{name}");
@@ -1239,7 +1244,7 @@ mod tests {
     /// 隐藏只是「看不见」，不是「没有」：那些字要照样出现在 CSV 里
     #[test]
     fn hidden_columns_still_carry_their_text() {
-        for name in ["hidden.xlsx", "hidden-lo.xlsx", "hidden.ods"] {
+        for name in ["hidden.xlsx", "hidden-lo.xlsx", "hidden.ods", "hidden.xls"] {
             let text = run_csv(name, "")["csv"]["text"]
                 .as_str()
                 .unwrap_or_default()

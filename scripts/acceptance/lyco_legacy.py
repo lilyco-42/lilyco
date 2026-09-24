@@ -264,6 +264,9 @@ def biff_workbook(cfb_bytes: dict) -> dict:
     xfs: list = []
     formats: dict = {}
     date1904 = None
+    # 隐藏行与隐藏列：BIFF 不写开关，写在 ROW 与 COLINFO 的字段位上
+    hidden_rows: dict = {}
+    hidden_cols: dict = {}
     for index, (offset, op, body) in enumerate(records):
         belongs = _owner(sheets, offset)
         if op == 0x0809:  # BOF
@@ -308,6 +311,24 @@ def biff_workbook(cfb_bytes: dict) -> dict:
             )
         elif op == 0x0022:  # DATEMODE：0 = 1900 基准，1 = 1904
             date1904 = bool(_u16(body, 0))
+        elif op == 0x0208:  # ROW：这一行的属性（行高、标志位、默认 XF）
+            # 「这一行被隐藏」在哪一位是**量**出来的：LibreOffice 把 0x20 这一位写在
+            # 正文偏移 12 那一格，偏移 8 那一格（MS-XLS 说那里是 grbit）它留零。
+            # 三份对照件把两个变量拆开（README 第 30 条）：五行长高从 4pt 到 250pt 全不隐藏，
+            # 那一格恒为 0x0140；只把第三行藏起来，它就变成 0x0120 —— 动的只有 0x20 这一位，
+            # 0x40 那一位跟着「有没有自定义行高」走。所以查 0x20 不会把看得见的行算成隐藏。
+            # 两个位置都查是因为手上只有 LibreOffice 写的 .xls：按偏移 8 那一位判的那条路
+            # 在这台机器上没有任何件走过，宁可两处都看。
+            if belongs is not None and len(body) >= 14:
+                if ((_u16(body, 8) or 0) | (_u16(body, 12) or 0)) & 0x20:
+                    hidden_rows.setdefault(belongs, []).append(_u16(body, 0) or 0)
+        elif op in (0x07D0, 0x007D):  # COLINFO：BIFF8 写 0x07D0，LibreOffice 写 0x007D
+            # 正文：colFirst(2) colLast(2) 宽度(2) 默认 XF(2) grbit(2) 保留(2)
+            # grbit 的 0x01 位 = 这段列隐藏；范围是首末都含的，少展开一格就少报一列
+            if len(body) >= 10 and (_u16(body, 8) or 0) & 0x01:
+                first = _u16(body, 0) or 0
+                last = _u16(body, 2) or 0
+                hidden_cols.setdefault(belongs, []).extend(range(first, last + 1))
         elif op == 0x00FD:  # LABELSST
             r, col, xf, sst_index = struct.unpack_from("<HHHI", body, 0)
             value = strings[sst_index] if sst_index < len(strings) else None
@@ -423,6 +444,15 @@ def biff_workbook(cfb_bytes: dict) -> dict:
         "xfs": xfs,
         "formats": {str(k): v for k, v in formats.items()},
         "date1904": date1904,
+        # 位置而不是条数：隐藏行是逐条 ROW 记录，隐藏列是首末都含的范围，
+        # 交回展开后的位置才对得上 xlsx / ods 那两份账
+        "hidden": {
+            name: {
+                "rows": sorted(set(hidden_rows.get(name) or [])),
+                "cols": sorted(set(hidden_cols.get(name) or [])),
+            }
+            for name in {one["name"] for one in sheets}
+        },
     }
 
 

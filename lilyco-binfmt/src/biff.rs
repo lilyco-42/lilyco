@@ -46,6 +46,11 @@ const SCENPROTECT: u64 = 0x00DD;
 const XF: u64 = 0x00E0;
 const FORMAT: u64 = 0x041E;
 const DATEMODE: u64 = 0x0022;
+const ROW: u64 = 0x0208;
+/// 列的属性：MS-XLS 说这个记录在 BIFF8 里是 0x07D0，而 LibreOffice 写 .xls 时
+/// 用的是老 id 0x007D（正文布局一样）—— 两个都认，见 `Sheet::hidden_cols`
+const COLINFO: u64 = 0x07D0;
+const COLINFO_OLD: u64 = 0x007D;
 
 #[derive(Debug, Clone)]
 pub struct Sheet {
@@ -56,6 +61,11 @@ pub struct Sheet {
     /// 不按子流归位就说不清「锁的是哪一张」：对照过两份件，锁挪到第二张表时
     /// 这几条记录跟着挪窝（见 `protect::xls_sheet`）
     pub protection: BTreeMap<u64, u64>,
+    /// 这一张表里被整行藏起来的行号（0 基，按 ROW 记录的 0x20 位判出来并排好序）。
+    /// 「看不见」不等于「没有」：那些格子里的字仍然算在 cells 里
+    pub hidden_rows: Vec<u64>,
+    /// 同上，列。COLINFO 写的是首末都含的一段，这里已经展开
+    pub hidden_cols: Vec<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -181,6 +191,8 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                     },
                     record_start: le32(0)(body).unwrap_or(0),
                     protection: BTreeMap::new(),
+                    hidden_rows: Vec::new(),
+                    hidden_cols: Vec::new(),
                 });
             }
             SST => {
@@ -347,8 +359,46 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                 // 0 = 1900 基准，1 = 1904 —— 序列数换日期要用它
                 date1904 = Some(le16(0)(body).unwrap_or(0) == 1);
             }
+            // 隐藏整行。位的位置是**量**出来的，不是背出来的（fixture README 第 30 条）：
+            // LibreOffice 把 0x20 写在正文偏移 12 那一格，偏移 8 那一格（MS-XLS 说那里是
+            // grbit）它留零。拆开两个变量的三份对照件显示：行高从 4pt 到 250pt 只动同一格
+            // 的另几位，把某一行藏起来才动 0x20 —— 所以按这一位判不会把看得见的行算成隐藏。
+            // 两个位置都查，是因为手上只有 LibreOffice 写的 .xls，按偏移 8 判那条路没件走过
+            ROW => {
+                let Some(name) = belongs else { continue };
+                if (le16(8)(body).unwrap_or(0) | le16(12)(body).unwrap_or(0)) & 0x20 == 0 {
+                    continue;
+                }
+                let Some(rw) = le16(0)(body) else { continue };
+                if let Some(one) = sheets.iter_mut().rev().find(|had| had.name == name) {
+                    one.hidden_rows.push(u64::from(rw));
+                }
+            }
+            // 隐藏整列：grbit 的第 0 位，首末两端都含，所以按段展开
+            COLINFO | COLINFO_OLD => {
+                let Some(name) = belongs else { continue };
+                if le16(8)(body).unwrap_or(0) & 0x01 == 0 {
+                    continue;
+                }
+                let (Some(first), Some(last)) = (le16(0)(body), le16(2)(body)) else {
+                    continue;
+                };
+                let Some(one) = sheets.iter_mut().rev().find(|had| had.name == name) else {
+                    continue;
+                };
+                for column in u64::from(first)..=u64::from(last) {
+                    one.hidden_cols.push(column);
+                }
+            }
             _ => {}
         }
+    }
+    // 行与列按记录出现顺序收的：排一遍再去重，段与段叠在一起也只算一次
+    for one in sheets.iter_mut() {
+        one.hidden_rows.sort_unstable();
+        one.hidden_rows.dedup();
+        one.hidden_cols.sort_unstable();
+        one.hidden_cols.dedup();
     }
     Ok(Book {
         records: records.len(),
@@ -840,5 +890,41 @@ mod tests {
             "{run:?}"
         );
         assert_eq!(book.strings.len(), 2, "两条文字格");
+    }
+
+    /// 隐藏行与隐藏列那两位是在真件上量的：openpyxl 把第 3、4 行与 C/D/E 三列藏起来，
+    /// LibreOffice 转成 .xls 之后把它们写进 ROW 的 0x20 位与 COLINFO 的第 0 位。
+    /// 这里是 0 基行号；列那段首末都含，展开成三格（期望值来自 `lyco_legacy.py`）
+    #[test]
+    fn hidden_rows_and_columns_come_from_the_row_and_colinfo_bits() {
+        let (bytes, cfb) = open("hidden.xls");
+        let book = read(&cfb, &bytes).expect("读得出 BIFF8");
+        assert_eq!(book.sheets.len(), 1, "{:?}", book.sheets);
+        let one = &book.sheets[0];
+        assert_eq!(one.name, "预算表");
+        assert_eq!(one.state, "visible", "藏的是行与列，表本身看得见");
+        assert_eq!(one.hidden_rows, vec![2, 3], "第 3、4 行整行隐藏");
+        assert_eq!(
+            one.hidden_cols,
+            vec![2, 3, 4],
+            "C/D/E 是一段范围，展开成三列"
+        );
+        assert_eq!(book.cells.len(), 13, "藏起来的格子还是格子");
+        // 反面对照：同一批生产者写的另一份件没藏行列，不能凭空报出来
+        let (clean_bytes, clean_cfb) = open("book.xls");
+        let clean = read(&clean_cfb, &clean_bytes).expect("读得出");
+        let reported: Vec<(String, Vec<u64>, Vec<u64>)> = clean
+            .sheets
+            .iter()
+            .map(|had| {
+                (
+                    had.name.clone(),
+                    had.hidden_rows.clone(),
+                    had.hidden_cols.clone(),
+                )
+            })
+            .filter(|(_, rows, cols)| !rows.is_empty() || !cols.is_empty())
+            .collect();
+        assert!(reported.is_empty(), "{reported:?}");
     }
 }

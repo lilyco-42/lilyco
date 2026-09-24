@@ -20,6 +20,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `notes-foot.docx` | LibreOffice（从 `office_fixtures.py` 里的 `FOOTNOTE_RTF` 导入写出） | 两条真脚注 + `word/footnotes.xml` 里那**两条分隔符**（`w:type="separator"` / `"continuationSeparator"`，没有正文）：数脚注不能只数 `w:footnote` 元素 |
 | `notes-end.docx` | LibreOffice 的 **docx 导出器**（把尾注注进 `notes-foot.docx` 再让它照抄一遍） | 一条真尾注 + 一条脚注：`word/endnotes.xml` 的字节全是它写的（两条分隔符是它自己的 `<w:separator/>` 那一族写法），尾注这一支第一次有件可走 |
 | `notes-end.odt` | LibreOffice（从 `notes-end.docx`） | 同一笔账的 ODF 存法：`text:note-class="endnote"` 那条是它的 ODT 导出器写的，编号还换成罗马数字 `i`（`footnote` 仍是阿拉伯数字） |
+| `hidden.xls` | LibreOffice（从 `hidden.xlsx`） | 第四种存法：行藏在 ROW(0x0208) 的一个位、列藏在 COLINFO 的一段范围（首末都含），而 LibreOffice 写的 COLINFO 用的是老 record id **0x007D**（MS-XLS 给 BIFF8 的名字是 0x07D0） |
 | `notes-hf.odt` | LibreOffice（从 `notes-hf.docx`） | 同一批字的 ODF 存法：页眉页脚在 **styles.xml 的 master-page** 里，两个节 = 两个 master-page（`Standard` 与 `Converted1`），各带一份 header + footer |
 | `notes-hf.rtf` | LibreOffice（从 `notes-hf.docx`） | 第三种存法：`\header` / `\headerl` / `\footer` 这些**目标（destination）**里的字，与正文混在一个流里 |
 | `revisions.docx` | python-docx + 手注入 `w:ins` / `w:del` / `w:rPrChange` / 段落标记 | 四种修订各一处，而且**没被拆开**：3 个 `w:ins`（含段落标记那一条）、1 个 `w:del`、1 个 `w:rPrChange` → 5 条逻辑改动 |
@@ -274,6 +275,25 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     `{\*\footnote\ftnalt …}`，也就是脚注套子加 `\ftnalt` 这个反标志（外加一条
     `\aendnotes` 注解）—— 尾注与脚注在 RTF 里靠这一个词区分，而这条目前只是量到，
     还没有读者去判它（`office-doc` 压根没有 rtf 那一支，「有几条注」这一问在 RTF 上没人答）。
+
+30. **`.xls` 的隐藏行与隐藏列：那一位是拆开两个变量量出来的**（`hidden.xls`）。
+    BIFF 不写「隐藏」这个开关，它写在行的属性记录里。第一眼看 `ROW`(0x0208) 正文偏移 8
+    那一格（MS-XLS 说那里是 grbit）会发现它全是 0，而隐藏那两行的偏移 12 那一格是
+    `0x0120`、其余行是 `0x0100` —— 差的正好是 `0x20`。但「差 0x20」这一条**单独看不算证据**：
+    同一格也可能是行高的另一种写法（256 与 288 都是看着像高度的数）。所以做对照件把
+    两个变量拆开：一份把五行分别设成 4pt/15pt/60pt/250pt 而**不藏任何行**，
+    那一格恒为 `0x0140`；另一份同样设一行的高度、只把第三行藏起来，它就变成 `0x0120`；
+    而像 `hidden.xls` 那样没有自定义行高的可见行，恒为 `0x0100`。于是 `0x20` 是隐藏位、
+    `0x40` 跟着「有没有自定义行高」走 —— 按 `0x20` 判不会把看得见的行算成隐藏
+    （`case-c.xls` / `case-d.xls` 在 `.scratch/xh/` 里，不算 fixture，只是量的过程）。
+    列是另一件事：`COLINFO` 写的是**首末都含的一段**（这份件里 `colFirst=2 colLast=4` 一条
+    就是 C/D/E 三列），少展开一格就少报一列；而 LibreOffice 给这条记录用的 id 是
+    **0x007D**（BIFF5 那个），不是 MS-XLS 给 BIFF8 命名的 0x07D0 —— 两个 id 都认。
+    最后一条诚实话：手上只有 LibreOffice 写的 .xls，「偏移 8 那一格带 0x20」这条分支
+    在这台机器上没有任何件走过，所以两处都查；这只说明我们没验过 Excel 那一家的写法，
+    不代表它那样写。四种存法（openpyxl 一列一条、LibreOffice 的 xlsx 并成一段、
+    ODF 的 `collapse`、BIFF 的字段位）在 `hidden_rows_and_columns_are_counted_whichever_way_they_are_written`
+    与 probe 的 3a5 里必须报同一个数：2 行、3 列。
 
 ## 这些数字从哪来
 
