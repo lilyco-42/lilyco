@@ -102,6 +102,9 @@ def main() -> int:
         "tables.docx": ("ooxml", "word", "docx"),
         "tables.odt": ("opendocument", "word", "odt"),
         "tables.rtf": ("rtf", "word", "rtf"),
+        "paper-a4.docx": ("ooxml", "word", "docx"),
+        "paper-a4.odt": ("opendocument", "word", "odt"),
+        "paper-a4.rtf": ("rtf", "word", "rtf"),
         "notes-end.odt": ("opendocument", "word", "odt"),
         "notes-hf.odt": ("opendocument", "word", "odt"),
         "notes-hf.rtf": ("rtf", "word", "rtf"),
@@ -389,7 +392,7 @@ def main() -> int:
     # 四边边距三家不同的那一份件：docx 上下写 1440 twips，LibreOffice 的 odt 与 rtf
     # 两个导出都写 720 / 1.27cm。这是生产者的不一致，单独在下面钉住，不在这里当一致要求
     MARGIN_DIFFERS = {"notes-hf"}
-    for stem in ("notes", "notes-hf", "notes-end", "tables", "toc"):
+    for stem in ("notes", "notes-hf", "notes-end", "tables", "toc", "paper-a4"):
         ledger = {}
         for ext in ("docx", "odt", "rtf"):
             name = "%s.%s" % (stem, ext)
@@ -441,6 +444,45 @@ def main() -> int:
         "notes.doc 没看就不报纸（null 而不是空表）",
         lbin("office-doc", fixture("notes.doc")).get("page_setup"),
         None,
+    )
+    # 第二份尺寸（A4 + 一节横排）：换一个尺寸才知道换算不是凑上 Letter 的。
+    # 三家的文档默认那一份在 0.1mm 上完全一致（21001×29700 —— 注意不是整数 21000×29700：
+    # OOXML 与 RTF 把 A4 的短边写作 11906 twips，LibreOffice 的 ODF 又照抄成 21.001cm，
+    # 所以这里**不给尺寸起名**，「A4」那种查表会在这三份件上全部落空）
+    a4 = {ext: lbin("office-doc", fixture("paper-a4." + ext)) for ext in ("docx", "odt", "rtf")}
+    check(
+        "paper-a4 的文档默认那一份：三家同一个数",
+        [
+            [dig(a4[ext], "page_setup.papers[0].width"), dig(a4[ext], "page_setup.papers[0].height")]
+            for ext in ("docx", "odt", "rtf")
+        ],
+        [[21001, 29700], [21001, 29700], [21001, 29700]],
+    )
+    # 横过来的那一节在 OOXML 与 ODF 里都写着（第一次有真件走到 orient=landscape），
+    # 而 LibreOffice 的 RTF 导出整份文件一个 `\landscape` 都没写 —— 那一条流里就只有
+    # 文档默认的纵向，第二节的横排看不见。两份件的差是文件的差，不是读者的差
+    check(
+        "paper-a4 横排那一节：docx 与 odt 有第二条，rtf 只有一条",
+        [len(dig(a4[ext], "page_setup.papers") or []) for ext in ("docx", "odt", "rtf")],
+        [2, 2, 1],
+    )
+    check(
+        "paper-a4 第二条：宽高对调、orient 写着 landscape",
+        [
+            [
+                dig(a4[ext], "page_setup.papers[1].width"),
+                dig(a4[ext], "page_setup.papers[1].height"),
+                dig(a4[ext], "page_setup.papers[1].orient"),
+            ]
+            for ext in ("docx", "odt")
+        ],
+        [[29700, 21001, "landscape"], [29700, 21001, "landscape"]],
+    )
+    check(
+        "paper-a4.rtf 全文没有 landscape 这个词（所以那一条只能给 null）",
+        (fixture("paper-a4.rtf").read_bytes().count(b"\\landscape"),
+         dig(a4["rtf"], "page_setup.papers[0].orient")),
+        [0, None],
     )
 
     # 尾注那一条分支第一次有真件：notes-end.docx 的 word/endnotes.xml 是 LibreOffice 的

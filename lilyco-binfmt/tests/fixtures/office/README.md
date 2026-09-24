@@ -28,6 +28,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `cell-notes-many.xls` | LibreOffice（从 `cell-notes-many.xlsx`） | 批注的第四种存法：字与「哪个格子 + 谁写的」分在**同一条流**的两类记录上（后者住在该表子流的末尾），编码旗标那一位与 BIFF8 的 `fCompressed` 惯例**相反** |
 | `notes-end.rtf` | LibreOffice（从 `notes-end.docx`） | 注的第三种存法：脚注与尾注**都**写成 `{\*\footnote …}` 这一个群，尾注只在群里多一个 `\ftnalt`；分隔符另走 `{\*\ftnsep\chftnsep}` |
 | `tables.docx` / `tables.odt` / `tables.rtf` | python-docx 与 LibreOffice（两张表：3×2 与 2×2，中间夹一段正文，首尾各一个标题） | 表那一份的对照件：三家都给 5 行 10 格，而 RTF 只敢给行数与格子数 —— 「几张表」的分组规则在 `notes.rtf`（一张）与这份（两张）上试过，单表对、两表数成一张 |
+| `paper-a4.docx` / `paper-a4.odt` / `paper-a4.rtf` | python-docx 与 LibreOffice（A4 纵向一节 + 横过来的一节） | 那张纸的第二尺寸：三家换算到 0.1mm 后短边都是 **21001**（不是 21000 —— OOXML 与 RTF 写 11906 twips，ODF 照抄成 `21.001cm`），所以这一支不给尺寸起名；横排那一节 docx 与 odt 都有第二条并写着 `orient=landscape`，而 RTF 全文一个 `\landscape` 都没有 → 那一条流只交文档默认的纵向 |
 | `toc.docx` | LibreOffice 的 **docx 导出器**（把目录注进 `notes.docx` 再让它照抄） | 真目录：`<w:sdt>` + `<w:docPartGallery w:val="Table of Contents"/>`，级别在域指令文字里 —— LibreOffice 把引号写成 `&quot;`，所以 `TOC \o "1-2" \h` 要还原实体才读得对 |
 | `toc.odt` | LibreOffice（从 `toc.docx`） | 同一件东西的另一副面孔：`text:table-of-content`（名字 `目录1`）、级别在 `text:table-of-content-source/@outline-level="2"`，另外**十级条目模板全写出来**（`entry_templates` 报的是文件写了几个，不是用上了几级） |
 | `notes-hf.odt` | LibreOffice（从 `notes-hf.docx`） | 同一批字的 ODF 存法：页眉页脚在 **styles.xml 的 master-page** 里，两个节 = 两个 master-page（`Standard` 与 `Converted1`），各带一份 header + footer |
@@ -466,6 +467,19 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     odt 明写 `portrait`）；RTF 只有一条（某一节的覆写住在 `{\*\sectx}` 群里，
     而这一族不判分节归属，`sections` 仍是 null），`\header` 那种已知目标群里写的
     `\paperw` 也不算文档默认值 —— 那一群整个另读，主循环看不见它。
+41. **换一份尺寸才看得出来：A4 在这三家都不是「210×297」**（`paper-a4.docx` / `.odt` / `.rtf`）。
+    Letter 恰好是 python-docx 模板的默认值，光在它上面量，换算式子凑对了也不知道。
+    A4 的短边 OOXML 与 RTF 写 **11906 twips** → 21001（0.1mm），LibreOffice 的 ODF 又
+    照抄成 `21.001cm` → 同一个 21001；长边 16838 twips → 29700。
+    **这三份 A4 件全部落在 21001×29700 上，三家互相一致** —— 但「210mm×297mm」那个名字谁都够不着。
+    这就是这一支**不报纸张叫什么**的原因：查表认「A4」要在 0.1mm 上开容差，
+    而开了容差就得回答「那 JIS B5 与 ISO B5 差 4mm 算不算同一张」，
+    不如把 21001×29700 这个数交出去，让人自己认。
+    同一份件还量出两件事：横过来的那一节在 OOXML 与 ODF 里都写着
+    （`orient="landscape"`、宽高对调、边距 1.5cm → 1499），
+    而 LibreOffice 的 **RTF 导出整份文件一个 `\landscape` 都没有** ——
+    那一副里只剩文档默认的纵向，所以它的 `orient` 只能是 null、`papers` 只有一条。
+    两份件的这种差是**文件的差**，不是读者的差：第二个读者与 Rust 在同一份件上读到同一个东西。
 
 ## 这些数字从哪来
 

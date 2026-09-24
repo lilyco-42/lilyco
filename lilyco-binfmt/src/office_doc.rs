@@ -1223,6 +1223,71 @@ mod tests {
             run("notes.doc")["page_setup"].is_null(),
             "没看就交 null，别交一个看起来像「没有」的空表"
         );
+        // 第二份尺寸（A4 + 一节横排）。这里有两个要钉的东西：
+        // 1) 换算不是凑上 Letter 的 —— 三家的文档默认那一份换成 0.1mm 后仍是同一个数，
+        //    而那个数是 21001×29700，不是整数意义上的 21000×29700（OOXML 与 RTF 把 A4 的
+        //    短边写作 11906 twips，LibreOffice 的 ODF 又照抄成 `21.001cm`）——
+        //    所以这一支不给尺寸起名：「这就是 A4」那种查表在三份件上都会落空；
+        // 2) 横排那一节 docx 与 odt 都写着（`orient=landscape`、宽高对调），
+        //    而 LibreOffice 的 RTF 导出整份文件一个 `\landscape` 都没有 ——
+        //    那一条流里就只剩文档默认的纵向。文件的差不是读者的差，照实交
+        let a4docx = run("paper-a4.docx");
+        let a4odt = run("paper-a4.odt");
+        let a4rtf = run("paper-a4.rtf");
+        assert_eq!(
+            [
+                a4docx["page_setup"]["papers"][0]["width"].clone(),
+                a4odt["page_setup"]["papers"][0]["width"].clone(),
+                a4rtf["page_setup"]["papers"][0]["width"].clone(),
+            ],
+            [json!(21001), json!(21001), json!(21001)],
+            "短边三家同一个数：{a4docx}"
+        );
+        assert_eq!(
+            a4docx["page_setup"]["papers"][0]["height"], 29700,
+            "{a4docx}"
+        );
+        assert_eq!(
+            a4docx["page_setup"]["papers"][0]["written"]["width"], "11906",
+            "文件自己写的是 twips：{a4docx}"
+        );
+        assert_eq!(
+            a4odt["page_setup"]["papers"][0]["written"]["width"], "21.001cm",
+            "odt 那一份照抄了同一个长度：{a4odt}"
+        );
+        assert_eq!(
+            a4docx["page_setup"]["papers"]
+                .as_array()
+                .expect("是数组")
+                .len(),
+            2,
+            "{a4docx}"
+        );
+        let land = &a4docx["page_setup"]["papers"][1];
+        assert_eq!(land["width"], 29700, "{land}");
+        assert_eq!(land["height"], 21001, "宽高对调：{land}");
+        assert_eq!(land["orient"], "landscape", "第一次有真件走到这里：{land}");
+        assert_eq!(
+            land["margins"]["top"], 1499,
+            "1.5 厘米 → 1499（0.1mm 的下一位舍掉）：{land}"
+        );
+        assert_eq!(
+            a4odt["page_setup"]["papers"][1]["orient"], "landscape",
+            "{a4odt}"
+        );
+        assert_eq!(a4odt["page_setup"]["papers"][1]["width"], 29700, "{a4odt}");
+        assert_eq!(
+            a4rtf["page_setup"]["papers"]
+                .as_array()
+                .expect("是数组")
+                .len(),
+            1,
+            "RTF 那一条流里只有文档默认：{a4rtf}"
+        );
+        assert!(
+            a4rtf["page_setup"]["papers"][0]["orient"].is_null(),
+            "整份 RTF 一个 landscape 都没写，那就交 null：{a4rtf}"
+        );
     }
 
     /// 结构数字要与独立读者算出来的逐项一致（期望值：office_reader.py 的 docx_facts）

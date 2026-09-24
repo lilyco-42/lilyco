@@ -53,6 +53,9 @@ MARK_NOTE_LONG_AUTHOR = "欧阳锋"
 MARK_NOTE_TWO_LINE = "第一行\n第二行"
 # 尾注那句：notes-foot.docx 只有脚注，notes-end.docx 在这句上才走得到 `endnote` 那一支
 MARK_ENDNOTE = "Endnote: the totals exclude the carry-over."
+# 那张纸的第二尺寸（A4）与横过来的那一节：两份件的标题句，见 write_paper_a4_docx
+MARK_PAPER_A4 = "A4 纵向的这一节"
+MARK_PAPER_LAND = "横过来的那一节"
 
 
 def need_soffice() -> str:
@@ -264,6 +267,45 @@ def write_tables_docx(path: Path) -> None:
         doc.add_paragraph("两张表之间的一段")
     doc.add_heading("二级标题", level=2)
     doc.core_properties.title = "两张表的样本"
+    doc.save(str(path))
+
+
+def write_paper_a4_docx(path: Path) -> None:
+    """A4 纵向 + 横过来的一节：两节各写自己的纸与边距（Letter 那批件两节是一样的）
+
+    这份样本存在的理由：`page_setup` 那本账目前只在 Letter（12240×15840 twips）上量过，
+    而 Letter 恰好是 python-docx 模板自带的默认值 —— 换一个尺寸才知道换算不是凑上的。
+    A4 还能把「生产者自己不一致」量出来：Word/OOXML 与 RTF 用 twips，A4 写作 11906×16838，
+    换成 0.1mm 是 21001×29701；LibreOffice 的 ODF 导出写 21cm×29.7cm，即 21000×29700。
+    两家差的那一个单位（0.1mm）是它们各自舍入的结果，不是我们算错 —— 所以三份件各报各的，
+    不挑一个当准。第二节显式 `orientation=landscape` 并把宽高对调，
+    这样「orient 只交文件写了的」这一条也第一次有真件可走（Letter 那批三家都不写方向）。
+    """
+    from docx import Document
+    from docx.enum.section import WD_ORIENT
+    from docx.shared import Cm, Mm
+
+    doc = Document()
+    first = doc.sections[0]
+    first.page_width = Mm(210)
+    first.page_height = Mm(297)
+    first.top_margin = Cm(2)
+    first.bottom_margin = Cm(2)
+    first.left_margin = Cm(3)
+    first.right_margin = Cm(3)
+    doc.add_heading(MARK_PAPER_A4, level=1)
+    doc.add_paragraph("这一节的纸是 210×297，边距 2 厘米与 3 厘米。")
+    second = doc.add_section()
+    second.orientation = WD_ORIENT.LANDSCAPE
+    second.page_width = Mm(297)
+    second.page_height = Mm(210)
+    second.top_margin = Cm(1.5)
+    second.bottom_margin = Cm(1.5)
+    second.left_margin = Cm(2)
+    second.right_margin = Cm(2)
+    doc.add_heading(MARK_PAPER_LAND, level=1)
+    doc.add_paragraph("同一份文件里两节，纸的宽高对调，边距也不同。")
+    doc.core_properties.title = MARK_PAPER_A4
     doc.save(str(path))
 
 
@@ -1038,6 +1080,11 @@ def main() -> int:
     twotables = OUT / "tables.docx"
     write_tables_docx(twotables)
 
+    # 那张纸的第二尺寸：A4 纵向 + 一节横排。Letter 是 python-docx 模板的默认值，
+    # 换一个尺寸与方向才量得出换算不是凑上的（见 write_paper_a4_docx）
+    paper = OUT / "paper-a4.docx"
+    write_paper_a4_docx(paper)
+
     # 修订这一份账：python-docx 注入四种改动，再让 LibreOffice 转一次。两份都留：
     # LibreOffice 会把一次编辑拆成几个 run（数字与单位各一条），又会丢掉段落标记那一条，
     # 而它自己导出的 ODF 把一次编辑写回一个 changed-region —— 这条对照是合并规则的唯一出处
@@ -1155,6 +1202,8 @@ def main() -> int:
         (OUT / "cell-notes.xlsx", "ods"),
         (OUT / "toc.docx", "odt"),
         (twotables, "odt"),
+        # 那张纸的第二尺寸：ODF 的 `fo:page-width` 与 OOXML 的 twips 是两家写法
+        (paper, "odt"),
     ):
         convert(exe, src, fmt, SCRATCH)
     for name in (
@@ -1165,6 +1214,7 @@ def main() -> int:
         "cell-notes.ods",
         "toc.odt",
         "tables.odt",
+        "paper-a4.odt",
     ):
         src = SCRATCH / name
         if src.exists():
@@ -1208,6 +1258,8 @@ def main() -> int:
         # 分隔符另走 `{\*\ftnsep …}` —— 与 OOXML 那两条分隔符是同一件事的第三种写法
         (OUT / "notes-end.docx", "rtf"),
         (twotables, "rtf"),
+        # 那张纸的第二尺寸也要 RTF 那一副：`\paperw` / `\landscape` 是第三种写法
+        (paper, "rtf"),
     ):
         convert(exe, src, fmt, SCRATCH)
     for name in (
@@ -1223,6 +1275,7 @@ def main() -> int:
         "notes-hf.rtf",
         "notes-end.rtf",
         "tables.rtf",
+        "paper-a4.rtf",
         "notes-hf.odt",
     ):
         src = SCRATCH / name
