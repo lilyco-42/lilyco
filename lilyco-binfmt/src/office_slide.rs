@@ -28,7 +28,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-slide",
     run = "run_office_slide",
-    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP answers with its own ladder: pages are draw:page (name on draw:name), the title comes from the frame whose presentation:class is title, speaker notes are the presentation:class=notes frame inside presentation:notes - the page-number placeholder sitting next to it holds the literal sample text <编号> and is never reported as slide content - and the page size is resolved through draw:master-page-name to styles.xml's style:master-page and then its style:page-layout. A file may name a presentation page layout (presentation-page-layout-name) without carrying any definition for it, which this command reports instead of inventing one. Legacy .ppt is a PowerPoint 97 record tree rather than a package: it reports the record / container / text-atom counts and one entry per slide, because containers of recType 0x03EE occur exactly one per slide and their subtrees hold that slide's text atoms - a correspondence this reader measured against the very same document's .pptx form (count, order, and every line), not a name it copied from the spec, which is why the entries carry record offsets and not spec names. Text that belongs to no such container (master and layout placeholder wording) is counted but not attributed to a page. A slide's charts are read from the page's own relationships (only entries whose Type ends in `chart`), never by listing ppt/charts/: LibreOffice drops style and colors parts into that same directory, so counting files there would report six charts where the page carries two. Each chart reports its part, title, whether any value was cached, and per plot group the kind (barChart / pieChart ...), the direct children's val attributes as written, the axis ids kept apart (each producer numbers them differently, and python-pptx even writes negative ones) and one entry per series with the reference string and the cached points. The reference strings are NOT comparable across producers here: python-pptx writes the real hop into the chart's own embedded workbook (`Sheet1!$B$1`), while LibreOffice's pptx export puts literal labels in the same place (`label 0`, `categories`, `0`) - the cached numbers survive that rewrite unchanged, which is why both are reported instead of a single reconciled answer. Two counters keep runs and paragraphs apart: paragraph_total counts a:p inside p:sp, text_runs counts a:t, and the same deck from the two producers reads 3/1 paragraphs with 3 versus 5 runs - joining runs into paragraph text is what makes the wording comparable at all. The slide size's own type attribute is reported only when written: python-pptx says screen4x3, LibreOffice omits it for the identical cx/cy, and it is left null rather than being called custom. ODP keeps charts as embedded chart objects and .ppt inside the record tree; neither is read, so a slide there carries no charts entry at all. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
+    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP answers with its own ladder: pages are draw:page (name on draw:name), the title comes from the frame whose presentation:class is title, speaker notes are the presentation:class=notes frame inside presentation:notes - the page-number placeholder sitting next to it holds the literal sample text <编号> and is never reported as slide content - and the page size is resolved through draw:master-page-name to styles.xml's style:master-page and then its style:page-layout. A file may name a presentation page layout (presentation-page-layout-name) without carrying any definition for it, which this command reports instead of inventing one. Legacy .ppt is a PowerPoint 97 record tree rather than a package: it reports the record / container / text-atom counts and one entry per slide, because containers of recType 0x03EE occur exactly one per slide and their subtrees hold that slide's text atoms - a correspondence this reader measured against the very same document's .pptx form (count, order, and every line), not a name it copied from the spec, which is why the entries carry record offsets and not spec names. Text that belongs to no such container (master and layout placeholder wording) is counted but not attributed to a page. A slide's charts are read from the page's own relationships (only entries whose Type ends in `chart`), never by listing ppt/charts/: LibreOffice drops style and colors parts into that same directory, so counting files there would report six charts where the page carries two. Each chart reports its part, title, whether any value was cached, and per plot group the kind (barChart / pieChart ...), the direct children's val attributes as written, the axis ids kept apart (each producer numbers them differently, and python-pptx even writes negative ones) and one entry per series with the reference string and the cached points. The reference strings are NOT comparable across producers here: python-pptx writes the real hop into the chart's own embedded workbook (`Sheet1!$B$1`), while LibreOffice's pptx export puts literal labels in the same place (`label 0`, `categories`, `0`) - the cached numbers survive that rewrite unchanged, which is why both are reported instead of a single reconciled answer. Two counters keep runs and paragraphs apart: paragraph_total counts a:p inside p:sp, text_runs counts a:t, and the same deck from the two producers reads 3/1 paragraphs with 3 versus 5 runs - joining runs into paragraph text is what makes the wording comparable at all. The slide size's own type attribute is reported only when written: python-pptx says screen4x3, LibreOffice omits it for the identical cx/cy, and it is left null rather than being called custom. ODF answers the same question its own way: a `draw:frame` holds a `draw:object` whose `xlink:href` names an `Object N/` directory - the notes frame holds no such thing, so it is not a chart - and there the type sits on each `chart:series` (`chart:bar`, and `chart:circle` for a pie) rather than on an outer plot group, points are self-stated with `chart:repeated`, and a range can name the chart's own `local-table` (`local-table.$B$2:.$B$3`) instead of the deck's data, so those strings go over as written. Frame names count the notes frame too, which is why a page's first chart can be called Chart 2. Legacy .ppt keeps charts inside the record tree and is not read. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
 )]
 pub struct OfficeSlide {
     /// 演示文稿（pptx / pptm / odp / ppt）
@@ -369,8 +369,12 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
                     })
                     .unwrap_or(Value::Null);
             }
+            // 这一页上的图：ODP 与 ODS 同一家存法 —— frame 里那条 draw:object 指过去
+            let charts = crate::odfchart::charts_in(bytes, one);
             slides.push(json!({
                 "index": index,
+                "charts": charts.len(),
+                "chart_list": charts,
                 "name": crate::odsheet::attr_of(one, "name").unwrap_or_default(),
                 "title": title,
                 "master": master,
@@ -642,6 +646,61 @@ mod tests {
             Value::Null,
             "LibreOffice 不写这个属性，就别替它编一个 custom"
         );
+    }
+
+    /// ODF 的图是嵌入对象：一页两张（饼图那一族的类名是 chart:circle），
+    /// 而 frame 的编号把备注框也一起数进去了
+    #[test]
+    fn odp_pages_carry_their_charts_through_the_embedded_objects() {
+        let out = run("deck-chart.odp");
+        let slides = out["slides"].as_array().expect("是数组");
+        assert_eq!(slides.len(), 2, "{:?}", out["order"]);
+        assert_eq!(
+            slides[0]["charts"], 2,
+            "备注那个 frame 没有 draw:object，不算图"
+        );
+        assert_eq!(slides[1]["charts"], 0, "{slides:?}");
+        let bar = &slides[0]["chart_list"][0];
+        assert_eq!(bar["object"], "Object 1", "{bar}");
+        assert_eq!(bar["present"], json!(true));
+        assert_eq!(bar["frame"], "Chart 2", "frame 的号连备注框一起数：{bar}");
+        assert_eq!(bar["preview"], json!(true), "LO 另写了一份预览图");
+        assert_eq!(
+            bar["class"],
+            Value::Null,
+            "ODF 不写外层类型，类型在每条系列上"
+        );
+        assert_eq!(bar["series"], 2);
+        let first = &bar["series_list"][0];
+        assert_eq!(first["class"], "chart:bar", "{first}");
+        assert_eq!(
+            first["values"], "local-table.$B$2:.$B$3",
+            "转一圈回来，引用指的是图自己那张 local-table：{first}"
+        );
+        assert_eq!(first["label"], "local-table.$B$1");
+        assert_eq!(first["point_elements"], 1);
+        assert_eq!(first["points_written"], 2, "repeated 说这一条顶两个点");
+        let rows = bar["local_table"].as_array().expect("是数组");
+        assert_eq!(rows.len(), 3, "{bar}");
+        assert_eq!(rows[1]["cells"][1]["value"], "10", "{rows}");
+        assert_eq!(rows[2]["cells"][2]["value"], "9");
+        let pie = &slides[0]["chart_list"][1];
+        assert_eq!(pie["title"], "占比", "饼图的标题只有 LO 那一份写了：{pie}");
+        assert_eq!(pie["series_list"][0]["class"], "chart:circle");
+        assert_eq!(
+            pie["series_list"][0]["point_elements"], 2,
+            "这一条不用 repeated"
+        );
+        assert_eq!(
+            pie["series_list"][0]["points_written"], 2,
+            "两种写法同一个点数"
+        );
+        // 原来那两份件一张图也没有：报 0，不是缺键
+        for name in ["deck.odp", "deck.pptx", "deck-lo.pptx"] {
+            for one in run(name)["slides"].as_array().expect("是数组") {
+                assert_eq!(one["charts"], 0, "{name} 这一页没有图：{one}");
+            }
+        }
     }
 
     /// python-pptx 那份两页的稿子：顺序、标题、备注、媒体、版式数

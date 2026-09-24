@@ -19,6 +19,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
 | `deck.odp`（结构） | 同上 | 两页：`draw:name` 是「预算评审」与「第二页：数字」；第一页有 `presentation:class="notes"` 的备注（「评审时先讲口径再讲数字」），**旁边还坐着页码占位，里面的样字是 `<编号>`** —— 整页一把抓就会把它当正文；两个母版页名、两个版式名，但文件里没有任何版式定义；尺寸 25.4cm×19.05cm landscape 在 styles.xml 的 page-layout 里 |
 | `notes.odt`（结构） | 同上 | 10 段（2 段是空的）、两个带 `text:outline-level` 的标题、1 张 2×2 表（名叫「表格1」）、一条 `text:annotation` 批注、一个 `draw:frame`+`draw:image`、一个 `text:a` 超链接、5 个 `text:sequence-decl`；`meta.xml` 自报 paragraph-count 10 / page-count 2 / word-count 61 |
+| `chart.ods` | LibreOffice（`chart.xlsx` → .ods） | ODF 的图是**嵌入对象**：`数据` 那张表里两个 `draw:frame` 各指一个 `Object N/` 目录，那里面的 content.xml 才写着 `chart:chart`；类型只在每条 `chart:series` 上（`chart:bar` / `chart:line`），点数另有一条 `chart:data-point@chart:repeated` 自报「这一条顶两个点」，地址是第三种写法（`数据.B2:数据.B3`：点分隔、不带 `$`），末尾还抄了一张 `local-table`（10 / 25 / 4 / 9） |
+| `deck-chart.odp` | LibreOffice（`deck-chart.pptx` → .odp） | 同一批图绕一圈 ODP：引用不再指稿子的数据，而是指图自己那张表（`local-table.$B$2:.$B$3`），饼图的类名成了 `chart:circle`、标题「占比」只有这一家写了，而且 frame 连备注框一起编号 —— 第一张图叫 `Chart 2` |
 | `formats.ods` | LibreOffice（从 `formats.xlsx`） | 同一份格式账的 ODF 写法：日期是 `office:date-value` 的 ISO 串、百分比带 `12.5%` 这种显示文本、货币只剩显示里的 ¥；每行尾部 `number-columns-repeated="16381"` 的填空、行首还有重复 2 的空格 |
 | `notes-foot.docx` | LibreOffice（从 `office_fixtures.py` 里的 `FOOTNOTE_RTF` 导入写出） | 两条真脚注 + `word/footnotes.xml` 里那**两条分隔符**（`w:type="separator"` / `"continuationSeparator"`，没有正文）：数脚注不能只数 `w:footnote` 元素 |
 | `notes-end.docx` | LibreOffice 的 **docx 导出器**（把尾注注进 `notes-foot.docx` 再让它照抄一遍） | 一条真尾注 + 一条脚注：`word/endnotes.xml` 的字节全是它写的（两条分隔符是它自己的 `<w:separator/>` 那一族写法），尾注这一支第一次有件可走 |
@@ -645,6 +647,21 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     （以前替它编一个 "custom"，那是把没写的当成写了）。
     ODP 的图是嵌入对象（`Object N/` 那一堆 chart 部件），.ppt 住在记录树里 —— 两边都没读，
     所以那一族的页上不带 `charts` 键。
+
+51. **ODF 的图要先走进那个目录**（`chart.ods` 与 `deck-chart.odp`）。
+    宿主文档里只有一条 `draw:frame` → `draw:object`，`xlink:href` 指着 `Object N`（一个目录），
+    图的内容在那个目录自己的 `content.xml` 里 —— 与 OOXML 那两家「表 → 关系表 → 画法部件 → 图部件」
+    是两种链接法。`draw:frame` 住在**它所属的** `table:table` / `draw:page` 里面，所以按表、按页归位
+    做得到；备注那个 frame 没有 `draw:object`，于是不会被当成图（但它的名字占了号：ODP 里第一张图的
+    frame 叫 `Chart 2`）。这一族的三件事与 OOXML 不同，都不替它对齐：
+    类型写在每条 `chart:series` 上（`chart:bar`，饼图是 `chart:circle`），`chart:chart` 自己身上没有；
+    点数有一条自报的 `chart:data-point@chart:repeated`（一条顶两个点 —— 与 `number-columns-repeated`
+    同一个惯例），所以 `point_elements` 与 `points_written` 分开交，两份件的同一批点一边写 1/2、一边写 2/2；
+    地址是第三种写法：ODS 写 `数据.B2:数据.B3`（点分隔、不带 `$`），ODP 那份干脆指到图自己抄的
+    `local-table.$B$2:.$B$3`（转一圈之后回不到稿子的数据了）。
+    那张 `local-table` 按格子抄，`number-columns-repeated` **不铺开**（一个自报 16384 的文件会凭空长出
+    上万格），自报的那个数原样跟着交。
+    .xls 的图还在 BIFF 的对象链上，本机没有一个读者量过 —— 那一族的表不带 `charts` 键。
 
 ## 这些数字从哪来
 

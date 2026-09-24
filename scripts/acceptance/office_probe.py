@@ -1521,6 +1521,70 @@ def main() -> int:
                if one.get("rules") is not None], [])
 
 
+    # ── 3a11) ODF 这一族的图：draw:object 指到 Object N/，地址是第三种写法 ──
+    print("=== 3a11) ODS 与 ODP 的图（嵌入对象） ===")
+    for name, key, cmd, holder in (("chart.ods", "ods", "office-sheet", "sheets"),
+                                   ("deck-chart.odp", "odp", "office-slide", "slides")):
+        want = files[name][key][holder]
+        got = lbin(cmd, fixture(name))
+        mine = [one.get("chart_list") for one in got.get(holder, [])]
+        check("%s 每一张表/每一页的图整份账" % name, mine, [one.get("charts") for one in want])
+        check(
+            "%s 图的条数按表/页归位" % name,
+            [one.get("charts") for one in got.get(holder, [])],
+            [len(one.get("charts")) for one in want],
+        )
+    ods = lbin("office-sheet", fixture("chart.ods"))
+    xw = lbin("office-sheet", fixture("chart-lo.xlsx"))
+    op = lbin("office-sheet", fixture("chart.xlsx"))
+    check(
+        "同一段格子在三种存法里是三种写法（都不归一化）",
+        [dig(ods, "sheets[0].chart_list[0].series_list[0].values"),
+         dig(xw, "sheets[0].chart_list[0].groups[0].series_list[0].val.ref"),
+         dig(op, "sheets[0].chart_list[0].groups[0].series_list[0].val.ref")],
+        ["数据.B2:数据.B3", "数据!$B$2:$B$3", "'数据'!$B$2:$B$3"],
+    )
+    check(
+        "图的类型：ODF 写在每条系列上，OOXML 写在外层图组上",
+        [dig(ods, "sheets[0].chart_list[0].class"),
+         dig(ods, "sheets[0].chart_list[0].series_list[0].class"),
+         dig(ods, "sheets[0].chart_list[1].series_list[0].class"),
+         dig(xw, "sheets[0].chart_list[0].groups[0].kind")],
+        [None, "chart:bar", "chart:line", "barChart"],
+    )
+    check(
+        "跨存法同一份账：图的条数、系列数与标题三处一致",
+        [[len([1 for _ in (one.get("chart_list") or [])]) for one in ods.get("sheets", [])],
+         [dig(ods, "sheets[0].chart_list[0].series"), dig(ods, "sheets[0].chart_list[1].series")],
+         [dig(ods, "sheets[0].chart_list[0].title"), dig(ods, "sheets[0].chart_list[1].title")],
+         [dig(xw, "sheets[0].chart_list[0].groups[0].series"),
+          dig(xw, "sheets[0].chart_list[1].groups[0].series")],
+         [dig(xw, "sheets[0].chart_list[0].title.text"), dig(xw, "sheets[0].chart_list[1].title.text")]],
+        [[2, 0], [2, 1], ["逐月收支", "收入折线"], [2, 1], ["逐月收支", "收入折线"]],
+    )
+    check(
+        "画的数也一致：ODF 的 local-table 与 OOXML 的 numCache 是同一批格子",
+        [dig(ods, "sheets[0].chart_list[0].local_table[1].cells[1].value"),
+         dig(ods, "sheets[0].chart_list[0].local_table[2].cells[1].value"),
+         dig(xw, "sheets[0].chart_list[0].groups[0].series_list[0].val.cache.values"),
+         [dig(ods, "sheets[0].chart_list[0].series_list[0].point_elements"),
+          dig(ods, "sheets[0].chart_list[0].series_list[0].points_written")]],
+        ["10", "25", [10.0, 25.0], [1, 2]],
+    )
+    check(
+        "那一族没挂图的件报 0：book.ods 三张表、deck.odp 两页都是空表",
+        [len(one.get("chart_list") or []) for one in lbin("office-sheet", fixture("book.ods")).get("sheets", [])]
+        + [len(one.get("chart_list") or []) for one in lbin("office-slide", fixture("deck.odp")).get("slides", [])],
+        [0, 0, 0, 0, 0],
+    )
+    # .xls 的图走 BIFF 的 OBJ/CLID 那条链，本机没有一个读者量过 —— 键整个不在
+    check(
+        "book.xls 这一族的图没读：每页不带 charts 那份账",
+        len([one for one in lbin("office-sheet", fixture("book.xls")).get("sheets", [])
+             if one.get("charts") is not None]),
+        0,
+    )
+
     # ── 3b) 数字格式：格子写的是 cellXfs 的下标，日期藏在样式里 ──────────
     print("=== 3b) formats.xlsx：格式号、判定与换算出来的日期 ===")
     fx = lbin("office-sheet", fixture("formats.xlsx"))

@@ -1276,6 +1276,134 @@ def _first_text(node, wants: tuple) -> str | None:
     return None
 
 
+XLINK = "{http://www.w3.org/1999/xlink}href"
+
+
+def of_attr(node, want: str):
+    """按局部名取一个属性（ODF 的属性都带前缀，且同一局部名可能来自两个命名空间）"""
+    for key, value in node.attrib.items():
+        if key.rsplit("}", 1)[-1] == want and "documentfoundation" not in key:
+            return value
+    return None
+
+
+def odf_written_attrs(node) -> dict:
+    """一个元素上写着的属性（局部名 → 原值）。LibreOffice 抄的那份 `calcext:` 副本不看：
+    它的局部名与 `office:value-type` 一模一样，看了就会两家各说一句话。"""
+    return {
+        key.rsplit("}", 1)[-1]: value
+        for key, value in node.attrib.items()
+        if "openoffice.org/2020/calc" not in key and "documentfoundation" not in key
+    }
+
+
+def odf_chart_object(parts: dict, href: str) -> dict:
+    """一个嵌入的图对象：`Object N/` 那一份 content.xml 里的 chart:chart
+
+    ODF 的地址是**第三种写法**（`数据.B2:数据.B3`：点分隔、不带 `$`、不引号），
+    与 OOXML 两家的 `'数据'!$B$2:$B$3` / `数据!$B$2:$B$3` 都不是一种东西 —— 照写交。
+    `chart:data-point@chart:repeated` 是自报的「这一条顶几个点」，与 `chart:series`
+    指的那段区间的宽度对不对，交给读的人自己看（两条都交）。
+    """
+    folder = href.lstrip("./").rstrip("/")
+    name = folder + "/content.xml"
+    if name not in parts:
+        return {"object": folder, "present": False}
+    root = ET.fromstring(parts[name])
+    charts = [one for one in root.iter() if xml_local(one.tag) == "chart"]
+    klass = None
+    if charts:
+        klass = of_attr(charts[0], "class")
+    series = []
+    categories = None
+    title = None
+    for one in root.iter():
+        which = xml_local(one.tag)
+        if which == "title":
+            text = " ".join((t or "").strip() for t in one.itertext()).strip()
+            title = text or None
+        elif which == "series":
+            points = [t for t in one if xml_local(t.tag) == "data-point"]
+            stated = 0
+            for one_point in points:
+                try:
+                    stated += max(1, int(of_attr(one_point, "repeated") or 1))
+                except ValueError:
+                    stated += 1
+            series.append({
+                "class": of_attr(one, "class"),
+                "values": of_attr(one, "values-cell-range-address"),
+                "label": of_attr(one, "label-cell-address"),
+                "point_elements": len(points),
+                "points_written": stated if points else None,
+                "written": odf_written_attrs(one),
+            })
+        elif which == "categories":
+            points = [t for t in one if xml_local(t.tag) == "data-point"]
+            categories = {
+                "address": of_attr(one, "cell-range-address"),
+                "point_elements": len(points),
+                "written": odf_written_attrs(one),
+            }
+    cached = []
+    for table in [one for one in root.iter() if xml_local(one.tag) == "table"]:
+        if of_attr(table, "name") != "local-table":
+            continue
+        for row in [one for one in table.iter() if xml_local(one.tag) == "table-row"]:
+            line = []
+            for cell in [one for one in row if xml_local(one.tag) in ("table-cell", "header-cell")]:
+                span = 1
+                try:
+                    span = max(1, int(of_attr(cell, "number-columns-repeated") or 1))
+                except ValueError:
+                    span = 1
+                # 只取 text:p 的字：格子里还嵌着 `table:desc` 那种写地址的东西，
+                # 一锅端 itertext 会把「收入 数据.B1:数据.B1」当成一个字
+                texts = [
+                    " ".join((t or "").strip() for t in para.itertext()).strip()
+                    for para in cell.iter()
+                    if xml_local(para.tag) == "p"
+                ]
+                value = of_attr(cell, "value")
+                line.append({
+                    "repeated": span,
+                    "text": " ".join(one for one in texts if one) or None,
+                    "value": value,
+                    "written": odf_written_attrs(cell),
+                })
+            cached.append({"cells": line})
+    return {
+        "object": folder,
+        "present": True,
+        "class": klass,
+        "title": title,
+        "series": len(series),
+        "series_list": series,
+        "categories": categories,
+        "local_table": cached,
+    }
+
+
+def odf_charts_of(parts: dict, host) -> list:
+    """这个宿主（一张 ODS 表或一页 ODP）里的图：`draw:frame` → `draw:object@xlink:href`"""
+    found = []
+    for frame in [one for one in host.iter() if xml_local(one.tag) == "frame"]:
+        for one in frame:
+            if xml_local(one.tag) != "object":
+                continue
+            href = one.get(XLINK)
+            if not href:
+                continue
+            report = odf_chart_object(parts, href)
+            report["frame"] = of_attr(frame, "name")
+            report["preview"] = bool(any(
+                xml_local(kid.tag) == "image" and (kid.get(XLINK) or "").startswith("./ObjectReplacements/")
+                for kid in frame
+            ))
+            found.append(report)
+    return found
+
+
 def ods_facts(path: Path) -> dict | None:
     """ODF 电子表格：格子内**不写数字**，写的是 office:value / date-value / boolean-value，
     位置要靠 table:number-columns-repeated 累加出来 —— 那属性一填就是 16381，
@@ -1429,6 +1557,8 @@ def ods_facts(path: Path) -> dict | None:
                 "hidden_cols": hidden_cols,
                 "comments": cell_notes,
                 "formulas": sum(1 for one in cells if one["formula"]),
+                # 这一张表上的图：ODS 的 draw:frame 就住在 table:table 里面
+                "charts": odf_charts_of(parts, table),
             }
         )
     statistic = {}
@@ -1599,6 +1729,7 @@ def odp_facts(path: Path) -> dict | None:
         slides.append(
             {
                 "name": of_local(page, "name"),
+"charts": odf_charts_of(parts, page),
                 # 没有 title 占位时退回第一段：两边同一口径，不然比的是两份规则
                 "title": title if title else (texts[0] if texts else ""),
                 "master": master,

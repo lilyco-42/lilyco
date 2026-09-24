@@ -1437,6 +1437,9 @@ def main() -> int:
     write_pptx_charts(charts)
     convert(exe, charts, "odp", SCRATCH)
     if (SCRATCH / "deck-chart.odp").exists():
+        # ODP 这一份也要留：图住在 `Object N/` 目录里是 ODF 那一族自己的存法，
+        # 与 pptx 那份配成一对才有「同一批图、两种链接法」的对照
+        shutil.copyfile(SCRATCH / "deck-chart.odp", OUT / "deck-chart.odp")
         shutil.copyfile(SCRATCH / "deck-chart.odp", SCRATCH / "deck-chart-copy.odp")
         convert(exe, SCRATCH / "deck-chart-copy.odp", "pptx", SCRATCH / "chart-back")
         back = SCRATCH / "chart-back" / "deck-chart-copy.pptx"

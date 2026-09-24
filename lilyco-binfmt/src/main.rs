@@ -33,6 +33,7 @@ mod cfb;
 mod entries;
 mod identify;
 mod numfmt;
+mod odfchart;
 mod odsheet;
 mod odstyle;
 mod office_doc;
