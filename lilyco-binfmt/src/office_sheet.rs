@@ -817,6 +817,7 @@ fn xlsx_layout(sheet_root: &xmlscan::Node, limit: usize) -> Value {
     let cols = sheet_root.descendants("col");
     let mut covered = 0usize;
     let mut exact = !cols.is_empty();
+    let col_total = cols.len();
     for one in cols.iter() {
         let low = one
             .attr("min")
@@ -830,23 +831,36 @@ fn xlsx_layout(sheet_root: &xmlscan::Node, limit: usize) -> Value {
         }
     }
     let rows = sheet_root.descendants("row");
-    let spoke = |one: &&xmlscan::Node| -> bool {
-        one.attr("ht").is_some()
-            || one.attr("customHeight").is_some()
-            || one.attr("hidden").is_some()
-    };
+    let row_total = rows.len();
+    let mut with_height = 0usize;
+    for one in rows.iter() {
+        if one.attr("ht").is_some() {
+            with_height += 1;
+        }
+    }
+    let tall: Vec<&xmlscan::Node> = rows
+        .into_iter()
+        .filter(|one| {
+            one.attr("ht").is_some()
+                || one.attr("customHeight").is_some()
+                || one.attr("hidden").is_some()
+        })
+        .collect();
+    let spoken = tall.len();
+    let row_list: Vec<Value> = tall.into_iter().take(limit).map(written_attrs).collect();
+    let col_list: Vec<Value> = cols.into_iter().take(limit).map(written_attrs).collect();
     json!({
         "format": format.map(written_attrs).unwrap_or(Value::Null),
         "columns": {
-            "written": cols.len(),
+            "written": col_total,
             "covered": if exact { json!(covered) } else { Value::Null },
-            "list": cols.iter().take(limit).map(written_attrs).collect::<Vec<Value>>(),
+            "list": col_list,
         },
         "rows": {
-            "elements": rows.len(),
-            "with_height": rows.iter().filter(|one| one.attr("ht").is_some()).count(),
-            "spoken": rows.iter().filter(spoke).count(),
-            "list": rows.iter().filter(spoke).take(limit).map(written_attrs).collect::<Vec<Value>>(),
+            "elements": row_total,
+            "with_height": with_height,
+            "spoken": spoken,
+            "list": row_list,
         },
     })
 }
@@ -907,6 +921,12 @@ fn table_one(bytes: &[u8], name: &str, limit: usize) -> Value {
     let counted = root.descendants("tableColumns").into_iter().next();
     let written = counted.and_then(|one| one.attr("count")).map(String::from);
     let found = columns.len();
+    let names: Vec<Value> = columns
+        .iter()
+        .take(limit)
+        .map(|one| one.attr("name").map(Value::from).unwrap_or(Value::Null))
+        .collect();
+    let list: Vec<Value> = columns.into_iter().take(limit).map(written_attrs).collect();
     let inner = root.descendants("autoFilter").into_iter().next();
     let style = root.descendants("tableStyleInfo").into_iter().next();
     json!({
@@ -917,12 +937,8 @@ fn table_one(bytes: &[u8], name: &str, limit: usize) -> Value {
             "written": written.clone(),
             "found": found,
             "whole": count_matches(&written, found),
-            "names": columns
-                .iter()
-                .take(limit)
-                .map(|one| one.attr("name").map(Value::from).unwrap_or(Value::Null))
-                .collect::<Vec<Value>>(),
-            "list": columns.iter().take(limit).map(written_attrs).collect::<Vec<Value>>(),
+            "names": names,
+            "list": list,
         },
         "filter": {
             "present": inner.is_some(),
