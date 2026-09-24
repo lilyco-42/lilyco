@@ -635,6 +635,126 @@ impl Pdf {
         out
     }
 
+    /// 按对象号找对象
+    pub fn object(&self, id: u64) -> Option<&Object> {
+        self.objects.get(&id)
+    }
+
+    /// 页树 `/Kids` 的真实顺序 —— 对象号顺序不等于阅读顺序。
+    /// 树走不通（缺 `/Root`、缺 `/Kids`、或全指向看不见的对象）时退回对象号顺序，
+    /// 第二个返回值说明这次是不是从树来的
+    pub fn page_order(&self) -> (Vec<u64>, bool) {
+        let root = match self.root_id().and_then(|id| self.objects.get(&id)) {
+            Some(one) => one,
+            None => return (self.pages(), false),
+        };
+        let start = match ref_after(&root.dict, b"/Pages") {
+            Some(one) => one,
+            None => return (self.pages(), false),
+        };
+        let mut order: Vec<u64> = Vec::new();
+        let mut queue: Vec<u64> = vec![start];
+        let mut seen: BTreeSet<u64> = BTreeSet::new();
+        let mut steps = 0usize;
+        while !queue.is_empty() {
+            let node = queue.remove(0);
+            steps += 1;
+            if steps > 200_000 || !seen.insert(node) {
+                continue;
+            }
+            let one = match self.objects.get(&node) {
+                Some(done) => done,
+                None => continue,
+            };
+            if name_after(&one.dict, b"/Type").as_deref() == Some("Page") {
+                order.push(node);
+                continue;
+            }
+            let mut kids = refs_of(&one.dict, b"/Kids");
+            kids.reverse();
+            for kid in kids {
+                queue.insert(0, kid);
+            }
+        }
+        if order.is_empty() {
+            return (self.pages(), false);
+        }
+        (order, true)
+    }
+
+    /// 这一页叫得到的字体名 → 对象号。两道跳转都可能写成间接引用：`/Resources N 0 R`
+    /// 与 `/Font 66 0 R`（LibreOffice 两处都用间接）。只认内联那一种就会整页解不出字，
+    /// 而且解不出得很安静 —— 这条是量出来的，不是想到的。
+    pub fn page_font_names(&self, page: &Object) -> BTreeMap<String, u64> {
+        let mut out = BTreeMap::new();
+        let resource = match ref_after(&page.dict, b"/Resources") {
+            Some(id) => match self.objects.get(&id) {
+                Some(one) => one,
+                None => page,
+            },
+            None => page,
+        };
+        let table: Vec<u8> = match ref_after(&resource.dict, b"/Font") {
+            Some(id) => match self.objects.get(&id) {
+                Some(one) => one.dict.clone(),
+                None => return out,
+            },
+            None => {
+                let at = match key_positions(&resource.dict, b"/Font").first() {
+                    Some(one) => *one,
+                    None => return out,
+                };
+                let from = skip_spaces(&resource.dict, at + b"/Font".len());
+                let start = match resource.dict.get(from) {
+                    Some(b'<') => from + 2,
+                    _ => return out,
+                };
+                let stop = find(&resource.dict, b">>", start).unwrap_or(resource.dict.len());
+                resource.dict[start..stop].to_vec()
+            }
+        };
+        for (name, id) in name_refs(&table) {
+            out.insert(name, id);
+        }
+        out
+    }
+
+    /// 每页一份正文，按 `/Kids` 的顺序
+    pub fn page_texts(&self, data: &[u8]) -> (Vec<(u64, String)>, bool) {
+        let (order, from_tree) = self.page_order();
+        let mut out: Vec<(u64, String)> = Vec::new();
+        let mut fonts: BTreeMap<String, FontMap> = BTreeMap::new();
+        for id in order {
+            let page = match self.objects.get(&id) {
+                Some(one) => one,
+                None => continue,
+            };
+            for (name, target) in self.page_font_names(page) {
+                if let Some(one) = self.objects.get(&target) {
+                    fonts.insert(name, font_map(data, self, one));
+                }
+            }
+            let mut runs: Vec<TextRun> = Vec::new();
+            for content in refs_of(&page.dict, b"/Contents") {
+                let one = match self.objects.get(&content) {
+                    Some(done) => done,
+                    None => continue,
+                };
+                let raw = match stream_body(data, one) {
+                    Some(done) => done,
+                    None => continue,
+                };
+                runs.extend(text_runs(&raw, &fonts));
+            }
+            let size = runs.iter().fold(
+                12.0f64,
+                |best, one| if one.size > best { one.size } else { best },
+            );
+            out.push((id, layout(&runs, size)));
+        }
+        (out, from_tree)
+    }
+
     /// `/Count` 自报的页数：与真的 `/Type/Page` 对象数对账用
     pub fn declared_counts(&self) -> Vec<i64> {
         self.pages_nodes()
@@ -1031,6 +1151,707 @@ fn find_encryption(
     })
 }
 
+// ── 内容流：文本抽取那一层 ──────────────────────────────────────────
+//
+// 这一层的难度不在「认字」（认字是 `/ToUnicode` 那张表的事），在**位置**上。
+// 位置这条路上有三个坑，每一个都是拿真件与 `pdftotext` 逐行对出来的：
+//
+// 1. `BT` 把文本矩阵与文本行矩阵都复位成单位阵。不复位就会把上一行的坐标一路累加，
+//    同一行的三段会被分到三个「行」里；
+// 2. 字形前进只沿 x 走：`e' = e + a·step`、`f' = f + b·step`。拿 `d` 去加就变成每个字
+//    往上飘 —— 第一版就是这么把 `124000` 六个数字摆成一条斜线的；
+// 3. **`TJ` 数组里那个数是反着用的**：正数把笔往左推、负数往右推。符号当 normal 处理，
+//    `一级标题：预算口径` 会被排成 `一：算口径级标题预` —— 字全对、顺序全错，
+//    这种错最像「读得出但读不通」。
+//
+// 还有两条明说的界：图形矩阵（`cm`）与字距缩放（`Tz` / `Tw` / `Tc`）不跟；CID 字体
+// （2 字节码、宽度住在 `/W` 数组里）的宽度也不跟，那种字体认得出字但位置会偏。
+// 手上五份 fixture 里没有这两种，所以是照实说「没做」，不是假装做过。
+
+/// 内容流的一个记号
+#[derive(Debug, Clone, PartialEq)]
+pub enum Tok {
+    Str(Vec<u8>),
+    Name(String),
+    Num(f64),
+    ArrayStart,
+    ArrayEnd,
+    /// `<<` 或 `>>`：属性字典（`/Span<</MCID 0>>BDC`）与文本无关，见到就丢自变量
+    Dict,
+    Op(String),
+}
+
+fn is_delimiter(one: u8) -> bool {
+    is_space(one)
+        || matches!(
+            one,
+            b'/' | b'<' | b'>' | b'[' | b']' | b'(' | b')' | b'{' | b'}' | b'%'
+        )
+}
+
+pub fn tokens(raw: &[u8]) -> Vec<Tok> {
+    let mut out: Vec<Tok> = Vec::new();
+    let mut at = 0usize;
+    while at < raw.len() {
+        let ch = raw[at];
+        if ch == b'%' {
+            at = find(raw, b"\n", at).map(|one| one + 1).unwrap_or(raw.len());
+            continue;
+        }
+        if is_space(ch) || ch == b'{' || ch == b'}' {
+            at += 1;
+            continue;
+        }
+        if ch == b'(' {
+            let (value, next) = literal(raw, at + 1);
+            out.push(Tok::Str(value));
+            at = next;
+            continue;
+        }
+        if ch == b'<' {
+            if raw.get(at + 1) == Some(&b'<') {
+                out.push(Tok::Dict);
+                at += 2;
+                continue;
+            }
+            let Some(close) = find(raw, b">", at) else {
+                break;
+            };
+            if let Some(value) = hex_bytes(&raw[at + 1..close]) {
+                out.push(Tok::Str(value));
+            }
+            at = close + 1;
+            continue;
+        }
+        if ch == b'>' {
+            if raw.get(at + 1) == Some(&b'>') {
+                out.push(Tok::Dict);
+                at += 2;
+            } else {
+                at += 1;
+            }
+            continue;
+        }
+        if ch == b'[' {
+            out.push(Tok::ArrayStart);
+            at += 1;
+            continue;
+        }
+        if ch == b']' {
+            out.push(Tok::ArrayEnd);
+            at += 1;
+            continue;
+        }
+        if ch == b'/' {
+            let start = at + 1;
+            let mut i = start;
+            while i < raw.len() && !is_delimiter(raw[i]) {
+                i += 1;
+            }
+            out.push(Tok::Name(
+                String::from_utf8_lossy(&raw[start..i]).into_owned(),
+            ));
+            at = i;
+            continue;
+        }
+        let start = at;
+        let mut i = at;
+        while i < raw.len() && !is_delimiter(raw[i]) {
+            i += 1;
+        }
+        if i == start {
+            at += 1;
+            continue;
+        }
+        let word = String::from_utf8_lossy(&raw[start..i]).into_owned();
+        out.push(match word.parse::<f64>() {
+            Ok(done) => Tok::Num(done),
+            Err(_why) => Tok::Op(word),
+        });
+        at = i;
+    }
+    out
+}
+
+/// `<FEFF…>` 那一类 UTF-16BE 的十六进制目标：两个字节一个码元
+fn utf16_be(raw: &[u8]) -> String {
+    if raw.len() % 2 != 0 {
+        return raw.iter().map(|one| *one as char).collect();
+    }
+    let units: Vec<u16> = raw
+        .chunks(2)
+        .map(|one| u16::from_be_bytes([one[0], one[1]]))
+        .collect();
+    String::from_utf16_lossy(&units)
+}
+
+fn as_int(raw: &[u8]) -> i64 {
+    let mut done = [0u8; 8];
+    let start = 8usize.saturating_sub(raw.len());
+    done[start..].copy_from_slice(raw);
+    i64::from_be_bytes(done)
+}
+
+fn trim_width(raw: &[u8]) -> usize {
+    raw.len().clamp(1, 8)
+}
+
+fn key_with_width(value: i64, width: usize) -> Vec<u8> {
+    let done = value.to_be_bytes();
+    done[8 - width..].to_vec()
+}
+
+/// 一张字体的度量与码表：`/ToUnicode` 的 codespace 宽度、bfchar / bfrange 的映射，
+/// 外加 `/FirstChar` 与 `/Widths`（算前进量用）
+#[derive(Debug, Clone)]
+pub struct FontMap {
+    pub code_bytes: usize,
+    pub table: BTreeMap<Vec<u8>, String>,
+    pub first: i64,
+    pub widths: Vec<i64>,
+}
+
+impl Default for FontMap {
+    fn default() -> Self {
+        FontMap {
+            code_bytes: 1,
+            table: BTreeMap::new(),
+            first: 0,
+            widths: Vec::new(),
+        }
+    }
+}
+
+impl FontMap {
+    /// 一段字形码 → 文本：按 codespace 自长向短试查表，查不到按 Latin-1 交回
+    pub fn decode(&self, raw: &[u8]) -> String {
+        if self.table.is_empty() {
+            return raw.iter().map(|one| *one as char).collect();
+        }
+        let mut out = String::new();
+        let mut at = 0usize;
+        while at < raw.len() {
+            let longest = std::cmp::min(self.code_bytes.max(1), raw.len() - at);
+            let mut hit: Option<(String, usize)> = None;
+            for size in (1..=longest).rev() {
+                if let Some(found) = self.table.get(&raw[at..at + size]) {
+                    hit = Some((found.clone(), size));
+                    break;
+                }
+            }
+            match hit {
+                Some((text, size)) => {
+                    out.push_str(&text);
+                    at += size;
+                }
+                None => {
+                    out.push(raw[at] as char);
+                    at += 1;
+                }
+            }
+        }
+        out
+    }
+
+    /// 这段字形码前进多少 em（`/Widths` 里没有的就是 0；CID 字体的 `/W` 不跟）
+    fn advance_em(&self, raw: &[u8]) -> f64 {
+        let mut out = 0.0;
+        let mut at = 0usize;
+        while at < raw.len() {
+            let longest = std::cmp::min(self.code_bytes.max(1), raw.len() - at);
+            let mut size = 1usize;
+            for want in (1..=longest).rev() {
+                if self.table.contains_key(&raw[at..at + want]) {
+                    size = want;
+                    break;
+                }
+            }
+            let code = as_int(&raw[at..at + size]);
+            let index = code - self.first;
+            if index >= 0 {
+                if let Some(done) = self.widths.get(index as usize) {
+                    out += *done as f64 / 1000.0;
+                }
+            }
+            at += size;
+        }
+        out
+    }
+}
+
+/// 一段里的 `<十六进制>`、`[`、`]`，按出现顺序交回（CMap 的正文就这三种东西）
+enum HexTok {
+    Hex(Vec<u8>),
+    Start,
+    End,
+}
+
+fn hex_stream(raw: &[u8]) -> Vec<HexTok> {
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    while at < raw.len() {
+        match raw[at] {
+            b'[' => {
+                out.push(HexTok::Start);
+                at += 1;
+            }
+            b']' => {
+                out.push(HexTok::End);
+                at += 1;
+            }
+            b'<' => {
+                let Some(close) = find(raw, b">", at) else {
+                    break;
+                };
+                if let Some(done) = hex_bytes(&raw[at + 1..close]) {
+                    out.push(HexTok::Hex(done));
+                }
+                at = close + 1;
+            }
+            _ => at += 1,
+        }
+    }
+    out
+}
+
+fn blocks<'a>(raw: &'a [u8], begin: &[u8], end: &[u8]) -> Vec<&'a [u8]> {
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    while let Some(from) = find(raw, begin, at) {
+        let body = from + begin.len();
+        let Some(stop) = find(raw, end, body) else {
+            break;
+        };
+        out.push(&raw[body..stop]);
+        at = stop + end.len();
+    }
+    out
+}
+
+fn number_list(raw: &[u8]) -> Vec<i64> {
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    while at < raw.len() {
+        let mut i = at;
+        let mut sign = 1i64;
+        if raw.get(i) == Some(&b'-') {
+            sign = -1;
+            i += 1;
+        }
+        let start = i;
+        while i < raw.len() && raw[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == start {
+            at += 1;
+            continue;
+        }
+        let digits = String::from_utf8_lossy(&raw[start..i])
+            .parse::<i64>()
+            .unwrap_or(0);
+        out.push(sign * digits);
+        at = i;
+    }
+    out
+}
+
+/// 读一张字体的 `/ToUnicode`（没有就只带宽度表来）
+pub fn font_map(data: &[u8], doc: &Pdf, font: &Object) -> FontMap {
+    let dict = &font.dict;
+    let mut done = FontMap::default();
+    done.first = int_after(dict, b"/FirstChar").unwrap_or(0);
+    if let Some(at) = key_positions(dict, b"/Widths").first() {
+        let from = skip_spaces(dict, *at + b"/Widths".len());
+        if dict.get(from) == Some(&b'[') {
+            if let Some(close) = find(dict, b"]", from) {
+                done.widths = number_list(&dict[from + 1..close]);
+            }
+        }
+    }
+    let target = match ref_after(dict, b"/ToUnicode") {
+        Some(one) => one,
+        None => return done,
+    };
+    let cmap = match doc.object(target) {
+        Some(one) => one,
+        None => return done,
+    };
+    let raw = match stream_body(data, cmap) {
+        Some(one) => one,
+        None => return done,
+    };
+    for one in blocks(&raw, b"begincodespacerange", b"endcodespacerange") {
+        if let Some(HexTok::Hex(lower)) = hex_stream(one).first() {
+            done.code_bytes = lower.len().max(1);
+        }
+    }
+    for one in blocks(&raw, b"beginbfchar", b"endbfchar") {
+        let items: Vec<Vec<u8>> = hex_stream(one)
+            .into_iter()
+            .filter_map(|tok| match tok {
+                HexTok::Hex(done) => Some(done),
+                _ => None,
+            })
+            .collect();
+        for pair in items.chunks(2) {
+            if pair.len() == 2 {
+                done.table.insert(pair[0].clone(), utf16_be(&pair[1]));
+            }
+        }
+    }
+    for one in blocks(&raw, b"beginbfrange", b"endbfrange") {
+        // `<lo> <hi> <dst>` 与 `<lo> <hi> [<d1> <d2> …]` 两种都要认：前者是区间里
+        // 每个码连续加一，后者逐个对应。只认一种就会整段错位。
+        let toks = hex_stream(one);
+        let mut at = 0usize;
+        while at + 1 < toks.len() {
+            let (lo, hi) = match (&toks[at], &toks[at + 1]) {
+                (HexTok::Hex(a), HexTok::Hex(b)) => (a.clone(), b.clone()),
+                _ => {
+                    at += 1;
+                    continue;
+                }
+            };
+            let low = as_int(&lo);
+            let high = as_int(&hi);
+            let width = trim_width(&lo);
+            let span = (high - low + 1).max(0) as usize;
+            match toks.get(at + 2) {
+                Some(HexTok::Hex(dst)) => {
+                    let base = as_int(dst);
+                    for step in 0..span {
+                        if let Some(text) = char_of(base + step as i64) {
+                            done.table
+                                .insert(key_with_width(low + step as i64, width), text.to_string());
+                        }
+                    }
+                    at += 3;
+                }
+                Some(HexTok::Start) => {
+                    let mut index = at + 3;
+                    let mut step = 0usize;
+                    while index < toks.len() {
+                        match &toks[index] {
+                            HexTok::End => break,
+                            HexTok::Hex(piece) => {
+                                if step < span {
+                                    done.table.insert(
+                                        key_with_width(low + step as i64, width),
+                                        utf16_be(piece),
+                                    );
+                                    step += 1;
+                                }
+                            }
+                            HexTok::Start => {}
+                        }
+                        index += 1;
+                    }
+                    at = index + 1;
+                }
+                _ => at += 2,
+            }
+        }
+    }
+    done
+}
+
+fn char_of(value: i64) -> Option<char> {
+    u32::try_from(value).ok().and_then(char::from_u32)
+}
+
+/// 页上一段字：起点、终点、字号与解出来的文本
+#[derive(Debug, Clone)]
+pub struct TextRun {
+    pub x: f64,
+    pub y: f64,
+    pub end: f64,
+    pub size: f64,
+    pub text: String,
+}
+
+fn moved(matrix: &[f64; 6], tx: f64, ty: f64) -> [f64; 6] {
+    let [a, b, c, d, e, f] = *matrix;
+    [a, b, c, d, a * tx + c * ty + e, b * tx + d * ty + f]
+}
+
+fn push_run(codes: &[u8], font: &FontMap, size: f64, tm: &mut [f64; 6], runs: &mut Vec<TextRun>) {
+    if codes.is_empty() {
+        return;
+    }
+    let text = font.decode(codes);
+    if text.is_empty() {
+        return;
+    }
+    let (x, y) = (tm[4], tm[5]);
+    let step = font.advance_em(codes) * size;
+    tm[4] += step * tm[0];
+    tm[5] += step * tm[1];
+    runs.push(TextRun {
+        x,
+        y,
+        end: tm[4],
+        size,
+        text,
+    });
+}
+
+fn bump(kern: f64, size: f64, tm: &mut [f64; 6]) {
+    // 符号相反：正数往左、负数往右
+    let step = -kern / 1000.0 * size;
+    tm[4] += step * tm[0];
+    tm[5] += step * tm[1];
+}
+
+/// 走一遍内容流，交回每段字的位置
+pub fn text_runs(raw: &[u8], fonts: &BTreeMap<String, FontMap>) -> Vec<TextRun> {
+    let mut runs: Vec<TextRun> = Vec::new();
+    let fallback = FontMap::default();
+    let mut font = &fallback;
+    let mut size = 10.0f64;
+    let mut leading = 0.0f64;
+    let mut tm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+    let mut tl = tm;
+    let mut operands: Vec<Tok> = Vec::new();
+    let mut array: Vec<Tok> = Vec::new();
+    let mut in_array = false;
+
+    for token in tokens(raw) {
+        match token {
+            Tok::ArrayStart => {
+                array.clear();
+                in_array = true;
+            }
+            Tok::ArrayEnd => {
+                in_array = false;
+            }
+            Tok::Dict => {
+                operands.clear();
+            }
+            Tok::Op(word) => {
+                let list: Vec<f64> = operands
+                    .iter()
+                    .filter_map(|one| match one {
+                        Tok::Num(done) => Some(*done),
+                        _ => None,
+                    })
+                    .collect();
+                let last_name = operands.iter().rev().find_map(|one| match one {
+                    Tok::Name(done) => Some(done.clone()),
+                    _ => None,
+                });
+                let last_string = operands.iter().rev().find_map(|one| match one {
+                    Tok::Str(done) => Some(done.clone()),
+                    _ => None,
+                });
+                match word.as_str() {
+                    "BT" => {
+                        tm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+                        tl = tm;
+                    }
+                    "Td" => {
+                        if list.len() >= 2 {
+                            tm = moved(&tm, list[list.len() - 2], list[list.len() - 1]);
+                            tl = tm;
+                        }
+                    }
+                    "TD" => {
+                        if list.len() >= 2 {
+                            leading = -list[list.len() - 1];
+                            tm = moved(&tm, list[list.len() - 2], list[list.len() - 1]);
+                            tl = tm;
+                        }
+                    }
+                    "Tm" => {
+                        if list.len() >= 6 {
+                            tm = [list[0], list[1], list[2], list[3], list[4], list[5]];
+                            tl = tm;
+                        }
+                    }
+                    "TL" => {
+                        if let Some(done) = list.last() {
+                            leading = *done;
+                        }
+                    }
+                    "T*" | "'" | "\"" => {
+                        tm = moved(&tl, 0.0, -leading);
+                        tl = tm;
+                        if word != "T*" {
+                            if let Some(codes) = last_string {
+                                push_run(&codes, font, size, &mut tm, &mut runs);
+                            }
+                        }
+                    }
+                    "Tf" => {
+                        if let Some(name) = last_name {
+                            font = fonts.get(&name).unwrap_or(&fallback);
+                            if let Some(done) = list.last() {
+                                size = *done;
+                            }
+                        }
+                    }
+                    "Tj" => {
+                        if let Some(codes) = last_string {
+                            push_run(&codes, font, size, &mut tm, &mut runs);
+                        }
+                    }
+                    "TJ" => {
+                        for piece in array.clone() {
+                            match piece {
+                                Tok::Str(codes) => push_run(&codes, font, size, &mut tm, &mut runs),
+                                Tok::Num(kern) => bump(kern, size, &mut tm),
+                                _ => {}
+                            }
+                        }
+                        array.clear();
+                    }
+                    _ => {}
+                }
+                operands.clear();
+            }
+            other => {
+                if in_array {
+                    array.push(other);
+                } else {
+                    operands.push(other);
+                }
+            }
+        }
+    }
+    runs
+}
+
+/// 一行行拼出来：y 相近的算同一行（容差跟字号走），行内按起点 x 排
+pub fn layout(runs: &[TextRun], size: f64) -> String {
+    if runs.is_empty() {
+        return String::new();
+    }
+    let tolerance = if size * 0.5 > 2.0 { size * 0.5 } else { 2.0 };
+    let mut lines: Vec<(f64, Vec<(f64, f64, String)>)> = Vec::new();
+    for one in runs {
+        let hit = lines
+            .iter_mut()
+            .find(|(base, _items)| (*base - one.y).abs() <= tolerance);
+        match hit {
+            Some((_base, items)) => items.push((one.x, one.end, one.text.clone())),
+            None => lines.push((one.y, vec![(one.x, one.end, one.text.clone())])),
+        }
+    }
+    lines.sort_by(|left, right| compare_y(right.0, left.0));
+    let mut out: Vec<String> = Vec::new();
+    for (_base, mut items) in lines {
+        items.sort_by(|left, right| compare_x(left.0, right.0));
+        let mut line = String::new();
+        let mut edge: Option<f64> = None;
+        for (x, end, text) in items {
+            if let Some(previous) = edge {
+                if x - previous > 1.0 && !line.ends_with(' ') {
+                    line.push(' ');
+                }
+            }
+            line.push_str(&text);
+            edge = Some(end);
+        }
+        out.push(line);
+    }
+    out.join("\n")
+}
+
+fn compare_y(left: f64, right: f64) -> std::cmp::Ordering {
+    left.partial_cmp(&right)
+        .unwrap_or(std::cmp::Ordering::Equal)
+}
+
+fn compare_x(left: f64, right: f64) -> std::cmp::Ordering {
+    left.partial_cmp(&right)
+        .unwrap_or(std::cmp::Ordering::Equal)
+}
+
+/// `/Key[a 0 R b 0 R]` 与 `/Key N G R` 两种写法都收：交回引用到的对象号
+fn refs_of(body: &[u8], key: &[u8]) -> Vec<u64> {
+    let mut out = Vec::new();
+    for at in key_positions(body, key) {
+        let from = skip_spaces(body, at + key.len());
+        if body.get(from) == Some(&b'[') {
+            let stop = find(body, b"]", from).unwrap_or(body.len());
+            out.extend(refs_in(&body[from + 1..stop]));
+            continue;
+        }
+        let tail = &body[at..];
+        if let Some(done) = ref_after(tail, key) {
+            out.push(done);
+        }
+    }
+    out
+}
+
+/// 一串里成对出现的 `/名字 N G R`：字体资源表就这个形状
+fn name_refs(body: &[u8]) -> Vec<(String, u64)> {
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    while let Some(found) = find(body, b"/", at) {
+        let start = found + 1;
+        let mut i = start;
+        while i < body.len() && is_name_char(body[i]) {
+            i += 1;
+        }
+        if i == start {
+            at = found + 1;
+            continue;
+        }
+        let name = String::from_utf8_lossy(&body[start..i]).into_owned();
+        let digits_at = skip_spaces(body, i);
+        let mut j = digits_at;
+        while j < body.len() && body[j].is_ascii_digit() {
+            j += 1;
+        }
+        let gen_at = skip_spaces(body, j);
+        let mut k = gen_at;
+        while k < body.len() && body[k].is_ascii_digit() {
+            k += 1;
+        }
+        if j > digits_at && k > gen_at && body.get(k) == Some(&b'R') {
+            if let Ok(done) = String::from_utf8_lossy(&body[digits_at..j]).parse::<u64>() {
+                out.push((name, done));
+            }
+            at = k + 1;
+            continue;
+        }
+        at = i;
+    }
+    out
+}
+
+/// 一串 `N G R` 里的对象号
+fn refs_in(raw: &[u8]) -> Vec<u64> {
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    while at < raw.len() {
+        if !raw[at].is_ascii_digit() {
+            at += 1;
+            continue;
+        }
+        let start = at;
+        while at < raw.len() && raw[at].is_ascii_digit() {
+            at += 1;
+        }
+        let gen_at = skip_spaces(raw, at);
+        let mut j = gen_at;
+        while j < raw.len() && raw[j].is_ascii_digit() {
+            j += 1;
+        }
+        let word_at = skip_spaces(raw, j);
+        if j > gen_at && raw[word_at..].starts_with(b"R") {
+            if let Ok(done) = String::from_utf8_lossy(&raw[start..at]).parse::<u64>() {
+                out.push(done);
+            }
+            at = word_at + 1;
+            continue;
+        }
+        at += 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1146,5 +1967,165 @@ mod tests {
         let pages = doc.page_facts();
         assert_eq!(pages[0].media_box, None);
         assert!(!pages[0].inherited_box);
+    }
+
+    #[test]
+    fn content_tokens_separate_strings_names_numbers_and_arrays() {
+        let raw = bytes(b"BT /F1 14 Tf [<01>-2999<02>]TJ (hi) Tj ET");
+        let got = tokens(&raw);
+        let shape: Vec<String> = got
+            .iter()
+            .map(|one| match one {
+                Tok::Str(_one) => "str".to_string(),
+                Tok::Name(done) => format!("name:{done}"),
+                Tok::Num(done) => format!("num:{done}"),
+                Tok::ArrayStart => "[".to_string(),
+                Tok::ArrayEnd => "]".to_string(),
+                Tok::Dict => "dict".to_string(),
+                Tok::Op(done) => format!("op:{done}"),
+            })
+            .collect();
+        assert_eq!(
+            shape,
+            vec![
+                "op:BT",
+                "name:F1",
+                "num:14",
+                "op:Tf",
+                "[",
+                "str",
+                "num:-2999",
+                "str",
+                "]",
+                "op:TJ",
+                "str",
+                "op:Tj",
+                "op:ET"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tj_kern_moves_the_pen_the_other_way() {
+        // 负数往右推。符号当成正常的那一种，第二段就会落到第一段左边，
+        // 一行中文会被排成「字全对、顺序全错」那种最像读通了的答案。
+        let mut one = FontMap::default();
+        one.table.insert(vec![1u8], "甲".to_string());
+        one.table.insert(vec![2u8], "乙".to_string());
+        one.widths = vec![0, 1000, 1000];
+        let mut fonts = BTreeMap::new();
+        fonts.insert("F1".to_string(), one);
+        let raw = bytes(b"BT 10 20 Td /F1 10 Tf [<01>-500<02>]TJ ET");
+        let runs = text_runs(&raw, &fonts);
+        assert_eq!(runs.len(), 2);
+        assert!((runs[0].x - 10.0).abs() < 1e-9, "{:?}", runs);
+        assert!((runs[1].x - 25.0).abs() < 1e-6, "{:?}", runs);
+        assert_eq!(runs[1].text, "乙");
+    }
+
+    #[test]
+    fn bt_restarts_the_text_matrix_instead_of_carrying_it_over() {
+        let raw = bytes(b"BT 10 20 Td (a) Tj ET BT 30 40 Td (b) Tj ET");
+        let runs = text_runs(&raw, &BTreeMap::new());
+        assert_eq!(runs.len(), 2);
+        assert!((runs[1].x - 30.0).abs() < 1e-9, "{:?}", runs);
+        assert!((runs[1].y - 40.0).abs() < 1e-9, "{:?}", runs);
+    }
+
+    #[test]
+    fn glyph_advance_walks_x_and_never_y() {
+        // 前进量只加在 e 上（用 d 加就会每字往上飘，124000 被摆成一条斜线）
+        let mut one = FontMap::default();
+        one.table.insert(vec![1u8], "1".to_string());
+        one.widths = vec![0, 553];
+        let mut fonts = BTreeMap::new();
+        fonts.insert("F5".to_string(), one);
+        let raw = bytes(b"BT 311.5 584.8 Td /F5 11 Tf [<01><01><01>]TJ ET");
+        let runs = text_runs(&raw, &fonts);
+        assert_eq!(runs.len(), 3);
+        assert!(
+            runs.iter().all(|item| (item.y - 584.8).abs() < 1e-9),
+            "{:?}",
+            runs
+        );
+        assert!(runs[2].x > runs[0].x);
+    }
+
+    #[test]
+    fn lines_group_by_y_with_a_tolerance_tied_to_the_font_size() {
+        let runs = vec![
+            TextRun {
+                x: 95.5,
+                y: 580.5,
+                end: 128.5,
+                size: 11.0,
+                text: "服务器".to_string(),
+            },
+            TextRun {
+                x: 311.5,
+                y: 584.8,
+                end: 348.0,
+                size: 11.0,
+                text: "124000".to_string(),
+            },
+            TextRun {
+                x: 90.1,
+                y: 660.85,
+                end: 266.1,
+                size: 11.0,
+                text: "另一行".to_string(),
+            },
+        ];
+        assert_eq!(layout(&runs, 11.0), "服务器 124000\n另一行");
+    }
+
+    #[test]
+    fn a_property_dict_does_not_leak_into_the_next_font_choice() {
+        // /Span<</MCID 0>>BDC 里的 MCID 不是字体名：属性字典要把自变量清掉
+        let raw = bytes(b"/Span<</MCID 0>>BDC BT 10 20 Td /F1 12 Tf (x) Tj ET EMC");
+        let mut one = FontMap::default();
+        one.table.insert(vec![b'x'], "字".to_string());
+        let mut fonts = BTreeMap::new();
+        fonts.insert("F1".to_string(), one);
+        let runs = text_runs(&raw, &fonts);
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].text, "字");
+    }
+
+    #[test]
+    fn cmap_bfchar_and_both_bfrange_forms_are_parsed() {
+        let cmap = b"begincodespacerange\n<00> <FF>\nendcodespacerange\n\
+                     2 beginbfchar\n<01> <7532>\n<02> <4E59>\nendbfchar\n\
+                     1 beginbfrange\n<10> <12> <0041>\nendbfrange\n\
+                     1 beginbfrange\n<20> <21> [<6f62> <6364>]\nendbfrange\n";
+        let mut body = Vec::new();
+        body.extend_from_slice(b"%PDF-1.4\n");
+        body.extend_from_slice(
+            b"1 0 obj\n<</Type/Font/Subtype/TrueType/ToUnicode 2 0 R/FirstChar 0/Widths[0 1000 1000 1000]>>\nendobj\n",
+        );
+        body.extend_from_slice(b"2 0 obj\n<</Length ");
+        body.extend_from_slice(cmap.len().to_string().into_bytes());
+        body.extend_from_slice(b">>\nstream\n");
+        body.extend_from_slice(cmap);
+        body.extend_from_slice(b"\nendstream\nendobj\n");
+        let doc = Pdf::read(&body);
+        let font = doc.object(1).expect("字体对象在");
+        let done = font_map(&body, &doc, font);
+        assert_eq!(done.code_bytes, 1);
+        assert_eq!(done.table.get(&[1u8][..]).map(String::as_str), Some("甲"));
+        assert_eq!(done.table.get(&[2u8][..]).map(String::as_str), Some("乙"));
+        // 连续加一的那种：0x10→A、0x11→B、0x12→C
+        assert_eq!(done.table.get(&[0x10u8][..]).map(String::as_str), Some("A"));
+        assert_eq!(done.table.get(&[0x12u8][..]).map(String::as_str), Some("C"));
+        // 数组那种：逐个对应，两个字节一个码元
+        assert_eq!(
+            done.table.get(&[0x20u8][..]).map(String::as_str),
+            Some("ob")
+        );
+        assert_eq!(
+            done.table.get(&[0x21u8][..]).map(String::as_str),
+            Some("cd")
+        );
+        assert_eq!(done.advance_em(&[1u8, 2u8]), 2.0);
     }
 }

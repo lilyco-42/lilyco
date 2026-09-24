@@ -41,7 +41,7 @@ const INFO_KEYS: [(&str, &[u8]); 8] = [
 #[app(
     name = "office-pdf",
     run = "run_office_pdf",
-    about = "Report what a PDF file is made of without decrypting or rendering it. Reads objects by scanning N G obj markers instead of trusting the cross-reference table, then unpacks the second layer that scan alone would miss: objects packed inside object streams (/Type /ObjStm, where the header pairs an object number with an offset relative to /First) and trailer keys that live in a /Type /XRef stream dict in files with no trailer keyword at all - both rules measured against real Word 2013 and qpdf files, not recalled from memory. Gives { path, version, binary_comment, objects, xref, encryption, pages, metadata, tags, fonts, images, features, watch, notes }: page count cross-checked between /Count and the real /Type/Page objects (the one-name match matters: /Pages is a tree node, not a page), per-page MediaBox with the inheritance walk up /Parent (MediaBox and Rotate may be written once on the tree), rotation, contents reference and annotation count, the Info dictionary with PDF string rules (backslash escapes, octal, nested parens, hex strings, FEFF-prefixed UTF-16BE), tagged/PDF-X flags (/Lang, /MarkInfo /Marked, /StructTreeRoot), font inventory (/BaseFont, /Subtype, /Encoding, whether a /ToUnicode map exists, whether the font object was hidden in an object stream), image inventory, and the watch list for what runs by itself: /Encrypt parameters (reported, never decrypted - no password here and none should be), document-level /JavaScript, /Launch and /SubmitForm and /GoToR actions, /AcroForm fields, /EmbeddedFiles attachments, /OpenAction and page /AA triggers. Encrypted files report structure only: strings and streams are ciphertext, so metadata and /Lang come back null with a note rather than as decoded garbage. Object numbers that appear more than once (incremental updates) are counted and the first occurrence wins. Not provided: page reading order from /Kids, content-stream text, form field values, and signature validation - text extraction is the next step in this lane."
+    about = "Report what a PDF file is made of without decrypting or rendering it. Reads objects by scanning N G obj markers instead of trusting the cross-reference table, then unpacks the second layer that scan alone would miss: objects packed inside object streams (/Type /ObjStm, where the header pairs an object number with an offset relative to /First) and trailer keys that live in a /Type /XRef stream dict in files with no trailer keyword at all - both rules measured against real Word 2013 and qpdf files, not recalled from memory. Gives { path, version, binary_comment, objects, xref, encryption, pages, metadata, tags, fonts, images, features, watch, notes }: page count cross-checked between /Count and the real /Type/Page objects (the one-name match matters: /Pages is a tree node, not a page), per-page MediaBox with the inheritance walk up /Parent (MediaBox and Rotate may be written once on the tree), rotation, contents reference and annotation count, the Info dictionary with PDF string rules (backslash escapes, octal, nested parens, hex strings, FEFF-prefixed UTF-16BE), tagged/PDF-X flags (/Lang, /MarkInfo /Marked, /StructTreeRoot), font inventory (/BaseFont, /Subtype, /Encoding, whether a /ToUnicode map exists, whether the font object was hidden in an object stream), image inventory, and the watch list for what runs by itself: /Encrypt parameters (reported, never decrypted - no password here and none should be), document-level /JavaScript, /Launch and /SubmitForm and /GoToR actions, /AcroForm fields, /EmbeddedFiles attachments, /OpenAction and page /AA triggers. Encrypted files report structure only: strings and streams are ciphertext, so metadata and /Lang come back null with a note rather than as decoded garbage. Object numbers that appear more than once (incremental updates) are counted and the first occurrence wins. With --text it also walks the content streams and returns { order_from_page_tree, chars, chars_no_spaces, lines, pages, text }: pages in /Kids order, glyph codes mapped through each font's /ToUnicode CMap (bfchar plus both bfrange forms - a range written as one number means consecutive code points, written as an array means one per code), and lines rebuilt from positions rather than from stream order, because LibreOffice splits a single Chinese heading across several TJ arrays with large negative kerns between them. Three position rules make the difference between reading that heading and reading its characters shuffled: BT resets the text matrix to identity, glyph advance moves x only (never y), and a TJ number moves the pen the OPPOSITE way (positive left, negative right). Not provided: form field values, signature validation, the text of encrypted files (streams are ciphertext there), graphics-stream text, and CID fonts' widths, which live in a /W array this reader does not follow - such a font's characters are recognised but its spacing is not."
 )]
 pub struct OfficePdf {
     /// PDF 文件
@@ -55,6 +55,10 @@ pub struct OfficePdf {
         min = 1
     )]
     limit: u64,
+
+    /// 连正文一起端出来（按页树的顺序逐行拼；加密的文件解不出，也照实说）
+    #[arg(about = "Also extract each page's text, in /Kids order")]
+    text: bool,
 
     /// 最多读多少字节
     #[arg(about = "Read at most this many bytes", default = 67108864)]
@@ -264,6 +268,46 @@ fn run_office_pdf(app: &OfficePdf, ctx: &Context) -> Result<Value, AppError> {
         .filter(|one| one.from_stream.is_some())
         .count();
 
+    // 正文：`--text` 才解（内容流要逐条解压，结构性问题一次答完更快）
+    let mut text_report = Value::Null;
+    if app.text {
+        let (pages_text, from_tree) = doc.page_texts(data);
+        let mut per_page: Vec<Value> = Vec::new();
+        let mut joined: Vec<String> = Vec::new();
+        for (id, one) in pages_text {
+            let lines: Vec<&str> = one.lines().filter(|line| !line.trim().is_empty()).collect();
+            per_page.push(json!({
+                "object": id,
+                "lines": lines.len(),
+                "chars": one.chars().count(),
+                "text": one,
+            }));
+            joined.push(one);
+        }
+        let all = joined.join("\n");
+        if !from_tree {
+            notes.push(
+                "页树走不通（缺 /Root 或 /Kids 指向看不见的对象）：正文的页序退成按对象号排，\
+                 与放映顺序可能不同"
+                    .to_string(),
+            );
+        }
+        if doc.encryption.is_some() {
+            notes.push(
+                "加密的文件里内容流是密文：这一份的正文解不出来，解不出来也不当成「这页没有字」"
+                    .to_string(),
+            );
+        }
+        text_report = json!({
+            "order_from_page_tree": from_tree,
+            "chars": all.chars().count(),
+            "chars_no_spaces": all.chars().filter(|one| !one.is_whitespace()).count(),
+            "lines": all.lines().filter(|one| !one.trim().is_empty()).count(),
+            "pages": per_page,
+            "text": all,
+        });
+    }
+
     let result = json!({
         "path": app.path.display().to_string(),
         "size": blob.size,
@@ -327,6 +371,7 @@ fn run_office_pdf(app: &OfficePdf, ctx: &Context) -> Result<Value, AppError> {
             "self_running_total": features.dangerous,
         },
         "watch": watch_list(&doc, &features),
+        "text": text_report,
         "notes": notes,
         "elapsed_ms": start.elapsed().as_millis() as u64,
     });
@@ -346,6 +391,7 @@ mod tests {
                 .join(name),
             limit: 200,
             max_bytes: 1 << 26,
+            text: false,
         };
         let (tx, _rx) = mpsc::channel();
         run_office_pdf(&app, &Context::new_test(tx)).expect("office-pdf 应成功")
@@ -523,10 +569,92 @@ mod tests {
                 .join("tests/fixtures/office/notes.docx"),
             limit: 10,
             max_bytes: 1 << 20,
+            text: false,
         };
         let (tx, _rx) = mpsc::channel();
         let why = run_office_pdf(&app, &Context::new_test(tx)).unwrap_err();
         let text = why.to_string();
         assert!(text.contains("%PDF-"), "{text}");
+    }
+
+    /// `--text` 那条分支单独跑一遍。期望值来自 `lyco_pdf.py` 的实测，
+    /// 并逐行与 `pdftotext`（xpdf 系，第三套代码）对过
+    fn run_text(name: &str) -> Value {
+        let app = OfficePdf {
+            path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/office")
+                .join(name),
+            limit: 200,
+            max_bytes: 1 << 26,
+            text: true,
+        };
+        let (tx, _rx) = mpsc::channel();
+        run_office_pdf(&app, &Context::new_test(tx)).expect("office-pdf 应成功")
+    }
+
+    fn page_text(out: &Value, which: usize) -> String {
+        out["text"]["pages"][which]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    #[test]
+    fn page_text_comes_back_in_reading_order_not_stream_order() {
+        let out = run_text("notes.pdf");
+        assert_eq!(
+            page_text(&out, 0),
+            "一级标题：预算口径\n第三季度服务器预算为十二万四千元\n二级标题：明细\n科目 金额\n服务器 124000\n口径见 预算制度"
+        );
+        assert_eq!(page_text(&out, 1), "最后一页说明：数字为含税口径");
+        assert_eq!(out["text"]["lines"], json!(7));
+        assert_eq!(out["text"]["order_from_page_tree"], json!(true));
+        // 「服务器」与右对齐的「124000」基线差 4.3 点：行容差跟字号走才合成一行
+        assert!(page_text(&out, 0).contains("服务器 124000"), "{out}");
+    }
+
+    #[test]
+    fn the_same_words_come_out_when_every_font_is_hidden_in_a_stream() {
+        // objstm.pdf 就是 notes.pdf 经 qpdf 重存的：68 个对象里 51 个住在对象流里。
+        // 正文这一层没接上对象流的话，这里会直接空掉
+        let plain = run_text("notes.pdf");
+        let packed = run_text("objstm.pdf");
+        assert_eq!(page_text(&packed, 0), page_text(&plain, 0));
+        assert_eq!(out_chars(&packed), out_chars(&plain));
+        assert!(out_chars(&packed) > 40, "{packed}");
+    }
+
+    fn out_chars(out: &Value) -> i64 {
+        out["text"]["chars"].as_i64().unwrap_or_default()
+    }
+
+    #[test]
+    fn a_slide_page_keeps_its_bullets_on_their_own_lines() {
+        let out = run_text("deck.pdf");
+        assert_eq!(
+            page_text(&out, 0),
+            "预算评审\n• 新增两台 64 核应用服务器\n• 第二条要点"
+        );
+        assert_eq!(page_text(&out, 1), "第二页：数字\n科目 金额\n服务器 124000");
+    }
+
+    #[test]
+    fn an_encrypted_pdf_says_the_text_is_not_readable_instead_of_calling_it_blank() {
+        let out = run_text("locked.pdf");
+        assert_eq!(out["text"]["chars"], json!(0));
+        assert_eq!(out["text"]["text"], json!(""));
+        // 页树不加密：页数照样报得出，正文解不出来是另一件事
+        assert_eq!(out["text"]["pages"].as_array().map(Vec::len), Some(2));
+        assert!(out["notes"]
+            .as_array()
+            .expect("说明")
+            .iter()
+            .any(|one| one.as_str().unwrap_or_default().contains("密文")));
+    }
+
+    #[test]
+    fn text_is_absent_until_asked_for() {
+        let out = run("notes.pdf");
+        assert!(matches!(out.get("text"), Some(one) if one.is_null()));
     }
 }

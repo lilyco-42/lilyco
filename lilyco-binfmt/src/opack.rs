@@ -197,6 +197,23 @@ pub fn open(bytes: &[u8]) -> Doc {
             notes: broken,
         };
     }
+    if crate::pdf::is_pdf(bytes) {
+        // PDF 认得出来，但它不在这四类容器里：没有部件表、没有流目录，
+        // 是一张对象表加若干条流。所以家族仍是 Other（各 office 命令的分支不会被它误触发），
+        // 但格式要说清是 pdf，并把该走的门指给人 —— `lbin office-pdf`。
+        return Doc {
+            family: Family::Other,
+            format: "pdf".to_string(),
+            app: "pdf",
+            entries: Vec::new(),
+            compound: None,
+            untyped: Vec::new(),
+            notes: vec![
+                "PDF：不是包也不是复合文档，结构走 lbin office-pdf（对象表、页树、字体与动作）"
+                    .to_string(),
+            ],
+        };
+    }
     Doc {
         family: Family::Other,
         format: "unknown".to_string(),

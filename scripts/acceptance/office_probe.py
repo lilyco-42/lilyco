@@ -707,6 +707,23 @@ def main() -> int:
     check("risk.pdf 的 Launch 动作进了 watch",
           [one["kind"] for one in risk.get("watch", [])].count("launch-action"), 1)
 
+    # ── 6b) PDF 的正文：两套读者逐页对字 ───────────────────────────
+    # 这一层的价值全在「顺序对」上：字都认得、顺序排错，输出看着像读通了其实没有
+    for name in ("notes.pdf", "deck.pdf", "objstm.pdf", "locked.pdf", "risk.pdf"):
+        got = lbin("office-pdf", fixture(name), "--text")
+        want = files[name]["pdf"]["text"]
+        check("%s 每页正文逐字一致" % name,
+              [one["text"] for one in got.get("text", {}).get("pages", [])], want)
+        check("%s 正文不是解不出来就当没有" % name,
+              bool(dig(got, "text.order_from_page_tree")), True)
+    body = lbin("office-text", fixture("notes.pdf"))
+    check("office-text 也答得出 PDF 的正文",
+          [one["text"] for one in body.get("paragraphs", [])][:2],
+          ["一级标题：预算口径", "第三季度服务器预算为十二万四千元"])
+    check("office-text 那份 PDF 的口径写清楚", dig(body, "kind"), "pages")
+    locked_body = lbin("office-text", fixture("locked.pdf"))
+    check("加密的 PDF 不报正文，只说明为什么", len(locked_body.get("paragraphs", [])), 0)
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:

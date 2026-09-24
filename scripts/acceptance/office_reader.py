@@ -1799,7 +1799,9 @@ def facts(path: Path) -> dict:
         # PDF 不是容器，是一张对象表：读法自成一份（lyco_pdf.py），这边只做转发
         out["container"] = "pdf"
         out["app"] = "pdf"
-        out["pdf"] = lyco_pdf.pdf_facts(data)
+        one = lyco_pdf.pdf_facts(data)
+        one["text"] = lyco_pdf.page_text(data)
+        out["pdf"] = one
         return out
     out["container"] = "other"
     return out

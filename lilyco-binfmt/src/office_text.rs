@@ -36,7 +36,7 @@ use crate::zipread::{self, Member, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-text",
     run = "run_office_text",
-    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored), then the parts that are not in the body at all - comments, footnotes, endnotes, headers and footers - each entry carrying from/part/author/date so a comment never reads like body text. pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels - except .ods, which answers like a spreadsheet does: one entry per non-empty cell with its sheet name, A1-style reference and declared value type (the text shown in the cell, not office:value). ODF comments are text:annotation elements nested INSIDE a body paragraph (docx keeps them in a separate part), so they are emitted as their own entries carrying from/author/date read from their meta:creator and meta:date children, and the paragraph that holds one reports only its own text. An .odt's page headers and footers are not in content.xml either - they sit in styles.xml under style:master-page (a document with two sections has two master pages, and left/right/first-page variants are separate slots), so they are read there and flagged from=header/footer with the master-page name and slot. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text; its page headers and footers live in the SAME stream as the body (only the destination groups named header / headerl / headerf / footer say which), so they are separated out and flagged from=header/footer with the slot name - one header often appears in several slots, which is reported as the file writes it rather than merged away. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=record-tree with every text atom found by walking the tree (master placeholders included, because they really are in the file). Read-only (safety T0): parts are inflated in memory only."
+    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored), then the parts that are not in the body at all - comments, footnotes, endnotes, headers and footers - each entry carrying from/part/author/date so a comment never reads like body text. pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels - except .ods, which answers like a spreadsheet does: one entry per non-empty cell with its sheet name, A1-style reference and declared value type (the text shown in the cell, not office:value). ODF comments are text:annotation elements nested INSIDE a body paragraph (docx keeps them in a separate part), so they are emitted as their own entries carrying from/author/date read from their meta:creator and meta:date children, and the paragraph that holds one reports only its own text. An .odt's page headers and footers are not in content.xml either - they sit in styles.xml under style:master-page (a document with two sections has two master pages, and left/right/first-page variants are separate slots), so they are read there and flagged from=header/footer with the master-page name and slot. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text; its page headers and footers live in the SAME stream as the body (only the destination groups named header / headerl / headerf / footer say which), so they are separated out and flagged from=header/footer with the slot name - one header often appears in several slots, which is reported as the file writes it rather than merged away. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=record-tree with every text atom found by walking the tree (master placeholders included, because they really are in the file). A .pdf answers kind=pages: content streams are inflated, glyph codes mapped through each font's /ToUnicode CMap, and lines rebuilt from the text positions (BT resets the matrix, glyph advance moves x only, a TJ number pushes the pen the opposite way), so a Chinese heading comes back as words rather than as its characters shuffled; an encrypted PDF returns no paragraphs and says why, because its streams are ciphertext and this domain does not decrypt. "
 )]
 pub struct OfficeText {
     /// 办公文件
@@ -74,6 +74,36 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
     let mut kind: &'static str = "unsupported";
 
     match doc.family {
+        Family::Other if crate::pdf::is_pdf(bytes) => {
+            // PDF 不是容器，是一张对象表 —— 读法在 `crate::pdf`，那条路径上的
+            // 「按页树的顺序 + 字形码经 /ToUnicode + 按位置拼行」全在同一处实现。
+            // 这里接过来，是因为拿一份 .pdf 问「它写了什么」是最常见的一问，
+            // 回一句「认不出来」不是诚实，是漏答。
+            kind = "pages";
+            let book = crate::pdf::Pdf::read(bytes);
+            let (pages, from_tree) = book.page_texts(bytes);
+            if !from_tree {
+                notes.push("页树走不通（缺 /Root 或 /Kids）：页序退成按对象号排".to_string());
+            }
+            for (id, one) in &pages {
+                for line in one.lines() {
+                    push_paragraph(
+                        &mut paragraphs,
+                        app.keep_empty,
+                        line,
+                        json!({"page_object": id, "part": "content stream"}),
+                    );
+                }
+            }
+            parts_read.push(format!("{} 页内容流", pages.len()));
+            if book.encryption.is_some() {
+                notes.push(
+                    "加密的 PDF：内容流是密文，正文解不出来（本域不解密，也没有口令）".to_string(),
+                );
+            } else if paragraphs.is_empty() {
+                notes.push("没读到字：这份 PDF 的正文可能是图（扫描件），本域不做 OCR".to_string());
+            }
+        }
         Family::Ooxml if doc.app == "word" => {
             kind = "paragraphs";
             let part = "word/document.xml";
@@ -1421,5 +1451,43 @@ mod tests {
         assert_eq!(out["total_paragraphs"], 10);
         assert_eq!(out["total_chars"], 77, "全量字符数不许跟着上限变：{out}");
         assert!(out["line_count"].as_u64().expect("有 line_count") < 9);
+    }
+
+    /// 拿一份 .pdf 问「它写了什么」也答得出来 —— 内容流与 /ToUnicode 那一层在
+    /// `crate::pdf` 里，这里的期望值同样来自 `lyco_pdf.py` 的实测，
+    /// 并逐行与 `pdftotext`（xpdf 系，第三套代码）对过
+    #[test]
+    fn a_pdf_answers_the_text_question_in_reading_order() {
+        let out = run("notes.pdf", 20000, false);
+        assert_eq!(out["kind"], "pages", "{out}");
+        let lines: Vec<&str> = out["paragraphs"]
+            .as_array()
+            .expect("是数组")
+            .iter()
+            .map(|one| one["text"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(lines.len(), 7, "{lines:?}");
+        assert_eq!(lines[0], "一级标题：预算口径", "{lines:?}");
+        assert_eq!(lines[1], "第三季度服务器预算为十二万四千元");
+        assert_eq!(lines[6], "最后一页说明：数字为含税口径");
+        assert!(
+            out["notes"]
+                .as_array()
+                .map(|one| one.is_empty())
+                .unwrap_or(false),
+            "读到字就不该有说明：{:?}",
+            out["notes"]
+        );
+    }
+
+    #[test]
+    fn an_encrypted_pdf_says_it_could_not_read_the_text() {
+        let out = run("locked.pdf", 20000, false);
+        assert_eq!(out["paragraphs"].as_array().map(Vec::len), Some(0));
+        assert!(out["notes"]
+            .as_array()
+            .expect("说明")
+            .iter()
+            .any(|one| one.as_str().unwrap_or_default().contains("密文")));
     }
 }
