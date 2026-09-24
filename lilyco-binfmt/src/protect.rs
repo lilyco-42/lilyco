@@ -111,7 +111,7 @@ pub fn odt_document(settings: &Node) -> Value {
             .unwrap_or_default();
         found.insert(key.to_string(), json!(hit == "true"));
     }
-    let any = found.values().any(|one| *one == &json!(true));
+    let any = found.values().any(|one| *one == json!(true));
     json!({
         "items": found,
         "protected": any,
