@@ -902,6 +902,46 @@ def write_endnote_seed(src: Path, dst: Path) -> None:
     src_zip.close()
 
 
+def write_toc_seed(src: Path, dst: Path) -> None:
+    """把一段目录注进 notes.docx，只为让 LibreOffice 照着再写一份。
+
+    常见一问是「这份文档有没有目录、收了几级」。python-docx 没有目录的 API，
+    所以走 `write_endnote_seed` 那条已经验过的路：注进去的内容由 LibreOffice 的
+    导出器重写 —— 实测它会保留 `<w:docPartGallery w:val="Table of Contents"/>`
+    与那条 `TOC \\o "1-2" \\h` 的域指令（连引号都替它转义成 `&quot;`），
+    再转一份 .odt 时目录换成 `text:table-of-content`（名字「目录1」、
+    `text:table-of-content-source text:outline-level="2"`）。
+    两家的「收了几级」写法根本不同：一个写在域指令的 `\\o` 里，一个写在 source 的
+    属性上 —— 所以读的时候不强行统一。
+    """
+    src_zip = zipfile.ZipFile(src)
+    doc = src_zip.read("word/document.xml").decode("utf-8")
+    before, sep, after = doc.partition("<w:body>")
+    if not sep:
+        sys.exit(f"{src.name} 里找不到 <w:body>，注不进目录")
+    toc = (
+        '<w:sdt><w:sdtPr><w:id w:val="12345678"/><w:docPartObj>'
+        '<w:docPartGallery w:val="Table of Contents"/><w:docPartUnique/>'
+        "</w:docPartObj></w:sdtPr><w:sdtContent>"
+        '<w:p><w:pPr><w:pStyle w:val="TOCHeading"/></w:pPr><w:r><w:t>目录</w:t></w:r></w:p>'
+        "<w:p><w:r><w:fldChar w:fldCharType=\"begin\"/></w:r>"
+        "<w:r><w:instrText xml:space=\"preserve\"> TOC \\o \"1-2\" \\h </w:instrText></w:r>"
+        "<w:r><w:fldChar w:fldCharType=\"separate\"/></w:r>"
+        "<w:r><w:t>一级标题：预算口径</w:t></w:r>"
+        "<w:r><w:fldChar w:fldCharType=\"end\"/></w:r></w:p>"
+        "</w:sdtContent></w:sdt>"
+    )
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as out:
+        for item in src_zip.infolist():
+            data = before + "<w:body>" + toc + after if item.filename == "word/document.xml" else None
+            out.writestr(
+                item.filename,
+                data.encode("utf-8") if data is not None else src_zip.read(item.filename),
+            )
+    src_zip.close()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="重跑前先清掉输出目录")
@@ -1032,6 +1072,15 @@ def main() -> int:
     else:
         print("⚠️  没拿到 notes-end.docx")
 
+    # 目录那一条分支：python-docx 给不出目录，同样「注进去再让它照抄」（见 write_toc_seed）
+    toc_seed = SCRATCH / "toc" / "toc-seed.docx"
+    write_toc_seed(OUT / "notes.docx", toc_seed)
+    convert(exe, toc_seed, "docx", SCRATCH / "toc-out")
+    if (SCRATCH / "toc-out" / "toc-seed.docx").exists():
+        shutil.copyfile(SCRATCH / "toc-out" / "toc-seed.docx", OUT / "toc.docx")
+    else:
+        print("⚠️  没拿到 toc.docx")
+
     # 真 ODF 写入者是 LibreOffice：从 OOXML 转过去，比手搓的 content.xml 有说服力
     for src, fmt in (
         (docx, "odt"),
@@ -1039,9 +1088,17 @@ def main() -> int:
         (pptx, "odp"),
         (OUT / "formats.xlsx", "ods"),
         (OUT / "cell-notes.xlsx", "ods"),
+        (OUT / "toc.docx", "odt"),
     ):
         convert(exe, src, fmt, SCRATCH)
-    for name in ("notes.odt", "book.ods", "deck.odp", "formats.ods", "cell-notes.ods"):
+    for name in (
+        "notes.odt",
+        "book.ods",
+        "deck.odp",
+        "formats.ods",
+        "cell-notes.ods",
+        "toc.odt",
+    ):
         src = SCRATCH / name
         if src.exists():
             shutil.copyfile(src, OUT / name)

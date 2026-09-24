@@ -96,6 +96,8 @@ def main() -> int:
         "notes-hf.docx": ("ooxml", "word", "docx"),
         "notes-foot.docx": ("ooxml", "word", "docx"),
         "notes-end.docx": ("ooxml", "word", "docx"),
+        "toc.docx": ("ooxml", "word", "docx"),
+        "toc.odt": ("opendocument", "word", "odt"),
         "notes-end.odt": ("opendocument", "word", "odt"),
         "notes-hf.odt": ("opendocument", "word", "odt"),
         "notes-hf.rtf": ("rtf", "word", "rtf"),
@@ -201,6 +203,15 @@ def main() -> int:
     footdoc = lbin("office-doc", fixture("notes-foot.docx"))
     check("notes-foot.docx 脚注数", footdoc.get("footnotes"), fwant["footnotes"])
     check("notes-foot.docx 尾注数（部件不在包里就是零）", footdoc.get("endnotes"), fwant["endnotes"])
+
+    # 目录这一问两家的存法毫无共同点：OOXML 的级别在域指令的文字里（外面那层 w:sdt
+    # 还可能没有），ODF 的级别在 source 元素的 outline-level 属性上 —— 所以整份账
+    # 按各自的形状比，不强行归一
+    print("=== 2b) 有没有目录、收了几级（toc.docx / toc.odt） ===")
+    for name in ("toc.docx", "notes.docx", "toc.odt", "notes.odt"):
+        want = files[name]["ooxml"]["contents"] if name.endswith(".docx") else files[name]["odt"]["contents"]
+        check("%s 目录那份账" % name, lbin("office-doc", fixture(name)).get("contents"), want)
+    check("notes.doc 没读就不报目录", lbin("office-doc", fixture("notes.doc")).get("contents"), None)
 
     # 尾注那一条分支第一次有真件：notes-end.docx 的 word/endnotes.xml 是 LibreOffice 的
     # docx 导出器写的（它把两条分隔符写成 <w:separator/> 那一族），

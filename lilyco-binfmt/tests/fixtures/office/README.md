@@ -25,6 +25,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `cell-notes-lo.xlsx` | LibreOffice（`cell-notes.xlsx` → .ods → .xlsx） | 同一批字的另一副面孔：部件在 **`xl/comments1.xml`**、Target 是相对的 `../comments1.xml`、注文字包在 `<r><rPr>…<t>` 里，而且条目顺序都变了（A3 排在 B2 前面） |
 | `cell-notes.ods` | LibreOffice（从 `cell-notes.xlsx`） | ODF 的存法：批注是 `office:annotation`，**坐在格子里面**（`dc:creator` 给作者、`<meta:date-string/>` 是空的），一锅端取格子的字就会把注当成这一格的内容 |
 | `notes-end.rtf` | LibreOffice（从 `notes-end.docx`） | 注的第三种存法：脚注与尾注**都**写成 `{\*\footnote …}` 这一个群，尾注只在群里多一个 `\ftnalt`；分隔符另走 `{\*\ftnsep\chftnsep}` |
+| `toc.docx` | LibreOffice 的 **docx 导出器**（把目录注进 `notes.docx` 再让它照抄） | 真目录：`<w:sdt>` + `<w:docPartGallery w:val="Table of Contents"/>`，级别在域指令文字里 —— LibreOffice 把引号写成 `&quot;`，所以 `TOC \o "1-2" \h` 要还原实体才读得对 |
+| `toc.odt` | LibreOffice（从 `toc.docx`） | 同一件东西的另一副面孔：`text:table-of-content`（名字 `目录1`）、级别在 `text:table-of-content-source/@outline-level="2"`，另外**十级条目模板全写出来**（`entry_templates` 报的是文件写了几个，不是用上了几级） |
 | `notes-hf.odt` | LibreOffice（从 `notes-hf.docx`） | 同一批字的 ODF 存法：页眉页脚在 **styles.xml 的 master-page** 里，两个节 = 两个 master-page（`Standard` 与 `Converted1`），各带一份 header + footer |
 | `notes-hf.rtf` | LibreOffice（从 `notes-hf.docx`） | 第三种存法：`\header` / `\headerl` / `\footer` 这些**目标（destination）**里的字，与正文混在一个流里 |
 | `revisions.docx` | python-docx + 手注入 `w:ins` / `w:del` / `w:rPrChange` / 段落标记 | 四种修订各一处，而且**没被拆开**：3 个 `w:ins`（含段落标记那一条）、1 个 `w:del`、1 个 `w:rPrChange` → 5 条逻辑改动 |
@@ -334,6 +336,20 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     * `{\*\ftnsep\chftnsep}` 与 `{\*\ftncn\chftncn}` 是注的**排版定义**（分隔符、续分符、
       编号占位），不是一条注 —— 与 OOXML 部件里那两条 `separator` 是同一件事的第三种写法。
     注的字一份都不留在正文行里：`Body` 那行还是 `Body`，不跟着拖出「Footnote: …」。
+
+33. **「有没有目录」这一问，两家的写法毫无共同点**（`toc.docx` / `toc.odt`）。
+    OOXML 是一层 `<w:sdt>` 套着 `<w:docPartGallery w:val="Table of Contents"/>`（Word 与
+    LibreOffice 都这么写），而**「收几级」不在这层的任何属性上，在域指令的文字里** ——
+    `TOC \o "1-2" \h`；而且这层壳可能整个没有、只剩那条域指令（Word 老格式与不少转换器
+    就这样），所以两种都得找。ODF 完全不同：`text:table-of-content` 一块，
+    名字在 `text:name`（LibreOffice 写「目录1」）、级别在
+    `text:table-of-content-source` 的 `outline-level`（这份件是 2），
+    另外它把**十级条目模板全部写出来** —— 用「有几个模板」当「收了几级」会错出五倍，
+    所以 `entry_templates` 只报文件写了几个，级别另报 source 那个属性。
+    生产这条路和尾注一样：python-docx 给不出目录，注进 `notes.docx` 让 LibreOffice
+    照抄一遍 —— 它连引号都替自己转义成 `&quot;`，**不还原实体就读不到 `\o` 的值**
+    （两份读者在这一条上给出同样的 `1-2`，是因为都走各自的 XML 解码头，不是靠字符串猜）。
+    没有目录的件报 `present: false`（键在、值为假），不是缺键；`.doc` 报 null（这一版没看）。
 
 ## 这些数字从哪来
 

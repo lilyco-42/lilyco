@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import re
 import struct
 import sys
 import zipfile
@@ -190,6 +191,43 @@ def _note_part_count(parts: dict, name: str, tag: str) -> int:
     )
 
 
+def docx_contents(root) -> dict:
+    """这份 docx 有没有目录、收了几级。
+
+    OOXML 里目录有两种长相：`w:sdt` 套着 `docPartGallery="Table of Contents"`
+    （Word 与 LibreOffice 都这么写），以及一条 `TOC \\o "1-2" \\h` 的域指令
+    （可以没有 sdt 壳，Word 老格式与很多转换器就这样）。**几级写在域指令里**，
+    不是属性 —— 与 ODF 那边（`text:table-of-content-source/@outline-level`）根本两种说法。
+    """
+    galleries: list = []
+    for one in root.iter():
+        if xml_local(one.tag) == "docPartGallery":
+            galleries.append(local_attr(one, "val"))
+    fields: list = []
+    for one in root.iter():
+        tag = xml_local(one.tag)
+        if tag == "instrText":
+            fields.append("".join(one.itertext()).strip())
+        elif tag == "fldSimple":
+            fields.append((one.get("{%s}instr" % REL_NS) or "").strip())
+    toc_fields = [one for one in fields if one.upper().startswith("TOC")]
+    levels = None
+    for one in toc_fields:
+        found = re.search(r'\\o\s+"([^"]+)"', one)
+        if found:
+            levels = found.group(1)
+            break
+    gallery = "Table of Contents" in galleries
+    return {
+        "present": bool(gallery or toc_fields),
+        "via": "doc-part-gallery" if gallery else ("field" if toc_fields else None),
+        "galleries": galleries,
+        "fields": toc_fields,
+        "levels": levels,
+        "sdt": len([one for one in root.iter() if xml_local(one.tag) == "sdt"]),
+    }
+
+
 def docx_facts(path: Path) -> dict:
     with zipfile.ZipFile(path) as box:
         names = [one.filename for one in box.infolist()]
@@ -264,6 +302,7 @@ def docx_facts(path: Path) -> dict:
         "has_font_table": "word/fontTable.xml" in parts,
         "footnotes": _note_part_count(parts, "word/footnotes.xml", "footnote"),
         "endnotes": _note_part_count(parts, "word/endnotes.xml", "endnote"),
+        "contents": docx_contents(body),
         "text": "\n".join(one for one in paragraphs if one),
         # 口径与 Rust 那边一致：每段先 trim 再数（run_text 会 trim）
         "statistics": {"ours": tally_of([one.strip() for one in paragraphs])},
@@ -562,6 +601,36 @@ def style_counts(paras: list) -> dict:
     return dict(sorted(out.items()))
 
 
+def odf_contents(root) -> dict:
+    """这份 ODF 有没有目录、收了几级：目录是 `text:table-of-content` 那一块。
+
+    与 OOXML 的分别是真的：这里「几级」写在 `text:table-of-content-source` 的
+    `outline-level` 属性上（LibreOffice 那份写 2），目录名与「是否受保护」也都在元素上；
+    OOXML 那边这些全在域指令的文字里。所以两边各报各的，不强行统一成一个字段。
+    """
+    blocks = [one for one in root.iter() if xml_local(one.tag) == "table-of-content"]
+    if not blocks:
+        return {"present": False, "names": [], "outline_level": None, "entry_templates": 0, "title": None}
+    names = [local_attr(one, "name") for one in blocks]
+    level = None
+    title = None
+    for one in root.iter():
+        if xml_local(one.tag) == "table-of-content-source" and level is None:
+            level = local_attr(one, "outline-level")
+        if xml_local(one.tag) == "index-title-template" and title is None:
+            got = "".join(one.itertext()).strip()
+            title = got or None
+    return {
+        "present": True,
+        "names": [one for one in names if one],
+        "outline_level": level,
+        "entry_templates": len(
+            [one for one in root.iter() if xml_local(one.tag) == "table-of-content-entry-template"]
+        ),
+        "title": title,
+    }
+
+
 def odt_structure(path: Path) -> dict:
     """ODF 文字的结构账：口径与 `office-doc` 的 ODT 分支一条一条对（表格里也算段）。
     正文位置在 office:body 里的 office:text，取不到就退回全树。
@@ -644,6 +713,7 @@ def odt_structure(path: Path) -> dict:
         ],
         "footnotes": sum(1 for one in notes_found if of_local(one, "note-class") == "footnote"),
         "endnotes": sum(1 for one in notes_found if of_local(one, "note-class") == "endnote"),
+        "contents": odf_contents(root),
         "paragraph_texts": [texts(one) for one in paras],
         "annotation_texts": annotation_entries(body),
         "statistic": statistic,

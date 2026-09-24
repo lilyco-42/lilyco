@@ -21,7 +21,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-doc",
     run = "run_office_doc",
-    about = "Report the structure of a Word document: paragraph count (empty ones counted separately, because Word's own statistics do), headings with their level and text, every style used and how often, tables with rows and cells, inline shapes and pictures, hyperlinks split into internal and external with their targets, sections, explicit page/column breaks, footnotes and endnotes and comments (read from their own parts when present), tracked-change presence (w:ins / w:del counts) plus a revision ledger (revisions): one entry per logical change with its kind, author, date, the paragraph index it sits in and the words it carries - elements are merged only when adjacent with the same kind/author/date/paragraph, because a producer writes one edit as several runs (LibreOffice splits the number from the unit into two w:ins), while the ODF export of the very same file states them as one changed-region, which is what this merge rule was measured against. Paragraph-mark insertions (w:pPr/w:rPr/w:ins) are counted apart from the paragraph's text and are not merged with it; ODF keeps deleted words inside the region and inserted words between text:change-start and text:change-end in the body, and both are read. Legacy .doc reports revisions as null rather than guess (the redline tables live in the table stream, not the piece table). protection (docx: w:documentProtection in word/settings.xml - w:edit says what kind of editing is restricted and w:enforcement says whether it is on; odt: the ProtectForm/ProtectBookmarks/ProtectFields config-items in settings.xml, which is a different place and does NOT carry the docx restriction across - the same document converted to .odt reports false for all three, measured); numbering usage, headers and footers, embedded objects and custom XML, plus which optional parts the package actually carries. statistics answers 'how many words/pages': ours (characters, characters_no_spaces and words_by_space - the last split on whitespace only, which is why it is named that way and not 'words') next to the producer's own numbers (docx docProps/app.xml, ODF meta.xml document-statistic) because the two disagree by design - python-docx writes app.xml with Words/Characters at 0 (it never counted), and LibreOffice counts Chinese words rather than whitespace runs, while on the same text our character counts match its character-count exactly. For legacy .doc it falls back to what the piece table can honestly tell: paragraph count from the CP total plus the marker characters it dropped (cell ends, field boundaries), not a claim about tables it cannot see. For .odt it reports the same account from content.xml's office:text (headings from text:outline-level, comments from text:annotation, pictures from draw:image, footnotes and endnotes split out of the single text:note element by its note:class) and additionally echoes meta.xml's own document-statistic so the producer's numbers are visible next to ours. Returns { path, format, kind, structure, styles, tables, images, hyperlinks, revisions, protection, statistics, parts, notes }. Read-only (safety T0)."
+    about = "Report the structure of a Word document: paragraph count (empty ones counted separately, because Word's own statistics do), headings with their level and text, every style used and how often, tables with rows and cells, inline shapes and pictures, hyperlinks split into internal and external with their targets, sections, explicit page/column breaks, footnotes and endnotes and comments (read from their own parts when present), tracked-change presence (w:ins / w:del counts) plus a revision ledger (revisions): one entry per logical change with its kind, author, date, the paragraph index it sits in and the words it carries - elements are merged only when adjacent with the same kind/author/date/paragraph, because a producer writes one edit as several runs (LibreOffice splits the number from the unit into two w:ins), while the ODF export of the very same file states them as one changed-region, which is what this merge rule was measured against. Paragraph-mark insertions (w:pPr/w:rPr/w:ins) are counted apart from the paragraph's text and are not merged with it; ODF keeps deleted words inside the region and inserted words between text:change-start and text:change-end in the body, and both are read. Legacy .doc reports revisions as null rather than guess (the redline tables live in the table stream, not the piece table). protection (docx: w:documentProtection in word/settings.xml - w:edit says what kind of editing is restricted and w:enforcement says whether it is on; odt: the ProtectForm/ProtectBookmarks/ProtectFields config-items in settings.xml, which is a different place and does NOT carry the docx restriction across - the same document converted to .odt reports false for all three, measured); numbering usage, headers and footers, embedded objects and custom XML, plus which optional parts the package actually carries. statistics answers 'how many words/pages': ours (characters, characters_no_spaces and words_by_space - the last split on whitespace only, which is why it is named that way and not 'words') next to the producer's own numbers (docx docProps/app.xml, ODF meta.xml document-statistic) because the two disagree by design - python-docx writes app.xml with Words/Characters at 0 (it never counted), and LibreOffice counts Chinese words rather than whitespace runs, while on the same text our character counts match its character-count exactly. For legacy .doc it falls back to what the piece table can honestly tell: paragraph count from the CP total plus the marker characters it dropped (cell ends, field boundaries), not a claim about tables it cannot see. For .odt it reports the same account from content.xml's office:text (headings from text:outline-level, comments from text:annotation, pictures from draw:image, footnotes and endnotes split out of the single text:note element by its note:class) and additionally echoes meta.xml's own document-statistic so the producer's numbers are visible next to ours. `contents` answers 'is there a table of contents and how many levels does it pull in', reported per family because the two spellings share nothing: OOXML wraps a w:sdt whose docPartGallery reads Table of Contents (Word and LibreOffice both write it) and keeps the levels INSIDE the field instruction text - a form like TOC \\o \"1-2\" \\h, with the producer's own quoting - while the wrapper can also be absent and only the field present, so both are looked for; ODF keeps a text:table-of-content block whose name is on text:name and whose level is the source element's outline-level attribute, and LibreOffice additionally writes all ten entry templates whether or not they are used (entry_templates reports what is written, not what is used). A file without one reports present false - false, not missing; legacy .doc reports null because this reader does not look there. Returns { path, format, kind, structure, styles, tables, images, hyperlinks, contents, revisions, protection, statistics, parts, notes }. Read-only (safety T0)."
 )]
 pub struct OfficeDoc {
     /// Word 文档（docx / docm / doc / odt）
@@ -105,6 +105,87 @@ fn producer_counts(bytes: &[u8]) -> Value {
     } else {
         Value::Object(out)
     }
+}
+
+/// 域指令里 `\o "1-2"` 那一对引号之间的字（`&quot;` 在解析时已经还原成 `"`）
+fn switch_value(instruct: &str, switch: &str) -> Option<String> {
+    let at = instruct.find(switch)? + switch.len();
+    let rest = &instruct[at..];
+    let start = rest.find('"')? + 1;
+    let stop = rest[start..].find('"')? + start;
+    Some(rest[start..stop].to_string())
+}
+
+/// 这份 docx 有没有目录、收了几级。OOXML 的目录有两种长相：
+/// `w:sdt` 套着 `docPartGallery="Table of Contents"`（Word 与 LibreOffice 都这么写），
+/// 或者一条 `TOC \o "1-2" \h` 的域指令（可以没有那个壳）。**「几级」写在域指令的文字里**，
+/// 不是某个属性上 —— 与 ODF 那边是两种说法，所以两边各报各的，不强行统一
+fn docx_contents(root: &xmlscan::Node) -> Value {
+    let galleries: Vec<String> = root
+        .descendants("docPartGallery")
+        .iter()
+        .filter_map(|one| one.attr_local("val").map(String::from))
+        .collect();
+    let mut instructions: Vec<String> = root
+        .descendants("instrText")
+        .iter()
+        .map(|one| one.text().trim().to_string())
+        .collect();
+    for one in root.descendants("fldSimple").iter() {
+        if let Some(had) = one.attr_local("instr") {
+            instructions.push(had.trim().to_string());
+        }
+    }
+    let fields: Vec<String> = instructions
+        .into_iter()
+        .filter(|one| one.to_uppercase().starts_with("TOC"))
+        .collect();
+    let gallery = galleries.iter().any(|one| one == "Table of Contents");
+    json!({
+        "present": gallery || !fields.is_empty(),
+        "via": if gallery {
+            json!("doc-part-gallery")
+        } else if fields.is_empty() {
+            Value::Null
+        } else {
+            json!("field")
+        },
+        "galleries": galleries,
+        "fields": fields,
+        "levels": fields.iter().find_map(|one| switch_value(one, r"\o ")),
+        "sdt": root.descendants("sdt").len(),
+    })
+}
+
+/// ODF 的目录：`text:table-of-content` 那一块。名字、受不受保护在元素属性上，
+/// 「收几级」写在 `text:table-of-content-source` 的 `outline-level` 上 ——
+/// 与 OOXML 把这一切塞进域指令文字正好是两种写法
+fn odf_contents(root: &xmlscan::Node) -> Value {
+    let blocks = root.descendants("table-of-content");
+    if blocks.is_empty() {
+        return json!({
+            "present": false, "names": [], "outline_level": Value::Null,
+            "entry_templates": 0, "title": Value::Null,
+        });
+    }
+    json!({
+        "present": true,
+        "names": blocks
+            .iter()
+            .filter_map(|one| one.attr_local("name").map(String::from))
+            .collect::<Vec<String>>(),
+        "outline_level": root
+            .descendants("table-of-content-source")
+            .first()
+            .and_then(|one| one.attr_local("outline-level"))
+            .map(String::from),
+        "entry_templates": root.descendants("table-of-content-entry-template").len(),
+        "title": root
+            .descendants("index-title-template")
+            .first()
+            .map(|one| one.text().trim().to_string())
+            .filter(|had| !had.is_empty()),
+    })
 }
 
 fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
@@ -248,6 +329,7 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             "hyperlinks": hyperlinks,
             "footnotes": count("footnote", "word/footnotes.xml"),
             "endnotes": count("endnote", "word/endnotes.xml"),
+            "contents": docx_contents(&root),
             "comments": count("comment", "word/comments.xml"),
             "revisions": revisions.to_json(limit),
             "protection": protection,
@@ -420,6 +502,7 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             "hyperlinks": hyperlinks,
             "footnotes": of_class("footnote"),
             "endnotes": of_class("endnote"),
+            "contents": odf_contents(&root),
             "comments": text_body.descendants("annotation").len(),
             "revisions": revisions.to_json(limit),
             "protection": protection,
@@ -464,6 +547,8 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             "hyperlinks": [],
             "footnotes": null,
             "endnotes": null,
+            // 这一版不读 .doc 的目录，所以给 null —— 是「没看」，不是「这份文档没有目录」
+            "contents": null,
             "comments": null,
             // 遗留 .doc 的修订在表流的 LVC/PAPX 那套结构里，piece 表给不出「谁改了什么」
             "revisions": null,
@@ -706,6 +791,50 @@ mod tests {
         assert_eq!(odt["kind"], "opendocument-text", "{odt}");
         assert_eq!(odt["endnotes"], json!(1), "{odt}");
         assert_eq!(odt["footnotes"], json!(2), "同一份 ODT 里脚注仍占两条");
+    }
+
+    /// 「这份文档有没有目录、收了几级」的第一批真件。两家存法根本不同：
+    /// OOXML 把级别写在域指令的文字里（`TOC \o "1-2" \h`，外面套一层
+    /// `w:sdt` + `docPartGallery="Table of Contents"`），ODF 写在
+    /// `text:table-of-content-source` 的 `outline-level` 属性上 —— 所以各报各的。
+    /// 两份件都是 LibreOffice 的导出器写的（目录注进 docx 让它照抄，见 office_fixtures.py）
+    /// （期望值来自 `office_reader.py` 的 `docx_contents()` / `odf_contents()`）
+    #[test]
+    fn a_table_of_contents_is_reported_whichever_way_the_file_keeps_it() {
+        let doc = run("toc.docx");
+        let contents = &doc["contents"];
+        assert_eq!(contents["present"], json!(true), "{contents}");
+        assert_eq!(contents["via"], json!("doc-part-gallery"), "{contents}");
+        assert_eq!(
+            contents["levels"],
+            json!("1-2"),
+            "几级写在域指令里：{contents}"
+        );
+        assert_eq!(contents["sdt"], json!(1), "{contents}");
+        assert_eq!(
+            contents["fields"],
+            json!(["TOC \\o \"1-2\" \\h"]),
+            "域指令原文照文件写的交（引号是 LO 写成 &quot; 的那对）：{contents}"
+        );
+        let odt = run("toc.odt");
+        let got = &odt["contents"];
+        assert_eq!(got["present"], json!(true), "{got}");
+        assert_eq!(got["names"], json!(["目录1"]), "{got}");
+        assert_eq!(
+            got["outline_level"],
+            json!("2"),
+            "ODF 的级别在属性上：{got}"
+        );
+        assert_eq!(got["title"], json!("目录"), "{got}");
+        assert_eq!(
+            got["entry_templates"],
+            json!(10),
+            "LO 十级模板都写出来，不管用不用得上：{got}"
+        );
+        // 反面对照：没目录的件报 present=false（键在、值为假），而不是 null
+        assert_eq!(run("notes.docx")["contents"]["present"], json!(false));
+        assert_eq!(run("notes.odt")["contents"]["present"], json!(false));
+        assert!(run("notes.doc")["contents"].is_null(), ".doc 没看就给 null");
     }
 
     /// 结构数字要与独立读者算出来的逐项一致（期望值：office_reader.py 的 docx_facts）
