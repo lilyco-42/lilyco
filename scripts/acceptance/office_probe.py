@@ -133,6 +133,8 @@ def main() -> int:
         "notes-en.docx": ("ooxml", "word", "docx"),
         "book.xlsx": ("ooxml", "excel", "xlsx"),
         "deck.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-links.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-links-lo.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-lo.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-chart.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-chart-lo.pptx": ("ooxml", "powerpoint", "pptx"),
@@ -1821,6 +1823,58 @@ def main() -> int:
          dig(odp_slide, O + ".cell_list[6].style_props.found"),
          dig(odp_slide, O + ".cell_list[6].style_props.graphic.draw:fill-color")],
         [None, False, None, "ce5", True, "#ffff00"],
+    )
+
+
+    # ── 2l) 页上那几条链接：两家的差别在「要不要再跳一跳」 ────────
+    for name in ("deck-links.pptx", "deck-links-lo.pptx", "deck-links.odp"):
+        deck = files[name].get("ooxml") or files[name].get("odp") or {}
+        got = lbin("office-slide", fixture(name))
+        check(
+            "%s 每页那些链接整份账与读者一致" % name,
+            [one.get("links") for one in got.get("slides", [])],
+            [one.get("links") for one in deck.get("slides", [])],
+        )
+    link_deck = lbin("office-slide", fixture("deck-links.pptx"))
+    check(
+        "OOXML 那一族要跳两跳：run 里只有一个号，地址在这一页自己的关系表里",
+        [dig(link_deck, "slides[0].links.total"), dig(link_deck, "slides[0].links.external"),
+         dig(link_deck, "slides[0].links.unresolved"),
+         dig(link_deck, "slides[0].links.list[0].text"),
+         dig(link_deck, "slides[0].links.list[0].target"),
+         dig(link_deck, "slides[0].links.list[0].scheme"),
+         dig(link_deck, "slides[0].links.list[0].hop"),
+         dig(link_deck, "slides[0].links.list[1].scheme"),
+         dig(link_deck, "slides[0].links.list[2].target"),
+         dig(link_deck, "slides[1].links.total")],
+        [3, 3, 0, "第三季度的说明", "https://example.com/budget", "https", "rels",
+         "mailto", "https://example.com/raw", 0],
+    )
+    check(
+        "重写不换地址只换号：一家排 rId2、一家排 rId1 —— 号只交出来，不拿来比",
+        [dig(link_deck, "slides[0].links.list[0].id"),
+         dig(lbin("office-slide", fixture("deck-links-lo.pptx")), "slides[0].links.list[0].id"),
+         dig(lbin("office-slide", fixture("deck-links-lo.pptx")), "slides[0].links.total"),
+         dig(lbin("office-slide", fixture("deck-links-lo.pptx")), "slides[0].links.list[0].target")],
+        ["rId2", "rId1", 3, "https://example.com/budget"],
+    )
+    odp_links = lbin("office-slide", fixture("deck-links.odp"))
+    check(
+        "ODF 那一族地址就写在字上：没有第二跳，也没有「站内 / 站外」那个开关",
+        [dig(odp_links, "slides[0].links.list[0].hop"),
+         dig(odp_links, "slides[0].links.list[0].external"),
+         dig(odp_links, "slides[0].links.list[0].id"),
+         dig(odp_links, "slides[0].links.list[0].target"),
+         dig(odp_links, "slides[0].links.list[0].text"),
+         dig(odp_links, "slides[0].links.external"),
+         dig(odp_links, "slides[0].links.total"),
+         dig(odp_links, "slides[1].links.total")],
+        ["inline", None, None, "https://example.com/budget", "第三季度的说明", 0, 3, 0],
+    )
+    check(
+        "文本框被 Impress 改写成了 custom-shape：链接不因此不见，页上的 frame 却少一个",
+        [dig(odp_links, "slides[0].frames"), dig(odp_links, "slides[0].links.total")],
+        [2, 3],
     )
 
     # ── 表格结构：表名、可见性、范围、格子 ──────────────────────────

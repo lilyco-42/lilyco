@@ -16,6 +16,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `deck-lo.pptx` | LibreOffice（`deck.pptx` → .odp → .pptx） | 同一份稿子的第二个生产者：母版从 1 份变 11 份、版式从 11 变 9、`p:sldSz` 上那个 `type` 属性**整个省掉**（尺寸两个数一字不差），备注里多出一个页码占位（字面量 `<编号>`），而第一页那句「新增两台 64 核应用服务器」被切成三个 `a:t` —— 段落数仍然是 3 |
 | `deck-tables.pptx` | python-pptx | 一页一张 3×3 的表，**一次只改一个变量**：横合（第一行前两格）、竖合（第三列后两行）、只给第二行设行高 `914400`、只给第一列设列宽 `2743200`、只给 `B2` 那格设垂直对齐与左右边距、只给一格设填充色、还有一格写两段 |
 | `deck-tables-lo.pptx` | LibreOffice（`deck-tables.pptx` → .odp → .pptx） | 同一张表的第二种写法：`tblPr` 变成**空的**（`firstRow` / `bandRow` 与那条 `tableStyleId` 全没了），没说过话的两行行高从 `609600` 变成 `609480`，每格的 `a:tcPr` 反倒补满四道边、一个填充与五个边距 —— 而合并那四个字（`gridSpan` / `hMerge` / `rowSpan` / `vMerge`）与列宽一字未变 |
+| `deck-links.pptx` | python-pptx（`write_pptx_links`） | 页上三条链接（站外 http 且字与地址不同、`mailto:`、字就是地址）+ 一页一条也不链；链接不住在字里，只在 run 的 `a:rPr/a:hlinkClick/@r:id` 留一个号 |
+| `deck-links-lo.pptx` | LibreOffice（从 `deck-links.odp` 回转） | 同样三条链接、同一个地址，但号被重排成 `rId1/2/3`（一家从 rId2 起，一家从 rId1 起）—— 号是生产者自己排的，只交不比 |
+| `deck-links.odp` | LibreOffice（从 `deck-links.pptx` 导出） | 第三种写法：地址直接挂在字上（`text:a/@xlink:href` + `xlink:type="simple"`），没有第二跳也没有「站内/站外」那个开关；而那个文本框在这里成了 `draw:custom-shape`，不再是 `draw:frame` |
 | `deck-tables.odp` | LibreOffice（上面那一转的中间件） | 同一张表的第三种写法：列宽换成 `7.62cm` 与 `5.08cm`、行高换成 `1.693cm` 与 `2.54cm`，而合并改成**另写一格** `table:covered-table-cell`（既不是 docx 的不写、也不是 pptx 的 `hMerge`） |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
@@ -989,6 +992,24 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       其余五份连 AcroForm 都没有。
     * 字符串全带 `FE FF`：没有 BOM 的 `/V (李)` 会被两个读者都按 PDFDocEncoding 读成两个
       拉丁字母 —— 写的时候就得按规范写。
+
+63. **一页上的链接，两家放的地方差一跳**（`deck-links.pptx`、`-lo.pptx`、`.odp`）。
+    * OOXML 要跳两跳：那个 run 的 `a:rPr` 里只写 `a:hlinkClick/@r:id` 一个号，
+      地址与 `TargetMode="External"` 住在**这一页自己的关系表**里（与图、与表对象同一类链接法）。
+      `TargetMode` 没写时交 null，不替它当成站内；号指不到东西时 `target` 与 `external` 都交 null，
+      而那个号照交 —— 「写了个指不到东西的号」是文件自己说的话。
+    * ODF 一跳就够：地址直接挂在字上（`text:a/@xlink:href` + `xlink:type="simple"`），
+      所以 `hop` 是 `inline`，而 `external` 与 `id` 都是 null —— 这一族没有那个开关，
+      填 false 就是替文件编一个它没做的判断（`external` 那本合计因此是 0，不是「三条都不站外」）。
+    * **号是生产者自己排的**：python-pptx 从 `rId2` 起三条，LibreOffice 重写同一份排成 `rId1/2/3`，
+      而三个地址一字未变 —— 与图的轴 id、条件格式的 priority 同一件事，只交出来不拿来比。
+    * 踩到的一条：只走 `draw:frame` 会把这三条链全读成 0 —— python-pptx 那个文本框被 Impress
+      改写成了 `draw:custom-shape`（那一页 `frames` 只有 2 个，而链有 3 条）。所以现在走
+      「页上除 `presentation:notes` 以外的那几块」：备注里的链不算页面上的链，
+      而 OOXML 那边备注住在另一个部件里，本来就不会混。
+    * `scheme` 只说地址自己写的那一截：`https`、`mailto`；没有冒号、冒号前是空的
+      （`#那一页` 这种站内跳法）、或者**只有一个字母**（那是 Windows 的盘符不是 scheme）都交 null。
+    * 第二页一条也不链：那一份交 `total: 0`，不是缺这个键。
 
 ## 这些数字从哪来
 

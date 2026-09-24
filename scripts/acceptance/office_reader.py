@@ -2072,9 +2072,15 @@ def pptx_facts(path: Path) -> dict:
         for kind, target in rels_of_parts(parts, name):
             if kind == "chart" and target in parts:
                 page_charts.append(chart_one(ET.fromstring(parts[target]), target))
+        # 页上的链接：两跳 —— run 里只有号，地址在这一页的关系表里
+        rel_part = (
+            f"{stem[: stem.rindex('/')]}/_rels/{stem[stem.rindex('/') + 1 :]}.xml.rels"
+        )
+        rels_root = ET.fromstring(parts[rel_part]) if rel_part in parts else None
         out_slides.append(
             {
                 "part": name,
+                "links": pptx_slide_links(root, rels_root),
                 "title": texts[0] if texts else "",
                 "texts": texts,
                 "text_runs": len(texts),
@@ -3115,6 +3121,112 @@ def odp_cell_tally(cell_list: list, styles: dict) -> dict:
     }
 
 
+def link_scheme(raw: str):
+    """地址里 scheme 那一截：`https` / `mailto` …；没有冒号、冒号前是空的（`#那一页`
+    这种站内跳法）、只有**一个字母**（那是 Windows 的盘符不是 scheme）、或者太长太怪的，
+    一律 None —— 与 Rust 的 `link_scheme` 同一条，只说文件写了什么，不猜它是哪一类
+    """
+    head, sep, _rest = raw.partition(":")
+    if not sep:
+        return None
+    if len(head) < 2 or len(head) > 8:
+        return None
+    if not all(one.isascii() and (one.isalnum() or one in "+-.") for one in head):
+        return None
+    return head.lower()
+
+
+def _link_rows(rows: list) -> dict:
+    """一页的链接那一份账：合计三个数 + 逐条"""
+    return {
+        "total": len(rows),
+        "external": sum(1 for one in rows if one["external"] is True),
+        "unresolved": sum(1 for one in rows if one["target"] is None),
+        "list": rows,
+    }
+
+
+def pptx_slide_links(root, rels_root, limit: int = 200) -> dict:
+    """OOXML 一页上的链接：run 的 `a:rPr/a:hlinkClick` 只写一个号，地址在页自己的关系表里
+
+    `TargetMode` 没写时交 None（那与写了 `External` 是两件事）；号在关系表里找不到时
+    `target` / `external` 都交 None，而那个号照交 —— 「写了个指不到东西的号」是文件说的话。
+    """
+    pool: dict = {}
+    if rels_root is not None:
+        for one in rels_root.iter():
+            if xml_local(one.tag) != "Relationship":
+                continue
+            if (of_local(one, "Type") or "").rsplit("/", 1)[-1] != "hyperlink":
+                continue
+            had = of_local(one, "Id")
+            if not had:
+                continue
+            mode = of_local(one, "TargetMode")
+            pool[had] = (of_local(one, "Target"), None if mode is None else mode == "External")
+    rows: list = []
+    for run in root.iter():
+        if xml_local(run.tag) != "r":
+            continue
+        click = None
+        for one in run.iter():
+            if xml_local(one.tag) == "hlinkClick":
+                click = one
+                break
+        if click is None:
+            continue
+        rid = of_local(click, "id") or ""
+        target, mode = pool.get(rid, (None, None))
+        rows.append(
+            {
+                "text": "".join(
+                    one.text or "" for one in run.iter() if xml_local(one.tag) == "t"
+                ),
+                "target": target,
+                "scheme": link_scheme(target) if target else None,
+                "external": mode,
+                "hop": "rels",
+                "id": rid,
+            }
+        )
+        if len(rows) >= limit:
+            break
+    return _link_rows(rows)
+
+
+def odp_slide_links(frames: list, limit: int = 200) -> dict:
+    """ODF 一页上的链接：地址就挂在字上（`text:a/@xlink:href`），没有第二跳
+
+    所以 `external` 与 `id` 都是 None —— 这一族没有那个开关，也没有号；
+    走的是「页上除 `presentation:notes` 以外的那几块」：备注里的链不是页面上的链。
+    （不是只走 `draw:frame` —— 实测 python-pptx 那个文本框被 Impress 改写成了
+    `draw:custom-shape`，只认 frame 会把三条链全读成 0。）
+    """
+    rows: list = []
+    for owner in frames:
+        for one in owner.iter():
+            if xml_local(one.tag) != "a":
+                continue
+            target = of_local(one, "href")
+            if target is None:
+                continue
+            rows.append(
+                {
+                    "text": " ".join("".join(one.itertext()).split()),
+                    "target": target,
+                    "scheme": link_scheme(target),
+                    "external": None,
+                    "hop": "inline",
+                    "id": None,
+                }
+            )
+            if len(rows) >= limit:
+                break
+        if len(rows) >= limit:
+            break
+    return _link_rows(rows)
+
+
 def odp_slide_tables(path: Path, limit: int = 100) -> list:
     """每一页上那些表：`draw:frame` 那一份（名字与位置都只在容器上）+ ODF 表那一份。
 
@@ -3346,6 +3458,10 @@ def odp_facts(path: Path) -> dict | None:
                 "notes_frame_classes": note_classes,
                 "pictures": sum(1 for one in page.iter() if xml_local(one.tag) == "image"),
                 "tables": sum(1 for one in page.iter() if xml_local(one.tag) == "table"),
+                # 这一族的链接直接写在字上，且只走页上的 frame（备注那一块另算）
+                "links": odp_slide_links(
+                    [one for one in page if xml_local(one.tag) != "notes"]
+                ),
                 "size": size_of_layout.get(layout_of_master.get(master)),
             }
         )
