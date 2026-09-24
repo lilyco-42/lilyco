@@ -232,6 +232,18 @@ const ATN_WORDS: &[&str] = &["annotation", "atnauthor"];
 /// 注的那一群里另坐着自己的两个值（它们不单独进账，跟着这一条注交）
 const ATN_CHILDREN: &[&str] = &["atnref", "atndate"];
 
+/// 断点词按**词边界**数：子串数会骗人（`\pard` 里有 `\par`、`\sectd` 与 `\sectx`
+/// 里有 `\sect`）。键固定这六个，一个都没出现也交 0 —— 「数过了，没有」与
+/// 「没数」不是一件事。这一族把「换页」写成三种词：`\page` 在这里换页，
+/// `\pagebb` / `\pbb` 是「这一段之前换页」，而 Word 那条 `w:br w:type="page"`
+/// 在 LibreOffice 的 RTF 导出里就是 `\pagebb`（三份件都这么量到，`page` 反而一条没有）
+pub const BREAK_WORD_NAMES: [&str; 6] = ["par", "line", "page", "pagebb", "pbb", "sect"];
+
+/// 这个词是断点词吗（是的话排在第几位）
+fn break_word_index(word: &str) -> Option<usize> {
+    BREAK_WORD_NAMES.iter().position(|one| *one == word)
+}
+
 /// 从 `from`（紧跟 `\*\` 的那个控制字的第一个字母）起那一群：交回「解过一遍的字」
 /// 与群里那几个认识的子群（`{\*\atnref 0}` 那种）。**前瞻**用的 —— 调用方照旧把
 /// 这一群整群跳过，所以这里的 extract 只读那一段，正文一个字也不会多
@@ -420,6 +432,9 @@ pub struct Rtf {
     /// `{\*\atnauthor …}` 出现了几条：与 `annotations.len()` 不等就是文件自己没配上
     /// （与 .xls 那两支列表同一个做法 —— 配不上时把两个数都交出来，不替它对齐）
     pub annotation_authors: usize,
+    /// 断点词的条数，按 `BREAK_WORD_NAMES` 那六个键的顺序（只在没被跳过的那一层数：
+    /// 页眉里那条 `\par` 不是正文的一段）
+    pub break_words: [usize; 6],
     /// 表那份账。这六个数都是**控制字本身的条数**（`\trowd` / `\row` / `\cell` / `\intbl`
     /// 与嵌套表那两个），不是「有几张表」的推断 —— 那条规则拿两份件试过：
     /// 一张 2×2 的对，两张（3×2 与 2×2）的把两张数成一张，所以这里只交数得清的
@@ -454,6 +469,14 @@ impl Rtf {
             "headings": self.headings,
             "annotations": self.annotations,
             "annotation_authors": self.annotation_authors,
+            "break_words": {
+                "par": self.break_words[0],
+                "line": self.break_words[1],
+                "page": self.break_words[2],
+                "pagebb": self.break_words[3],
+                "pbb": self.break_words[4],
+                "sect": self.break_words[5],
+            },
             "paper_writes": self.paper_writes,
             "line_count": self.lines.len(),
             "chars": self.text.chars().count(),
@@ -520,6 +543,7 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         headings: Vec::new(),
         annotations: Vec::new(),
         annotation_authors: 0,
+        break_words: [0; 6],
         paper_writes: Vec::new(),
         table_row_defines: 0,
         table_rows: 0,
@@ -801,6 +825,10 @@ pub fn extract(bytes: &[u8]) -> Rtf {
                 "nestrow" => me.nested_table_rows += 1,
                 "nestcell" => me.nested_table_cells += 1,
                 _ => {}
+            }
+            // 断点词：这六个各数各的（合不合是调用方的事，这里只交文件写了几条）
+            if let Some(which) = break_word_index(word.as_str()) {
+                me.break_words[which] += 1;
             }
             // 样式被用了几次：正文里的 `\sN`（数字参数就在 digits 里）。
             // 同一处也记下「这一段现在用的是哪个样式」—— 段属性就在收尾之前
@@ -1443,6 +1471,30 @@ mod tests {
     fn starred_groups_are_skipped() {
         let one = rtf("{\\rtf1{\\*\\fldinst HYPERLINK \"https://example.com\"}{\\fldrslt 链接}{\\*\\userprops{\\propname AppVersion}}完}");
         assert_eq!(one.text, "链接\n完".replace('\n', ""), "域指令文本不许出现");
+    }
+
+    /// 断点词按**词边界**数：`\pard` 不是 `\par`，`\sectd` 不是 `\sect`。
+    /// 顺序照 `BREAK_WORD_NAMES`：par / line / page / pagebb / pbb / sect
+    #[test]
+    fn break_words_count_at_word_boundaries_only() {
+        let one = rtf("{\\rtf1\\pard\\plain 第一段\\pagebb 第二段\\par 第三\\sectd 段\\par}");
+        assert_eq!(one.break_words, [2, 0, 0, 1, 0, 0], "{:?}", one.break_words);
+        // 真件：Word 那条 `w:br w:type="page"` 在 LibreOffice 的 RTF 导出里是 `\pagebb`，
+        // 整份文件一个 `\page` 都没有 —— 子串数会把这条换页算成 `\page`，也可能反过来
+        let real = extract(&fixture("notes.rtf"));
+        assert_eq!(
+            real.break_words,
+            [7, 0, 0, 1, 0, 0],
+            "{:?}",
+            real.break_words
+        );
+        let hf = extract(&fixture("notes-hf.rtf"));
+        assert_eq!(hf.break_words, [4, 0, 0, 1, 0, 1], "{:?}", hf.break_words);
+        // 只在没被跳过的那一层数：页眉里那些 `\par` 不是正文的一段
+        let bytes = fixture("notes-hf.rtf");
+        let seen = bytes.windows(4).filter(|one| *one == *b"\\par").count();
+        assert!(seen > 8, "这份件的跳过区里还有一把 \\par：{seen}");
+        assert_eq!(hf.lines.len(), 3, "{:?}", hf.lines);
     }
 
     /// 批注住在一个星号群里，而作者写在注的**前面那一格**：两条列表按文件的顺序配，

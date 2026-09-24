@@ -529,6 +529,21 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     完好，到了 RTF 那一族就成了两个问号（`{\*\atnauthor ??}`）—— 那两个字面问号就是文件写的，
     照交，不去猜回来。注的字一个也不落进正文（那一群照旧整群跳过，`skipped_destinations` 没动）。
 
+45. **换页在这一族有三种写法，而子串数会骗人**（`notes.rtf` / `toc.rtf` / `notes-hf.rtf` / `paper-a4.rtf`）。
+    Word 的 `<w:br w:type="page"/>` 到了 LibreOffice 的 RTF 导出里是 `\pagebb`（「这一段之前换页」），
+    整份文件一个 `\page` 都没有 —— 七份 RTF 件里 `\page` 全是 0 条，而 `notes.rtf` / `toc.rtf` /
+    `notes-hf.rtf` 各有 1 条 `\pagebb`，与同一批字的 `notes.docx` / `toc.docx` 那一条 `w:br type=page`
+    对得上（两家数法不同、答案相同）。子串数会把这些数字全弄错：`\pard` 里含 `\par`
+    （`notes-hf.rtf` 全文 `\par` 子串 20 个，而**没被跳过的那一层**只有 4 条），`\sectd` / `\sectx`
+    里含 `\sect`。所以这一支按**词边界**数六个词（par / line / page / pagebb / pbb / sect），
+    六个键固定交出来（一个都没出现也交 0 —— 数过了没有，与没数是两件事），
+    并且只在没被跳过的那一层数（页眉里那条 `\par` 不是正文的一段）。
+    `page_breaks` 是三种换页词的和；`\sect` 是分节的**收尾**符，最后一节自己不带一个，
+    两份两节的件（`notes-hf.rtf`、`paper-a4.rtf`）都只写 1 个 —— 所以只交 `section_breaks`，
+    `sections` 仍然 null（+1 是推断，不是文件写的）。
+    ODF 那一族的换页住在段落样式上（`fo:break-before="page"`），不在正文元素里，
+    现在这一支还读不出来（`notes.odt` 报 0 而同一批字的 docx 报 1）—— 记在这里，不装看不见。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：

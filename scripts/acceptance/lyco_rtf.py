@@ -55,6 +55,10 @@ SKIP_DESTINATIONS = {
 
 # 断点类控制字 → 输出一个换行
 BREAK_WORDS = {"par", "line", "sect", "page", "pbb"}
+# 这一族按**词边界**数这几个断点词（子串数会骗人：`\pard` 里有 `\par`、
+# `\sectd` / `\sectx` 里有 `\sect`）。固定这六个键：数过了没有就交 0，
+# 「没有」与「没数」不是一件事
+BREAK_COUNT = ("par", "line", "page", "pagebb", "pbb", "sect")
 # 制表类（表格单元格与行分隔）→ 输出一个制表符
 TAB_WORDS = {"tab", "cell", "nestcell"}
 # 行结束：一行表格就是一行文本（把 \row 当制表符会把整张表挤成一行）
@@ -380,6 +384,8 @@ def rtf_text(data: bytes) -> dict:
         "nest_rows": 0,
         "nest_cells": 0,
         "fields": 0,
+        # 断点词各几条（只在没被跳过的那一层数：页眉里的 \par 不是正文的段）
+        "break_words": {one: 0 for one in BREAK_COUNT},
         # `{\*\atnauthor …}` 出现了几条：与 annotations 的条数不等就是文件自己没配上
         "atnauthors": 0,
         # 样式被用了几次：样式号 → 条数（正文里出现的 \sN，不含样式表自己的那些）
@@ -589,6 +595,12 @@ def rtf_text(data: bytes) -> dict:
                 stats["nest_rows"] += 1
             elif word == "nestcell":
                 stats["nest_cells"] += 1
+            # 断点词：按词边界数（`\pard` 不算 `\par`、`\sectd` 不算 `\sect`）。
+            # 这一族把「换页」写成三种词：`\page` 在这里换页、`\pagebb` / `\pbb`
+            # 是「这一段之前换页」，而 Word 那条 w:br type=page 在 LibreOffice 的
+            # RTF 导出里就是 `\pagebb`（三份件都这么量到）
+            if word in stats["break_words"]:
+                stats["break_words"][word] += 1
             # 样式被用了几次：正文里的 \sN（样式表那一群已被吃掉，不会自己数自己）。
             # 同一处也记下「这一段现在用的是哪个样式」—— 段属性就在 \par 之前
             if word == "s" and digits.isdigit():
@@ -663,6 +675,8 @@ def rtf_text(data: bytes) -> dict:
         # 解不动就只交原样那串（date_written），不替它挑历法
         "annotations": page["annotations"],
         "annotation_authors": stats["atnauthors"],
+        # 断点词的条数（六个键固定）：`\pagebb` 那一条就是 Word 的分页符换了一种写法
+        "break_words": dict(stats["break_words"]),
         "note_destinations": stats["note_destinations"],
         # 表那份账：六个数都是控制字的条数，不是「表」的推断
         "table_row_defines": stats["row_defines"],

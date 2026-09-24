@@ -682,6 +682,52 @@ def main() -> int:
         [one["text"] for one in dwant],
     )
 
+    # ── 2g) 断点：换页在这一族有三种写法，子串数还会把 \pard 当成 \par ──────────
+    print("=== 2g) RTF 的断点词（par / line / page / pagebb / pbb / sect） ===")
+    for name in ("notes.rtf", "notes-hf.rtf", "notes-end.rtf", "tables.rtf",
+                 "toc.rtf", "paper-a4.rtf", "comments.rtf"):
+        got = lbin("office-doc", fixture(name))
+        words = files[name]["rtf"]["break_words"]
+        check("%s 断点词六个键与读者一致" % name, dig(got, "structure.break_words"), words)
+        check(
+            "%s 换页与分节收尾符（合起来的那个数）" % name,
+            [dig(got, "structure.page_breaks"), dig(got, "structure.section_breaks")],
+            [words["page"] + words["pagebb"] + words["pbb"], words["sect"]],
+        )
+    # Word 的一条 `w:br w:type="page"` 被 LibreOffice 的 RTF 导出写成 `\pagebb`：
+    # 两家各自的数法不同，但「这份文档有一处换页」这个答案必须一样
+    check(
+        "同一批字的换页：docx 与 rtf 都是 1 处（写法两种）",
+        [
+            lbin("office-doc", fixture("notes.docx")).get("page_breaks"),
+            dig(lbin("office-doc", fixture("notes.rtf")), "structure.page_breaks"),
+            lbin("office-doc", fixture("toc.docx")).get("page_breaks"),
+            dig(lbin("office-doc", fixture("toc.rtf")), "structure.page_breaks"),
+        ],
+        [1, 1, 1, 1],
+    )
+    # `\sect` 是收尾符：两节的件只写一个，所以这里只交写了几个，`sections` 仍留 null
+    check(
+        "两份两节的件各写 1 个 sect（节数不推断）",
+        [
+            [
+                dig(lbin("office-doc", fixture(name)), "structure.section_breaks"),
+                dig(lbin("office-doc", fixture(name)), "structure.sections"),
+            ]
+            for name in ("notes-hf.rtf", "paper-a4.rtf")
+        ],
+        [[1, None], [1, None]],
+    )
+    check(
+        "子串数会骗人：notes.rtf 里 \\page 一条也没有（pagebb 才是那条换页）",
+        [
+            fixture("notes.rtf").read_bytes().count(b"\\page"),
+            dig(lbin("office-doc", fixture("notes.rtf")), "structure.break_words.page"),
+            dig(lbin("office-doc", fixture("notes.rtf")), "structure.break_words.pagebb"),
+        ],
+        [1, 0, 1],
+    )
+
     # 尾注那一条分支第一次有真件：notes-end.docx 的 word/endnotes.xml 是 LibreOffice 的
     # docx 导出器写的（它把两条分隔符写成 <w:separator/> 那一族），
     # 于是「有几条真尾注」这一半也有了对证，不再只是「部件不在=0」
