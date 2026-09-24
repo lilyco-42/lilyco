@@ -845,7 +845,7 @@ fn xml(bytes: &[u8], want: &str) -> Option<zipread::Member> {
 /// 这个部件自己的关系表：交回「Type 结尾那个名字」与「解析成包内全名的 Target」。
 /// 批注、图这些都从这一张表上跳；两种生产者的 Target 写法不同（绝对的 `/xl/...`
 /// 与相对的 `../...`）由 `resolve_target` 吃掉
-fn rels_of(bytes: &[u8], part: &str) -> Vec<(String, String)> {
+pub(crate) fn rels_of(bytes: &[u8], part: &str) -> Vec<(String, String)> {
     let dir = match part.rsplit_once('/') {
         Some((head, _)) => head.to_string(),
         None => String::new(),
@@ -902,7 +902,7 @@ fn sheet_charts(bytes: &[u8], part: &str, limit: usize) -> Vec<Value> {
 /// 是两个生产者对同一段格子的两种写法，替它们归一化就是替文件编东西）。
 /// 缓存那份另说：openpyxl 一个字都不写（于是「图里画的是哪些数」判不住），
 /// LibreOffice 写 `ptCount` 自报的点数与实际点数一起交，对不上就看得见
-fn chart_ref(node: &xmlscan::Node) -> Value {
+pub(crate) fn chart_ref(node: &xmlscan::Node) -> Value {
     let Some(one) = node
         .children
         .iter()
@@ -963,7 +963,7 @@ fn no_ref() -> Value {
 }
 
 /// 一张图：类型那一组（`barChart` 与 `lineChart` 这些）、标题的两种写法、每条系列
-fn chart_one(root: &xmlscan::Node, part: &str) -> Value {
+pub(crate) fn chart_one(root: &xmlscan::Node, part: &str) -> Value {
     let Some(chart) = root.descendants("chart").first().copied() else {
         return json!({"part": part, "present": false});
     };
