@@ -1389,27 +1389,27 @@ mod tests {
     fn xls_comments_are_paired_out_of_two_record_kinds() {
         let out = run("cell-notes-many.xls");
         assert_eq!(out["workbook"]["totals"]["comments"], 4, "{out}");
-        let expect = json!([
-            {"sheet": "预算表", "ref": "A1", "author": "AB", "text": "one"},
-            {
+        let expect: Vec<Value> = vec![
+            json!({"sheet": "预算表", "ref": "A1", "author": "AB", "text": "one"}),
+            json!({
                 "sheet": "预算表",
                 "ref": "C5",
                 "author": "张三",
                 "text": "第一行\n第二行"
-            },
-            {
+            }),
+            json!({
                 "sheet": "预算表",
                 "ref": "AA100",
                 "author": "欧阳锋",
                 "text": "这里要补上不含税口径"
-            },
-            {
+            }),
+            json!({
                 "sheet": "第二张",
                 "ref": "B2",
                 "author": "李四",
                 "text": "第二张单已确认"
-            },
-        ]);
+            }),
+        ];
         let mut got: Vec<Value> = Vec::new();
         for sheet in out["sheets"].as_array().expect("是数组") {
             for one in sheet["comment_list"].as_array().expect("是数组") {

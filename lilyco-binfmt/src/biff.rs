@@ -464,7 +464,7 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                 texts_of
                     .entry(name)
                     .or_default()
-                    .push(one.unwrap_or_else(|| (String::new(), false)));
+                    .push(one.unwrap_or_default());
             }
             NOTE_CELL => {
                 let Some(name) = belongs else { continue };
@@ -483,7 +483,8 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                     decode_cp1252(cut)
                 };
                 cells_of.entry(name).or_default().push(Comment {
-                    reference: a1(u32::from(row), u32::from(col)),
+                    // le16 交回的是 u64（值域还是那 16 位），与 LABELSST 那一支同一种写法
+                    reference: a1(row as u32, col as u32),
                     author,
                     text: String::new(),
                     whole: cut.len() == need,
