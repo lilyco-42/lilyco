@@ -571,6 +571,11 @@ mod tests {
             custom: BTreeMap::new(),
             year1904: false,
             notes: Vec::new(),
+            xf_rows: Vec::new(),
+            font_rows: Vec::new(),
+            fill_rows: Vec::new(),
+            border_rows: Vec::new(),
+            ledger: Value::Null,
         };
         assert_eq!(styles.kind_of(0), Kind::General);
         assert_eq!(styles.kind_of(1), Kind::Date, "内置 14 = mm-dd-yy");
