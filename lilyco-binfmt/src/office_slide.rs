@@ -28,7 +28,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-slide",
     run = "run_office_slide",
-    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP answers with its own ladder: pages are draw:page (name on draw:name), the title comes from the frame whose presentation:class is title, speaker notes are the presentation:class=notes frame inside presentation:notes - the page-number placeholder sitting next to it holds the literal sample text <编号> and is never reported as slide content - and the page size is resolved through draw:master-page-name to styles.xml's style:master-page and then its style:page-layout. A file may name a presentation page layout (presentation-page-layout-name) without carrying any definition for it, which this command reports instead of inventing one. Legacy .ppt is a PowerPoint 97 record tree rather than a package: it reports the record / container / text-atom counts and one entry per slide, because containers of recType 0x03EE occur exactly one per slide and their subtrees hold that slide's text atoms - a correspondence this reader measured against the very same document's .pptx form (count, order, and every line), not a name it copied from the spec, which is why the entries carry record offsets and not spec names. Text that belongs to no such container (master and layout placeholder wording) is counted but not attributed to a page. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
+    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP answers with its own ladder: pages are draw:page (name on draw:name), the title comes from the frame whose presentation:class is title, speaker notes are the presentation:class=notes frame inside presentation:notes - the page-number placeholder sitting next to it holds the literal sample text <编号> and is never reported as slide content - and the page size is resolved through draw:master-page-name to styles.xml's style:master-page and then its style:page-layout. A file may name a presentation page layout (presentation-page-layout-name) without carrying any definition for it, which this command reports instead of inventing one. Legacy .ppt is a PowerPoint 97 record tree rather than a package: it reports the record / container / text-atom counts and one entry per slide, because containers of recType 0x03EE occur exactly one per slide and their subtrees hold that slide's text atoms - a correspondence this reader measured against the very same document's .pptx form (count, order, and every line), not a name it copied from the spec, which is why the entries carry record offsets and not spec names. Text that belongs to no such container (master and layout placeholder wording) is counted but not attributed to a page. A slide's charts are read from the page's own relationships (only entries whose Type ends in `chart`), never by listing ppt/charts/: LibreOffice drops style and colors parts into that same directory, so counting files there would report six charts where the page carries two. Each chart reports its part, title, whether any value was cached, and per plot group the kind (barChart / pieChart ...), the direct children's val attributes as written, the axis ids kept apart (each producer numbers them differently, and python-pptx even writes negative ones) and one entry per series with the reference string and the cached points. The reference strings are NOT comparable across producers here: python-pptx writes the real hop into the chart's own embedded workbook (`Sheet1!$B$1`), while LibreOffice's pptx export puts literal labels in the same place (`label 0`, `categories`, `0`) - the cached numbers survive that rewrite unchanged, which is why both are reported instead of a single reconciled answer. Two counters keep runs and paragraphs apart: paragraph_total counts a:p inside p:sp, text_runs counts a:t, and the same deck from the two producers reads 3/1 paragraphs with 3 versus 5 runs - joining runs into paragraph text is what makes the wording comparable at all. The slide size's own type attribute is reported only when written: python-pptx says screen4x3, LibreOffice omits it for the identical cx/cy, and it is left null rather than being called custom. ODP keeps charts as embedded chart objects and .ppt inside the record tree; neither is read, so a slide there carries no charts entry at all. Returns { path, format, kind, order, slides, size, masters, layouts, media, notes, fonts, tables, watch }."
 )]
 pub struct OfficeSlide {
     /// 演示文稿（pptx / pptm / odp / ppt）
@@ -76,7 +76,10 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
                     "cy": emu(one.attr("cy")),
                     // 文件自己写的那个属性就叫 type；这里若也叫 format，
                     // 同一个 JSON 里「format」就会一会儿指文件类型、一会儿指画幅。
-                    "type": one.attr("type").unwrap_or("custom"),
+                    // 没写就是没写：python-pptx 那份写 `type="screen4x3"`，LibreOffice 重写
+                    // 同一份稿子时把这个属性整个省掉（尺寸还是同一个数），替它填一个
+                    // "custom" 就是替文件编东西 —— 尺寸那两个数才是这一家说过的话。
+                    "type": one.attr("type").map(String::from),
                 })
             })
             .unwrap_or(Value::Null);
@@ -174,12 +177,32 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
                     })
                     .collect::<Vec<Value>>()
             });
+            // 这一页的图：只认页自己关系表里 kind 是 chart 的那几条。LibreOffice 往
+            // `ppt/charts/` 里另塞了 style 与 colors 部件，按目录数就会多数；
+            // 两家的 Target 都是相对的（`../charts/chartN.xml`），解法同一家族
+            let page_charts: Vec<Value> = crate::office_sheet::rels_of(bytes, &part)
+                .into_iter()
+                .filter(|(kind, _)| kind == "chart")
+                .take(limit)
+                .filter_map(|(_, target)| {
+                    let member = xml(bytes, &target)?;
+                    Some(crate::office_sheet::chart_one(
+                        &xmlscan::parse_str(&member.as_text()),
+                        &target,
+                    ))
+                })
+                .collect();
             slides.push(json!({
                 "part": part,
                 "show_index": entry["show_index"],
+                "charts": page_charts.len(),
+                "chart_list": page_charts,
                 "title": title,
                 "paragraph_total": total_paragraphs,
                 "paragraphs": paragraphs,
+                // run 的条数（`a:t`）：同一段字在两家手里可以是一个 run 也可以是三个，
+                // 段落数一致而这一数不同，正是 paragraph_text 那一步在替两边对上
+                "text_runs": slide_root.descendants("t").len(),
                 "shapes": slide_root.descendants("sp").len(),
                 "pictures": slide_root.descendants("pic").len(),
                 "tables": slide_root.descendants("tbl").len(),
@@ -507,6 +530,118 @@ mod tests {
         };
         let (tx, _rx) = mpsc::channel();
         run_office_slide(&app, &Context::new_test(tx)).expect("office-slide 应成功")
+    }
+
+    /// 演示稿上的图：一页两张（柱形与饼图），第二页一张也没有；
+    /// 同一批格子在 LibreOffice 重写之后引用串不再是引用
+    #[test]
+    fn charts_on_a_slide_come_from_the_page_relationships() {
+        let deck = run("deck-chart.pptx");
+        let slides = deck["slides"].as_array().expect("是数组");
+        assert_eq!(slides.len(), 2, "{:?}", deck["order"]);
+        assert_eq!(slides[0]["charts"], 2, "一页两张图挂在同一页上");
+        assert_eq!(slides[1]["charts"], 0, "没挂图的那页报 0");
+        let bar = &slides[0]["chart_list"][0];
+        assert_eq!(bar["part"], "ppt/charts/chart1.xml", "{bar}");
+        assert_eq!(bar["present"], json!(true));
+        assert_eq!(bar["cached"], json!(true), "python-pptx 把值缓存了");
+        assert_eq!(bar["title"]["via"], Value::Null, "这份没写标题");
+        let group = &bar["groups"][0];
+        assert_eq!(group["kind"], "barChart", "{group}");
+        assert_eq!(group["written"]["barDir"], "col");
+        assert_eq!(group["written"]["grouping"], "clustered");
+        assert_eq!(group["series"], 2);
+        let ser = &group["series_list"][0];
+        assert_eq!(
+            ser["name"]["ref"], "Sheet1!$B$1",
+            "引用指的是内嵌那张工作簿的表名：{ser}"
+        );
+        assert_eq!(ser["name"]["cache"]["values"], json!(["收入"]));
+        assert_eq!(ser["cat"]["cache"]["values"], json!(["一月", "二月"]));
+        assert_eq!(ser["val"]["cache"]["values"], json!([10.0, 25.0]));
+        assert_eq!(ser["val"]["cache"]["whole"], json!(true));
+        let pie = &slides[0]["chart_list"][1];
+        assert_eq!(pie["groups"][0]["kind"], "pieChart", "{pie}");
+        assert_eq!(pie["groups"][0]["axis_ids"], json!([]), "饼图不连轴");
+        assert_eq!(pie["groups"][0]["written"]["varyColors"], "1");
+        assert_eq!(
+            pie["groups"][0]["series_list"][0]["val"]["cache"]["values"],
+            json!([124000.0, 18000.0])
+        );
+
+        let lo = run("deck-chart-lo.pptx");
+        let mine = &lo["slides"][0]["chart_list"][0]["groups"][0]["series_list"][0];
+        assert_eq!(
+            mine["name"]["ref"], "label 0",
+            "重写之后 c:f 里写的已经不是引用：{mine}"
+        );
+        assert_eq!(mine["cat"]["ref"], "categories", "{mine}");
+        assert_eq!(mine["val"]["ref"], "0", "{mine}");
+        assert_eq!(
+            mine["val"]["cache"]["values"],
+            json!([10.0, 25.0]),
+            "引用串丢了，缓存的数还在"
+        );
+        assert_eq!(
+            lo["slides"][0]["chart_list"][1]["title"]["text"], "占比",
+            "饼图的标题是 LO 那一份才写的"
+        );
+        // 两家同一页的图数与部件名一致；不认识的 style 与 colors 部件不算图
+        assert_eq!(
+            deck["slides"][0]["chart_list"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .map(|one| one["part"].as_str().unwrap_or_default())
+                .collect::<Vec<&str>>(),
+            lo["slides"][0]["chart_list"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .map(|one| one["part"].as_str().unwrap_or_default())
+                .collect::<Vec<&str>>()
+        );
+
+        // 段落级的字与 run 的条数：同一段在一家是一个 run、在另一家是三个
+        let plain = run("deck.pptx");
+        let again = run("deck-lo.pptx");
+        assert_eq!(plain["slides"][0]["paragraph_total"], 3, "{plain}");
+        assert_eq!(
+            again["slides"][0]["paragraph_total"], 3,
+            "段落数不受 run 拆分影响"
+        );
+        assert_eq!(plain["slides"][0]["text_runs"], 3, "{plain}");
+        assert_eq!(
+            again["slides"][0]["text_runs"], 5,
+            "同一页的字被切成五个 run：{again}"
+        );
+        assert_eq!(
+            plain["slides"][0]["paragraphs"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .map(|one| one["text"].as_str().unwrap_or_default())
+                .collect::<Vec<&str>>(),
+            again["slides"][0]["paragraphs"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .map(|one| one["text"].as_str().unwrap_or_default())
+                .collect::<Vec<&str>>()
+        );
+        // 那张纸的尺寸：两个数一致，而 type 这个属性只有一家有
+        assert_eq!(
+            plain["size"]["cx"], again["size"]["cx"],
+            "{:?}",
+            plain["size"]
+        );
+        assert_eq!(plain["size"]["cy"], again["size"]["cy"]);
+        assert_eq!(plain["size"]["type"], "screen4x3");
+        assert_eq!(
+            again["size"]["type"],
+            Value::Null,
+            "LibreOffice 不写这个属性，就别替它编一个 custom"
+        );
     }
 
     /// python-pptx 那份两页的稿子：顺序、标题、备注、媒体、版式数

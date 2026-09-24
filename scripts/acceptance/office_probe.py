@@ -20,6 +20,7 @@ import json
 import os
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -132,6 +133,13 @@ def main() -> int:
         "notes-en.docx": ("ooxml", "word", "docx"),
         "book.xlsx": ("ooxml", "excel", "xlsx"),
         "deck.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-lo.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-chart.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-chart-lo.pptx": ("ooxml", "powerpoint", "pptx"),
+        "chart.xlsx": ("ooxml", "excel", "xlsx"),
+        "chart-lo.xlsx": ("ooxml", "excel", "xlsx"),
+        "rules.xlsx": ("ooxml", "excel", "xlsx"),
+        "rules-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "notes.odt": ("opendocument", "word", "odt"),
         "book.ods": ("opendocument", "excel", "ods"),
         "deck.odp": ("opendocument", "powerpoint", "odp"),
@@ -832,6 +840,111 @@ def main() -> int:
     check("deck.pptx 每页备注", [one["notes"] for one in slide.get("slides", [])], [one["notes"] for one in deck_want["slides"]])
     check("deck.pptx 母版数", len(slide.get("masters", [])), len(deck_want["masters"]))
     check("deck.pptx 版式数", len(slide.get("layouts", [])), len(deck_want["layouts"]))
+
+    # ── 2f) 演示稿的第二生产者与那两张图：同一份稿子中一家会重写什么 ──────
+    print("=== 2f) 两家写的 pptx 与页上的图 ===")
+    for name in ("deck.pptx", "deck-lo.pptx", "deck-chart.pptx", "deck-chart-lo.pptx"):
+        want = files[name]["ooxml"]
+        got = lbin("office-slide", fixture(name))
+        check("%s 页数" % name, len(got.get("slides", [])), want["slide_count"])
+        check("%s 每页的图整份账（部件、类型、系列与缓存）" % name,
+              [one.get("chart_list") for one in got.get("slides", [])],
+              [one.get("chart_list") for one in want["slides"]])
+        check("%s 每页图的条数" % name, [one.get("charts") for one in got.get("slides", [])],
+              [one.get("charts") for one in want["slides"]])
+        check("%s 每页 run 的条数（a:t）" % name,
+              [one.get("text_runs") for one in got.get("slides", [])],
+              [one.get("text_runs") for one in want["slides"]])
+        check("%s 那张纸的尺寸与 type（没写就是 null）" % name,
+            [dig(got, "size.cx"), dig(got, "size.cy"), dig(got, "size.type")],
+            [int(want["slide_size"].split("x")[0]), int(want["slide_size"].split("x")[1].split(":")[0]),
+             want["slide_size_type"]])
+        check("%s 版式与母版的条数" % name,
+              [len(got.get("layouts", [])), len(got.get("masters", []))],
+              [len(want["layouts"]), len(want["masters"])])
+    plain = lbin("office-slide", fixture("deck.pptx"))
+    again = lbin("office-slide", fixture("deck-lo.pptx"))
+    deck1 = lbin("office-slide", fixture("deck-chart.pptx"))
+    deck2 = lbin("office-slide", fixture("deck-chart-lo.pptx"))
+    check(
+        "同一段字在一家是一个 run、在另一家是三个：段落数不变",
+        [[one.get("paragraph_total") for one in plain.get("slides", [])],
+         [one.get("paragraph_total") for one in again.get("slides", [])],
+         [one.get("text_runs") for one in plain.get("slides", [])],
+         [one.get("text_runs") for one in again.get("slides", [])]],
+        [[3, 1], [3, 1], [3, 5], [5, 5]],
+    )
+    check(
+        "两家的段落文本逐条一致（run 拆分看不见了）",
+        [[p2.get("text") for p2 in one.get("paragraphs", [])] for one in plain.get("slides", [])],
+        [[p2.get("text") for p2 in one.get("paragraphs", [])] for one in again.get("slides", [])],
+    )
+    check(
+        "尺寸两个数一致，type 只有 python-pptx 那份写了",
+        [dig(plain, "size.cx"), dig(again, "size.cx"), dig(plain, "size.type"),
+         dig(again, "size.type")],
+        [9144000, 9144000, "screen4x3", None],
+    )
+    check(
+        "一页两张图：柱形两条系列、饼图一条，第二页 0 张",
+        [[one.get("charts") for one in deck1.get("slides", [])],
+         [dig(deck1, "slides[0].chart_list[0].groups[0].kind"),
+          dig(deck1, "slides[0].chart_list[0].groups[0].series"),
+          dig(deck1, "slides[0].chart_list[1].groups[0].kind"),
+          dig(deck1, "slides[0].chart_list[1].groups[0].series")]],
+        [[2, 0], ["barChart", 2, "pieChart", 1]],
+    )
+    with zipfile.ZipFile(fixture("deck-chart-lo.pptx")) as box:
+        in_chart_dir = sorted(one for one in box.namelist() if one.startswith("ppt/charts/"))
+    check(
+        "图只认页的关系表：LO 另塞进 ppt/charts/ 的 style 与 colors 部件不算图",
+        [len((deck2.get("slides") or [{}])[0].get("chart_list", [])), len(in_chart_dir)],
+        [2, 8],
+    )
+    check(
+        "那个目录里确实有 style 与 colors 部件（按目录数就会数成六张图）",
+        sorted(one.rsplit("/", 1)[-1] for one in in_chart_dir if one.endswith(".xml")),
+        ["chart1.xml", "chart2.xml", "colors1.xml", "colors2.xml",
+         "style1.xml", "style2.xml"],
+    )
+    check(
+        "引用串照文件交：LO 重写后 c:f 里写的是 label 0 而不是 Sheet1!$B$1",
+        [dig(deck1, "slides[0].chart_list[0].groups[0].series_list[0].name.ref"),
+         dig(deck2, "slides[0].chart_list[0].groups[0].series_list[0].name.ref"),
+         dig(deck1, "slides[0].chart_list[0].groups[0].series_list[0].cat.ref"),
+         dig(deck2, "slides[0].chart_list[0].groups[0].series_list[0].cat.ref"),
+         dig(deck1, "slides[0].chart_list[0].groups[0].series_list[0].val.ref"),
+         dig(deck2, "slides[0].chart_list[0].groups[0].series_list[0].val.ref")],
+        ["Sheet1!$B$1", "label 0", "Sheet1!$A$2:$A$3", "categories",
+         "Sheet1!$B$2:$B$3", "0"],
+    )
+    check(
+        "引用丢了缓存还在：两家画的数一模一样",
+        [dig(deck1, "slides[0].chart_list[0].groups[0].series_list[0].val.cache.values"),
+         dig(deck2, "slides[0].chart_list[0].groups[0].series_list[0].val.cache.values"),
+         dig(deck1, "slides[0].chart_list[0].groups[0].series_list[0].val.cache.written"),
+         dig(deck2, "slides[0].chart_list[0].groups[0].series_list[0].val.cache.written"),
+         dig(deck2, "slides[0].chart_list[1].groups[0].series_list[0].val.cache.values")],
+        [[10.0, 25.0], [10.0, 25.0], "2", "2", [124000.0, 18000.0]],
+    )
+    check(
+        "轴 id 各排各的：柱形两条、饼图没有",
+        [len(dig(deck1, "slides[0].chart_list[0].groups[0].axis_ids") or []),
+         len(dig(deck2, "slides[0].chart_list[0].groups[0].axis_ids") or []),
+         len(dig(deck1, "slides[0].chart_list[1].groups[0].axis_ids") or [])],
+        [2, 2, 0],
+    )
+    check(
+        "标题只有 LO 那一份给饼图写了",
+        [dig(deck1, "slides[0].chart_list[1].title.via"), dig(deck1, "slides[0].chart_list[1].title.text"),
+         dig(deck2, "slides[0].chart_list[1].title.via"), dig(deck2, "slides[0].chart_list[1].title.text")],
+        [None, None, "text", "占比"],
+    )
+    # .ppt 与 .odp 这两家的图还没读：一个住在二进制记录树里，一个是嵌入的 chart 对象
+    for name in ("deck.ppt", "deck.odp"):
+        check("%s 这一族的图没读：没有一页带 charts 那份账" % name,
+              len([one for one in lbin("office-slide", fixture(name)).get("slides", [])
+                   if one.get("charts") is not None]), 0)
 
     sheet = lbin("office-text", fixture("book.xlsx"))
     check("book.xlsx 有文字内容", sheet.get("kind") in ("cells", "shared-strings"), True)

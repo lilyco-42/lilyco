@@ -27,6 +27,14 @@ SCRATCH = OUT / ".producer"
 
 # 这些串是全部断言的锚点：改了它们就得同时改测试
 MARK_TITLE = "季度预算说明"
+# 演示稿那两张图的锚点（改了它们就得同时改 office-slide 的测试）
+PPT_CHART_HEAD = "逐月收支"
+PPT_CHART_CATS = ("一月", "二月")
+PPT_CHART_SER_1 = "收入"
+PPT_CHART_SER_2 = "支出"
+PPT_CHART_PIE_CATS = ("服务器", "网络")
+PPT_CHART_PIE_SER = "占比"
+PPT_CHART_PLAIN = "这一页一张图也没有"
 MARK_BODY = "第三季度服务器预算为十二万四千元"
 MARK_HEADING = "一级标题：预算口径"
 MARK_SHEET = "预算表"
@@ -809,6 +817,46 @@ def write_rules_xlsx(path: Path) -> None:
     wb.save(path)
 
 
+def write_pptx_charts(path: Path) -> None:
+    """python-pptx：同一页两张图（柱形与饼图），第二页一张也没有。
+
+    与 xlsx 那两份图件配成一对：同一套 `c:ser` 的读法要能在两种宿主里走通，而 pptx
+    这一家另有两件事要量：图的引用指向的是**内嵌的那张工作簿**（`ppt/embeddings/*.xlsx`
+    里那张表的 `Sheet1!$B$1`，不是演示文稿自己的表），以及 LibreOffice 重写这一族时
+    往 `ppt/charts/` 里多塞 style 与 colors 部件 —— 按目录数图就会多数。
+    """
+    from pptx import Presentation
+    from pptx.chart.data import CategoryChartData
+    from pptx.enum.chart import XL_CHART_TYPE
+    from pptx.util import Inches, Pt
+
+    deck = Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[6])
+    box = slide.shapes.add_textbox(Inches(1), Inches(0.4), Inches(6), Inches(0.8))
+    box.text_frame.text = PPT_CHART_HEAD
+    box.text_frame.paragraphs[0].font.size = Pt(28)
+    box.text_frame.paragraphs[0].font.bold = True
+
+    bars = CategoryChartData()
+    bars.categories = list(PPT_CHART_CATS)
+    bars.add_series(PPT_CHART_SER_1, (10, 25))
+    bars.add_series(PPT_CHART_SER_2, (4, 9))
+    slide.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1.6),
+                           Inches(5), Inches(3.4), bars)
+
+    pie = CategoryChartData()
+    pie.categories = list(PPT_CHART_PIE_CATS)
+    pie.add_series(PPT_CHART_PIE_SER, (124000, 18000))
+    slide.shapes.add_chart(XL_CHART_TYPE.PIE, Inches(6.4), Inches(1.6),
+                           Inches(3), Inches(3.4), pie)
+
+    plain = deck.slides.add_slide(deck.slide_layouts[6])
+    plain.shapes.add_textbox(Inches(1), Inches(1), Inches(6), Inches(1)).text_frame.text = (
+        PPT_CHART_PLAIN
+    )
+    deck.save(str(path))
+
+
 def write_pptx(path: Path, art: Path) -> None:
     """python-pptx：两页、标题+正文占位符、备注、图片、表格、切换与母版"""
     from pptx import Presentation
@@ -1369,6 +1417,35 @@ def main() -> int:
             print("⚠️  没拿到 rules-lo.xlsx（.ods → .xlsx 那一转）")
     else:
         print("⚠️  没拿到 rules.ods")
+
+    # 演示稿的第二生产者与图那两份：同一份 pptx 让 LibreOffice 转 odp 再转回来，
+    # 版式与母版的条数、段落被拆成几个 run、`sldSz` 上那个 type 属性都会变
+    decklo = OUT / "deck-lo.pptx"
+    convert(exe, pptx, "odp", SCRATCH)
+    if (SCRATCH / "deck.odp").exists():
+        shutil.copyfile(SCRATCH / "deck.odp", SCRATCH / "deck-copy.odp")
+        convert(exe, SCRATCH / "deck-copy.odp", "pptx", SCRATCH / "deck-back")
+        back = SCRATCH / "deck-back" / "deck-copy.pptx"
+        if back.exists():
+            shutil.copyfile(back, decklo)
+        else:
+            print("⚠️  没拿到 deck-lo.pptx（.odp → .pptx 那一转）")
+    else:
+        print("⚠️  没拿到 deck.odp（第二轮的中间件）")
+
+    charts = OUT / "deck-chart.pptx"
+    write_pptx_charts(charts)
+    convert(exe, charts, "odp", SCRATCH)
+    if (SCRATCH / "deck-chart.odp").exists():
+        shutil.copyfile(SCRATCH / "deck-chart.odp", SCRATCH / "deck-chart-copy.odp")
+        convert(exe, SCRATCH / "deck-chart-copy.odp", "pptx", SCRATCH / "chart-back")
+        back = SCRATCH / "chart-back" / "deck-chart-copy.pptx"
+        if back.exists():
+            shutil.copyfile(back, OUT / "deck-chart-lo.pptx")
+        else:
+            print("⚠️  没拿到 deck-chart-lo.pptx")
+    else:
+        print("⚠️  没拿到 deck-chart.odp")
 
     # 脚注那一条分支：python-docx 给不出 word/footnotes.xml，让 LibreOffice 从 RTF 导入再写出
     foot_rtf = SCRATCH / "notes-foot.rtf"

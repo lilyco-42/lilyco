@@ -13,6 +13,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `book.xlsx` | openpyxl 3.1 | 三张表（其中一张 hidden）、公式、合并格、命名区域、表格部件、中文表名 |
 | `formats.xlsx` | openpyxl 3.1（`write_formats_xlsx`） | 日期格的 `s=` 指向 `cellXfs` 的**下标**而不是格式号；日期/百分比/货币被写成自定义号 164-168（内置表查不到）；`C5` 的格式串带引号汉字字面量；**`C7` 是长得像日期的文本** |
 | `deck.pptx` | python-pptx | 两页：标题 + 正文 + 备注 + 图片；第二页一张 2×2 表；4:3 尺寸 |
+| `deck-lo.pptx` | LibreOffice（`deck.pptx` → .odp → .pptx） | 同一份稿子的第二个生产者：母版从 1 份变 11 份、版式从 11 变 9、`p:sldSz` 上那个 `type` 属性**整个省掉**（尺寸两个数一字不差），备注里多出一个页码占位（字面量 `<编号>`），而第一页那句「新增两台 64 核应用服务器」被切成三个 `a:t` —— 段落数仍然是 3 |
+| `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
+| `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
 | `deck.odp`（结构） | 同上 | 两页：`draw:name` 是「预算评审」与「第二页：数字」；第一页有 `presentation:class="notes"` 的备注（「评审时先讲口径再讲数字」），**旁边还坐着页码占位，里面的样字是 `<编号>`** —— 整页一把抓就会把它当正文；两个母版页名、两个版式名，但文件里没有任何版式定义；尺寸 25.4cm×19.05cm landscape 在 styles.xml 的 page-layout 里 |
 | `notes.odt`（结构） | 同上 | 10 段（2 段是空的）、两个带 `text:outline-level` 的标题、1 张 2×2 表（名叫「表格1」）、一条 `text:annotation` 批注、一个 `draw:frame`+`draw:image`、一个 `text:a` 超链接、5 个 `text:sequence-decl`；`meta.xml` 自报 paragraph-count 10 / page-count 2 / word-count 61 |
@@ -621,6 +624,27 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     第二张表两样都没有 → `conditional` 是空表、`validations.written` 是 null（「没写」）而 `found` 是 0。
     ODS 的条件格式住在 number 样式与 table 样式那一套上，.xls 是 BIFF 的 CONDFMT/DCON 记录 ——
     两边都没有量过的第二个读者，所以那一族的 `rules` 键整个不在。
+
+50. **同一页的图按关系表认，引用串跨生产者不可比**（`deck-chart.pptx` 与 `deck-chart-lo.pptx`）。
+    pptx 的图与 xlsx 那一份共用同一套 `c:ser` 形状，但换了宿主就多两件事：
+    * **只认页自己关系表里 `Type` 结尾是 `chart` 的那几条**。LibreOffice 重写这一族时往
+      `ppt/charts/` 里另塞了 `style1.xml`、`colors1.xml` 这些部件（那份件里这个目录一共 8 个条目），
+      按目录数就会数出六张图而实际两张；两家的 Target 都是相对的（`../charts/chartN.xml`），
+      但顺序不同（LO 把 chart 排在 slideLayout 前面），所以归位靠 kind，不靠下标。
+    * **引用串指的是哪张表**：python-pptx 写 `Sheet1!$B$1` —— 那是图自带的那张内嵌工作簿
+      （`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx`）里的表名，不是演示文稿的表；而 LibreOffice
+      的 pptx 导出在同一个位置写字面量 `label 0`、`categories`、`0`、`1`。同一条系列的
+      `c:val/c:numCache` 里 10 与 25 一字不差 —— 所以两边都交、不替它们对成一个答案：
+      一家丢了引用留着数，一家两样都有，这正是要「按文件自己写的报」的地方。
+    * 轴 id 更不可比：python-pptx 写**负数**（`-2068027336`），LibreOffice 写正数，饼图两家都不写轴，
+      于是只交个数。
+    `deck.pptx` 与 `deck-lo.pptx` 那一对另外钉住两件事：同一段字在一家是一个 `a:t`、在另一家是三个
+    （`新增两台 ` / `64 ` / `核应用服务器`），所以 `text_runs` 一份 3 一份 5，而 `paragraph_total`
+    两份都是 3 —— 段落这一级才是稳定的，把 run 并成段里的字才谈得上比对；还有 `p:sldSz` 那个
+    `type` 属性，python-pptx 写 `screen4x3`、LibreOffice 同样的 cx/cy 把它省掉，那一家就交 null
+    （以前替它编一个 "custom"，那是把没写的当成写了）。
+    ODP 的图是嵌入对象（`Object N/` 那一堆 chart 部件），.ppt 住在记录树里 —— 两边都没读，
+    所以那一族的页上不带 `charts` 键。
 
 ## 这些数字从哪来
 

@@ -819,23 +819,36 @@ def pptx_facts(path: Path) -> dict:
                     notes = " ".join(
                         "".join(one.itertext()) for one in nroot.iter() if xml_local(one.tag) == "t"
                     )
+        # 这一页的图：页的关系表里 kind 是 chart 的那几条（LibreOffice 另往 ppt/charts/
+        # 里塞 style 与 colors 部件，所以只认关系，不按目录数）
+        page_charts = []
+        for kind, target in rels_of_parts(parts, name):
+            if kind == "chart" and target in parts:
+                page_charts.append(chart_one(ET.fromstring(parts[target]), target))
         out_slides.append(
             {
                 "part": name,
                 "title": texts[0] if texts else "",
                 "texts": texts,
+                "text_runs": len(texts),
                 "shapes": len(shapes),
                 "pictures": len(pics),
                 "graphic_frames": len(tables),
                 "placeholders": placeholders,
                 "notes": notes.strip(),
+                "charts": len(page_charts),
+                "chart_list": page_charts,
             }
         )
     pres = ET.fromstring(parts["ppt/presentation.xml"])
     size = ""
+    size_type = None
     for one in pres.iter():
         if xml_local(one.tag) == "sldSz":
             size = f'{one.get("cx")}x{one.get("cy")}:{one.get("type", "")}'
+            # type 这个属性 python-pptx 写了、LibreOffice 重写同一份稿子时整个省掉：
+            # 没写就是没写，不替它填 "custom"
+            size_type = one.get("type")
     sld_master_ids = [
         one.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
         for one in pres.iter()
@@ -845,6 +858,7 @@ def pptx_facts(path: Path) -> dict:
         "slide_count": len(slides),
         "slides": out_slides,
         "slide_size": size,
+        "slide_size_type": size_type,
         "masters": sorted(one for one in names if one.startswith("ppt/slideMasters/slideMaster")),
         "master_refs": len(sld_master_ids),
         "layouts": sorted(one for one in names if one.startswith("ppt/slideLayouts/slideLayout")),
