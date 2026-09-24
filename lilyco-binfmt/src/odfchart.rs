@@ -25,7 +25,7 @@ pub(crate) fn attrs_of(node: &xmlscan::Node) -> Value {
     Value::Object(out)
 }
 
-pub(crate) fn attr_of(node: &xmlscan::Node, want: &str) -> Option<&str> {
+pub(crate) fn attr_of<'a>(node: &'a xmlscan::Node, want: &str) -> Option<&'a str> {
     node.attrs
         .iter()
         .find(|(key, _)| {
@@ -75,7 +75,10 @@ fn chart_object(bytes: &[u8], folder: &str) -> Value {
         .first()
         .and_then(|one| attr_of(one, "class"))
         .map(String::from);
-    let title = root.descendants("title").first().and_then(text_of);
+    let title = root
+        .descendants("title")
+        .first()
+        .and_then(|one| text_of(one));
     let mut series: Vec<Value> = Vec::new();
     for one in root.descendants("series") {
         let points: Vec<&xmlscan::Node> = one

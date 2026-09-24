@@ -682,7 +682,7 @@ mod tests {
         assert_eq!(first["points_written"], 2, "repeated 说这一条顶两个点");
         let rows = bar["local_table"].as_array().expect("是数组");
         assert_eq!(rows.len(), 3, "{bar}");
-        assert_eq!(rows[1]["cells"][1]["value"], "10", "{rows}");
+        assert_eq!(rows[1]["cells"][1]["value"], "10", "{rows:?}");
         assert_eq!(rows[2]["cells"][2]["value"], "9");
         let pie = &slides[0]["chart_list"][1];
         assert_eq!(pie["title"], "占比", "饼图的标题只有 LO 那一份写了：{pie}");
