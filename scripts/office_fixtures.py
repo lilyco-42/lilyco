@@ -76,6 +76,11 @@ MARK_LIST_BULLET = "圆点列表第一项"
 MARK_LIST_DEEP_1 = "直接挂在段上的第一级"
 MARK_LIST_DEEP_2 = "直接挂在段上的第二级"
 MARK_LIST_DANGLING = "点了一个不存在的编号"
+# 格子底色/边框/垂直对齐那三格的锚点句，见 write_shaded_docx
+MARK_SHADE_FILL = "黄底"
+MARK_SHADE_BORDER = "上边一条双线"
+MARK_SHADE_ALIGN = "底对齐"
+MARK_SHADE_PLAIN = "什么都不设"
 
 
 def need_soffice() -> str:
@@ -961,6 +966,53 @@ def write_para_docx(path: Path) -> None:
     doc.save(path)
 
 
+def write_shaded_docx(path: Path) -> None:
+    """python-docx：一张 2×3 的表，四个格各带一种「格子自己的样子」
+
+    为什么存这一份：表格最常见的三个问题（这格有没有底色、有没有边框、字贴在格子的
+    上边还是下边）在 OOXML 里都写在**格子自己**的 `w:tcPr` 上，与表宽那三本账无关，
+    所以三个记号各摆一处、并且留两格**什么都不设** —— 不然「没底色」与「这一族不报底色」
+    分不开。三处都是 python-docx 没封装的写法（`shd` / `tcBorders` 只能手搓 `OxmlElement`，
+    `vAlign` 有封装），值都取不会看错的：底色 `FFFF00`、双线 `sz="6"` 红色、`bottom`。
+    """
+    from docx import Document
+    from docx.enum.table import WD_ALIGN_VERTICAL
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    table = doc.add_table(rows=2, cols=3)
+    one = table.cell(0, 0)
+    one.text = MARK_SHADE_FILL
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), "FFFF00")
+    one._tc.get_or_add_tcPr().append(shd)
+
+    two = table.cell(0, 1)
+    two.text = MARK_SHADE_BORDER
+    borders = OxmlElement("w:tcBorders")
+    top = OxmlElement("w:top")
+    top.set(qn("w:val"), "double")
+    top.set(qn("w:sz"), "6")
+    top.set(qn("w:space"), "0")
+    top.set(qn("w:color"), "FF0000")
+    borders.append(top)
+    two._tc.get_or_add_tcPr().append(borders)
+
+    three = table.cell(0, 2)
+    three.text = MARK_SHADE_ALIGN
+    three.vertical_alignment = WD_ALIGN_VERTICAL.BOTTOM
+
+    table.cell(1, 0).text = MARK_SHADE_PLAIN
+    table.cell(1, 1).text = "普通"
+    table.cell(1, 2).text = "普通"
+    doc.add_paragraph("表外的一段")
+    doc.core_properties.title = MARK_SHADE_FILL
+    doc.save(str(path))
+
+
 def write_list_docx(path: Path) -> None:
     """python-docx：一份文档把「这一段是不是列表项、编号从哪来」的三条路各走一遍
 
@@ -1642,6 +1694,16 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "para.rtf", OUT / "para.rtf")
     else:
         print("⚠️  没拿到 para.rtf")
+
+    # 格子底色/边框/对齐：shaded.docx 由 python-docx 写，shaded-lo.docx 是同一个格式重写
+    shaded = OUT / "shaded.docx"
+    write_shaded_docx(shaded)
+    convert(exe, shaded, "docx", SCRATCH / "shaded-back")
+    made_shaded = SCRATCH / "shaded-back" / "shaded.docx"
+    if made_shaded.exists():
+        shutil.copyfile(made_shaded, OUT / "shaded-lo.docx")
+    else:
+        print("⚠️  没拿到 shaded-lo.docx（docx → docx 那一转）")
 
     # 表宽那两份：tables-lo.docx 是「同一个格式重写」（LibreOffice 把 auto/0 换成实数）
     tab = OUT / "tables.docx"

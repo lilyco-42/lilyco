@@ -148,6 +148,8 @@ def main() -> int:
         "para.odt": ("opendocument", "word", "odt"),
         "para.rtf": ("rtf", "word", "rtf"),
         "tables-lo.docx": ("ooxml", "word", "docx"),
+        "shaded.docx": ("ooxml", "word", "docx"),
+        "shaded-lo.docx": ("ooxml", "word", "docx"),
         "lists.docx": ("ooxml", "word", "docx"),
         "lists-lo.docx": ("ooxml", "word", "docx"),
         "lists.odt": ("opendocument", "word", "odt"),
@@ -1187,6 +1189,35 @@ def main() -> int:
          dig(wide, "structure.table_layouts.list[0].grid[0].w")],
         [5, 3, 5080, "2880"],
     )
+    shade = lbin("office-doc", fixture("shaded.docx"))
+    shade_lo = lbin("office-doc", fixture("shaded-lo.docx"))
+    # 格子自己的三样各在一格，两格什么都没设
+    check(
+        "格子的底色、边框与垂直对齐（python-docx 那一份）",
+        [dig(shade, "structure.table_layouts.shade_cells"),
+         dig(shade, "structure.table_layouts.border_cells"),
+         dig(shade, "structure.table_layouts.align_cells"),
+         dig(shade, "structure.table_layouts.empty_border_cells"),
+         dig(shade, "structure.table_layouts.list[0].cells[0].shading"),
+         dig(shade, "structure.table_layouts.list[0].cells[1].borders"),
+         dig(shade, "structure.table_layouts.list[0].cells[2].valign"),
+         dig(shade, "structure.table_layouts.list[0].cells[3].borders_present")],
+        [1, 1, 1, 0, {"val": "clear", "color": "auto", "fill": "FFFF00"},
+         {"top": {"val": "double", "sz": "6", "space": "0", "color": "FF0000"}}, "bottom",
+         False],
+    )
+    # 重写那一家给每一格都补一个空的 tcBorders：「元素在而一条边都没有」不能与「整个不写」混
+    check(
+        "同一个格式重写：五格补了空的 tcBorders，值本身一个没改",
+        [dig(shade_lo, "structure.table_layouts.empty_border_cells"),
+         dig(shade_lo, "structure.table_layouts.border_cells"),
+         dig(shade_lo, "structure.table_layouts.list[0].cells[3].borders"),
+         dig(shade_lo, "structure.table_layouts.list[0].cells[3].borders_present"),
+         dig(shade_lo, "structure.table_layouts.list[0].cells[0].shading"),
+         dig(shade_lo, "structure.table_layouts.list[0].cells[2].valign")],
+        [5, 1, {}, True, {"val": "clear", "color": "auto", "fill": "FFFF00"}, "bottom"],
+    )
+
     for name in ("tables.rtf",):
         got = lbin("office-doc", fixture(name)).get("structure", {})
         check("%s 不报表宽：RTF 里没有「表宽」这个东西（只有 \intbl 与格分隔）" % name,

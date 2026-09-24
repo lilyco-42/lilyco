@@ -1229,6 +1229,7 @@ def docx_table_layouts(body, limit: int = 200) -> dict:
     tbls = [one for one in body.iter() if xml_local(one.tag) == "tbl"][:limit]
     entries = []
     said = auto_said = grid_sum = 0
+    shade_cells = border_cells = empty_border_cells = align_cells = 0
     for at, tbl in enumerate(tbls):
         props = _kid(tbl, "tblPr")
         width = _kid(props, "tblW") if props is not None else None
@@ -1251,14 +1252,43 @@ def docx_table_layouts(body, limit: int = 200) -> dict:
                 tc_pr = _kid(tc, "tcPr")
                 one_width = _kid(tc_pr, "tcW") if tc_pr is not None else None
                 span = _kid(tc_pr, "gridSpan") if tc_pr is not None else None
-                if one_width is None and span is None:
+                shd = _kid(tc_pr, "shd") if tc_pr is not None else None
+                edges = _kid(tc_pr, "tcBorders") if tc_pr is not None else None
+                align = _kid(tc_pr, "vAlign") if tc_pr is not None else None
+                border_map = (
+                    {
+                        xml_local(kid.tag): written_attrs(kid)
+                        for kid in edges
+                        if any(
+                            key.rsplit("}", 1)[-1].rsplit(":", 1)[-1] in ("val", "color")
+                            for key in kid.attrib
+                        )
+                    }
+                    if edges is not None
+                    else None
+                )
+                if (
+                    one_width is None
+                    and span is None
+                    and shd is None
+                    and align is None
+                    and not (edges is not None and len(edges))
+                ):
                     continue
+                shade_cells += 1 if shd is not None else 0
+                border_cells += 1 if border_map else 0
+                empty_border_cells += 1 if (edges is not None and not len(edges)) else 0
+                align_cells += 1 if align is not None else 0
                 cells.append(
                     {
                         "row": row,
                         "col": col,
                         "written": written_attrs(one_width) if one_width is not None else None,
                         "span": span.get(W_NS + "val") if span is not None else None,
+                        "shading": written_attrs(shd) if shd is not None else None,
+                        "borders": border_map,
+                        "borders_present": edges is not None,
+                        "valign": align.get(W_NS + "val") if align is not None else None,
                     }
                 )
         jc = _kid(props, "jc") if props is not None else None
@@ -1287,6 +1317,10 @@ def docx_table_layouts(body, limit: int = 200) -> dict:
         "with_tblW": said,
         "auto": auto_said,
         "grid_sum": grid_sum,
+        "shade_cells": shade_cells,
+        "border_cells": border_cells,
+        "empty_border_cells": empty_border_cells,
+        "align_cells": align_cells,
         "list": entries,
     }
 
