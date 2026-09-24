@@ -887,20 +887,19 @@ fn box_of(dict: &[u8], key: &[u8]) -> Option<String> {
 /// 键后面第一个非空白字符不是 `[` 时（写成间接引用）交回 None，不去后面找方括号
 fn refs_in_array(dict: &[u8], key: &[u8]) -> Option<usize> {
     let want = b"R".as_slice();
-    for at in key_positions(dict, key) {
-        let from = skip_spaces(dict, at + key.len());
-        if dict.get(from) != Some(&b'[') {
-            return None;
-        }
-        let close = find(dict, b"]", from)?;
-        return Some(
-            dict[from + 1..close]
-                .split(|one| is_space(*one))
-                .filter(|one| *one == want)
-                .count(),
-        );
+    // 只看键第一次出现的地方（写成间接引用就交回 None），所以取第一个位置而不是走一圈
+    let at = *key_positions(dict, key).first()?;
+    let from = skip_spaces(dict, at + key.len());
+    if dict.get(from) != Some(&b'[') {
+        return None;
     }
-    None
+    let close = find(dict, b"]", from)?;
+    Some(
+        dict[from + 1..close]
+            .split(|one| is_space(*one))
+            .filter(|one| *one == want)
+            .count(),
+    )
 }
 
 /// 文件里明写的 `N G obj … endobj`
