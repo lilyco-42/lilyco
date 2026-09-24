@@ -19,6 +19,8 @@ r"""RTF 正文提取：目标群感知、字符集感知的最小解释器。
 
 from __future__ import annotations
 
+import re
+
 BS = "\\"  # 一个反斜杠
 
 # 见到这些控制字就把所在群整群跳过：它们是表 / 元数据，不是正文
@@ -155,12 +157,37 @@ NOTE_DEFINITION_DESTINATIONS = {
     "ftnsep", "ftnsepc", "ftncn", "aftnsep", "aftnsepc", "aftncn",
 }
 
+# 链接在 RTF 里是一个域：`{\field{\*\fldinst HYPERLINK "地址" }{\fldrslt {显示文字}}}`。
+# 指令原文那一群照旧是「不认识就跳」的对象（它不是页面上的字），这一族本域认识的是
+# 里面的 `HYPERLINK "…"`，所以只**前瞻**读它，不推进游标 —— `\fldrslt` 的显示文字
+# 仍然要按正文留下来，那是 Word 与 LibreOffice 都遵守的一条口径
+FLDINST_HEAD = "{" + BS + "*" + BS + "fldinst"
+FLDRSLT_HEAD = "{" + BS + "fldrslt"
+LINK_INSTRUCTION = re.compile('HYPERLINK\\s+"([^"]*)"', re.IGNORECASE)
+
+
+def field_link(group: str) -> dict:
+    """从 `\field` 那一群的内部文本里取链接：指令里的地址 + `\fldrslt` 的显示文字"""
+    at = group.find(FLDINST_HEAD)
+    if at < 0:
+        return {}
+    _stop, instruction = group_end(group, at)
+    hit = LINK_INSTRUCTION.search(instruction)
+    if not hit:
+        return {}
+    shown = ""
+    nxt = group.find(FLDRSLT_HEAD)
+    if nxt >= 0:
+        _stop2, result = group_end(group, nxt)
+        shown = rtf_text(result.encode("latin-1", "replace"))["text"]
+    return {"target": hit.group(1), "text": shown}
+
 
 def rtf_text(data: bytes) -> dict:
     """返回 `{text, lines, line_count, chars, ...}`：计数都是文件自己账上的数"""
     text = data.decode("latin-1", "replace")
     out: list[str] = []
-    page: dict = {"headers": [], "footers": [], "notes": [], "destinations": 0}
+    page: dict = {"headers": [], "footers": [], "notes": [], "links": [], "destinations": 0}
     pending = bytearray()  # 连续的 \'hh 字节，攒着按字符集一起解
     skip: list[bool] = [False]
     codepage = 1252
@@ -183,6 +210,7 @@ def rtf_text(data: bytes) -> dict:
         "cell_paras": 0,
         "nest_rows": 0,
         "nest_cells": 0,
+        "fields": 0,
     }
 
     def flush() -> None:
@@ -319,6 +347,18 @@ def rtf_text(data: bytes) -> dict:
         elif word in OBJECT_WORDS:
             skip[-1] = True
             stats["objects"] += 1
+        elif word == "field":
+            # 域比链接多（页码、日期都是域），所以两个数分开交：条数是条数
+            stats["fields"] += 1
+            if not skip[-1]:
+                # 前瞻一步：读出这一群里的链接，但**不推进游标** ——
+                # `\fldrslt` 的显示文字是页面上的字，得留给正文
+                brace = text.find("{", j)
+                if brace >= 0:
+                    _stop, inner = group_end(text, brace)
+                    link = field_link(inner)
+                    if link:
+                        page["links"].append(link)
         elif not skip[-1]:
             if word in BREAK_WORDS or word in ROW_WORDS:
                 out.append("\n")
@@ -357,6 +397,9 @@ def rtf_text(data: bytes) -> dict:
         "footers": page["footers"],
         "page_destinations": page["destinations"],
         "notes": page["notes"],
+        # 链接：`{\field{\*\fldinst HYPERLINK "地址"}{\fldrslt 显示文字}}` 那一群读出来的
+        "links": page["links"],
+        "fields": stats["fields"],
         "note_destinations": stats["note_destinations"],
         # 表那份账：六个数都是控制字的条数，不是「表」的推断
         "table_row_defines": stats["row_defines"],

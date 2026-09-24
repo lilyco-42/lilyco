@@ -289,6 +289,19 @@ def main() -> int:
             ],
         )
 
+        # 链接与域：域指令那一群照旧跳过，但链接从这里读出来；显示文字仍在正文里
+        check(
+            "%s 链接与域的条数" % name,
+            [
+                dig(got, "structure.fields"),
+                [[one.get("target"), one.get("text")] for one in got.get("hyperlinks", [])],
+            ],
+            [
+                rwant["fields"],
+                [[one["target"], one["text"]] for one in rwant["links"]],
+            ],
+        )
+
     # 两张表那份（3×2 与 2×2）：同一批字的三副账要在行与格子上对得上，
     # 而「几张表」只有包着的两家敢报 —— RTF 那条流里判不住（规则在两份件上试过）
     print("=== 2c2) 表：三副账同样、tables 只两家报 ===")

@@ -92,6 +92,49 @@ fn group_end(bytes: &[u8], at: usize) -> (usize, Vec<u8>) {
     (bytes.len(), bytes[at.min(bytes.len())..].to_vec())
 }
 
+/// 链接：`{\field{\*\fldinst HYPERLINK "地址" }{\fldrslt {显示文字}}}`。
+/// 这两个前缀是文件里字面写的样子（一个反斜杠 + 一个星号 + 群名）
+const FLDINST_HEAD: &[u8] = b"{\\*\\fldinst";
+const FLDRSLT_HEAD: &[u8] = b"{\\fldrslt";
+
+/// 从一群 `\field …` 里读出一条链接：域指令里的地址 + `\fldrslt` 的显示文字。
+/// 读不出 HYPERLINK 就交回 None（页码、日期那些域不是链接）
+fn field_link(group: &[u8]) -> Option<Value> {
+    let at = windows_position(group, 0, FLDINST_HEAD)?;
+    let (_stop, instruction) = group_end(group, at + FLDINST_HEAD.len());
+    let target = hyperlink_target(&instruction)?;
+    let mut text = String::new();
+    if let Some(nxt) = windows_position(group, at, FLDRSLT_HEAD) {
+        let (_stop2, result) = group_end(group, nxt + FLDRSLT_HEAD.len());
+        text = extract(&result).text;
+    }
+    Some(json!({ "target": target, "text": text }))
+}
+
+/// `HYPERLINK "地址"` 里那段引号包住的地址。指令原文的大小写各家不同，这里按
+/// ASCII 大小写无关找字面量；地址本身照文件写的字节交回
+fn hyperlink_target(inst: &[u8]) -> Option<String> {
+    const WORD: &[u8] = b"HYPERLINK";
+    let low: Vec<u8> = inst.iter().map(|one| one.to_ascii_lowercase()).collect();
+    let at = windows_position(&low, 0, &WORD.to_ascii_lowercase())?;
+    let mut k = at + WORD.len();
+    while matches!(
+        inst.get(k),
+        Some(b' ') | Some(b'\t') | Some(b'\r') | Some(b'\n')
+    ) {
+        k += 1;
+    }
+    if inst.get(k) != Some(&b'"') {
+        return None;
+    }
+    k += 1;
+    let start = k;
+    while k < inst.len() && inst[k] != b'"' {
+        k += 1;
+    }
+    Some(String::from_utf8_lossy(&inst[start..k]).into_owned())
+}
+
 /// 单元格分隔：输出一个制表符
 const TAB_WORDS: &[&str] = &["tab", "cell", "nestcell"];
 /// 行结束：一行表格就是一行文本 —— 把 \row 当制表符会把整张表挤成一行
@@ -148,6 +191,12 @@ pub struct Rtf {
     /// 注的字**不混进正文** —— 它住在正文流里的一个目标群里，位置就在引用点后面
     pub note_list: Vec<Value>,
     pub note_destinations: usize,
+    /// 链接：`{\field{\*\fldinst HYPERLINK "地址" }{\fldrslt {显示文字}}}` 那一群读出来的。
+    /// 域指令那一群仍然是跳过的（它不是页面上的字），这里只是**前瞻**读它一眼，
+    /// 不推进游标 —— 显示文字照旧留在正文里
+    pub links: Vec<Value>,
+    /// `\field` 出现了几次（一份文档里域比链接多：页码、日期都是域）
+    pub fields: usize,
     /// 表那份账。这六个数都是**控制字本身的条数**（`\trowd` / `\row` / `\cell` / `\intbl`
     /// 与嵌套表那两个），不是「有几张表」的推断 —— 那条规则拿两份件试过：
     /// 一张 2×2 的对，两张（3×2 与 2×2）的把两张数成一张，所以这里只交数得清的
@@ -173,6 +222,8 @@ impl Rtf {
             "page_destinations": self.page_destinations,
             "note_list": self.note_list,
             "note_destinations": self.note_destinations,
+            "links": self.links,
+            "fields": self.fields,
             "line_count": self.lines.len(),
             "chars": self.text.chars().count(),
             "declared_codepage": self.declared_codepage,
@@ -215,6 +266,8 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         page_destinations: 0,
         note_list: Vec::new(),
         note_destinations: 0,
+        links: Vec::new(),
+        fields: 0,
         table_row_defines: 0,
         table_rows: 0,
         table_cells: 0,
@@ -414,6 +467,21 @@ pub fn extract(bytes: &[u8]) -> Rtf {
             let last = skip.len() - 1;
             skip[last] = true;
             me.embedded_objects += 1;
+        } else if word == "field" {
+            // 前瞻一步：找到紧跟这一群的那个 `{`，从群里读出链接。
+            // 不推进游标，也不改 skip —— `\fldrslt` 的显示文字是页面上的字，
+            // 而 `{\*\fldinst …}` 那一群照旧由 `\*` 那条规则处理（本域不认识就不进正文）
+            me.fields += 1;
+            if !skipping {
+                let brace = (j..bytes.len()).find(|&k| bytes[k] == b'{');
+                if let Some(at) = brace {
+                    // 先把这一群量到收尾，再在群内找 —— 不看后面域的字
+                    let (_stop, inner) = group_end(bytes, at);
+                    if let Some(link) = field_link(&inner) {
+                        me.links.push(link);
+                    }
+                }
+            }
         } else if !skipping {
             if BREAK_WORDS.contains(&word.as_str()) {
                 out.push(b'\n');
