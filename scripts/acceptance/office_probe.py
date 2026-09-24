@@ -149,6 +149,8 @@ def main() -> int:
         "rich.xlsx": ("ooxml", "excel", "xlsx"),
         "rich-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "rich.ods": ("opendocument", "excel", "ods"),
+        "styled.xlsx": ("ooxml", "excel", "xlsx"),
+        "styled-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "chart.xlsx": ("ooxml", "excel", "xlsx"),
         "chart-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "rules.xlsx": ("ooxml", "excel", "xlsx"),
@@ -3363,6 +3365,64 @@ def main() -> int:
          dig(rich_ods, "sheets[0].cell_list[7].text"),
          dig(rich_ods, "sheets[0].cell_list[0].specials")],
         [2, 1, 2, 1, "\ttab 开头", 0],
+    )
+
+    # ── 3h) 一个格子「长什么样」：cellXfs 之外的三张表 ─────────────────
+    print("=== 3h) 格子的长相：fontId / fillId / borderId 那一跳")
+    LOOK = ("style_written", "style", "style_found", "style_attrs", "style_font_id",
+            "style_font", "style_fill_id", "style_fill", "style_border_id", "style_border",
+            "style_alignment", "style_bold", "style_filled", "style_wrapped")
+    for name in ("styled.xlsx", "styled-lo.xlsx"):
+        got = lbin("office-sheet", fixture(name))
+        want = files[name]["ooxml"]
+        check("%s 那四张表自报的 count 与实际条数" % name, dig(got, "workbook.styles"),
+              want["style_tables"])
+        mine = {one.get("ref"): one for one in dig(got, "sheets[0].cell_list") or []}
+        theirs = {one["ref"]: one for one in want["cell_styles"]}
+        refs = sorted(theirs)
+        check(
+            "%s 每一格的长相整份与读者一致（三个号、三行表内容、三个开关）" % name,
+            [[(mine.get(ref) or {}).get(key) for key in LOOK] for ref in refs],
+            [[theirs[ref].get(key) for key in LOOK] for ref in refs],
+        )
+        check(
+            "%s 四本合计：几格粗体、几格有底、几格换行、几格连 s 都没写" % name,
+            [dig(got, "sheets[0].cells_bold"), dig(got, "sheets[0].cells_filled"),
+             dig(got, "sheets[0].cells_wrapped"),
+             dig(got, "sheets[0].cells_without_style_written"),
+             dig(got, "workbook.totals.cells_bold")],
+            [want["cells_bold"], want["cells_filled"], want["cells_wrapped"],
+             want["cells_without_style_written"], want["cells_bold"]],
+        )
+    styled = lbin("office-sheet", fixture("styled.xlsx"))
+    styled_lo = lbin("office-sheet", fixture("styled-lo.xlsx"))
+    check(
+        "同一份稿子两家的写法差：占位那一条一家写空的 patternFill、另一家写明 none",
+        [dig(styled, "sheets[0].cell_list[9].style_fill.parts[0].attrs"),
+         dig(styled_lo, "sheets[0].cell_list[9].style_fill.parts[0].attrs"),
+         dig(styled, "sheets[0].cell_list[0].style_font.parts[1].attrs.val"),
+         dig(styled_lo, "sheets[0].cell_list[0].style_font.parts[0].attrs.val")],
+        [{}, {"patternType": "none"}, "1", "true"],
+    )
+    check(
+        "「没写」与「写了关」分两件事：alignment 整段没写是 null，写了 wrapText=false 是 false",
+        [dig(styled, "sheets[0].cell_list[0].style_alignment"),
+         dig(styled, "sheets[0].cell_list[0].style_wrapped"),
+         dig(styled_lo, "sheets[0].cell_list[0].style_wrapped"),
+         dig(styled, "sheets[0].cell_list[4].style_wrapped"),
+         dig(styled, "sheets[0].cell_list[9].style_written"),
+         dig(styled_lo, "sheets[0].cell_list[9].style_written")],
+        [None, None, False, True, False, True],
+    )
+    check(
+        "点状网格底被重写成了实心底：颜色与 pattern 各按各的文件交，不替它们对上",
+        [dig(styled, "sheets[0].cell_list[7].style_fill.parts[0].attrs.patternType"),
+         dig(styled_lo, "sheets[0].cell_list[7].style_fill.parts[0].attrs.patternType"),
+         dig(styled, "sheets[0].cell_list[7].style_fill.parts[0].parts[0].attrs.rgb"),
+         dig(styled_lo, "sheets[0].cell_list[7].style_fill.parts[0].parts[0].attrs.rgb"),
+         dig(styled, "sheets[0].cell_list[5].style_font.parts[0].attrs.indexed"),
+         dig(styled_lo, "sheets[0].cell_list[5].style_font.parts[1].attrs.rgb")],
+        ["lightGrid", "solid", "FF00B050", "FF90DDB3", "64", "FF000000"],
     )
 
     # ── 3g) 隐藏的行与列：藏起来的是「看不看得到」，不是「在不在」────────

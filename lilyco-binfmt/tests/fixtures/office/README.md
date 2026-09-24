@@ -54,6 +54,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `rich.xlsx` | openpyxl（`write_rich_xlsx`，`CellRichText` + `InlineFont`） | 一个格子的字分成几段的第一种摆法：**整个文件没有 `sharedStrings.xml`**，富文本全写成行内串（`t="inlineStr"` + `<is><r><rPr><b val="1"/>…</rPr><t>重要</t></r>…`）；A2 两段各有格式，A6 第一段**整个没有 `rPr`** 而第二段有（「没写」与「写了但是空的」），A3 首尾各两个空格、A7 开头一个制表符（这两格的 `t` 带 `xml:space="preserve"`，其余不带），A1 与 A5 是同一条「甲」（被引用两次），B1 的粗体写在**格子上**不在串里 |
 | `rich-lo.xlsx` | LibreOffice（`rich.xlsx` → .xlsx，同一个格式重写） | 第二种摆法：八次引用全搬进 `sst`（自报 `count="8"` 配 `uniqueCount="7"`，七条串），每一个 `t` 都补 `xml:space="preserve"`，同一个粗体开关改写成 `val="true"` 并补 `family` / `charset`，A7 那一格还按字体 fallback **切成两段**（`Calibri` 与 `Noto Sans SC`）—— 分段数是生产者的决定，只交不比 |
 | `rich.ods` | LibreOffice（`rich.xlsx` → .ods） | 第三种摆法，而且是记号不是字面：`  两头有空格  ` 写作 `<text:s text:c="2"/>…<text:s text:c="2"/>`（`text:c` 说这一个记号顶几个空格），A7 的制表符是 `<text:tab/>`，A4 的两行是两个 `<text:p>`；富文本变成 `<text:span text:style-name="T1">`（那三份字符样式不追，只交 `spans` / `specials` 两本条数） |
+| `styled.xlsx` | openpyxl（`write_styled_xlsx`） | 「长相」那一跳的第一种写法：五份字体（默认那份什么都不写、粗体深红换字体、`<i/><u/>` 那份连 `name`/`sz` 都没有、只有 `<color indexed="64"/>` 的、只有 `<color theme="1" tint="0.5"/>` 的）、四条填充（**第 0 条是空的 `<patternFill/>`**、第 1 条 gray125 占位、实心黄底只写 `fgColor`、`lightGrid` 写 `fgColor` + `bgColor`）、两条边界（第 0 条五个空孩子、第 1 条四条 `style="thin"` 各带一个 `color`）、十条 `cellXfs` 而 `cellStyleXfs` 只有一条；只有一格写了 `applyAlignment="1"` 并带 `<alignment horizontal="right" vertical="center" wrapText="1"/>`，`A3` 那一格**连 `s` 都不写** |
+| `styled-lo.xlsx` | LibreOffice（`styled.xlsx` → .xlsx，同一个格式重写） | 第二种写法：九份字体（多出来的是 Arial 10 那几份占位）、`cellStyleXfs` 从 1 条变 20 条、每格都写 `s="…"`、粗体开关换成 `val="true"`、`indexed="64"` 那个颜色被换成 `rgb="FF000000"`、空占位改成 `patternType="none"`、`solid` 那一条补出 `bgColor`，而**点状网格底整个换成实心底并改了颜色**（`FF00B050` → `FF90DDB3`）；每一格还补一份写着 `wrapText="false"` 的 `alignment` —— 「没写」与「写了关」在两副件里是两个不同的数 |
 | `size.xlsx` | openpyxl | 列宽行高与筛选/表对象的第一种写法：A 列 `22.5`、C 列 `4` 且藏着，第 2 行 `40`、第 3 行 `8`（第 1 行什么都不写），默认行高 18 写在 `sheetFormatPr`（那一族管默认宽度叫 **`baseColWidth`**），筛选范围 `A1:C3` 带一个筛掉的值「甲」，另挂一个范围**不同**的表对象 `A1:B3`（列名拿范围第一行的字当，于是第二列叫 `10`）；`tableParts` 自己写 `count="1"` |
 | `size-lo.xlsx` | LibreOffice（`size.xlsx` → .xlsx，同一个格式重写） | 换一家换算就换一套数：同一列成 `20.47` 与 `3.64`、同一行成 `39.75` 与 `7.5`，连没说过话的那一行也被补上 `ht="18"`；「默认列宽」改叫 **`defaultColWidth="7.7734375"`**、`baseColWidth` 不见；两张表都写 `sheetPr filterMode`（`true` 与 `false`），`filterColumn` 上那两个开关反倒不写；表对象补 `totalsRowCount`/`totalsRowShown`、样式开关从 2 个变 5 个，**而 `tableParts` 的 `count` 不写了** |
 | `notes-end.rtf` | LibreOffice（从 `notes-end.docx`） | 注的第三种存法：脚注与尾注**都**写成 `{\*\footnote …}` 这一个群，尾注只在群里多一个 `\ftnalt`；分隔符另走 `{\*\ftnsep\chftnsep}` |
@@ -1149,6 +1151,30 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     * 踩到的一条（第二读者自己的）：ElementTree 的 `Element` **没有孩子时是假值**，
       所以 `local_child(r, "t") or r` 会带着空字退回 `r` —— `text` 明明写着「重要」而读出来是 `""`。
       这类 `or` 兜底在 Element/None 之间要用 `is None` 判。
+
+70. **「这格是粗体吗」要再跳一跳，而两家的「没说」不是同一个东西**（`styled.xlsx`、`styled-lo.xlsx`）。
+    * 格子上只有一个 `s="7"`：它是 `cellXfs` 的下标，而那条 `xf` 自己只写三个号
+      （`fontId` / `fillId` / `borderId`）与一串 `apply*` 旗标，字面住在 `fonts` / `fills` /
+      `borders` 三张表里。四张表自报的 `count` 与实际条数一起交（`workbook.styles`）。
+    * **第 0 条不是「没有」而是「占位」**：`fills[0]` 在 openpyxl 手里是一个**空的**
+      `<patternFill/>`（元素在而没写 `patternType`），在 LibreOffice 手里写明
+      `patternType="none"`；`fills[1]` 两家都写 `gray125`。所以「这格有没有底色」交
+      `style_filled`，而它为什么是 false 在 `style_fill` 那份原样账里看得见。
+    * 三种开关是三种形状，不混：粗体是**孩子元素**（`<b val="1"/>` / `<b val="true"/>`，
+      元素在而没写 `val` 按 true 算 —— 那是 OOXML 的写法），换行是**属性**
+      （`<alignment wrapText="1"/>`，属性没写就是「文件没说」→ null，**不按默认 false 算**），
+      底色是 `@patternType` 的值。三种拼法（`1` / `true` / 缺省）各按各的文件交。
+    * 「没写」与「写了关」是有数的：openpyxl 只给那一格写 `applyAlignment="1"`，`A3` 连 `s`
+      都不写（`style_written: false` 而 `style_found: true` —— 按默认查第 0 条查得到）；
+      LibreOffice 每格都写 `s`、每格都补一份写着 `wrapText="false"` 的 `alignment`，
+      于是同一批格子里「说了 false」的格数一个 0 一个 9，而 `cells_wrapped` 反倒都是 1。
+    * **重写不是无损的，这一条在长相上看得最清楚**：`indexed="64"` 那个颜色回来成了
+      `rgb="FF000000"`；点状网格底 `lightGrid` + `FF00B050` 被换成 `solid` + `FF90DDB3`
+      （连 `bgColor` 也换了）；`cellStyleXfs` 从 1 条变 20 条，字体从 5 份变 9 份。
+      谁也不替谁圆，两副都收进仓库。
+    * `.ods` 的长相在它点名的那份单元格样式里（`ceN` → `style:table-cell-properties`），
+      与 xlsx 这三张表没有对应关系；`.xls` 的在 BIFF 的 `XF` 记录里（数字格式那一条已走过）。
+      两家都不交这些键 —— 键整个不在，不是 0、也不是 null。
 
 ## 这些数字从哪来
 

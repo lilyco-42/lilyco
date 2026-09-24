@@ -1777,6 +1777,13 @@ def xlsx_facts(path: Path) -> dict:
                 strings.append(ooxml_string_parts(one))
     shared = len(strings)
     by_index = dict(enumerate(strings))
+    # 「长相」那一跳：cellXfs + fonts / fills / borders 三张表
+    tables = xlsx_style_tables(parts)
+    cell_styles: list = []
+    bold_cells = 0
+    fill_cells = 0
+    wrap_cells = 0
+    bare_style = 0
     cells = 0
     formulas = 0
     numbers = 0
@@ -1842,6 +1849,27 @@ def xlsx_facts(path: Path) -> dict:
                         rich_cells += 1
                     if parts_str["preserved"]:
                         preserved_cells += 1
+                raw_style = one.get("s")
+                try:
+                    which = int((raw_style or "0").strip())
+                except ValueError:
+                    which = 0
+                looks = style_appearance(tables, which)
+                cell_styles.append(
+                    dict(
+                        [("sheet", local), ("ref", one.get("r")),
+                         ("style", which), ("style_written", raw_style is not None)]
+                        + list(looks.items())
+                    )
+                )
+                if looks["style_bold"] is True:
+                    bold_cells += 1
+                if looks["style_filled"] is True:
+                    fill_cells += 1
+                if looks["style_wrapped"] is True:
+                    wrap_cells += 1
+                if raw_style is None:
+                    bare_style += 1
                 if has_local_child(one, "f"):
                     formulas += 1
             elif tag == "mergeCell":
@@ -1859,6 +1887,12 @@ def xlsx_facts(path: Path) -> dict:
         "cells_with_runs": rich_cells,
         "cells_with_preserved_space": preserved_cells,
         "cell_strings": cell_strings,
+        "cells_bold": bold_cells,
+        "cells_filled": fill_cells,
+        "cells_wrapped": wrap_cells,
+        "cells_without_style_written": bare_style,
+        "cell_styles": cell_styles,
+        "style_tables": tables["ledger"],
         "strings": {
             "count_written": sst_count,
             "unique_written": sst_unique,
@@ -4121,6 +4155,145 @@ def u32s(buf: bytes, off: int, count: int) -> list[int]:
             break
         out.append(one)
     return out
+
+
+def _said_on(had):
+    """OOXML 那两种布尔拼法：元素在而没写 val 按 true，0 / false / none 按 false，没这个元素是 None"""
+    if had is None:
+        return None
+    value = had.get("val")
+    if value is None:
+        return True
+    return value.strip().lower() not in ("0", "false", "none")
+
+
+def _style_row(node):
+    """一张表的一行：自己写着的属性 + 孩子元素（名字与各自的属性），按文件原样"""
+    parts = [
+        {"element": xml_local(kid.tag),
+         "attrs": dict(sorted((xml_local(key), value) for key, value in kid.attrib.items()))}
+        for kid in node
+    ]
+    return {
+        "attrs": dict(sorted((xml_local(key), value) for key, value in node.attrib.items())),
+        "parts": parts,
+    }
+
+
+def xlsx_style_tables(parts: dict) -> dict:
+    """`cellXfs` 那一跳的四张表（与 numfmt.rs 的 `table_rows` 同一条规则）"""
+    tables = {"fonts": [], "fills": [], "borders": [], "xfs": [], "style_xfs": []}
+    if "xl/styles.xml" not in parts:
+        tables["ledger"] = {"part": False}
+        return tables
+    root = ET.fromstring(parts["xl/styles.xml"])
+
+    def holder(want: str):
+        for one in root.iter():
+            if xml_local(one.tag) == want:
+                return one
+        return None
+
+    def rows_of(want: str, keep: str) -> list:
+        top = holder(want)
+        if top is None:
+            return []
+        return [_style_row(one) for one in top if xml_local(one.tag) == keep]
+
+    def stated(want: str, found: int) -> dict:
+        top = holder(want)
+        written = None if top is None else top.get("count")
+        try:
+            agreed = written is None or int((written or "").strip()) == found
+        except ValueError:
+            agreed = False
+        return {"written": written, "found": found, "whole": agreed}
+
+    tables["fonts"] = rows_of("fonts", "font")
+    tables["fills"] = rows_of("fills", "fill")
+    tables["borders"] = rows_of("borders", "border")
+    tables["xfs"] = rows_of("cellXfs", "xf")
+    tables["style_xfs"] = rows_of("cellStyleXfs", "xf")
+    tables["ledger"] = {
+        "part": True,
+        "fonts": stated("fonts", len(tables["fonts"])),
+        "fills": stated("fills", len(tables["fills"])),
+        "borders": stated("borders", len(tables["borders"])),
+        "cell_xfs": stated("cellXfs", len(tables["xfs"])),
+        "cell_style_xfs": stated("cellStyleXfs", len(tables["style_xfs"])),
+    }
+    return tables
+
+
+def child_attrs(row, name: str):
+    """一行表内容里那个孩子元素的属性（没有那个孩子就给 None）"""
+    if row is None:
+        return None
+    for one in row.get("parts") or []:
+        if one["element"] == name:
+            return one["attrs"]
+    return None
+
+
+def style_appearance(tables: dict, index: int) -> dict:
+    """一个格子的长相：`cellXfs` 那条自己说了什么 + 顺着三个号查到的三行"""
+    blank = {
+        "style_found": False,
+        "style_attrs": None,
+        "style_font_id": None,
+        "style_font": None,
+        "style_fill_id": None,
+        "style_fill": None,
+        "style_border_id": None,
+        "style_border": None,
+        "style_alignment": None,
+        "style_bold": None,
+        "style_filled": None,
+        "style_wrapped": None,
+    }
+    rows = tables.get("xfs") or []
+    if index >= len(rows):
+        return blank
+    row = rows[index]
+    attrs = row["attrs"]
+
+    def pick(key: str, table: list):
+        raw = attrs.get(key)
+        try:
+            which = int((raw or "").strip())
+        except ValueError:
+            return None
+        return table[which] if 0 <= which < len(table) else None
+
+    font = pick("fontId", tables["fonts"])
+    fill = pick("fillId", tables["fills"])
+    border = pick("borderId", tables["borders"])
+    alignment = child_attrs(row, "alignment")
+    pattern = child_attrs(fill, "patternFill") if fill is not None else None
+    filled = None
+    if pattern is not None:
+        filled = pattern.get("patternType") not in (None, "none")
+    # `wrapText` 是属性形式的开关：没写这个属性就是「文件没说」（null），
+    # 不像 `<b/>` 那种元素形式可以按 true 算
+    wrapped = None
+    if alignment is not None:
+        raw = alignment.get("wrapText")
+        if raw is not None:
+            wrapped = raw.strip().lower() not in ("", "0", "false", "none")
+    return {
+        "style_found": True,
+        "style_attrs": attrs,
+        "style_font_id": attrs.get("fontId"),
+        "style_font": font,
+        "style_fill_id": attrs.get("fillId"),
+        "style_fill": fill,
+        "style_border_id": attrs.get("borderId"),
+        "style_border": border,
+        "style_alignment": alignment,
+        "style_bold": _said_on(child_attrs(font, "b") if font is not None else None),
+        "style_filled": filled,
+        "style_wrapped": wrapped,
+    }
 
 
 def local_child(node, want: str):

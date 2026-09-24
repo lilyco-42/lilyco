@@ -190,13 +190,95 @@ pub fn serial_to_iso(value: f64, year1904: bool) -> String {
     }
 }
 
-/// 一个工作簿的格式账：`cellXfs` 的下标 → 格式号，自定义号 → 格式串，以及 1904 基准
+/// 一个工作簿的格式账：`cellXfs` 的下标 → 格式号，自定义号 → 格式串，以及 1904 基准。
+///
+/// 后半截是「这一格长什么样」的那一跳：`cellXfs` 的每条 `xf` 只写三个号
+/// （`fontId` / `fillId` / `borderId`），字面住在 `fonts` / `fills` / `borders` 那三张表里。
+/// 两张表的条数与它们自报的 `count` 一起交，行内容按文件写的属性与孩子元素原样交 ——
+/// 同一个底色，openpyxl 的占位是**空的** `<patternFill/>` 而 LibreOffice 写
+/// `patternType="none"`；同一个粗体开关一家写 `val="1"` 另一家写 `val="true"`；
+/// LibreOffice 还会把 `lightGrid` 那种花纹**换算成 solid** 并改颜色 —— 所以只交不比。
 #[derive(Debug, Default)]
 pub struct Styles {
     pub xfs: Vec<u64>,
     pub custom: BTreeMap<u64, String>,
     pub year1904: bool,
     pub notes: Vec<String>,
+    /// `cellXfs` 的每一条：写着的属性 + 孩子元素（`alignment` / `protection`）
+    pub xf_rows: Vec<Value>,
+    pub font_rows: Vec<Value>,
+    pub fill_rows: Vec<Value>,
+    pub border_rows: Vec<Value>,
+    /// 那几张表各自「自报几条 / 实际几条」
+    pub ledger: Value,
+}
+
+/// 一个元素自己写着的属性（按文件写的名字与顺序，键原样带前缀）
+fn attrs_json(node: &Node) -> Value {
+    let mut out = serde_json::Map::new();
+    for (key, value) in node.attrs.iter() {
+        out.insert(key.clone(), json!(value));
+    }
+    Value::Object(out)
+}
+
+/// 一行表内容：自己的属性 + 孩子元素（名字与各自的属性）
+fn row_json(node: &Node) -> Value {
+    let parts: Vec<Value> = node
+        .children
+        .iter()
+        .filter(|one| one.local() != "#text")
+        .map(|one| json!({"element": one.name, "attrs": attrs_json(one)}))
+        .collect();
+    json!({"attrs": attrs_json(node), "parts": parts})
+}
+
+/// 一张表的条数账：`count` 是文件自己说的，`found` 是数出来的
+fn table_ledger(root: &Node, want: &str, found: usize) -> Value {
+    let written = root
+        .descendants(want)
+        .into_iter()
+        .next()
+        .and_then(|one| one.attr_local("count"))
+        .map(|one| one.to_string());
+    let agreed = match written.as_deref() {
+        None => true,
+        Some(raw) => raw.trim().parse::<usize>().ok() == Some(found),
+    };
+    json!({"written": written, "found": found, "whole": agreed})
+}
+
+fn child_attrs<'a>(row: &'a Value, name: &str) -> Option<&'a Value> {
+    row.get("parts")?
+        .as_array()?
+        .iter()
+        .find(|one| one["element"].as_str() == Some(name))?
+        .get("attrs")
+}
+
+/// OOXML 那两种布尔拼法：元素在而没写 `val` 按 true 算，`0` / `false` / `none` 按 false
+fn said_on(had: Option<&Value>) -> Option<bool> {
+    match had.and_then(|one| one.as_str()) {
+        None => Some(true),
+        Some(raw) => Some(!matches!(
+            raw.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "none"
+        )),
+    }
+}
+
+fn flag_in(row: &Value, name: &str) -> Option<bool> {
+    child_attrs(row, name).and_then(|had| said_on(had.get("val")))
+}
+
+/// 属性形式的开关：没写这个属性就是「文件没说」（null），不像元素形式那样按 true 算
+fn attr_flag(had: Option<&Value>) -> Option<bool> {
+    had.and_then(|one| one.as_str()).map(|raw| {
+        !matches!(
+            raw.trim().to_ascii_lowercase().as_str(),
+            "" | "0" | "false" | "none"
+        )
+    })
 }
 
 impl Styles {
@@ -214,6 +296,70 @@ impl Styles {
             Some(code) => kind_of(&code),
             None => Kind::Unknown,
         }
+    }
+
+    /// 一个格子「长什么样」那一跳：`cellXfs` 那条自己说了什么，加上顺着它三个号查到的
+    /// 三行表内容（`fontId` → `fonts`、`fillId` → `fills`、`borderId` → `border`）。
+    ///
+    /// 号写了而那张表里没有 → 那一行交 null（`style_*_id` 仍交那个号 —— 「写了个指不到
+    /// 的号」是文件自己说的话）。三个三态开关（`style_bold` / `style_filled` /
+    /// `style_wrapped`）是按文件写的两种布尔拼法数的，null 是「这一条文件没说」：
+    /// 粗体看 `font` 行里那个 `b` 孩子在不在，换行看 `alignment` 的 `wrapText`，
+    /// 底色看 `patternFill/@patternType`（空的 `<patternFill/>` 与 `patternType="none"`
+    /// 都算「没有底色」，而那两件事在 `style_fill` 那份原样账里看得见）。
+    pub fn appearance(&self, style: usize) -> Value {
+        let Some(row) = self.xf_rows.get(style) else {
+            return json!({
+                "style_found": false,
+                "style_attrs": Value::Null,
+                "style_font_id": Value::Null,
+                "style_font": Value::Null,
+                "style_fill_id": Value::Null,
+                "style_fill": Value::Null,
+                "style_border_id": Value::Null,
+                "style_border": Value::Null,
+                "style_alignment": Value::Null,
+                "style_bold": Value::Null,
+                "style_filled": Value::Null,
+                "style_wrapped": Value::Null,
+            });
+        };
+        let written = || -> Value { row["attrs"].clone() };
+        let id_of = |key: &str| -> Value { row["attrs"].get(key).cloned().unwrap_or(Value::Null) };
+        let picked = |key: &str, table: &[Value]| -> Value {
+            row["attrs"]
+                .get(key)
+                .and_then(|one| one.as_str())
+                .and_then(|raw| raw.trim().parse::<usize>().ok())
+                .and_then(|which| table.get(which))
+                .cloned()
+                .unwrap_or(Value::Null)
+        };
+        let tri = |one: Option<bool>| -> Value { one.map(|yes| json!(yes)).unwrap_or(Value::Null) };
+        let font = picked("fontId", &self.font_rows);
+        let fill = picked("fillId", &self.fill_rows);
+        let bold = flag_in(&font, "b");
+        let filled = child_attrs(&fill, "patternFill").map(|had| {
+            match had.get("patternType").and_then(|one| one.as_str()) {
+                None => false,
+                Some(raw) => raw != "none",
+            }
+        });
+        let wrapped = child_attrs(row, "alignment").and_then(|had| attr_flag(had.get("wrapText")));
+        json!({
+            "style_found": true,
+            "style_attrs": written(),
+            "style_font_id": id_of("fontId"),
+            "style_font": font,
+            "style_fill_id": id_of("fillId"),
+            "style_fill": fill,
+            "style_border_id": id_of("borderId"),
+            "style_border": picked("borderId", &self.border_rows),
+            "style_alignment": child_attrs(row, "alignment").cloned().unwrap_or(Value::Null),
+            "style_bold": tri(bold),
+            "style_filled": tri(filled),
+            "style_wrapped": tri(wrapped),
+        })
     }
 
     /// 一个格子完整的格式账：号、串、判定，必要时再加上换算出来的日期。
@@ -283,14 +429,41 @@ pub fn read_styles(bytes: &[u8]) -> Styles {
         let code = one.attr_local("formatCode").unwrap_or_default().to_string();
         me.custom.insert(id, code);
     }
-    let Some(holder) = root.descendants("cellXfs").into_iter().next() else {
+    // 三张表先收：`cellXfs` 那三个号就是指着它们的
+    me.font_rows = table_rows(&root, "fonts", "font");
+    me.fill_rows = table_rows(&root, "fills", "fill");
+    me.border_rows = table_rows(&root, "borders", "border");
+    me.xf_rows = table_rows(&root, "cellXfs", "xf");
+    let cell_style_xfs = table_rows(&root, "cellStyleXfs", "xf");
+    me.ledger = json!({
+        "part": true,
+        "fonts": table_ledger(&root, "fonts", me.font_rows.len()),
+        "fills": table_ledger(&root, "fills", me.fill_rows.len()),
+        "borders": table_ledger(&root, "borders", me.border_rows.len()),
+        "cell_xfs": table_ledger(&root, "cellXfs", me.xf_rows.len()),
+        "cell_style_xfs": table_ledger(&root, "cellStyleXfs", cell_style_xfs.len()),
+    });
+    let Some(list) = root.descendants("cellXfs").into_iter().next() else {
         me.notes.push("styles.xml 里没有 cellXfs".to_string());
         return me;
     };
-    for one in holder.all("xf") {
+    for one in list.all("xf") {
         me.xfs.push(attr_u64(one, "numFmtId").unwrap_or(0));
     }
     me
+}
+
+/// 一张表的每一行（`fonts` 里的 `font`、`fills` 里的 `fill`…）：只收名字对得上的直接孩子
+fn table_rows(root: &Node, want: &str, keep: &str) -> Vec<Value> {
+    let Some(holder) = root.descendants(want).into_iter().next() else {
+        return Vec::new();
+    };
+    holder
+        .children
+        .iter()
+        .filter(|one| one.local() == keep)
+        .map(row_json)
+        .collect()
 }
 
 #[cfg(test)]

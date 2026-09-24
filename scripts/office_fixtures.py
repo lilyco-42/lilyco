@@ -1003,6 +1003,45 @@ def write_rich_xlsx(path: Path) -> None:
     wb.save(path)
 
 
+def write_styled_xlsx(path: Path) -> None:
+    """一个格子「长什么样」那一跳：格式在 `cellXfs` 之外的三张表里
+
+    一次摆开六件事：粗体 + 深红 + 换字体（A1）、实心黄底（B1）、四边细线（C1）、
+    斜体加下划线（D1）、右对齐 + 垂直居中 + 自动换行（A2）、点状网格底（D2），
+    外加两种颜色写法（`indexed="64"` 与 `theme="1" tint="0.5"`）与一个百分比格式。
+    openpyxl 只写它觉得要写的那几个 id 与 `applyAlignment`，而 LibreOffice 重写同一份时
+    会把 `apply*` 一串旗标、`patternType="none"` 那个占位与九份字体全补出来 ——
+    两副都收进仓库，因为「谁省略了什么」正是要看的（`s=` 也一样：一家不写默认那一个）。
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Color, Font, PatternFill, Side
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "样子"
+    ws["A1"] = "加粗深红"
+    ws["A1"].font = Font(bold=True, color="FFC00000", name="微软雅黑", sz=12.0)
+    ws["B1"] = "黄底实心"
+    ws["B1"].fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")
+    ws["C1"] = "四边细线"
+    thin = Side(style="thin", color="FF000000")
+    ws["C1"].border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    ws["D1"] = "斜体下划线"
+    ws["D1"].font = Font(italic=True, underline="single")
+    ws["A2"] = "长字换行右对齐"
+    ws["A2"].alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
+    ws["B2"] = "索引色"
+    ws["B2"].font = Font(color=Color(indexed=64))
+    ws["C2"] = 0.25
+    ws["C2"].number_format = "0.00%"
+    ws["D2"] = "点状网格底"
+    ws["D2"].fill = PatternFill(fill_type="lightGrid", fgColor="FF00B050", bgColor="FFFFFFFF")
+    ws["E2"] = "主题色带淡深"
+    ws["E2"].font = Font(color=Color(theme=1, tint=0.5))
+    ws["A3"] = "默认什么都不写"
+    wb.save(path)
+
+
 def write_para_docx(path: Path) -> None:
     """python-docx：四种段落写法 + 一节两栏 —— 「这一段到底排成什么样」
 
@@ -2120,6 +2159,16 @@ def main() -> int:
         shutil.copyfile(made, OUT / "rich.ods")
     else:
         print("⚠️  没拿到 rich.ods")
+
+    # 「长相」那一跳的两副：格式在 cellXfs 之外的三张表里，两家补的东西差很多
+    styled = OUT / "styled.xlsx"
+    write_styled_xlsx(styled)
+    convert(exe, styled, "xlsx", SCRATCH / "styled-back")
+    made = SCRATCH / "styled-back" / "styled.xlsx"
+    if made.exists():
+        shutil.copyfile(made, OUT / "styled-lo.xlsx")
+    else:
+        print("⚠️  没拿到 styled-lo.xlsx（xlsx → xlsx 那一转）")
 
     # 段落格式与分栏那三件套：docx 由 python-docx 写，odt / rtf 都由 LibreOffice 导出
     para = OUT / "para.docx"
