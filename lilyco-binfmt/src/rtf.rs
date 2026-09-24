@@ -170,9 +170,9 @@ fn definition_of(child: &[u8]) -> Option<Value> {
     };
     let (prefix, kind) = if rest.starts_with(b"cs") {
         (2usize, "character")
-    } else if rest.starts_with(b's') {
+    } else if rest.starts_with(b"s") {
         (1usize, "paragraph")
-    } else if rest.starts_with(b'f') {
+    } else if rest.starts_with(b"f") {
         (1usize, "font")
     } else {
         return None;
@@ -218,6 +218,38 @@ fn digits_after(bytes: &[u8], from: usize) -> Option<u64> {
         return None;
     }
     Some(String::from_utf8_lossy(&num).parse().unwrap_or(0))
+}
+
+/// 样式表里那个号的名字写成 `heading N` 时，N 就是段落的层级。
+/// 形状之外什么都不认：`heading` 与数字之间至少一个空格、数字后面不能再有别的东西
+/// （`Heading1`、`heading 1a` 都不算 —— 那是文件里另一个名字，不是我们的推断）。
+/// 大小写各家不同（Word 写 `Heading 1`，LibreOffice 的 RTF 导出写 `heading 1`），
+/// 所以只有这个词不分大小写。只查段落样式：`\sN` 与 `\csN` 是两个各自的编号空间
+fn heading_level(styles: &[Value], index: u64) -> Option<usize> {
+    let named = styles
+        .iter()
+        .find(|one| one["kind"] == json!("paragraph") && one["index"] == json!(index))?;
+    let name = named["name"].as_str()?.trim();
+    let bytes = name.as_bytes();
+    if bytes.len() < 7 || !bytes[..7].eq_ignore_ascii_case(b"heading") {
+        return None;
+    }
+    let after = &name[7..];
+    if !after
+        .as_bytes()
+        .first()
+        .is_some_and(|one| one.is_ascii_whitespace())
+    {
+        return None;
+    }
+    let rest = after.trim_start();
+    let end = rest
+        .find(|one: char| !one.is_ascii_digit())
+        .unwrap_or(rest.len());
+    if end == 0 || !rest[end..].trim().is_empty() {
+        return None;
+    }
+    rest[..end].parse().ok()
 }
 
 /// 单元格分隔：输出一个制表符
@@ -283,12 +315,16 @@ pub struct Rtf {
     /// `\field` 出现了几次（一份文档里域比链接多：页码、日期都是域）
     pub fields: usize,
     /// 字体表与样式表里的定义（前瞻读出来的，那一群照旧不进正文）。
-    /// 每条是 `{kind, index, charset, name}`；非 ANSI 又含非 ASCII 字节的名字
-    /// 交回 `name: null` 加 `name_bytes`（那是文件的字节，不是我们敢读的名字）
+    /// 每条是 `{kind, index, charset, name}`；字体条目自己声明了非 ANSI 字符集
+    /// （`\fcharset128` 是 Shift-JIS）而名字里又有非 ASCII 字节时交回 `name: null` ——
+    /// 按 cp1252 硬解出来的那串不是名字，是我们解错了
     pub fonts: Vec<Value>,
     pub styles: Vec<Value>,
     /// 正文里用了哪些样式号、各几次（样式表那一群自己不算）
     pub style_uses: Vec<Value>,
+    /// 标题：样式名写成 `heading N` 的那些段，层级就写在名字里。
+    /// 段用的是哪个样式号在段属性里（`\pard\s1`），名字在样式表里，两边一接才有层级
+    pub headings: Vec<Value>,
     /// 表那份账。这六个数都是**控制字本身的条数**（`\trowd` / `\row` / `\cell` / `\intbl`
     /// 与嵌套表那两个），不是「有几张表」的推断 —— 那条规则拿两份件试过：
     /// 一张 2×2 的对，两张（3×2 与 2×2）的把两张数成一张，所以这里只交数得清的
@@ -319,6 +355,7 @@ impl Rtf {
             "fonts": self.fonts,
             "styles": self.styles,
             "style_uses": self.style_uses,
+            "headings": self.headings,
             "line_count": self.lines.len(),
             "chars": self.text.chars().count(),
             "declared_codepage": self.declared_codepage,
@@ -349,6 +386,12 @@ pub fn extract(bytes: &[u8]) -> Rtf {
     let mut notes: Vec<String> = Vec::new();
     // 正文里用到的样式号（样式表那一群自己不算，跳过的区域里也不算）
     let mut uses: Vec<u64> = Vec::new();
+    // 段那一份账：每段收尾时记下「这一段的字从哪儿起」与「这一段用的是哪个样式号」。
+    // 收尾点就是段控制字（`\par` 那几个）与行控制字（`\row`），样式号在段属性里，
+    // 一定写在收尾之前。这一段与 `lines` 是两本账：这里空段也留
+    let mut marks: Vec<(usize, Option<u64>)> = Vec::new();
+    let mut para_start = 0usize;
+    let mut para_style: Option<u64> = None;
     let mut me = Rtf {
         text: String::new(),
         lines: Vec::new(),
@@ -368,6 +411,7 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         fonts: Vec::new(),
         styles: Vec::new(),
         style_uses: Vec::new(),
+        headings: Vec::new(),
         table_row_defines: 0,
         table_rows: 0,
         table_cells: 0,
@@ -597,10 +641,11 @@ pub fn extract(bytes: &[u8]) -> Rtf {
                 }
             }
         } else if !skipping {
-            if BREAK_WORDS.contains(&word.as_str()) {
+            if BREAK_WORDS.contains(&word.as_str()) || ROW_WORDS.contains(&word.as_str()) {
                 out.push(b'\n');
-            } else if ROW_WORDS.contains(&word.as_str()) {
-                out.push(b'\n');
+                marks.push((para_start, para_style));
+                para_start = out.len();
+                para_style = None;
             } else if TAB_WORDS.contains(&word.as_str()) {
                 out.push(b'\t');
             }
@@ -615,10 +660,12 @@ pub fn extract(bytes: &[u8]) -> Rtf {
                 "nestcell" => me.nested_table_cells += 1,
                 _ => {}
             }
-            // 样式被用了几次：正文里的 `\sN`（数字参数就在 digits 里）
+            // 样式被用了几次：正文里的 `\sN`（数字参数就在 digits 里）。
+            // 同一处也记下「这一段现在用的是哪个样式」—— 段属性就在收尾之前
             if word == "s" {
                 if let Some(index) = digits_after(digits.as_bytes(), 0) {
                     uses.push(index);
+                    para_style = Some(index);
                 }
             }
         }
@@ -652,6 +699,23 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         })
         .collect();
     me.style_uses = resolved;
+    // 标题：样式名写成 `heading N` 的那些段。层级不是猜出来的 —— 某一段用的是哪个样式号
+    // 写在段属性里，那个号叫什么名字写在样式表里，两头都在文件上。
+    // 用了却没定义的号（样式表里查不到）不算标题，也不给它编一个名字
+    let headings: Vec<Value> = marks
+        .iter()
+        .filter_map(|(start, style)| {
+            let level = heading_level(&me.styles, (*style)?)?;
+            let text = String::from_utf8_lossy(out.get(*start..)?)
+                .trim()
+                .to_string();
+            if text.is_empty() {
+                return None;
+            }
+            Some(json!({"level": level, "text": text}))
+        })
+        .collect();
+    me.headings = headings;
     let text = String::from_utf8_lossy(&out).into_owned();
     let text = text.trim().to_string();
     me.lines = text
@@ -1298,6 +1362,47 @@ mod tests {
             one.text
         );
         assert!(one.notes.is_empty(), "{:?}", one.notes);
+    }
+
+    /// 标题的层级只从样式名来：`heading 1` 算、`Heading 2` 也算（这个词不分大小写），
+    /// `heading3`（中间没空格）、`heading 1a`（数字后面还有字）、`Summary`（自定义名）都不算；
+    /// 同号的字符样式 `{\*\cs1 heading 3;}` 不能顶掉段落样式的名字 —— `\sN` 与 `\csN`
+    /// 是两个各自的编号空间；末尾没有 `\par` 的那一段不收（段以回车收，与 `lines` 同一口径）。
+    /// 期望值来自 `lyco_rtf.py` 对同一串字的独立读取
+    #[test]
+    fn headings_come_only_from_the_style_name() {
+        let one = rtf(
+            "{\\rtf1\\ansi{\\stylesheet {\\s0 Normal;}{\\s1 heading 1;}{\\s2 Heading 2;}{\\s3 heading3;}{\\s4 heading 1a;}{\\s5 Summary;}{\\*\\cs1 heading 3;}}{\\pard\\s1 one\\par}{\\pard\\s2 two\\par}{\\pard\\s3 nospace\\par}{\\pard\\s4 trailing\\par}{\\pard\\s5 custom\\par}{\\pard\\s0 body\\par}{\\pard\\s1 noendpar}}",
+        );
+        assert_eq!(
+            one.headings,
+            vec![
+                json!({"level": 1, "text": "one"}),
+                json!({"level": 2, "text": "two"})
+            ],
+            "{:?}",
+            one.headings
+        );
+        // 那一段仍然在正文里 —— 不认它当标题，不等于把它丢了
+        assert_eq!(one.lines.len(), 7, "{:?}", one.lines);
+        assert_eq!(one.lines[6], "noendpar", "{:?}", one.lines);
+        // 真件：LibreOffice 的 RTF 导出把样式名写成小写 `heading 1`，两本账都要对
+        let real = extract(&fixture("notes.rtf"));
+        assert_eq!(
+            real.headings,
+            vec![
+                json!({"level": 1, "text": "一级标题：预算口径"}),
+                json!({"level": 2, "text": "二级标题：明细"})
+            ],
+            "{:?}",
+            real.headings
+        );
+        // 一份全用 Normal 的：空数组，不是 null
+        assert!(
+            extract(&fixture("notes-end.rtf")).headings.is_empty(),
+            "{:?}",
+            extract(&fixture("notes-end.rtf")).headings
+        );
     }
 
     /// 空输入与只有控制字的输入：给空文本，而不是 panic

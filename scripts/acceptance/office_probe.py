@@ -222,7 +222,7 @@ def main() -> int:
 
     # ── 2c) RTF 的结构这一问：它不是包，是一条流，能数清的才报 ─────────────
     print("=== 2c) office-doc 读 RTF（段、注、图、跳过与注的口袋数） ===")
-    for name in ("notes.rtf", "notes-hf.rtf", "notes-end.rtf"):
+    for name in ("notes.rtf", "notes-hf.rtf", "notes-end.rtf", "tables.rtf"):
         got = lbin("office-doc", fixture(name))
         rwant = files[name]["rtf"]
         check(
@@ -309,6 +309,13 @@ def main() -> int:
                 rwant["nested_table_rows"],
                 rwant["nested_table_cells"],
             ],
+        )
+
+        # 标题：层级就写在样式名里，与同一批字的 docx 那本账同一个形状
+        check(
+            "%s 标题（样式名 heading N 给的层级）" % name,
+            [[one.get("level"), one.get("text")] for one in got.get("headings", [])],
+            [[one["level"], one["text"]] for one in rwant["headings"]],
         )
 
         # 链接与域：域指令那一群照旧跳过，但链接从这里读出来；显示文字仍在正文里

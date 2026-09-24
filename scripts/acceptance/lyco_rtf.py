@@ -154,9 +154,11 @@ DEF_DESTINATIONS = {"fonttbl", "stylesheet"}
 # 一群里的第一条控制字决定它是什么定义：`\fN` 字体、`\sN` 段落样式、`\csN` 字符样式
 FIRST_DEF = re.compile(r"^\\(?:\*\\)?(cs|s|f)(\d+)")
 KIND_OF_PREFIX = {"f": "font", "s": "paragraph", "cs": "character"}
+# 标题的层级就写在样式名里：`heading 1` … `heading 9`（大小写与空格各家不同）
+HEADING_NAME = re.compile(r"^\s*heading\s+(\d+)\s*$", re.IGNORECASE)
 # 一个字体条目自己声明的字符集：`\fcharset0` 是 ANSI，非 0 的那一串（128 是 Shift-JIS、
 # 134 是 GB2312 …）意味着名字里的字节不是 cp1252 —— 按 cp1252 解出来就是乱码，
-# 所以那种条目只交字符集号与原始字节，不交一个我们解错的名字
+# 所以那种条目只交字符集号，名字交 null
 FCHARSET = re.compile(r"\\fcharset(\d+)")
 
 
@@ -247,6 +249,10 @@ def rtf_text(data: bytes) -> dict:
     page: dict = {"headers": [], "footers": [], "notes": [], "links": [], "destinations": 0}
     # 定义类（字体与样式）不是页面上的字，也不进 page 那几个口袋
     found: dict = {"fonts": [], "styles": []}
+    # 段那一份账：每段收尾时记下「这一段的字」与「这一段用的样式号」。
+    # 样式号在段属性里（`\pard\s1`），所以它一定出现在这一段的 `\par` 之前
+    paras: list = []
+    mark = {"start": 0, "style": None}
     pending = bytearray()  # 连续的 \'hh 字节，攒着按字符集一起解
     skip: list[bool] = [False]
     codepage = 1252
@@ -431,6 +437,13 @@ def rtf_text(data: bytes) -> dict:
         elif not skip[-1]:
             if word in BREAK_WORDS or word in ROW_WORDS:
                 out.append("\n")
+                # 段收尾：这一段的字与它用的样式号一起记。空段也记 —— 与 lines 的
+                # 「只留有字的行」是两本账，别互相冒充
+                paras.append(
+                    {"text": "".join(out[mark["start"] :]).strip(), "style": mark["style"]}
+                )
+                mark["start"] = len(out)
+                mark["style"] = None
             elif word in TAB_WORDS:
                 out.append("\t")
             # 表的账就是数这几个控制字本身（它们在不在跳过区，由上面那条顺序决定）。
@@ -447,22 +460,42 @@ def rtf_text(data: bytes) -> dict:
                 stats["nest_rows"] += 1
             elif word == "nestcell":
                 stats["nest_cells"] += 1
-            # 样式被用了几次：正文里的 \sN（样式表那一群已被吃掉，不会自己数自己）
+            # 样式被用了几次：正文里的 \sN（样式表那一群已被吃掉，不会自己数自己）。
+            # 同一处也记下「这一段现在用的是哪个样式」—— 段属性就在 \par 之前
             if word == "s" and digits.isdigit():
                 which = int(digits)
                 stats["style_uses"][which] = stats["style_uses"].get(which, 0) + 1
+                mark["style"] = which
         i = j
     flush()
     body = "".join(out).strip()
     lines = [one.strip() for one in body.split("\n") if one.strip()]
     # 用了几次的样式按名字合：文件写的是 `\s1`，名字在样式表那一群里；
-    # 用了却没定义的样式号也照交（名字给 `sN` 这种占位，不编一个好看的）
-    by_index = {one["index"]: one["name"] for one in found["styles"]}
+    # 用了却没定义的样式号也照交（名字给 `sN` 这种占位，不编一个好看的）。
+    # 只按**段落样式**查：`\sN` 与 `\csN` 是两个各自的编号空间，别互相冒充名字
+    by_index = {
+        one["index"]: one["name"]
+        for one in found["styles"]
+        if one["kind"] == "paragraph" and one["name"]
+    }
     uses = [
         {"index": which, "name": by_index.get(which, "s%d" % which), "count": count}
         for which, count in sorted(stats["style_uses"].items())
     ]
+    # 标题：样式名写成 `heading N` 的那些段。这不是「猜」出来的层级 —— 样式名与级别
+    # 都在文件里（LibreOffice 与 Word 都用这个形状，大小写各家不同，所以不分大小写匹配）
+    headings = []
+    for one in paras:
+        if one["style"] is None or not one["text"]:
+            continue
+        named = by_index.get(one["style"])
+        if not named:
+            continue
+        hit = HEADING_NAME.match(named)
+        if hit:
+            headings.append({"level": int(hit.group(1)), "text": one["text"]})
     return {
+        "headings": headings,
         "fonts": found["fonts"],
         "styles": found["styles"],
         "style_uses": uses,
