@@ -1643,6 +1643,15 @@ def main() -> int:
     else:
         print("⚠️  没拿到 para.rtf")
 
+    # 表宽那两份：tables-lo.docx 是「同一个格式重写」（LibreOffice 把 auto/0 换成实数）
+    tab = OUT / "tables.docx"
+    convert(exe, tab, "docx", SCRATCH / "tables-back")
+    made_tab = SCRATCH / "tables-back" / "tables.docx"
+    if made_tab.exists():
+        shutil.copyfile(made_tab, OUT / "tables-lo.docx")
+    else:
+        print("⚠️  没拿到 tables-lo.docx（docx → docx 那一转）")
+
     # 列表与编号那三件套：docx 由 python-docx 写，odt 由 LibreOffice 导出，
     # lists-lo.docx 是「同一个格式重写」那一份（LibreOffice 读进自己的模型再写回 OOXML）
     lists = OUT / "lists.docx"

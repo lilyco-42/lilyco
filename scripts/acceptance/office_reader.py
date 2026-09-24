@@ -34,6 +34,7 @@ from lyco_protect import (
     odt_protection,
     xlsx_protection,
 )  # 「还能动吗」那份账的第二读者
+from lyco_pages import convert  # 长度与 twips 换成 0.01mm 的那条整数式子（与 paper.rs 同一条）
 import lyco_pdf  # PDF 那份读者：对象表 + 对象流 + 字符串三件事（lbin office-pdf 对账）
 import lyco_pdf_nav  # PDF 的「去哪儿」那一层：书签 / 链接 / 权限位
 
@@ -297,6 +298,8 @@ def docx_facts(path: Path) -> dict:
         # 段落自己写的格式（这一族不用跳样式）与一节一条的分栏
         "paragraph_formats": docx_paragraph_formats(paras),
         "columns": docx_columns(body),
+        # 这张表多宽的三本账（w:tblW / 网格 / 每格），一条也不替另一条圆场
+        "table_layouts": docx_table_layouts(body),
         # 编号那一路要跳三跳，段上没写的那些要看样式里那份 numPr
         "numbering": docx_numbering(
             paras,
@@ -1207,6 +1210,162 @@ def odf_numbering(paras: list, body, content_root, style_root, prefixes: dict,
     }
 
 
+def mm_of(raw, unit_hint):
+    """换成 0.01mm；不是这个形状的串就交 None（Rust 那边 parse 不上也是 None，不抛）"""
+    if raw is None:
+        return None
+    try:
+        return convert(raw, unit_hint)[0]
+    except (ValueError, KeyError, IndexError):
+        return None
+
+
+def docx_table_layouts(body, limit: int = 200) -> dict:
+    """docx 这张表多宽：`w:tblW`、`w:tblGrid/w:gridCol`、每一格自己的 `w:tcW`，三本账各数各的
+
+    计数只数**上榜的那几本表**（与 Rust 那边同一个封顶口径），行与格只取这张表自己的
+    直接孩子，套在格里的另一张表不算进来。
+    """
+    tbls = [one for one in body.iter() if xml_local(one.tag) == "tbl"][:limit]
+    entries = []
+    said = auto_said = grid_sum = 0
+    for at, tbl in enumerate(tbls):
+        props = _kid(tbl, "tblPr")
+        width = _kid(props, "tblW") if props is not None else None
+        raw = width.get(W_NS + "w") if width is not None else None
+        kind = width.get(W_NS + "type") if width is not None else None
+        said += 1 if width is not None else 0
+        auto_said += 1 if kind == "auto" else 0
+        grid_holder = _kid(tbl, "tblGrid")
+        grid = (
+            [written_attrs(kid) for kid in grid_holder if xml_local(kid.tag) == "gridCol"]
+            if grid_holder is not None
+            else []
+        )
+        for one in grid:
+            grid_sum += mm_of(one.get("w"), "twips") or 0
+        rows = [one for one in tbl if xml_local(one.tag) == "tr"]
+        cells = []
+        for row, tr in enumerate(rows):
+            for col, tc in enumerate([one for one in tr if xml_local(one.tag) == "tc"]):
+                tc_pr = _kid(tc, "tcPr")
+                one_width = _kid(tc_pr, "tcW") if tc_pr is not None else None
+                span = _kid(tc_pr, "gridSpan") if tc_pr is not None else None
+                if one_width is None and span is None:
+                    continue
+                cells.append(
+                    {
+                        "row": row,
+                        "col": col,
+                        "written": written_attrs(one_width) if one_width is not None else None,
+                        "span": span.get(W_NS + "val") if span is not None else None,
+                    }
+                )
+        jc = _kid(props, "jc") if props is not None else None
+        ind = _kid(props, "tblInd") if props is not None else None
+        lay = _kid(props, "tblLayout") if props is not None else None
+        mar = _kid(props, "tblCellMar") if props is not None else None
+        entries.append(
+            {
+                "at": at,
+                "written": written_attrs(width) if width is not None else None,
+                "w": raw,
+                "kind": kind,
+                "mm": mm_of(raw, "twips"),
+                "align": jc.get(W_NS + "val") if jc is not None else None,
+                "indent": written_attrs(ind) if ind is not None else None,
+                "layout": lay.get(W_NS + "type") if lay is not None else None,
+                "cell_mar": mar is not None,
+                "rows": len(rows),
+                "grid": grid,
+                "cols": len(grid),
+                "cells": cells[:limit],
+            }
+        )
+    return {
+        "listed": len(entries),
+        "with_tblW": said,
+        "auto": auto_said,
+        "grid_sum": grid_sum,
+        "list": entries,
+    }
+
+
+def odf_table_layouts(body, content_root, style_root, prefixes: dict, limit: int = 200) -> dict:
+    """ODF 这张表多宽：一条列元素顶几列写在 `number-columns-repeated`，宽度一跳在列样式上"""
+    roots = [(content_root, "content.xml")]
+    if style_root is not None:
+        roots.append((style_root, "styles.xml"))
+    columns: dict[str, tuple] = {}
+    table_styles: dict[str, tuple] = {}
+    for root, part in roots:
+        for one in root.iter():
+            if xml_local(one.tag) != "style":
+                continue
+            name = odf_attr(one, "name")
+            if name is None:
+                continue
+            fam = odf_attr(one, "family")
+            if fam == "table-column" and name not in columns:
+                kid = _kid(one, "table-column-properties")
+                columns[name] = (written_kept(kid, prefixes) if kid is not None else None, part)
+            if fam == "table" and name not in table_styles:
+                kid = _kid(one, "table-properties")
+                table_styles[name] = (written_kept(kid, prefixes) if kid is not None else None, part)
+    entries = []
+    elements = covered = resolved = 0
+    for at, tbl in enumerate(
+        [one for one in body.iter() if xml_local(one.tag) == "table"][:limit]
+    ):
+        style = odf_attr(tbl, "style-name")
+        held = table_styles.get(style) if style else None
+        cols = []
+        for kid in tbl:
+            if xml_local(kid.tag) != "table-column":
+                continue
+            elements += 1
+            name = odf_attr(kid, "style-name")
+            got = columns.get(name) if name else None
+            raw_rep = odf_attr(kid, "number-columns-repeated")
+            try:
+                repeated = int((raw_rep or "1").strip())
+            except ValueError:
+                repeated = 1
+            covered += repeated
+            resolved += 1 if got is not None else 0
+            width = got[0] if got else None
+            cols.append(
+                {
+                    "written": written_kept(kid, prefixes),
+                    "style": name,
+                    "style_part": got[1] if got else None,
+                    "repeated": repeated,
+                    "width": width,
+                    "mm": mm_of(width.get("style:column-width") if width else None, None),
+                }
+            )
+        entries.append(
+            {
+                "at": at,
+                "name": odf_attr(tbl, "name"),
+                "style": style,
+                "style_part": held[1] if held else None,
+                "written": held[0] if held else None,
+                "mm": mm_of(held[0].get("style:width") if held and held[0] else None, None),
+                "columns": cols[:limit],
+            }
+        )
+    return {
+        "tables": len(entries),
+        "column_elements": elements,
+        "covered": covered,
+        "resolved": resolved,
+        "column_styles": len(columns),
+        "table_styles": len(table_styles),
+        "list": entries,
+    }
+
+
 def null_cache() -> dict:
     return {"written": None, "points": 0, "values": [], "whole": True}
 
@@ -1804,6 +1963,18 @@ def odt_structure(path: Path) -> dict:
         # （前缀要按**各自那份件**自己声明的 xmlns 还原，所以两张表并起来用，content 优先）
         "numbering": odf_numbering(
             odf_body_paragraphs(body),
+            body,
+            root,
+            ET.fromstring(parts["styles.xml"]) if "styles.xml" in parts else None,
+            {
+                **ns_prefixes(parts["styles.xml"].decode("utf8", "replace")),
+                **prefixes,
+            }
+            if "styles.xml" in parts
+            else prefixes,
+        ),
+        # 列宽一跳在 family=table-column 的样式上，那份样式 LibreOffice 写在 content.xml
+        "table_layouts": odf_table_layouts(
             body,
             root,
             ET.fromstring(parts["styles.xml"]) if "styles.xml" in parts else None,

@@ -49,6 +49,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `lists.docx` | python-docx（`write_list_docx`） | 编号的三个来源一次摆开：走样式那三段（两份 `List Number` 与一份 `List Bullet`）段上**一个编号属性都没写**；写 `w:numPr` 那三段里有一段点 `numId="3" ilvl="1"`，而模板那九份抽象全是 `multiLevelType="singleLevel"`、每份只带一条 `w:lvl w:ilvl="0"`（那一级根本不存在）；最后一段点 `numId="77"`，`numbering.xml` 里没有这一条。另外三处实测：`numId 1 → abstractNumId 8`（**两本号分开编**）、圆点那级的 `w:lvlText` 是 **Symbol 字体的 `U+F0B7`**（字体名写在同级的 `w:rPr/w:rFonts` 上），而 `w:lvl` 里还有一条 `<w:pStyle w:val="ListNumber"/>` 反指回样式表 —— 样式与编号是一个环 |
 | `lists-lo.docx` | LibreOffice（`lists.docx` → .docx，同一个格式重写） | 重写一次每段都换了样子：编号**段上写一份、样式里那份也留着**（`both` 三段），级别补齐九级、`ilvl` 也写出来了，`w:ind` 从 `left` 换成 `start`、`lvlJc` 也从 `left` 换成 `start`，抽象上那三个 `nsid`/`tmpl`/`multiLevelType` 一个都不写（`written` 是空表），号改成自己那本（`numId N → abstractNumId N`），**而那个不存在的 77 被改写成 `numId="0"`**（0 这一条同样不存在）|
 | `lists.odt` | LibreOffice（从 `lists.docx`） | 换 ODF 的形状：第二级是**套两层 `text:list`** 表达出来的（套在里面那一层连样式名都不写，`chain` 交 `[WWNum3, null]`），段上只剩样式名 P1..P4 而列表样式名挂在样式上（`text:list-style-name`），级别是 **1 基的 `text:level`**（docx 那边是 0 基的 `w:ilvl`），十份 `text:list-style` 定义**全在 styles.xml**（`in_content` 0、`in_styles` 10），而那个解不开的 77 在这里写成 `text:list-style-name=""` —— 空串是这一族说「不套列表」的写法，与「点了一个没有的名字」不是一回事 |
+| `tables-lo.docx` | LibreOffice（`tables.docx` → .docx，同一个格式重写） | 那三本账里第一本变了：`w:tblW` 从 `type=auto w=0` 换成实数 **`8640 dxa`**，另外补出 `w:jc=start`、`w:tblInd=108`、`w:tblLayout=fixed` 与一个**空的** `w:tblCellMar`；网格与每格那两本**一字不差**（`4320` 与 `4320`），`w:tblLook` 的 `val` 从 `04A0` 变成小写 `04a0` |
 | `toc.docx` | LibreOffice 的 **docx 导出器**（把目录注进 `notes.docx` 再让它照抄） | 真目录：`<w:sdt>` + `<w:docPartGallery w:val="Table of Contents"/>`，级别在域指令文字里 —— LibreOffice 把引号写成 `&quot;`，所以 `TOC \o "1-2" \h` 要还原实体才读得对 |
 | `toc.odt` | LibreOffice（从 `toc.docx`） | 同一件东西的另一副面孔：`text:table-of-content`（名字 `目录1`）、级别在 `text:table-of-content-source/@outline-level="2"`，另外**十级条目模板全写出来**（`entry_templates` 报的是文件写了几个，不是用上了几级） |
 | `toc.rtf` | LibreOffice（从 `toc.docx`） | 目录的第三种写法：没有 OOXML 那个 `w:sdt` 壳，也没有 ODF 那个 `outline-level` 属性，只有流里的一条域 `{\*\fldinst { TOC \\o "1-2" \\h}}` —— 开关前面的反斜杠**成对写**（单个会开出一个控制字），解掉那一对之后与 `toc.docx` 的 `w:instrText` 逐字相同。全文两条域（这一条 TOC 与目录条目上那一条 HYPERLINK）、`line_count` 9、`skipped_destinations` 120 |
@@ -795,6 +796,30 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     RTF 那一族的列表住在 `\listtable` / `\ilvl` / `\ls` 那一套里，每段前面还带一个
     `\listtext` 群（实测 `lists` 那批件转出的 RTF：`\ls4`、`\ilvl0`、标签 `1.` 就写在流里，
     `\listtable` 里 7 条 `\list` × 9 级 `\listlevel`）—— 量过了但还没读，所以这个键整族不交。
+
+56. **这张表说自己多宽**（`tables.docx`、`tables-merged.docx`、`tables-lo.docx`、两份 `.odt`）。
+    「把表排多宽」这件事在 OOXML 里有**三本账**，而且它们天生不会相等：
+    * `w:tblPr/w:tblW` 是表自己说的。python-docx 写的是 `type="auto" w="0"` ——
+      那是一个**写了等于没写**的值，但它确实写在文件里，所以照交（`kind` 与 `w` 各一个键，
+      连 `mm=0` 也不当成「没说」）；LibreOffice 把同一份件重写一遍之后这里变成 `8640 dxa`，
+      还顺手补出 `w:jc`、`w:tblInd=108`、`w:tblLayout=fixed` 与一个**空的** `w:tblCellMar`。
+    * `w:tblGrid/w:gridCol@w` 是网格那一本：两家**一字不差**（两条 `4320`）。
+    * 每一格自己的 `w:tcPr/w:tcW` 是第三本。`tables-merged.docx` 最能说明问题：
+      网格是三条 `2880`，而横向合并那一格自己写 `5760`（它盖住的两列之和，`w:gridSpan="2"`）——
+      「这张表几列、每列多宽」与「这一行几个格、每格多宽」是两个问题，两本都要交。
+    * 行与格只数这张表**自己的直接孩子**：套在格里的另一张表不会把上面那本的账撑大。
+    * twips 走「那张纸」同一条整数式子换成 0.01mm，于是跨家族可比：
+      docx 的 `4320` 与 ODF 的 `7.62cm` 都是 `7620`，`8640` 与 `15.24cm` 都是 `15240` ——
+      这是这一批里唯一一组两家读者、两种单位算到同一个数的 pin。
+    ODF 那一族没有表级宽度元素：
+    * 一条 `table:table-column` 可以**顶好几列** —— 实测两份列写成**一条**元素带
+      `number-columns-repeated="2"`（合并那张是 `3`），所以 `column_elements`（几条）与
+      `covered`（盖住几列）分开数，差一条就是差几列。
+    * 宽度一跳在 `style:style`（family=table-column）的 `style:table-column-properties/@style:column-width`，
+      表自己的总宽在 family=table 的样式的 `@style:width` 上。
+    * 与编号那一批**正相反**：这里的列样式与表样式都写在 **content.xml**（`style_part` 每条都点名），
+      所以上一批学到的「定义在 styles.xml」不是一条家族规律，只是那一族生产者的选择。
+    * 列样式名是照表名拼的（`表格1.A`、`表格2.A`）—— 生产者的命名约定，照原样交，不当成结构。
 
 ## 这些数字从哪来
 

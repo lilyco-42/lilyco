@@ -147,6 +147,7 @@ def main() -> int:
         "para.docx": ("ooxml", "word", "docx"),
         "para.odt": ("opendocument", "word", "odt"),
         "para.rtf": ("rtf", "word", "rtf"),
+        "tables-lo.docx": ("ooxml", "word", "docx"),
         "lists.docx": ("ooxml", "word", "docx"),
         "lists-lo.docx": ("ooxml", "word", "docx"),
         "lists.odt": ("opendocument", "word", "odt"),
@@ -1107,6 +1108,93 @@ def main() -> int:
         got = (lbin("office-doc", fixture(name)).get("structure") or {})
         check("%s 也不报编号：那一份在表流里" % name,
               [one for one in ("numbering",) if got.get(one) is not None], [])
+
+    # ── 2j) 这张表多宽：docx 三本账、ODF 一跳、两家换算是同一个数 ──────────
+    print("=== 2j) office-doc 的表宽（三本账各数各的） ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name)).get("structure", {})
+        want = files[name]["ooxml"]
+        check("%s 表宽与读者一致" % name, got.get("table_layouts"), want.get("table_layouts"))
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name)).get("structure", {})
+        want = files[name]["odt"]
+        check("%s 表宽与读者一致" % name, got.get("table_layouts"), want.get("table_layouts"))
+    plain = lbin("office-doc", fixture("tables.docx"))
+    wide = lbin("office-doc", fixture("tables-merged.docx"))
+    relo = lbin("office-doc", fixture("tables-lo.docx"))
+    odt = lbin("office-doc", fixture("tables.odt"))
+    odtw = lbin("office-doc", fixture("tables-merged.odt"))
+    # 「这张表多宽」在 OOXML 有三本账，而且第一本可以什么都没说
+    check(
+        "python-docx 那份：w:tblW 写的是 auto/0（说了等于没说）",
+        [dig(plain, "structure.table_layouts.listed"),
+         dig(plain, "structure.table_layouts.with_tblW"),
+         dig(plain, "structure.table_layouts.auto"),
+         dig(plain, "structure.table_layouts.list[0].w"),
+         dig(plain, "structure.table_layouts.list[0].kind"),
+         dig(plain, "structure.table_layouts.list[0].mm")],
+        [2, 2, 2, "0", "auto", 0],
+    )
+    # 同一个格式重写一次：那一家把它换成实数，还补齐对齐/缩进/固定布局/单元格边距
+    check(
+        "LibreOffice 重写：auto/0 换成 8640 dxa，另外四样一并写出",
+        [dig(relo, "structure.table_layouts.auto"),
+         dig(relo, "structure.table_layouts.list[0].w"),
+         dig(relo, "structure.table_layouts.list[0].mm"),
+         dig(relo, "structure.table_layouts.list[0].align"),
+         dig(relo, "structure.table_layouts.list[0].layout"),
+         dig(relo, "structure.table_layouts.list[0].cell_mar"),
+         dig(relo, "structure.table_layouts.list[0].indent")],
+        [0, "8640", 15240, "start", "fixed", True, {"w": "108", "type": "dxa"}],
+    )
+    # 网格那本两家一字不差；横向合并那一格自己写的是两列之和
+    check(
+        "网格两样都对得上，合并格报的是那一格的宽",
+        [dig(plain, "structure.table_layouts.list[0].grid[0].w"),
+         dig(relo, "structure.table_layouts.list[0].grid[0].w"),
+         dig(wide, "structure.table_layouts.list[0].cols"),
+         dig(wide, "structure.table_layouts.list[0].cells[0].written.w"),
+         dig(wide, "structure.table_layouts.list[0].cells[0].span"),
+         dig(wide, "structure.table_layouts.list[0].cells[1].written.w")],
+        ["4320", "4320", 3, "5760", "2", "2880"],
+    )
+    # ODF：列是**一条元素顶几列**，宽度一跳在列样式上，而那份样式在 content.xml
+    check(
+        "ODF 一条 table-column 顶两列，宽度在样式那一跳",
+        [dig(odt, "structure.table_layouts.column_elements"),
+         dig(odt, "structure.table_layouts.covered"),
+         dig(odt, "structure.table_layouts.resolved"),
+         dig(odt, "structure.table_layouts.list[0].columns[0].repeated"),
+         dig(odt, "structure.table_layouts.list[0].columns[0].style_part"),
+         dig(odt, "structure.table_layouts.list[0].columns[0].width")],
+        [2, 4, 2, 2, "content.xml", {"style:column-width": "7.62cm"}],
+    )
+    # 跨家族的好 pin：8640 twips 与 15.24cm、4320 与 7.62cm 换成同一个 0.01mm 数
+    check(
+        "换算是同一个数：docx 的 twips 与 ODF 自带单位的串",
+        [dig(relo, "structure.table_layouts.list[0].mm"),
+         dig(odt, "structure.table_layouts.list[0].mm"),
+         dig(relo, "structure.table_layouts.grid_sum"),
+         dig(odt, "structure.table_layouts.list[0].columns[0].mm"),
+         dig(plain, "structure.table_layouts.grid_sum")],
+        [15240, 15240, 30480, 7620, 30480],
+    )
+    check(
+        "合并那张表的 ODF 侧：三条列宽 5.08cm（= 2880 twips）",
+        [dig(otdw, "structure.table_layouts.covered"),
+         dig(otdw, "structure.table_layouts.list[0].columns[0].repeated"),
+         dig(otdw, "structure.table_layouts.list[0].columns[0].mm"),
+         dig(wide, "structure.table_layouts.list[0].grid[0].w")],
+        [5, 3, 5080, "2880"],
+    )
+    for name in ("tables.rtf",):
+        got = lbin("office-doc", fixture(name)).get("structure", {})
+        check("%s 不报表宽：RTF 里没有「表宽」这个东西（只有 \intbl 与格分隔）" % name,
+              [one for one in ("table_layouts",) if got.get(one) is not None], [])
+    for name in ("notes.doc",):
+        got = (lbin("office-doc", fixture(name)).get("structure") or {})
+        check("%s 也不报表宽：那一份在表流里" % name,
+              [one for one in ("table_layouts",) if got.get(one) is not None], [])
 
     # ── 2f) 演示稿的第二生产者与那两张图：同一份稿子中一家会重写什么 ──────
     print("=== 2f) 两家写的 pptx 与页上的图 ===")
