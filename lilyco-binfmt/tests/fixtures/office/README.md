@@ -51,6 +51,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `errors.ods` | LibreOffice（`errors.xlsx` → .ods） | 第三种摆法：错误格 `office:value-type="string"`（不是 error）加一个空的 `office:string-value`，显示的那串只在 `<text:p>` 里；`calcext:value-type="error"` 那条副本不跟；同一个坏掉的 VLOOKUP 在这里叫 `错误:502` 而不是 `#VALUE!` |
 | `epoch.xlsx` | openpyxl（`write_epoch_xlsx`，`wb.epoch` 换成 1904） | 全套断言里第一份写 `date1904` 的件（`date1904="1"`）：`2013-12-23` 在这里的序列号是 **40169**（1900 基准下不是这个数），另有一格序列号正好 **60**（1904 基准下是 1904-03-01，那个闰年 bug 的特例只许在 1900 那一边生效），还有一格像日期的字（`t="inlineStr"`） |
 | `epoch-lo.xlsx` | LibreOffice（`epoch.xlsx` → .xlsx，同一个格式重写） | 同一个开关换成 `date1904="true"`、序列数照旧，而带时刻那一格的小数从 15 位截到 10 位（换算出来的秒不变）；那格字换成了 `t="s"` 指共享字符串，日期格式串也换成小写带转义的 `yyyy\-mm\-dd` |
+| `rich.xlsx` | openpyxl（`write_rich_xlsx`，`CellRichText` + `InlineFont`） | 一个格子的字分成几段的第一种摆法：**整个文件没有 `sharedStrings.xml`**，富文本全写成行内串（`t="inlineStr"` + `<is><r><rPr><b val="1"/>…</rPr><t>重要</t></r>…`）；A2 两段各有格式，A6 第一段**整个没有 `rPr`** 而第二段有（「没写」与「写了但是空的」），A3 首尾各两个空格、A7 开头一个制表符（这两格的 `t` 带 `xml:space="preserve"`，其余不带），A1 与 A5 是同一条「甲」（被引用两次），B1 的粗体写在**格子上**不在串里 |
+| `rich-lo.xlsx` | LibreOffice（`rich.xlsx` → .xlsx，同一个格式重写） | 第二种摆法：八次引用全搬进 `sst`（自报 `count="8"` 配 `uniqueCount="7"`，七条串），每一个 `t` 都补 `xml:space="preserve"`，同一个粗体开关改写成 `val="true"` 并补 `family` / `charset`，A7 那一格还按字体 fallback **切成两段**（`Calibri` 与 `Noto Sans SC`）—— 分段数是生产者的决定，只交不比 |
+| `rich.ods` | LibreOffice（`rich.xlsx` → .ods） | 第三种摆法，而且是记号不是字面：`  两头有空格  ` 写作 `<text:s text:c="2"/>…<text:s text:c="2"/>`（`text:c` 说这一个记号顶几个空格），A7 的制表符是 `<text:tab/>`，A4 的两行是两个 `<text:p>`；富文本变成 `<text:span text:style-name="T1">`（那三份字符样式不追，只交 `spans` / `specials` 两本条数） |
 | `size.xlsx` | openpyxl | 列宽行高与筛选/表对象的第一种写法：A 列 `22.5`、C 列 `4` 且藏着，第 2 行 `40`、第 3 行 `8`（第 1 行什么都不写），默认行高 18 写在 `sheetFormatPr`（那一族管默认宽度叫 **`baseColWidth`**），筛选范围 `A1:C3` 带一个筛掉的值「甲」，另挂一个范围**不同**的表对象 `A1:B3`（列名拿范围第一行的字当，于是第二列叫 `10`）；`tableParts` 自己写 `count="1"` |
 | `size-lo.xlsx` | LibreOffice（`size.xlsx` → .xlsx，同一个格式重写） | 换一家换算就换一套数：同一列成 `20.47` 与 `3.64`、同一行成 `39.75` 与 `7.5`，连没说过话的那一行也被补上 `ht="18"`；「默认列宽」改叫 **`defaultColWidth="7.7734375"`**、`baseColWidth` 不见；两张表都写 `sheetPr filterMode`（`true` 与 `false`），`filterColumn` 上那两个开关反倒不写；表对象补 `totalsRowCount`/`totalsRowShown`、样式开关从 2 个变 5 个，**而 `tableParts` 的 `count` 不写了** |
 | `notes-end.rtf` | LibreOffice（从 `notes-end.docx`） | 注的第三种存法：脚注与尾注**都**写成 `{\*\footnote …}` 这一个群，尾注只在群里多一个 `\ftnalt`；分隔符另走 `{\*\ftnsep\chftnsep}` |
@@ -1117,6 +1120,35 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       点名点不到那份样式时 `hidden` 交 null（判不住），`style_found: false` 说清为什么。
     * 三家都有 `hidden` 这一键了：没藏就是 false，不是缺键；藏起来那页的标题、字与
       段落照旧整份交出来（「放映时不演」不等于「这份文件里没有这一页」）。
+
+69. **一个格子的字可以分成几段，而首尾那两个空格是文件写的**（`rich.xlsx`、`-lo.xlsx`、`.ods`）。
+    * 两条教训合成一件。**其一**：`<t xml:space="preserve">  两头有空格  </t>` 里那两个空格
+      此前被两份读者一起 `trim` 掉了 —— 又一个「两个读者一起错」的例子（Rust 那边 `text().trim()`，
+      Python 那边 `.strip()`，而字符串表那一条路 Python **没有** trim，所以两份读者在同一家文件上
+      本来就不一致，只是没人把这一格摆进对账）。凭据是生产者自己：LibreOffice 把这份 xlsx 与那份
+      .ods 各自导成 CSV，交回来的都是 `'  两头有空格  ,'`（连开头那个制表符也一样在）。
+    * **其二**：分段（富文本）这一支从来没有生产者。openpyxl 3.1 起能写 `CellRichText`，
+      但它**只写行内串**（`t="inlineStr"` + `<is><r><rPr>…</rPr><t>…</t></r>`，整个文件一条
+      `sharedStrings.xml` 都没有），LibreOffice 重写同一份时把八次引用全搬进字符串表，
+      并在 `sst` 上自报 `count="8" uniqueCount="7"` —— 那条「甲」被两个格子用了，
+      所以两个数都是对的，谁也不替谁圆（`sst_unique_matches` 说的是自报数与条数对不对得上）。
+    * 格式住在 `rPr` 的**孩子元素**上（`<b val="1"/>`、`<color rgb="FFC00000"/>`），不在 `rPr`
+      自己的属性上（实测两家一个属性都不写）；同一个开关又是两种拼法：openpyxl 写 `val="1"`，
+      LibreOffice 重写同一截字写 `val="true"`。还有一处「没写」与「写了但是空的」的分别：
+      同一段稿子，openpyxl 的第一段整个没有 `rPr`（`props_written: false`、`format: null`），
+      而 LibreOffice 给每一段都补了一份。
+    * 分段不改字：`重要` + `普通` 两段的整串仍是 `重要普通`。LibreOffice 还会**按字体 fallback
+      切段** —— 那一格 `\ttab 开头` 在 openpyxl 手里是一段，在它手里是两段（`Calibri` 与
+      `Noto Sans SC` 各一段），所以 `run_total` 也是生产者自己的决定，只交不比。
+    * `.ods` 是第三种写法，而且是**记号不是字面**：`  两头有空格  ` 写作
+      `<text:s text:c="2"/>两头有空格<text:s text:c="2"/>`（`text:c` 说那一个记号顶几个空格），
+      制表符是 `<text:tab/>`，段内换行是 `<text:line-break/>`。不展开就一个空格也读不出来。
+      富文本在 ODF 里是 `<text:span text:style-name="T1">` —— 这一族**不追那份字符样式**，
+      只交每一格有几个 span、几个记号（`spans` / `specials`），因为那是另一条没有量过的跳。
+      另有一格把粗体写在**格子上**（`s=` → cellXfs → font）而不是串里，两处的账各交各的。
+    * 踩到的一条（第二读者自己的）：ElementTree 的 `Element` **没有孩子时是假值**，
+      所以 `local_child(r, "t") or r` 会带着空字退回 `r` —— `text` 明明写着「重要」而读出来是 `""`。
+      这类 `or` 兜底在 Element/None 之间要用 `is None` 判。
 
 ## 这些数字从哪来
 

@@ -61,6 +61,10 @@ pub struct Cell {
     pub boolean_value: Option<String>,
     pub formula: Option<String>,
     pub text: String,
+    /// 这一格里有几段带了另一份字符样式（`text:span`）：字照抄进 `text`，样式名不追
+    pub spans: usize,
+    /// 这一格里 `text:s` / `text:tab` / `text:line-break` 这几个记号的条数（展开见下）
+    pub specials: usize,
     /// 这一格引用的单元格样式名（`table:style-name`）：格式在它的 `style:data-style-name` 那一跳后面
     pub style_name: Option<String>,
     pub columns_spanned: usize,
@@ -77,6 +81,8 @@ impl Cell {
             "boolean_value": self.boolean_value,
             "formula": self.formula,
             "text": self.text,
+            "spans": self.spans,
+            "specials": self.specials,
             "columns_spanned": self.columns_spanned,
             "rows_spanned": self.rows_spanned,
         })
@@ -164,17 +170,71 @@ pub struct Sheet {
     pub comments: Vec<Value>,
 }
 
-/// 格子里那些「算这一格内容」的段：批注子树整个跳过
-fn plain_paragraphs(node: &xmlscan::Node, out: &mut Vec<String>) {
+/// 格子里那些「算这一格内容」的段：批注子树整个跳过。
+///
+/// ODF 把空格与制表符**写成记号而不是字面**：`  两头有空格  ` 是
+/// `<text:s/><text:s text:c="2"/>两头有空格<text:s/><text:s/>`（`text:c` 说这一个记号顶
+/// 几个空格，没写就是一个），制表符是 `<text:tab/>`，段内换行是 `<text:line-break/>`。
+/// 不展开就一个空格也读不出来 —— 而 LibreOffice 把同一份 .ods 自己导成 CSV 时那些空格
+/// 一个不少（`rich.ods` 与 `rich.xlsx` 那两份 CSV 一模一样），所以这里照文件的写法展开。
+/// 段首尾也不 trim：那一格的字就是文件写的那一串。
+fn plain_paragraphs(
+    node: &xmlscan::Node,
+    out: &mut Vec<String>,
+    spans: &mut usize,
+    specials: &mut usize,
+) {
     for one in node.children.iter() {
         if one.is("annotation") {
             continue;
         }
         if one.is("p") {
-            out.push(one.text().trim().to_string());
+            let mut body = String::new();
+            paragraph_text(one, &mut body, spans, specials);
+            out.push(body);
             continue;
         }
-        plain_paragraphs(one, out);
+        plain_paragraphs(one, out, spans, specials);
+    }
+}
+
+/// 一段里的字，按 ODF 的写法展开（`spans` 数 `text:span`，`specials` 数那三种记号）
+fn paragraph_text(node: &xmlscan::Node, out: &mut String, spans: &mut usize, specials: &mut usize) {
+    for one in node.children.iter() {
+        if one.is("annotation") {
+            continue;
+        }
+        if one.local() == "#text" {
+            out.push_str(&one.direct);
+            continue;
+        }
+        if one.is("s") {
+            // 一个记号顶几个空格。上限是给坏文件留的：`text:c` 是文件自己写的数，
+            // 而这里展开的是内存 —— 条数照数，不替它把那一格撑爆
+            let times = attr_of(one, "c")
+                .and_then(|raw| raw.trim().parse::<usize>().ok())
+                .unwrap_or(1)
+                .min(4096);
+            for _ in 0..times {
+                out.push(' ');
+            }
+            *specials += 1;
+            continue;
+        }
+        if one.is("tab") {
+            out.push('\t');
+            *specials += 1;
+            continue;
+        }
+        if one.is("line-break") {
+            out.push('\n');
+            *specials += 1;
+            continue;
+        }
+        if one.is("span") {
+            *spans += 1;
+        }
+        paragraph_text(one, out, spans, specials);
     }
 }
 
@@ -468,12 +528,13 @@ pub fn read(bytes: &[u8]) -> Book {
                 }
                 let reference = format!("{}{}", col_letter(col_at), row_at + 1);
                 let mut paragraphs: Vec<String> = Vec::new();
-                plain_paragraphs(cell, &mut paragraphs);
+                let (mut spans, mut specials) = (0usize, 0usize);
+                plain_paragraphs(cell, &mut paragraphs, &mut spans, &mut specials);
                 let text = paragraphs.join("\n");
                 // 批注不算这一格的字，但它自己要交账：作者、时间（没写就 null）、正文
                 for had in annotation_nodes(cell) {
                     let mut body: Vec<String> = Vec::new();
-                    plain_paragraphs(had, &mut body);
+                    plain_paragraphs(had, &mut body, &mut 0usize, &mut 0usize);
                     sheet.comments.push(json!({
                         "ref": reference.clone(),
                         "author": note_field(had, &["creator"]),
@@ -505,6 +566,8 @@ pub fn read(bytes: &[u8]) -> Book {
                         boolean_value,
                         formula,
                         text,
+                        spans,
+                        specials,
                         style_name: attr_of(cell, "style-name").map(|one| one.to_string()),
                         columns_spanned,
                         rows_spanned,

@@ -1765,10 +1765,18 @@ def xlsx_facts(path: Path) -> dict:
                     ),
                 }
             )
-    shared = 0
+    strings: list = []
+    sst_count = None
+    sst_unique = None
     if "xl/sharedStrings.xml" in parts:
         sst = ET.fromstring(parts["xl/sharedStrings.xml"])
-        shared = len([one for one in sst.iter() if xml_local(one.tag) == "si"])
+        sst_count = sst.get("count")
+        sst_unique = sst.get("uniqueCount")
+        for one in sst.iter():
+            if xml_local(one.tag) == "si":
+                strings.append(ooxml_string_parts(one))
+    shared = len(strings)
+    by_index = dict(enumerate(strings))
     cells = 0
     formulas = 0
     numbers = 0
@@ -1776,6 +1784,9 @@ def xlsx_facts(path: Path) -> dict:
     errored = 0
     str_results = 0
     strings_inline = 0
+    rich_cells = 0
+    preserved_cells = 0
+    cell_strings: list = []
     merged = 0
     dims: dict[str, str] = {}
     layouts: dict = {}
@@ -1796,6 +1807,8 @@ def xlsx_facts(path: Path) -> dict:
             elif tag == "c":
                 cells += 1
                 t = one.get("t")
+                # 每一格自己一次：这一格的字是不是一个「串」（s 或 inlineStr）
+                parts_str = None
                 # 「文件写了 t」与「t 没写、按规范默认 n」是两件事：openpyxl 给公式格一个
                 # 都不写，LibreOffice 重写同一份时连数字格都写 t="n"
                 if t is not None:
@@ -1805,12 +1818,30 @@ def xlsx_facts(path: Path) -> dict:
                 elif t == "str":
                     str_results += 1
                 elif t == "s":
-                    pass  # 共享字符串索引：值本身在 sharedStrings 里，这里只数格子
+                    # 索引在这里，字在 sharedStrings 里：绕那一跳把分段也取出来
+                    spot = local_child(one, "v")
+                    try:
+                        parts_str = by_index.get(int((spot.text or "").strip()))
+                    except (AttributeError, TypeError, ValueError):
+                        parts_str = None
                 elif t == "inlineStr":
                     strings_inline += 1
+                    holder = local_child(one, "is")
+                    parts_str = ooxml_string_parts(holder) if holder is not None else None
                 elif t in (None, "n"):
                     if has_local_child(one, "v"):
                         numbers += 1
+                if parts_str is not None:
+                    cell_strings.append(
+                        dict(
+                            [("sheet", local), ("ref", one.get("r"))]
+                            + [(key, value) for key, value in parts_str.items()]
+                        )
+                    )
+                    if parts_str["rich"]:
+                        rich_cells += 1
+                    if parts_str["preserved"]:
+                        preserved_cells += 1
                 if has_local_child(one, "f"):
                     formulas += 1
             elif tag == "mergeCell":
@@ -1825,6 +1856,18 @@ def xlsx_facts(path: Path) -> dict:
         "error_cells": errored,
         "string_result_cells": str_results,
         "cells_with_written_type": typed,
+        "cells_with_runs": rich_cells,
+        "cells_with_preserved_space": preserved_cells,
+        "cell_strings": cell_strings,
+        "strings": {
+            "count_written": sst_count,
+            "unique_written": sst_unique,
+            "entries": shared,
+            "with_runs": sum(1 for one in strings if one["rich"]),
+            "with_preserved_space": sum(1 for one in strings if one["preserved"]),
+            # 与 Rust 那边同一个算法：没有这张表、或者这个数解不出来，都算「对不上」
+            "unique_matches": _unique_matches(sst_unique, shared),
+        },
         "merged": merged,
         "dimensions": dims,
         "print_setup": print_setups,
@@ -1847,6 +1890,90 @@ def xlsx_facts(path: Path) -> dict:
         "external_links": sorted(one for one in names if one.startswith("xl/externalLinks/")),
         "styles_part": "xl/styles.xml" in parts,
         "calc_chain": "xl/calcChain.xml" in parts,
+    }
+
+
+def _unique_matches(raw, count: int) -> bool:
+    """`sst/@uniqueCount` 与条数对不对得上：解不出来（含整个没这张表）算 False"""
+    try:
+        return int((raw or "").strip()) == count
+    except (TypeError, ValueError):
+        return False
+
+
+def ooxml_string_parts(holder, limit: int = 200) -> dict:
+    """一条「串」（`si` 或 `is`）：整串的字 + 文件把它分成的几段
+
+    与 Rust 的 `string_parts` 同一条规则：`t` 直接坐在串下是一段没有格式的字，
+    `r` 是带 `rPr` 的一段（`rPr` 在不在、它自己写着的属性、里面那几个孩子元素
+    分三处交 —— 两家生产者把格式写在孩子上（`<b val="true"/>`），rPr 自己一个属性都不写）。
+    整串**不 strip**：首尾那两个空格是文件写的，LibreOffice 自己导出的 CSV 也带着它们。
+    """
+    runs: list = []
+    rich = False
+    preserved = False
+    for kid in holder:
+        tag = xml_local(kid.tag)
+        props = None
+        if tag == "t":
+            word = kid
+        elif tag == "r":
+            rich = True
+            # 不能用 `or`：ElementTree 的 Element 没有孩子时是**假值**，
+            # `<t>重要</t>` 正是这种（0 个孩子、有字），`or` 会把它当成没有而退回 `r`
+            word = local_child(kid, "t")
+            if word is None:
+                word = kid
+            props = local_child(kid, "rPr")
+        else:
+            continue
+        space = word.get("{http://www.w3.org/XML/1998/namespace}space")
+        if space is not None:
+            preserved = True
+        if len(runs) >= limit:
+            continue
+        runs.append(
+            {
+                "element": tag,
+                "text": word.text or "",
+                "space": space,
+                "props_written": props is not None,
+                "props_attrs": (
+                    dict(sorted((xml_local(key), value) for key, value in props.attrib.items()))
+                    if props is not None
+                    else None
+                ),
+                "format": (
+                    [
+                        {
+                            "element": xml_local(one.tag),
+                            "attrs": dict(
+                                sorted(
+                                    (xml_local(key), value)
+                                    for key, value in one.attrib.items()
+                                )
+                            ),
+                        }
+                        for one in props
+                    ]
+                    if props is not None
+                    else None
+                ),
+            }
+        )
+    text = "".join(
+        (one.text or "") for one in holder.iter() if xml_local(one.tag) == "t"
+    )
+    return {
+        "text": text,
+        "runs": runs,
+        "run_total": sum(
+            1
+            for one in holder
+            if xml_local(one.tag) in ("t", "r")
+        ),
+        "rich": rich,
+        "preserved": preserved,
     }
 
 
@@ -2574,6 +2701,61 @@ def col_letter(index: int) -> str:
             return name
 
 
+def _para_text(node) -> str:
+    """一段里的字，按 ODF 的写法展开：`text:s` / `text:tab` / `text:line-break` 是**记号**
+    而不是字面（`text:c` 说那一个记号顶几个空格）。首尾不 strip —— 那两个空格是文件写的，
+    LibreOffice 把同一份 .ods 自己导成 CSV 时一个都不少。
+    """
+    out: list = []
+    if node.text:
+        # 段自己的第一个字在 `.text` 里（ElementTree 不把它做成孩子）——
+        # 漏了它，`<text:p>甲</text:p>` 就成一个字也没有
+        out.append(node.text)
+
+    def walk(one) -> None:
+        if xml_local(one.tag) == "annotation":
+            return
+        tag = xml_local(one.tag)
+        if tag == "s":
+            try:
+                times = int((of_attr(one, "c") or "1").strip())
+            except ValueError:
+                times = 1
+            out.append(" " * min(max(times, 0), 4096))
+            return
+        if tag == "tab":
+            out.append("\t")
+            return
+        if tag == "line-break":
+            out.append("\n")
+            return
+        if one.text:
+            out.append(one.text)
+        for kid in one:
+            walk(kid)
+            if kid.tail:
+                out.append(kid.tail)
+
+    for kid in node:
+        walk(kid)
+        if kid.tail:
+            out.append(kid.tail)
+    return "".join(out)
+
+
+def _cell_marks(node) -> tuple:
+    """这一格里 `text:span` 的条数与那三种记号（s / tab / line-break）的条数"""
+    spans = 0
+    specials = 0
+    for one in node.iter():
+        tag = xml_local(one.tag)
+        if tag == "span":
+            spans += 1
+        elif tag in ("s", "tab", "line-break"):
+            specials += 1
+    return spans, specials
+
+
 def _cell_paragraphs(node) -> list:
     """这一格「算内容」的段：批注（`office:annotation`）整个子树跳过。
 
@@ -2587,7 +2769,7 @@ def _cell_paragraphs(node) -> list:
         if tag == "annotation":
             continue
         if tag == "p":
-            out.append("".join(kid.itertext()).strip())
+            out.append(_para_text(kid))
             continue
         out.extend(_cell_paragraphs(kid))
     return out
@@ -2908,6 +3090,7 @@ def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) ->
                     col_at += span
                     continue
                 text = "\n".join(_cell_paragraphs(cell))
+                marks = _cell_marks(cell)
                 # 批注不算这一格的字，但它自己要交账（作者、时间、正文）
                 for had in [one for one in cell.iter() if xml_local(one.tag) == "annotation"]:
                     stamp = _first_text(had, ("date-string", "date"))
@@ -2940,6 +3123,8 @@ def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) ->
                             "boolean_value": flag,
                             "formula": formula,
                             "text": text,
+                            "spans": marks[0],
+                            "specials": marks[1],
                             "style": attr(cell, "style-name"),
                             "columns_spanned": cs,
                             "rows_spanned": rs,
@@ -3670,7 +3855,8 @@ def xlsx_csv(path: Path) -> list:
                 if xml_local(kid.tag) == "v":
                     value = "".join(kid.itertext()).strip()
                 if xml_local(kid.tag) == "is":
-                    inline = "".join(kid.itertext()).strip()
+                    # 不 strip：首尾那两个空格是文件写的（LO 自己的 CSV 也带着它们）
+                    inline = "".join(kid.itertext())
             if dates.get(f"{name}!{ref}"):
                 display = dates[f"{name}!{ref}"]
             elif kind == "s":

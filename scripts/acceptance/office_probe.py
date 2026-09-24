@@ -146,6 +146,9 @@ def main() -> int:
         "errors.ods": ("opendocument", "excel", "ods"),
         "epoch.xlsx": ("ooxml", "excel", "xlsx"),
         "epoch-lo.xlsx": ("ooxml", "excel", "xlsx"),
+        "rich.xlsx": ("ooxml", "excel", "xlsx"),
+        "rich-lo.xlsx": ("ooxml", "excel", "xlsx"),
+        "rich.ods": ("opendocument", "excel", "ods"),
         "chart.xlsx": ("ooxml", "excel", "xlsx"),
         "chart-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "rules.xlsx": ("ooxml", "excel", "xlsx"),
@@ -3190,6 +3193,10 @@ def main() -> int:
         # 1904 基准那两件：同一批序列数换一套基准就是另一套日子
         "epoch.xlsx",
         "epoch-lo.xlsx",
+        # 分段写的字与首尾那两个空格：三家三种摆法，铺平之后都得还在原处
+        "rich.xlsx",
+        "rich-lo.xlsx",
+        "rich.ods",
     ):
         want = {one["name"]: one["csv"] for one in files[name]["csv"]["sheets"]}
         plain = lbin("office-sheet", fixture(name))
@@ -3272,6 +3279,90 @@ def main() -> int:
          dig(ods_err, "sheets[0].cell_list[1].kind"),
          dig(ods_err, "sheets[0].cell_list[1].value")],
         ["#VALUE!", "错误:502", "string", None],
+    )
+
+    # ── 3f3) 一个格子的字分成几段：行内串、字符串表与 .ods 的记号 ────────
+    # openpyxl 把富文本写成 `is`（整个不写 sharedStrings），LibreOffice 重写时全搬进表里，
+    # .ods 又把空格与制表符写成 `text:s` / `text:tab` 记号 —— 三份件三种摆法，一家一份账
+    print("=== 3f3) 分段写的字：runs、xml:space 与 ODF 的那三种记号 ===")
+    for name in ("rich.xlsx", "rich-lo.xlsx"):
+        got = lbin("office-sheet", fixture(name))
+        want = files[name]["ooxml"]
+        check(
+            "%s 那张表自报的两个数与实际条数（count 是引用次数，uniqueCount 是条数）" % name,
+            [dig(got, "workbook.shared_strings"), dig(got, "workbook.sst_count_written"),
+             dig(got, "workbook.sst_unique_written"), dig(got, "workbook.sst_unique_matches"),
+             dig(got, "workbook.sst_with_runs"), dig(got, "workbook.sst_with_preserved_space")],
+            [want["strings"]["entries"], want["strings"]["count_written"],
+             want["strings"]["unique_written"], want["strings"]["unique_matches"],
+             want["strings"]["with_runs"], want["strings"]["with_preserved_space"]],
+        )
+        check(
+            "%s 两本合计：几格是分段写的、几格的文件说了保留空格" % name,
+            [dig(got, "workbook.totals.cells_with_runs"),
+             dig(got, "workbook.totals.cells_with_preserved_space"),
+             dig(got, "sheets[0].cells_with_runs"),
+             dig(got, "sheets[0].cells_with_preserved_space")],
+            [want["cells_with_runs"], want["cells_with_preserved_space"],
+             want["cells_with_runs"], want["cells_with_preserved_space"]],
+        )
+        mine = {one.get("ref"): one for one in dig(got, "sheets[0].cell_list") or []}
+        theirs = {one["ref"]: one for one in want["cell_strings"]}
+        refs = sorted(theirs)
+        check(
+            "%s 每一格的分段账整份与读者一致（几段、每段的字与 rPr）" % name,
+            [[(mine.get(ref) or {}).get(key) for key in
+              ("value", "run_total", "rich_string", "space_preserved", "runs")] for ref in refs],
+            [[theirs[ref]["text"], theirs[ref]["run_total"], theirs[ref]["rich"],
+              theirs[ref]["preserved"], theirs[ref]["runs"]] for ref in refs],
+        )
+    rich_op = lbin("office-sheet", fixture("rich.xlsx"))
+    rich_lo = lbin("office-sheet", fixture("rich-lo.xlsx"))
+    check(
+        "同一段字在两家文件里是两种写法：粗体一家写 1、另一家写 true，而一段没 rPr 与 rPr 是空的也分两件事",
+        [dig(rich_op, "sheets[0].cell_list[2].runs[0].format[1].attrs.val"),
+         dig(rich_lo, "sheets[0].cell_list[2].runs[0].format[0].attrs.val"),
+         dig(rich_op, "sheets[0].cell_list[6].runs[0].props_written"),
+         dig(rich_lo, "sheets[0].cell_list[6].runs[0].props_written"),
+         dig(rich_op, "sheets[0].cell_list[6].runs[0].format"),
+         dig(rich_lo, "sheets[0].cell_list[7].run_total")],
+        ["1", "true", False, True, None, 2],
+    )
+    check(
+        "空格不许被吃掉：三副件里那一格交回来的都是文件写的那一串",
+        [dig(rich_op, "sheets[0].cell_list[3].value"),
+         dig(rich_lo, "sheets[0].cell_list[3].value"),
+         dig(lbin("office-sheet", fixture("rich.ods")), "sheets[0].cell_list[3].text")],
+        ["  两头有空格  ", "  两头有空格  ", "  两头有空格  "],
+    )
+    check(
+        "一家整个没写字符串表（八个格子的字全在页上），另一家写了 count 8 配 uniqueCount 7",
+        [dig(rich_op, "workbook.shared_strings"), dig(rich_op, "workbook.sst_count_written"),
+         dig(rich_lo, "workbook.shared_strings"), dig(rich_lo, "workbook.sst_count_written"),
+         dig(rich_lo, "workbook.sst_unique_written"), dig(rich_lo, "workbook.sst_unique_matches")],
+        [0, None, 7, "8", "7", True],
+    )
+    rich_ods = lbin("office-sheet", fixture("rich.ods"))
+    mine = {
+        one.get("ref"): one for one in dig(rich_ods, "sheets[0].cell_list") or []
+    }
+    theirs = {one["ref"]: one for one in files["rich.ods"]["ods"]["sheets"][0]["cell_list"]}
+    refs = sorted(theirs)
+    check(
+        "rich.ods 每一格的字、几段样式与几个记号，两边整份一致",
+        [[(mine.get(ref) or {}).get(key) for key in ("text", "spans", "specials")]
+         for ref in refs],
+        [[theirs[ref]["text"], theirs[ref]["spans"], theirs[ref]["specials"]] for ref in refs],
+    )
+    check(
+        "ODF 把空格与制表符写成记号：展开之后字面都对，几段样式与几个记号各交一本",
+        [dig(rich_ods, "sheets[0].cell_list[3].specials"),
+         dig(rich_ods, "sheets[0].cell_list[7].specials"),
+         dig(rich_ods, "sheets[0].cell_list[2].spans"),
+         dig(rich_ods, "sheets[0].cell_list[6].spans"),
+         dig(rich_ods, "sheets[0].cell_list[7].text"),
+         dig(rich_ods, "sheets[0].cell_list[0].specials")],
+        [2, 1, 2, 1, "\ttab 开头", 0],
     )
 
     # ── 3g) 隐藏的行与列：藏起来的是「看不看得到」，不是「在不在」────────

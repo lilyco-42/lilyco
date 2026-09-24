@@ -969,6 +969,40 @@ def write_errors_xlsx(path: Path) -> None:
     wb.save(path)
 
 
+def write_rich_xlsx(path: Path) -> None:
+    """一个格子里的字分成几段、首尾那两个空格：两家生产者各写一种摆法
+
+    openpyxl 3.1 的富文本走的是**行内串**（`t="inlineStr"` + `<is><r><rPr>…`），一条
+    `sharedStrings.xml` 都不写；LibreOffice 重写同一份时把八次引用全搬进字符串表
+    （`count="8" uniqueCount="7"` —— 那条「甲」被两个格子用了，两个数都是对的），
+    并且给**每一个** `t` 补上 `xml:space="preserve"`。四件事各测一处：
+    两段各有格式（A2）、一段有 `rPr` 一段整个没有（A6 —— 那是「这段没格式」与
+    「那段格式是空的」的分别）、首尾空格（A3）与开头的制表符（A7，LO 还按字体
+    fallback 把它切成两段），另有一格把粗体写在**格子上**而不是串里（B1）做对照。
+    """
+    from openpyxl import Workbook
+    from openpyxl.cell.rich_text import CellRichText, TextBlock
+    from openpyxl.cell.text import InlineFont
+    from openpyxl.styles import Font
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "字"
+    ws["A1"] = "甲"
+    ws["A2"] = CellRichText(
+        TextBlock(InlineFont(rFont="宋体", sz=11.0, b=True, color="FFC00000"), "重要"),
+        TextBlock(InlineFont(rFont="宋体", sz=11.0), "普通"),
+    )
+    ws["A3"] = "  两头有空格  "
+    ws["A4"] = "第一行\n第二行"
+    ws["A5"] = "甲"
+    ws["A6"] = CellRichText("整段一个格式", TextBlock(InlineFont(i=True), "斜体那截"))
+    ws["B1"] = "整格加粗（格式在格子上不在串里）"
+    ws["B1"].font = Font(bold=True)
+    ws["A7"] = "\ttab 开头"
+    wb.save(path)
+
+
 def write_para_docx(path: Path) -> None:
     """python-docx：四种段落写法 + 一节两栏 —— 「这一段到底排成什么样」
 
@@ -2069,6 +2103,23 @@ def main() -> int:
         shutil.copyfile(made, OUT / "epoch-lo.xlsx")
     else:
         print("⚠️  没拿到 epoch-lo.xlsx（xlsx → xlsx 那一转）")
+
+    # 一个格子的字分成几段那三副：openpyxl 只写行内串（一条 sharedStrings 都没有），
+    # LibreOffice 重写时全搬进字符串表，同一份 ods 再看 ODF 怎么摆
+    rich = OUT / "rich.xlsx"
+    write_rich_xlsx(rich)
+    convert(exe, rich, "xlsx", SCRATCH / "rich-back")
+    made = SCRATCH / "rich-back" / "rich.xlsx"
+    if made.exists():
+        shutil.copyfile(made, OUT / "rich-lo.xlsx")
+    else:
+        print("⚠️  没拿到 rich-lo.xlsx（xlsx → xlsx 那一转）")
+    convert(exe, rich, "ods", SCRATCH / "rich-ods")
+    made = SCRATCH / "rich-ods" / "rich.ods"
+    if made.exists():
+        shutil.copyfile(made, OUT / "rich.ods")
+    else:
+        print("⚠️  没拿到 rich.ods")
 
     # 段落格式与分栏那三件套：docx 由 python-docx 写，odt / rtf 都由 LibreOffice 导出
     para = OUT / "para.docx"

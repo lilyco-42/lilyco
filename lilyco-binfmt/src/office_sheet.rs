@@ -23,7 +23,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-sheet",
     run = "run_office_sheet",
-    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader, and its hidden rows and columns come out of the two records the flags actually live in: bit 0x20 of the ROW record, and bit 0 of the COLINFO record (which states a range, expanded here - LibreOffice writes that record under the older id 0x007D while MS-XLS names 0x07D0 for BIFF8, so both ids are accepted). Which ROW bit means hidden was measured rather than recalled: three comparison files separate the two variables - row heights from 4pt to 250pt leave that bit alone, while hiding a single row sets exactly that bit. Hidden cells still count as cells. Spreadsheet comments are another hop: they are not in sheetN.xml at all - the sheet's own relationship part names the comments part, and the two producers measured here put it in two different places (openpyxl `xl/comments/comment1.xml` reached through an absolute target, LibreOffice `xl/comments1.xml` through `../comments1.xml`), with the author's name indexed through the `<authors>` list rather than written on the comment; ODF instead keeps the comment INSIDE the cell as `office:annotation`, which is exactly why the cell's own text skips that subtree. Authoring timestamps come back null on both producers because neither wrote one. Legacy .xls is a fourth spelling and stays inside the same stream: one record kind carries the text (offset 10 of its body is the character count it states for itself, and the first CONTINUE right after it opens with an encoding byte - 0 means one byte per character, 1 means two, which is the OPPOSITE of the BIFF8 fCompressed convention), while another record at the end of that sheet's own substream says which cell the note is on and who wrote it. The two lists are paired in order of appearance, every entry carries whole (were both self-stated counts satisfied), and both record counts are published per sheet so a mismatch shows up as data instead of a silently truncated list. This family writes no authoring timestamp, so date is null there; the reading was measured on LibreOffice-written .xls, and those two record numbers are not given spec names because MS-XLS assigns 0x001C to something else entirely. Whether a sheet can still be edited is reported per format, because the three spellings do not map onto one another: xlsx keeps two layers (workbookProtection plus each sheet's own sheetProtection, switches read in both the 1/0 and true/false spellings with an omitted one left omitted rather than false), .ods writes table:protected on the table itself together with the digest URI, and .xls has no workbook layer at all - PROTECT (0x0012), PASSWORD (0x0013) and SCENPROTECT (0x00DD) sit inside the locked sheet's own substream, so they are attributed per sheet and their raw values kept. ODF spreadsheets (.ods) are read on their own terms: cells carry the value-type the file wrote - written as-is, and null when no office:value-type was written, because guessing one from whether the cell has text is how the two readers here drifted apart (odp page tables write the attribute on none of their cells, seven of which hold text) - with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, a sheet's visibility is resolved through the automatic style it names, and hidden rows/columns are counted from table:visibility="collapse" on the element or in the row/column style it names (multiplying number-columns-repeated, so one element standing for three collapsed columns reports 3, not 1); each ODS cell additionally carries the number format it inherits - cell style, then style:data-style-name, then that number:*-style element (which lives in content.xml or styles.xml, and is reached through parent-style-name when the cell style itself names none) - reported as format_kind (taken from the element's own name, so a ¥ written as a literal text token stays a number-style), plus decimals, currency_symbol and a faithful format_tokens transcription; ODF has no format string, so none is invented. With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (legacy .xls takes the same hop too - the cell's ixfe indexes the XF records, whose format number names either a FORMAT record or a built-in id, and the epoch comes from DATEMODE; a file that never wrote DATEMODE gets the serial rather than a guessed 1900), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. Each xlsx sheet additionally carries its own print setup: the three elements `pageMargins`, `pageSetup` and `printOptions` are reported separately, and an element the file never wrote stays null rather than turning into false - openpyxl writes only the margins, while LibreOffice rewrites the same sheet with twelve `pageSetup` attributes (paperSize 9 and both dpi values included). Margins are handed over exactly as written, in the unit that family uses (`margin_unit`: inch, said once per sheet), rather than normalised to the 0.01mm integers office-doc reports - 0.5 versus 0.511811023622047 is the two producers' difference, and converting it away would erase the thing worth seeing. ODS and .xls print setup is deliberately not read: five LibreOffice-written .ods files name no page layout on the table element (the only link left is that producer's own `PageStyle_<sheet>` naming convention, not a spec hop), and while every .xls sheet does write a SETUP (0x00A1) record, nothing here can be a second reader for the field offsets inside it. A sheet's charts are two more hops: the sheet's own relationship part names a drawing part, and that drawing's relationships name the chart parts (openpyxl writes those targets absolute, LibreOffice relative - `resolve_target` eats both). So charts are attributed per sheet (`charts` and `chart_list`, and a sheet with none reports 0 rather than omitting the key): each entry reports its part, its title (a literal through `c:rich`, or a cell reference), whether the file cached any plotted values, and per plot group the kind (`barChart` / `lineChart`), every direct child's `val` as written (`barDir`, `grouping`, `gapWidth`...) with the axis ids kept separate because those are the producer's own numbering. The cached flag matters: openpyxl writes not one `c:pt`, so what the picture actually plots stays unknown and only the reference is handed over, while LibreOffice caches every point and self-states `ptCount` - that count and the number of points really found are both published, with whole saying whether they agree. Reference strings go out exactly as the file wrote them: the same cells read `'数据'!B1` in one producer's file and `数据!$B$1` in the other's, and the same text categories are a `c:numRef` in one and a `c:strRef` in the other - normalising either would be inventing what the file did not say. ODS keeps charts the ODF way - a `draw:frame` whose `draw:object` names an `Object N/` directory, whose own content.xml holds the picture - so a sheet reports its charts with the same shape as elsewhere plus a `local_table` transcription of the numbers the chart carried along. .xls still uses the BIFF object chain and is not read. Two more everyday things are read per sheet, because both answer questions people actually ask. Conditional formatting: each `conditionalFormatting` block keeps its `sqref` as written (one block may name two ranges), and each `cfRule` hands over every attribute the file wrote plus type/priority/operator named separately, its formula texts (entities decoded, so a written `$B2&gt;200` reads as `$B2>200`) and the shape inside `iconSet` / `colorScale` / `dataBar` - each `cfvo`'s type and val, each color's rgb exactly as written, since openpyxl writes 00FFFFFF where LibreOffice writes FFFFFFFF for the same white. `dxfId` is a hop: the rule names an index into `dxfs` in xl/styles.xml, so each rule says what it wrote, whether that index resolves, and which element paths that dxf contains (`font/b`, `font/color`...) - LibreOffice rewrites the same dxf with five entries where openpyxl wrote two, so nothing is folded into a shared bold-and-red shape. Priorities are each producer's own numbering (the same four rules read 1/2/3/4 in one file and 2/3/4/5 in the other), so they are reported rather than compared. Data validation: the `dataValidations` container's self-stated count is published next to how many were found and whether they agree, and each entry reports its range, type, operator, the formula1/formula2 texts as written and every attribute - including the two boolean spellings (allowBlank 1 versus true), the operator LibreOffice adds to a list rule, the formula2 it fills with 0, and the = it strips from a custom formula. ODS keeps these in number and table styles, .xls in BIFF records; neither is read, so the rules key is absent for those families rather than empty. Two everyday things per sheet come next, because both are questions people actually ask. The window: `view` hands over the attributes the `sheetView` element wrote (openpyxl writes four of them and spells booleans 1/0; LibreOffice rewrites the same sheet with fifteen and spells them true/false, so nothing is folded into one shared boolean), the one `pane` element - whose `state` keeps frozen and split apart because they are two different things - and every `selection` as written (three in one file with the first one not naming topLeft, four in the other, each with an activeCellId). Rewriting is not lossless: measured on a LibreOffice xlsx export, the pane with `state="split"` disappears entirely while the frozen one survives. The printed margins of the page: `header_footer` reports the six slot elements in a fixed order, each with whether the element is there at all, its text as written (entities decoded), the segments the `&L`/`&C`/`&R` markers name, and every other `&` sequence kept verbatim - `&&` is a literal ampersand and `&"Calibri"` is one whole code, so the scan walks codes rather than counting characters. Absent and empty stay apart: a sheet openpyxl never wrote reports present false with null text, while the same sheet after LibreOffice writes the element with empty contents (present true, text ""). ODS keeps both in its page styles, the same hop print setup could not take, and .xls keeps them in WINDOW1/WINDOW2 and HEADER/FOOTER records no second reader here can check, so both keys are absent for those families. Three more ledgers per sheet answer the three everyday "why" questions - why a column shows too little, why a row will not take what I typed, and whether this range really is one table. `layout` reports the attributes `sheetFormatPr` wrote (the two producers do not even name the same thing for a default width: `baseColWidth` in one file, `defaultColWidth` in the other), every `col` as written (the same column reads 22.5 in one file and 20.47 in the other, hidden is spelled 1 in one and true in the other, and nothing is converted), how many `col` elements there are next to how many columns they cover (summed from each element's own min and max, never expanded, and null rather than 0 when there is none), and three row counts - rows in the sheet, rows that wrote an `ht`, rows that said anything at all about height or visibility - plus those rows as written. `filter` says whether there is an `autoFilter`, its range as written, every `filterColumn` with its switches and the values being filtered out, and the `filterMode` the sheet may or may not state on `sheetPr` (one producer writes it for every sheet, true and false, the other never writes it). Table objects are another hop: `tableParts` names relationship ids only, and the parts come out of the sheet's own relationship table, the same linking style charts use; each part reports its attributes as written (name and displayName, ref, headerRowCount, plus the two totals switches LibreOffice adds), its self-stated `tableColumns/@count` next to how many were found with `whole`, the column names themselves as written (openpyxl takes the first row of the range as names, so the second column is literally called 10, and both producers carry that name unchanged), and its own `autoFilter` - which can cover a different range than the sheet's filter (A1:B3 next to A1:C3 on one sheet), so both are reported instead of picking one. ODS reads its sizes too, and they are a third shape - which is the whole reason this ledger exists: a table-column or table-row element writes only how many columns or rows it stands for (number-columns-repeated - LibreOffice pads every sheet out to exactly 16384 columns that way, measured on six files) and occasionally its own visibility, while the width and height sit one hop away in the automatic style the element names. So layout for .ods reports each axis as elements / spans (how many elements there are, next to how many columns they cover - and neither is the sheet's columns key, which counts only the rightmost cell that has content), with resolved / with_size / optimal / spoken_visibility tallied over every element, then per element: the style it named, whether that style was found in this part, the length as written plus its 0.01mm reading (unit is said once per sheet), the style's own use-optimal flag, the style's visibility kept apart from the element's because they are two ways to say the same thing, and the style's parent-style-name - the parent chain is deliberately NOT followed (no file measured here writes one), it is only reported so a missing width can explain itself. The four numbers a table may state about itself (number-columns, number-rows, default-column-width, default-row-height) come back as four keys, null when unwritten: LibreOffice writes none of them, and absent is not zero. filter and tableParts are OOXML-only and stay absent for ODS; .xls has none of the three. A result that is not a number goes out as the file wrote it: an error cell's <v> already IS the display string (#DIV/0!), so nothing is prefixed - both readers used to prepend a "#错误 " tag that appears in no file, and no producer here recomputed one until errors-lo.xlsx, so the branch stayed untested on both sides; a text result (t="str") is likewise handed over verbatim, and error_cells / string_result_cells count the two per sheet. kind_written says whether that cell wrote a t at all: the spec default is numeric, but openpyxl omits the attribute on every formula cell while LibreOffice writes t="n" for all of them, so kind alone would read one producer's silence as the other's statement - cells_with_written_type counts those who spoke. ODF spells the same cell a third way: office:value-type="string" with an EMPTY office:string-value, the displayed text only in <text:p>, plus a calcext:value-type="error" that is not followed - so an error reads kind string there, and because that export localises the name, one broken VLOOKUP is #VALUE! in its xlsx and 错误:502 in its ods: each goes out as written and they are never reconciled. Returns { path, format, sheets, protection, csv, workbook, defined_names, tables, external_links, parts, notes }."
+    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader, and its hidden rows and columns come out of the two records the flags actually live in: bit 0x20 of the ROW record, and bit 0 of the COLINFO record (which states a range, expanded here - LibreOffice writes that record under the older id 0x007D while MS-XLS names 0x07D0 for BIFF8, so both ids are accepted). Which ROW bit means hidden was measured rather than recalled: three comparison files separate the two variables - row heights from 4pt to 250pt leave that bit alone, while hiding a single row sets exactly that bit. Hidden cells still count as cells. Spreadsheet comments are another hop: they are not in sheetN.xml at all - the sheet's own relationship part names the comments part, and the two producers measured here put it in two different places (openpyxl `xl/comments/comment1.xml` reached through an absolute target, LibreOffice `xl/comments1.xml` through `../comments1.xml`), with the author's name indexed through the `<authors>` list rather than written on the comment; ODF instead keeps the comment INSIDE the cell as `office:annotation`, which is exactly why the cell's own text skips that subtree. Authoring timestamps come back null on both producers because neither wrote one. Legacy .xls is a fourth spelling and stays inside the same stream: one record kind carries the text (offset 10 of its body is the character count it states for itself, and the first CONTINUE right after it opens with an encoding byte - 0 means one byte per character, 1 means two, which is the OPPOSITE of the BIFF8 fCompressed convention), while another record at the end of that sheet's own substream says which cell the note is on and who wrote it. The two lists are paired in order of appearance, every entry carries whole (were both self-stated counts satisfied), and both record counts are published per sheet so a mismatch shows up as data instead of a silently truncated list. This family writes no authoring timestamp, so date is null there; the reading was measured on LibreOffice-written .xls, and those two record numbers are not given spec names because MS-XLS assigns 0x001C to something else entirely. Whether a sheet can still be edited is reported per format, because the three spellings do not map onto one another: xlsx keeps two layers (workbookProtection plus each sheet's own sheetProtection, switches read in both the 1/0 and true/false spellings with an omitted one left omitted rather than false), .ods writes table:protected on the table itself together with the digest URI, and .xls has no workbook layer at all - PROTECT (0x0012), PASSWORD (0x0013) and SCENPROTECT (0x00DD) sit inside the locked sheet's own substream, so they are attributed per sheet and their raw values kept. ODF spreadsheets (.ods) are read on their own terms: cells carry the value-type the file wrote - written as-is, and null when no office:value-type was written, because guessing one from whether the cell has text is how the two readers here drifted apart (odp page tables write the attribute on none of their cells, seven of which hold text) - with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, a sheet's visibility is resolved through the automatic style it names, and hidden rows/columns are counted from table:visibility="collapse" on the element or in the row/column style it names (multiplying number-columns-repeated, so one element standing for three collapsed columns reports 3, not 1); each ODS cell additionally carries the number format it inherits - cell style, then style:data-style-name, then that number:*-style element (which lives in content.xml or styles.xml, and is reached through parent-style-name when the cell style itself names none) - reported as format_kind (taken from the element's own name, so a ¥ written as a literal text token stays a number-style), plus decimals, currency_symbol and a faithful format_tokens transcription; ODF has no format string, so none is invented. With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (legacy .xls takes the same hop too - the cell's ixfe indexes the XF records, whose format number names either a FORMAT record or a built-in id, and the epoch comes from DATEMODE; a file that never wrote DATEMODE gets the serial rather than a guessed 1900), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. Each xlsx sheet additionally carries its own print setup: the three elements `pageMargins`, `pageSetup` and `printOptions` are reported separately, and an element the file never wrote stays null rather than turning into false - openpyxl writes only the margins, while LibreOffice rewrites the same sheet with twelve `pageSetup` attributes (paperSize 9 and both dpi values included). Margins are handed over exactly as written, in the unit that family uses (`margin_unit`: inch, said once per sheet), rather than normalised to the 0.01mm integers office-doc reports - 0.5 versus 0.511811023622047 is the two producers' difference, and converting it away would erase the thing worth seeing. ODS and .xls print setup is deliberately not read: five LibreOffice-written .ods files name no page layout on the table element (the only link left is that producer's own `PageStyle_<sheet>` naming convention, not a spec hop), and while every .xls sheet does write a SETUP (0x00A1) record, nothing here can be a second reader for the field offsets inside it. A sheet's charts are two more hops: the sheet's own relationship part names a drawing part, and that drawing's relationships name the chart parts (openpyxl writes those targets absolute, LibreOffice relative - `resolve_target` eats both). So charts are attributed per sheet (`charts` and `chart_list`, and a sheet with none reports 0 rather than omitting the key): each entry reports its part, its title (a literal through `c:rich`, or a cell reference), whether the file cached any plotted values, and per plot group the kind (`barChart` / `lineChart`), every direct child's `val` as written (`barDir`, `grouping`, `gapWidth`...) with the axis ids kept separate because those are the producer's own numbering. The cached flag matters: openpyxl writes not one `c:pt`, so what the picture actually plots stays unknown and only the reference is handed over, while LibreOffice caches every point and self-states `ptCount` - that count and the number of points really found are both published, with whole saying whether they agree. Reference strings go out exactly as the file wrote them: the same cells read `'数据'!B1` in one producer's file and `数据!$B$1` in the other's, and the same text categories are a `c:numRef` in one and a `c:strRef` in the other - normalising either would be inventing what the file did not say. ODS keeps charts the ODF way - a `draw:frame` whose `draw:object` names an `Object N/` directory, whose own content.xml holds the picture - so a sheet reports its charts with the same shape as elsewhere plus a `local_table` transcription of the numbers the chart carried along. .xls still uses the BIFF object chain and is not read. Two more everyday things are read per sheet, because both answer questions people actually ask. Conditional formatting: each `conditionalFormatting` block keeps its `sqref` as written (one block may name two ranges), and each `cfRule` hands over every attribute the file wrote plus type/priority/operator named separately, its formula texts (entities decoded, so a written `$B2&gt;200` reads as `$B2>200`) and the shape inside `iconSet` / `colorScale` / `dataBar` - each `cfvo`'s type and val, each color's rgb exactly as written, since openpyxl writes 00FFFFFF where LibreOffice writes FFFFFFFF for the same white. `dxfId` is a hop: the rule names an index into `dxfs` in xl/styles.xml, so each rule says what it wrote, whether that index resolves, and which element paths that dxf contains (`font/b`, `font/color`...) - LibreOffice rewrites the same dxf with five entries where openpyxl wrote two, so nothing is folded into a shared bold-and-red shape. Priorities are each producer's own numbering (the same four rules read 1/2/3/4 in one file and 2/3/4/5 in the other), so they are reported rather than compared. Data validation: the `dataValidations` container's self-stated count is published next to how many were found and whether they agree, and each entry reports its range, type, operator, the formula1/formula2 texts as written and every attribute - including the two boolean spellings (allowBlank 1 versus true), the operator LibreOffice adds to a list rule, the formula2 it fills with 0, and the = it strips from a custom formula. ODS keeps these in number and table styles, .xls in BIFF records; neither is read, so the rules key is absent for those families rather than empty. Two everyday things per sheet come next, because both are questions people actually ask. The window: `view` hands over the attributes the `sheetView` element wrote (openpyxl writes four of them and spells booleans 1/0; LibreOffice rewrites the same sheet with fifteen and spells them true/false, so nothing is folded into one shared boolean), the one `pane` element - whose `state` keeps frozen and split apart because they are two different things - and every `selection` as written (three in one file with the first one not naming topLeft, four in the other, each with an activeCellId). Rewriting is not lossless: measured on a LibreOffice xlsx export, the pane with `state="split"` disappears entirely while the frozen one survives. The printed margins of the page: `header_footer` reports the six slot elements in a fixed order, each with whether the element is there at all, its text as written (entities decoded), the segments the `&L`/`&C`/`&R` markers name, and every other `&` sequence kept verbatim - `&&` is a literal ampersand and `&"Calibri"` is one whole code, so the scan walks codes rather than counting characters. Absent and empty stay apart: a sheet openpyxl never wrote reports present false with null text, while the same sheet after LibreOffice writes the element with empty contents (present true, text ""). ODS keeps both in its page styles, the same hop print setup could not take, and .xls keeps them in WINDOW1/WINDOW2 and HEADER/FOOTER records no second reader here can check, so both keys are absent for those families. Three more ledgers per sheet answer the three everyday "why" questions - why a column shows too little, why a row will not take what I typed, and whether this range really is one table. `layout` reports the attributes `sheetFormatPr` wrote (the two producers do not even name the same thing for a default width: `baseColWidth` in one file, `defaultColWidth` in the other), every `col` as written (the same column reads 22.5 in one file and 20.47 in the other, hidden is spelled 1 in one and true in the other, and nothing is converted), how many `col` elements there are next to how many columns they cover (summed from each element's own min and max, never expanded, and null rather than 0 when there is none), and three row counts - rows in the sheet, rows that wrote an `ht`, rows that said anything at all about height or visibility - plus those rows as written. `filter` says whether there is an `autoFilter`, its range as written, every `filterColumn` with its switches and the values being filtered out, and the `filterMode` the sheet may or may not state on `sheetPr` (one producer writes it for every sheet, true and false, the other never writes it). Table objects are another hop: `tableParts` names relationship ids only, and the parts come out of the sheet's own relationship table, the same linking style charts use; each part reports its attributes as written (name and displayName, ref, headerRowCount, plus the two totals switches LibreOffice adds), its self-stated `tableColumns/@count` next to how many were found with `whole`, the column names themselves as written (openpyxl takes the first row of the range as names, so the second column is literally called 10, and both producers carry that name unchanged), and its own `autoFilter` - which can cover a different range than the sheet's filter (A1:B3 next to A1:C3 on one sheet), so both are reported instead of picking one. ODS reads its sizes too, and they are a third shape - which is the whole reason this ledger exists: a table-column or table-row element writes only how many columns or rows it stands for (number-columns-repeated - LibreOffice pads every sheet out to exactly 16384 columns that way, measured on six files) and occasionally its own visibility, while the width and height sit one hop away in the automatic style the element names. So layout for .ods reports each axis as elements / spans (how many elements there are, next to how many columns they cover - and neither is the sheet's columns key, which counts only the rightmost cell that has content), with resolved / with_size / optimal / spoken_visibility tallied over every element, then per element: the style it named, whether that style was found in this part, the length as written plus its 0.01mm reading (unit is said once per sheet), the style's own use-optimal flag, the style's visibility kept apart from the element's because they are two ways to say the same thing, and the style's parent-style-name - the parent chain is deliberately NOT followed (no file measured here writes one), it is only reported so a missing width can explain itself. The four numbers a table may state about itself (number-columns, number-rows, default-column-width, default-row-height) come back as four keys, null when unwritten: LibreOffice writes none of them, and absent is not zero. filter and tableParts are OOXML-only and stay absent for ODS; .xls has none of the three. A result that is not a number goes out as the file wrote it: an error cell's <v> already IS the display string (#DIV/0!), so nothing is prefixed - both readers used to prepend a "#错误 " tag that appears in no file, and no producer here recomputed one until errors-lo.xlsx, so the branch stayed untested on both sides; a text result (t="str") is likewise handed over verbatim, and error_cells / string_result_cells count the two per sheet. kind_written says whether that cell wrote a t at all: the spec default is numeric, but openpyxl omits the attribute on every formula cell while LibreOffice writes t="n" for all of them, so kind alone would read one producer's silence as the other's statement - cells_with_written_type counts those who spoke. ODF spells the same cell a third way: office:value-type="string" with an EMPTY office:string-value, the displayed text only in <text:p>, plus a calcext:value-type="error" that is not followed - so an error reads kind string there, and because that export localises the name, one broken VLOOKUP is #VALUE! in its xlsx and 错误:502 in its ods: each goes out as written and they are never reconciled. A string cell keeps the whitespace the file wrote - no trimming, because the two spaces in a <t xml:space="preserve"> are the file's own and LibreOffice's own CSV export carries them too - and it additionally reports runs: how the file split that string (a rich one is several <r> elements, each with its own rPr attributes as written, while a plain <t> has none at all), one entry per run with element, text, space, props_written, props_attrs and format (the rPr's own attributes and its child elements - the two producers here put the shape on children like <b val="true"/> and write no attribute on rPr at all), next to run_total, rich_string and space_preserved on the cell and cells_with_runs / cells_with_preserved_space per sheet. The string table is also held against what it states about itself: sst/@count (references) and sst/@uniqueCount (entries) go out as written beside how many si were really found, because one string used by two cells is a file that says count 8 with seven entries and both numbers are right. ODF spells the same cell text a fourth way: spaces and tabs are MARKERS, not characters - text:s (with text:c saying how many spaces that one stands for), text:tab and text:line-break - so those are expanded here (LibreOffice's own CSV export of the same .ods keeps every one of them), and each cell says how many text:span and how many marker elements the file really wrote (spans / specials). Returns { path, format, sheets, protection, csv, workbook, defined_names, tables, external_links, parts, notes }."
 )]
 pub struct OfficeSheet {
     /// 表格文件（xlsx / xlsm / xls / ods）
@@ -78,7 +78,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 by_id.push((id, resolve_target("xl", target)));
             }
         }
-        let shared = shared_strings(bytes);
+        let shared = shared_strings(bytes, limit);
         // 格子写的 `s="3"` 是 `cellXfs` 的**下标**，不是格式号：不绕这一层，
         // 一个日期永远只是「一个数」（41631）。
         let styles = crate::numfmt::read_styles(bytes);
@@ -98,8 +98,9 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             "cells": 0, "formulas": 0, "numeric": 0, "shared_strings": 0,
             "inline_strings": 0, "merged": 0, "hidden_rows": 0, "hidden_cols": 0,
             "dates": 0, "comments": 0, "charts": 0, "conditional_rules": 0, "validations": 0,
-            // bump 只往已有的键上加，所以这三本新账要在totals里先占个位（0 是「数过了没有」）
+            // bump 只往已有的键上加，所以这几本新账要在totals里先占个位（0 是「数过了没有」）
             "error_cells": 0, "string_result_cells": 0, "cells_with_written_type": 0,
+            "cells_with_runs": 0, "cells_with_preserved_space": 0,
         });
         for (index, one) in root.descendants("sheet").iter().enumerate() {
             let name = one.attr("name").unwrap_or_default().to_string();
@@ -192,6 +193,8 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                     let mut errored = 0usize;
                     let mut str_result = 0usize;
                     let mut typed = 0usize;
+                    let mut rich = 0usize;
+                    let mut preserved = 0usize;
                     let mut grid: Vec<(usize, usize, String)> = Vec::new();
                     for cell in sheet_root.descendants("c") {
                         count += 1;
@@ -236,19 +239,32 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                         } else if kind == "str" {
                             str_result += 1;
                         }
-                        let text = match kind.as_str() {
+                        // 这条格子的字如果是一个「串」（共享的或 inline 的），它的整串与
+                        // 分段一起拿：分段就是富文本，而整串按文件写的原样（不 trim）
+                        let parts = match kind.as_str() {
                             "s" => value
                                 .as_ref()
                                 .and_then(|raw| raw.parse::<usize>().ok())
-                                .map(|which| {
-                                    shared
-                                        .get(which)
-                                        .cloned()
-                                        .unwrap_or_else(|| format!("#SST 索引 {which} 越界"))
-                                }),
-                            "inlineStr" => {
-                                cell.child("is").map(|one| one.text().trim().to_string())
+                                .and_then(|which| shared.entries.get(which).cloned()),
+                            "inlineStr" => cell.child("is").map(|one| string_parts(one, limit)),
+                            _ => None,
+                        };
+                        if let Some(one) = &parts {
+                            if one.rich {
+                                rich += 1;
                             }
+                            if one.preserved {
+                                preserved += 1;
+                            }
+                        }
+                        let text = match kind.as_str() {
+                            "s" => parts.as_ref().map(|one| one.text.clone()).or_else(|| {
+                                value
+                                    .as_ref()
+                                    .and_then(|raw| raw.parse::<usize>().ok())
+                                    .map(|which| format!("#SST 索引 {which} 越界"))
+                            }),
+                            "inlineStr" => parts.as_ref().map(|one| one.text.clone()),
                             "str" => value.clone(),
                             // 错误格的文件自己就写着显示的那串（`<v>#DIV/0!</v>`），
                             // 前面再加一句「#错误」是两份读者一起替文件编的话 ——
@@ -292,6 +308,23 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                                     "kind_written": kind_written,
                                     "value": numeric_or_text(text),
                                     "formula": formula,
+                                    // 分段本身：一家把整格写成一段，另一家按字体 fallback 切成两段
+                                    "runs": parts
+                                        .as_ref()
+                                        .map(|one| Value::Array(one.runs.clone()))
+                                        .unwrap_or(Value::Null),
+                                    "run_total": parts
+                                        .as_ref()
+                                        .map(|one| json!(one.run_total))
+                                        .unwrap_or(Value::Null),
+                                    "rich_string": parts
+                                        .as_ref()
+                                        .map(|one| json!(one.rich))
+                                        .unwrap_or(Value::Null),
+                                    "space_preserved": parts
+                                        .as_ref()
+                                        .map(|one| json!(one.preserved))
+                                        .unwrap_or(Value::Null),
                                 }),
                                 formatted,
                             ));
@@ -322,6 +355,10 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                     entry["error_cells"] = json!(errored);
                     entry["string_result_cells"] = json!(str_result);
                     entry["cells_with_written_type"] = json!(typed);
+                    entry["cells_with_runs"] = json!(rich);
+                    entry["cells_with_preserved_space"] = json!(preserved);
+                    bump(&mut totals, "cells_with_runs", rich);
+                    bump(&mut totals, "cells_with_preserved_space", preserved);
                     entry["merged"] = json!(sheet_root.descendants("mergeCell").len());
                     entry["rows"] = json!(sheet_root.descendants("row").len());
                     entry["cell_list"] = json!(cells);
@@ -376,6 +413,15 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 None => locks.push(json!({"name": name, "element": false, "protected": false})),
             }
         }
+        // 共享字符串表那份自报的账：`count` 是「引用了几次」，`uniqueCount` 是「几条不重复」，
+        // 两个数都不替它们圆 —— 一条 `甲` 被两个格子引用时，七个 si 配八个 count 是对的
+        let sst_matches = shared
+            .unique_written
+            .as_ref()
+            .and_then(|raw| raw.trim().parse::<usize>().ok())
+            == Some(shared.entries.len());
+        let sst_rich = shared.entries.iter().filter(|one| one.rich).count();
+        let sst_preserved = shared.entries.iter().filter(|one| one.preserved).count();
         let result = json!({
             "path": app.path.to_string_lossy(),
             "format": doc.format,
@@ -384,7 +430,12 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "sheets": sheets.len(),
                 "hidden_sheets": sheets.iter().filter(|one| one["state"] != "visible").count(),
                 "date1904": json!(styles.year1904),
-                "shared_strings": shared.len(),
+                "shared_strings": shared.entries.len(),
+                "sst_count_written": shared.count_written,
+                "sst_unique_written": shared.unique_written,
+                "sst_unique_matches": sst_matches,
+                "sst_with_runs": sst_rich,
+                "sst_with_preserved_space": sst_preserved,
                 "views": root.descendants("workbookView").len(),
                 "calculation_mode": root.descendants("calcPr").first().and_then(|one| one.attr("fullCalcOnLoad")).map(|one| one.to_string()),
                 "has_calc_chain": xml(bytes, "xl/calcChain.xml").is_some(),
@@ -1474,16 +1525,120 @@ pub(crate) fn chart_one(root: &xmlscan::Node, part: &str) -> Value {
     })
 }
 
-fn shared_strings(bytes: &[u8]) -> Vec<String> {
-    match xml(bytes, "xl/sharedStrings.xml") {
-        Some(member) => {
-            let root = xmlscan::parse_str(&member.as_text());
-            root.descendants("si")
-                .iter()
-                .map(|one| one.text().trim().to_string())
-                .collect()
+/// 一条「串」（`si` 或 `is`）的三段账：整串的字、文件把它分成的段、每段自己写了什么。
+///
+/// 分段就是富文本：`<r>` 里那段字带着自己的 `rPr`（字号、粗体、颜色…），而直接坐在串下的
+/// `<t>` 没有格式。两件事各交各的：`text` 是整串**按文件写的原样**（不 trim ——
+/// `  两头有空格  ` 那两个空格是文件写的，LibreOffice 自己的 CSV 导出也带着它们），
+/// `runs` 是分段本身。
+#[derive(Clone)]
+struct StringParts {
+    /// 整串的字，原样
+    text: String,
+    /// 分段（`--limit` 之内的那几段）
+    runs: Vec<Value>,
+    /// 文件一共分了几段
+    run_total: usize,
+    /// 这条串里有 `r`（也就是真分了段）
+    rich: bool,
+    /// 有一个 `t` 写了 `xml:space`
+    preserved: bool,
+}
+
+fn string_parts(holder: &xmlscan::Node, limit: usize) -> StringParts {
+    let mut out = StringParts {
+        text: holder.text(),
+        runs: Vec::new(),
+        run_total: 0,
+        rich: false,
+        preserved: false,
+    };
+    for one in &holder.children {
+        let (word, props) = match one.local() {
+            "t" => (one, None),
+            "r" => {
+                out.rich = true;
+                (one.child("t").unwrap_or(one), one.child("rPr"))
+            }
+            _ => continue,
+        };
+        let space = word.attr("xml:space");
+        if space.is_some() {
+            out.preserved = true;
         }
-        None => Vec::new(),
+        out.run_total += 1;
+        if out.runs.len() >= limit {
+            continue;
+        }
+        let mut attrs = serde_json::Map::new();
+        let mut shape: Vec<Value> = Vec::new();
+        if let Some(had) = props {
+            for (key, value) in had.attrs.iter() {
+                attrs.insert(key.clone(), json!(value));
+            }
+            // 那几家生产者把格式写在 **孩子元素** 上（`<b val="true"/>`、`<color rgb="…"/>`），
+            // 而不是 rPr 自己的属性上 —— 两种都交，空的那个就说「这个文件没这么写」
+            for kid in &had.children {
+                let mut one = serde_json::Map::new();
+                for (key, value) in kid.attrs.iter() {
+                    one.insert(key.clone(), json!(value));
+                }
+                shape.push(json!({"element": kid.name, "attrs": Value::Object(one)}));
+            }
+        }
+        out.runs.push(json!({
+            "element": one.local(),
+            "text": word.text(),
+            "space": space,
+            "props_written": props.is_some(),
+            "props_attrs": if props.is_some() {
+                Value::Object(attrs)
+            } else {
+                Value::Null
+            },
+            "format": if props.is_some() {
+                Value::Array(shape)
+            } else {
+                Value::Null
+            },
+        }));
+    }
+    out
+}
+
+/// 共享字符串表：每一段的账，外加文件自己在那条 `sst` 上报的两个数
+struct StringTable {
+    entries: Vec<StringParts>,
+    /// `sst/@count`（「引用了几次」），没写 null
+    count_written: Option<String>,
+    /// `sst/@uniqueCount`（「几条不重复」），没写 null
+    unique_written: Option<String>,
+}
+
+fn shared_strings(bytes: &[u8], limit: usize) -> StringTable {
+    let empty = || StringTable {
+        entries: Vec::new(),
+        count_written: None,
+        unique_written: None,
+    };
+    let Some(member) = xml(bytes, "xl/sharedStrings.xml") else {
+        return empty();
+    };
+    let root = xmlscan::parse_str(&member.as_text());
+    let written = |want: &str| {
+        root.descendants("sst")
+            .first()
+            .and_then(|one| one.attr(want))
+            .map(|one| one.to_string())
+    };
+    StringTable {
+        entries: root
+            .descendants("si")
+            .iter()
+            .map(|one| string_parts(one, limit))
+            .collect(),
+        count_written: written("count"),
+        unique_written: written("uniqueCount"),
     }
 }
 
@@ -2057,6 +2212,116 @@ mod tests {
             ],
             "{formats}"
         );
+    }
+
+    /// 一个格子的字可以分成几段（富文本），而首尾的空格是文件写的字。
+    /// 两家生产者把同一批字放在两处：openpyxl 只写**行内串**（一条 sharedStrings 都没有），
+    /// LibreOffice 重写时全搬进字符串表，并在表上自报 `count="8"` 配 `uniqueCount="7"` ——
+    /// 那条「甲」被两个格子用了，所以两个数都是对的。`.ods` 是第三种写法：空格与制表符
+    /// 不写成字面而写成 `text:s` / `text:tab` 记号。期望值全部来自 `office_reader.py`，
+    /// 而 CSV 那一条与 LibreOffice 自己的导出逐字相同（`rich*.csv` 量过）
+    #[test]
+    fn a_cells_text_can_be_written_in_several_runs() {
+        let openpyxl = run("rich.xlsx");
+        let rewritten = run("rich-lo.xlsx");
+        assert_eq!(
+            openpyxl["workbook"]["shared_strings"], 0,
+            "一家整个没写这张表"
+        );
+        assert_eq!(openpyxl["workbook"]["sst_count_written"], Value::Null);
+        assert_eq!(openpyxl["workbook"]["sst_unique_matches"], json!(false));
+        assert_eq!(rewritten["workbook"]["shared_strings"], 7);
+        assert_eq!(rewritten["workbook"]["sst_count_written"], "8");
+        assert_eq!(rewritten["workbook"]["sst_unique_written"], "7");
+        assert_eq!(rewritten["workbook"]["sst_unique_matches"], json!(true));
+        assert_eq!(rewritten["workbook"]["sst_with_runs"], 3);
+        assert_eq!(openpyxl["workbook"]["totals"]["cells_with_runs"], 2);
+        assert_eq!(rewritten["workbook"]["totals"]["cells_with_runs"], 3);
+        assert_eq!(
+            openpyxl["workbook"]["totals"]["cells_with_preserved_space"], 2,
+            "openpyxl 只给真有空格的那两格写 xml:space"
+        );
+        assert_eq!(
+            rewritten["workbook"]["totals"]["cells_with_preserved_space"], 8,
+            "LibreOffice 每一格都写"
+        );
+        let cells = &openpyxl["sheets"][0]["cell_list"];
+        assert_eq!(
+            cells[3]["value"], "  两头有空格  ",
+            "首尾那两个空格不许被吃掉"
+        );
+        assert_eq!(cells[3]["space_preserved"], json!(true));
+        assert_eq!(cells[7]["value"], "\ttab 开头");
+        assert_eq!(cells[4]["value"], "第一行\n第二行");
+        assert_eq!(cells[2]["rich_string"], json!(true));
+        assert_eq!(cells[2]["run_total"], 2);
+        assert_eq!(cells[2]["value"], "重要普通", "分段不改整串的字");
+        assert_eq!(
+            cells[2]["runs"][0]["format"],
+            json!([
+                {"element": "rFont", "attrs": {"val": "宋体"}},
+                {"element": "b", "attrs": {"val": "1"}},
+                {"element": "color", "attrs": {"rgb": "FFC00000"}},
+                {"element": "sz", "attrs": {"val": "11"}},
+            ]),
+            "格式写在 rPr 的孩子上，一家把粗体写成 1：{}",
+            cells[2]["runs"][0]["format"]
+        );
+        // 同一段字，重写那份把同一个开关写成 true，还多补了 family 与 charset
+        assert_eq!(
+            rewritten["sheets"][0]["cell_list"][2]["runs"][0]["format"][0]["attrs"]["val"],
+            "true"
+        );
+        assert_eq!(
+            rewritten["sheets"][0]["cell_list"][2]["runs"][0]["element"],
+            "r"
+        );
+        // 「这一段没写格式」与「那段格式是空的」不是一回事：openpyxl 第一段整个没有 rPr
+        assert_eq!(cells[6]["runs"][0]["props_written"], json!(false));
+        assert_eq!(cells[6]["runs"][0]["format"], Value::Null);
+        assert_eq!(cells[6]["runs"][0]["text"], "整段一个格式");
+        assert_eq!(cells[6]["runs"][1]["props_written"], json!(true));
+        assert_eq!(
+            rewritten["sheets"][0]["cell_list"][7]["run_total"], 2,
+            "LO 按字体 fallback 把那一格切成两段"
+        );
+        assert_eq!(
+            rewritten["sheets"][0]["cell_list"][7]["value"],
+            "\ttab 开头"
+        );
+        assert_eq!(
+            rewritten["sheets"][0]["cell_list"][0]["rich_string"],
+            json!(false)
+        );
+        assert_eq!(
+            run_csv("rich.xlsx", "")["csv"]["text"],
+            "甲,整格加粗（格式在格子上不在串里）\n重要普通,\n  两头有空格  ,\n\
+             \"第一行\n第二行\",\n甲,\n整段一个格式斜体那截,\n\ttab 开头,\n",
+            "铺平之后空格还在原处"
+        );
+        let ods = run("rich.ods");
+        assert_eq!(ods["sheets"][0]["cells"], 8, "记号展开之后这些格才算有内容");
+        let list = ods["sheets"][0]["cell_list"].as_array().expect("是数组");
+        let at = |want: &str| -> Value {
+            list.iter()
+                .find(|one| one["ref"].as_str() == Some(want))
+                .cloned()
+                .unwrap_or(Value::Null)
+        };
+        assert_eq!(
+            at("A3")["text"],
+            "  两头有空格  ",
+            ".ods 把空格写成 text:s 记号"
+        );
+        assert_eq!(at("A3")["specials"], 2, "两个记号，四个空格");
+        assert_eq!(at("A7")["text"], "\ttab 开头");
+        assert_eq!(at("A7")["specials"], 1);
+        assert_eq!(at("A2")["text"], "重要普通");
+        assert_eq!(at("A2")["spans"], 2, "两段各点一份字符样式");
+        assert_eq!(at("A6")["text"], "整段一个格式斜体那截");
+        assert_eq!(at("A6")["spans"], 1, "只有一段点了样式");
+        assert_eq!(at("A1")["spans"], 0);
+        assert_eq!(at("A1")["specials"], 0);
     }
 
     /// `--csv`：一份铺平的网格（期望文本逐字来自 `office_reader.py` 的 csv_facts）

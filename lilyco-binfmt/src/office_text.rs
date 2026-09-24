@@ -274,7 +274,7 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                     xmlscan::parse_str(&member.as_text())
                         .descendants("si")
                         .iter()
-                        .map(|one| run_text(one))
+                        .map(|one| cell_text(one))
                         .collect::<Vec<String>>()
                 }
                 None => Vec::new(),
@@ -305,7 +305,7 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                     let mut text = String::new();
                     let mut formula = false;
                     if let Some(one) = cell.child("is") {
-                        text = run_text(one);
+                        text = cell_text(one);
                     } else if let Some(one) = cell.child("v") {
                         let raw = run_text(one);
                         if kind_attr == "s" {
@@ -823,6 +823,15 @@ fn run_text(node: &Node) -> String {
     let mut out = String::new();
     collect(node, &mut out);
     out.trim().to_string()
+}
+
+/// 一个格子的字**按文件写的原样**：`<t xml:space="preserve">  两头有空格  </t>` 里那两个
+/// 空格是文件写的字，LibreOffice 自己的 CSV 导出也带着它们 —— trim 掉就等于替文件改字。
+/// （段与页那一份仍走 `run_text`：那里的首尾空白是排版，不是一格的内容）
+fn cell_text(node: &Node) -> String {
+    let mut out = String::new();
+    collect(node, &mut out);
+    out
 }
 
 fn collect(node: &Node, out: &mut String) {
