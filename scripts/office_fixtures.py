@@ -817,6 +817,48 @@ def write_rules_xlsx(path: Path) -> None:
     wb.save(path)
 
 
+def write_view_xlsx(path: Path) -> None:
+    """openpyxl：窗口的状态与页眉页脚 —— 「冻了哪几行」与「打出来页眉上有什么」
+
+    这两件事住在两个元素上，而且**两家对「没写」的处理完全不同**，所以一次把变量摆开：
+    * 第一张表冻在 `B3`（`pane state="frozen"`）、网格线关掉、页签选中、缩放 150%，
+      再给奇偶页两套抬头与页脚（含一个字面 `&&`）；
+    * 第二张表用**拆分**而不是冻结（`state="split"`，Excel 里「拆分窗口」那一个开关）——
+      实测 LibreOffice 的 xlsx 导出把这个 pane **整个丢掉**（同一份件冻住的那张表留着），
+      所以这一张是「重写会掉东西」的证据，不是笔者的猜测；
+    * 第三张表什么都不设：openpyxl 干脆不写 `headerFooter` 这个元素，
+      而 LibreOffice 六个段落一个不落全写出来（空元素）—— 「没写」与「写了空的」
+      在两份件里是两回事，键在不在必须分开。
+    """
+    from openpyxl import Workbook
+    from openpyxl.worksheet.views import Pane
+
+    wb = Workbook()
+    one = wb.active
+    one.title = "冻结"
+    one["A1"] = "月份"
+    one["B1"] = "收入"
+    one["A2"] = "一月"
+    one["B2"] = 10
+    one.freeze_panes = "B3"
+    one.sheet_view.showGridLines = False
+    one.sheet_view.tabSelected = True
+    one.sheet_view.zoomScale = 150
+    one.oddHeader.left.text = "第 &A 页"
+    one.oddHeader.center.text = "冻结那张"
+    one.oddFooter.left.text = "打开 && 关闭"
+    one.oddFooter.right.text = "第 &P 页，共 &N 页"
+    one.HeaderFooter.differentOddEven = True
+    one.evenHeader.center.text = "偶数页抬头"
+
+    two = wb.create_sheet("拆分")
+    two["A1"] = "字"
+    two.sheet_view.pane = Pane(xSplit=1, ySplit=2, topLeftCell="B3", activePane="bottomRight", state="split")
+
+    wb.create_sheet("默认")
+    wb.save(path)
+
+
 def write_pptx_charts(path: Path) -> None:
     """python-pptx：同一页两张图（柱形与饼图），第二页一张也没有。
 
@@ -1417,6 +1459,18 @@ def main() -> int:
             print("⚠️  没拿到 rules-lo.xlsx（.ods → .xlsx 那一转）")
     else:
         print("⚠️  没拿到 rules.ods")
+
+    # 窗口状态与页眉页脚那一份：直接 xlsx → xlsx 让 LibreOffice 重写同一个格式，
+    # 才量得出「同一件事换了一家写」差在哪（pane 的属性全被补出来、split 那个整个没了、
+    # 六段抬头脚全部写成空元素、每段字前面多一个 `&"Calibri"`）
+    view = OUT / "view.xlsx"
+    write_view_xlsx(view)
+    convert(exe, view, "xlsx", SCRATCH / "view-back")
+    made = SCRATCH / "view-back" / "view.xlsx"
+    if made.exists():
+        shutil.copyfile(made, OUT / "view-lo.xlsx")
+    else:
+        print("⚠️  没拿到 view-lo.xlsx（xlsx → xlsx 那一转）")
 
     # 演示稿的第二生产者与图那两份：同一份 pptx 让 LibreOffice 转 odp 再转回来，
     # 版式与母版的条数、段落被拆成几个 run、`sldSz` 上那个 type 属性都会变

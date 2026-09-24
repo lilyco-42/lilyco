@@ -445,6 +445,129 @@ def xlsx_print_setup(parts: dict) -> dict:
     return out
 
 
+HF_SLOTS = ("oddHeader", "oddFooter", "evenHeader", "evenFooter", "firstHeader", "firstFooter")
+HF_MARKS = {"L": "left", "C": "center", "R": "right"}
+
+
+def first_descendant(root, want: str):
+    """按局部名找第一个后代元素（含自己）—— Rust 那份是 `descendants(want).first()`，
+    两边必须同一条规则，不然真出现两个同名元素时各家挑一个"""
+    for one in root.iter():
+        if xml_local(one.tag) == want:
+            return one
+    return None
+
+
+def hf_scan(text: str):
+    """页眉页脚那一串 `&` 码：只有 &L / &C / &R 是分段标记，别的一律原样列出来
+
+    按码位扫而不是按字符数：`&"Calibri"` 里带引号（LibreOffice 每段前面都补一个，
+    openpyxl 一个不写），`&&` 是一个货真价实的 & 而不是标记，末尾落单的 `&` 什么都不接。
+    分段只交「文件自己标出来的那几段」—— 一个标记都没有时是空表，不硬造一段。
+    """
+    chars = list(text)
+    marks: list = []
+    fields: list = []
+    index = 0
+    while index < len(chars):
+        if chars[index] != "&":
+            index += 1
+            continue
+        if index + 1 >= len(chars):
+            fields.append("&")
+            index += 1
+            continue
+        nxt = chars[index + 1]
+        if nxt == "&":
+            fields.append("&&")
+            index += 2
+            continue
+        if nxt == '"':
+            stop = index + 2
+            while stop < len(chars) and chars[stop] != '"':
+                stop += 1
+            stop = min(stop, len(chars) - 1)
+            fields.append("".join(chars[index:stop + 1]))
+            index = stop + 1
+            continue
+        if nxt in HF_MARKS:
+            marks.append((HF_MARKS[nxt], index, index + 2))
+            index += 2
+            continue
+        fields.append("&" + nxt)
+        index += 2
+    segments = []
+    for position, entry in enumerate(marks):
+        stop = marks[position + 1][1] if position + 1 < len(marks) else len(chars)
+        segments.append({"at": entry[0], "text": "".join(chars[entry[2]:stop])})
+    return segments, fields
+
+
+def xlsx_view_of(root, limit: int = 200) -> dict:
+    """这一张表的窗口状态：`sheetView` 写了哪些开关、有没有 `pane`、几条 `selection`
+
+    两家对同一个开关的拼法不同（openpyxl 写 `showGridLines="0"`，LibreOffice 写
+    `"false"` 并且把十个属性全补出来），所以属性照文件交，不折成同一个布尔。
+    """
+    views = [one for one in root.iter() if xml_local(one.tag) == "sheetView"]
+    pane = first_descendant(root, "pane")
+    return {
+        "written": written_attrs(views[0]) if views else None,
+        "count": len(views),
+        "pane": written_attrs(pane) if pane is not None else None,
+        "selections": [
+            written_attrs(one)
+            for one in [one for one in root.iter() if xml_local(one.tag) == "selection"][:limit]
+        ],
+    }
+
+
+def xlsx_header_footer_of(root) -> dict:
+    """这一张表的页眉页脚：六个段落固定交，`present` 说清元素在不在
+
+    第三张表这一族干脆不写 `headerFooter`（present 全 false、text 全 null），
+    LibreOffice 却六个都写出来而里面是空的（present true、text ""）—— 这两件事不能并成一谈。
+    """
+    holder = first_descendant(root, "headerFooter")
+    slots = []
+    for name in HF_SLOTS:
+        node = first_descendant(root, name)
+        if node is None:
+            slots.append({"element": name, "present": False, "text": None,
+                          "segments": [], "fields": []})
+            continue
+        text = node.text or ""
+        segments, fields = hf_scan(text)
+        slots.append({"element": name, "present": True, "text": text,
+                      "segments": segments, "fields": fields})
+    return {
+        "written": written_attrs(holder) if holder is not None else None,
+        "present": holder is not None,
+        "slots": slots,
+        "written_slots": len([one for one in slots if one["present"] and one["text"]]),
+    }
+
+
+def xlsx_views(parts: dict) -> dict:
+    out: dict = {}
+    for name in sorted(parts):
+        if not (name.startswith("xl/worksheets/sheet") and name.endswith(".xml")):
+            continue
+        out[name.rsplit("/", 1)[-1][: -len(".xml")]] = xlsx_view_of(ET.fromstring(parts[name]))
+    return out
+
+
+def xlsx_headers(parts: dict) -> dict:
+    out: dict = {}
+    for name in sorted(parts):
+        if not (name.startswith("xl/worksheets/sheet") and name.endswith(".xml")):
+            continue
+        out[name.rsplit("/", 1)[-1][: -len(".xml")]] = xlsx_header_footer_of(
+            ET.fromstring(parts[name])
+        )
+    return out
+
+
 def null_cache() -> dict:
     return {"written": None, "points": 0, "values": [], "whole": True}
 
@@ -700,6 +823,8 @@ def xlsx_facts(path: Path) -> dict:
         names = [one.filename for one in box.infolist()]
         parts = {one.filename: box.read(one.filename) for one in box.infolist()}
     print_setups = xlsx_print_setup(parts)
+    views = xlsx_views(parts)
+    headers = xlsx_headers(parts)
     chart_lists = xlsx_charts(parts)
     dxf_written, dxf_kinds = dxf_table(parts)
     rules_by_sheet = xlsx_rules(parts, dxf_kinds)
@@ -760,6 +885,8 @@ def xlsx_facts(path: Path) -> dict:
         "merged": merged,
         "dimensions": dims,
         "print_setup": print_setups,
+        "views": views,
+        "headers": headers,
         "charts": chart_lists,
         "dxfs": {"written": dxf_written, "found": len(dxf_kinds),
                  "whole": dxf_written is None or int(dxf_written) == len(dxf_kinds)},

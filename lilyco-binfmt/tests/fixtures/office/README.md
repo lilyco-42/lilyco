@@ -35,6 +35,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `chart-lo.xlsx` | LibreOffice（`chart.xlsx` → .ods → .xlsx） | 同一批图的另一副面孔：`c:f` 写成 **`数据!$B$1`**（不引号、绝对），类目改用 **`c:strRef`**，并且 `strCache` / `numCache` 把 `ptCount` 与每格的值都缓存了（一月/二月、10/25）；两个轴 id 是随机数，与 openpyxl 那两份的 10/100 没有任何关系 |
 | `rules.xlsx` | openpyxl 3.1.5（`write_rules_xlsx`） | 条件格式四种规则与数据验证三种：一条 `sqref` 里塞两段区间（`A2:A6 B2:B4`）、`cellIs`/`expression` 只写 **`dxfId` 下标**（真样式在 `styles.xml` 的 `dxfs` 里，那一条只有 `font/b` 与 `font/color`）、色阶的颜色写成 `00FFFFFF` 这种 alpha 为 00 的串、`dataValidations` 自报 `count="3"`，而 list 那条**不写 operator** |
 | `rules-lo.xlsx` | LibreOffice（`rules.xlsx` → .ods → .xlsx） | 同一批规则的第二种写法：`priority` 换成自己排的 2/4/5、开关从 `1/0` 换成 `true/false`、给 list 补了 `operator="equal"`、给每条验证补了 `formula2=0`、把 custom 公式开头的 `=` 去掉、色阶的白写成 `FFFFFFFF`，而且同一条 dxf 里多补了 `name`/`family`/`sz` |
+| `view.xlsx` | openpyxl | 窗口与页眉页脚的第一种写法：`pane state="frozen"` 冻在 `B3`、`showGridLines="0"`、`tabSelected="1"`、`zoomScale="150"`、三条 `selection`（第一条不点 `topLeft`），页眉页脚写四段字（含一个字面 `&&`）与 `differentOddEven="1"`；第二张表用 `state="split"`（拆分不是冻结），第三张表什么都不设 —— **`headerFooter` 那个元素整个不写** |
+| `view-lo.xlsx` | LibreOffice（`view.xlsx` → .xlsx，同一个格式重写） | 同一张表的第二种写法：十五个属性全写出来、布尔换成 `true/false`、`selection` 变成四条人手一份还补 `activeCellId="0"`、每段字前面多一个 `&"Calibri"`、给每张表都写出 `headerFooter`（哪怕里面是空的）；**而那个 split 的 pane 整个不见了**（冻住的那张留着） |
 | `notes-end.rtf` | LibreOffice（从 `notes-end.docx`） | 注的第三种存法：脚注与尾注**都**写成 `{\*\footnote …}` 这一个群，尾注只在群里多一个 `\ftnalt`；分隔符另走 `{\*\ftnsep\chftnsep}` |
 | `tables.docx` / `tables.odt` / `tables.rtf` | python-docx 与 LibreOffice（两张表：3×2 与 2×2，中间夹一段正文，首尾各一个标题） | 表那一份的对照件：三家都给 5 行 10 格，而 RTF 只敢给行数与格子数 —— 「几张表」的分组规则在 `notes.rtf`（一张）与这份（两张）上试过，单表对、两表数成一张 |
 | `paper-a4.docx` / `paper-a4.odt` / `paper-a4.rtf` | python-docx 与 LibreOffice（A4 纵向一节 + 横过来的一节） | 那张纸的第二尺寸：三家换算到 0.01mm 后短边都是 **21001**（不是 21000 —— OOXML 与 RTF 写 11906 twips，ODF 照抄成 `21.001cm`），所以这一支不给尺寸起名；横排那一节 docx 与 odt 都有第二条并写着 `orient=landscape`，而 RTF 全文一个 `\landscape` 都没有 → 那一条流只交文档默认的纵向 |
@@ -645,8 +647,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     两份都是 3 —— 段落这一级才是稳定的，把 run 并成段里的字才谈得上比对；还有 `p:sldSz` 那个
     `type` 属性，python-pptx 写 `screen4x3`、LibreOffice 同样的 cx/cy 把它省掉，那一家就交 null
     （以前替它编一个 "custom"，那是把没写的当成写了）。
-    ODP 的图是嵌入对象（`Object N/` 那一堆 chart 部件），.ppt 住在记录树里 —— 两边都没读，
-    所以那一族的页上不带 `charts` 键。
+    ODP 的图已经走进那个目录了（见下面第 51 条），只有 `.ppt` 还住在记录树里 —— 所以那一族的
+    页上不带 `charts` 键。
 
 51. **ODF 的图要先走进那个目录**（`chart.ods` 与 `deck-chart.odp`）。
     宿主文档里只有一条 `draw:frame` → `draw:object`，`xlink:href` 指着 `Object N`（一个目录），
@@ -662,6 +664,31 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     那张 `local-table` 按格子抄，`number-columns-repeated` **不铺开**（一个自报 16384 的文件会凭空长出
     上万格），自报的那个数原样跟着交。
     .xls 的图还在 BIFF 的对象链上，本机没有一个读者量过 —— 那一族的表不带 `charts` 键。
+
+52. **窗口冻在哪里、打出来页眉上有什么**（`view.xlsx` 与 `view-lo.xlsx`）。
+    这两件事住在同一张表上的两个元素里（`sheetView` 与 `headerFooter`），而这两份件是
+    **同一个格式重写同一个格式**得到的（xlsx → xlsx，不经 .ods），所以差的全是导出器自己的手笔：
+    * 同一个开关的第三种布尔拼法又出现了：openpyxl 写 `showGridLines="0"` 与 `tabSelected="1"`，
+      LibreOffice 写 `"false"` / `"true"`，而且把文件里根本没提的十几个开关也全写出来（一份四个属性、
+      一份十五个）—— 所以属性照文件交，不折成「同一个布尔」。
+    * `pane` 的 `state` 把**冻结**与**拆分**分开：`frozen` 与 `split` 是两回事（Excel 里两个不同的命令）。
+      实测 LibreOffice 的 xlsx 导出**把 split 那一个 pane 整个丢掉**，而同一份件里 frozen 那条一字不动地
+      留着（`xSplit="1" ySplit="2" topLeftCell="B3"`）—— 这一条是量出来的重写损失，不是从规范里推的，
+      所以两份件都照各自的文件交，不替 LibreOffice 把丢了的说成「本来就没有」。
+    * `selection` 一份三条、第一条例外不点 `topLeft`，另一家四条人手一份、每条多一个 `activeCellId="0"`。
+      条数与点名都交，不数成一个答案。
+    * 页眉页脚那一串字是一个小型标记语言，但只认文件自己标的：`&L` / `&C` / `&R` 是分段记号，
+      **`&&` 是一个货真价实的 `&`**（不是记号），`&"Calibri"` 是一整码（里面带引号，按字符数会切错），
+      `&A`/`&P`/`&N`/`&D` 这些是字段。所以按码位扫一遍，分段与字段分开交，含义一个不猜。
+      LibreOffice 在每一段前面补一个 `&"Calibri"`（openpyxl 一个不写），两份件的**字面量不同而
+      「写了几段字」相同**（都是 3）—— 这种「一层可比一层不可比」正是两边都交的理由。
+    * 「没写」与「写了空的」不能并成一谈：第三张表 openpyxl 连 `headerFooter` 这个元素都不写
+      （`present: false`、`text: null`），LibreOffice 给每张表都写出这个元素、段落里是空的
+      （`present: true`、`text: ""`）。同一家内部也不一致 —— 它写出空的 odd/even 两段，
+      却把 `firstHeader` / `firstFooter` 省掉，因为 `differentFirst` 是 false。
+    ODF 的窗口状态与页眉页脚在页面样式那一套里（与 `print_setup` 是同一道没有的跳），
+    .xls 的那些开关在 BIFF 的 WINDOW1 / WINDOW2 与 HEADER / FOOTER 记录里，两边都没有能核对的
+    第二个读者 —— 所以这两族的两份账都是**键整个不在**，不是 0、也不是 null。
 
 ## 这些数字从哪来
 

@@ -140,6 +140,8 @@ def main() -> int:
         "chart-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "rules.xlsx": ("ooxml", "excel", "xlsx"),
         "rules-lo.xlsx": ("ooxml", "excel", "xlsx"),
+        "view.xlsx": ("ooxml", "excel", "xlsx"),
+        "view-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "notes.odt": ("opendocument", "word", "odt"),
         "book.ods": ("opendocument", "excel", "ods"),
         "deck.odp": ("opendocument", "powerpoint", "odp"),
@@ -940,11 +942,10 @@ def main() -> int:
          dig(deck2, "slides[0].chart_list[1].title.via"), dig(deck2, "slides[0].chart_list[1].title.text")],
         [None, None, "text", "占比"],
     )
-    # .ppt 与 .odp 这两家的图还没读：一个住在二进制记录树里，一个是嵌入的 chart 对象
-    for name in ("deck.ppt", "deck.odp"):
-        check("%s 这一族的图没读：没有一页带 charts 那份账" % name,
-              len([one for one in lbin("office-slide", fixture(name)).get("slides", [])
-                   if one.get("charts") is not None]), 0)
+    # .ppt 这一家的图还没读：它住在二进制记录树里（.odp 已走嵌入对象那一跳，见 3a11）
+    check("deck.ppt 这一族的图没读：没有一页带 charts 那份账",
+          len([one for one in lbin("office-slide", fixture("deck.ppt")).get("slides", [])
+               if one.get("charts") is not None]), 0)
 
     sheet = lbin("office-text", fixture("book.xlsx"))
     check("book.xlsx 有文字内容", sheet.get("kind") in ("cells", "shared-strings"), True)
@@ -1589,6 +1590,107 @@ def main() -> int:
              if one.get("charts") is not None]),
         0,
     )
+
+    # ── 3a12) 每张表的窗口状态与页眉页脚：开关照文件交，「没写」与「写了空的」分开 ──
+    print("=== 3a12) office-sheet 的 sheetView 与 headerFooter（xlsx 的两个生产者） ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.xlsx")):
+        got = lbin("office-sheet", fixture(name))
+        mine = {
+            (one.get("part") or "").rsplit("/", 1)[-1][: -len(".xml")]: one.get("view")
+            for one in got.get("sheets", [])
+        }
+        check("%s 每张表的窗口状态与读者一致" % name, mine, files[name]["ooxml"]["views"])
+        mine = {
+            (one.get("part") or "").rsplit("/", 1)[-1][: -len(".xml")]: one.get("header_footer")
+            for one in got.get("sheets", [])
+        }
+        check("%s 每张表的页眉页脚与读者一致" % name, mine, files[name]["ooxml"]["headers"])
+    hand = lbin("office-sheet", fixture("view.xlsx"))
+    lo = lbin("office-sheet", fixture("view-lo.xlsx"))
+    check(
+        "同一条开关两种拼法：openpyxl 的 0 与 LibreOffice 的 false",
+        [dig(hand, "sheets[0].view.written.showGridLines"),
+         dig(lo, "sheets[0].view.written.showGridLines"),
+         dig(hand, "sheets[0].view.written.tabSelected"),
+         dig(lo, "sheets[0].view.written.tabSelected")],
+        ["0", "false", "1", "true"],
+    )
+    check(
+        "只交文件写了的：一家四个属性，另一家把没写的也全补出来",
+        [len(dig(hand, "sheets[0].view.written") or {}),
+         len(dig(lo, "sheets[0].view.written") or {}),
+         dig(hand, "sheets[0].view.written.zoomScaleNormal")],
+        [4, 15, None],
+    )
+    check(
+        "冻结与拆分是同一个 state 上的两种值，两份件都按文件写",
+        [dig(hand, "sheets[0].view.pane.state"), dig(hand, "sheets[1].view.pane.state"),
+         dig(hand, "sheets[2].view.pane"), dig(lo, "sheets[0].view.pane.state")],
+        ["frozen", "split", None, "frozen"],
+    )
+    # LibreOffice 的 xlsx 导出把「拆分」那个 pane 整个丢了（同一份件冻住的那张留着）：
+    # 这是量出来的重写损失，不是这一族本来就没有
+    check(
+        "重写会掉东西：LO 那份里 split 的 pane 不在了",
+        [dig(lo, "sheets[1].view.pane"), dig(lo, "sheets[0].view.pane.xSplit"),
+         dig(lo, "sheets[0].view.pane.topLeftCell")],
+        [None, "1", "B3"],
+    )
+    check(
+        "selection 条数与点名各交各的：一家三条不点 topLeft，另一家四条还带 activeCellId",
+        [[len(one.get("selections") or []) for one in
+          [dig(hand, "sheets[0].view") or {}, dig(lo, "sheets[0].view") or {}]],
+         [one.get("pane") for one in (dig(hand, "sheets[0].view.selections") or [])],
+         [one.get("pane") for one in (dig(lo, "sheets[0].view.selections") or [])],
+         dig(lo, "sheets[0].view.selections[0].activeCellId")],
+        [[3, 4], ["topRight", "bottomLeft", "bottomRight"],
+         ["topLeft", "topRight", "bottomLeft", "bottomRight"], "0"],
+    )
+    check(
+        "页眉写了字的段数两份一致，尽管一家补了字体码另一家没有",
+        [dig(hand, "sheets[0].header_footer.written_slots"),
+         dig(lo, "sheets[0].header_footer.written_slots")],
+        [3, 3],
+    )
+    check(
+        "同一件事的两种字面：&L 与 &C 是分段标记，&& 是一个真的 &",
+        [dig(hand, "sheets[0].header_footer.slots[0].text"),
+         [one.get("at") for one in (dig(hand, "sheets[0].header_footer.slots[0].segments") or [])],
+         dig(hand, "sheets[0].header_footer.slots[1].fields"),
+         [one.get("text") for one in (dig(hand, "sheets[0].header_footer.slots[1].segments") or [])]],
+        ["&L第 &A 页&C冻结那张", ["left", "center"], ["&&", "&P", "&N"],
+         ["打开 && 关闭", "第 &P 页，共 &N 页"]],
+    )
+    check(
+        "LO 每段前面补一个字体码，分段照它的写法交",
+        [dig(lo, "sheets[0].header_footer.slots[0].fields"),
+         dig(lo, "sheets[0].header_footer.slots[0].segments[0].text"),
+         dig(lo, "sheets[0].header_footer.slots[1].fields")],
+        [['&"Calibri"', "&A", '&"Calibri"'], '&"Calibri"第 &A 页',
+         ['&"Calibri"', "&&", '&"Calibri"', "&P", "&N"]],
+    )
+    check(
+        "「没写这个元素」与「写了但是空的」是两件事",
+        [dig(hand, "sheets[2].header_footer.present"),
+         dig(hand, "sheets[2].header_footer.slots[0].text"),
+         dig(lo, "sheets[2].header_footer.present"),
+         dig(lo, "sheets[2].header_footer.slots[0].text"),
+         dig(lo, "sheets[2].header_footer.slots[0].present"),
+         dig(lo, "sheets[2].header_footer.slots[2].present")],
+        [False, None, True, "", True, False],
+    )
+    check(
+        "开关属性也各自交：一家不写 differentFirst，另一家写 false",
+        [dig(hand, "sheets[0].header_footer.written"),
+         dig(lo, "sheets[0].header_footer.written")],
+        [{"differentOddEven": "1"}, {"differentFirst": "false", "differentOddEven": "true"}],
+    )
+    # ODF 的窗口状态在样式那一套里、.xls 在 BIFF 的 WINDOW1/WINDOW2 与 HEADER/FOOTER 记录里，
+    # 两族都没读：键整个不在（与 print_setup 同一口径）
+    for name in ("book.ods", "hidden.ods", "chart.ods", "book.xls", "hidden.xls"):
+        missed = [one.get("name") for one in lbin("office-sheet", fixture(name)).get("sheets", [])
+                  if one.get("view") is not None or one.get("header_footer") is not None]
+        check("%s 这一族的窗口与页眉页脚没读：键整个不在" % name, missed, [])
 
     # ── 3b) 数字格式：格子写的是 cellXfs 的下标，日期藏在样式里 ──────────
     print("=== 3b) formats.xlsx：格式号、判定与换算出来的日期 ===")
