@@ -451,6 +451,21 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     而 `notes-end.rtf` 全用 `Normal`，交回**空数组**而不是 null ——
     这一支确实看过样式表，「没有」与「没看」还是两件事。
     末尾没有 `\par` 的那一段不收：段以回车收，与 `lines` 同一口径，两边读者也是同一口径。
+40. **那张纸：三家三种单位，换成 0.1mm 的整数才能对表**（五份件 × 三家 = 十四对）。
+    docx 与 RTF 写 twips（1/1440 英寸）：`w:pgSz w="12240" h="15840"`、
+    `\paperw12240\paperh15840\margl1800`；odt 写**自带单位**的十进制串：
+    `fo:page-width="21.59cm"`。换算不用浮点 —— 两个读者会在最后一位上各说各话，
+    所以两边都走「十进制精确展开 + 乘分数单位 + 逢半进一」的整数式子
+    （`round()` 在 python 里是**逢半取偶**，正好会在 .5 上分家，故不用它）。
+    12240 twips 与 21.59cm 都换成 21590（0.1mm），十四对全部如此 —— 这是这条链的地基。
+    **两家会不一致，也照实报三个数**：`notes-hf` 的 docx 上下边距写 1440 twips，
+    而 LibreOffice 自己导出的 odt 与 rtf 都写 720 / `1.27cm`（= 1270）——
+    不挑一个当准，也不替文件合并。三条口径上的坑各自钉住：
+    odt 的 `styles.xml` 里还坐着一条只写网格设置的 `page-layout-properties`，
+    那条不是一张纸、也不占序号；`orient` 只交文件写了的（docx 与 RTF 竖排时干脆不写 → null，
+    odt 明写 `portrait`）；RTF 只有一条（某一节的覆写住在 `{\*\sectx}` 群里，
+    而这一族不判分节归属，`sections` 仍是 null），`\header` 那种已知目标群里写的
+    `\paperw` 也不算文档默认值 —— 那一群整个另读，主循环看不见它。
 
 ## 这些数字从哪来
 
@@ -459,6 +474,10 @@ Rust 测试里每个期望值都来自第二读者对这些文件的独立读取
 `lyco_rtf.py`（RTF）、`lyco_legacy.py`（`.doc` piece 表、`.xls` BIFF8、`.ppt` 记录树）、
 `lyco_formats.py`（`.xlsx` 的数字格式与日期换算），以及 `office_reader.py` 里的
 `ods_facts()`（`.ods` 的重复计数、覆盖格与自动样式可见性）。
+那张纸（纸面尺寸与四边）另有 `scripts/acceptance/lyco_pages.py`：同样只吃标准库，
+docx 用 ElementTree 找 `w:sectPr` 的 `w:pgSz` / `w:pgMar`，odt 找 `styles.xml` 里真写了
+`fo:page-width` 的那些页布局，两边都按同一条整数式子换成 0.1mm（RTF 的那一串在
+`lyco_rtf.py` 的走查里，交给 `lyco_pages.rtf_entry` 换算）。
 修订那一份另有 `scripts/acceptance/lyco_revisions.py`：ElementTree 的 `.tail` 天然带着
 「插入的字夹在两个标记之间」那个顺序，而 Rust 那边靠 xmlscan 的 `#text` 子节点走同一条路 ——
 同一份 `revisions-lo.docx` 与 `revisions.odt` 两边逐条对得上，才对得起「合成规则」这四个字。

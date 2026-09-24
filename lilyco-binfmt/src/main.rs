@@ -45,6 +45,7 @@ mod office_sheet;
 mod office_slide;
 mod office_text;
 mod opack;
+mod paper;
 mod pdf;
 mod ppt;
 mod props;

@@ -261,6 +261,17 @@ const OBJECT_WORDS: &[&str] = &[
     "object", "objattph", "objdata", "objclass", "objname", "objemb", "objhide",
 ];
 
+/// 文档级「那张纸」写在哪几个控制字上（单位是 twips，1/1440 英寸）。
+/// `landscape` 是个旗标（写了就是横的），其余都带一个数字参数
+const PAPER_WORDS: &[&str] = &[
+    "paperw",
+    "paperh",
+    "margl",
+    "margr",
+    "margt",
+    "margb",
+    "landscape",
+];
 /// 注的两个口袋。**LibreOffice 的 RTF 导出只用 `footnote` 这一个**，
 /// 尾注靠群里的 `\ftnalt` 反标志区分（Word 那族还会另写 `endnote` 口袋），
 /// 所以两个词都认、再看那个标志
@@ -325,6 +336,10 @@ pub struct Rtf {
     /// 标题：样式名写成 `heading N` 的那些段，层级就写在名字里。
     /// 段用的是哪个样式号在段属性里（`\pard\s1`），名字在样式表里，两边一接才有层级
     pub headings: Vec<Value>,
+    /// 文档级那张纸的**原样**：`\paperw12240` 这类控制字，每个词只留没被跳过的那一层里
+    /// 第一次写的那一个（后面 `{\*\sectx …}` 里的那些是某一节的覆写，而这一族不判分节归属）。
+    /// 换算在 `crate::paper`（三家同一条式子），这里不预先换成毫米
+    pub paper_writes: Vec<(String, String)>,
     /// 表那份账。这六个数都是**控制字本身的条数**（`\trowd` / `\row` / `\cell` / `\intbl`
     /// 与嵌套表那两个），不是「有几张表」的推断 —— 那条规则拿两份件试过：
     /// 一张 2×2 的对，两张（3×2 与 2×2）的把两张数成一张，所以这里只交数得清的
@@ -356,6 +371,7 @@ impl Rtf {
             "styles": self.styles,
             "style_uses": self.style_uses,
             "headings": self.headings,
+            "paper_writes": self.paper_writes,
             "line_count": self.lines.len(),
             "chars": self.text.chars().count(),
             "declared_codepage": self.declared_codepage,
@@ -393,6 +409,8 @@ pub fn extract(bytes: &[u8]) -> Rtf {
     let mut marks: Vec<(usize, usize, Option<u64>)> = Vec::new();
     let mut para_start = 0usize;
     let mut para_style: Option<u64> = None;
+    // 文档级那张纸的原样（`paper_writes`）：只收第一次写的那一个，见下面那条判断
+    let mut paper: Vec<(String, String)> = Vec::new();
     let mut me = Rtf {
         text: String::new(),
         lines: Vec::new(),
@@ -413,6 +431,7 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         styles: Vec::new(),
         style_uses: Vec::new(),
         headings: Vec::new(),
+        paper_writes: Vec::new(),
         table_row_defines: 0,
         table_rows: 0,
         table_cells: 0,
@@ -669,12 +688,27 @@ pub fn extract(bytes: &[u8]) -> Rtf {
                     para_style = Some(index);
                 }
             }
+            // 那张纸写在文档级的属性里。每个词只记第一次写的，而且只看没被跳过的那一层 ——
+            // 后面 `{\*\sectx …}` 里的那些是某一节的覆写，`\header` 那种已知目标群整个另读，
+            // 都不算文档默认值。`landscape` 没有数字参数，记 "1" 表示「写了」
+            if PAPER_WORDS.contains(&word.as_str())
+                && !paper.iter().any(|(one, _)| one == &word)
+                && (word == "landscape" || !digits.is_empty())
+            {
+                let value = if word == "landscape" {
+                    "1".to_string()
+                } else {
+                    digits.clone()
+                };
+                paper.push((word, value));
+            }
         }
         i = j;
     }
     flush(&mut out, &mut pending, codepage, &mut notes);
     me.declared_codepage = codepage;
     me.notes = notes;
+    me.paper_writes = paper;
     // 用了几次的样式按名字合：文件写的是 `\s1`，名字在样式表那一群里
     uses.sort_unstable();
     let mut seen: Vec<(u64, usize)> = Vec::new();

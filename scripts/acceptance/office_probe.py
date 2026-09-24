@@ -26,6 +26,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import office_reader  # noqa: E402  第二读者（标准库实现）
+import lyco_pages  # noqa: E402  那张纸（尺寸与边距）的第二读者：docx 与 odt 两家的独立实现
 
 BIN = Path(os.path.abspath(sys.argv[1])) if len(sys.argv) > 1 else Path("target/debug/lbin")
 FIXTURES = Path(
@@ -380,6 +381,66 @@ def main() -> int:
                 "line_count",
             )
         ],
+    )
+
+    # ── 2d) 那张纸：三家各写各的单位（docx 与 RTF 写 twips，odt 写「21.59cm」），
+    # 换成 0.1mm 的整数之后逐条与 `lyco_pages.py` 对；三家之间谁不一致也照实交 ──────
+    print("=== 2d) office-doc 的那张纸（尺寸与边距，三家三种单位） ===")
+    # 四边边距三家不同的那一份件：docx 上下写 1440 twips，LibreOffice 的 odt 与 rtf
+    # 两个导出都写 720 / 1.27cm。这是生产者的不一致，单独在下面钉住，不在这里当一致要求
+    MARGIN_DIFFERS = {"notes-hf"}
+    for stem in ("notes", "notes-hf", "notes-end", "tables", "toc"):
+        ledger = {}
+        for ext in ("docx", "odt", "rtf"):
+            name = "%s.%s" % (stem, ext)
+            if not (FIXTURES / name).exists():
+                continue
+            got = lbin("office-doc", fixture(name))
+            if ext == "rtf":
+                want = [lyco_pages.rtf_entry(files[name]["rtf"]["paper_writes"])]
+            else:
+                want = lyco_pages.pages_of(FIXTURES / name)["papers"]
+            setup = got.get("page_setup") or {}
+            check("%s 那张纸整份账与读者一致" % name, setup.get("papers"), want)
+            check("%s 单位在壳上说一次" % name, setup.get("unit"), "0.1mm")
+            ledger[ext] = want
+        rows = min(len(one) for one in ledger.values())
+        for i in range(rows):
+            sizes = {ext: (one[i]["width"], one[i]["height"]) for ext, one in ledger.items()}
+            # 一个数从三家出来：这是整条换算链的地基
+            check("%s 第%d张纸的纸面尺寸三家同一个数：%s" % (stem, i, sizes), len(set(sizes.values())), 1)
+            if stem in MARGIN_DIFFERS:
+                continue
+            sides = {
+                ext: tuple(one[i]["margins"][key] for key in ("top", "right", "bottom", "left"))
+                for ext, one in ledger.items()
+            }
+            check("%s 第%d张纸的四边三家同一个数：%s" % (stem, i, sides), len(set(sides.values())), 1)
+    # notes-hf：三家各报各的，谁也不替谁合并（OOXML 还另外写出两节）
+    hf = {ext: lbin("office-doc", fixture("notes-hf." + ext)) for ext in ("docx", "odt", "rtf")}
+    check(
+        "notes-hf 上下边距：docx 2540，odt 与 rtf 1270（0.1mm）",
+        [dig(hf[ext], "page_setup.papers[0].margins.top") for ext in ("docx", "odt", "rtf")],
+        [2540, 1270, 1270],
+    )
+    check(
+        "notes-hf 的 OOXML 两节各一条，另两家只有一条文档默认",
+        [len(dig(hf[ext], "page_setup.papers") or []) for ext in ("docx", "odt", "rtf")],
+        [2, 1, 1],
+    )
+    check(
+        "orient 只交文件写了的：docx 与 rtf 竖排时不写，odt 明写 portrait",
+        [
+            dig(hf["docx"], "page_setup.papers[0].orient") is None,
+            dig(hf["rtf"], "page_setup.papers[0].orient") is None,
+            dig(hf["odt"], "page_setup.papers[0].orient"),
+        ],
+        [True, True, "portrait"],
+    )
+    check(
+        "notes.doc 没看就不报纸（null 而不是空表）",
+        lbin("office-doc", fixture("notes.doc")).get("page_setup"),
+        None,
     )
 
     # 尾注那一条分支第一次有真件：notes-end.docx 的 word/endnotes.xml 是 LibreOffice 的
