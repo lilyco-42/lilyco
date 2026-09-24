@@ -1698,6 +1698,11 @@ def main() -> int:
     # 格子底色/边框/对齐：shaded.docx 由 python-docx 写，shaded-lo.docx 是同一个格式重写
     shaded = OUT / "shaded.docx"
     write_shaded_docx(shaded)
+    convert(exe, shaded, "odt", SCRATCH)
+    if (SCRATCH / "shaded.odt").exists():
+        shutil.copyfile(SCRATCH / "shaded.odt", OUT / "shaded.odt")
+    else:
+        print("⚠️  没拿到 shaded.odt")
     convert(exe, shaded, "docx", SCRATCH / "shaded-back")
     made_shaded = SCRATCH / "shaded-back" / "shaded.docx"
     if made_shaded.exists():

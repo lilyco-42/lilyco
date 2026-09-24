@@ -150,6 +150,7 @@ def main() -> int:
         "tables-lo.docx": ("ooxml", "word", "docx"),
         "shaded.docx": ("ooxml", "word", "docx"),
         "shaded-lo.docx": ("ooxml", "word", "docx"),
+        "shaded.odt": ("opendocument", "word", "odt"),
         "lists.docx": ("ooxml", "word", "docx"),
         "lists-lo.docx": ("ooxml", "word", "docx"),
         "lists.odt": ("opendocument", "word", "odt"),
@@ -556,7 +557,7 @@ def main() -> int:
     # （嵌套表算进来），网格里走的是直接孩子
     print("=== 2e) office-doc 的表格网格（两家把合并写得不一样） ===")
     for name in ("notes.docx", "notes.odt", "tables.docx", "tables.odt",
-                 "tables-merged.docx", "tables-merged.odt"):
+                 "tables-merged.docx", "tables-merged.odt", "shaded.odt"):
         got = lbin("office-doc", fixture(name))
         want = lyco_grid.grids_of(FIXTURES / name)
         check(
@@ -1216,6 +1217,70 @@ def main() -> int:
          dig(shade_lo, "structure.table_layouts.list[0].cells[0].shading"),
          dig(shade_lo, "structure.table_layouts.list[0].cells[2].valign")],
         [5, 1, {}, True, {"val": "clear", "color": "auto", "fill": "FFFF00"}, "bottom"],
+    )
+    # ODF 那一侧同样三样，但值一律在一跳之外的自动样式上（名字按地址拼）
+    shodt = lbin("office-doc", fixture("shaded.odt"))
+    check(
+        "ODF 的格子三样：六格六份样式，全在 content.xml",
+        [dig(shodt, "structure.table_layouts.cell_styles"),
+         dig(shodt, "structure.table_layouts.cell_styles_in_content"),
+         dig(shodt, "structure.table_layouts.cell_styles_in_styles"),
+         dig(shodt, "structure.table_layouts.cell_elements"),
+         dig(shodt, "structure.table_layouts.cells_unresolved"),
+         dig(shodt, "structure.table_layouts.shade_cells"),
+         dig(shodt, "structure.table_layouts.align_cells"),
+         dig(shodt, "structure.table_layouts.lined_cells"),
+         dig(shodt, "structure.table_layouts.padded_cells")],
+        [6, 6, 0, 6, 0, 1, 1, 1, 6],
+    )
+    check(
+        "ODF 的格子逐条：点名在格上，值在样式里",
+        [dig(shodt, "structure.table_layouts.list[0].cells[0].style"),
+         dig(shodt, "structure.table_layouts.list[0].cells[0].style_part"),
+         dig(shodt, "structure.table_layouts.list[0].cells[0].attrs.table:style-name"),
+         dig(shodt, "structure.table_layouts.list[0].cells[0].shading"),
+         dig(shodt, "structure.table_layouts.list[0].cells[0].borders"),
+         dig(shodt, "structure.table_layouts.list[0].cells[0].lined"),
+         dig(shodt, "structure.table_layouts.list[0].cells[1].borders.border-top"),
+         dig(shodt, "structure.table_layouts.list[0].cells[1].lined"),
+         dig(shodt,
+             "structure.table_layouts.list[0].cells[1].written.style:border-line-width-top"),
+         dig(shodt, "structure.table_layouts.list[0].cells[2].valign")],
+        ["表格1.A1", "content.xml", "表格1.A1", "#ffff00", {"border": "none"}, False,
+         "2.25pt double #ff0000", True, "0.026cm 0.026cm 0.026cm", "bottom"],
+    )
+    # 同一份格式两族各写一遍：底色与双线两种说法，谁也没替谁归一化
+    check(
+        "同一格两种说法：docx 大写不带 #，ODF 小写带 #；双线一边记每根一边记合起来",
+        [dig(shade, "structure.table_layouts.list[0].cells[0].shading.fill"),
+         dig(shodt, "structure.table_layouts.list[0].cells[0].shading"),
+         dig(shade, "structure.table_layouts.list[0].cells[1].borders.top.sz"),
+         dig(shodt, "structure.table_layouts.list[0].cells[1].written.style:border-line-width-top")],
+        ["FFFF00", "#ffff00", "6", "0.026cm 0.026cm 0.026cm"],
+    )
+    check(
+        "ODF 的占位格两种写法：一种连样式名都没点，跨几列写在格子上",
+        [dig(odtw, "structure.table_layouts.cell_elements"),
+         dig(odtw, "structure.table_layouts.covered_cells"),
+         dig(odtw, "structure.table_layouts.padded_cells"),
+         dig(odtw, "structure.table_layouts.list[0].cells[0].attrs.table:number-columns-spanned"),
+         dig(odtw, "structure.table_layouts.list[0].cells[1].covered"),
+         dig(odtw, "structure.table_layouts.list[0].cells[1].attrs"),
+         dig(odtw, "structure.table_layouts.list[0].cells[1].style"),
+         dig(odtw, "structure.table_layouts.list[1].cells[0].attrs.table:number-rows-spanned"),
+         dig(odtw, "structure.table_layouts.list[1].cells[2].covered"),
+         dig(odtw, "structure.table_layouts.list[1].cells[2].style")],
+        [10, 2, 9, "2", True, {}, None, "2", True, "表格2.A1"],
+    )
+    check(
+        "什么都没设的那张 ODF 表：三本都是 0，而 padding 十格全写",
+        [dig(odt, "structure.table_layouts.shade_cells"),
+         dig(odt, "structure.table_layouts.align_cells"),
+         dig(odt, "structure.table_layouts.lined_cells"),
+         dig(odt, "structure.table_layouts.cell_elements"),
+         dig(odt, "structure.table_layouts.cell_styles"),
+         dig(odt, "structure.table_layouts.padded_cells")],
+        [0, 0, 0, 10, 2, 10],
     )
 
     for name in ("tables.rtf",):

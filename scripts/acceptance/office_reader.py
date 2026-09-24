@@ -1325,13 +1325,35 @@ def docx_table_layouts(body, limit: int = 200) -> dict:
     }
 
 
+CELL_EDGES = (
+    "fo:border", "fo:border-left", "fo:border-right", "fo:border-top", "fo:border-bottom",
+    "fo:border-before", "fo:border-after", "fo:border-start", "fo:border-end",
+)
+
+
+def edge_lined(raw: str) -> bool:
+    """一条边的值里有没有线：三段式（`0.0pt none #000000`）里那个关键字也算「没线」"""
+    return not any(one.lower() in ("none", "hidden") for one in raw.split())
+
+
 def odf_table_layouts(body, content_root, style_root, prefixes: dict, limit: int = 200) -> dict:
-    """ODF 这张表多宽：一条列元素顶几列写在 `number-columns-repeated`，宽度一跳在列样式上"""
+    """ODF 这张表多宽：一条列元素顶几列写在 `number-columns-repeated`，宽度一跳在列样式上
+
+    格子那一本与 docx 那份同形（`shading` / `borders` / `valign`），但值都在
+    family=table-cell 的**自动样式**上（LibreOffice 按地址起名 `表格1.A1`）：
+    底色 `fo:background-color="#ffff00"`（小写带 `#`，docx 是 `w:fill="FFFF00"`）、
+    边 `fo:border-<方位>`（一整串 `<宽度> <样式> <颜色>`；双线 LO 写的 2.25pt 是三根线
+    合起来的，另有 `style:border-line-width-top="0.026cm 0.026cm 0.026cm"` 记每根多宽，
+    同一个 docx `w:sz="6"` 的两种说法）、垂直对齐 `style:vertical-align`。
+    每格都带一份 `fo:padding-*`（默认值也写出来），被合并掉的格子是
+    `table:covered-table-cell`（没有内容，另数一本）。
+    """
     roots = [(content_root, "content.xml")]
     if style_root is not None:
         roots.append((style_root, "styles.xml"))
     columns: dict[str, tuple] = {}
     table_styles: dict[str, tuple] = {}
+    cell_styles: dict[str, tuple] = {}
     for root, part in roots:
         for one in root.iter():
             if xml_local(one.tag) != "style":
@@ -1346,8 +1368,13 @@ def odf_table_layouts(body, content_root, style_root, prefixes: dict, limit: int
             if fam == "table" and name not in table_styles:
                 kid = _kid(one, "table-properties")
                 table_styles[name] = (written_kept(kid, prefixes) if kid is not None else None, part)
+            if fam == "table-cell" and name not in cell_styles:
+                kid = _kid(one, "table-cell-properties")
+                cell_styles[name] = (written_kept(kid, prefixes) if kid is not None else None, part)
     entries = []
     elements = covered = resolved = 0
+    cell_elements = covered_cells = cells_unresolved = 0
+    shade_cells = align_cells = lined_cells = padded_cells = 0
     for at, tbl in enumerate(
         [one for one in body.iter() if xml_local(one.tag) == "table"][:limit]
     ):
@@ -1378,9 +1405,62 @@ def odf_table_layouts(body, content_root, style_root, prefixes: dict, limit: int
                     "mm": mm_of(width.get("style:column-width") if width else None, None),
                 }
             )
+        cell_list = []
+        my_cells = my_covered = 0
+        rows = [one for one in tbl if xml_local(one.tag) == "table-row"]
+        for row, tr in enumerate(rows):
+            kids = [
+                one for one in tr
+                if xml_local(one.tag) in ("table-cell", "covered-table-cell")
+            ]
+            for col, tc in enumerate(kids):
+                is_covered = xml_local(tc.tag) == "covered-table-cell"
+                my_cells += 1
+                my_covered += 1 if is_covered else 0
+                covered_cells += 1 if is_covered else 0
+                cname = odf_attr(tc, "style-name")
+                got = cell_styles.get(cname) if cname else None
+                if cname and got is None:
+                    cells_unresolved += 1
+                props = got[0] if got else None
+                smap = props or {}
+                shading = smap.get("fo:background-color")
+                valign = smap.get("style:vertical-align")
+                edges = {
+                    key.rsplit(":", 1)[-1]: value
+                    for key, value in smap.items()
+                    if key in CELL_EDGES
+                }
+                padded = any(key.startswith("fo:padding") for key in smap)
+                lined = any(edge_lined(value) for value in edges.values())
+                shade_cells += 1 if shading is not None else 0
+                align_cells += 1 if valign is not None else 0
+                lined_cells += 1 if lined else 0
+                padded_cells += 1 if padded else 0
+                cell_list.append(
+                    {
+                        "row": row,
+                        "col": col,
+                        "covered": is_covered,
+                        "attrs": written_kept(tc, prefixes),
+                        "style": cname,
+                        "style_part": got[1] if got else None,
+                        "written": props,
+                        "shading": shading,
+                        "valign": valign,
+                        "borders": edges,
+                        "borders_present": bool(edges),
+                        "lined": lined,
+                        "padded": padded,
+                    }
+                )
+        cell_elements += my_cells
         entries.append(
             {
                 "at": at,
+                "cell_elements": my_cells,
+                "covered_cells": my_covered,
+                "cells": cell_list[:limit],
                 "name": odf_attr(tbl, "name"),
                 "style": style,
                 "style_part": held[1] if held else None,
@@ -1396,6 +1476,16 @@ def odf_table_layouts(body, content_root, style_root, prefixes: dict, limit: int
         "resolved": resolved,
         "column_styles": len(columns),
         "table_styles": len(table_styles),
+        "cell_styles": len(cell_styles),
+        "cell_styles_in_content": sum(1 for one in cell_styles.values() if one[1] == "content.xml"),
+        "cell_styles_in_styles": sum(1 for one in cell_styles.values() if one[1] == "styles.xml"),
+        "cell_elements": cell_elements,
+        "covered_cells": covered_cells,
+        "cells_unresolved": cells_unresolved,
+        "shade_cells": shade_cells,
+        "align_cells": align_cells,
+        "lined_cells": lined_cells,
+        "padded_cells": padded_cells,
         "list": entries,
     }
 

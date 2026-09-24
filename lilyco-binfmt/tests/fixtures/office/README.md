@@ -52,6 +52,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `tables-lo.docx` | LibreOffice（`tables.docx` → .docx，同一个格式重写） | 那三本账里第一本变了：`w:tblW` 从 `type=auto w=0` 换成实数 **`8640 dxa`**，另外补出 `w:jc=start`、`w:tblInd=108`、`w:tblLayout=fixed` 与一个**空的** `w:tblCellMar`；网格与每格那两本**一字不差**（`4320` 与 `4320`），`w:tblLook` 的 `val` 从 `04A0` 变成小写 `04a0` |
 | `shaded.docx` | python-docx（`write_shaded_docx`） | 一张 2×3 的表，三格各带一样：`w:shd`（`val=clear color=auto fill=FFFF00`）、`w:tcBorders/w:top`（`double sz=6 space=0 color=FF0000`）、`w:vAlign="bottom"`；另外三格只有 `w:tcW` —— 「什么都没设」必须留着当对照 |
 | `shaded-lo.docx` | LibreOffice（`shaded.docx` → .docx，同一个格式重写） | **每一格**都被补上一个**空的** `<w:tcBorders></w:tcBorders>`（六格里五格是「元素在而一条边都没有」），`w:shd` / 那条 `w:top` / `w:vAlign` 的值一字不改（连 `FFFF00` 的大小写都保住了），只把属性顺序换了 —— 所以 `borders_present` 与 `borders` 要分两个键交 |
+| `shaded.odt` | LibreOffice（`shaded.docx` → .odt） | 同一批字的第三副账：格子上只有 `table:style-name`（按地址起的自动样式 `表格1.A1`…`表格1.C2`，六份全在 content.xml），底色变成小写带 `#` 的 `fo:background-color="#ffff00"`，那条双线变成 `fo:border-top="2.25pt double #ff0000"` 加一条记每根线多宽的 `style:border-line-width-top`，垂直对齐是 `style:vertical-align="bottom"`，而**六格都带一份 `fo:padding-*`**（默认值也写出来）—— 见事实 57 |
 | `toc.docx` | LibreOffice 的 **docx 导出器**（把目录注进 `notes.docx` 再让它照抄） | 真目录：`<w:sdt>` + `<w:docPartGallery w:val="Table of Contents"/>`，级别在域指令文字里 —— LibreOffice 把引号写成 `&quot;`，所以 `TOC \o "1-2" \h` 要还原实体才读得对 |
 | `toc.odt` | LibreOffice（从 `toc.docx`） | 同一件东西的另一副面孔：`text:table-of-content`（名字 `目录1`）、级别在 `text:table-of-content-source/@outline-level="2"`，另外**十级条目模板全写出来**（`entry_templates` 报的是文件写了几个，不是用上了几级） |
 | `toc.rtf` | LibreOffice（从 `toc.docx`） | 目录的第三种写法：没有 OOXML 那个 `w:sdt` 壳，也没有 ODF 那个 `outline-level` 属性，只有流里的一条域 `{\*\fldinst { TOC \\o "1-2" \\h}}` —— 开关前面的反斜杠**成对写**（单个会开出一个控制字），解掉那一对之后与 `toc.docx` 的 `w:instrText` 逐字相同。全文两条域（这一条 TOC 与目录条目上那一条 HYPERLINK）、`line_count` 9、`skipped_destinations` 120 |
@@ -822,6 +823,31 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     * 与编号那一批**正相反**：这里的列样式与表样式都写在 **content.xml**（`style_part` 每条都点名），
       所以上一批学到的「定义在 styles.xml」不是一条家族规律，只是那一族生产者的选择。
     * 列样式名是照表名拼的（`表格1.A`、`表格2.A`）—— 生产者的命名约定，照原样交，不当成结构。
+
+57. **这一格的底色、边与垂直对齐：一家写在格子上，一家要再跳一跳**（`shaded.docx`、`shaded-lo.docx`、`shaded.odt`）。
+    OOXML 把三样都写在 `w:tcPr` 里，属性名按文件写的交（`w:shd` 三个属性、`w:tcBorders` 下面每条边一个元素、
+    `w:vAlign`）；LibreOffice 重写同一份件时给**每一格**都补一个**空的** `<w:tcBorders></w:tcBorders>`
+    （六格里五格是「元素在而一条边都没有」），所以 `borders_present` 与 `borders` 分两个键交，
+    而值本身一个字都没改（`FFFF00`、`FF0000`、`sz="6"` 的双线都照抄，只换了属性顺序）。
+    ODF 那一族格子上**只有名字**（`table:style-name`），三样都在一跳之外的 `family=table-cell` 样式里：
+    * 样式名是**按地址**拼的自动样式：`表格1.A1` … `表格1.C2`（六格六份），与列样式同侧，
+      实测**全在 content.xml**（`cell_styles_in_content` 6、`cell_styles_in_styles` 0）——
+      编号那批把定义搬去 styles.xml 不是家族规律，是那一位生产者的选择，这一条又一次证明它。
+    * 底色是 `fo:background-color="#ffff00"`：**小写、带 `#`**，而 docx 那边是 `w:fill="FFFF00"` 大写不带 `#`。
+      同一个格式两种写法，两边各按各的交，谁也不替谁归一化。
+    * 边是 `fo:border` 或四条 `fo:border-<方位>`，一条值里塞着「宽度 样式 颜色」三段。同一条双线两种记法：
+      docx 记**每根** `sz="6"`（八分点），ODF 记**三根合起来** `2.25pt`，再另写一条
+      `style:border-line-width-top="0.026cm 0.026cm 0.026cm"` 说每根多宽 —— 后者不是边，所以不收进
+      `borders`（只留在 `written` 里）。因为 shorthand 也在边的名字里，「写了几条边」与「有没有一条真有字」
+      要分开：实测六格每格都写了一条边，而其中五格写的都是 `none`，于是 `borders_present` 全 true、
+      `lined` 只有一格 true。
+    * `padded` 说这份样式有没有写 `fo:padding-*` —— LibreOffice **六格全写**，连 0 的默认值也不省
+      （`tables.odt` 那张什么都没设的表十格也全写），所以「有几格写了底色」与「有几格被写过东西」是两个数。
+    * 被合并掉的格子是 `table:covered-table-cell`，**另数一本**：`cell_elements` 是两种格子元素的总数、
+      `covered_cells` 只数其中占位的那些。`tables-merged.odt` 实测两种占位写法：横向合并那格**连属性都不写**
+      （`attrs: {}`、`style: null`、`written: null`），纵向那格还留着样式名 —— 「一格什么都没写」与
+      「一格没被数」又不是一回事。跨了几列几行照原样留在 `attrs` 的 `number-columns-spanned` /
+      `number-rows-spanned` 里，不并进「这一行几个格」。
 
 ## 这些数字从哪来
 
