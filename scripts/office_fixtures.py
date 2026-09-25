@@ -3208,6 +3208,11 @@ def write_markdown_docx(path: Path, art: Path) -> None:
     both.bold = True
     both.italic = True
     doc.add_paragraph("记号 *下_划线 [方括号] <尖> 反斜杠 \\ 竖线 | 反引号 `")
+    # 连续两个空格：docx 那侧写成 `<w:t xml:space="preserve">`（两个空格都在字里），而 LibreOffice
+    # 的 odt 导出把它拆成「一个字面空格 + 一枚 `<text:s/>` 记号」，记号后面那半句挂在这个元素的
+    # **tail** 上 —— 这一句就是「tail 漏了就只剩前半句」那条错的凭据（实测：
+    # `<text:p>两处空格 <text:s/>之间是一个记号</text:p>`）
+    doc.add_paragraph("两处空格  之间是一个记号")
     # 行首那两枚是「文件里写着的字」而不是结构：不守住，markdown 会把它们读成标题与编号
     doc.add_paragraph("# 这不是标题，这是文件里写着的字")
     doc.add_paragraph("1. 这不是编号，这也是文件里写着的字")
@@ -3803,6 +3808,11 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "md-back" / "md.docx", OUT / "md-lo.docx")
     else:
         print("⚠️  没拿到 md-lo.docx（docx → docx 那一转）")
+    convert(exe, mdoc, "odt", SCRATCH / "md-asodt")
+    if (SCRATCH / "md-asodt" / "md.odt").exists():
+        shutil.copyfile(SCRATCH / "md-asodt" / "md.odt", OUT / "md.odt")
+    else:
+        print("⚠️  没拿到 md.odt（docx → odt 那一转）")
 
     # ── 批注的回复与已解决：三份部件两跳，五份件一条链 ─────────────────
     crep = SCRATCH / "crep-src" / "crep.docx"

@@ -295,6 +295,7 @@ def main() -> int:
         # 结构搬进 markdown 那两份：一家把列表号写在样式上、另一家写在段上
         "md.docx": ("ooxml", "word", "docx"),
         "md-lo.docx": ("ooxml", "word", "docx"),
+        "md.odt": ("opendocument", "word", "odt"),
         # 注的编号那三份：同一句话在两处说，两处说的不一样
         "nset.docx": ("ooxml", "word", "docx"),
         "nset-lo.docx": ("ooxml", "word", "docx"),
@@ -6020,17 +6021,17 @@ def main() -> int:
     hand_text = dig(hand, "markdown.text") or ""
     back_text = dig(back, "markdown.text") or ""
     check(
-        "`md.docx` 每段只管一件事（标题 / 粗斜 / markdown 记号 / 行首像记号的字 / 两级列表 / "
-        "有序列表 / 带竖线与星号且有一格两段的表 / 站外链接 / 硬换行 / 图 / 空段 / 分页符），"
-        "渲染出来的数是 17 块、9 段、2 标题、5 个列表项（3 圆点 + 2 编号）、1 张表 3 行、"
-        "丢掉 2 个空段 —— `chars` 344 与 `cut` false 一起交，截没截由它自己说",
+        "`md.docx` 每段只管一件事（标题 / 粗斜 / markdown 记号 / 两个空格的段 / 行首像记号的字 / "
+        "两级列表 / 有序列表 / 带竖线与星号且有一格两段的表 / 站外链接 / 硬换行 / 图 / 空段 / 分页符），"
+        "渲染出来的数是 18 块、10 段、2 标题、5 个列表项（3 圆点 + 2 编号）、1 张表 3 行、"
+        "丢掉 2 个空段 —— `chars` 359 与 `cut` false 一起交，截没截由它自己说",
         [dig(hand, "markdown.blocks"), dig(hand, "markdown.paragraphs"),
          dig(hand, "markdown.headings"), dig(hand, "markdown.list_items"),
          dig(hand, "markdown.bullet_items"), dig(hand, "markdown.ordered_items"),
          dig(hand, "markdown.tables"), dig(hand, "markdown.table_rows"),
          dig(hand, "markdown.empty_dropped"), dig(hand, "markdown.chars"),
          dig(hand, "markdown.cut")],
-        [17, 9, 2, 5, 3, 2, 1, 3, 2, 344, False],
+        [18, 10, 2, 5, 3, 2, 1, 3, 2, 359, False],
     )
     check(
         "同一份稿子的两副件**渲染一字不差**，而账本说得出这一族改了什么：列表号在 python-docx 那份"
@@ -6038,15 +6039,18 @@ def main() -> int:
         "搬进 markdown 之后看不出来，因为它只问「这一段是不是列表项」",
         [hand_text == back_text, dig(hand, "markdown.list_from_style"),
          dig(back, "markdown.list_from_style"), len(hand_text), len(back_text)],
-        [True, 5, 0, 344, 344],
+        [True, 5, 0, 359, 359],
     )
     check(
         "转义与不转义是分开的两件事：表外的竖线照字交（`|`）、表里的补一个反斜杠；"
-        "行首长得像记号的那两句也补（`#` 与 `1.`），不然文件里写着的字会被读成标题与编号",
+        "行首长得像记号的那两句也补（`#` 与 `1.`），不然文件里写着的字会被读成标题与编号。"
+        "还有一件容易被 trim 掉的：句子中间那两个空格（docx 靠 `xml:space=\"preserve\"` 存着）"
+        "照字交回，一个都不缩",
         [hand_text.count("竖线 |"), hand_text.count("\\| 带竖线"),
          hand_text.startswith("# 结构：一级"), "\n\\# 这不是标题" in hand_text,
-         "\n\\1. 这不是编号" in hand_text, hand_text.count("服务器 \\* 两台")],
-        [1, 1, True, True, True, 1],
+         "\n\\1. 这不是编号" in hand_text, hand_text.count("服务器 \\* 两台"),
+         hand_text.count("两处空格  之间是一个记号"), back_text.count("两处空格  之间是一个记号")],
+        [2, 1, True, True, True, 1, 1, 1],
     )
     lst = lbin("office-text", fixture("lists.docx"), "--markdown")
     lst_text = dig(lst, "markdown.text") or ""
@@ -6059,8 +6063,61 @@ def main() -> int:
          "  - 直接挂在段上的第二级" in lst_text, dig(lst, "markdown.list_from_style")],
         [6, 2, 4, 2, True, 3],
     )
+    # 同一本账在 ODF 那一面：字在 `text:span` 上（一跳字符样式）、列表是嵌套元素、
+    # 层级写在 `text:outline-level` 上、空格与换行是**记号**不是字
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-text", fixture(name), "--markdown")
+        check("%s 的 markdown 那一本与读者一致（ODF：一跳样式、记号还原、块序一致）" % name,
+              got.get("markdown"), files[name]["odt"]["markdown"])
+    odt = lbin("office-text", fixture("md.odt"), "--markdown")
+    odt_text = dig(odt, "markdown.text") or ""
+    check(
+        "`md.odt` 是同一份稿子的第三副样子（LibreOffice 的 docx → odt）：块数与两份 docx 一样是 18，"
+        "而账上换了三格 —— 列表号一律来自 `text:list-style`（`lists_named` 3）、字要一跳字符样式"
+        "（`spans_unresolved` 0 才算粗斜真落到字上）、空格记号要展开（`space_markers` 1）",
+        [dig(odt, "markdown.blocks"), dig(odt, "markdown.paragraphs"),
+         dig(odt, "markdown.headings"), dig(odt, "markdown.list_items"),
+         dig(odt, "markdown.lists_named"), dig(odt, "markdown.spans_unresolved"),
+         dig(odt, "markdown.space_markers"), dig(odt, "markdown.tables"),
+         dig(odt, "markdown.empty_dropped"), dig(odt, "markdown.chars")],
+        [18, 10, 2, 5, 3, 0, 1, 1, 2, 388],
+    )
+    check(
+        "**跨族同形**：同一份稿子从 docx 与从 odt 搬进 markdown，35 行里**只有第 32 行不同** —— "
+        "那一行是图片地址（各按自己文件写的交：`media/image1.png` 与 "
+        "`Pictures/1000000100000008000000088E4DF5D4.png`，LibreOffice 在 ODF 里按内容哈希命名）；"
+        "连「两处空格」那一句都一模一样（docx 写 `xml:space=\"preserve\"`、odt 写 `text:s` 记号，"
+        "还原之后同一个串）",
+        [len(hand_text.splitlines()), len(odt_text.splitlines()),
+         [i for i, (x, y) in enumerate(zip(hand_text.splitlines(), odt_text.splitlines()))
+          if x != y],
+         hand_text.count("两处空格  之间是一个记号"),
+         odt_text.count("两处空格  之间是一个记号"),
+         hand_text.count("![](media/image1.png)"),
+         odt_text.count("![](Pictures/")],
+        [35, 35, [32], 1, 1, 1, 1],
+    )
+    ends = lbin("office-text", fixture("notes-end.odt"), "--markdown")
+    ends_text = dig(ends, "markdown.text") or ""
+    nso = lbin("office-text", fixture("notes.odt"), "--markdown")
+    nso_text = dig(nso, "markdown.text") or ""
+    tocs = lbin("office-text", fixture("toc.odt"), "--markdown")
+    check(
+        "ODF 那一族的两处跳过，都有真件数着：批注（LibreOffice 写作 `office:annotation`，"
+        "就嵌在正文段**里面**）的字不进正文 —— `notes.odt` 里那句「这里要补上不含税口径」在渲染里"
+        "一个都不剩（`annotations_dropped` 1）；注（`text:note`，脚注两枚 + 尾注一枚）同理，"
+        "`notes-end.odt` 三条注正文一句都没落而所在段自己的字照旧（`notes_dropped` 3）。"
+        "docx 那侧这些东西住在别的部件里、本来就不在正文，两族同一口径",
+        [dig(nso, "markdown.annotations_dropped"), dig(nso, "markdown.notes_dropped"),
+         dig(ends, "markdown.notes_dropped"), dig(ends, "markdown.annotations_dropped"),
+         dig(tocs, "markdown.headings"), nso_text.count("这里要补上不含税口径"),
+         ends_text.count("Footnote: the numbers are gross."),
+         ends_text.count("Endnote: the totals"),
+         ends_text.count("carries a footnote")],
+        [1, 0, 3, 0, 2, 0, 0, 0, 1],
+    )
     quiet = lbin("office-text", fixture("md.docx"))
-    elsewhere = lbin("office-text", fixture("restart.odt"), "--markdown")
+    elsewhere = lbin("office-text", fixture("notes.rtf"), "--markdown")
     check(
         "没开 `--markdown` 就整个键都不给（不给一份空串装作渲染过）；开了而这一族还没搬的那一份，"
         "键也不在，只在 notes 里说一句",

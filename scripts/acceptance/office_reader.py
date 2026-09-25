@@ -38,7 +38,8 @@ from lyco_pages import convert  # 长度与 twips 换成 0.01mm 的那条整数�
 from lyco_pages import UNIT as MM_UNIT  # 那个单位的名字，只说一次
 import lyco_pdf  # PDF 那份读者：对象表 + 对象流 + 字符串三件事（lbin office-pdf 对账）
 import lyco_pdf_nav  # PDF 的「去哪儿」那一层：书签 / 链接 / 权限位
-from lyco_markdown import docx_markdown as docx_markdown_ledger  # 结构搬进 markdown 那一本（与 markdown.rs 同口径）
+from lyco_markdown import docx_markdown as docx_markdown_ledger  # 结构搬进 markdown：docx 那一本
+from lyco_markdown import odf_markdown as odf_markdown_ledger  # 同一本的 ODF 那一面（与 markdown.rs::odf 同口径）
 
 END = "END"  # CFB 的链结束标记
 FREE = "FREE"
@@ -8949,6 +8950,8 @@ def facts(path: Path) -> dict:
             out["odt"]["languages"] = odf_languages(path)
             # 同一问在 ODF 是一类注一份 configuration
             out["odt"]["note_settings"] = odf_note_settings(path)
+            # 结构搬进 markdown：与 docx 那一本同一个键形状，只是层级与记号是另一族的写法
+            out["odt"]["markdown"] = odf_markdown_ledger(path)
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger

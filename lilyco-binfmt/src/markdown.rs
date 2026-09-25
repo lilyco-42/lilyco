@@ -1,4 +1,6 @@
-//! 把一份 docx 的结构搬进 markdown —— 标题、列表、表、链接、图，一条不漏地搬，搬不过去的说清
+//! 把一份文档的结构搬进 markdown —— 标题、列表、表、链接、图，一条不漏地搬，搬不过去的说清
+//!
+//! 走这一本的两族：`docx()`（OOXML 的 word）与 `odf()`（ODF 的 odt）。
 //!
 //! 形状：`--markdown` 开着才交这一本（没开就整个键都不给，不交一份空串装作有）：
 //! `{family, available, text, chars, cut, blocks, paragraphs, headings, list_items,
@@ -8,7 +10,7 @@
 //!
 //! 实测两份件（`md.docx` 由 python-docx 写、每段只管一件事；`md-lo.docx` 是 LibreOffice 的
 //! docx → docx 重写）：
-//! 1. **两家的 markdown 一字不差**（344 个码位），而账本说得出为什么：五个列表项在 python-docx
+//! 1. **两家的 markdown 一字不差**（359 个码位），而账本说得出为什么：五个列表项在 python-docx
 //!    那份里号写在**样式**上（`List Bullet` → `numId`，段上自己一个字没写），
 //!    LibreOffice 重写时把号抄到**段上**（`list_from_style` 5 → 0）—— 同一个选择在两家文件里
 //!    落在两个地方，渲染结果却不需要知道这件事；
@@ -27,12 +29,31 @@
 //! 6. 空段与「整段只有一个分页符」的那种段都不进 markdown（这一层在 markdown 里没有对应物），
 //!    条数交在 `empty_dropped`（这两份件各 2 条）—— 0 与「没这一层」不是一回事。
 //!
+//! ODF 那一面（`md.odt` = LibreOffice 把 `md.docx` 转成 odt，同一份稿子的第三副样子）另量到五条：
+//! 7. **同一份稿子跨族同形**：35 行里只有一行不同 —— 那一行是图片地址，各按自己文件写的交
+//!    （docx 的关系表写 `media/image1.png`，LibreOffice 在 ODF 里按内容哈希命名成
+//!    `Pictures/1000000100000008000000088E4DF5D4.png`），`chars` 因此从 359 变 388；
+//! 8. **字要一跳字符样式**：粗斜不在 run 上而在 `text:span/@text:style-name` 引的那份
+//!    `style:family="text"` 样式里，而样式可能坐在 content.xml 也可能坐在 styles.xml
+//!    （先到先得，与编号那一条同口径）—— 解不到就交 `spans_unresolved`，不猜形状；
+//! 9. **空格与换行是记号不是字**：`<text:s/>`（`text:c` 说几个）、`<text:tab/>`、
+//!    `<text:line-break/>` 三种都要还原，`space_markers` 数还原了几枚；这一族没有
+//!    `xml:space="preserve"` 这个东西，两个空格的句子被拆成「一个字面空格 + 一枚记号」，
+//!    后半句挂在**这个元素的尾**上 —— 漏了尾巴，那句只剩「两处空格 」；
+//! 10. **列表是嵌套元素**：`text:list`（名字 → `text:list-style` 的各级 `bullet`/`number`）套
+//!     `text:list-item` 套段，层级由嵌套深度给（docx 那边是 `ilvl` 那个数），
+//!     所以这边用 `lists_named` / `lists_unnamed` 说「这几个列表有没有点名样式」；
+//! 11. **批注与注嵌在正文段里面**（`office:annotation` / `text:note`），它们的字整块跳过并各记
+//!     一条数（`annotations_dropped` / `notes_dropped`）—— docx 那边这些东西住在别的部件里，
+//!     本来也不在正文，两族同一口径；表格里 `number-columns-repeated` 顶几列要展开（上限 64），
+//!     `covered-table-cell` 记在 `covered_cells`。
+//!
 //! 界（这一本**不**做的那几件事）：
-//! - **odt / odp / ods / rtf / .doc / .pdf 不交这个键**（缺键 = 这一族还没搬，不是空文档）：
-//!   ODF 那一族的字在 `text:span` 上要点一份字符样式、列表是嵌套元素、列宽用
-//!   `number-columns-repeated` 顶好几列，每一样都要另量一遍；
-//! - 表格里被合并的格子、`number-columns-repeated` 顶几列的那种格子，markdown 的表格
-//!   表达不了，所以**不展开也不补空格**（每行按文件写着的格子数排，行数不够就补空串）；
+//! - **odp / ods / rtf / .doc / .pdf 不交这个键**（缺键 = 这一族还没搬，不是空文档）：
+//!   演示稿的正文按页分、表格的「段」是格子，都要另量一遍；
+//! - OOXML 表格里被合并的格子（`gridSpan` / `vMerge`）markdown 表达不了，所以**不展开也不补空格**
+//!   （每行按文件写着的格子数排，行数不够就补空串）；ODF 那侧的 `number-columns-repeated`
+//!   是「这一条列元素顶几列」，文件自己说了数，所以照数展开（一条最多展 64 列）；
 //! - 链接与图片的 target **按关系表写的原样交**（`media/image1.png` 是相对 `word/` 的，
 //!   本渲染器不把图搬出来）：实测 14 条链接的地址里没有一个含空格、括号或竖线，
 //!   所以不转义 target 不会截断链接；
@@ -59,6 +80,16 @@ struct Seg {
 }
 
 impl Seg {
+    fn said(text: &str, bold: bool, italic: bool, link: Option<String>) -> Seg {
+        Seg {
+            text: text.to_string(),
+            bold,
+            italic,
+            link,
+            image: None,
+        }
+    }
+
     fn words(text: &str, bold: bool, italic: bool) -> Seg {
         Seg {
             text: text.to_string(),
@@ -567,6 +598,423 @@ fn table_md(tbl: &Node, book: &Book) -> String {
         out.push_str(&line(one));
     }
     out
+}
+
+/// ODF 那一族渲染要查的两张样式表（都在 content.xml 与 styles.xml 里**先到先得**）
+struct OdfStyles {
+    /// 字符样式名 → (粗, 斜)
+    chars: Vec<(String, (bool, bool))>,
+    /// 列表样式名 → (层级号 `text:level`, 这一级是 bullet 还是 number)
+    lists: Vec<(String, Vec<(String, String)>)>,
+}
+
+/// ODF 那一族的运行态：统计、块清单与两张样式表
+struct OdfRun {
+    styles: OdfStyles,
+    blocks: Vec<(bool, String)>,
+    counts: Vec<(&'static str, i64)>,
+}
+
+const ODF_KEYS: [&str; 19] = [
+    "paragraphs",
+    "headings",
+    "list_items",
+    "bullet_items",
+    "ordered_items",
+    "unresolved_fmt",
+    "tables",
+    "table_rows",
+    "empty_dropped",
+    "lists_named",
+    "lists_unnamed",
+    "spans_unresolved",
+    "annotations_dropped",
+    "notes_dropped",
+    "space_markers",
+    "links",
+    "images",
+    "covered_cells",
+    "repeated_spans",
+];
+
+impl OdfRun {
+    fn new() -> OdfRun {
+        OdfRun {
+            styles: OdfStyles {
+                chars: Vec::new(),
+                lists: Vec::new(),
+            },
+            blocks: Vec::new(),
+            counts: ODF_KEYS.iter().map(|one| (*one, 0i64)).collect(),
+        }
+    }
+
+    fn bump(&mut self, key: &str) {
+        self.bump_by(key, 1);
+    }
+
+    fn bump_by(&mut self, key: &str, by: i64) {
+        if let Some(slot) = self.counts.iter_mut().find(|one| one.0 == key) {
+            slot.1 += by;
+        }
+    }
+}
+
+fn local_attr(node: &Node, want: &str) -> Option<&str> {
+    node.attr_local(want)
+}
+
+/// 两份件都走，**先到先得**（与编号那一条同一口径）
+///
+/// 实测：`text:span` 点的字符样式在 content.xml（自动样式）与 styles.xml（命名样式）里都有，
+/// 列表样式 `text:list-style` 全在 styles.xml（这份语料 300 条、content 里 0 条）。
+fn collect_odf_styles(bytes: &[u8], run: &mut OdfRun) {
+    for part in ["content.xml", "styles.xml"].iter() {
+        let Some(root) = read_part(bytes, part) else {
+            continue;
+        };
+        for one in root.descendants("style") {
+            if local_attr(one, "family") != Some("text") {
+                continue;
+            }
+            let Some(name) = local_attr(one, "name") else {
+                continue;
+            };
+            if run.styles.chars.iter().any(|had| had.0 == name) {
+                continue;
+            }
+            let props = match one.child("text-properties") {
+                Some(had) => had,
+                None => one,
+            };
+            // ElementTree 那边按命名空间 URI 取，这里按局部名取：实测同一元素上
+            // 只有 `fo:font-weight` 与 `fo:font-style` 落成这两个局部名
+            //（`style:font-weight-asian` 那种是另一个局部名），所以两边同一条判据。
+            let weight = local_attr(props, "font-weight");
+            let posture = local_attr(props, "font-style");
+            let flags = (
+                weight.map_or(false, |raw| raw != "normal" && raw != "0"),
+                posture.map_or(false, |raw| raw != "normal" && raw != "none" && raw != "0"),
+            );
+            run.styles.chars.push((name.to_string(), flags));
+        }
+        for one in root.descendants("list-style") {
+            let Some(name) = local_attr(one, "name") else {
+                continue;
+            };
+            if run.styles.lists.iter().any(|had| had.0 == name) {
+                continue;
+            }
+            let mut levels: Vec<(String, String)> = Vec::new();
+            for lvl in one.children.iter().filter(|kid| kid.name != "#text") {
+                let kind = match lvl.local() {
+                    "list-level-style-bullet" => "bullet",
+                    "list-level-style-number" => "number",
+                    _ => continue,
+                };
+                if let Some(depth) = local_attr(lvl, "level") {
+                    levels.push((depth.to_string(), kind.to_string()));
+                }
+            }
+            run.styles.lists.push((name.to_string(), levels));
+        }
+    }
+}
+
+impl OdfRun {
+    fn list_format(&self, name: &str, depth: usize) -> Option<&str> {
+        self.styles
+            .lists
+            .iter()
+            .find(|one| one.0 == name)
+            .and_then(|had| {
+                had.1
+                    .iter()
+                    .find(|lvl| lvl.0 == depth.to_string())
+                    .map(|lvl| lvl.1.as_str())
+            })
+    }
+
+    fn char_flags(&self, name: &str) -> Option<(bool, bool)> {
+        self.styles
+            .chars
+            .iter()
+            .find(|one| one.0 == name)
+            .map(|one| one.1)
+    }
+}
+
+/// 一棵子树按文档顺序摊成片段
+///
+/// ODF 的字挂在元素的 `.text` 与孩子们的 `.tail` 上，而 xmlscan 把这两处都存成 `#text`
+/// **孩子**（保住顺序），所以这里天然分得清「谁在说什么话」：孩子的字带孩子的形状，
+/// 孩子后面那段是**父亲**的话，用父亲的形状交 —— 漏了它，「两处空格 之间是一个记号」
+/// 会只剩前半句（真件量到的：`<text:p>两处空格 <text:s/>之间是一个记号</text:p>`）。
+///
+/// 批注（`text:annotation`）、注（`text:note`）、修订表（`text:tracked-changes`）整块不算
+/// 正文的字 —— 与 docx 那一本同一口径（那边的这些字住在**别的部件**里）；
+/// `text:soft-page-break` 是渲染时落下的位置，也不写字。
+fn odf_inline(
+    node: &Node,
+    run: &mut OdfRun,
+    out: &mut Vec<Seg>,
+    link: Option<String>,
+    bold: bool,
+    italic: bool,
+) {
+    for one in node.children.iter() {
+        if one.name == "#text" {
+            if !one.direct.is_empty() {
+                out.push(Seg::said(&one.direct, bold, italic, link.clone()));
+            }
+            continue;
+        }
+        match one.local() {
+            "annotation" => run.bump("annotations_dropped"),
+            "note" | "tracked-changes" => run.bump("notes_dropped"),
+            "soft-page-break" => {}
+            "s" => {
+                let raw = local_attr(one, "c").unwrap_or("1");
+                let wide: usize = raw.parse().unwrap_or(1).min(64);
+                run.bump("space_markers");
+                out.push(Seg::said(&" ".repeat(wide), bold, italic, link.clone()));
+            }
+            "tab" => out.push(Seg::said("\t", bold, italic, link.clone())),
+            "line-break" => out.push(Seg::said("\u{0}", bold, italic, link.clone())),
+            "span" => {
+                let name = local_attr(one, "style-name").unwrap_or_default();
+                let flags = match run.char_flags(name) {
+                    Some(had) => had,
+                    None => {
+                        run.bump("spans_unresolved");
+                        (false, false)
+                    }
+                };
+                odf_inline(
+                    one,
+                    run,
+                    out,
+                    link.clone(),
+                    bold || flags.0,
+                    italic || flags.1,
+                );
+            }
+            "a" => {
+                let href = local_attr(one, "href").unwrap_or_default().to_string();
+                run.bump("links");
+                odf_inline(one, run, out, Some(href), bold, italic);
+            }
+            "frame" | "object" => {
+                let image = one
+                    .descendants("image")
+                    .into_iter()
+                    .next()
+                    .and_then(|hit| local_attr(hit, "href"))
+                    .unwrap_or_default()
+                    .to_string();
+                run.bump("images");
+                out.push(Seg::picture("", &image));
+            }
+            _ => odf_inline(one, run, out, link.clone(), bold, italic),
+        }
+    }
+}
+
+fn odf_line(par: &Node, run: &mut OdfRun, pipe: bool) -> String {
+    let mut segs: Vec<Seg> = Vec::new();
+    odf_inline(par, run, &mut segs, None, false, false);
+    render(&segs, pipe)
+}
+
+fn odf_cell_text(tc: &Node, run: &mut OdfRun) -> String {
+    let mut bits: Vec<String> = Vec::new();
+    for one in tc.children.iter().filter(|kid| kid.name != "#text") {
+        if !matches!(one.local(), "p" | "h") {
+            continue;
+        }
+        let flat = odf_line(one, run, true).trim().replace('\n', "<br>");
+        if !flat.is_empty() {
+            bits.push(flat);
+        }
+    }
+    bits.join("<br>")
+}
+
+fn odf_table_md(tbl: &Node, run: &mut OdfRun) -> String {
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    for tr in tbl.children.iter().filter(|kid| kid.local() == "table-row") {
+        let mut cells: Vec<String> = Vec::new();
+        for tc in tr
+            .children
+            .iter()
+            .filter(|kid| matches!(kid.local(), "table-cell" | "covered-table-cell"))
+        {
+            if tc.local() == "covered-table-cell" {
+                run.bump("covered_cells");
+            }
+            let made = odf_cell_text(tc, run);
+            let raw = local_attr(tc, "number-columns-repeated").unwrap_or("1");
+            let times: usize = raw.parse().unwrap_or(1);
+            if times > 1 {
+                run.bump_by("repeated_spans", times as i64 - 1);
+            }
+            for _ in 0..times.min(64) {
+                cells.push(made.clone());
+            }
+        }
+        rows.push(cells);
+    }
+    if rows.is_empty() {
+        return String::new();
+    }
+    let width = rows.iter().map(|one| one.len()).max().unwrap_or(0);
+    for one in &mut rows {
+        while one.len() < width {
+            one.push(String::new());
+        }
+    }
+    let line = |cells: &[String]| -> String { format!("| {} |", cells.join(" | ")) };
+    let mut out = line(&rows[0]);
+    out.push('\n');
+    let filler: Vec<String> = (0..width).map(|_| "---".to_string()).collect();
+    out.push_str(&line(&filler));
+    for one in rows.iter().skip(1) {
+        out.push('\n');
+        out.push_str(&line(one));
+    }
+    out
+}
+
+/// 一段（或一个标题）落成 markdown 的一个块；层级与列表记号各按 ODF 自己的写法认
+fn odf_emit(par: &Node, run: &mut OdfRun, depth: usize, list_name: &Option<String>, heading: bool) {
+    let text = odf_line(par, run, false).trim().to_string();
+    if text.is_empty() {
+        run.bump("empty_dropped");
+        return;
+    }
+    if heading {
+        if let Some(level) = local_attr(par, "outline-level")
+            .and_then(|raw| raw.parse::<u32>().ok())
+            .map(|raw| raw.max(1))
+        {
+            run.bump("headings");
+            run.blocks
+                .push((false, format!("{} {}", "#".repeat(level as usize), text)));
+            return;
+        }
+    }
+    if depth > 0 {
+        run.bump("list_items");
+        let fmt = match list_name {
+            Some(name) => run.list_format(name, depth).map(String::from),
+            None => None,
+        };
+        let indent = "  ".repeat(depth - 1);
+        if fmt.as_deref() == Some("number") {
+            run.bump("ordered_items");
+            run.blocks.push((true, format!("{indent}1. {text}")));
+        } else {
+            if fmt.is_none() {
+                run.bump("unresolved_fmt");
+            }
+            run.bump("bullet_items");
+            run.blocks.push((true, format!("{indent}- {text}")));
+        }
+        return;
+    }
+    run.bump("paragraphs");
+    let head = starts_like_marker(&text);
+    run.blocks
+        .push((false, if head { format!("\\{text}") } else { text }));
+}
+
+impl OdfRun {
+    fn walk(&mut self, node: &Node, depth: usize, list_name: &Option<String>) {
+        for one in node.children.iter().filter(|kid| kid.name != "#text") {
+            match one.local() {
+                "h" | "p" => {
+                    let name = list_name.clone();
+                    odf_emit(one, self, depth, &name, one.local() == "h");
+                }
+                "list" => {
+                    let raw = local_attr(one, "style-name");
+                    match raw {
+                        Some(_) => self.bump("lists_named"),
+                        None => self.bump("lists_unnamed"),
+                    }
+                    let name = raw.map(String::from).or_else(|| list_name.clone());
+                    self.walk(one, depth + 1, &name);
+                }
+                "list-item" => {
+                    let name = list_name.clone();
+                    self.walk(one, depth, &name);
+                }
+                "table" => {
+                    let made = odf_table_md(one, self);
+                    if !made.is_empty() {
+                        self.bump("tables");
+                        let rows = one
+                            .children
+                            .iter()
+                            .filter(|kid| kid.local() == "table-row")
+                            .count();
+                        self.bump_by("table_rows", rows as i64);
+                        self.blocks.push((false, made));
+                    }
+                }
+                _ => {
+                    let name = list_name.clone();
+                    self.walk(one, depth, &name);
+                }
+            }
+        }
+    }
+}
+
+/// 一份 odt 的结构渲染（`--markdown` 开着且这一族是 ODF 时走这里）
+pub(crate) fn odf(bytes: &[u8], budget: usize) -> Value {
+    let Some(content) = read_part(bytes, "content.xml") else {
+        return json!({"family": "odf", "available": false});
+    };
+    let mut run = OdfRun::new();
+    collect_odf_styles(bytes, &mut run);
+    let body = content
+        .descendants("body")
+        .into_iter()
+        .next()
+        .and_then(|had| had.child("text"));
+    if let Some(text) = body {
+        let empty: Option<String> = None;
+        run.walk(&text, 0, &empty);
+    }
+    let mut joined = String::new();
+    for (index, (is_list, block)) in run.blocks.iter().enumerate() {
+        if index > 0 {
+            joined.push_str(if *is_list && run.blocks[index - 1].0 {
+                "\n"
+            } else {
+                "\n\n"
+            });
+        }
+        joined.push_str(block);
+    }
+    if !run.blocks.is_empty() {
+        joined.push('\n');
+    }
+    let chars = joined.chars().count();
+    let cut = chars > budget;
+    let shown: String = joined.chars().take(budget).collect();
+    let mut mine = serde_json::Map::new();
+    mine.insert("family".to_string(), json!("odf"));
+    mine.insert("available".to_string(), json!(true));
+    mine.insert("text".to_string(), json!(shown));
+    mine.insert("chars".to_string(), json!(chars));
+    mine.insert("cut".to_string(), json!(cut));
+    mine.insert("blocks".to_string(), json!(run.blocks.len()));
+    for (key, value) in run.counts.iter() {
+        mine.insert((*key).to_string(), json!(value));
+    }
+    Value::Object(mine)
 }
 
 /// 一份 docx 的正文渲染结果（`--markdown` 开着才走到这里）

@@ -313,6 +313,274 @@ def table_md(tbl, ctx) -> str:
     return "\n".join(lines)
 
 
+_OFFICE_NS = "{urn:oasis:names:tc:opendocument:xmlns:office:1.0}"
+_STYLE_NS = "{urn:oasis:names:tc:opendocument:xmlns:style:1.0}"
+_TEXT_NS = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
+_TABLE_NS = "{urn:oasis:names:tc:opendocument:xmlns:table:1.0}"
+_XLINK_NS = "{http://www.w3.org/1999/xlink}"
+_FO_NS = "{urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0}"
+
+
+def _md_local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def odf_styles(parts: dict):
+    """两份件都走，**先到先得**（与编号那一条同一口径）
+
+    实测：`text:span` 点的字符样式在 content.xml（自动样式）与 styles.xml（命名样式）里都有，
+    列表样式 `text:list-style` 全在 styles.xml（这份语料 300 条、content 里 0 条）。
+    """
+    chars = {}
+    lists = {}
+    for part in ("content.xml", "styles.xml"):
+        if part not in parts:
+            continue
+        for one in ET.fromstring(parts[part]).iter():
+            kind = _md_local(one.tag)
+            name = one.attrib.get(_STYLE_NS + "name") or one.attrib.get(_TEXT_NS + "name")
+            if kind == "style" and one.attrib.get(_STYLE_NS + "family") == "text" and name:
+                if name in chars:
+                    continue
+                props = [ch for ch in one if _md_local(ch.tag) == "text-properties"]
+                # ElementTree 把前缀换成命名空间 URI：`fo:font-weight` 在 attrib 里是 `{...}font-weight`
+                weight = props[0].attrib.get(_FO_NS + "font-weight") if props else None
+                style = props[0].attrib.get(_FO_NS + "font-style") if props else None
+                chars[name] = (
+                    weight is not None and weight not in ("normal", "0"),
+                    style is not None and style not in ("normal", "none", "0"),
+                )
+            elif kind == "list-style" and name and name not in lists:
+                levels = {}
+                for lvl in one:
+                    if _md_local(lvl.tag) not in ("list-level-style-number",
+                                                  "list-level-style-bullet"):
+                        continue
+                    depth = lvl.attrib.get(_TEXT_NS + "level")
+                    if depth is not None:
+                        levels[depth] = "bullet" if _md_local(lvl.tag).endswith("bullet") else "number"
+                lists[name] = levels
+    return chars, lists
+
+
+def odf_heading_level(node):
+    """`text:h` 的层级写在属性上；没写就当一段普通正文（这一族没有别的凭据可查）"""
+    raw = node.attrib.get(_TEXT_NS + "outline-level")
+    if raw is not None and raw.isdigit():
+        return max(1, int(raw))
+    return None
+
+
+def _md_seg(text, bold, italic, link):
+    return {"text": text, "bold": bold, "italic": italic, "link": link}
+
+
+_MD_LEAF = ("s", "tab", "line-break", "frame", "object", "annotation", "note",
+            "tracked-changes", "soft-page-break")
+
+
+def odf_inline(node, ctx, out: list, link=None, bold=False, italic=False):
+    """一棵子树按文档顺序摊成片段：字（含 `text:s` / `text:tab` / 换行记号）、span 的粗斜、链接、图
+
+    ODF 的字挂在元素的 `.text` 与孩子们的 `.tail` 上（不是各自一个孩子），所以这三段都要按
+    「谁在说什么话」各归其位：孩子的字带孩子的形状，`tail` 是**父亲**的话，用父亲的形状交。
+
+    批注（`text:annotation`）、注（`text:note`）、修订表（`text:tracked-changes`）整块不算正文的字
+    —— 与 docx 那一本同一口径（那边的这些字住在**别的部件**里，本来也不在正文）；
+    `text:soft-page-break` 是渲染时落下的位置，也不写字。
+    """
+    if node.text:
+        out.append(_md_seg(node.text, bold, italic, link))
+    for one in node:
+        kind = _md_local(one.tag)
+        stats = ctx["stats"]
+        child_bold, child_italic, child_link = bold, italic, link
+        if kind in ("annotation", "note", "tracked-changes"):
+            if kind == "annotation":
+                stats["annotations_dropped"] += 1
+            else:
+                stats["notes_dropped"] += 1
+        elif kind == "soft-page-break":
+            pass
+        elif kind == "s":
+            raw = one.attrib.get(_TEXT_NS + "c") or "1"
+            stats["space_markers"] += 1
+            # 上限 64 与 markdown.rs 同一条：记号自己说几个空格就展开几个，但别让一枚属性撑爆内存
+            out.append(_md_seg(" " * (min(int(raw), 64) if raw.isdigit() else 1),
+                               bold, italic, link))
+        elif kind == "tab":
+            out.append(_md_seg("\t", bold, italic, link))
+        elif kind == "line-break":
+            out.append(_md_seg(HARD, bold, italic, link))
+        elif kind == "span":
+            name = one.attrib.get(_TEXT_NS + "style-name")
+            got = ctx["chars"].get(name) if name else None
+            if got is None:
+                stats["spans_unresolved"] += 1
+                got = (False, False)
+            child_bold = bold or got[0]
+            child_italic = italic or got[1]
+        elif kind == "a":
+            child_link = one.attrib.get(_XLINK_NS + "href") or ""
+            stats["links"] += 1
+        elif kind in ("frame", "object"):
+            image = ""
+            for hit in one.iter():
+                if _md_local(hit.tag) == "image":
+                    image = hit.attrib.get(_XLINK_NS + "href") or ""
+                    break
+            stats["images"] += 1
+            out.append({"image": {"alt": "", "target": image}})
+        if kind not in _MD_LEAF:
+            # `text:span` 与 `text:a` 是壳：壳里的字带着算好的形状递归进来（叶子只出记号）
+            odf_inline(one, ctx, out, child_link, child_bold, child_italic)
+        # `.tail` 是**这个孩子之后**的字，属于父亲：无论孩子是记号（`text:s` / `text:tab` /
+        # `text:line-break`）、图，还是被整块跳过的批注，尾巴都得留下 —— 漏了它，
+        # 「两处空格 之间是一个记号」会只剩前半句（真件量到的）
+        if one.tail:
+            out.append(_md_seg(one.tail, bold, italic, link))
+
+
+def odf_cell_text(tc, ctx) -> str:
+    bits = []
+    for one in tc:
+        if _md_local(one.tag) in ("p", "h"):
+            made = render(odf_segments_collect(one, ctx), pipe=True).strip()
+            flat = made.replace("\n", "<br>")
+            if flat:
+                bits.append(flat)
+    return "<br>".join(bits)
+
+
+def odf_segments_collect(node, ctx) -> list:
+    out: list = []
+    odf_inline(node, ctx, out)
+    return out
+
+
+def odf_table_md(tbl, ctx) -> str:
+    rows = []
+    for tr in tbl:
+        if _md_local(tr.tag) != "table-row":
+            continue
+        cells = []
+        for tc in tr:
+            if _md_local(tc.tag) not in ("table-cell", "covered-table-cell"):
+                continue
+            if _md_local(tc.tag) == "covered-table-cell":
+                ctx["stats"]["covered_cells"] += 1
+            rep = tc.attrib.get(_TABLE_NS + "number-columns-repeated") or "1"
+            times = int(rep) if rep.isdigit() else 1
+            made = odf_cell_text(tc, ctx)
+            cells.extend([made] * min(times, 64))
+            if times > 1:
+                ctx["stats"]["repeated_spans"] += times - 1
+        rows.append(cells)
+    if not rows:
+        return ""
+    width = max(len(one) for one in rows)
+    for one in rows:
+        one.extend([""] * (width - len(one)))
+    lines = ["| " + " | ".join(rows[0]) + " |", "| " + " | ".join(["---"] * width) + " |"]
+    for one in rows[1:]:
+        lines.append("| " + " | ".join(one) + " |")
+    return "\n".join(lines)
+
+
+def odf_markdown(path: Path, budget: int = 20000) -> dict:
+    """一份 odt 的结构渲染：与 docx 那一本同一个键形状，只是层级与记号是另一族的写法"""
+    with zipfile.ZipFile(path) as box:
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    if "content.xml" not in parts:
+        return {"family": "odf", "available": False}
+    root = ET.fromstring(parts["content.xml"])
+    body = None
+    for one in root.iter():
+        if one.tag == _OFFICE_NS + "text":
+            body = one
+            break
+    chars, lists = odf_styles(parts)
+    ctx = {"rels": {}, "styles": {}, "chars": chars, "lists": lists,
+           "stats": {
+               "paragraphs": 0, "headings": 0, "list_items": 0, "bullet_items": 0,
+               "ordered_items": 0, "unresolved_fmt": 0,
+               "tables": 0, "table_rows": 0, "empty_dropped": 0,
+               "lists_named": 0, "lists_unnamed": 0, "spans_unresolved": 0,
+               "annotations_dropped": 0, "notes_dropped": 0, "space_markers": 0,
+               "links": 0, "images": 0, "covered_cells": 0, "repeated_spans": 0,
+           }}
+    blocks: list = []
+    stats = ctx["stats"]
+
+    def walk(node, depth: int, list_name):
+        for one in node:
+            kind = _md_local(one.tag)
+            if kind == "h":
+                emit(one, depth, list_name, heading=True)
+            elif kind == "p":
+                emit(one, depth, list_name, heading=False)
+            elif kind == "list":
+                name = one.attrib.get(_TEXT_NS + "style-name")
+                stats["lists_named" if name else "lists_unnamed"] += 1
+                walk(one, depth + 1, name or list_name)
+            elif kind == "list-item":
+                walk(one, depth, list_name)
+            elif kind == "table":
+                made = odf_table_md(one, ctx)
+                if made:
+                    stats["tables"] += 1
+                    stats["table_rows"] += len([x for x in one
+                                                if _md_local(x.tag) == "table-row"])
+                    blocks.append((False, made))
+            else:
+                walk(one, depth, list_name)
+
+    def emit(par, depth: int, list_name, heading: bool):
+        text = render(odf_segments_collect(par, ctx)).strip()
+        if not text:
+            stats["empty_dropped"] += 1
+            return
+        level = odf_heading_level(par) if heading else None
+        if heading and level:
+            stats["headings"] += 1
+            blocks.append((False, "#" * level + " " + text))
+            return
+        if depth > 0:
+            stats["list_items"] += 1
+            fmt = (ctx["lists"].get(list_name or "") or {}).get(str(depth))
+            indent = "  " * (depth - 1)
+            if fmt == "number":
+                stats["ordered_items"] += 1
+                blocks.append((True, indent + "1. " + text))
+            else:
+                if fmt is None:
+                    stats["unresolved_fmt"] += 1
+                stats["bullet_items"] += 1
+                blocks.append((True, indent + "- " + text))
+            return
+        stats["paragraphs"] += 1
+        blocks.append((False, "\\" + text if LEAD.match(text) else text))
+
+    if body is not None:
+        walk(body, 0, None)
+    pieces = []
+    for index, (is_list, block) in enumerate(blocks):
+        if index:
+            pieces.append("\n" if is_list and blocks[index - 1][0] else "\n\n")
+        pieces.append(block)
+    text = ("".join(pieces) + "\n") if blocks else ""
+    chars_count = len(text)
+    return {
+        "family": "odf",
+        "available": True,
+        "text": text[:budget],
+        "chars": chars_count,
+        "cut": chars_count > budget,
+        "blocks": len(blocks),
+        **stats,
+    }
+
+
 def docx_markdown(path: Path, budget: int = 20000) -> dict:
     """一份 docx 的结构渲染（Rust 那一本 `crate::markdown::docx` 的对照）"""
     with zipfile.ZipFile(path) as box:
