@@ -244,6 +244,10 @@ def main() -> int:
         "doc-comments.docx": ("ooxml", "word", "docx"),
         "doc-comments-lo.docx": ("ooxml", "word", "docx"),
         "doc-comments.odt": ("opendocument", "word", "odt"),
+        # 分页开关那三份：在场不等于开着，一跳不等于没有
+        "keep.docx": ("ooxml", "word", "docx"),
+        "keep-lo.docx": ("ooxml", "word", "docx"),
+        "keep.odt": ("opendocument", "word", "odt"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -4769,6 +4773,99 @@ def main() -> int:
          dig(lbin("office-doc", fixture("notes.docx")), "structure.comment_ledger.distinct_authors"),
          dig(lbin("office-doc", fixture("tabs.rtf")), "structure.comment_ledger")],
         [3, 3, True, False, 0, 0, 1, ["liuqi"], None],
+    )
+
+    # ── 3ad) 这一段与下一页怎么接：一家坐在段上（元素在场），一家一跳在样式（且是两个数） ──
+    print("=== 3ad) 分页那四个开关：在场不等于开着，一跳不等于没有 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 分页开关那份账与读者一致（在场、写的值、算出来的状态）" % name,
+              dig(got, "structure.keep_switches"),
+              files[name]["ooxml"]["keep_switches"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 分页开关那份账与读者一致（一跳在段点的那份样式上）" % name,
+              dig(got, "structure.keep_switches"),
+              files[name]["odt"]["keep_switches"])
+    kp = lbin("office-doc", fixture("keep.docx"))
+    kp_lo = lbin("office-doc", fixture("keep-lo.docx"))
+    kp_odt = lbin("office-doc", fixture("keep.odt"))
+    check(
+        "python-docx 那份（五段各开一个开关）：前三枚写出来是**空元素**（在场=开着，值整个没有），"
+        "第四枚反过来写 `w:val=0` 表示关 —— 所以 `present` / `val` / 算出来的 `on_written`、"
+        "`off_written` 四个键都要交，把「在场」当「开着」就会把那枚关着的数成开着。"
+        "基线那段连 `w:pPr` 都没有（`has_pPr` false，不是「写了 false」）",
+        [dig(kp, "structure.keep_switches.paragraphs_total"),
+         dig(kp, "structure.keep_switches.p_pr_elements"),
+         dig(kp, "structure.keep_switches.paragraphs_with_any"),
+         dig(kp, "structure.keep_switches.paragraphs_indexed"),
+         dig(kp, "structure.keep_switches.states_written"),
+         dig(kp, "structure.keep_switches.paragraphs[0].has_pPr"),
+         dig(kp, "structure.keep_switches.paragraphs[1].keep_next"),
+         dig(kp, "structure.keep_switches.paragraphs[4].widow_control"),
+         dig(kp, "structure.keep_switches.paragraphs[3].page_break_before")],
+        [5, 4, 4, [1, 2, 3, 4],
+         {"keepNext bare": 1, "keepLines bare": 1, "pageBreakBefore bare": 1,
+          "widowControl with_value": 1},
+         False,
+         {"present": True, "val": None, "on_written": True, "off_written": False},
+         {"present": True, "val": "0", "on_written": False, "off_written": True},
+         {"present": True, "val": None, "on_written": True, "off_written": False}],
+    )
+    check(
+        "LibreOffice 重写同一份：每段都被补了一个 `w:pPr`（4 枚 → 5 枚），值换成 true/false 这一种"
+        "拼法（`keepNext` 现在写着 true、`widowControl` 写着 false），而**带 `w:pageBreakBefore` "
+        "的那一段整个不再有这一格** —— 交着开关的段从 4 段掉到 3 段（第 3 段那一格没了）",
+        [dig(kp_lo, "structure.keep_switches.p_pr_elements"),
+         dig(kp_lo, "structure.keep_switches.paragraphs_with_any"),
+         dig(kp_lo, "structure.keep_switches.paragraphs_indexed"),
+         dig(kp_lo, "structure.keep_switches.states_written"),
+         dig(kp_lo, "structure.keep_switches.paragraphs[1].keep_next"),
+         dig(kp_lo, "structure.keep_switches.paragraphs[4].widow_control"),
+         sum(1 for one in dig(kp_lo, "structure.keep_switches.paragraphs")
+             if one["page_break_before"]["present"])],
+        [5, 3, [1, 2, 4],
+         {"keepNext with_value": 1, "keepLines bare": 1, "widowControl with_value": 1},
+         {"present": True, "val": "true", "on_written": True, "off_written": False},
+         {"present": True, "val": "false", "on_written": False, "off_written": True},
+         0],
+    )
+    check(
+        "同一问转 ODF：段身上一个字都没写，四枚开关一跳在段点的样式上（`P1` keep-with-next=always、"
+        "`P2` keep-together=always、`P3` break-before=page、`P4` widows=0 配 orphans=0）——"
+        "**孤行控制在这一族是两个数，不是一枚开关**；而基线那段点的 `Standard` 自己写着 2/2，"
+        "于是「有开关的段」是 5 段（比 OOXML 那份的 4 还多），这两个数不能互相对账",
+        [dig(kp_odt, "structure.keep_switches.paragraphs_total"),
+         dig(kp_odt, "structure.keep_switches.resolved"),
+         dig(kp_odt, "structure.keep_switches.paragraphs_with_any"),
+         dig(kp_odt, "structure.keep_switches.styles_total"),
+         dig(kp_odt, "structure.keep_switches.words_written"),
+         dig(kp_odt, "structure.keep_switches.paragraphs[0].widows"),
+         dig(kp_odt, "structure.keep_switches.paragraphs[1].keep_with_next"),
+         dig(kp_odt, "structure.keep_switches.paragraphs[3].break_before"),
+         [dig(kp_odt, "structure.keep_switches.paragraphs[4].widows.written"),
+          dig(kp_odt, "structure.keep_switches.paragraphs[4].orphans.written")]],
+        [5, 5, 5, 44,
+         {"widows=2": 1, "orphans=2": 1, "keep-with-next=always": 1,
+          "keep-together=always": 1, "break-before=page": 1, "widows=0": 1, "orphans=0": 1},
+         {"written": "2", "present": True},
+         {"written": "always", "present": True},
+         {"written": "page", "present": True},
+         ["0", "0"]],
+    )
+    check(
+        "两族形状不同：同一份稿子「有开关的段」是 4（OOXML）与 5（ODF，因为样式自己写了默认值），"
+        "单位与词表也不同（`w:val=0` 对 `fo:widows=0`），所以各交各的不折算；RTF 那一族"
+        "**不交这个键** —— 它写 `\\keepn` 与 `\\nowidctlpar`，可实测 11 条 `\\keepn` 里只有 1 条"
+        "落在正文段上、其余在样式表里（归属判不住），缺键就是「这一族没看」",
+        [dig(kp, "structure.keep_switches.paragraphs_with_any"),
+         dig(kp_odt, "structure.keep_switches.paragraphs_with_any"),
+         dig(kp, "structure.keep_switches.paragraphs_with_any")
+         != dig(kp_odt, "structure.keep_switches.paragraphs_with_any"),
+         dig(lbin("office-doc", fixture("keep.docx")),
+             "structure.keep_switches.paragraphs[0].keep_next.present"),
+         dig(lbin("office-doc", fixture("tabs.rtf")), "structure.keep_switches")],
+        [4, 5, True, False, None],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──

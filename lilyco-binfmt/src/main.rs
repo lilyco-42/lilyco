@@ -38,6 +38,7 @@ mod cfb;
 mod comments;
 mod entries;
 mod identify;
+mod keep_switches;
 mod numfmt;
 mod odfchart;
 mod odsheet;

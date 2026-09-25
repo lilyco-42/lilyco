@@ -568,6 +568,30 @@ def write_merged_tables_docx(path: Path) -> None:
     doc.save(str(path))
 
 
+
+def write_keep_docx(path: Path) -> None:
+    """五条段，一次只改一个变量：基线 / keepNext / keepLines / pageBreakBefore / widowControl=False
+
+    这四个开关 python-docx 都有**真的**属性（`paragraph_format.keep_with_next` 等）。要紧的是
+    落进文件的样子不一样：前三个写成**空元素**（在场就是开着，不给值），第四个反过来写
+    `w:val="0"` —— 所以「在场」与「开着」是两件事，读者两种都要交。LibreOffice 重写同一份会
+    给每段补上 `w:pPr`、把值改写成 true/false，并把 `w:pageBreakBefore` 那一格整个丢掉。
+    """
+    from docx import Document
+
+    doc = Document()
+    doc.add_paragraph("基线段：四个开关都不写")
+    one = doc.add_paragraph("段一：与下段同页（keepNext）")
+    one.paragraph_format.keep_with_next = True
+    two = doc.add_paragraph("段二：段中不分页（keepLines）")
+    two.paragraph_format.keep_together = True
+    three = doc.add_paragraph("段三：段前分页（pageBreakBefore）")
+    three.paragraph_format.page_break_before = True
+    four = doc.add_paragraph("段四：孤行控制关掉（widowControl=False）")
+    four.paragraph_format.widow_control = False
+    doc.save(path)
+
+
 def write_comments_docx(path: Path) -> None:
     """两条批注的一份 docx：作者名一个纯 ASCII、一个纯中文
 
@@ -2927,6 +2951,21 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "deck-ph.odp", OUT / "deck-ph.odp")
     else:
         print("⚠️  没拿到 deck-ph.odp")
+
+    # 分页开关那三份：python-docx 写 docx，同格式重写一份（丢 pageBreakBefore）、再转一份 odt
+    keep = OUT / "keep.docx"
+    write_keep_docx(keep)
+    convert(exe, keep, "docx", SCRATCH / "keep-back")
+    made_keep = SCRATCH / "keep-back" / "keep.docx"
+    if made_keep.exists():
+        shutil.copyfile(made_keep, OUT / "keep-lo.docx")
+    else:
+        print("⚠️  没拿到 keep-lo.docx（docx → docx 那一转）")
+    convert(exe, keep, "odt", SCRATCH)
+    if (SCRATCH / "keep.odt").exists():
+        shutil.copyfile(SCRATCH / "keep.odt", OUT / "keep.odt")
+    else:
+        print("⚠️  没拿到 keep.odt")
 
     # 批注那三份：python-docx 写 docx，同格式重写一份（部件换先后）、再转一份 odt（两处合一处）
     noted = OUT / "doc-comments.docx"

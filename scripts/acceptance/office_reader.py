@@ -1499,6 +1499,155 @@ def odf_comment_ledger(path: Path, limit: int = 100) -> dict:
         "annotations": rows[:limit],
     }
 
+
+KEEP_NAMES = (("keepNext", "keep_next"), ("keepLines", "keep_lines"),
+              ("pageBreakBefore", "page_break_before"), ("widowControl", "widow_control"))
+ODF_KEEP_WORDS = (("keep-with-next", "keep_with_next"), ("keep-together", "keep_together"),
+                  ("break-before", "break_before"), ("widows", "widows"),
+                  ("orphans", "orphans"))
+OFF_WORDS = ("0", "false", "off", "none")
+
+
+def _switch(present: bool, raw) -> dict:
+    """一个开关的三种状态：元素在不在、文件给没给值、按给的词算开着还是关着"""
+    off = raw in OFF_WORDS
+    return {"present": present, "val": raw,
+            "on_written": bool(present and not off), "off_written": bool(present and off)}
+
+
+def docx_keep_switches(path: Path, limit: int = 100) -> dict:
+    r"""「这一段与下一页的关系」那四个开关（OOXML）：`w:pPr` 下面的四个元素
+
+    前三个没有值就是开着（实测 python-docx 写出来是空元素），而 `w:widowControl` 这一族常反过来
+    写 `w:val="0"` 表示关掉 —— 所以「在场」与「开着」不是一回事，`present` 与 `val` 两样都交。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"available": False}
+        root = ET.fromstring(box.read("word/document.xml"))
+    body = [one for one in root if xml_local(one.tag) == "body"]
+    paras = [one for one in body[0].iter() if xml_local(one.tag) == "p"] if body else []
+    rows, indexed, states, p_pr = [], [], {}, 0
+    for index, para in enumerate(paras):
+        holder = None
+        for kid in para:
+            if xml_local(kid.tag) == "pPr":
+                holder = kid
+                break
+        if holder is not None:
+            p_pr += 1
+        mine = {"index": index, "has_pPr": holder is not None}
+        touched = False
+        for name, key in KEEP_NAMES:
+            found = None
+            if holder is not None:
+                for kid in holder:
+                    if xml_local(kid.tag) == name:
+                        found = kid
+                        break
+            raw = None
+            if found is not None:
+                raw = _local_in(_written_attrs(found, {}), "val")
+            one = _switch(found is not None, raw)
+            mine[key] = one
+            if found is not None:
+                touched = True
+                grouped = name + (" bare" if raw is None else " with_value")
+                states[grouped] = states.get(grouped, 0) + 1
+        if touched:
+            indexed.append(index)
+        rows.append(mine)
+    return {
+        "family": "ooxml",
+        "available": True,
+        "paragraphs_total": len(rows),
+        "p_pr_elements": p_pr,
+        "paragraphs_with_any": len(indexed),
+        "paragraphs_indexed": indexed,
+        "states_written": states,
+        "paragraphs": rows[:limit],
+    }
+
+
+def odf_keep_switches(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF 一跳在样式里，而且**孤行控制是两个数**
+
+    `fo:keep-with-next` / `fo:keep-together` / `fo:break-before` 是一个词，而关掉孤行控制写成
+    `fo:widows="0"` 配 `fo:orphans="0"` —— 与 OOXML 那一枚 `w:widowControl w:val="0"` 两种形状。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        content_raw = box.read("content.xml")
+        crowd = ET.fromstring(content_raw)
+        roots = [crowd]
+        nsmaps = [_ns_prefixes(content_raw)]
+        if "styles.xml" in have:
+            styles_raw = box.read("styles.xml")
+            roots.append(ET.fromstring(styles_raw))
+            nsmaps.append(_ns_prefixes(styles_raw))
+    table = []
+    for root, nsmap in zip(roots, nsmaps):
+        for node in root.iter():
+            if xml_local(node.tag) != "style":
+                continue
+            written = _written_attrs(node, nsmap)
+            if _local_in(written, "family") != "paragraph":
+                continue
+            name = _local_in(written, "name")
+            if name is None:
+                continue
+            held = []
+            for props in node:
+                if xml_local(props.tag) != "paragraph-properties":
+                    continue
+                pw = _written_attrs(props, nsmap)
+                for key, _want in ODF_KEEP_WORDS:
+                    raw = _local_in(pw, key)
+                    if raw is not None:
+                        held.append((key, raw))
+            table.append((name, held))
+    rows, words, resolved, with_any = [], {}, 0, 0
+    paras = [one for one in crowd.iter() if xml_local(one.tag) == "p"]
+    for index, para in enumerate(paras):
+        name = _local_in(_written_attrs(para, nsmaps[0]), "style-name")
+        found = None
+        if name is not None:
+            for had in table:
+                if had[0] == name:
+                    found = had
+                    break
+        held = found[1] if found else []
+        mine = {"index": index, "style_written": name, "style_found": found is not None}
+        for key, want in ODF_KEEP_WORDS:
+            raw = None
+            for had in held:
+                if had[0] == key:
+                    raw = had[1]
+                    break
+            mine[want] = {"written": raw, "present": raw is not None}
+            if raw is not None:
+                grouped = "%s=%s" % (key, raw)
+                words[grouped] = words.get(grouped, 0) + 1
+        if held:
+            with_any += 1
+        if found is not None:
+            resolved += 1
+        rows.append(mine)
+    return {
+        "family": "odf",
+        "available": True,
+        "paragraphs_total": len(rows),
+        "resolved": resolved,
+        "paragraphs_with_any": with_any,
+        "styles_total": len(table),
+        "words_written": words,
+        "paragraphs": rows[:limit],
+    }
+
+
 def odf_style_holders(node) -> list:
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
     out: list = []
@@ -6876,6 +7025,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["tab_stops"] = docx_tab_stops(path)
             # 批注那一份账：内容在部件、锚点在正文，两边按号配
             out["ooxml"]["comment_ledger"] = docx_comment_ledger(path)
+            # 分页那四个开关（段上；ODF 一跳在样式里）
+            out["ooxml"]["keep_switches"] = docx_keep_switches(path)
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
@@ -6906,6 +7057,7 @@ def facts(path: Path) -> dict:
             out["odt"]["tab_stops"] = odf_tab_stops(path)
             # 同一问在 ODF 只有一处：批注坐在段里面
             out["odt"]["comment_ledger"] = odf_comment_ledger(path)
+            out["odt"]["keep_switches"] = odf_keep_switches(path)
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger

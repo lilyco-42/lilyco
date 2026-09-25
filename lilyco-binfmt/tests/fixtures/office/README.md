@@ -43,6 +43,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `doc-comments.docx` | python-docx 1.2（`write_comment_thread_docx`） | 四条段、三条批注：前两条锚在**同一段**上（号 0 与号 1），第三条另起一段，第四段没人锚。内容住在 `word/comments.xml`（`w:id` / `w:author` / `w:initials` / `w:date` 带 Z），锚点在正文里（`commentRangeStart` / `End` / `commentReference` 三处，只带号） |
 | `doc-comments-lo.docx` | LibreOffice（`doc-comments.docx` → .docx） | 同一份重写后：条数、作者、六个锚点数一字不差，而 `comments.xml` 里那三条排成 **1,0,2**（原来 0,1,2），正文那九个锚点一字没动 —— 「第几条」按部件与按正文是两个答案，见事实 92 |
 | `doc-comments.odt` | LibreOffice（`doc-comments.docx` → .odt） | 同一问合一处：`text:annotation` 坐在所属那一段里，作者是孩子元素 `dc:creator`、时间 `dc:date`（**没有 Z**）；全文 6 个 `text:p` 里 3 个住在批注里 —— 见事实 92 |
+| `keep.docx` | python-docx（`write_keep_docx`） | 五条段，一次只改一个变量：基线（四个开关都不写）/ `keepNext` / `keepLines` / `pageBreakBefore` / `widowControl=False`。前三家写出来是**空元素**（没有值），第四个写出来是 `w:val="0"` —— 三种状态（没元素 / 有元素没值 / 有元素有值）分开交 |
+| `keep-lo.docx` | LibreOffice（`keep.docx` → .docx） | 同一份重写后：每段都被补了 `w:pPr`（4 → 5 枚），值改成 `w:val="true"` / `w:val="false"` 这种拼法，而**`w:pageBreakBefore` 整个没了**（带着它的段从 4 段掉到 3 段）—— 见事实 93 |
+| `keep.odt` | LibreOffice（`keep.docx` → .odt） | 同一问在 ODF 全在一跳之外：段只点样式名，`fo:keep-with-next` / `fo:keep-together` / `fo:break-before` 各在一份样式上，而**孤行控制是两个数**（关掉写成 `fo:widows="0"` + `fo:orphans="0"`，而 `Standard` 自己写着 `2`/`2`）—— 见事实 93 |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
@@ -1662,6 +1665,12 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - `doc-comments.odt`：`text:annotation` 就坐在所属那一段里面，作者与时间是孩子元素（`dc:creator` / `dc:date`），而那个时间**没有 Z**；「全文几段」在这一族是两个数：6 个 `text:p` = 正文 3 段 + 批注里 3 段（只交一个就会把批注的字当正文的字数进去）。
     - 没写过批注的件（`paper-a4.docx`）交 `part_written: false` 与一串 0，不是缺键；RTF 那一族不交这个键（它的批注早另有 `annotations` 那一本账：作者、日期、字、号都交）。
     - 还没做的：批注**回复线程**。python-docx 的 `Comment` 没有回复 API，Word 那一条是 `word/commentsExtended.xml` 里的 `w15:paraIdParent`，本机没有任何生产者写过它 —— 所以这一格不在账上（不猜）。
+
+93. **这一段与下一页的关系：四个开关在 OOXML 坐在段上，在 ODF 一跳在样式里，而且不是一个开关**
+    - `keep.docx`（python-docx 的四条真 API）：`w:keepNext` / `w:keepLines` / `w:pageBreakBefore` 写出来是**空元素**（在场就是开着，文件没给值），而关掉孤行控制写出来是 `w:widowControl w:val="0"`。三种状态分开交：`present`（元素在不在）、`val`（文件写的值，没写交 null）、再按给的词算 `on_written` / `off_written` —— 把「在场」当「开着」就会把 `w:val="0"` 数成开着。
+    - `keep-lo.docx`（LibreOffice 重写同一份）：五段每段都被补了一个 `w:pPr`（4 枚 → 5 枚），值换成 `w:val="true"` / `w:val="false"` 这一种拼法，而**带 `w:pageBreakBefore` 的那一段整个不再有这一格**（交着开关的段从 4 段掉到 3 段，`paragraphs_indexed` 1,2,3,4 → 1,2,4）—— 同一份稿子的「段前分页」在这一转里丢了，读者只按看到的交。
+    - `keep.odt`（同一份稿子转 ODF）：段身上一个字都没写，四个开关一跳在段点的样式上（`P1` `fo:keep-with-next="always"`、`P2` `fo:keep-together="always"`、`P3` `fo:break-before="page"`、`P4` `fo:widows="0"` + `fo:orphans="0"`）。关键形状差：**孤行控制在这一族是两个数，不是一枚开关**；而基线那段点的 `Standard` 自己写着 `widows=2` `orphans=2` —— 所以「五段全都有人写了数」（`paragraphs_with_any` 5）比 OOXML 那份的 4 还多，两族这两个数不能互相对账。
+    - RTF 那一族不交这个键（缺键 = 这一族没看）：它写 `\keepn` / `\pagebb` / `\nowidctlpar`，可实测同一份件里 11 条 `\keepn` 中只有一条落在正文段上、其余在样式表里，而 `\widctlpar` 8 条也几乎都是样式表自带的默认 —— 归属判不住，规则先记在这里而不是硬算一个数。
 
 ## 这些数字从哪来
 
