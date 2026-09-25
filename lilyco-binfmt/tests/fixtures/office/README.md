@@ -86,6 +86,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `crep.odt` | LibreOffice（`crep.docx` → .odt） | 「已解决」在 ODF 换了地方也换了词（`office:annotation/@loext:resolved`），但两条都写 `false` —— 源件里那条 `done="1"` **没落过来**；回复这一问在这一族没有任何对应物 |
 | `crep-r.odt` | 把 `crep.odt` 第一格 `loext:resolved` 改成 `true`（zipfile，其余字节不动） | 一份件里 `true` 与 `false` 并存（`resolved_true` 1、`resolved_false` 1）—— 「这份文档解决了几条注」在 ODF 数得出来 |
 | `crep-r.docx` | LibreOffice（`crep-r.odt` → .docx） | **这一份的 `commentsExtended.xml` 是生产者自己写的**：2 条批注只给已解决那条写记录（`ext_total` 1、`done="1"`），另一条**没有记录**（不是写 `0`）；段号是它新排的 `01000000`，而 `commentsIds.xml` 整个不写 —— 见事实 105 |
+| `shared.xlsx` | openpyxl 先写 16 条公式，再用 zipfile 把 B 列改写成一份共享组（`make_shared_formula_group`）—— 本机没有会写共享组的生产者 | 一列八格**一个**组：主格 `<f t="shared" ref="B1:B8" si="0">A1*2</f>`，跟随的七格只写 `<f t="shared" si="0"/>` —— **文件里没有公式正文**，另有 C 列八条普通公式做对照；16 枚 `<f>` 全都带一枚空的 `<v>`（openpyxl 没算过）—— 见事实 106 |
+| `shared-lo.xlsx` | LibreOffice（`shared.xlsx` → .xlsx） | **不用共享组**：16 枚 `<f>` 各写自己的正文（`shared_elems` 0、空正文 0），而它给每一枚都写了 `aca="false"`（openpyxl 那份一个属性都不写）—— 读进去再导出，共享这一层被它摊平 |
+| `shared.ods` | LibreOffice（`shared.xlsx` → .ods） | 第三种写法：公式是格子身上的 `table:formula` 属性，16 条全带正文，且**逐行平移**（`of:=[.A2]*2`、`of:=[.A3]*2`…）—— 这正是第三方对「跟随格其实是 A2*2」的独立印证 |
 | `deck.odp`（结构） | 同上 | 两页：`draw:name` 是「预算评审」与「第二页：数字」；第一页有 `presentation:class="notes"` 的备注（「评审时先讲口径再讲数字」），**旁边还坐着页码占位，里面的样字是 `<编号>`** —— 整页一把抓就会把它当正文；两个母版页名、两个版式名，但文件里没有任何版式定义；尺寸 25.4cm×19.05cm landscape 在 styles.xml 的 page-layout 里 |
 | `notes.odt`（结构） | 同上 | 10 段（2 段是空的）、两个带 `text:outline-level` 的标题、1 张 2×2 表（名叫「表格1」）、一条 `text:annotation` 批注、一个 `draw:frame`+`draw:image`、一个 `text:a` 超链接、5 个 `text:sequence-decl`；`meta.xml` 自报 paragraph-count 10 / page-count 2 / word-count 61 |
 | `chart.ods` | LibreOffice（`chart.xlsx` → .ods） | ODF 的图是**嵌入对象**：`数据` 那张表里两个 `draw:frame` 各指一个 `Object N/` 目录，那里面的 content.xml 才写着 `chart:chart`；类型只在每条 `chart:series` 上（`chart:bar` / `chart:line`），点数另有一条 `chart:data-point@chart:repeated` 自报「这一条顶两个点」，地址是第三种写法（`数据.B2:数据.B3`：点分隔、不带 `$`），末尾还抄了一张 `local-table`（10 / 25 / 4 / 9） |
@@ -1910,6 +1913,30 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       同一个生产者的 Writer 出口写满、Calc 出口一个字不写，所以「没写这个属性」必须是独立一档
       （那一份是 .ods，`office-doc` 不走它，这一格在探针里没有凭据，只在此记下出处）。
     - RTF 与遗留 .doc 不交这个键（缺键 = 这一族没看）：那一族的注没有「谁回复谁」与「结没结」的位置。
+
+106. **公式那枚 `<f>` 自己写了什么：共享组的跟随格在文件里没有公式正文，三个生产者三种写法**
+    - 形状：`shared.xlsx` 一列八格是**一个**共享组 —— 主格写 `<f t="shared" ref="B1:B8" si="0">A1*2</f>`，
+      跟随的七格写 `<f t="shared" si="0"/>`，**正文是空的**，要按 `si` 找回主格再按行平移才知道它是什么。
+      于是这一页有三个数：`formula_elems` 16（几格有公式）、`text_written` 9（几格写了正文）、
+      `empty_text` 7 —— 合成一个数就把「文件没写这条公式」读成了「这格没公式」。
+    - `attrs_seen` 交的是**文件里属性写的顺序**（这里是 `["t","ref","si"]`），不是字典序：
+      这条清单是这条 lane 的凭据本体，`attr_values` 再给每个属性值的分布（`t` 全是 `shared`、
+      `si` 全是 `0`、`ref` 只有一个 `B1:B8`）。
+    - **`<v>` 在不在与有没有缓存值是两回事**：这 16 枚 `<f>` 所在格子都带一枚 `<v>`，
+      可那标签里没有字（openpyxl 从没算过）—— 所以交 `cached_written`（有那枚元素）与
+      `cached`（按写的串，这里是空串）两格，不替它把「有标签」说成「有值」。
+    - 三个生产者三种写法：openpyxl 的 `<f>` **一个属性都不写**（`book.xlsx` 1 枚带 0 属性）；
+      LibreOffice 重写同一份时**不用共享组**（16 枚各写正文，`shared_elems` 0），
+      但给每一枚都写了 `aca="false"`（实测 16/16）—— 「谁丢了共享」与「谁换了写法」都在账上。
+    - 跨格式那一路顺手量到一件别人替我们算过的事：同一份转成 `shared.ods`，公式变成
+      格子身上的 `table:formula`，16 条全带正文**且逐行平移**（`of:=[.A2]*2`、`of:=[.A3]*2`…）——
+      也就是说 LibreOffice 读共享组读对了，跟着 Excel 的语义把每格该是什么写成了什么。
+      这一族没有 `si` / `ref` / 共享这些位置，所以那些键**整个不交**（不是 0）。
+    - 清单按**文档序**：一行里先 B 后 C，所以「第几条」不是「第几行」（第 0 条 B1 主格、
+      第 1 条 C1 普通公式、第 2 条才是跟随格 B2）—— 钉住这三条的顺序就是为了别拿索引当行号。
+    - 界：这一本只看 `<f>` 元素自己，**不展开共享组、不重放公式语义**（那不在 T0 只读的范围里）；
+      老键 `formula` 继续按文件写的正文交（跟随格就是空串），这一本负责说明那个空是怎么来的。
+      遗留 `.xls` 不交这个键（那一族的公式在 BIFF 记录树里，是另一问）。
 
 ## 这些数字从哪来
 

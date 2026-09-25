@@ -3209,6 +3209,141 @@ def slide_shape_tree_odp(page, limit: int = 400) -> dict:
     return _ledger("odf", rows[:limit])
 
 
+def _f_attr_map(node) -> dict:
+    """一枚元素的属性表（局部名，`xmlns` 那类不算）"""
+    out = {}
+    for key, value in node.attrib.items():
+        if key == "xmlns" or key.startswith("xmlns:"):
+            continue
+        out[key.rsplit("}", 1)[-1]] = value
+    return out
+
+
+def xlsx_formula_elems(path: Path, limit: int = 400) -> dict:
+    r"""公式那枚 `<f>` 自己写了什么 —— 共享公式的跟随格在文件里**没有公式正文**
+
+    Excel 把一列里长得一样的公式存成一份共享组：主格写 `<f t="shared" ref="B1:B8" si="0">A1*2</f>`，
+    跟随格只写 `<f t="shared" si="0"/>` —— 正文是空的，要按 `si` 找到主格再按行平移才知道它是什么。
+    所以「这一列几格有公式」「几格写了正文」「缓存值在不在」是三个数（实测 `shared.xlsx` 是
+    16 / 9 / 16）。两个生产者对同一件事写得不一样：openpyxl 的 `<f>` 一个属性都不写，
+    LibreOffice 每条都写 `aca="false"`（实测 16 条全带），而它**不写共享组**（读进去再导出，
+    八条各写自己的正文 —— 见 `shared-lo.xlsx`）。
+    """
+    rows = []
+    sheets = []
+    with zipfile.ZipFile(path) as box:
+        names = sorted(one.filename for one in box.infolist()
+                       if one.filename.startswith("xl/worksheets/sheet")
+                       and one.filename.endswith(".xml"))
+        for name in names:
+            root = ET.fromstring(box.read(name))
+            sheets.append(name)
+            for cell in root.iter():
+                if xml_local(cell.tag) != "c":
+                    continue
+                kids = [one for one in cell if xml_local(one.tag) == "f"]
+                if not kids:
+                    continue
+                had = kids[0]
+                body = (had.text or "").strip()
+                cached = [one for one in cell if xml_local(one.tag) == "v"]
+                rows.append({
+                    "sheet": name,
+                    "cell": _f_attr_map(cell).get("r"),
+                    "attrs": _f_attr_map(had),
+                    "text": body,
+                    "text_written": bool(body),
+                    "shared": _f_attr_map(had).get("t") == "shared",
+                    "si": _f_attr_map(had).get("si"),
+                    "ref_written": _f_attr_map(had).get("ref"),
+                    "cached_written": bool(cached),
+                    "cached": (cached[0].text or "").strip() if cached else None,
+                })
+    values = {}
+    for one in rows:
+        for key, value in one["attrs"].items():
+            bucket = values.setdefault(key, {})
+            bucket[value] = bucket.get(value, 0) + 1
+    seen = []
+    for one in rows:
+        for key in one["attrs"]:
+            if key not in seen:
+                seen.append(key)
+    order = sorted(values, key=lambda k: -sum(values[k].values()))
+    return {
+        "family": "ooxml",
+        "available": True,
+        "sheets_seen": len(sheets),
+        "formula_elems": len(rows),
+        "with_attrs": len([one for one in rows if one["attrs"]]),
+        "attrs_seen": seen,
+        "attr_values": {key: values[key] for key in order},
+        "text_written": len([one for one in rows if one["text_written"]]),
+        "empty_text": len([one for one in rows if not one["text_written"]]),
+        "empty_text_with_cached": len([one for one in rows
+                                       if not one["text_written"] and one["cached_written"]]),
+        "shared_elems": len([one for one in rows if one["shared"]]),
+        "shared_masters": len([one for one in rows if one["shared"] and one["text_written"]]),
+        "shared_followers": len([one for one in rows if one["shared"] and not one["text_written"]]),
+        "si_written": len([one for one in rows if one["si"] is not None]),
+        "ref_written_elems": len([one for one in rows if one["ref_written"] is not None]),
+        "cached_elems": len([one for one in rows if one["cached_written"]]),
+        "cells": rows[:limit],
+    }
+
+
+def ods_formula_elems(path: Path, limit: int = 400) -> dict:
+    r"""同一问在 ODF：公式是格子身上的一个属性，**每条都带正文**，没有共享组这一层
+
+    实测 `shared.ods`：16 个有公式的格子，16 条都写着完整文本（`of:=[.A2]*2` 这种逐行平移），
+    空文本 0 条 —— 也就是说 LibreOffice 把 xlsx 那份共享组读进去之后，按它自己的存法
+    一个字都不省。`of:` 那个前缀按写的留着（`ooo:` 是另一族写的）。
+    """
+    rows = []
+    with zipfile.ZipFile(path) as box:
+        if "content.xml" not in box.namelist():
+            return {"family": "odf", "available": False}
+        root = ET.fromstring(box.read("content.xml"))
+    for cell in root.iter():
+        if xml_local(cell.tag) not in ("table-cell", "covered-table-cell"):
+            continue
+        attrs = _f_attr_map(cell)
+        if "formula" not in attrs:
+            continue
+        text = attrs["formula"]
+        kids = [one for one in cell if xml_local(one.tag) == "p"]
+        rows.append({
+            "sheet": attrs.get("style-name"),
+            "cell": None,
+            "attrs": {"formula": text},
+            "text": text,
+            "text_written": bool(text),
+            "cached_written": bool(attrs.get("value") is not None),
+            "cached": attrs.get("value"),
+            "paragraphs": len(kids),
+        })
+    prefixes = {}
+    for one in rows:
+        head = one["text"].split(":", 1)[0] if ":" in one["text"] else ""
+        prefixes[head] = prefixes.get(head, 0) + 1
+    return {
+        "family": "odf",
+        "available": True,
+        "sheets_seen": 0,
+        "formula_elems": len(rows),
+        "with_attrs": len(rows),
+        "attrs_seen": ["table:formula"] if rows else [],
+        "attr_values": {"formula-prefix": prefixes},
+        "text_written": len([one for one in rows if one["text_written"]]),
+        "empty_text": len([one for one in rows if not one["text_written"]]),
+        "empty_text_with_cached": len([one for one in rows
+                                        if not one["text_written"] and one["cached_written"]]),
+        # 共享组那一层在 ODF 没有位置：不是 0（数过了没有），而是这个键整个不交
+        "cached_elems": len([one for one in rows if one["cached_written"]]),
+        "cells": rows[:limit],
+    }
+
+
 def odf_style_holders(node) -> list:
 
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
@@ -8698,6 +8833,7 @@ def facts(path: Path) -> dict:
             out["comments"] = xlsx_comments(path)
             # 打印区域与重复标题行：不在表上，在 workbook.xml 那两条保留名上
             out["ooxml"]["print_ranges"] = xlsx_print_ranges(path)
+            out["ooxml"]["formula_elems"] = xlsx_formula_elems(path)
         elif "ppt/presentation.xml" in parts:
             out["app"] = "powerpoint"
             out["ooxml"] = pptx_facts(path)
@@ -8743,6 +8879,7 @@ def facts(path: Path) -> dict:
                 sheets["page_styles"] = odf_page_styles(path)
                 # 打印范围：这一族写在表自己身上，另有一份为与 Excel 来回而留的 named-*
                 sheets["print_ranges"] = ods_print_ranges(path)
+                sheets["formula_elems"] = ods_formula_elems(path)
                 out["csv"] = csv_facts(path)
                 out["ods_styles"] = ods_styles(path)
             deck = odp_facts(path)

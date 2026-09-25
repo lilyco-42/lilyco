@@ -287,6 +287,9 @@ def main() -> int:
         "crep-r.docx": ("ooxml", "word", "docx"),
         "crep.odt": ("opendocument", "word", "odt"),
         "crep-r.odt": ("opendocument", "word", "odt"),
+        "shared.xlsx": ("ooxml", "excel", "xlsx"),
+        "shared-lo.xlsx": ("ooxml", "excel", "xlsx"),
+        "shared.ods": ("opendocument", "excel", "ods"),
         # 注的编号那三份：同一句话在两处说，两处说的不一样
         "nset.docx": ("ooxml", "word", "docx"),
         "nset-lo.docx": ("ooxml", "word", "docx"),
@@ -5880,6 +5883,92 @@ def main() -> int:
          dig(lbin("office-doc", fixture("crep-r.odt")),
             "structure.comment_threads.annotations[1].resolved")],
         [1, 1, 0, False],
+    )
+    # ── 3aq) 公式那枚 <f> 自己写了什么：共享组的跟随格在文件里没有公式正文 ──────────
+    print("=== 3aq) 公式元素自己：共享组、空正文带缓存值、两个生产者三种写法 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.xlsx")):
+        got = lbin("office-sheet", fixture(name))
+        check("%s 公式元素那份账与读者一致（属性分布、共享组、空正文带缓存）" % name,
+              got.get("formula_elems"), files[name]["ooxml"]["formula_elems"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.ods")):
+        got = lbin("office-sheet", fixture(name))
+        check("%s 公式那份账与读者一致（格子身上的属性，每条都带正文）" % name,
+              dig(got, "formula_elems"),
+              files[name]["ods"]["formula_elems"])
+    sh = lbin("office-sheet", fixture("shared.xlsx"))
+    check(
+        "`shared.xlsx` 一列八格一个共享组：16 枚 `<f>` 里 **8 枚带属性**（`t` / `ref` / `si` 三种，"
+        "按文件写的顺序列在 `attrs_seen`）、主格那一条写着 `ref=\"B1:B8\"`，"
+        "**7 枚正文是空的**（`empty_text` 7）而这 7 枚**全都有缓存值** —— "
+        "「几格有公式」16、「几格写了正文」9 是两个数，合成一个就把「文件没写公式」读没了",
+        [dig(sh, "formula_elems.formula_elems"),
+         dig(sh, "formula_elems.sheets_seen"),
+         dig(sh, "formula_elems.with_attrs"),
+         dig(sh, "formula_elems.attrs_seen"),
+         dig(sh, "formula_elems.text_written"),
+         dig(sh, "formula_elems.empty_text"),
+         dig(sh, "formula_elems.empty_text_with_cached"),
+         dig(sh, "formula_elems.shared_elems"),
+         dig(sh, "formula_elems.shared_masters"),
+         dig(sh, "formula_elems.shared_followers"),
+         dig(sh, "formula_elems.ref_written_elems"),
+         dig(sh, "formula_elems.cached_elems"),
+         dig(sh, "formula_elems.attr_values")],
+        [16, 1, 8, ["t", "ref", "si"], 9, 7, 7, 8, 1, 7, 1, 16,
+         {"t": {"shared": 8}, "si": {"0": 8}, "ref": {"B1:B8": 1}}],
+    )
+    check(
+        "清单按**文档序**（一行里先 B 后 C），所以「第几条」不是「第几行」：第 0 条是主格 B1"
+        "（正文 `A1*2`、`ref_written` 是 `B1:B8`），第 1 条是同一行的 C1（普通公式，不带属性），"
+        "第 2 条才是跟随格 B2 —— 正文空串、`shared` true、`si` 还是 `0` 而 `ref_written` 是 null。"
+        "它带一枚 `<v>` 标签，可那标签里**没有字**（openpyxl 没算过），"
+        "所以「有 `<v>`」与「有缓存值」还要分两格看（`cached_written` true 而 `cached` 是空串）",
+        [dig(sh, "formula_elems.cells[0].cell"),
+         dig(sh, "formula_elems.cells[0].text"),
+         dig(sh, "formula_elems.cells[0].ref_written"),
+         dig(sh, "formula_elems.cells[1].cell"),
+         dig(sh, "formula_elems.cells[1].shared"),
+         dig(sh, "formula_elems.cells[2].cell"),
+         dig(sh, "formula_elems.cells[2].text"),
+         dig(sh, "formula_elems.cells[2].text_written"),
+         dig(sh, "formula_elems.cells[2].si"),
+         dig(sh, "formula_elems.cells[2].ref_written"),
+         dig(sh, "formula_elems.cells[2].cached")],
+        ["B1", "A1*2", "B1:B8", "C1", False, "B2", "", False, "0", None, ""],
+    )
+    lo = lbin("office-sheet", fixture("shared-lo.xlsx"))
+    check(
+        "LibreOffice 重写同一份：**不用共享组** —— 16 枚 `<f>` 各写自己的正文"
+        "（`shared_elems` 0、`empty_text` 0），而它给每一枚都写了 `aca=\"false\"`；"
+        "openpyxl 那一份（`book.xlsx`）一枚属性都不写 —— 三个生产者三种写法，"
+        "`attrs_seen` 与 `attr_values` 各按各的文件交",
+        [dig(lo, "formula_elems.formula_elems"),
+         dig(lo, "formula_elems.with_attrs"),
+         dig(lo, "formula_elems.attrs_seen"),
+         dig(lo, "formula_elems.attr_values"),
+         dig(lo, "formula_elems.text_written"),
+         dig(lo, "formula_elems.shared_elems"),
+         dig(lbin("office-sheet", fixture("book.xlsx")), "formula_elems.formula_elems"),
+         dig(lbin("office-sheet", fixture("book.xlsx")), "formula_elems.with_attrs"),
+         dig(lbin("office-sheet", fixture("book.xlsx")), "formula_elems.attrs_seen")],
+        [16, 16, ["aca"], {"aca": {"false": 16}}, 16, 0, 1, 0, []],
+    )
+    ods = lbin("office-sheet", fixture("shared.ods"))
+    check(
+        "同一问在 ODF 是第三种写法：公式是**格子身上的一个属性**，16 条全带正文"
+        "（`empty_text` 0），`si` / `ref` / `shared` 那几格这一族**整个不交**（缺键 = 没有那个位置，"
+        "不是 0）；正文前缀 `of:` 按写的留着（`ooo:` 是另一族写的）",
+        [dig(ods, "formula_elems.formula_elems"),
+         dig(ods, "formula_elems.text_written"),
+         dig(ods, "formula_elems.empty_text"),
+         dig(ods, "formula_elems.attrs_seen"),
+         dig(ods, "formula_elems.attr_values"),
+         dig(ods, "formula_elems.shared_elems"),
+         dig(ods, "formula_elems.cells[1].text"),
+         dig(ods, "formula_elems.cells[1].paragraphs"),
+         dig(ods, "formula_elems.cells[1].cached")],
+        [16, 16, 0, ["table:formula"], {"formula-prefix": {"of": 16}}, None,
+         "of:=SUM([.$A$1:.A1])", 1, "3"],
     )
     # ── 3al) 这一节的页码：OOXML 一节一条三个属性，ODF 一页版式一条，跨族各丢一次 ────
     print("=== 3al) 页码：元素在场、三个属性各写各的，而「从 7 开始」两头都不是同一种丢法 ===")

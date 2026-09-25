@@ -3089,6 +3089,64 @@ def flip_annotation_resolved(seed: Path, target: Path) -> None:
             box.writestr(name, blob)
 
 
+def write_formula_column_xlsx(path: Path) -> None:
+    """一列八格 `=A{n}*2`、另一列八格 `=SUM($A$1:A{n})`，A1 只有一个数
+
+    存在的理由：这是 Excel 会写成一份共享组的那种形状（一列里长得一样的公式），
+    而 openpyxl 只会一格一条地写 —— 下一步 `make_shared_formula_group` 才有东西可改。
+    """
+    from openpyxl import Workbook
+
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "表一"
+    sheet["A1"] = 3
+    for row in range(1, 9):
+        sheet.cell(row=row, column=2).value = "=A%d*2" % row
+        sheet.cell(row=row, column=3).value = "=SUM($A$1:A%d)" % row
+    path.parent.mkdir(parents=True, exist_ok=True)
+    book.save(path)
+
+
+def make_shared_formula_group(src: Path, target: Path) -> None:
+    """把 B 列那八条公式改写成**一份**共享组：主格带正文与 ref，跟随格只带 si
+
+    本机没有会写共享组的生产者（openpyxl 一格一条、LibreOffice 干脆不用这一层），
+    所以正例只能按 OOXML 的形状手写：`<f t="shared" ref="B1:B8" si="0">A1*2</f>` 加七条
+    `<f t="shared" si="0"/>`。词表不是这里编的 —— LibreOffice 读这份件、转成 ods 之后
+    把每一行的公式**逐行平移**写出来（`of:=[.A2]*2`、`of:=[.A3]*2`…），
+    等于第三方替我们解了一遍这个组。反面凭据就在同一批件里：它自己的 xlsx 导出
+    把八条各写全文（`shared-lo.xlsx`），谁丢了这一层在账上看得见。
+    """
+    import re
+    import zipfile
+
+    with zipfile.ZipFile(src) as box:
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    raw_sheet = parts["xl/worksheets/sheet1.xml"].decode("utf8")
+    rows = [int(one[0]) for one in re.findall(r'<c r="B(\d)"[^>]*>.*?</c>', raw_sheet, re.S)]
+    if not rows:
+        raise SystemExit("B 列一条公式也没有，改不出共享组")
+    top, bottom = min(rows), max(rows)
+    for n in rows:
+        hit = re.search(r'(<c r="B%d"[^>]*>)(<f[^>]*>)([^<]*)(</f>)' % n, raw_sheet)
+        if hit is None:
+            continue
+        body = hit.group(3)
+        if n == top:
+            new = '<f t="shared" ref="B%d:B%d" si="0">%s</f>' % (top, bottom, body)
+        else:
+            new = '<f t="shared" si="0"/>'
+        raw_sheet = raw_sheet[: hit.start(2)] + new + raw_sheet[hit.end(4):]
+    parts["xl/worksheets/sheet1.xml"] = raw_sheet.encode("utf8")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        target.unlink()
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as box:
+        for name, blob in parts.items():
+            box.writestr(name, blob)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="重跑前先清掉输出目录")
@@ -3618,6 +3676,22 @@ def main() -> int:
     else:
         print("⚠️  没拿到 deck-gr.odp（pptx → odp 那一转）")
 
+    # ── 公式那枚 <f> 自己写了什么：一份共享组，三个生产者三种写法 ─────────
+    base = SCRATCH / "shared-src" / "shared-src.xlsx"
+    write_formula_column_xlsx(base)
+    grouped_formula = SCRATCH / "shared-group" / "shared.xlsx"
+    make_shared_formula_group(base, grouped_formula)
+    shutil.copyfile(grouped_formula, OUT / "shared.xlsx")
+    convert(exe, grouped_formula, "xlsx", SCRATCH / "shared-back")
+    if (SCRATCH / "shared-back" / "shared.xlsx").exists():
+        shutil.copyfile(SCRATCH / "shared-back" / "shared.xlsx", OUT / "shared-lo.xlsx")
+    else:
+        print("⚠️  没拿到 shared-lo.xlsx（xlsx → xlsx 那一转）")
+    convert(exe, grouped_formula, "ods", SCRATCH / "shared-asods")
+    if (SCRATCH / "shared-asods" / "shared.ods").exists():
+        shutil.copyfile(SCRATCH / "shared-asods" / "shared.ods", OUT / "shared.ods")
+    else:
+        print("⚠️  没拿到 shared.ods（xlsx → ods 那一转）")
     # ── 批注的回复与已解决：三份部件两跳，五份件一条链 ─────────────────
     crep = SCRATCH / "crep-src" / "crep.docx"
     add_comment_thread_parts(OUT / "comments.docx", crep)
