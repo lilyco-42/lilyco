@@ -3182,6 +3182,64 @@ def write_section_starts_docx(path: Path) -> None:
     doc.save(path)
 
 
+def write_markdown_docx(path: Path, art: Path) -> None:
+    """一份把「结构搬进 markdown 时要回答的每个问题」各占一段的 docx
+
+    每段只管一件事，这样渲染器的每条分支都有一个生产者凭据：一级/二级标题（样式名与样式 id
+    两种来源）、无形状的一段、同一句里四种粗细斜体组合、**长得像 markdown 记号的那些字**
+    （`*` `_` `[]` `<>` `\\` `|` 反引号 —— 不转义就会被当成格式读）、无序两级、有序、
+    一张带竖线与星号还有一格两段的表、站外链接、段内硬换行、一页一页之间的分页符、
+    一张带部件地址的图，以及一个整段空的段（它不该在 markdown 里留下任何一行）。
+    """
+    from docx import Document
+    from docx.enum.text import WD_BREAK
+
+    doc = Document()
+    doc.add_heading("结构：一级", level=1)
+    doc.add_heading("结构：二级", level=2)
+    doc.add_paragraph("普通话一段：没有形状")
+    mixed = doc.add_paragraph()
+    mixed.add_run("前")
+    mixed.add_run("粗").bold = True
+    mixed.add_run("中")
+    mixed.add_run("斜").italic = True
+    mixed.add_run("尾")
+    both = mixed.add_run("粗斜")
+    both.bold = True
+    both.italic = True
+    doc.add_paragraph("记号 *下_划线 [方括号] <尖> 反斜杠 \\ 竖线 | 反引号 `")
+    # 行首那两枚是「文件里写着的字」而不是结构：不守住，markdown 会把它们读成标题与编号
+    doc.add_paragraph("# 这不是标题，这是文件里写着的字")
+    doc.add_paragraph("1. 这不是编号，这也是文件里写着的字")
+    for text in ("圆点第一条", "圆点第二条"):
+        doc.add_paragraph(text, style="List Bullet")
+    doc.add_paragraph("缩进一层的那条", style="List Bullet 2")
+    for text in ("编号第一条", "编号第二条"):
+        doc.add_paragraph(text, style="List Number")
+    table = doc.add_table(rows=3, cols=2)
+    table.cell(0, 0).text = "科目"
+    table.cell(0, 1).text = "金额"
+    table.cell(1, 0).text = "服务器 * 两台"
+    table.cell(1, 1).text = "124000"
+    table.cell(2, 0).text = "这一格有"
+    table.cell(2, 0).add_paragraph("两段字")
+    table.cell(2, 1).text = "尾格 | 带竖线"
+    link = doc.add_paragraph("口径见 ")
+    add_hyperlink(link, "预算制度", "https://example.com/budget")
+    broke = doc.add_paragraph()
+    broke.add_run("硬换行之前")
+    broke.add_run().add_break(WD_BREAK.LINE)
+    broke.add_run("硬换行之后")
+    picture = doc.add_paragraph()
+    picture.add_run().add_picture(str(art))
+    doc.add_paragraph("")
+    ended = doc.add_paragraph()
+    ended.add_run().add_break(WD_BREAK.PAGE)
+    doc.add_paragraph("最后一页")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(path))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="重跑前先清掉输出目录")
@@ -3736,6 +3794,15 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "sstart-back" / "sstart.docx", OUT / "sstart-lo.docx")
     else:
         print("⚠️  没拿到 sstart-lo.docx（docx → docx 那一转）")
+
+    # ── 结构搬进 markdown：每段只管一件事的那一份，外加 LibreOffice 重写 ─────
+    mdoc = OUT / "md.docx"
+    write_markdown_docx(mdoc, art)
+    convert(exe, mdoc, "docx", SCRATCH / "md-back")
+    if (SCRATCH / "md-back" / "md.docx").exists():
+        shutil.copyfile(SCRATCH / "md-back" / "md.docx", OUT / "md-lo.docx")
+    else:
+        print("⚠️  没拿到 md-lo.docx（docx → docx 那一转）")
 
     # ── 批注的回复与已解决：三份部件两跳，五份件一条链 ─────────────────
     crep = SCRATCH / "crep-src" / "crep.docx"

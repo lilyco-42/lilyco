@@ -44,6 +44,7 @@ mod identify;
 mod keep_switches;
 mod languages;
 mod line_spacing;
+mod markdown;
 mod note_settings;
 mod numfmt;
 mod odfchart;

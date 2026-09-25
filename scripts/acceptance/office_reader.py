@@ -38,6 +38,7 @@ from lyco_pages import convert  # 长度与 twips 换成 0.01mm 的那条整数�
 from lyco_pages import UNIT as MM_UNIT  # 那个单位的名字，只说一次
 import lyco_pdf  # PDF 那份读者：对象表 + 对象流 + 字符串三件事（lbin office-pdf 对账）
 import lyco_pdf_nav  # PDF 的「去哪儿」那一层：书签 / 链接 / 权限位
+from lyco_markdown import docx_markdown as docx_markdown_ledger  # 结构搬进 markdown 那一本（与 markdown.rs 同口径）
 
 END = "END"  # CFB 的链结束标记
 FREE = "FREE"
@@ -8880,6 +8881,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["comment_ledger"] = docx_comment_ledger(path)
             out["ooxml"]["comment_threads"] = docx_comment_threads(path)
             out["ooxml"]["section_starts"] = docx_section_starts(path)
+            # 结构搬进 markdown 那一本（`office-text --markdown` 的对照）
+            out["ooxml"]["markdown"] = docx_markdown_ledger(path)
             # 分页那四个开关（段上；ODF 一跳在样式里）
             out["ooxml"]["keep_switches"] = docx_keep_switches(path)
             # 这张表套的是哪个样式：样式 id 与那枚 look 分开交

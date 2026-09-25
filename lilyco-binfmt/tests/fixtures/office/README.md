@@ -91,6 +91,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `shared.ods` | LibreOffice（`shared.xlsx` → .ods） | 第三种写法：公式是格子身上的 `table:formula` 属性，16 条全带正文，且**逐行平移**（`of:=[.A2]*2`、`of:=[.A3]*2`…）—— 这正是第三方对「跟随格其实是 A2*2」的独立印证 |
 | `sstart.docx` | python-docx（`write_section_starts_docx`，节的起始类型没有公开属性，走 `OxmlElement`） | 三节各写一个变量：第一节「另起一页」**一个字都不写**（那是 Word 的默认，所以 `w:type` 整个不在）、第二节 `continuous`、第三节 `evenPage` —— 3 节里只有 2 节写了元素（`with_element` 2、`type_missing` 1）|
 | `sstart-lo.docx` | LibreOffice（`sstart.docx` → .docx） | 同一份重写后 3 节**全写了**：第一节被补出一枚 `<w:type w:val="nextPage"/>`（`with_element` 2 → 3），另两节的值一字未变 —— 「没说」与「说了默认」在两副件里是两个答案，见事实 108 |
+| `md.docx` | python-docx（`write_markdown_docx`） | 每段只管一件事的渲染凭据：一级与二级标题 / 同一句里的粗、斜、粗斜 / **长得像 markdown 记号的那些字**（`*` `_` `[]` `<>` `\` `|` 反引号）/ 两句行首像记号的正文 / 圆点两条加缩进一条 / 编号两条 / 一张 2×3 表（一格里两段字、一格里有竖线与星号）/ 站外链接 / 段内硬换行 / 一张图 / 一个空段 / 一个分页符段 —— 渲染出来 17 块、344 个码位，见事实 109 |
+| `md-lo.docx` | LibreOffice（`md.docx` → .docx） | **渲染一字不差**（344 个码位一个不缺），而账本说得出这一族改了什么：列表号在源件里写在**样式**上（`list_from_style` 5），重写时抄到**段上**（0） —— 搬进 markdown 之后看不出来，因为渲染只问「这一段是不是列表项」，两个数都留着 |
 | `deck.odp`（结构） | 同上 | 两页：`draw:name` 是「预算评审」与「第二页：数字」；第一页有 `presentation:class="notes"` 的备注（「评审时先讲口径再讲数字」），**旁边还坐着页码占位，里面的样字是 `<编号>`** —— 整页一把抓就会把它当正文；两个母版页名、两个版式名，但文件里没有任何版式定义；尺寸 25.4cm×19.05cm landscape 在 styles.xml 的 page-layout 里 |
 | `notes.odt`（结构） | 同上 | 10 段（2 段是空的）、两个带 `text:outline-level` 的标题、1 张 2×2 表（名叫「表格1」）、一条 `text:annotation` 批注、一个 `draw:frame`+`draw:image`、一个 `text:a` 超链接、5 个 `text:sequence-decl`；`meta.xml` 自报 paragraph-count 10 / page-count 2 / word-count 61 |
 | `chart.ods` | LibreOffice（`chart.xlsx` → .ods） | ODF 的图是**嵌入对象**：`数据` 那张表里两个 `draw:frame` 各指一个 `Object N/` 目录，那里面的 content.xml 才写着 `chart:chart`；类型只在每条 `chart:series` 上（`chart:bar` / `chart:line`），点数另有一条 `chart:data-point@chart:repeated` 自报「这一条顶两个点」，地址是第三种写法（`数据.B2:数据.B3`：点分隔、不带 `$`），末尾还抄了一张 `local-table`（10 / 25 / 4 / 9） |
@@ -1995,6 +1997,36 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       与 `header_footers` 里。
 
 ## 这些数字从哪来
+109. **把结构搬进 markdown：两家生产者的渲染一字不差，而「列表号写在样式上还是段上」在账上分得开**
+    - 形状：`office-text --markdown` 才交这一本（没开就整个键都不给，不交一份空串装作渲染过）——
+      `{family, available, text, chars, cut, blocks, paragraphs, headings, list_items,
+      bullet_items, ordered_items, list_from_style, unresolved_fmt, tables, table_rows,
+      empty_dropped}`：`text` 是渲染结果，其余那些数说的是「这一本凭什么这么长」。
+    - 正例是 `md.docx`（python-docx 写，每段只管一件事）：17 块、9 段、2 标题、5 个列表项
+      （3 圆点 + 2 编号）、1 张表 3 行、丢掉 2 个空段，`chars` 344。
+    - LibreOffice 重写同一份（`md-lo.docx`）：**渲染一字不差**（344 个码位一个不缺），而
+      `list_from_style` 从 5 变成 0 —— 号在 python-docx 那份里写在**样式**上
+      （`List Bullet` → `numId`，段上自己不写），重写时抄到**段上**。同一个选择在两家文件里
+      落在两个地方，搬进 markdown 之后看不出来，因为渲染只问「这一段是不是列表项」；
+      两个数都留着，才知道是谁改的手。
+    - 层级只按文件写着的 `ilvl` 走：`md.docx` 那条「缩进一层的那条」在这一族是**换了一个 numId**
+      表达的（样式里连 `ilvl` 都不写），所以它不缩进 —— 搬不过去的那一层由 `list_items` 与
+      `bullet_items` 这两个数说清，不拿样式名字尾数的数字当层级。反面凭据是 `lists.docx`：
+      那里「直接挂在段上的第二级」真写了 `ilvl="1"`，缩进两格；另有两条**解不到编号格式**
+      （一条点了不存在的号、一条是 LibreOffice 重排出的 `numId="0"`），渲染挑最保守的 `- `，
+      而 `unresolved_fmt` 2 把这件事说在账上，不藏进字符串里。
+    - 「有 `w:numPr`」不等于「是列表项」：本机 28 份真件的模板样式 `Subtitle` 里带一枚
+      **没有 `numId` 的** `w:numPr`，按「看见 numPr 就算列表」去读，那 28 份的副标题全变成列表项。
+    - 转义只在该转的地方转：表外的竖线照字交（`竖线 |`）、表里的补一个反斜杠（`尾格 \| 带竖线`）；
+      一段普通正文的行首长得像结构记号时补一个反斜杠（`\# 这不是标题` / `\1. 这不是编号`），
+      不然文件里写着的字会被读成标题与编号。图与链接的 target **按关系表写的原样交**
+      （`media/image1.png` 是相对 `word/` 的），这一本不把图搬出来；实测 14 条链接的地址里
+      没有一个含空格、括号或竖线，所以不转义 target 不会把链接截断。
+    - 界：只搬 OOXML 的 word 一族 —— odt / odp / ods / rtf / .doc / .pdf **不交这个键**
+      （缺键 = 这一族还没搬，不是空文档，`notes` 里说一句）：ODF 那一族的字在 `text:span` 上
+      要点一份字符样式、列表是嵌套元素、列宽用 `number-columns-repeated` 顶几列，每一样都要
+      另量一遍；表格里的合并格也不展开（markdown 的表格表达不了那个）。
+
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
 `scripts/acceptance/office_reader.py`（OOXML / ODF / MS-CFB / OLE 属性集，只用标准库）、

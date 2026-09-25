@@ -292,6 +292,9 @@ def main() -> int:
         "shared.ods": ("opendocument", "excel", "ods"),
         "sstart.docx": ("ooxml", "word", "docx"),
         "sstart-lo.docx": ("ooxml", "word", "docx"),
+        # 结构搬进 markdown 那两份：一家把列表号写在样式上、另一家写在段上
+        "md.docx": ("ooxml", "word", "docx"),
+        "md-lo.docx": ("ooxml", "word", "docx"),
         # 注的编号那三份：同一句话在两处说，两处说的不一样
         "nset.docx": ("ooxml", "word", "docx"),
         "nset-lo.docx": ("ooxml", "word", "docx"),
@@ -6005,6 +6008,65 @@ def main() -> int:
          dig(lbin("office-doc", fixture("restart.odt")), "structure.section_starts"),
          dig(lbin("office-doc", fixture("tabs.rtf")), "structure.section_starts")],
         [1, 0, [], None, None],
+    )
+    # ── 3at) 结构搬进 markdown：两个生产者的渲染一字不差，而号写在哪一处不一样 ──────
+    print("=== 3at) markdown：docx 的结构搬过去，逐字与第二读者对，两家的账各交各的 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-text", fixture(name), "--markdown")
+        check("%s 的 markdown 那一本与读者一致（渲染逐字、计数逐格）" % name,
+              got.get("markdown"), files[name]["ooxml"]["markdown"])
+    hand = lbin("office-text", fixture("md.docx"), "--markdown")
+    back = lbin("office-text", fixture("md-lo.docx"), "--markdown")
+    hand_text = dig(hand, "markdown.text") or ""
+    back_text = dig(back, "markdown.text") or ""
+    check(
+        "`md.docx` 每段只管一件事（标题 / 粗斜 / markdown 记号 / 行首像记号的字 / 两级列表 / "
+        "有序列表 / 带竖线与星号且有一格两段的表 / 站外链接 / 硬换行 / 图 / 空段 / 分页符），"
+        "渲染出来的数是 17 块、9 段、2 标题、5 个列表项（3 圆点 + 2 编号）、1 张表 3 行、"
+        "丢掉 2 个空段 —— `chars` 344 与 `cut` false 一起交，截没截由它自己说",
+        [dig(hand, "markdown.blocks"), dig(hand, "markdown.paragraphs"),
+         dig(hand, "markdown.headings"), dig(hand, "markdown.list_items"),
+         dig(hand, "markdown.bullet_items"), dig(hand, "markdown.ordered_items"),
+         dig(hand, "markdown.tables"), dig(hand, "markdown.table_rows"),
+         dig(hand, "markdown.empty_dropped"), dig(hand, "markdown.chars"),
+         dig(hand, "markdown.cut")],
+        [17, 9, 2, 5, 3, 2, 1, 3, 2, 344, False],
+    )
+    check(
+        "同一份稿子的两副件**渲染一字不差**，而账本说得出这一族改了什么：列表号在 python-docx 那份"
+        "写在**样式**上（`list_from_style` 5），LibreOffice 重写时抄到**段上**（0）—— "
+        "搬进 markdown 之后看不出来，因为它只问「这一段是不是列表项」",
+        [hand_text == back_text, dig(hand, "markdown.list_from_style"),
+         dig(back, "markdown.list_from_style"), len(hand_text), len(back_text)],
+        [True, 5, 0, 344, 344],
+    )
+    check(
+        "转义与不转义是分开的两件事：表外的竖线照字交（`|`）、表里的补一个反斜杠；"
+        "行首长得像记号的那两句也补（`#` 与 `1.`），不然文件里写着的字会被读成标题与编号",
+        [hand_text.count("竖线 |"), hand_text.count("\\| 带竖线"),
+         hand_text.startswith("# 结构：一级"), "\n\\# 这不是标题" in hand_text,
+         "\n\\1. 这不是编号" in hand_text, hand_text.count("服务器 \\* 两台")],
+        [1, 1, True, True, True, 1],
+    )
+    lst = lbin("office-text", fixture("lists.docx"), "--markdown")
+    lst_text = dig(lst, "markdown.text") or ""
+    check(
+        "`lists.docx` 是「层级与解不到」那一份凭据：直接挂在段上的第二级缩进两格（文件写了 "
+        "`ilvl=1`），点了一个不存在的号与 LibreOffice 重排出来的 `numId=\"0\"` 都解不到格式 —— "
+        "渲染挑了 `- ` 当最保守的标记，而 `unresolved_fmt` 2 把这件事说在账上（不藏进字符串里）",
+        [dig(lst, "markdown.list_items"), dig(lst, "markdown.unresolved_fmt"),
+         dig(lst, "markdown.bullet_items"), dig(lst, "markdown.ordered_items"),
+         "  - 直接挂在段上的第二级" in lst_text, dig(lst, "markdown.list_from_style")],
+        [6, 2, 4, 2, True, 3],
+    )
+    quiet = lbin("office-text", fixture("md.docx"))
+    elsewhere = lbin("office-text", fixture("restart.odt"), "--markdown")
+    check(
+        "没开 `--markdown` 就整个键都不给（不给一份空串装作渲染过）；开了而这一族还没搬的那一份，"
+        "键也不在，只在 notes 里说一句",
+        [quiet.get("markdown"), elsewhere.get("markdown"),
+         any("markdown" in str(one) for one in (dig(elsewhere, "notes") or []))],
+        [None, None, True],
     )
     # ── 3aq) 公式那枚 <f> 自己写了什么：共享组的跟随格在文件里没有公式正文 ──────────
     print("=== 3aq) 公式元素自己：共享组、空正文带缓存值、两个生产者三种写法 ===")
