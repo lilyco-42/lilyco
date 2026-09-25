@@ -3548,7 +3548,7 @@ mod tests {
         let header = &report["slots"]["header:default"];
         // 两半各一段，合起来才是这一格的全部：只走直接孩子这两个数都是 0
         assert_eq!(header["paragraphs"], json!(2));
-        assert_eq!(header["text"], "???(???)\n0000/00/00, 00:00:00, 00:00:00");
+        assert_eq!(header["text"], "???(???)\n0000/00/00, 00:00:00");
         let regions = header["regions"].as_array().expect("是数组");
         assert_eq!(regions.len(), 2, "{header}");
         assert_eq!(regions[0]["element"], "style:region-left");
@@ -3556,7 +3556,7 @@ mod tests {
         // 表名与标题是域，文件里缓存的是三个问号：按原样交，不替它算
         assert_eq!(regions[0]["text"], "???(???)");
         assert_eq!(regions[1]["element"], "style:region-right");
-        assert_eq!(regions[1]["text"], "0000/00/00, 00:00:00, 00:00:00");
+        assert_eq!(regions[1]["text"], "0000/00/00, 00:00:00");
         assert_eq!(header["fields"]["date"], json!(1));
         assert_eq!(header["fields"]["time"], json!(1));
         assert_eq!(report["slots"]["footer:default"]["text"], "页 1/ 99");

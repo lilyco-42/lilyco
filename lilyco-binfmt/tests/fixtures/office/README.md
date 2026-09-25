@@ -31,6 +31,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `print-area.xlsx` | openpyxl | 四张表，一次只改一个变量：`区域与标题` 只给打印区域、`区域加标题` 给区域 + 重复第 1 行、`两段区域` 把区域给成**两段**（一条 definedName 里逗号分隔）、`什么都没给` 只给重复**列**。五条件都写成 `_xlnm.Print_Area` / `_xlnm.Print_Titles` 两条保留名，sheet 名一律带引号 |
 | `print-area-lo.xlsx` | LibreOffice（`print-area.xlsx` → .xlsx） | 同一份的五条**一字不差地少了一层**：引号全没了（5 条带引号 → 0 条），条目顺序也换了（LO 按自己的分组重排），而 `localSheetId` 与范围串本身不变 —— 见事实 86 |
 | `print-area.ods` | LibreOffice（`print-area.xlsx` → .ods） | 同一问的第三种存法：表自己身上 `table:print-ranges`（分隔符换成空白、地址是 `表名.A1:表名.C10`），另有一份为与 Excel 来回留的 `table:named-*` 五条 —— 四样 `named-range` 而两段那一样是 `named-expression`，五样的 `base-cell-address` 全是同一个 |
+| `deck-ph.pptx` | python-pptx | 四页，一次只改一个变量：`第1页` 标题 + 内容占位符（内容两段字）、`第2页` 再加一个**自制文本框**、`第3页` 两个占位符都在而**字是空的**、`第4页` 只有文本框（空版式）。要点：正文占位符写的是 `<p:ph idx="1"/>` —— **没有 `type`** |
+| `deck-ph-lo.pptx` | LibreOffice（`deck-ph.pptx` → .pptx） | 同一份稿子重写后：标题那一句照旧 `<p:ph type="title"/>`，正文那一句变成**空元素 `<p:ph/>`**（连 idx 都没了），形状名从 `Title 1`/`Content Placeholder 2` 换成 `PlaceHolder 1`/`PlaceHolder 2`；版式里 `dt`/`ftr`/`sldNum` 的 idx 也整个重排（模板是 10/11/12，这里 1/2/3、4/5/6…28/29/30） |
+| `deck-ph.odp` | LibreOffice（`deck-ph.pptx` → .odp） | 第三家：角色写成 `presentation:class="title"`，占位符另带 `presentation:placeholder="true"` 与 `presentation:style-name="prN"`，而**文本框是 `draw:custom-shape` 且没有 `presentation:style-name`**；页的版式名不在页上，在画页样式里（`presentation:presentation-page-layout-name="AL1T11"`） |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
@@ -1573,6 +1576,36 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 对照件：`book.xlsx` 有一条命名区域（`总额`）而**零条**保留名 → `print_entries: 0`
       （数过了没有，不是没看），`book.ods` 的 `with_print_ranges: 0`；`.xls` 这一族整个不交这个
       键 —— 那一族的打印开关住在 SETUP(0x00A1) 记录里，这里没有一个读者能核对它的字段位。
+
+87. **页上那个框「我是什么角色」这句话，两家生产者都可以不写 —— 而两份读者以前一边猜一个**
+    - OOXML 把角色写在形状的 `p:nvSpPr/p:cNvPr` **旁边**那条 `p:ph` 上（`type` 与 `idx`）。
+      python-pptx 给正文占位符写的是 `<p:ph idx="1"/>` —— **`type` 整个不写**；LibreOffice
+      重写同一份时写成 `<p:ph/>`，连 `idx` 也丢了。所以「这一格是标题吗」在两份真件里
+      一次是「写了 title」、两次是「什么都没说」。
+    - 这一格以前**两份读者各猜一个**：Rust 兜成 `"other"`，python 兜成 `"title"`
+      （`node.get("type") or "title"`）。规范里这个属性的默认值其实是 `body` —— 也就是说
+      两边都不对，而且因为它们对得不一样，`deck.pptx` 第一页那个正文占位符在 Rust 的
+      `paragraphs[].placeholder` 上是 `"other"`，在读者账本里却是 `"title"`。
+      **这条分歧是写这份件之前一直看不见的**，原因是那条「占位类别」的对照只跑在 `.odp` 上。
+      现在两边一律：文件写着 `type` 就交那一句，没写就交 `null`，既不叫 `other` 也不叫 `title`。
+    - 于是「没写角色的占位符」与「根本没有 `p:ph` 元素的自制文本框」在这份账里同为 `null` ——
+      这不是把两件事说成一件：形状数（`shapes`）与角色账（`placeholder_words`）并排放着，
+      第 2 页 3 个形状对 `[title, null, null]`，一眼看得出不平衡在哪。
+    - 版式（`ppt/slideLayouts/*.xml`）里也是同一族混写法：同一份模板，`slideLayout2` 写
+      `<p:ph idx="1"/>`（无 `type`）、`slideLayout3` 写 `<p:ph type="body" idx="1"/>`、
+      `slideLayout9` 写 `type="pic"`、`slideLayout10` 还写 `orient="vert"`；而 LibreOffice
+      重写后所有版式的正文都成 `<p:ph type="body"/>`（**idx 全省**），`dt`/`ftr`/`sldNum`
+      换成它自己一套连续号（模板 10/11/12 → 这里 1/2/3、4/5/6、…、28/29/30）。
+      「这框对应版式里哪一条」那一跳在重写那份里因此是**断的**，所以这一族不假装接得上。
+    - ODF 换了一套地方：角色是 `presentation:class`（`title` / `outline` / `page` / `notes`），
+      「这是占位符」另有 `presentation:placeholder="true"`，占位符是带 `presentation:style-name`
+      的 `draw:frame`，而文本框是**没有**那个属性的 `draw:custom-shape`（实测还有一frame
+      连 `draw:name` 都不写）。页点哪份版式也不在页上，在画页样式里
+      （`presentation:presentation-page-layout-name`）。
+    - 一句口径上的实话（**故意不对齐**）：两份读者对「这页的标题是哪句字」的规则不同 ——
+      Rust 只从写了 `title`/`ctrTitle` 的占位符里取，读者在没有占位符时兜回本页第一句字
+      （`deck-ph` 第 4 页 Rust 交 `""`，读者交 `只有一个文本框`）。这是读者的规则差，不是文件的
+      事实差，所以那条 blanket 只比角色账、不比标题，免得把读者的手法规成文件的说法。
 
 ## 这些数字从哪来
 

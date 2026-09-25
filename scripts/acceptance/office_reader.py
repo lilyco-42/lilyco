@@ -3624,7 +3624,10 @@ def pptx_facts(path: Path) -> dict:
             ph = None
             for node in one.iter():
                 if xml_local(node.tag) == "ph":
-                    ph = node.get("type") or "title"
+                    # 只交文件写着的 `type`：没写就是 null。规范有个默认值，
+                    # 但那是规范的话，不是这份文件的话（python-pptx 的正文占位符
+                    # 只写 idx，LibreOffice 重写那份连 idx 都丢了）
+                    ph = node.get("type")
                     break
             placeholders.append(ph)
         notes = ""

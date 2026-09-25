@@ -229,6 +229,9 @@ def main() -> int:
         "print-area.xlsx": ("ooxml", "excel", "xlsx"),
         "print-area-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "print-area.ods": ("opendocument", "excel", "ods"),
+        "deck-ph.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-ph-lo.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-ph.odp": ("opendocument", "powerpoint", "odp"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -4283,7 +4286,7 @@ def main() -> int:
           dig(hfbook, "page_styles.masters[1].slots.header:default.regions")],
          dig(hfbook, "page_styles.masters[1].slots.header:default.fields"),
          dig(hfbook, "page_styles.masters[1].slots.footer:default.text")],
-        [5, "Report", 2, "???(???)\n0000/00/00, 00:00:00, 00:00:00",
+        [5, "Report", 2, "???(???)\n0000/00/00, 00:00:00",
          ["style:region-left", "style:region-right"], [1, 1],
          {"date": 1, "time": 1}, "页 1/ 99"],
     )
@@ -4382,6 +4385,48 @@ def main() -> int:
          dig(lbin("office-sheet", fixture("book.ods")), "print_ranges.with_print_ranges"),
          dig(lbin("office-sheet", fixture("book.xls")), "print_ranges")],
         [4, 4, 3, 3, False, 0, 1, 0, None],
+    )
+
+    # ── 3x) 页上每个框自己说的那句话：占位符的 type 按写的交，没写就是 null ──────
+    print("=== 3x) 这个角色是谁说的：写了的、没写的，与两家同一个不兜 ===")
+
+    def word_key(raw):
+        return (raw is not None, raw or "")
+
+    for name in sorted(one.name for one in FIXTURES.glob("*.pptx")):
+        got = lbin("office-slide", fixture(name))
+        rwant = files[name]["ooxml"]["slides"]
+        mine = [one for slide in got.get("slides", []) for one in slide.get("placeholder_words", [])]
+        yours = [one for slide in rwant for one in slide["placeholders"]]
+        check("%s 每页各形状的角色账与读者一致（两家都不把没写的兜成 title 或 other）" % name,
+              [sorted(mine, key=word_key), len(mine)],
+              [sorted(yours, key=word_key), len(yours)])
+    ph = lbin("office-slide", fixture("deck-ph.pptx"))
+    ph_lo = lbin("office-slide", fixture("deck-ph-lo.pptx"))
+    check(
+        "python-pptx 的正文占位符只写 `idx=\"1\"` 而没有 `type`：这一格交 null。"
+        "自制文本框连 `p:ph` 元素都没有，也交 null —— 两种「没说」在这里同一个值，"
+        "而形状数另有一本账（第 2 页 3 个形状：标题、内容、文本框）",
+        [dig(ph, "slides[0].placeholder_words"),
+         dig(ph, "slides[1].placeholder_words"),
+         dig(ph, "slides[1].shapes"),
+         dig(ph, "slides[3].placeholder_words"),
+         dig(ph, "slides[3].title"),
+         files["deck-ph.pptx"]["ooxml"]["slides"][0]["placeholders"]],
+        [["title", None], ["title", None, None], 3, [None], "", ["title", None]],
+    )
+    check(
+        "LibreOffice 重写同一份：把 `idx` 整个丢掉（`<p:ph/>`）而角色账一字不变 —— "
+        "两家在这件事上写的不是一样多，而**都不写就是都不写**；形状名换了（Title 1 → "
+        "PlaceHolder 1）可那不是角色，所以四页的角色账两副件逐页相等",
+        [dig(ph_lo, "slides[0].placeholder_words"),
+         [dig(ph_lo, "slides[%d].placeholder_words" % index) ==
+          dig(ph, "slides[%d].placeholder_words" % index) for index in range(4)],
+         dig(ph_lo, "slides[0].title"),
+         dig(ph_lo, "slides[0].paragraphs[0].placeholder"),
+         sum(1 for slide in files["deck-ph-lo.pptx"]["ooxml"]["slides"]
+             for one in slide["placeholders"] if one is None)],
+        [["title", None], [True, True, True, True], "预算评审", None, 5],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──

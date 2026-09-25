@@ -1361,6 +1361,35 @@ def write_styles_docx(path: Path) -> None:
     doc.save(path)
 
 
+def write_placeholder_deck(path: Path) -> None:
+    """四页，一次只改一个变量：占位符、占位符 + 文本框、空占位符、只有文本框
+
+    要紧的是 python-pptx 给正文占位符写 `<p:ph idx="1"/>` —— **`type` 不写**。
+    两家读者以前一边猜 `other`、一边猜 `title`（规范默认其实是 body），所以这份件
+    存在的意义就是让那一格有「文件确实没说」的真凭据。
+    """
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    deck = Presentation()
+    one = deck.slides.add_slide(deck.slide_layouts[1])
+    one.shapes.title.text = "预算评审"
+    body = one.placeholders[1]
+    body.text_frame.text = "先讲口径"
+    body.text_frame.add_paragraph().text = "再讲数字"
+
+    two = deck.slides.add_slide(deck.slide_layouts[1])
+    two.shapes.title.text = "第二页"
+    two.shapes.add_textbox(Inches(1), Inches(4), Inches(3), Inches(1)).text_frame.text = "这不是占位符"
+
+    deck.slides.add_slide(deck.slide_layouts[1])  # 占位符在，字是空的
+
+    four = deck.slides.add_slide(deck.slide_layouts[6])
+    four.shapes.add_textbox(Inches(0.5), Inches(0.5), Inches(4), Inches(1)).text_frame.text = "只有一个文本框"
+
+    deck.save(path)
+
+
 def write_print_area_xlsx(path: Path) -> None:
     """四张表，一次只改一个变量：打印区域、区域 + 重复行、区域给成两段、只给重复列
 
