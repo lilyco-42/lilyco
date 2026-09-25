@@ -93,6 +93,10 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `sstart-lo.docx` | LibreOffice（`sstart.docx` → .docx） | 同一份重写后 3 节**全写了**：第一节被补出一枚 `<w:type w:val="nextPage"/>`（`with_element` 2 → 3），另两节的值一字未变 —— 「没说」与「说了默认」在两副件里是两个答案，见事实 108 |
 | `md.docx` | python-docx（`write_markdown_docx`） | 每段只管一件事的渲染凭据：一级与二级标题 / 同一句里的粗、斜、粗斜 / **长得像 markdown 记号的那些字**（`*` `_` `[]` `<>` `\` `|` 反引号）/ 句中两个连续空格 / 两句行首像记号的正文 / 圆点两条加缩进一条 / 编号两条 / 一张 2×3 表（一格里两段字、一格里有竖线与星号）/ 站外链接 / 段内硬换行 / 一张图 / 一个空段 / 一个分页符段 —— 渲染出来 18 块、359 个码位，见事实 109 |
 | `md-lo.docx` | LibreOffice（`md.docx` → .docx） | **渲染一字不差**（359 个码位一个不缺），而账本说得出这一族改了什么：列表号在源件里写在**样式**上（`list_from_style` 5），重写时抄到**段上**（0） —— 搬进 markdown 之后看不出来，因为渲染只问「这一段是不是列表项」，两个数都留着 |
+| `eq.docx` | python-docx（`write_equations_docx`，OMML 按原文挂进段里） | 六条式子各占一种写法的凭据：三条行内（`m:oMath` 直接挂 `w:p`）、三条独立成行（在 `m:oMathPara` 里，只有一条自己写了 `m:jc`=`centerGroup`），结构各样一枚（分数 `m:f`、上标 `m:sSup`、根号 `m:rad` 带 `m:degHide`、括号 `m:d` 带 `m:begChr`/`m:endChr`），还有一条把字**点名成普通字**（`m:rPr/m:nor`）—— 式子里的字一共 13 个码位，见事实 110 |
+| `eq-lo.docx` | LibreOffice（`eq.docx` → .docx） | 生产者改了什么都在账上：两条行内式被**升级**成 `m:oMathPara`（3+3 变 2+4）、对齐从 1 条补到 4 条而作者写的 `centerGroup` 变成 `center`、`m:nor` 那一条多一枚 `m:lit` —— 字一个没动（13） |
+| `eq.odt` | LibreOffice（`eq.docx` → .odt） | 一条式子一个**部件**：六枚 `draw:frame`（`as-char`、尺寸 `0.314cm` 这种自带单位的串）里 `draw:object` 指 `./Object N`，字在 `Object N/content.xml` 的 MathML 里，另有六枚 `ObjectReplacements/Object N` 的替位图；六条的 `display` 一律写 `block`（行内与独立在这一族分不出来），而 `[n]` 那一条在这里比 OMML 多两个括号字符（17 对 13） |
+| `eq-od.docx` | LibreOffice（`eq.odt` → .docx） | MathML 回到 OMML 之后与那次 docx → docx 重写**一格不差** —— 两条路走出来的两副件在这一本上同形，所以不替文件合并任何一格 |
 | `md.odt` | LibreOffice（`md.docx` → .odt） | **同一份稿子的第三副样子**：块数与两份 docx 一样是 18、渲染 35 行里**只有一行不同**（图片地址各按自己文件写的交），而账上换了一整套读法 —— 粗斜要一跳字符样式（`spans_unresolved` 0 才算落到字上）、空格是 `text:s` **记号**（`space_markers` 1，实测写成 `两处空格 <text:s/>之间是一个记号`，后半句挂在这个元素的尾上）、列表是嵌套元素（号一律来自 `text:list-style`，`lists_named` 3）、批注与注**嵌在正文段里面**（跳过的条数各记一格），见事实 109 |
 | `deck.odp`（结构） | 同上 | 两页：`draw:name` 是「预算评审」与「第二页：数字」；第一页有 `presentation:class="notes"` 的备注（「评审时先讲口径再讲数字」），**旁边还坐着页码占位，里面的样字是 `<编号>`** —— 整页一把抓就会把它当正文；两个母版页名、两个版式名，但文件里没有任何版式定义；尺寸 25.4cm×19.05cm landscape 在 styles.xml 的 page-layout 里 |
 | `notes.odt`（结构） | 同上 | 10 段（2 段是空的）、两个带 `text:outline-level` 的标题、1 张 2×2 表（名叫「表格1」）、一条 `text:annotation` 批注、一个 `draw:frame`+`draw:image`、一个 `text:a` 超链接、5 个 `text:sequence-decl`；`meta.xml` 自报 paragraph-count 10 / page-count 2 / word-count 61 |
@@ -2047,6 +2051,38 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       RTF 与 .doc 的层级根本不在同一套记号里，每一样都要另量一遍。OOXML 表格里被合并的格子
       （`gridSpan` / `vMerge`）也不展开、不补空格 —— markdown 的表格表达不了那个。
 
+
+110. **文档里的公式：OMML 挂在段上、MathML 住在另一个部件，而「式子占不占一行」是生产者会改的**
+    - OOXML 那一份每条交 `{index, paragraph, placement, host, align_written, structures, runs,
+      nor_runs, lit_runs, text}`：`placement` 只按文件写着的挂法判（`m:oMath` 直接坐在 `w:p` 里
+      是行内，坐在 `m:oMathPara` 里是独立成行），`structures` 按文档顺序交那一条用了哪些元素名
+      （壳 `oMath`/`r`/`t` 不算结构），`text` 只拼 `m:t`，`align_written` 没写就是 null。
+    - **LibreOffice 的 docx 重写把两条行内式升级成独立成行**（3 行内 + 3 独立 → 2 + 4），
+      给四条都补上 `m:jc`（`align_written_total` 1 → 4），并且**把作者写的 `centerGroup` 换成
+      `center`**；`m:nor` 那一条被补了一枚 `m:lit` —— 于是 `nor_runs` 与 `lit_runs` 两个数分开交，
+      不并成一个「普通字」。而式子里的字一个都没动（`text_chars` 13、`math_runs` 12）。
+    - ODF 那一面这条问话要**跳进另一个部件**：`draw:frame`（`text:anchor-type="as-char"`，
+      `svg:width` 写成 `0.314cm` 这种自带单位的串）里 `draw:object xlink:href="./Object N"`，
+      字在 `Object N/content.xml` 的 MathML 里，清单把 `Object N/` 声明成
+      `application/vnd.oasis.opendocument.formula`；同一枚 frame 里还有一枚 `draw:image` 指向
+      `ObjectReplacements/Object N` 的替位图 —— 两处地址都按写的交（少交一处就有一处没人认）。
+    - **是不是公式要凭部件自己说**：`math_found` 数「那个部件里真读到 `<math>` 根」的条数，
+      读不到根的单记在 `objects_without_math`（图表那类嵌入对象走的是同一扇 `draw:object` 门，
+      不靠地址形状猜）。
+    - **行内与独立在 ODF 这一族分不出来**：六条的 `<math>` 一律写 `display="block"`
+      （`inline_written` 0、`block_written` 6），所以只交「按写的几个 block」。
+    - **同一句话两族的「字」不一样长**：`[n]` 那一条在 OMML 里括号是 `m:d` 的属性
+      （`m:begChr`/`m:endChr`），`<m:t>` 只有 `n`；到 MathML 里括号成了 `mo` 元素，于是是 `[n]` ——
+      两份件 `text_chars` 因此 13 与 17，差的正是第 3、5 条。
+    - **线性式另有存放**：那个部件的 `<semantics>` 里还带一枚 `<annotation encoding="StarMath 5.0">`
+      写着 `{a} over {b}` 这种线性源，按原样交在 `annotation_source`，不算进式子里的字。
+    - 从这个 odt 再回转成 docx（`eq-od.docx`）与那次 docx → docx 重写**账格不差**。
+    - 反面凭据：`md.docx` 这一份一个式子都没有，交的是 `equations_total` 0（数过了没有）而不是缺键；
+      `images.odt` 有 `draw:frame` 却没有 `draw:object`，于是 `frames_seen` 1 而 `objects_total` 0
+      —— 页面上那张图那一本与公式这一本各数各的门。
+    - 界：只数正文段（`w:p` / `text:p|h`）**直接孩子**里的式子，表格与注部件里的不数（两支同口径）；
+      不做线性化（不生成 LaTeX）；rtf / `.doc` / `.ppt` 不交这个键 —— 那几族把式子内嵌成字段或
+      对象是另一套记号，本机没有能写出这些件的生产者，量不到就不写那一支。
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
 `scripts/acceptance/office_reader.py`（OOXML / ODF / MS-CFB / OLE 属性集，只用标准库）、

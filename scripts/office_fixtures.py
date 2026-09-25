@@ -3245,6 +3245,74 @@ def write_markdown_docx(path: Path, art: Path) -> None:
     doc.save(str(path))
 
 
+MATH_NS = 'xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"'
+
+
+def write_equations_docx(path: Path) -> None:
+    """一份把「公式的几种写法」各来一条的 docx —— python-docx 不写 OMML，所以按 OMML 原文挂进去
+
+    每段只管一件事，这样账本的每一条分支都有一个生产者凭据：行内挂 `w:p` 的 `m:oMath`、
+    独立成行的 `m:oMathPara`（一种自己写了 `m:jc`、两种没写）、结构元素各样一枚
+    （分数 `m:f`、上标 `m:sSup`、根号 `m:rad` 带 `m:degHide`、括号 `m:d` 带 `m:begChr`/`m:endChr`）、
+    一段里公式前后都有正文、一条**明确点成普通字**的 `m:nor`，以及一段根本没有公式。
+
+    实测（这一版是改过的：第一版把 `m:f` 裸挂在 `w:r` 里，那不是有效 OMML，
+    LibreOffice 整条丢掉而单元测试全绿 —— 手写 OOXML 必须先验生产者读回什么）：
+    - LibreOffice 的 docx 重写把两条**行内**式**升级**成 `m:oMathPara`，并给每份独立式补 `m:jc`
+      （原来的两条 `center`、补的两条 `left`）—— 「式子占不占一行」这个选择在两家文件里落在两处；
+    - 它还给 `m:nor` 那一条补了一枚 `m:lit`，并给每个 `m:t` 写上 `xml:space="preserve"`；
+    - 同一份转成 odt 之后，每条公式变成一个**嵌入对象**：`draw:frame text:anchor-type="as-char"`
+      里 `draw:object xlink:href="./Object N"`，另有一枚 `draw:image` 指向
+      `ObjectReplacements/Object N` 的替身图，式子的字在 `Object N/content.xml` 的 MathML 里
+      （`display` 一律写 `block` —— 行内与独立在 ODF 这一族分不出来），
+      而 `<m:t>` 那一串线性写法留在 `<annotation encoding="StarMath 5.0">` 里。
+    """
+    from docx import Document
+    from docx.oxml import parse_xml
+
+    doc = Document()
+
+    def inline(inner: str):
+        return parse_xml("<m:oMath %s>%s</m:oMath>" % (MATH_NS, inner))
+
+    def display(inner: str, jc: str = ""):
+        head = (
+            "<m:oMathParaPr><m:jc m:val=\"%s\"/></m:oMathParaPr>" % jc) if jc else ""
+        return parse_xml(
+            "<m:oMathPara %s>%s<m:oMath>%s</m:oMath></m:oMathPara>" % (MATH_NS, head, inner))
+
+    FRAC = ("<m:f><m:num><m:r><m:t>a</m:t></m:r></m:num>"
+            "<m:den><m:r><m:t>b</m:t></m:r></m:den></m:f>")
+    SUP = ("<m:sSup><m:e><m:r><m:t>x</m:t></m:r></m:e>"
+           "<m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup>")
+    RAD = ('<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr><m:deg/>'
+           "<m:e><m:r><m:t>1</m:t></m:r><m:r><m:t>2</m:t></m:r></m:e></m:rad>")
+    PAREN = ('<m:d><m:dPr><m:begChr m:val="["/><m:endChr m:val="]"/></m:dPr>'
+             "<m:e><m:r><m:t>n</m:t></m:r></m:e></m:d>")
+    NORMAL = ('<m:r><m:rPr><m:nor/></m:rPr><m:t>合计</m:t></m:r>'
+              "<m:r><m:t>=</m:t></m:r>"
+              "<m:f><m:num><m:r><m:t>1</m:t></m:r></m:num>"
+              "<m:den><m:r><m:t>2</m:t></m:r></m:den></m:f>")
+
+    one = doc.add_paragraph("行内一条分数：")
+    one._p.append(inline(FRAC))
+    one.add_run("式后还有字")
+    two = doc.add_paragraph()
+    two._p.append(display(SUP))
+    three = doc.add_paragraph()
+    three._p.append(display(RAD))
+    four = doc.add_paragraph()
+    four._p.append(display(PAREN, jc="centerGroup"))
+    five = doc.add_paragraph("点名成普通字的那一条：")
+    five._p.append(inline(NORMAL))
+    six = doc.add_paragraph()
+    six._p.append(inline(PAREN))
+    doc.add_paragraph("这一段没有公式")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(path))
+
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="重跑前先清掉输出目录")
@@ -3813,6 +3881,25 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "md-asodt" / "md.odt", OUT / "md.odt")
     else:
         print("⚠️  没拿到 md.odt（docx → odt 那一转）")
+
+    # ── 公式：一条 docx 原文、LibreOffice 重写、转成 odt（每条式子一个嵌入对象）、再回转 docx ──
+    eqdoc = OUT / "eq.docx"
+    write_equations_docx(eqdoc)
+    convert(exe, eqdoc, "docx", SCRATCH / "eq-back")
+    if (SCRATCH / "eq-back" / "eq.docx").exists():
+        shutil.copyfile(SCRATCH / "eq-back" / "eq.docx", OUT / "eq-lo.docx")
+    else:
+        print("⚠️  没拿到 eq-lo.docx（公式那份的 docx → docx 那一转）")
+    convert(exe, eqdoc, "odt", SCRATCH / "eq-asodt")
+    if (SCRATCH / "eq-asodt" / "eq.odt").exists():
+        shutil.copyfile(SCRATCH / "eq-asodt" / "eq.odt", OUT / "eq.odt")
+    else:
+        print("⚠️  没拿到 eq.odt（公式那份的 docx → odt 那一转）")
+    convert(exe, OUT / "eq.odt", "docx", SCRATCH / "eq-round")
+    if (SCRATCH / "eq-round" / "eq.docx").exists():
+        shutil.copyfile(SCRATCH / "eq-round" / "eq.docx", OUT / "eq-od.docx")
+    else:
+        print("⚠️  没拿到 eq-od.docx（公式那份的 odt → docx 那一转）")
 
     # ── 批注的回复与已解决：三份部件两跳，五份件一条链 ─────────────────
     crep = SCRATCH / "crep-src" / "crep.docx"

@@ -39,6 +39,7 @@ mod cfb;
 mod comment_threads;
 mod comments;
 mod entries;
+mod equations;
 mod formula_elems;
 mod identify;
 mod keep_switches;

@@ -40,6 +40,8 @@ import lyco_pdf  # PDF 那份读者：对象表 + 对象流 + 字符串三件事
 import lyco_pdf_nav  # PDF 的「去哪儿」那一层：书签 / 链接 / 权限位
 from lyco_markdown import docx_markdown as docx_markdown_ledger  # 结构搬进 markdown：docx 那一本
 from lyco_markdown import odf_markdown as odf_markdown_ledger  # 同一本的 ODF 那一面（与 markdown.rs::odf 同口径）
+from lyco_equations import docx_equations as docx_equations_ledger  # OMML 那一份账的第二读者
+from lyco_equations import odf_equations as odf_equations_ledger  # 公式部件（MathML）那一份
 
 END = "END"  # CFB 的链结束标记
 FREE = "FREE"
@@ -8884,6 +8886,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["section_starts"] = docx_section_starts(path)
             # 结构搬进 markdown 那一本（`office-text --markdown` 的对照）
             out["ooxml"]["markdown"] = docx_markdown_ledger(path)
+            # 文档里的公式：OMML 挂在段上，行内与独立成行按文件写着的交
+            out["ooxml"]["equations"] = docx_equations_ledger(path)
             # 分页那四个开关（段上；ODF 一跳在样式里）
             out["ooxml"]["keep_switches"] = docx_keep_switches(path)
             # 这张表套的是哪个样式：样式 id 与那枚 look 分开交
@@ -8952,6 +8956,8 @@ def facts(path: Path) -> dict:
             out["odt"]["note_settings"] = odf_note_settings(path)
             # 结构搬进 markdown：与 docx 那一本同一个键形状，只是层级与记号是另一族的写法
             out["odt"]["markdown"] = odf_markdown_ledger(path)
+            # 同一问在 ODF 要跳进另一个部件：一条式子一个 Object N/content.xml 的 MathML
+            out["odt"]["equations"] = odf_equations_ledger(path)
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger

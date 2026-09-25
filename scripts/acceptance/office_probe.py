@@ -296,6 +296,11 @@ def main() -> int:
         "md.docx": ("ooxml", "word", "docx"),
         "md-lo.docx": ("ooxml", "word", "docx"),
         "md.odt": ("opendocument", "word", "odt"),
+        # 公式那四份：OMML 原文、LibreOffice 重写、转成 odt（一条式子一个部件）、再回转
+        "eq.docx": ("ooxml", "word", "docx"),
+        "eq-lo.docx": ("ooxml", "word", "docx"),
+        "eq-od.docx": ("ooxml", "word", "docx"),
+        "eq.odt": ("opendocument", "word", "odt"),
         # 注的编号那三份：同一句话在两处说，两处说的不一样
         "nset.docx": ("ooxml", "word", "docx"),
         "nset-lo.docx": ("ooxml", "word", "docx"),
@@ -6124,6 +6129,126 @@ def main() -> int:
         [quiet.get("markdown"), elsewhere.get("markdown"),
          any("markdown" in str(one) for one in (dig(elsewhere, "notes") or []))],
         [None, None, True],
+    )
+    # ── 3au) 文档里的公式：行内与独立成行会被生产者改，ODF 一条式子住在另一个部件 ──────
+    print("=== 3au) 公式：OMML 的挂法与 MathML 的部件，两家各按自己文件写的交 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 的公式那份账与读者一致（OMML：挂法、对齐、结构名、式子里的字）" % name,
+              dig(got, "structure.equations"), files[name]["ooxml"]["equations"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 的公式那份账与读者一致（ODF：draw:object 那一跳、MathML 元素与字）" % name,
+              dig(got, "structure.equations"), files[name]["odt"]["equations"])
+    hand = lbin("office-doc", fixture("eq.docx"))
+    rewrote = lbin("office-doc", fixture("eq-lo.docx"))
+    check(
+        "`eq.docx` 六条式子：三条行内（`m:oMath` 直接挂 `w:p`）、三条独立成行（在 `m:oMathPara` 里），"
+        "六段各有至少一条；只有一条自己写了对齐（`align_written_total` 1，值是 `centerGroup`），"
+        "点名成普通字的 `m:nor` 一枚，`m:t` 里的字一共 13 个码位 —— 结构名按文档顺序交"
+        "（分数 `f`、上标 `sSup`、根号 `rad` 带 `degHide`、括号 `d` 带 `begChr`/`endChr`）",
+        [dig(hand, "structure.equations.equations_total"),
+         dig(hand, "structure.equations.inline_total"),
+         dig(hand, "structure.equations.display_total"),
+         dig(hand, "structure.equations.paragraphs_with"),
+         dig(hand, "structure.equations.paragraphs_total"),
+         dig(hand, "structure.equations.align_written_total"),
+         dig(hand, "structure.equations.nor_runs"),
+         dig(hand, "structure.equations.lit_runs"),
+         dig(hand, "structure.equations.math_runs"),
+         dig(hand, "structure.equations.text_chars"),
+         dig(hand, "structure.equations.o_math_para_total"),
+         dig(hand, "structure.equations.items[0].placement"),
+         dig(hand, "structure.equations.items[0].host"),
+         dig(hand, "structure.equations.items[0].paragraph"),
+         dig(hand, "structure.equations.items[0].structures"),
+         dig(hand, "structure.equations.items[0].text"),
+         dig(hand, "structure.equations.items[3].align_written")],
+        [6, 3, 3, 6, 7, 1, 1, 0, 12, 13, 3,
+         "inline", "w:p", 0, ["f", "num", "den"], "ab", "centerGroup"],
+    )
+    check(
+        "LibreOffice 重写同一份（`eq-lo.docx`）改了三处，账本一处都不遮：行内 3 → 2、独立 3 → 4"
+        "（两条行内式被升级成 `m:oMathPara`）；对齐从 1 条变 4 条 —— 作者写的 `centerGroup` 变成 "
+        "`center`，另外三条原本一个字没写的都补上了值；`m:nor` 那一条被补了一枚 `m:lit`。"
+        "而式子里的字一个都没动（`text_chars` 仍 13、`math_runs` 仍 12）",
+        [dig(rewrote, "structure.equations.inline_total"),
+         dig(rewrote, "structure.equations.display_total"),
+         dig(rewrote, "structure.equations.align_written_total"),
+         dig(rewrote, "structure.equations.o_math_para_total"),
+         dig(rewrote, "structure.equations.items[3].align_written"),
+         dig(rewrote, "structure.equations.lit_runs"),
+         dig(rewrote, "structure.equations.nor_runs"),
+         dig(rewrote, "structure.equations.text_chars"),
+         dig(rewrote, "structure.equations.math_runs"),
+         dig(rewrote, "structure.equations.equations_total")],
+        [2, 4, 4, 4, "center", 1, 1, 13, 12, 6],
+    )
+    odt = lbin("office-doc", fixture("eq.odt"))
+    check(
+        "同一份转成 odt 之后，一条式子搬进**另一份部件**：六枚 `draw:frame`"
+        "（`text:anchor-type` 写 `as-char`、尺寸写成 `0.314cm` 这种自带单位的串）里 "
+        "`draw:object` 的 `xlink:href` 指向 `./Object N`，部件 `Object N/content.xml` 全在"
+        "（`parts_found` 6 / `parts_missing` 0），里面都有 `<math>` 根（`math_found` 6）；"
+        "另有六枚替位图地址（`replacements_written` 6）也按写的交。"
+        "**行内与独立在这一族分不出来**：六条的 `display` 一律写 `block`"
+        "（`inline_written` 0），所以只交「按写的几个 block」，不猜原本是哪种",
+        [dig(odt, "structure.equations.equations_total"),
+         dig(odt, "structure.equations.frames_seen"),
+         dig(odt, "structure.equations.objects_total"),
+         dig(odt, "structure.equations.math_found"),
+         dig(odt, "structure.equations.objects_without_math"),
+         dig(odt, "structure.equations.parts_found"),
+         dig(odt, "structure.equations.parts_missing"),
+         dig(odt, "structure.equations.block_written"),
+         dig(odt, "structure.equations.inline_written"),
+         dig(odt, "structure.equations.annotations_found"),
+         dig(odt, "structure.equations.replacements_written"),
+         dig(odt, "structure.equations.paragraphs_total"),
+         dig(odt, "structure.equations.items[0].anchor_written"),
+         dig(odt, "structure.equations.items[0].width_written"),
+         dig(odt, "structure.equations.items[0].object_target"),
+         dig(odt, "structure.equations.items[0].object_part"),
+         dig(odt, "structure.equations.items[0].display_written"),
+         dig(odt, "structure.equations.items[0].annotation_source")],
+        [6, 6, 6, 6, 0, 6, 0, 6, 0, 6, 6, 7,
+         "as-char", "0.314cm", "./Object 1", "Object 1/content.xml", "block",
+         "{a} over {b}"],
+    )
+    omml_text = [dig(hand, "structure.equations.items[%d].text" % i) for i in range(6)]
+    math_text = [dig(odt, "structure.equations.items[%d].text" % i) for i in range(6)]
+    check(
+        "**跨族同问，两族的「字」不一样长**：六条式子在 OMML 里是 ab / x2 / 12 / n / 合计=12 / n，"
+        "在 MathML 里是 ab / x2 / 12 / **[n]** / 合计=12 / **[n]** —— 括号在 OMML 是 `m:d` 的属性"
+        "（`m:begChr` / `m:endChr`），到 MathML 成了 `mo` **元素**，于是第 3、5 条差出来；"
+        "两边 `text_chars` 因此是 13 与 17，各按自己文件写着的交，不拿一边补另一边",
+        [omml_text, math_text,
+         [i for i, (x, y) in enumerate(zip(omml_text, math_text)) if x != y],
+         dig(hand, "structure.equations.text_chars"),
+         dig(odt, "structure.equations.text_chars")],
+        [["ab", "x2", "12", "n", "合计=12", "n"],
+         ["ab", "x2", "12", "[n]", "合计=12", "[n]"],
+         [3, 5], 13, 17],
+    )
+    round_trip = lbin("office-doc", fixture("eq-od.docx"))
+    check(
+        "从这个 odt 再回转成 docx（`eq-od.docx`）：账与 LibreOffice 那次 docx → docx 的重写**一格不差**"
+        "（MathML 回到 OMML 之后挂法、对齐、结构名与字都落在同一份账上）—— "
+        "两条路走出来的两副件在这一本上同形，所以不需要替文件合并任何一格",
+        dig(round_trip, "structure.equations"),
+        dig(rewrote, "structure.equations"),
+    )
+    quiet = lbin("office-doc", fixture("md.docx"))
+    check(
+        "没有公式的件给 0（数过了没有），不是缺键；而 `.doc` / RTF 这些族**整个不交这个键**"
+        "（缺键 = 这一族还没读，不是 0）：那几族把式子内嵌成字段/对象是另一套记号，"
+        "本机没有能写出这些件的生产者",
+        [dig(quiet, "structure.equations.equations_total"),
+         dig(quiet, "structure.equations.available"),
+         dig(lbin("office-doc", fixture("tabs.rtf")), "structure.equations"),
+         dig(lbin("office-doc", fixture("notes.odt")), "structure.equations.frames_seen"),
+         dig(lbin("office-doc", fixture("images.odt")), "structure.equations.objects_total")],
+        [0, True, None, 1, 0],
     )
     # ── 3aq) 公式那枚 <f> 自己写了什么：共享组的跟随格在文件里没有公式正文 ──────────
     print("=== 3aq) 公式元素自己：共享组、空正文带缓存值、两个生产者三种写法 ===")
