@@ -950,6 +950,10 @@ fn heading_level(styles: &[Value], index: u64) -> Option<usize> {
 
 /// 单元格分隔：输出一个制表符
 const TAB_WORDS: &[&str] = &["tab", "cell", "nestcell"];
+/// 制表位那一族的两种前缀：它们**只管紧跟的那一个** `\tx`（实测 LibreOffice 的 RTF 导出
+/// 写成 `\tldot\tqr\tx1701\tlul\tx5102` —— 第二条的位置没有对齐前缀，就是这一族的默认）
+const TAB_ALIGN_WORDS: &[&str] = &["tq", "tqc", "tqr", "tqdec", "tqbar"];
+const TAB_LEADER_WORDS: &[&str] = &["tldot", "tleq", "tlhyph", "tlth", "tlul", "tlbtk"];
 /// 行结束：一行表格就是一行文本 —— 把 \row 当制表符会把整张表挤成一行
 const ROW_WORDS: &[&str] = &["row", "nestrow"];
 /// 嵌套对象类：整群跳过并计数（办公文件里最常见的是 OLE 对象）
@@ -1073,6 +1077,13 @@ pub struct Rtf {
     /// 断点词的条数，按 `BREAK_WORD_NAMES` 那六个键的顺序（只在没被跳过的那一层数：
     /// 页眉里那条 `\par` 不是正文的一段）
     pub break_words: [usize; 6],
+    /// 制表位这一族：`\tx` 逐条交（每条带上它前面那两个「只管这一条」的前缀），
+    /// `\tab` 是**字符**（与定义分开的另一本账），那两个计数是前缀词各出现几次 ——
+    /// 前缀比 `\tx` 多就是有条前缀没配上位置（这一族允许这么写）
+    pub tab_rows: Vec<Value>,
+    pub tab_chars: usize,
+    pub tab_align_words: usize,
+    pub tab_leader_words: usize,
     /// 表那份账。这六个数都是**控制字本身的条数**（`\trowd` / `\row` / `\cell` / `\intbl`
     /// 与嵌套表那两个），不是「有几张表」的推断 —— 那条规则拿两份件试过：
     /// 一张 2×2 的对，两张（3×2 与 2×2）的把两张数成一张，所以这里只交数得清的
@@ -1216,6 +1227,10 @@ pub fn extract(bytes: &[u8]) -> Rtf {
     // 刚读到、还没配上注的那条 `{\*\atnauthor …}`：文件把作者写在注的前面一格，
     // 所以「读到注」时取走它；取不到就交 null（有一格没作者就是文件的账，不补）
     let mut pending_author: Option<String> = None;
+    // 刚读到、还没配上位置的那两个制表位前缀：这一族它们只管**紧跟的那一个** `\tx`，
+    // 所以配上一个就清空（`\tx` 自己不带前缀就是这一族的默认，交 null）
+    let mut tab_align: Option<String> = None;
+    let mut tab_leader: Option<String> = None;
     let mut me = Rtf {
         text: String::new(),
         lines: Vec::new(),
@@ -1247,6 +1262,10 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         annotations: Vec::new(),
         annotation_authors: 0,
         break_words: [0; 6],
+        tab_rows: Vec::new(),
+        tab_chars: 0,
+        tab_align_words: 0,
+        tab_leader_words: 0,
         paper_writes: Vec::new(),
         table_row_defines: 0,
         table_rows: 0,
@@ -1691,6 +1710,24 @@ pub fn extract(bytes: &[u8]) -> Rtf {
             // 断点词：这六个各数各的（合不合是调用方的事，这里只交文件写了几条）
             if let Some(which) = break_word_index(word.as_str()) {
                 me.break_words[which] += 1;
+            }
+            // 制表位这一族：`\tx` 是一个位置（没带数字那一形是「清掉一个位置」），它前面那两个
+            // 前缀只管紧跟的这一个；`\tab` 是段里的制表**字符** —— 与「定义了哪几个位置」两本账
+            if word == "tx" {
+                me.tab_rows.push(json!({
+                    "position_written": (!digits.is_empty()).then(|| digits.clone()),
+                    "align_written": tab_align.take(),
+                    "leader_written": tab_leader.take(),
+                }));
+            } else if TAB_ALIGN_WORDS.contains(&word.as_str()) {
+                me.tab_align_words += 1;
+                tab_align = Some(word.clone());
+            } else if TAB_LEADER_WORDS.contains(&word.as_str()) {
+                me.tab_leader_words += 1;
+                tab_leader = Some(word.clone());
+            }
+            if word == "tab" {
+                me.tab_chars += 1;
             }
             // 样式被用了几次：正文里的 `\sN`（数字参数就在 digits 里）。
             // 同一处也记下「这一段现在用的是哪个样式」—— 段属性就在收尾之前

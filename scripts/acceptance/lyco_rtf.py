@@ -65,6 +65,10 @@ BREAK_COUNT = ("par", "line", "page", "pagebb", "pbb", "sect")
 TAB_WORDS = {"tab", "cell", "nestcell"}
 # 行结束：一行表格就是一行文本（把 \row 当制表符会把整张表挤成一行）
 ROW_WORDS = {"row", "nestrow"}
+# 制表位那一族的两种前缀：都**只管紧跟的那一个** `\tx`（LibreOffice 的 RTF 导出实测写成
+# `\tldot\tqr\tx1701\tlul\tx5102` 这样，第二条没带对齐前缀就是这一族的默认）
+TAB_ALIGN_WORDS = {"tq", "tqc", "tqr", "tqdec", "tqbar"}
+TAB_LEADER_WORDS = {"tldot", "tleq", "tlhyph", "tlth", "tlul", "tlbtk"}
 # 嵌套对象类：整个跳过并计数（办公文件里常见的是 OLE 对象与图片）
 OBJECT_WORDS = {"object", "objattph", "objdata", "objclass", "objname", "objemb", "objhide"}
 # 文档级「那张纸」写在哪几个控制字上（单位是 twips，1/1440 英寸）。
@@ -847,6 +851,14 @@ def rtf_text(data: bytes) -> dict:
         "fields": 0,
         # 断点词各几条（只在没被跳过的那一层数：页眉里的 \par 不是正文的段）
         "break_words": {one: 0 for one in BREAK_COUNT},
+        # 制表位那份账：`\tx` 逐条（带前面那两个只管一条的前缀）、`\tab` 是字符（另一本账），
+        # 两个 pending 是「刚说过、还没配上位置」的前缀
+        "tab_rows": [],
+        "tab_chars": 0,
+        "tab_align_words": 0,
+        "tab_leader_words": 0,
+        "tab_pending_align": None,
+        "tab_pending_leader": None,
         # `{\*\atnauthor …}` 出现了几条：与 annotations 的条数不等就是文件自己没配上
         "atnauthors": 0,
         "bkmkstarts": 0,
@@ -1168,6 +1180,24 @@ def rtf_text(data: bytes) -> dict:
             # RTF 导出里就是 `\pagebb`（三份件都这么量到）
             if word in stats["break_words"]:
                 stats["break_words"][word] += 1
+            # 制表位这一族：`\tx` 是一个位置（没带数字那一形是「清掉一个位置」），它前面那两个
+            # 前缀只管紧跟的这一个；`\tab` 是段里的制表**字符**，与「定义了哪几个位置」两本账
+            if word == "tx":
+                stats["tab_rows"].append({
+                    "position_written": digits if digits else None,
+                    "align_written": stats["tab_pending_align"],
+                    "leader_written": stats["tab_pending_leader"],
+                })
+                stats["tab_pending_align"] = None
+                stats["tab_pending_leader"] = None
+            elif word in TAB_ALIGN_WORDS:
+                stats["tab_align_words"] += 1
+                stats["tab_pending_align"] = word
+            elif word in TAB_LEADER_WORDS:
+                stats["tab_leader_words"] += 1
+                stats["tab_pending_leader"] = word
+            if word == "tab":
+                stats["tab_chars"] += 1
             # 样式被用了几次：正文里的 \sN（样式表那一群已被吃掉，不会自己数自己）。
             # 同一处也记下「这一段现在用的是哪个样式」—— 段属性就在 \par 之前
             if word == "s" and digits.isdigit():
@@ -1356,6 +1386,20 @@ def rtf_text(data: bytes) -> dict:
         "annotation_authors": stats["atnauthors"],
         # 断点词的条数（六个键固定）：`\pagebb` 那一条就是 Word 的分页符换了一种写法
         "break_words": dict(stats["break_words"]),
+        # 制表位那份账（与 Rust 的 `structure.tab_stops` 同一个形状）：只交流上的数与原样，
+        # 「这一条位置属于哪一段」在这一族判不住（样式表那一群也写 `\tx`，没有段边界）
+        "tab_stops": {
+            "family": "rtf",
+            "available": True,
+            "positions": len(stats["tab_rows"]),
+            "without_position": sum(
+                1 for one in stats["tab_rows"] if one["position_written"] is None
+            ),
+            "chars": stats["tab_chars"],
+            "align_words": stats["tab_align_words"],
+            "leader_words": stats["tab_leader_words"],
+            "rows": stats["tab_rows"],
+        },
         "note_destinations": stats["note_destinations"],
         # 表那份账：六个数都是控制字的条数，不是「表」的推断
         "table_row_defines": stats["row_defines"],

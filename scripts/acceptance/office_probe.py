@@ -4623,10 +4623,7 @@ def main() -> int:
     )
     check(
         "两族能对齐的就是那四个数，形状与单位不对齐；有段而一条没定义的件交 0 与空数组，"
-        "不是缺键；RTF 这一族**没读** —— LibreOffice 的 RTF 导出把同一批位置写回 twip"
-        "（`\\tx1701` 与 `\\tx5102` 各 4 条），而对齐与引导符是**只管下一个位置**的前缀"
-        "（`\\tldot\\tqr\\tx1701` = 第一条点引导右对齐），规则量准了记在 `tab_stops.rs` 的模块头，"
-        "这一支还没实现 —— 缺键就是「这一族没看」",
+        "不是缺键。第三家见 3ab：RTF 也写这份账，位置又回到 twip",
         [dig(tb, "structure.tab_stops.paragraphs_total"),
          dig(tbo, "structure.tab_stops.paragraphs_total"),
          dig(tb, "structure.tab_stops.distinct_positions"),
@@ -4634,9 +4631,51 @@ def main() -> int:
          dig(lbin("office-doc", fixture("paper-a4.docx")), "structure.tab_stops.with_stops"),
          dig(lbin("office-doc", fixture("paper-a4.docx")), "structure.tab_stops.stops_total"),
          dig(lbin("office-doc", fixture("paper-a4.odt")), "structure.tab_stops.paragraphs_total"),
-         dig(lbin("office-doc", fixture("paper-a4.odt")), "structure.tab_stops.styles_with_stops"),
-         dig(lbin("office-doc", fixture("tabs.rtf")), "structure.tab_stops")],
-        [5, 5, ["1701", "5102"], ["3cm", "8.999cm"], 0, 0, 2, 3, None],
+         dig(lbin("office-doc", fixture("paper-a4.odt")), "structure.tab_stops.styles_with_stops")],
+        [5, 5, ["1701", "5102"], ["3cm", "8.999cm"], 0, 0, 2, 3],
+    )
+
+    # ── 3ab) 第三家：RTF 把制表位写成一条扁平流，前缀只管紧跟的那一个位置 ─────────
+    print("=== 3ab) RTF 的制表位：`\\tx` 逐条与前缀配对 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.rtf")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 制表位那份账与读者一致（位置、前缀、制表字符各一本）" % name,
+              dig(got, "structure.tab_stops"),
+              files[name]["rtf"]["tab_stops"])
+    tbr = lbin("office-doc", fixture("tabs.rtf"))
+    check(
+        "同一条稿子的第三种存法：八个位置、八个制表字符，与前两**同一个数**，而位置又回到 "
+        "twip（`1701` / `5102` —— 与 OOXML 同一种单位，ODF 那个 `8.999cm` 是另一家的写法）；"
+        "对齐前缀只有 3 条（左对齐这一族不写词），引导前缀 6 条 —— 四个 9cm 那一条共用一个 "
+        "`\\tlul`，而「前缀比位置多/少」正是这一族的形状，所以两个数各交各的",
+        [dig(tbr, "structure.tab_stops.positions"),
+         dig(tbr, "structure.tab_stops.chars"),
+         dig(tbr, "structure.tab_stops.without_position"),
+         dig(tbr, "structure.tab_stops.align_words"),
+         dig(tbr, "structure.tab_stops.leader_words"),
+         [one["position_written"] for one in dig(tbr, "structure.tab_stops.rows")],
+         [one["align_written"] for one in dig(tbr, "structure.tab_stops.rows")],
+         [one["leader_written"] for one in dig(tbr, "structure.tab_stops.rows")]],
+        [8, 8, 0, 3, 6,
+         ["1701", "5102", "1701", "5102", "1701", "5102", "1701", "5102"],
+         [None, None, "tqr", None, "tqc", None, "tqdec", None],
+         [None, "tlul", "tldot", "tlul", "tlth", "tlul", None, "tlul"]],
+    )
+    check(
+        "三家答同一个问的三份凭据（一条稿子、三种写法）：位置 8 条与制表字符 8 个三家都一样，"
+        "而「对齐」这件事三家各有词表 —— OOXML `w:val=left/right/center/decimal`、"
+        "ODF `style:type=right/center/char`（左不写）、RTF `\\tqr/\\tqc/\\tqdec`（左不写）；"
+        "有制表字符而一个位置没定义的件也真存在（`lists.rtf`：5 个字符、0 条定义）",
+        [dig(tb, "structure.tab_stops.stops_total"),
+         dig(tbo, "structure.tab_stops.stops_total"),
+         dig(tbr, "structure.tab_stops.positions"),
+         dig(tb, "structure.tab_stops.tab_chars_total"),
+         dig(tbo, "structure.tab_stops.tab_chars_total"),
+         dig(tbr, "structure.tab_stops.chars"),
+         dig(lbin("office-doc", fixture("lists.rtf")), "structure.tab_stops.chars"),
+         dig(lbin("office-doc", fixture("lists.rtf")), "structure.tab_stops.positions"),
+         dig(lbin("office-doc", fixture("tables.rtf")), "structure.tab_stops.positions")],
+        [8, 8, 8, 8, 8, 8, 5, 0, 0],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
