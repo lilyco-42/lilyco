@@ -81,6 +81,11 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `deck-gr-lo.pptx` | LibreOffice（`deck-gr.pptx` → .pptx） | 同一份重写：形状、组合、两套坐标与五个名字全保住，`id` 从 2..6 整批重排成 61..65，坐标走那条老换算（`100000`→`100080`、`2900000`→`2899800`），而它顺手给 `spTree` 自己的那份 `grpSpPr` 补了一个**全 0 的 `a:xfrm`** —— 见事实 104 |
 | `deck-gr.odp` | LibreOffice（`deck-gr.pptx` → .odp） | 同一页还是 5 条、层级与五个名字全对得上，但分组在这里叫 `svg:g`（`draw:group` 一次都没出现）、`id` 这一族根本没有、尺寸换成 `5.555cm` / `0.278cm` 这种自带单位的串，而组合那一层**一个尺寸属性都不写**；字也不在 `draw:text-box` 里 —— `text:p` 直接挂在 `draw:custom-shape` 身上 —— 见事实 104 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
+| `crep.docx` | 从 `comments.docx` 用 zipfile 补出来（`add_comment_thread_parts`）—— 本机没有会写这两份部件的生产者 | 「哪条已解决、谁回复谁」的正例：两条批注体内各挂一个 `w14:paraId`，`word/commentsExtended.xml` 三条 `w15:commentEx`（一条 `done="1"`、一条 `done="0"` 且 `paraIdParent` 指回前者、还有一条号**对不上任何批注**），`word/commentsIds.xml` 三条里也留一条孤儿 —— 见事实 105 |
+| `crep-lo.docx` | LibreOffice（`crep.docx` → .docx） | 两份部件**整个不见**，连批注体内那个 `w14:paraId` 也没了（`paras_with_para_id` 2 → 0）—— 回复与已解决两头都读不出来，这是这份件的事实 |
+| `crep.odt` | LibreOffice（`crep.docx` → .odt） | 「已解决」在 ODF 换了地方也换了词（`office:annotation/@loext:resolved`），但两条都写 `false` —— 源件里那条 `done="1"` **没落过来**；回复这一问在这一族没有任何对应物 |
+| `crep-r.odt` | 把 `crep.odt` 第一格 `loext:resolved` 改成 `true`（zipfile，其余字节不动） | 一份件里 `true` 与 `false` 并存（`resolved_true` 1、`resolved_false` 1）—— 「这份文档解决了几条注」在 ODF 数得出来 |
+| `crep-r.docx` | LibreOffice（`crep-r.odt` → .docx） | **这一份的 `commentsExtended.xml` 是生产者自己写的**：2 条批注只给已解决那条写记录（`ext_total` 1、`done="1"`），另一条**没有记录**（不是写 `0`）；段号是它新排的 `01000000`，而 `commentsIds.xml` 整个不写 —— 见事实 105 |
 | `deck.odp`（结构） | 同上 | 两页：`draw:name` 是「预算评审」与「第二页：数字」；第一页有 `presentation:class="notes"` 的备注（「评审时先讲口径再讲数字」），**旁边还坐着页码占位，里面的样字是 `<编号>`** —— 整页一把抓就会把它当正文；两个母版页名、两个版式名，但文件里没有任何版式定义；尺寸 25.4cm×19.05cm landscape 在 styles.xml 的 page-layout 里 |
 | `notes.odt`（结构） | 同上 | 10 段（2 段是空的）、两个带 `text:outline-level` 的标题、1 张 2×2 表（名叫「表格1」）、一条 `text:annotation` 批注、一个 `draw:frame`+`draw:image`、一个 `text:a` 超链接、5 个 `text:sequence-decl`；`meta.xml` 自报 paragraph-count 10 / page-count 2 / word-count 61 |
 | `chart.ods` | LibreOffice（`chart.xlsx` → .ods） | ODF 的图是**嵌入对象**：`数据` 那张表里两个 `draw:frame` 各指一个 `Object N/` 目录，那里面的 content.xml 才写着 `chart:chart`；类型只在每条 `chart:series` 上（`chart:bar` / `chart:line`），点数另有一条 `chart:data-point@chart:repeated` 自报「这一条顶两个点」，地址是第三种写法（`数据.B2:数据.B3`：点分隔、不带 `$`），末尾还抄了一张 `local-table`（10 / 25 / 4 / 9） |
@@ -1874,6 +1879,37 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 反面凭据与界：备注那棵树不进这份账（pptx 只走这一页的 `spTree`，ODF 的形状白名单里没有
       `notes`，走不进去 —— 与页上链接那一条同一规矩）；遗留 .ppt **不交这个键**（缺键 = 这一族
       没看）—— 它的记录树里没有「形状树」这一层，按 0x03EE 容器归页的那本账另在 `records`。
+
+105. **哪条批注已解决、谁回复谁：OOXML 这句话在另外两份部件里，靠段号连，两跳各自都会断；ODF 只有半句**
+    - 形状：`word/comments.xml` 里那条 `w:comment` 自己只有 `w:id` / `w:author` / `w:date`，
+      **回复与已解决都不在它身上** —— 第二份 `word/commentsExtended.xml` 的 `w15:commentEx` 用
+      `@w15:paraId` 指回「批注体内那一段的 `w14:paraId`」（不是 `w:id`！），带 `@w15:done` 与
+      `@w15:paraIdParent`；第三份 `word/commentsIds.xml` 又给同一个段号配一枚 `@w16cid:durableId`。
+      一问四份数据、两跳才连得上，所以每一跳都单独数「连上了几条 / 剩几条孤儿」。
+    - 头条是**两跳都可以断**：`crep.docx` 三条 `commentEx` 只连得上两条（`ext_orphans` 1），
+      `commentsIds.xml` 三条里也有一条孤儿（`ids_orphans` 1）。把三份并成一个「几条批注」，
+      文件里断着的线就被读成没断。回复也是同一枚号的事：`threads[1].parent_para_id` 是
+      `11111111` 而 `replies_to` 是本清单里的第 0 条 —— 号对不对得上，两本账分开交。
+    - **「没写」与「写了 0」是两件事**（这一条有生产者凭据）：`crep-r.docx` 里 2 条注只有 1 条
+      `commentEx`，另一条是 `ex_found: false`；而 `crep.docx` 那条明确写 `done="0"`。
+      三档各数各的：`done_true` / `done_false` / `ex_without_done`（后者是「有记录而没写 done」）。
+    - **反向证明词表不是我编的**：把 `crep.odt` 第一格改成 `loext:resolved="true"`（`crep-r.odt`）
+      再让 LibreOffice 导成 docx，它**自己写出** `word/commentsExtended.xml` —— 只给已解决那条写
+      记录、`w14:paraId` 是它新排的 `01000000`、而 `commentsIds.xml` 整个不写。
+      同一条路反过来走（docx→odt）它对 `w15:done` 看都不看：`crep.odt` 两条都写
+      `loext:resolved="false"`，源件那条 `done="1"` 没落过来。**同一个生产者的两个方向，一个写一个不认**。
+    - 生产者会丢整份：`crep-lo.docx`（LibreOffice 重写 `crep.docx`）里两份部件**整个不见**，
+      连批注体内那个段号也没了（`paras_with_para_id` 2 → 0）—— 于是这一问两头都读不出来，
+      账上交一串 0 与 `null` 而不是缺键。反面凭据还有 `comments.docx`：python-docx 那份
+      **有两条批注而这一格一个字都没写**（`ext_part_written` false）——「有批注」与
+      「说过它解没解决」是两件事。
+    - ODF 这一族只有半句：`loext:resolved` 直接压在 `office:annotation` 身上（两份件都走，
+      `parts_seen` 说清在哪份解到），而**回复没有任何对应物** —— 那一格里既没有 parent 也没有
+      thread，所以这一族**不交回复那几格**（不是 0）。另有一条只在别的文档族量到的分野：
+      `cell-notes.ods` 三条注**一条都没写** `loext:resolved`（`without_resolved` 3）——
+      同一个生产者的 Writer 出口写满、Calc 出口一个字不写，所以「没写这个属性」必须是独立一档
+      （那一份是 .ods，`office-doc` 不走它，这一格在探针里没有凭据，只在此记下出处）。
+    - RTF 与遗留 .doc 不交这个键（缺键 = 这一族没看）：那一族的注没有「谁回复谁」与「结没结」的位置。
 
 ## 这些数字从哪来
 

@@ -2983,6 +2983,112 @@ def write_toc_seed(src: Path, dst: Path) -> None:
     src_zip.close()
 
 
+CREP_PID_A = "11111111"
+CREP_PID_B = "22222222"
+_W14 = "http://schemas.microsoft.com/office/word/2010/wordml"
+_W15 = "http://schemas.microsoft.com/office/word/2012/wordml"
+_CID = "http://schemas.microsoft.com/office/word/2018/wordml/cid"
+
+
+def add_comment_thread_parts(seed: Path, target: Path) -> None:
+    r"""从一份真有批注的 docx 出发，补上「谁回复谁」与「结没结」那两份部件（zipfile 写）
+
+    本机没有会写这两份部件的生产者：python-docx 不知道 w15:commentEx，LibreOffice 的 docx
+    导出也不写（实测 `crep-lo.docx`：两份部件整个不见，连批注体内那个段号都没了）。
+    件里刻意留下三种情形，好让「哪一跳断了」在账上看得见：一条 `done="1"`、
+    一条 `done="0"` 且 `paraIdParent` 指回前者，再加一条**号对不上任何批注**的孤儿；
+    `commentsIds.xml` 同样留一条孤儿。存在的理由：这一问在 OOXML 是三份部件两跳，
+    而 LibreOffice 从 odt 导出 docx 时**会自己写出** `commentsExtended.xml`（见 crep-r.docx），
+    词表因此有独立印证，不是这里编的。
+    """
+    with zipfile.ZipFile(seed) as box:
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    comments = parts["word/comments.xml"].decode("utf8")
+    ids = [CREP_PID_A, CREP_PID_B]
+    out = []
+    cursor = 0
+    used = 0
+    while True:
+        hit = comments.find("<w:p>", cursor)
+        if hit < 0:
+            out.append(comments[cursor:])
+            break
+        out.append(comments[cursor:hit])
+        if used < len(ids):
+            out.append('<w:p w14:paraId="%s">' % ids[used])
+            used += 1
+        else:
+            out.append("<w:p>")
+        cursor = hit + len("<w:p>")
+    comments = "".join(out)
+    if "xmlns:w14" not in comments:
+        comments = comments.replace("xmlns:w15=", 'xmlns:w14="%s" xmlns:w15=' % _W14, 1)
+    parts["word/comments.xml"] = comments.encode("utf8")
+    main_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    parts["word/commentsExtended.xml"] = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w15:commentsEx xmlns:w="%s" xmlns:w14="%s" xmlns:w15="%s">'
+        '<w15:commentEx w15:paraId="%s" w15:done="1"/>'
+        '<w15:commentEx w15:paraId="%s" w15:paraIdParent="%s" w15:done="0"/>'
+        '<w15:commentEx w15:paraId="99999999" w15:done="0"/>'
+        "</w15:commentsEx>" % (main_ns, _W14, _W15,
+                               CREP_PID_A, CREP_PID_B, CREP_PID_A)
+    ).encode("utf8")
+    parts["word/commentsIds.xml"] = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w16cid:commentsIds xmlns:w14="%s" xmlns:w16cid="%s">'
+        '<w16cid:commentId w16cid:paraId="%s" w16cid:durableId="1000"/>'
+        '<w16cid:commentId w16cid:paraId="%s" w16cid:durableId="1001"/>'
+        '<w16cid:commentId w16cid:paraId="88888888" w16cid:durableId="1002"/>'
+        "</w16cid:commentsIds>" % (_W14, _CID, CREP_PID_A, CREP_PID_B)
+    ).encode("utf8")
+    types = parts["[Content_Types].xml"].decode("utf8")
+    types = types.replace(
+        "</Types>",
+        '<Override PartName="/word/commentsExtended.xml" ContentType="application/'
+        'vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml"/>'
+        '<Override PartName="/word/commentsIds.xml" ContentType="application/'
+        'vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml"/></Types>',
+    )
+    parts["[Content_Types].xml"] = types.encode("utf8")
+    rels = parts["word/_rels/document.xml.rels"].decode("utf8")
+    base = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    rels = rels.replace(
+        "</Relationships>",
+        '<Relationship Id="rId900" Type="%s/commentsExtended" Target="commentsExtended.xml"/>'
+        '<Relationship Id="rId901" Type="%s/commentsIds" Target="commentsIds.xml"/>'
+        "</Relationships>" % (base, base),
+    )
+    parts["word/_rels/document.xml.rels"] = rels.encode("utf8")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        target.unlink()
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as box:
+        for name, blob in parts.items():
+            box.writestr(name, blob)
+
+
+def flip_annotation_resolved(seed: Path, target: Path) -> None:
+    """把一份 odt 里第一条注的 `loext:resolved` 改成 true（其余字节不动）
+
+    存在的理由只有一个：拿它去问 LibreOffice「odt → docx 会不会写出 commentsExtended」——
+    它会给已解决那一条写 `w15:done="1"`，而**没解决的那一条压根不写记录**，
+    于是「没写」与「写了 0」这一档有了生产者的凭据。
+    """
+    with zipfile.ZipFile(seed) as box:
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    body = parts["content.xml"].decode("utf8")
+    parts["content.xml"] = body.replace(
+        'loext:resolved="false"', 'loext:resolved="true"', 1
+    ).encode("utf8")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        target.unlink()
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as box:
+        for name, blob in parts.items():
+            box.writestr(name, blob)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="重跑前先清掉输出目录")
@@ -3511,6 +3617,30 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "deck-gr-asodp" / "deck-gr.odp", OUT / "deck-gr.odp")
     else:
         print("⚠️  没拿到 deck-gr.odp（pptx → odp 那一转）")
+
+    # ── 批注的回复与已解决：三份部件两跳，五份件一条链 ─────────────────
+    crep = SCRATCH / "crep-src" / "crep.docx"
+    add_comment_thread_parts(OUT / "comments.docx", crep)
+    shutil.copyfile(crep, OUT / "crep.docx")
+    convert(exe, crep, "docx", SCRATCH / "crep-back")
+    if (SCRATCH / "crep-back" / "crep.docx").exists():
+        shutil.copyfile(SCRATCH / "crep-back" / "crep.docx", OUT / "crep-lo.docx")
+    else:
+        print("⚠️  没拿到 crep-lo.docx（docx → docx 那一转）")
+    convert(exe, crep, "odt", SCRATCH / "crep-asodt")
+    crep_odt = SCRATCH / "crep-asodt" / "crep.odt"
+    if crep_odt.exists():
+        shutil.copyfile(crep_odt, OUT / "crep.odt")
+        flipped = SCRATCH / "crep-flip" / "crep-r.odt"
+        flip_annotation_resolved(crep_odt, flipped)
+        shutil.copyfile(flipped, OUT / "crep-r.odt")
+        convert(exe, flipped, "docx", SCRATCH / "crep-r-asdocx")
+        if (SCRATCH / "crep-r-asdocx" / "crep-r.docx").exists():
+            shutil.copyfile(SCRATCH / "crep-r-asdocx" / "crep-r.docx", OUT / "crep-r.docx")
+        else:
+            print("⚠️  没拿到 crep-r.docx（odt → docx 那一转）")
+    else:
+        print("⚠️  没拿到 crep.odt（docx → odt 那一转）")
 
     # 注的编号那三份：在真有注的 notes-end.docx 上补设置（没有注时 LO 两处都不写，量不出这一问）
     seed = OUT / "notes-end.docx"

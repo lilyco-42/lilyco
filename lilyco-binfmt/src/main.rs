@@ -36,6 +36,7 @@
 mod biff;
 mod bookmark_pairs;
 mod cfb;
+mod comment_threads;
 mod comments;
 mod entries;
 mod identify;

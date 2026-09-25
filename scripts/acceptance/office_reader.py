@@ -1455,6 +1455,169 @@ def docx_comment_ledger(path: Path, limit: int = 100) -> dict:
     }
 
 
+def docx_comment_threads(path: Path, limit: int = 100) -> dict:
+    r"""批注的「谁回复谁」与「结没结」：值不住在 `w:comment` 上，在另外两份部件里，靠段号连
+
+    四条实测（`crep.docx` 手写的正例、`crep-lo.docx` 与 `crep-r.docx` 两个 LibreOffice 方向）：
+    `w15:commentEx/@w15:paraId` 指的是**批注体内那一段的 `w14:paraId`**，不是元素自己的 `w:id`，
+    所以这是两跳；回复是 `@w15:paraIdParent`（又一个段号）；`@w15:done` 才是「结没结」。
+    LibreOffice 的 **docx→docx** 把两份部件整个不写（连 `w14:paraId` 也一并没了），
+    而它的 **odt→docx** 那一路会写 `w15:done="1"` —— 且只对已解决那一条写记录，
+    没解决的那一条**记录整个不存在**：「没写」与「写了 0」是两件事，各交各的。
+    第三份部件 `word/commentsIds.xml` 又是第四个号（`w16cid:durableId`），同样按段号连。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        comments = []
+        if "word/comments.xml" in have:
+            croot = ET.fromstring(box.read("word/comments.xml"))
+            comments = [k for k in croot.iter() if xml_local(k.tag) == "comment"]
+        ext = []
+        if "word/commentsExtended.xml" in have:
+            eroot = ET.fromstring(box.read("word/commentsExtended.xml"))
+            ext = [k for k in eroot.iter() if xml_local(k.tag) == "commentEx"]
+        ids = []
+        if "word/commentsIds.xml" in have:
+            iroot = ET.fromstring(box.read("word/commentsIds.xml"))
+            ids = [k for k in iroot.iter() if xml_local(k.tag) == "commentId"]
+
+    def of(node, want):
+        if node is None:
+            return None
+        for key, value in node.attrib.items():
+            if xml_local(key) == want:
+                return value
+        return None
+
+    ext_by_pid = {}
+    for one in ext:
+        pid = of(one, "paraId")
+        if pid is not None and pid not in ext_by_pid:
+            ext_by_pid[pid] = one
+    ids_by_pid = {}
+    for one in ids:
+        pid = of(one, "paraId")
+        if pid is not None and pid not in ids_by_pid:
+            ids_by_pid[pid] = one
+
+    rows = []
+    para_owner = {}
+    for index, one in enumerate(comments):
+        paras = [k for k in one.iter() if xml_local(k.tag) == "p"]
+        pid = of(paras[0], "paraId") if paras else None
+        if pid is not None and pid not in para_owner:
+            para_owner[pid] = index
+        rows.append({
+            "index": index,
+            "id": of(one, "id"),
+            "author": of(one, "author"),
+            "para_id": pid,
+            "ex_found": False,
+            "done_written": None,
+            "done": None,
+            "parent_para_id": None,
+            "replies_to": None,
+            "durable_id": None,
+        })
+    matched_ext = set()
+    matched_ids = set()
+    for row in rows:
+        pid = row["para_id"]
+        had = ext_by_pid.get(pid) if pid is not None else None
+        if had is not None:
+            matched_ext.add(pid)
+            row["ex_found"] = True
+            done = of(had, "done")
+            row["done_written"] = done
+            row["done"] = (done == "1") if done is not None else None
+            row["parent_para_id"] = of(had, "paraIdParent")
+        cid = ids_by_pid.get(pid) if pid is not None else None
+        if cid is not None:
+            matched_ids.add(pid)
+            row["durable_id"] = of(cid, "durableId")
+    for row in rows:
+        parent = row["parent_para_id"]
+        if parent is not None:
+            row["replies_to"] = para_owner.get(parent)
+    replies = [one for one in rows if one["parent_para_id"] is not None]
+    return {
+        "family": "ooxml",
+        "available": True,
+        "comments_total": len(rows),
+        "paras_with_para_id": len([one for one in rows if one["para_id"] is not None]),
+        "ext_part_written": bool(ext) or "word/commentsExtended.xml" in have,
+        "ext_total": len(ext),
+        "ext_matched": len(matched_ext),
+        "ext_orphans": len(ext) - len(matched_ext),
+        "done_written_total": len([one for one in rows if one["done_written"] is not None]),
+        "done_true": len([one for one in rows if one["done"] is True]),
+        "done_false": len([one for one in rows if one["done"] is False]),
+        "ex_without_done": len([one for one in rows if one["ex_found"] and one["done_written"] is None]),
+        "replies_total": len(replies),
+        "replies_dangling": len([one for one in replies if one["replies_to"] is None]),
+        "ids_part_written": "word/commentsIds.xml" in have,
+        "ids_total": len(ids),
+        "ids_matched": len(matched_ids),
+        "ids_orphans": len(ids) - len(matched_ids),
+        "threads": rows[:limit],
+    }
+
+
+def odf_comment_threads(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF：「结没结」直接压在注自己身上（`loext:resolved`），而回复没有位置
+
+    实测：LibreOffice 导出的 odt / odp 每条 `office:annotation` 都写 `loext:resolved="false"`，
+    **而 .ods 的格子注一条都不写**（`cell-notes.ods` 三条全无）—— 所以「写了 false」与
+    「没写这个属性」是两个答案。回复那一路这一族没有任何对应物：`crep.odt` 里
+    `reply` / `thread` / `parent` 一个词都没有，所以本账**不交回复那一格**（不是 0）。
+    两份件都要走：注可以坐在 content.xml 也可以坐在 styles.xml。
+    """
+    rows = []
+    parts_seen = []
+    with zipfile.ZipFile(path) as box:
+        for part in ("content.xml", "styles.xml"):
+            if part not in box.namelist():
+                continue
+            raw = box.read(part)
+            try:
+                root = ET.fromstring(raw)
+            except ET.ParseError:
+                continue
+            found_here = False
+            for one in root.iter():
+                if xml_local(one.tag) != "annotation":
+                    continue
+                found_here = True
+                written = None
+                for key, value in one.attrib.items():
+                    if xml_local(key) == "resolved":
+                        written = value
+                name = None
+                for key, value in one.attrib.items():
+                    if xml_local(key) == "name":
+                        name = value
+                rows.append({
+                    "index": len(rows),
+                    "part": part,
+                    "name_written": name,
+                    "resolved_written": written,
+                    "resolved": (written == "true") if written is not None else None,
+                })
+            if found_here and part not in parts_seen:
+                parts_seen.append(part)
+    return {
+        "family": "odf",
+        "available": True,
+        "annotations_total": len(rows),
+        "parts_seen": parts_seen,
+        "with_resolved_written": len([one for one in rows if one["resolved_written"] is not None]),
+        "resolved_true": len([one for one in rows if one["resolved"] is True]),
+        "resolved_false": len([one for one in rows if one["resolved"] is False]),
+        "without_resolved": len([one for one in rows if one["resolved_written"] is None]),
+        "annotations": rows[:limit],
+    }
+
+
 def odf_comment_ledger(path: Path, limit: int = 100) -> dict:
     r"""同一问在 ODF 只有一处：`text:annotation` 坐在它所属的那一段里面
 
@@ -8503,6 +8666,7 @@ def facts(path: Path) -> dict:
             out["ooxml"]["tab_stops"] = docx_tab_stops(path)
             # 批注那一份账：内容在部件、锚点在正文，两边按号配
             out["ooxml"]["comment_ledger"] = docx_comment_ledger(path)
+            out["ooxml"]["comment_threads"] = docx_comment_threads(path)
             # 分页那四个开关（段上；ODF 一跳在样式里）
             out["ooxml"]["keep_switches"] = docx_keep_switches(path)
             # 这张表套的是哪个样式：样式 id 与那枚 look 分开交
@@ -8551,6 +8715,7 @@ def facts(path: Path) -> dict:
             out["odt"]["tab_stops"] = odf_tab_stops(path)
             # 同一问在 ODF 只有一处：批注坐在段里面
             out["odt"]["comment_ledger"] = odf_comment_ledger(path)
+            out["odt"]["comment_threads"] = odf_comment_threads(path)
             out["odt"]["keep_switches"] = odf_keep_switches(path)
             out["odt"]["table_styles"] = odf_table_styles(path)
             # 同一问在 ODF 一跳在样式里，而单位是写在串上的
