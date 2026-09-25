@@ -3775,6 +3775,66 @@ def main() -> int:
                want["field_runs"], want["notes_in_parts"], want["notes_referenced"],
                want["notes_unreferenced"]])
 
+    # ── 3n) 这一串字被谁包着：超链接与修订那三个壳上的字，串自己一个都没有 ────
+    print("=== 3n) 壳上那半句：hyperlink / ins / del 各自的作者、时间与号 ===")
+    rev = lbin("office-doc", fixture("revisions.docx"))
+    revlo = lbin("office-doc", fixture("revisions-lo.docx"))
+    notes = lbin("office-doc", fixture("notes.docx"))
+    check(
+        "同一次插入：一家写一条壳（id 11、一句「124000 元」），"
+        "LibreOffice 重写成两条壳（id 0 与 1、把数与单位拆开）",
+        [dig(rev, "structure.run_formats.list[3].wrapped"),
+         dig(rev, "structure.run_formats.list[3].wrapped_written.id"),
+         dig(rev, "structure.run_formats.list[3].text"),
+         dig(rev, "structure.run_formats.runs_wrapped"),
+         dig(rev, "structure.run_formats.wrapped_ins"),
+         dig(rev, "structure.run_formats.wrapped_del"),
+         dig(revlo, "structure.run_formats.list[3].wrapped_written.id"),
+         dig(revlo, "structure.run_formats.list[3].text"),
+         dig(revlo, "structure.run_formats.list[4].wrapped_written.id"),
+         dig(revlo, "structure.run_formats.list[4].text"),
+         dig(revlo, "structure.run_formats.runs_wrapped"),
+         dig(revlo, "structure.run_formats.wrapped_ins"),
+         dig(revlo, "structure.run_formats.wrapped_del")],
+        ["ins", "11", "124000 元", 3, 2, 1, "0", "124000 ", "1", "元", 5, 3, 2],
+    )
+    check(
+        "删掉的字不写在 `w:t` 上：这一串 text 是空串，而那些字照原样在 delText 里，"
+        "作者与时间是壳上写的（两家一字不差）",
+        [dig(rev, "structure.run_formats.list[4].wrapped"),
+         dig(rev, "structure.run_formats.list[4].text"),
+         dig(rev, "structure.run_formats.list[4].contents[0].element"),
+         dig(rev, "structure.run_formats.list[4].wrapped_written.author"),
+         dig(rev, "structure.run_formats.list[4].wrapped_written.date"),
+         dig(revlo, "structure.run_formats.list[5].wrapped"),
+         dig(revlo, "structure.run_formats.list[5].text"),
+         dig(revlo, "structure.run_formats.list[5].contents[0].element"),
+         dig(revlo, "structure.run_formats.list[5].wrapped_written.author")],
+        ["del", "", "delText", "李四", "2026-03-06T11:45:00Z",
+         "del", "", "delText", "李四"],
+    )
+    check(
+        "同一句「预算制度」是一条链接：三副件三个号（rId2 / rId9），号是生产者自己排的",
+        [dig(toc, "structure.run_formats.list[14].wrapped"),
+         dig(toc, "structure.run_formats.list[14].wrapped_written.id"),
+         dig(toc, "structure.run_formats.list[14].text"),
+         dig(notes, "structure.run_formats.list[8].wrapped_written.id"),
+         dig(runs["lo"], "structure.run_formats.wrapped_hyperlink"),
+         dig(toc, "structure.run_formats.runs_wrapped"),
+         dig(toc, "structure.run_formats.wrapped_ins"),
+         dig(notes, "structure.run_formats.wrapped_hyperlink")],
+        ["hyperlink", "rId2", "预算制度", "rId9", 0, 1, 0, 1],
+    )
+    check(
+        "没壳的那些串交 null，而不是空串：一份件里 21 串只有 1 串是包起来的",
+        [dig(toc, "structure.run_formats.list[13].wrapped"),
+         dig(toc, "structure.run_formats.list[13].wrapped_written"),
+         dig(rev, "structure.run_formats.list[2].wrapped"),
+         dig(notes, "structure.run_formats.runs_wrapped"),
+         dig(notes, "structure.run_formats.checked")],
+        [None, None, None, 1, 13],
+    )
+
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
     print("=== 3i) 文档里的图：一处号一次跳，两处答案各按各的文件交 ===")
     for name in ("images.docx", "images-lo.docx", "images-float.docx",

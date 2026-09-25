@@ -1066,15 +1066,16 @@ def _run_switch(holder, name: str):
 
 
 def _docx_runs(para) -> list:
-    """段里的串：直接坐在段下的 `w:r`，加上超链接与修订那三个壳里的（不往全树找，
-    免得把文本框里另一段的字算到这一段头上）"""
+    """段里的串：直接坐在段下的 `w:r`，加上超链接与修订那三个壳里的，
+    每条同时带上**包着它的那个壳**（没有壳就是 None）。不往全树找，
+    免得把文本框里另一段的字算到这一段头上"""
     out = []
     for kid in para:
         name = xml_local(kid.tag)
         if name == "r":
-            out.append(kid)
+            out.append((kid, None))
         elif name in ("hyperlink", "ins", "del"):
-            out.extend(one for one in kid if xml_local(one.tag) == "r")
+            out.extend((one, kid) for one in kid if xml_local(one.tag) == "r")
     return out
 
 
@@ -1126,11 +1127,12 @@ def docx_run_formats(paras: list, parts: dict, limit: int = 200) -> dict:
     checked = with_props = props_empty = with_format = 0
     with_style = style_found = where_both = 0
     with_text = with_ref = ref_found = field_runs = 0
+    with_wrap = wrap_link = wrap_ins = wrap_del = 0
     on = {key: 0 for _, key in RUN_SWITCHES}
     off = {key: 0 for _, key in RUN_SWITCHES}
     from_style = {key: 0 for _, key in RUN_SWITCHES}
     for index, para in enumerate(paras):
-        for at, run in enumerate(_docx_runs(para)):
+        for at, (run, wrap) in enumerate(_docx_runs(para)):
             checked += 1
             props = _kids(run, "rPr")
             holder = props[0] if props else None
@@ -1214,6 +1216,17 @@ def docx_run_formats(paras: list, parts: dict, limit: int = 200) -> dict:
             ]
             if instructions or fields:
                 field_runs += 1
+            # 这一串字是被谁包起来的：壳上有作者、时间、链接的号与锚，而串自己一个都没有
+            wrapper = xml_local(wrap.tag) if wrap is not None else None
+            wrapped = written_attrs(wrap) if wrap is not None else None
+            if wrapper is not None:
+                with_wrap += 1
+            if wrapper == "hyperlink":
+                wrap_link += 1
+            elif wrapper == "ins":
+                wrap_ins += 1
+            elif wrapper == "del":
+                wrap_del += 1
             entries.append(
                 {
                     "para": index,
@@ -1242,6 +1255,8 @@ def docx_run_formats(paras: list, parts: dict, limit: int = 200) -> dict:
                     ],
                     "refs": refs,
                     "note": note,
+                    "wrapped": wrapper,
+                    "wrapped_written": wrapped,
                     "breaks": breaks,
                     "instructions": instructions,
                     "field_chars": fields,
@@ -1260,6 +1275,10 @@ def docx_run_formats(paras: list, parts: dict, limit: int = 200) -> dict:
         "runs_with_ref": with_ref,
         "ref_found": ref_found,
         "field_runs": field_runs,
+        "runs_wrapped": with_wrap,
+        "wrapped_hyperlink": wrap_link,
+        "wrapped_ins": wrap_ins,
+        "wrapped_del": wrap_del,
         "notes_in_parts": len(notes),
         "notes_referenced": len(set(seen_refs)),
         "notes_unreferenced": len(notes) - len(set(seen_refs)),
