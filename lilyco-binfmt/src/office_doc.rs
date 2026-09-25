@@ -5833,7 +5833,7 @@ mod tests {
         );
         assert_eq!(rewrote["undeclared_total"], 4, "{rewrote}");
         assert_eq!(
-            rewrote["rows"][4]["themes"][1],
+            rewrote["rows"][3]["themes"][1],
             json!({
                 "attr": "cstheme",
                 "value": "minorBidi",
@@ -5872,7 +5872,7 @@ mod tests {
         let rows = odf["rows"].as_array().expect("是数组");
         assert_eq!(
             rows[1]["written"],
-            json!({"style:font-family": "'Courier New'"})
+            json!({"fo:font-family": "'Courier New'", "style:font-family-generic": "roman", "style:font-pitch": "variable"})
         );
         assert_eq!(rows[1]["name_declared"], json!(false));
         assert_eq!(rows[1]["family_declared"], json!(false));

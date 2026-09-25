@@ -4172,9 +4172,9 @@ def main() -> int:
          dig(fnt, "structure.fonts.rows[2].themes[0].which"),
          dig(fnt, "structure.fonts.rows[2].themes[0].typeface"),
          dig(fnt, "structure.fonts.theme_refs"), dig(fnt, "structure.fonts.theme_resolved"),
-         dig(fntlo, "structure.fonts.rows[4].themes[1].attr"),
-         dig(fntlo, "structure.fonts.rows[4].themes[1].which"),
-         dig(fntlo, "structure.fonts.rows[4].themes[1].typeface")],
+         dig(fntlo, "structure.fonts.rows[3].themes[1].attr"),
+         dig(fntlo, "structure.fonts.rows[3].themes[1].which"),
+         dig(fntlo, "structure.fonts.rows[3].themes[1].typeface")],
         ["minorHAnsi", "minorFont", "latin", "Cambria", 290, 290,
          "cstheme", "cs", ""],
     )
@@ -4202,7 +4202,7 @@ def main() -> int:
          dig(fntodt, "structure.fonts.by_font_name").get("(没写)"),
          dig(fntodt, "structure.fonts.rows[1].written")],
         [11, 11, 6, 1, [], ["'Courier New'"], 1,
-         {"style:font-family": "'Courier New'"}],
+         {"fo:font-family": "'Courier New'", "style:font-family-generic": "roman", "style:font-pitch": "variable"}],
     )
     check(
         "同一条族名在两张表里写法不一致是文件的事实：Cambria 与 Cambria1 指着同一个族名，"
