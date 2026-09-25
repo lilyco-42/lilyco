@@ -71,6 +71,7 @@ mod tab_stops;
 mod table_grid;
 mod table_headers;
 mod table_styles;
+mod text_boxes;
 mod word;
 mod xmlscan;
 mod zipread;

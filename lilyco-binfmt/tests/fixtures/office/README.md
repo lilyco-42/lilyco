@@ -55,6 +55,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `pborder.docx` | python-docx（`write_border_docx`，段边框没有公开属性，走 `OxmlElement`） | 五条段，一次只改一个变量：`段零`（两样都不写）/ `四边单线`（一枚 `w:pBdr` 里四条边，各带 `val`/`sz=6`/`space=1`/`color=FF0000`）/ `只有一条上边`（`double` `sz=18` `color=auto`）/ `只有底纹`（`w:shd` = `clear` + `fill=FFFF00`）/ `空壳加主题色底纹`（`w:pBdr` 在而里面一条边都没有，底纹 `solid` + `fill=00B050` + `themeFill=accent6`）|
 | `pborder-lo.docx` | LibreOffice（`pborder.docx` → .docx） | 同一份重写后：每段都补了 `w:pPr`（4 → 5 枚），而那个**空壳整个被丢掉**（3 枚 → 2 枚），`w:color="auto"` 被折成一个具体色 `000000` —— 见事实 96 |
 | `pborder.odt` | LibreOffice（`pborder.docx` → .odt） | 两样都在段点的那份样式上而形状换了：四边合成一条 `fo:border="0.74pt solid #ff0000"`，单边那一段四条各写、其中三条明写着 `none`（另多一份逐根的 `style:border-line-width-top`），`w:space` 搬成 `fo:padding`，而 `solid` 那段的底纹变成 `#ffffff` —— 见事实 96 |
+| `tbox.odt` | zipfile 写的最小 ODF（`write_tbox_odt`） | 页上有一个文本框：`draw:frame`（`draw:name="框一"`、`text:anchor-type="as-char"`、`svg:width="5cm"`、`svg:x="1.2cm"`、`draw:z-index="0"`）里套一个 `draw:text-box`，框里两段字，框外面正文三段。这一族本机没有会写 OOXML 文本框的生产者，所以反过来走：这份 odt 是源头 |
+| `tbox.docx` | LibreOffice（`tbox.odt` → .docx） | **同一个框写两份**：`w:drawing`（尺寸在 `wp:extent`，`cx="1800225"` EMU）与 `w:pict` 各带一份 `w:txbxContent`，两份的字一模一样；正文 3 段而整棵树 7 段 —— 见事实 97 |
+| `tbox-lo.odt` | LibreOffice（`tbox.odt` → .odt 重写） | 重写那一遍：挂上 `draw:style-name="Frame"`、`svg:x` / `svg:y` / `draw:z-index` **整个没了**、`5cm` 换成 `5.001cm`，而那一段话一字未改 —— 见事实 97 |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
@@ -1700,6 +1703,14 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - `pborder.odt`：两样都搬到段点的那份样式上（一跳），而形状整个换了：四边单线合成**一条 shorthand**（`fo:border="0.74pt solid #ff0000"` —— 值里塞着宽度、线型、颜色三段，`sz=6` 那枚 1/8 磅在这里写成 `0.74pt`），只有上面一条双线那一段则**四条各写一遍**，其中三条明写着 `fo:border-left="none"`（这一族说「这边没有」是写出来的，与 OOXML 那不写这一条边不是一回事，所以 `sides_written` 4 与 `sides_none` 3 分开数），另多一份逐根的 `style:border-line-width-top="0.079cm 0.079cm 0.079cm"`；docx 那个 `w:space="1"` 在这里搬成 `fo:padding="0.035cm"`。
     - 底纹那一枚最要紧：**同一个 `w:fill` 在两种 `w:val` 下不是同一个角色** —— `clear` + `fill="FFFF00"` 那一段转过去是 `#ffff00`，而 `solid` + `fill="00B050"`（另点着 `themeFill="accent6"`）那一段转过去成了 `#ffffff`。两份读者都把串原样交出来，不猜哪个才对，也不拿规范里的默认值替它接。
     - RTF 那一族不交这个键（缺键 = 这一族没看）：`\brdrb` 这一族段边框住在样式表里而非段自己身上，与制表位、行距那两条同一个坑 —— 归属判不住。
+
+97. **文档里有几个文本框、框里写了什么：一个框可以在一份件里存两份，而框里的段不是正文的段**
+    - 为什么值得单独一本账：框里的字页面上只出现一次，但在 OOXML 的件里可以**存两份** —— LibreOffice 的 docx 导出把 `tbox.odt` 那一个框写成 `w:drawing`（DrawingML，尺寸在 `wp:extent` 的 EMU 上：`cx="1800225" cy="864235"`）与 `w:pict`（VML，那一份的 `v:shape` 干脆没写 `style`）两个分支，各带一份 `w:txbxContent`，两份里的字一字不差。所以 `text_boxes` 这一族把「几份格子」（`boxes_total` 2）与「几句话」（`distinct_text_count` 1）分两个数，合成一个就把同一句话读成两个框、或把两个框读成一份。
+    - **框自己带段**：正文的直接孩子 3 段，整棵树 7 段，差的那 4 段就是两份副本各带两段（`paragraphs_in_boxes_direct` 4）。这与批注、脚注、`text:note` 同一族教训 —— 「这份文档有几段」本来就有两个诚实的答案，只交一个就说不清别的账本的 `index` 是从哪份清单数的。
+    - `tbox.odt` 是这一族的源头件（zipfile 写的最小 ODF：`mimetype` 第一成员 + manifest 三条）：框是 `draw:frame`，名字、锚、尺寸与坐标都写在框自己身上，尺寸是**自带单位的串**（`5cm` / `2.4cm`），与 OOXML 那两处的 EMU 与 `style` 串都不是同一种东西 —— 按写的交、不换算也不互证。
+    - `tbox-lo.odt`（LibreOffice 重写同一份 odt）：挂上帧样式 `Frame`，而 `svg:x` / `svg:y` / `draw:z-index` **三格整个不见**（null，不是 0），尺寸从 `5cm` / `2.4cm` 换成 `5.001cm` / `2.401cm`；那一句话一字未改，也还是只有一份。「丢了哪几格」与「换了写法」都在账上，不替它接回去。
+    - **有帧不等于有框**：`notes.odt` 那一张图的 `draw:frame` 里没有任何 `draw:text-box`，于是 `frames_total` 是 1 而 `frames_with_boxes` 与 `text_box_elements` 都是 0 —— 数帧当框就会把一张图读成一个文本框。没有框的件交一串 0 与空表而不是缺键。
+    - RTF 那一族不交这个键（缺键 = 这一族没看）：LibreOffice 的 RTF 导出里 `SHAPPIE` 0 次、`\pict` 0 次 —— 框这个形状在那条流里根本不存在，字直接落进正文段落，判不出「这一段在框里」（与制表位、行距、段边框同一族）。
 
 ## 这些数字从哪来
 

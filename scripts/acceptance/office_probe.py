@@ -260,6 +260,10 @@ def main() -> int:
         "pborder.docx": ("ooxml", "word", "docx"),
         "pborder-lo.docx": ("ooxml", "word", "docx"),
         "pborder.odt": ("opendocument", "word", "odt"),
+        # 文本框那三份：一个框可以写两份，框里的段不是正文的段
+        "tbox.odt": ("opendocument", "word", "odt"),
+        "tbox.docx": ("ooxml", "word", "docx"),
+        "tbox-lo.odt": ("opendocument", "word", "odt"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -5119,6 +5123,95 @@ def main() -> int:
          dig(lbin("office-doc", fixture("keep.odt")), "structure.para_borders.sides_written"),
          dig(lbin("office-doc", fixture("tabs.rtf")), "structure.para_borders")],
         [0, 0, {}, 0, 0, None],
+    )
+
+    # ── 3ah) 文本框：一个框可以写两份、框里的段不是正文的段 ──────────────────────
+    print("=== 3ah) 文本框：OOXML 两种容器各写一份，ODF 一个 frame 套一个 text-box ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 文本框那份账与读者一致（几份格子与几句话分两个数）" % name,
+              dig(got, "structure.text_boxes"),
+              files[name]["ooxml"]["text_boxes"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 文本框那份账与读者一致（frame 的名字、锚与尺寸按写的交）" % name,
+              dig(got, "structure.text_boxes"),
+              files[name]["odt"]["text_boxes"])
+    tb = lbin("office-doc", fixture("tbox.docx"))
+    tb_odt = lbin("office-doc", fixture("tbox.odt"))
+    tb_lo = lbin("office-doc", fixture("tbox-lo.odt"))
+    check(
+        "LibreOffice 的 docx 把一个框写成两份：`w:drawing`（DrawingML，尺寸在 `wp:extent` 的 EMU 上）"
+        "与 `w:pict`（VML）各带一份 `w:txbxContent`，两份的字一模一样 —— 所以格子是 2 份而话只有 1 句，"
+        "合成一个数就把同一句话读成两个框",
+        [dig(tb, "structure.text_boxes.boxes_total"),
+         dig(tb, "structure.text_boxes.drawings_with_boxes"),
+         dig(tb, "structure.text_boxes.picts_with_boxes"),
+         dig(tb, "structure.text_boxes.distinct_text_count"),
+         dig(tb, "structure.text_boxes.distinct_texts"),
+         dig(tb, "structure.text_boxes.boxes[0].inline_element"),
+         dig(tb, "structure.text_boxes.boxes[0].anchor_element"),
+         dig(tb, "structure.text_boxes.boxes[0].extent_written"),
+         dig(tb, "structure.text_boxes.boxes[1].kind"),
+         dig(tb, "structure.text_boxes.boxes[1].shape_style")],
+        [2, 1, 1, 1, ["框里的第一段框里的第二段，长一点的字"],
+         "inline", None, {"cx": "1800225", "cy": "864235"}, "pict", None],
+    )
+    check(
+        "框里自己带段，所以「有几段」在这份件上有两个答案：`w:body` 的直接孩子 3 段、整棵树 7 段，"
+        "差的那 4 段就是两份副本各带两段 —— 与批注、脚注同一族（合并成一个数就说不清谁是谁）",
+        [dig(tb, "structure.text_boxes.paragraphs_direct_of_body"),
+         dig(tb, "structure.text_boxes.paragraphs_anywhere"),
+         dig(tb, "structure.text_boxes.paragraphs_in_boxes_direct"),
+         dig(tb, "structure.text_boxes.paragraphs_in_boxes_anywhere"),
+         dig(tb, "structure.text_boxes.boxes[0].paragraphs_direct"),
+         dig(tb, "structure.text_boxes.boxes[0].text")
+         == dig(tb, "structure.text_boxes.boxes[1].text")],
+        [3, 7, 4, 4, 2, True],
+    )
+    check(
+        "ODF 这一族是一个 `draw:frame` 套一个 `draw:text-box`：名字、锚、尺寸与坐标都写在框自己身上，"
+        "而尺寸是自带单位的串（`5cm` / `2.4cm`），坐标 `1.2cm` / `0.5cm` 与层号也都在",
+        [dig(tb_odt, "structure.text_boxes.frames_total"),
+         dig(tb_odt, "structure.text_boxes.frames_with_boxes"),
+         dig(tb_odt, "structure.text_boxes.text_box_elements"),
+         dig(tb_odt, "structure.text_boxes.paragraphs_direct_of_text"),
+         dig(tb_odt, "structure.text_boxes.paragraphs_anywhere"),
+         dig(tb_odt, "structure.text_boxes.boxes[0].name_written"),
+         dig(tb_odt, "structure.text_boxes.boxes[0].anchor_written"),
+         dig(tb_odt, "structure.text_boxes.boxes[0].width_written"),
+         dig(tb_odt, "structure.text_boxes.boxes[0].x_written"),
+         dig(tb_odt, "structure.text_boxes.boxes[0].style_written")],
+        [1, 1, 1, 3, 5, "框一", "as-char", "5cm", "1.2cm", None],
+    )
+    check(
+        "LibreOffice 重写同一份 odt 那一遍：挂上帧样式 `Frame`、**两个坐标与层号整个没了**、"
+        "尺寸从 `5cm` 换成 `5.001cm`（换算串），而那一句话一字未改也还是只有一份 —— "
+        "「丢了哪几格」与「换了写法」都在账上，不替它接回去",
+        [dig(tb_lo, "structure.text_boxes.boxes[0].style_written"),
+         dig(tb_lo, "structure.text_boxes.boxes[0].width_written"),
+         dig(tb_lo, "structure.text_boxes.boxes[0].height_written"),
+         dig(tb_lo, "structure.text_boxes.boxes[0].x_written"),
+         dig(tb_lo, "structure.text_boxes.boxes[0].y_written"),
+         dig(tb_lo, "structure.text_boxes.boxes[0].z_index_written"),
+         dig(tb_lo, "structure.text_boxes.distinct_texts"),
+         dig(tb_lo, "structure.text_boxes.text_box_elements")],
+        ["Frame", "5.001cm", "2.401cm", None, None, None,
+         ["框里的第一段框里的第二段，长一点的字"], 1],
+    )
+    check(
+        "没有框的件交一串 0 与空表而不是缺键；**有一个帧但那不是文本框**的件（`notes.odt` 那张图）"
+        "两个数分开：`frames_total` 1 而 `frames_with_boxes` 0 —— 有帧不等于有框，"
+        "RTF 那一族不交这个键（缺键 = 这一族没看：那份流里既没有 SHAPPIE 也没有 `\\pict`）",
+        [dig(lbin("office-doc", fixture("keep.docx")), "structure.text_boxes.boxes_total"),
+         dig(lbin("office-doc", fixture("keep.docx")), "structure.text_boxes.distinct_texts"),
+         dig(lbin("office-doc", fixture("keep.docx")),
+             "structure.text_boxes.paragraphs_direct_of_body"),
+         dig(lbin("office-doc", fixture("notes.odt")), "structure.text_boxes.frames_total"),
+         dig(lbin("office-doc", fixture("notes.odt")), "structure.text_boxes.frames_with_boxes"),
+         dig(lbin("office-doc", fixture("notes.odt")), "structure.text_boxes.text_box_elements"),
+         dig(lbin("office-doc", fixture("tabs.rtf")), "structure.text_boxes")],
+        [0, [], 5, 1, 0, 0, None],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──

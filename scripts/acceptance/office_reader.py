@@ -2092,6 +2092,179 @@ def odf_para_borders(path: Path, limit: int = 100) -> dict:
     }
 
 
+def _collapsed_words(node) -> str:
+    """子树里所有的字压成一行（与 Rust 的 inline_text 同一条：折空白、去首尾）"""
+    return " ".join("".join(node.itertext()).split())
+
+
+def _box_ledger(holder, want: str):
+    """一个容器往下数：几份写字的格子、格子们带几段（直接孩子 / 整棵树）、说了什么"""
+    boxes = [one for one in holder.iter() if xml_local(one.tag) == want]
+    direct = anywhere = 0
+    parts = []
+    for one in boxes:
+        direct += len([kid for kid in one if xml_local(kid.tag) == "p"])
+        anywhere += len([x for x in one.iter() if xml_local(x.tag) == "p"])
+        words = _collapsed_words(one)
+        if words:
+            parts.append(words)
+    return len(boxes), direct, anywhere, parts
+
+
+def _note_box_text(seen: list, words: str) -> None:
+    if words and words not in seen:
+        seen.append(words)
+
+
+def docx_text_boxes(path: Path, limit: int = 100) -> dict:
+    r"""「文档里有几个文本框、框里写了什么」在 OOXML 有两种容器
+
+    LibreOffice 的 docx 导出把**同一个框写两份**：`w:drawing`（DrawingML，尺寸在 `wp:extent`
+    的 EMU 上）与 `w:pict`（VML，尺寸在 `v:shape/@style` 那个 cm 串上），两份里各带一份
+    `w:txbxContent`，字一模一样 —— 所以「几份格子」与「几句话」是两个数，合成一个就把同一句话
+    读成两遍、或把两遍读成两个框。两类容器排不出同一个序，所以各走一条 list。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"available": False}
+        root = ET.fromstring(box.read("word/document.xml"))
+    body = [one for one in root if xml_local(one.tag) == "body"]
+    kids = body[0] if body else None
+    rows = []
+    boxes_total = drawings = picts = text_p = text_any = 0
+    texts: list = []
+    for index, holder in enumerate([x for x in kids.iter() if xml_local(x.tag) == "drawing"]
+                                   if kids is not None else []):
+        count, direct, anywhere, parts = _box_ledger(holder, "txbxContent")
+        joined = " / ".join(parts)
+        boxes_total += count
+        text_p += direct
+        text_any += anywhere
+        if count > 0:
+            drawings += 1
+            _note_box_text(texts, joined)
+        anchor = [x for x in holder.iter() if xml_local(x.tag) == "anchor"]
+        inline = [x for x in holder.iter() if xml_local(x.tag) == "inline"]
+        extent = [x for x in holder.iter() if xml_local(x.tag) == "extent"]
+        rows.append({
+            "kind": "drawing",
+            "index": index,
+            "text_boxes": count,
+            "paragraphs_direct": direct,
+            "paragraphs_anywhere": anywhere,
+            "text": joined,
+            "anchor_element": xml_local(anchor[0].tag) if anchor else None,
+            "inline_element": xml_local(inline[0].tag) if inline else None,
+            "extent_written": ({"cx": _local_in(_written_attrs(extent[0], {}), "cx"),
+                                "cy": _local_in(_written_attrs(extent[0], {}), "cy")}
+                               if extent else None),
+        })
+    for index, holder in enumerate([x for x in kids.iter() if xml_local(x.tag) == "pict"]
+                                   if kids is not None else []):
+        count, direct, anywhere, parts = _box_ledger(holder, "txbxContent")
+        joined = " / ".join(parts)
+        boxes_total += count
+        text_p += direct
+        text_any += anywhere
+        if count > 0:
+            picts += 1
+            _note_box_text(texts, joined)
+        shapes = [x for x in holder.iter() if xml_local(x.tag) == "shape"]
+        rows.append({
+            "kind": "pict",
+            "index": index,
+            "text_boxes": count,
+            "paragraphs_direct": direct,
+            "paragraphs_anywhere": anywhere,
+            "text": joined,
+            "textbox_elements": len([x for x in holder.iter() if xml_local(x.tag) == "textbox"]),
+            "shape_style": (_local_in(_written_attrs(shapes[0], {}), "style") if shapes else None),
+        })
+    return {
+        "family": "ooxml",
+        "available": True,
+        "boxes_total": boxes_total,
+        "drawings_with_boxes": drawings,
+        "picts_with_boxes": picts,
+        "distinct_text_count": len(texts),
+        "distinct_texts": texts,
+        "paragraphs_direct_of_body": (len([kid for kid in kids if xml_local(kid.tag) == "p"])
+                                      if kids is not None else 0),
+        "paragraphs_anywhere": (len([x for x in kids.iter() if xml_local(x.tag) == "p"])
+                                if kids is not None else 0),
+        "paragraphs_in_boxes_direct": text_p,
+        "paragraphs_in_boxes_anywhere": text_any,
+        "boxes": rows[:limit],
+    }
+
+
+def odf_text_boxes(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF 是一个 `draw:frame` 套一个 `draw:text-box`，尺寸是自带单位的串
+
+    `svg:width="5cm"` 与 OOXML 那两处的 EMU / `style="width:5cm"` 都不是一回事，按写的交。
+    LibreOffice 重写同一份 odt 时会挂 `draw:style-name="Frame"`、**把 `svg:x` / `svg:y` /
+    `draw:z-index` 整个丢掉**，并把 5cm 换成 `5.001cm` —— 那些都是文件自己的话，不替它接。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        crowd = ET.fromstring(content_raw := box.read("content.xml"))
+    nsmap = _ns_prefixes(content_raw)
+    rows = []
+    with_boxes = box_total = text_p = text_any = 0
+    texts: list = []
+    frames = [x for x in crowd.iter() if xml_local(x.tag) == "frame"]
+    for index, holder in enumerate(frames):
+        count, direct, anywhere, parts = _box_ledger(holder, "text-box")
+        joined = " / ".join(parts)
+        box_total += count
+        text_p += direct
+        text_any += anywhere
+        if count > 0:
+            with_boxes += 1
+            _note_box_text(texts, joined)
+        written = _written_attrs(holder, nsmap)
+        rows.append({
+            "kind": "frame",
+            "index": index,
+            "text_boxes": count,
+            "paragraphs_direct": direct,
+            "paragraphs_anywhere": anywhere,
+            "text": joined,
+            "name_written": _local_in(written, "name"),
+            "style_written": _local_in(written, "style-name"),
+            "anchor_written": _local_in(written, "anchor-type"),
+            "width_written": _local_in(written, "width"),
+            "height_written": _local_in(written, "height"),
+            "x_written": _local_in(written, "x"),
+            "y_written": _local_in(written, "y"),
+            "z_index_written": _local_in(written, "z-index"),
+        })
+    body = [x for x in crowd if xml_local(x.tag) == "body"]
+    text_root = None
+    if body:
+        text_root = [kid for kid in body[0] if xml_local(kid.tag) == "text"]
+    direct_body = 0
+    if text_root:
+        direct_body = len([kid for kid in text_root[0] if xml_local(kid.tag) == "p"])
+    return {
+        "family": "odf",
+        "available": True,
+        "frames_total": len(frames),
+        "frames_with_boxes": with_boxes,
+        "text_box_elements": box_total,
+        "distinct_text_count": len(texts),
+        "distinct_texts": texts,
+        "paragraphs_direct_of_text": direct_body,
+        "paragraphs_anywhere": len([x for x in crowd.iter() if xml_local(x.tag) == "p"]),
+        "paragraphs_in_boxes_direct": text_p,
+        "paragraphs_in_boxes_anywhere": text_any,
+        "boxes": rows[:limit],
+    }
+
+
 def odf_style_holders(node) -> list:
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
     out: list = []
@@ -7477,6 +7650,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["line_spacing"] = docx_line_spacing(path)
             # 段边框与底纹：壳在不在与里面写了几条边是两件事
             out["ooxml"]["para_borders"] = docx_para_borders(path)
+            # 文本框：同一个框可以在两种容器里各写一遍，「几份格子」与「几句话」两个数
+            out["ooxml"]["text_boxes"] = docx_text_boxes(path)
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
@@ -7513,6 +7688,8 @@ def facts(path: Path) -> dict:
             out["odt"]["line_spacing"] = odf_line_spacing(path)
             # 同一问在 ODF 一跳在样式里：一条 shorthand 顶四条边，「这边没有」是明写的
             out["odt"]["para_borders"] = odf_para_borders(path)
+            # 同一问在 ODF 是一个 frame 套一个 text-box，尺寸是自带单位的串
+            out["odt"]["text_boxes"] = odf_text_boxes(path)
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger

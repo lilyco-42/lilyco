@@ -718,6 +718,57 @@ def write_border_docx(path: Path) -> None:
     doc.save(str(path))
 
 
+def write_tbox_odt(path: Path) -> None:
+    """一份「页上有一个文本框」的 .odt：`draw:frame` 里套 `draw:text-box`，框里两段字
+
+    这一族本机没有会写 OOXML 文本框的生产者（python-docx 不会加框），所以反过来走：这份 odt 用
+    zipfile 写（形状照 OpenDocument 的写法：mimetype 第一成员、manifest 三条），再让 LibreOffice
+    转成 docx —— 那份 OOXML 是 LibreOffice 自己写的。要点三条：同一个框它写**两份**
+    （`w:drawing` 里一份、`w:pict` 里一份，两份 `w:txbxContent` 字一模一样）；尺寸在 docx 那面是
+    EMU 与 `v:shape/@style` 那个 cm 串，在 odt 这面是 `svg:width="5cm"` 这种自带单位的串；而它
+    重写 odt 时会挂 `draw:style-name="Frame"`、把 `svg:x` / `svg:y` / `draw:z-index` 整个丢掉，
+    并把 5cm 换成 `5.001cm`。
+    """
+    content = """<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+ xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"
+ xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"
+ xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0"
+ office:version="1.2">
+ <office:automatic-styles>
+  <style:style style:name="P1" style:family="paragraph">
+   <style:paragraph-properties fo:margin-top="0cm" fo:margin-bottom="0cm"/>
+  </style:style>
+ </office:automatic-styles>
+ <office:body><office:text>
+  <text:p text:style-name="P1">正文第一段</text:p>
+  <text:p text:style-name="P1"><draw:frame draw:name="框一" text:anchor-type="as-char"
+    svg:x="1.2cm" svg:y="0.5cm" svg:width="5cm" svg:height="2.4cm" draw:z-index="0">
+    <draw:text-box><text:p text:style-name="P1">框里的第一段</text:p><text:p text:style-name="P1">框里的第二段，长一点的字</text:p></draw:text-box>
+   </draw:frame>这一段在框外面</text:p>
+  <text:p text:style-name="P1">正文最后一段</text:p>
+ </office:text></office:body>
+</office:document-content>"""
+    styles = """<?xml version="1.0" encoding="UTF-8"?>
+<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ office:version="1.2"><office:body><office:text/></office:body>
+</office:document-styles>"""
+    manifest = """<?xml version="1.0" encoding="UTF-8"?>
+<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"
+ manifest:version="1.2">
+ <manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.text"/>
+ <manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>
+ <manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/>
+</manifest:manifest>"""
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as box:
+        box.writestr(zipfile.ZipInfo("mimetype"), "application/vnd.oasis.opendocument.text")
+        box.writestr("META-INF/manifest.xml", manifest)
+        box.writestr("content.xml", content)
+        box.writestr("styles.xml", styles)
+
+
 def write_comments_docx(path: Path) -> None:
     """两条批注的一份 docx：作者名一个纯 ASCII、一个纯中文
 
@@ -3137,6 +3188,22 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "pborder.odt", OUT / "pborder.odt")
     else:
         print("⚠️  没拿到 pborder.odt")
+
+    # 文本框那三份：zipfile 写 odt，LibreOffice 转 docx（同一句话写两份）、再重写一份 odt（丢坐标）
+    tbox = OUT / "tbox.odt"
+    write_tbox_odt(tbox)
+    convert(exe, tbox, "docx", SCRATCH / "tbox-docx")
+    made_tbox = SCRATCH / "tbox-docx" / "tbox.docx"
+    if made_tbox.exists():
+        shutil.copyfile(made_tbox, OUT / "tbox.docx")
+    else:
+        print("⚠️  没拿到 tbox.docx（odt → docx 那一转）")
+    convert(exe, tbox, "odt", SCRATCH / "tbox-lo")
+    made_tbox_lo = SCRATCH / "tbox-lo" / "tbox.odt"
+    if made_tbox_lo.exists():
+        shutil.copyfile(made_tbox_lo, OUT / "tbox-lo.odt")
+    else:
+        print("⚠️  没拿到 tbox-lo.odt（odt 重写那一转）")
 
     # 批注那三份：python-docx 写 docx，同格式重写一份（部件换先后）、再转一份 odt（两处合一处）
     noted = OUT / "doc-comments.docx"
