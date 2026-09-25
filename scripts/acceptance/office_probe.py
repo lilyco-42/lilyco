@@ -219,6 +219,10 @@ def main() -> int:
         "deck-tables-lo.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-tables.odp": ("opendocument", "powerpoint", "odp"),
         # 框与字那两件：一个框里的字装不下怎么办（python-pptx 的 pptx 与 LibreOffice 的 odp）
+        # 字体那三份：一次只改一个变量的五种点法（表里没有的名、主题那一路、只点东亚）
+        "fonts.docx": ("ooxml", "word", "docx"),
+        "fonts-lo.docx": ("ooxml", "word", "docx"),
+        "fonts.odt": ("opendocument", "word", "odt"),
         "deck-autofit.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-autofit.odp": ("opendocument", "powerpoint", "odp"),
     }
