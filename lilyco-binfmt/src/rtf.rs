@@ -650,7 +650,7 @@ fn resolve_runs(rows: &mut Vec<Value>, colors: &[Value], fonts: &[Value]) {
         let (underline, which_word) = underline_switch(&words);
         let position = ["super", "sub"]
             .iter()
-            .find(|name| words.iter().any(|(one, _)| one.as_str() == *name))
+            .find(|name| words.iter().any(|one| one.0.as_str() == **name))
             .map(|one| json!(one.to_string()))
             .unwrap_or(Value::Null);
         let said = |want: &str| -> Option<String> {
