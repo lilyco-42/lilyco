@@ -717,6 +717,10 @@ def field_instruction(group: str) -> str:
 # 那条 `{\*\atnauthor …}` 是「谁写的」。锚区两头的 `{\*\atrfstart N}` / `{\*\atrfend N}`
 # 不单独进账 —— 那个号已经在注自己的 `ref` 里，两边按号对
 ATN_WORDS = {"annotation", "atnauthor"}
+# 书签那两群：照样整群跳过，只是跳之前把名字读出来（与 \* 那条同一个道理）
+BK_WORDS = {"bkmkstart", "bkmkend"}
+# 指令里 HYPERLINK 那一个词与它的引号：地址在引号里，站内的那一个前面多一个 #
+HYPERLINK_PREFIX = "HYPERLINK \""
 ATN_CHILDREN = {"atnref", "atndate"}
 
 
@@ -796,7 +800,7 @@ def rtf_text(data: bytes) -> dict:
     out: list[str] = []
     page: dict = {
         "headers": [], "footers": [], "notes": [], "links": [],
-        "instructions": [], "annotations": [], "destinations": 0,
+        "instructions": [], "annotations": [], "bookmarks": [], "destinations": 0,
     }
     # 定义类（字体与样式）不是页面上的字，也不进 page 那几个口袋
     found: dict = {"fonts": [], "styles": [], "list_defs": [], "list_over": []}
@@ -845,6 +849,8 @@ def rtf_text(data: bytes) -> dict:
         "break_words": {one: 0 for one in BREAK_COUNT},
         # `{\*\atnauthor …}` 出现了几条：与 annotations 的条数不等就是文件自己没配上
         "atnauthors": 0,
+        "bkmkstarts": 0,
+        "bkmkends": 0,
         # 样式被用了几次：样式号 → 条数（正文里出现的 \sN，不含样式表自己的那些）
         "style_uses": {},
         # 逐串的字符格式（群头上说过格式控制字的那些群）与落在所有群之外的那些控制字条数
@@ -952,6 +958,19 @@ def rtf_text(data: bytes) -> dict:
                 elif had:
                     stats["atnauthors"] += 1
                     pending_author = had
+            if named in BK_WORDS and not skip[-1]:
+                head = i + 2
+                # 与批注那一路同一个跳过集：空白与控制字前面那一个反斜杠都要越过去，
+                # 停在词的第一个字母上（starred_body 是按「从第一个字母起」切掉词名的）
+                while head < len(text) and text[head] in " \r\n\\":
+                    head += 1
+                had, _kids = starred_body(text, head, named)
+                if named == "bkmkstart":
+                    stats["bkmkstarts"] += 1
+                    if had:
+                        page["bookmarks"].append(had)
+                else:
+                    stats["bkmkends"] += 1
             skip[-1] = True
             stats["destinations"] += 1
             i += 2
@@ -1275,6 +1294,20 @@ def rtf_text(data: bytes) -> dict:
         "list": entries,
     }
     resolve_run_rows(stats["run_rows"], colors, found["fonts"], found["styles"])
+    # 站内跳转的地址住在指令里（解过转义的那一份），书签住在自己那一群里：
+    # 两处的名字对上才算这一跳落得地。links[].target 交的是文件写的那一串原样，两份凭据各说各的
+    marks = page["bookmarks"]
+    anchors = []
+    external = 0
+    for one in page["instructions"]:
+        raw = one.strip()
+        if raw.startswith(HYPERLINK_PREFIX) and raw.endswith('"'):
+            target = raw[len(HYPERLINK_PREFIX):-1]
+            if target.startswith("#"):
+                anchors.append(target[1:])
+            else:
+                external += 1
+    hits = [one for one in anchors if one in marks]
     return {
         "headings": headings,
         "numbering": numbering,
@@ -1312,6 +1345,13 @@ def rtf_text(data: bytes) -> dict:
         # 批注：`{\*\annotation …}` 那一群前瞻读出来的（字不混进正文）。`date` 在
         # 这边压根没有 —— 文件写的 `atndate` 两个样本都对不上 docx 的 w:date，
         # 解不动就只交原样那串（date_written），不替它挑历法
+        "bookmarks": page["bookmarks"],
+        "bookmark_starts": stats["bkmkstarts"],
+        "bookmark_ends": stats["bkmkends"],
+        "anchors": anchors,
+        "anchors_found": len(hits),
+        "anchors_missing": len(anchors) - len(hits),
+        "links_external": external,
         "annotations": page["annotations"],
         "annotation_authors": stats["atnauthors"],
         # 断点词的条数（六个键固定）：`\pagebb` 那一条就是 Word 的分页符换了一种写法

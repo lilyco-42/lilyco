@@ -54,6 +54,10 @@ const SKIP_DESTINATIONS: &[&str] = &[
 /// 但段上那个 `\ls` 点的就是这里的某一份，不读等于把号的来源丢掉
 const DEF_DESTINATIONS: &[&str] = &["fonttbl", "stylesheet", "listtable", "listoverridetable"];
 
+/// 书签那两群：名字不是页面上的字，所以照样整群跳过，只是跳之前把名字读出来 ——
+/// 与 `\*` 那条同一个道理：认得一个群不等于要把它当正文
+const BK_WORDS: &[&str] = &["bkmkstart", "bkmkend"];
+
 /// 断点类：输出一个换行
 const BREAK_WORDS: &[&str] = &["par", "line", "sect", "page", "pbb"];
 /// 字符格式那一群控制字：这一族把「这几个字长什么样」写在**群头**上（`\b`、`\cf23`、
@@ -1057,6 +1061,11 @@ pub struct Rtf {
     /// `{\*\atrfend N}` 是同一个数，所以「钉在哪一段」有文件自己的号可查，不靠我们猜。
     /// `date` 一律 null：那一群写的 `{\*\atndate …}` 两个样本都对不上 docx 那边的
     /// `w:date`（一份 1743371367、一份 -2014723526），解不动就只交原样那串（`date_written`）
+    /// 书签的名字（`{\*\bkmkstart 名}` 那一群里读出来的，按文件顺序）
+    pub bookmarks: Vec<String>,
+    /// 两条列表各数一遍：start 与 end 不等就是文件自己没配上
+    pub bookmark_starts: usize,
+    pub bookmark_ends: usize,
     pub annotations: Vec<Value>,
     /// `{\*\atnauthor …}` 出现了几条：与 `annotations.len()` 不等就是文件自己没配上
     /// （与 .xls 那两支列表同一个做法 —— 配不上时把两个数都交出来，不替它对齐）
@@ -1086,7 +1095,31 @@ pub struct Rtf {
 
 impl Rtf {
     pub fn to_json(&self) -> Value {
+        // 站内跳转的地址住在指令里（解过转义的那一份），书签住在自己那一群里：
+        // 两处的名字对上才算这一跳落得地，对不上就是一条坏跳转 —— 都只按写的比
+        let anchors: Vec<String> = self
+            .field_instructions
+            .iter()
+            .filter_map(|raw| match raw.strip_prefix("HYPERLINK \"") {
+                Some(rest) => rest.strip_suffix('"').and_then(|one| one.strip_prefix('#')),
+                None => None,
+            })
+            .map(String::from)
+            .collect();
+        let external = self
+            .field_instructions
+            .iter()
+            .filter(|raw| raw.starts_with("HYPERLINK \"") && !raw.contains("\"#"))
+            .count();
+        let found = anchors
+            .iter()
+            .filter(|raw| self.bookmarks.iter().any(|had| had == *raw))
+            .count();
         json!({
+            "anchors": anchors,
+            "anchors_found": found,
+            "anchors_missing": anchors.len() - found,
+            "links_external": external,
             "text": self.text,
             "lines": self.lines,
             "headers": self.headers,
@@ -1101,6 +1134,9 @@ impl Rtf {
             "styles": self.styles,
             "style_uses": self.style_uses,
             "headings": self.headings,
+            "bookmarks": self.bookmarks,
+            "bookmark_starts": self.bookmark_starts,
+            "bookmark_ends": self.bookmark_ends,
             "annotations": self.annotations,
             "annotation_authors": self.annotation_authors,
             "break_words": {
@@ -1193,6 +1229,9 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         links: Vec::new(),
         fields: 0,
         field_instructions: Vec::new(),
+        bookmarks: Vec::new(),
+        bookmark_starts: 0,
+        bookmark_ends: 0,
         fonts: Vec::new(),
         styles: Vec::new(),
         style_uses: Vec::new(),
@@ -1350,6 +1389,26 @@ pub fn extract(bytes: &[u8]) -> Rtf {
                 } else if !had.is_empty() {
                     me.annotation_authors += 1;
                     pending_author = Some(had);
+                }
+            }
+            if BK_WORDS.contains(&named.as_str()) && !*skip.last().unwrap_or(&false) {
+                let mut head = i + 2;
+                // 与批注那一路同一个跳过集：空白与控制字前面那一个反斜杠都要越过去，
+                // 停在词的第一个字母上（starred_body 是按「从第一个字母起」切掉词名的）
+                while matches!(
+                    bytes.get(head),
+                    Some(&b' ') | Some(&b'\r') | Some(&b'\n') | Some(&b'\\')
+                ) {
+                    head += 1;
+                }
+                let (had, _) = starred_body(bytes, head, &named);
+                if named == "bkmkstart" {
+                    me.bookmark_starts += 1;
+                    if !had.is_empty() {
+                        me.bookmarks.push(had);
+                    }
+                } else {
+                    me.bookmark_ends += 1;
                 }
             }
             let last = skip.len() - 1;
@@ -2828,5 +2887,40 @@ mod tests {
             "{:?}",
             info.fields
         );
+    }
+
+    /// 书签那一群：跳之前把名字读出来（名字照样不进正文），而站内跳转的地址住在指令里 ——
+    /// 两处的名字对上才算这一跳落得地，对不上就是一条坏跳转
+    #[test]
+    fn a_bookmark_name_is_read_without_leaking_into_the_text() {
+        let one = extract(&fixture("fields.rtf"));
+        assert_eq!(one.bookmark_starts, 1);
+        assert_eq!(one.bookmark_ends, 1);
+        assert_eq!(one.bookmarks, vec!["表锚点".to_string()]);
+        let j = one.to_json();
+        assert_eq!(j["anchors"], json!(["表锚点", "没这个书签"]));
+        assert_eq!(j["anchors_found"], 1);
+        assert_eq!(j["anchors_missing"], 1, "{j}");
+        assert_eq!(j["fields"], 5);
+        assert_eq!(j["links_external"], 1);
+        // 读名字不改跳过：那一个名字不在页面上的任何一句话里（六行一个字都没多）
+        assert_eq!(
+            j["lines"],
+            json!([
+                "域与跳转",
+                "题注：1",
+                "跳到那张表跳一个坏了的名（站内跳转，不占关系表；第二条点的是一个不存在的名）",
+                "被内部链接指着的那一段",
+                "自动日期：2026-09-25",
+                "1（页码写在正文里一次，页脚里一次）"
+            ])
+        );
+        // 站外那一条与书签无关：两条列表都空着，只交地址
+        let toc = extract(&fixture("toc.rtf"));
+        let ct = toc.to_json();
+        assert!(ct["bookmarks"].as_array().is_some_and(|had| had.is_empty()));
+        assert!(ct["anchors"].as_array().is_some_and(|had| had.is_empty()));
+        assert_eq!(ct["links_external"], 1);
+        assert_eq!(toc.bookmark_starts, 0, "这份件里一个书签也没有");
     }
 }
