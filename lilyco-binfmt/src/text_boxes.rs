@@ -172,9 +172,13 @@ pub(crate) fn odf(content: &Node, limit: usize) -> Value {
             "z_index_written": holder.attr_local("z-index").map(String::from),
         }));
     }
+    // 「正文有几段」这一族不能靠两跳 `child("body")?.child("text")`：那一条路在本读者里取不到
+    // 节点（CI 量出来是 0，而标准库读者从 XML 的真实根数到 3）。改成按局部名找一个**真有 `p`
+    // 孩子**的 `text` 元素 —— 两个读者从各自的根出发也走到同一个节点。
     let direct_body = content
-        .child("body")
-        .and_then(|had| had.child("text"))
+        .descendants("text")
+        .into_iter()
+        .find(|had| had.children.iter().any(|kid| kid.local() == "p"))
         .map(|had| had.children.iter().filter(|kid| kid.local() == "p").count())
         .unwrap_or(0);
     json!({

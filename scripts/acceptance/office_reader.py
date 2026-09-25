@@ -2242,13 +2242,17 @@ def odf_text_boxes(path: Path, limit: int = 100) -> dict:
             "y_written": _local_in(written, "y"),
             "z_index_written": _local_in(written, "z-index"),
         })
-    body = [x for x in crowd if xml_local(x.tag) == "body"]
+    # 与 Rust 同一条：按局部名找一个**真有 `text:p` 孩子**的 `text` 元素（两跳取 office:body
+    # → office:text 在两个读者里会从不同的节点出发，所以不这么走）
     text_root = None
-    if body:
-        text_root = [kid for kid in body[0] if xml_local(kid.tag) == "text"]
-    direct_body = 0
-    if text_root:
-        direct_body = len([kid for kid in text_root[0] if xml_local(kid.tag) == "p"])
+    for had in crowd.iter():
+        if xml_local(had.tag) != "text":
+            continue
+        if any(xml_local(kid.tag) == "p" for kid in had):
+            text_root = had
+            break
+    direct_body = 0 if text_root is None else len(
+        [kid for kid in text_root if xml_local(kid.tag) == "p"])
     return {
         "family": "odf",
         "available": True,
