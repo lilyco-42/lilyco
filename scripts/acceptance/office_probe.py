@@ -240,6 +240,10 @@ def main() -> int:
         # 这一支还没读（它写 `\tx`，见 3aa），所以不进这一张识别表
         "tabs.docx": ("ooxml", "word", "docx"),
         "tabs.odt": ("opendocument", "word", "odt"),
+        # 批注那三份：内容在部件、锚点在正文，两家把「第几条」排成两种先后
+        "doc-comments.docx": ("ooxml", "word", "docx"),
+        "doc-comments-lo.docx": ("ooxml", "word", "docx"),
+        "doc-comments.odt": ("opendocument", "word", "odt"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -4676,6 +4680,95 @@ def main() -> int:
          dig(lbin("office-doc", fixture("lists.rtf")), "structure.tab_stops.positions"),
          dig(lbin("office-doc", fixture("tables.rtf")), "structure.tab_stops.positions")],
         [8, 8, 8, 8, 8, 8, 5, 0, 0],
+    )
+
+    # ── 3ac) 文档里那几条批注：内容在部件、锚点在正文，两边按号配 ───────────────
+    print("=== 3ac) 这几条批注是谁写的、锚在哪一段：两族两处，两个方向都数 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 批注那份账与读者一致（部件里的内容、正文里的三个锚点）" % name,
+              dig(got, "structure.comment_ledger"),
+              files[name]["ooxml"]["comment_ledger"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 批注那份账与读者一致（批注坐在段里面，作者是孩子元素）" % name,
+              dig(got, "structure.comment_ledger"),
+              files[name]["odt"]["comment_ledger"])
+    cm = lbin("office-doc", fixture("doc-comments.docx"))
+    cm_lo = lbin("office-doc", fixture("doc-comments-lo.docx"))
+    cm_odt = lbin("office-doc", fixture("doc-comments.odt"))
+    check(
+        "python-docx 那份（四条段、三条批注，前两条锚在同一段）：内容与锚点分两处，"
+        "按 `w:id` 配上 —— 三个锚点种类各数一遍（`commentRangeStart` / `End` / `commentReference`），"
+        "而「哪一段指着哪条」是正文那一路的答案：第 0 段带了 **两条**（号 1 在前、号 0 在后）",
+        [dig(cm, "structure.comment_ledger.comments_total"),
+         dig(cm, "structure.comment_ledger.part_written"),
+         dig(cm, "structure.comment_ledger.anchor_starts"),
+         dig(cm, "structure.comment_ledger.anchor_ends"),
+         dig(cm, "structure.comment_ledger.anchor_references"),
+         dig(cm, "structure.comment_ledger.range_asymmetric"),
+         dig(cm, "structure.comment_ledger.orphans_without_anchor"),
+         dig(cm, "structure.comment_ledger.anchors_without_comment"),
+         dig(cm, "structure.comment_ledger.distinct_authors"),
+         dig(cm, "structure.comment_ledger.comments[0]"),
+         dig(cm, "structure.comment_ledger.hosts[0]")],
+        [3, True, 3, 3, 3, False, 0, 0, ["刘奇", "审稿人", "编辑"],
+         {"part_index": 0, "id": "0", "author": "刘奇", "initials": "LQ",
+          "date": "2026-09-25T05:45:49Z", "paragraphs": 1,
+          "text": "第一条批注：请核对数字"},
+         {"paragraph": 0, "ids": ["1", "0"]}],
+    )
+    check(
+        "LibreOffice 重写同一份：三个数与六个数一字不差，而 `comments.xml` 里那三条的**先后**"
+        "换了（部件第一条现在是号 1 的那条、作者是审稿人），正文里的九个锚点没动 —— "
+        "所以「第几条批注」不说清是按部件还是按正文，就是两个不同的答案，两份都交",
+        [dig(cm_lo, "structure.comment_ledger.comments_total"),
+         dig(cm_lo, "structure.comment_ledger.anchor_references"),
+         dig(cm_lo, "structure.comment_ledger.distinct_authors"),
+         dig(cm_lo, "structure.comment_ledger.comments[0].id"),
+         dig(cm_lo, "structure.comment_ledger.comments[0].author"),
+         dig(cm_lo, "structure.comment_ledger.comments[1].id"),
+         dig(cm_lo, "structure.comment_ledger.hosts[0]"),
+         dig(cm_lo, "structure.comment_ledger.orphans_without_anchor"),
+         dig(cm_lo, "structure.comment_ledger.anchors_without_comment")],
+        [3, 3, ["审稿人", "刘奇", "编辑"], "1", "审稿人", "0",
+         {"paragraph": 0, "ids": ["1", "0"]}, 0, 0],
+    )
+    check(
+        "同一问在 ODF 是一处：`text:annotation` 就坐在它所属的那一段里，作者是孩子元素 "
+        "`dc:creator`、时间是 `dc:date` —— 而那个时间**没有 Z**（OOXML 那份写 `…Z`），"
+        "时区是文件自己写的，不替它补。「全文几段」在这一族是两个数：6 个 `text:p` 里 "
+        "3 个住在批注里，正文只有 3 段",
+        [dig(cm_odt, "structure.comment_ledger.annotations_total"),
+         dig(cm_odt, "structure.comment_ledger.paragraphs_total"),
+         dig(cm_odt, "structure.comment_ledger.paragraphs_in_annotations"),
+         dig(cm_odt, "structure.comment_ledger.paragraphs_body_only"),
+         dig(cm_odt, "structure.comment_ledger.hosted_in"),
+         dig(cm_odt, "structure.comment_ledger.distinct_creators"),
+         dig(cm_odt, "structure.comment_ledger.annotations[0].date"),
+         dig(cm_odt, "structure.comment_ledger.annotations[0].host_paragraph"),
+         dig(cm_odt, "structure.comment_ledger.annotations[1].creator")],
+        [3, 6, 3, 3, 2, ["刘奇", "审稿人", "编辑"],
+         "2026-09-25T05:45:49", 0, "审稿人"],
+    )
+    check(
+        "两家能对齐的是条数与作者数（3 / 3）；没写过批注的件交 `part_written: false` 与一串 0"
+        "（不是缺键），有批注而没人锚的份也存在（`notes.docx` 一条、作者 `liuqi`）；"
+        "RTF 那一族这一格不交（它的批注另有 `annotations` 那一本账，带作者、日期与字）",
+        [dig(cm, "structure.comment_ledger.comments_total"),
+         dig(cm_odt, "structure.comment_ledger.annotations_total"),
+         dig(cm, "structure.comment_ledger.distinct_authors") ==
+         dig(cm_odt, "structure.comment_ledger.distinct_creators"),
+         dig(lbin("office-doc", fixture("paper-a4.docx")),
+             "structure.comment_ledger.part_written"),
+         dig(lbin("office-doc", fixture("paper-a4.docx")),
+             "structure.comment_ledger.comments_total"),
+         dig(lbin("office-doc", fixture("paper-a4.docx")),
+             "structure.comment_ledger.anchor_references"),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.comment_ledger.comments_total"),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.comment_ledger.distinct_authors"),
+         dig(lbin("office-doc", fixture("tabs.rtf")), "structure.comment_ledger")],
+        [3, 3, True, False, 0, 0, 1, ["liuqi"], None],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──

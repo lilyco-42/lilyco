@@ -1384,6 +1384,121 @@ def odf_tab_stops(path: Path, limit: int = 100) -> dict:
         "paragraphs": rows[:limit],
     }
 
+
+def docx_comment_ledger(path: Path, limit: int = 100) -> dict:
+    r"""批注那一份账（OOXML）：内容在 `word/comments.xml`，锚点在正文里，两边按 `w:id` 配
+
+    三条要紧的都在真件里：部件里那几条的**先后**与正文锚点的先后不是一套（LibreOffice 重写
+    同一份把部件排成 1,0,2 而正文一字没动），`w:date` 带 Z 而 ODF 那份不带，
+    以及「有内容没锚点」与「有锚点没内容」是两个方向都要数的。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"available": False}
+        root = ET.fromstring(box.read("word/document.xml"))
+        from_part = []
+        part_written = "word/comments.xml" in have
+        if part_written:
+            croot = ET.fromstring(box.read("word/comments.xml"))
+            for index, one in enumerate([k for k in croot.iter() if xml_local(k.tag) == "comment"]):
+                written = _written_attrs(one, {})
+                paras = [k for k in one.iter() if xml_local(k.tag) == "p"]
+                from_part.append({
+                    "part_index": index,
+                    "id": _local_in(written, "id"),
+                    "author": _local_in(written, "author"),
+                    "initials": _local_in(written, "initials"),
+                    "date": _local_in(written, "date"),
+                    "paragraphs": len(paras),
+                    "text": "\n".join(ooxml_para_text(k) for k in paras),
+                })
+    body = [one for one in root if xml_local(one.tag) == "body"]
+    starts, ends, refs, host = [], [], [], []
+    paras = [one for one in body[0].iter() if xml_local(one.tag) == "p"] if body else []
+    for index, para in enumerate(paras):
+        here = []
+        for kind, sink in (("commentReference", refs), ("commentRangeStart", starts),
+                           ("commentRangeEnd", ends)):
+            for had in [k for k in para.iter() if xml_local(k.tag) == kind]:
+                value = _local_in(_written_attrs(had, {}), "id")
+                if value is None:
+                    continue
+                sink.append(value)
+                if kind == "commentReference":
+                    here.append(value)
+        if here:
+            host.append({"paragraph": index, "ids": here})
+    orphans = [one for one in from_part if one["id"] not in refs]
+    dangling = []
+    for value in refs:
+        if value not in [one["id"] for one in from_part] and value not in dangling:
+            dangling.append(value)
+    authors = []
+    for one in from_part:
+        if one["author"] is not None and one["author"] not in authors:
+            authors.append(one["author"])
+    return {
+        "family": "ooxml",
+        "available": True,
+        "part_written": part_written,
+        "comments_total": len(from_part),
+        "anchor_starts": len(starts),
+        "anchor_ends": len(ends),
+        "anchor_references": len(refs),
+        "range_asymmetric": len(starts) != len(ends),
+        "orphans_without_anchor": len(orphans),
+        "anchors_without_comment": len(dangling),
+        "distinct_authors": authors,
+        "comments": from_part[:limit],
+        "hosts": host[:limit],
+    }
+
+
+def odf_comment_ledger(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF 只有一处：`text:annotation` 坐在它所属的那一段里面
+
+    作者是孩子元素 `dc:creator`、时间是 `dc:date`（**没有 Z**，与 OOXML 那种带 Z 的写法不同）。
+    「几段」在这里是两个数：全文的 `text:p` 把批注里的那些也算进去了，所以正文段数另交一份。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        crowd = ET.fromstring(box.read("content.xml"))
+    paras = [one for one in crowd.iter() if xml_local(one.tag) == "p"]
+    rows = []
+    inner = 0
+    for index, para in enumerate(paras):
+        for one in [k for k in para.iter() if xml_local(k.tag) == "annotation"]:
+            held = [k for k in one.iter() if xml_local(k.tag) == "p"]
+            inner += len(held)
+            creator = [k for k in one if xml_local(k.tag) == "creator"]
+            stamp = [k for k in one if xml_local(k.tag) == "date"]
+            rows.append({
+                "order": len(rows),
+                "host_paragraph": index,
+                "creator": "".join(creator[0].itertext()).strip() if creator else None,
+                "date": "".join(stamp[0].itertext()).strip() if stamp else None,
+                "paragraphs": len(held),
+                "text": "\n".join("".join(had.itertext()).strip() for had in held),
+            })
+    creators = []
+    for one in rows:
+        if one["creator"] is not None and one["creator"] not in creators:
+            creators.append(one["creator"])
+    return {
+        "family": "odf",
+        "available": True,
+        "annotations_total": len(rows),
+        "paragraphs_total": len(paras),
+        "paragraphs_in_annotations": inner,
+        "paragraphs_body_only": len(paras) - inner,
+        "hosted_in": len({one["host_paragraph"] for one in rows}),
+        "distinct_creators": creators,
+        "annotations": rows[:limit],
+    }
+
 def odf_style_holders(node) -> list:
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
     out: list = []
@@ -6759,6 +6874,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["table_headers"] = docx_repeat_headers(path)
             # 制表位：定义在段上，而段里的制表字符是另一本账
             out["ooxml"]["tab_stops"] = docx_tab_stops(path)
+            # 批注那一份账：内容在部件、锚点在正文，两边按号配
+            out["ooxml"]["comment_ledger"] = docx_comment_ledger(path)
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
@@ -6787,6 +6904,8 @@ def facts(path: Path) -> dict:
             out["odt"]["table_headers"] = odt_repeat_headers(path)
             # 同一问在 ODF 一跳之外：段只点样式名，制表位在样式里
             out["odt"]["tab_stops"] = odf_tab_stops(path)
+            # 同一问在 ODF 只有一处：批注坐在段里面
+            out["odt"]["comment_ledger"] = odf_comment_ledger(path)
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger

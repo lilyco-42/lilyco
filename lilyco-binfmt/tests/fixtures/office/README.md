@@ -40,6 +40,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `tabs.docx` | python-docx（`write_tabs_docx`） | 四条段，一次只改一个变量：`左对齐无引导` / `右对齐点引导` / `居中长划引导` / `小数点对齐`，每段另加一条 9cm 左对齐下划线引导的，并按两次 Tab 键 —— 「定义了哪几个位置」与「按了几下制表键」是两本账 |
 | `tabs.odt` | LibreOffice（`tabs.docx` → .odt） | 同一问的第二种存法：制表位不在段上，一跳在段点的那份自动样式（`P1`…`P4`）里，位置变成带单位的串，而 **9cm 写成 `8.999cm`**（转一趟少 0.001cm）—— 见事实 90 |
 | `tabs.rtf` | LibreOffice（`tabs.docx` → .rtf） | 第三种：位置回到 twip（`\tx1701` 与 `\tx5102` 各 4 条），而对齐与引导符是**只管下一个位置**的前缀（`\tldot\tqr\tx1701`）—— 规则量准了，这一支读者也读了它（第三种形状，见事实 91）；样式表那一群里另有 4 条位置，按这一族的规矩跳过不数 |
+| `doc-comments.docx` | python-docx 1.2（`write_comment_thread_docx`） | 四条段、三条批注：前两条锚在**同一段**上（号 0 与号 1），第三条另起一段，第四段没人锚。内容住在 `word/comments.xml`（`w:id` / `w:author` / `w:initials` / `w:date` 带 Z），锚点在正文里（`commentRangeStart` / `End` / `commentReference` 三处，只带号） |
+| `doc-comments-lo.docx` | LibreOffice（`doc-comments.docx` → .docx） | 同一份重写后：条数、作者、六个锚点数一字不差，而 `comments.xml` 里那三条排成 **1,0,2**（原来 0,1,2），正文那九个锚点一字没动 —— 「第几条」按部件与按正文是两个答案，见事实 92 |
+| `doc-comments.odt` | LibreOffice（`doc-comments.docx` → .odt） | 同一问合一处：`text:annotation` 坐在所属那一段里，作者是孩子元素 `dc:creator`、时间 `dc:date`（**没有 Z**）；全文 6 个 `text:p` 里 3 个住在批注里 —— 见事实 92 |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
@@ -1651,6 +1654,14 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 前缀的账只能逐条交：`\tqr` / `\tqc` / `\tqdec` 各 1 条（align_words 3），引导前缀 6 条（`\tldot` 1、`\tlth` 1、`\tlul` 4），而「左对齐」这一家**不写词** —— 所以 align_words 与 positions 是两个数，谁也不顶替谁；第 3 条位置带 `tqr` + `tldot`，第 4 条只带 `tlul`。
     - 样式表那一群里另有 4 条位置（`header` / `footer` 两份样式各写 `\tqc\tx4680` 与 `\tqr\tx9360`），而两家读者的正文 walk 都按这一族的规矩**跳过** `\stylesheet`，所以那 4 条不进账本。段点了哪份样式、样式里又有位置 —— 这一族没有段边界可认，于是**不冒充归属**，只交流上数得清的（这就是它与另两族形状不同之处：那边逐段交，这边逐条交）。
     - 「有制表字符而一个位置都没定义」在这族是真有的：`lists.rtf` 交 `chars: 5`、`positions: 0`（那 5 个是列表标签里的 `\tab`）；`tables.rtf` 交 `positions: 0` —— 0 是数过了没有，与另两族交空数组同一个意思。
+
+92. **这几条批注是谁写的、锚在哪一段：OOXML 分两处按号配，ODF 合在一段里**
+    - `doc-comments.docx`（python-docx 1.2 的 `add_comment`）：内容与锚点分家 —— `word/comments.xml` 里三条各带 `w:id` / `w:author` / `w:initials` / `w:date`（时间带 Z），正文里三种锚点（`commentRangeStart` / `commentRangeEnd` / `w:r/w:commentReference`）只带号。两个方向都要数：有内容没锚（orphan）与有锚没内容（dangling）是两回事，这里都是 0。
+    - 同一段可以锚两条：这份件第 0 段带 `ids: ["1", "0"]` —— 号在正文里的先后与部件里的先后不是一套。
+    - `doc-comments-lo.docx`（LibreOffice 重写同一份）：条数 3、六个锚点数、`hosts` 全部一字不差，而**部件里那三条排成 1,0,2**（原来 0,1,2），`distinct_authors` 因此也换了顺序 —— 所以「第几条批注」不说清算哪个就是两个答案，两份都交、不挑一个。
+    - `doc-comments.odt`：`text:annotation` 就坐在所属那一段里面，作者与时间是孩子元素（`dc:creator` / `dc:date`），而那个时间**没有 Z**；「全文几段」在这一族是两个数：6 个 `text:p` = 正文 3 段 + 批注里 3 段（只交一个就会把批注的字当正文的字数进去）。
+    - 没写过批注的件（`paper-a4.docx`）交 `part_written: false` 与一串 0，不是缺键；RTF 那一族不交这个键（它的批注早另有 `annotations` 那一本账：作者、日期、字、号都交）。
+    - 还没做的：批注**回复线程**。python-docx 的 `Comment` 没有回复 API，Word 那一条是 `word/commentsExtended.xml` 里的 `w15:paraIdParent`，本机没有任何生产者写过它 —— 所以这一格不在账上（不猜）。
 
 ## 这些数字从哪来
 

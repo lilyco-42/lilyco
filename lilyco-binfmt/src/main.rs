@@ -35,6 +35,7 @@
 
 mod biff;
 mod cfb;
+mod comments;
 mod entries;
 mod identify;
 mod numfmt;

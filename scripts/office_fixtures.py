@@ -1451,6 +1451,33 @@ def write_tabs_docx(path: Path) -> None:
     doc.save(path)
 
 
+
+def write_comment_thread_docx(path: Path) -> None:
+    """四条段、三条批注：前两条锚在**同一段**上，第三条另起一段，第四段没人锚
+
+    python-docx 1.2 有 `Document.add_comment(那些 run, 文本, 作者, 缩写)`（**没有**回复那一条
+    API —— `Comment` 上只有 `add_paragraph` / `add_table`，所以线程这一格只能等真凭据）。
+    两处要紧的都在量出来的数里：`w:date` 带 Z，而 LibreOffice 转出的 .odt 那份 `dc:date`
+    不带；同一份稿子重写后 `comments.xml` 里三条排成 1,0,2，而正文那九个锚点一字没动。
+    """
+    from docx import Document
+
+    doc = Document()
+    first = doc.add_paragraph("第一段：这条有两个人说过话")
+    doc.add_comment(
+        first.runs[0], text="第一条批注：请核对数字", author="刘奇", initials="LQ"
+    )
+    doc.add_comment(
+        first.runs[0], text="第二条：同一个锚点上", author="审稿人", initials="SG"
+    )
+    second = doc.add_paragraph("第二段：这条只有作者")
+    doc.add_comment(
+        second.runs[0], text="第三条，另一个人写的", author="编辑", initials="JG"
+    )
+    doc.add_paragraph("第三段：没有批注")
+    doc.save(path)
+
+
 def write_table_header_docx(path: Path) -> None:
     """四张表，一次只改一个变量：只重复第一行 / 重复前两行 / 一个都不重复 / 只重复**中间**那一行
 
@@ -2900,6 +2927,21 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "deck-ph.odp", OUT / "deck-ph.odp")
     else:
         print("⚠️  没拿到 deck-ph.odp")
+
+    # 批注那三份：python-docx 写 docx，同格式重写一份（部件换先后）、再转一份 odt（两处合一处）
+    noted = OUT / "doc-comments.docx"
+    write_comment_thread_docx(noted)
+    convert(exe, noted, "docx", SCRATCH / "doc-comments-back")
+    made_noted = SCRATCH / "doc-comments-back" / "doc-comments.docx"
+    if made_noted.exists():
+        shutil.copyfile(made_noted, OUT / "doc-comments-lo.docx")
+    else:
+        print("⚠️  没拿到 doc-comments-lo.docx（docx → docx 那一转）")
+    convert(exe, noted, "odt", SCRATCH)
+    if (SCRATCH / "doc-comments.odt").exists():
+        shutil.copyfile(SCRATCH / "doc-comments.odt", OUT / "doc-comments.odt")
+    else:
+        print("⚠️  没拿到 doc-comments.odt")
 
     # 制表位那三份：python-docx 写 docx，LibreOffice 转 odt（位置换成带单位的串）与 rtf（`\tx`）
     tabbed = OUT / "tabs.docx"
