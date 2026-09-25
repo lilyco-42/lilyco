@@ -40,6 +40,7 @@ mod comments;
 mod entries;
 mod identify;
 mod keep_switches;
+mod languages;
 mod line_spacing;
 mod numfmt;
 mod odfchart;

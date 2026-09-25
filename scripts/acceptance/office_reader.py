@@ -2519,6 +2519,187 @@ def odf_page_numbering(path: Path, limit: int = 100) -> dict:
     }
 
 
+LANG_ATTRS = ("language", "country", "script")
+
+
+def docx_languages(path: Path, limit: int = 100) -> dict:
+    r"""`w:lang` 有三个属性：`w:val`（拉丁那一路）、`w:eastAsia`（中日韩那一路）、
+    `w:bidi`（复杂脚本从右往左那一路）—— 一条元素可以同时说三路，也可以只说其中一路。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"available": False}
+        doc = ET.fromstring(box.read("word/document.xml"))
+        styles_root = (ET.fromstring(box.read("word/styles.xml"))
+                       if "word/styles.xml" in have else None)
+
+    def attrs_of(node) -> dict:
+        out = {}
+        for key, value in node.attrib.items():
+            tail = key.rsplit("}", 1)[-1]
+            if key == "xmlns" or key.startswith("xmlns:"):
+                continue
+            out[tail] = value
+        return out
+
+    def langs(node):
+        return [one for one in node.iter() if xml_local(one.tag) == "lang"]
+
+    defaults = None
+    if styles_root is not None:
+        holder = [one for one in styles_root.iter() if xml_local(one.tag) == "docDefaults"]
+        if holder:
+            got = langs(holder[0])
+            defaults = attrs_of(got[0]) if got else None
+    style_rows = []
+    if styles_root is not None:
+        for one in styles_root.iter():
+            if xml_local(one.tag) != "style":
+                continue
+            sid = stype = None
+            for key, value in one.attrib.items():
+                tail = key.rsplit("}", 1)[-1]
+                if tail == "styleId":
+                    sid = value
+                elif tail == "type":
+                    stype = value
+            rpr = [kid for kid in one if xml_local(kid.tag) == "rPr"]
+            got = langs(rpr[0]) if rpr else []
+            if got:
+                style_rows.append({"style_id": sid, "style_type": stype,
+                                   "attrs": attrs_of(got[0])})
+    body = [one for one in doc if xml_local(one.tag) == "body"]
+    para_rows = []
+    if body:
+        for index, para in enumerate([kid for kid in body[0] if xml_local(kid.tag) == "p"]):
+            ppr = [kid for kid in para if xml_local(kid.tag) == "pPr"]
+            if not ppr:
+                continue
+            rpr = [kid for kid in ppr[0] if xml_local(kid.tag) == "rPr"]
+            if not rpr:
+                continue
+            got = langs(rpr[0])
+            if got:
+                para_rows.append({"index": index, "attrs": attrs_of(got[0])})
+    run_rows = []
+    if body:
+        for index, run in enumerate([one for one in body[0].iter()
+                                     if xml_local(one.tag) == "r"]):
+            rpr = [kid for kid in run if xml_local(kid.tag) == "rPr"]
+            if not rpr:
+                continue
+            got = langs(rpr[0])
+            if got:
+                run_rows.append({"run": index, "attrs": attrs_of(got[0])})
+    in_doc = len(langs(doc)) if body else 0
+    in_styles = len(langs(styles_root)) if styles_root is not None else 0
+    allnodes = langs(doc) + (langs(styles_root) if styles_root is not None else [])
+    tables = {"val": [], "eastAsia": [], "bidi": []}
+    for one in allnodes:
+        got = attrs_of(one)
+        for key in tables:
+            value = got.get(key)
+            if value is not None and value not in tables[key]:
+                tables[key].append(value)
+    levels = [one for one, had in (("doc_defaults", defaults is not None),
+                                   ("styles", bool(style_rows)),
+                                   ("paragraphs", bool(para_rows)),
+                                   ("runs", bool(run_rows))) if had]
+    return {
+        "family": "ooxml",
+        "available": True,
+        "elements_total": in_doc + in_styles,
+        "in_document": in_doc,
+        "in_styles": in_styles,
+        "doc_defaults_written": defaults is not None,
+        "doc_defaults": defaults,
+        "styles": style_rows[:limit],
+        "styles_with_lang": len(style_rows),
+        "paragraphs": para_rows[:limit],
+        "paragraphs_with_lang": len(para_rows),
+        "runs": run_rows[:limit],
+        "runs_with_lang": len(run_rows),
+        "distinct_vals": tables["val"],
+        "distinct_east_asia": tables["eastAsia"],
+        "distinct_bidi": tables["bidi"],
+        "levels_seen": levels,
+    }
+
+
+def odf_languages(path: Path, limit: int = 100) -> dict:
+    r"""ODF 把语言拆成两枚属性（`fo:language` + `fo:country`，另有 `fo:script`），
+    宿主是字符属性 `style:text-properties`；值可以是字面 `none` —— 那是「说了：没有语言」，
+    与整族一个字不写是两件事。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        roots = [("content.xml", ET.fromstring(box.read("content.xml")))]
+        if "styles.xml" in have:
+            roots.append(("styles.xml", ET.fromstring(box.read("styles.xml"))))
+
+    def picked(node):
+        out = {}
+        for key, value in node.attrib.items():
+            tail = key.rsplit("}", 1)[-1]
+            if key == "xmlns" or key.startswith("xmlns:"):
+                continue
+            if tail in LANG_ATTRS:
+                out[tail] = value
+        return out or None
+
+    entries = []
+    anywhere = 0
+    for part, root in roots:
+        for one in root.iter():
+            if xml_local(one.tag) != "text-properties":
+                continue
+            if picked(one) is not None:
+                anywhere += 1
+        # 宿主走法（与 Rust 同一条，不用父指针）：两趟 —— 先所有 style，再所有 default-style
+        for kind in ("style", "default-style"):
+            for holder in root.iter():
+                if xml_local(holder.tag) != kind:
+                    continue
+                name = family = None
+                for key, value in holder.attrib.items():
+                    tail = key.rsplit("}", 1)[-1]
+                    if tail == "name":
+                        name = value
+                    elif tail == "family":
+                        family = value
+                for kid in holder:
+                    if xml_local(kid.tag) != "text-properties":
+                        continue
+                    table = picked(kid)
+                    if table is None:
+                        continue
+                    entries.append({"part": part, "holder": kind,
+                                    "style_name": name, "family": family, "attrs": table})
+    langs = sorted(set(one["attrs"].get("language") for one in entries
+                       if one["attrs"].get("language")))
+    countries = sorted(set(one["attrs"].get("country") for one in entries
+                           if one["attrs"].get("country")))
+    scripts = sorted(set(one["attrs"].get("script") for one in entries
+                         if one["attrs"].get("script")))
+    return {
+        "family": "odf",
+        "available": True,
+        "elements_total": anywhere,
+        "under_style": len([one for one in entries if one["holder"]]),
+        "not_under_style": max(0, anywhere - len(entries)),
+        "none_written": len([one for one in entries
+                             if one["attrs"].get("language") == "none"]),
+        "distinct_languages": langs,
+        "distinct_countries": countries,
+        "distinct_scripts": scripts,
+        "parts_seen": sorted(set(one["part"] for one in entries)),
+        "entries": entries[:limit],
+    }
+
+
 def odf_style_holders(node) -> list:
 
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
@@ -7988,6 +8169,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["bookmark_pairs"] = docx_bookmark_pairs(path)
             # 这一节的页码：元素在场、属性写了什么，两件事分开
             out["ooxml"]["page_numbering"] = docx_page_numbering(path)
+            # 这份文档写了哪种语言：`w:lang` 三个属性分三路说话
+            out["ooxml"]["languages"] = docx_languages(path)
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
@@ -8030,6 +8213,8 @@ def facts(path: Path) -> dict:
             out["odt"]["bookmark_pairs"] = odf_bookmark_pairs(path)
             # 同一问在 ODF 写在页版式上，两份件都走
             out["odt"]["page_numbering"] = odf_page_numbering(path)
+            # 同一问在 ODF 拆成 language + country（外加 script）
+            out["odt"]["languages"] = odf_languages(path)
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger

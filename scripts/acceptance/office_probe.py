@@ -274,6 +274,10 @@ def main() -> int:
         "restart.docx": ("ooxml", "word", "docx"),
         "restart-lo.docx": ("ooxml", "word", "docx"),
         "restart.odt": ("opendocument", "word", "odt"),
+        # 语言那三份：一路、另一路、三路全说，跨族之后只剩一格
+        "lang.docx": ("ooxml", "word", "docx"),
+        "lang-lo.docx": ("ooxml", "word", "docx"),
+        "lang.odt": ("opendocument", "word", "odt"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -5431,6 +5435,112 @@ def main() -> int:
         [{}, True, {}, [], None],
     )
 
+
+    # ── 3am) 这份文档写了哪种语言：OOXML 一枚元素三路文字，ODF 只有一格还要拆两段 ────
+    print("=== 3am) 语言：`w:lang` 三属性四层 vs `fo:language` + `fo:country`，含字面 none ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 语言那份账与读者一致（四层各交各的）" % name,
+              dig(got, "structure.languages"),
+              files[name]["ooxml"]["languages"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 语言那份账与读者一致（宿主两趟，先 style 后 default-style）" % name,
+              dig(got, "structure.languages"),
+              files[name]["odt"]["languages"])
+    check(
+        "模板的说法不是作者的说法：`notes.docx` 全文只有 styles.xml 里那一条 `w:lang`，"
+        "它在 `docDefaults` 上同时写 `val=\"en-US\"` / `eastAsia=\"en-US\"` / `bidi=\"ar-SA\"` —— "
+        "一份全中文稿子在文件级默认上声明「复杂脚本是阿拉伯语」，正文一个字都没说（`in_document` 0）",
+        [dig(lbin("office-doc", fixture("notes.docx")), "structure.languages.elements_total"),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.languages.in_document"),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.languages.in_styles"),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.languages.doc_defaults_written"),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.languages.doc_defaults"),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.languages.runs_with_lang"),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.languages.levels_seen")],
+        [1, 0, 1, True, {"val": "en-US", "eastAsia": "en-US", "bidi": "ar-SA"}, 0, ["doc_defaults"]],
+    )
+    lang = lbin("office-doc", fixture("lang.docx"))
+    check(
+        "`lang.docx` 第一次让段层与 run 层有非零凭据：段上 `val=\"es-ES\"`，三串字分别只写 "
+        "`val=\"fr-FR\"`、**只写 `eastAsia=\"ja-JP\"`**、三路全写 `de-DE / zh-CN / ar-SA` —— "
+        "三个属性各说一路文字，所以「这份文档几种语言」要看问的是哪一路（`distinct_vals` 与 "
+        "`distinct_east_asia` 是两个清单，不并成一个）",
+        [dig(lang, "structure.languages.elements_total"),
+         dig(lang, "structure.languages.in_document"),
+         dig(lang, "structure.languages.paragraphs_with_lang"),
+         dig(lang, "structure.languages.runs_with_lang"),
+         dig(lang, "structure.languages.paragraphs[0]"),
+         dig(lang, "structure.languages.runs[1]"),
+         dig(lang, "structure.languages.runs[2].attrs"),
+         dig(lang, "structure.languages.distinct_vals"),
+         dig(lang, "structure.languages.distinct_east_asia"),
+         dig(lang, "structure.languages.distinct_bidi")],
+        [5, 4, 1, 3,
+         {"index": 7, "attrs": {"val": "es-ES"}},
+         {"run": 14, "attrs": {"eastAsia": "ja-JP"}},
+         {"val": "de-DE", "eastAsia": "zh-CN", "bidi": "ar-SA"},
+         ["es-ES", "fr-FR", "de-DE", "en-US"], ["ja-JP", "zh-CN", "en-US"], ["ar-SA"]],
+    )
+    check(
+        "LibreOffice 重写同一份：正文那四条一字未动，另外**给三个样式各补了一条** "
+        "（`Normal` / `NoSpacing` / `MacroText`，值都是 en-US / en-US / ar-SA）—— "
+        "元素 5 条变 8 条、`levels_seen` 多出一层；补的是它自己的手笔，不是这份稿子说过的话",
+        [dig(lbin("office-doc", fixture("lang-lo.docx")), "structure.languages.elements_total"),
+         dig(lbin("office-doc", fixture("lang-lo.docx")), "structure.languages.in_styles"),
+         dig(lbin("office-doc", fixture("lang-lo.docx")), "structure.languages.styles_with_lang"),
+         dig(lbin("office-doc", fixture("lang-lo.docx")), "structure.languages.runs_with_lang"),
+         dig(lbin("office-doc", fixture("lang-lo.docx")), "structure.languages.paragraphs_with_lang"),
+         dig(lbin("office-doc", fixture("lang-lo.docx")), "structure.languages.styles[0]"),
+         dig(lbin("office-doc", fixture("lang-lo.docx")), "structure.languages.levels_seen")],
+        [8, 4, 3, 3, 1,
+         {"style_id": "Normal", "style_type": "paragraph",
+          "attrs": {"val": "en-US", "eastAsia": "en-US", "bidi": "ar-SA"}},
+         ["doc_defaults", "styles", "paragraphs", "runs"]],
+    )
+    check(
+        "同一份转成 odt 只留一格：`distinct_languages` 是 `de / en / es / fr` —— "
+        "**只写 `eastAsia=\"ja-JP\"` 那一串字在 ODF 一个字都没落**（没有 ja），三路全写那串只剩 "
+        "`de` + `DE`（zh 与 ar 都不见），而 `en-US` 在这一族拆成 `language=\"en\"` + `country=\"US\"` "
+        "两个属性 —— 词汇与格数都不是一套，不折算",
+        [dig(lbin("office-doc", fixture("lang.odt")), "structure.languages.elements_total"),
+         dig(lbin("office-doc", fixture("lang.odt")), "structure.languages.under_style"),
+         dig(lbin("office-doc", fixture("lang.odt")), "structure.languages.not_under_style"),
+         dig(lbin("office-doc", fixture("lang.odt")), "structure.languages.distinct_languages"),
+         dig(lbin("office-doc", fixture("lang.odt")), "structure.languages.distinct_countries"),
+         dig(lbin("office-doc", fixture("lang.odt")), "structure.languages.distinct_scripts"),
+         dig(lbin("office-doc", fixture("lang.odt")), "structure.languages.parts_seen"),
+         dig(lbin("office-doc", fixture("lang.odt")), "structure.languages.entries[0]")],
+        [5, 5, 0, ["de", "en", "es", "fr"], ["DE", "ES", "FR", "US"], [],
+         ["content.xml", "styles.xml"],
+         {"part": "content.xml", "holder": "style", "style_name": "T1", "family": "text",
+          "attrs": {"language": "es", "country": "ES"}}],
+    )
+    check(
+        "「说了没有」与「一个字不说」是两件事：`tbox-lo.odt` 有一条 `style:text-properties` 写 "
+        "**`fo:language=\"none\"`**（`none_written` 1，而它的 `country` 也写着 `none`）；"
+        "`tbox.odt` 与 `pnum.odt`（zipfile 写的最小件）整族零条 —— `elements_total` 是 0、"
+        "`entries` 是空表、`parts_seen` 也是空表，不替它补 `en`",
+        [dig(lbin("office-doc", fixture("tbox-lo.odt")), "structure.languages.none_written"),
+         dig(lbin("office-doc", fixture("tbox-lo.odt")), "structure.languages.elements_total"),
+         dig(lbin("office-doc", fixture("tbox-lo.odt")), "structure.languages.distinct_languages"),
+         dig(lbin("office-doc", fixture("tbox-lo.odt")), "structure.languages.distinct_countries"),
+         dig(lbin("office-doc", fixture("tbox.odt")), "structure.languages.elements_total"),
+         dig(lbin("office-doc", fixture("tbox.odt")), "structure.languages.entries"),
+         dig(lbin("office-doc", fixture("tbox.odt")), "structure.languages.distinct_languages"),
+         dig(lbin("office-doc", fixture("pnum.odt")), "structure.languages.parts_seen")],
+        [1, 2, ["en", "none"], ["US", "none"], 0, [], [], []],
+    )
+    check(
+        "RTF 与遗留 .doc **不交这个键**（缺键 = 这一支没看）：RTF 写的是 `\\lang` 加一个 LCID 数字"
+        "（另有 `\\langfe` 那一路），整名比对与归属判据还没量完，不拿「数得出条数」当「说得清归属」；"
+        "而「这份文档是哪国语言」这个属性级的问句早就在 `office-meta` 的 `dc:language` 那一份账上，"
+        "两份数不互相顶替",
+        [dig(lbin("office-doc", fixture("tabs.rtf")), "structure.languages"),
+         dig(lbin("office-doc", fixture("notes-en.doc")), "structure.languages")],
+        [None, None],
+    )
     # ── 3al) 这一节的页码：OOXML 一节一条三个属性，ODF 一页版式一条，跨族各丢一次 ────
     print("=== 3al) 页码：元素在场、三个属性各写各的，而「从 7 开始」两头都不是同一种丢法 ===")
     for name in sorted(one.name for one in FIXTURES.glob("*.docx")):

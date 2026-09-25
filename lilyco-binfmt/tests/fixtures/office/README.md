@@ -61,6 +61,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `bkmks.docx` | python-docx（`write_bookmark_docx`，书签没有公开 API，走 `OxmlElement`） | 八段各造一种情形：完整一对（`口径`）/ 跨段一对（`跨段`，起在第 2 段、止在第 3 段）/ 只有起（`断了`）/ 只有止（号 `9`）/ Word 的光标（`_GoBack`）/ **与第一段重名**的第二条 `口径` / 站内跳转 `w:anchor="跨段"`。要紧的是 `w:bookmarkEnd` 只写号不写名字 |
 | `bkmks-lo.docx` | LibreOffice（`bkmks.docx` → .docx） | 同一份重写后：两个**断的整个被删**（5 起 5 止 → 4 起 4 止）、号整批重排成 0..3、重名那条改名 `口径_副本_1`，而锚一字未改 —— 见事实 98 |
 | `bkmks.odt` | LibreOffice（`bkmks.docx` → .odt） | 记号换成三种：闭在同段的与 Word 那条光标都变成**一枚** `text:bookmark`（3 枚），只有跨段那一对是 `bookmark-start`/`-end`（两头写名字）；改名的那条在这里写作带空格的「口径 副本 1」 —— 见事实 98 |
+| `lang.docx` | python-docx（`add_run_languages`，语言没有公开属性，走 `OxmlElement`） | `w:lang` 一层一个样：段上 `pPr/rPr` 写 `val="es-ES"`，三串字分别**只写** `val="fr-FR"`、**只写** `eastAsia="ja-JP"`、三路全写 `val="de-DE" eastAsia="zh-CN" bidi="ar-SA"` —— 一枚元素的三个属性各说一路文字，不并成「这文档几种语言」|
+| `lang-lo.docx` | LibreOffice（`lang.docx` → .docx） | 正文那四条一字未动（段 1 + run 3），而它**给 `Normal` / `NoSpacing` / `MacroText` 各补了一条** `en-US / en-US / ar-SA` —— 元素 5 条变 8 条、`levels_seen` 多出一层：补的是生产者的手笔，不是稿子说过的话 |
+| `lang.odt` | LibreOffice（`lang.docx` → .odt） | 换族之后只剩一格：`distinct_languages` 是 `de / en / es / fr` —— 只写 `eastAsia="ja-JP"` 那一串字**一个字都没落**（没有 ja），三路全写那串只剩 `de` + `DE`（zh 与 ar 都不见），而 `en-US` 这一族拆成 `language="en"` + `country="US"` 两个属性 |
 | `pnum.odt` | zipfile 写的最小 ODF（`write_pnum_odt`） | 页码起始在 ODF 写在两处：段落属性上 `style:page-number="7"` + `style:use-page-numbering="true"`（外加 `fo:break-before="page"`），页版式上 `style:num-format="1"` + `style:page-number="1"`；两条母版页共用那一份版式，所以「几条版式」是 1 而「几份母版页」是 2 |
 | `pnum.docx` | LibreOffice（`pnum.odt` → .docx） | 转过来之后 `w:pgNumType` **只带 `fmt="decimal"`**：「从 7 开始」整格没写（`start_written` 是 null，不是 0 也不是 7），而源件那个「另起一页」也没换出第二节（`sections_total` 1）|
 | `restart.docx` | python-docx（`add_page_number_start`，页码没有公开属性，走 `OxmlElement`） | `w:pgNumType` 三个属性全写：`start="7"` / `fmt="upperRoman"` / `chpNum="none"` —— 这一节既说了用什么数、也说了从几起、也说了不跟章号 |
@@ -1771,6 +1774,39 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       两份件的 `notes-hf.rtf` / `paper-a4.rtf` 各两次（正好一节一次），而 `\pgnstart` 一个都没有；
       这一支读者的 `sections` 本来就是 null，节归属判不住（同「那张纸」只交文档级的先例）。
       `.doc` 的节属性住在 table stream 里，这一族读者不走那里。
+
+102. **这份文档写了哪种语言：OOXML 一枚元素说三路文字，ODF 只有一格还要拆成两段**
+    - 形状先分开：OOXML 的 `w:lang` 有三个可以各自缺的属性 —— `w:val`（拉丁那一路）、
+      `w:eastAsia`（中日韩那一路）、`w:bidi`（复杂脚本从右往左那一路），一条元素可以同时说三路；
+      它可以坐在四层上（`word/styles.xml` 的 `w:docDefaults`、样式定义、段自己的 `w:pPr/w:rPr`、
+      每串字的 `w:rPr`），四层各交一份、不合并。ODF 只有一格语言位：字符属性
+      `style:text-properties` 上的 `fo:language` + `fo:country`（外加 `fo:script`），
+      值是**拆开的两段**（`en` + `US` 对 `en-US`）。两边各按写的交，不拼也不折。
+    - **模板的说法不是作者的说法**：`notes.docx` 全文只有 styles.xml 里那一条 `w:lang`，
+      它在 `docDefaults` 上同时写 `val="en-US"` / `eastAsia="en-US"` / `bidi="ar-SA"` —— 一份全中文
+      稿子在文件级默认上声明「复杂脚本是阿拉伯语」。这条账把它原样交出来（`doc_defaults`），
+      同时 `in_document` 是 0：正文一个字都没说过，两件事分开写。
+    - 段层与 run 层以前没有生产者：全语料 51 份 docx 的 `w:lang` 一条都不在正文里。
+      `lang.docx` 用 python-docx 自己的 XML 层写出来（段一条 + run 三条），量到三个属性确实
+      各自独立：`distinct_vals` = `es-ES / fr-FR / de-DE / en-US`、`distinct_east_asia` =
+      `ja-JP / zh-CN / en-US`、`distinct_bidi` = `ar-SA` 是三个清单，不并成一个「几种语言」。
+    - LibreOffice 重写同一份（`lang-lo.docx`）：正文四条一字未动，另外给 `Normal` / `NoSpacing` /
+      `MacroText` 各补了一条（值都是 en-US / en-US / ar-SA）—— 5 条变 8 条、`levels_seen` 多一层。
+      **它补的不算这份稿子说过的话**，所以按四层分开交，不合成「这份文档的语言」。
+    - 跨族那一趟丢得最狠（`lang.odt`）：ODF 只有一格语言位，于是**只写 `eastAsia="ja-JP"` 那一串字
+      整个没落**（`distinct_languages` 里没有 `ja`），三路全写那串只剩 `de` + `DE`（`zh` 与 `ar`
+      都不见）—— 交回来的 `distinct_languages` 是 `de / en / es / fr`。
+    - 「说了没有」与「一个字不说」是两件事：`tbox-lo.odt` 的一条 `style:text-properties` 写
+      **`fo:language="none"`**（`none_written` 1，它的 `country` 也写着 `none`）；`tbox.odt` 与
+      `pnum.odt`（zipfile 写的最小件）整族零条 —— `elements_total` 0、`entries` 空表、
+      `parts_seen` 空表，不替它补 `en`。
+    - 宿主走法不用父指针：ODF 只认 `style` / `default-style` 的**直接孩子** `text-properties`，
+      另交一份「整棵树里带这三个属性的元素」条数与 `not_under_style`，两边能互相对账；
+      两支读者的序都是**两趟**（先所有 `style`、再所有 `default-style`），否则整份 list 没法比。
+    - RTF 与遗留 .doc **不交这个键**（缺键 = 这一支没看）：RTF 写 `\lang` 加一个 LCID 数字
+      （另有 `\langfe` 那一路），整名比对与归属判据还没量完 —— 实测这批件里 `\lang` 族控制字
+      每份都出现 5–18 次，但「哪一段说的」没判据；而「这份文档是哪国语言」那个**属性级**问句
+      早就在 `office-meta` 的 `dc:language` 那一份账上，两份数不互相顶替。
 
 ## 这些数字从哪来
 

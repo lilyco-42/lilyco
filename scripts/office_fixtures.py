@@ -807,6 +807,42 @@ def write_transition_deck(path: Path) -> None:
     prs.save(str(path))
 
 
+def add_run_languages(path: Path) -> None:
+    """往段与三串字上各挂 `w:lang`：一段说 `val="es-ES"`，三串分别只写 val、只写 eastAsia、三路全写
+
+    python-docx 没有语言属性（`Font` 上找不到 lang），所以走它自己的 XML 层 —— 与 `w:pgNumType`、
+    `w:pBdr` 同一个做法。存在的理由：全语料 51 份 docx 的 `w:lang` 一条都不在正文里（只有
+    styles.xml 的 docDefaults 与样式），段层与 run 层从来没有真生产者写过。量到的两条：
+    LibreOffice 重写时正文四条一字未动、另外给 `Normal` / `NoSpacing` / `MacroText` 各补一条；
+    而它转 odt 时**只写 `eastAsia="ja-JP"` 那一串字整个没落**（那一族只有一格语言位）。
+    """
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    def put_lang(holder, **table):
+        el = holder.find(qn("w:lang"))
+        if el is None:
+            el = OxmlElement("w:lang")
+            holder.append(el)
+        for key, value in table.items():
+            name = {"val": "val", "ea": "eastAsia", "bidi": "bidi"}[key]
+            el.set(qn("w:%s" % name), value)
+
+    doc = Document(path)
+    para = doc.add_paragraph()
+    prpr = para._p.get_or_add_pPr()
+    pprpr = OxmlElement("w:rPr")
+    # 段属性里 `w:rPr` 排在最前（schema 的顺序）
+    prpr.insert(0, pprpr)
+    put_lang(pprpr, val="es-ES")
+    put_lang(para.add_run("这一段是法语那一路")._r.get_or_add_rPr(), val="fr-FR")
+    put_lang(para.add_run("这一段是日语那一路")._r.get_or_add_rPr(), ea="ja-JP")
+    put_lang(para.add_run("这一段三路各说一遍")._r.get_or_add_rPr(),
+             val="de-DE", ea="zh-CN", bidi="ar-SA")
+    doc.save(path)
+
+
 def add_page_number_start(path: Path) -> None:
     """往已有的节上挂一枚「页码从 7 开始、用大写罗马、不带章号」的 `w:pgNumType`
 
@@ -3417,6 +3453,22 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "restart-asodt" / "restart.odt", OUT / "restart.odt")
     else:
         print("⚠️  没拿到 restart.odt（docx → odt 那一转）")
+
+    # 语言那三份：python-docx 的 XML 层在段与 run 上各挂 w:lang，LO 重写一份、转一份 odt
+    lang = OUT / "lang.docx"
+    write_docx(lang, art)
+    add_run_languages(lang)
+    convert(exe, lang, "docx", SCRATCH / "lang-back")
+    made_lang = SCRATCH / "lang-back" / "lang.docx"
+    if made_lang.exists():
+        shutil.copyfile(made_lang, OUT / "lang-lo.docx")
+    else:
+        print("⚠️  没拿到 lang-lo.docx（docx → docx 那一转）")
+    convert(exe, lang, "odt", SCRATCH / "lang-asodt")
+    if (SCRATCH / "lang-asodt" / "lang.odt").exists():
+        shutil.copyfile(SCRATCH / "lang-asodt" / "lang.odt", OUT / "lang.odt")
+    else:
+        print("⚠️  没拿到 lang.odt（docx → odt 那一转）")
 
     # 放映切换那三份：python-pptx + parse_xml 写 pptx，同格式重写一份、再转一份 odp（全丢）
     trick = OUT / "deck-tr.pptx"
