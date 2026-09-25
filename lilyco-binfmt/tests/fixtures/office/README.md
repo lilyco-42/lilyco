@@ -63,7 +63,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `bkmks.odt` | LibreOffice（`bkmks.docx` → .odt） | 记号换成三种：闭在同段的与 Word 那条光标都变成**一枚** `text:bookmark`（3 枚），只有跨段那一对是 `bookmark-start`/`-end`（两头写名字）；改名的那条在这里写作带空格的「口径 副本 1」 —— 见事实 98 |
 | `deck-tr.pptx` | python-pptx 1.0.2（`write_transition_deck`，切换没有公开属性，走 `parse_xml`） | 三页各改一个变量：`第一页`（`p:transition spd="med" advClick="1" advTm="5000"` + 孩子 `p:fade`）/ `第二页`（只写 `spd="fast"`，方向在孩子 `p:wipe/@dir="l"` 上）/ `第三页`（切换一个字都没写）。`spd`、`advClick`、`advTm` 是三句独立的话（多快、点一下换不换、几毫秒换页） |
 | `deck-tr-lo.pptx` | LibreOffice（`deck-tr.pptx` → .pptx） | 同一份重写后：第一页的 `advClick` 没了、第二页连 `spd` 也没了（孩子的 `dir="l"` 留着），而第三页**原本什么都没写、它补了两条**（`{spd:slow,dur:2000}` 与 `{spd:slow}`，都没有效果孩子）—— 全篇 4 条而只有 3 页有 —— 见事实 99 |
-| `deck-tr.odp` | LibreOffice（`deck-tr.pptx` → .odp） | 切换没丢而是**搬了两处并换词表**：`style:drawing-page-properties` 上写 `presentation:transition-type="automatic"` / `transition-speed="fast"` / `duration="PT5S"`（dp1 有、dp2 没有），效果本身进 `anim:transitionFilter`（`smil:type="fade"` + `subtype="crossfade"`、第二页 `barWipe` + `leftToRight`），页上已无 `p:transition` —— 见事实 99 |
+| `deck-tr.odp` | LibreOffice（`deck-tr.pptx` → .odp） | 切换没丢而是**搬了两处并换词表**：`style:drawing-page-properties` 上写 `presentation:transition-type="automatic"` / `transition-speed="fast"` / `duration="PT5S"`（dp1 有、dp2 没有），效果本身进 `anim:transitionFilter`（`smil:type="fade"` + `subtype="crossfade"`、第二页 `barWipe` + `leftToRight`），页上已无 `p:transition` —— 见事实 99 与 100 |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
@@ -1730,6 +1730,13 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - `deck-tr-lo.pptx`（LibreOffice 重写同一份）：第一页的 `advClick` **没了**（只剩 `spd` 与 `advTm`）、第二页连 `spd` 也没了（属性表整个是空的，而孩子的 `dir=l` 留着），第三页**原本什么都没写，它补了两条** —— `{spd:slow, dur:2000}` 与 `{spd:slow}`，两条都没有效果孩子。于是一篇里「4 条元素」而「只有 3 页有切换」：**一页两条是真会发生的**，这两个数不能互推，所以每页交 `elements`（几条）+ 每条自己的 `written`（写了哪些属性）+ 孩子清单。
     - `deck-tr.odp`：切转换了地方也换了词表 —— 页面上一个 `p:transition` 都不剩，属性去了 `style:drawing-page-properties`（`presentation:transition-type="automatic"`、`transition-speed="fast"`、`duration="PT5S"`，且 dp1 写了 dp2 没写），效果本身去了一棵 SMIL 动画树（`anim:transitionFilter` 的 `smil:type="fade"` + `smil:subtype="crossfade"`，第二页是 `barWipe` + `leftToRight` + `smil:dur="0.5s"`）。本条账只读 OOXML 那一种，所以 odp 的页**不交这个键**（缺键 = 这一族没看，不是 0）—— 那一族的账是另一问、另一次测量。
     - 两支读者比这一问时**不比页序**：一支按 `presentation.xml` 的放映序列页、一支按部件名，所以探针按内容排序的多重集比（外加两条求和：全篇几条、每页几条之和），位置留给放映序那一本账去说。
+
+100. **同一页的切换在 ODF 写在两处：页点名的 drawing-page 样式里一份，页体内那棵动画树又一份**
+    - `deck-tr.odp` 三页正好凑成三种情形。第一页点 `dp1`，那份 `style:drawing-page-properties` 上写满了一句半：`presentation:transition-type="automatic"`、`transition-speed="fast"`、`duration="PT5S"`，紧挨着还写效果自己的 `type="fade"`、`subtype="crossfade"`、`fadeColor="#000000"`；而页体内那棵 `anim:par node-type="timing-root"` 树里，`anim:transitionFilter` **又把效果写了一遍**（`smil:dur="0.75s"` + fade/crossfade）。两处都交、不互证，也不挑一个当准 —— 与 pptx 那两张尺寸（`wp:extent` 与 `a:ext`）同一族先例。
+    - 第二页点 `dp3`，只写半句：有 `transition-speed="fast"` 与 `type="barWipe"` / `subtype="leftToRight"` / `direction="reverse"`，而**没有 `transition-type`、没有 `duration`**。这一族没有「默认就是 fast」这回事，没写就交没有（不拿规范或别的页的写法替它接）。
+    - 第三页点 `dp4`：那份样式**找得到**（`style_found: true`，在 content.xml），可一个切换属性都不写 —— `written` 是空表而不是缺键，`effects` 是空表、`timing_roots` 是 0。与 pptx 那一面正好反过来：同一份稿子的第三页在 LibreOffice 的 **pptx** 重写里被**补了两条** `p:transition`，而它的 **odp** 导出对同一页一个字都不写 —— 同一个生产者的两个导出方向相反，两份件各自说自己的话。
+    - `deck.odp` 两页都点 `dp1` 而那份样式什么都没说：两页 `written` 都是空表、`style_found` 都是 true —— 「跳到了那份样式而它没说」与「跳不到那份样式」是两件事（后者 `style_found` 才是 false）。
+    - 两支读者的键按族分开：pptx 每页带 `transition_detail`、odp 每页带 `odp_transition`，另一族那个键整个不在（不是空表）；比这一问不比页序，按内容多重集与效果条数求和比。
 
 ## 这些数字从哪来
 
