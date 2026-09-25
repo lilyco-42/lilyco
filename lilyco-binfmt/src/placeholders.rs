@@ -99,7 +99,8 @@ pub(crate) fn hops(bytes: &[u8], limit: usize) -> Value {
     for part in slides {
         let file = part.rsplit('/').next().unwrap_or_default().to_string();
         // 页点哪份版式要走页自己那张关系表：成员名是 `ppt/slides/_rels/slide1.xml.rels`
-        let rel_name = format!("ppt/slides/_rels/{}", file);
+        // （部件名 + `.rels`，少这一段就永远读不到，而 `zipread::member` 按名字精确匹配）
+        let rel_name = format!("ppt/slides/_rels/{}.rels", file);
         let mut layout: Option<String> = None;
         if let Some(root) = parse(&rel_name) {
             for one in root.descendants("Relationship") {
