@@ -4283,7 +4283,7 @@ def main() -> int:
           dig(hfbook, "page_styles.masters[1].slots.header:default.regions")],
          dig(hfbook, "page_styles.masters[1].slots.header:default.fields"),
          dig(hfbook, "page_styles.masters[1].slots.footer:default.text")],
-        [5, "Report", 2, "???(???)\n0000-00-00, 00:00:00",
+        [5, "Report", 2, "???(???)\n0000/00/00, 00:00:00, 00:00:00",
          ["style:region-left", "style:region-right"], [1, 1],
          {"date": 1, "time": 1}, "页 1/ 99"],
     )

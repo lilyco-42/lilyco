@@ -1532,7 +1532,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       `text:sheet-name` + `text:title`，右半是 `text:date` + `text:time`。只走直接孩子，这一格
       读出来是 0 段、空串，而它明明写着字。所以段落改走后代，每一半再另交一份 `regions`
       （元素名、段数、那一半的字），两半各 1 段、合起来 2 段。
-    - 表名与标题在这份文件里缓存的是 `???` 三个问号，日期与时间缓存的是 `0000-00-00, 00:00:00`：
+    - 表名与标题在这份文件里缓存的是 `???` 三个问号，日期与时间缓存的是 `0000/00/00, 00:00:00`：
       按原样交，不替它算 —— 那一串占位符是文件自己的字，替它算出一个当天日期就是伪造。
     - 每一格另交 `display_written`：`Default` 与 `Report` 的 `-first` / `-left` 那四格、
       以及 `PageStyle_*` 三份的六格，都写着 `style:display="false"`。「这一格写了而它自己说
