@@ -124,6 +124,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `charstyles.docx` | python-docx（`write_styles_docx`） | 三段各点一个**字符样式**（`w:rStyle` 在 `w:rPr` 的第一个孩子位上），定义在 `word/styles.xml`：`Strong` 里写 `<w:b/><w:bCs/>`、`Emphasis` 里写 `<w:i/><w:iCs/>`，第二段还**同时**在段上写 `<w:b/>`（一处一半）；第三段点的号是 `SubtleEmphasis` 而名字写着「Subtle Emphasis」（带空格），定义里除了斜体还有 `w:color val="808080" themeColor="text1" themeTint="7F"` |
 | `charstyles-lo.docx` | LibreOffice（`charstyles.docx` → .docx） | 重写留着 `w:rStyle` 与那三个号（`Strong` / `Emphasis` / `SubtleEmphasis` 一字未改），照旧给没格式的串补空 rPr（7 串里 4 串是空的）；样式定义自己那份也没动，只有 `w:rsid` 换了大小写 |
 | `charstyles.odt` / `charstyles.rtf` | LibreOffice（从 `charstyles.docx` 导出） | 同一件话的另两种存法：ODF 把 `Strong` 换成 `Strong_20_Emphasis`（住 **styles.xml**，带 `style:display-name="Strong Emphasis"` 与父 `Default_20_Paragraph_20_Font`），而段上自己写的粗体变成 content.xml 里的自动样式 `T1` —— 于是那一句被**套成两层 span**（外 `Emphasis` 内 `T1`）；RTF 在群头写 `\cs34`，而 `{\*\cs34 … Strong;}` 那条定义**同时**被它把自己的 `\b` 抄进群头（号与话都在） |
+| `fields.docx` | python-docx（`write_fields_docx`） | 正文里三条域链（SEQ 编号 / DATE 带 `w:dirty` / PAGE），第四条 PAGE 写在 `word/footer1.xml` 里（不进正文那份账）；两个站内跳转：一个指着真书签 `表锚点`，另一个指着 `没这个书签`；书签是 `bookmarkStart` / `bookmarkEnd` 一对（`w:id="3"` 配对，名字只写在 start 上） |
+| `fields-lo.docx` / `fields.odt` / `fields.rtf` | LibreOffice（从 `fields.docx` 导出） | 同一批域在三条来回里各变一次样：docx 重写丢了 `w:dirty`、给指令补一个尾空格、把日期格式里的 `-` 转义成 `\-`，并把缓存值换成它自己算出来的数；ODF 把 SEQ 拆成 `text:sequence`（`text:name="表"` / `text:formula="ooow:表+1"` / `style:num-format="1"`）**并往 `text:sequence-decls` 里补一条 `表`**，页码变成页脚样式里的 `text:page-number`，书签只剩名字不再有号；RTF 写成六条 `\field{\*\fldinst …}{\fldrslt …}`，中文序列名成了 `\u-30616\'3f` 一串码位转义 |
 
 ## 几件只有踩过才会记下来的事
 
@@ -1355,6 +1357,32 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       「这一串没有字」与「这一串的字被删掉了」在这里同一个数（空串），差别靠 `contents` 说清。
     - 链接那一句「预算制度」在三副件里是三个号（`rId2` 与 `rId9`）而地址一字未改 ——
       与图的 `r:embed` 是同一条教训：**号是生产者自己排的，只列不比**。
+
+77. **生产者不接受的形状：`w:fldChar` 必须住在串里 —— 挂在段上，一次来回就把域变成死字**
+    - 第一版 `add_field` 把 begin / separate / end 三条 `w:fldChar` **直接挂在段上**（与
+      `instrText` 那个 run 并列）。这一份 docx 我们两个读者都照读，账上一切正常；
+      可 LibreOffice 把它 import 再导出时那三条壳全被丢掉，剩下「指令那一串」和「缓存那一串」
+      当成两句普通的字写回 odt/rtf —— 页面上凭空多出 ` SEQ 表 \* ARABIC1` 这样一句死字
+      （指令与值粘在一起，中间没有任何分隔）。
+    - 也就是说：**「读者读得懂」不等于「文件写对了」**。这一条是拿真生产者量出来的，
+      不是从规范里推的；改法是把每一条 `w:fldChar` 包进自己的 `w:r` 里，
+      再导出就得到 `text:sequence` / `text:page-number` / `\field` 那些正经形状。
+    - 留在这里的教训与「两个读者一起错」是同一族：这次的两个读者一起**放过**了一个坏件，
+      只有第三个生产者（LibreOffice 的 import）说了不。
+
+78. **一串字里可以一个字都不写，只说「这里要算」；站内跳转对的是书签的名，不是号**
+    - `w:instrText` 那一串 `text` 是空串，`instructions` 交出 ` SEQ 表 \* ARABIC`（反斜杠按写的交）；
+      页面上那句 `1` 住在**另一个 run** 里（begin/separate 与 separate/end 之间），那是上一次算出来的
+      缓存值。`w:fldChar` 的三种记号各交在 `field_chars`，`field_runs` 数「参与这条链的串有几条」。
+    - **`w:dirty` 是「这域脏了，下次要重算」，而只有写的那一份有**：LibreOffice 重导成 docx 时把这一格
+      整个丢了，同时把日期与页码的缓存值换成它自己算出来的数（`2026-09-24` → 当天、`2` → `1`）。
+      指令本身也变了：多一个尾空格、日期格式里的连字符被反斜杠转义（`\@ "yyyy-MM-dd"` 成
+      `\@"yyyy\-MM\-dd"`）—— 三份都按各的文件交，不折成同一个「日期域」。
+    - 站内跳转的地址写在 `w:anchor` 上（外部链接写的是 `r:id`），而它对的是 `w:bookmarkStart` 的
+      **名字**，不是 `w:id` 那个号：`link_found` 三条一件 —— `true` / `false`（这份件里就有一条指着
+      `没这个书签` 的坏跳转）/ `null`（整个没写 anchor）。`anchors_missing` 那条 `false` 分支从此有真件撑着。
+    - 页脚里的第四条 PAGE **不在正文这份账里**（`structure.paragraphs` 走 body），所以 `field_runs` 是
+      12 而不是 16 —— 「少了哪一条」由部件那本账与 `office-text` 的页眉页脚那一份说清，不在这里偷偷补。
 
 ## 这些数字从哪来
 

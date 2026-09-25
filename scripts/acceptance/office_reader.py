@@ -1048,6 +1048,18 @@ def docx_note_index(parts: dict) -> list:
     return out
 
 
+def docx_bookmark_names(parts: dict) -> list:
+    """`w:bookmarkStart` 写的那几个名字：站内跳转的 `w:anchor` 对着名字查，不对着号查"""
+    if "word/document.xml" not in parts:
+        return []
+    root = ET.fromstring(parts["word/document.xml"])
+    return [
+        local_attr(one, "name")
+        for one in _all(root, "bookmarkStart")
+        if local_attr(one, "name") is not None
+    ]
+
+
 def _run_text(run) -> str:
     """一串字的「字」只算**直接**的 `w:t`：域指令不是页面上的字，图与引用更不是；
     往全树找还会把文本框里另一块的字算进来（那一块有自己的账）"""
@@ -1122,12 +1134,14 @@ def docx_run_formats(paras: list, parts: dict, limit: int = 200) -> dict:
     """
     sheet = docx_character_styles(parts)
     notes = docx_note_index(parts)
+    marks = docx_bookmark_names(parts)
     seen_refs = []
     entries = []
     checked = with_props = props_empty = with_format = 0
     with_style = style_found = where_both = 0
     with_text = with_ref = ref_found = field_runs = 0
     with_wrap = wrap_link = wrap_ins = wrap_del = 0
+    with_anchor = anchor_found = 0
     on = {key: 0 for _, key in RUN_SWITCHES}
     off = {key: 0 for _, key in RUN_SWITCHES}
     from_style = {key: 0 for _, key in RUN_SWITCHES}
@@ -1227,6 +1241,13 @@ def docx_run_formats(paras: list, parts: dict, limit: int = 200) -> dict:
                 wrap_ins += 1
             elif wrapper == "del":
                 wrap_del += 1
+            # 站内跳转的地址写在 `w:anchor` 上（外部链接写的是 `r:id`），而它对的是书签的**名字**
+            anchor = local_attr(wrap, "anchor") if wrap is not None else None
+            link_found = None if anchor is None else (anchor in marks)
+            if anchor is not None:
+                with_anchor += 1
+                if link_found:
+                    anchor_found += 1
             entries.append(
                 {
                     "para": index,
@@ -1257,6 +1278,8 @@ def docx_run_formats(paras: list, parts: dict, limit: int = 200) -> dict:
                     "note": note,
                     "wrapped": wrapper,
                     "wrapped_written": wrapped,
+                    "link_anchor": anchor,
+                    "link_found": link_found,
                     "breaks": breaks,
                     "instructions": instructions,
                     "field_chars": fields,
@@ -1279,6 +1302,10 @@ def docx_run_formats(paras: list, parts: dict, limit: int = 200) -> dict:
         "wrapped_hyperlink": wrap_link,
         "wrapped_ins": wrap_ins,
         "wrapped_del": wrap_del,
+        "runs_with_anchor": with_anchor,
+        "anchors_found": anchor_found,
+        "anchors_missing": with_anchor - anchor_found,
+        "bookmark_names": len(marks),
         "notes_in_parts": len(notes),
         "notes_referenced": len(set(seen_refs)),
         "notes_unreferenced": len(notes) - len(set(seen_refs)),

@@ -180,6 +180,10 @@ def main() -> int:
         "charstyles-lo.docx": ("ooxml", "word", "docx"),
         "charstyles.odt": ("opendocument", "word", "odt"),
         "charstyles.rtf": ("rtf", "word", "rtf"),
+        "fields.docx": ("ooxml", "word", "docx"),
+        "fields-lo.docx": ("ooxml", "word", "docx"),
+        "fields.odt": ("opendocument", "word", "odt"),
+        "fields.rtf": ("rtf", "word", "rtf"),
         "para.odt": ("opendocument", "word", "odt"),
         "para.rtf": ("rtf", "word", "rtf"),
         "tables-lo.docx": ("ooxml", "word", "docx"),
@@ -3833,6 +3837,64 @@ def main() -> int:
          dig(notes, "structure.run_formats.runs_wrapped"),
          dig(notes, "structure.run_formats.checked")],
         [None, None, None, 1, 13],
+    )
+
+    # ── 3o) 这一串字里有一个「要算的东西」：域、书签与站内跳转的两种地址 ──────
+    print("=== 3o) 域与跳转：instrText 那一条链，与 anchor 对着书签名的那一跳 ===")
+    fld = lbin("office-doc", fixture("fields.docx"))
+    fldlo = lbin("office-doc", fixture("fields-lo.docx"))
+    check(
+        "四条域链（SEQ 编号 / DATE / 正文 PAGE，页脚那一条不在正文里）：指令原样交，链上那几串字自己没字",
+        [dig(fld, "structure.run_formats.checked"),
+         dig(fld, "structure.run_formats.field_runs"),
+         dig(fld, "structure.run_formats.runs_with_text"),
+         dig(fld, "structure.run_formats.list[2].field_chars"),
+         dig(fld, "structure.run_formats.list[2].contents[0].written.fldCharType"),
+         dig(fld, "structure.run_formats.list[3].instructions[0]"),
+         dig(fld, "structure.run_formats.list[4].field_chars"),
+         dig(fld, "structure.run_formats.list[6].field_chars")],
+        [23, 12, 11, ["begin"], "begin", ' SEQ 表 \\* ARABIC', ["separate"], ["end"]],
+    )
+    check(
+        "同一句「这里要算」，重写之后连指令都不再逐字相同：多一个尾空格、把日期格式里的连字符反斜杠转义",
+        [dig(fld, "structure.run_formats.list[3].instructions[0]"),
+         dig(fldlo, "structure.run_formats.list[3].instructions[0]"),
+         dig(fld, "structure.run_formats.list[13].instructions[0]"),
+         dig(fldlo, "structure.run_formats.list[13].instructions[0]"),
+         dig(fldlo, "structure.run_formats.field_runs"),
+         dig(fldlo, "structure.run_formats.checked")],
+        [' SEQ 表 \\* ARABIC', ' SEQ 表 \\* ARABIC ',
+         ' DATE \\@ "yyyy-MM-dd"', ' DATE \\@"yyyy\\-MM\\-dd" ', 12, 23],
+    )
+    check(
+        "站内跳转的地址写在 `w:anchor` 上（外部链接写的是 `r:id`），而它对的是书签的**名字**："
+        "一条对得到、一条对不到",
+        [dig(fld, "structure.run_formats.list[7].wrapped"),
+         dig(fld, "structure.run_formats.list[7].link_anchor"),
+         dig(fld, "structure.run_formats.list[7].link_found"),
+         dig(fld, "structure.run_formats.list[8].link_anchor"),
+         dig(fld, "structure.run_formats.list[8].link_found"),
+         dig(fld, "structure.run_formats.bookmark_names"),
+         dig(fld, "structure.run_formats.runs_with_anchor"),
+         dig(fld, "structure.run_formats.anchors_found"),
+         dig(fld, "structure.run_formats.anchors_missing"),
+         dig(toc, "structure.run_formats.list[14].link_anchor"),
+         dig(toc, "structure.run_formats.list[14].link_found")],
+        ["hyperlink", "表锚点", True, "没这个书签", False, 1, 2, 1, 1, None, None],
+    )
+    check(
+        "那条「脏了、下次要重算」的开关只有写的那一份有：重写把 `w:dirty` 整个丢了，"
+        "并把缓存值换成它自己算出来的那两个数",
+        [dig(fld, "structure.run_formats.list[12].contents[0].written"),
+         dig(fldlo, "structure.run_formats.list[12].contents[0].written"),
+         dig(fld, "structure.run_formats.list[15].text"),
+         dig(fldlo, "structure.run_formats.list[15].text"),
+         dig(fld, "structure.run_formats.list[20].text"),
+         dig(fldlo, "structure.run_formats.list[20].text"),
+         dig(fld, "structure.run_formats.list[5].contents[0].written"),
+         dig(fldlo, "structure.run_formats.list[5].contents[0].written")],
+        [{"fldCharType": "begin", "dirty": "true"}, {"fldCharType": "begin"},
+         "2026-09-24", "2026-09-25", "2", "1", {"space": "preserve"}, {}],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──

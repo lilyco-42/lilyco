@@ -84,6 +84,11 @@ MARK_SHADE_FILL = "黄底"
 MARK_SHADE_BORDER = "上边一条双线"
 MARK_SHADE_ALIGN = "底对齐"
 MARK_SHADE_PLAIN = "什么都不设"
+# 域与站内跳转那两份锚点句，见 write_fields_docx
+MARK_FIELD_LINK = "跳到那张表"
+MARK_FIELD_DEAD = "跳一个坏了的名"
+MARK_FIELD_MISSING = "没这个书签"
+MARK_FIELD_ANCHOR = "被内部链接指着的那一段"
 # 字符格式那三份件的锚点句，见 write_runs_docx：那三个字是每一个格式开关各自点的
 # 同一串字，所以「哪一串是点了的」只能按段与按位置对上，不能靠字本身分
 MARK_RUN_BASE = "基准段：什么都不点。"
@@ -138,6 +143,107 @@ def add_hyperlink(paragraph, text: str, url: str):
     run.append(node)
     link.append(run)
     paragraph._p.append(link)
+
+
+def add_field(paragraph, instr: str, cached: str, dirty: bool = False) -> None:
+    """python-docx 没有「域」这一层：按 Word 自己的写法补 begin / instrText / separate / 结果 / end
+
+    `w:instrText` 里那句是「要算什么」，夹在 separate 与 end 之间的那些 run 才是页面上看得见
+    的字（上一次算出来的缓存值）—— 两件事，所以两份都要有。`w:dirty` 是「这域脏了，下次要重算」，
+    只有 Word 会写，别家根本不认识这个开关。
+    """
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    def fld(kind: str, is_dirty: bool = False):
+        # `w:fldChar` 必须住在**串**里：第一版把它直接挂在段上（与 instrText 那个 run 并列），
+        # Word 的账本照样数得出，而 LibreOffice 读进去时那三条壳全被丢，
+        # 剩下「指令那一串」与「缓存那一串」当成两句普通的字写回 odt/rtf ——
+        # 页面上凭空多出「 SEQ 表 \* ARABIC1」这样一句死字（实测，见 README 事实 77）
+        run = OxmlElement("w:r")
+        node = OxmlElement("w:fldChar")
+        node.set(qn("w:fldCharType"), kind)
+        if is_dirty:
+            node.set(qn("w:dirty"), "true")
+        run.append(node)
+        return run
+
+    def word(name: str, value: str):
+        run = OxmlElement("w:r")
+        node = OxmlElement(name)
+        node.set(qn("xml:space"), "preserve")
+        node.text = value
+        run.append(node)
+        return run
+
+    paragraph._p.append(fld("begin", dirty))
+    paragraph._p.append(word("w:instrText", instr))
+    paragraph._p.append(fld("separate"))
+    paragraph._p.append(word("w:t", cached))
+    paragraph._p.append(fld("end"))
+
+
+def add_internal_link(paragraph, text: str, anchor: str) -> None:
+    """站内跳转：不占关系表，地址写在 `w:anchor` 上（与外部链接那条 `r:id` 各写一处）"""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    link = OxmlElement("w:hyperlink")
+    link.set(qn("w:anchor"), anchor)
+    run = OxmlElement("w:r")
+    node = OxmlElement("w:t")
+    node.text = text
+    run.append(node)
+    link.append(run)
+    paragraph._p.append(link)
+
+
+def add_bookmark(paragraph, name: str, ident: str) -> None:
+    """书签是**两条**元素夹住那一段（`w:id` 配对，名字只在 start 上）"""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    start = OxmlElement("w:bookmarkStart")
+    start.set(qn("w:id"), ident)
+    start.set(qn("w:name"), name)
+    end = OxmlElement("w:bookmarkEnd")
+    end.set(qn("w:id"), ident)
+    paragraph._p.insert(0, start)
+    paragraph._p.append(end)
+
+
+def write_fields_docx(path: Path) -> None:
+    """一份件里放四种「文件自己算出来的东西」：SEQ 编号、DATE、页脚里的页码，与一个站内跳转"""
+    from docx import Document
+
+    doc = Document()
+    doc.add_heading("域与跳转", level=1)
+
+    one = doc.add_paragraph()
+    one.add_run("题注：")
+    add_field(one, ' SEQ 表 \\* ARABIC', "1")
+
+    two = doc.add_paragraph()
+    add_internal_link(two, MARK_FIELD_LINK, "表锚点")
+    add_internal_link(two, MARK_FIELD_DEAD, MARK_FIELD_MISSING)
+    two.add_run("（站内跳转，不占关系表；第二条点的是一个不存在的名）")
+
+    three = doc.add_paragraph(MARK_FIELD_ANCHOR)
+    add_bookmark(three, "表锚点", "3")
+
+    four = doc.add_paragraph()
+    four.add_run("自动日期：")
+    add_field(four, ' DATE \\@ "yyyy-MM-dd"', "2026-09-24", dirty=True)
+
+    five = doc.add_paragraph()
+    add_field(five, " PAGE ", "2")
+    five.add_run("（页码写在正文里一次，页脚里一次）")
+
+    foot = doc.sections[0].footer.paragraphs[0]
+    foot.add_run("第 ")
+    add_field(foot, " PAGE ", "2")
+    foot.add_run(" 页")
+    doc.save(str(path))
 
 
 def tiny_png(path: Path) -> Path:
@@ -2480,6 +2586,24 @@ def main() -> int:
         shutil.copyfile(made, OUT / "charstyles-lo.docx")
     else:
         print("⚠️  没拿到 charstyles-lo.docx（docx → docx 那一转）")
+
+    # 域与站内跳转：一条 SEQ 编号、一条 DATE、正文与页脚各一条 PAGE，
+    # 加一个指着真书签的站内跳转与一个指着不存在的名的那一个
+    fields = OUT / "fields.docx"
+    write_fields_docx(fields)
+    # 目标名要按 soffice 实际写出的那个取：docx → docx 输出的还是 fields.docx，
+    # 「-lo」这个后缀是**我们**给它的名字，不是 LibreOffice 起的
+    for fmt, born, out_name in (
+        ("odt", "fields.odt", "fields.odt"),
+        ("rtf", "fields.rtf", "fields.rtf"),
+        ("docx", "fields.docx", "fields-lo.docx"),
+    ):
+        convert(exe, fields, fmt, SCRATCH / ("fd-" + fmt))
+        made = SCRATCH / ("fd-" + fmt) / born
+        if made.exists():
+            shutil.copyfile(made, OUT / out_name)
+        else:
+            print("⚠️  没拿到 %s（%s 那一转）" % (out_name, fmt))
 
     # 格子底色/边框/对齐：shaded.docx 由 python-docx 写，shaded-lo.docx 是同一个格式重写
     shaded = OUT / "shaded.docx"
