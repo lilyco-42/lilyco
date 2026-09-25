@@ -1648,6 +1648,115 @@ def odf_keep_switches(path: Path, limit: int = 100) -> dict:
     }
 
 
+
+def docx_table_styles(path: Path, limit: int = 100) -> dict:
+    r"""「这张表套的是哪个样式」在 OOXML 是两样东西：样式 id（`w:tblStyle`）与
+    那枚 `w:tblLook`（六个位 + 一个 `w:val` 的十六进制缓存）
+
+    两样可以不一致：改了位而缓存没重算是真件里就有的（python-docx 那份），
+    LibreOffice 重写同一份时会把它重算 —— 所以两边都按写的交，不合并、不判谁对。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"available": False}
+        root = ET.fromstring(box.read("word/document.xml"))
+    body = [one for one in root if xml_local(one.tag) == "body"]
+    rows, styles, with_style, with_look = [], [], 0, 0
+    for index, table in enumerate([one for one in (body[0].iter() if body else [])
+                                   if xml_local(one.tag) == "tbl"]):
+        holder = [kid for kid in table if xml_local(kid.tag) == "tblPr"]
+        named = [k for k in holder[0] if xml_local(k.tag) == "tblStyle"] if holder else []
+        style_written = None
+        if named:
+            style_written = _local_in(_written_attrs(named[0], {}), "val")
+        look = [k for k in holder[0] if xml_local(k.tag) == "tblLook"] if holder else []
+        written = {}
+        if look:
+            written = {k.split(":")[-1]: v for k, v in _written_attrs(look[0], {}).items()
+                       if not k.startswith("xmlns")}
+        if style_written is not None:
+            with_style += 1
+            if style_written not in styles:
+                styles.append(style_written)
+        if look:
+            with_look += 1
+        rows.append({
+            "index": index,
+            "style_written": style_written,
+            "has_tblPr": bool(holder),
+            "has_tbl_look": bool(look),
+            "look_written": written,
+        })
+    return {
+        "family": "ooxml",
+        "available": True,
+        "tables_total": len(rows),
+        "with_style_written": with_style,
+        "with_look": with_look,
+        "distinct_styles": styles,
+        "tables": rows[:limit],
+    }
+
+
+def odf_table_styles(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF 只有一个名字：`table:style-name` 点在一份 family=table 的样式上
+
+    那枚 look 在这一族**不存在** —— 不交 0 也不交 null，就是这个键没有。转过来那份件里
+    OOXML 的样式名整个不见了（四张表各点一份自动样式 `表格1`…），所以样式那一路的信息
+    在这一转里丢了：交看到的，不补。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        content_raw = box.read("content.xml")
+        crowd = ET.fromstring(content_raw)
+        roots = [crowd]
+        nsmaps = [_ns_prefixes(content_raw)]
+        if "styles.xml" in have:
+            styles_raw = box.read("styles.xml")
+            roots.append(ET.fromstring(styles_raw))
+            nsmaps.append(_ns_prefixes(styles_raw))
+    known = []
+    parents = {}
+    for root, nsmap in zip(roots, nsmaps):
+        for node in root.iter():
+            if xml_local(node.tag) != "style":
+                continue
+            written = _written_attrs(node, nsmap)
+            if _local_in(written, "family") != "table":
+                continue
+            name = _local_in(written, "name")
+            if name is None or name in known:
+                continue
+            known.append(name)
+            parents[name] = _local_in(written, "parent-style-name")
+    rows, found_count = [], 0
+    for index, table in enumerate([one for one in crowd.iter() if xml_local(one.tag) == "table"]):
+        written = _written_attrs(table, nsmaps[0])
+        name = _local_in(written, "style-name")
+        found = name is not None and name in known
+        if found:
+            found_count += 1
+        rows.append({
+            "index": index,
+            "table_name": _local_in(written, "name"),
+            "style_written": name,
+            "style_found": found,
+            "parent_style_written": parents.get(name) if found else None,
+        })
+    return {
+        "family": "odf",
+        "available": True,
+        "tables_total": len(rows),
+        "with_style_written": sum(1 for one in rows if one["style_written"] is not None),
+        "style_found_total": found_count,
+        "styles_total": len(known),
+        "tables": rows[:limit],
+    }
+
+
 def odf_style_holders(node) -> list:
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
     out: list = []
@@ -7027,6 +7136,10 @@ def facts(path: Path) -> dict:
             out["ooxml"]["comment_ledger"] = docx_comment_ledger(path)
             # 分页那四个开关（段上；ODF 一跳在样式里）
             out["ooxml"]["keep_switches"] = docx_keep_switches(path)
+            # 这张表套的是哪个样式：样式 id 与那枚 tblLook 分开交
+            out["ooxml"]["table_styles"] = docx_table_styles(path)
+            # 这张表套的是哪个样式：样式 id 与那枚 look 分开交
+            out["ooxml"]["table_styles"] = docx_table_styles(path)
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
@@ -7058,6 +7171,8 @@ def facts(path: Path) -> dict:
             # 同一问在 ODF 只有一处：批注坐在段里面
             out["odt"]["comment_ledger"] = odf_comment_ledger(path)
             out["odt"]["keep_switches"] = odf_keep_switches(path)
+            out["odt"]["table_styles"] = odf_table_styles(path)
+            out["odt"]["table_styles"] = odf_table_styles(path)
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger

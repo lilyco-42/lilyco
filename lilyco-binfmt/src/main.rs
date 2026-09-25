@@ -68,6 +68,7 @@ mod symbols;
 mod tab_stops;
 mod table_grid;
 mod table_headers;
+mod table_styles;
 mod word;
 mod xmlscan;
 mod zipread;

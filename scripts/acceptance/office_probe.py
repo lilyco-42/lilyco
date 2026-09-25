@@ -248,6 +248,10 @@ def main() -> int:
         "keep.docx": ("ooxml", "word", "docx"),
         "keep-lo.docx": ("ooxml", "word", "docx"),
         "keep.odt": ("opendocument", "word", "odt"),
+        # 表样式那三份：一家的样式 id 与那枚缓存值是两本账，可以互相不一致
+        "table-style.docx": ("ooxml", "word", "docx"),
+        "table-style-lo.docx": ("ooxml", "word", "docx"),
+        "table-style.odt": ("opendocument", "word", "odt"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -4866,6 +4870,76 @@ def main() -> int:
              "structure.keep_switches.paragraphs[0].keep_next.present"),
          dig(lbin("office-doc", fixture("tabs.rtf")), "structure.keep_switches")],
         [4, 5, True, False, None],
+    )
+
+    # ── 3ae) 这张表套的是哪个样式：一家的样式 id 与那枚缓存值是两本账 ─────────────
+    print("=== 3ae) 表样式：样式 id、那枚 tblLook 的六个位与一个缓存值 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 表样式那份账与读者一致（样式 id 与 tblLook 各按写的交）" % name,
+              dig(got, "structure.table_styles"),
+              files[name]["ooxml"]["table_styles"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 表样式那份账与读者一致（只有一个名字，look 在这一族不存在）" % name,
+              dig(got, "structure.table_styles"),
+              files[name]["odt"]["table_styles"])
+    ts = lbin("office-doc", fixture("table-style.docx"))
+    ts_lo = lbin("office-doc", fixture("table-style-lo.docx"))
+    ts_odt = lbin("office-doc", fixture("table-style.odt"))
+    check(
+        "python-docx 那份（四张表各改一个变量）：只有两张写了样式 id，四张都带着 `w:tblLook`；"
+        "第三张把 `w:firstRow` 改成 0 之后**那个十六进制缓存没重算**（还是 `04A0`）—— "
+        "两本账都按写的交，不拿一个去修另一个",
+        [dig(ts, "structure.table_styles.tables_total"),
+         dig(ts, "structure.table_styles.with_style_written"),
+         dig(ts, "structure.table_styles.with_look"),
+         dig(ts, "structure.table_styles.distinct_styles"),
+         dig(ts, "structure.table_styles.tables[2].look_written.firstRow"),
+         dig(ts, "structure.table_styles.tables[2].look_written.val"),
+         dig(ts, "structure.table_styles.tables[3].style_written")],
+        [4, 2, 4, ["LightGrid-Accent1"], "0", "04A0", None],
+    )
+    check(
+        "LibreOffice 重写同一份：四张表的样式与那六个位一个没变，而它**把缓存值重算了** —— 第三张的 "
+        "`04A0` 变成 `0480`（首行那位清掉了），另外几张也从大写换成小写（`04A0` → `04a0`）—— "
+        "写法与算过的结果都是文件自己的话，两份读者只照着交",
+        [dig(ts_lo, "structure.table_styles.with_style_written"),
+         dig(ts_lo, "structure.table_styles.tables[2].look_written.val"),
+         dig(ts_lo, "structure.table_styles.tables[0].look_written.val"),
+         dig(ts_lo, "structure.table_styles.tables[2].look_written.firstRow"),
+         dig(ts, "structure.table_styles.tables[0].look_written.val")
+         != dig(ts_lo, "structure.table_styles.tables[0].look_written.val")],
+        [2, "0480", "04a0", "0", True],
+    )
+    check(
+        "转成 ODF 之后这个问只剩一个名字：四张表各点一份自动样式（`表格1`…`表格4`，都找得到、"
+        "都没有父样式），而 OOXML 那个 `LightGrid-Accent1` 在这一族的账本里**看不见** —— "
+        "样式那一路的信息在这一转里丢了，交看到的，不替它认回来",
+        [dig(ts_odt, "structure.table_styles.tables_total"),
+         dig(ts_odt, "structure.table_styles.with_style_written"),
+         dig(ts_odt, "structure.table_styles.style_found_total"),
+         dig(ts_odt, "structure.table_styles.styles_total"),
+         [one["style_written"] for one in dig(ts_odt, "structure.table_styles.tables")],
+         [one["parent_style_written"] for one in dig(ts_odt, "structure.table_styles.tables")],
+         any("look_written" in one for one in dig(ts_odt, "structure.table_styles.tables")),
+         "LightGrid" in json.dumps(dig(ts_odt, "structure.table_styles"), ensure_ascii=False)],
+        [4, 4, 4, 4, ["表格1", "表格2", "表格3", "表格4"], [None, None, None, None], False, False],
+    )
+    check(
+        "两族能对齐的只有「几张表」这一问（同一份稿子两份都是 4 张）；没套样式的件交 0 与空数组"
+        "而不是缺键（`tables.docx` 两张表都有 `w:tblLook`，却一张样式名都没写），"
+        "RTF 那一族不交这个键（缺键 = 这一族没看）",
+        [dig(ts, "structure.table_styles.tables_total"),
+         dig(ts_odt, "structure.table_styles.tables_total"),
+         dig(lbin("office-doc", fixture("tables.docx")),
+             "structure.table_styles.with_style_written"),
+         dig(lbin("office-doc", fixture("tables.docx")), "structure.table_styles.with_look"),
+         dig(lbin("office-doc", fixture("tables.docx")), "structure.table_styles.distinct_styles"),
+         dig(lbin("office-doc", fixture("tables.odt")),
+             "structure.table_styles.style_found_total"),
+         dig(lbin("office-doc", fixture("tabs.rtf")), "structure.table_styles")],
+        [4, 4, 0, 2, [], 2, None],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──

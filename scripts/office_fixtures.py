@@ -569,6 +569,51 @@ def write_merged_tables_docx(path: Path) -> None:
 
 
 
+
+def write_table_style_docx(path: Path) -> None:
+    """四张表，一次只改一个变量：不点样式 / 点内置样式 / 改 `w:tblLook` 的一位 / 把样式那一格删掉
+
+    python-docx 的 `table.style` 写的是**样式 id**（`Light Grid Accent 1` 落成
+    `LightGrid-Accent1`），而 `w:tblLook` 里除了六个位还有一个十六进制缓存值：改了位**它不重算**
+    （实测 `w:firstRow` 已经 0 而 `w:val` 还是 `04A0`），LibreOffice 重写同一份会重算成 `0480`
+    并把它写成小写 —— 两本账都按写的交，不互相修。
+    """
+    from docx import Document
+
+    w_main = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    doc = Document()
+    doc.add_paragraph("表样式那份账")
+    plan = (
+        ("默认表", None, None),
+        ("内置样式", "Light Grid Accent 1", None),
+        ("改了 tblLook", "Light Grid Accent 1", {"firstRow": "0"}),
+        ("没了 tblStyle", "Light Grid Accent 1", None),
+    )
+    tables = []
+    for title, style, look in plan:
+        doc.add_heading(title, level=2)
+        table = doc.add_table(rows=2, cols=2)
+        for row in range(2):
+            for col in range(2):
+                table.cell(row, col).text = "%s r%d c%d" % (title[:2], row, col)
+        if style:
+            table.style = style
+        props = table._tbl.tblPr
+        if look:
+            holder = props.find(w_main + "tblLook")
+            if holder is None:
+                holder = props.makeelement(w_main + "tblLook", {})
+                props.append(holder)
+            for key, value in look.items():
+                holder.set(w_main + key, value)
+        tables.append(table)
+    fourth = tables[3]._tbl.tblPr
+    for kid in list(fourth):
+        if kid.tag == w_main + "tblStyle":
+            fourth.remove(kid)
+    doc.save(path)
+
+
 def write_keep_docx(path: Path) -> None:
     """五条段，一次只改一个变量：基线 / keepNext / keepLines / pageBreakBefore / widowControl=False
 
@@ -2951,6 +2996,21 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "deck-ph.odp", OUT / "deck-ph.odp")
     else:
         print("⚠️  没拿到 deck-ph.odp")
+
+    # 表样式那三份：python-docx 写 docx，同格式重写一份（重算缓存）、再转一份 odt（只剩一个名字）
+    styled = OUT / "table-style.docx"
+    write_table_style_docx(styled)
+    convert(exe, styled, "docx", SCRATCH / "table-style-back")
+    made_styled = SCRATCH / "table-style-back" / "table-style.docx"
+    if made_styled.exists():
+        shutil.copyfile(made_styled, OUT / "table-style-lo.docx")
+    else:
+        print("⚠️  没拿到 table-style-lo.docx（docx → docx 那一转）")
+    convert(exe, styled, "odt", SCRATCH)
+    if (SCRATCH / "table-style.odt").exists():
+        shutil.copyfile(SCRATCH / "table-style.odt", OUT / "table-style.odt")
+    else:
+        print("⚠️  没拿到 table-style.odt")
 
     # 分页开关那三份：python-docx 写 docx，同格式重写一份（丢 pageBreakBefore）、再转一份 odt
     keep = OUT / "keep.docx"

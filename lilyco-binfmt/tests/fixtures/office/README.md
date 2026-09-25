@@ -46,6 +46,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `keep.docx` | python-docx（`write_keep_docx`） | 五条段，一次只改一个变量：基线（四个开关都不写）/ `keepNext` / `keepLines` / `pageBreakBefore` / `widowControl=False`。前三家写出来是**空元素**（没有值），第四个写出来是 `w:val="0"` —— 三种状态（没元素 / 有元素没值 / 有元素有值）分开交 |
 | `keep-lo.docx` | LibreOffice（`keep.docx` → .docx） | 同一份重写后：每段都被补了 `w:pPr`（4 → 5 枚），值改成 `w:val="true"` / `w:val="false"` 这种拼法，而**`w:pageBreakBefore` 整个没了**（带着它的段从 4 段掉到 3 段）—— 见事实 93 |
 | `keep.odt` | LibreOffice（`keep.docx` → .odt） | 同一问在 ODF 全在一跳之外：段只点样式名，`fo:keep-with-next` / `fo:keep-together` / `fo:break-before` 各在一份样式上，而**孤行控制是两个数**（关掉写成 `fo:widows="0"` + `fo:orphans="0"`，而 `Standard` 自己写着 `2`/`2`）—— 见事实 93 |
+| `table-style.docx` | python-docx（`write_table_style_docx`） | 四张表，一次只改一个变量：`默认表`（不点样式）/ `内置样式`（`Light Grid Accent 1` → 写成样式 id `LightGrid-Accent1`）/ `改了 tblLook`（把 `w:firstRow` 改成 0）/ `没了 tblStyle`（那一格整个删掉，`w:tblLook` 留着）。要点：改了位之后那个十六进制缓存值 python-docx **不重算**（还是 `04A0`） |
+| `table-style-lo.docx` | LibreOffice（`table-style.docx` → .docx） | 同一份重写后：样式与那六个位一个没变，而**缓存被重算了**（第三张 `04A0` → `0480`），其它几张那个值也从大写换成小写（`04A0` → `04a0`）—— 见事实 94 |
+| `table-style.odt` | LibreOffice（`table-style.docx` → .odt） | 同一问在这一族只剩一个名字：四张表各点一份自动样式（`表格1`…`表格4`，family=table，都没有父样式），`LightGrid-Accent1` 与那枚 look 都看不见 —— 见事实 94 |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
@@ -1671,6 +1674,13 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - `keep-lo.docx`（LibreOffice 重写同一份）：五段每段都被补了一个 `w:pPr`（4 枚 → 5 枚），值换成 `w:val="true"` / `w:val="false"` 这一种拼法，而**带 `w:pageBreakBefore` 的那一段整个不再有这一格**（交着开关的段从 4 段掉到 3 段，`paragraphs_indexed` 1,2,3,4 → 1,2,4）—— 同一份稿子的「段前分页」在这一转里丢了，读者只按看到的交。
     - `keep.odt`（同一份稿子转 ODF）：段身上一个字都没写，四个开关一跳在段点的样式上（`P1` `fo:keep-with-next="always"`、`P2` `fo:keep-together="always"`、`P3` `fo:break-before="page"`、`P4` `fo:widows="0"` + `fo:orphans="0"`）。关键形状差：**孤行控制在这一族是两个数，不是一枚开关**；而基线那段点的 `Standard` 自己写着 `widows=2` `orphans=2` —— 所以「五段全都有人写了数」（`paragraphs_with_any` 5）比 OOXML 那份的 4 还多，两族这两个数不能互相对账。
     - RTF 那一族不交这个键（缺键 = 这一族没看）：它写 `\keepn` / `\pagebb` / `\nowidctlpar`，可实测同一份件里 11 条 `\keepn` 中只有一条落在正文段上、其余在样式表里，而 `\widctlpar` 8 条也几乎都是样式表自带的默认 —— 归属判不住，规则先记在这里而不是硬算一个数。
+
+94. **这张表套的是哪个样式：一家是两本账（样式 id + 那枚 look 的位与缓存），一家只剩一个名字**
+    - `table-style.docx`（python-docx）：样式住在 `w:tblPr/w:tblStyle/@w:val`，而那是个**样式id**（`LightGrid-Accent1`）不是给人看的名字；另有一枚 `w:tblLook`，六个 `w:firstRow`… 的位**加一个十六进制缓存**（`w:val="04A0"`）。四张表里两张点了样式、四张都带 look。
+    - 两本账可以互相不一致，而这是文件自己的账：第三张把 `w:firstRow` 改成 0，缓存还是 `04A0`（python-docx 不重算它）。读者两个都按写的交，不拿位去修缓存、也不拿缓存去修位。
+    - `table-style-lo.docx`（LibreOffice 重写同一份）：样式与六个位一字没改，而它**把缓存重算了**（第三张变 `0480`），另外几张那个值顺手换成小写（`04a0`）—— 大小写与算没算都是写法差别，两条都在账上并排看得见。
+    - `table-style.odt`：这一族只有一个名字 —— 四张表各点一份 family=table 的自动样式（`表格1`…`表格4`，都能找到、都没有父样式），而 OOXML 那个样式 id 与那枚 look **整个不见了**：样式那一路的信息在这一转里丢了，交看到的、不替它认回来（`look_written` 这个键在 ODF 根本没有）。
+    - 没套样式的件（`tables.docx`）交 `with_style_written: 0` 与空数组而不是缺键；RTF 那一族不交这个键（缺键 = 这一族没看：它用 `	rowd` 那一套行属性，样式是另一回事）。
 
 ## 这些数字从哪来
 
