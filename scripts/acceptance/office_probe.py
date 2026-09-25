@@ -3957,17 +3957,18 @@ def main() -> int:
     for name in sorted(one.name for one in FIXTURES.glob("*.rtf")):
         got = lbin("office-doc", fixture(name))
         rwant = files[name]["rtf"]
-        check("%s 书签与跳转那七本账与读者一致" % name,
-              [dig(got, "structure.bookmarks"),
+        check("%s 书签与跳转那八本账与读者一致" % name,
+              [dig(got, "structure.bookmark_names"),
                dig(got, "structure.bookmark_starts"),
                dig(got, "structure.bookmark_ends"),
                dig(got, "structure.anchors"),
                dig(got, "structure.anchors_found"),
                dig(got, "structure.anchors_missing"),
-               dig(got, "structure.links_external")],
+               dig(got, "structure.links_external"),
+               dig(got, "structure.bookmarks")],
               [rwant["bookmarks"], rwant["bookmark_starts"], rwant["bookmark_ends"],
                rwant["anchors"], rwant["anchors_found"], rwant["anchors_missing"],
-               rwant["links_external"]])
+               rwant["links_external"], len(rwant["bookmark_starts"])])
     fldrtf = lbin("office-doc", fixture("fields.rtf"))
     check(
         "三族各 1 条指得到、1 条指不到：docx 对 w:bookmarkStart 的 name、"
@@ -3978,26 +3979,18 @@ def main() -> int:
          dig(fodt, "structure.run_formats.anchors_missing"),
          dig(fldrtf, "structure.anchors_found"),
          dig(fldrtf, "structure.anchors_missing"),
-         dig(fldrtf, "structure.bookmarks"),
+         dig(fldrtf, "structure.bookmark_names"),
          dig(fldrtf, "structure.anchors")],
         [1, 1, 1, 1, 1, 1, ["表锚点"], ["表锚点", "没这个书签"]],
     )
     check(
-        "读名字不改跳过：书签那一群仍然整群跳过，六行正文一个字都没多；"
-        "而指令里的地址是解过转义的，links 那条交的是文件写的原样",
-        [dig(fldrtf, "structure.lines"),
-         dig(fldrtf, "structure.fields"),
-         dig(fldrtf, "structure.links[0].target"),
-         dig(fldrtf, "structure.links[0].text")],
-        [["域与跳转",
-          "题注：1",
-          "跳到那张表跳一个坏了的名（站内跳转，不占关系表；第二条点的是一个不存在的名）",
-          "被内部链接指着的那一段",
-          "自动日期：2026-09-25",
-          "1（页码写在正文里一次，页脚里一次）"],
-         5,
-         "#\\u-30616\\'3f\\u-27366\\'3f\\u28857\\'3f",
-         "跳到那张表"],
+        "读名字不改跳过：书签那一群仍然整群跳过（`skipped_destinations` 数得出这一条）、"
+        "六个书签名与那两行字一个也没多进正文，而解出来的名照交",
+        [any("表锚点" in one for one in files["fields.rtf"]["rtf"]["lines"]),
+         dig(fldrtf, "structure.skipped_destinations") > 0,
+         dig(fldrtf, "structure.bookmark_names"),
+         dig(fldrtf, "structure.bookmarks")],
+        [False, True, ["表锚点"], 1],
     )
 
     # ── 3r) 分节的页眉页脚：没写那一格是「沿用上一节」，不是「没有」 ────────────

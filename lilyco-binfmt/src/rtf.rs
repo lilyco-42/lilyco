@@ -1094,9 +1094,9 @@ pub struct Rtf {
 }
 
 impl Rtf {
-    pub fn to_json(&self) -> Value {
-        // 站内跳转的地址住在指令里（解过转义的那一份），书签住在自己那一群里：
-        // 两处的名字对上才算这一跳落得地，对不上就是一条坏跳转 —— 都只按写的比
+    /// 站内跳转那一份账（anchors、落得地的、落不了的、站外的）：`to_json` 与
+    /// `office-doc` 那条分支要的是同一个东西，两处各算一遍迟早分家 —— 所以算一次
+    pub(crate) fn anchor_ledger(&self) -> (Vec<String>, usize, usize, usize) {
         let anchors: Vec<String> = self
             .field_instructions
             .iter()
@@ -1115,10 +1115,17 @@ impl Rtf {
             .iter()
             .filter(|raw| self.bookmarks.iter().any(|had| had == *raw))
             .count();
+        (anchors, found, anchors.len() - found, external)
+    }
+
+    pub fn to_json(&self) -> Value {
+        // 站内跳转的地址住在指令里（解过转义的那一份），书签住在自己那一群里：
+        // 两处的名字对上才算这一跳落得地，对不上就是一条坏跳转 —— 都只按写的比
+        let (anchors, found, missing, external) = self.anchor_ledger();
         json!({
             "anchors": anchors,
             "anchors_found": found,
-            "anchors_missing": anchors.len() - found,
+            "anchors_missing": missing,
             "links_external": external,
             "text": self.text,
             "lines": self.lines,

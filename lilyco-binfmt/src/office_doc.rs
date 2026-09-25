@@ -824,6 +824,180 @@ fn odf_fonts(
     })
 }
 
+/// ODF 的页眉页脚不住在正文里，也不在页版式（page-layout）上，而在**母版页**
+/// （`style:master-page`，`office:master-styles` 里）上，一格一个子元素：
+/// `style:header` / `style:footer` 再各配 `-first`（第一页）与 `-left`（偶数页）。
+/// 这一份账与 docx 那一份同一个形状（六格），但没有「沿用上一节」这件事：节只点名一份
+/// 版式（`text:section/@style:page-layout-name`），母版页点名它自己的版式，而「正文用哪份
+/// 母版页」在这些文件里根本没写 —— 于是每格只有两种答案：这份母版页写了 / 整个没这一格
+/// （null），另有 `used_by_sections` 说清有没有一节点过这份母版页的名。
+/// 实测最要紧的一条：LibreOffice 把两节的 docx 转成 odt 时**不写 `text:section`**，
+/// 而是造出第二份母版页（`Converted1`）把第二节那句页眉搬进去 —— 那一句在文件里还在，
+/// 可整份文件没有任何一节点它的名（`notes-hf.odt` 两份母版页还指着同一个版式 `Mpm1`）
+fn odf_header_footers(
+    content: &xmlscan::Node,
+    styles: Option<&xmlscan::Node>,
+    limit: usize,
+) -> Value {
+    const SLOTS: [&str; 6] = [
+        "header",
+        "header-first",
+        "header-left",
+        "footer",
+        "footer-first",
+        "footer-left",
+    ];
+    const SLOT_KEYS: [&str; 6] = [
+        "header:default",
+        "header:first",
+        "header:left",
+        "footer:default",
+        "footer:first",
+        "footer:left",
+    ];
+    // 页码、页数、日期那几种「自己会算」的元素：按这张表的顺序数，两家同一个顺序
+    const FIELD_WORDS: [&str; 6] = [
+        "page-number",
+        "page-count",
+        "date",
+        "time",
+        "expression",
+        "sender-full-name",
+    ];
+    let mut roots: Vec<(&xmlscan::Node, &'static str)> = vec![(content, "content.xml")];
+    if let Some(one) = styles {
+        roots.push((one, "styles.xml"));
+    }
+    let mut sections: Vec<Value> = Vec::new();
+    let mut named: Vec<String> = Vec::new();
+    let mut layouts_named = 0usize;
+    for (root, part) in roots.iter() {
+        for one in root.descendants("section") {
+            let written = kept_attrs(one);
+            let map = match written.as_object() {
+                Some(had) => had,
+                None => continue,
+            };
+            let master = attr_in(map, "master-page-name").map(String::from);
+            let layout = attr_in(map, "page-layout-name").map(String::from);
+            if let Some(raw) = &master {
+                named.push(raw.clone());
+            }
+            if layout.is_some() {
+                layouts_named += 1;
+            }
+            if sections.len() < limit {
+                sections.push(json!({
+                    "name": attr_in(map, "name").map(String::from),
+                    "style": attr_in(map, "style-name").map(String::from),
+                    "master_page": master,
+                    "page_layout": layout,
+                    "written": Value::Object(map.clone()),
+                    "part": part,
+                }));
+            }
+        }
+    }
+    let mut masters: Vec<Value> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    let mut dup = 0usize;
+    let mut slots_written = 0usize;
+    let mut field_slots = 0usize;
+    let mut unnamed = 0usize;
+    for (root, part) in roots.iter() {
+        for one in root.descendants("master-page") {
+            let written = kept_attrs(one);
+            let map = match written.as_object() {
+                Some(had) => had,
+                None => continue,
+            };
+            let name = attr_in(map, "name").unwrap_or_default().to_string();
+            if seen.iter().any(|had| *had == name) {
+                dup += 1;
+                continue;
+            }
+            seen.push(name.clone());
+            if !named.iter().any(|had| *had == name) {
+                unnamed += 1;
+            }
+            let mut slots = serde_json::Map::new();
+            let mut mine = 0usize;
+            for (index, want) in SLOTS.iter().enumerate() {
+                let holder = one.children.iter().find(|kid| kid.local() == *want);
+                let value = match holder {
+                    Some(had) => {
+                        let own = kept_attrs(had);
+                        let own_map = match own.as_object() {
+                            Some(inner) => inner,
+                            None => continue,
+                        };
+                        let paras: Vec<&xmlscan::Node> = had
+                            .children
+                            .iter()
+                            .filter(|kid| kid.local() == "p")
+                            .collect();
+                        let text: Vec<String> = paras
+                            .iter()
+                            .map(|kid| crate::office_text::paragraph_text(kid))
+                            .collect();
+                        let mut fields = serde_json::Map::new();
+                        for kind in FIELD_WORDS.iter() {
+                            let hits = had.descendants(kind);
+                            if !hits.is_empty() {
+                                fields.insert((*kind).to_string(), json!(hits.len()));
+                            }
+                        }
+                        mine += 1;
+                        slots_written += 1;
+                        if !fields.is_empty() {
+                            field_slots += 1;
+                        }
+                        json!({
+                            "present": true,
+                            "element": had.name.clone(),
+                            "written": Value::Object(own_map.clone()),
+                            "paragraphs": paras.len(),
+                            "text": text.join("\n"),
+                            "fields": Value::Object(fields),
+                        })
+                    }
+                    // 整个没有这一格：null，不是「这一格是空的」
+                    None => Value::Null,
+                };
+                slots.insert(SLOT_KEYS[index].to_string(), value);
+            }
+            if masters.len() < limit {
+                masters.push(json!({
+                    "name": name.clone(),
+                    "page_layout": attr_in(map, "page-layout-name").map(String::from),
+                    "written": Value::Object(map.clone()),
+                    "used_by_sections": sections
+                        .iter()
+                        .filter(|had| had["master_page"].as_str() == Some(name.as_str()))
+                        .filter_map(|had| had["name"].as_str().map(String::from))
+                        .collect::<Vec<String>>(),
+                    "slots_written": mine,
+                    "slots": Value::Object(slots),
+                    "part": part,
+                }));
+            }
+        }
+    }
+    json!({
+        "family": "odf",
+        "masters": masters,
+        "masters_total": seen.len(),
+        "masters_duplicated": dup,
+        "masters_named_by_section": seen.len() - unnamed,
+        "masters_unnamed": unnamed,
+        "slots_written": slots_written,
+        "field_slots": field_slots,
+        "sections": sections,
+        "sections_total": sections.len(),
+        "layouts_named_by_section": layouts_named,
+    })
+}
+
 /// 从一份属性里挑出「局部名在这张表上」的那些，键仍按文件写的名字留着
 fn pick_attrs(map: &serde_json::Map<String, Value>, want: &[&str]) -> Value {
     let mut out = serde_json::Map::new();
@@ -3378,7 +3552,9 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
                 },
                 "drawings": Value::Null,
                 "text_boxes": Value::Null,
-                "bookmarks": Value::Null,
+                // 有几个书签元素：这一格与 docx / odt 那两本账同一个问（数元素），
+                // 名字另交下面的 `bookmark_names`，两数不互相顶替
+                "bookmarks": one.bookmark_starts,
                 // 域比链接多：页码与日期也是域，所以两个数分开交
                 "fields": one.fields,
                 // 这一族的编号账：段上的 `\ls` / `\ilvl` 与 listtable 那一份定义对上才算
@@ -3407,6 +3583,17 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
                 // 作者那条 `{\*\atnauthor …}` 出现了几次：与下面 comments 那个数不等，
                 // 就是文件自己少写了作者或注（两边各数各的，不替它对齐）
                 "annotation_authors": one.annotation_authors,
+                // 书签那一群的名字是前瞻读出来的（群本身仍然整群跳过，`skipped_destinations`
+                // 把它们算在内）；而站内跳转的地址住在**指令**里，两处的名对上才算落得地。
+                // `bookmarks` 那一格问的是「有几个书签元素」（与 docx / odt 同一问），
+                // 名字另交 `bookmark_names`，两边不互相顶替
+                "bookmark_names": one.bookmarks.clone(),
+                "bookmark_starts": one.bookmark_starts.clone(),
+                "bookmark_ends": one.bookmark_ends.clone(),
+                "anchors": one.anchor_ledger().0,
+                "anchors_found": one.anchor_ledger().1,
+                "anchors_missing": one.anchor_ledger().2,
+                "links_external": one.anchor_ledger().3,
             },
             // 那张纸在 RTF 里写在文档级的属性串上（`\paperw` 那一串），只有一条：
             // 某一节的覆写住在 `{\*\sectx …}` 里，而这一族不判分节归属
