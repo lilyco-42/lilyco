@@ -285,6 +285,108 @@ def _position_row(node):
     }
 
 
+SLOT_KEYS = ("header:default", "header:first", "header:even",
+             "footer:default", "footer:first", "footer:even")
+
+
+def docx_header_footers(body, parts: dict, limit: int = 200) -> dict:
+    """分节的页眉页脚六格：`w:sectPr` 没写那一种引用，就是沿用**上一处写了它的节**
+
+    「自己写的」与「真正用到的」两个都交、不合并；`w:titlePg` 与 `w:evenAndOddHeaders`
+    按写的交（元素在不在、值写的是什么），「所以这一格显不显示」不归读者判。
+    """
+    rels: dict[str, tuple] = {}
+    if "word/_rels/document.xml.rels" in parts:
+        for one in ET.fromstring(parts["word/_rels/document.xml.rels"]):
+            if xml_local(one.tag) != "Relationship" or one.get("Id") in rels:
+                continue
+            rels[one.get("Id")] = (one.get("Target"), one.get("TargetMode") or "")
+    names = set(parts)
+    eo = {"written": False, "val": None}
+    if "word/settings.xml" in parts:
+        settings = ET.fromstring(parts["word/settings.xml"])
+        got = [one for one in settings.iter() if xml_local(one.tag) == "evenAndOddHeaders"]
+        if got:
+            eo = {"written": True, "val": local_attr(got[0], "val")}
+    sections = []
+    last_own: list = [None] * 6
+    written = inherited = refs_total = refs_unresolved = parts_missing = 0
+    sects = [one for one in body.iter() if xml_local(one.tag) == "sectPr"]
+    for index, sect in enumerate(sects):
+        mine: dict = {}
+        refs_here = 0
+        for kid in sect:
+            name = xml_local(kid.tag)
+            if name == "headerReference":
+                kind = "header"
+            elif name == "footerReference":
+                kind = "footer"
+            else:
+                continue
+            typ = local_attr(kid, "type") or "default"
+            ident = local_attr(kid, "id")
+            hit = rels.get(ident) if ident else None
+            refs_here += 1
+            refs_total += 1
+            if ident is not None and hit is None:
+                refs_unresolved += 1
+            raw, mode = hit if hit else (None, "")
+            part = None
+            if raw is not None and mode != "External":
+                got = opc_target("word/document.xml", raw)
+                part = got if got in names else None
+            external = (mode == "External") if hit is not None else None
+            exists = part is not None
+            # `part` 为空有两种来路：站外关系，或者指着包里没有的部件 —— 后者另数一本
+            if hit is not None and not external and not exists:
+                parts_missing += 1
+            key = "%s:%s" % (kind, typ)
+            if key not in mine:  # 同一种写了两条：取第一条，与 Rust 的 `find` 同一个口径
+                mine[key] = {
+                    "written": written_attrs(kid),
+                    "id": ident,
+                    "target": raw,
+                    "part": part,
+                    "part_exists": exists,
+                    "external": external,
+                }
+        slots: dict = {}
+        for which, key in enumerate(SLOT_KEYS):
+            own = mine.get(key)
+            row = None
+            if own is not None:
+                written += 1
+                last_own[which] = own
+                row = ("own", own)
+            elif last_own[which] is not None:
+                inherited += 1
+                row = ("earlier-section", last_own[which])
+            if row is None:
+                slots[key] = None
+            else:
+                got = dict(row[1])
+                got["from"] = row[0]
+                slots[key] = got
+        sections.append({
+            "index": index,
+            "slots": slots,
+            "written_refs": refs_here,
+            "title_pg_written": any(xml_local(one.tag) == "titlePg" for one in sect),
+        })
+    return {
+        "sections": sections[:limit],
+        "sections_total": len(sects),
+        "listed": len(sections),
+        "slot_keys": list(SLOT_KEYS),
+        "slots_written": written,
+        "slots_inherited": inherited,
+        "refs_total": refs_total,
+        "refs_unresolved": refs_unresolved,
+        "parts_missing": parts_missing,
+        "even_and_odd_headers": eo,
+    }
+
+
 def docx_picture_rows(body, parts: dict) -> list:
     """文档里的图（与 Rust 的 `docx_pictures` 同一条规则）
 
@@ -517,6 +619,8 @@ def docx_facts(path: Path) -> dict:
         # 字符格式是另一本账：那一串字自己带一份 rPr（含「有这一格而里面是空的」那一种）
         "run_formats": docx_run_formats(paras, parts),
         "columns": docx_columns(body),
+        # 分节的页眉页脚六格（自己写的与真正沿用的分开交）
+        "header_footers": docx_header_footers(body, parts),
         # 这张表多宽的三本账（w:tblW / 网格 / 每格），一条也不替另一条圆场
         "table_layouts": docx_table_layouts(body),
         # 编号那一路要跳三跳，段上没写的那些要看样式里那份 numPr

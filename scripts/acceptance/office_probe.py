@@ -184,6 +184,7 @@ def main() -> int:
         "fields-lo.docx": ("ooxml", "word", "docx"),
         "fields.odt": ("opendocument", "word", "odt"),
         "fields.rtf": ("rtf", "word", "rtf"),
+        "sections.docx": ("ooxml", "word", "docx"),
         "para.odt": ("opendocument", "word", "odt"),
         "para.rtf": ("rtf", "word", "rtf"),
         "tables-lo.docx": ("ooxml", "word", "docx"),
@@ -3993,6 +3994,55 @@ def main() -> int:
          5,
          "#\\u-30616\\'3f\\u-27366\\'3f\\u28857\\'3f",
          "跳到那张表"],
+    )
+
+    # ── 3r) 分节的页眉页脚：没写那一格是「沿用上一节」，不是「没有」 ────────────
+    print("=== 3r) 节的六格：自己写的、沿用上一节的，与一条指着没有的号 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 分节六格与读者一致（每节六格：own / earlier-section / null）" % name,
+              dig(got, "structure.header_footers"),
+              files[name]["ooxml"]["header_footers"])
+    sec = lbin("office-doc", fixture("sections.docx"))
+    plain = lbin("office-doc", fixture("para.docx"))
+    check(
+        "第二节自己一个字都没写：页眉与页脚都沿用第一节那两份部件（Word 界面上叫「与上一节相同」）",
+        [dig(sec, "structure.header_footers.sections_total"),
+         dig(sec, "structure.header_footers.slots_written"),
+         dig(sec, "structure.header_footers.slots_inherited"),
+         dig(sec, "structure.header_footers.sections[0].slots.header:default.from"),
+         dig(sec, "structure.header_footers.sections[0].slots.header:default.part"),
+         dig(sec, "structure.header_footers.sections[1].slots.header:default.from"),
+         dig(sec, "structure.header_footers.sections[1].slots.header:default.part"),
+         dig(sec, "structure.header_footers.sections[1].slots.footer:default.id"),
+         dig(sec, "structure.header_footers.sections[1].written_refs")],
+        [2, 3, 2, "own", "word/header1.xml",
+         "earlier-section", "word/header1.xml", "rId10", 1],
+    )
+    check(
+        "一条指着不存在的号：part 与 external 都交 null（连是不是站外都不知道），"
+        "而那一个号照交，refs_unresolved 数得出这一条",
+        [dig(sec, "structure.header_footers.sections[1].slots.header:even.id"),
+         dig(sec, "structure.header_footers.sections[1].slots.header:even.part"),
+         dig(sec, "structure.header_footers.sections[1].slots.header:even.part_exists"),
+         dig(sec, "structure.header_footers.sections[1].slots.header:even.external"),
+         dig(sec, "structure.header_footers.refs_total"),
+         dig(sec, "structure.header_footers.refs_unresolved"),
+         dig(sec, "structure.header_footers.refs_unresolved")],
+        ["rId999", None, False, None, 3, 1, 1],
+    )
+    check(
+        "首尾页与奇偶页那两个开关按写的交：`titlePg` 在两节都写着，"
+        "`evenAndOddHeaders` 写了而没写值；两节都不点名任何部件的那一份，六格全 null",
+        [dig(sec, "structure.header_footers.sections[0].title_pg_written"),
+         dig(sec, "structure.header_footers.sections[1].title_pg_written"),
+         dig(sec, "structure.header_footers.even_and_odd_headers.written"),
+         dig(sec, "structure.header_footers.even_and_odd_headers.val"),
+         dig(plain, "structure.header_footers.sections_total"),
+         dig(plain, "structure.header_footers.slots_written"),
+         dig(plain, "structure.header_footers.sections[0].slots.header:default"),
+         dig(plain, "structure.header_footers.even_and_odd_headers.written")],
+        [True, True, True, None, 2, 0, None, False],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──

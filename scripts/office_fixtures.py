@@ -212,6 +212,44 @@ def add_bookmark(paragraph, name: str, ident: str) -> None:
     paragraph._p.append(end)
 
 
+def write_sections_docx(path: Path) -> None:
+    """两节 + 首尾页开关 + 奇偶页开关，再加一条指着不存在关系的引用
+
+    「这一节的页脚是什么」在这里有两个答案：它自己写的，与它沿用上一节的那一个
+    （Word 界面上叫「与上一节相同」）。`w:titlePg` 与 `w:evenAndOddHeaders` 是 python-docx
+    自己的开关（`different_first_page_header_footer` / `odd_and_even_pages_header_footer`），
+    不是我们手写的；最后那一条 `r:id="rId999"` 是故意留的坏引用 —— 关系表里根本没有这一个号。
+
+    量到的一条生产者脾气：**python-docx 新加的节默认与上一节共用同一份页眉部件**
+    （它不给第二节写 `headerReference`，`section.header` 直接指回第一节那份）。
+    所以下面那句「第二节页眉」并没能变成第二节自己的页眉 —— 它把第一节那份
+    `word/header1.xml` 里的字**改掉了**，两份件里都只有一份页眉部件。
+    """
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    first = doc.sections[0]
+    first.different_first_page_header_footer = True
+    first.header.paragraphs[0].text = "第一节页眉"
+    first.footer.paragraphs[0].text = "第一节页脚"
+    doc.add_paragraph("第一节正文")
+    rest = doc.add_section()
+    # 这一句写进的是第一节那份 header1.xml（默认 linked_to_previous），不是新的一份部件
+    rest.header.paragraphs[0].text = "第二节页眉"
+    doc.add_paragraph("第二节正文：这一节的页眉与页脚自己都没写，沿用上面那一节的")
+
+    # 坏引用：在第二节的 sectPr 上补一条 even 页眉，号指到关系表里不存在的那一个
+    sect = rest._sectPr
+    bad = OxmlElement("w:headerReference")
+    bad.set(qn("w:type"), "even")
+    bad.set(qn("r:id"), "rId999")
+    sect.append(bad)
+    doc.settings.odd_and_even_pages_header_footer = True
+    doc.save(str(path))
+
+
 def write_fields_docx(path: Path) -> None:
     """一份件里放四种「文件自己算出来的东西」：SEQ 编号、DATE、页脚里的页码，与一个站内跳转"""
     from docx import Document
@@ -2604,6 +2642,9 @@ def main() -> int:
             shutil.copyfile(made, OUT / out_name)
         else:
             print("⚠️  没拿到 %s（%s 那一转）" % (out_name, fmt))
+
+    # 分节的页眉页脚六格：两节 + titlePg + evenAndOddHeaders + 一条指着不存在关系的号
+    write_sections_docx(OUT / "sections.docx")
 
     # 格子底色/边框/对齐：shaded.docx 由 python-docx 写，shaded-lo.docx 是同一个格式重写
     shaded = OUT / "shaded.docx"

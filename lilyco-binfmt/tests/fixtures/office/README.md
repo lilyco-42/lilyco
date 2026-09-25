@@ -124,6 +124,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `charstyles.docx` | python-docx（`write_styles_docx`） | 三段各点一个**字符样式**（`w:rStyle` 在 `w:rPr` 的第一个孩子位上），定义在 `word/styles.xml`：`Strong` 里写 `<w:b/><w:bCs/>`、`Emphasis` 里写 `<w:i/><w:iCs/>`，第二段还**同时**在段上写 `<w:b/>`（一处一半）；第三段点的号是 `SubtleEmphasis` 而名字写着「Subtle Emphasis」（带空格），定义里除了斜体还有 `w:color val="808080" themeColor="text1" themeTint="7F"` |
 | `charstyles-lo.docx` | LibreOffice（`charstyles.docx` → .docx） | 重写留着 `w:rStyle` 与那三个号（`Strong` / `Emphasis` / `SubtleEmphasis` 一字未改），照旧给没格式的串补空 rPr（7 串里 4 串是空的）；样式定义自己那份也没动，只有 `w:rsid` 换了大小写 |
 | `charstyles.odt` / `charstyles.rtf` | LibreOffice（从 `charstyles.docx` 导出） | 同一件话的另两种存法：ODF 把 `Strong` 换成 `Strong_20_Emphasis`（住 **styles.xml**，带 `style:display-name="Strong Emphasis"` 与父 `Default_20_Paragraph_20_Font`），而段上自己写的粗体变成 content.xml 里的自动样式 `T1` —— 于是那一句被**套成两层 span**（外 `Emphasis` 内 `T1`）；RTF 在群头写 `\cs34`，而 `{\*\cs34 … Strong;}` 那条定义**同时**被它把自己的 `\b` 抄进群头（号与话都在） |
+| `sections.docx` | python-docx（`write_sections_docx`） | 两节：第一节点名页眉与页脚（`rId9` / `rId10`），第二节只补一条指着关系表里**不存在**的号 `rId999` 的偶数页页眉，所以它的页眉与页脚两格都是「沿用第一节」；两节都写 `w:titlePg`，settings 写 `w:evenAndOddHeaders`（不带值）。**顺带量到一条生产者脾气**：python-docx 新加的节默认 `linked_to_previous` —— 给第二节写页眉等于改写第一节那份 `word/header1.xml`，全件仍然只有两份页眉页脚部件 |
 | `fields.docx` | python-docx（`write_fields_docx`） | 正文里三条域链（SEQ 编号 / DATE 带 `w:dirty` / PAGE），第四条 PAGE 写在 `word/footer1.xml` 里（不进正文那份账）；两个站内跳转：一个指着真书签 `表锚点`，另一个指着 `没这个书签`；书签是 `bookmarkStart` / `bookmarkEnd` 一对（`w:id="3"` 配对，名字只写在 start 上） |
 | `fields-lo.docx` / `fields.odt` / `fields.rtf` | LibreOffice（从 `fields.docx` 导出） | 同一批域在三条来回里各变一次样：docx 重写丢了 `w:dirty`、给指令补一个尾空格、把日期格式里的 `-` 转义成 `\-`，并把缓存值换成它自己算出来的数；ODF 把 SEQ 拆成 `text:sequence`（`text:name="表"` / `text:formula="ooow:表+1"` / `style:num-format="1"`）**并往 `text:sequence-decls` 里补一条 `表`**，页码变成页脚样式里的 `text:page-number`，书签只剩名字不再有号；RTF 写成六条 `\field{\*\fldinst …}{\fldrslt …}`，中文序列名成了 `\u-30616\'3f` 一串码位转义 |
 
@@ -1417,6 +1418,24 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       同一个坏名在三种存法里都还坏着。
     - 探针里钉着一条**可反证**的：书签的名字没进任何一行正文（那六行一字不多）。
       前瞻读名字这件事如果哪天把字漏进正文，这条就会响。
+
+81. **分节的页眉页脚：没写那一格不是「没有」，是沿用上面那一节**
+    - OOXML 的规矩：`w:sectPr` 里没有某种 `headerReference` / `footerReference`，就沿用上
+      一处写了它的那一节。所以每一格有三种答案：`own` / `earlier-section` / null，
+      而不写这一格与「这一格是空的」是两件事。`sections.docx` 第一节写页眉与页脚，
+      第二节一个字没写 → 两格都是 `earlier-section`，指向第一节那两份部件（`rId9` / `rId10`）。
+    - 号也可能**根本不存在**：第二节上补的那条 `w:headerReference w:type="even" r:id="rId999"`
+      在 `word/_rels/document.xml.rels` 里没有对应的关系。这一格交 `part: null`、
+      `part_exists: false`，而 `external` 也交 **null** —— 读者不知道那个号本来要不要站外，
+      把它写成 false 就是替文件说话。`refs_unresolved` 数得出这一条。
+    - 两个开关按写的交，不答「所以这一格显不显示」：每节一个 `title_pg_written`
+      （python-docx 的 `different_first_page_header_footer` 写它），
+      `even_and_odd_headers` 交「元素在不在」与「写的值」——
+      写了而没给值与整个没有这个元素是两份不同的文件。
+    - **量到的一条生产者脾气**（写这份件时撞见的）：python-docx 新加的节默认
+      `linked_to_previous` —— 给第二节写页眉，字其实落进第一节那份 `word/header1.xml` 里，
+      全件仍然只有页眉页脚各一份部件。所以这份件的页眉写的是「第二节页眉」而节 1 用着它，
+      这不是读者的错，也不是 Word 的错，是 python-docx 的默认值。
 
 ## 这些数字从哪来
 
