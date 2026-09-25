@@ -15,7 +15,7 @@
 //!    所以「几段」要分清包不包含批注里的那些（这一格两个数都交）。
 
 use crate::office_text;
-use crate::xmlscan::Node;
+use crate::xmlscan::{self, Node};
 use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 use serde_json::{json, Value};
 
