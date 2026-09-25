@@ -121,6 +121,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `styled-text.docx` | python-docx（`write_runs_docx`） | 一段只点一个字符属性（粗 / 斜 / 下划线 / 删除线 / 上标 / 红 `C00000` / 黄 / 9 磅写成 `sz="18"` 半磅 / 宋体），另有点「明确不粗」（`<w:b w:val="0"/>`）、一串字里两个孩子（`<w:b/><w:i/>`）与**一段里三种字各一串**；没格式那几串**不写 `w:rPr`** |
 | `styled-text-lo.docx` | LibreOffice（`styled-text.docx` → .docx） | 同一份件重写一次：每一串字都补一个**空的** `<w:rPr></w:rPr>`（30 串里 16 串是空的），而 `w:val="0"` 换成 `w:val="false"` —— 「有没有这一格」与「这一格说不说不」两家正好一边一种 |
 | `styled-text.odt` / `styled-text.rtf` | LibreOffice（从 `styled-text.docx` 导出） | 第三种与第四种存法：ODF 把格式搬到 `text:span/@text:style-name="T1"…T12"`，值在**同一份 content.xml** 的 `style:text-properties` 上（`fo:font-weight="bold"`、`style:text-underline-style="solid"`、`style:text-position="super 58%"`、`fo:color="#c00000"`），「明确不粗」成 `fo:font-weight="normal"`；RTF 只在群头写 `b` / `i` / `strike` / `super` / `cf23` / `highlight7` / `fs18` / `af9`，否定是 `b0`，CJK 的下划线落在 `aul` 那个口袋，而颜色与字体只是**一个号**，要跳文件自己那两张表 |
+| `charstyles.docx` | python-docx（`write_styles_docx`） | 三段各点一个**字符样式**（`w:rStyle` 在 `w:rPr` 的第一个孩子位上），定义在 `word/styles.xml`：`Strong` 里写 `<w:b/><w:bCs/>`、`Emphasis` 里写 `<w:i/><w:iCs/>`，第二段还**同时**在段上写 `<w:b/>`（一处一半）；第三段点的号是 `SubtleEmphasis` 而名字写着「Subtle Emphasis」（带空格），定义里除了斜体还有 `w:color val="808080" themeColor="text1" themeTint="7F"` |
+| `charstyles-lo.docx` | LibreOffice（`charstyles.docx` → .docx） | 重写留着 `w:rStyle` 与那三个号（`Strong` / `Emphasis` / `SubtleEmphasis` 一字未改），照旧给没格式的串补空 rPr（7 串里 4 串是空的）；样式定义自己那份也没动，只有 `w:rsid` 换了大小写 |
+| `charstyles.odt` / `charstyles.rtf` | LibreOffice（从 `charstyles.docx` 导出） | 同一件话的另两种存法：ODF 把 `Strong` 换成 `Strong_20_Emphasis`（住 **styles.xml**，带 `style:display-name="Strong Emphasis"` 与父 `Default_20_Paragraph_20_Font`），而段上自己写的粗体变成 content.xml 里的自动样式 `T1` —— 于是那一句被**套成两层 span**（外 `Emphasis` 内 `T1`）；RTF 在群头写 `\cs34`，而 `{\*\cs34 … Strong;}` 那条定义**同时**被它把自己的 `\b` 抄进群头（号与话都在） |
 
 ## 几件只有踩过才会记下来的事
 
@@ -1292,6 +1295,34 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       所以 `underline_word` 先把文件点的那个口袋交出来，开关再按四个口袋算一次「要」。
     * 三家对同一句「9 磅」的说法：`w:sz w:val="18"`、RTF `\fs18`（都是半磅，两家同一个数）、
       ODF `fo:font-size="9pt"`（自带单位）。三个都按原样交，不折成一个数。
+
+74. **一句话可以拆在两处说：段上只写一个样式号，另一半住在另一个部件里**
+    （`charstyles.docx`、`charstyles-lo.docx`、`charstyles.odt`、`charstyles.rtf`）。
+    * OOXML 的 `w:rStyle` 坐在 `w:rPr` 的第一个孩子位上，而它的定义在 `word/styles.xml`：
+      第一段只写 `Strong` 这个号、粗体在定义里 —— 所以「段上自己说了什么」（`switches`）
+      与「样式说了什么」（`style_switches`）是两栏，`bold_on` 数到 1、`bold_from_style` 数到 1，
+      把两个合成一个「三处都粗」就是把两个来处当一个。第二段更直接：样式 `Emphasis` 说斜体、
+      段上自己写 `<w:b/>` 说粗体，两处各说一半，`where_both_spoke` 因此是 0 而不是 2。
+    * **样式号与样式名不是一回事**：第三段点的号是 `SubtleEmphasis`，名字写着「Subtle Emphasis」
+      （中间那个空格是文件写的）；ODF 那一家同一段写的是号 `Strong_20_Emphasis`，
+      显示名在 `style:display-name` 里，两栏都交。父样式（`w:basedOn` / `parent-style-name`）
+      报出来但**不跟**；主题色 `w:themeColor="text1" w:themeTint="7F"` 按写的交 ——
+      解它要开 `theme1.xml`，那一跳这一族不走。
+    * ODF 把「样式」这件事做得更彻底，也露出一个以前没人走的分支：段上自己写的格式
+      被搬成 content.xml 的自动样式 `T1`，而点命名的字符样式在 **styles.xml**，
+      于是同一段话**套成两层 span**（外 `Emphasis`、内 `T1`）。账本因此加了 `depth`，
+      并且一条 span 自己的 `text` 只算它直接带的那些字 —— 外层那条交空串，
+      里层那条交「又粗又斜」，同一句话绝不报两次（`nested_spans` 就是为这一条而存在的数）。
+    * 跨家最容易被对成一个数的地方：ODF 的开关值**全部来自样式**（那一家没有别的地方可写），
+      所以它的 `bold_on` 是 2；OOXML 的 `bold_on` 只数段上自己写的，是 1。
+      两个数都对，但它们是两问 —— 所以这一族不做等号，只把两栏并排放着。
+    * RTF 又一层：字符样式在流里是 `{\*\cs34 … Strong;}` 一群，群头那个 `\*` 的意思正是
+      「不认识这个群就整个跳掉」—— 而这一族**认得** cs 定义（段落样式一直是这么读的），
+      于是名字以前整个丢掉（`name: null`）。现在解名字之前先把那层 `\*` 剥掉，
+      34 → `Strong`、37 → `Subtle Emphasis` 都读得出来；这与脚注那条是同一个教训：
+      「不认识才跳」不等于「认识了就允许把里面的名字一起跳掉」。
+      同时 LibreOffice 还把样式自己的 `\b` **抄进了群头**（号与话同时在场），
+      所以 `words` 里 `cs` 与 `b` 并列，两处都交。
 
 ## 这些数字从哪来
 

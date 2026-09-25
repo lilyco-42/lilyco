@@ -175,6 +175,11 @@ def main() -> int:
         "styled-text-lo.docx": ("ooxml", "word", "docx"),
         "styled-text.odt": ("opendocument", "word", "odt"),
         "styled-text.rtf": ("rtf", "word", "rtf"),
+        # 字符样式那四份：段上只写一个样式号，那句话住在另一份部件里（一处一半）
+        "charstyles.docx": ("ooxml", "word", "docx"),
+        "charstyles-lo.docx": ("ooxml", "word", "docx"),
+        "charstyles.odt": ("opendocument", "word", "odt"),
+        "charstyles.rtf": ("rtf", "word", "rtf"),
         "para.odt": ("opendocument", "word", "odt"),
         "para.rtf": ("rtf", "word", "rtf"),
         "tables-lo.docx": ("ooxml", "word", "docx"),
@@ -3510,6 +3515,89 @@ def main() -> int:
          dig(odpic, "slides[1].picture_list[0].mm_h"),
          dig(odpic, "slides[1].picture_list[0].style")],
         ["508000", 1411, "507600", 1410, 846, "gr1"],
+    )
+
+    # ── 3l) 字符样式：段上只写一个号，那句话住在另一份部件里 ────────────────
+    print("=== 3l) 字符样式那一跳：一处一半、号与名不同、span 会套 span ===")
+    style = {one: lbin("office-doc", fixture("charstyles." + one)) for one in ("docx", "odt", "rtf")}
+    style["lo"] = lbin("office-doc", fixture("charstyles-lo.docx"))
+    check("charstyles.docx 逐串账（含样式那一跳）与读者一致",
+          dig(style["docx"], "structure.run_formats"),
+          files["charstyles.docx"]["ooxml"]["run_formats"])
+    check("charstyles-lo.docx 逐串账与读者一致（重写也留着 rStyle 的那一份）",
+          dig(style["lo"], "structure.run_formats"),
+          files["charstyles-lo.docx"]["ooxml"]["run_formats"])
+    check("charstyles.odt 逐串账与读者一致（span 套 span 与显示名）",
+          dig(style["odt"], "structure.run_formats"),
+          files["charstyles.odt"]["odt"]["run_formats"])
+    check("charstyles.rtf 逐串账与读者一致（cs 号跳样式表解出名字）",
+          [dig(style["rtf"], "structure.run_formats.list"),
+           dig(style["rtf"], "structure.run_formats.words_outside_groups")],
+          [files["charstyles.rtf"]["rtf"]["run_rows"],
+           files["charstyles.rtf"]["rtf"]["run_words_stray"]])
+    check(
+        "段上只写一个号：三段都点样式、三条都跳得到，而 bold_on 只数段上自己说的那一次",
+        [dig(style["docx"], "structure.run_formats.with_style"),
+         dig(style["docx"], "structure.run_formats.style_found"),
+         dig(style["docx"], "structure.run_formats.bold_on"),
+         dig(style["docx"], "structure.run_formats.bold_from_style"),
+         dig(style["docx"], "structure.run_formats.italic_from_style"),
+         dig(style["docx"], "structure.run_formats.where_both_spoke"),
+         dig(style["lo"], "structure.run_formats.props_empty"),
+         dig(style["lo"], "structure.run_formats.style_found")],
+        [3, 3, 1, 1, 2, 0, 4, 3],
+    )
+    check(
+        "一处一半：Emphasis 那一段说斜、段上自己写 b 说粗，两处各半，不合成一句「又粗又斜」",
+        [dig(style["docx"], "structure.run_formats.list[3].elements"),
+         dig(style["docx"], "structure.run_formats.list[3].switches.bold"),
+         dig(style["docx"], "structure.run_formats.list[3].switches.italic"),
+         dig(style["docx"], "structure.run_formats.list[3].style_switches.italic"),
+         dig(style["docx"], "structure.run_formats.list[3].style_switches.bold")],
+        [["rStyle", "b"], True, None, True, None],
+    )
+    check(
+        "样式号与样式名不是一回事：SubtleEmphasis 这个号的名字里带一个空格",
+        [dig(style["docx"], "structure.run_formats.list[5].style"),
+         dig(style["docx"], "structure.run_formats.list[5].style_name"),
+         dig(style["docx"], "structure.run_formats.list[1].style_parent"),
+         dig(style["odt"], "structure.run_formats.list[1].style"),
+         dig(style["odt"], "structure.run_formats.list[1].display"),
+         dig(style["odt"], "structure.run_formats.list[1].found_in"),
+         dig(style["rtf"], "structure.run_formats.list[0].values.character_style.index"),
+         dig(style["rtf"], "structure.run_formats.list[0].values.character_style.name")],
+        ["SubtleEmphasis", "Subtle Emphasis", "DefaultParagraphFont",
+         "Strong_20_Emphasis", "Strong Emphasis", "styles", "34", "Strong"],
+    )
+    check(
+        "ODF 的 span 会套 span：外层只点样式、里层才写粗，深度与「自己那半句字」各交一条",
+        [dig(style["odt"], "structure.run_formats.nested_spans"),
+         dig(style["odt"], "structure.run_formats.checked"),
+         dig(style["odt"], "structure.run_formats.list[3].depth"),
+         dig(style["odt"], "structure.run_formats.list[3].text"),
+         dig(style["odt"], "structure.run_formats.list[3].style"),
+         dig(style["odt"], "structure.run_formats.list[4].depth"),
+         dig(style["odt"], "structure.run_formats.list[4].text"),
+         dig(style["odt"], "structure.run_formats.list[4].found_in"),
+         dig(style["odt"], "structure.run_formats.list[4].switches.bold")],
+        [1, 8, 1, "", "Emphasis", 2, "又粗又斜", "content", True],
+    )
+    check(
+        "跨家不许对成一个数：同一句「这几串字是粗的」，ODF 从样式里数到 2，OOXML 从段上数到 1",
+        [dig(style["docx"], "structure.run_formats.bold_on"),
+         dig(style["odt"], "structure.run_formats.bold_on"),
+         dig(style["odt"], "structure.run_formats.italic_on"),
+         dig(style["docx"], "structure.run_formats.italic_on")],
+        [1, 2, 2, 0],
+    )
+    check(
+        "RTF 的群头把样式自己那份 \\b 也抄了一遍 —— 号与话同时在场，两处都交",
+        [dig(style["rtf"], "structure.run_formats.list[0].words"),
+         dig(style["rtf"], "structure.run_formats.list[0].switches.bold"),
+         dig(style["rtf"], "structure.run_formats.list[1].words[0][1]"),
+         dig(style["rtf"], "structure.run_formats.list[2].values.character_style.name")],
+        [[["cs", "34"], ["ab", ""], ["ab", ""], ["ab", ""], ["b", ""]], True,
+         "35", "Subtle Emphasis"],
     )
 
     # ── 3k) 那几个字自己说了什么：三家把同一句格式话说在三个地方 ────────────

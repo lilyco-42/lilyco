@@ -515,7 +515,7 @@ def docx_facts(path: Path) -> dict:
         # 段落自己写的格式（这一族不用跳样式）与一节一条的分栏
         "paragraph_formats": docx_paragraph_formats(paras),
         # 字符格式是另一本账：那一串字自己带一份 rPr（含「有这一格而里面是空的」那一种）
-        "run_formats": docx_run_formats(paras),
+        "run_formats": docx_run_formats(paras, parts),
         "columns": docx_columns(body),
         # 这张表多宽的三本账（w:tblW / 网格 / 每格），一条也不替另一条圆场
         "table_layouts": docx_table_layouts(body),
@@ -1046,16 +1046,54 @@ def _docx_runs(para) -> list:
     return out
 
 
-def docx_run_formats(paras: list, limit: int = 200) -> dict:
+def docx_character_styles(parts: dict) -> dict:
+    """`word/styles.xml` 里 `w:type="character"` 的那些定义：号 → (名字, 父号, 孩子的账)
+
+    定义里的 `w:rStyle` 不算它「自己说的格式」（那是继承链上的一节），所以滤掉；
+    名字与父**只报不跟**（链是文件的，不是读者编的）。
+    """
+    out = {}
+    if "word/styles.xml" not in parts:
+        return out
+    root = ET.fromstring(parts["word/styles.xml"])
+    for one in _all(root, "style"):
+        if local_attr(one, "type") != "character":
+            continue
+        ident = local_attr(one, "styleId")
+        if ident is None or ident in out:
+            continue
+        name = _kids(one, "name")
+        parent = _kids(one, "basedOn")
+        holder = _kids(one, "rPr")
+        kids = [
+            kid
+            for kid in (holder[0] if holder else [])
+            if xml_local(kid.tag) != "rStyle"
+        ]
+        out[ident] = (
+            local_attr(name[0], "val") if name else None,
+            local_attr(parent[0], "val") if parent else None,
+            [
+                {"element": xml_local(kid.tag), "written": written_attrs(kid)}
+                for kid in kids
+            ],
+        )
+    return out
+
+
+def docx_run_formats(paras: list, parts: dict, limit: int = 200) -> dict:
     """docx 的字符格式：每一串字自己带一份 `w:rPr`，与段上那份 `w:pPr` 是两本账
 
     `with_props`（有 rPr 这一格）与 `props_empty`（有而里面一个格式孩子都没有）分开数：
     python-docx 不给没格式的那一串写 rPr，LibreOffice 重写时给每一串都补一个空的。
     """
+    sheet = docx_character_styles(parts)
     entries = []
     checked = with_props = props_empty = with_format = 0
+    with_style = style_found = where_both = 0
     on = {key: 0 for _, key in RUN_SWITCHES}
     off = {key: 0 for _, key in RUN_SWITCHES}
+    from_style = {key: 0 for _, key in RUN_SWITCHES}
     for index, para in enumerate(paras):
         for at, run in enumerate(_docx_runs(para)):
             checked += 1
@@ -1083,6 +1121,26 @@ def docx_run_formats(paras: list, limit: int = 200) -> dict:
                     values[key] = written_attrs(got[0])
                 else:
                     values[key] = local_attr(got[0], "val")
+            holder_style = _kids(holder, "rStyle") if holder is not None else []
+            named = local_attr(holder_style[0], "val") if holder_style else None
+            got = sheet.get(named) if named else None
+            if named is not None:
+                with_style += 1
+            if got is not None:
+                style_found += 1
+            char_switches = {}
+            for name, key in RUN_SWITCHES:
+                said = [one for one in (got[2] if got else []) if one["element"] == name]
+                if not said:
+                    value = None
+                else:
+                    raw = said[0]["written"].get("val")
+                    value = True if raw is None else raw not in RUN_OFF
+                if value is not None and switches[key] is not None:
+                    where_both += 1
+                if value is not None and switches[key] is None:
+                    from_style[key] += 1
+                char_switches[key] = value
             entries.append(
                 {
                     "para": index,
@@ -1096,7 +1154,15 @@ def docx_run_formats(paras: list, limit: int = 200) -> dict:
                     "format": [
                         {"element": xml_local(kid.tag), "written": written_attrs(kid)}
                         for kid in kids
+                        if xml_local(kid.tag) != "rStyle"
                     ],
+                    # 样式那一跳：`w:rStyle` 只有一个号，那句话住在另一个部件里
+                    "style": named,
+                    "style_found": None if named is None else got is not None,
+                    "style_name": got[0] if got else None,
+                    "style_parent": got[1] if got else None,
+                    "style_format": got[2] if got else None,
+                    "style_switches": char_switches,
                 }
             )
     out = {
@@ -1105,39 +1171,66 @@ def docx_run_formats(paras: list, limit: int = 200) -> dict:
         "with_props": with_props,
         "props_empty": props_empty,
         "with_format": with_format,
+        "with_style": with_style,
+        "style_found": style_found,
+        "where_both_spoke": where_both,
         "list": entries[:limit],
     }
     for key in ("bold", "italic", "strike", "underline"):
         out["%s_on" % key] = on[key]
         out["%s_off" % key] = off[key]
+        out["%s_from_style" % key] = from_style[key]
     return out
 
 
-def _para_pieces(node) -> list:
-    """一段里的「串」按文件的顺序排：`text:span` 是一个元素，而夹在中间的字在
-    ElementTree 里落在 `.text` 与孩子的 `.tail` 上 —— 与 Rust 那边的 `#text` 子节点
-    是同一批字，所以「带换行的纯空白不算内容」那一条规则也照搬。
-    别的元素（注、软分页、书签…）在这一族里不是一串字，整块跳过，只留它的尾字。
-    """
-    out = []
+def _keep_text(raw):
+    """与 Rust 的 `push_text` 同一条：空的不算，「纯空白而且带换行」的是排版噪声也不算"""
+    if raw is None or raw == "":
+        return None
+    if raw.strip() == "" and ("\n" in raw or "\r" in raw):
+        return None
+    return raw
 
-    def keep(raw):
-        # 与 Rust 的 `push_text` 同一条：空的不算，「纯空白而且带换行」的是排版噪声也不算
-        if raw is None or raw == "":
-            return None
-        if raw.strip() == "" and ("\n" in raw or "\r" in raw):
-            return None
-        return raw
 
-    head = keep(node.text)
+def _own_text(node) -> str:
+    """一条 span 自己**直接**带的那些字（head 加上每个孩子的 tail），与 Rust 的 `own_text` 同一条"""
+    parts = []
+    head = _keep_text(node.text)
     if head is not None:
-        out.append(("#text", head))
+        parts.append(head)
     for kid in node:
-        if xml_local(kid.tag) == "span":
-            out.append(("span", kid))
-        tail = keep(kid.tail)
+        tail = _keep_text(kid.tail)
         if tail is not None:
-            out.append(("#text", tail))
+            parts.append(tail)
+    return "".join(parts)
+
+
+def _para_pieces(node, depth: int = 1) -> list:
+    """一段里的「串」按文件的顺序摊平成 (元素, 那份字或那个元素, 第几层)
+
+    `text:span` 可以套 `text:span`（实测 LibreOffice 把「样式说斜、段上自己说粗」写成
+    外面一层点 `Emphasis`、里面一层点 `T1`），所以这一趟是递归的。套在里面那些字
+    **只算在外层那条 span 的 text 上**，不再单独出一条不包起来的字 —— 同一句话在两层
+    各出现一次，条数就成了读者造出来的。别的元素（注、软分页、书签…）整块跳过：
+    注有自己那份账，不在带它的那一段里再算一遍。
+    """
+    out: list = []
+
+    def walk(holder, level: int, bare_text: bool) -> None:
+        head = _keep_text(holder.text)
+        if head is not None and bare_text:
+            out.append(("#text", head, level))
+        for kid in holder:
+            if xml_local(kid.tag) == "span":
+                out.append(("span", kid, level))
+                walk(kid, level + 1, False)
+            # 一个 span 后面的那半句字是**这一段**的话（不是里层那条 span 的），
+            # 里层那些字只算在里层那条的 text 上
+            tail = _keep_text(kid.tail)
+            if tail is not None and bare_text:
+                out.append(("#text", tail, level))
+
+    walk(node, depth, True)
     return out
 
 
@@ -1179,14 +1272,15 @@ def odf_run_formats(
             found[name] = (
                 local_attr(one, "parent-style-name"),
                 written_kept(props[0], table) if props else None,
+                local_attr(one, "display-name"),
                 part,
             )
     entries = []
-    spans = bare = resolved = with_format = 0
+    spans = nested = bare = resolved = with_format = 0
     on = {key: 0 for _, key in ODF_RUN_SWITCHES}
     off = {key: 0 for _, key in ODF_RUN_SWITCHES}
     for index, para in enumerate(paras):
-        for at, (element, piece) in enumerate(_para_pieces(para)):
+        for at, (element, piece, depth) in enumerate(_para_pieces(para)):
             if element == "span":
                 spans += 1
                 name = local_attr(piece, "style-name")
@@ -1196,6 +1290,8 @@ def odf_run_formats(
                 written = got[1] if got else None
                 if isinstance(written, dict) and written:
                     with_format += 1
+                if depth > 1:
+                    nested += 1
                 switches = {
                     key: _odf_run_switch(written, attr) for attr, key in ODF_RUN_SWITCHES
                 }
@@ -1209,11 +1305,13 @@ def odf_run_formats(
                         "para": index,
                         "at": at,
                         "element": "span",
-                        "text": "".join(piece.itertext()),
+                        "depth": depth,
+                        "text": _own_text(piece),
                         "style": name,
                         "resolved": got is not None,
-                        "found_in": got[2] if got else None,
+                        "found_in": got[3] if got else None,
                         "parent": got[0] if got else None,
+                        "display": got[2] if got else None,
                         "written": written,
                         "switches": switches,
                     }
@@ -1225,11 +1323,13 @@ def odf_run_formats(
                     "para": index,
                     "at": at,
                     "element": "#text",
+                    "depth": depth,
                     "text": piece,
                     "style": None,
                     "resolved": None,
                     "found_in": None,
                     "parent": None,
+                    "display": None,
                     "written": None,
                     "switches": {key: None for _, key in ODF_RUN_SWITCHES},
                 }
@@ -1238,6 +1338,7 @@ def odf_run_formats(
         "checked": spans + bare,
         "listed": len(entries),
         "spans": spans,
+        "nested_spans": nested,
         "bare_text": bare,
         "resolved": resolved,
         "with_format": with_format,

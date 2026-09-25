@@ -82,6 +82,9 @@ const RUN_WORDS: &[&str] = &[
     "caps",
     "scaps",
     "ulc",
+    "cs",
+    "ab",
+    "ai",
 ];
 /// 下划线这一族有四个口袋（普通 / 双 / 日文 / 意大利体），文件点哪个就用哪个
 const RUN_UNDERLINE: [&str; 4] = ["ul", "uld", "aul", "iul"];
@@ -630,10 +633,32 @@ fn font_hop(words: &[(String, String)], name: &str, fonts: &[Value]) -> Value {
     }
 }
 
+/// 字符样式号 → `\stylesheet` 里那一条 `\*\csN`。与字体那一跳同一个口径：
+/// `resolved` 说的是「表里有这一条」，名字解不动仍交 null。
+/// 实测 LibreOffice 把 `Strong` 写成 `\cs34`，而群头上**同时**把这个样式自己的
+/// `\b` 抄了一遍 —— 两处都在文件上，所以两边都交，不合成一个「这串字是粗的」
+fn style_hop(words: &[(String, String)], name: &str, styles: &[Value]) -> Value {
+    let digits = match words.iter().find(|one| one.0.as_str() == name) {
+        Some(one) => one.1.clone(),
+        None => return Value::Null,
+    };
+    let want = match digits.parse::<u64>() {
+        Ok(one) => one,
+        Err(_) => return json!({"index": digits, "resolved": false, "name": Value::Null}),
+    };
+    match styles
+        .iter()
+        .find(|one| one["kind"] == json!("character") && one["index"] == json!(want))
+    {
+        Some(one) => json!({"index": digits, "resolved": true, "name": one["name"]}),
+        None => json!({"index": digits, "resolved": false, "name": Value::Null}),
+    }
+}
+
 /// 群头上那一串控制字之后解出来的两本账：`switches` 是四个开关各读一次，
 /// `values` 是那三个号（颜色、字号、字体）按文件自己的表跳一跳。
 /// 走这一趟是在整条流读完**之后**，所以表的先后顺序不参与判断
-fn resolve_runs(rows: &mut Vec<Value>, colors: &[Value], fonts: &[Value]) {
+fn resolve_runs(rows: &mut Vec<Value>, colors: &[Value], fonts: &[Value], styles: &[Value]) {
     for row in rows.iter_mut() {
         let words: Vec<(String, String)> = match row["words"].as_array() {
             Some(had) => had
@@ -676,6 +701,7 @@ fn resolve_runs(rows: &mut Vec<Value>, colors: &[Value], fonts: &[Value]) {
             "position": position,
             "font": font_hop(&words, "f", fonts),
             "asian_font": font_hop(&words, "af", fonts),
+            "character_style": style_hop(&words, "cs", styles),
         });
         row["format"] = Value::Array(
             words
@@ -784,7 +810,10 @@ fn definition_of(child: &[u8]) -> Option<Value> {
     if let Some(at) = windows_position(child, 0, CHARSET_HEAD) {
         charset = digits_after(child, at + CHARSET_HEAD.len()).unwrap_or(0);
     }
-    let name = extract(child)
+    // 名字要**剥掉开头那个 `\*` 再解**：字符样式的定义统统写成 `{\*\csN … 名字;}`，
+    // 而 `extract` 见 `\*` 就整群跳（那是它该有的行为），于是一个名字也剩不下来 ——
+    // 「不认识才跳」不等于「这一族认得它的名字，还是让它把名字跳掉」（脚注那一条同一个道理）
+    let name = extract(unstar(child))
         .text
         .trim()
         .trim_end_matches(';')
@@ -1831,7 +1860,8 @@ pub fn extract(bytes: &[u8]) -> Rtf {
     // 号 → 那两张表：走完整条流才跳，所以表写在前面还是后面都不影响能不能跳通
     let colors = me.colors.clone();
     let fonts = me.fonts.clone();
-    resolve_runs(&mut me.run_rows, &colors, &fonts);
+    let styles = me.styles.clone();
+    resolve_runs(&mut me.run_rows, &colors, &fonts, &styles);
     me.text = text;
     me
 }

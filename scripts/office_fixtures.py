@@ -1138,6 +1138,36 @@ def write_pictures_pptx(path: Path, dot: Path) -> None:
     prs.save(path)
 
 
+def write_styles_docx(path: Path) -> None:
+    """python-docx：三段各点一个**字符样式**，其中一段还自己另加一个开关
+
+    为什么存这一份：`w:rPr` 里除了直接格式，还可以只写一个样式号（`w:rStyle`），
+    那句话就搬到 `word/styles.xml` 里那条 `w:type="character"` 的定义上 ——
+    「这串字是粗的」这一问在文件里就有了**两个来处**（实测 Strong 的定义里写着 `<w:b/>`
+    而那一段自己一个字都没点）。第二段故意让两处都说话：样式 `Emphasis` 说斜体、
+    段上直接写 `<w:b/>` 说粗体，两处各说一半，合成一个「又粗又斜」就是替文件下结论。
+    第三段点的是带颜色与小字号大写的 `Subtle Emphasis`（styleId 是 `SubtleEmphasis`，
+    名字里那个空格是文件写的），看的是「样式名 ≠ 样式号」。
+    第四段什么样式都不点 —— 与上一族同一件事：没这一格与这格是空的先分清楚。
+    """
+    from docx import Document
+
+    doc = Document()
+    one = doc.add_paragraph()
+    one.add_run("只有样式说的：")
+    one.add_run("强调的字").style = "Strong"
+    two = doc.add_paragraph()
+    two.add_run("样式说斜、段上自己说粗：")
+    both = two.add_run("又粗又斜")
+    both.style = "Emphasis"
+    both.bold = True
+    three = doc.add_paragraph()
+    three.add_run("样式里还写着颜色与大写：")
+    three.add_run("淡淡的").style = "Subtle Emphasis"
+    doc.add_paragraph("这一段什么样式都不点")
+    doc.save(path)
+
+
 def write_runs_docx(path: Path) -> None:
     """python-docx：一段只点一个字符属性 —— 「这几个字自己写了什么格式」
 
@@ -2428,6 +2458,28 @@ def main() -> int:
         shutil.copyfile(made, OUT / "styled-text-lo.docx")
     else:
         print("⚠️  没拿到 styled-text-lo.docx（docx → docx 那一转）")
+
+    # 字符样式那四件套：样式号在一处、样式自己说的话在另一处（word/styles.xml）
+    charstyles = OUT / "charstyles.docx"
+    write_styles_docx(charstyles)
+    convert(exe, charstyles, "odt", SCRATCH / "cs-odt")
+    made = SCRATCH / "cs-odt" / "charstyles.odt"
+    if made.exists():
+        shutil.copyfile(made, OUT / "charstyles.odt")
+    else:
+        print("⚠️  没拿到 charstyles.odt")
+    convert(exe, charstyles, "rtf", SCRATCH / "cs-rtf")
+    made = SCRATCH / "cs-rtf" / "charstyles.rtf"
+    if made.exists():
+        shutil.copyfile(made, OUT / "charstyles.rtf")
+    else:
+        print("⚠️  没拿到 charstyles.rtf")
+    convert(exe, charstyles, "docx", SCRATCH / "cs-back")
+    made = SCRATCH / "cs-back" / "charstyles.docx"
+    if made.exists():
+        shutil.copyfile(made, OUT / "charstyles-lo.docx")
+    else:
+        print("⚠️  没拿到 charstyles-lo.docx（docx → docx 那一转）")
 
     # 格子底色/边框/对齐：shaded.docx 由 python-docx 写，shaded-lo.docx 是同一个格式重写
     shaded = OUT / "shaded.docx"

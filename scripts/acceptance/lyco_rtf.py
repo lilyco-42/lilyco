@@ -201,7 +201,9 @@ def definition_of(child: str) -> dict:
     mark = FCHARSET.search(child)
     if mark:
         charset = int(mark.group(1))
-    text = rtf_text(child.encode("latin-1", "replace"))["text"].strip()
+    # 名字要剥掉开头那个 `\*` 再解：字符样式的定义统统写成 `{\*\csN … 名字;}`，
+    # 而 rtf_text 见 `\*` 就整群跳（那是它该有的行为），于是名字一个也剩不下来
+    text = rtf_text(unstar(child).encode("latin-1", "replace"))["text"].strip()
     if text.endswith(";"):
         text = text[:-1].rstrip()
     # 全 ASCII 的名字与字符集无关（RTF 用的每一种字符集都含 ASCII）；
@@ -317,6 +319,7 @@ PIC_MAGIC = [
 RUN_WORDS = (
     "b", "i", "ul", "uld", "aul", "iul", "outl", "strike", "sub", "super", "cf", "cb",
     "highlight", "fs", "afs", "f", "af", "kerning", "expnd", "caps", "scaps", "ulc",
+    "cs", "ab", "ai",
 )
 RUN_UNDERLINE = ("ul", "uld", "aul", "iul")
 RUN_DIRECT = ("loch", "hich", "dbch", "rtlch", "ltrch")
@@ -403,7 +406,29 @@ def font_hop(words: list, name: str, fonts: list):
     return None
 
 
-def resolve_run_rows(rows: list, colors: list, fonts: list) -> None:
+def style_hop(words: list, name: str, styles: list):
+    """字符样式号 → stylesheet 里那一条 `\\*\\csN`。与字体那一跳同一个口径：
+    `resolved` 说的是「表里有这一条」，名字解不动仍交 null。
+    实测 LibreOffice 把 Strong 写成 `\\cs34`，而群头上**同时**把这个样式自己的
+    `\\b` 抄了一遍 —— 两处都在文件上，所以两边都交，不合成一个「这串字是粗的」。
+    """
+    for one, two in words:
+        if one != name:
+            continue
+        try:
+            want = int(two)
+        except ValueError:
+            return {"index": two, "resolved": False, "name": None}
+        got = [had for had in styles if had.get("kind") == "character" and had.get("index") == want]
+        return {
+            "index": two,
+            "resolved": bool(got),
+            "name": got[0].get("name") if got else None,
+        }
+    return None
+
+
+def resolve_run_rows(rows: list, colors: list, fonts: list, styles: list) -> None:
     """群头上那一串控制字之后解出来的两本账（整条流读完才跳，表的先后不参与判断）"""
     for row in rows:
         words = [(one, two) for one, two in row["words"]]
@@ -426,6 +451,7 @@ def resolve_run_rows(rows: list, colors: list, fonts: list) -> None:
             "position": position,
             "font": font_hop(words, "f", fonts),
             "asian_font": font_hop(words, "af", fonts),
+            "character_style": style_hop(words, "cs", styles),
         }
         row["format"] = [
             {"element": one, "digits": two if two != "" else None} for one, two in words
@@ -1248,7 +1274,7 @@ def rtf_text(data: bytes) -> dict:
         "definitions": defs,
         "list": entries,
     }
-    resolve_run_rows(stats["run_rows"], colors, found["fonts"])
+    resolve_run_rows(stats["run_rows"], colors, found["fonts"], found["styles"])
     return {
         "headings": headings,
         "numbering": numbering,
