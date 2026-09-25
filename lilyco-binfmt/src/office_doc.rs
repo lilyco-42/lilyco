@@ -1310,7 +1310,7 @@ fn odt_run_formats(
             entries.push(json!({
                 "para": para,
                 "at": at,
-                "element": "span",
+                "element": piece.kind,
                 "depth": piece.depth,
                 "text": piece.text,
                 "style": want.map(String::from),
