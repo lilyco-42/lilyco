@@ -1512,8 +1512,36 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       那一句字还在文件里，可没有任何一节点它的名（`masters_unnamed: 2`）。
       `paper-a4.odt` 是第二份凭据：两份母版页各指各的版式（`Mpm1` / `Mpm2`，就是已经交出去的那一横排），
       而六格一个都没写 → `slots_written: 0`（数过了没有，不是没看）。
-    - 顺带量到的一条（还没做）：同一份账对 .ods 也读得动 —— `book.ods` 五份母版页 × 六格 = 30 格、
-      其中三格里有字段，而 `office-sheet` 现在对 .ods 的 `header_footer` 还写着「没读」。
+    - 顺带量到的一条（已做，见事实 85）：同一份账对 .ods 也读得动 —— `book.ods` 五份母版页 × 六格 = 30 格、
+      其中三格里有字段，`office-sheet` 现在把这一份账交在 `page_styles` 上。
+
+85. **表格的页眉页脚只在页版式上：字住在左右两半里，而表连不到页版式**
+    - `office-sheet` 的 .ods 分支现在交一份 `page_styles`（与 `office-doc` 那一份 `header_footers`
+      同一个函数、同一个形状）。为什么另起一个键而不挂在每张表上：实测这五份 .ods 里
+      `table:table` 没有 `table:style-name`，`ta1` / `ta2` / `ta3` 那三份自动样式没有
+      `style:page-layout-name`，而 `PageStyle_5f_说明` / `草稿` / `预算表` 三份母版页指着
+      **同一份**版式 `Mpm3` —— 全文没有一条写着的属性把某张表连到某份页版式。于是这份账按
+      页版式交，归属交 `masters_named_by_section: 0`，不替文件的沉默编一条路出来。`available`
+      这一格说的是那两份件（content.xml / styles.xml）**读没读到** —— 成员解压超过上限时交
+      `false`，而不是把一份空账当成「这份文件没有母版页」。
+    - **段可以不住在格子的直接孩子里**（这一条是改读者的原因）：`Report` 那份页眉的
+      `style:header` 下面坐着 `style:region-left` 与 `style:region-right`，一边一段 —— 左半是
+      `text:sheet-name` + `text:title`，右半是 `text:date` + `text:time`。只走直接孩子，这一格
+      读出来是 0 段、空串，而它明明写着字。所以段落改走后代，每一半再另交一份 `regions`
+      （元素名、段数、那一半的字），两半各 1 段、合起来 2 段。
+    - 表名与标题在这份文件里缓存的是 `???` 三个问号，日期与时间缓存的是 `0000-00-00, 00:00:00`：
+      按原样交，不替它算 —— 那一串占位符是文件自己的字，替它算出一个当天日期就是伪造。
+    - 每一格另交 `display_written`：`Default` 与 `Report` 的 `-first` / `-left` 那四格、
+      以及 `PageStyle_*` 三份的六格，都写着 `style:display="false"`。「这一格写了而它自己说
+      不显示」与「整个没有这一格」（null）是两份不同的文件，而「所以打不打得出来」不归读者判；
+      没写这一开关的格交 null，不是 `true`。
+    - 数出来的（探针 3v 对 `*.ods` 逐份整块比）：`book.ods` 五份母版页 / 30 格 / 3 格里有字段，
+      `chart.ods` 四份 / 24 格，`hidden.ods` / `errors.ods` / `cell-notes.ods` 三份 / 18 格；
+      这五份的 `sections_total` 与 `masters_named_by_section` 都是 0，`masters_unnamed` 都等于
+      母版页数 —— 每份 .ods 都自带那两份有字的母版页，与这份件里有没有人用过它无关。
+    - **一条没走到的分支**（量过才敢说）：想让 docx 的页眉分成左右两半，得写制表位，而
+      LibreOffice 导出 odt 时把那种分栏写成 `text:tab`，不写 `style:region-*` 元素 ——
+      临时生成的对照件证实了这一点，故未入库。所以「左右两半」这一支目前只有 .ods 走得到。
 
 ## 这些数字从哪来
 

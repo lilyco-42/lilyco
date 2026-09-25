@@ -785,7 +785,21 @@ def odf_header_footers(path: Path, limit: int = 100) -> dict:
                 if holder is None:
                     slots[key] = None
                     continue
-                paras = [kid for kid in holder if xml_local(kid.tag) == "p"]
+                # 段可以在 `style:region-left` / `-right` 里面（.ods 的 Report 那份就是），
+                # 所以走全部后代；每一半另交一份
+                paras = [had for had in holder.iter() if xml_local(had.tag) == "p"]
+                regions = []
+                for kid in holder:
+                    if xml_local(kid.tag) not in ("region-left", "region-right"):
+                        continue
+                    inner = [had for had in kid.iter() if xml_local(had.tag) == "p"]
+                    regions.append({
+                        "element": _written_name(kid.tag, nsmap),
+                        "paragraphs": len(inner),
+                        "text": "\n".join(
+                            "".join(had.itertext()).strip() for had in inner
+                        ),
+                    })
                 fields: dict = {}
                 for kind in field_words:
                     hits = [had for had in holder.iter() if xml_local(had.tag) == kind]
@@ -799,9 +813,13 @@ def odf_header_footers(path: Path, limit: int = 100) -> dict:
                     "present": True,
                     "element": _written_name(holder.tag, nsmap),
                     "written": _written_attrs(holder, nsmap),
+                    "display_written": _local_in(
+                        _written_attrs(holder, nsmap), "display"
+                    ),
                     "paragraphs": len(paras),
                     "text": "\n".join("".join(had.itertext()).strip() for had in paras),
                     "fields": fields,
+                    "regions": regions,
                 }
             if len(masters) < limit:
                 masters.append({
@@ -827,6 +845,13 @@ def odf_header_footers(path: Path, limit: int = 100) -> dict:
         "sections_total": len(sections),
         "layouts_named_by_section": layouts_named,
     }
+
+
+def odf_page_styles(path: Path, limit: int = 100) -> dict:
+    """同一份账的入口：office-sheet 那边只要文件名与 limit（与 Rust 的 `odf_page_styles` 一条）"""
+    out = odf_header_footers(path, limit)
+    out["available"] = True
+    return out
 
 
 def odf_style_holders(node) -> list:
@@ -6224,6 +6249,8 @@ def facts(path: Path) -> dict:
             sheets = ods_facts(path)
             if sheets is not None:
                 out["ods"] = sheets
+                # 页版式（母版页）那六格：office-sheet 的 ODS 分支也交这一份，读者同一入口
+                sheets["page_styles"] = odf_page_styles(path)
                 out["csv"] = csv_facts(path)
                 out["ods_styles"] = ods_styles(path)
             deck = odp_facts(path)

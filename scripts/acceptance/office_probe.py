@@ -4257,6 +4257,49 @@ def main() -> int:
         [None, True, 0, {"page-number": 1}, 0, None],
     )
 
+    # ── 3v) 表格的母版页：字住在左右两半里，而没有任何一条属性把表连到页版式 ────
+    print("=== 3v) .ods 的页版式六格：两半、缓存的三个问号，与没人点它的名 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.ods")):
+        got = lbin("office-sheet", fixture(name))
+        check("%s 页版式那六格整份账与读者一致（段住在 region 两半里也算得到）" % name,
+              dig(got, "page_styles"),
+              files[name]["ods"]["page_styles"])
+    hfbook = lbin("office-sheet", fixture("book.ods"))
+    check(
+        "LibreOffice 每份 .ods 自带两份有字的母版页：`Report` 的页眉那一段**住在 "
+        "style:region-left / -right 两半里**（只走直接孩子就读成 0 段、空串），"
+        "`text:sheet-name` 与 `text:title` 带的是文件自己缓存的三个问号，按原样交",
+        [dig(hfbook, "page_styles.masters_total"),
+         dig(hfbook, "page_styles.masters[1].name"),
+         dig(hfbook, "page_styles.masters[1].slots.header:default.paragraphs"),
+         dig(hfbook, "page_styles.masters[1].slots.header:default.text"),
+         [one["element"] for one in
+          dig(hfbook, "page_styles.masters[1].slots.header:default.regions")],
+         [one["paragraphs"] for one in
+          dig(hfbook, "page_styles.masters[1].slots.header:default.regions")],
+         dig(hfbook, "page_styles.masters[1].slots.header:default.fields"),
+         dig(hfbook, "page_styles.masters[1].slots.footer:default.text")],
+        [5, "Report", 2, "???(???)\n0000-00-00, 00:00:00",
+         ["style:region-left", "style:region-right"], [1, 1],
+         {"date": 1, "time": 1}, "页 1/ 99"],
+    )
+    check(
+        "六格全写了而每一格都自己写着 style:display=\"false\"：这一格写了、只是它自己说不显示，"
+        "与整个没有这一格（null）是两份不同的文件 —— 「所以打不打得出来」不归读者判。"
+        "最后一问是这份账为什么按页版式交：全文没有一条写着的属性把某张表连到某份页版式",
+        [dig(hfbook, "page_styles.masters[2].name"),
+         dig(hfbook, "page_styles.masters[2].slots.header:default.present"),
+         dig(hfbook, "page_styles.masters[2].slots.header:default.paragraphs"),
+         dig(hfbook, "page_styles.masters[2].slots.header:default.display_written"),
+         dig(hfbook, "page_styles.masters[0].slots.header:default.display_written"),
+         dig(hfbook, "page_styles.masters[2].used_by_sections"),
+         dig(hfbook, "page_styles.masters_named_by_section"),
+         dig(hfbook, "page_styles.masters_unnamed"),
+         dig(hfbook, "page_styles.sections_total"),
+         dig(hfbook, "page_styles.available")],
+        ["PageStyle_5f_说明", True, 0, "false", None, [], 0, 5, 0, True],
+    )
+
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
     print("=== 3i) 文档里的图：一处号一次跳，两处答案各按各的文件交 ===")
     for name in ("images.docx", "images-lo.docx", "images-float.docx",

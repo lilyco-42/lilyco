@@ -834,7 +834,7 @@ fn odf_fonts(
 /// 实测最要紧的一条：LibreOffice 把两节的 docx 转成 odt 时**不写 `text:section`**，
 /// 而是造出第二份母版页（`Converted1`）把第二节那句页眉搬进去 —— 那一句在文件里还在，
 /// 可整份文件没有任何一节点它的名（`notes-hf.odt` 两份母版页还指着同一个版式 `Mpm1`）
-fn odf_header_footers(
+pub(crate) fn odf_header_footers(
     content: &xmlscan::Node,
     styles: Option<&xmlscan::Node>,
     limit: usize,
@@ -931,11 +931,26 @@ fn odf_header_footers(
                             Some(inner) => inner,
                             None => continue,
                         };
-                        let paras: Vec<&xmlscan::Node> = had
-                            .children
-                            .iter()
-                            .filter(|kid| kid.local() == "p")
-                            .collect();
+                        // 段可以坐在 `style:region-left` / `-right` 里面（实测 .ods 的
+                        // Report 那份页版式两半各一段），所以这里走 descendants：只走
+                        // 直接孩子会把写着字的格读成 0 段
+                        let paras: Vec<&xmlscan::Node> = had.descendants("p");
+                        let mut regions: Vec<Value> = Vec::new();
+                        for kid in &had.children {
+                            if kid.local() != "region-left" && kid.local() != "region-right" {
+                                continue;
+                            }
+                            regions.push(json!({
+                                "element": kid.name.clone(),
+                                "paragraphs": kid.descendants("p").len(),
+                                "text": kid
+                                    .descendants("p")
+                                    .iter()
+                                    .map(|one| crate::office_text::paragraph_text(one))
+                                    .collect::<Vec<String>>()
+                                    .join("\n"),
+                            }));
+                        }
                         let text: Vec<String> = paras
                             .iter()
                             .map(|kid| crate::office_text::paragraph_text(kid))
@@ -956,9 +971,12 @@ fn odf_header_footers(
                             "present": true,
                             "element": had.name.clone(),
                             "written": Value::Object(own_map.clone()),
+                            // 这一格自己说的「显不显示」：按写的交，不替它答「所以打不打得出来」
+                            "display_written": had.attr_local("display"),
                             "paragraphs": paras.len(),
                             "text": text.join("\n"),
                             "fields": Value::Object(fields),
+                            "regions": regions,
                         })
                     }
                     // 整个没有这一格：null，不是「这一格是空的」
@@ -996,6 +1014,23 @@ fn odf_header_footers(
         "sections_total": sections.len(),
         "layouts_named_by_section": layouts_named,
     })
+}
+
+/// 同一份账，从包里的两份件自己读一遍（office-sheet 那条 ODS 分支手里没有现成的两个根）。
+/// 两份都走：`Default` / `Report` 这些母版页实测在 styles.xml，而这份账不赌它住在哪儿
+pub(crate) fn odf_page_styles(bytes: &[u8], limit: usize) -> Value {
+    let member = match zipread::member(bytes, "content.xml", DEFAULT_MEMBER_CAP) {
+        Ok(one) => one,
+        Err(_) => return json!({"available": false}),
+    };
+    let content = xmlscan::parse_str(&member.as_text());
+    let styles = match zipread::member(bytes, "styles.xml", DEFAULT_MEMBER_CAP) {
+        Ok(one) => Some(xmlscan::parse_str(&one.as_text())),
+        Err(_) => None,
+    };
+    let mut out = odf_header_footers(&content, styles.as_ref(), limit);
+    out["available"] = json!(true);
+    out
 }
 
 /// 从一份属性里挑出「局部名在这张表上」的那些，键仍按文件写的名字留着
