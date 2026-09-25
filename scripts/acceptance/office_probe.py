@@ -5303,6 +5303,65 @@ def main() -> int:
         [0, [], 0, 0, None],
     )
 
+    # ── 3aj) 放映切换：一页可以写两条，属性可以缺，效果孩子自己带属性（pptx 一支）──
+    print("=== 3aj) 放映切换：`p:transition` 的条数、属性与效果孩子 ===")
+
+    def tr_multiset(rows):
+        """按内容排序的多重集：两支读者的页序不同（一支按放映序、一支按部件名），
+        所以这一问不按位置比，按「这套页一共交出了什么」比。"""
+        return sorted(json.dumps(one.get("transition_detail"), sort_keys=True,
+                                 ensure_ascii=False) for one in rows)
+
+    for name in sorted(one.name for one in FIXTURES.glob("*.pptx")):
+        got = lbin("office-slide", fixture(name))
+        want = files[name]["ooxml"]["slides"]
+        check("%s 每页的切换账合起来与读者一致（多重集，不比页序）" % name,
+              tr_multiset(got.get("slides", [])), tr_multiset(want))
+        check("%s 全篇几条 `p:transition` 与读者一致" % name,
+              sum((one.get("transition_detail") or {}).get("elements", 0)
+                  for one in got.get("slides", [])),
+              sum((one.get("transition_detail") or {}).get("elements", 0) for one in want))
+    tr = lbin("office-slide", fixture("deck-tr.pptx"))
+    tr_lo = lbin("office-slide", fixture("deck-tr-lo.pptx"))
+    check(
+        "python-pptx 那份（三页各改一个变量）：第一页三个属性都写（`spd=med`、`advClick=1`、"
+        "`advTm=5000`）带一个孩子 `fade`；第二页只写 `spd=fast` 而方向在孩子自己身上（`wipe dir=l`）；"
+        "第三页一个字都没写（0 条）—— 所以「几条」2 与「几页有」2 这次刚好相同，是因为每页最多一条",
+        [dig(tr, "slides[0].transition_detail.elements"),
+         dig(tr, "slides[0].transition_detail.list[0].written"),
+         dig(tr, "slides[0].transition_detail.list[0].effects"),
+         dig(tr, "slides[1].transition_detail.list[0].written"),
+         dig(tr, "slides[1].transition_detail.list[0].effects"),
+         dig(tr, "slides[2].transition_detail.elements"),
+         sum((one.get("transition_detail") or {}).get("elements", 0) for one in tr["slides"])],
+        [1, {"spd": "med", "advClick": "1", "advTm": "5000"},
+         [{"element": "fade", "written": {}}],
+         {"spd": "fast"}, [{"element": "wipe", "written": {"dir": "l"}}], 0, 2],
+    )
+    check(
+        "LibreOffice 重写同一份：第一页的 `advClick` 没了（只剩 `spd` 与 `advTm`）、第二页连 `spd` "
+        "都没了（属性表是空的，而孩子的 `dir=l` 留着），第三页**原本什么都没写，它补了两条** —— "
+        "于是一篇里 4 条元素而只有 3 页有：一页两条是真会发生的，两个数不能互推",
+        [dig(tr_lo, "slides[0].transition_detail.list[0].written"),
+         dig(tr_lo, "slides[1].transition_detail.list[0].written"),
+         dig(tr_lo, "slides[1].transition_detail.list[0].effects"),
+         dig(tr_lo, "slides[2].transition_detail.elements"),
+         [one["written"] for one in dig(tr_lo, "slides[2].transition_detail.list")],
+         [one["effects"] for one in dig(tr_lo, "slides[2].transition_detail.list")],
+         sum((one.get("transition_detail") or {}).get("elements", 0) for one in tr_lo["slides"]),
+         len([one for one in tr_lo["slides"]
+              if (one.get("transition_detail") or {}).get("elements", 0) > 0])],
+        [{"spd": "med", "advTm": "5000"}, {}, [{"element": "wipe", "written": {"dir": "l"}}],
+         2, [{"spd": "slow", "dur": "2000"}, {"spd": "slow"}], [[], []], 4, 3],
+    )
+    check(
+        "同一份转成 odp 之后这一族不交这个键（缺键 = 这一支只读 OOXML）：切换在那一族没丢，"
+        "而是搬到 `style:drawing-page-properties` 与一棵 SMIL 动画树里、词表整个换了"
+        "（`presentation:transition-type` / `anim:transitionFilter`），那是另一问、另一次测量",
+        [dig(lbin("office-slide", fixture("deck-tr.odp")), "slides[0].transition_detail")],
+        [None],
+    )
+
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
     print("=== 3i) 文档里的图：一处号一次跳，两处答案各按各的文件交 ===")
     for name in ("images.docx", "images-lo.docx", "images-float.docx",

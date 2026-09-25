@@ -233,6 +233,8 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
                 "media_frames": slide_root.descendants("videoFile").len()
                     + slide_root.descendants("audioCd").len(),
                 "transition": slide_root.descendants("transition").len(),
+                // 切换的细则：一页可能写两条，属性可以缺，效果孩子自己带属性
+                "transition_detail": slide_transitions(&slide_root),
                 "hidden": slide_root
                     .descendants("sld")
                     .first()
@@ -847,6 +849,37 @@ fn mm_of(node: Option<&xmlscan::Node>, keys: &[&str]) -> Value {
         out.insert((*key).to_string(), value);
     }
     Value::Object(out)
+}
+
+/// 「这一页写了什么切换」在 pptx 是 `p:transition` 的元素与其孩子
+///
+/// 实测两条要紧的：一页**可以写两条** `p:transition`（LibreOffice 给一份原本什么都没写的
+/// 稿子补了两条，一条带 `spd="slow" dur="2000"`、另一条只带 `spd="slow"`），
+/// 而一条 `p:transition` 上的属性是可以缺的（`advClick="1"` 在重写后没了、
+/// `spd="fast"` 也没了，而效果孩子 `wipe` 的 `dir="l"` 留着）。所以「几页有切换」这一问
+/// 下面其实藏着三本账：几条元素、几页至少有一条、以及每页自己写了哪些属性。
+fn slide_transitions(slide_root: &xmlscan::Node) -> Value {
+    let mut rows: Vec<Value> = Vec::new();
+    for one in slide_root.descendants("transition") {
+        let effects: Vec<Value> = one
+            .children
+            .iter()
+            .map(|kid| {
+                json!({
+                    "element": kid.local().to_string(),
+                    "written": crate::office_doc::local_attrs(kid),
+                })
+            })
+            .collect();
+        rows.push(json!({
+            "written": crate::office_doc::local_attrs(one),
+            "effects": effects,
+        }));
+    }
+    json!({
+        "elements": rows.len(),
+        "list": rows,
+    })
 }
 
 /// 「这个框里的字装不下怎么办」在 pptx 是 `a:bodyPr` 的**独子元素名**：`a:noAutofit`

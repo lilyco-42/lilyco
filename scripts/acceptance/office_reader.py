@@ -5070,6 +5070,8 @@ def pptx_facts(path: Path) -> dict:
             {
                 "part": name,
                 "autofit": slide_autofit(root, _ns_prefixes(parts[name])),
+                # 切换的细则：几条、每条写了哪些属性、效果孩子自己带了什么
+                "transition_detail": slide_transition_detail(root),
                 "links": pptx_slide_links(root, rels_root),
                 "relationships": slide_rels(rels_root, name),
                 # 「放映时隐藏」这一族就写在根元素上一个 show="0"；没写等于没藏
@@ -5122,6 +5124,23 @@ def pptx_facts(path: Path) -> dict:
             if xml_local(one.tag) == "transition"
         ]),
     }
+
+
+def slide_transition_detail(slide_root) -> dict:
+    r"""这一页写了什么切换：`p:transition` 的属性与它的效果孩子，全按写的交
+
+    与 Rust 的 `slide_transitions` 同一条口径（属性按局部名，前缀是文件自己声明的）。
+    一页写两条是真的会发生的（LibreOffice 给一份什么都没写的稿子补了两条），
+    所以这里交的是「几条 + 每条自己写了什么」，不是一个布尔。
+    """
+    rows = []
+    for one in slide_root.iter():
+        if xml_local(one.tag) != "transition":
+            continue
+        effects = [{"element": xml_local(kid.tag), "written": _docx_local_attrs(kid)}
+                   for kid in one]
+        rows.append({"written": _docx_local_attrs(one), "effects": effects})
+    return {"elements": len(rows), "list": rows}
 
 
 def of_local(node, want: str):

@@ -772,6 +772,41 @@ def write_bookmark_docx(path: Path) -> None:
     doc.save(str(path))
 
 
+def write_transition_deck(path: Path) -> None:
+    """三页，一次只改一个变量：淡入 + 五秒自动换 / 只有左向擦除 / 什么都不写
+
+    python-pptx 没有切换的公开属性，所以走 `parse_xml` 那条正规路子（元素与属性都是
+    文件自己要写的字）。要点：`p:transition` 的 `spd` / `advClick` / `advTm` 是三个独立的
+    说法（说多快、点一下换不换、几毫秒换页），效果是**孩子元素**（`p:fade` / `p:wipe` 等，
+    方向写在孩子自己的属性上）。LibreOffice 重写同一份时：第一页的 `advClick` 没了、
+    第二页的 `spd` 没了（而孩子的 `dir="l"` 留着），第三页**原本什么都没写，它补了两条**
+    —— 一页两条是真会发生的，所以「几条」与「几页有」分两个数。转成 .odp 时切换没有丢，而是**搬到两处并换了词表**：
+    `style:drawing-page-properties` 上写 `presentation:transition-type="automatic"` 与
+    `presentation:duration="PT5S"`，效果本身进了一棵 SMIL 动画树（`anim:transitionFilter` 的
+    `smil:type="fade"` / `barWipe` + `smil:subtype`），所以 odp 页上找不到 `p:transition`。
+    """
+    from pptx import Presentation
+    from pptx.oxml import parse_xml
+
+    ns = "xmlns:p='http://schemas.openxmlformats.org/presentationml/2006/main'"
+    prs = Presentation()
+    blank = prs.slide_layouts[6]
+    one = prs.slides.add_slide(blank)
+    one.shapes.add_textbox(2000000, 3000000, 3000000, 800000).text_frame.text = (
+        "第一页：淡入、点一下也换、五秒自动换")
+    one._element.append(parse_xml(
+        "<p:transition " + ns + " spd='med' advClick='1' advTm='5000'><p:fade/></p:transition>"))
+    two = prs.slides.add_slide(blank)
+    two.shapes.add_textbox(2000000, 3000000, 3000000, 800000).text_frame.text = (
+        "第二页：只写切换效果（左向擦除）")
+    two._element.append(parse_xml(
+        "<p:transition " + ns + " spd='fast'><p:wipe dir='l'/></p:transition>"))
+    three = prs.slides.add_slide(blank)
+    three.shapes.add_textbox(2000000, 3000000, 3000000, 800000).text_frame.text = (
+        "第三页：切换这件事一个字都没写")
+    prs.save(str(path))
+
+
 def write_tbox_odt(path: Path) -> None:
     """一份「页上有一个文本框」的 .odt：`draw:frame` 里套 `draw:text-box`，框里两段字
 
@@ -3273,6 +3308,21 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "bkmks.odt", OUT / "bkmks.odt")
     else:
         print("⚠️  没拿到 bkmks.odt")
+
+    # 放映切换那三份：python-pptx + parse_xml 写 pptx，同格式重写一份、再转一份 odp（全丢）
+    trick = OUT / "deck-tr.pptx"
+    write_transition_deck(trick)
+    convert(exe, trick, "pptx", SCRATCH / "deck-tr-back")
+    made_trick = SCRATCH / "deck-tr-back" / "deck-tr.pptx"
+    if made_trick.exists():
+        shutil.copyfile(made_trick, OUT / "deck-tr-lo.pptx")
+    else:
+        print("⚠️  没拿到 deck-tr-lo.pptx（pptx → pptx 那一转）")
+    convert(exe, trick, "odp", SCRATCH)
+    if (SCRATCH / "deck-tr.odp").exists():
+        shutil.copyfile(SCRATCH / "deck-tr.odp", OUT / "deck-tr.odp")
+    else:
+        print("⚠️  没拿到 deck-tr.odp")
 
     # 批注那三份：python-docx 写 docx，同格式重写一份（部件换先后）、再转一份 odt（两处合一处）
     noted = OUT / "doc-comments.docx"
