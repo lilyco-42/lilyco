@@ -58,6 +58,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `tbox.odt` | zipfile 写的最小 ODF（`write_tbox_odt`） | 页上有一个文本框：`draw:frame`（`draw:name="框一"`、`text:anchor-type="as-char"`、`svg:width="5cm"`、`svg:x="1.2cm"`、`draw:z-index="0"`）里套一个 `draw:text-box`，框里两段字，框外面正文三段。这一族本机没有会写 OOXML 文本框的生产者，所以反过来走：这份 odt 是源头 |
 | `tbox.docx` | LibreOffice（`tbox.odt` → .docx） | **同一个框写两份**：`w:drawing`（尺寸在 `wp:extent`，`cx="1800225"` EMU）与 `w:pict` 各带一份 `w:txbxContent`，两份的字一模一样；正文 3 段而整棵树 7 段 —— 见事实 97 |
 | `tbox-lo.odt` | LibreOffice（`tbox.odt` → .odt 重写） | 重写那一遍：挂上 `draw:style-name="Frame"`、`svg:x` / `svg:y` / `draw:z-index` **整个没了**、`5cm` 换成 `5.001cm`，而那一段话一字未改 —— 见事实 97 |
+| `bkmks.docx` | python-docx（`write_bookmark_docx`，书签没有公开 API，走 `OxmlElement`） | 八段各造一种情形：完整一对（`口径`）/ 跨段一对（`跨段`，起在第 2 段、止在第 3 段）/ 只有起（`断了`）/ 只有止（号 `9`）/ Word 的光标（`_GoBack`）/ **与第一段重名**的第二条 `口径` / 站内跳转 `w:anchor="跨段"`。要紧的是 `w:bookmarkEnd` 只写号不写名字 |
+| `bkmks-lo.docx` | LibreOffice（`bkmks.docx` → .docx） | 同一份重写后：两个**断的整个被删**（5 起 5 止 → 4 起 4 止）、号整批重排成 0..3、重名那条改名 `口径_副本_1`，而锚一字未改 —— 见事实 98 |
+| `bkmks.odt` | LibreOffice（`bkmks.docx` → .odt） | 记号换成三种：闭在同段的与 Word 那条光标都变成**一枚** `text:bookmark`（3 枚），只有跨段那一对是 `bookmark-start`/`-end`（两头写名字）；改名的那条在这里写作带空格的「口径 副本 1」 —— 见事实 98 |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
@@ -1711,6 +1714,13 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - `tbox-lo.odt`（LibreOffice 重写同一份 odt）：挂上帧样式 `Frame`，而 `svg:x` / `svg:y` / `draw:z-index` **三格整个不见**（null，不是 0），尺寸从 `5cm` / `2.4cm` 换成 `5.001cm` / `2.401cm`；那一句话一字未改，也还是只有一份。「丢了哪几格」与「换了写法」都在账上，不替它接回去。
     - **有帧不等于有框**：`notes.odt` 那一张图的 `draw:frame` 里没有任何 `draw:text-box`，于是 `frames_total` 是 1 而 `frames_with_boxes` 与 `text_box_elements` 都是 0 —— 数帧当框就会把一张图读成一个文本框。没有框的件交一串 0 与空表而不是缺键。
     - RTF 那一族不交这个键（缺键 = 这一族没看）：LibreOffice 的 RTF 导出里 `SHAPPIE` 0 次、`\pict` 0 次 —— 框这个形状在那条流里根本不存在，字直接落进正文段落，判不出「这一段在框里」（与制表位、行距、段边框同一族）。
+
+98. **这些书签是怎么配对的：止只写号不写名字，断的两个方向各一本账，重名的看生产者怎么办**
+    - `bkmks.docx`（python-docx，书签没有公开属性，走 `OxmlElement`）八段各造一种情形：完整一对、跨段一对、只有起、只有止、Word 自己的 `_GoBack`、与第一段**重名**的第二条、以及一条站内跳转 `w:anchor="跨段"`。量到的头一条是形状差：`w:bookmarkStart` 带 `w:id` **和** `w:name`，而 `w:bookmarkEnd` **只带 `w:id`** —— 五条止的 `name_written` 全是 null。所以「这条书签闭没闭」只能按号配，不能按名字配。
+    - 断的两个方向各记一本账：这份件里 5 起 5 止、闭 4 对，`starts_without_end` 1（`断了`）与 `ends_without_start` 1（号 `9`）—— 合成了一个数就说不清是哪种断法。名字以下划线开头的是 Word 自己塞的光标记号（`_GoBack`），`hidden_starts` 另数一笔：把它算进「这份文档有几个书签」就是替 Word 说话。重名不合并（`distinct_names` 4 个、`duplicate_names` 是 `["口径"]`、`names_total` 仍数 5 次）。
+    - `bkmks-lo.docx`（LibreOffice 重写同一份）：两个**断的整个被删掉**（5 起 5 止 → 4 起 4 止、两本孤账都归 0）、号从 1..5 整批重排成 0..3、第二条重名的它不报错而是**改名** `口径_副本_1`，而站内跳转的 `w:anchor="跨段"` 一字未改 —— 删、排、改都是文件自己的事，读者只交现在这份件写的。
+    - `bkmks.odt`：记号在这一族有**三种** —— `text:bookmark` 是一枚点，`text:bookmark-start` / `-end` 才是跨段的一对（两头都写 `text:name`，所以按**名字**配，没有号可查）。最要紧的一条：同段起止的那一对在这里变成**一枚点**，于是这一件成了「3 枚点 + 1 对跨段」，而 docx 那面是「5 起 5 止」—— 两个数不是同一个问，谁也不换算成谁。那个改名的副本在这里写作带空格的「口径 副本 1」，与 docx 那面的下划线是两个不同的串。
+    - 没有书签的件交一串 0 与空表而不是缺键；RTF 不交这一份配对账（缺键 = 这一支不再交一次）：那一族的 `\bkmkstart` / `\bkmkend` 条数早就在 `structure.bookmarks` 那本账上，两份数不互相顶替。
 
 ## 这些数字从哪来
 

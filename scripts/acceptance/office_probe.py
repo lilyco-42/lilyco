@@ -264,6 +264,10 @@ def main() -> int:
         "tbox.odt": ("opendocument", "word", "odt"),
         "tbox.docx": ("ooxml", "word", "docx"),
         "tbox-lo.odt": ("opendocument", "word", "odt"),
+        # 书签配对那三份：止只写号，断的两个方向都造一条
+        "bkmks.docx": ("ooxml", "word", "docx"),
+        "bkmks-lo.docx": ("ooxml", "word", "docx"),
+        "bkmks.odt": ("opendocument", "word", "odt"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -5212,6 +5216,91 @@ def main() -> int:
          dig(lbin("office-doc", fixture("notes.odt")), "structure.text_boxes.text_box_elements"),
          dig(lbin("office-doc", fixture("tabs.rtf")), "structure.text_boxes")],
         [0, [], 5, 1, 0, 0, None],
+    )
+
+    # ── 3ai) 书签配对：止只写号、断的两个方向、重名的怎么办、Word 自己塞的那条 ──────
+    print("=== 3ai) 书签配对：OOXML 按号配、ODF 按名字配，而同段的一对在那一族是一枚点 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 书签配对那份账与读者一致（起写名字、止只写号）" % name,
+              dig(got, "structure.bookmark_pairs"),
+              files[name]["ooxml"]["bookmark_pairs"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 书签配对那份账与读者一致（三种记号，配对按名字）" % name,
+              dig(got, "structure.bookmark_pairs"),
+              files[name]["odt"]["bookmark_pairs"])
+    bp = lbin("office-doc", fixture("bkmks.docx"))
+    bp_lo = lbin("office-doc", fixture("bkmks-lo.docx"))
+    bp_odt = lbin("office-doc", fixture("bkmks.odt"))
+    check(
+        "python-docx 那份（八段各造一种情形）：5 起 5 止、闭 4 对，剩下 1 条起没有止（`断了`）"
+        "与 1 条止没有起（号 `9`）—— 两个方向各数一本；`_GoBack` 那一条按名字的前缀另数一笔，"
+        "重名的 `口径` 有两条而 distinct 只有 4 个",
+        [dig(bp, "structure.bookmark_pairs.starts_total"),
+         dig(bp, "structure.bookmark_pairs.ends_total"),
+         dig(bp, "structure.bookmark_pairs.pairs_closed"),
+         dig(bp, "structure.bookmark_pairs.starts_without_end"),
+         dig(bp, "structure.bookmark_pairs.ends_without_start"),
+         dig(bp, "structure.bookmark_pairs.names_total"),
+         dig(bp, "structure.bookmark_pairs.distinct_names"),
+         dig(bp, "structure.bookmark_pairs.duplicate_names"),
+         dig(bp, "structure.bookmark_pairs.hidden_starts")],
+        [5, 5, 4, 1, 1, 5, ["口径", "跨段", "断了", "_GoBack"], ["口径"], 1],
+    )
+    check(
+        "`w:bookmarkEnd` 上根本没有 `w:name` 这个属性（五条止全交 null）—— 所以「这条书签闭没闭」"
+        "只能按 `w:id` 问，而号是生产者自己排的：跨段那一对起在第 1 段、止在第 2 段，"
+        "两头没有任何共同的名字可查",
+        [dig(bp, "structure.bookmark_pairs.ends[0].name_written"),
+         dig(bp, "structure.bookmark_pairs.ends[4].name_written"),
+         dig(bp, "structure.bookmark_pairs.starts[1].paragraph"),
+         dig(bp, "structure.bookmark_pairs.ends[1].paragraph"),
+         dig(bp, "structure.bookmark_pairs.starts[1].has_end"),
+         dig(bp, "structure.bookmark_pairs.starts[3].has_end"),
+         dig(bp, "structure.bookmark_pairs.ends[2].id_written"),
+         dig(bp, "structure.bookmark_pairs.ends[2].has_start")],
+        [None, None, 1, 2, True, False, "9", False],
+    )
+    check(
+        "LibreOffice 重写同一份：两个**断的整个被删掉**（5 起 5 止 → 4 起 4 止、两个孤本都归 0）、"
+        "号从 1..5 整批重排成 0..3、第二条重名的它不报错而是**改名** `口径_副本_1` —— "
+        "删、排、改都是文件自己的事，读者按现在这份件交",
+        [dig(bp_lo, "structure.bookmark_pairs.starts_total"),
+         dig(bp_lo, "structure.bookmark_pairs.ends_total"),
+         dig(bp_lo, "structure.bookmark_pairs.pairs_closed"),
+         dig(bp_lo, "structure.bookmark_pairs.starts_without_end"),
+         dig(bp_lo, "structure.bookmark_pairs.ends_without_start"),
+         dig(bp_lo, "structure.bookmark_pairs.duplicate_names"),
+         dig(bp_lo, "structure.bookmark_pairs.distinct_names"),
+         dig(bp_lo, "structure.bookmark_pairs.starts[0].id_written")],
+        [4, 4, 4, 0, 0, [], ["口径", "跨段", "_GoBack", "口径_副本_1"], "0"],
+    )
+    check(
+        "转成 ODF 后记号换了三种：闭在同段的那两条与 Word 那条光标都变成**一枚** `text:bookmark`"
+        "（3 枚），只有跨段那一对还是 `bookmark-start`/`-end` 一条对（两头都写名字，配对按名字）；"
+        "而那个改名的副本在这一族写成带空格的「口径 副本 1」—— 与 docx 那面的下划线是两个不同的串",
+        [dig(bp_odt, "structure.bookmark_pairs.points_total"),
+         dig(bp_odt, "structure.bookmark_pairs.spans_start"),
+         dig(bp_odt, "structure.bookmark_pairs.spans_end"),
+         dig(bp_odt, "structure.bookmark_pairs.spans_closed"),
+         dig(bp_odt, "structure.bookmark_pairs.names_total"),
+         dig(bp_odt, "structure.bookmark_pairs.distinct_names"),
+         dig(bp_odt, "structure.bookmark_pairs.span_starts[0].name_written"),
+         dig(bp_odt, "structure.bookmark_pairs.span_ends[0].paragraph"),
+         dig(bp_odt, "structure.bookmark_pairs.points[2].name_written")],
+        [3, 1, 1, 1, 4, ["口径", "_GoBack", "口径 副本 1", "跨段"], "跨段", 2, "口径 副本 1"],
+    )
+    check(
+        "没有书签的件交一串 0 与空表而不是缺键（`keep.docx` 与 `keep.odt` 都是 0），"
+        "RTF 不交这一份配对账（缺键 = 这一支不再交一次：那一族的 `\\bkmkstart` / `\\bkmkend` "
+        "条数早就在 `structure.bookmarks` 那本账上，两份数不互相顶替）",
+        [dig(lbin("office-doc", fixture("keep.docx")), "structure.bookmark_pairs.starts_total"),
+         dig(lbin("office-doc", fixture("keep.docx")), "structure.bookmark_pairs.distinct_names"),
+         dig(lbin("office-doc", fixture("keep.odt")), "structure.bookmark_pairs.points_total"),
+         dig(lbin("office-doc", fixture("keep.odt")), "structure.bookmark_pairs.spans_start"),
+         dig(lbin("office-doc", fixture("tabs.rtf")), "structure.bookmark_pairs")],
+        [0, [], 0, 0, None],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──

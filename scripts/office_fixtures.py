@@ -718,6 +718,60 @@ def write_border_docx(path: Path) -> None:
     doc.save(str(path))
 
 
+def write_bookmark_docx(path: Path) -> None:
+    """八段，一次只改一个变量：完整对 / 跨段对 / 只有起 / 只有止 / Word 的光标 / 重名 / 站内跳
+
+    `w:bookmarkStart` 带 `id` 与 `name`，而 `w:bookmarkEnd` **只带 id** —— 闭没闭只能按号配。
+    LibreOffice 重写同一份时把两个断的整个删掉（5 起 5 止 → 4 起 4 止）、号整批重排、
+    第二条重名的 `口径` 改名 `口径_副本_1`（ODF 那一面写成带空格的「口径 副本 1」），
+    而站内跳转的 `w:anchor="跨段"` 一字未改。转成 ODF 时同段起止的一对变成**一枚** `text:bookmark`。
+    """
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document()
+
+    def start(para, pid, name):
+        one = OxmlElement("w:bookmarkStart")
+        one.set(qn("w:id"), str(pid))
+        one.set(qn("w:name"), name)
+        para._p.append(one)
+
+    def end(para, pid):
+        one = OxmlElement("w:bookmarkEnd")
+        one.set(qn("w:id"), str(pid))
+        para._p.append(one)
+
+    one = doc.add_paragraph("第一段：一对完整的书签")
+    start(one, 1, "口径")
+    end(one, 1)
+    two = doc.add_paragraph("第二段：书签从这里开始")
+    start(two, 2, "跨段")
+    three = doc.add_paragraph("第三段：在后面的段落里才结束")
+    end(three, 2)
+    four = doc.add_paragraph("第四段：只有开始，没有结束")
+    start(four, 3, "断了")
+    five = doc.add_paragraph("第五段：只有结束，没有开始")
+    end(five, 9)
+    six = doc.add_paragraph("第六段：Word 自己塞的那个")
+    start(six, 4, "_GoBack")
+    end(six, 4)
+    seven = doc.add_paragraph("第七段：与第一段同名的第二条")
+    start(seven, 5, "口径")
+    end(seven, 5)
+    eight = doc.add_paragraph("第八段：站内跳过去")
+    link = OxmlElement("w:hyperlink")
+    link.set(qn("w:anchor"), "跨段")
+    run = OxmlElement("w:r")
+    text = OxmlElement("w:t")
+    text.text = "跳"
+    run.append(text)
+    link.append(run)
+    eight._p.append(link)
+    doc.save(str(path))
+
+
 def write_tbox_odt(path: Path) -> None:
     """一份「页上有一个文本框」的 .odt：`draw:frame` 里套 `draw:text-box`，框里两段字
 
@@ -3204,6 +3258,21 @@ def main() -> int:
         shutil.copyfile(made_tbox_lo, OUT / "tbox-lo.odt")
     else:
         print("⚠️  没拿到 tbox-lo.odt（odt 重写那一转）")
+
+    # 书签配对那三份：python-docx + OxmlElement 写 docx，同格式重写一份（删断的）、再转一份 odt
+    bkmk = OUT / "bkmks.docx"
+    write_bookmark_docx(bkmk)
+    convert(exe, bkmk, "docx", SCRATCH / "bkmks-back")
+    made_bkmk = SCRATCH / "bkmks-back" / "bkmks.docx"
+    if made_bkmk.exists():
+        shutil.copyfile(made_bkmk, OUT / "bkmks-lo.docx")
+    else:
+        print("⚠️  没拿到 bkmks-lo.docx（docx → docx 那一转）")
+    convert(exe, bkmk, "odt", SCRATCH)
+    if (SCRATCH / "bkmks.odt").exists():
+        shutil.copyfile(SCRATCH / "bkmks.odt", OUT / "bkmks.odt")
+    else:
+        print("⚠️  没拿到 bkmks.odt")
 
     # 批注那三份：python-docx 写 docx，同格式重写一份（部件换先后）、再转一份 odt（两处合一处）
     noted = OUT / "doc-comments.docx"

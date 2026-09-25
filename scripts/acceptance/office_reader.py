@@ -2269,6 +2269,141 @@ def odf_text_boxes(path: Path, limit: int = 100) -> dict:
     }
 
 
+def _pairs_by(key: str, rows: list) -> bool:
+    """按写着的号/名字问一句「对面有没有同样的一个」（None 与空串都不算一个）"""
+    want = key
+    return want is not None and want in [one for one in rows if one is not None]
+
+
+def _tally_name(seen: list, raw) -> None:
+    if raw is None:
+        return
+    for had in seen:
+        if had[0] == raw:
+            had[1] += 1
+            return
+    seen.append([raw, 1])
+
+
+def docx_bookmark_pairs(path: Path, limit: int = 100) -> dict:
+    r"""「这些书签是怎么配对的」：`w:bookmarkStart` 写名字，`w:bookmarkEnd` **只写号**
+
+    所以闭没闭只能按 `w:id` 配；号是生产者自己排的（LibreOffice 重写时整批重排）。
+    「开始没有结束」与「结束没有开始」两本账各数各的；名字以下划线开头的是 Word 自己的
+    光标记号（`_GoBack`），另数一笔，不混进「这份文档有几个书签」。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"available": False}
+        root = ET.fromstring(box.read("word/document.xml"))
+    body = [one for one in root if xml_local(one.tag) == "body"]
+    kids = body[0] if body else None
+    paras = [x for x in kids.iter() if xml_local(x.tag) == "p"] if kids is not None else []
+    starts, ends = [], []
+    for index, para in enumerate(paras):
+        for kid in [x for x in para.iter() if xml_local(x.tag) == "bookmarkStart"]:
+            written = {k.split(":")[-1]: v for k, v in _written_attrs(kid, {}).items()}
+            starts.append({
+                "paragraph": index,
+                "id_written": written.get("id"),
+                "name_written": written.get("name"),
+                "hidden": (written.get("name") or "").startswith("_"),
+            })
+        for kid in [x for x in para.iter() if xml_local(x.tag) == "bookmarkEnd"]:
+            written = {k.split(":")[-1]: v for k, v in _written_attrs(kid, {}).items()}
+            ends.append({
+                "paragraph": index,
+                "id_written": written.get("id"),
+                "name_written": written.get("name"),
+            })
+    all_marks = (len([x for x in kids.iter() if xml_local(x.tag) == "bookmarkStart"])
+                 + len([x for x in kids.iter() if xml_local(x.tag) == "bookmarkEnd"])) if kids is not None else 0
+    loose = max(0, all_marks - len(starts) - len(ends))
+    start_ids = [one["id_written"] for one in starts]
+    end_ids = [one["id_written"] for one in ends]
+    names: list = []
+    closed = hidden = 0
+    for one in starts:
+        done = _pairs_by(one["id_written"], end_ids)
+        one["has_end"] = done
+        closed += 1 if done else 0
+        _tally_name(names, one["name_written"])
+        hidden += 1 if one["hidden"] else 0
+    for one in ends:
+        one["has_start"] = _pairs_by(one["id_written"], start_ids)
+    return {
+        "family": "ooxml",
+        "available": True,
+        "starts_total": len(starts),
+        "ends_total": len(ends),
+        "pairs_closed": closed,
+        "starts_without_end": len([one for one in starts if not one["has_end"]]),
+        "ends_without_start": len([one for one in ends if not one["has_start"]]),
+        "names_total": sum(had[1] for had in names),
+        "distinct_names": [had[0] for had in names],
+        "duplicate_names": [had[0] for had in names if had[1] > 1],
+        "hidden_starts": hidden,
+        "marks_outside_paragraphs": loose,
+        "starts": starts[:limit],
+        "ends": ends[:limit],
+    }
+
+
+def odf_bookmark_pairs(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF 是**三种记号**：`text:bookmark` 是一枚点，start/end 才是一对跨段的
+
+    配对按 `text:name`（这一族的 start 与 end 两头都写名字，没有号可配）。最要紧的一条：
+    同段起止的一对在这一族被写成**一枚点**，所以「start 几条」在两族不是同一个问。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        raw = box.read("content.xml")
+        crowd = ET.fromstring(raw)
+    nsmap = _ns_prefixes(raw)
+    points, span_starts, span_ends = [], [], []
+    paras = [x for x in crowd.iter() if xml_local(x.tag) == "p"]
+    for index, para in enumerate(paras):
+        for tag, sink in (("bookmark", points), ("bookmark-start", span_starts),
+                          ("bookmark-end", span_ends)):
+            for kid in [x for x in para.iter() if xml_local(x.tag) == tag]:
+                sink.append({"paragraph": index,
+                             "name_written": _local_in(_written_attrs(kid, nsmap), "name")})
+    all_marks = sum(len([x for x in crowd.iter() if xml_local(x.tag) == tag])
+                    for tag in ("bookmark", "bookmark-start", "bookmark-end"))
+    loose = max(0, all_marks - len(points) - len(span_starts) - len(span_ends))
+    start_names = [one["name_written"] for one in span_starts]
+    end_names = [one["name_written"] for one in span_ends]
+    closed = 0
+    for one in span_starts:
+        one["has_end"] = _pairs_by(one["name_written"], end_names)
+        closed += 1 if one["has_end"] else 0
+    for one in span_ends:
+        one["has_start"] = _pairs_by(one["name_written"], start_names)
+    names: list = []
+    for one in points + span_starts:
+        _tally_name(names, one["name_written"])
+    return {
+        "family": "odf",
+        "available": True,
+        "points_total": len(points),
+        "spans_start": len(span_starts),
+        "spans_end": len(span_ends),
+        "spans_closed": closed,
+        "starts_without_end": len([one for one in span_starts if not one["has_end"]]),
+        "ends_without_start": len([one for one in span_ends if not one["has_start"]]),
+        "names_total": sum(had[1] for had in names),
+        "distinct_names": [had[0] for had in names],
+        "duplicate_names": [had[0] for had in names if had[1] > 1],
+        "marks_outside_paragraphs": loose,
+        "points": points[:limit],
+        "span_starts": span_starts[:limit],
+        "span_ends": span_ends[:limit],
+    }
+
+
 def odf_style_holders(node) -> list:
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
     out: list = []
@@ -7656,6 +7791,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["para_borders"] = docx_para_borders(path)
             # 文本框：同一个框可以在两种容器里各写一遍，「几份格子」与「几句话」两个数
             out["ooxml"]["text_boxes"] = docx_text_boxes(path)
+            # 书签配对：起写名字、止只写号，断的两个方向各数一本
+            out["ooxml"]["bookmark_pairs"] = docx_bookmark_pairs(path)
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
@@ -7694,6 +7831,8 @@ def facts(path: Path) -> dict:
             out["odt"]["para_borders"] = odf_para_borders(path)
             # 同一问在 ODF 是一个 frame 套一个 text-box，尺寸是自带单位的串
             out["odt"]["text_boxes"] = odf_text_boxes(path)
+            # 同一问在 ODF 是三种记号：一枚点，或一对按名字配的 start/end
+            out["odt"]["bookmark_pairs"] = odf_bookmark_pairs(path)
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger

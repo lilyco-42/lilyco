@@ -34,6 +34,7 @@
 //! ```
 
 mod biff;
+mod bookmark_pairs;
 mod cfb;
 mod comments;
 mod entries;
