@@ -933,7 +933,10 @@ fn docx_run_formats(
                         "at": note_at,
                     });
                 }
-                refs.insert(pair.2.to_string(), found.map(json).unwrap_or(Value::Null));
+                refs.insert(
+                    pair.2.to_string(),
+                    found.map(|raw| json!(raw)).unwrap_or(Value::Null),
+                );
             }
             if refs.values().any(|one| !one.is_null()) {
                 with_ref += 1;
@@ -942,7 +945,11 @@ fn docx_run_formats(
                 .children
                 .iter()
                 .filter(|one| one.local() == "br")
-                .map(|one| one.attr_local("type").map(json).unwrap_or(Value::Null))
+                .map(|one| {
+                    one.attr_local("type")
+                        .map(|raw| json!(raw))
+                        .unwrap_or(Value::Null)
+                })
                 .collect();
             let instructions: Vec<Value> = run
                 .children
@@ -954,7 +961,7 @@ fn docx_run_formats(
                 .children
                 .iter()
                 .filter(|one| one.local() == "fldChar")
-                .filter_map(|one| one.attr_local("fldCharType").map(json))
+                .filter_map(|one| one.attr_local("fldCharType").map(|raw| json!(raw)))
                 .collect();
             if !instructions.is_empty() || !fields.is_empty() {
                 field_runs += 1;
