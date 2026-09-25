@@ -6705,8 +6705,9 @@ mod tests {
             json!({"paragraph": 0, "id_written": "1", "name_written": "口径",
                    "hidden": false, "has_end": true})
         );
-        assert_eq!(bp["starts"][3]["name_written"], "断了");
-        assert_eq!(bp["starts"][3]["has_end"], json!(false));
+        // 第三条起没有止（索引 2：段 0/1/3 那三条里最后一条断的）
+        assert_eq!(bp["starts"][2]["name_written"], "断了");
+        assert_eq!(bp["starts"][2]["has_end"], json!(false));
         // `w:bookmarkEnd` 没有 name 这个属性（实测全是 null）—— 所以只能按号配
         assert!(bp["ends"][0]["name_written"].is_null());
         assert_eq!(bp["ends"][2]["id_written"], "9");

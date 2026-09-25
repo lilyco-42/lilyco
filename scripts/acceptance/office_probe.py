@@ -5257,7 +5257,7 @@ def main() -> int:
          dig(bp, "structure.bookmark_pairs.starts[1].paragraph"),
          dig(bp, "structure.bookmark_pairs.ends[1].paragraph"),
          dig(bp, "structure.bookmark_pairs.starts[1].has_end"),
-         dig(bp, "structure.bookmark_pairs.starts[3].has_end"),
+         dig(bp, "structure.bookmark_pairs.starts[2].has_end"),
          dig(bp, "structure.bookmark_pairs.ends[2].id_written"),
          dig(bp, "structure.bookmark_pairs.ends[2].has_start")],
         [None, None, 1, 2, True, False, "9", False],
