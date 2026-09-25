@@ -1495,6 +1495,26 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       RTF 不交这个键 —— 那一族的字体在 `{\fonttbl…}` 里，账已经记在 `font_list` 与
       `font_definitions` 那两本上（见事实 41 一类）。
 
+84. **ODF 的页眉页脚在母版页上，而「有没有一节点它的名」是另一本账**
+    - 不在正文里，也不在页版式（`style:page-layout`）上：`style:master-page` 自己带子元素，
+      一格一个 —— `style:header` / `style:footer` 再各配 `-first`（第一页）与 `-left`（偶数页），
+      六格与 docx 那一份账同一个形状。每格只有两种答案：写了（`present` + 那一个元素自己的
+      属性 + 里面每一段的字）或整个没有（null，不是空串）。
+    - 这一格里面有没有「自己会算」的东西另数：`fields.odt` 那只写了一个 `text:page-number`
+      （缓存的字按写的交，`第 1页`），六格里有三个格是这样长出来的（.ods 那几份）。
+    - ODF 没有 OOXML 那句「与上一节相同」可交：节只点名一份**版式**
+      （`text:section/@style:page-layout-name`），母版页点名它自己的版式，而「正文用哪份母版页」
+      在这六份真件里一个字都没写。所以账本只交 `masters_named_by_section` / `masters_unnamed`
+      —— 有没有一节点过这份母版页的名，不替 ODF「第一份当默认」那条规范话当文件说过的话。
+    - **量到的一条转换损失**（`notes-hf.odt`，出处是同一份两节 docx）：LibreOffice 的 odt 导出
+      根本不写 `text:section`（`sections_total: 0`），而是造出第二份母版页 `Converted1`
+      把第二节那句不同的页眉搬进去，两份母版页还指着**同一个**版式 `Mpm1` ——
+      那一句字还在文件里，可没有任何一节点它的名（`masters_unnamed: 2`）。
+      `paper-a4.odt` 是第二份凭据：两份母版页各指各的版式（`Mpm1` / `Mpm2`，就是已经交出去的那一横排），
+      而六格一个都没写 → `slots_written: 0`（数过了没有，不是没看）。
+    - 顺带量到的一条（还没做）：同一份账对 .ods 也读得动 —— `book.ods` 五份母版页 × 六格 = 30 格、
+      其中三格里有字段，而 `office-sheet` 现在对 .ods 的 `header_footer` 还写着「没读」。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
