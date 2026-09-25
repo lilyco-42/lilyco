@@ -514,6 +514,8 @@ def docx_facts(path: Path) -> dict:
         "sections": len([one for one in body.iter() if xml_local(one.tag) == "sectPr"]),
         # 段落自己写的格式（这一族不用跳样式）与一节一条的分栏
         "paragraph_formats": docx_paragraph_formats(paras),
+        # 字符格式是另一本账：那一串字自己带一份 rPr（含「有这一格而里面是空的」那一种）
+        "run_formats": docx_run_formats(paras),
         "columns": docx_columns(body),
         # 这张表多宽的三本账（w:tblW / 网格 / 每格），一条也不替另一条圆场
         "table_layouts": docx_table_layouts(body),
@@ -998,6 +1000,253 @@ def docx_paragraph_formats(paras: list, limit: int = 200) -> dict:
         "with_spacing": spacings,
         "list": entries[:limit],
     }
+
+
+RUN_SWITCHES = (("b", "bold"), ("i", "italic"), ("strike", "strike"), ("u", "underline"))
+RUN_VALUES = (
+    ("color", "color"),
+    ("highlight", "highlight"),
+    ("sz", "size"),
+    ("vertAlign", "position"),
+    ("rFonts", "fonts"),
+)
+# 「关」的四种写法：元素的**存在**本身不算表态（`<w:b w:val="0"/>` 说的是「不粗」）
+RUN_OFF = ("0", "false", "off", "none")
+# ODF 那四个开关住在样式的 `style:text-properties` 上，拼法与 OOXML 完全不同
+ODF_RUN_SWITCHES = (
+    ("fo:font-weight", "bold"),
+    ("fo:font-style", "italic"),
+    ("style:text-line-through-style", "strike"),
+    ("style:text-underline-style", "underline"),
+)
+ODF_RUN_OFF = ("normal", "none")
+
+
+def _run_switch(holder, name: str):
+    """`rPr` 里那一条开关：没这个孩子 = 没说；有孩子没写 val = 开；写了才按字面判"""
+    if holder is None:
+        return None
+    got = _kids(holder, name)
+    if not got:
+        return None
+    raw = local_attr(got[0], "val")
+    return True if raw is None else raw not in RUN_OFF
+
+
+def _docx_runs(para) -> list:
+    """段里的串：直接坐在段下的 `w:r`，加上超链接与修订那三个壳里的（不往全树找，
+    免得把文本框里另一段的字算到这一段头上）"""
+    out = []
+    for kid in para:
+        name = xml_local(kid.tag)
+        if name == "r":
+            out.append(kid)
+        elif name in ("hyperlink", "ins", "del"):
+            out.extend(one for one in kid if xml_local(one.tag) == "r")
+    return out
+
+
+def docx_run_formats(paras: list, limit: int = 200) -> dict:
+    """docx 的字符格式：每一串字自己带一份 `w:rPr`，与段上那份 `w:pPr` 是两本账
+
+    `with_props`（有 rPr 这一格）与 `props_empty`（有而里面一个格式孩子都没有）分开数：
+    python-docx 不给没格式的那一串写 rPr，LibreOffice 重写时给每一串都补一个空的。
+    """
+    entries = []
+    checked = with_props = props_empty = with_format = 0
+    on = {key: 0 for _, key in RUN_SWITCHES}
+    off = {key: 0 for _, key in RUN_SWITCHES}
+    for index, para in enumerate(paras):
+        for at, run in enumerate(_docx_runs(para)):
+            checked += 1
+            props = _kids(run, "rPr")
+            holder = props[0] if props else None
+            kids = [kid for kid in holder] if holder is not None else []
+            if holder is not None:
+                with_props += 1
+                if not kids:
+                    props_empty += 1
+            if kids:
+                with_format += 1
+            switches = {key: _run_switch(holder, name) for name, key in RUN_SWITCHES}
+            for _, key in RUN_SWITCHES:
+                if switches[key] is True:
+                    on[key] += 1
+                elif switches[key] is False:
+                    off[key] += 1
+            values = {}
+            for name, key in RUN_VALUES:
+                got = _kids(holder, name) if holder is not None else []
+                if not got:
+                    values[key] = None
+                elif name == "rFonts":
+                    values[key] = written_attrs(got[0])
+                else:
+                    values[key] = local_attr(got[0], "val")
+            entries.append(
+                {
+                    "para": index,
+                    "at": at,
+                    "text": "".join(run.itertext()),
+                    "props_written": holder is not None,
+                    "props_attrs": written_attrs(holder) if holder is not None else None,
+                    "elements": [xml_local(kid.tag) for kid in kids],
+                    "switches": switches,
+                    "values": values,
+                    "format": [
+                        {"element": xml_local(kid.tag), "written": written_attrs(kid)}
+                        for kid in kids
+                    ],
+                }
+            )
+    out = {
+        "checked": checked,
+        "listed": len(entries),
+        "with_props": with_props,
+        "props_empty": props_empty,
+        "with_format": with_format,
+        "list": entries[:limit],
+    }
+    for key in ("bold", "italic", "strike", "underline"):
+        out["%s_on" % key] = on[key]
+        out["%s_off" % key] = off[key]
+    return out
+
+
+def _para_pieces(node) -> list:
+    """一段里的「串」按文件的顺序排：`text:span` 是一个元素，而夹在中间的字在
+    ElementTree 里落在 `.text` 与孩子的 `.tail` 上 —— 与 Rust 那边的 `#text` 子节点
+    是同一批字，所以「带换行的纯空白不算内容」那一条规则也照搬。
+    别的元素（注、软分页、书签…）在这一族里不是一串字，整块跳过，只留它的尾字。
+    """
+    out = []
+
+    def keep(raw):
+        # 与 Rust 的 `push_text` 同一条：空的不算，「纯空白而且带换行」的是排版噪声也不算
+        if raw is None or raw == "":
+            return None
+        if raw.strip() == "" and ("\n" in raw or "\r" in raw):
+            return None
+        return raw
+
+    head = keep(node.text)
+    if head is not None:
+        out.append(("#text", head))
+    for kid in node:
+        if xml_local(kid.tag) == "span":
+            out.append(("span", kid))
+        tail = keep(kid.tail)
+        if tail is not None:
+            out.append(("#text", tail))
+    return out
+
+
+def _odf_run_switch(written, name: str):
+    if not isinstance(written, dict):
+        return None
+    raw = written.get(name)
+    return None if raw is None else raw not in ODF_RUN_OFF
+
+
+def odf_run_formats(
+    paras: list,
+    root,
+    prefixes: dict,
+    styles_root=None,
+    styles_prefixes: dict | None = None,
+    limit: int = 200,
+) -> dict:
+    """ODF 的字符格式：`text:span` 点名一个 family=text 的样式，值在它的
+    `style:text-properties` 上；夹在 span 中间的字文件根本没给它们立元素（`#text` 那一行）
+
+    那一跳找两处：content.xml（LibreOffice 把 T1…T12 这些自动样式写在这儿）先，
+    styles.xml 后，`found_in` 说住在哪一份。同名取先看到的那一个（Rust 那边是 `find`）。
+    """
+    found: dict[str, tuple] = {}
+    for part, tree, table in (
+        ("content", root, prefixes),
+        ("styles", styles_root, styles_prefixes or prefixes),
+    ):
+        if tree is None:
+            continue
+        for one in _all(tree, "style"):
+            if local_attr(one, "family") != "text":
+                continue
+            name = local_attr(one, "name")
+            if name is None or name in found:
+                continue
+            props = _kids(one, "text-properties")
+            found[name] = (
+                local_attr(one, "parent-style-name"),
+                written_kept(props[0], table) if props else None,
+                part,
+            )
+    entries = []
+    spans = bare = resolved = with_format = 0
+    on = {key: 0 for _, key in ODF_RUN_SWITCHES}
+    off = {key: 0 for _, key in ODF_RUN_SWITCHES}
+    for index, para in enumerate(paras):
+        for at, (element, piece) in enumerate(_para_pieces(para)):
+            if element == "span":
+                spans += 1
+                name = local_attr(piece, "style-name")
+                got = found.get(name) if name else None
+                if got is not None:
+                    resolved += 1
+                written = got[1] if got else None
+                if isinstance(written, dict) and written:
+                    with_format += 1
+                switches = {
+                    key: _odf_run_switch(written, attr) for attr, key in ODF_RUN_SWITCHES
+                }
+                for _, key in ODF_RUN_SWITCHES:
+                    if switches[key] is True:
+                        on[key] += 1
+                    elif switches[key] is False:
+                        off[key] += 1
+                entries.append(
+                    {
+                        "para": index,
+                        "at": at,
+                        "element": "span",
+                        "text": "".join(piece.itertext()),
+                        "style": name,
+                        "resolved": got is not None,
+                        "found_in": got[2] if got else None,
+                        "parent": got[0] if got else None,
+                        "written": written,
+                        "switches": switches,
+                    }
+                )
+                continue
+            bare += 1
+            entries.append(
+                {
+                    "para": index,
+                    "at": at,
+                    "element": "#text",
+                    "text": piece,
+                    "style": None,
+                    "resolved": None,
+                    "found_in": None,
+                    "parent": None,
+                    "written": None,
+                    "switches": {key: None for _, key in ODF_RUN_SWITCHES},
+                }
+            )
+    out = {
+        "checked": spans + bare,
+        "listed": len(entries),
+        "spans": spans,
+        "bare_text": bare,
+        "resolved": resolved,
+        "with_format": with_format,
+        "list": entries[:limit],
+    }
+    for key in ("bold", "italic", "strike", "underline"):
+        out["%s_on" % key] = on[key]
+        out["%s_off" % key] = off[key]
+    return out
 
 
 def docx_columns(body, limit: int = 200) -> dict:
@@ -2674,6 +2923,20 @@ def odt_structure(path: Path) -> dict:
         "page_breaks": odf_page_breaks(root, body),
         # 段落格式与分栏：这一族都住在样式那一跳上（不是正文元素），见上面两个函数
         "paragraph_formats": odf_paragraph_formats(odf_body_paragraphs(body), root, prefixes),
+        # 字符格式：span 点名的那一份样式可能在两个部件之一，而夹在 span 中间的字
+        # 文件根本没给它立一个元素（`#text` 那一行）
+        "run_formats": odf_run_formats(
+            odf_body_paragraphs(body),
+            root,
+            prefixes,
+            ET.fromstring(parts["styles.xml"]) if "styles.xml" in parts else None,
+            {
+                **ns_prefixes(parts["styles.xml"].decode("utf8", "replace")),
+                **prefixes,
+            }
+            if "styles.xml" in parts
+            else prefixes,
+        ),
         "columns": odf_columns(root, prefixes),
         # 那份定义 LibreOffice 全写在 styles.xml，段样式在 content.xml：跨部件的一跳
         # （前缀要按**各自那份件**自己声明的 xmlns 还原，所以两张表并起来用，content 优先）

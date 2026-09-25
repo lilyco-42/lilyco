@@ -118,6 +118,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `deck-pictures.pptx` | python-pptx（`write_pictures_pptx`，图仍是那张 40×24 的 `dot.png`） | 页上那张图的第一种摆法：尺寸只有 `a:xfrm/a:ext` **一处**（`1440000` = 4000）而位置 `a:off` 也在同一层（`360000` = 1cm）、alt 只有 `p:cNvPr/@descr` 一处（第一页写「一个红点」，**第二页什么都没给，python-pptx 把文件名 `dot.png` 填进了那个键**）、第二页不写宽高，于是按 72 DPI 换成 `508000`（=1411），另有 `a:picLocks noChangeAspect="1"` 与 `<a:stretch><a:fillRect/></a:stretch>`；第三页一张图也没有（交空表） |
 | `deck-pictures.odp` | LibreOffice（从 `deck-pictures.pptx` 导出） | 换一家：`svg:width="3.999cm"`（同一个 3999）、alt 搬成孩子元素 `svg:desc`、地址是 `draw:image/@xlink:href`，而**图框不写** `text:anchor-type`（odt 那边写 `as-char`）→ 那一族的 `placed` 是 null |
 | `deck-pictures-lo.pptx` | LibreOffice（`deck-pictures.odp` → .pptx，一趟来回） | 来回之后不见的三样：`a:picLocks` 整个没了、`<a:stretch/>` 缩成空的（`fillRect` 没了）、尺寸从 `1440000` 换成 `1439640`（4000 → 3999）；留下的：名字与两句 alt 一字未变、`a:off` 分毫未动，而号全被重排（`rId2` → `rId1`、形状 id 2 → 63） |
+| `styled-text.docx` | python-docx（`write_runs_docx`） | 一段只点一个字符属性（粗 / 斜 / 下划线 / 删除线 / 上标 / 红 `C00000` / 黄 / 9 磅写成 `sz="18"` 半磅 / 宋体），另有点「明确不粗」（`<w:b w:val="0"/>`）、一串字里两个孩子（`<w:b/><w:i/>`）与**一段里三种字各一串**；没格式那几串**不写 `w:rPr`** |
+| `styled-text-lo.docx` | LibreOffice（`styled-text.docx` → .docx） | 同一份件重写一次：每一串字都补一个**空的** `<w:rPr></w:rPr>`（30 串里 16 串是空的），而 `w:val="0"` 换成 `w:val="false"` —— 「有没有这一格」与「这一格说不说不」两家正好一边一种 |
+| `styled-text.odt` / `styled-text.rtf` | LibreOffice（从 `styled-text.docx` 导出） | 第三种与第四种存法：ODF 把格式搬到 `text:span/@text:style-name="T1"…T12"`，值在**同一份 content.xml** 的 `style:text-properties` 上（`fo:font-weight="bold"`、`style:text-underline-style="solid"`、`style:text-position="super 58%"`、`fo:color="#c00000"`），「明确不粗」成 `fo:font-weight="normal"`；RTF 只在群头写 `b` / `i` / `strike` / `super` / `cf23` / `highlight7` / `fs18` / `af9`，否定是 `b0`，CJK 的下划线落在 `aul` 那个口袋，而颜色与字体只是**一个号**，要跳文件自己那两张表 |
 
 ## 几件只有踩过才会记下来的事
 
@@ -1261,6 +1264,34 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     * odp 走的是文档那一族同一份 frame 账（尺寸自带单位、alt 是孩子元素），但 Impress 给图框
       **不写** `text:anchor-type` —— 那一族的 `placed` 是 null。同一个 ODF 家族里，odt 写了 `as-char`
       而 odp 什么都没写，所以这不是「默认值」问题，是两家的写法本来就不一样。
+
+73. **「这几个字长什么样」与「这一段长什么样」是两本账，而四份件把前一句话写在四个地方**
+    （`styled-text.docx`、`styled-text-lo.docx`、`styled-text.odt`、`styled-text.rtf`）。
+    * OOXML 把格式写在**段里每一串字自己**的 `w:rPr` 上，而且写成**孩子元素**（`<w:b/>`、
+      `<w:color w:val="C00000"/>`），`rPr` 自己一个属性都不写。于是「有没有 rPr 这一格」
+      与「这一格里面有没有话」必须是两个数：python-docx 不给没格式的那一串写这一格
+      （14 有 / 0 空），LibreOffice 重写同一份件时给**每一串**都补一个空的
+      （30 有 / 16 空），而两边「说过话的串」都是 14 条 —— 合成一个布尔就把生产者习惯
+      读成了文档里的一句话。
+    * 「明确不粗」在这四份件里有四种拼法：`w:val="0"`、重写后的 `w:val="false"`、
+      ODF 的 `fo:font-weight="normal"`、RTF 的 `b0`（否定是粘在控制字上的一个数字）。
+      只按「`w:b` 这个孩子在不在」判，第一段那种话会被读成**反的**。
+    * ODF 既不在段上也不在串上写值：`text:span` 只点一个样式名（`T1`…`T12`），值在一跳之外
+      那份 `style:text-properties` 上（这一族的自动字符样式恰好也写在 content.xml，
+      所以 `found_in` 交 "content"；命名的字符样式住 styles.xml，两处都找、按文件写的名字交）。
+      量到的第三种情况最容易被读丢：**夹在两个 span 中间的那串字，文件根本没给它立元素** ——
+      那一条 `element` 是 `#text`，而 `style` 与 `resolved` 都是 null：没有号可查，
+      与「有号而查不到」不是一件事。
+    * RTF 没有「一串字」这个元素，格式写在**群头**上：`{\cf23 …}`、`{\fs18 …}`、
+      `{\loch\hich\dbch\b …}`。所以「有串而没说格式」在这一族判不住，`with_props`
+      与 `props_empty` 交 null；`\cf` 与 `\f` 只是**一个号**，要跳文件自己那两张表
+      （23 → `C00000`，9 → 字体表里那一条，而那条的名字是非 ASCII 字节，解不动就照旧 null，
+      「查到条目」与「读出名字」分开说）。段前缀那一层（所有群之外）说过的控制字
+      归属于段、不归属于任何一串字，另记 `words_outside_groups`（这份件里 135 条）。
+    * 同一家族的四个口袋：CJK 那串下划线，LibreOffice 写的是 `\aul`（日文下划线）而不是 `\ul`，
+      所以 `underline_word` 先把文件点的那个口袋交出来，开关再按四个口袋算一次「要」。
+    * 三家对同一句「9 磅」的说法：`w:sz w:val="18"`、RTF `\fs18`（都是半磅，两家同一个数）、
+      ODF `fo:font-size="9pt"`（自带单位）。三个都按原样交，不折成一个数。
 
 ## 这些数字从哪来
 

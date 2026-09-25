@@ -313,6 +313,125 @@ PIC_MAGIC = [
 ]
 
 
+# 字符格式那一族：与 Rust 的 RUN_WORDS / RUN_DIRECT / RUN_UNDERLINE 同三张表
+RUN_WORDS = (
+    "b", "i", "ul", "uld", "aul", "iul", "outl", "strike", "sub", "super", "cf", "cb",
+    "highlight", "fs", "afs", "f", "af", "kerning", "expnd", "caps", "scaps", "ulc",
+)
+RUN_UNDERLINE = ("ul", "uld", "aul", "iul")
+RUN_DIRECT = ("loch", "hich", "dbch", "rtlch", "ltrch")
+RUN_ROW_CAP = 512
+
+
+def color_table(inner: str) -> list:
+    """`{\\colortbl;\\red0\\green0\\blue0;…}`：一格一个号，开头那个空位就是 0 号
+
+    三条齐了才算一个颜色，缺一条的那一格交 None 而不是补 0。
+    """
+    out: list = []
+    parts: list = [None, None, None]
+    at = 0
+    while at < len(inner):
+        ch = inner[at]
+        if ch == ";":
+            out.append(
+                "%02X%02X%02X" % (parts[0], parts[1], parts[2])
+                if all(one is not None for one in parts)
+                else None
+            )
+            parts = [None, None, None]
+            at += 1
+            continue
+        if ch != BS:
+            at += 1
+            continue
+        word = peek_word(inner, at + 1)
+        which = {"red": 0, "green": 1, "blue": 2}.get(word)
+        if which is None:
+            at += 1
+            continue
+        stop = at + 1 + len(word)
+        hit = re.match(r"\d+", inner[stop:])
+        parts[which] = int(hit.group(0)) if hit else None
+        at = stop
+    return out
+
+
+def word_switch(words: list, name: str):
+    """这一族说「开 / 关」只看那个数字参数：`\\b` 与 `\\b1` 都是开，`\\b0` 是明确写着不"""
+    for one, two in words:
+        if one == name:
+            return two == "" or two != "0"
+    return None
+
+
+def underline_switch(words: list):
+    """下划线那四个口袋：文件点哪个算哪个，一个都没点才是「没说」"""
+    hits = [one for one in words if one[0] in RUN_UNDERLINE]
+    if not hits:
+        return None, None
+    return any(two == "" or two != "0" for _, two in hits), hits[0][0]
+
+
+def color_hop(words: list, name: str, colors: list):
+    for one, two in words:
+        if one != name:
+            continue
+        try:
+            at = int(two)
+        except ValueError:
+            return {"index": two, "resolved": False, "rgb": None}
+        got = colors[at] if 0 <= at < len(colors) else None
+        return {"index": two, "resolved": got is not None, "rgb": got}
+    return None
+
+
+def font_hop(words: list, name: str, fonts: list):
+    for one, two in words:
+        if one != name:
+            continue
+        try:
+            want = int(two)
+        except ValueError:
+            return {"index": two, "resolved": False, "name": None}
+        got = [had for had in fonts if had.get("index") == want]
+        return {
+            "index": two,
+            "resolved": bool(got),
+            "name": got[0].get("name") if got else None,
+        }
+    return None
+
+
+def resolve_run_rows(rows: list, colors: list, fonts: list) -> None:
+    """群头上那一串控制字之后解出来的两本账（整条流读完才跳，表的先后不参与判断）"""
+    for row in rows:
+        words = [(one, two) for one, two in row["words"]]
+        underline, which_word = underline_switch(words)
+        position = next((one for one in ("super", "sub") if any(a == one for a, _ in words)), None)
+        found = dict(words)
+        row["switches"] = {
+            "bold": word_switch(words, "b"),
+            "italic": word_switch(words, "i"),
+            "strike": word_switch(words, "strike"),
+            "underline": underline,
+        }
+        row["values"] = {
+            "color": color_hop(words, "cf", colors),
+            "fill": color_hop(words, "cb", colors),
+            "highlight": color_hop(words, "highlight", colors),
+            "underline_word": which_word,
+            "size": found.get("fs"),
+            "asian_size": found.get("afs"),
+            "position": position,
+            "font": font_hop(words, "f", fonts),
+            "asian_font": font_hop(words, "af", fonts),
+        }
+        row["format"] = [
+            {"element": one, "digits": two if two != "" else None} for one, two in words
+        ]
+
+
 def unstar(one: str) -> str:
     """跳过 `\*` 那个「不认识就整群跳过」的标记：`{\*\picprop …}` 里面开头是 `\*\picprop`"""
     return one[2:] if one.startswith(BS + "*") else one
@@ -669,6 +788,11 @@ def rtf_text(data: bytes) -> dict:
     pending_author = None
     pending = bytearray()  # 连续的 \'hh 字节，攒着按字符集一起解
     skip: list[bool] = [False]
+    # 与 `skip` 同步进出的一对栈：每一群群头上说过的格式控制字，与这一群开群时
+    # `out` 走到第几块（收尾时那几块就是这一群的字）
+    words_stack: list[list] = [[]]
+    run_open: list[int] = [0]
+    colors: list = []
     codepage = 1252
     ucount = 1
     i = 0
@@ -697,6 +821,9 @@ def rtf_text(data: bytes) -> dict:
         "atnauthors": 0,
         # 样式被用了几次：样式号 → 条数（正文里出现的 \sN，不含样式表自己的那些）
         "style_uses": {},
+        # 逐串的字符格式（群头上说过格式控制字的那些群）与落在所有群之外的那些控制字条数
+        "run_rows": [],
+        "run_words_stray": 0,
         # `{\listtext…}` 那种群出现了几次（与「几个段带标签」是两个数）
         "label_words": 0,
     }
@@ -714,10 +841,31 @@ def rtf_text(data: bytes) -> dict:
         if ch == "{":
             flush()
             skip.append(skip[-1])
+            words_stack.append([])
+            run_open.append(len(out))
             i += 1
             continue
         if ch == "}":
             flush()
+            # 一群收尾：群头上说过格式控制字、群里又有字，才是一条「这几串字长什么样」。
+            # 弹栈与 `skip` 同一条规则（第 0 层那个占位不弹），所以此刻 `skip[-1]`
+            # 说的正是**这一群**自己是不是被跳过的目标群
+            words = words_stack.pop() if len(words_stack) > 1 else []
+            began = run_open.pop() if len(run_open) > 1 else len(out)
+            # 第 2 层是文档群，它自己的「字」是整篇 —— 那不是串，所以只数第 3 层往下
+            if len(skip) >= 3 and not skip[-1]:
+                direct = any(one in RUN_DIRECT for one, _ in words)
+                said = [(one, two) for one, two in words if one in RUN_WORDS]
+                body = "".join(out[began:]).strip()
+                if said and body and len(stats["run_rows"]) < RUN_ROW_CAP:
+                    stats["run_rows"].append(
+                        {
+                            "para": len(paras),
+                            "text": body,
+                            "direct": direct,
+                            "words": [[one, two] for one, two in said],
+                        }
+                    )
             if len(skip) > 1:
                 skip.pop()
             i += 1
@@ -835,6 +983,13 @@ def rtf_text(data: bytes) -> dict:
             j = skip_rtf_chars(text, j, max(ucount, 0))
             i = j
             continue
+        if word in RUN_WORDS or word in RUN_DIRECT:
+            # 群外面（段前缀那一层）说的那些归属于**段**，不属于任何一串字：只数不挂
+            if not skip[-1]:
+                if len(skip) >= 3:
+                    words_stack[-1].append((word, digits))
+                elif word in RUN_WORDS:
+                    stats["run_words_stray"] += 1
         if word in NOTE_DESTINATIONS and not skip[-1]:
             stop, inner = group_end(text, j)
             sub = rtf_text(inner.encode("latin-1", "replace"))
@@ -845,6 +1000,8 @@ def rtf_text(data: bytes) -> dict:
             stats["note_destinations"] += 1
             if len(skip) > 1:
                 skip.pop()
+                words_stack.pop()
+                run_open.pop()
             i = stop + 1
             continue
         if word == "ftnalt":
@@ -861,6 +1018,8 @@ def rtf_text(data: bytes) -> dict:
             page["destinations"] += 1
             if len(skip) > 1:
                 skip.pop()
+                words_stack.pop()
+                run_open.pop()
             i = stop + 1
             continue
         if word in SKIP_DESTINATIONS or word in NOTE_DEFINITION_DESTINATIONS:
@@ -882,6 +1041,10 @@ def rtf_text(data: bytes) -> dict:
                         got = definition_of(child)
                         if got:
                             found["fonts" if word == "fonttbl" else "styles"].append(got)
+            if word == "colortbl" and not skip[-1]:
+                # 前瞻那一张颜色表（游标不动、skip 不改）：`\cfN` 点的就是这里的第 N 格
+                _stop, inner = group_end(text, j)
+                colors.extend(color_table(inner))
             skip[-1] = True
             stats["destinations"] += 1
         elif word == "listtext":
@@ -1085,6 +1248,7 @@ def rtf_text(data: bytes) -> dict:
         "definitions": defs,
         "list": entries,
     }
+    resolve_run_rows(stats["run_rows"], colors, found["fonts"])
     return {
         "headings": headings,
         "numbering": numbering,
@@ -1103,6 +1267,9 @@ def rtf_text(data: bytes) -> dict:
         "unicode_escapes": stats["unicode_escapes"],
         "pictures": stats["pictures"],
         "picture_rows": stats["picture_rows"],
+        # 逐串的字符格式（号已经按文件自己那两张表跳过一跳）与落在所有群之外的那些控制字
+        "run_rows": stats["run_rows"],
+        "run_words_stray": stats["run_words_stray"],
         "embedded_objects": stats["objects"],
         "skipped_destinations": stats["destinations"],
         "headers": page["headers"],

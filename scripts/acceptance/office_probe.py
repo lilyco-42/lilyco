@@ -169,6 +169,12 @@ def main() -> int:
         "images.odt": ("opendocument", "word", "odt"),
         "images-float.odt": ("opendocument", "word", "odt"),
         "images.rtf": ("rtf", "word", "rtf"),
+        # 字符格式那四份：一段只点一个开关，另有点「明确不粗」的、一串字里两个孩子的、
+        # 以及一段里三种字各一串的（见 office_fixtures.write_runs_docx）
+        "styled-text.docx": ("ooxml", "word", "docx"),
+        "styled-text-lo.docx": ("ooxml", "word", "docx"),
+        "styled-text.odt": ("opendocument", "word", "odt"),
+        "styled-text.rtf": ("rtf", "word", "rtf"),
         "para.odt": ("opendocument", "word", "odt"),
         "para.rtf": ("rtf", "word", "rtf"),
         "tables-lo.docx": ("ooxml", "word", "docx"),
@@ -890,11 +896,17 @@ def main() -> int:
         got = lbin("office-doc", fixture(name)).get("structure", {})
         want = files[name]["ooxml"]
         check("%s 段落格式与读者一致" % name, got.get("paragraph_formats"), want.get("paragraph_formats"))
+        # 字符格式这一本对**每一份 docx** 都比：段里的每一串字各交一份自己的 rPr
+        check("%s 字符格式与读者一致（每一串字自己的 rPr）" % name,
+              got.get("run_formats"), want.get("run_formats"))
         check("%s 的分栏与读者一致" % name, got.get("columns"), want.get("columns"))
     for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
         got = lbin("office-doc", fixture(name)).get("structure", {})
         want = files[name]["odt"]
         check("%s 段落格式与读者一致" % name, got.get("paragraph_formats"), want.get("paragraph_formats"))
+        # 这一族还要多比一本：span 有几个、夹在中间不包起来的字有几处
+        check("%s 字符格式与读者一致（span 那一跳与不包起来的字）" % name,
+              got.get("run_formats"), want.get("run_formats"))
         check("%s 的分栏与读者一致" % name, got.get("columns"), want.get("columns"))
     para = {ext: lbin("office-doc", fixture("para." + ext)) for ext in ("docx", "odt", "rtf")}
     check(
@@ -3498,6 +3510,115 @@ def main() -> int:
          dig(odpic, "slides[1].picture_list[0].mm_h"),
          dig(odpic, "slides[1].picture_list[0].style")],
         ["508000", 1411, "507600", 1410, 846, "gr1"],
+    )
+
+    # ── 3k) 那几个字自己说了什么：三家把同一句格式话说在三个地方 ────────────
+    print("=== 3k) 字符格式：rPr 的孩子、span 点名的样式、群头上的控制字 ===")
+    runs = {one: lbin("office-doc", fixture("styled-text." + one)) for one in ("docx", "odt", "rtf")}
+    runs["lo"] = lbin("office-doc", fixture("styled-text-lo.docx"))
+    check("styled-text.docx 逐串字符格式整份账与读者一致",
+          dig(runs["docx"], "structure.run_formats"),
+          files["styled-text.docx"]["ooxml"]["run_formats"])
+    check("styled-text-lo.docx 逐串字符格式整份账与读者一致（每一串都补一个空 rPr 的那一份）",
+          dig(runs["lo"], "structure.run_formats"),
+          files["styled-text-lo.docx"]["ooxml"]["run_formats"])
+    check("styled-text.odt 逐串字符格式整份账与读者一致（含夹在 span 中间不包起来的那些字）",
+          dig(runs["odt"], "structure.run_formats"),
+          files["styled-text.odt"]["odt"]["run_formats"])
+    check("styled-text.rtf 逐串字符格式与读者一致（号已按文件自己那两张表跳过一跳）",
+          [dig(runs["rtf"], "structure.run_formats.list"),
+           dig(runs["rtf"], "structure.run_formats.words_outside_groups")],
+          [files["styled-text.rtf"]["rtf"]["run_rows"],
+           files["styled-text.rtf"]["rtf"]["run_words_stray"]])
+    check(
+        "同一句话的三种存法：三家数出来同一条答案（三串粗、一串明确不粗、14 串说过话）",
+        [dig(runs["docx"], "structure.run_formats.bold_on"),
+         dig(runs["odt"], "structure.run_formats.bold_on"),
+         dig(runs["rtf"], "structure.run_formats.bold_on"),
+         dig(runs["docx"], "structure.run_formats.bold_off"),
+         dig(runs["odt"], "structure.run_formats.bold_off"),
+         dig(runs["rtf"], "structure.run_formats.bold_off"),
+         dig(runs["docx"], "structure.run_formats.with_format"),
+         dig(runs["odt"], "structure.run_formats.with_format"),
+         dig(runs["rtf"], "structure.run_formats.with_format")],
+        [3, 3, 3, 1, 1, 1, 14, 14, 14],
+    )
+    check(
+        "「有这一格而里面是空的」与「压根没有这一格」：两家生产者正好一边一种",
+        [dig(runs["docx"], "structure.run_formats.with_props"),
+         dig(runs["docx"], "structure.run_formats.props_empty"),
+         dig(runs["lo"], "structure.run_formats.with_props"),
+         dig(runs["lo"], "structure.run_formats.props_empty")],
+        [14, 0, 30, 16],
+    )
+    check(
+        "ODF 的第三种情况：夹在 span 中间的字文件没给它立元素，而 14 个 span 全在 content.xml 查到",
+        [dig(runs["odt"], "structure.run_formats.spans"),
+         dig(runs["odt"], "structure.run_formats.bare_text"),
+         dig(runs["odt"], "structure.run_formats.checked"),
+         dig(runs["odt"], "structure.run_formats.resolved"),
+         dig(runs["odt"], "structure.run_formats.list[2].found_in"),
+         dig(runs["odt"], "structure.run_formats.list[2].style"),
+         dig(runs["odt"], "structure.run_formats.list[0].element"),
+         dig(runs["odt"], "structure.run_formats.list[0].resolved")],
+        [14, 16, 30, 14, "content", "T1", "#text", None],
+    )
+    check(
+        "「明确不粗」有四家拼法：重写一次就从 0 变成 false，读成「有 b 这个孩子」就把话说反了",
+        [dig(runs["docx"], "structure.run_formats.list[20].elements"),
+         dig(runs["docx"], "structure.run_formats.list[20].switches.bold"),
+         dig(runs["lo"], "structure.run_formats.list[20].format[0].written.val"),
+         dig(runs["lo"], "structure.run_formats.list[20].switches.bold"),
+         dig(runs["odt"], "structure.run_formats.list[20].written.fo:font-weight"),
+         dig(runs["odt"], "structure.run_formats.list[20].switches.bold"),
+         dig(runs["rtf"], "structure.run_formats.list[9].format[0].digits"),
+         dig(runs["rtf"], "structure.run_formats.list[9].switches.bold")],
+        [["b"], False, "false", False, "normal", False, "0", False],
+    )
+    check(
+        "那一个红点要跳一次表才看得到：docx 直接写颜色，RTF 写号，号在文件自己那张 colortbl 上",
+        [dig(runs["docx"], "structure.run_formats.list[12].values.color"),
+         dig(runs["odt"], "structure.run_formats.list[12].written.fo:color"),
+         dig(runs["rtf"], "structure.run_formats.list[5].values.color.index"),
+         dig(runs["rtf"], "structure.run_formats.list[5].values.color.rgb"),
+         dig(runs["rtf"], "structure.run_formats.list[5].values.color.resolved")],
+        ["C00000", "#c00000", "23", "C00000", True],
+    )
+    check(
+        "9 磅在 OOXML 与 RTF 是同一个半磅数，在 ODF 是自带单位的串 —— 三个都交原样，不折成一个",
+        [dig(runs["docx"], "structure.run_formats.list[16].values.size"),
+         dig(runs["rtf"], "structure.run_formats.list[7].values.size"),
+         dig(runs["odt"], "structure.run_formats.list[16].written.fo:font-size")],
+        ["18", "18", "9pt"],
+    )
+    check(
+        "一串字里两个孩子：docx 按文件顺序交 b、i，RTF 的群头写的是 i、b —— 顺序是文件的，不重排",
+        [dig(runs["docx"], "structure.run_formats.list[24].elements"),
+         dig(runs["rtf"], "structure.run_formats.list[11].format[0].element"),
+         dig(runs["rtf"], "structure.run_formats.list[11].format[1].element"),
+         dig(runs["rtf"], "structure.run_formats.list[11].switches.bold"),
+         dig(runs["rtf"], "structure.run_formats.list[11].switches.italic")],
+        [["b", "i"], "i", "b", True, True],
+    )
+    check(
+        "下划线这一族写在「日文下划线」那个口袋上：词先交出来，开关才算一次「要」",
+        [dig(runs["docx"], "structure.run_formats.list[6].elements"),
+         dig(runs["docx"], "structure.run_formats.list[6].format[0].written.val"),
+         dig(runs["odt"], "structure.run_formats.list[6].written.style:text-underline-style"),
+         dig(runs["rtf"], "structure.run_formats.list[2].values.underline_word"),
+         dig(runs["rtf"], "structure.run_formats.list[2].switches.underline")],
+        [["u"], "single", "solid", "aul", True],
+    )
+    check(
+        "RTF 没有「一串字」这个元素：有串而没说格式这一问在这里判不住（null），"
+        "段前缀那些控制字另记一条数",
+        [dig(runs["rtf"], "structure.run_formats.with_props"),
+         dig(runs["rtf"], "structure.run_formats.props_empty"),
+         dig(runs["rtf"], "structure.run_formats.checked"),
+         dig(runs["rtf"], "structure.run_formats.words_outside_groups"),
+         dig(runs["rtf"], "structure.run_formats.list[8].values.asian_font.index"),
+         dig(runs["rtf"], "structure.run_formats.list[8].values.asian_font.name")],
+        [None, None, 14, 135, "9", None],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──

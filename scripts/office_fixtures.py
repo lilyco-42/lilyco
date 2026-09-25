@@ -84,6 +84,11 @@ MARK_SHADE_FILL = "黄底"
 MARK_SHADE_BORDER = "上边一条双线"
 MARK_SHADE_ALIGN = "底对齐"
 MARK_SHADE_PLAIN = "什么都不设"
+# 字符格式那三份件的锚点句，见 write_runs_docx：那三个字是每一个格式开关各自点的
+# 同一串字，所以「哪一串是点了的」只能按段与按位置对上，不能靠字本身分
+MARK_RUN_BASE = "基准段：什么都不点。"
+MARK_RUN_TAIL = "甲乙丙"
+MARK_RUN_TAIL_END = "尾部一段：一个字都不点。"
 
 
 def need_soffice() -> str:
@@ -1131,6 +1136,71 @@ def write_pictures_pptx(path: Path, dot: Path) -> None:
     third = prs.slides.add_slide(blank)
     third.shapes.add_textbox(Cm(1), Cm(1), Cm(8), Cm(2)).text_frame.text = "没有图的一页"
     prs.save(path)
+
+
+def write_runs_docx(path: Path) -> None:
+    """python-docx：一段只点一个字符属性 —— 「这几个字自己写了什么格式」
+
+    为什么存这一份：字符格式在 OOXML 里住在**段里每一串字**自己身上（`w:r/w:rPr`），
+    与段落格式（`w:pPr`）是两本账，而两家的写法正好相反：python-docx 不给没格式的那一串
+    写 `w:rPr`，LibreOffice 重写时给**每一串**都写一个空的 `<w:rPr></w:rPr>` ——
+    「有这一格而里面是空的」与「压根没有这一格」在这两份件里一边一种，
+    合成一个布尔就看不见了。九个开关一次只点一个（粗、斜、下划线、删除线、上标、
+    红、黄、字号、字体），值都取不会看错的（红 `C00000`、黄 `yellow`、
+    9 磅写成半磅 `sz="18"`、宋体）；再加三种只有真件才有的形状：
+    * **明确写不粗**（`w:b w:val="0"`）—— 与只写 `<w:b/>`（默认开）是两种拼法，
+      读成「有 b 这个孩子所以是粗体」就把这句话读反了；
+    * 一个 `rPr` 里**两个孩子**（`<w:b/><w:i/>`）—— 与「一段里两个格式」不是一件事；
+    * **一段里三种字各一串**（点、不点、又点）—— 分段是按串分的，不是按段分的。
+    """
+    from docx import Document
+    from docx.enum.text import WD_COLOR_INDEX
+    from docx.shared import Pt, RGBColor
+
+    doc = Document()
+    doc.add_paragraph(MARK_RUN_BASE)
+    for label in ("加粗", "斜体", "下划线", "删除线", "上标", "红色", "高亮", "小一号", "换字体"):
+        para = doc.add_paragraph()
+        para.add_run("这一段只点" + label + "：")
+        body = para.add_run(MARK_RUN_TAIL)
+        if label == "加粗":
+            body.bold = True
+        elif label == "斜体":
+            body.italic = True
+        elif label == "下划线":
+            body.underline = True
+        elif label == "删除线":
+            body.font.strike = True
+        elif label == "上标":
+            body.font.superscript = True
+        elif label == "红色":
+            body.font.color.rgb = RGBColor(0xC0, 0x00, 0x00)
+        elif label == "高亮":
+            body.font.highlight_color = WD_COLOR_INDEX.YELLOW
+        elif label == "小一号":
+            body.font.size = Pt(9)
+        else:
+            body.font.name = "宋体"
+
+    for label, setting in (("不粗", "bold"), ("不斜", "italic")):
+        para = doc.add_paragraph()
+        para.add_run("这一段明确写着" + label + "：")
+        setattr(para.add_run(MARK_RUN_TAIL).font, setting, False)
+
+    both = doc.add_paragraph()
+    both.add_run("一串字里两个孩子：")
+    twin = both.add_run(MARK_RUN_TAIL)
+    twin.bold = True
+    twin.italic = True
+
+    mixed = doc.add_paragraph()
+    mixed.add_run("一段里三种字：")
+    mixed.add_run("这一串点粗。").bold = True
+    mixed.add_run("这一串什么都不点。")
+    plain = mixed.add_run("这一串又点斜。")
+    plain.italic = True
+    doc.add_paragraph(MARK_RUN_TAIL_END)
+    doc.save(path)
 
 
 def write_para_docx(path: Path) -> None:
@@ -2335,6 +2405,29 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "para.rtf", OUT / "para.rtf")
     else:
         print("⚠️  没拿到 para.rtf")
+
+    # 字符格式那四件套：docx 由 python-docx 写，odt / rtf 由 LibreOffice 导出，
+    # 另留一份 LibreOffice 重写的 docx（就是它给每一串字都补一个空 rPr 的那一份）
+    styled_text = OUT / "styled-text.docx"
+    write_runs_docx(styled_text)
+    convert(exe, styled_text, "odt", SCRATCH / "st-odt")
+    made = SCRATCH / "st-odt" / "styled-text.odt"
+    if made.exists():
+        shutil.copyfile(made, OUT / "styled-text.odt")
+    else:
+        print("⚠️  没拿到 styled-text.odt")
+    convert(exe, styled_text, "rtf", SCRATCH / "st-rtf")
+    made = SCRATCH / "st-rtf" / "styled-text.rtf"
+    if made.exists():
+        shutil.copyfile(made, OUT / "styled-text.rtf")
+    else:
+        print("⚠️  没拿到 styled-text.rtf")
+    convert(exe, styled_text, "docx", SCRATCH / "st-back")
+    made = SCRATCH / "st-back" / "styled-text.docx"
+    if made.exists():
+        shutil.copyfile(made, OUT / "styled-text-lo.docx")
+    else:
+        print("⚠️  没拿到 styled-text-lo.docx（docx → docx 那一转）")
 
     # 格子底色/边框/对齐：shaded.docx 由 python-docx 写，shaded-lo.docx 是同一个格式重写
     shaded = OUT / "shaded.docx"

@@ -56,6 +56,40 @@ const DEF_DESTINATIONS: &[&str] = &["fonttbl", "stylesheet", "listtable", "listo
 
 /// 断点类：输出一个换行
 const BREAK_WORDS: &[&str] = &["par", "line", "sect", "page", "pbb"];
+/// 字符格式那一群控制字：这一族把「这几个字长什么样」写在**群头**上（`\b`、`\cf23`、
+/// `\fs18`…），而不是像 OOXML 那样给每一串字立一个元素。`\b0` 与 `\i0` 是这一族说
+/// 「明确不」的拼法 —— 否定写在数字参数上，不在别的地方
+const RUN_WORDS: &[&str] = &[
+    "b",
+    "i",
+    "ul",
+    "uld",
+    "aul",
+    "iul",
+    "outl",
+    "strike",
+    "sub",
+    "super",
+    "cf",
+    "cb",
+    "highlight",
+    "fs",
+    "afs",
+    "f",
+    "af",
+    "kerning",
+    "expnd",
+    "caps",
+    "scaps",
+    "ulc",
+];
+/// 下划线这一族有四个口袋（普通 / 双 / 日文 / 意大利体），文件点哪个就用哪个
+const RUN_UNDERLINE: [&str; 4] = ["ul", "uld", "aul", "iul"];
+/// 这三个只说「这是哪一种文种的字」（`\hich` 高文种、`\dbch` 双字节文种、`\loch` 低文种），
+/// 不是格式，所以单独交一个布尔，不混进 `format`
+const RUN_DIRECT: &[&str] = &["loch", "hich", "dbch", "rtlch", "ltrch"];
+/// 逐串账本最多存几串（`--limit` 在那之外还要再截一次，与图那本同一口径）
+const RUN_ROW_CAP: usize = 512;
 /// 页眉与页脚的目标群：字是真的，但它们不是正文。
 /// 注意 `\headery` / `\footery` 是「页眉高度」这种**格式**控制字，
 /// 控制字读到字母为止，所以整名匹配不会把它们误当成目标
@@ -502,6 +536,161 @@ fn picture_ledger(bytes: &[u8], at: usize) -> Value {
     })
 }
 
+/// `{\colortbl;\red0\green0\blue0;…}` 那一群：一格一个号，**第一个空位就是 0 号**
+/// （Word 与 LibreOffice 都这么写：开头那一对分号之间什么都没有，那是 `auto`）。
+/// 三条 `\red` `\green` `\blue` 齐了才算一个颜色，缺一条的那一格交 null 而不是补 0 ——
+/// 补 0 就是替文件说它没说过的话
+fn color_table(inner: &[u8]) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::new();
+    let mut parts: [Option<u64>; 3] = [None, None, None];
+    let mut at = 0usize;
+    while at < inner.len() {
+        if inner[at] == b';' {
+            out.push(match parts {
+                [Some(r), Some(g), Some(b)] => json!(format!("{r:02X}{g:02X}{b:02X}")),
+                _ => Value::Null,
+            });
+            parts = [None, None, None];
+            at += 1;
+            continue;
+        }
+        if inner[at] != b'\\' {
+            at += 1;
+            continue;
+        }
+        let word = peek_word(inner, at + 1);
+        let which = match word.as_str() {
+            "red" => 0usize,
+            "green" => 1usize,
+            "blue" => 2usize,
+            _ => {
+                at += 1;
+                continue;
+            }
+        };
+        let stop = at + 1 + word.len();
+        parts[which] = digits_after(inner, stop);
+        at = stop;
+    }
+    out
+}
+
+/// 这一族说「开 / 关」只看那个数字参数：`\b` 与 `\b1` 都是开，`\b0` 是明确写着不
+fn word_switch(words: &[(String, String)], name: &str) -> Value {
+    match words.iter().find(|one| one.0.as_str() == name) {
+        None => Value::Null,
+        Some(one) => json!(one.1.is_empty() || one.1 != "0"),
+    }
+}
+
+/// 下划线那四个口袋：文件点哪个算哪个，一个都没点才是「没说」
+fn underline_switch(words: &[(String, String)]) -> (Value, Value) {
+    let hits: Vec<&(String, String)> = words
+        .iter()
+        .filter(|one| RUN_UNDERLINE.contains(&one.0.as_str()))
+        .collect();
+    if hits.is_empty() {
+        return (Value::Null, Value::Null);
+    }
+    (
+        json!(hits.iter().any(|one| one.1.is_empty() || one.1 != "0")),
+        json!(hits[0].0.clone()),
+    )
+}
+
+/// 号 → 那张表里的那一格。号没写、表没读到、号越界，都交 `resolved: false` 与原样那个号，
+/// 不拿最近的一格顶上
+fn color_hop(words: &[(String, String)], name: &str, colors: &[Value]) -> Value {
+    let digits = match words.iter().find(|one| one.0.as_str() == name) {
+        Some(one) => one.1.clone(),
+        None => return Value::Null,
+    };
+    let read = digits.parse::<usize>().ok().and_then(|at| colors.get(at));
+    match read {
+        Some(had) if !had.is_null() => json!({"index": digits, "resolved": true, "rgb": had}),
+        _ => json!({"index": digits, "resolved": false, "rgb": Value::Null}),
+    }
+}
+
+/// 字体号 → `{\fonttbl` 里的那一条。名字解不动（非 ANSI 字符集里的非 ASCII 字节）
+/// 那条本来就叫 `name: null`，所以这里 `resolved` 说的是「表里有这一条」，
+/// 而名字照旧交 null —— 表查到了不等于名字读出来了
+fn font_hop(words: &[(String, String)], name: &str, fonts: &[Value]) -> Value {
+    let digits = match words.iter().find(|one| one.0.as_str() == name) {
+        Some(one) => one.1.clone(),
+        None => return Value::Null,
+    };
+    let want = match digits.parse::<u64>() {
+        Ok(one) => one,
+        Err(_) => return json!({"index": digits, "resolved": false, "name": Value::Null}),
+    };
+    match fonts.iter().find(|one| one["index"] == json!(want)) {
+        Some(one) => json!({"index": digits, "resolved": true, "name": one["name"]}),
+        None => json!({"index": digits, "resolved": false, "name": Value::Null}),
+    }
+}
+
+/// 群头上那一串控制字之后解出来的两本账：`switches` 是四个开关各读一次，
+/// `values` 是那三个号（颜色、字号、字体）按文件自己的表跳一跳。
+/// 走这一趟是在整条流读完**之后**，所以表的先后顺序不参与判断
+fn resolve_runs(rows: &mut Vec<Value>, colors: &[Value], fonts: &[Value]) {
+    for row in rows.iter_mut() {
+        let words: Vec<(String, String)> = match row["words"].as_array() {
+            Some(had) => had
+                .iter()
+                .map(|one| {
+                    (
+                        one[0].as_str().unwrap_or_default().to_string(),
+                        one[1].as_str().unwrap_or_default().to_string(),
+                    )
+                })
+                .collect(),
+            None => Vec::new(),
+        };
+        let (underline, which_word) = underline_switch(&words);
+        let position = ["super", "sub"]
+            .iter()
+            .find(|name| words.iter().any(|(one, _)| one.as_str() == *name))
+            .map(|one| json!(one.to_string()))
+            .unwrap_or(Value::Null);
+        let said = |want: &str| -> Option<String> {
+            words
+                .iter()
+                .find(|one| one.0.as_str() == want)
+                .map(|one| one.1.clone())
+        };
+        row["switches"] = json!({
+            "bold": word_switch(&words, "b"),
+            "italic": word_switch(&words, "i"),
+            "strike": word_switch(&words, "strike"),
+            "underline": underline,
+        });
+        row["values"] = json!({
+            "color": color_hop(&words, "cf", colors),
+            "fill": color_hop(&words, "cb", colors),
+            "highlight": color_hop(&words, "highlight", colors),
+            "underline_word": which_word,
+            // 字号按原样交（半磅），与 docx 那个 `w:sz` 是同一个单位、同一个数，所以不换算法
+            "size": said("fs").map(|raw| json!(raw)).unwrap_or(Value::Null),
+            "asian_size": said("afs").map(|raw| json!(raw)).unwrap_or(Value::Null),
+            "position": position,
+            "font": font_hop(&words, "f", fonts),
+            "asian_font": font_hop(&words, "af", fonts),
+        });
+        row["format"] = Value::Array(
+            words
+                .iter()
+                .map(|(one, two)| {
+                    json!({
+                        "element": one.as_str(),
+                        "digits": if two.is_empty() { Value::Null } else { json!(two) },
+                    })
+                })
+                .collect::<Vec<Value>>(),
+        );
+    }
+}
+
 /// `{\listlevel\levelnfc0…{\leveltext …;}{\levelnumbers…;}\fi-360\li1080}` 一群：
 /// 这一级的账。级别号是**这一份 list 里第几个 `{\listlevel`**（实测 LibreOffice 不在
 /// 级上写 `\ilvl`，一份也没有），所以号是读者按顺序给的，不是文件写的
@@ -784,6 +973,17 @@ pub struct Rtf {
     /// 逐张图的账本（`picture_ledger`）：条数与 `pictures` 是同一趟走出来的，
     /// 只是这一本多存到 `PICTURE_ROW_CAP` 张为止
     pub picture_rows: Vec<Value>,
+    /// 逐串的字符格式：一条 = 一个**说过格式控制字的群**（群头 + 群里解出来的字）。
+    /// 这一族没有「一串字」这个元素，所以没说过话的群不进账本（那是判不住，不是 0）
+    pub run_rows: Vec<Value>,
+    /// 格式控制字落在**所有群之外**（段前缀那一层）的条数：那一条归属于段，
+    /// 不归属于任何一串字，所以只数不挂。实测 LibreOffice 每一段都重发一份样式默认值
+    /// （`\cf0`、`\fs22`、`\kerning0`…），这个数就是那一份的量，它同时说出
+    /// 「这一族的段落级格式与字符级格式共用同一批控制字」
+    pub run_words_stray: usize,
+    /// `\colortbl` 那张表：号 → `"RRGGBB"`，`0` 号那个空位与没写全三条的那一格交 null。
+    /// 那一群照旧整群跳过（里面一个字节都不是页面上的字），这里只是前瞻读一眼
+    pub colors: Vec<Value>,
     pub embedded_objects: usize,
     pub skipped_destinations: usize,
     /// 页眉与页脚的字：它们与正文混在同一个流里，靠目标群分开。
@@ -911,6 +1111,10 @@ pub fn extract(bytes: &[u8]) -> Rtf {
     let mut out: Vec<u8> = Vec::new();
     let mut pending: Vec<u8> = Vec::new();
     let mut skip: Vec<bool> = vec![false];
+    // 与 `skip` 同步进出的一对栈：每一群自己那份「群头上说过的格式控制字」，
+    // 以及这一群开群时 `out` 走到哪儿（收尾时那一段就是这一群的字）
+    let mut word_stack: Vec<Vec<(String, String)>> = vec![Vec::new()];
+    let mut run_start: Vec<usize> = vec![0];
     let mut codepage: u32 = 1252;
     let mut ucount: usize = 1;
     let mut notes: Vec<String> = Vec::new();
@@ -947,6 +1151,9 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         unicode_escapes: 0,
         pictures: 0,
         picture_rows: Vec::new(),
+        run_rows: Vec::new(),
+        run_words_stray: 0,
+        colors: Vec::new(),
         embedded_objects: 0,
         skipped_destinations: 0,
         headers: Vec::new(),
@@ -983,11 +1190,51 @@ pub fn extract(bytes: &[u8]) -> Rtf {
             b'{' => {
                 flush(&mut out, &mut pending, codepage, &mut notes);
                 skip.push(*skip.last().unwrap_or(&false));
+                word_stack.push(Vec::new());
+                run_start.push(out.len());
                 i += 1;
                 continue;
             }
             b'}' => {
                 flush(&mut out, &mut pending, codepage, &mut notes);
+                // 一群收尾：群头上说过格式控制字、群里又有字，才是一条「这几串字长什么样」。
+                // 弹栈与 `skip` 同一条规则（第 0 层那个占位不弹），所以闭群时 `skip.last()`
+                // 说的正是**这一群**自己是不是被跳过的目标群
+                let words = if word_stack.len() > 1 {
+                    word_stack.pop().unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                let start = if run_start.len() > 1 {
+                    run_start.pop().unwrap_or(out.len())
+                } else {
+                    out.len()
+                };
+                // 第 2 层是文档群，它自己的「字」是整篇 —— 那不是串，所以只数第 3 层往下
+                if skip.len() >= 3 && !*skip.last().unwrap_or(&false) && !words.is_empty() {
+                    let direct = words
+                        .iter()
+                        .any(|(one, _)| RUN_DIRECT.contains(&one.as_str()));
+                    let said: Vec<(String, String)> = words
+                        .into_iter()
+                        .filter(|(one, _)| RUN_WORDS.contains(&one.as_str()))
+                        .collect();
+                    let text = out
+                        .get(start..)
+                        .map(|had| String::from_utf8_lossy(had).trim().to_string())
+                        .unwrap_or_default();
+                    if !said.is_empty() && !text.is_empty() && me.run_rows.len() < RUN_ROW_CAP {
+                        me.run_rows.push(json!({
+                            "para": marks.len(),
+                            "text": text,
+                            "direct": direct,
+                            "words": said
+                                .iter()
+                                .map(|(one, two)| json!([one.as_str(), two.as_str()]))
+                                .collect::<Vec<Value>>(),
+                        }));
+                    }
+                }
                 if skip.len() > 1 {
                     skip.pop();
                 }
@@ -1158,6 +1405,21 @@ pub fn extract(bytes: &[u8]) -> Rtf {
             }
             _ => {}
         }
+        if RUN_WORDS.contains(&word.as_str()) || RUN_DIRECT.contains(&word.as_str()) {
+            // 格式控制字写在群头上：落在嵌套群里的那一条归属于那一群的字，落在群外
+            // （段前缀那一层）的那一条归属于**段**，不属于任何一串字，所以只数不挂。
+            // 实测 LibreOffice 的 RTF 导出给每一段都重发一份样式默认值（`\cf0`、`\fs22`、
+            // `\kerning0`…），那些条数全落在 run_words_stray 上，不进这份账本
+            if !skipping {
+                if skip.len() >= 3 {
+                    if let Some(top) = word_stack.last_mut() {
+                        top.push((word.clone(), digits.clone()));
+                    }
+                } else if RUN_WORDS.contains(&word.as_str()) {
+                    me.run_words_stray += 1;
+                }
+            }
+        }
         if word == "ftnalt" {
             // 只在「这是注的群」时被读到；判 kind 用
             me.ftnalt = true;
@@ -1180,6 +1442,8 @@ pub fn extract(bytes: &[u8]) -> Rtf {
             // 这一跳吃掉了收尾的那个 `}`，群里层的跳过标记要自己弹掉
             if skip.len() > 1 {
                 skip.pop();
+                word_stack.pop();
+                run_start.pop();
             }
             i = stop + 1;
             continue;
@@ -1202,6 +1466,8 @@ pub fn extract(bytes: &[u8]) -> Rtf {
             // 那个 `}` 被这一跳吃掉了，群里层的跳过标记要自己弹掉
             if skip.len() > 1 {
                 skip.pop();
+                word_stack.pop();
+                run_start.pop();
             }
             i = stop + 1;
             continue;
@@ -1236,6 +1502,13 @@ pub fn extract(bytes: &[u8]) -> Rtf {
                         }
                     }
                 }
+            }
+            if !skipping && word == "colortbl" {
+                // 前瞻那一张颜色表（游标不动、skip 不改 —— 那一群照旧整群跳过，
+                // 一个字节也不进正文，所以 skipped_destinations 一笔也不动）：
+                // 段上那个 `\cfN` 点的就是这里的第 N 格，不解它就只能交一个号
+                let (_stop, inner) = group_end(bytes, j);
+                me.colors = color_table(&inner);
             }
             let last = skip.len() - 1;
             skip[last] = true;
@@ -1555,6 +1828,10 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         .map(|one| one.trim().to_string())
         .filter(|one| !one.is_empty())
         .collect();
+    // 号 → 那两张表：走完整条流才跳，所以表写在前面还是后面都不影响能不能跳通
+    let colors = me.colors.clone();
+    let fonts = me.fonts.clone();
+    resolve_runs(&mut me.run_rows, &colors, &fonts);
     me.text = text;
     me
 }
