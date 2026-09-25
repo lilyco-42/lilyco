@@ -1773,6 +1773,7 @@ mod tests {
             max_chars: 0,
             keep_empty: false,
             max_bytes: 0,
+            markdown: false,
         };
         let (tx, _rx) = mpsc::channel();
         let omitted = run_office_text(&app, &Context::new_test(tx)).expect("省略两个上限也要能跑");

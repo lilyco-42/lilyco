@@ -197,7 +197,8 @@ fn build(bytes: &[u8]) -> Book {
     let mut nums: Vec<(String, Option<String>)> = Vec::new();
     let mut abstracts: Vec<(String, Vec<(String, Option<String>)>)> = Vec::new();
     if let Some(book) = read_part(bytes, "word/numbering.xml") {
-        for one in kids(&book, "abstractNum") {
+        // `parse_str` 交回的是伪根（唯一孩子是 `w:numbering`），所以这里必须走全树而不是直接孩子
+        for one in book.descendants("abstractNum") {
             let id = one
                 .attr_local("abstractNumId")
                 .unwrap_or_default()
@@ -213,7 +214,7 @@ fn build(bytes: &[u8]) -> Book {
             }
             abstracts.push((id, levels));
         }
-        for one in kids(&book, "num") {
+        for one in book.descendants("num") {
             let id = one.attr_local("numId").unwrap_or_default().to_string();
             let hit = kids(one, "abstractNumId")
                 .into_iter()
@@ -232,17 +233,22 @@ fn build(bytes: &[u8]) -> Book {
 }
 
 /// 标题层级：样式名与样式 id 两种来源（都按「heading 打头 + 数字」认），再看 `w:outlineLvl`
+///
+/// 两种来源都没说「这是标题」时**还要问一句 `w:outlineLvl`**（顺序与第二读者一致）：
+/// 少了这一步，一个点了不带数字样式的段就再也没机会被认成标题。
 fn heading_level(para: &Node, book: &Book) -> Option<u32> {
-    let found = para.descendants("pStyle").into_iter().next()?;
-    let id = val(found)?;
-    for source in [book.style_name(id), Some(id)] {
-        let Some(text) = source else { continue };
-        let low = text.to_lowercase().replace("_20_", " ");
-        if !(low.starts_with("heading") || low.starts_with("标题")) {
-            continue;
+    if let Some(found) = para.descendants("pStyle").into_iter().next() {
+        if let Some(id) = val(found) {
+            for source in [book.style_name(id), Some(id)] {
+                let Some(text) = source else { continue };
+                let low = text.to_lowercase().replace("_20_", " ");
+                if !(low.starts_with("heading") || low.starts_with("标题")) {
+                    continue;
+                }
+                let digits: String = text.chars().filter(|one| one.is_ascii_digit()).collect();
+                return Some(digits.parse::<u32>().unwrap_or(1).max(1));
+            }
         }
-        let digits: String = text.chars().filter(|one| one.is_ascii_digit()).collect();
-        return Some(digits.parse::<u32>().unwrap_or(1).max(1));
     }
     let hit = para.descendants("outlineLvl").into_iter().next()?;
     val(hit)
@@ -569,14 +575,14 @@ pub(crate) fn docx(bytes: &[u8], budget: usize) -> Value {
         return json!({"family": "ooxml", "available": false});
     };
     let book = build(bytes);
-    let body = kids(&root, "body").into_iter().next().unwrap_or(&root);
+    let body = root.descendants("body").into_iter().next().unwrap_or(&root);
     let mut blocks: Vec<(bool, String)> = Vec::new();
     let mut stats = json!({
         "paragraphs": 0, "headings": 0, "list_items": 0, "bullet_items": 0,
         "ordered_items": 0, "list_from_style": 0, "unresolved_fmt": 0,
         "tables": 0, "table_rows": 0, "empty_dropped": 0,
     });
-    let bump = |name: &str, by: i64| {
+    let mut bump = |name: &str, by: i64| {
         let slot = stats[name].as_i64().unwrap_or(0) + by;
         stats[name] = json!(slot);
     };
