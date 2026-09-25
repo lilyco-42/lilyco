@@ -541,6 +541,12 @@ pub struct Font {
     pub encoding: String,
     pub to_unicode: bool,
     pub from_object_stream: bool,
+    /// `BAAAAA+Calibri` 里那截前缀（名字里没有 `+` 就是 None —— 生产者没写就不算子集）
+    pub subset_prefix: Option<String>,
+    /// 这张字体字典自己写的 `/FontDescriptor` 指向哪个对象（没写就是 None）
+    pub descriptor: Option<u64>,
+    /// descriptor 那本字典里有没有 `/FontFile` / `FontFile2` / `FontFile3`，有则报是哪一个
+    pub font_file: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1207,13 +1213,35 @@ impl Pdf {
             if name_after(&one.dict, b"/Type").as_deref() != Some("Font") {
                 continue;
             }
+            let base_font = name_after(&one.dict, b"/BaseFont").unwrap_or_default();
+            let subset_prefix = match base_font.split_once('+') {
+                Some((prefix, _rest)) => Some(prefix.to_string()),
+                None => None,
+            };
+            let descriptor = ref_after(&one.dict, b"/FontDescriptor");
+            // Type0（CID）的 descriptor 在 `/DescendantFonts` 那一跳之外 —— 本地八份件里
+            // 一张 Type0 都没有，所以那一跳不写；这里交的只是「这张字典自己写没写」
+            let mut font_file: Option<String> = None;
+            if let Some(num) = descriptor {
+                if let Some(dobj) = self.objects.get(&num) {
+                    for cand in ["/FontFile2", "/FontFile3", "/FontFile"] {
+                        if ref_after(&dobj.dict, cand.as_bytes()).is_some() {
+                            font_file = Some(cand[1..].to_string());
+                            break;
+                        }
+                    }
+                }
+            }
             out.push(Font {
                 id: *id,
-                base_font: name_after(&one.dict, b"/BaseFont").unwrap_or_default(),
+                base_font,
                 subtype: name_after(&one.dict, b"/Subtype").unwrap_or_default(),
                 encoding: name_after(&one.dict, b"/Encoding").unwrap_or_default(),
                 to_unicode: ref_after(&one.dict, b"/ToUnicode").is_some(),
                 from_object_stream: one.from_stream.is_some(),
+                subset_prefix,
+                descriptor,
+                font_file,
             });
         }
         out.sort_by_key(|one| one.id);

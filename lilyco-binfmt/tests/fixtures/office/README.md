@@ -1938,6 +1938,30 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       老键 `formula` 继续按文件写的正文交（跟随格就是空串），这一本负责说明那个空是怎么来的。
       遗留 `.xls` 不交这个键（那一族的公式在 BIFF 记录树里，是另一问）。
 
+107. **这张字体字典自己说了什么：子集前缀、`/FontDescriptor` 在不在、里面有没有 `/FontFile*`**
+    - 两个问句分开交。`fonts` 那一本问「这份 PDF 用了哪些字体」（名字、`/Subtype`、`/Encoding`、
+      有没有 `/ToUnicode`、是不是藏在对象流里）；`font_embedding` 这一本只问
+      「**这一层有没有说它带了字面数据**」：逐张交 `subset_prefix` / `descriptor` /
+      `font_file`，外加 `with_descriptor` / `descriptor_missing` / `with_font_file` /
+      `subsets` / `file_kinds` / `subtypes`。键互不重叠，谁也不顶替谁。
+    - 正例是 LibreOffice 那七份：每张字体都自己写 `/FontDescriptor`，descriptor 里带
+      `/FontFile2`，`/BaseFont` 前面还有一截生产者自己截的**子集前缀**
+      （`EAAAAA+Calibri` → `subset_prefix` `EAAAAA`）—— 六张/五张全部如此，
+      `pdffonts` 那三列 emb/sub/uni 一律 yes，对象号与这里逐个对得上。
+      没有 `+` 的名字交 `null`（不是空串）：生产者没写就不算子集，不拿规范的默认说法替它补。
+    - 反面凭据是 `risk.pdf`：一张 `Helvetica`（Type1）—— descriptor 与 font_file 都**没有**
+      （`descriptor_missing` 1、`with_font_file` 0），`subsets` 0、`with_to_unicode` 0。
+      标准 14 字体本来就从不嵌入，所以这里读不到「嵌入失败」这种故事，只读到「这一层什么都没说」。
+    - 两条边界都是量出来的：① 字体字典可以整个住在**对象流**里 —— `objstm.pdf` 明文只有 17 个对象，
+      五张字体全在 `/Type /ObjStm` 里，不拆那一层就会报「这张 PDF 一张字体也没有」；
+      ② 加密那份（`locked.pdf`）`pdffonts` 一个字都不列，而字体字典是明文对象，
+      这里数得出 5 张全带 `/FontFile2` —— 第三方闭嘴与我们能读是两件事，两份答案都留着。
+    - 界（这一本**不**做的那一件事）：Type0（CID）字体的 descriptor 不在字体字典上，
+      而在 `/DescendantFonts` 第一个孩子身上 —— 本地八份 PDF **一张 Type0 都没有**，
+      没有凭据就不写那一跳（`pdf.rs` 里 CID 的 `/W` 宽度同样是早就划出去的界）。
+      所以对 CID 件这一本会报 `descriptor: null`，那是「这一层没写」，
+      **不是**「这份文件没嵌字体」—— 这一句写进 `font_embedding_of` 的注释里，免得下一轮误读。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：

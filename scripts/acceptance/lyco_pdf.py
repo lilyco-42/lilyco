@@ -532,6 +532,7 @@ def pdf_facts(data: bytes) -> dict:
     return {
         "version": version,
         "header_bytes": data[:8].hex(),
+        "font_embedding": font_embedding_of(by_id),
         "binary_comment": re.search(rb"%\xe2\xe3\xcf\xdc", data[:32]) is not None,
         "objects": {
             "plain": len(plain),
@@ -581,6 +582,68 @@ def pdf_facts(data: bytes) -> dict:
             "total": sum(1 for body in by_id.values() if b"stream" in body),
             "flate": sum(bool(re.search(rb"/FlateDecode", body)) for body in by_id.values()),
         },
+    }
+
+
+def _ref_after(body: bytes, key: bytes) -> int | None:
+    """紧跟在这个键后面的那一个间接引用号（没有就是 None）"""
+    at = body.find(key)
+    if at < 0:
+        return None
+    tail = body[at + len(key): at + len(key) + 80]
+    m = re.search(rb"(\d+)\s+\d+\s+R", tail)
+    return int(m.group(1)) if m else None
+
+
+def font_embedding_of(objs: dict[int, bytes]) -> dict:
+    r"""每张字体字典**自己**写了什么：子集前缀、descriptor 在不在、有没有 FontFile*
+
+    两条界写在这里，免得下一轮把它当「这份 PDF 嵌没嵌字体」的终极答案：
+    ① 只看字体字典自己那一层。Type0（CID）字体的 descriptor 在 `/DescendantFonts` 的
+      第一个孩子身上 —— 本地八份 PDF **一张 Type0 都没有**，没有凭据就不写那一跳
+      （`pdf.rs` 里 CID 的 `/W` 宽度同样是早就划出去的界）。所以对 CID 件，
+      `descriptor` 会是 null，这是「这一层没写」，不是「这份文件没嵌字体」。
+    ② `subset_prefix` 只在名字里真有 `+` 时才有值：`BAAAAA+Calibri` 那种前缀是生产者自己截的，
+      不写就没有，不拿「子集」的规范说法替文件补一句。
+    第三方对质用的是 `pdffonts`（emb / sub / uni 三列 + 对象号）：LibreOffice 那七份
+    每张都是 TrueType + 前缀 + `/FontFile2` + `/ToUnicode`，三列全 yes；
+    `risk.pdf` 是那一条的反面 —— 一张 `Helvetica`（Type1），没有 descriptor、
+    没有 FontFile、没有 ToUnicode，pdffonts 那三列应当是 no —— 标准 14 字体从不嵌入。
+    """
+    rows = []
+    for num in sorted(objs):
+        body = objs[num]
+        if name_of(body, b"/Type") != "Font":
+            continue
+        base = name_of(body, b"/BaseFont")
+        desc = _ref_after(body, b"/FontDescriptor")
+        dbody = objs.get(desc, b"") if desc is not None else b""
+        which = None
+        for cand in (b"/FontFile2", b"/FontFile3", b"/FontFile"):
+            if _ref_after(dbody, cand) is not None:
+                which = cand.decode()[1:]
+                break
+        rows.append({
+            "object": num,
+            "base_font": base,
+            "subtype": name_of(body, b"/Subtype"),
+            "subset_prefix": base.split("+")[0] if "+" in base else None,
+            "descriptor": desc,
+            "font_file": which,
+            "to_unicode": _ref_after(body, b"/ToUnicode") is not None,
+            "encoding": name_of(body, b"/Encoding"),
+        })
+    return {
+        "available": True,
+        "fonts_total": len(rows),
+        "with_descriptor": len([one for one in rows if one["descriptor"] is not None]),
+        "descriptor_missing": len([one for one in rows if one["descriptor"] is None]),
+        "with_font_file": len([one for one in rows if one["font_file"]]),
+        "subsets": len([one for one in rows if one["subset_prefix"]]),
+        "with_to_unicode": len([one for one in rows if one["to_unicode"]]),
+        "file_kinds": sorted({one["font_file"] for one in rows if one["font_file"]}),
+        "subtypes": sorted({one["subtype"] for one in rows if one["subtype"]}),
+        "fonts": rows,
     }
 
 

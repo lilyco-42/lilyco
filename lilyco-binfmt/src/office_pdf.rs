@@ -41,7 +41,7 @@ const INFO_KEYS: [(&str, &[u8]); 8] = [
 #[app(
     name = "office-pdf",
     run = "run_office_pdf",
-    about = "Report what a PDF file is made of without decrypting or rendering it. Reads objects by scanning N G obj markers instead of trusting the cross-reference table, then unpacks the second layer that scan alone would miss: objects packed inside object streams (/Type /ObjStm, where the header pairs an object number with an offset relative to /First) and trailer keys that live in a /Type /XRef stream dict in files with no trailer keyword at all - both rules measured against real Word 2013 and qpdf files, not recalled from memory. Gives { path, version, binary_comment, objects, xref, encryption, pages, metadata, tags, fonts, images, features, watch, outline, links, annotations, permissions, notes }: page count cross-checked between /Count and the real /Type/Page objects (the one-name match matters: /Pages is a tree node, not a page), per-page MediaBox with the inheritance walk up /Parent (MediaBox and Rotate may be written once on the tree), rotation, contents reference and annotation count, the Info dictionary with PDF string rules (backslash escapes, octal, nested parens, hex strings, FEFF-prefixed UTF-16BE), tagged/PDF-X flags (/Lang, /MarkInfo /Marked, /StructTreeRoot), font inventory (/BaseFont, /Subtype, /Encoding, whether a /ToUnicode map exists, whether the font object was hidden in an object stream), image inventory, and the watch list for what runs by itself: /Encrypt parameters (reported, never decrypted - no password here and none should be), document-level /JavaScript, /Launch and /SubmitForm and /GoToR actions, /AcroForm fields, /EmbeddedFiles attachments, /OpenAction and page /AA triggers. Encrypted files report structure only: strings and streams are ciphertext, so metadata and /Lang come back null with a note rather than as decoded garbage. Object numbers that appear more than once (incremental updates) are counted and the first occurrence wins. With --text it also walks the content streams and returns { order_from_page_tree, chars, chars_no_spaces, lines, pages, text }: pages in /Kids order, glyph codes mapped through each font's /ToUnicode CMap (bfchar plus both bfrange forms - a range written as one number means consecutive code points, written as an array means one per code), and lines rebuilt from positions rather than from stream order, because LibreOffice splits a single Chinese heading across several TJ arrays with large negative kerns between them. Three position rules make the difference between reading that heading and reading its characters shuffled: BT resets the text matrix to identity, glyph advance moves x only (never y), and a TJ number moves the pen the OPPOSITE way (positive left, negative right). It also answers where the file points: outline (the /Outlines tree - /First then /Next, children under /First, each entry with its title, depth, target page object and which page that is in /Kids order, the root self-reported /Count, and the open/closed sign of each /Count), links (every /Subtype /Link annotation split into outbound URI, page-to-page with the resolved page number, and actions that go nowhere such as /Launch - the last kind carries its /S value in `action`, because a bare category cannot tell a launch from a form submit), and permissions (the /Encrypt /P bits, read as the signed integer it is: bits 3-6 always, 9-12 only from R3, otherwise null). Encrypted files still report structure, page numbers and permission bits, because numbers and names are not ciphertext, while titles and URIs come back null. `annotations` is the whole `/Annots` ledger, not just the links: every annotation the page names, with the /Subtype it wrote (absent stays a separate count rather than an empty name), its /T author, /Contents text and /M stamp handed over as written - LibreOffice writes `D:00000000000000Z` for a note's modification date, and that string is reported instead of being turned into a date or into null - plus the two pointers between annotations (`/Popup` on the note, `/Parent` on the box), because a note usually arrives with a popup that is itself listed in the same array: total annotations and number of notes are therefore two different counts and neither stands in for the other. `form` answers 'what did the file already have filled in': /AcroForm -> /Fields -> /Kids, each field with the /T it wrote itself plus a qualified name joined from the ancestors (that join is ours, the spec defines the period), the effective /FT and /Ff with a boolean saying whether this dictionary wrote them or inherited them from its parent, /V and /DV decoded with the same three PDF-string rules as metadata, /MaxLen, and kids / parent / depth so a hierarchy is visible without flattening it. value_present is a separate key because 'wrote an empty /V' and 'wrote no /V' are different claims, and value_shape names all four ways a /V can be written: string; array (a multi-select list box - value stays null while the parts go out as value_parts rather than being joined into one string the file never wrote); other, i.e. a NAME, which is how checkboxes and radio groups write it (that name comes back as value_name); and null for no /V key at all. Whether a checkbox is ticked is three separate facts and none of them is folded into a boolean: the field's /V, the widget's /AS (the state it shows now, reported as as_state) and the names keyed in the /AP /N dictionary (ap_states - which states exist at all; empty when the widget carries no /AP, which is 'nothing said', not 'none'). A radio group writes /V on the parent while each kid widget writes its own /AS, and a kid whose /AS disagrees with the parent's /V is reported that way instead of being reconciled. options holds every string /Opt wrote, in written order, and options_shape says how that array was written - /Opt is array-only in the spec and two writings are legal: [(a) (b)] means the display value is also the export value (flat), [[export display] ...] means the two are written apart (pairs); mixed and empty name the other two shapes, and a field with no /Opt key at all is null rather than an empty list. Appearance streams are not computed and signatures are not validated - a /FT Sig or a /Sig key is reported as such and nothing more, the same line this reader holds for encrypted files. Caveat kept honest: the inheritance and hierarchy path is exercised on forms-hier.pdf, and that file is not editor output - no editor measured here writes /FT or /Ff on a parent field, so pikepdf wrote it. The counters therefore say what this file says, not what a real form tool exports; on the editor-made PDFs here the inheritance counters stay 0 because each field writes its own /FT.  Not provided: signature validation, the text of encrypted files (streams are ciphertext there), graphics-stream text, and CID fonts' widths, which live in a /W array this reader does not follow - such a font's characters are recognised but its spacing is not."
+    about = "Report what a PDF file is made of without decrypting or rendering it. Reads objects by scanning N G obj markers instead of trusting the cross-reference table, then unpacks the second layer that scan alone would miss: objects packed inside object streams (/Type /ObjStm, where the header pairs an object number with an offset relative to /First) and trailer keys that live in a /Type /XRef stream dict in files with no trailer keyword at all - both rules measured against real Word 2013 and qpdf files, not recalled from memory. Gives { path, version, binary_comment, objects, xref, encryption, pages, metadata, tags, fonts, images, features, watch, outline, links, annotations, permissions, notes }: page count cross-checked between /Count and the real /Type/Page objects (the one-name match matters: /Pages is a tree node, not a page), per-page MediaBox with the inheritance walk up /Parent (MediaBox and Rotate may be written once on the tree), rotation, contents reference and annotation count, the Info dictionary with PDF string rules (backslash escapes, octal, nested parens, hex strings, FEFF-prefixed UTF-16BE), tagged/PDF-X flags (/Lang, /MarkInfo /Marked, /StructTreeRoot), font inventory (/BaseFont, /Subtype, /Encoding, whether a /ToUnicode map exists, whether the font object was hidden in an object stream), image inventory, and the watch list for what runs by itself: /Encrypt parameters (reported, never decrypted - no password here and none should be), document-level /JavaScript, /Launch and /SubmitForm and /GoToR actions, /AcroForm fields, /EmbeddedFiles attachments, /OpenAction and page /AA triggers. Encrypted files report structure only: strings and streams are ciphertext, so metadata and /Lang come back null with a note rather than as decoded garbage. Object numbers that appear more than once (incremental updates) are counted and the first occurrence wins. With --text it also walks the content streams and returns { order_from_page_tree, chars, chars_no_spaces, lines, pages, text }: pages in /Kids order, glyph codes mapped through each font's /ToUnicode CMap (bfchar plus both bfrange forms - a range written as one number means consecutive code points, written as an array means one per code), and lines rebuilt from positions rather than from stream order, because LibreOffice splits a single Chinese heading across several TJ arrays with large negative kerns between them. Three position rules make the difference between reading that heading and reading its characters shuffled: BT resets the text matrix to identity, glyph advance moves x only (never y), and a TJ number moves the pen the OPPOSITE way (positive left, negative right). It also answers where the file points: outline (the /Outlines tree - /First then /Next, children under /First, each entry with its title, depth, target page object and which page that is in /Kids order, the root self-reported /Count, and the open/closed sign of each /Count), links (every /Subtype /Link annotation split into outbound URI, page-to-page with the resolved page number, and actions that go nowhere such as /Launch - the last kind carries its /S value in `action`, because a bare category cannot tell a launch from a form submit), and permissions (the /Encrypt /P bits, read as the signed integer it is: bits 3-6 always, 9-12 only from R3, otherwise null). Encrypted files still report structure, page numbers and permission bits, because numbers and names are not ciphertext, while titles and URIs come back null. `annotations` is the whole `/Annots` ledger, not just the links: every annotation the page names, with the /Subtype it wrote (absent stays a separate count rather than an empty name), its /T author, /Contents text and /M stamp handed over as written - LibreOffice writes `D:00000000000000Z` for a note's modification date, and that string is reported instead of being turned into a date or into null - plus the two pointers between annotations (`/Popup` on the note, `/Parent` on the box), because a note usually arrives with a popup that is itself listed in the same array: total annotations and number of notes are therefore two different counts and neither stands in for the other. `form` answers 'what did the file already have filled in': /AcroForm -> /Fields -> /Kids, each field with the /T it wrote itself plus a qualified name joined from the ancestors (that join is ours, the spec defines the period), the effective /FT and /Ff with a boolean saying whether this dictionary wrote them or inherited them from its parent, /V and /DV decoded with the same three PDF-string rules as metadata, /MaxLen, and kids / parent / depth so a hierarchy is visible without flattening it. value_present is a separate key because 'wrote an empty /V' and 'wrote no /V' are different claims, and value_shape names all four ways a /V can be written: string; array (a multi-select list box - value stays null while the parts go out as value_parts rather than being joined into one string the file never wrote); other, i.e. a NAME, which is how checkboxes and radio groups write it (that name comes back as value_name); and null for no /V key at all. Whether a checkbox is ticked is three separate facts and none of them is folded into a boolean: the field's /V, the widget's /AS (the state it shows now, reported as as_state) and the names keyed in the /AP /N dictionary (ap_states - which states exist at all; empty when the widget carries no /AP, which is 'nothing said', not 'none'). A radio group writes /V on the parent while each kid widget writes its own /AS, and a kid whose /AS disagrees with the parent's /V is reported that way instead of being reconciled. options holds every string /Opt wrote, in written order, and options_shape says how that array was written - /Opt is array-only in the spec and two writings are legal: [(a) (b)] means the display value is also the export value (flat), [[export display] ...] means the two are written apart (pairs); mixed and empty name the other two shapes, and a field with no /Opt key at all is null rather than an empty list. Appearance streams are not computed and signatures are not validated - a /FT Sig or a /Sig key is reported as such and nothing more, the same line this reader holds for encrypted files. Caveat kept honest: the inheritance and hierarchy path is exercised on forms-hier.pdf, and that file is not editor output - no editor measured here writes /FT or /Ff on a parent field, so pikepdf wrote it. The counters therefore say what this file says, not what a real form tool exports; on the editor-made PDFs here the inheritance counters stay 0 because each field writes its own /FT.  Not provided: signature validation, the text of encrypted files (streams are ciphertext there), graphics-stream text, and CID fonts' widths, which live in a /W array this reader does not follow - such a font's characters are recognised but its spacing is not. font_embedding asks a different question than fonts: for each font dictionary it reports the subset prefix the producer cut into /BaseFont (null when the name has no plus sign, so a name is never upgraded into a subset claim), the /FontDescriptor object that THIS dictionary wrote (null when it wrote none) and which of /FontFile, /FontFile2, /FontFile3 that descriptor carries. Measured: the seven LibreOffice files are all TrueType with a prefix, a /FontFile2 and a /ToUnicode, and pdffonts says yes/yes/yes on the same object numbers; risk.pdf holds one Helvetica (Type1) that says nothing at all, which is why descriptor_missing is 1 there rather than some embedding failure. Two boundaries were measured too: objstm.pdf keeps all five font dictionaries inside object streams (only 17 plain objects), and locked.pdf is a case where pdffonts lists nothing while the dictionaries are plaintext, so five fonts with /FontFile2 are still reported - the third party staying silent and us reading are different facts, both kept. Not done: a Type0 (CID) font keeps its descriptor one hop further out, under /DescendantFonts, and none of the eight local PDFs has a Type0 font, so that hop is not written here - for a CID font this ledger says descriptor null, which means this dictionary wrote none, not that the file embeds nothing. "
 )]
 pub struct OfficePdf {
     /// PDF 文件
@@ -111,6 +111,61 @@ fn font_json(one: &pdf::Font) -> Value {
         "encoding": one.encoding,
         "to_unicode": one.to_unicode,
         "from_object_stream": one.from_object_stream,
+    })
+}
+
+/// 「这张字体字典自己说了什么」：子集前缀、`/FontDescriptor` 在不在、descriptor 里有没有 FontFile*
+///
+/// 与上面那份 `fonts` 的分别是**问句**不同：那一份是「这份 PDF 用了哪些字体」，
+/// 这一份是「它说没说自己带了字面数据」。两份各按各的读法交，不互相顶替。
+fn font_embedding_report(doc: &pdf::Pdf, limit: usize) -> Value {
+    let fonts = doc.fonts();
+    let mut kinds: Vec<String> = fonts
+        .iter()
+        .filter_map(|one| one.font_file.clone())
+        .collect();
+    kinds.sort();
+    kinds.dedup();
+    let mut subtypes: Vec<String> = fonts
+        .iter()
+        .filter(|one| !one.subtype.is_empty())
+        .map(|one| one.subtype.clone())
+        .collect();
+    subtypes.sort();
+    subtypes.dedup();
+    json!({
+        "available": true,
+        "fonts_total": fonts.len(),
+        "with_descriptor": fonts.iter().filter(|one| one.descriptor.is_some()).count(),
+        "descriptor_missing": fonts.iter().filter(|one| one.descriptor.is_none()).count(),
+        "with_font_file": fonts.iter().filter(|one| one.font_file.is_some()).count(),
+        "subsets": fonts.iter().filter(|one| one.subset_prefix.is_some()).count(),
+        "with_to_unicode": fonts.iter().filter(|one| one.to_unicode).count(),
+        "file_kinds": kinds,
+        "subtypes": subtypes,
+        "fonts": fonts.iter().take(limit).map(font_embedding_json).collect::<Vec<Value>>(),
+    })
+}
+
+fn font_embedding_json(one: &pdf::Font) -> Value {
+    json!({
+        "object": one.id,
+        "base_font": one.base_font,
+        "subtype": one.subtype,
+        "subset_prefix": match &one.subset_prefix {
+            Some(text) => json!(text),
+            None => Value::Null,
+        },
+        "descriptor": match one.descriptor {
+            Some(num) => json!(num),
+            None => Value::Null,
+        },
+        "font_file": match &one.font_file {
+            Some(text) => json!(text),
+            None => Value::Null,
+        },
+        "to_unicode": one.to_unicode,
+        "encoding": one.encoding,
     })
 }
 
@@ -517,6 +572,8 @@ fn run_office_pdf(app: &OfficePdf, ctx: &Context) -> Result<Value, AppError> {
             "struct_tree_root": struct_tree,
         },
         "fonts": doc.fonts().iter().take(limit).map(font_json).collect::<Vec<_>>(),
+        // 「这张字体字典自己说没写descriptor / FontFile*」：与上面那份是**两个问句**
+        "font_embedding": font_embedding_report(&doc, limit),
         "images": doc.images().iter().take(limit).map(image_json).collect::<Vec<_>>(),
         "features": {
             "javascript": features.javascript,
@@ -1175,5 +1232,62 @@ mod tests {
         assert_eq!(items[9]["ap_states"], json!(["One", "Two"]));
         assert_eq!(items[10]["as_state"], "Two");
         assert_eq!(items[10]["ap_states"], json!([]), "这一个控件没带 /AP");
+    }
+
+    /// 「这张字体字典自己说了什么」：子集前缀、`/FontDescriptor` 在不在、里面有没有 `FontFile*`。
+    /// 期望值来自 `lyco_pdf.py:font_embedding_of`，另用 `pdffonts` 的 emb/sub/uni 三列对质过
+    /// （LibreOffice 那七份每张都是 yes/yes/yes，`risk.pdf` 那一张 Helvetica 是 no/no/no）。
+    #[test]
+    fn a_subset_font_says_it_carries_the_outline_and_helvetica_does_not() {
+        let deck = run("deck.pdf");
+        let emb = &deck["font_embedding"];
+        assert_eq!(emb["available"], json!(true));
+        assert_eq!(emb["fonts_total"], 6);
+        assert_eq!(emb["with_descriptor"], 6);
+        assert_eq!(emb["descriptor_missing"], 0);
+        assert_eq!(emb["with_font_file"], 6);
+        assert_eq!(emb["subsets"], 6);
+        assert_eq!(emb["with_to_unicode"], 6);
+        assert_eq!(emb["file_kinds"], json!(["FontFile2"]));
+        assert_eq!(emb["subtypes"], json!(["TrueType"]));
+        let rows = emb["fonts"].as_array().expect("是数组");
+        assert_eq!(rows.len(), 6);
+        assert_eq!(rows[0]["object"], 40);
+        assert_eq!(rows[0]["base_font"], "EAAAAA+Calibri");
+        assert_eq!(rows[0]["subset_prefix"], "EAAAAA");
+        assert_eq!(rows[0]["descriptor"], 38);
+        assert_eq!(rows[0]["font_file"], "FontFile2");
+        assert_eq!(rows[0]["to_unicode"], json!(true));
+        // 同一份 PDF 里 `fonts` 与 `font_embedding` 是两个问句：一份列名字，一份列「说不说自己带了字面数据」
+        assert_eq!(deck["fonts"].as_array().expect("是数组").len(), 6);
+        assert!(deck["fonts"][0].get("subset_prefix").is_none());
+        assert!(rows[0].get("from_object_stream").is_none());
+
+        // 反面凭据：标准 14 字体那份什么都没说 —— descriptor 与 font_file 都是 null（不是 0）
+        let risk = run("risk.pdf");
+        let one = &risk["font_embedding"];
+        assert_eq!(one["fonts_total"], 1);
+        assert_eq!(one["with_descriptor"], 0);
+        assert_eq!(one["descriptor_missing"], 1);
+        assert_eq!(one["with_font_file"], 0);
+        assert_eq!(one["subsets"], 0);
+        assert_eq!(one["with_to_unicode"], 0);
+        assert_eq!(one["file_kinds"], json!([]));
+        assert_eq!(one["subtypes"], json!(["Type1"]));
+        let rrows = one["fonts"].as_array().expect("是数组");
+        assert_eq!(rrows[0]["base_font"], "Helvetica");
+        assert_eq!(rrows[0]["subset_prefix"], Value::Null);
+        assert_eq!(rrows[0]["descriptor"], Value::Null);
+        assert_eq!(rrows[0]["font_file"], Value::Null);
+
+        // 字体字典住在对象流里的那些，照样数得清（这一族不追 xref 的第二层就在这）
+        let packed = run("objstm.pdf");
+        assert_eq!(packed["font_embedding"]["fonts_total"], 5);
+        assert_eq!(packed["font_embedding"]["with_font_file"], 5);
+        assert_eq!(packed["font_embedding"]["subsets"], 5);
+        // 加密那份：pdffonts 一个字都不列，而字典是明文可读的 —— 两边各说各的，不互相顶替
+        let locked = run("locked.pdf");
+        assert_eq!(locked["font_embedding"]["fonts_total"], 5);
+        assert_eq!(locked["font_embedding"]["with_font_file"], 5);
     }
 }

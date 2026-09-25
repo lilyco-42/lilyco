@@ -5656,6 +5656,66 @@ def main() -> int:
         [None, None],
     )
 
+    # ── 3ar) 这张字体字典自己说了什么：子集前缀、/FontDescriptor、里面有没有 FontFile* ──
+    print("=== 3ar) PDF 字体嵌没嵌入：字典自己写的三样，外加 pdffonts 那三列的对质 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.pdf")):
+        got = lbin("office-pdf", fixture(name))
+        check("%s 字体字典那份账与读者一致（descriptor / FontFile* / 子集前缀）" % name,
+              got.get("font_embedding"), files[name]["pdf"]["font_embedding"])
+    dk = lbin("office-pdf", fixture("deck.pdf"))
+    check(
+        "`deck.pdf` 六张字体每张都**自己写了** `/FontDescriptor`，descriptor 里都带 `/FontFile2`，"
+        "名字前还各有一截生产者自己截的子集前缀（`EAAAAA+Calibri` → `subset_prefix` `EAAAAA`）；"
+        "六张都带 `/ToUnicode` —— `pdffonts` 那三列 emb/sub/uni 全是 yes，对象号逐个对得上。"
+        "同一份输出里 `fonts` 与 `font_embedding` 是**两个问句**：前者列名字与编码，"
+        "后者只回答「这一层说没说自己带了字面数据」，键互不重叠",
+        [dig(dk, "font_embedding.fonts_total"),
+         dig(dk, "font_embedding.with_descriptor"),
+         dig(dk, "font_embedding.descriptor_missing"),
+         dig(dk, "font_embedding.with_font_file"),
+         dig(dk, "font_embedding.subsets"),
+         dig(dk, "font_embedding.with_to_unicode"),
+         dig(dk, "font_embedding.file_kinds"),
+         dig(dk, "font_embedding.subtypes"),
+         dig(dk, "font_embedding.fonts[0].object"),
+         dig(dk, "font_embedding.fonts[0].base_font"),
+         dig(dk, "font_embedding.fonts[0].subset_prefix"),
+         dig(dk, "font_embedding.fonts[0].font_file"),
+         dig(dk, "font_embedding.fonts[0].from_object_stream")],
+        [6, 6, 0, 6, 6, 6, ["FontFile2"], ["TrueType"], 40, "EAAAAA+Calibri",
+         "EAAAAA", "FontFile2", None],
+    )
+    rk = lbin("office-pdf", fixture("risk.pdf"))
+    check(
+        "`risk.pdf` 是这一问的反面凭据：一张 `Helvetica`（Type1）**什么都没有写** —— "
+        "`descriptor` 与 `font_file` 都是 null（不是 0），`subsets` 0、`with_to_unicode` 0。"
+        "标准 14 字体本来就从不嵌入，所以这里没有「嵌入失败」可读；"
+        "而 `pdffonts` 对它那一行给的是 emb=no、sub=no —— 两边各自的答案都留下",
+        [dig(rk, "font_embedding.fonts_total"),
+         dig(rk, "font_embedding.with_descriptor"),
+         dig(rk, "font_embedding.descriptor_missing"),
+         dig(rk, "font_embedding.with_font_file"),
+         dig(rk, "font_embedding.subsets"),
+         dig(rk, "font_embedding.file_kinds"),
+         dig(rk, "font_embedding.subtypes"),
+         dig(rk, "font_embedding.fonts[0].base_font"),
+         dig(rk, "font_embedding.fonts[0].descriptor"),
+         dig(rk, "font_embedding.fonts[0].font_file")],
+        [1, 0, 1, 0, 0, [], ["Type1"], "Helvetica", None, None],
+    )
+    check(
+        "字体字典也可以整个住在**对象流**里：`objstm.pdf` 那份明文只有 17 个对象，"
+        "五张字体都在 `/Type /ObjStm` 里 —— 不拆第二层就会报「这张 PDF 一张字体也没有」。"
+        "加密的 `locked.pdf` 是另一种分工：`pdffonts` 一个字都不列（它解不开），"
+        "而字体字典是明文对象，这里数得出 5 张全带 `/FontFile2` —— 两份答案各说各的，不互相顶替",
+        [dig(lbin("office-pdf", fixture("objstm.pdf")), "font_embedding.fonts_total"),
+         dig(lbin("office-pdf", fixture("objstm.pdf")), "font_embedding.with_font_file"),
+         dig(lbin("office-pdf", fixture("objstm.pdf")), "font_embedding.with_to_unicode"),
+         dig(lbin("office-pdf", fixture("locked.pdf")), "font_embedding.fonts_total"),
+         dig(lbin("office-pdf", fixture("locked.pdf")), "font_embedding.subsets"),
+         dig(lbin("office-pdf", fixture("locked.pdf")), "font_embedding.fonts[0].subset_prefix")],
+        [5, 5, 5, 5, 5, "BAAAAA"],
+    )
     # ── 3ao) 这一页有哪些形状：pptx 的 spTree 直接孩子就是叠放序，ODF 的分组是 svg:g ──
     print("=== 3ao) 形状清单：组合、层级、两处坐标，以及一页零个形状 ===")
 
