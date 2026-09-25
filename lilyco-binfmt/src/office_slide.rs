@@ -2597,4 +2597,118 @@ mod tests {
         // .ppt 那一族没有这一跳可走：键整个不在，不是 0
         assert!(run("deck.ppt")["placeholder_hops"].is_null());
     }
+
+    /// 「这一页放映时怎么换」：一页可以写两条 `p:transition`，三个属性各说一件事。
+    /// 断言一律不靠页的位置（两支读者的页序不同），只按内容与合计数 ——
+    /// 期望值全部来自 `office_reader.py:slide_transition_detail`。
+    #[test]
+    fn a_page_that_writes_its_transition_twice_is_still_one_page() {
+        let deck = run("deck-tr.pptx");
+        let pages = deck["slides"].as_array().expect("是数组");
+        let elements = |rows: &Vec<Value>| -> usize {
+            rows.iter()
+                .map(|one| one["transition_detail"]["elements"].as_u64().unwrap_or(0) as usize)
+                .sum()
+        };
+        let with_any = |rows: &Vec<Value>| -> usize {
+            rows.iter()
+                .filter(|one| one["transition_detail"]["elements"].as_u64().unwrap_or(0) > 0)
+                .count()
+        };
+        // python-pptx 那份：三页两条，每页最多一条
+        assert_eq!(elements(pages), 2);
+        assert_eq!(with_any(pages), 2);
+        let written: Vec<String> = pages
+            .iter()
+            .flat_map(|one| {
+                one["transition_detail"]["list"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .map(|one| one["written"].to_string())
+            .collect();
+        assert!(
+            written.contains(&json!({"spd": "med", "advClick": "1", "advTm": "5000"}).to_string())
+        );
+        assert!(written.contains(&json!({"spd": "fast"}).to_string()));
+        // 效果在孩子身上，方向也在孩子身上
+        let effects: Vec<String> = pages
+            .iter()
+            .flat_map(|one| {
+                one["transition_detail"]["list"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .flat_map(|one| one["effects"].as_array().cloned().unwrap_or_default())
+            .map(|one| one["element"].as_str().unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(effects.len(), 2);
+        assert!(effects.contains(&"fade".to_string()) && effects.contains(&"wipe".to_string()));
+        let dir = pages
+            .iter()
+            .flat_map(|one| {
+                one["transition_detail"]["list"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .flat_map(|one| one["effects"].as_array().cloned().unwrap_or_default())
+            .filter_map(|one| one["written"]["dir"].as_str().map(String::from))
+            .collect::<Vec<String>>();
+        assert_eq!(dir, ["l"]);
+
+        let rew = run("deck-tr-lo.pptx");
+        let pages = rew["slides"].as_array().expect("是数组");
+        // 同一份被重写：四条元素而只有三页有 —— 两个数互推不出来
+        assert_eq!(elements(pages), 4);
+        assert_eq!(with_any(pages), 3);
+        let written: Vec<String> = pages
+            .iter()
+            .flat_map(|one| {
+                one["transition_detail"]["list"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .map(|one| one["written"].to_string())
+            .collect();
+        // 第一页掉了 advClick、第二页连 spd 也没了（属性表是空的），第三页被补了两条
+        assert!(written.contains(&json!({"spd": "med", "advTm": "5000"}).to_string()));
+        assert!(written.contains(&json!({}).to_string()));
+        assert!(written.contains(&json!({"spd": "slow", "dur": "2000"}).to_string()));
+        assert_eq!(
+            written
+                .iter()
+                .filter(|one| *one == &json!({"spd": "slow"}).to_string())
+                .count(),
+            1
+        );
+        // 而孩子只剩一个 wipe：LO 给第三页补的那两条都没有效果孩子
+        let childless = pages
+            .iter()
+            .flat_map(|one| {
+                one["transition_detail"]["list"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .filter(|one| {
+                one["effects"]
+                    .as_array()
+                    .map(Vec::is_empty)
+                    .unwrap_or(false)
+            })
+            .count();
+        assert_eq!(childless, 2);
+
+        // odp 那一族不交这个键（缺键 = 这一族没看，不是 0）
+        let odp = run("deck-tr.odp");
+        assert!(odp["slides"]
+            .as_array()
+            .expect("是数组")
+            .iter()
+            .all(|one| one.get("transition_detail").is_none()));
+    }
 }
