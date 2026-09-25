@@ -145,10 +145,15 @@ pub(crate) fn odf(root: &Node, limit: usize) -> Value {
             }
         }
     }
-    let with_annotation = rows
-        .iter()
-        .filter_map(|one| one["host_paragraph"].as_u64())
-        .collect::<Vec<u64>>();
+    // 「几条批注」与「几条段带着批注」是两个数：同一段可以锚两条（实测那份件三条批注住在两段里）
+    let mut hosts_seen: Vec<u64> = Vec::new();
+    for one in &rows {
+        if let Some(had) = one["host_paragraph"].as_u64() {
+            if !hosts_seen.contains(&had) {
+                hosts_seen.push(had);
+            }
+        }
+    }
     json!({
         "family": "odf",
         "available": true,
@@ -156,7 +161,7 @@ pub(crate) fn odf(root: &Node, limit: usize) -> Value {
         "paragraphs_total": paragraphs.len(),
         "paragraphs_in_annotations": in_annotations,
         "paragraphs_body_only": paragraphs.len() - in_annotations,
-        "hosted_in": with_annotation.len(),
+        "hosted_in": hosts_seen.len(),
         "distinct_creators": creators,
         "annotations": rows.into_iter().take(limit).collect::<Vec<Value>>(),
     })
