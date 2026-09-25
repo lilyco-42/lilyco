@@ -43,6 +43,7 @@ from lyco_markdown import odf_markdown as odf_markdown_ledger  # 同一本的 OD
 from lyco_equations import docx_equations as docx_equations_ledger  # OMML 那一份账的第二读者
 from lyco_equations import odf_equations as odf_equations_ledger  # 公式部件（MathML）那一份
 from lyco_equations import odp_equations as odp_equations_ledger  # 放映每一页的公式（同一条判据）
+from lyco_equations import pptx_equations as pptx_equations_ledger  # pptx：文本体里的 OMML
 
 END = "END"  # CFB 的链结束标记
 FREE = "FREE"
@@ -8926,6 +8927,8 @@ def facts(path: Path) -> dict:
             out["ooxml"] = pptx_facts(path)
             # 「这框对应版式里哪一条」那一跳（重写那份会断）
             out["ooxml"]["placeholder_hops"] = pptx_placeholder_hops(path)
+            # 一条式子是文本体里的 OMML，而同一个形状在 Fallback 里还写了一遍（挂着替身图）
+            out["ooxml"]["equations"] = pptx_equations_ledger(path)
         elif "content.xml" in parts:
             out["app"] = "opendocument"
             out["odf"] = odt_facts(path)

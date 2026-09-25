@@ -305,6 +305,7 @@ def main() -> int:
         "eqs.odp": ("opendocument", "powerpoint", "odp"),
         "eqs-lo.odp": ("opendocument", "powerpoint", "odp"),
         "eqs.pptx": ("ooxml", "powerpoint", "pptx"),
+        "eqs-pp.pptx": ("ooxml", "powerpoint", "pptx"),
         # 注的编号那三份：同一句话在两处说，两处说的不一样
         "nset.docx": ("ooxml", "word", "docx"),
         "nset-lo.docx": ("ooxml", "word", "docx"),
@@ -6317,16 +6318,107 @@ def main() -> int:
         "没有公式的放映也给「数过了没有」而不是缺键，但要紧的是**同一个数在另一份件上不是 0**："
         "`deck.odp` 一份公式都没有（`objects_total` 0、`math_found` 0、式子里的字 0 个码位），"
         "可它页上仍有 5 枚 `draw:frame`、注块里 3 枚、页缩略图 2 枚 —— 把「frame 数」当「公式数」"
-        "就会在这里说谎。`*.pptx` **不交这个键**：LibreOffice 会把 odp 的式子写成文本体里的 OMML"
-        "（`a14:m` 套 `m:oMath`）外加一张 EMF，那是另一族要另量的形状，本机这条链的量法还没做完",
+        "就会在这里说谎。`*.pptx` 那一份另起一本（见 3aw）：LibreOffice 把 odp 的式子写成"
+        "文本体里的 OMML（`a14:m` 套 `m:oMath`）外加 `mc:Fallback` 里的一张 EMF，"
+        "那一族的形状、段号与页级三格都在 3aw 那一本上对",
         [dig(lbin("office-slide", fixture("deck.odp")), "equations.equations_total"),
          dig(lbin("office-slide", fixture("deck.odp")), "equations.frames_seen"),
          dig(lbin("office-slide", fixture("deck.odp")), "equations.frames_in_notes"),
          dig(lbin("office-slide", fixture("deck.odp")), "equations.page_thumbnails"),
          dig(lbin("office-slide", fixture("deck.odp")), "equations.objects_total"),
-         lbin("office-slide", fixture("deck.pptx")).get("equations"),
-         lbin("office-slide", fixture("eqs.pptx")).get("equations")],
-        [0, 5, 3, 2, 0, None, None],
+         dig(lbin("office-slide", fixture("deck.pptx")), "equations.equations_total"),
+         dig(lbin("office-slide", fixture("deck.pptx")), "equations.slides_total"),
+         dig(lbin("office-slide", fixture("eqs.pptx")), "equations.equations_total"),
+         dig(lbin("office-slide", fixture("eqs.pptx")), "equations.slides[0].shapes_total")],
+        [0, 5, 3, 2, 0, 0, 2, 2, 2],
+    )
+    chart = lbin("office-slide", fixture("deck-chart.odp"))
+    check(
+        "**图表走的是同一扇门**：`deck-chart.odp` 页上有 2 枚 `draw:frame`、2 枚 `draw:object`"
+        "（`./Object 1` / `./Object 2`，两枚部件都在包里），可那两份 `content.xml` 的根不是 "
+        "`<math>` —— 于是 `math_found` 0、`objects_without_math` 2、`equations_total` 0，"
+        "`elements_seen` 与式子里的字都是空的。这一格存在的理由就是这份件：拿「有 `draw:object`」"
+        "或「部件解析得开」当公式，就会把两张图报成两条式子（第二读者第一版正是这样，"
+        "在这份件上才对出来）。两处替位图地址也都不在包里（`replacements_missing` 2）",
+        [dig(chart, "equations.frames_seen"), dig(chart, "equations.objects_total"),
+         dig(chart, "equations.parts_found"), dig(chart, "equations.math_found"),
+         dig(chart, "equations.objects_without_math"),
+         dig(chart, "equations.equations_total"), dig(chart, "equations.elements_seen"),
+         dig(chart, "equations.replacements_written"),
+         dig(chart, "equations.replacements_missing"),
+         [dig(chart, "equations.items[%d].math_found" % i) for i in (0, 1)]],
+        [2, 2, 2, 0, 2, 0, [], 2, 2, [False, False]],
+    )
+    # ── 3aw) pptx 的公式：一条式子挂在文本体里，同一个形状在 Fallback 里还写了一遍 ────
+    print("=== 3aw) pptx 的公式：a14:m 里的 OMML 与 Fallback 里那张替身图 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.pptx")):
+        got = lbin("office-slide", fixture(name))
+        check("%s 的公式那份账与读者一致（挂法、替身图、页级三格各数各的）" % name,
+              got.get("equations"), files[name]["ooxml"]["equations"])
+    lo = lbin("office-slide", fixture("eqs.pptx"))
+    pp = lbin("office-slide", fixture("eqs-pp.pptx"))
+    check(
+        "`eqs.pptx`（`eqs.odp` → pptx 那一转）两条式子，每条是 `a:p → a14:m → m:oMath`："
+        "字在 `m:t` 里（`ab` / `12`），结构名按文档顺序（`f`/`num`/`den`、`rad`/`radPr`/"
+        "`degHide`/`deg`/`e`），一条式子两个数学 run。要紧的是**同一个形状写了两遍** —— "
+        "式子在 `mc:Choice Requires=\"a14\"` 里那一遍，`mc:Fallback` 里那一遍没有 txBody、"
+        "改挂一张 EMF：`fallback_blip` 交文件写着的号、`fallback_target` 解成包里的部件、"
+        "`fallback_found` 回答它在不在包里，而 `fallback_shape_id` 与 `shape_id` 一字不差"
+        "（9 与 10 各一枚 → `duplicated_shapes` 2）。所以页级三格必须分开：slide1 有 "
+        "**2 枚 `p:sp` 却只有 1 条式子、1 个段**",
+        [dig(lo, "equations.equations_total"), dig(lo, "equations.slides_with"),
+         dig(lo, "equations.alternates_total"), dig(lo, "equations.fallbacks_written"),
+         dig(lo, "equations.duplicated_shapes"), dig(lo, "equations.rasters_written"),
+         dig(lo, "equations.rasters_found"), dig(lo, "equations.rasters_missing"),
+         dig(lo, "equations.paragraphs_total"), dig(lo, "equations.text_chars"),
+         dig(lo, "equations.math_runs"), dig(lo, "equations.slides"),
+         dig(lo, "equations.items[0].holder"),
+         dig(lo, "equations.items[0].choice_requires"),
+         dig(lo, "equations.items[0].fallback_blip"),
+         dig(lo, "equations.items[0].fallback_target"),
+         dig(lo, "equations.items[0].fallback_shape_id"),
+         dig(lo, "equations.items[0].shape_id"),
+         dig(lo, "equations.items[0].shape_name"),
+         dig(lo, "equations.items[1].structures"), dig(lo, "equations.structures_seen")],
+        [2, 2, 4, 2, 2, 2, 2, 0, 3, 4, 4,
+         [{"part": "ppt/slides/slide1.xml", "show_index": "256", "paragraphs_total": 1,
+           "shapes_total": 2, "formulas": 1, "alternates": 2},
+          {"part": "ppt/slides/slide2.xml", "show_index": "257", "paragraphs_total": 2,
+           "shapes_total": 3, "formulas": 1, "alternates": 2}],
+         "a14:m", "a14", "rId1", "ppt/media/image1.emf", "9", "9", "对象1",
+         ["rad", "radPr", "degHide", "deg", "e"],
+         ["f", "num", "den", "rad", "radPr", "degHide", "deg", "e"]],
+    )
+    check(
+        "同一句问题的第二种写法：`eqs-pp.pptx` 由 python-pptx 手挂，`a14:m` **裸挂在 `a:p` 里**"
+        "（与正文那个 `a:r` 并列），没有 `mc:AlternateContent`、没有替身图 —— "
+        "`alternates_total` 0、`fallbacks_written` 0、`rasters_written` 0，三条 `fallback_*` "
+        "全是 **null（这一族没写这一格）** 而不是 false；两条式子的字与结构名与 LO 那份一模一样，"
+        "而每页只有 1 枚 `p:sp`（LO 那份是 2 枚）—— 形状数与式子数的两倍关系是**挂法**带来的，"
+        "不是内容",
+        [dig(pp, "equations.equations_total"), dig(pp, "equations.alternates_total"),
+         dig(pp, "equations.fallbacks_written"), dig(pp, "equations.duplicated_shapes"),
+         dig(pp, "equations.rasters_written"),
+         [dig(pp, "equations.items[%d].%s" % (i, k)) for i in (0, 1)
+          for k in ("holder", "in_alternate", "choice_requires", "fallback_written",
+                    "fallback_blip", "fallback_found")],
+         [dig(pp, "equations.items[%d].text" % i) for i in (0, 1)],
+         [dig(pp, "equations.slides[%d].shapes_total" % i) for i in (0, 1)],
+         [dig(lo, "equations.slides[%d].shapes_total" % i) for i in (0, 1)]],
+        [2, 0, 0, 0, 0,
+         ["a14:m", False, None, None, None, None,
+          "a14:m", False, None, None, None, None],
+         ["ab", "12"], [1, 1], [2, 3]],
+    )
+    check(
+        "跨生产者同形：两家的 `structures_seen`、`text_chars`、`math_runs` 与两条式子的字"
+        "全部一致，所以「哪一格不一样」才看得见 —— 差的是**外壳**与**引用**，不是内容。"
+        "另外记一条生产者边界：这份裸挂的 `eqs-pp.pptx` 转 odp 时 LibreOffice **把整条式子丢了**"
+        "（转出的件里 `draw:object` 0 枚、没有任何公式部件），所以这一族不能拿重写当凭据",
+        [dig(pp, "equations.structures_seen") == dig(lo, "equations.structures_seen"),
+         dig(pp, "equations.text_chars"), dig(pp, "equations.math_runs"),
+         [dig(pp, "equations.items[%d].text" % i) for i in (0, 1)]],
+        [True, 4, 4, ["ab", "12"]],
     )
     # ── 3aq) 公式那枚 <f> 自己写了什么：共享组的跟随格在文件里没有公式正文 ──────────
     print("=== 3aq) 公式元素自己：共享组、空正文带缓存值、两个生产者三种写法 ===")

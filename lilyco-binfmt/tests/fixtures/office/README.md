@@ -99,7 +99,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `eq-od.docx` | LibreOffice（`eq.odt` → .docx） | MathML 回到 OMML 之后与那次 docx → docx 重写**一格不差** —— 两条路走出来的两副件在这一本上同形，所以不替文件合并任何一格 |
 | `eqs.odp` | 手写 odp（`write_equations_odp`；两枚公式部件逐字用 LibreOffice 自己写的 MathML） | 两页、三条 `draw:frame`、两枚 `draw:object`：每页一条式子，各自住在 `Object N/content.xml` 里（`parts_found` 2、里面都有 `<math>` 根 → `math_found` 2），frame 写 `text:anchor-type="as-char"` 与自带单位的 `3.261cm`，第一条另有一枚替位图 `./ObjectReplacements/Object 1`（在包里）—— 外壳只能手写：**LibreOffice 没有 odt → odp 的导出过滤器**（实测 `Error: no export filter`） |
 | `eqs-lo.odp` | LibreOffice（`eqs.odp` → .odp） | 式子一条不少、字一字不变（`ab` / `12`、`{a} over {b}` / `sqrt {1 2}`），而三格改了：`text:anchor-type` **整个被丢**（`anchors_written` 2 → 0）、每页补一枚装 `draw:page-thumbnail` 的 frame（`frames_in_notes` 0 → 2、`page_thumbnails` 0 → 2，页上的 frame 数仍是 3 —— 所以两份账必须分开）、样式名从 `fr1` 换成 `gr1`，还给第二枚对象写了 `./ObjectReplacements/Object 2` —— **这个部件既不在包里也不在清单里**（`replacements_missing` 1） |
-| `eqs.pptx` | LibreOffice（`eqs.odp` → .pptx） | 反向那一转的真实形状：式子不是 OLE 也不是图框，而是**文本体里的 OMML**（`<a:p><a14:m><m:oMath …>`）外加一张 `ppt/media/image1.emf`；这一本的 pptx 侧还没量完，所以那一族**不交这个键**（缺键，不是 0） |
+| `eqs.pptx` | LibreOffice（`eqs.odp` → .pptx） | 反向那一转的真实形状：式子不是 OLE 也不是图框，而是**文本体里的 OMML**（`<a:p><a14:m><m:oMath …>`）套在一枚 `mc:Choice Requires="a14"` 里，同一个 `mc:Fallback` 把**那个形状又写一遍**（`cNvPr` 的 id 与名字一字不差）而改挂一张 `ppt/media/imageN.emf` —— 见事实 112 |
+| `eqs-pp.pptx` | python-pptx（`write_equations_pptx`，OMML 原文手挂） | pptx 那一本的第二种写法：`a14:m` **裸挂在 `a:p` 里**（与正文 `a:r` 并列），没有 `AlternateContent`、没有替身图 —— `alternates_total` 0、三格 `fallback_*` 全 null。两条式子的字与结构名与 LO 那份一模一样，每页 `p:sp` 从 2 枚变 1 枚。转 odp 时 LibreOffice **把裸挂的那条整条丢掉**（`draw:object` 0），所以这一族不能拿重写当凭据 |
 | `md.odt` | LibreOffice（`md.docx` → .odt） | **同一份稿子的第三副样子**：块数与两份 docx 一样是 18、渲染 35 行里**只有一行不同**（图片地址各按自己文件写的交），而账上换了一整套读法 —— 粗斜要一跳字符样式（`spans_unresolved` 0 才算落到字上）、空格是 `text:s` **记号**（`space_markers` 1，实测写成 `两处空格 <text:s/>之间是一个记号`，后半句挂在这个元素的尾上）、列表是嵌套元素（号一律来自 `text:list-style`，`lists_named` 3）、批注与注**嵌在正文段里面**（跳过的条数各记一格），见事实 109 |
 | `deck.odp`（结构） | 同上 | 两页：`draw:name` 是「预算评审」与「第二页：数字」；第一页有 `presentation:class="notes"` 的备注（「评审时先讲口径再讲数字」），**旁边还坐着页码占位，里面的样字是 `<编号>`** —— 整页一把抓就会把它当正文；两个母版页名、两个版式名，但文件里没有任何版式定义；尺寸 25.4cm×19.05cm landscape 在 styles.xml 的 page-layout 里 |
 | `notes.odt`（结构） | 同上 | 10 段（2 段是空的）、两个带 `text:outline-level` 的标题、1 张 2×2 表（名叫「表格1」）、一条 `text:annotation` 批注、一个 `draw:frame`+`draw:image`、一个 `text:a` 超链接、5 个 `text:sequence-decl`；`meta.xml` 自报 paragraph-count 10 / page-count 2 / word-count 61 |
@@ -2113,7 +2114,38 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 反向那一转（`eqs.pptx`）露出 pptx 的装法：既不是 `p:oleObj` 也不是 `p:graphicFrame`，
       而是**文本体里的 OMML**（`<a:p><a14:m><m:oMath …>`）外加一张 EMF。我第一版只 grep 了
       前者就下了「odp → pptx 把公式丢了」的结论 —— 那是「没找到」不是「没有」。
-      pptx 那一族这一本**不交**（量法还没做完），缺键而不是 0。
+      pptx 那一族另起一本（下面事实 112）：它的式子既不是 `p:oleObj` 也不是 `p:graphicFrame`，
+      而是**文本体里的 OMML** —— 我第一版只 grep 了前者就下了「odp → pptx 把公式丢了」的结论，
+      那是「没找到」不是「没有」。
+    - 这一族的 `objects_without_math` 有真实凭据了：`deck-chart.odp` 两枚 `draw:object` 的部件
+      都在包里、都解析得开，可根不是 `<math>`（是图表），于是 `math_found` 0。
+      **第二读者第一版把「解析得开」当成了「是公式」**，在这份件上报出 2 条公式，
+      与 Rust（一直按 `<math>` 根判）在 CI 上对不上才暴露 —— 两份读者各自的盲点只有撞上
+      有反例的件才现形，这也是这条 lane 要把图表件一起过一遍的原因。
+
+112. **放映里的公式（pptx 那一支）：一条式子把同一个形状写两遍，一遍有字、一遍有图**
+    - LibreOffice 的 pptx 把式子写成 `mc:AlternateContent` → `mc:Choice Requires="a14"` →
+      `p:sp` → `p:txBody` → `a:p` → `a14:m` → `m:oMath`（字在 `m:t` 里）；同一个
+      `AlternateContent` 的 `mc:Fallback` 里**那枚 `p:sp` 又写一遍**，`cNvPr` 的 id 与名字
+      一字不差（`eqs.pptx` 两页各一枚：9/对象1、10/对象2 → `duplicated_shapes` 2），
+      只是那一遍没有 `txBody`，改挂 `a:blipFill → a:blip r:embed="rId1"` 指向
+      `ppt/media/imageN.emf`（`image/x-emf` 在 `[Content_Types].xml` 里有 Override）。
+      三格 `fallback_blip` / `fallback_target` / `fallback_found` 就把「文件写的号、解出来的
+      部件、部件在不在包里」各交一份。
+    - **页级三格因此必须分开**：`eqs.pptx` 第一页 `shapes_total` 2、`paragraphs_total` 1、
+      `formulas` 1 —— 拿形状数当式子数就会在 LO 那份上翻一倍。`alternates_total` 数的是
+      页里**所有** `mc:AlternateContent`（连 `p:transition` 那枚也算，所以是 4），
+      与「式子那一枚有没有 Fallback」（`fallbacks_written` 2）不是同一个 population。
+    - 第二种写法由 python-pptx 手挂：`a14:m` 直接坐在 `a:p` 里、与正文 `a:r` 并列，
+      没有外壳也没有替身图 —— `alternates_total` 0，三格 `fallback_*` 是 **null（这一族
+      没写这一格）** 而不是 false；两条式子的字（`ab` / `12`）、结构名
+      （`f`/`num`/`den`、`rad`/`radPr`/`degHide`/`deg`/`e`）与 `math_runs` 4 与 LO 那份
+      完全一致：**差的是外壳，不是内容**。
+    - 一条生产者边界（本机量的）：那份裸挂的 `eqs-pp.pptx` 转 odp 时 LibreOffice
+      **把整条式子丢掉**（转出的件里 `draw:object` 0、没有任何公式部件），再转回 pptx 也只剩
+      正文那一段字。所以这一支的第二个生产者只能停在「按写的交」，不能拿重写当凭据。
+    - OMML 那一段的读法与 docx 那一本共用同一条排除表（`r` 与 `t` 是壳与字、不算结构，
+      `m:nor` / `m:lit` 各数各的），两家都在 `equations.rs` 里同一个函数，不抄两遍。
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
 `scripts/acceptance/office_reader.py`（OOXML / ODF / MS-CFB / OLE 属性集，只用标准库）、

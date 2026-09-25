@@ -356,18 +356,275 @@ def odp_equations(path: Path) -> dict:
 
 
 def mathml_of(blob: bytes):
-    """一个公式部件里的 MathML：display 按写的交，元素按文档顺序，字只拼那四类"""
+    """一个公式部件里的 MathML：display 按写的交，元素按文档顺序，字只拼那四类
+
+    **先要有一枚 `<math>` 根**：`Object N/` 这一族既装公式也装图表，图表的
+    `content.xml` 一样解析得开 —— 以前这里只判「解析得出」，于是 `deck-chart.odp` 里
+    两枚图表对象被报成两条公式（Rust 那一侧一直是按 `<math>` 根判的，两家在 CI 上
+    对不上才暴露）。没有 `<math>` 根就交回那一组空值，与 Rust 同一条哨兵。
+    """
     if not blob:
         return None, [], "", None, None
     try:
         node = ET.fromstring(blob)
     except ET.ParseError:
         return None, [], "", None, None
-    elems = [local(one.tag) for one in node.iter()]
+    roots = [one for one in node.iter() if local(one.tag) == "math"]
+    if not roots:
+        return None, [], "", None, None
+    math = roots[0]
+    elems = [local(one.tag) for one in math.iter()]
     text = "".join("".join(one.itertext())
-                   for one in node.iter() if local(one.tag) in MATH_TEXT)
-    ann = [one for one in node.iter() if local(one.tag) == "annotation"]
+                   for one in math.iter() if local(one.tag) in MATH_TEXT)
+    ann = [one for one in math.iter() if local(one.tag) == "annotation"]
     if ann:
-        return (node.get("display"), elems, text, ann[0].get("encoding"),
+        return (math.get("display"), elems, text, ann[0].get("encoding"),
                 "".join(ann[0].itertext()))
-    return node.get("display"), elems, text, None, None
+    return math.get("display"), elems, text, None, None
+
+
+# ── pptx：OMML 挂在文本体里，替身图挂在 Fallback 里 ──────────────────────────────
+def pptx_prefixes(text: str) -> dict:
+    """命名空间 URI → **文档里第一个**声明它的前缀
+
+    Rust 那一侧 `xmlscan` 把元素名连前缀一起存，所以它交出的 `holder` 就是文件写下的那一串
+    （`a14:m`）。ElementTree 只给 URI，于是这里按声明顺序还原本文件的叫法 —— 前缀是生产者
+    自己的事，两家都只按写的交，不改成「规范推荐的前缀」。
+    """
+    out: dict = {}
+    for pre, uri in re.findall(r'xmlns:([\w.\-]+)="([^"]*)"', text):
+        out.setdefault(uri, pre)
+    return out
+
+
+def pptx_name(node, prefixes: dict) -> str:
+    tag = node.tag
+    if not tag.startswith("{"):
+        return tag
+    uri, _, tail = tag[1:].partition("}")
+    pre = prefixes.get(uri)
+    return "%s:%s" % (pre, tail) if pre else tail
+
+
+def _pptx_resolve(base: str, target: str) -> str:
+    seg = base.split("/")
+    for one in target.split("/"):
+        if one == "..":
+            seg = seg[:-1]
+        elif one != ".":
+            seg.append(one)
+    return "/".join(seg)
+
+
+def omml_of(node):
+    """一条 OMML：结构名按文档顺序（`r` / `t` / `oMath` 是壳与字，不算结构），
+    字只拼 `m:t`，`m:nor` 与 `m:lit` 各数各的 —— 与 `equations.rs` 的 `add` 同一张排除表
+    """
+    structures = []
+    runs = 0
+    nor = 0
+    lit = 0
+    text = ""
+    for one in node.iter():
+        if one is node:
+            continue
+        name = local(one.tag)
+        if name == "r":
+            runs += 1
+            continue
+        if name == "t":
+            text += "".join(one.itertext())
+            continue
+        if name == "nor":
+            nor += 1
+        if name == "lit":
+            lit += 1
+        if name == "oMath":
+            continue
+        structures.append(name)
+    return structures, runs, nor, lit, text
+
+
+def _pptx_page_rels(parts: dict, part: str) -> dict:
+    """这一页自己的关系表：号只在这里查（`ppt/slides/_rels/slideN.xml.rels`）"""
+    member = part.rsplit("/", 1)
+    member = "%s/_rels/%s.rels" % (member[0], member[1])
+    out: dict = {}
+    if member not in parts:
+        return out
+    for one in ET.fromstring(parts[member]).iter():
+        if local(one.tag) == "Relationship":
+            out[one.get("Id")] = _pptx_resolve("ppt/slides", one.get("Target") or "")
+    return out
+
+
+def _pptx_walk(node, holder, ctx, prefixes, hits, found):
+    """自顶往下带着上下文走：式子住在哪条链上、外面那层 `AlternateContent` 是哪一枚
+
+    不能自底往上找祖先再比身份 —— ElementTree 每次迭代子节点都换一枚包装对象出来，
+    `is` 永远不成立（这一条本机量过）。所以标志一路往下带，Rust 那一侧没有父指针，走的同一条。
+    """
+    for one in node:
+        kind = local(one.tag)
+        sub = dict(ctx)
+        name = pptx_name(one, prefixes)
+        if kind == "sp":
+            found["shapes"] += 1
+            sub["in_sp"] = True
+            cn = [x for x in one.iter() if local(x.tag) == "cNvPr"]
+            sub["shape"] = (cn[0].get("id"), cn[0].get("name")) if cn else (None, None)
+        elif kind == "AlternateContent":
+            found["alternates"] += 1
+            sub["alternate"] = one
+        elif kind == "Choice":
+            sub["requires"] = one.get("Requires")
+        elif kind == "p" and ctx["in_sp"]:
+            sub["paragraph"] = found["paragraphs"]
+            found["paragraphs"] += 1
+        elif kind == "oMath":
+            found["formulas"] += 1
+            hits.append({
+                "node": one,
+                "holder": holder,
+                "shape": ctx["shape"],
+                "requires": ctx["requires"],
+                "alternate": ctx["alternate"],
+                "paragraph": ctx["paragraph"],
+            })
+        _pptx_walk(one, name, sub, prefixes, hits, found)
+
+
+def pptx_equations(path: Path) -> dict:
+    """pptx 那一份：一条式子是文本体里的 OMML，而同一个形状在 Fallback 里还画了一次
+
+    与 `equations.rs::pptx` 同口径的四条判据：
+    - **有没有式子看 `m:oMath` 在不在**：LibreOffice 把式子写成 `mc:AlternateContent` →
+      `mc:Choice Requires="a14"` → `p:sp` → `p:txBody` → `a:p` → `a14:m` → `m:oMath`，
+      并在同一个 `AlternateContent` 的 `mc:Fallback` 里**把那个形状又写一遍**（`cNvPr` 的
+      id 与名字一字不差），那一遍里没有字、改挂一枚 `a:blipFill` 指向 `ppt/media/imageN.emf`；
+      python-pptx 手挂的那一份则是 `a:p` 里直接一枚 `a14:m`，没有 `AlternateContent`、
+      没有替身图 —— 所以「页上有几枚形状」与「有几条式子」在前者那里是两倍关系，两格各数各的；
+    - **替身图按引用的那串地址去包里查**（`fallback_found`），查不到就交 false；
+    - 段号与 `office-slide` 的 `paragraph_total` 同一 population：只给**在某个 `p:sp` 里**的
+      `a:p` 编号（表格里那些段不在这一本走的顺序里）；
+    - 前缀按写的交（`a14:m` 这一串是文件自己声明的），两家都不改成「规范推荐的前缀」。
+    """
+    parts = parts_of(path)
+    if "ppt/presentation.xml" not in parts:
+        return {"family": "pptx", "available": False}
+    rels: dict = {}
+    if "ppt/_rels/presentation.xml.rels" in parts:
+        for one in ET.fromstring(parts["ppt/_rels/presentation.xml.rels"]).iter():
+            if local(one.tag) == "Relationship":
+                rels[one.get("Id")] = _pptx_resolve("ppt", one.get("Target") or "")
+    order = []
+    for one in ET.fromstring(parts["ppt/presentation.xml"]).iter():
+        if local(one.tag) != "sldId":
+            continue
+        rid = None
+        for key, value in one.attrib.items():
+            if local(key) == "id" and key != "id":
+                rid = value
+        if rid in rels:
+            order.append((one.get("id"), rels[rid]))
+    items: list = []
+    slides: list = []
+    structures_seen: list = []
+    stats = {"equations_total": 0, "slides_with": 0, "paragraphs_total": 0,
+             "text_chars": 0, "math_runs": 0, "nor_runs": 0, "lit_runs": 0,
+             "alternates_total": 0, "fallbacks_written": 0, "duplicated_shapes": 0,
+             "rasters_written": 0, "rasters_found": 0, "rasters_missing": 0}
+    empty_ctx = {"in_sp": False, "shape": None, "requires": None,
+                 "alternate": None, "paragraph": None}
+    for show_index, part in order:
+        blob = parts.get(part)
+        if blob is None:
+            continue
+        prefixes = pptx_prefixes(blob.decode("utf-8", "replace"))
+        root = ET.fromstring(blob)
+        page_rels = _pptx_page_rels(parts, part)
+        found = {"paragraphs": 0, "shapes": 0, "formulas": 0, "alternates": 0}
+        hits: list = []
+        _pptx_walk(root, pptx_name(root, prefixes), empty_ctx, prefixes, hits, found)
+        for hit in hits:
+            structures, runs, nor, lit, words = omml_of(hit["node"])
+            align = None
+            for one in hit["node"].iter():
+                if local(one.tag) == "jc":
+                    align = attr_local(one, "val")
+                    break
+            alternate = hit["alternate"]
+            fb_written = fb_blip = fb_target = fb_shape_id = None
+            fb_found = None
+            choice_sp_id = None
+            if alternate is not None:
+                kids = [one for one in alternate if local(one.tag) == "Fallback"]
+                fb_written = bool(kids)
+                if fb_written:
+                    stats["fallbacks_written"] += 1
+                for one in alternate:
+                    if local(one.tag) == "Choice":
+                        sps = [x for x in one.iter() if local(x.tag) == "sp"]
+                        if sps:
+                            cn = [x for x in sps[0].iter() if local(x.tag) == "cNvPr"]
+                            choice_sp_id = cn[0].get("id") if cn else None
+                        break
+                if kids:
+                    blip = [x for x in kids[0].iter() if local(x.tag) == "blip"]
+                    if blip:
+                        fb_blip = attr_local(blip[0], "embed")
+                        stats["rasters_written"] += 1
+                        fb_target = page_rels.get(fb_blip)
+                        if fb_target in parts:
+                            stats["rasters_found"] += 1
+                            fb_found = True
+                        else:
+                            stats["rasters_missing"] += 1
+                            fb_found = False
+                    sps = [x for x in kids[0].iter() if local(x.tag) == "sp"]
+                    if sps:
+                        cn = [x for x in sps[0].iter() if local(x.tag) == "cNvPr"]
+                        fb_shape_id = cn[0].get("id") if cn else None
+                        if fb_shape_id is not None and fb_shape_id == choice_sp_id:
+                            stats["duplicated_shapes"] += 1
+            stats["equations_total"] += 1
+            stats["text_chars"] += len(words)
+            stats["math_runs"] += runs
+            stats["nor_runs"] += nor
+            stats["lit_runs"] += lit
+            for name in structures:
+                if name not in structures_seen:
+                    structures_seen.append(name)
+            shape = hit["shape"] or (None, None)
+            items.append({
+                "index": len(items),
+                "part": part,
+                "show_index": show_index,
+                "paragraph": hit["paragraph"],
+                "holder": hit["holder"],
+                "shape_id": shape[0],
+                "shape_name": shape[1],
+                "structures": structures,
+                "runs": runs,
+                "nor_runs": nor,
+                "lit_runs": lit,
+                "align_written": align,
+                "text": words,
+                "choice_requires": hit["requires"],
+                "in_alternate": alternate is not None,
+                "fallback_written": fb_written,
+                "fallback_blip": fb_blip,
+                "fallback_target": fb_target,
+                "fallback_found": fb_found,
+                "fallback_shape_id": fb_shape_id,
+            })
+        stats["slides_with"] += 1 if found["formulas"] else 0
+        slides.append({"part": part, "show_index": show_index,
+                       "paragraphs_total": found["paragraphs"],
+                       "shapes_total": found["shapes"],
+                       "formulas": found["formulas"],
+                       "alternates": found["alternates"]})
+    stats["alternates_total"] = sum(one["alternates"] for one in slides)
+    stats["paragraphs_total"] = sum(one["paragraphs_total"] for one in slides)
+    return {"family": "pptx", "available": True, "items": items, "slides": slides,
+            "slides_total": len(slides), "structures_seen": structures_seen, **stats}

@@ -3342,8 +3342,16 @@ def write_equations_odp(path: Path) -> None:
     - 它把 `draw:master-page-name="Standard"` 换成**本地化名** `默认`，给第一页补
       `presentation:presentation-page-layout-name="AL1T0"`，并给每页插一枚
       `draw:page-thumbnail`（那是页缩略图，不是一条公式）；
-    - 反过来 odp → **pptx 整个不写回公式**：`p:oleObj` / `p:graphicFrame` / `p:pic` 全 0，
-      只剩两张 `ppt/media/imageN.emf`，式子里的字一句都不在 slide 里。
+    - 反过来 odp → **pptx 把式子写进文本体**：`mc:AlternateContent` 的 `mc:Choice
+      Requires="a14"` 里那枚 `p:sp` 挂着 `a:p → a14:m → m:oMath`（字就在 `m:t` 里），
+      同一个 `AlternateContent` 的 `mc:Fallback` 里**那个形状又写一遍**（`cNvPr` 的 id 与名字
+      一字不差），那一遍没有 txBody、改挂 `a:blipFill` 指向 `ppt/media/imageN.emf`
+      （`image/x-emf` 在 `[Content_Types].xml` 里有 Override）。第一版我只 grep 了
+      `p:oleObj` / `p:graphicFrame` / `p:pic` 就下了「公式丢了」的结论 —— 那是没找到，不是没有。
+    - 还有一条本机量出来的边界：`a14:m` 若像 `write_equations_pptx` 那样**裸挂在 `a:p` 里**
+      （没有 `AlternateContent`、没有替身图），LibreOffice 读 pptx 时**整条丢掉**：
+      转出来的 odp 里 `draw:object` 0 枚、没有公式部件，再转回 pptx 也只剩正文那一段字。
+      所以这一族的第二个生产者只能停在「按写的交」那一步，不能拿重写当凭据。
     """
     content = '''<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
@@ -3407,6 +3415,43 @@ def write_equations_odp(path: Path) -> None:
             with zipfile.ZipFile(seed) as src:
                 box.writestr("ObjectReplacements/Object 1", src.read("ObjectReplacements/Object 1"))
     print("  手写 odp：", path.name)
+
+
+
+def write_equations_pptx(path: Path) -> None:
+    """pptx 的第二个生产者：python-pptx 不写公式，所以把 OMML 原文裸挂进 `a:p`
+
+    LibreOffice 那份（`eqs.pptx`）是 `mc:AlternateContent` 包着Choice/Fallback 两遍同一个形状，
+    这一份什么壳都没有 —— `a:p` 里正文 `a:r` 之后直接一枚 `a14:m`，没有替身图、没有 EMF。
+    两条式子与 odp 那一本一模一样（`a/b` 与 `sqrt(12)`），所以两家的差别全在挂法上：
+    同一页 LO 写 2 枚 `p:sp`（Choice 与 Fallback 各一枚），这一份只写 1 枚。
+
+    实测过的一条边界：这份件转 odp 时 LibreOffice **把裸挂的 `a14:m` 整条丢掉**
+    （转出的 odp 里 `draw:object` 0 枚、也没有任何公式部件），所以这一族不能拿重写当凭据 ——
+    它存在的理由是「同一个问题还有另一种写法」，不是「另一种写法能round trip」。
+    """
+    from pptx import Presentation
+    from pptx.oxml import parse_xml
+    from pptx.util import Inches
+
+    a14 = 'xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main"'
+    mns = 'xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"'
+    frac = ("<m:f><m:num><m:r><m:t>a</m:t></m:r></m:num>"
+            "<m:den><m:r><m:t>b</m:t></m:r></m:den></m:f>")
+    rad = ('<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr><m:deg/>'
+           "<m:e><m:r><m:t>1</m:t></m:r><m:r><m:t>2</m:t></m:r></m:e></m:rad>")
+    prs = Presentation()
+    blank = prs.slide_layouts[6]
+    for inner in (frac, rad):
+        slide = prs.slides.add_slide(blank)
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+        para = box.text_frame.paragraphs[0]
+        para.add_run().text = "式子前后都有正文"
+        para._p.append(parse_xml("<a14:m %s %s><m:oMath>%s</m:oMath></a14:m>"
+                                 % (a14, mns, inner)))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    prs.save(str(path))
+    print("  手写 pptx（裸挂 a14:m）：", path.name)
 
 
 
@@ -4008,6 +4053,8 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "eqs-pptx" / "eqs.pptx", OUT / "eqs.pptx")
     else:
         print("⚠️  没拿到 eqs.pptx（odp → pptx 那一转）")
+    # 同一句问题的第二种写法：python-pptx 手挂的裸 `a14:m`（没有 AlternateContent、没有替身图）
+    write_equations_pptx(OUT / "eqs-pp.pptx")
 
     convert(exe, OUT / "eq.odt", "docx", SCRATCH / "eq-round")
     if (SCRATCH / "eq-round" / "eq.docx").exists():

@@ -1,6 +1,14 @@
 //! 文档里的公式：OOXML 写成 OMML 挂在段上，ODF 把每条式子装进一个**嵌入对象**的 MathML 部件
 //!
-//! 形状：`{family, available, items[], <聚合数>}`，两支各一本，另一族的键整个不在。
+//! 形状：`{family, available, items[], <聚合数>}`，三支各一本，另一族的键整个不在。
+//! pptx 一支（`office-slide`）每条 `{index, part, show_index, paragraph, holder, shape_id,
+//! shape_name, structures, runs, nor_runs, lit_runs, align_written, text, choice_requires,
+//! in_alternate, fallback_written, fallback_blip, fallback_target, fallback_found,
+//! fallback_shape_id}`，页级 `slides[]` 交 `paragraphs_total / shapes_total / formulas /
+//! alternates`，聚合 `equations_total / slides_with / paragraphs_total / text_chars /
+//! math_runs / nor_runs / lit_runs / structures_seen / alternates_total /
+//! fallbacks_written / duplicated_shapes / rasters_written / rasters_found /
+//! rasters_missing`。
 //! OOXML 一支每条 `{index, paragraph, placement, host, align_written, structures, runs,
 //! nor_runs, lit_runs, text}`，聚合 `equations_total / inline_total / display_total /
 //! paragraphs_with / paragraphs_total / align_written_total / nor_runs / lit_runs /
@@ -76,6 +84,59 @@ fn math_prefix(root: &Node) -> String {
     "m".to_string()
 }
 
+/// 一条 OMML 自己的形状（docx 与 pptx 两支共用这一份判据，别抄成两份）
+struct OmmlFacts {
+    structures: Vec<String>,
+    runs: usize,
+    nor: usize,
+    lit: usize,
+    text: String,
+}
+
+/// `head` 是 OMML 前缀加冒号（docx 那一支按写着的命名空间前缀筛）；pptx 那一支不筛，
+/// 因为式子外面那层是 `a14:m`，里面的名字与 docx 同一家族
+fn omml_of(node: &Node, head: Option<&str>) -> OmmlFacts {
+    let mut kids: Vec<&Node> = Vec::new();
+    subtree(node, &mut kids);
+    let mut out = OmmlFacts {
+        structures: Vec::new(),
+        runs: 0,
+        nor: 0,
+        lit: 0,
+        text: String::new(),
+    };
+    for one in kids {
+        let keep = match head {
+            Some(want) => one.name.starts_with(want),
+            None => true,
+        };
+        if !keep {
+            continue;
+        }
+        let name = one.local();
+        if name == "r" {
+            // 数学 run 是「一串字」的壳，不算结构：与 python 那侧同一条排除表
+            out.runs += 1;
+            continue;
+        }
+        if name == "t" {
+            out.text.push_str(&one.text());
+            continue;
+        }
+        if name == "nor" {
+            out.nor += 1;
+        }
+        if name == "lit" {
+            out.lit += 1;
+        }
+        if name == "oMath" {
+            continue;
+        }
+        out.structures.push(name.to_string());
+    }
+    out
+}
+
 /// OOXML 那一支的运行态：条目清单、见过的结构名与那些各交各的数
 struct DocxRun {
     head: String,
@@ -122,40 +183,15 @@ impl DocxRun {
         host: &str,
         align: Option<String>,
     ) {
-        let mut kids: Vec<&Node> = Vec::new();
-        subtree(node, &mut kids);
-        let mut structures: Vec<String> = Vec::new();
-        let mut runs = 0usize;
-        let mut nor = 0usize;
-        let mut lit = 0usize;
-        let mut text = String::new();
-        for one in kids.iter() {
-            if !one.name.starts_with(&self.head) {
-                continue;
-            }
-            let name = one.local();
-            if name == "r" {
-                // 数学 run 是「一串字」的壳，不算结构：与 python 那侧同一条排除表
-                runs += 1;
-                continue;
-            }
-            if name == "t" {
-                text.push_str(&one.text());
-                continue;
-            }
-            if name == "nor" {
-                nor += 1;
-            }
-            if name == "lit" {
-                lit += 1;
-            }
-            if name == "oMath" {
-                continue;
-            }
-            let name = name.to_string();
-            structures.push(name.clone());
-            if !self.seen.iter().any(|one| *one == name) {
-                self.seen.push(name);
+        let facts = omml_of(node, Some(&self.head));
+        let structures = facts.structures;
+        let runs = facts.runs;
+        let nor = facts.nor;
+        let lit = facts.lit;
+        let text = facts.text;
+        for name in structures.iter() {
+            if !self.seen.iter().any(|one| *one == *name) {
+                self.seen.push(name.clone());
             }
         }
         let chars = text.chars().count();
@@ -699,4 +735,282 @@ pub(crate) fn odp(bytes: &[u8], root: &Node, limit: usize) -> Value {
     }
     mine.insert("equations_total".to_string(), json!(math_total));
     Value::Object(mine)
+}
+
+/// pptx 那一支：一条式子是**文本体里的 OMML**，而同一个形状在外层那个
+/// `mc:AlternateContent` 的 `mc:Fallback` 里**还写了一遍**（那一遍没有字，改挂一张替身图）
+///
+/// 页级那三格（`paragraphs_total` / `shapes_total` / `formulas`）必须分开交：同一页在
+/// LibreOffice 那份件里写 2 枚 `p:sp`、1 条式子，在 python-pptx 手挂的那份里写 1 枚 `p:sp`、
+/// 1 条式子 —— 拿形状数当式子数就会在第一家那里翻一倍。
+#[derive(Default)]
+pub(crate) struct PptxRun {
+    items: Vec<Value>,
+    slides: Vec<Value>,
+    seen: Vec<String>,
+    equations_total: usize,
+    slides_with: usize,
+    paragraphs_total: usize,
+    text_chars: usize,
+    math_runs: usize,
+    nor_runs: usize,
+    lit_runs: usize,
+    alternates_written: usize,
+    fallbacks_written: usize,
+    duplicated_shapes: usize,
+    rasters_written: usize,
+    rasters_found: usize,
+    rasters_missing: usize,
+}
+
+/// 往下走时带着的那串上下文：这一族没有父指针，所以「在谁里面」一路带
+#[derive(Clone)]
+struct PptxCtx<'a> {
+    in_sp: bool,
+    shape_id: Option<String>,
+    shape_name: Option<String>,
+    requires: Option<String>,
+    alternate: Option<&'a Node>,
+    paragraph: Option<usize>,
+}
+
+/// 撞见的一条式子：住在哪条链上、外面那层 `AlternateContent` 是哪一枚
+struct PptxHit<'a> {
+    node: &'a Node,
+    holder: String,
+    shape_id: Option<String>,
+    shape_name: Option<String>,
+    requires: Option<String>,
+    alternate: Option<&'a Node>,
+    paragraph: Option<usize>,
+}
+
+#[derive(Default)]
+struct PptxFound {
+    paragraphs: usize,
+    shapes: usize,
+    formulas: usize,
+    alternates: usize,
+}
+
+/// 自顶往下的一趟：`holder` 是**当前这个元素**写着的名字，所以它的孩子若是 `m:oMath`，
+/// 这一串就是那条式子的挂法（`a14:m`）
+fn walk_pptx<'a>(
+    node: &'a Node,
+    holder: &str,
+    ctx: &PptxCtx<'a>,
+    hits: &mut Vec<PptxHit<'a>>,
+    found: &mut PptxFound,
+) {
+    for one in node.children.iter().filter(|kid| kid.name != "#text") {
+        let kind = one.local();
+        let mut sub = ctx.clone();
+        if kind == "sp" {
+            found.shapes += 1;
+            sub.in_sp = true;
+            let named = one.descendants("cNvPr").into_iter().next();
+            sub.shape_id = named.and_then(|hit| hit.attr_local("id")).map(String::from);
+            sub.shape_name = named
+                .and_then(|hit| hit.attr_local("name"))
+                .map(String::from);
+        } else if kind == "AlternateContent" {
+            found.alternates += 1;
+            sub.alternate = Some(one);
+        } else if kind == "Choice" {
+            sub.requires = one.attr("Requires").map(String::from);
+        } else if kind == "p" && ctx.in_sp {
+            sub.paragraph = Some(found.paragraphs);
+            found.paragraphs += 1;
+        } else if kind == "oMath" {
+            found.formulas += 1;
+            hits.push(PptxHit {
+                node: one,
+                holder: holder.to_string(),
+                shape_id: ctx.shape_id.clone(),
+                shape_name: ctx.shape_name.clone(),
+                requires: ctx.requires.clone(),
+                alternate: ctx.alternate,
+                paragraph: ctx.paragraph,
+            });
+        }
+        walk_pptx(one, &one.name, &sub, hits, found);
+    }
+}
+
+impl PptxRun {
+    /// 一页：按放映顺序逐页喂进来（页部件名与 `show_index` 都由调用方给，这里不自己排序）
+    pub(crate) fn add_slide(
+        &mut self,
+        bytes: &[u8],
+        slide_root: &Node,
+        part: &str,
+        show_index: &Value,
+        rels: &[crate::opack::Rel],
+    ) {
+        let ctx = PptxCtx {
+            in_sp: false,
+            shape_id: None,
+            shape_name: None,
+            requires: None,
+            alternate: None,
+            paragraph: None,
+        };
+        let mut hits: Vec<PptxHit> = Vec::new();
+        let mut found = PptxFound::default();
+        walk_pptx(slide_root, &slide_root.name, &ctx, &mut hits, &mut found);
+        for hit in hits {
+            let facts = omml_of(hit.node, None);
+            let align = hit
+                .node
+                .descendants("jc")
+                .into_iter()
+                .next()
+                .and_then(|one| one.attr_local("val"))
+                .map(String::from);
+            let mut fallback_written = Value::Null;
+            let mut fallback_blip: Option<String> = None;
+            let mut fallback_target: Option<String> = None;
+            let mut fallback_found = Value::Null;
+            let mut fallback_shape_id: Option<String> = None;
+            if let Some(alternate) = hit.alternate {
+                let fallback = alternate
+                    .children
+                    .iter()
+                    .find(|kid| kid.local() == "Fallback");
+                fallback_written = json!(fallback.is_some());
+                let choice_sp = alternate
+                    .children
+                    .iter()
+                    .find(|kid| kid.local() == "Choice")
+                    .and_then(|one| one.descendants("sp").into_iter().next())
+                    .and_then(|one| {
+                        one.descendants("cNvPr")
+                            .into_iter()
+                            .next()
+                            .and_then(|hit| hit.attr_local("id"))
+                    });
+                if let Some(one) = fallback {
+                    let embed = one
+                        .descendants("blip")
+                        .into_iter()
+                        .next()
+                        .and_then(|kid| kid.attr_local("embed"))
+                        .map(String::from);
+                    if embed.is_some() {
+                        self.rasters_written += 1;
+                        fallback_blip = embed.clone();
+                        fallback_target = embed.and_then(|want| {
+                            rels.iter()
+                                .find(|one| one.id == want && one.source == part)
+                                .and_then(|one| one.resolved.clone())
+                        });
+                        let had = match &fallback_target {
+                            Some(raw) => member_exists(bytes, raw),
+                            None => false,
+                        };
+                        if had {
+                            self.rasters_found += 1;
+                        } else {
+                            self.rasters_missing += 1;
+                        }
+                        fallback_found = json!(had);
+                    }
+                    fallback_shape_id = one
+                        .descendants("sp")
+                        .into_iter()
+                        .next()
+                        .and_then(|kid| {
+                            kid.descendants("cNvPr")
+                                .into_iter()
+                                .next()
+                                .and_then(|hit| hit.attr_local("id"))
+                        })
+                        .map(String::from);
+                    if fallback_shape_id.is_some()
+                        && fallback_shape_id == choice_sp.map(String::from)
+                    {
+                        self.duplicated_shapes += 1;
+                    }
+                }
+                if fallback.is_some() {
+                    self.fallbacks_written += 1;
+                }
+            }
+            for name in facts.structures.iter() {
+                if !self.seen.iter().any(|one| *one == *name) {
+                    self.seen.push(name.clone());
+                }
+            }
+            self.equations_total += 1;
+            self.text_chars += facts.text.chars().count();
+            self.math_runs += facts.runs;
+            self.nor_runs += facts.nor;
+            self.lit_runs += facts.lit;
+            self.items.push(json!({
+                "index": self.items.len(),
+                "part": part,
+                "show_index": show_index,
+                "paragraph": match hit.paragraph {
+                    Some(raw) => json!(raw),
+                    None => Value::Null,
+                },
+                "holder": hit.holder,
+                "shape_id": hit.shape_id,
+                "shape_name": hit.shape_name,
+                "structures": facts.structures,
+                "runs": facts.runs,
+                "nor_runs": facts.nor,
+                "lit_runs": facts.lit,
+                "align_written": match align {
+                    Some(raw) => json!(raw),
+                    None => Value::Null,
+                },
+                "text": facts.text,
+                "choice_requires": hit.requires,
+                "in_alternate": json!(hit.alternate.is_some()),
+                "fallback_written": fallback_written,
+                "fallback_blip": fallback_blip,
+                "fallback_target": fallback_target,
+                "fallback_found": fallback_found,
+                "fallback_shape_id": fallback_shape_id,
+            }));
+        }
+        self.slides_with += usize::from(found.formulas > 0);
+        self.paragraphs_total += found.paragraphs;
+        self.alternates_written += found.alternates;
+        self.slides.push(json!({
+            "part": part,
+            "show_index": show_index,
+            "paragraphs_total": found.paragraphs,
+            "shapes_total": found.shapes,
+            "formulas": found.formulas,
+            "alternates": found.alternates,
+        }));
+    }
+
+    pub(crate) fn finish(self, limit: usize) -> Value {
+        json!({
+            "family": "pptx",
+            "available": true,
+            "items": self.items.into_iter().take(limit).collect::<Vec<Value>>(),
+            "slides": self.slides,
+            "slides_total": self.slides.len(),
+            "structures_seen": self.seen,
+            "equations_total": self.equations_total,
+            "slides_with": self.slides_with,
+            "paragraphs_total": self.paragraphs_total,
+            "text_chars": self.text_chars,
+            "math_runs": self.math_runs,
+            "nor_runs": self.nor_runs,
+            "lit_runs": self.lit_runs,
+            // 页里所有 `mc:AlternateContent`（连 `p:transition` 那枚也算），与下面那几格
+            // 「式子所在那一枚有没有 Fallback」不是同一个 population
+            "alternates_total": self.alternates_written,
+            "fallbacks_written": self.fallbacks_written,
+            "duplicated_shapes": self.duplicated_shapes,
+            "rasters_written": self.rasters_written,
+            "rasters_found": self.rasters_found,
+            "rasters_missing": self.rasters_missing,
+        })
+    }
 }
