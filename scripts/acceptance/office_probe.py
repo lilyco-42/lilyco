@@ -6079,18 +6079,23 @@ def main() -> int:
     check(
         "同一问在 ODF 是第三种写法：公式是**格子身上的一个属性**，16 条全带正文"
         "（`empty_text` 0），`si` / `ref` / `shared` 那几格这一族**整个不交**（缺键 = 没有那个位置，"
-        "不是 0）；正文前缀 `of:` 按写的留着（`ooo:` 是另一族写的）",
+        "不是 0）；正文前缀 `of:` 按写的留着（`ooo:` 是另一族写的），交在 `formula_prefixes` 这一格。"
+        "带公式的是格子自己，所以 `attrs` 是那一格写着的属性全表、`sheet` 是它所在那张 "
+        "`table:table` 写的名字（不是样式名），而这一族**不写格子地址** —— `cell` 逐条 null",
         [dig(ods, "formula_elems.formula_elems"),
          dig(ods, "formula_elems.text_written"),
          dig(ods, "formula_elems.empty_text"),
+         dig(ods, "formula_elems.tables_seen"),
          dig(ods, "formula_elems.attrs_seen"),
-         dig(ods, "formula_elems.attr_values"),
+         dig(ods, "formula_elems.formula_prefixes"),
          dig(ods, "formula_elems.shared_elems"),
+         dig(ods, "formula_elems.cells[0].sheet"),
+         dig(ods, "formula_elems.cells[0].cell"),
          dig(ods, "formula_elems.cells[1].text"),
          dig(ods, "formula_elems.cells[1].paragraphs"),
          dig(ods, "formula_elems.cells[1].cached")],
-        [16, 16, 0, ["table:formula"], {"formula-prefix": {"of": 16}}, None,
-         "of:=SUM([.$A$1:.A1])", 1, "3"],
+        [16, 16, 0, 1, ["formula", "value-type", "value"], {"of": 16}, None,
+         "表一", None, "of:=SUM([.$A$1:.A1])", 1, "3"],
     )
     # ── 3al) 这一节的页码：OOXML 一节一条三个属性，ODF 一页版式一条，跨族各丢一次 ────
     print("=== 3al) 页码：元素在场、三个属性各写各的，而「从 7 开始」两头都不是同一种丢法 ===")

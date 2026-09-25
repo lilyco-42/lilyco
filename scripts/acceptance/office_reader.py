@@ -3343,13 +3343,36 @@ def ods_formula_elems(path: Path, limit: int = 400) -> dict:
 
     实测 `shared.ods`：16 个有公式的格子，16 条都写着完整文本（`of:=[.A2]*2` 这种逐行平移），
     空文本 0 条 —— 也就是说 LibreOffice 把 xlsx 那份共享组读进去之后，按它自己的存法
-    一个字都不省。`of:` 那个前缀按写的留着（`ooo:` 是另一族写的）。
+    一个字都不省。`of:` 那个前缀按写的留着（`ooo:` 是另一族写的），交在 `formula_prefixes`
+    这一格里（xlsx 那一族没有前缀这回事，所以那个键在那边整个不出现）。
+
+    带公式的是**格子自己**，所以 `attrs` 交的是那一格写着的属性全表（照文件写的，局部名），
+    公式只是其中一个；`sheet` 是它所在那张 `table:table` 写的名字（ODF 里「哪张表」就是
+    「哪个表」，而这一族**没有**格子地址这个东西 —— 列可以整个不写、行可以用 repeated
+    顶好几行，所以 `cell` 逐条交 null，那是「数过了，这一族没写」）。
     """
-    rows = []
     with zipfile.ZipFile(path) as box:
         if "content.xml" not in box.namelist():
             return {"family": "odf", "available": False}
         root = ET.fromstring(box.read("content.xml"))
+    tables = [one for one in root.iter() if xml_local(one.tag) == "table"]
+    # 往上找 enclosing 的 table:table —— ElementTree 不给孩子指父亲，这里自己建一张父表
+    parent = {}
+    for one in root.iter():
+        for kid in one:
+            parent[kid] = one
+
+    def owner(node):
+        walk = parent.get(node)
+        while walk is not None:
+            if xml_local(walk.tag) == "table":
+                return _f_attr_map(walk).get("name")
+            walk = parent.get(walk)
+        return None
+
+    rows = []
+    seen_attrs: list = []
+    values: dict = {}
     for cell in root.iter():
         if xml_local(cell.tag) not in ("table-cell", "covered-table-cell"):
             continue
@@ -3358,13 +3381,20 @@ def ods_formula_elems(path: Path, limit: int = 400) -> dict:
             continue
         text = attrs["formula"]
         kids = [one for one in cell if xml_local(one.tag) == "p"]
+        for key in attrs:
+            if key not in seen_attrs:
+                seen_attrs.append(key)
+        for key, value in attrs.items():
+            bucket = values.setdefault(key, {})
+            bucket[value] = bucket.get(value, 0) + 1
         rows.append({
-            "sheet": attrs.get("style-name"),
+            "sheet": owner(cell),
             "cell": None,
-            "attrs": {"formula": text},
+            "style": attrs.get("style-name"),
+            "attrs": attrs,
             "text": text,
             "text_written": bool(text),
-            "cached_written": bool(attrs.get("value") is not None),
+            "cached_written": "value" in attrs,
             "cached": attrs.get("value"),
             "paragraphs": len(kids),
         })
@@ -3375,11 +3405,12 @@ def ods_formula_elems(path: Path, limit: int = 400) -> dict:
     return {
         "family": "odf",
         "available": True,
-        "sheets_seen": 0,
+        "tables_seen": len(tables),
         "formula_elems": len(rows),
-        "with_attrs": len(rows),
-        "attrs_seen": ["table:formula"] if rows else [],
-        "attr_values": {"formula-prefix": prefixes},
+        "with_attrs": len([one for one in rows if one["attrs"]]),
+        "attrs_seen": seen_attrs,
+        "attr_values": values,
+        "formula_prefixes": prefixes,
         "text_written": len([one for one in rows if one["text_written"]]),
         "empty_text": len([one for one in rows if not one["text_written"]]),
         "empty_text_with_cached": len([one for one in rows

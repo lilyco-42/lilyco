@@ -16,7 +16,13 @@
 //! 3. ods 那一族没有这一层：公式是格子身上的一个属性，16 条**全带正文**
 //!    （`of:=[.A2]*2` 这种逐行平移的写法），空正文 0 条 —— 这一族**不交 `si` / `ref` /
 //!    `shared` 那几格**（缺键 = 这一族没有那个位置，不是 0）。
-//! 4. `of:` 那个前缀按写的留着（`ooo:` 是另一族写的），`attr_values` 里交的是**前缀的分布**。
+//! 4. `of:` 那个前缀按写的留着（`ooo:` 是另一族写的），交在 `formula_prefixes` 这一格 ——
+//!    xlsx 那一族没有「前缀」这回事，所以那个键在那边**整个不出现**；`attr_values` 两家
+//!    同一个意思：每个属性值的分布；
+//! 5. ODF 里带公式的是**格子自己**（不是格子里的一个元素），所以 `attrs` 交那一格写着的
+//!    属性全表，`sheet` 交它所在那张 `table:table` 写的名字（实测 `表一` / `预算表` / `错误`，
+//!    **不是**样式名 —— 样式名单独交在 `style` 那一格），而 `cell` 逐条 `null`：
+//!    这一族不写格子地址（列可以整个不写、行可以用 `number-rows-repeated` 顶好几行）。
 //!
 //! 界：这一本只看 `<f>` 元素自己，不展开共享组、也不算「跟随格其实等于什么」——
 //! 那是重放公式语义，不在 T0 只读的范围里。老键 `formula` 继续按文件写的正文交（共享跟随格
@@ -171,6 +177,10 @@ pub(crate) fn xlsx(bytes: &[u8], limit: usize) -> Value {
 }
 
 /// ODF 那一份：公式是格子身上的属性，每条都带正文；共享组那一层没有位置
+///
+/// 带公式的是**格子自己**，所以 `attrs` 交的是那一格写着的属性全表（`sheet` 那一栏因此
+/// 不是样式名 —— 它是这一格所在那张 `table:table` 写的名字）。`cell` 逐条交 null：
+/// 这一族不写格子地址（列可以整个不写、行可以用 `number-rows-repeated` 顶好几行）。
 pub(crate) fn ods(bytes: &[u8], limit: usize) -> Value {
     let member = match zipread::member(bytes, "content.xml", DEFAULT_MEMBER_CAP) {
         Ok(had) => had,
@@ -179,28 +189,48 @@ pub(crate) fn ods(bytes: &[u8], limit: usize) -> Value {
         }
     };
     let root = xmlscan::parse_str(&member.as_text());
-    let mut cells: Vec<&Node> = Vec::new();
-    collect_cells(&root, &mut cells);
+    let mut cells: Vec<(&Node, Option<&str>)> = Vec::new();
+    collect_cells(&root, None, &mut cells);
     let mut rows: Vec<Value> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
     let mut values: serde_json::Map<String, Value> = serde_json::Map::new();
-    for cell in cells {
+    let mut prefixes: serde_json::Map<String, Value> = serde_json::Map::new();
+    for (cell, sheet) in cells {
         let table = attrs_of(cell);
         let text = match table.get("formula").and_then(|one| one.as_str()) {
             Some(one) => one.to_string(),
             None => continue,
         };
+        for (key, _) in cell.attrs.iter() {
+            if key == "xmlns" || key.starts_with("xmlns:") {
+                continue;
+            }
+            let local = key.rsplit(':').next().unwrap_or(key);
+            if !seen.iter().any(|one| one == local) {
+                seen.push(local.to_string());
+            }
+        }
+        for (key, value) in table.iter() {
+            if let Some(text) = value.as_str() {
+                bump(&mut values, key, text);
+            }
+        }
         let head = match text.find(':') {
             Some(at) => text[..at].to_string(),
             None => String::new(),
         };
-        bump(&mut values, "formula-prefix", &head);
+        bump(&mut prefixes, "formula-prefix", &head);
         let cached = attr_text(cell, "value");
         rows.push(json!({
-            "sheet": match table.get("style-name").and_then(|one| one.as_str()) {
+            "sheet": match sheet {
                 Some(one) => json!(one),
                 None => Value::Null,
             },
             "cell": Value::Null,
+            "style": match table.get("style-name").and_then(|one| one.as_str()) {
+                Some(one) => json!(one),
+                None => Value::Null,
+            },
             "attrs": Value::Object(table.clone()),
             "text": text,
             "text_written": !text.is_empty(),
@@ -219,11 +249,17 @@ pub(crate) fn ods(bytes: &[u8], limit: usize) -> Value {
     json!({
         "family": "odf",
         "available": true,
-        "sheets_seen": 0,
+        "tables_seen": root.descendants("table").len(),
         "formula_elems": rows.len(),
-        "with_attrs": rows.len(),
-        "attrs_seen": if rows.is_empty() { Vec::<String>::new() } else { vec!["table:formula".to_string()] },
+        "with_attrs": rows.iter().filter(|one| {
+            one["attrs"].as_object().map(|had| !had.is_empty()).unwrap_or(false)
+        }).count(),
+        "attrs_seen": seen,
         "attr_values": Value::Object(values),
+        "formula_prefixes": match prefixes.remove("formula-prefix") {
+            Some(had) => had,
+            None => Value::Object(serde_json::Map::new()),
+        },
         "text_written": written,
         "empty_text": rows.len() - written,
         "empty_text_with_cached": rows.iter().filter(|one| {
@@ -234,12 +270,22 @@ pub(crate) fn ods(bytes: &[u8], limit: usize) -> Value {
     })
 }
 
-/// 文档序收集两种格子（跨名字的一次遍历 —— 与第二读者那条 `iter()` 同一条走法）
-fn collect_cells<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
+/// 文档序收集两种格子（跨名字的一次遍历 —— 与第二读者那条 `iter()` 同一条走法），
+/// 并把外面那层 `table:table` 写的名字一起带下来（ODF 里「哪张表」就是「哪个 sheet」）
+fn collect_cells<'a>(
+    node: &'a Node,
+    sheet: Option<&'a str>,
+    out: &mut Vec<(&'a Node, Option<&'a str>)>,
+) {
     for one in &node.children {
+        let here = if one.local() == "table" {
+            one.attr_local("name")
+        } else {
+            sheet
+        };
         if matches!(one.local(), "table-cell" | "covered-table-cell") {
-            out.push(one);
+            out.push((one, here));
         }
-        collect_cells(one, out);
+        collect_cells(one, here, out);
     }
 }
