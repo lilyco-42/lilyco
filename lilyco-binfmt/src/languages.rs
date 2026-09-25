@@ -34,7 +34,7 @@
 //! RTF 那一族写的是 `\langN`（LCID 数字，另有 `\langfe` 那一路），整名比对没做完之前不判归属，
 //! 所以这一族不交这个键；遗留 .doc 的语言住在 table stream 的 `grfDdc`/Lcb 里，这一族读者不走那里。
 
-use crate::xmlscan::Node;
+use crate::xmlscan::{self, Node};
 use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 use serde_json::{json, Value};
 
