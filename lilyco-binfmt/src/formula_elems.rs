@@ -55,8 +55,10 @@ fn count_children(node: &Node, want: &str) -> usize {
         .count()
 }
 
+/// 元素的正文：xmlscan 把一段直接文本存成 `#text` **孩子**（为了保住顺序），
+/// 所以这里必须走 `text()` 而不是读 `direct` —— 只读 `direct` 会把每条公式都读成空。
 fn text_of(node: &Node) -> String {
-    node.direct.trim().to_string()
+    node.text().trim().to_string()
 }
 
 fn bump(values: &mut serde_json::Map<String, Value>, key: &str, value: &str) {
