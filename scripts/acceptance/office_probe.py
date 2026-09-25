@@ -3709,6 +3709,72 @@ def main() -> int:
         [None, None, 14, 135, "9", None],
     )
 
+    # ── 3m) 一串字里到底有什么：字、制表、分页、图、注的号与域指令 ────────────
+    print("=== 3m) 一串字里的每一块：text 只算 w:t，其余按文件顺序整串交出来 ===")
+    toc = lbin("office-doc", fixture("toc.docx"))
+    ne = lbin("office-doc", fixture("notes-end.docx"))
+    check(
+        "域指令不是页面上的字：这一串 text 交空串，而它带的那一串指令原样交出来",
+        [dig(toc, "structure.run_formats.list[2].text"),
+         dig(toc, "structure.run_formats.list[2].contents[0].element"),
+         dig(toc, "structure.run_formats.list[2].contents[0].written.space"),
+         dig(toc, "structure.run_formats.list[2].instructions[0]"),
+         dig(toc, "structure.run_formats.list[1].field_chars"),
+         dig(toc, "structure.run_formats.field_runs"),
+         dig(toc, "structure.run_formats.runs_with_text"),
+         dig(toc, "structure.run_formats.checked")],
+        ['', "instrText", "preserve", ' TOC \\o "1-2" \\h', ["begin"], 4, 12, 21],
+    )
+    check(
+        "一串字里没有字不等于没有这一串：图、分页符与批注的号各是一条 contents",
+        [dig(toc, "structure.run_formats.list[15].contents[0].element"),
+         dig(toc, "structure.run_formats.list[15].text"),
+         dig(toc, "structure.run_formats.list[17].breaks"),
+         dig(toc, "structure.run_formats.list[17].contents[0].written.type"),
+         dig(toc, "structure.run_formats.list[19].refs.comment"),
+         dig(toc, "structure.run_formats.list[19].note"),
+         dig(toc, "structure.run_formats.runs_with_ref"),
+         dig(toc, "structure.run_formats.ref_found")],
+        ["drawing", "", ["page"], "page", "0", None, 1, 0],
+    )
+    check(
+        "脚注的 2 与尾注的 2 是两条注：号同一个而两本账，只按号对就都落在部件第 0 条",
+        [dig(ne, "structure.run_formats.list[2].refs.footnote"),
+         dig(ne, "structure.run_formats.list[2].note.kind"),
+         dig(ne, "structure.run_formats.list[2].note.found"),
+         dig(ne, "structure.run_formats.list[2].note.at"),
+         dig(ne, "structure.run_formats.list[3].refs.endnote"),
+         dig(ne, "structure.run_formats.list[3].note.kind"),
+         dig(ne, "structure.run_formats.list[3].note.at"),
+         dig(ne, "structure.run_formats.list[6].note.at")],
+        ["2", "footnote", True, 0, "2", "endnote", 2, 1],
+    )
+    check(
+        "注那两份部件与正文的号是双向的一本账：部件三条、正文引用三条、没被引用的 0 条",
+        [dig(ne, "structure.run_formats.notes_in_parts"),
+         dig(ne, "structure.run_formats.notes_referenced"),
+         dig(ne, "structure.run_formats.notes_unreferenced"),
+         dig(ne, "structure.run_formats.ref_found"),
+         dig(ne, "structure.run_formats.runs_with_ref"),
+         dig(toc, "structure.run_formats.notes_in_parts")],
+        [3, 3, 0, 3, 3, 0],
+    )
+    for name in ("notes-end.docx", "notes-foot.docx", "notes.docx", "protected.docx"):
+        got = lbin("office-doc", fixture(name))
+        want = files[name]["ooxml"]["run_formats"]
+        check("%s 每一串字里有什么（text / contents / refs / breaks / instructions）与读者一致" % name,
+              [dig(got, "structure.run_formats.list"),
+               dig(got, "structure.run_formats.runs_with_text"),
+               dig(got, "structure.run_formats.runs_with_ref"),
+               dig(got, "structure.run_formats.ref_found"),
+               dig(got, "structure.run_formats.field_runs"),
+               dig(got, "structure.run_formats.notes_in_parts"),
+               dig(got, "structure.run_formats.notes_referenced"),
+               dig(got, "structure.run_formats.notes_unreferenced")],
+              [want["list"], want["runs_with_text"], want["runs_with_ref"], want["ref_found"],
+               want["field_runs"], want["notes_in_parts"], want["notes_referenced"],
+               want["notes_unreferenced"]])
+
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
     print("=== 3i) 文档里的图：一处号一次跳，两处答案各按各的文件交 ===")
     for name in ("images.docx", "images-lo.docx", "images-float.docx",

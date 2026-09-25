@@ -1020,6 +1020,38 @@ ODF_RUN_SWITCHES = (
     ("style:text-underline-style", "underline"),
 )
 ODF_RUN_OFF = ("normal", "none")
+# 一串字里的「引用」那三种：元素名、它跳去的那本账、交出去用的键名
+RUN_REF_KINDS = (
+    ("footnoteReference", "footnote", "footnote"),
+    ("endnoteReference", "endnote", "endnote"),
+    ("commentReference", "comment", "comment"),
+)
+
+
+def docx_note_index(parts: dict) -> list:
+    """注那两份部件里的号：`(文件写的 id, 是哪一种)`，按文件顺序
+
+    分隔符两条（`separator` / `continuationSeparator`）不算注 —— 与
+    `structure.footnotes` 那本账同一个口径，两边数不一样就会在探针里露出来。
+    """
+    out = []
+    for part, kind in (("word/footnotes.xml", "footnote"), ("word/endnotes.xml", "endnote")):
+        if part not in parts:
+            continue
+        root = ET.fromstring(parts[part])
+        for one in _all(root, kind):
+            if local_attr(one, "type") in ("separator", "continuationSeparator"):
+                continue
+            ident = local_attr(one, "id")
+            if ident is not None:
+                out.append((ident, kind))
+    return out
+
+
+def _run_text(run) -> str:
+    """一串字的「字」只算**直接**的 `w:t`：域指令不是页面上的字，图与引用更不是；
+    往全树找还会把文本框里另一块的字算进来（那一块有自己的账）"""
+    return "".join(str(kid.text or "") for kid in _kids(run, "t"))
 
 
 def _run_switch(holder, name: str):
@@ -1088,9 +1120,12 @@ def docx_run_formats(paras: list, parts: dict, limit: int = 200) -> dict:
     python-docx 不给没格式的那一串写 rPr，LibreOffice 重写时给每一串都补一个空的。
     """
     sheet = docx_character_styles(parts)
+    notes = docx_note_index(parts)
+    seen_refs = []
     entries = []
     checked = with_props = props_empty = with_format = 0
     with_style = style_found = where_both = 0
+    with_text = with_ref = ref_found = field_runs = 0
     on = {key: 0 for _, key in RUN_SWITCHES}
     off = {key: 0 for _, key in RUN_SWITCHES}
     from_style = {key: 0 for _, key in RUN_SWITCHES}
@@ -1141,11 +1176,49 @@ def docx_run_formats(paras: list, parts: dict, limit: int = 200) -> dict:
                 if value is not None and switches[key] is None:
                     from_style[key] += 1
                 char_switches[key] = value
+            body = [kid for kid in run if xml_local(kid.tag) not in ("#text", "rPr")]
+            own = _run_text(run)
+            if own:
+                with_text += 1
+            refs = {}
+            note = None
+            for element, ledger, key in RUN_REF_KINDS:
+                mark = _kids(run, element)
+                ident = local_attr(mark[0], "id") if mark else None
+                # 批注的号也交，但它不跳注那两份部件（批注住在 comments.xml，另有一本账）
+                if ident is not None and ledger != "comment":
+                    seen_refs.append((ident, ledger))
+                    # 号是分种类的两条账：脚注的 `2` 与尾注的 `2` 是两条不同的注，只按号对会串门
+                    found = [
+                        one for one in notes if one[0] == ident and one[1] == ledger
+                    ]
+                    note = {
+                        "kind": ledger,
+                        "id": ident,
+                        "found": bool(found),
+                        "at": notes.index(found[0]) if found else None,
+                    }
+                    if found:
+                        ref_found += 1
+                refs[key] = ident
+            if any(value is not None for value in refs.values()):
+                with_ref += 1
+            breaks = [local_attr(kid, "type") for kid in body if xml_local(kid.tag) == "br"]
+            instructions = [
+                str(kid.text or "") for kid in body if xml_local(kid.tag) == "instrText"
+            ]
+            fields = [
+                local_attr(kid, "fldCharType")
+                for kid in body
+                if xml_local(kid.tag) == "fldChar"
+            ]
+            if instructions or fields:
+                field_runs += 1
             entries.append(
                 {
                     "para": index,
                     "at": at,
-                    "text": "".join(run.itertext()),
+                    "text": own,
                     "props_written": holder is not None,
                     "props_attrs": written_attrs(holder) if holder is not None else None,
                     "elements": [xml_local(kid.tag) for kid in kids],
@@ -1163,6 +1236,15 @@ def docx_run_formats(paras: list, parts: dict, limit: int = 200) -> dict:
                     "style_parent": got[1] if got else None,
                     "style_format": got[2] if got else None,
                     "style_switches": char_switches,
+                    "contents": [
+                        {"element": xml_local(kid.tag), "written": written_attrs(kid)}
+                        for kid in body
+                    ],
+                    "refs": refs,
+                    "note": note,
+                    "breaks": breaks,
+                    "instructions": instructions,
+                    "field_chars": fields,
                 }
             )
     out = {
@@ -1174,6 +1256,13 @@ def docx_run_formats(paras: list, parts: dict, limit: int = 200) -> dict:
         "with_style": with_style,
         "style_found": style_found,
         "where_both_spoke": where_both,
+        "runs_with_text": with_text,
+        "runs_with_ref": with_ref,
+        "ref_found": ref_found,
+        "field_runs": field_runs,
+        "notes_in_parts": len(notes),
+        "notes_referenced": len(set(seen_refs)),
+        "notes_unreferenced": len(notes) - len(set(seen_refs)),
         "list": entries[:limit],
     }
     for key in ("bold", "italic", "strike", "underline"):
