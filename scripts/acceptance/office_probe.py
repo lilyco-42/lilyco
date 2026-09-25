@@ -236,6 +236,10 @@ def main() -> int:
         "table-header.docx": ("ooxml", "word", "docx"),
         "table-header-lo.docx": ("ooxml", "word", "docx"),
         "table-header.odt": ("opendocument", "word", "odt"),
+        # 制表位那三份里的两份：同一个定义在两家手里是两个串（twip / cm）—— `.rtf` 那一族
+        # 这一支还没读（它写 `\tx`，见 3aa），所以不进这一张识别表
+        "tabs.docx": ("ooxml", "word", "docx"),
+        "tabs.odt": ("opendocument", "word", "odt"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -2825,13 +2829,15 @@ def main() -> int:
         [2, 16384, 2],
     )
     check(
-        "六份 .ods 里每一张表都被补到整 16384 列",
+        "九份 .ods 里 17 张表补到 16384 列，只有一张例外：`print-area.ods` 的 `什么都没给` "
+        "（只给了重复**列**的那一张）写了 3 条列元素，补齐就到 **16383** —— 「补到整 16384」"
+        "不是这一族的恒等式，是生产者的写法，所以两个数都按看到的交",
         sorted(
             {dig(one, "layout.columns.spans")
              for name in sorted(item.name for item in FIXTURES.glob("*.ods"))
              for one in lbin("office-sheet", fixture(name)).get("sheets", [])}
         ),
-        [16384],
+        [16383, 16384],
     )
     check(
         "一条列元素顶几列写在 repeated 里：2 + 16382，两个数各自交",
@@ -4469,7 +4475,7 @@ def main() -> int:
          [one["hop"] for one in dig(hops_lo, "placeholder_hops.slides[0].shapes")],
          dig(hops_lo, "placeholder_hops.slides[0].shapes[1].layout_matched"),
          [one["type"] for one in dig(hops_lo, "placeholder_hops.slides[0].layout_placeholders")]],
-        [3, 3, 6, 8, ["by_type", "by_type", "no_ph"], None,
+        [3, 3, 6, 8, ["by_type", "by_type"], None,
          ["title", "body", "dt", "ftr", "sldNum"]],
     )
 
@@ -4545,6 +4551,92 @@ def main() -> int:
              "structure.table_headers.tables_total"),
          dig(lbin("office-doc", fixture("notes.rtf")), "structure.table_headers")],
         [4, 4, True, 0, 0, [], 1, None],
+    )
+
+    # ── 3aa) 制表位：一家写在段上，一家一跳在段点的样式里，而位置是两个不同的串 ──
+    print("=== 3aa) 这一段上有哪几个制表位：两处存法，定义与字符两本账 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 制表位那份账与读者一致（段上的定义与 run 里的字符）" % name,
+              dig(got, "structure.tab_stops"),
+              files[name]["ooxml"]["tab_stops"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 制表位那份账与读者一致（一跳在样式里，default-style 另交一份）" % name,
+              dig(got, "structure.tab_stops"),
+              files[name]["odt"]["tab_stops"])
+    tb = lbin("office-doc", fixture("tabs.docx"))
+    tbo = lbin("office-doc", fixture("tabs.odt"))
+    check(
+        "python-docx 那份（四条段各改一个变量：左无引导 / 右点引导 / 居中划引导 / 小数点）："
+        "定义 8 条、制表字符也 8 个，两本账分开交；`w:val` 八条全写了，而 `w:leader` 有 2 条"
+        "整个属性不落（生产者那一档叫 `SPACES`）—— 没写不等于「无引导」，那是规范的默认值，"
+        "所以这一格交 null",
+        [dig(tb, "structure.tab_stops.paragraphs_total"),
+         dig(tb, "structure.tab_stops.with_stops"),
+         dig(tb, "structure.tab_stops.stops_total"),
+         dig(tb, "structure.tab_stops.tab_chars_total"),
+         dig(tb, "structure.tab_stops.stops_without_val"),
+         dig(tb, "structure.tab_stops.stops_without_leader"),
+         dig(tb, "structure.tab_stops.vals_written"),
+         dig(tb, "structure.tab_stops.leaders_written"),
+         dig(tb, "structure.tab_stops.distinct_positions")],
+        [5, 4, 8, 8, 0, 2,
+         {"left": 5, "right": 1, "center": 1, "decimal": 1},
+         {"underscore": 4, "dot": 1, "hyphen": 1}, ["1701", "5102"]],
+    )
+    check(
+        "同一条稿子转 ODF：那四个数一模一样（5 / 4 / 8 / 8），可位置换成两个带单位的串，而"
+        "**9cm 写成 `8.999cm`**（转一趟少 0.001cm —— 谁换算的谁负责，读者不替它平），"
+        "对齐那一格有 5 条没写（左对齐这一家压根不写），「引导符」是 `leader-style` 与 "
+        "`leader-text` **两个**属性合起来的，小数点那一样换成 `type=char` 配 `char=.` —— "
+        "与 OOXML 的 `decimal` 是两种说法，不折算",
+        [dig(tbo, "structure.tab_stops.paragraphs_total"),
+         dig(tbo, "structure.tab_stops.with_stops"),
+         dig(tbo, "structure.tab_stops.stops_total"),
+         dig(tbo, "structure.tab_stops.tab_chars_total"),
+         dig(tbo, "structure.tab_stops.distinct_positions"),
+         dig(tbo, "structure.tab_stops.stops_without_type"),
+         dig(tbo, "structure.tab_stops.types_written"),
+         dig(tbo, "structure.tab_stops.leader_styles_written"),
+         dig(tbo, "structure.tab_stops.paragraphs[4].stops[0]")],
+        [5, 4, 8, 8, ["3cm", "8.999cm"], 5,
+         {"right": 1, "center": 1, "char": 1}, {"solid": 5, "dotted": 1},
+         {"position": "3cm", "type": "char", "char": ".",
+          "leader_style": None, "leader_text": None}],
+    )
+    check(
+        "ODF 这一问要走一跳才看得见：段自己只写一个样式名（`P1`…`P4`，父名 `Standard`），"
+        "而这份件里 44 份具名段落样式有 7 份写了制表位 —— 其中 3 份**没有任何段点它**"
+        "（`Header` / `Footer` / `macro`：前两份是页眉页脚自己的样式，第三份没人用）；"
+        "`style:default-style` 没有名字可点而照样落到每一段上，所以单独交一份（这里是空的）",
+        [dig(tbo, "structure.tab_stops.styles_total"),
+         dig(tbo, "structure.tab_stops.styles_with_stops"),
+         dig(tbo, "structure.tab_stops.unpointed_styles"),
+         dig(tbo, "structure.tab_stops.default_style_stops"),
+         dig(tbo, "structure.tab_stops.paragraphs[1].style_written"),
+         dig(tbo, "structure.tab_stops.paragraphs[1].style_found"),
+         dig(tbo, "structure.tab_stops.paragraphs[1].parent_style_written"),
+         dig(tbo, "structure.tab_stops.paragraphs[0].style_written"),
+         dig(tbo, "structure.tab_stops.paragraphs[0].stops")],
+        [44, 7, ["Header", "Footer", "macro"], [], "P1", True, "Standard", "Standard", []],
+    )
+    check(
+        "两族能对齐的就是那四个数，形状与单位不对齐；有段而一条没定义的件交 0 与空数组，"
+        "不是缺键；RTF 这一族**没读** —— LibreOffice 的 RTF 导出把同一批位置写回 twip"
+        "（`\\tx1701` 与 `\\tx5102` 各 4 条），而对齐与引导符是**只管下一个位置**的前缀"
+        "（`\\tldot\\tqr\\tx1701` = 第一条点引导右对齐），规则量准了记在 `tab_stops.rs` 的模块头，"
+        "这一支还没实现 —— 缺键就是「这一族没看」",
+        [dig(tb, "structure.tab_stops.paragraphs_total"),
+         dig(tbo, "structure.tab_stops.paragraphs_total"),
+         dig(tb, "structure.tab_stops.distinct_positions"),
+         dig(tbo, "structure.tab_stops.distinct_positions"),
+         dig(lbin("office-doc", fixture("paper-a4.docx")), "structure.tab_stops.with_stops"),
+         dig(lbin("office-doc", fixture("paper-a4.docx")), "structure.tab_stops.stops_total"),
+         dig(lbin("office-doc", fixture("paper-a4.odt")), "structure.tab_stops.paragraphs_total"),
+         dig(lbin("office-doc", fixture("paper-a4.odt")), "structure.tab_stops.styles_with_stops"),
+         dig(lbin("office-doc", fixture("tabs.rtf")), "structure.tab_stops")],
+        [5, 5, ["1701", "5102"], ["3cm", "8.999cm"], 0, 0, 2, 3, None],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
