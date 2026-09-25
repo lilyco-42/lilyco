@@ -2168,6 +2168,22 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 没有 `ObjectPool` 的件交 `pool_found` false 与 0（`notes.doc` / `notes-en.doc` 都是）：
       数过了没有，与「这一族没看」是两件事 —— 后者是**缺键**。
 
+114. **`.ppt` 这一族到不了公式那一步：转换把它变成一张位图，什么标记都不留**
+    - 这一条是**量出来**的，不是「那族大概没有」。把已经有公式的 `eqs.odp` 用 LibreOffice 转成
+      MS PowerPoint 97（`--convert-to ppt`），拿第二读者的 CFB 解析看容器：目录项一共 8 条 ——
+      `Root Entry` / `\x01CompObj` / `\x01Ole` / `Current User` / `Pictures` /
+      `PowerPoint Document` / 两份属性集 —— **没有 `ObjectPool`**（`.doc` 那一条路在这里整个不存在）。
+    - 全文再扫一遍记号：`Equation` 0 次、MTEF 的头（`1c 00 00 00 02 00 c6 c1`）0 次、
+      `Equation.3` 0 次、连 EMF 的签名都 0 次；`Pictures` 流只剩 916 字节的一笔位图数据。
+      也就是说式子既没变成 OMML、也没变成内嵌对象，只剩渲染结果。
+    - 因此 `office-slide` 的 `.ppt` 分支**不交 `equations` 这个键**：缺键 = 这一族没读，
+      不是 0（`.ppt` 分支交的是记录树那一份账 —— 记录 / 容器 / 文字原子条数，按 0x03EE 归页）。
+      这条缺键在 probe 里有断言盯着（3aw 的最后一条），哪天有生产者真的把式子写进 `.ppt`，
+      断言会先红，再按七步配方补那一支。
+    - 那份 462KB 的 `eqs.ppt` **没有进仓库**：里面 442,604 字节是 LibreOffice 写的那份
+      `\x05SummaryInformation`（它自己把属性集撑大的），为一个负面结论押这么大一份件不值。
+      量法与数字都记在这里，要复现只需一条 `--convert-to ppt`。
+
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
 `scripts/acceptance/office_reader.py`（OOXML / ODF / MS-CFB / OLE 属性集，只用标准库）、
 文档里那几张图在它的 `docx_picture_rows()` / `odt_picture_rows()` 里：两处尺寸各自换算、

@@ -6321,7 +6321,9 @@ def main() -> int:
         "可它页上仍有 5 枚 `draw:frame`、注块里 3 枚、页缩略图 2 枚 —— 把「frame 数」当「公式数」"
         "就会在这里说谎。`*.pptx` 那一份另起一本（见 3aw）：LibreOffice 把 odp 的式子写成"
         "文本体里的 OMML（`a14:m` 套 `m:oMath`）外加 `mc:Fallback` 里的一张 EMF，"
-        "那一族的形状、段号与页级三格都在 3aw 那一本上对",
+        "那一族的形状、段号与页级三格都在 3aw 那一本上对。`.ppt` 仍旧不交这个键，但这是量过的：",
+        "odp → ppt 那一转把式子变成 `Pictures` 里的一笔位图，容器里连 `ObjectPool` 都没有",
+        "（见事实 114）",
         [dig(lbin("office-slide", fixture("deck.odp")), "equations.equations_total"),
          dig(lbin("office-slide", fixture("deck.odp")), "equations.frames_seen"),
          dig(lbin("office-slide", fixture("deck.odp")), "equations.frames_in_notes"),
@@ -6330,8 +6332,9 @@ def main() -> int:
          dig(lbin("office-slide", fixture("deck.pptx")), "equations.equations_total"),
          dig(lbin("office-slide", fixture("deck.pptx")), "equations.slides_total"),
          dig(lbin("office-slide", fixture("eqs.pptx")), "equations.equations_total"),
-         dig(lbin("office-slide", fixture("eqs.pptx")), "equations.slides[0].shapes_total")],
-        [0, 5, 3, 2, 0, 0, 2, 2, 2],
+         dig(lbin("office-slide", fixture("eqs.pptx")), "equations.slides[0].shapes_total"),
+         lbin("office-slide", fixture("deck.ppt")).get("equations")],
+        [0, 5, 3, 2, 0, 0, 2, 2, 2, None],
     )
     chart = lbin("office-slide", fixture("deck-chart.odp"))
     check(
