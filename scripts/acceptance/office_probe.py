@@ -5362,6 +5362,69 @@ def main() -> int:
         [None],
     )
 
+    # ── 3ak) odp 那一面的放映切换：样式里一份 + 页体内一棵动画树，两处都交 ─────────
+    print("=== 3ak) odp 放映切换：dp1 写满、dp3 半句、dp4 一个字不写（与 pptx 那一面正相反）===")
+
+    def odp_tr_multiset(rows):
+        return sorted(json.dumps(one.get("odp_transition"), sort_keys=True,
+                                 ensure_ascii=False) for one in rows)
+
+    for name in sorted(one.name for one in FIXTURES.glob("*.odp")):
+        got = lbin("office-slide", fixture(name))
+        want = files[name].get("odp", {}).get("slides", [])
+        check("%s 每页的 odp 切换账合起来与读者一致（多重集，不比页序）" % name,
+              odp_tr_multiset(got.get("slides", [])), odp_tr_multiset(want))
+        check("%s 全篇 odp 效果条数与读者一致" % name,
+              sum(len((one.get("odp_transition") or {}).get("effects", []))
+                  for one in got.get("slides", [])),
+              sum(len((one.get("odp_transition") or {}).get("effects", [])) for one in want))
+    odp = lbin("office-slide", fixture("deck-tr.odp"))
+    check(
+        "第一页那份 dp1 样式写满了一句半：`transition-type=\"automatic\"`、`transition-speed=\"fast\"`、"
+        "`duration=\"PT5S``，另带效果自己的 `type` / `subtype` / `fadeColor`；而页体内那棵动画树"
+        "**又写了一遍**效果（`smil:dur=\"0.75s\"` + fade/crossfade）—— 一份件两处，两处都交、不互证",
+        [dig(odp, "slides[0].odp_transition.page_style"),
+         dig(odp, "slides[0].odp_transition.style_found"),
+         dig(odp, "slides[0].odp_transition.style_part"),
+         dig(odp, "slides[0].odp_transition.written"),
+         dig(odp, "slides[0].odp_transition.effects"),
+         dig(odp, "slides[0].odp_transition.timing_roots")],
+        ["dp1", True, "content.xml",
+         {"transition-type": "automatic", "transition-speed": "fast", "duration": "PT5S",
+          "type": "fade", "subtype": "crossfade", "fadeColor": "#000000"},
+         [{"written": {"dur": "0.75s", "type": "fade", "subtype": "crossfade"}}], 1],
+    )
+    check(
+        "第二页只写半句：样式里有 `transition-speed` 与 `type=barWipe` / `subtype=leftToRight` / "
+        "`direction=reverse` 而**没有 `transition-type`、没有 duration**（那一族没有「默认就是 fast」这回事，"
+        "没写就交没有）；第三页那份 dp4 找到了、可一个切换属性都不写 —— `written` 是空表而不是缺键，"
+        "而 pptx 那一面 LibreOffice 给同一页**补了两条** `p:transition`：同一个生产者的两个导出方向相反",
+        [dig(odp, "slides[1].odp_transition.written"),
+         dig(odp, "slides[1].odp_transition.effects"),
+         dig(odp, "slides[2].odp_transition.page_style"),
+         dig(odp, "slides[2].odp_transition.style_found"),
+         dig(odp, "slides[2].odp_transition.written"),
+         dig(odp, "slides[2].odp_transition.effects"),
+         dig(odp, "slides[2].odp_transition.timing_roots"),
+         dig(lbin("office-slide", fixture("deck-tr-lo.pptx")),
+             "slides[2].transition_detail.elements")],
+        [{"transition-speed": "fast", "type": "barWipe", "subtype": "leftToRight",
+          "direction": "reverse"},
+         [{"written": {"dur": "0.5s", "type": "barWipe", "subtype": "leftToRight",
+                       "direction": "reverse"}}],
+         "dp4", True, {}, [], 0, 2],
+    )
+    check(
+        "另一份 odp（`deck.odp`，两页都点 `dp1`）那一份样式什么切换都没写：两页的 `written` 都是空表、"
+        "`style_found` 都是 true —— 「跳到了那份样式而它没说」与「跳不到那份样式」是两件事",
+        [dig(lbin("office-slide", fixture("deck.odp")), "slides[0].odp_transition.written"),
+         dig(lbin("office-slide", fixture("deck.odp")), "slides[0].odp_transition.style_found"),
+         dig(lbin("office-slide", fixture("deck.odp")), "slides[1].odp_transition.written"),
+         dig(lbin("office-slide", fixture("deck.odp")), "slides[1].odp_transition.effects"),
+         dig(lbin("office-slide", fixture("deck.odp")), "slides[0].transition_detail")],
+        [{}, True, {}, [], None],
+    )
+
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
     print("=== 3i) 文档里的图：一处号一次跳，两处答案各按各的文件交 ===")
     for name in ("images.docx", "images-lo.docx", "images-float.docx",

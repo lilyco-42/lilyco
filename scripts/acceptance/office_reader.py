@@ -6772,6 +6772,63 @@ def odp_page_visibility(styles: dict, named) -> dict:
     }
 
 
+ODF_EFFECT_LOCALS = ("type", "subtype", "duration", "direction", "fadeColor")
+
+
+def odp_transition(parts: dict, named, page) -> dict:
+    r"""同一页的切换在 ODF 写在两处：页点名的 drawing-page 样式 + 页体内的动画树
+
+    两处都按写的交，不互证、不挑一个当准（第二读者与 Rust 同一条口径：属性收局部名，
+    `xmlns` 那类声明不算属性）。样式找到了但那一份 properties 没写，`style_found` 就是
+    false —— 与「点了名没有那份样式」同一种「没说到」，不混进「写了空」。
+    """
+    props = {}
+    part = None
+    if named is not None:
+        for cand in ("content.xml", "styles.xml"):
+            if cand not in parts:
+                continue
+            root = ET.fromstring(parts[cand])
+            nsmap = _ns_prefixes(parts[cand])
+            reached = False
+            for one in root.iter():
+                if xml_local(one.tag) != "style":
+                    continue
+                written = _written_attrs(one, nsmap)
+                if _local_in(written, "family") != "drawing-page":
+                    continue
+                if _local_in(written, "name") != named:
+                    continue
+                kids = [k for k in one.iter() if xml_local(k.tag) == "drawing-page-properties"]
+                if kids:
+                    for key, value in _written_attrs(kids[0], nsmap).items():
+                        local = key.rsplit(":", 1)[-1]
+                        if key == "xmlns" or key.startswith("xmlns:"):
+                            continue
+                        if "transition" in local or local in ODF_EFFECT_LOCALS:
+                            props[local] = value
+                    part = cand
+                reached = True
+                break
+            if reached:
+                break
+    nsmap = _ns_prefixes(parts["content.xml"])
+    effects = [{"written": {k.rsplit(":", 1)[-1]: v
+                            for k, v in _written_attrs(one, nsmap).items()
+                            if not k.startswith("xmlns")}}
+               for one in page.iter() if xml_local(one.tag) == "transitionFilter"]
+    return {
+        "page_style": named,
+        "style_found": part is not None,
+        "style_part": part,
+        "written": props,
+        "effects": effects,
+        "timing_roots": len([one for one in page.iter()
+                             if xml_local(one.tag) == "par"
+                             and of_local(one, "node-type") == "timing-root"]),
+    }
+
+
 def odp_facts(path: Path) -> dict | None:
     """ODF 演示稿：页面上的字与备注里的字是两件事，尺寸还得绕 master-page 那一跳。
 
@@ -6873,6 +6930,7 @@ def odp_facts(path: Path) -> dict | None:
                     page_styles, of_local(page, "style-name")
                 )["hidden"],
                 "visibility": odp_page_visibility(page_styles, of_local(page, "style-name")),
+                "odp_transition": odp_transition(parts, of_local(page, "style-name"), page),
                 "size": size_of_layout.get(layout_of_master.get(master)),
             }
         )

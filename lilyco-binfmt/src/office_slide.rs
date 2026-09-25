@@ -484,6 +484,12 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
                 // 藏不藏在页点名的那份 drawing-page 样式里：一跳，两边都找不到就 null
                 "hidden": visibility["hidden"].clone(),
                 "visibility": visibility,
+                // 同一页的切换写在两处：那份样式 + 页自己体内那棵动画树
+                "odp_transition": odp_page_transition(
+                    bytes,
+                    one,
+                    crate::odsheet::attr_of(one, "style-name"),
+                ),
             }));
         }
         // 表那一份读的时候也有自己的话要说（格子元素太多、content.xml 读不出来…）
@@ -1253,6 +1259,77 @@ fn odp_page_visibility(bytes: &[u8], named: Option<&str>) -> Value {
             "style_part": part,
         }),
     }
+}
+
+/// 一页的切换在 ODF 写在两处：页点名的那份 drawing-page 样式里那一条属性表，
+/// 与页自己体内那棵动画树（`anim:transitionFilter`）。两处都交、不互证，也不挑一个当准 ——
+/// 同一族先例是 pptx 那两张尺寸（`wp:extent` 与 `a:ext`）。
+///
+/// 实测（`deck-tr.odp`，三页）：dp1 写 `transition-type="automatic"` + `transition-speed="fast"`
+/// + `duration="PT5S"` 与 `type="fade"`、`subtype="crossfade"`、`fadeColor="#000000"`；
+/// dp3 只写 `transition-speed="fast"` + `type="barWipe"` / `subtype="leftToRight"` /
+/// `direction="reverse"`（没有 transition-type，也没有 duration）；dp4 一个切换属性都不写。
+/// 而 pptx 那一面正好反过来：LibreOffice 的 **pptx** 重写给「原本什么都没写」的第三页
+/// 补了两条 `p:transition`，它的 **odp** 导出对同一页一个字都不写。
+const ODF_EFFECT_LOCALS: [&str; 5] = ["type", "subtype", "duration", "direction", "fadeColor"];
+
+fn odp_page_transition(bytes: &[u8], page: &xmlscan::Node, named: Option<&str>) -> Value {
+    let mut props = serde_json::Map::new();
+    let mut part: Option<String> = None;
+    if let Some(want) = named {
+        for candidate in ["content.xml", "styles.xml"] {
+            let Some(member) = xml(bytes, candidate) else {
+                continue;
+            };
+            let root = xmlscan::parse_str(&member.as_text());
+            let mut reached = false;
+            for one in root.descendants("style") {
+                if crate::odsheet::attr_of(one, "family") != Some("drawing-page")
+                    || crate::odsheet::attr_of(one, "name") != Some(want)
+                {
+                    continue;
+                }
+                if let Some(had) = one
+                    .descendants("drawing-page-properties")
+                    .into_iter()
+                    .next()
+                {
+                    for (key, value) in had.attrs.iter() {
+                        if key == "xmlns" || key.starts_with("xmlns:") {
+                            continue;
+                        }
+                        let local = key.rsplit(':').next().unwrap_or(key);
+                        if local.contains("transition") || ODF_EFFECT_LOCALS.contains(&local) {
+                            props.insert(local.to_string(), json!(value));
+                        }
+                    }
+                    part = Some(candidate.to_string());
+                }
+                reached = true;
+                break;
+            }
+            if reached {
+                break;
+            }
+        }
+    }
+    let ns = page.descendants("transitionFilter");
+    let effects: Vec<Value> = ns
+        .iter()
+        .map(|had| json!({"written": crate::office_doc::local_attrs(had)}))
+        .collect();
+    json!({
+        "page_style": named.map(String::from),
+        "style_found": part.is_some(),
+        "style_part": part,
+        "written": Value::Object(props),
+        "effects": effects,
+        "timing_roots": page
+            .descendants("par")
+            .into_iter()
+            .filter(|had| crate::odsheet::attr_of(had, "node-type") == Some("timing-root"))
+            .count(),
+    })
 }
 
 /// 一格的样式那一跳：没点名、点了名却没有那份样式、点到了 —— 三件事都要看得出来，
@@ -2710,5 +2787,64 @@ mod tests {
             .expect("是数组")
             .iter()
             .all(|one| one.get("transition_detail").is_none()));
+    }
+
+    /// 「这一页的切换写在两处」：ODF 一跳在页点名的 drawing-page 样式里，页体内还有一棵
+    /// 动画树又写一遍。断言只按内容与合计（两支读者的页序不是一套），
+    /// 期望值全部来自 `office_reader.py:odp_transition`。
+    #[test]
+    fn the_odp_side_writes_its_transition_in_two_places() {
+        let deck = run("deck-tr.odp");
+        let pages = deck["slides"].as_array().expect("是数组");
+        assert_eq!(pages.len(), 3);
+        let first = &pages[0]["odp_transition"];
+        assert_eq!(first["page_style"], "dp1");
+        assert_eq!(first["style_found"], json!(true));
+        assert_eq!(first["style_part"], "content.xml");
+        assert_eq!(first["timing_roots"], json!(1));
+        assert_eq!(
+            first["written"],
+            json!({"transition-type": "automatic", "transition-speed": "fast",
+                   "duration": "PT5S", "type": "fade", "subtype": "crossfade",
+                   "fadeColor": "#000000"})
+        );
+        // 页体内那棵树把效果又写了一遍（两处都交，不互证）
+        assert_eq!(
+            first["effects"],
+            json!([{"written": {"dur": "0.75s", "type": "fade", "subtype": "crossfade"}}])
+        );
+        let second = &pages[1]["odp_transition"];
+        assert_eq!(second["page_style"], "dp3");
+        // 半句：有 speed / type / subtype / direction，没有 transition-type 也没有 duration
+        assert_eq!(
+            second["written"],
+            json!({"transition-speed": "fast", "type": "barWipe",
+                   "subtype": "leftToRight", "direction": "reverse"})
+        );
+        assert!(second["written"].get("transition-type").is_none());
+        assert!(second["written"].get("duration").is_none());
+        assert_eq!(second["timing_roots"], json!(1));
+        let third = &pages[2]["odp_transition"];
+        // 第三页：样式找到了，可一个切换属性都没写 —— 空表而不是缺键；也没有动画树
+        assert_eq!(third["page_style"], "dp4");
+        assert_eq!(third["style_found"], json!(true));
+        assert_eq!(third["written"], json!({}));
+        assert_eq!(third["effects"], json!([]));
+        assert_eq!(third["timing_roots"], json!(0));
+        // 而 pptx 那一面对同一页补了两条元素：两个导出方向相反，各按各的文件交
+        let back = run("deck-tr-lo.pptx");
+        assert_eq!(back["slides"][2]["transition_detail"]["elements"], json!(2));
+        // 另一份 odp：两页都点 dp1，而那份样式什么都没说
+        let plain = run("deck.odp");
+        for one in plain["slides"].as_array().expect("是数组").iter() {
+            assert_eq!(one["odp_transition"]["written"], json!({}));
+            assert_eq!(one["odp_transition"]["style_found"], json!(true));
+            assert_eq!(one["odp_transition"]["effects"], json!([]));
+        }
+        // 两支读者的键不同：pptx 每页带 `transition_detail`，odp 每页带 `odp_transition`
+        assert!(pages[0].get("transition_detail").is_none());
+        assert!(run("deck-tr.pptx")["slides"][0]
+            .get("odp_transition")
+            .is_none());
     }
 }
