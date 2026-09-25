@@ -210,6 +210,151 @@ def odf_equations(path: Path) -> dict:
             "paragraphs_total": par_index + 1, "elements_seen": elements_seen, **stats}
 
 
+def _iter_all(node):
+    """整棵子树（含自己），文档顺序 —— 与 Rust 的 `descendants` + 自己同一条"""
+    out = [node]
+    for one in node:
+        out.extend(_iter_all(one))
+    return out
+
+
+def _descendables(node):
+    """子树里**除自己以外**的元素，文档顺序 —— 与 Rust 的 `subtree` 同一条"""
+    out = []
+    for one in node:
+        out.append(one)
+        out.extend(_descendables(one))
+    return out
+
+
+def _page_walk(node, in_notes):
+    """页里的每一枚 `draw:frame`，带上「它是不是在 `presentation:notes` 里面」
+
+    不能「自底往上找祖先再比身份」：ElementTree 每次迭代子节点都换一个包装对象出来，
+    `kid is target` 永远不成立（这一条本机测出来过：注块的排除静默失效，frame 全算成页上的）。
+    所以自顶往下带一个标志 —— Rust 那一侧没有父指针，走的也是同样带标志的递归。
+    """
+    for one in node:
+        kind = local(one.tag)
+        deeper = in_notes or kind == "notes"
+        if kind == "frame":
+            yield one, deeper
+        yield from _page_walk(one, deeper)
+
+
+def odp_equations(path: Path) -> dict:
+    """一份 odp 的公式账：式子在**每页**的 frame 里，而页缩略图也是 frame，两格必须分开数
+
+    与 `odf_equations`（odt）同一套判据（局部名、部件里要有 `<math>` 根才算式子），
+    多出来的是这两条：
+    - `page_thumbnails` 单记 `draw:page-thumbnail` —— LibreOffice 的 odp 重写给**每页**插一枚
+      （包在一枚没有名字的 `draw:frame` 里，宽 16.799cm），混进 `frames_seen` 就会把公式数顶高；
+    - `replacement_found` 问「那枚替位图的地址在包里吗」—— 实测重写给第二枚对象写了
+      `./ObjectReplacements/Object 2`，而**包里没有这个部件、清单里也没有这一条**。
+    备注块（`presentation:notes`）里的 frame 一个都不算：注里的东西不是页上的东西。
+    """
+    parts = parts_of(path)
+    if "content.xml" not in parts:
+        return {"family": "odp", "available": False}
+    root = ET.fromstring(parts["content.xml"])
+    holder = [one for one in root.iter() if one.tag == OFFICE + "presentation"]
+    if not holder:
+        return {"family": "odp", "available": False}
+    body = holder[0]
+    items, pages, elements_seen = [], [], []
+    stats = {"pages_total": 0, "frames_seen": 0, "page_thumbnails": 0, "objects_total": 0,
+             "math_found": 0, "objects_without_math": 0, "parts_found": 0, "parts_missing": 0,
+             "replacements_written": 0, "replacements_missing": 0, "block_written": 0,
+             "inline_written": 0, "display_missing": 0, "annotations_found": 0, "text_chars": 0,
+             "anchors_written": 0, "frames_in_notes": 0}
+    for page in (one for one in body if local(one.tag) == "page"):
+        stats["pages_total"] += 1
+        index = stats["pages_total"] - 1
+        frames = 0
+        notes_frames = 0
+        thumbs = 0
+        formulas = 0
+        for one, inside_notes in _page_walk(page, False):
+            # 注块里的 frame 不算页上的 frame：notes 是另一本账。实测重写给每页在
+            # `presentation:notes` 里加一枚 frame，而 `draw:page-thumbnail` 直接挂在 notes 下面
+            if inside_notes:
+                notes_frames += 1
+                continue
+            frames += 1
+            obj = [x for x in _descendables(one) if local(x.tag) == "object"]
+            if not obj:
+                continue
+            stats["objects_total"] += 1
+            formulas += 1
+            href = obj[0].get(XLINK + "href") or ""
+            member = (href[2:] if href.startswith("./") else href).lstrip("/")
+            member = member.rstrip("/") + "/content.xml" if member else ""
+            found = bool(member) and member in parts
+            stats["parts_found" if found else "parts_missing"] += 1
+            image = [x for x in _iter_all(one) if local(x.tag) == "image"]
+            repl = (image[0].get(XLINK + "href") or "") if image else None
+            repl_found = None
+            if repl is not None:
+                stats["replacements_written"] += 1
+                stem = (repl[2:] if repl.startswith("./") else repl).lstrip("/")
+                repl_found = stem in parts
+                if not repl_found:
+                    stats["replacements_missing"] += 1
+            display, elems, text, enc, source = mathml_of(parts.get(member, b"")) if found \
+                else (None, [], "", None, None)
+            is_math = bool(elems)
+            if is_math:
+                stats["math_found"] += 1
+                if display == "block":
+                    stats["block_written"] += 1
+                elif display == "inline":
+                    stats["inline_written"] += 1
+                else:
+                    stats["display_missing"] += 1
+                if source is not None:
+                    stats["annotations_found"] += 1
+                for name in elems:
+                    if name not in elements_seen:
+                        elements_seen.append(name)
+                stats["text_chars"] += len(text)
+            else:
+                stats["objects_without_math"] += 1
+            anchor = attr_local(one, "anchor-type")
+            if anchor is not None:
+                stats["anchors_written"] += 1
+            items.append({
+                "index": len(items),
+                "page": index,
+                "frame_name": attr_local(one, "name"),
+                "style_written": attr_local(one, "style-name"),
+                "anchor_written": anchor,
+                "width_written": attr_local(one, "width"),
+                "height_written": attr_local(one, "height"),
+                "z_written": attr_local(one, "z-index"),
+                "object_target": href,
+                "object_part": member if found else None,
+                "part_found": found,
+                "math_found": is_math,
+                "replacement_target": repl,
+                "replacement_found": repl_found,
+                "display_written": display,
+                "elements": elems,
+                "text": text,
+                "annotation_encoding": enc,
+                "annotation_source": source,
+            })
+        for one in (x for x in _iter_all(page) if local(x.tag) == "page-thumbnail"):
+            thumbs += 1
+        stats["frames_seen"] += frames
+        stats["frames_in_notes"] += notes_frames
+        stats["page_thumbnails"] += thumbs
+        pages.append({"page": index, "frames": frames, "frames_in_notes": notes_frames,
+                      "thumbnails": thumbs, "formulas": formulas})
+    stats["equations_total"] = stats["math_found"]
+    return {"family": "odp", "available": True, "items": items, "pages": pages,
+            "elements_seen": elements_seen, **stats}
+
+
 def mathml_of(blob: bytes):
     """一个公式部件里的 MathML：display 按写的交，元素按文档顺序，字只拼那四类"""
     if not blob:

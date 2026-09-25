@@ -42,6 +42,7 @@ from lyco_markdown import docx_markdown as docx_markdown_ledger  # 结构搬进 
 from lyco_markdown import odf_markdown as odf_markdown_ledger  # 同一本的 ODF 那一面（与 markdown.rs::odf 同口径）
 from lyco_equations import docx_equations as docx_equations_ledger  # OMML 那一份账的第二读者
 from lyco_equations import odf_equations as odf_equations_ledger  # 公式部件（MathML）那一份
+from lyco_equations import odp_equations as odp_equations_ledger  # 放映每一页的公式（同一条判据）
 
 END = "END"  # CFB 的链结束标记
 FREE = "FREE"
@@ -8978,6 +8979,8 @@ def facts(path: Path) -> dict:
                 groups = odp_slide_tables(path)
                 for which, slide in enumerate(deck["slides"]):
                     slide["table_list"] = groups[which] if which < len(groups) else []
+                # 一条式子一个部件；页缩略图也是 frame，所以两格分开数
+                deck["equations"] = odp_equations_ledger(path)
                 out["odp"] = deck
         else:
             out["app"] = "unknown-zip"

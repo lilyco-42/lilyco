@@ -301,6 +301,10 @@ def main() -> int:
         "eq-lo.docx": ("ooxml", "word", "docx"),
         "eq-od.docx": ("ooxml", "word", "docx"),
         "eq.odt": ("opendocument", "word", "odt"),
+        # 放映里的公式：手写外壳 + LibreOffice 的同格式重写（pptx 那一转也留了件，但这一本不读它）
+        "eqs.odp": ("opendocument", "powerpoint", "odp"),
+        "eqs-lo.odp": ("opendocument", "powerpoint", "odp"),
+        "eqs.pptx": ("ooxml", "powerpoint", "pptx"),
         # 注的编号那三份：同一句话在两处说，两处说的不一样
         "nset.docx": ("ooxml", "word", "docx"),
         "nset-lo.docx": ("ooxml", "word", "docx"),
@@ -6249,6 +6253,80 @@ def main() -> int:
          dig(lbin("office-doc", fixture("notes.odt")), "structure.equations.frames_seen"),
          dig(lbin("office-doc", fixture("images.odt")), "structure.equations.objects_total")],
         [0, True, None, 1, 0],
+    )
+    # ── 3av) 放映里的公式：一条式子一个部件，而页缩略图也是 frame，两格必须分开数 ──────
+    print("=== 3av) odp 的公式：frame → object → Object N/content.xml，重写改了哪几格 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.odp")):
+        got = lbin("office-slide", fixture(name))
+        check("%s 的公式那份账与读者一致（每页的 frame/object/部件、缩略图另记一格）" % name,
+              got.get("equations"), files[name]["odp"]["equations"])
+    hand = lbin("office-slide", fixture("eqs.odp"))
+    rewrote = lbin("office-slide", fixture("eqs-lo.odp"))
+    check(
+        "`eqs.odp` 两页、三条 frame、两枚 `draw:object`：每页一条式子，各自住在 "
+        "`Object N/content.xml` 的 MathML 里（`parts_found` 2 / `parts_missing` 0，"
+        "里面都有 `<math>` 根 —— `math_found` 2、`objects_without_math` 0）；"
+        "frame 写的都是 `text:anchor-type=\"as-char\"`（`anchors_written` 2），"
+        "尺寸是自带单位的串（`3.261cm`），第一条还有一枚替位图地址在包里（`replacement_found` true）",
+        [dig(hand, "equations.pages_total"), dig(hand, "equations.frames_seen"),
+         dig(hand, "equations.frames_in_notes"), dig(hand, "equations.page_thumbnails"),
+         dig(hand, "equations.objects_total"), dig(hand, "equations.math_found"),
+         dig(hand, "equations.objects_without_math"), dig(hand, "equations.parts_found"),
+         dig(hand, "equations.anchors_written"), dig(hand, "equations.replacements_written"),
+         dig(hand, "equations.block_written"), dig(hand, "equations.inline_written"),
+         dig(hand, "equations.annotations_found"), dig(hand, "equations.text_chars"),
+         dig(hand, "equations.equations_total"),
+         dig(hand, "equations.pages"),
+         dig(hand, "equations.items[0].frame_name"),
+         dig(hand, "equations.items[0].width_written"),
+         dig(hand, "equations.items[0].object_part"),
+         dig(hand, "equations.items[0].annotation_source")],
+        [2, 3, 0, 0, 2, 2, 0, 2, 2, 1, 2, 0, 2, 4, 2,
+         [{"page": 0, "frames": 1, "frames_in_notes": 0, "thumbnails": 0, "formulas": 1},
+          {"page": 1, "frames": 2, "frames_in_notes": 0, "thumbnails": 0, "formulas": 1}],
+         "对象1", "3.261cm", "Object 1/content.xml", "{a} over {b}"],
+    )
+    check(
+        "LibreOffice 把同一份 odp 重写一遍，**式子一条不少、字一字不变**，而三格变了："
+        "`text:anchor-type` 全被丢掉（`anchors_written` 2 → 0）、每页补一枚 `draw:frame` 装 "
+        "`draw:page-thumbnail`（`frames_in_notes` 0 → 2、`page_thumbnails` 0 → 2 —— 这一族页缩略图"
+        "挂在 `presentation:notes` 里，若不分开数，「页上有几枚 frame」就从 3 变 5），"
+        "frame 的样式名从 `fr1` 换成 `gr1`；还给第二枚对象写了 `./ObjectReplacements/Object 2`，"
+        "**可这个部件既不在包里、清单里也没有这一条**（`replacements_written` 1 → 2 而 "
+        "`replacements_missing` 1）。页上的 frame 数本身没动（3）—— 所以两处都得交",
+        [dig(rewrote, "equations.frames_seen"), dig(rewrote, "equations.frames_in_notes"),
+         dig(rewrote, "equations.page_thumbnails"), dig(rewrote, "equations.anchors_written"),
+         dig(rewrote, "equations.replacements_written"), dig(rewrote, "equations.replacements_missing"),
+         dig(rewrote, "equations.items[0].style_written"),
+         dig(rewrote, "equations.items[1].replacement_target"),
+         dig(rewrote, "equations.items[1].replacement_found"),
+         dig(rewrote, "equations.objects_total"), dig(rewrote, "equations.math_found")],
+        [3, 2, 2, 0, 2, 1, "gr1", "./ObjectReplacements/Object 2", False, 2, 2],
+    )
+    check(
+        "跨件同形：两份件的「式子里的字」与线性源一模一样（`ab` / `12`、"
+        "`{a} over {b}` / `sqrt {1 2}`）—— 重写改的是挂法与引用，不是内容；"
+        "而 `elements_seen` 两副件也一致（MathML 那 8 个元素名）",
+        [[dig(hand, "equations.items[%d].text" % i) for i in (0, 1)],
+         [dig(rewrote, "equations.items[%d].text" % i) for i in (0, 1)],
+         [dig(hand, "equations.items[%d].annotation_source" % i) for i in (0, 1)],
+         dig(hand, "equations.elements_seen") == dig(rewrote, "equations.elements_seen")],
+        [["ab", "12"], ["ab", "12"], ["{a} over {b}", "sqrt {1 2}"], True],
+    )
+    check(
+        "没有公式的放映也给「数过了没有」而不是缺键，但要紧的是**同一个数在另一份件上不是 0**："
+        "`deck.odp` 一份公式都没有（`objects_total` 0、`math_found` 0、式子里的字 0 个码位），"
+        "可它页上仍有 5 枚 `draw:frame`、注块里 3 枚、页缩略图 2 枚 —— 把「frame 数」当「公式数」"
+        "就会在这里说谎。`*.pptx` **不交这个键**：LibreOffice 会把 odp 的式子写成文本体里的 OMML"
+        "（`a14:m` 套 `m:oMath`）外加一张 EMF，那是另一族要另量的形状，本机这条链的量法还没做完",
+        [dig(lbin("office-slide", fixture("deck.odp")), "equations.equations_total"),
+         dig(lbin("office-slide", fixture("deck.odp")), "equations.frames_seen"),
+         dig(lbin("office-slide", fixture("deck.odp")), "equations.frames_in_notes"),
+         dig(lbin("office-slide", fixture("deck.odp")), "equations.page_thumbnails"),
+         dig(lbin("office-slide", fixture("deck.odp")), "equations.objects_total"),
+         lbin("office-slide", fixture("deck.pptx")).get("equations"),
+         lbin("office-slide", fixture("eqs.pptx")).get("equations")],
+        [0, 5, 3, 2, 0, None, None],
     )
     # ── 3aq) 公式那枚 <f> 自己写了什么：共享组的跟随格在文件里没有公式正文 ──────────
     print("=== 3aq) 公式元素自己：共享组、空正文带缓存值、两个生产者三种写法 ===")

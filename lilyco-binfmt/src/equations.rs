@@ -457,3 +457,246 @@ pub(crate) fn odf(bytes: &[u8], root: &Node, limit: usize) -> Value {
         "elements_seen": seen,
     })
 }
+
+/// odp 那一本要数的格（键名与 `lyco_equations.odp_equations` 一字不差）
+const ODP_KEYS: [&str; 17] = [
+    "pages_total",
+    "frames_seen",
+    "frames_in_notes",
+    "page_thumbnails",
+    "objects_total",
+    "math_found",
+    "objects_without_math",
+    "parts_found",
+    "parts_missing",
+    "replacements_written",
+    "replacements_missing",
+    "block_written",
+    "inline_written",
+    "display_missing",
+    "annotations_found",
+    "anchors_written",
+    "text_chars",
+];
+
+/// odp 那一本的运行态
+struct OdpRun {
+    items: Vec<Value>,
+    pages: Vec<Value>,
+    seen: Vec<String>,
+    counts: Vec<(&'static str, i64)>,
+}
+
+impl OdpRun {
+    fn new() -> OdpRun {
+        OdpRun {
+            items: Vec::new(),
+            pages: Vec::new(),
+            seen: Vec::new(),
+            counts: ODP_KEYS.iter().map(|one| (*one, 0i64)).collect(),
+        }
+    }
+
+    fn bump(&mut self, key: &str) {
+        self.bump_by(key, 1);
+    }
+
+    fn bump_by(&mut self, key: &str, by: i64) {
+        if let Some(slot) = self.counts.iter_mut().find(|one| one.0 == key) {
+            slot.1 += by;
+        }
+    }
+
+    fn count(&self, key: &str) -> i64 {
+        self.counts
+            .iter()
+            .find(|one| one.0 == key)
+            .map(|one| one.1)
+            .unwrap_or(0)
+    }
+}
+
+/// 页里的每一枚 `draw:frame`，带上「它在不在 `presentation:notes` 里面」
+///
+/// 只能自顶往下带标志：这一族要找的「祖先里有没有 notes」用身份比对是走不通的
+/// （python 那侧 `kid is target` 永远不成立，注块的排除会静默失效），
+/// 而 Rust 这边根本没有父指针，所以两边同一形状。
+fn collect_frames<'a>(node: &'a Node, in_notes: bool, out: &mut Vec<(&'a Node, bool)>) {
+    for one in node.children.iter().filter(|kid| kid.name != "#text") {
+        let deeper = in_notes || one.local() == "notes";
+        if one.local() == "frame" {
+            out.push((one, deeper));
+        }
+        collect_frames(one, deeper, out);
+    }
+}
+
+/// 页缩略图：LibreOffice 的 odp 重写给每页插一枚 `draw:page-thumbnail`（挂在 notes 里），
+/// 它既不是公式也不算页上的 frame
+fn count_thumbs(node: &Node) -> i64 {
+    let mut kids: Vec<&Node> = Vec::new();
+    subtree(node, &mut kids);
+    kids.iter()
+        .filter(|one| one.local() == "page-thumbnail")
+        .count() as i64
+}
+
+fn member_exists(bytes: &[u8], member: &str) -> bool {
+    !member.is_empty() && zipread::member(bytes, member, DEFAULT_MEMBER_CAP).is_ok()
+}
+
+/// odp 那一份：每页的 frame → `draw:object` → `Object N/content.xml` 的 MathML
+pub(crate) fn odp(bytes: &[u8], root: &Node, limit: usize) -> Value {
+    let body = match root.descendants("presentation").into_iter().next() {
+        Some(had) => had,
+        None => {
+            return json!({"family": "odp", "available": false});
+        }
+    };
+    let mut run = OdpRun::new();
+    for page in body
+        .children
+        .iter()
+        .filter(|kid| kid.name != "#text" && kid.local() == "page")
+    {
+        let index = run.count("pages_total");
+        run.bump("pages_total");
+        let thumbs = count_thumbs(page);
+        run.bump_by("page_thumbnails", thumbs);
+        let mut found: Vec<(&Node, bool)> = Vec::new();
+        collect_frames(page, false, &mut found);
+        let mut page_frames = 0i64;
+        let mut notes_frames = 0i64;
+        let mut formulas = 0i64;
+        for (frame, in_notes) in found.iter() {
+            if *in_notes {
+                notes_frames += 1;
+                continue;
+            }
+            page_frames += 1;
+            run.bump("frames_seen");
+            let object = match frame.descendants("object").into_iter().next() {
+                Some(had) => had,
+                None => continue,
+            };
+            run.bump("objects_total");
+            formulas += 1;
+            let href = crate::odsheet::attr_of(object, "href")
+                .unwrap_or_default()
+                .to_string();
+            let member = member_of(&href);
+            let found_part = member_exists(bytes, &member);
+            run.bump(if found_part {
+                "parts_found"
+            } else {
+                "parts_missing"
+            });
+            let image = frame.descendants("image").into_iter().next();
+            let replacement = image
+                .and_then(|had| crate::odsheet::attr_of(had, "href"))
+                .map(String::from);
+            let mut repl_found: Option<bool> = None;
+            if let Some(raw) = &replacement {
+                run.bump("replacements_written");
+                let stem = raw.strip_prefix("./").unwrap_or(raw);
+                let stem = stem.strip_prefix('/').unwrap_or(stem);
+                repl_found = Some(member_exists(bytes, stem));
+                if repl_found == Some(false) {
+                    run.bump("replacements_missing");
+                }
+            }
+            let (display, elements, text, encoding, source) = match found_part {
+                true => mathml_of(bytes, &member),
+                false => (None, Vec::new(), String::new(), None, None),
+            };
+            // 部件里有没有 `<math>` 根才算式子：图表那类嵌入对象走的是同一扇门
+            let is_math = !elements.is_empty();
+            if is_math {
+                run.bump("math_found");
+                match display.as_deref() {
+                    Some("block") => run.bump("block_written"),
+                    Some("inline") => run.bump("inline_written"),
+                    _ => run.bump("display_missing"),
+                }
+                if source.is_some() {
+                    run.bump("annotations_found");
+                }
+                for name in elements.iter() {
+                    if !run.seen.iter().any(|one| one == name) {
+                        run.seen.push(name.clone());
+                    }
+                }
+                run.bump_by("text_chars", text.chars().count() as i64);
+            } else {
+                run.bump("objects_without_math");
+            }
+            let anchor = crate::odsheet::attr_of(frame, "anchor-type").map(String::from);
+            if anchor.is_some() {
+                run.bump("anchors_written");
+            }
+            let ordinal = run.items.len();
+            run.items.push(json!({
+                "index": ordinal,
+                "page": index,
+                "frame_name": crate::odsheet::attr_of(frame, "name").map(String::from),
+                "style_written": crate::odsheet::attr_of(frame, "style-name").map(String::from),
+                "anchor_written": anchor,
+                "width_written": crate::odsheet::attr_of(frame, "width").map(String::from),
+                "height_written": crate::odsheet::attr_of(frame, "height").map(String::from),
+                "z_written": crate::odsheet::attr_of(frame, "z-index").map(String::from),
+                "object_target": href,
+                "object_part": match found_part {
+                    true => json!(member),
+                    false => Value::Null,
+                },
+                "part_found": found_part,
+                "math_found": is_math,
+                "replacement_target": match &replacement {
+                    Some(raw) => json!(raw),
+                    None => Value::Null,
+                },
+                "replacement_found": match repl_found {
+                    Some(had) => json!(had),
+                    None => Value::Null,
+                },
+                "display_written": match &display {
+                    Some(raw) => json!(raw),
+                    None => Value::Null,
+                },
+                "elements": elements,
+                "text": text,
+                "annotation_encoding": match &encoding {
+                    Some(raw) => json!(raw),
+                    None => Value::Null,
+                },
+                "annotation_source": match &source {
+                    Some(raw) => json!(raw),
+                    None => Value::Null,
+                },
+            }));
+        }
+        run.bump_by("frames_in_notes", notes_frames);
+        run.pages.push(json!({
+            "page": index,
+            "frames": page_frames,
+            "frames_in_notes": notes_frames,
+            "thumbnails": thumbs,
+            "formulas": formulas,
+        }));
+    }
+    let math_total = run.count("math_found");
+    let mut mine = serde_json::Map::new();
+    mine.insert("family".to_string(), json!("odp"));
+    mine.insert("available".to_string(), json!(true));
+    mine.insert(
+        "items".to_string(),
+        json!(run.items.into_iter().take(limit).collect::<Vec<Value>>()),
+    );
+    mine.insert("pages".to_string(), json!(run.pages));
+    mine.insert("elements_seen".to_string(), json!(run.seen));
+    for (key, value) in run.counts.iter() {
+        mine.insert((*key).to_string(), json!(value));
+    }
+    mine.insert("equations_total".to_string(), json!(math_total));
+    Value::Object(mine)
+}

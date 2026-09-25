@@ -3313,6 +3313,103 @@ def write_equations_docx(path: Path) -> None:
 
 
 
+ODP_FORMULA_PARTS = {
+    # LibreOffice 自己在 eq.odt 里写的两枚公式部件（逐字抄，不自己编 MathML）
+    "Object 1/content.xml": (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics>'
+        '<mfrac><mi>a</mi><mi>b</mi></mfrac><annotation encoding="StarMath 5.0">'
+        '{a} over {b}</annotation></semantics></math>'
+    ),
+    "Object 2/content.xml": (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics>'
+        '<msqrt><mrow><mn>1</mn><mn>2</mn></mrow></msqrt><annotation encoding="StarMath 5.0">'
+        'sqrt {1 2}</annotation></semantics></math>'
+    ),
+}
+
+
+def write_equations_odp(path: Path) -> None:
+    """一份「两页各有一条公式」的 odp：`draw:page` 里 `draw:frame` → `draw:object`
+
+    本机没有会写 odp 公式的生产者，而 LibreOffice 也**没有 odt → odp 的导出过滤器**
+    （实测 `Error: no export filter`），所以外壳用 zipfile 手写、里面两枚公式部件逐字用
+    LibreOffice 自己在 `eq.odt` 里写的 MathML。要点四条（都在 `eqs.odp` 那一轮量过）：
+    - 式子的地址与 odt 同一个形状（`./Object N` + `ObjectReplacements/Object N` 的替位图），
+      清单把 `Object N/` 声明成 `application/vnd.oasis.opendocument.formula`；
+    - LibreOffice 重写这份 odp 时**两张部件都留着**，还给第二枚也补了一张替位图；
+    - 它把 `draw:master-page-name="Standard"` 换成**本地化名** `默认`，给第一页补
+      `presentation:presentation-page-layout-name="AL1T0"`，并给每页插一枚
+      `draw:page-thumbnail`（那是页缩略图，不是一条公式）；
+    - 反过来 odp → **pptx 整个不写回公式**：`p:oleObj` / `p:graphicFrame` / `p:pic` 全 0，
+      只剩两张 `ppt/media/imageN.emf`，式子里的字一句都不在 slide 里。
+    """
+    content = '''<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+ xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"
+ xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0"
+ xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0"
+ xmlns:xlink="http://www.w3.org/1999/xlink" office:version="1.2">
+<office:body><office:presentation>
+<draw:page draw:name="page1" draw:style-name="dp1" draw:master-page-name="Standard"
+ presentation:presentation-class-name="Title">
+ <draw:frame draw:style-name="fr1" draw:name="对象1" text:anchor-type="as-char"
+  svg:width="3.261cm" svg:height="1.686cm" draw:z-index="0">
+  <draw:object xlink:href="./Object 1" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>
+  <draw:image xlink:href="./ObjectReplacements/Object 1" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>
+ </draw:frame>
+</draw:page>
+<draw:page draw:name="page2" draw:style-name="dp1" draw:master-page-name="Standard"
+ presentation:presentation-class-name="Text">
+ <draw:frame draw:style-name="fr1" draw:name="对象2" text:anchor-type="as-char"
+  svg:width="3.261cm" svg:height="1.686cm" draw:z-index="0">
+  <draw:object xlink:href="./Object 2" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>
+ </draw:frame>
+ <draw:frame draw:style-name="fr2" draw:name="文本框1" text:anchor-type="as-char"
+  svg:x="1cm" svg:y="1cm" svg:width="8cm" svg:height="2cm" draw:z-index="1">
+  <draw:text-box><text:p>这一页还有一句普通字</text:p></draw:text-box>
+ </draw:frame>
+</draw:page>
+</office:presentation></office:body></office:document-content>'''
+    # styles.xml 用的是「odp → odp 与 odp → pptx 两次转换都成」的那一种外壳：
+    # 里层写 office:body/office:presentation 时，odp → pptx 会在写盘阶段留下一个空 tmp
+    styles = '''<?xml version="1.0" encoding="UTF-8"?>
+<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ office:version="1.2"><office:master-styles/></office:document-styles>'''
+    manifest = '''<?xml version="1.0" encoding="UTF-8"?>
+<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"
+ manifest:version="1.2">
+ <manifest:file-entry manifest:full-path="/" manifest:version="1.2"
+  manifest:media-type="application/vnd.oasis.opendocument.presentation"/>
+ <manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>
+ <manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/>
+ <manifest:file-entry manifest:full-path="Object 1/" manifest:media-type="application/vnd.oasis.opendocument.formula"/>
+ <manifest:file-entry manifest:full-path="Object 1/content.xml" manifest:media-type="text/xml"/>
+ <manifest:file-entry manifest:full-path="Object 2/" manifest:media-type="application/vnd.oasis.opendocument.formula"/>
+ <manifest:file-entry manifest:full-path="Object 2/content.xml" manifest:media-type="text/xml"/>
+ <manifest:file-entry manifest:full-path="ObjectReplacements/Object 1" manifest:media-type=""/>
+</manifest:manifest>'''
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as box:
+        box.writestr("mimetype", "application/vnd.oasis.opendocument.presentation",
+                     compress_type=zipfile.ZIP_STORED)
+        box.writestr("content.xml", content)
+        box.writestr("styles.xml", styles)
+        box.writestr("META-INF/manifest.xml", manifest)
+        for name, body in ODP_FORMULA_PARTS.items():
+            box.writestr(name, body)
+        # 替位图：这串字节是从 LibreOffice 自己写的 eq.odt 里取的，前 6 个字节是 `VCLMTF`
+        # （它自己的清单把这一格的 media-type 写成**空串** —— 不是 PNG，也不是任何认得的图片格式）
+        seed = OUT / "eq.odt"
+        if seed.exists():
+            with zipfile.ZipFile(seed) as src:
+                box.writestr("ObjectReplacements/Object 1", src.read("ObjectReplacements/Object 1"))
+    print("  手写 odp：", path.name)
+
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="重跑前先清掉输出目录")
@@ -3895,6 +3992,23 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "eq-asodt" / "eq.odt", OUT / "eq.odt")
     else:
         print("⚠️  没拿到 eq.odt（公式那份的 docx → odt 那一转）")
+    # ── 放映页上的公式：odp 只能手写（LO 没有 odt→odp 过滤器），再走同格式重写与导 pptx ──
+    odp_eq = OUT / "eqs.odp"
+    write_equations_odp(odp_eq)
+    convert(exe, odp_eq, "odp", SCRATCH / "eqs-back")
+    if (SCRATCH / "eqs-back" / "eqs.odp").exists():
+        shutil.copyfile(SCRATCH / "eqs-back" / "eqs.odp", OUT / "eqs-lo.odp")
+    else:
+        print("⚠️  没拿到 eqs-lo.odp（odp → odp 那一转）")
+    # odp → pptx 这一转**曾经是失败的**（只留下 `.~lock…#` 与一个 0 字节 tmp），但原因不是 LO 不稳，
+    # 而是我手写的第二枚公式部件少了一个 `</msqrt>` 闭合标签 —— 补上之后这一转每次都成。
+    # 记在这儿的教训：转换器不出件先怀疑自己的件，别急着记成「本机做不出」。
+    convert(exe, odp_eq, "pptx", SCRATCH / "eqs-pptx")
+    if (SCRATCH / "eqs-pptx" / "eqs.pptx").exists():
+        shutil.copyfile(SCRATCH / "eqs-pptx" / "eqs.pptx", OUT / "eqs.pptx")
+    else:
+        print("⚠️  没拿到 eqs.pptx（odp → pptx 那一转）")
+
     convert(exe, OUT / "eq.odt", "docx", SCRATCH / "eq-round")
     if (SCRATCH / "eq-round" / "eq.docx").exists():
         shutil.copyfile(SCRATCH / "eq-round" / "eq.docx", OUT / "eq-od.docx")

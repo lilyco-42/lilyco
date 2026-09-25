@@ -97,6 +97,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `eq-lo.docx` | LibreOffice（`eq.docx` → .docx） | 生产者改了什么都在账上：两条行内式被**升级**成 `m:oMathPara`（3+3 变 2+4）、对齐从 1 条补到 4 条而作者写的 `centerGroup` 变成 `center`、`m:nor` 那一条多一枚 `m:lit` —— 字一个没动（13） |
 | `eq.odt` | LibreOffice（`eq.docx` → .odt） | 一条式子一个**部件**：六枚 `draw:frame`（`as-char`、尺寸 `0.314cm` 这种自带单位的串）里 `draw:object` 指 `./Object N`，字在 `Object N/content.xml` 的 MathML 里，另有六枚 `ObjectReplacements/Object N` 的替位图；六条的 `display` 一律写 `block`（行内与独立在这一族分不出来），而 `[n]` 那一条在这里比 OMML 多两个括号字符（17 对 13） |
 | `eq-od.docx` | LibreOffice（`eq.odt` → .docx） | MathML 回到 OMML 之后与那次 docx → docx 重写**一格不差** —— 两条路走出来的两副件在这一本上同形，所以不替文件合并任何一格 |
+| `eqs.odp` | 手写 odp（`write_equations_odp`；两枚公式部件逐字用 LibreOffice 自己写的 MathML） | 两页、三条 `draw:frame`、两枚 `draw:object`：每页一条式子，各自住在 `Object N/content.xml` 里（`parts_found` 2、里面都有 `<math>` 根 → `math_found` 2），frame 写 `text:anchor-type="as-char"` 与自带单位的 `3.261cm`，第一条另有一枚替位图 `./ObjectReplacements/Object 1`（在包里）—— 外壳只能手写：**LibreOffice 没有 odt → odp 的导出过滤器**（实测 `Error: no export filter`） |
+| `eqs-lo.odp` | LibreOffice（`eqs.odp` → .odp） | 式子一条不少、字一字不变（`ab` / `12`、`{a} over {b}` / `sqrt {1 2}`），而三格改了：`text:anchor-type` **整个被丢**（`anchors_written` 2 → 0）、每页补一枚装 `draw:page-thumbnail` 的 frame（`frames_in_notes` 0 → 2、`page_thumbnails` 0 → 2，页上的 frame 数仍是 3 —— 所以两份账必须分开）、样式名从 `fr1` 换成 `gr1`，还给第二枚对象写了 `./ObjectReplacements/Object 2` —— **这个部件既不在包里也不在清单里**（`replacements_missing` 1） |
+| `eqs.pptx` | LibreOffice（`eqs.odp` → .pptx） | 反向那一转的真实形状：式子不是 OLE 也不是图框，而是**文本体里的 OMML**（`<a:p><a14:m><m:oMath …>`）外加一张 `ppt/media/image1.emf`；这一本的 pptx 侧还没量完，所以那一族**不交这个键**（缺键，不是 0） |
 | `md.odt` | LibreOffice（`md.docx` → .odt） | **同一份稿子的第三副样子**：块数与两份 docx 一样是 18、渲染 35 行里**只有一行不同**（图片地址各按自己文件写的交），而账上换了一整套读法 —— 粗斜要一跳字符样式（`spans_unresolved` 0 才算落到字上）、空格是 `text:s` **记号**（`space_markers` 1，实测写成 `两处空格 <text:s/>之间是一个记号`，后半句挂在这个元素的尾上）、列表是嵌套元素（号一律来自 `text:list-style`，`lists_named` 3）、批注与注**嵌在正文段里面**（跳过的条数各记一格），见事实 109 |
 | `deck.odp`（结构） | 同上 | 两页：`draw:name` 是「预算评审」与「第二页：数字」；第一页有 `presentation:class="notes"` 的备注（「评审时先讲口径再讲数字」），**旁边还坐着页码占位，里面的样字是 `<编号>`** —— 整页一把抓就会把它当正文；两个母版页名、两个版式名，但文件里没有任何版式定义；尺寸 25.4cm×19.05cm landscape 在 styles.xml 的 page-layout 里 |
 | `notes.odt`（结构） | 同上 | 10 段（2 段是空的）、两个带 `text:outline-level` 的标题、1 张 2×2 表（名叫「表格1」）、一条 `text:annotation` 批注、一个 `draw:frame`+`draw:image`、一个 `text:a` 超链接、5 个 `text:sequence-decl`；`meta.xml` 自报 paragraph-count 10 / page-count 2 / word-count 61 |
@@ -2083,6 +2086,34 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 界：只数正文段（`w:p` / `text:p|h`）**直接孩子**里的式子，表格与注部件里的不数（两支同口径）；
       不做线性化（不生成 LaTeX）；rtf / `.doc` / `.ppt` 不交这个键 —— 那几族把式子内嵌成字段或
       对象是另一套记号，本机没有能写出这些件的生产者，量不到就不写那一支。
+
+111. **放映里的公式：一条式子一个部件，而「页上有几枚 frame」与「有几条公式」是两个数**
+    - ODF 那一族的式子内嵌成对象：`draw:frame` → `draw:object xlink:href="./Object N"` →
+      `Object N/content.xml`（MathML），同 frame 里另有一枚 `draw:image` 指向
+      `ObjectReplacements/Object N` 的替位图。两处地址**都按写的交**，替位图那一格还带
+      `replacement_found`（这串地址指的部件在不在包里）。
+    - **`deck.odp` 是这条 lane 的反面凭据**：它一条公式都没有（`objects_total` 0、`math_found` 0），
+      可页上仍有 5 枚 `draw:frame`、注块里 3 枚、页缩略图 2 枚 —— 拿「frame 数」当「公式数」
+      就会把一份没有公式的放映报成有五条。所以 `frames_seen` / `frames_in_notes` /
+      `page_thumbnails` / `objects_total` / `math_found` 五格各数各的。
+    - **是不是公式凭部件自己说**：`Object N/` 这一族既装公式也装图表，判据是那个部件里解析得出
+      `<math>` 根（`math_found` 对 `objects_without_math`），不靠地址形状猜。
+    - LibreOffice 重写同一份 odp 改的三格：`text:anchor-type` 全丢（2 → 0）、每页补一枚
+      `draw:frame` 装 `draw:page-thumbnail`（挂在 `presentation:notes` 里）、frame 样式名
+      `fr1` → `gr1`；式子的字与 `<annotation encoding="StarMath 5.0">` 的线性源一字未变。
+      它还给第二枚对象写了 `./ObjectReplacements/Object 2`，而**这个部件既不在包里、清单里也没有**
+      （`replacements_written` 1 → 2、`replacements_missing` 1）—— 引用与内容不匹配是文件的事实，
+      报出来而不是替它补圆。
+    - 生产者做不到的那半条也记着：**LibreOffice 没有 odt → odp 的导出过滤器**
+      （`Error: no export filter`），所以 `eqs.odp` 只能手写外壳 —— 里面的两枚公式部件是
+      LibreOffice 自己在 `eq.odt` 里写的 MathML 逐字抄的（外壳是我写的、部件是生产者写的）。
+      第一次试的时候 `--convert-to pptx` 只留下 `.~lock…#` 与一个 0 字节 tmp，我差点记成
+      「本机做不出」—— 真实原因是手写的第二枚 MathML 少了一个 `</msqrt>` 闭合标签；补上就稳了。
+      **转换器不出件，先怀疑自己的件。**
+    - 反向那一转（`eqs.pptx`）露出 pptx 的装法：既不是 `p:oleObj` 也不是 `p:graphicFrame`，
+      而是**文本体里的 OMML**（`<a:p><a14:m><m:oMath …>`）外加一张 EMF。我第一版只 grep 了
+      前者就下了「odp → pptx 把公式丢了」的结论 —— 那是「没找到」不是「没有」。
+      pptx 那一族这一本**不交**（量法还没做完），缺键而不是 0。
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
 `scripts/acceptance/office_reader.py`（OOXML / ODF / MS-CFB / OLE 属性集，只用标准库）、
