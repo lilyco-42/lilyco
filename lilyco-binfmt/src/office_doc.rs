@@ -3393,6 +3393,9 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
                 // 文件根本没给它们立一个元素 —— 第三种情况，不是「有元素而没格式」
                 "run_formats": odt_run_formats(&paragraphs, &root, styles_part.as_ref(), limit),
                 "columns": odf_columns(&root, limit),
+                // 页眉页脚在 ODF 住在母版页上（不在正文、也不在页版式上）：六格一份账，
+                // 外加「有没有一节点这份母版页的名」—— 转过来那份文件里没人点它是常事
+                "header_footers": odf_header_footers(&root, styles_part.as_ref(), limit),
                 // 这一族的字体表是 `style:font-face`（名字与族名两个键），点它的地方在样式里，
                 // 而且是两种指针（font-name 对名字、font-family 对族名）—— 各数各的
                 "fonts": odf_fonts(&root, styles_part.as_ref(), limit),

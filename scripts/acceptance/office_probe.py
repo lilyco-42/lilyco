@@ -4218,6 +4218,41 @@ def main() -> int:
          None],
     )
 
+    # ── 3u) ODF 的页眉页脚在母版页上：六格、字段，与「有没有一节点它的名」───────
+    print("=== 3u) 母版页那六格：写了的、没写的，与没人点的第二份母版页 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 母版页六格整份账与读者一致（格在不在、写的字、里面有没有自己算的）" % name,
+              dig(got, "structure.header_footers"),
+              files[name]["odt"]["header_footers"])
+    hfodt = lbin("office-doc", fixture("notes-hf.odt"))
+    hfpaper = lbin("office-doc", fixture("paper-a4.odt"))
+    check(
+        "两节的 docx 转成 odt 之后没有 text:section：LO 造出第二份母版页把第二节的页眉搬进去，"
+        "而全文没有任何一节点过它的名 —— 那一句还在，可它「生效不生效」这份账不猜",
+        [dig(hfodt, "structure.header_footers.masters_total"),
+         dig(hfodt, "structure.header_footers.sections_total"),
+         dig(hfodt, "structure.header_footers.masters_named_by_section"),
+         dig(hfodt, "structure.header_footers.masters_unnamed"),
+         dig(hfodt, "structure.header_footers.slots_written"),
+         dig(hfodt, "structure.header_footers.masters[0].slots.footer:default.text"),
+         dig(hfodt, "structure.header_footers.masters[1].slots.header:default.text"),
+         dig(hfodt, "structure.header_footers.masters[1].used_by_sections")],
+        [2, 0, 0, 2, 4, "第 1 页 / 共 3 页", "第二节的页眉不一样", []],
+    )
+    check(
+        "格子的三种状态分得开：这一格写了（present + 写的字）、整个没有这一格（null）；"
+        "页码那一路另数：`text:page-number` 在脚格里有几个",
+        [dig(hfodt, "structure.header_footers.masters[0].slots.header:left"),
+         dig(hfodt, "structure.header_footers.masters[0].slots.header:default.present"),
+         dig(hfodt, "structure.header_footers.field_slots"),
+         dig(lbin("office-doc", fixture("fields.odt")),
+             "structure.header_footers.masters[0].slots.footer:default.fields"),
+         dig(hfpaper, "structure.header_footers.slots_written"),
+         dig(hfpaper, "structure.header_footers.masters[0].slots.header:default")],
+        [None, True, 0, {"page-number": 1}, 0, None],
+    )
+
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
     print("=== 3i) 文档里的图：一处号一次跳，两处答案各按各的文件交 ===")
     for name in ("images.docx", "images-lo.docx", "images-float.docx",

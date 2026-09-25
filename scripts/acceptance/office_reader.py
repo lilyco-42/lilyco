@@ -714,6 +714,121 @@ def docx_fonts(parts: dict, body, limit: int = 100) -> dict:
     }
 
 
+def odf_header_footers(path: Path, limit: int = 100) -> dict:
+    r"""ODF 的页眉页脚在**母版页**上（`style:master-page`），一格一个子元素
+
+    六格：`style:header` / `style:footer` 再各配 `-first`（第一页）与 `-left`（偶数页）。
+    这一族没有「沿用上一节」这件事：节只点名一份版式（`text:section/@style:page-layout-name`），
+    而「正文用哪份母版页」在这些文件里根本没写 —— 所以每格只有两种答案（写了 / null），
+    `used_by_sections` 另说有没有一节点过这份母版页的名。
+    实测最要紧的一条：LibreOffice 把两节的 docx 转成 odt 时**不写 text:section**，
+    而是造出第二份母版页（`Converted1`）把第二节那句页眉搬进去，全文没有任何一节点它的名。
+    """
+    slots_of = ("header", "header-first", "header-left", "footer", "footer-first", "footer-left")
+    keys_of = ("header:default", "header:first", "header:left",
+               "footer:default", "footer:first", "footer:left")
+    field_words = ("page-number", "page-count", "date", "time", "expression", "sender-full-name")
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        roots = []
+        for part in ("content.xml", "styles.xml"):
+            if part not in have:
+                continue
+            raw = box.read(part)
+            roots.append((part, ET.fromstring(raw), _ns_prefixes(raw)))
+    sections: list = []
+    named: list = []
+    layouts_named = 0
+    for part, root, nsmap in roots:
+        for one in root.iter():
+            if xml_local(one.tag) != "section":
+                continue
+            written = _written_attrs(one, nsmap)
+            master = _local_in(written, "master-page-name")
+            layout = _local_in(written, "page-layout-name")
+            if master is not None:
+                named.append(master)
+            if layout is not None:
+                layouts_named += 1
+            if len(sections) < limit:
+                sections.append({
+                    "name": _local_in(written, "name"),
+                    "style": _local_in(written, "style-name"),
+                    "master_page": master,
+                    "page_layout": layout,
+                    "written": written,
+                    "part": part,
+                })
+    masters: list = []
+    seen: list = []
+    dup = slots_written = field_slots = unnamed = 0
+    for part, root, nsmap in roots:
+        for one in root.iter():
+            if xml_local(one.tag) != "master-page":
+                continue
+            written = _written_attrs(one, nsmap)
+            name = _local_in(written, "name") or ""
+            if name in seen:
+                dup += 1
+                continue
+            seen.append(name)
+            if name not in named:
+                unnamed += 1
+            slots: dict = {}
+            mine = 0
+            for key, slot in zip(keys_of, slots_of):
+                holder = None
+                for kid in one:
+                    if xml_local(kid.tag) == slot:
+                        holder = kid
+                        break
+                if holder is None:
+                    slots[key] = None
+                    continue
+                paras = [kid for kid in holder if xml_local(kid.tag) == "p"]
+                fields: dict = {}
+                for kind in field_words:
+                    hits = [had for had in holder.iter() if xml_local(had.tag) == kind]
+                    if hits:
+                        fields[kind] = len(hits)
+                mine += 1
+                slots_written += 1
+                if fields:
+                    field_slots += 1
+                slots[key] = {
+                    "present": True,
+                    "element": _written_name(holder.tag, nsmap),
+                    "written": _written_attrs(holder, nsmap),
+                    "paragraphs": len(paras),
+                    "text": "\n".join("".join(had.itertext()).strip() for had in paras),
+                    "fields": fields,
+                }
+            if len(masters) < limit:
+                masters.append({
+                    "name": name,
+                    "page_layout": _local_in(written, "page-layout-name"),
+                    "written": written,
+                    "used_by_sections": [had["name"] for had in sections
+                                         if had["master_page"] == name],
+                    "slots_written": mine,
+                    "slots": slots,
+                    "part": part,
+                })
+    return {
+        "family": "odf",
+        "masters": masters,
+        "masters_total": len(seen),
+        "masters_duplicated": dup,
+        "masters_named_by_section": len(seen) - unnamed,
+        "masters_unnamed": unnamed,
+        "slots_written": slots_written,
+        "field_slots": field_slots,
+        "sections": sections,
+        "sections_total": len(sections),
+        "layouts_named_by_section": layouts_named,
+    }
+
+
 def odf_style_holders(node) -> list:
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
     out: list = []
@@ -3597,6 +3712,8 @@ def odt_structure(path: Path) -> dict:
         "columns": odf_columns(root, prefixes),
         # 字体：表是 style:font-face（名字与族名两个键），点它的地方在样式里，两种指针各数一遍
         "fonts": odf_fonts(path),
+        # 页眉页脚在母版页上：六格一份账，另说有没有一节点过这份母版页的名
+        "header_footers": odf_header_footers(path),
         # 那份定义 LibreOffice 全写在 styles.xml，段样式在 content.xml：跨部件的一跳
         # （前缀要按**各自那份件**自己声明的 xmlns 还原，所以两张表并起来用，content 优先）
         "numbering": odf_numbering(
