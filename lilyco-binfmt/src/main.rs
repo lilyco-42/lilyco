@@ -55,6 +55,7 @@ mod office_slide;
 mod office_text;
 mod opack;
 mod paper;
+mod para_borders;
 mod pdf;
 mod placeholders;
 mod ppt;

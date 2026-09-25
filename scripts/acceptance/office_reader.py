@@ -1897,6 +1897,201 @@ def odf_line_spacing(path: Path, limit: int = 100) -> dict:
     }
 
 
+ODF_BOX_LOCALS = ("border", "background-color", "padding")
+
+
+def _docx_local_attrs(node) -> dict:
+    """OOXML 那一族按**局部名**收属性（前缀是文件自己声明的）；与 Rust 的 local_attrs 同一条"""
+    return {key.split(":")[-1]: value
+            for key, value in _written_attrs(node, {}).items() if not key.startswith("xmlns")}
+
+
+def _odf_box_attrs(props, nsmap: dict) -> list:
+    """一份 `style:paragraph-properties` 里与「框与底」有关的那几条（名字按文件写的，前缀留着）"""
+    out = []
+    for key, value in _written_attrs(props, nsmap).items():
+        if key == "xmlns" or key.startswith("xmlns:"):
+            continue
+        local = key.rsplit(":", 1)[-1]
+        if local in ODF_BOX_LOCALS or local.startswith("border-") or local.startswith("padding-"):
+            out.append((key, value))
+    return out
+
+
+def docx_para_borders(path: Path, limit: int = 100) -> dict:
+    r"""「这一段自己有没有说画个框、铺个底」在 OOXML 是 `w:pPr` 下的**两枚元素**
+
+    `w:pBdr` 是装边的壳（里面 `w:top`… 各带 `val` / `sz` / `space` / `color`，`sz` 是 1/8 磅），
+    `w:shd` 是底纹。壳可以在而里面一条边都没写 —— 那是文件说过的话，不能读成「没写边框」，
+    所以 `border_element` 与 `edge_count` 分开数。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"available": False}
+        root = ET.fromstring(box.read("word/document.xml"))
+    body = [one for one in root if xml_local(one.tag) == "body"]
+    paras = [one for one in body[0].iter() if xml_local(one.tag) == "p"] if body else []
+    rows, vals, fills = [], {}, []
+    p_pr = with_border = empty_border = edges_total = with_shading = 0
+    for index, para in enumerate(paras):
+        holder = None
+        for kid in para:
+            if xml_local(kid.tag) == "pPr":
+                holder = kid
+                break
+        border = shading = None
+        if holder is not None:
+            for kid in holder:
+                local = xml_local(kid.tag)
+                if border is None and local == "pBdr":
+                    border = kid
+                if shading is None and local == "shd":
+                    shading = kid
+        edges = {}
+        if border is not None:
+            for kid in border:
+                edges[xml_local(kid.tag)] = _docx_local_attrs(kid)
+        if holder is not None:
+            p_pr += 1
+        if border is not None:
+            with_border += 1
+            if not len(border):
+                empty_border += 1
+        edges_total += len(edges)
+        shading_attrs = _docx_local_attrs(shading) if shading is not None else None
+        if shading is not None:
+            with_shading += 1
+            raw = shading_attrs.get("val")
+            if raw is not None:
+                vals[raw] = vals.get(raw, 0) + 1
+            raw = shading_attrs.get("fill")
+            if raw is not None and raw not in fills:
+                fills.append(raw)
+        rows.append({
+            "index": index,
+            "has_pPr": holder is not None,
+            "border_element": border is not None,
+            "edges": edges,
+            "edge_count": len(edges),
+            "shading_written": shading is not None,
+            "shading": shading_attrs,
+        })
+    return {
+        "family": "ooxml",
+        "available": True,
+        "paragraphs_total": len(rows),
+        "p_pr_elements": p_pr,
+        "with_border_element": with_border,
+        "border_element_empty": empty_border,
+        "edges_total": edges_total,
+        "with_shading": with_shading,
+        "shading_vals": vals,
+        "distinct_fills": fills,
+        "paragraphs": rows[:limit],
+    }
+
+
+def odf_para_borders(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF 一跳在段点的那份样式上，而**一条 shorthand 顶四条边**
+
+    `fo:border="0.74pt solid #ff0000"` 说的是四条边（值里塞着宽度、样式、颜色三段），也可以四条
+    各写一遍 —— 而「这一边没有」在这一族是**明写着 `none`** 的，与 OOXML 那不写这一条边不是一回事。
+    底纹是 `fo:background-color`，docx 那面 `w:space`（边离字多远）在这里搬成 `fo:padding`。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        content_raw = box.read("content.xml")
+        crowd = ET.fromstring(content_raw)
+        roots = [crowd]
+        nsmaps = [_ns_prefixes(content_raw)]
+        if "styles.xml" in have:
+            styles_raw = box.read("styles.xml")
+            roots.append(ET.fromstring(styles_raw))
+            nsmaps.append(_ns_prefixes(styles_raw))
+    table = []
+    for root, nsmap in zip(roots, nsmaps):
+        for node in root.iter():
+            if xml_local(node.tag) != "style":
+                continue
+            written = _written_attrs(node, nsmap)
+            if _local_in(written, "family") != "paragraph":
+                continue
+            name = _local_in(written, "name")
+            if name is None:
+                continue
+            held = []
+            for props in node:
+                if xml_local(props.tag) == "paragraph-properties":
+                    held = _odf_box_attrs(props, nsmap)
+                    break
+            table.append((name, held))
+    rows = []
+    resolved = with_shorthand = with_side = sides_written = sides_none = with_background = 0
+    paras = [one for one in crowd.iter() if xml_local(one.tag) == "p"]
+    for index, para in enumerate(paras):
+        name = _local_in(_written_attrs(para, nsmaps[0]), "style-name")
+        hit = None
+        if name is not None:
+            for had in table:
+                if had[0] == name:
+                    hit = had
+                    break
+        if hit is not None:
+            resolved += 1
+        held = hit[1] if hit is not None else []
+        shorthand = background = padding = None
+        sides, line_widths = {}, {}
+        for key, value in held:
+            local = key.rsplit(":", 1)[-1]
+            if local == "border":
+                shorthand = value
+            elif local == "background-color":
+                background = value
+            elif local == "padding":
+                padding = value
+            elif local.startswith("border-line-width"):
+                line_widths[local[len("border-line-width"):].lstrip("-")] = value
+            elif local.startswith("border-"):
+                sides[key] = value
+                sides_written += 1
+                if value == "none":
+                    sides_none += 1
+            elif local.startswith("padding-"):
+                sides[key] = value
+        if shorthand is not None:
+            with_shorthand += 1
+        if sides:
+            with_side += 1
+        if background is not None:
+            with_background += 1
+        rows.append({
+            "index": index,
+            "style_written": name,
+            "style_found": hit is not None,
+            "border_shorthand": shorthand,
+            "sides_written": sides,
+            "background_written": background,
+            "padding_written": padding,
+            "line_widths": line_widths,
+        })
+    return {
+        "family": "odf",
+        "available": True,
+        "paragraphs_total": len(rows),
+        "styles_total": len(table),
+        "style_found_total": resolved,
+        "with_shorthand": with_shorthand,
+        "with_side_elements": with_side,
+        "sides_written": sides_written,
+        "sides_none": sides_none,
+        "with_background": with_background,
+        "paragraphs": rows[:limit],
+    }
+
+
 def odf_style_holders(node) -> list:
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
     out: list = []
@@ -7280,6 +7475,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["table_styles"] = docx_table_styles(path)
             # 这一段的行距：那个数的**单位**由 lineRule 决定，所以两枚分开各交
             out["ooxml"]["line_spacing"] = docx_line_spacing(path)
+            # 段边框与底纹：壳在不在与里面写了几条边是两件事
+            out["ooxml"]["para_borders"] = docx_para_borders(path)
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
@@ -7314,6 +7511,8 @@ def facts(path: Path) -> dict:
             out["odt"]["table_styles"] = odf_table_styles(path)
             # 同一问在 ODF 一跳在样式里，而单位是写在串上的
             out["odt"]["line_spacing"] = odf_line_spacing(path)
+            # 同一问在 ODF 一跳在样式里：一条 shorthand 顶四条边，「这边没有」是明写的
+            out["odt"]["para_borders"] = odf_para_borders(path)
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger

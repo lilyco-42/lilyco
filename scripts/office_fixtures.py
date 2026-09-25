@@ -665,6 +665,59 @@ def write_line_docx(path: Path) -> None:
     doc.save(path)
 
 
+def write_border_docx(path: Path) -> None:
+    """五条段：不写 / 四边单线 / 只有上面一条双线 / 只有底纹 / 空的边框壳 + 主题色底纹
+
+    python-docx 没有段边框的公开属性，所以走 `OxmlElement` 那条正规路子。要点有三个：
+    `w:pBdr` 是**装边的壳**（壳可以在而里面一条边都没写），一枚边的四个属性（`val` / `sz` /
+    `space` / `color`）里 `sz` 是 1/8 磅而 `space` 是「边离字多远」的磅；底纹 `w:shd` 另有
+    一枚 `w:themeFill`（点主题色而不写死颜色）。LibreOffice 重写同一份时把 `w:color="auto"`
+    换成 `000000`、把那个**空壳整个丢掉**；转成 ODF 时四边合成一条 `fo:border` shorthand、
+    单边则补三条明写的 `none`，而 `w:val="solid"` 那一段的底纹变成 `#ffffff`。
+    """
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    doc.add_paragraph("段零：边框与底纹都不写")
+
+    def edge(name, val, sz, space, color):
+        one = OxmlElement("w:" + name)
+        one.set(qn("w:val"), val)
+        one.set(qn("w:sz"), sz)
+        one.set(qn("w:space"), space)
+        one.set(qn("w:color"), color)
+        return one
+
+    one = doc.add_paragraph("段一：四边单线（六分之一点、离字一磅、红色）")
+    box = OxmlElement("w:pBdr")
+    for name in ("top", "left", "bottom", "right"):
+        box.append(edge(name, "single", "6", "1", "FF0000"))
+    one._p.get_or_add_pPr().append(box)
+
+    two = doc.add_paragraph("段二：只有上面一条粗双线")
+    box = OxmlElement("w:pBdr")
+    box.append(edge("top", "double", "18", "0", "auto"))
+    two._p.get_or_add_pPr().append(box)
+
+    three = doc.add_paragraph("段三：只有底纹（黄），一条边也没有")
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), "FFFF00")
+    three._p.get_or_add_pPr().append(shd)
+
+    four = doc.add_paragraph("段四：`pBdr` 元素在而一条边都没写（空的那一种）")
+    four._p.get_or_add_pPr().append(OxmlElement("w:pBdr"))
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "solid")
+    shd.set(qn("w:fill"), "00B050")
+    shd.set(qn("w:themeFill"), "accent6")
+    four._p.get_or_add_pPr().append(shd)
+    doc.save(str(path))
+
+
 def write_comments_docx(path: Path) -> None:
     """两条批注的一份 docx：作者名一个纯 ASCII、一个纯中文
 
@@ -3069,6 +3122,21 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "line.odt", OUT / "line.odt")
     else:
         print("⚠️  没拿到 line.odt")
+
+    # 段边框与底纹那三份：OxmlElement 写 docx，同格式重写一份（丢空壳）、再转一份 odt（换形状）
+    boxed = OUT / "pborder.docx"
+    write_border_docx(boxed)
+    convert(exe, boxed, "docx", SCRATCH / "pborder-back")
+    made_boxed = SCRATCH / "pborder-back" / "pborder.docx"
+    if made_boxed.exists():
+        shutil.copyfile(made_boxed, OUT / "pborder-lo.docx")
+    else:
+        print("⚠️  没拿到 pborder-lo.docx（docx → docx 那一转）")
+    convert(exe, boxed, "odt", SCRATCH)
+    if (SCRATCH / "pborder.odt").exists():
+        shutil.copyfile(SCRATCH / "pborder.odt", OUT / "pborder.odt")
+    else:
+        print("⚠️  没拿到 pborder.odt")
 
     # 批注那三份：python-docx 写 docx，同格式重写一份（部件换先后）、再转一份 odt（两处合一处）
     noted = OUT / "doc-comments.docx"

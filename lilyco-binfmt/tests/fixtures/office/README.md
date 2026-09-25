@@ -52,6 +52,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `line.docx` | python-docx（`write_line_docx`） | 五条段，一次只改一个变量：`段零`（行距什么都不写）/ `1.5 倍` / `2 倍` / `固定 22 磅` / `至少 18 磅`。要点：1.5 倍与「至少 18 磅」在文件里是**同一个数** `w:line="360"`，只有紧跟的 `w:lineRule`（`auto` 对 `atLeast`）说得清那是什么单位 |
 | `line-lo.docx` | LibreOffice（`line.docx` → .docx） | 同一份重写后：四个数与其单位一个都没改口，而段零被补了一份 `w:pPr`（里面**没有** `w:spacing`）—— 见事实 95 |
 | `line.odt` | LibreOffice（`line.docx` → .odt） | 一跳在段点的样式里、单位写在串上（`150%` / `200%` / `0.776cm`），而 `atLeast` 那一段四个相关属性一个都没写、docx 里什么都没写的段零点的 `Standard` 样式却写着 `115%` —— 见事实 95 |
+| `pborder.docx` | python-docx（`write_border_docx`，段边框没有公开属性，走 `OxmlElement`） | 五条段，一次只改一个变量：`段零`（两样都不写）/ `四边单线`（一枚 `w:pBdr` 里四条边，各带 `val`/`sz=6`/`space=1`/`color=FF0000`）/ `只有一条上边`（`double` `sz=18` `color=auto`）/ `只有底纹`（`w:shd` = `clear` + `fill=FFFF00`）/ `空壳加主题色底纹`（`w:pBdr` 在而里面一条边都没有，底纹 `solid` + `fill=00B050` + `themeFill=accent6`）|
+| `pborder-lo.docx` | LibreOffice（`pborder.docx` → .docx） | 同一份重写后：每段都补了 `w:pPr`（4 → 5 枚），而那个**空壳整个被丢掉**（3 枚 → 2 枚），`w:color="auto"` 被折成一个具体色 `000000` —— 见事实 96 |
+| `pborder.odt` | LibreOffice（`pborder.docx` → .odt） | 两样都在段点的那份样式上而形状换了：四边合成一条 `fo:border="0.74pt solid #ff0000"`，单边那一段四条各写、其中三条明写着 `none`（另多一份逐根的 `style:border-line-width-top`），`w:space` 搬成 `fo:padding`，而 `solid` 那段的底纹变成 `#ffffff` —— 见事实 96 |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
@@ -1690,6 +1693,13 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - `line-lo.docx`（LibreOffice 重写同一份）：四个数与其单位一个都没改口（`rules_written` 还是 `auto` 2 条、`exact` 1 条、`atLeast` 1 条），而段零被补了一份 `w:pPr` —— 里面**没有** `w:spacing`。补壳子与补内容是两件事，所以 `has_pPr` 与 `has_spacing` 各记各的。
     - `line.odt`：一跳在段点的那份样式里，`fo:line-height` 是**带单位的串** —— 1.5 倍 → `150%`、2 倍 → `200%`、22 磅 → `0.776cm`（读者只按串尾分类交出去：`unit_forms` = `%` 三条、`cm` 一条，不换算也不约分）。一丢一多都在账上：`atLeast` 那一段四个相关属性**一个都没写**（那格 null，不是 0），而 docx 里什么都不写的段零这一族点的 `Standard` 样式里写着 `115%` —— 同一份稿子两个答案，谁也不替谁圆。
     - RTF 那一族不交这个键（缺键 = 这一族没看）：`\sl` 与 `\slmult` 在样式表里就成批出现（`{\s0\snext0\sl276\slmult1…}` 是默认段样式），段自己没写时它是继承来的，归属判不住 —— 与制表位、段落缩进那两条同一个坑。
+
+96. **这一段自己有没有说画个框、铺个底：一家的壳与里面的边是两件事，一家一条 shorthand 顶四条边**
+    - `pborder.docx`（python-docx，段边框没有公开属性所以走 `OxmlElement`）：`w:pPr` 下面摆两枚元素 —— `w:pBdr` 是**装边的壳**，里面 `w:top` / `w:left` / `w:bottom` / `w:right` 各带自己的四个属性（`val` 是线型、`sz` 是 **1/8 磅**、`space` 是「边离字多远」的磅、`color` 可以写 `auto`）；`w:shd` 是底纹（`val` / `color` / `fill`，还能点一枚 `themeFill` 主题色）。这份件里三枚壳、五条边、两枚底纹，其中**一枚壳整个是空的**（`border_element: true` 而 `edge_count: 0`）—— 那是文件说过的话，不能读成「这一段没边框」，所以在场与有内容分两个数。
+    - `pborder-lo.docx`（LibreOffice 重写同一份）：每段都被补了一份 `w:pPr`（4 → 5 枚），而那个空壳**整个不见了**（带壳的段从 3 掉到 2、`border_element_empty` 归 0），另外把 `w:color="auto"` 折成一个具体色 `000000`。三条边与两枚底纹的值本身一字未改 —— 「丢了一格」与「换了一种说法」都在账上，不去替它圆。
+    - `pborder.odt`：两样都搬到段点的那份样式上（一跳），而形状整个换了：四边单线合成**一条 shorthand**（`fo:border="0.74pt solid #ff0000"` —— 值里塞着宽度、线型、颜色三段，`sz=6` 那枚 1/8 磅在这里写成 `0.74pt`），只有上面一条双线那一段则**四条各写一遍**，其中三条明写着 `fo:border-left="none"`（这一族说「这边没有」是写出来的，与 OOXML 那不写这一条边不是一回事，所以 `sides_written` 4 与 `sides_none` 3 分开数），另多一份逐根的 `style:border-line-width-top="0.079cm 0.079cm 0.079cm"`；docx 那个 `w:space="1"` 在这里搬成 `fo:padding="0.035cm"`。
+    - 底纹那一枚最要紧：**同一个 `w:fill` 在两种 `w:val` 下不是同一个角色** —— `clear` + `fill="FFFF00"` 那一段转过去是 `#ffff00`，而 `solid` + `fill="00B050"`（另点着 `themeFill="accent6"`）那一段转过去成了 `#ffffff`。两份读者都把串原样交出来，不猜哪个才对，也不拿规范里的默认值替它接。
+    - RTF 那一族不交这个键（缺键 = 这一族没看）：`\brdrb` 这一族段边框住在样式表里而非段自己身上，与制表位、行距那两条同一个坑 —— 归属判不住。
 
 ## 这些数字从哪来
 

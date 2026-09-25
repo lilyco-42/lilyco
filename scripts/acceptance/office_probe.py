@@ -256,6 +256,10 @@ def main() -> int:
         "line.docx": ("ooxml", "word", "docx"),
         "line-lo.docx": ("ooxml", "word", "docx"),
         "line.odt": ("opendocument", "word", "odt"),
+        # 段边框与底纹那三份：壳在不在、里面写了几条边，两件事
+        "pborder.docx": ("ooxml", "word", "docx"),
+        "pborder-lo.docx": ("ooxml", "word", "docx"),
+        "pborder.odt": ("opendocument", "word", "odt"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -5019,6 +5023,102 @@ def main() -> int:
          dig(lbin("office-doc", fixture("keep.docx")), "structure.line_spacing.rules_written"),
          dig(lbin("office-doc", fixture("tabs.rtf")), "structure.line_spacing")],
         [None, "115%", 0, {}, None],
+    )
+
+    # ── 3ag) 这一段自己有没有说画个框、铺个底：壳与边是两件事，shorthand 与四条边也是 ──
+    print("=== 3ag) 段边框与底纹：OOXML 一枚壳加几条边，ODF 一跳而一条 shorthand 顶四条 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 段边框与底纹那份账与读者一致（壳在不在与几条边分开数）" % name,
+              dig(got, "structure.para_borders"),
+              files[name]["ooxml"]["para_borders"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 段边框与底纹那份账与读者一致（一跳在样式里，名字留着前缀）" % name,
+              dig(got, "structure.para_borders"),
+              files[name]["odt"]["para_borders"])
+    pb = lbin("office-doc", fixture("pborder.docx"))
+    pb_lo = lbin("office-doc", fixture("pborder-lo.docx"))
+    pb_odt = lbin("office-doc", fixture("pborder.odt"))
+    check(
+        "python-docx 那份（五段各改一个变量）：三枚 `w:pBdr` 壳、其中一枚**整个是空的**，"
+        "五条边一共在另两枚壳里；底纹两枚（`clear` 与 `solid` 各一枚），两个 fill 按写的顺序交",
+        [dig(pb, "structure.para_borders.paragraphs_total"),
+         dig(pb, "structure.para_borders.p_pr_elements"),
+         dig(pb, "structure.para_borders.with_border_element"),
+         dig(pb, "structure.para_borders.border_element_empty"),
+         dig(pb, "structure.para_borders.edges_total"),
+         dig(pb, "structure.para_borders.with_shading"),
+         dig(pb, "structure.para_borders.shading_vals"),
+         dig(pb, "structure.para_borders.distinct_fills")],
+        [5, 4, 3, 1, 5, 2, {"clear": 1, "solid": 1}, ["FFFF00", "00B050"]],
+    )
+    check(
+        "一枚边自己的四个属性按写的交（`sz` 是 1/8 磅、`space` 是边离字多远，都不换算）；"
+        "空壳那一段 `border_element` 是 true 而 `edge_count` 是 0 —— 这是文件说过的话，"
+        "不能读成「这段没边框」；底纹那枚还可以点一个主题色（`themeFill`）",
+        [dig(pb, "structure.para_borders.paragraphs[1].edges.top"),
+         dig(pb, "structure.para_borders.paragraphs[2].edges.top.color"),
+         dig(pb, "structure.para_borders.paragraphs[2].edge_count"),
+         dig(pb, "structure.para_borders.paragraphs[4].border_element"),
+         dig(pb, "structure.para_borders.paragraphs[4].edge_count"),
+         dig(pb, "structure.para_borders.paragraphs[4].shading.themeFill"),
+         dig(pb, "structure.para_borders.paragraphs[0].shading")],
+        [{"val": "single", "sz": "6", "space": "1", "color": "FF0000"},
+         "auto", 1, True, 0, "accent6", None],
+    )
+    check(
+        "LibreOffice 重写同一份：每段都补了 `w:pPr`（4 → 5 枚），而那个**空壳整个被丢掉**"
+        "（3 枚 → 2 枚、empty 归 0），并且把「自动」这个颜色折成一个具体色（`auto` → `000000`）"
+        "—— 在场与有内容是两件事，改口与丢掉都在账上看得见",
+        [dig(pb_lo, "structure.para_borders.p_pr_elements"),
+         dig(pb_lo, "structure.para_borders.with_border_element"),
+         dig(pb_lo, "structure.para_borders.border_element_empty"),
+         dig(pb_lo, "structure.para_borders.edges_total"),
+         dig(pb_lo, "structure.para_borders.paragraphs[2].edges.top.color"),
+         dig(pb_lo, "structure.para_borders.paragraphs[4].border_element"),
+         dig(pb_lo, "structure.para_borders.paragraphs[4].shading.fill")],
+        [5, 2, 0, 5, "000000", False, "00B050"],
+    )
+    check(
+        "转成 ODF 后两样都在段点的那份样式上，而形状换了：四边单线合成**一条 shorthand**"
+        "（`fo:border=\"0.74pt solid #ff0000\"`，`sz=6` 那条在这里是 0.74pt），只有上面一条双线那段"
+        "则四条各写、其中三条**明写着 `none`**，还多出一份逐根的 `style:border-line-width-top`；"
+        "docx 的 `w:space` 在这一族搬成 `fo:padding`",
+        [dig(pb_odt, "structure.para_borders.with_shorthand"),
+         dig(pb_odt, "structure.para_borders.with_side_elements"),
+         dig(pb_odt, "structure.para_borders.sides_written"),
+         dig(pb_odt, "structure.para_borders.sides_none"),
+         dig(pb_odt, "structure.para_borders.paragraphs[1].border_shorthand"),
+         dig(pb_odt, "structure.para_borders.paragraphs[1].padding_written"),
+         dig(pb_odt, "structure.para_borders.paragraphs[2].sides_written"),
+         dig(pb_odt, "structure.para_borders.paragraphs[2].line_widths")],
+        [1, 1, 4, 3, "0.74pt solid #ff0000", "0.035cm",
+         {"fo:border-left": "none", "fo:border-right": "none",
+          "fo:border-top": "6.75pt double #000000", "fo:border-bottom": "none"},
+         {"top": "0.079cm 0.079cm 0.079cm"}],
+    )
+    check(
+        "底纹那一枚最要紧：同一个 `w:fill` 在两种 `w:val` 下不是同一个角色 —— "
+        "`clear` + `fill=FFFF00` 那一段转过去是 `#ffff00`，而 `solid` + `fill=00B050`（另点着主题色）"
+        "那一段转过去成了 `#ffffff`。两份读者都把串原样交出来，不猜哪个才对",
+        [dig(pb, "structure.para_borders.paragraphs[3].shading.val"),
+         dig(pb_odt, "structure.para_borders.paragraphs[3].background_written"),
+         dig(pb, "structure.para_borders.paragraphs[4].shading.val"),
+         dig(pb_odt, "structure.para_borders.paragraphs[4].background_written")],
+        ["clear", "#ffff00", "solid", "#ffffff"],
+    )
+    check(
+        "没框没底的件交一串 0 与空表而不是缺键（`keep.docx` 五段一枚壳都没有、"
+        "`keep.odt` 也没有一份段落样式写着边框），RTF 那一族不交这个键（缺键 = 这一族没看："
+        "那一族的段边框住在样式表里，归属判不住）",
+        [dig(lbin("office-doc", fixture("keep.docx")), "structure.para_borders.with_border_element"),
+         dig(lbin("office-doc", fixture("keep.docx")), "structure.para_borders.edges_total"),
+         dig(lbin("office-doc", fixture("keep.docx")), "structure.para_borders.shading_vals"),
+         dig(lbin("office-doc", fixture("keep.odt")), "structure.para_borders.with_background"),
+         dig(lbin("office-doc", fixture("keep.odt")), "structure.para_borders.sides_written"),
+         dig(lbin("office-doc", fixture("tabs.rtf")), "structure.para_borders")],
+        [0, 0, {}, 0, 0, None],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
