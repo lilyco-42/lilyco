@@ -64,6 +64,7 @@ mod revise;
 mod rtf;
 mod symbols;
 mod table_grid;
+mod table_headers;
 mod word;
 mod xmlscan;
 mod zipread;

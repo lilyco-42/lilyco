@@ -34,6 +34,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `deck-ph.pptx` | python-pptx | 四页，一次只改一个变量：`第1页` 标题 + 内容占位符（内容两段字）、`第2页` 再加一个**自制文本框**、`第3页` 两个占位符都在而**字是空的**、`第4页` 只有文本框（空版式）。要点：正文占位符写的是 `<p:ph idx="1"/>` —— **没有 `type`** |
 | `deck-ph-lo.pptx` | LibreOffice（`deck-ph.pptx` → .pptx） | 同一份稿子重写后：标题那一句照旧 `<p:ph type="title"/>`，正文那一句变成**空元素 `<p:ph/>`**（连 idx 都没了），形状名从 `Title 1`/`Content Placeholder 2` 换成 `PlaceHolder 1`/`PlaceHolder 2`；版式里 `dt`/`ftr`/`sldNum` 的 idx 也整个重排（模板是 10/11/12，这里 1/2/3、4/5/6…28/29/30） |
 | `deck-ph.odp` | LibreOffice（`deck-ph.pptx` → .odp） | 第三家：角色写成 `presentation:class="title"`，占位符另带 `presentation:placeholder="true"` 与 `presentation:style-name="prN"`，而**文本框是 `draw:custom-shape` 且没有 `presentation:style-name`**；页的版式名不在页上，在画页样式里（`presentation:presentation-page-layout-name="AL1T11"`） |
+| `table-header.docx` | python-docx（`write_table_header_docx`） | 四张表，一次只改一个变量：`只重复第一行` / `重复前两行` / `一个都不重复`（对照）/ `只重复中间一行`。这一族的答案是**行上**一枚没有值的 `w:trPr/w:tblHeader`（在场就是重复）：python-docx 这一版没有暴露这个开关（`repeat_table_header` 是个静默无效的属性），所以走它的 oxml 层写元素 |
+| `table-header-lo.docx` | LibreOffice（`table-header.docx` → .docx） | 同一份稿子重写后：标在**第二行**的那枚整个丢了（4 行标了 → 3 行、`non_leading` 1 → 0），而它给每一行都补了一枚**空的** `w:trPr`（四张表的枚数 1/2/0/1 → 3/3/3/3）—— 见事实 89 |
+| `table-header.odt` | LibreOffice（`table-header.docx` → .odt） | 同一问的第三种存法：`table:header-rows` 与 `table:header-rows-repeated` 坐在表身上（是两个数，不是行上的元素），而这一转**一个都没写**，四张表全 null —— 见事实 89 |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
@@ -1624,6 +1627,12 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - ODF 那一族没这一跳的对应物可交：角色写在 `presentation:class` 上（本身就是答案），
       页点哪份版式在画页样式上（`presentation:presentation-page-layout-name`），
       所以 `.odp` 与 `.ppt` 都不带 `placeholder_hops` 这个键。
+
+89. **这张表的哪几行每页重复：一家写在行上（一枚无值的元素），一家写在表身上（两个数）**
+    - `table-header.docx`（python-docx 走 oxml 层）：四张表里 3 张标了、一共 4 行，其中第四张把标记写在**第二行**上（`non_leading: 1`、那一张的 `contiguous_from_first: false`）。`w:tblHeader` 按规范没有值，在场就是重复，所以「哪几行」只能逐行交一张布尔表 —— 只交一个总数就把这件事抹平了。
+    - `table-header-lo.docx`（同一份稿子经 LibreOffice 重写）：那一枚「不是从第一行起」的标记整个不见了（4 行 → 3 行、`non_leading` 1 → 0），同时它给**每一行**都补了一枚**空的** `w:trPr`（1/2/0/1 → 3/3/3/3）。于是「有几枚 trPr」与「有几行标了表头」必须是两本账：并成一个数就会把「这一行被写过」当成「这一行是表头」。
+    - `table-header.odt`（同一份稿子转 ODF）：表身上那四个属性（`table:header-rows` /`header-rows-repeated` / `header-column` / `header-columns-repeated`）**一个都没写**，四张表全交 null。这里所有 `.odt` 一件都没写过这件事（每一份的 `with_header_rows` 都是 0），所以 ODF那一支只证得到「按写的交、不替文件兜」—— null 是「这份文件没说」，0 才是「它说了不重复」。
+    - 两族的形状不折算：能对齐的只有「几张表」这一问（同一份稿子两份都是 4 张）。有表却一条没标的件（`paper-a4.docx`）交 `tables_total: 0` 与空数组，不是缺键；RTF 那一族有它自己的第三种写法（`\trhdr`），这一支还没读，所以 `notes.rtf` 根本不带 `table_headers` 这个键 —— 缺键就是「这一族没看」。
 
 ## 这些数字从哪来
 

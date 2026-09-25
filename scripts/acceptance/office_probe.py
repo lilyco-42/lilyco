@@ -232,6 +232,10 @@ def main() -> int:
         "deck-ph.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-ph-lo.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-ph.odp": ("opendocument", "powerpoint", "odp"),
+        # 表头重复那三份：同一个要求，一家写在行上（一个元素），一家写在表身上（两个数）
+        "table-header.docx": ("ooxml", "word", "docx"),
+        "table-header-lo.docx": ("ooxml", "word", "docx"),
+        "table-header.odt": ("opendocument", "word", "odt"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -4467,6 +4471,80 @@ def main() -> int:
          [one["type"] for one in dig(hops_lo, "placeholder_hops.slides[0].layout_placeholders")]],
         [3, 3, 6, 8, ["by_type", "by_type", "no_ph"], None,
          ["title", "body", "dt", "ftr", "sldNum"]],
+    )
+
+    # ── 3z) 每页重复哪几行：一家写成行上的一个无值元素，一家写成表身上的两个数 ──
+    print("=== 3z) 这张表的哪几行每页重复：两处存法，形状不折算 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 表头重复那份账与读者一致（哪几行标了、几枚 trPr、连不连着第一行）" % name,
+              dig(got, "structure.table_headers"),
+              files[name]["ooxml"]["table_headers"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 表头重复那份账与读者一致（表身上那四个属性按写的交，没写是 null）" % name,
+              dig(got, "structure.table_headers"),
+              files[name]["odt"]["table_headers"])
+    th = lbin("office-doc", fixture("table-header.docx"))
+    th_lo = lbin("office-doc", fixture("table-header-lo.docx"))
+    th_odt = lbin("office-doc", fixture("table-header.odt"))
+    check(
+        "python-docx 那份：四张表里三张标了、一共 4 行，而其中一张标在**第二行**上 "
+        "（`contiguous_from_first` 因此是 false）—— 「哪几行」只能逐行交，只数一个总数就把"
+        "这件事抹平了；`tr_pr_elements` 与标记的行数也不是一回事（第三张 0 枚、第四张 1 枚却没标第一行）",
+        [dig(th, "structure.table_headers.tables_total"),
+         dig(th, "structure.table_headers.marked"),
+         dig(th, "structure.table_headers.header_rows_total"),
+         dig(th, "structure.table_headers.non_leading"),
+         [one["header_rows"] for one in dig(th, "structure.table_headers.tables")],
+         [one["tr_pr_elements"] for one in dig(th, "structure.table_headers.tables")],
+         [one["contiguous_from_first"] for one in dig(th, "structure.table_headers.tables")]],
+        [4, 3, 4, 1,
+         [[True, False, False], [True, True, False],
+          [False, False, False], [False, True, False]],
+         [1, 2, 0, 1], [True, True, False, False]],
+    )
+    check(
+        "LibreOffice 重写同一份：那枚「不是从第一行起」的标记整个不见了（4 行 → 3 行、非 leading "
+        "1 张 → 0 张），而它给**每一行**都补了一枚**空的** `w:trPr`（1/2/0/1 → 3/3/3/3）—— "
+        "「有几枚 trPr」不能当「有几行是表头」用，这两本账必须分开交",
+        [dig(th_lo, "structure.table_headers.marked"),
+         dig(th_lo, "structure.table_headers.header_rows_total"),
+         dig(th_lo, "structure.table_headers.non_leading"),
+         [one["tr_pr_elements"] for one in dig(th_lo, "structure.table_headers.tables")],
+         [one["header_rows"] for one in dig(th_lo, "structure.table_headers.tables")]],
+        [2, 3, 0, [3, 3, 3, 3],
+         [[True, False, False], [True, True, False],
+          [False, False, False], [False, False, False]]],
+    )
+    check(
+        "同一条稿子转成 odt：表身上那四个属性**一个都没写** —— 交的是 null（这份文件没说），"
+        "不是 0（那才是「说了不重复」）。这里所有 .odt 一件都没写过这件事，所以 ODF 那一支"
+        "只证得到「按写的交、不替文件兜」，那张网是另一本账",
+        [dig(th_odt, "structure.table_headers.tables_total"),
+         dig(th_odt, "structure.table_headers.with_header_rows"),
+         dig(th_odt, "structure.table_headers.with_repeated"),
+         [one["header_rows"] for one in dig(th_odt, "structure.table_headers.tables")],
+         [one["header_rows_repeated"] for one in dig(th_odt, "structure.table_headers.tables")],
+         [one["name"] for one in dig(th_odt, "structure.table_headers.tables")]],
+        [4, 0, 0, [None, None, None, None], [None, None, None, None],
+         ["表格1", "表格2", "表格3", "表格4"]],
+    )
+    check(
+        "两族能对上的只有「几张表」这一问（同一份稿子两份都是 4 张），形状本身不折算；"
+        "没写过这件事的件交 0 与空数组，不是缺键，而 RTF 这一族**没读**（它写 `\\trhdr`，"
+        "这一支还没做）—— 缺键就是「这一族没看」",
+        [dig(th, "structure.table_headers.tables_total"),
+         dig(th_odt, "structure.table_headers.tables_total"),
+         dig(th, "structure.table_headers.available"),
+         dig(lbin("office-doc", fixture("paper-a4.docx")),
+             "structure.table_headers.tables_total"),
+         dig(lbin("office-doc", fixture("paper-a4.docx")), "structure.table_headers.marked"),
+         dig(lbin("office-doc", fixture("paper-a4.docx")), "structure.table_headers.tables"),
+         dig(lbin("office-doc", fixture("notes.odt")),
+             "structure.table_headers.tables_total"),
+         dig(lbin("office-doc", fixture("notes.rtf")), "structure.table_headers")],
+        [4, 4, True, 0, 0, [], 1, None],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──

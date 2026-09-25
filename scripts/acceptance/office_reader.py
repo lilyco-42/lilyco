@@ -1092,6 +1092,93 @@ def pptx_placeholder_hops(path: Path, limit: int = 100) -> dict:
     }
 
 
+def docx_repeat_headers(path: Path, limit: int = 100) -> dict:
+    r"""「这张表的哪几行每页重复」在 OOXML 是**行上**的一个无值元素 `w:trPr/w:tblHeader`
+
+    元素在场就是重复，没有值可写，所以只交在场与否；哪一行标了就交哪一行（按行的先后）。
+    另把「标了但不是从第一行起」单数一本：那是 Word 允许、LibreOffice 不认的一种写法，
+    实测重写会把这种标记整个丢掉 —— 所以这份账只说文件写了什么，不说打印时会怎样。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"available": False}
+        raw = box.read("word/document.xml")
+    root = ET.fromstring(raw)
+    tables = []
+    for index, table in enumerate([one for one in root.iter() if xml_local(one.tag) == "tbl"]):
+        rows = [one for one in table if xml_local(one.tag) == "tr"]
+        marks = []
+        for row in rows:
+            holder = None
+            for kid in row:
+                if xml_local(kid.tag) == "trPr":
+                    holder = kid
+                    break
+            marks.append(bool(holder is not None
+                               and any(xml_local(kid.tag) == "tblHeader" for kid in holder)))
+        leading = marks and marks[0]
+        tables.append({
+            "index": index,
+            "rows": len(rows),
+            "header_rows": marks,
+            "header_count": sum(1 for one in marks if one),
+            "tr_pr_elements": sum(
+                1 for row in rows
+                for kid in row if xml_local(kid.tag) == "trPr"
+            ),
+            "contiguous_from_first": bool(leading and all(
+                marks[i] >= marks[i + 1] for i in range(len(marks) - 1)
+            )),
+        })
+    return {
+        "family": "ooxml",
+        "available": True,
+        "tables_total": len(tables),
+        "marked": sum(1 for one in tables if one["header_count"]),
+        "header_rows_total": sum(one["header_count"] for one in tables),
+        "non_leading": sum(1 for one in tables
+                           if one["header_count"] and not (one["header_rows"] and one["header_rows"][0])),
+        "tables": tables[:limit],
+    }
+
+
+def odt_repeat_headers(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF 写在**表身上**：`table:header-rows` 配 `table:header-rows-repeated`
+
+    一个是「几行算表头」，另一个是「每页重复几行」，两个都是数 —— 与 OOXML 那种一行一个
+    标记的形状不同，所以两家各交各的，不折算。实测最要紧的一条：LibreOffice 把带
+    `w:tblHeader` 的 docx 转成 odt 时，**这两个属性一个都不写**（这一格整个不见了），
+    所以这里交 null 而不是 0：null 是「这份文件没说」，0 才是「它说了不重复」。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        raw = box.read("content.xml")
+    root = ET.fromstring(raw)
+    nsmap = _ns_prefixes(raw)
+    tables = []
+    for index, one in enumerate([kid for kid in root.iter() if xml_local(kid.tag) == "table"]):
+        written = _written_attrs(one, nsmap)
+        tables.append({
+            "index": index,
+            "name": _local_in(written, "name"),
+            "header_rows": _local_in(written, "header-rows"),
+            "header_rows_repeated": _local_in(written, "header-rows-repeated"),
+            "header_column": _local_in(written, "header-column"),
+            "header_columns_repeated": _local_in(written, "header-columns-repeated"),
+        })
+    return {
+        "family": "odf",
+        "available": True,
+        "tables_total": len(tables),
+        "with_header_rows": sum(1 for one in tables if one["header_rows"] is not None),
+        "with_repeated": sum(1 for one in tables if one["header_rows_repeated"] is not None),
+        "tables": tables[:limit],
+    }
+
+
 def odf_style_holders(node) -> list:
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
     out: list = []
@@ -6463,6 +6550,8 @@ def facts(path: Path) -> dict:
         if "word/document.xml" in parts:
             out["app"] = "word"
             out["ooxml"] = docx_facts(path)
+            # 表头重复那份账（行上的一个无值元素）
+            out["ooxml"]["table_headers"] = docx_repeat_headers(path)
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
@@ -6487,6 +6576,8 @@ def facts(path: Path) -> dict:
             out["links"] = odf_links(path)
             out["page_text"] = odf_page_text(path)
             out["odt"] = odt_structure(path)
+            # 同一问在 ODF 是表身上的两个数
+            out["odt"]["table_headers"] = odt_repeat_headers(path)
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger

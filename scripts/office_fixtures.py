@@ -1421,6 +1421,32 @@ def write_print_area_xlsx(path: Path) -> None:
     book.save(path)
 
 
+def write_table_header_docx(path: Path) -> None:
+    """四张表，一次只改一个变量：只重复第一行 / 重复前两行 / 一个都不重复 / 只重复**中间**那一行
+
+    OOXML 把这件事写成**行上**一枚没有值的 `w:trPr/w:tblHeader`（在场就是重复）。python-docx
+    这一版**没有**暴露这个开关：`row.repeat_table_header = True` 是一个静默无效的属性，
+    设完 `trPr` 还是 0 条（量的时候才发现），所以照仓库既有的办法走它的 oxml 层写元素。
+    第四张故意标在第二行上 —— Word 允许，而 LibreOffice 重写时把这一枚整个丢掉。
+    """
+    from docx import Document
+    from docx.oxml import OxmlElement
+
+    doc = Document()
+    doc.add_paragraph("表头重复那份账")
+    for title, repeat in (("只重复第一行", [0]), ("重复前两行", [0, 1]),
+                          ("一个都不重复", []), ("只重复中间一行", [1])):
+        doc.add_heading(title, level=2)
+        table = doc.add_table(rows=3, cols=3)
+        for row in range(3):
+            for col in range(3):
+                table.cell(row, col).text = "%s r%d c%d" % (title[:2], row, col)
+        for index in repeat:
+            properties = table.rows[index]._tr.get_or_add_trPr()
+            properties.append(OxmlElement("w:tblHeader"))
+    doc.save(path)
+
+
 def write_autofit_pptx(path: Path) -> None:
     """一个框三种「字与框谁迁就谁」，再加 PowerPoint 自己算出来的那两个缩放数
 
@@ -2814,6 +2840,51 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "deck-autofit.odp", OUT / "deck-autofit.odp")
     else:
         print("⚠️  没拿到 deck-autofit.odp")
+
+    # 打印区域那三份：openpyxl 写 xlsx，同格式重写一份（引号整层没了）、再转一份 ods
+    area = OUT / "print-area.xlsx"
+    write_print_area_xlsx(area)
+    convert(exe, area, "xlsx", SCRATCH / "print-area-back")
+    made_area = SCRATCH / "print-area-back" / "print-area.xlsx"
+    if made_area.exists():
+        shutil.copyfile(made_area, OUT / "print-area-lo.xlsx")
+    else:
+        print("⚠️  没拿到 print-area-lo.xlsx（xlsx → xlsx 那一转）")
+    convert(exe, area, "ods", SCRATCH)
+    if (SCRATCH / "print-area.ods").exists():
+        shutil.copyfile(SCRATCH / "print-area.ods", OUT / "print-area.ods")
+    else:
+        print("⚠️  没拿到 print-area.ods")
+
+    # 占位符那三份：python-pptx 写 pptx，同格式重写一份（正文那格被写成空元素）、再转一份 odp
+    phdeck = OUT / "deck-ph.pptx"
+    write_placeholder_deck(phdeck)
+    convert(exe, phdeck, "pptx", SCRATCH / "deck-ph-back")
+    made_ph = SCRATCH / "deck-ph-back" / "deck-ph.pptx"
+    if made_ph.exists():
+        shutil.copyfile(made_ph, OUT / "deck-ph-lo.pptx")
+    else:
+        print("⚠️  没拿到 deck-ph-lo.pptx（pptx → pptx 那一转）")
+    convert(exe, phdeck, "odp", SCRATCH)
+    if (SCRATCH / "deck-ph.odp").exists():
+        shutil.copyfile(SCRATCH / "deck-ph.odp", OUT / "deck-ph.odp")
+    else:
+        print("⚠️  没拿到 deck-ph.odp")
+
+    # 表头重复那三份：python-docx 写 docx，同格式重写一份（丢掉标在中间那行的那枚）、再转一份 odt
+    repeat = OUT / "table-header.docx"
+    write_table_header_docx(repeat)
+    convert(exe, repeat, "docx", SCRATCH / "table-header-back")
+    made_repeat = SCRATCH / "table-header-back" / "table-header.docx"
+    if made_repeat.exists():
+        shutil.copyfile(made_repeat, OUT / "table-header-lo.docx")
+    else:
+        print("⚠️  没拿到 table-header-lo.docx（docx → docx 那一转）")
+    convert(exe, repeat, "odt", SCRATCH)
+    if (SCRATCH / "table-header.odt").exists():
+        shutil.copyfile(SCRATCH / "table-header.odt", OUT / "table-header.odt")
+    else:
+        print("⚠️  没拿到 table-header.odt")
 
     # 分节的页眉页脚六格：两节 + titlePg + evenAndOddHeaders + 一条指着不存在关系的号
     write_sections_docx(OUT / "sections.docx")
