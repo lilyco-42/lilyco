@@ -70,6 +70,7 @@ mod read;
 mod regions;
 mod revise;
 mod rtf;
+mod shape_tree;
 mod symbols;
 mod tab_stops;
 mod table_grid;

@@ -772,6 +772,38 @@ def write_bookmark_docx(path: Path) -> None:
     doc.save(str(path))
 
 
+def write_group_deck(path: Path) -> None:
+    """一页一个散框 + 一个装三个框的组合，第二页故意什么都没有（给「一页零个形状」留凭据）
+
+    python-pptx 有 `add_group_shape()`，写得出 `p:grpSp`：组自己的 `a:xfrm` 里 `off` / `ext` /
+    `chOff` / `chExt` 四份全写，而 `off` 是 0,0（生产者的原样）。存在的理由：全语料的演示稿
+    从来没有一个组合，`spTree` 里全是散着的形状；有了它才量到 LO 重写保住组合与子坐标系、
+    而 id 整批重排（2..6 → 61..65），以及转 odp 之后分组是 `svg:g`（不是 `draw:group`）。
+    """
+    from pptx import Presentation
+    from pptx.util import Emu
+
+    prs = Presentation()
+    page = prs.slides.add_slide(prs.slide_layouts[6])
+    loose = page.shapes.add_textbox(Emu(100000), Emu(100000), Emu(2000000), Emu(400000))
+    loose.text_frame.text = "页上一个散着的框"
+    loose.name = "散着的框"
+    group = page.shapes.add_group_shape()
+    group.left, group.top = Emu(3000000), Emu(500000)
+    group.width, group.height = Emu(3000000), Emu(2000000)
+    group.name = "三个框的组合"
+    for index, (x, y, w, h, word) in enumerate([
+        (0, 0, 1400000, 400000, "组合里第一个"),
+        (1500000, 0, 1400000, 400000, "组合里第二个"),
+        (0, 500000, 2900000, 400000, "组合里第三个（宽一点）"),
+    ], 1):
+        had = group.shapes.add_textbox(Emu(x), Emu(y), Emu(w), Emu(h))
+        had.text_frame.text = word
+        had.name = "组合里的第%d个" % index
+    prs.slides.add_slide(prs.slide_layouts[6])
+    prs.save(str(path))
+
+
 def write_transition_deck(path: Path) -> None:
     """三页，一次只改一个变量：淡入 + 五秒自动换 / 只有左向擦除 / 什么都不写
 
@@ -3464,6 +3496,21 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "bkmks.odt", OUT / "bkmks.odt")
     else:
         print("⚠️  没拿到 bkmks.odt")
+
+    # 形状清单那三份：python-pptx 建一个组合，LO 重写一份、转一份 odp（分组在这里是 svg:g）
+    grouped = OUT / "deck-gr.pptx"
+    write_group_deck(grouped)
+    convert(exe, grouped, "pptx", SCRATCH / "deck-gr-back")
+    made_grouped = SCRATCH / "deck-gr-back" / "deck-gr.pptx"
+    if made_grouped.exists():
+        shutil.copyfile(made_grouped, OUT / "deck-gr-lo.pptx")
+    else:
+        print("⚠️  没拿到 deck-gr-lo.pptx（pptx → pptx 那一转）")
+    convert(exe, grouped, "odp", SCRATCH / "deck-gr-asodp")
+    if (SCRATCH / "deck-gr-asodp" / "deck-gr.odp").exists():
+        shutil.copyfile(SCRATCH / "deck-gr-asodp" / "deck-gr.odp", OUT / "deck-gr.odp")
+    else:
+        print("⚠️  没拿到 deck-gr.odp（pptx → odp 那一转）")
 
     # 注的编号那三份：在真有注的 notes-end.docx 上补设置（没有注时 LO 两处都不写，量不出这一问）
     seed = OUT / "notes-end.docx"

@@ -77,6 +77,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `deck-tr.odp` | LibreOffice（`deck-tr.pptx` → .odp） | 切换没丢而是**搬了两处并换词表**：`style:drawing-page-properties` 上写 `presentation:transition-type="automatic"` / `transition-speed="fast"` / `duration="PT5S"`（dp1 有、dp2 没有），效果本身进 `anim:transitionFilter`（`smil:type="fade"` + `subtype="crossfade"`、第二页 `barWipe` + `leftToRight`），页上已无 `p:transition` —— 见事实 99 与 100 |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
+| `deck-gr.pptx` | python-pptx 1.0.2（`write_group_deck`，组合走 `add_group_shape`） | 一页摆层级：第一页一个散框 `sp`（「散着的框」）+ 一个 `grpSp`（「三个框的组合」）套三个 `sp`（「组合里的第 1/2/3 个」），第二页**一个形状都没有**。组合自己那枚 `a:xfrm` 四份全写：`off 0,0` 而 `ext` 与 `chExt` 一模一样（页坐标一套、孩子自己的坐标一套）|
+| `deck-gr-lo.pptx` | LibreOffice（`deck-gr.pptx` → .pptx） | 同一份重写：形状、组合、两套坐标与五个名字全保住，`id` 从 2..6 整批重排成 61..65，坐标走那条老换算（`100000`→`100080`、`2900000`→`2899800`），而它顺手给 `spTree` 自己的那份 `grpSpPr` 补了一个**全 0 的 `a:xfrm`** —— 见事实 104 |
+| `deck-gr.odp` | LibreOffice（`deck-gr.pptx` → .odp） | 同一页还是 5 条、层级与五个名字全对得上，但分组在这里叫 `svg:g`（`draw:group` 一次都没出现）、`id` 这一族根本没有、尺寸换成 `5.555cm` / `0.278cm` 这种自带单位的串，而组合那一层**一个尺寸属性都不写**；字也不在 `draw:text-box` 里 —— `text:p` 直接挂在 `draw:custom-shape` 身上 —— 见事实 104 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
 | `deck.odp`（结构） | 同上 | 两页：`draw:name` 是「预算评审」与「第二页：数字」；第一页有 `presentation:class="notes"` 的备注（「评审时先讲口径再讲数字」），**旁边还坐着页码占位，里面的样字是 `<编号>`** —— 整页一把抓就会把它当正文；两个母版页名、两个版式名，但文件里没有任何版式定义；尺寸 25.4cm×19.05cm landscape 在 styles.xml 的 page-layout 里 |
 | `notes.odt`（结构） | 同上 | 10 段（2 段是空的）、两个带 `text:outline-level` 的标题、1 张 2×2 表（名叫「表格1」）、一条 `text:annotation` 批注、一个 `draw:frame`+`draw:image`、一个 `text:a` 超链接、5 个 `text:sequence-decl`；`meta.xml` 自报 paragraph-count 10 / page-count 2 / word-count 61 |
@@ -1839,6 +1842,38 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       并且补完之后把孩子按 schema 顺序重排一遍（LO 自己写的顺序是 `pos, numFmt, 引用×2`）。
     - RTF 与遗留 .doc 不交这个键（缺键 = 这一族没看）：RTF 的注编号在 `\ftrprops` 那一路控制字上、
       没有节级对应物；.doc 的注设置在 table stream 里。
+
+104. **这一页有哪些形状、哪个是组合、按什么顺序叠着：树自己不算形状，组合自己那两套坐标，而「字装在哪一层」两族各有岔路**
+    - 形状一条清单一个形状，按文档序 —— pptx 里 `p:spTree` 的**孩子顺序就是叠放顺序**，
+      ODF 里 `draw:page` 的孩子是同一句话的另一种写法。每行交 `kind` / `name` / `id` /
+      `depth` / `parent`（父条在本清单里的序号）/ `xfrm` / `size_written` / `text_carrier` /
+      `paragraphs_direct` / `children`。`spTree` 自己那枚 `cNvPr id="1" name=""` 不是形状：
+      `deck-gr.pptx` 第 1 页第一条就是那个散框，`unnamed` 因此是 0 而不是 1。
+    - 头条是「组合是一个条，孩子指回它」：`deck-gr.pptx` 第 1 页 5 条 = 顶层 2 + 组合里 3，
+      `groups` 1、`max_depth` 1；组合那一条自己那枚 `a:xfrm` **四份都在**，而 `off` 是 `0,0`、
+      `ext` 与 `chExt` 一模一样（`2900000×900000`）—— 外面那份是页坐标、`ch*` 那份是孩子自己的
+      坐标系，同单位不同语义，按写的交、不替它「修正」成页上的位置。第 2 页整份清单是空的：
+      `shapes_total` 0 而不是缺键（那页的 `spTree` 只剩一个 `grpSpPr`）。
+    - LibreOffice 重写同一份（`deck-gr-lo.pptx`）：形状、组合、两套坐标、五个名字一字未动，
+      而 `id` 从 2..6 整批重排成 **61..65**（1 让给树自己），坐标走那条老换算
+      （`100000`→`100080`、`2900000`→`2899800`）。它还给 `spTree` 自己的那份 `grpSpPr` 补了一个
+      **全 0 的 `a:xfrm`** —— 树不是形状，那一份不进清单；这条也正是「找 xfrm 只能看两层」的理由：
+      一份自己的 `xfrm` 都没有的组合，往深里找会把孩子的坐标当成自己的。
+    - 转成 odp（`deck-gr.odp`）：同一页还是 5 条、层级与五个名字全对得上，但三件事全换了 ——
+      分组是 `svg:g`（**`draw:group` 这份件里一次都没出现**，按名字找分组会找空）、
+      `id` 这一族根本没有（一律 null，不是空串）、尺寸是 `5.555cm` / `0.278cm` 这种自带单位的串。
+      组合那一层更彻底：`size_written` 是**空表而不是 0** —— ODF 的分组不写自己的框。
+      `nested` 两族也不同义：pptx 里深度 >0 必在组合里，ODF 里 `draw:frame` 套 `draw:image`
+      也算一层（`deck.odp` 第 1 页 `nested` 1 而 `groups` 0），两个数不互相解释。
+    - **字装在哪一层**（`text_carrier`）是这一条新学的事：pptx 这边一律 `p:txBody`（一张
+      `pic` 干脆没有 —— `deck-pictures.pptx` 前两页 `carriers_seen` 是空表）；ODF 一族的
+      `draw:frame` 装在 `draw:text-box` 里，而 `draw:custom-shape` 把 `text:p` **直接挂在形状自己身上**
+      —— 所以 `deck.odp` 第 1 页 `carriers_seen` 是 `["text-box", "self"]`，两种并存。
+      只按「有没有 text-box」数段，这一页从 4 段掉到 3 段，`deck-gr.odp` 那页 4 段全没。
+      段只算自己那一层的：组合里那些记在孩子身上，否则一层报一次、整页翻倍。
+    - 反面凭据与界：备注那棵树不进这份账（pptx 只走这一页的 `spTree`，ODF 的形状白名单里没有
+      `notes`，走不进去 —— 与页上链接那一条同一规矩）；遗留 .ppt **不交这个键**（缺键 = 这一族
+      没看）—— 它的记录树里没有「形状树」这一层，按 0x03EE 容器归页的那本账另在 `records`。
 
 ## 这些数字从哪来
 

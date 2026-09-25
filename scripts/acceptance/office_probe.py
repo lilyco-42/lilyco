@@ -278,6 +278,10 @@ def main() -> int:
         "lang.docx": ("ooxml", "word", "docx"),
         "lang-lo.docx": ("ooxml", "word", "docx"),
         "lang.odt": ("opendocument", "word", "odt"),
+        # 形状清单那三份：一页一个散框加一个三件的组合，另一页什么都没有
+        "deck-gr.pptx": ("ooxml", "slideshow", "pptx"),
+        "deck-gr-lo.pptx": ("ooxml", "slideshow", "pptx"),
+        "deck-gr.odp": ("opendocument", "slideshow", "odp"),
         # 注的编号那三份：同一句话在两处说，两处说的不一样
         "nset.docx": ("ooxml", "word", "docx"),
         "nset-lo.docx": ("ooxml", "word", "docx"),
@@ -5642,6 +5646,134 @@ def main() -> int:
         [dig(lbin("office-doc", fixture("tabs.rtf")), "structure.languages"),
          dig(lbin("office-doc", fixture("notes-en.doc")), "structure.languages")],
         [None, None],
+    )
+
+    # ── 3ao) 这一页有哪些形状：pptx 的 spTree 直接孩子就是叠放序，ODF 的分组是 svg:g ──
+    print("=== 3ao) 形状清单：组合、层级、两处坐标，以及一页零个形状 ===")
+
+    def shape_pages_multiset(rows):
+        return sorted(json.dumps(one.get("shape_tree"), sort_keys=True, ensure_ascii=False)
+                      for one in rows)
+
+    for name in sorted(one.name for one in FIXTURES.glob("*.pptx")):
+        got = lbin("office-slide", fixture(name))
+        want = files[name]["ooxml"]["slides"]
+        check("%s 每页形状清单合起来与读者一致（多重集，不比页序）" % name,
+              shape_pages_multiset(got.get("slides", [])), shape_pages_multiset(want))
+        check("%s 全篇形状条数之和与读者一致" % name,
+              sum((one.get("shape_tree") or {}).get("shapes_total", 0)
+                  for one in got.get("slides", [])),
+              sum((one.get("shape_tree") or {}).get("shapes_total", 0) for one in want))
+    for name in sorted(one.name for one in FIXTURES.glob("*.odp")):
+        got = lbin("office-slide", fixture(name))
+        want = files[name].get("odp", {}).get("slides", [])
+        check("%s 每页形状清单合起来与读者一致（多重集，不比页序）" % name,
+              shape_pages_multiset(got.get("slides", [])), shape_pages_multiset(want))
+        check("%s 全篇嵌套条数之和与读者一致（frame 套 image 也算一层）" % name,
+              sum((one.get("shape_tree") or {}).get("nested", 0)
+                  for one in got.get("slides", [])),
+              sum((one.get("shape_tree") or {}).get("nested", 0) for one in want))
+    gr = lbin("office-slide", fixture("deck-gr.pptx"))
+    check(
+        "`deck-gr.pptx` 第 1 页：5 条形状 = 顶层 2（1 个 `sp` + 1 个 `grpSp`）+ 组合里 3，"
+        "`groups` 1、`max_depth` 1、`placeholder` 全 false —— 叠放序就是 `spTree` 的孩子顺序",
+        [dig(gr, "slides[0].shape_tree.shapes_total"),
+         dig(gr, "slides[0].shape_tree.top_level"),
+         dig(gr, "slides[0].shape_tree.nested"),
+         dig(gr, "slides[0].shape_tree.groups"),
+         dig(gr, "slides[0].shape_tree.max_depth"),
+         dig(gr, "slides[0].shape_tree.placeholders"),
+         dig(gr, "slides[0].shape_tree.kinds_seen"),
+         dig(gr, "slides[0].shape_tree.distinct_names")],
+        [5, 2, 3, 1, 1, 0, ["sp", "grpSp"],
+         ["散着的框", "三个框的组合", "组合里的第1个", "组合里的第2个", "组合里的第3个"]],
+    )
+    check(
+        "组合那一条自己写的 `a:xfrm` **四份都在**：`off={0,0}` 而 `ext` 与 `chExt` 一模一样 —— "
+        "外面那份是页坐标、`ch*` 那份是子坐标系，两份单位一样、语义不同，按写的交不换算；"
+        "里面那三条的 `depth` 是 1 而 `parent` 指回组合那一条的序号 1",
+        [dig(gr, "slides[0].shape_tree.shapes[1].kind"),
+         dig(gr, "slides[0].shape_tree.shapes[1].id"),
+         dig(gr, "slides[0].shape_tree.shapes[1].xfrm"),
+         dig(gr, "slides[0].shape_tree.shapes[1].children"),
+         dig(gr, "slides[0].shape_tree.shapes[2].depth"),
+         dig(gr, "slides[0].shape_tree.shapes[2].parent"),
+         dig(gr, "slides[0].shape_tree.shapes[2].paragraphs_direct")],
+        ["grpSp", "3",
+         {"off": {"x": "0", "y": "0"}, "ext": {"cx": "2900000", "cy": "900000"},
+          "chOff": {"x": "0", "y": "0"}, "chExt": {"cx": "2900000", "cy": "900000"}},
+         3, 1, 1, 1],
+    )
+    check(
+        "第 2 页整份清单是空的：`shapes_total` 0、`kinds_seen` 与 `distinct_names` 都是空表、"
+        "`max_depth` 0 —— 「这一页一个形状都没有」交 0 而不是缺键（那页的 `spTree` 只剩一个 `grpSpPr`）",
+        [dig(gr, "slides[1].shape_tree.available"),
+         dig(gr, "slides[1].shape_tree.shapes_total"),
+         dig(gr, "slides[1].shape_tree.kinds_seen"),
+         dig(gr, "slides[1].shape_tree.shapes"),
+         dig(gr, "slides[1].shape_tree.groups")],
+        [True, 0, [], [], 0],
+    )
+    check(
+        "LibreOffice 重写同一份：形状、组合、`chOff` / `chExt` 都保住，`id` 从 2..6 整批重排成 "
+        "61..65，坐标走那条老换算（`100000` → `100080`、`2900000` → `2899800`），五个名字一字未动",
+        [dig(lbin("office-slide", fixture("deck-gr-lo.pptx")), "slides[0].shape_tree.shapes_total"),
+         dig(lbin("office-slide", fixture("deck-gr-lo.pptx")), "slides[0].shape_tree.groups"),
+         dig(lbin("office-slide", fixture("deck-gr-lo.pptx")), "slides[0].shape_tree.shapes[0].id"),
+         dig(lbin("office-slide", fixture("deck-gr-lo.pptx")), "slides[0].shape_tree.shapes[1].id"),
+         dig(lbin("office-slide", fixture("deck-gr-lo.pptx")),
+             "slides[0].shape_tree.shapes[0].xfrm.off"),
+         dig(lbin("office-slide", fixture("deck-gr-lo.pptx")),
+             "slides[0].shape_tree.shapes[1].xfrm.chExt")],
+        [5, 1, "61", "62", {"x": "100080", "y": "100080"},
+         {"cx": "2899800", "cy": "899640"}],
+    )
+    gr_odp = lbin("office-slide", fixture("deck-gr.odp"))
+    check(
+        "转成 odp：同一页还是 5 条、层级一样、五个名字都在 —— 但分组在这里叫 `svg:g`"
+        "（`draw:group` 这份件里一次都没出现），坐标换成 `5.555cm` / `0.278cm` 这种自带单位的串，"
+        "而 `id` 这一族**根本没有**（全 null）",
+        [dig(gr_odp, "slides[0].shape_tree.shapes_total"),
+         dig(gr_odp, "slides[0].shape_tree.top_level"),
+         dig(gr_odp, "slides[0].shape_tree.nested"),
+         dig(gr_odp, "slides[0].shape_tree.groups"),
+         dig(gr_odp, "slides[0].shape_tree.kinds_seen"),
+         dig(gr_odp, "slides[0].shape_tree.shapes[1].kind"),
+         dig(gr_odp, "slides[0].shape_tree.shapes[0].id"),
+         dig(gr_odp, "slides[0].shape_tree.shapes[0].size_written")],
+        [5, 2, 3, 1, ["custom-shape", "g"], "g", None,
+         {"x": "0.278cm", "y": "0.278cm", "width": "5.555cm", "height": "1.11cm"}],
+    )
+    check(
+        "「字装在哪一层」在两族各有岔路：pptx 这边组合与框一律 `txBody`（`deck-pictures.pptx` "
+        "第 1 页只有一张 `pic`，`carriers_seen` 是**空表**）；ODF 同一页里两种并存 —— "
+        "`draw:frame` 装在 `draw:text-box` 里、`draw:custom-shape` 的 `text:p` 直接挂在形状自己身上，"
+        "所以 `deck.odp` 第 1 页是 `[\"text-box\", \"self\"]`。按「有没有 text-box」数段，"
+        "`deck.odp` 那一页从 4 段掉到 3 段，而 `deck-gr.odp` 那一页 4 段全没（那里三个框都是 "
+        "custom-shape，`size_written` 之外一个口袋也不写）",
+        [dig(gr, "slides[0].shape_tree.carriers_seen"),
+         dig(gr, "slides[0].shape_tree.paragraphs_in_shapes"),
+         dig(gr, "slides[0].shape_tree.shapes[1].text_carrier"),
+         dig(gr, "slides[0].shape_tree.shapes[1].paragraphs_direct"),
+         dig(lbin("office-slide", fixture("deck-pictures.pptx")),
+             "slides[0].shape_tree.carriers_seen"),
+         dig(lbin("office-slide", fixture("deck.odp")), "slides[0].shape_tree.carriers_seen"),
+         dig(lbin("office-slide", fixture("deck.odp")),
+             "slides[0].shape_tree.paragraphs_in_shapes")],
+        [["txBody"], 4, None, 0, [], ["text-box", "self"], 4],
+    )
+    check(
+        "`nested` 在两族不是同一个问：`deck.odp` 那一页里 `draw:image` 坐在 `draw:frame` 里面，"
+        "于是第 1 页是 4 条、`nested` 1、`groups` 0，且那两条 unnamed 就是图 —— 与 pptx 的"
+        "「深度 >0 必在组合里」不同义，两个数不互相解释；而 `.ppt` 那一族**不交这个键**"
+        "（它的记录树没有形状树这一层，按 0x03EE 归页的账另在 `records`）",
+        [dig(lbin("office-slide", fixture("deck.odp")), "slides[0].shape_tree.shapes_total"),
+         dig(lbin("office-slide", fixture("deck.odp")), "slides[0].shape_tree.nested"),
+         dig(lbin("office-slide", fixture("deck.odp")), "slides[0].shape_tree.groups"),
+         dig(lbin("office-slide", fixture("deck.odp")), "slides[0].shape_tree.unnamed"),
+         dig(lbin("office-slide", fixture("deck.pptx")), "slides[0].shape_tree.placeholders"),
+         dig(lbin("office-slide", fixture("deck.ppt")), "slides[0].shape_tree")],
+        [4, 1, 0, 1, 2, None],
     )
     # ── 3al) 这一节的页码：OOXML 一节一条三个属性，ODF 一页版式一条，跨族各丢一次 ────
     print("=== 3al) 页码：元素在场、三个属性各写各的，而「从 7 开始」两头都不是同一种丢法 ===")

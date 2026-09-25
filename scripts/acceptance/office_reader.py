@@ -2842,6 +2842,210 @@ def odf_note_settings(path: Path, limit: int = 100) -> dict:
     }
 
 
+PPTX_SHAPE_KINDS = ("sp", "pic", "graphicFrame", "grpSp", "cxnSp")
+ODP_SHAPE_KINDS = ("g", "frame", "custom-shape", "control", "image")
+
+
+def _shape_attrs(node) -> dict:
+    """一个元素的属性表（局部名）；`xmlns` 那类声明不算属性，两边同一条"""
+    out = {}
+    for key, value in node.attrib.items():
+        if key == "xmlns" or key.startswith("xmlns:"):
+            continue
+        out[key.rsplit("}", 1)[-1]] = value
+    return out
+
+
+def _own_xfrm(node) -> dict:
+    r"""这个形状**自己**的 `a:xfrm`：直接孩子那枚，或某个 `*Pr` 直接孩子里那枚
+
+    LibreOffice 重写时会连 `spTree` 自己的那份 `grpSpPr` 也补一个全 0 的 `a:xfrm`，
+    而 `graphicFrame` 的 `xfrm` 干脆是直接孩子（不在任何 `*Pr` 里）—— 所以「往下找第一个」
+    会把孙子的坐标算到爷爷头上。只看两层，不钻。
+    """
+    kids = list(node)
+    for kid in kids:
+        if xml_local(kid.tag) == "xfrm":
+            return {xml_local(g.tag): _shape_attrs(g) for g in list(kid)}
+    for kid in kids:
+        if not xml_local(kid.tag).endswith("Pr"):
+            continue
+        for g in list(kid):
+            if xml_local(g.tag) == "xfrm":
+                return {xml_local(x.tag): _shape_attrs(x) for x in list(g)}
+    return {}
+
+
+def _own_cnvpr(node):
+    r"""这个形状自己的那枚 `p:cNvPr`（在 `nv*Pr` 里），组合不会拿到孩子的"""
+    for kid in list(node):
+        name = xml_local(kid.tag)
+        if not (name.startswith("nv") and name.endswith("Pr")):
+            continue
+        for one in kid.iter():
+            if xml_local(one.tag) == "cNvPr":
+                return one
+    return None
+
+
+def _own_placeholder(node) -> bool:
+    r"""同一个 `nv*Pr` 里有没有 `ph`（只往下找一层的子树，不进孩子的形状）"""
+    for kid in list(node):
+        name = xml_local(kid.tag)
+        if not (name.startswith("nv") and name.endswith("Pr")):
+            continue
+        if any(xml_local(one.tag) == "ph" for one in kid.iter()):
+            return True
+    return False
+
+
+def _shape_size(node) -> dict:
+    """ODF 那一族的尺寸与位置是自带单位的串，原样留着"""
+    want = ("x", "y", "width", "height", "z-index", "transform")
+    return {key: value for key, value in _shape_attrs(node).items() if key in want}
+
+
+def _shape_paragraphs(node, holders) -> int:
+    r"""这个形状**自己**的段有几段 —— 三种挂法：pptx 在直接孩子 `txBody` 里，
+    ODF 的 `draw:frame` 在直接孩子 `draw:text-box` 里，而 `draw:custom-shape` 把
+    `text:p` 直接挂在形状自己身上（实测 deck-gr.odp 三个 custom-shape 各带一段，
+    只按「有没有 text-box」数出来全是 0）。只算自己这一层，组合里那些记在孩子身上。
+    """
+    total = 0
+    for kid in list(node):
+        name = xml_local(kid.tag)
+        if name in holders:
+            total += len([x for x in kid.iter() if xml_local(x.tag) in ("p", "h")])
+        elif name in ("p", "h"):
+            total += 1
+    return total
+
+
+def _text_carrier(node, holders):
+    r"""字装在哪一层：`txBody` / `text-box` / `self` / None（这一个不装字）"""
+    for kid in list(node):
+        if xml_local(kid.tag) in holders:
+            return xml_local(kid.tag)
+    for kid in list(node):
+        if xml_local(kid.tag) in ("p", "h"):
+            return "self"
+    return None
+
+
+def _tally(rows):
+    kinds = []
+    names = []
+    carriers = []
+    for one in rows:
+        if one["kind"] not in kinds:
+            kinds.append(one["kind"])
+        if one["name"] and one["name"] not in names:
+            names.append(one["name"])
+        if one["text_carrier"] and one["text_carrier"] not in carriers:
+            carriers.append(one["text_carrier"])
+    return kinds, names, carriers
+
+
+def _ledger(family, rows):
+    kinds, names, carriers = _tally(rows)
+    return {
+        "family": family,
+        "available": True,
+        "shapes_total": len(rows),
+        "top_level": len([one for one in rows if one["depth"] == 0]),
+        "nested": len([one for one in rows if one["depth"] != 0]),
+        "groups": len([one for one in rows if one["kind"] in ("grpSp", "g")]),
+        "unnamed": len([one for one in rows if one["name"] is None]),
+        "placeholders": len([one for one in rows if one["placeholder"] is True]),
+        "carriers_seen": carriers,
+        "paragraphs_in_shapes": sum(one["paragraphs_direct"] for one in rows),
+        "kinds_seen": kinds,
+        "distinct_names": names,
+        "max_depth": max([one["depth"] for one in rows], default=0),
+        "shapes": rows,
+    }
+
+
+def slide_shape_tree_pptx(slide_root, limit: int = 400) -> dict:
+    r"""这一页有哪些形状、哪个是组合：`p:spTree` 的直接孩子按序就是叠放序
+
+    组的 `cNvPr` 排在自己的孩子之前，所以「文档序第一个 `cNvPr`」就是这个形状自己的，
+    不需要父指针。`xfrm` 四格 `off` / `ext` / `chOff` / `chExt` 原样交（EMU），组合那一份
+    实测 `off` 是 0,0 而 `ext` 与 `chExt` 一模一样 —— 按写的交，不替它换算。
+    """
+    trees = [one for one in slide_root.iter() if xml_local(one.tag) == "spTree"]
+    rows = []
+
+    def walk(node, depth, parent):
+        for one in list(node):
+            if xml_local(one.tag) not in PPTX_SHAPE_KINDS:
+                continue
+            mine = len(rows)
+            cnv = _own_cnvpr(one)
+            rows.append({
+                "index": mine,
+                "kind": xml_local(one.tag),
+                "name": cnv.attrib.get("name") if cnv is not None else None,
+                "id": cnv.attrib.get("id") if cnv is not None else None,
+                "depth": depth,
+                "parent": parent,
+                "placeholder": _own_placeholder(one),
+                "xfrm": _own_xfrm(one),
+                "size_written": {},
+                "text_carrier": _text_carrier(one, ("txBody",)),
+                "has_text_body": any(xml_local(kid.tag) == "txBody" for kid in list(one)),
+                "paragraphs_direct": _shape_paragraphs(one, ("txBody",)),
+                "children": len([x for x in list(one)
+                                 if xml_local(x.tag) in PPTX_SHAPE_KINDS]),
+            })
+            if xml_local(one.tag) == "grpSp":
+                walk(one, depth + 1, mine)
+
+    if trees:
+        walk(trees[0], 0, None)
+    return _ledger("ooxml", rows[:limit])
+
+
+def slide_shape_tree_odp(page, limit: int = 400) -> dict:
+    r"""同一问在 ODF：这一页 `draw:page` 的孩子，分组是 `svg:g`（不是 `draw:group`）
+
+    `notes` 不在形状白名单里，所以备注页那棵树天然进不来。这一族没有 `cNvPr`，`id` 一律
+    null，尺寸是 `x="0.278cm"` 这种自带单位的串。`nested` 与 pptx 不同义：`draw:frame` 套
+    `draw:image` 也算一层，所以它可以 nonzero 而 `groups` 是 0。
+    """
+    rows = []
+
+    def walk(node, depth, parent):
+        for one in list(node):
+            if xml_local(one.tag) not in ODP_SHAPE_KINDS:
+                continue
+            mine = len(rows)
+            name = None
+            for key, value in one.attrib.items():
+                if key.rsplit("}", 1)[-1] == "name" and name is None:
+                    name = value
+            rows.append({
+                "index": mine,
+                "kind": xml_local(one.tag),
+                "name": name,
+                "id": None,
+                "depth": depth,
+                "parent": parent,
+                "placeholder": None,
+                "xfrm": {},
+                "size_written": _shape_size(one),
+                "text_carrier": _text_carrier(one, ("text-box",)),
+                "has_text_body": any(xml_local(kid.tag) == "text-box" for kid in list(one)),
+                "paragraphs_direct": _shape_paragraphs(one, ("text-box",)),
+                "children": len([x for x in list(one)
+                                 if xml_local(x.tag) in ODP_SHAPE_KINDS]),
+            })
+            walk(one, depth + 1, mine)
+
+    walk(page, 0, None)
+    return _ledger("odf", rows[:limit])
+
+
 def odf_style_holders(node) -> list:
 
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
@@ -5511,6 +5715,7 @@ def pptx_facts(path: Path) -> dict:
                 "autofit": slide_autofit(root, _ns_prefixes(parts[name])),
                 # 切换的细则：几条、每条写了哪些属性、效果孩子自己带了什么
                 "transition_detail": slide_transition_detail(root),
+                "shape_tree": slide_shape_tree_pptx(root),
                 "links": pptx_slide_links(root, rels_root),
                 "relationships": slide_rels(rels_root, name),
                 # 「放映时隐藏」这一族就写在根元素上一个 show="0"；没写等于没藏
@@ -7370,6 +7575,7 @@ def odp_facts(path: Path) -> dict | None:
                 )["hidden"],
                 "visibility": odp_page_visibility(page_styles, of_local(page, "style-name")),
                 "odp_transition": odp_transition(parts, of_local(page, "style-name"), page),
+                "shape_tree": slide_shape_tree_odp(page),
                 "size": size_of_layout.get(layout_of_master.get(master)),
             }
         )
