@@ -49,6 +49,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `table-style.docx` | python-docx（`write_table_style_docx`） | 四张表，一次只改一个变量：`默认表`（不点样式）/ `内置样式`（`Light Grid Accent 1` → 写成样式 id `LightGrid-Accent1`）/ `改了 tblLook`（把 `w:firstRow` 改成 0）/ `没了 tblStyle`（那一格整个删掉，`w:tblLook` 留着）。要点：改了位之后那个十六进制缓存值 python-docx **不重算**（还是 `04A0`） |
 | `table-style-lo.docx` | LibreOffice（`table-style.docx` → .docx） | 同一份重写后：样式与那六个位一个没变，而**缓存被重算了**（第三张 `04A0` → `0480`），其它几张那个值也从大写换成小写（`04A0` → `04a0`）—— 见事实 94 |
 | `table-style.odt` | LibreOffice（`table-style.docx` → .odt） | 同一问在这一族只剩一个名字：四张表各点一份自动样式（`表格1`…`表格4`，family=table，都没有父样式），`LightGrid-Accent1` 与那枚 look 都看不见 —— 见事实 94 |
+| `line.docx` | python-docx（`write_line_docx`） | 五条段，一次只改一个变量：`段零`（行距什么都不写）/ `1.5 倍` / `2 倍` / `固定 22 磅` / `至少 18 磅`。要点：1.5 倍与「至少 18 磅」在文件里是**同一个数** `w:line="360"`，只有紧跟的 `w:lineRule`（`auto` 对 `atLeast`）说得清那是什么单位 |
+| `line-lo.docx` | LibreOffice（`line.docx` → .docx） | 同一份重写后：四个数与其单位一个都没改口，而段零被补了一份 `w:pPr`（里面**没有** `w:spacing`）—— 见事实 95 |
+| `line.odt` | LibreOffice（`line.docx` → .odt） | 一跳在段点的样式里、单位写在串上（`150%` / `200%` / `0.776cm`），而 `atLeast` 那一段四个相关属性一个都没写、docx 里什么都没写的段零点的 `Standard` 样式却写着 `115%` —— 见事实 95 |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
@@ -1681,6 +1684,12 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - `table-style-lo.docx`（LibreOffice 重写同一份）：样式与六个位一字没改，而它**把缓存重算了**（第三张变 `0480`），另外几张那个值顺手换成小写（`04a0`）—— 大小写与算没算都是写法差别，两条都在账上并排看得见。
     - `table-style.odt`：这一族只有一个名字 —— 四张表各点一份 family=table 的自动样式（`表格1`…`表格4`，都能找到、都没有父样式），而 OOXML 那个样式 id 与那枚 look **整个不见了**：样式那一路的信息在这一转里丢了，交看到的、不替它认回来（`look_written` 这个键在 ODF 根本没有）。
     - 没套样式的件（`tables.docx`）交 `with_style_written: 0` 与空数组而不是缺键；RTF 那一族不交这个键（缺键 = 这一族没看：它用 `	rowd` 那一套行属性，样式是另一回事）。
+
+95. **这一段的行距是多少：一家那个数的单位由紧跟的另一枚属性决定，一家把单位写在串上**
+    - `line.docx`（python-docx）：`w:pPr/w:spacing` 上两枚属性管一件事 —— `w:line` 是那个数，`w:lineRule` 说它是**什么单位**：`auto` 时是 1/240 倍（`360` 就是 1.5 倍、`480` 就是 2 倍），`exact` / `atLeast` 时是 twip（22 磅 = `440`、18 磅 = `360`）。于是「1.5 倍」与「至少 18 磅」在文件里是**同一个数**，只有 `lineRule` 分得开。读者两枚分开各交（`line_written` / `rule_written`），不合成一个「行距」字段、不换算、也不拿规范里的默认值替那一格没写的段接上。
+    - `line-lo.docx`（LibreOffice 重写同一份）：四个数与其单位一个都没改口（`rules_written` 还是 `auto` 2 条、`exact` 1 条、`atLeast` 1 条），而段零被补了一份 `w:pPr` —— 里面**没有** `w:spacing`。补壳子与补内容是两件事，所以 `has_pPr` 与 `has_spacing` 各记各的。
+    - `line.odt`：一跳在段点的那份样式里，`fo:line-height` 是**带单位的串** —— 1.5 倍 → `150%`、2 倍 → `200%`、22 磅 → `0.776cm`（读者只按串尾分类交出去：`unit_forms` = `%` 三条、`cm` 一条，不换算也不约分）。一丢一多都在账上：`atLeast` 那一段四个相关属性**一个都没写**（那格 null，不是 0），而 docx 里什么都不写的段零这一族点的 `Standard` 样式里写着 `115%` —— 同一份稿子两个答案，谁也不替谁圆。
+    - RTF 那一族不交这个键（缺键 = 这一族没看）：`\sl` 与 `\slmult` 在样式表里就成批出现（`{\s0\snext0\sl276\slmult1…}` 是默认段样式），段自己没写时它是继承来的，归属判不住 —— 与制表位、段落缩进那两条同一个坑。
 
 ## 这些数字从哪来
 

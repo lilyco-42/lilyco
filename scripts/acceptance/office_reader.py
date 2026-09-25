@@ -1757,6 +1757,146 @@ def odf_table_styles(path: Path, limit: int = 100) -> dict:
     }
 
 
+ODF_LINE_WORDS = ["line-height", "line-height-style", "line-height-inherit", "line-break"]
+
+
+def docx_line_spacing(path: Path, limit: int = 100) -> dict:
+    r"""「这一段的行距」在 OOXML 是 `w:pPr/w:spacing` 上的**两枚**属性
+
+    `w:line` 那个数的单位由 `w:lineRule` 决定：`auto` 时是 1/240 倍（`360` = 1.5 倍），
+    `exact` / `atLeast` 时是 twip（22 磅 = `440`）。实测同一份稿子里 1.5 倍与「至少 18 磅」
+    的 `w:line` 都是 `360` —— 只交那一个数会把两种单位读成一种，所以两枚分开各自按写的交。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"available": False}
+        root = ET.fromstring(box.read("word/document.xml"))
+    body = [one for one in root if xml_local(one.tag) == "body"]
+    paras = [one for one in body[0].iter() if xml_local(one.tag) == "p"] if body else []
+    rows, rules, with_line, with_rule, both = [], {}, 0, 0, 0
+    for index, para in enumerate(paras):
+        holder = None
+        for kid in para:
+            if xml_local(kid.tag) == "pPr":
+                holder = kid
+                break
+        spacing = None
+        if holder is not None:
+            for kid in holder:
+                if xml_local(kid.tag) == "spacing":
+                    spacing = kid
+                    break
+        written = _written_attrs(spacing, {}) if spacing is not None else {}
+        line = _local_in(written, "line") if spacing is not None else None
+        rule = _local_in(written, "lineRule") if spacing is not None else None
+        if line is not None:
+            with_line += 1
+        if rule is not None:
+            with_rule += 1
+            rules[rule] = rules.get(rule, 0) + 1
+        if line is not None and rule is not None:
+            both += 1
+        rows.append({
+            "index": index,
+            "has_pPr": holder is not None,
+            "has_spacing": spacing is not None,
+            "line_written": line,
+            "rule_written": rule,
+        })
+    return {
+        "family": "ooxml",
+        "available": True,
+        "paragraphs_total": len(rows),
+        "with_line_written": with_line,
+        "with_rule_written": with_rule,
+        "with_both": both,
+        "rules_written": rules,
+        "paragraphs": rows[:limit],
+    }
+
+
+def odf_line_spacing(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF 一跳在段点的那份样式里，而**单位写在串上**
+
+    倍数变成百分数（`150%`）、固定值变成长度（`0.776cm`），读者不换算、不约分。
+    实测 `atLeast` 那一段转过来后**四个属性一个都没写** —— 那是转换丢的，不替它接。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        content_raw = box.read("content.xml")
+        crowd = ET.fromstring(content_raw)
+        roots = [crowd]
+        nsmaps = [_ns_prefixes(content_raw)]
+        if "styles.xml" in have:
+            styles_raw = box.read("styles.xml")
+            roots.append(ET.fromstring(styles_raw))
+            nsmaps.append(_ns_prefixes(styles_raw))
+    table = []
+    for root, nsmap in zip(roots, nsmaps):
+        for node in root.iter():
+            if xml_local(node.tag) != "style":
+                continue
+            written = _written_attrs(node, nsmap)
+            if _local_in(written, "family") != "paragraph":
+                continue
+            name = _local_in(written, "name")
+            if name is None:
+                continue
+            held = []
+            for props in node:
+                if xml_local(props.tag) != "paragraph-properties":
+                    continue
+                pw = _written_attrs(props, nsmap)
+                for key in ODF_LINE_WORDS:
+                    raw = _local_in(pw, key)
+                    if raw is not None:
+                        held.append((key, raw))
+            table.append((name, held))
+    rows, forms, with_height = [], {}, 0
+    paras = [one for one in crowd.iter() if xml_local(one.tag) == "p"]
+    for index, para in enumerate(paras):
+        name = _local_in(_written_attrs(para, nsmaps[0]), "style-name")
+        found = None
+        if name is not None:
+            for had in table:
+                if had[0] == name:
+                    found = had
+                    break
+        held = found[1] if found else []
+        height = None
+        for had in held:
+            if had[0] == "line-height":
+                height = had[1]
+        mine = {"index": index, "style_written": name, "line_height_written": height}
+        if height is not None:
+            with_height += 1
+            # 单位是写在串上的：只按「数字之后的那一串」分类，不换算、不约分
+            at = 0
+            while at < len(height) and (height[at] in "0123456789.-"):
+                at += 1
+            key = height[at:] if height[at:] else "无单位"
+            forms[key] = forms.get(key, 0) + 1
+        for key in ODF_LINE_WORDS[1:]:
+            raw = None
+            for had in held:
+                if had[0] == key:
+                    raw = had[1]
+            mine[key.replace("-", "_")] = raw
+        rows.append(mine)
+    return {
+        "family": "odf",
+        "available": True,
+        "paragraphs_total": len(rows),
+        "with_line_height": with_height,
+        "styles_total": len(table),
+        "unit_forms": forms,
+        "paragraphs": rows[:limit],
+    }
+
+
 def odf_style_holders(node) -> list:
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
     out: list = []
@@ -7136,10 +7276,10 @@ def facts(path: Path) -> dict:
             out["ooxml"]["comment_ledger"] = docx_comment_ledger(path)
             # 分页那四个开关（段上；ODF 一跳在样式里）
             out["ooxml"]["keep_switches"] = docx_keep_switches(path)
-            # 这张表套的是哪个样式：样式 id 与那枚 tblLook 分开交
-            out["ooxml"]["table_styles"] = docx_table_styles(path)
             # 这张表套的是哪个样式：样式 id 与那枚 look 分开交
             out["ooxml"]["table_styles"] = docx_table_styles(path)
+            # 这一段的行距：那个数的**单位**由 lineRule 决定，所以两枚分开各交
+            out["ooxml"]["line_spacing"] = docx_line_spacing(path)
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
@@ -7172,7 +7312,8 @@ def facts(path: Path) -> dict:
             out["odt"]["comment_ledger"] = odf_comment_ledger(path)
             out["odt"]["keep_switches"] = odf_keep_switches(path)
             out["odt"]["table_styles"] = odf_table_styles(path)
-            out["odt"]["table_styles"] = odf_table_styles(path)
+            # 同一问在 ODF 一跳在样式里，而单位是写在串上的
+            out["odt"]["line_spacing"] = odf_line_spacing(path)
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger

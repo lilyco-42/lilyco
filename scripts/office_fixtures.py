@@ -637,6 +637,34 @@ def write_keep_docx(path: Path) -> None:
     doc.save(path)
 
 
+def write_line_docx(path: Path) -> None:
+    """五条段：不写 / 1.5 倍 / 2 倍 / 固定 22 磅 / 至少 18 磅（一次只改一个变量）
+
+    这份样本存在的理由是**同一个数在两种单位下长得一模一样**：1.5 倍写 `w:line="360"`，
+    「至少 18 磅」也写 `w:line="360"` —— 只有紧跟的 `w:lineRule`（`auto` 对 `atLeast`）说得清
+    那个数是 1/240 倍还是 twip。固定 22 磅则是 `w:line="440"` 配 `exact`。
+    LibreOffice 转成 ODF 后倍数换成百分数（`150%`）、长度换成长度串（`0.776cm`），而
+    `atLeast` 那一段**四个相关属性一个都不写** —— 不是写 0，是整格消失。
+    """
+    from docx import Document
+    from docx.enum.text import WD_LINE_SPACING
+    from docx.shared import Pt
+
+    doc = Document()
+    doc.add_paragraph("段零：行距什么都不写")
+    one = doc.add_paragraph("段一：1.5 倍")
+    one.paragraph_format.line_spacing = 1.5
+    two = doc.add_paragraph("段二：2 倍")
+    two.paragraph_format.line_spacing = 2.0
+    three = doc.add_paragraph("段三：固定 22 磅")
+    three.paragraph_format.line_spacing = Pt(22)
+    three.paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+    four = doc.add_paragraph("段四：至少 18 磅")
+    four.paragraph_format.line_spacing = Pt(18)
+    four.paragraph_format.line_spacing_rule = WD_LINE_SPACING.AT_LEAST
+    doc.save(path)
+
+
 def write_comments_docx(path: Path) -> None:
     """两条批注的一份 docx：作者名一个纯 ASCII、一个纯中文
 
@@ -3026,6 +3054,21 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "keep.odt", OUT / "keep.odt")
     else:
         print("⚠️  没拿到 keep.odt")
+
+    # 行距那三份：python-docx 写 docx，同格式重写一份（补 before/after）、再转一份 odt（换单位）
+    line = OUT / "line.docx"
+    write_line_docx(line)
+    convert(exe, line, "docx", SCRATCH / "line-back")
+    made_line = SCRATCH / "line-back" / "line.docx"
+    if made_line.exists():
+        shutil.copyfile(made_line, OUT / "line-lo.docx")
+    else:
+        print("⚠️  没拿到 line-lo.docx（docx → docx 那一转）")
+    convert(exe, line, "odt", SCRATCH)
+    if (SCRATCH / "line.odt").exists():
+        shutil.copyfile(SCRATCH / "line.odt", OUT / "line.odt")
+    else:
+        print("⚠️  没拿到 line.odt")
 
     # 批注那三份：python-docx 写 docx，同格式重写一份（部件换先后）、再转一份 odt（两处合一处）
     noted = OUT / "doc-comments.docx"

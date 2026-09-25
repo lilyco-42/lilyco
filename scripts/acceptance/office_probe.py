@@ -252,6 +252,10 @@ def main() -> int:
         "table-style.docx": ("ooxml", "word", "docx"),
         "table-style-lo.docx": ("ooxml", "word", "docx"),
         "table-style.odt": ("opendocument", "word", "odt"),
+        # 行距那三份：同一个数在两种单位下长得一模一样，只有紧跟的那枚属性说得清
+        "line.docx": ("ooxml", "word", "docx"),
+        "line-lo.docx": ("ooxml", "word", "docx"),
+        "line.odt": ("opendocument", "word", "odt"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -4940,6 +4944,81 @@ def main() -> int:
              "structure.table_styles.style_found_total"),
          dig(lbin("office-doc", fixture("tabs.rtf")), "structure.table_styles")],
         [4, 4, 0, 2, [], 2, None],
+    )
+
+    # ── 3af) 这一段的行距：那个数的单位由谁说了算，两家两种答法 ───────────────────
+    print("=== 3af) 行距：`w:line` 的单位由 `w:lineRule` 决定，ODF 把单位写在串上 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 行距那份账与读者一致（那个数与它的单位分开交）" % name,
+              dig(got, "structure.line_spacing"),
+              files[name]["ooxml"]["line_spacing"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 行距那份账与读者一致（一跳在样式里，单位在串上）" % name,
+              dig(got, "structure.line_spacing"),
+              files[name]["odt"]["line_spacing"])
+    ls = lbin("office-doc", fixture("line.docx"))
+    ls_lo = lbin("office-doc", fixture("line-lo.docx"))
+    ls_odt = lbin("office-doc", fixture("line.odt"))
+    check(
+        "python-docx 那份（五段各改一个变量）：四条写了数、四条写了单位，两条各占一种 —— "
+        "`auto` 两条（1.5 倍、2 倍）、`exact` 与 `atLeast` 各一条；段零那个格整块没写（null 不是 0）",
+        [dig(ls, "structure.line_spacing.paragraphs_total"),
+         dig(ls, "structure.line_spacing.with_line_written"),
+         dig(ls, "structure.line_spacing.with_rule_written"),
+         dig(ls, "structure.line_spacing.with_both"),
+         dig(ls, "structure.line_spacing.rules_written"),
+         [one["line_written"] for one in dig(ls, "structure.line_spacing.paragraphs")],
+         [one["rule_written"] for one in dig(ls, "structure.line_spacing.paragraphs")],
+         dig(ls, "structure.line_spacing.paragraphs[0].has_spacing")],
+        [5, 4, 4, 4, {"auto": 2, "exact": 1, "atLeast": 1},
+         [None, "360", "480", "440", "360"],
+         [None, "auto", "auto", "exact", "atLeast"], False],
+    )
+    check(
+        "「1.5 倍」与「至少 18 磅」在文件里是**同一个数**（都是 `360`）：只交那个数就把两种单位"
+        "读成一种，分开交才看得见是 `lineRule` 在选单位 —— 这一条是这份样本存在的理由",
+        [dig(ls, "structure.line_spacing.paragraphs[1].line_written")
+         == dig(ls, "structure.line_spacing.paragraphs[4].line_written"),
+         dig(ls, "structure.line_spacing.paragraphs[1].rule_written"),
+         dig(ls, "structure.line_spacing.paragraphs[4].rule_written")],
+        [True, "auto", "atLeast"],
+    )
+    check(
+        "LibreOffice 重写同一份：四个数与其单位一个都没改口，而段零被补了一份 `w:pPr`"
+        "（里面**没有** `w:spacing`）—— 补壳子不补内容，两样都得按写的交",
+        [dig(ls_lo, "structure.line_spacing.with_line_written"),
+         dig(ls_lo, "structure.line_spacing.rules_written"),
+         dig(ls_lo, "structure.line_spacing.paragraphs[3].line_written"),
+         dig(ls_lo, "structure.line_spacing.paragraphs[4].rule_written"),
+         dig(ls_lo, "structure.line_spacing.paragraphs[0].has_pPr"),
+         dig(ls_lo, "structure.line_spacing.paragraphs[0].has_spacing")],
+        [4, {"auto": 2, "exact": 1, "atLeast": 1}, "440", "atLeast", True, False],
+    )
+    check(
+        "转成 ODF 后同一问跳一跳在样式里，单位换成写在串上的：1.5 倍 → `150%`、2 倍 → `200%`、"
+        "22 磅 → `0.776cm`（长度串，不换算不约分），而 `atLeast` 那一段**四个相关属性一个都没写** —— "
+        "这是转换丢的，交看到的、不替它接回去",
+        [dig(ls_odt, "structure.line_spacing.paragraphs_total"),
+         dig(ls_odt, "structure.line_spacing.with_line_height"),
+         dig(ls_odt, "structure.line_spacing.unit_forms"),
+         [one["line_height_written"] for one in dig(ls_odt, "structure.line_spacing.paragraphs")],
+         [one["line_height_style"] for one in dig(ls_odt, "structure.line_spacing.paragraphs")]],
+        [5, 4, {"%": 3, "cm": 1}, ["115%", "150%", "200%", "0.776cm", None],
+         [None, None, None, None, None]],
+    )
+    check(
+        "两族对同一个问的答法不同到**连「没写」都不对应**：docx 段零那个格整块没写，"
+        "odt 段零点的 `Standard` 样式里却写着 `115%` —— 同一份稿子两个答案，谁也不替谁圆；"
+        "没写行距的件交 0 与空表而不是缺键，RTF 那一族不交这个键（缺键 = 这一族没看）",
+        [dig(ls, "structure.line_spacing.paragraphs[0].line_written"),
+         dig(ls_odt, "structure.line_spacing.paragraphs[0].line_height_written"),
+         dig(lbin("office-doc", fixture("keep.docx")),
+             "structure.line_spacing.with_line_written"),
+         dig(lbin("office-doc", fixture("keep.docx")), "structure.line_spacing.rules_written"),
+         dig(lbin("office-doc", fixture("tabs.rtf")), "structure.line_spacing")],
+        [None, "115%", 0, {}, None],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
