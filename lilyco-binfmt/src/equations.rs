@@ -135,7 +135,9 @@ impl DocxRun {
             }
             let name = one.local();
             if name == "r" {
+                // 数学 run 是「一串字」的壳，不算结构：与 python 那侧同一条排除表
                 runs += 1;
+                continue;
             }
             if name == "t" {
                 text.push_str(&one.text());
