@@ -660,7 +660,11 @@ impl OdfRun {
     }
 }
 
-fn local_attr(node: &Node, want: &str) -> Option<&str> {
+/// 按局部名取属性（`fo:font-weight` 与 `w:val` 都算 `font-weight` / `val`）
+///
+/// 返回的字借的是 `node` 的 attrs，签名必须自己说清 —— 两个入参都是引用时省略规则不成立
+/// （本机不许编译，这一条是 CI 的 E0106 教的）
+fn local_attr<'a>(node: &'a Node, want: &str) -> Option<&'a str> {
     node.attr_local(want)
 }
 
