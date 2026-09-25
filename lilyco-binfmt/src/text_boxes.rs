@@ -11,11 +11,13 @@
 //!
 //! ## 两家实测的形状（`tbox.odt` 与 LibreOffice 转出的 `tbox.docx`）
 //!
-//! OOXML 一个框写两种容器：`w:drawing` → `wp:anchor`（里面 `wp:extent cx/cy` 是 EMU）→ … →
-//! `w:txbx` → `w:txbxContent`；以及 `w:pict` → `v:shape`（`style="width:5cm;height:2.4cm"` 那种
-//! 串）→ `v:textbox` → 又一个 `w:txbxContent`。实测这份件里 `drawing 1 / pict 1 / txbxContent 2`
-//! 而两句字一模一样 —— 所以聚合里 `boxes_total` 是 2、`distinct_text_count` 是 1。
-//! 尺寸在两处各一种单位（EMU 与 `style` 里那个 cm 串），按写的交、不换算也不互证。
+//! OOXML 一个框写两种容器：`w:drawing` → `wp:inline`（尺寸在它下面的 `wp:extent cx/cy`，EMU）
+//! → … → `w:txbx` → `w:txbxContent`；以及 `w:pict` → `v:shape` → `v:textbox` → 又一个
+//! `w:txbxContent`。实测这份件里 `drawing 1 / pict 1 / txbxContent 2` 而两句字一模一样 ——
+//! 所以聚合里 `boxes_total` 是 2、`distinct_text_count` 是 1。
+//! 尺寸**只有 DrawingML 那一份写了**（`cx="1800225" cy="864235"`），VML 那一份的 `v:shape`
+//! 连 `style` 都没有 → `shape_style: null`。这不是"它把尺寸丢了"（那是另一问），而是两份副本
+//! 自己就不一样：按写的交，一处有一处没有都如实交出去。
 //!
 //! ODF 是另一种形状：`draw:frame` 带 `draw:name`、`text:anchor-type`、`svg:width/height`（这一族
 //! 的尺寸是**自带单位的串**），字在里面那个 `draw:text-box`。LibreOffice 把同一份 odt 重写一遍时

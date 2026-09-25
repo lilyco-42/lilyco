@@ -724,8 +724,8 @@ def write_tbox_odt(path: Path) -> None:
     这一族本机没有会写 OOXML 文本框的生产者（python-docx 不会加框），所以反过来走：这份 odt 用
     zipfile 写（形状照 OpenDocument 的写法：mimetype 第一成员、manifest 三条），再让 LibreOffice
     转成 docx —— 那份 OOXML 是 LibreOffice 自己写的。要点三条：同一个框它写**两份**
-    （`w:drawing` 里一份、`w:pict` 里一份，两份 `w:txbxContent` 字一模一样）；尺寸在 docx 那面是
-    EMU 与 `v:shape/@style` 那个 cm 串，在 odt 这面是 `svg:width="5cm"` 这种自带单位的串；而它
+    （`w:drawing` 里一份、`w:pict` 里一份，两份 `w:txbxContent` 字一模一样）；尺寸只在 DrawingML
+    那一份的 `wp:extent` 上（EMU），VML 那一份的 `v:shape` 连 `style` 都没写；而它
     重写 odt 时会挂 `draw:style-name="Frame"`、把 `svg:x` / `svg:y` / `draw:z-index` 整个丢掉，
     并把 5cm 换成 `5.001cm`。
     """
