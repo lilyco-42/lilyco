@@ -54,6 +54,7 @@ mod opack;
 mod paper;
 mod pdf;
 mod ppt;
+mod print_ranges;
 mod props;
 mod protect;
 mod read;

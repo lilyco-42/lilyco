@@ -1361,6 +1361,37 @@ def write_styles_docx(path: Path) -> None:
     doc.save(path)
 
 
+def write_print_area_xlsx(path: Path) -> None:
+    """四张表，一次只改一个变量：打印区域、区域 + 重复行、区域给成两段、只给重复列
+
+    这一族的答案不在表上，而在 `xl/workbook.xml` 的两条保留名上（`_xlnm.Print_Area` /
+    `_xlnm.Print_Titles`），归属是 `localSheetId` 那个**顺序号**。openpyxl 给 sheet 名带引号，
+    LibreOffice 重写同一份时把引号全去掉而其它一字不差 —— 所以要两份生产者的件。
+    """
+    from openpyxl import Workbook
+
+    book = Workbook()
+    first = book.active
+    first.title = "区域与标题"
+    second = book.create_sheet("区域加标题")
+    third = book.create_sheet("两段区域")
+    fourth = book.create_sheet("什么都没给")
+    for sheet in (first, second, third, fourth):
+        sheet["A1"] = "项目"
+        sheet["B1"] = "金额"
+        sheet["C1"] = "备注"
+        for row in range(2, 13):
+            sheet.cell(row=row, column=1, value="条目%d" % row)
+            sheet.cell(row=row, column=2, value=row * 100)
+            sheet.cell(row=row, column=3, value="注%d" % row)
+    first.print_area = "A1:C10"
+    second.print_area = "A1:C10"
+    second.print_title_rows = "1:1"
+    third.print_area = ["A1:B6", "C8:C12"]
+    fourth.print_title_cols = "B:B"
+    book.save(path)
+
+
 def write_autofit_pptx(path: Path) -> None:
     """一个框三种「字与框谁迁就谁」，再加 PowerPoint 自己算出来的那两个缩放数
 

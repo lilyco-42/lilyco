@@ -854,6 +854,149 @@ def odf_page_styles(path: Path, limit: int = 100) -> dict:
     return out
 
 
+def xlsx_print_ranges(path: Path, limit: int = 100) -> dict:
+    r"""「打哪几行几列、每页重复哪一行」在 OOXML 里**不在表上**：那是 workbook.xml 的两条保留名
+
+    `_xlnm.Print_Area` 与 `_xlnm.Print_Titles`，归属靠 `localSheetId` —— 那个数数的是
+    `<sheets>` 里的**顺序**（不是 `sheetId`，也不是 `r:id`，那三套号各自编）。一条 definedName
+    里可以塞好几段（逗号分隔）；sheet 名带不带引号是生产者的写法，不替它们归一化。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "xl/workbook.xml" not in have:
+            return {"available": False}
+        raw = box.read("xl/workbook.xml")
+    root = ET.fromstring(raw)
+    nsmap = _ns_prefixes(raw)
+    order = [
+        _local_in(_written_attrs(one, nsmap), "name") or ""
+        for one in root.iter()
+        if xml_local(one.tag) == "sheet"
+    ]
+    entries: list = []
+    for one in root.iter():
+        if xml_local(one.tag) != "definedName":
+            continue
+        written = _written_attrs(one, nsmap)
+        name = _local_in(written, "name") or ""
+        id_written = _local_in(written, "localSheetId")
+        text = (one.text or "").strip()
+        index = None
+        if id_written is not None:
+            try:
+                index = int(id_written)
+            except ValueError:
+                index = None
+        in_range = index is not None and 0 <= index < len(order)
+        entries.append({
+            "name": name,
+            "reserved": name.startswith("_xlnm."),
+            "local_sheet_id_written": id_written,
+            "local_sheet_id": index,
+            "resolved_sheet": order[index] if in_range else None,
+            "in_range": in_range,
+            "text": text,
+            "ranges": [chunk for chunk in text.split(",") if chunk],
+            "quoted_names": "'" in text,
+            "written": written,
+        })
+    by_name: dict = {}
+    for one in entries:
+        by_name[one["name"]] = by_name.get(one["name"], 0) + 1
+    sheets = []
+    for position, name in enumerate(order):
+        mine = [one for one in entries if one["resolved_sheet"] == name]
+        areas = [one for one in mine if one["name"] == "_xlnm.Print_Area"]
+        titles = [one for one in mine if one["name"] == "_xlnm.Print_Titles"]
+        sheets.append({
+            "index": position,
+            "name": name,
+            "area_entries": len(areas),
+            "titles_entries": len(titles),
+            "area_ranges": [rng for one in areas for rng in one["ranges"]],
+            "titles_ranges": [rng for one in titles for rng in one["ranges"]],
+        })
+    return {
+        "family": "ooxml",
+        "available": True,
+        "sheets_total": len(order),
+        "defined_total": len(entries),
+        "print_entries": sum(1 for one in entries if one["reserved"]),
+        "unresolved": sum(1 for one in entries if one["reserved"] and not one["in_range"]),
+        "quoted_entries": sum(1 for one in entries if one["reserved"] and one["quoted_names"]),
+        "by_name": by_name,
+        "sheets": sheets[:limit],
+        "entries": entries[:limit],
+    }
+
+
+def ods_print_ranges(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF 里住在**两处**：表自己身上的 `table:print-ranges`，与另写的 `table:named-*`
+
+    后者是 LibreOffice 为了与 Excel 来回而留的副本，名字一律 `Excel_BuiltIn_Print_Area` /
+    `_Print_Titles`。实测两条要紧的：一段范围走 `table:named-range`、两段走 `table:named-expression`
+    （同一个选择在一种文件里是两种元素）；而那一份件里五样的 `table:base-cell-address` 全是同一个
+    （第一张表的 A1）—— 所以「这是哪张表的」只在地址串里，不在这条指针上。
+    `range-usable-as` 更是「重复行」与「重复列」都写同一串，读出「重复的是行」只能看地址形状。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        raw = box.read("content.xml")
+    root = ET.fromstring(raw)
+    nsmap = _ns_prefixes(raw)
+    tables = []
+    named = []
+    for one in root.iter():
+        local = xml_local(one.tag)
+        if local == "table":
+            written = _written_attrs(one, nsmap)
+            value = _local_in(written, "print-ranges")
+            ranges = [] if value is None else [chunk for chunk in value.split() if chunk]
+            tables.append({
+                "name": _local_in(written, "name"),
+                "print_ranges_written": value,
+                "ranges": ranges,
+                "range_total": len(ranges),
+            })
+            continue
+        if local in ("named-range", "named-expression"):
+            written = _written_attrs(one, nsmap)
+            name = _local_in(written, "name") or ""
+            named.append({
+                "element": _written_name(one.tag, nsmap),
+                "name": name,
+                "built_in": name.startswith("Excel_BuiltIn_"),
+                "base_cell_address": _local_in(written, "base-cell-address"),
+                "cell_range_address": _local_in(written, "cell-range-address"),
+                "expression": _local_in(written, "expression"),
+                "usable_as": _local_in(written, "range-usable-as"),
+                "written": written,
+            })
+    bases = sorted(set(one["base_cell_address"] for one in named if one["base_cell_address"]))
+    usable: dict = {}
+    for one in named:
+        if one["usable_as"] is not None:
+            usable[one["usable_as"]] = usable.get(one["usable_as"], 0) + 1
+    return {
+        "family": "odf",
+        "available": True,
+        "tables_total": len(tables),
+        "with_print_ranges": sum(1 for one in tables if one["print_ranges_written"] is not None),
+        "named_total": len(named),
+        "built_in_total": sum(1 for one in named if one["built_in"]),
+        "named_by_element": {
+            "range": sum(1 for one in named if one["element"] == "table:named-range"),
+            "expression": sum(1 for one in named if one["element"] == "table:named-expression"),
+        },
+        "distinct_base_addresses": len(bases),
+        "usable_as_written": usable,
+        "tables": tables[:limit],
+        "named": named[:limit],
+    }
+
+
 def odf_style_holders(node) -> list:
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
     out: list = []
@@ -6233,6 +6376,8 @@ def facts(path: Path) -> dict:
             out["csv"] = csv_facts(path)
             out["hidden"] = xlsx_hidden(path)
             out["comments"] = xlsx_comments(path)
+            # 打印区域与重复标题行：不在表上，在 workbook.xml 那两条保留名上
+            out["ooxml"]["print_ranges"] = xlsx_print_ranges(path)
         elif "ppt/presentation.xml" in parts:
             out["app"] = "powerpoint"
             out["ooxml"] = pptx_facts(path)
@@ -6251,6 +6396,8 @@ def facts(path: Path) -> dict:
                 out["ods"] = sheets
                 # 页版式（母版页）那六格：office-sheet 的 ODS 分支也交这一份，读者同一入口
                 sheets["page_styles"] = odf_page_styles(path)
+                # 打印范围：这一族写在表自己身上，另有一份为与 Excel 来回而留的 named-*
+                sheets["print_ranges"] = ods_print_ranges(path)
                 out["csv"] = csv_facts(path)
                 out["ods_styles"] = ods_styles(path)
             deck = odp_facts(path)

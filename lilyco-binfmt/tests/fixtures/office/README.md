@@ -28,6 +28,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `fonts.odt` | LibreOffice（`fonts.docx` → .odt） | 第三种存法：表是 11 条 `style:font-face` 而**两份件各写一份一模一样的**，名字与族名是两个键（`Cambria` 与 `Cambria1` 同族只靠 `style:font-charset="x-symbol"` 分开，`name="F"` 那条族名是空串，带空格的名字写作 `'Liberation Sans'` 而 `Calibri` 不带引号）；点它的地方也分两种指针 —— 见事实 83 |
 | `deck-autofit.pptx` | python-pptx | 四个框，`a:bodyPr` 各写一种：`a:noAutofit`、`a:spAutoFit`、`a:normAutofit fontScale="75000" lnSpcReduction="20000"`，第二页那一个没人设过而 python-pptx 自己补了 `a:spAutoFit`；第一页三框 `wrap="square"`，第二页 `wrap="none"`。**内边距那四个属性一个都没写** —— `written` 里就只有 `wrap` 一个键 |
 | `deck-autofit.odp` | LibreOffice（`deck-autofit.pptx` → .odp） | 同一个问题的第三种写法：答案在框点名的 family=graphic 样式（`gr1`…`gr5`）的 `style:graphic-properties` 上，而 pptx 的 `noAutofit` 与 `spAutoFit` 两档在这里**写成一模一样的一条**（`style:shrink-to-fit="false"` 加 `draw:fit-to-size="false"`）—— 见事实 82 |
+| `print-area.xlsx` | openpyxl | 四张表，一次只改一个变量：`区域与标题` 只给打印区域、`区域加标题` 给区域 + 重复第 1 行、`两段区域` 把区域给成**两段**（一条 definedName 里逗号分隔）、`什么都没给` 只给重复**列**。五条件都写成 `_xlnm.Print_Area` / `_xlnm.Print_Titles` 两条保留名，sheet 名一律带引号 |
+| `print-area-lo.xlsx` | LibreOffice（`print-area.xlsx` → .xlsx） | 同一份的五条**一字不差地少了一层**：引号全没了（5 条带引号 → 0 条），条目顺序也换了（LO 按自己的分组重排），而 `localSheetId` 与范围串本身不变 —— 见事实 86 |
+| `print-area.ods` | LibreOffice（`print-area.xlsx` → .ods） | 同一问的第三种存法：表自己身上 `table:print-ranges`（分隔符换成空白、地址是 `表名.A1:表名.C10`），另有一份为与 Excel 来回留的 `table:named-*` 五条 —— 四样 `named-range` 而两段那一样是 `named-expression`，五样的 `base-cell-address` 全是同一个 |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
@@ -1542,6 +1545,34 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - **一条没走到的分支**（量过才敢说）：想让 docx 的页眉分成左右两半，得写制表位，而
       LibreOffice 导出 odt 时把那种分栏写成 `text:tab`，不写 `style:region-*` 元素 ——
       临时生成的对照件证实了这一点，故未入库。所以「左右两半」这一支目前只有 .ods 走得到。
+
+86. **这张表打出来是哪几行几列：一家写成两条保留名，一家写成表身上的一条属性**
+    - OOXML 根本没有「表自己说打哪几列」这个地方：`_xlnm.Print_Area` 与 `_xlnm.Print_Titles`
+      写在 `xl/workbook.xml` 的 `definedNames` 里，归属靠 `localSheetId`，而那个数数的是
+      `<sheets>` 里的**先后** —— 不是 `sheetId`（这份件是 1..4），也不是 `r:id`（openpyxl 从
+      `rId1` 起、LibreOffice 从 `rId3` 起）。三套号各自编，所以账本把「写着的号」「解出来的号」
+      「落到哪张表」分三格交：号写了却不是数、或越界，归属交 null 而原号照交 —— 那与「没写号」
+      是两份不同的文件。
+    - 一条 definedName 可以塞**好几段**（`'两段区域'!$A$1:$B$6,'两段区域'!$C$8:$C$12`），所以
+      「原句」与「摊开的几段」两个都交；ODF 的分隔符换成**空白**
+      （`两段区域.A1:两段区域.B6 两段区域.C8:两段区域.C12`），地址写法也是第三种（点号，不是 `!$`）。
+    - LibreOffice 重写同一份 xlsx：五条、两个名字、五个归属一字不差，**而 sheet 名的引号全没了**
+      （带引号的从 5 条变 0 条），条目顺序还整个重排 —— 引号是生产者的写法不是文档的说法，
+      所以两边各按各的交，`quoted_entries` 单列一本。
+    - ODF 那一族有**两处**，而且不能互相顶替：`table:print-ranges` 坐在 `table:table` 自己身上
+      （四张表里三张有），另有一份 LibreOffice 为了与 Excel 来回而写的 `table:named-range` /
+      `table:named-expression` 五条，名字一律 `Excel_BuiltIn_*`。四处量出来的要紧事：
+      1. **重复行那一半只在来回那一份里** —— `table:print-ranges` 永远不会写 `$1:.$1`，
+         只读那条属性就把「每页重复第 1 行」读丢了；
+      2. 同一个选择在一种文件里是两种元素：一段范围写 `named-range`，两段那一样写
+         `named-expression`（于是 `named_by_element` 是 4 与 1）；
+      3. 五样的 `table:base-cell-address` **全是同一个**（`$区域与标题.$A$1`，
+         `distinct_base_addresses: 1`）—— 「这是哪张表的」只在地址串里，不在这条指针上；
+      4. `table:range-usable-as` 把「重复行」与「重复列」写成同一串（`repeat-column repeat-row`），
+         所以它只按写的交，不答「重复的到底是行还是列」。
+    - 对照件：`book.xlsx` 有一条命名区域（`总额`）而**零条**保留名 → `print_entries: 0`
+      （数过了没有，不是没看），`book.ods` 的 `with_print_ranges: 0`；`.xls` 这一族整个不交这个
+      键 —— 那一族的打印开关住在 SETUP(0x00A1) 记录里，这里没有一个读者能核对它的字段位。
 
 ## 这些数字从哪来
 

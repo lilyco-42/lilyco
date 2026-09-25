@@ -225,6 +225,10 @@ def main() -> int:
         "fonts.odt": ("opendocument", "word", "odt"),
         "deck-autofit.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-autofit.odp": ("opendocument", "powerpoint", "odp"),
+        # 打印范围那三份：同一个选择在两家是两处地方
+        "print-area.xlsx": ("ooxml", "excel", "xlsx"),
+        "print-area-lo.xlsx": ("ooxml", "excel", "xlsx"),
+        "print-area.ods": ("opendocument", "excel", "ods"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -4298,6 +4302,86 @@ def main() -> int:
          dig(hfbook, "page_styles.sections_total"),
          dig(hfbook, "page_styles.available")],
         ["PageStyle_5f_说明", True, 0, "false", None, [], 0, 5, 0, True],
+    )
+
+    # ── 3w) 打印范围：一家写成两条保留名（序号归属），一家写成表自己身上的一条属性 ──
+    print("=== 3w) 打哪几行几列、每页重复哪一行：两族两处，各自交账 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.xlsx")):
+        got = lbin("office-sheet", fixture(name))
+        check("%s 打印范围那份账与读者一致（保留名、序号归属、范围原样）" % name,
+              dig(got, "print_ranges"),
+              files[name]["ooxml"]["print_ranges"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.ods")):
+        got = lbin("office-sheet", fixture(name))
+        check("%s 打印范围那份账与读者一致（表上那条属性与 Excel 来回那一份）" % name,
+              dig(got, "print_ranges"),
+              files[name]["ods"]["print_ranges"])
+    pa = lbin("office-sheet", fixture("print-area.xlsx"))
+    pa_lo = lbin("office-sheet", fixture("print-area-lo.xlsx"))
+    pa_ods = lbin("office-sheet", fixture("print-area.ods"))
+    check(
+        "OOXML 把这件事写成两条保留名，归属是 `localSheetId` —— 那个序号数的是 `<sheets>` 里的"
+        "先后，不是 `sheetId` 也不是 `r:id`（四张表 0..3 全落得地）；一条 definedName 里可以塞"
+        "两段（逗号分隔），而「只给重复列、没给区域」的那一张交 area 0 条 / titles 1 条",
+        [dig(pa, "print_ranges.sheets_total"),
+         dig(pa, "print_ranges.defined_total"),
+         dig(pa, "print_ranges.print_entries"),
+         dig(pa, "print_ranges.unresolved"),
+         dig(pa, "print_ranges.by_name"),
+         [one["name"] for one in dig(pa, "print_ranges.sheets")],
+         dig(pa, "print_ranges.sheets[2].area_ranges"),
+         dig(pa, "print_ranges.sheets[3].area_entries"),
+         dig(pa, "print_ranges.sheets[3].titles_entries")],
+        [4, 5, 5, 0, {"_xlnm.Print_Area": 3, "_xlnm.Print_Titles": 2},
+         ["区域与标题", "区域加标题", "两段区域", "什么都没给"],
+         ["'两段区域'!$A$1:$B$6", "'两段区域'!$C$8:$C$12"], 0, 1],
+    )
+    check(
+        "同一条稿子换 LibreOffice 重写：五名字、五归属、条数一字不差，而 sheet 名的引号全没了 "
+        "（5 条带引号 → 0 条）—— 引号是生产者的写法，不是文档的说法，所以两边各按各的交；"
+        "「重复的是行还是列」这一家干脆看不出来（`$1:$1` 与 `$B:$B` 同一条名）",
+        [dig(pa_lo, "print_ranges.print_entries"),
+         dig(pa_lo, "print_ranges.quoted_entries"),
+         dig(pa, "print_ranges.quoted_entries"),
+         [one["text"] for one in dig(pa_lo, "print_ranges.entries")
+          if one["name"] == "_xlnm.Print_Titles"],
+         dig(pa_lo, "print_ranges.available")],
+        [5, 0, 5,
+         ["区域加标题!$1:$1", "什么都没给!$B:$B"], True],
+    )
+    check(
+        "ODF 是两处：`table:print-ranges` 坐在表自己身上（分隔符是空白不是逗号，地址是 "
+        "`表名.A1:表名.C10` 这种点号写法），另有一份为与 Excel 来回而写的 `table:named-*` —— "
+        "五样里四样是 `named-range`、两段那一样是 `named-expression`（同一个选择在一种文件里"
+        "两种元素），而那五样的 `base-cell-address` 全是同一个（第一张表的 A1）："
+        "「这是哪张表的」只在地址串里，不在这条指针上",
+        [dig(pa_ods, "print_ranges.tables_total"),
+         dig(pa_ods, "print_ranges.with_print_ranges"),
+         dig(pa_ods, "print_ranges.tables[2].ranges"),
+         dig(pa_ods, "print_ranges.tables[3].print_ranges_written"),
+         dig(pa_ods, "print_ranges.named_total"),
+         dig(pa_ods, "print_ranges.named_by_element"),
+         dig(pa_ods, "print_ranges.distinct_base_addresses"),
+         dig(pa_ods, "print_ranges.usable_as_written")],
+        [4, 3,
+         ["两段区域.A1:两段区域.B6", "两段区域.C8:两段区域.C12"], None, 5,
+         {"range": 4, "expression": 1}, 1,
+         {"print-range": 2, "repeat-column repeat-row": 2}],
+    )
+    check(
+        "两族能对齐的只有「几张表上有打印范围」这一问（三家都是三张），而重复行那一半在 ODF 的"
+        "那条属性里根本不存在 —— 只读 `table:print-ranges` 就把「每页重复第 1 行」读丢了；"
+        "没写过这件事的件交 0，不是缺键",
+        [dig(pa, "print_ranges.sheets_total"),
+         dig(pa_ods, "print_ranges.tables_total"),
+         sum(1 for one in dig(pa, "print_ranges.sheets") if one["area_entries"] > 0),
+         dig(pa_ods, "print_ranges.with_print_ranges"),
+         any("$1" in one or ".1:" in one for one in dig(pa_ods, "print_ranges.tables[1].ranges")),
+         dig(lbin("office-sheet", fixture("book.xlsx")), "print_ranges.print_entries"),
+         dig(lbin("office-sheet", fixture("book.xlsx")), "print_ranges.defined_total"),
+         dig(lbin("office-sheet", fixture("book.ods")), "print_ranges.with_print_ranges"),
+         dig(lbin("office-sheet", fixture("book.xls")), "print_ranges")],
+        [4, 4, 3, 3, False, 0, 1, 0, None],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
