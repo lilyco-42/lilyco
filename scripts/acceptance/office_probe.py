@@ -279,9 +279,14 @@ def main() -> int:
         "lang-lo.docx": ("ooxml", "word", "docx"),
         "lang.odt": ("opendocument", "word", "odt"),
         # 形状清单那三份：一页一个散框加一个三件的组合，另一页什么都没有
-        "deck-gr.pptx": ("ooxml", "slideshow", "pptx"),
-        "deck-gr-lo.pptx": ("ooxml", "slideshow", "pptx"),
-        "deck-gr.odp": ("opendocument", "slideshow", "odp"),
+        "deck-gr.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-gr-lo.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-gr.odp": ("opendocument", "powerpoint", "odp"),
+        "crep.docx": ("ooxml", "word", "docx"),
+        "crep-lo.docx": ("ooxml", "word", "docx"),
+        "crep-r.docx": ("ooxml", "word", "docx"),
+        "crep.odt": ("opendocument", "word", "odt"),
+        "crep-r.odt": ("opendocument", "word", "odt"),
         # 注的编号那三份：同一句话在两处说，两处说的不一样
         "nset.docx": ("ooxml", "word", "docx"),
         "nset-lo.docx": ("ooxml", "word", "docx"),
@@ -5774,6 +5779,107 @@ def main() -> int:
          dig(lbin("office-slide", fixture("deck.pptx")), "slides[0].shape_tree.placeholders"),
          dig(lbin("office-slide", fixture("deck.ppt")), "slides[0].shape_tree")],
         [4, 1, 0, 1, 2, None],
+    )
+    # ── 3ap) 批注的回复与「已解决」：值在另外两份部件里，靠段号连，两跳各数断口 ──────
+    print("=== 3ap) 批注的回复与已解决：一问四份数据、两跳，没写与写了 0 是两件事 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 回复/已解决那份账与读者一致（三份部件连两跳）" % name,
+              dig(got, "structure.comment_threads"),
+              files[name]["ooxml"]["comment_threads"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 已解决那一份账与读者一致（注自己身上，两份件都走）" % name,
+              dig(got, "structure.comment_threads"),
+              files[name]["odt"]["comment_threads"])
+    cr = lbin("office-doc", fixture("crep.docx"))
+    check(
+        "`crep.docx` 把三种情形写全：2 条批注各有段号，`commentsExtended.xml` 三条里"
+        "（`ext_total` 3）**只连上 2 条**（`ext_orphans` 1）、`commentsIds.xml` 同理 3 条里 1 条孤儿；"
+        "已解决 1 条、明确写「没解决」1 条、回复 1 条且指得回第 0 条 —— "
+        "「几条批注」与「几条线连上了」不是一件事",
+        [dig(cr, "structure.comment_threads.comments_total"),
+         dig(cr, "structure.comment_threads.paras_with_para_id"),
+         dig(cr, "structure.comment_threads.ext_total"),
+         dig(cr, "structure.comment_threads.ext_matched"),
+         dig(cr, "structure.comment_threads.ext_orphans"),
+         dig(cr, "structure.comment_threads.ids_total"),
+         dig(cr, "structure.comment_threads.ids_orphans"),
+         dig(cr, "structure.comment_threads.done_true"),
+         dig(cr, "structure.comment_threads.done_false"),
+         dig(cr, "structure.comment_threads.replies_total"),
+         dig(cr, "structure.comment_threads.replies_dangling"),
+         dig(cr, "structure.comment_threads.threads[1].replies_to"),
+         dig(cr, "structure.comment_threads.threads[0].durable_id")],
+        [2, 2, 3, 2, 1, 3, 1, 1, 1, 1, 0, 0, "1000"],
+    )
+    check(
+        "同一份走 LibreOffice 的 docx→odt：**回复整条没有对应物**，而「已解决」换了地方也换了词 —— "
+        "`loext:resolved` 两条都写 `false`，源件里那条 `done=\"1\"` **没落过来**"
+        "（`resolved_true` 0）—— 生产者在导入时不看那一格，是这份件的事实",
+        [dig(lbin("office-doc", fixture("crep.odt")),
+           "structure.comment_threads.annotations_total"),
+         dig(lbin("office-doc", fixture("crep.odt")),
+            "structure.comment_threads.with_resolved_written"),
+         dig(lbin("office-doc", fixture("crep.odt")), "structure.comment_threads.resolved_true"),
+         dig(lbin("office-doc", fixture("crep.odt")), "structure.comment_threads.resolved_false"),
+         dig(lbin("office-doc", fixture("crep.odt")),
+            "structure.comment_threads.annotations[0].name_written") is not None,
+         dig(lbin("office-doc", fixture("crep.odt")), "structure.comment_threads.parts_seen")],
+        [2, 2, 0, 2, True, ["content.xml"]],
+    )
+    check(
+        "反向证明这套词汇不是我编的：把 odt 那两格改成 `true`/`false` 再让 LibreOffice 导成 docx，"
+        "它**自己写出** `word/commentsExtended.xml` —— 2 条批注里只给已解决那条写记录"
+        "（`ext_total` 1、`done_true` 1），另一条是 `ex_found: false` 而**不是** `done_written: \"0\"`；"
+        "段号也是它新排的（`01000000`），而 `commentsIds.xml` 整个不写",
+        [dig(lbin("office-doc", fixture("crep-r.docx")), "structure.comment_threads.ext_total"),
+         dig(lbin("office-doc", fixture("crep-r.docx")),
+            "structure.comment_threads.ext_orphans"),
+         dig(lbin("office-doc", fixture("crep-r.docx")),
+            "structure.comment_threads.done_written_total"),
+         dig(lbin("office-doc", fixture("crep-r.docx")), "structure.comment_threads.done_true"),
+         dig(lbin("office-doc", fixture("crep-r.docx")), "structure.comment_threads.done_false"),
+         dig(lbin("office-doc", fixture("crep-r.docx")),
+            "structure.comment_threads.threads[1].ex_found"),
+         dig(lbin("office-doc", fixture("crep-r.docx")),
+            "structure.comment_threads.threads[1].done_written"),
+         dig(lbin("office-doc", fixture("crep-r.docx")),
+            "structure.comment_threads.threads[0].para_id"),
+         dig(lbin("office-doc", fixture("crep-r.docx")),
+            "structure.comment_threads.ids_part_written")],
+        [1, 0, 1, 1, 0, False, None, "01000000", False],
+    )
+    check(
+        "同一份件在 LibreOffice 手里走 docx→docx：两份部件**整个不见**，连批注体内那个 "
+        "`w14:paraId` 也没了（`paras_with_para_id` 从 2 掉到 0）—— 于是回复与已解决两头都读不出来，"
+        "交一串 0 与 `null` 而不是缺键；而 python-docx 那份（`comments.docx`）本来就是这个形状："
+        "**有批注而这一格一个字都没写**",
+        [dig(lbin("office-doc", fixture("crep-lo.docx")),
+             "structure.comment_threads.comments_total"),
+         dig(lbin("office-doc", fixture("crep-lo.docx")),
+             "structure.comment_threads.paras_with_para_id"),
+         dig(lbin("office-doc", fixture("crep-lo.docx")), "structure.comment_threads.ext_total"),
+         dig(lbin("office-doc", fixture("crep-lo.docx")),
+             "structure.comment_threads.ext_part_written"),
+         dig(lbin("office-doc", fixture("crep-lo.docx")),
+             "structure.comment_threads.threads[0].done"),
+         dig(lbin("office-doc", fixture("comments.docx")),
+             "structure.comment_threads.comments_total"),
+         dig(lbin("office-doc", fixture("comments.docx")), "structure.comment_threads.ids_total")],
+        [2, 0, 0, False, None, 2, 0],
+    )
+    check(
+        "一份 odt 里两种答案并存（`crep-r.odt` 是我把第一格改成 `true` 的那份）："
+        "`resolved_true` 1 而 `resolved_false` 1 —— 「这份文档的批注解决了几条」在 ODF 这一族"
+        "数得出来；而回复那一问这一族没有位置，账上就不交那几格（不是 0）",
+        [dig(lbin("office-doc", fixture("crep-r.odt")), "structure.comment_threads.resolved_true"),
+         dig(lbin("office-doc", fixture("crep-r.odt")), "structure.comment_threads.resolved_false"),
+         dig(lbin("office-doc", fixture("crep-r.odt")),
+             "structure.comment_threads.without_resolved"),
+         dig(lbin("office-doc", fixture("crep-r.odt")),
+            "structure.comment_threads.annotations[1].resolved")],
+        [1, 1, 0, False],
     )
     # ── 3al) 这一节的页码：OOXML 一节一条三个属性，ODF 一页版式一条，跨族各丢一次 ────
     print("=== 3al) 页码：元素在场、三个属性各写各的，而「从 7 开始」两头都不是同一种丢法 ===")
