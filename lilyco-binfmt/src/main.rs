@@ -72,6 +72,7 @@ mod read;
 mod regions;
 mod revise;
 mod rtf;
+mod section_starts;
 mod shape_tree;
 mod symbols;
 mod tab_stops;

@@ -1385,6 +1385,52 @@ def odf_tab_stops(path: Path, limit: int = 100) -> dict:
     }
 
 
+def docx_section_starts(path: Path, limit: int = 100) -> dict:
+    r"""「这一节是从哪儿开始的」：`w:sectPr/w:type` 在不在、写了哪个值
+
+    实测两份件：python-docx 那份把第一节设成「另起一页」之后**根本没有写 `w:type`**
+    （那是 Word 的默认值），而 LibreOffice 重写同一份时把它写成 `<w:type w:val="nextPage"/>` ——
+    「没说」与「说了默认」是两件事，所以 `element_present` 与 `type_written` 分两格交。
+    `continuous` / `evenPage` 两个值往返一字未变：这一族生产者改的是「说没说」，不是说什么。
+    """
+    rows = []
+    types = []
+    with zipfile.ZipFile(path) as box:
+        if "word/document.xml" not in box.namelist():
+            return {"available": False}
+        root = ET.fromstring(box.read("word/document.xml"))
+    for index, sect in enumerate([one for one in root.iter() if xml_local(one.tag) == "sectPr"]):
+        holders = [one for one in sect.iter() if xml_local(one.tag) == "type"]
+        holders = [one for one in holders if one is not sect]
+        if not holders:
+            rows.append({
+                "section": index,
+                "element_present": False,
+                "type_written": None,
+                "written": {},
+            })
+            continue
+        attrs = _written_attrs(holders[0], {})
+        value = _local_in(attrs, "val")
+        if value is not None and value not in types:
+            types.append(value)
+        rows.append({
+            "section": index,
+            "element_present": True,
+            "type_written": value,
+            "written": attrs,
+        })
+    return {
+        "family": "ooxml",
+        "available": True,
+        "sections_total": len(rows),
+        "with_element": len([one for one in rows if one["element_present"]]),
+        "type_missing": len([one for one in rows if one["type_written"] is None]),
+        "distinct_types": types,
+        "sections": rows[:limit],
+    }
+
+
 def docx_comment_ledger(path: Path, limit: int = 100) -> dict:
     r"""批注那一份账（OOXML）：内容在 `word/comments.xml`，锚点在正文里，两边按 `w:id` 配
 
@@ -8802,6 +8848,7 @@ def facts(path: Path) -> dict:
             # 批注那一份账：内容在部件、锚点在正文，两边按号配
             out["ooxml"]["comment_ledger"] = docx_comment_ledger(path)
             out["ooxml"]["comment_threads"] = docx_comment_threads(path)
+            out["ooxml"]["section_starts"] = docx_section_starts(path)
             # 分页那四个开关（段上；ODF 一跳在样式里）
             out["ooxml"]["keep_switches"] = docx_keep_switches(path)
             # 这张表套的是哪个样式：样式 id 与那枚 look 分开交

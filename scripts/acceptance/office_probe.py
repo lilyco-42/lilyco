@@ -290,6 +290,8 @@ def main() -> int:
         "shared.xlsx": ("ooxml", "excel", "xlsx"),
         "shared-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "shared.ods": ("opendocument", "excel", "ods"),
+        "sstart.docx": ("ooxml", "word", "docx"),
+        "sstart-lo.docx": ("ooxml", "word", "docx"),
         # 注的编号那三份：同一句话在两处说，两处说的不一样
         "nset.docx": ("ooxml", "word", "docx"),
         "nset-lo.docx": ("ooxml", "word", "docx"),
@@ -5943,6 +5945,66 @@ def main() -> int:
          dig(lbin("office-doc", fixture("crep-r.odt")),
             "structure.comment_threads.annotations[1].resolved")],
         [1, 1, 0, False],
+    )
+    # ── 3as) 这一节从哪儿开始：默认值「另起一页」可以根本不写在文件里 ──────────────
+    print("=== 3as) 分节起始类型：没说、说了默认、说了奇偶，是三种不同的文件 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 分节起始那份账与读者一致（元素在不在、写了哪个值）" % name,
+              dig(got, "structure.section_starts"),
+              files[name]["ooxml"]["section_starts"])
+    ss = lbin("office-doc", fixture("sstart.docx"))
+    check(
+        "`sstart.docx` 三节：第一节把「另起一页」**设了却等于没说** —— 那是 Word 的默认值，"
+        "python-docx 因此一个 `w:type` 都不写（`element_present` false、`type_written` null、"
+        "`written` 空表），第二节 `continuous`、第三节 `evenPage` 才是写出来的；"
+        "`with_element` 2 而 `sections_total` 3、`type_missing` 1",
+        [dig(ss, "structure.section_starts.sections_total"),
+         dig(ss, "structure.section_starts.with_element"),
+         dig(ss, "structure.section_starts.type_missing"),
+         dig(ss, "structure.section_starts.distinct_types"),
+         dig(ss, "structure.section_starts.sections[0].element_present"),
+         dig(ss, "structure.section_starts.sections[0].type_written"),
+         dig(ss, "structure.section_starts.sections[0].written"),
+         dig(ss, "structure.section_starts.sections[1].written"),
+         dig(ss, "structure.section_starts.sections[2].type_written")],
+        [3, 2, 1, ["continuous", "evenPage"], False, None, {},
+         {"val": "continuous"}, "evenPage"],
+    )
+    check(
+        "LibreOffice 重写同一份（`sstart-lo.docx`）：**第一节那一句被写出来了** —— "
+        "`<w:type w:val=\"nextPage\"/>`，于是 `with_element` 从 2 变 3、`type_missing` 从 1 变 0、"
+        "`distinct_types` 多出一个 nextPage；而 continuous 与 evenPage 两个值一字未变 —— "
+        "这一族生产者改的是「说没说」，不是「说了什么」",
+        [dig(lbin("office-doc", fixture("sstart-lo.docx")),
+             "structure.section_starts.with_element"),
+         dig(lbin("office-doc", fixture("sstart-lo.docx")),
+            "structure.section_starts.type_missing"),
+         dig(lbin("office-doc", fixture("sstart-lo.docx")),
+            "structure.section_starts.distinct_types"),
+         dig(lbin("office-doc", fixture("sstart-lo.docx")),
+             "structure.section_starts.sections[0].element_present"),
+         dig(lbin("office-doc", fixture("sstart-lo.docx")),
+             "structure.section_starts.sections[0].written")],
+        [3, 0, ["nextPage", "continuous", "evenPage"], True, {"val": "nextPage"}],
+    )
+    check(
+        "反面凭据：`restart.docx`（写过页码起点的那一份）与 `notes.docx` 都只有一节而**一个 "
+        "`w:type` 都没写** —— `sections_total` 1、`with_element` 0、`distinct_types` 空表，"
+        "「这份文档分了几节」与「它说清每节怎么起头」是两问；"
+        "ODF 那一族**不交这个键**（缺键 = 这一族没看）：LibreOffice 把「连续」转成一枚 "
+        "`text:section`，而另起一页 / 偶数页那两节在 odt 里连一处写着起始类型的地方都没有，"
+        "分页换成段落属性上的 `style:master-page-name` 承担 —— 一句问话被拆两处还有一半没落纸，"
+        "所以不硬凑一个键（页版式与母版页另在 `page_numbering` / `header_footers` 记账）",
+        [dig(lbin("office-doc", fixture("restart.docx")),
+             "structure.section_starts.sections_total"),
+         dig(lbin("office-doc", fixture("restart.docx")),
+             "structure.section_starts.with_element"),
+         dig(lbin("office-doc", fixture("restart.docx")),
+             "structure.section_starts.distinct_types"),
+         dig(lbin("office-doc", fixture("restart.odt")), "structure.section_starts"),
+         dig(lbin("office-doc", fixture("tabs.rtf")), "structure.section_starts")],
+        [1, 0, [], None, None],
     )
     # ── 3aq) 公式那枚 <f> 自己写了什么：共享组的跟随格在文件里没有公式正文 ──────────
     print("=== 3aq) 公式元素自己：共享组、空正文带缓存值、两个生产者三种写法 ===")

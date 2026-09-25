@@ -89,6 +89,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `shared.xlsx` | openpyxl 先写 16 条公式，再用 zipfile 把 B 列改写成一份共享组（`make_shared_formula_group`）—— 本机没有会写共享组的生产者 | 一列八格**一个**组：主格 `<f t="shared" ref="B1:B8" si="0">A1*2</f>`，跟随的七格只写 `<f t="shared" si="0"/>` —— **文件里没有公式正文**，另有 C 列八条普通公式做对照；16 枚 `<f>` 全都带一枚空的 `<v>`（openpyxl 没算过）—— 见事实 106 |
 | `shared-lo.xlsx` | LibreOffice（`shared.xlsx` → .xlsx） | **不用共享组**：16 枚 `<f>` 各写自己的正文（`shared_elems` 0、空正文 0），而它给每一枚都写了 `aca="false"`（openpyxl 那份一个属性都不写）—— 读进去再导出，共享这一层被它摊平 |
 | `shared.ods` | LibreOffice（`shared.xlsx` → .ods） | 第三种写法：公式是格子身上的 `table:formula` 属性，16 条全带正文，且**逐行平移**（`of:=[.A2]*2`、`of:=[.A3]*2`…）—— 这正是第三方对「跟随格其实是 A2*2」的独立印证 |
+| `sstart.docx` | python-docx（`write_section_starts_docx`，节的起始类型没有公开属性，走 `OxmlElement`） | 三节各写一个变量：第一节「另起一页」**一个字都不写**（那是 Word 的默认，所以 `w:type` 整个不在）、第二节 `continuous`、第三节 `evenPage` —— 3 节里只有 2 节写了元素（`with_element` 2、`type_missing` 1）|
+| `sstart-lo.docx` | LibreOffice（`sstart.docx` → .docx） | 同一份重写后 3 节**全写了**：第一节被补出一枚 `<w:type w:val="nextPage"/>`（`with_element` 2 → 3），另两节的值一字未变 —— 「没说」与「说了默认」在两副件里是两个答案，见事实 108 |
 | `deck.odp`（结构） | 同上 | 两页：`draw:name` 是「预算评审」与「第二页：数字」；第一页有 `presentation:class="notes"` 的备注（「评审时先讲口径再讲数字」），**旁边还坐着页码占位，里面的样字是 `<编号>`** —— 整页一把抓就会把它当正文；两个母版页名、两个版式名，但文件里没有任何版式定义；尺寸 25.4cm×19.05cm landscape 在 styles.xml 的 page-layout 里 |
 | `notes.odt`（结构） | 同上 | 10 段（2 段是空的）、两个带 `text:outline-level` 的标题、1 张 2×2 表（名叫「表格1」）、一条 `text:annotation` 批注、一个 `draw:frame`+`draw:image`、一个 `text:a` 超链接、5 个 `text:sequence-decl`；`meta.xml` 自报 paragraph-count 10 / page-count 2 / word-count 61 |
 | `chart.ods` | LibreOffice（`chart.xlsx` → .ods） | ODF 的图是**嵌入对象**：`数据` 那张表里两个 `draw:frame` 各指一个 `Object N/` 目录，那里面的 content.xml 才写着 `chart:chart`；类型只在每条 `chart:series` 上（`chart:bar` / `chart:line`），点数另有一条 `chart:data-point@chart:repeated` 自报「这一条顶两个点」，地址是第三种写法（`数据.B2:数据.B3`：点分隔、不带 `$`），末尾还抄了一张 `local-table`（10 / 25 / 4 / 9） |
@@ -1961,6 +1963,30 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       没有凭据就不写那一跳（`pdf.rs` 里 CID 的 `/W` 宽度同样是早就划出去的界）。
       所以对 CID 件这一本会报 `descriptor: null`，那是「这一层没写」，
       **不是**「这份文件没嵌字体」—— 这一句写进 `font_embedding_of` 的注释里，免得下一轮误读。
+
+108. **这一节是从哪儿开始的：「另起一页」在一份件里根本没写，而重写那一份替它写了**
+    - 形状：一节一条 `{section, element_present, type_written, written}`，外加
+      `sections_total` / `with_element` / `type_missing` / `distinct_types`。值就写在
+      `w:sectPr/w:type/@w:val` 上，那一枚元素的属性表整份交在 `written` 里（键名按写的交），
+      不折成布尔、不归一化。
+    - 正例是 `sstart.docx`（python-docx 写三节：另起一页 / 连续 / 偶数页）：3 节里只有 **2 节**
+      写了 `w:type`（`with_element` 2、`type_missing` 1），因为 `nextPage` 正是 Word 的默认，
+      生产者一个字都不写；`distinct_types` 于是只剩 `["continuous","evenPage"]` ——
+      不是「第二节是 continuous」这一句少了，而是第一节那句话**从未落在纸上**。
+    - LibreOffice 重写同一份（`sstart-lo.docx`）：3 节全写，第一节多出一枚
+      `<w:type w:val="nextPage"/>`，另两节的值一字未变（`with_element` 2 → 3）。
+      所以「这一节另起一页」在源件里是「没说」、在重写件里是「说了」—— 两份各交各的，
+      既不拿规范的默认替前者补上，也不因后者多写就改前者的账。
+    - 反面凭据是 `restart.docx` / `notes.docx`：`sections_total` 1、`with_element` 0、
+      `distinct_types` 空。单节文档多半什么都不写，这一本对它们交的就是「这一层什么都没说」，
+      而 `0` 是数过了没有（与「这一族整个没看」的缺键是两件事）。
+    - ODF 那一族**不交这个键**（缺键 = 这一族没看，不是 0），理由是量过的：LibreOffice 把
+      `sstart.docx` 转成 odt 之后，全文只有**一枚** `text:section`（`text:name="TextSection"`，
+      就是「连续」那一节），另两节既没有 `text:section` 也没有任何写着起始类型的地方，
+      分页改由段落属性点母版页承担（`style:master-page-name="Converted2"`，而 styles.xml 里
+      确实排着 `Standard` / `Converted1` / `Converted2` 三份）—— 同一句问话在这族里拆成两处、
+      还有一半没落纸，所以不硬凑一个键；页版式与母版页那两处的账另在 `page_numbering`
+      与 `header_footers` 里。
 
 ## 这些数字从哪来
 

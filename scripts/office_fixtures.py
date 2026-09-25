@@ -3147,6 +3147,41 @@ def make_shared_formula_group(src: Path, target: Path) -> None:
             box.writestr(name, blob)
 
 
+def write_section_starts_docx(path: Path) -> None:
+    """三节各写一个变量：第一节「另起一页」**一个字都不写**，第二节 `continuous`，第三节 `evenPage`
+
+    存在的理由：`nextPage` 正是 Word 的默认，python-docx 的 `add_section(WD_SECTION.NEW_PAGE)`
+    会把它显式写出来，所以这里显式**删掉**那一枚 `w:type` —— 删掉之后才是本机 Word 作者
+    真实的那副样子（三节里只有两节写了起始类型）。LibreOffice 的 docx → docx 重写会把第一
+    节那一句**补出来**（`sstart-lo.docx` 三节全写），而 docx → odt 那一转把「连续」变成
+    一枚 `text:section`、另两节既没有 `text:section` 也没有任何写着起始类型的地方
+    （分页改由段落属性点母版页承担）—— 所以 ODF 那一族不交这本账。
+    """
+    from docx import Document
+    from docx.enum.section import WD_SECTION
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    doc.add_paragraph("第一节：正文")
+    doc.add_section(WD_SECTION.NEW_PAGE)
+    doc.add_paragraph("第二节：连续")
+    doc.add_section(WD_SECTION.CONTINUOUS)
+    doc.add_paragraph("第三节：偶数页")
+    first, second, third = doc.sections
+    for sect, word in ((first, None), (second, "continuous"), (third, "evenPage")):
+        old = sect._sectPr.find(qn("w:type"))
+        if old is not None:
+            sect._sectPr.remove(old)
+        if word is None:
+            continue
+        el = OxmlElement("w:type")
+        el.set(qn("w:val"), word)
+        sect._sectPr.insert(0, el)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(path)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="重跑前先清掉输出目录")
@@ -3692,6 +3727,16 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "shared-asods" / "shared.ods", OUT / "shared.ods")
     else:
         print("⚠️  没拿到 shared.ods（xlsx → ods 那一转）")
+
+    # ── 这一节从哪儿开始：三节各一个变量，外加 LibreOffice 重写那一份 ─────
+    sstart = OUT / "sstart.docx"
+    write_section_starts_docx(sstart)
+    convert(exe, sstart, "docx", SCRATCH / "sstart-back")
+    if (SCRATCH / "sstart-back" / "sstart.docx").exists():
+        shutil.copyfile(SCRATCH / "sstart-back" / "sstart.docx", OUT / "sstart-lo.docx")
+    else:
+        print("⚠️  没拿到 sstart-lo.docx（docx → docx 那一转）")
+
     # ── 批注的回复与已解决：三份部件两跳，五份件一条链 ─────────────────
     crep = SCRATCH / "crep-src" / "crep.docx"
     add_comment_thread_parts(OUT / "comments.docx", crep)
