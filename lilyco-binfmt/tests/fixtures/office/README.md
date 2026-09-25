@@ -23,6 +23,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `deck-hidden-lo.pptx` | LibreOffice（从 `deck-hidden.odp` 回转） | 同一句话过了一遍 ODF 再回来，`show="0"` 一字不动 —— 隐藏不是会被重写吃掉的那种信息 |
 | `deck-hidden.odp` | LibreOffice（从 `deck-hidden.pptx` 导出） | ODF 的第三种摆法：页上只有 `draw:style-name="dp1"` / `"dp3"`，那句 `presentation:visibility="hidden"` 在 dp3 那份 drawing-page 样式里；**同一份文件里 dp2 也写着 hidden 而没有任何页点它的名** —— 只 grep 全文就数错 |
 | `deck-tables.odp` | LibreOffice（上面那一转的中间件） | 同一张表的第三种写法：列宽换成 `7.62cm` 与 `5.08cm`、行高换成 `1.693cm` 与 `2.54cm`，而合并改成**另写一格** `table:covered-table-cell`（既不是 docx 的不写、也不是 pptx 的 `hMerge`） |
+| `fonts.docx` | python-docx | 字体那份账要的四种点法各一段：点表里有的（Courier，`w:rFonts` 一次写 `ascii` 与 `hAnsi` 两遍）、点表里**没有**的（Courier New）、只点主题那一路（`asciiTheme`/`hAnsiTheme` 而没有 `ascii`）、只点东亚那一路（`eastAsia="ＭＳ 明朝"`），最后一段一个字都不点。`word/fontTable.xml` 是模板那八条，**一个字体名都没嵌进包** |
+| `fonts-lo.docx` | LibreOffice（`fonts.docx` → .odt → .docx） | 重写那份的三件事：主题那一跳被**就地解开**（同一条既写 `ascii="Cambria"` 又留 `asciiTheme="minorHAnsi"`）、字体表补上 Courier New 而把两个日文字体从表里去掉（于是「点了没声明」从 1 个名变成 4 个）、styles.xml 里 26 条 `cs=""`（写了空话），另有一个正文里的东亚点法整个不见了 |
+| `fonts.odt` | LibreOffice（`fonts.docx` → .odt） | 第三种存法：表是 11 条 `style:font-face` 而**两份件各写一份一模一样的**，名字与族名是两个键（`Cambria` 与 `Cambria1` 同族只靠 `style:font-charset="x-symbol"` 分开，`name="F"` 那条族名是空串，带空格的名字写作 `'Liberation Sans'` 而 `Calibri` 不带引号）；点它的地方也分两种指针 —— 见事实 83 |
 | `deck-autofit.pptx` | python-pptx | 四个框，`a:bodyPr` 各写一种：`a:noAutofit`、`a:spAutoFit`、`a:normAutofit fontScale="75000" lnSpcReduction="20000"`，第二页那一个没人设过而 python-pptx 自己补了 `a:spAutoFit`；第一页三框 `wrap="square"`，第二页 `wrap="none"`。**内边距那四个属性一个都没写** —— `written` 里就只有 `wrap` 一个键 |
 | `deck-autofit.odp` | LibreOffice（`deck-autofit.pptx` → .odp） | 同一个问题的第三种写法：答案在框点名的 family=graphic 样式（`gr1`…`gr5`）的 `style:graphic-properties` 上，而 pptx 的 `noAutofit` 与 `spAutoFit` 两档在这里**写成一模一样的一条**（`style:shrink-to-fit="false"` 加 `draw:fit-to-size="false"`）—— 见事实 82 |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
@@ -1461,6 +1464,36 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       `draw:frame` 另数在 `frames`（实测每页 1 个）。框自己的位置尺寸 pptx 交 EMU 加换成
       0.01mm 的那一份（`457200` → `1270`），odp 交自带单位的原样串（`1.27cm`），
       谁都不换算成对方的单位。
+
+83. **这份文档要点哪些字体：一张表、四处点法、主题那一跳，而 ODF 的两种指针不能并成一数**
+    - OOXML 的三样东西在三处：声明在 `word/fontTable.xml`（实测 python-docx 那份就是模板的八条，
+      每条只写一个 `w:name`），点在每一格 `w:rFonts` 上，而**同一个选择按书写系统写成四个属性**
+      （`ascii` / `hAnsi` / `eastAsia` / `cs`）—— python-docx 的 `font.name` 一次写 `ascii` 与
+      `hAnsi` 两遍，所以「几条属性点了名字」（`pointed_by_value`）与「几格说过话」
+      （`pointer_elements`，实测 fonts.docx 是 78：正文 4 + styles.xml 74）是两个数。
+      还有一条路不指字面名而指**主题**：`asciiTheme="minorHAnsi"`，要再跳一跳，到
+      `word/theme/theme1.xml` 的 `minorFont/latin@typeface` 才落到 `Cambria`。
+    - 第四个属性的拼法与前三个不一致：`asciiTheme` / `hAnsiTheme` / `eastAsiaTheme` 而 **`cstheme`**
+      （小写 th）—— 名字是文件写的，不改拼法也不替它统一。
+    - **LibreOffice 的 docx 重写在这里最看得出不无损**（`fonts-lo.docx`）：主题那一跳被**就地解开**，
+      同一条 `w:rFonts` 既写 `ascii="Cambria"` 又留着 `asciiTheme="minorHAnsi"`（两句话都在，交两份）；
+      字体表补进了 `Courier New` 而把两个日文字体从表里**去掉**，于是「点了而表里没有」从 1 个名
+      变成 4 个名；`styles.xml` 里 26 条 `cs=""` —— 「写了空话」与「没写这个属性」分两个键；
+      而我写在正文那一段的 `eastAsia` 点法整个不见了（正文 `w:rFonts` 从 4 条变 3 条）。
+    - ODF 换了两张键：`style:font-face` 声明的是 `style:name`（**表的名字**）与
+      `svg:font-family`（**真正的族名**），实测同一张表里两种写法并存 —— `Calibri` 的族名不带引号，
+      `Liberation Sans` 的族名写作 `'Liberation Sans'`（多一层单引号）；`Cambria` 与 `Cambria1`
+      指着**同一个族名**，只靠 `style:font-charset="x-symbol"` 分开；另有一条 `name="F"` 的
+      族名是空串。点它的地方也分**两种指针**：`style:font-name` 对表的名字，
+      `style:font-family` 对族名 —— 于是 fonts.odt 上「按名字比全落得地」（`undeclared_names: []`）
+      而「按族名比有一条没出现」（`undeclared_families: ["'Courier New'"]`）：
+      并成一个数就是把两件不同的事说成一件。
+    - 这张表在 content.xml 与 styles.xml 各写一份**一模一样的 11 条**（`faces_duplicated: 11`）——
+      两份都走、同名先到的一条算数，与格子样式、列表样式那几条同一条规矩。
+    - **没有一个生产者嵌过字体**：`embedded_refs` 交 0（数过了没有），`word/fonts/` 另数一本；
+      `w:embedRegular` 那条分支与 ODF 的 `embed="font-file:…"` 都还没有真件可走。
+      RTF 不交这个键 —— 那一族的字体在 `{\fonttbl…}` 里，账已经记在 `font_list` 与
+      `font_definitions` 那两本上（见事实 41 一类）。
 
 ## 这些数字从哪来
 

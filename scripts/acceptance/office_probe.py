@@ -4137,6 +4137,94 @@ def main() -> int:
          {"x": "1.27cm", "y": "2.54cm", "width": "6.349cm", "height": "2.539cm"}, 3, 3],
     )
 
+    # ── 3t) 这份文档要点哪些字体：一张表、四种指针、主题那一跳 ──────────────────
+    print("=== 3t) 字体：表在 fontTable / style:font-face，点它的地方两家四处 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 字体那份整账与读者一致（表、每一格 rFonts、主题那一跳、嵌入两本）" % name,
+              dig(got, "structure.fonts"), files[name]["ooxml"]["fonts"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 字体那份整账与读者一致（face 表两种指针各数一遍，两份件都走）" % name,
+              dig(got, "structure.fonts"), files[name]["odt"]["fonts"])
+    fnt = lbin("office-doc", fixture("fonts.docx"))
+    fntlo = lbin("office-doc", fixture("fonts-lo.docx"))
+    fntodt = lbin("office-doc", fixture("fonts.odt"))
+    check(
+        "python-docx 一次把同一个选择写两遍（ascii 与 hAnsi）：那一框字是一格 rFonts、两条指针",
+        [dig(fnt, "structure.fonts.declared_total"),
+         dig(fnt, "structure.fonts.rows[0].written"),
+         dig(fnt, "structure.fonts.rows[0].points"),
+         dig(fnt, "structure.fonts.pointer_elements"),
+         dig(fnt, "structure.fonts.rows[3].points")],
+        [8, {"ascii": "Courier", "hAnsi": "Courier"},
+         [{"attr": "ascii", "value": "Courier", "declared": True},
+          {"attr": "hAnsi", "value": "Courier", "declared": True}],
+         78, [{"attr": "eastAsia", "value": "ＭＳ 明朝", "declared": True}]],
+    )
+    check(
+        "点了而表里没有 —— 这一问的答案是一个名：Courier New（东亚那一路点的名字在表里）",
+        [dig(fnt, "structure.fonts.undeclared"),
+         dig(fnt, "structure.fonts.undeclared_total"),
+         dig(fnt, "structure.fonts.declared_unused_total"),
+         dig(fnt, "structure.fonts.embedded_refs"),
+         dig(fnt, "structure.fonts.embedded_parts")],
+        [["Courier New"], 1, 6, 0, []],
+    )
+    check(
+        "主题那一路不是字面名：minorHAnsi 要到 theme1.xml 的 minorFont/latin 才落到 Cambria，"
+        "而 cstheme 那个拼法与另外三个不一致（按写的交）",
+        [dig(fnt, "structure.fonts.rows[2].themes[0].value"),
+         dig(fnt, "structure.fonts.rows[2].themes[0].slot"),
+         dig(fnt, "structure.fonts.rows[2].themes[0].which"),
+         dig(fnt, "structure.fonts.rows[2].themes[0].typeface"),
+         dig(fnt, "structure.fonts.theme_refs"), dig(fnt, "structure.fonts.theme_resolved"),
+         dig(fntlo, "structure.fonts.rows[4].themes[1].attr"),
+         dig(fntlo, "structure.fonts.rows[4].themes[1].which"),
+         dig(fntlo, "structure.fonts.rows[4].themes[1].typeface")],
+        ["minorHAnsi", "minorFont", "latin", "Cambria", 290, 290,
+         "cstheme", "cs", ""],
+    )
+    check(
+        "LibreOffice 重写那份把主题就地解开了（同一条既写 ascii=Cambria 又留 asciiTheme），"
+        "还把表里没的名字写进正文，另附 26 条 `cs=\"\"` —— 「写了空话」与「没写」分两笔",
+        [dig(fntlo, "structure.fonts.rows[2].written"),
+         dig(fntlo, "structure.fonts.empty_written"),
+         dig(fntlo, "structure.fonts.undeclared"),
+         dig(fntlo, "structure.fonts.declared_total"),
+         dig(fntlo, "structure.fonts.pointer_elements")],
+        [{"ascii": "Cambria", "hAnsi": "Cambria",
+          "asciiTheme": "minorHAnsi", "hAnsiTheme": "minorHAnsi"},
+         26, ["Lucida Sans", "Noto Sans SC", "ＭＳ ゴシック", "ＭＳ 明朝"], 9, 81],
+    )
+    check(
+        "ODF 这一族的两种指针不能并成一数：按 style:font-name 全落到了表里，"
+        "而按 style:font-family 有 `'Courier New'` 那一条根本没出现在族名里",
+        [dig(fntodt, "structure.fonts.faces_total"),
+         dig(fntodt, "structure.fonts.faces_duplicated"),
+         dig(fntodt, "structure.fonts.families_quoted"),
+         dig(fntodt, "structure.fonts.faces_with_charset"),
+         dig(fntodt, "structure.fonts.undeclared_names"),
+         dig(fntodt, "structure.fonts.undeclared_families"),
+         dig(fntodt, "structure.fonts.by_font_name").get("(没写)"),
+         dig(fntodt, "structure.fonts.rows[1].written")],
+        [11, 11, 6, 1, [], ["'Courier New'"], 1,
+         {"style:font-family": "'Courier New'"}],
+    )
+    check(
+        "同一条族名在两张表里写法不一致是文件的事实：Cambria 与 Cambria1 指着同一个族名，"
+        "只靠 style:font-charset 分开；另有一条 name=F 的族名写成空串",
+        [dig(fntodt, "structure.fonts.faces[1].written"),
+         dig(fntodt, "structure.fonts.faces[2].written"),
+         dig(fntodt, "structure.fonts.theme")],
+        [{"style:name": "Cambria", "svg:font-family": "Cambria",
+          "style:font-family-generic": "roman", "style:font-pitch": "variable",
+          "style:font-charset": "x-symbol"},
+         {"style:name": "Cambria1", "svg:font-family": "Cambria",
+          "style:font-family-generic": "roman", "style:font-pitch": "variable"},
+         None],
+    )
+
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
     print("=== 3i) 文档里的图：一处号一次跳，两处答案各按各的文件交 ===")
     for name in ("images.docx", "images-lo.docx", "images-float.docx",

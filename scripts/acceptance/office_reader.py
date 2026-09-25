@@ -546,6 +546,283 @@ def odt_picture_rows(text_root, prefixes: dict) -> list:
     return out
 
 
+def _local_in(attrs: dict, local: str):
+    """一份「文件写的名字 → 值」的表里按局部名取那一个（前缀不参与匹配）"""
+    for key, value in attrs.items():
+        if key.rsplit(":", 1)[-1] == local:
+            return value
+    return None
+
+
+def _bump(tally: dict, raw) -> None:
+    """把文件写的那一串当键数一遍；没说话的那些数成一格 `(没写)`"""
+    key = raw if raw is not None else "(没写)"
+    tally[key] = tally.get(key, 0) + 1
+
+
+THEME_WHICH = {
+    "HAnsi": "latin",
+    "Latin": "latin",
+    "EastAsia": "ea",
+    "EA": "ea",
+    "Bidi": "cs",
+    "CS": "cs",
+    "ComplexScript": "cs",
+}
+
+
+def theme_hop(raw: str):
+    """主题那一路的指针：前缀定槽、后缀定那一路。认不出的后缀交 None，不猜"""
+    for prefix, slot in (("major", "majorFont"), ("minor", "minorFont")):
+        if raw.startswith(prefix):
+            which = THEME_WHICH.get(raw[len(prefix):])
+            return (slot, which) if which else None
+    return None
+
+
+OOXML_FONT_POINTERS = ("ascii", "hAnsi", "eastAsia", "cs")
+
+
+def docx_fonts(parts: dict, body, limit: int = 100) -> dict:
+    r"""这份文档要点哪些字体（OOXML）：表在 `word/fontTable.xml`，点在每一格 `w:rFonts` 上
+
+    与 `src/office_doc.rs` 的 `docx_fonts` 一份账。三个坑：一个选择按书写系统写成四个属性
+    （python-docx 一次写 `ascii` 与 `hAnsi` 两遍，于是「几条属性」不是「几段字」）；
+    指向主题的那一路要再跳一跳才落到字面名，而第四个的拼法是 `cstheme`（小写 th）；
+    `cs=""` 是「写了，说的是空话」，与整个没这个属性是两件事。
+    表里没写过的行按 `sorted()` 走 —— Rust 那边属性表是排序的（BTreeMap），
+    两边同一个顺序才比得出整份账。
+    """
+    declared: list = []
+    names: list = []
+    table_part = "word/fontTable.xml" if "word/fontTable.xml" in parts else None
+    embed_refs = 0
+    embed_by: dict = {}
+    if table_part:
+        raw = parts[table_part]
+        nsmap = _ns_prefixes(raw)
+        for one in ET.fromstring(raw).iter():
+            if xml_local(one.tag) != "font":
+                continue
+            written = written_attrs(one)
+            name = written.get("name")
+            if name is not None:
+                names.append(name)
+            embeds = []
+            for kid in one:
+                if not xml_local(kid.tag).startswith("embed"):
+                    continue
+                embed_refs += 1
+                _bump(embed_by, xml_local(kid.tag))
+                embeds.append({"element": _written_name(kid.tag, nsmap),
+                               "written": written_attrs(kid)})
+            if len(declared) < limit:
+                declared.append({"name": name, "written": written, "embeds": embeds})
+    theme_part = "word/theme/theme1.xml" if "word/theme/theme1.xml" in parts else None
+    scheme: list = []
+    if theme_part:
+        for one in ET.fromstring(parts[theme_part]).iter():
+            if xml_local(one.tag) not in ("majorFont", "minorFont"):
+                continue
+            for kid in one:
+                which = xml_local(kid.tag)
+                if which not in ("latin", "ea", "cs"):
+                    continue
+                scheme.append((xml_local(one.tag), which, written_attrs(kid)))
+    roots = [(body, "document.xml")]
+    if "word/styles.xml" in parts:
+        roots.append((ET.fromstring(parts["word/styles.xml"]), "styles.xml"))
+    rows: list = []
+    elements = empty_written = theme_refs = theme_resolved = 0
+    pointed: dict = {}
+    themed: dict = {}
+    other_attrs: dict = {}
+    for root, part in roots:
+        for one in root.iter():
+            if xml_local(one.tag) != "rFonts":
+                continue
+            elements += 1
+            written = written_attrs(one)
+            points: list = []
+            hops: list = []
+            rest: list = []
+            for key in sorted(written):
+                raw = written[key]
+                if key in OOXML_FONT_POINTERS:
+                    _bump(pointed, raw)
+                    if raw == "":
+                        empty_written += 1
+                    points.append({"attr": key, "value": raw, "declared": raw in names})
+                    continue
+                if key.endswith("heme"):
+                    theme_refs += 1
+                    _bump(themed, raw)
+                    hop = theme_hop(raw)
+                    found = None
+                    if hop is not None:
+                        for slot, which, had in scheme:
+                            if (slot, which) == hop:
+                                found = _local_in(had, "typeface")
+                                break
+                    if found is not None:
+                        theme_resolved += 1
+                    hops.append({
+                        "attr": key,
+                        "value": raw,
+                        "slot": hop[0] if hop else None,
+                        "which": hop[1] if hop else None,
+                        "typeface": found,
+                        "resolved": found is not None,
+                    })
+                    continue
+                _bump(other_attrs, key)
+                rest.append(key)
+            if len(rows) < limit:
+                rows.append({
+                    "part": part,
+                    "written": written,
+                    "points": points,
+                    "themes": hops,
+                    "other_attrs": rest,
+                })
+    undeclared = [key for key in sorted(pointed) if key and key not in names]
+    unused = [one for one in names if one not in pointed]
+    return {
+        "family": "ooxml",
+        "table_part": table_part,
+        "declared": declared,
+        "declared_total": len(declared),
+        "declared_names": len(names),
+        "pointer_elements": elements,
+        "rows": rows,
+        "pointed_by_value": pointed,
+        "themed_by_value": themed,
+        "other_attrs": other_attrs,
+        "empty_written": empty_written,
+        "undeclared": undeclared,
+        "undeclared_total": len(undeclared),
+        "declared_unused": unused,
+        "declared_unused_total": len(unused),
+        "theme_part": theme_part,
+        "scheme": [{"slot": slot, "which": which, "written": had}
+                   for slot, which, had in scheme],
+        "theme_refs": theme_refs,
+        "theme_resolved": theme_resolved,
+        "embedded_refs": embed_refs,
+        "embedded_by_element": embed_by,
+        "embedded_parts": sorted(one for one in parts if one.startswith("word/fonts/")),
+    }
+
+
+def odf_style_holders(node) -> list:
+    """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
+    out: list = []
+    for kid in node:
+        if xml_local(kid.tag) in ("style", "default-style"):
+            out.append(kid)
+            continue
+        out.extend(odf_style_holders(kid))
+    return out
+
+
+def odf_fonts(path: Path, limit: int = 100) -> dict:
+    r"""同一问的 ODF 形状：表是 `style:font-face`，点它的地方在样式里，而且是两种指针
+
+    `style:font-name` 对的是 face 的 `style:name`，`style:font-family` 对的是那条
+    `svg:font-family` —— 两个各自数一遍、各自判落没落地（并成一个数就会把「表里没这个名字」
+    与「族名没出现过」混成一件事）。实测 fonts.odp/odt 里这张表在 content.xml 与 styles.xml
+    各写一份一模一样的，所以两份都走、同名先到的一条算数。
+    """
+    with zipfile.ZipFile(path) as box:
+        names = set(one.filename for one in box.infolist())
+        raws = {part: box.read(part) for part in ("content.xml", "styles.xml") if part in names}
+    roots = []
+    for part, raw in raws.items():
+        roots.append((ET.fromstring(raw), _ns_prefixes(raw), part))
+    faces: list = []
+    declared_names: list = []
+    families: list = []
+    dup = quoted = no_family = charset = embed_refs = 0
+    for root, nsmap, part in roots:
+        for one in root.iter():
+            if xml_local(one.tag) != "font-face":
+                continue
+            written = _written_attrs(one, nsmap)
+            name = _local_in(written, "name") or ""
+            family = _local_in(written, "font-family")
+            if name in declared_names:
+                dup += 1
+                continue
+            declared_names.append(name)
+            if family is None:
+                no_family += 1
+            else:
+                families.append(family)
+                if len(family) > 1 and family.startswith("'") and family.endswith("'"):
+                    quoted += 1
+            if _local_in(written, "font-charset") is not None:
+                charset += 1
+            if _local_in(written, "embed") is not None:
+                embed_refs += 1
+            if len(faces) < limit:
+                faces.append({"name": name, "family": family, "written": written, "part": part})
+    rows: list = []
+    elements = 0
+    by_name: dict = {}
+    by_family: dict = {}
+    for root, nsmap, part in roots:
+        for holder in odf_style_holders(root):
+            holder_attrs = _written_attrs(holder, nsmap)
+            style_name = _local_in(holder_attrs, "name")
+            style_family = _local_in(holder_attrs, "family")
+            for kid in holder:
+                if xml_local(kid.tag) != "text-properties":
+                    continue
+                written = _written_attrs(kid, nsmap)
+                name = _local_in(written, "font-name")
+                family = _local_in(written, "font-family")
+                if name is None and family is None:
+                    continue
+                elements += 1
+                _bump(by_name, name)
+                _bump(by_family, family)
+                if len(rows) < limit:
+                    rows.append({
+                        "part": part,
+                        "style": style_name,
+                        "style_family": style_family,
+                        "written": written,
+                        "font_name": name,
+                        "font_family": family,
+                        "name_declared": name in declared_names if name is not None else False,
+                        "family_declared": family in families if family is not None else False,
+                    })
+    undeclared_names = [key for key in sorted(by_name)
+                        if not key.startswith("(没写)") and key not in declared_names]
+    undeclared_families = [key for key in sorted(by_family)
+                           if not key.startswith("(没写)") and key not in families]
+    unused = [one for one in declared_names if one not in by_name]
+    return {
+        "family": "odf",
+        "faces": faces,
+        "faces_total": len(faces),
+        "faces_duplicated": dup,
+        "families_quoted": quoted,
+        "faces_no_family": no_family,
+        "faces_with_charset": charset,
+        "embedded_refs": embed_refs,
+        "pointer_elements": elements,
+        "rows": rows,
+        "by_font_name": by_name,
+        "by_font_family": by_family,
+        "undeclared_names": undeclared_names,
+        "undeclared_families": undeclared_families,
+        "declared_unused": unused,
+        "declared_unused_total": len(unused),
+        "theme": None,
+    }
+
+
 def docx_facts(path: Path) -> dict:
     with zipfile.ZipFile(path) as box:
         names = [one.filename for one in box.infolist()]
@@ -619,6 +896,8 @@ def docx_facts(path: Path) -> dict:
         # 字符格式是另一本账：那一串字自己带一份 rPr（含「有这一格而里面是空的」那一种）
         "run_formats": docx_run_formats(paras, parts),
         "columns": docx_columns(body),
+        # 字体那份账：表在 fontTable、点在每一格 rFonts（一个选择四个属性）、主题再一跳
+        "fonts": docx_fonts(parts, body),
         # 分节的页眉页脚六格（自己写的与真正沿用的分开交）
         "header_footers": docx_header_footers(body, parts),
         # 这张表多宽的三本账（w:tblW / 网格 / 每格），一条也不替另一条圆场
@@ -3316,6 +3595,8 @@ def odt_structure(path: Path) -> dict:
             else prefixes,
         ),
         "columns": odf_columns(root, prefixes),
+        # 字体：表是 style:font-face（名字与族名两个键），点它的地方在样式里，两种指针各数一遍
+        "fonts": odf_fonts(path),
         # 那份定义 LibreOffice 全写在 styles.xml，段样式在 content.xml：跨部件的一跳
         # （前缀要按**各自那份件**自己声明的 xmlns 还原，所以两张表并起来用，content 优先）
         "numbering": odf_numbering(
