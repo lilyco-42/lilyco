@@ -208,6 +208,7 @@ pub(crate) fn odf(content: &Node, styles: Option<&Node>, limit: usize) -> Value 
             };
             let note_class = get("note-class");
             let num_format = get("num-format");
+            let start_value = get("start-value");
             if let Some(had) = &note_class {
                 if !classes.iter().any(|k: &String| k == had) {
                     classes.push(had.clone());
@@ -233,8 +234,8 @@ pub(crate) fn odf(content: &Node, styles: Option<&Node>, limit: usize) -> Value 
                 "part": part,
                 "note_class": note_class,
                 "written": Value::Object(table),
-                "num_format": get("num-format"),
-                "start_value": get("start-value"),
+                "num_format": num_format,
+                "start_value": start_value,
                 "position_written": has_pos,
                 "start_numbering_written": has_start,
             }));
