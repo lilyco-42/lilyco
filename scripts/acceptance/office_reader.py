@@ -2404,7 +2404,123 @@ def odf_bookmark_pairs(path: Path, limit: int = 100) -> dict:
     }
 
 
+def docx_page_numbering(path: Path, limit: int = 100) -> dict:
+    r"""「这一节的页码怎么写」：`w:sectPr/w:pgNumType` 一枚元素、三个可以各自缺的属性
+
+    `w:fmt` / `w:start` / `w:chpNum` 都可以不写。元素在场而属性是空的，与这一节根本没有
+    这个元素，是两件事 —— 实测 LibreOffice 的 docx 导出只写 `fmt`，源件里明写的
+    「从第 7 页开始」整个没跟过来（`start_written` 因此是 null，不是 7、也不是 1）。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"available": False}
+        root = ET.fromstring(box.read("word/document.xml"))
+    body = [one for one in root if xml_local(one.tag) == "body"]
+    rows = []
+    sections = with_element = start_total = 0
+    fmts: list = []
+    for index, sect in enumerate([x for x in (body[0].iter() if body else [])
+                                  if xml_local(x.tag) == "sectPr"]):
+        sections += 1
+        holder = [k for k in sect if xml_local(k.tag) == "pgNumType"]
+        one = holder[0] if holder else None
+        written = _docx_local_attrs(one) if one is not None else {}
+        if one is not None:
+            with_element += 1
+        if written.get("start") is not None:
+            start_total += 1
+        if written.get("fmt") is not None and written["fmt"] not in fmts:
+            fmts.append(written["fmt"])
+        rows.append({
+            "section": index,
+            "element_present": one is not None,
+            "start_written": written.get("start"),
+            "fmt_written": written.get("fmt"),
+            "chpnum_written": written.get("chpNum"),
+            "written": written,
+        })
+    return {
+        "family": "ooxml",
+        "available": True,
+        "sections_total": sections,
+        "with_element": with_element,
+        "start_written_total": start_total,
+        "distinct_fmts": fmts,
+        "sections": rows[:limit],
+    }
+
+
+PNUM_LOCALS = ("num-format", "page-number", "use-page-numbering", "num-prefix", "num-suffix")
+
+
+def odf_page_numbering(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF 写在页版式上（`style:num-format` / `style:page-number`），不是一节一条
+
+    两份件都走（版式通常在 styles.xml，但不赌）。这一族的字母表与 `w:fmt` 不是一套词汇
+    （`1` / `i` / `I` / `a` / `A` / `none` 对 `decimal` / `upperRoman`…），两边各按写的交、不折算。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        maps = {}
+        roots = [("content.xml", ET.fromstring(box.read("content.xml")))]
+        maps["content.xml"] = _ns_prefixes(box.read("content.xml"))
+        if "styles.xml" in have:
+            roots.append(("styles.xml", ET.fromstring(box.read("styles.xml"))))
+            maps["styles.xml"] = _ns_prefixes(box.read("styles.xml"))
+    rows = []
+    layouts = with_format = with_start = masters = 0
+    formats: list = []
+    for part, root in roots:
+        nsmap = maps[part]
+        for one in root.iter():
+            if xml_local(one.tag) != "page-layout":
+                continue
+            name = _local_in(_written_attrs(one, nsmap), "name")
+            kids = [k for k in one.iter() if xml_local(k.tag) == "page-layout-properties"]
+            layouts += 1
+            had = kids[0] if kids else None
+            written = {}
+            fmt = start = None
+            if had is not None:
+                for key, value in _written_attrs(had, nsmap).items():
+                    local = key.rsplit(":", 1)[-1]
+                    if key == "xmlns" or key.startswith("xmlns:") or local not in PNUM_LOCALS:
+                        continue
+                    written[local] = value
+                    if local == "num-format":
+                        fmt = value
+                        with_format += 1
+                        if value not in formats:
+                            formats.append(value)
+                    if local == "page-number":
+                        start = value
+                        with_start += 1
+            rows.append({
+                "part": part,
+                "layout_name": name,
+                "element_present": had is not None,
+                "num_format_written": fmt,
+                "page_number_written": start,
+                "written": written,
+            })
+        masters += len([x for x in root.iter() if xml_local(x.tag) == "master-page"])
+    return {
+        "family": "odf",
+        "available": True,
+        "layouts_total": layouts,
+        "masters_total": masters,
+        "with_num_format": with_format,
+        "with_page_number": with_start,
+        "distinct_formats": formats,
+        "layouts": rows[:limit],
+    }
+
+
 def odf_style_holders(node) -> list:
+
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
     out: list = []
     for kid in node:
@@ -7870,6 +7986,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["text_boxes"] = docx_text_boxes(path)
             # 书签配对：起写名字、止只写号，断的两个方向各数一本
             out["ooxml"]["bookmark_pairs"] = docx_bookmark_pairs(path)
+            # 这一节的页码：元素在场、属性写了什么，两件事分开
+            out["ooxml"]["page_numbering"] = docx_page_numbering(path)
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
@@ -7910,6 +8028,8 @@ def facts(path: Path) -> dict:
             out["odt"]["text_boxes"] = odf_text_boxes(path)
             # 同一问在 ODF 是三种记号：一枚点，或一对按名字配的 start/end
             out["odt"]["bookmark_pairs"] = odf_bookmark_pairs(path)
+            # 同一问在 ODF 写在页版式上，两份件都走
+            out["odt"]["page_numbering"] = odf_page_numbering(path)
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger

@@ -807,7 +807,89 @@ def write_transition_deck(path: Path) -> None:
     prs.save(str(path))
 
 
+def add_page_number_start(path: Path) -> None:
+    """往已有的节上挂一枚「页码从 7 开始、用大写罗马、不带章号」的 `w:pgNumType`
+
+    python-docx 没有这个属性（`Section` 上找不到 start/fmt），所以走它自己的 XML 层：
+    `sectPr.append(OxmlElement("w:pgNumType"))` 再设三个属性 —— 与段边框、行距那两份
+    同一个做法。存在的理由：这是本机唯一能把 `w:start` 写进件里的路，而 LibreOffice 的
+    docx → docx 重写**留着 `start` 与 `fmt`、把 `chpNum` 整格丢了**，docx → odt 那一转
+    则只留下 `style:num-format="I"`（`upperRoman` 这一族写成字母），「从 7 开始」两边各丢一次。
+    """
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document(path)
+    for sect in doc.sections:
+        el = sect._sectPr.find(qn("w:pgNumType"))
+        if el is None:
+            el = OxmlElement("w:pgNumType")
+            sect._sectPr.append(el)
+        el.set(qn("w:start"), "7")
+        el.set(qn("w:fmt"), "upperRoman")
+        el.set(qn("w:chpNum"), "none")
+    doc.save(path)
+
+
+def write_pnum_odt(path: Path) -> None:
+    """一份「第二节从第 7 页开始编号」的最小 .odt（反方向那一份）
+
+    OOXML 那一份是 `add_page_number_start` 写的，这一份是 ODF 侧：段落属性上写
+    `fo:break-before="page"` + `style:page-number="7"` +
+    `style:use-page-numbering="true"`，页版式写 `style:num-format="1"` 与 `style:page-number="1"`，
+    两份母版页共用那一份版式。LibreOffice 导成 docx 时那一节的 `w:pgNumType` **只带
+    `fmt="decimal"`** —— 「从 7 开始」没跟过来，而那个「另起一页」也没换出第二节。
+    """
+    content = """<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+ xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"
+ xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" office:version="1.2">
+ <office:automatic-styles>
+  <style:style style:name="P1" style:family="paragraph">
+   <style:paragraph-properties fo:break-before="page" style:page-number="7" style:use-page-numbering="true"/>
+  </style:style>
+ </office:automatic-styles>
+ <office:body><office:text>
+  <text:p text:style-name="P1">第二节从这里起，页码从 7 开始</text:p>
+ </office:text></office:body>
+</office:document-content>"""
+    styles = """<?xml version="1.0" encoding="UTF-8"?>
+<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
+ xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2">
+ <office:master-styles>
+  <style:master-page style:name="mp1" style:page-layout-name="pl1">
+   <style:header><text:p>第一页眉</text:p></style:header>
+  </style:master-page>
+  <style:master-page style:name="mp2" style:page-layout-name="pl1">
+   <style:header><text:p>第二页眉</text:p></style:header>
+  </style:master-page>
+ </office:master-styles>
+ <office:automatic-styles>
+  <style:page-layout style:name="pl1">
+   <style:page-layout-properties style:num-format="1" style:page-number="1"
+     fo:page-width="21.001cm" fo:page-height="29.7cm"/>
+  </style:page-layout>
+ </office:automatic-styles>
+</office:document-styles>"""
+    manifest = """<?xml version="1.0" encoding="UTF-8"?>
+<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2">
+ <manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.text"/>
+ <manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>
+ <manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/>
+</manifest:manifest>"""
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as box:
+        box.writestr(zipfile.ZipInfo("mimetype"), "application/vnd.oasis.opendocument.text")
+        box.writestr("META-INF/manifest.xml", manifest)
+        box.writestr("content.xml", content)
+        box.writestr("styles.xml", styles)
+
+
 def write_tbox_odt(path: Path) -> None:
+
     """一份「页上有一个文本框」的 .odt：`draw:frame` 里套 `draw:text-box`，框里两段字
 
     这一族本机没有会写 OOXML 文本框的生产者（python-docx 不会加框），所以反过来走：这份 odt 用
@@ -3308,6 +3390,33 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "bkmks.odt", OUT / "bkmks.odt")
     else:
         print("⚠️  没拿到 bkmks.odt")
+
+    # 页码起始那两份：zipfile 写 odt，LibreOffice 导一份 docx（看它把「从 7 开始」带不带过来）
+    pnum = OUT / "pnum.odt"
+    write_pnum_odt(pnum)
+    convert(exe, pnum, "docx", SCRATCH / "pnum-docx")
+    made_pnum = SCRATCH / "pnum-docx" / "pnum.docx"
+    if made_pnum.exists():
+        shutil.copyfile(made_pnum, OUT / "pnum.docx")
+    else:
+        print("⚠️  没拿到 pnum.docx（odt → docx 那一转）")
+
+    # 页码起始那三份：python-docx 的 XML 层写 w:start/fmt/chpNum，LibreOffice 重写一份
+    # （看 chpNum 还在不在）、再转一份 odt（看这一族把「从 7 开始」写到哪里）
+    restart = OUT / "restart.docx"
+    write_docx(restart, art)
+    add_page_number_start(restart)
+    convert(exe, restart, "docx", SCRATCH / "restart-back")
+    made_restart = SCRATCH / "restart-back" / "restart.docx"
+    if made_restart.exists():
+        shutil.copyfile(made_restart, OUT / "restart-lo.docx")
+    else:
+        print("⚠️  没拿到 restart-lo.docx（docx → docx 那一转）")
+    convert(exe, restart, "odt", SCRATCH / "restart-asodt")
+    if (SCRATCH / "restart-asodt" / "restart.odt").exists():
+        shutil.copyfile(SCRATCH / "restart-asodt" / "restart.odt", OUT / "restart.odt")
+    else:
+        print("⚠️  没拿到 restart.odt（docx → odt 那一转）")
 
     # 放映切换那三份：python-pptx + parse_xml 写 pptx，同格式重写一份、再转一份 odp（全丢）
     trick = OUT / "deck-tr.pptx"

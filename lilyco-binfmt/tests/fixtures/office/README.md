@@ -61,6 +61,11 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `bkmks.docx` | python-docx（`write_bookmark_docx`，书签没有公开 API，走 `OxmlElement`） | 八段各造一种情形：完整一对（`口径`）/ 跨段一对（`跨段`，起在第 2 段、止在第 3 段）/ 只有起（`断了`）/ 只有止（号 `9`）/ Word 的光标（`_GoBack`）/ **与第一段重名**的第二条 `口径` / 站内跳转 `w:anchor="跨段"`。要紧的是 `w:bookmarkEnd` 只写号不写名字 |
 | `bkmks-lo.docx` | LibreOffice（`bkmks.docx` → .docx） | 同一份重写后：两个**断的整个被删**（5 起 5 止 → 4 起 4 止）、号整批重排成 0..3、重名那条改名 `口径_副本_1`，而锚一字未改 —— 见事实 98 |
 | `bkmks.odt` | LibreOffice（`bkmks.docx` → .odt） | 记号换成三种：闭在同段的与 Word 那条光标都变成**一枚** `text:bookmark`（3 枚），只有跨段那一对是 `bookmark-start`/`-end`（两头写名字）；改名的那条在这里写作带空格的「口径 副本 1」 —— 见事实 98 |
+| `pnum.odt` | zipfile 写的最小 ODF（`write_pnum_odt`） | 页码起始在 ODF 写在两处：段落属性上 `style:page-number="7"` + `style:use-page-numbering="true"`（外加 `fo:break-before="page"`），页版式上 `style:num-format="1"` + `style:page-number="1"`；两条母版页共用那一份版式，所以「几条版式」是 1 而「几份母版页」是 2 |
+| `pnum.docx` | LibreOffice（`pnum.odt` → .docx） | 转过来之后 `w:pgNumType` **只带 `fmt="decimal"`**：「从 7 开始」整格没写（`start_written` 是 null，不是 0 也不是 7），而源件那个「另起一页」也没换出第二节（`sections_total` 1）|
+| `restart.docx` | python-docx（`add_page_number_start`，页码没有公开属性，走 `OxmlElement`） | `w:pgNumType` 三个属性全写：`start="7"` / `fmt="upperRoman"` / `chpNum="none"` —— 这一节既说了用什么数、也说了从几起、也说了不跟章号 |
+| `restart-lo.docx` | LibreOffice（`restart.docx` → .docx） | 同一份重写一遍：`start` 与 `fmt` 都活着、**`chpNum` 整格没了** —— 三个属性不是同一个待遇，账按现在这份件交 |
+| `restart.odt` | LibreOffice（`restart.docx` → .odt） | 同一问换了地方也换了词汇：页版式上只剩 `style:num-format="I"`（大写罗马这一族写成一个字母），**「从 7 开始」在 ODF 侧一个字都没落**（`with_page_number` 0）；它另外写的 `style:default-page-layout` 只带网格，不进这本账 |
 | `deck-tr.pptx` | python-pptx 1.0.2（`write_transition_deck`，切换没有公开属性，走 `parse_xml`） | 三页各改一个变量：`第一页`（`p:transition spd="med" advClick="1" advTm="5000"` + 孩子 `p:fade`）/ `第二页`（只写 `spd="fast"`，方向在孩子 `p:wipe/@dir="l"` 上）/ `第三页`（切换一个字都没写）。`spd`、`advClick`、`advTm` 是三句独立的话（多快、点一下换不换、几毫秒换页） |
 | `deck-tr-lo.pptx` | LibreOffice（`deck-tr.pptx` → .pptx） | 同一份重写后：第一页的 `advClick` 没了、第二页连 `spd` 也没了（孩子的 `dir="l"` 留着），而第三页**原本什么都没写、它补了两条**（`{spd:slow,dur:2000}` 与 `{spd:slow}`，都没有效果孩子）—— 全篇 4 条而只有 3 页有 —— 见事实 99 |
 | `deck-tr.odp` | LibreOffice（`deck-tr.pptx` → .odp） | 切换没丢而是**搬了两处并换词表**：`style:drawing-page-properties` 上写 `presentation:transition-type="automatic"` / `transition-speed="fast"` / `duration="PT5S"`（dp1 有、dp2 没有），效果本身进 `anim:transitionFilter`（`smil:type="fade"` + `subtype="crossfade"`、第二页 `barWipe` + `leftToRight`），页上已无 `p:transition` —— 见事实 99 与 100 |
@@ -1737,6 +1742,35 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第三页点 `dp4`：那份样式**找得到**（`style_found: true`，在 content.xml），可一个切换属性都不写 —— `written` 是空表而不是缺键，`effects` 是空表、`timing_roots` 是 0。与 pptx 那一面正好反过来：同一份稿子的第三页在 LibreOffice 的 **pptx** 重写里被**补了两条** `p:transition`，而它的 **odp** 导出对同一页一个字都不写 —— 同一个生产者的两个导出方向相反，两份件各自说自己的话。
     - `deck.odp` 两页都点 `dp1` 而那份样式什么都没说：两页 `written` 都是空表、`style_found` 都是 true —— 「跳到了那份样式而它没说」与「跳不到那份样式」是两件事（后者 `style_found` 才是 false）。
     - 两支读者的键按族分开：pptx 每页带 `transition_detail`、odp 每页带 `odp_transition`，另一族那个键整个不在（不是空表）；比这一问不比页序，按内容多重集与效果条数求和比。
+
+101. **这一节的页码怎么写：OOXML 一节三条属性、三种待遇，而「从几开始」跨族两头各丢一次**
+    - 形状先分开：OOXML 把这一问放在**每一节**的 `w:sectPr/w:pgNumType` 上，一枚元素三条可以各自缺的属性
+      （`w:fmt` 用什么数、`w:start` 从几起、`w:chpNum` 跟不跟章号）；ODF 放在**页版式**的
+      `style:page-layout-properties` 上（`style:num-format` 与 `style:page-number`）。一节一条与一版式一条
+      不是一套计数，两边各交总数与找得到的条数，不做等号。
+    - 元素在场与属性写了什么是两件事：`notes.docx`（python-docx 的原件）那一节**根本没有**
+      `w:pgNumType`（`with_element` 0、`element_present` false、`written` 空表），而 LibreOffice 转出的
+      那几份（`keep-lo.docx` / `line-lo.docx` …）每一份都带这一格、写着 `fmt="decimal"` ——
+      同一个问题的两份件，这一格在不在完全看生产者。缺键、false、空表与 null 各说各的话，
+      这里一个都不合并。
+    - 三条属性不是同一个待遇：`restart.docx` 把三条全写（`start="7"` / `fmt="upperRoman"` /
+      `chpNum="none"`），LibreOffice 重写同一份（`restart-lo.docx`）之后 `start` 与 `fmt` 一字未动，
+      而 `chpNum` **整格没了**。所以「写了哪几条」按现在这份件交，不替上一版接回来。
+    - 跨族走一趟，「从几开始」两头各丢一次：`restart.docx` → `restart.odt` 只剩页版式上
+      `style:num-format="I"`（这一族把大写罗马写成一个字母 `I`，词汇表与 `w:fmt` 不是一套，
+      两边各按写的交、不折算），`style:page-number` 一个字没落（`with_page_number` 0）；反方向
+      `pnum.odt` 段落上明写 `style:page-number="7"` + `style:use-page-numbering="true"`，转成 docx 后
+      那一节只带 `fmt="decimal"`，`w:start` 是 null —— 不是 0、也不是 7，而是这一格没写。
+      两头都不替它猜「那大概就是从头开始」。
+    - 一处不赌它住在哪：这一族的页版式**通常在 styles.xml**（实测这几份都在），但两份件都走，
+      每条交自己的 `part`；`layouts_total` 与 `masters_total` 分两个数（`pnum.odt` 是 1 与 2 ——
+      两份母版页共用一份版式）。LibreOffice 转出的那份 odt 还另写一个 `style:default-page-layout`，
+      它的 `page-layout-properties` 只带网格设置 —— 与「那张纸」同一规矩：那条既不报也不编号。
+    - RTF 与遗留 .doc **不交这个键**（缺键 = 这一支没看）：RTF 的页码写在节属性那一格里
+      （`\pgndec` 是十进制、`\pgnstart` 才是起点），实测这批件里 LibreOffice 只写 `\pgndec`，
+      两份件的 `notes-hf.rtf` / `paper-a4.rtf` 各两次（正好一节一次），而 `\pgnstart` 一个都没有；
+      这一支读者的 `sections` 本来就是 null，节归属判不住（同「那张纸」只交文档级的先例）。
+      `.doc` 的节属性住在 table stream 里，这一族读者不走那里。
 
 ## 这些数字从哪来
 

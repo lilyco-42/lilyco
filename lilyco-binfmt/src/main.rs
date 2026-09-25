@@ -55,6 +55,7 @@ mod office_sheet;
 mod office_slide;
 mod office_text;
 mod opack;
+mod page_numbering;
 mod paper;
 mod para_borders;
 mod pdf;

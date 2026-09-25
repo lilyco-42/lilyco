@@ -268,6 +268,12 @@ def main() -> int:
         "bkmks.docx": ("ooxml", "word", "docx"),
         "bkmks-lo.docx": ("ooxml", "word", "docx"),
         "bkmks.odt": ("opendocument", "word", "odt"),
+        # 页码起始那五份：三个属性三种待遇，跨族走一趟两头各丢一次
+        "pnum.odt": ("opendocument", "word", "odt"),
+        "pnum.docx": ("ooxml", "word", "docx"),
+        "restart.docx": ("ooxml", "word", "docx"),
+        "restart-lo.docx": ("ooxml", "word", "docx"),
+        "restart.odt": ("opendocument", "word", "odt"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -5425,6 +5431,99 @@ def main() -> int:
         [{}, True, {}, [], None],
     )
 
+    # ── 3al) 这一节的页码：OOXML 一节一条三个属性，ODF 一页版式一条，跨族各丢一次 ────
+    print("=== 3al) 页码：元素在场、三个属性各写各的，而「从 7 开始」两头都不是同一种丢法 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 页码那份账与读者一致（一节一条，写了哪几个属性）" % name,
+              dig(got, "structure.page_numbering"),
+              files[name]["ooxml"]["page_numbering"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 页码那份账与读者一致（一页版式一条，两份件都走）" % name,
+              dig(got, "structure.page_numbering"),
+              files[name]["odt"]["page_numbering"])
+    rs = lbin("office-doc", fixture("restart.docx"))
+    rs_lo = lbin("office-doc", fixture("restart-lo.docx"))
+    check(
+        "`w:pgNumType` 三个属性全写的那一份：`start=\"7\"` / `fmt=\"upperRoman\"` / `chpNum=\"none\"` "
+        "一条不落 —— 而 `w:fmt` 与 `w:start` 是两件事：这一节说了用什么数、也说了从几起",
+        [dig(rs, "structure.page_numbering.sections_total"),
+         dig(rs, "structure.page_numbering.with_element"),
+         dig(rs, "structure.page_numbering.start_written_total"),
+         dig(rs, "structure.page_numbering.distinct_fmts"),
+         dig(rs, "structure.page_numbering.sections[0].start_written"),
+         dig(rs, "structure.page_numbering.sections[0].fmt_written"),
+         dig(rs, "structure.page_numbering.sections[0].chpnum_written"),
+         dig(rs, "structure.page_numbering.sections[0].written")],
+        [1, 1, 1, ["upperRoman"], "7", "upperRoman", "none",
+         {"start": "7", "fmt": "upperRoman", "chpNum": "none"}],
+    )
+    check(
+        "LibreOffice 把同一份件重写一遍：`start` 与 `fmt` 都活着，**`chpNum` 整格没了** —— "
+        "三个属性不是同一个待遇，所以「写了哪几个」按现在这份件交，不替上一版接回来",
+        [dig(rs_lo, "structure.page_numbering.sections[0].start_written"),
+         dig(rs_lo, "structure.page_numbering.sections[0].fmt_written"),
+         dig(rs_lo, "structure.page_numbering.sections[0].chpnum_written"),
+         dig(rs_lo, "structure.page_numbering.sections[0].written"),
+         dig(rs_lo, "structure.page_numbering.start_written_total"),
+         dig(rs_lo, "structure.page_numbering.with_element")],
+        ["7", "upperRoman", None, {"start": "7", "fmt": "upperRoman"}, 1, 1],
+    )
+    check(
+        "同一份 docx 转成 odt：这一问换了地方（页版式上）也换了词汇 —— `upperRoman` 这一族写成"
+        "一个字母 `I`，而**「从 7 开始」在 ODF 侧一个字都没落**（`page_number_written` 是 null、"
+        "`with_page_number` 是 0）。null 是「这一格没写」，不是「从 1 开始」",
+        [dig(lbin("office-doc", fixture("restart.odt")), "structure.page_numbering.layouts_total"),
+         dig(lbin("office-doc", fixture("restart.odt")), "structure.page_numbering.masters_total"),
+         dig(lbin("office-doc", fixture("restart.odt")), "structure.page_numbering.with_num_format"),
+         dig(lbin("office-doc", fixture("restart.odt")), "structure.page_numbering.with_page_number"),
+         dig(lbin("office-doc", fixture("restart.odt")), "structure.page_numbering.distinct_formats"),
+         dig(lbin("office-doc", fixture("restart.odt")), "structure.page_numbering.layouts[0].layout_name"),
+         dig(lbin("office-doc", fixture("restart.odt")), "structure.page_numbering.layouts[0].part"),
+         dig(lbin("office-doc", fixture("restart.odt")), "structure.page_numbering.layouts[0].written")],
+        [1, 1, 1, 0, ["I"], "Mpm1", "styles.xml", {"num-format": "I"}],
+    )
+    check(
+        "反方向也丢：`pnum.odt` 在段落属性上明写 `style:page-number=\"7\"` + `use-page-numbering=\"true\"`，"
+        "LibreOffice 导成 docx 后那一节的 `w:pgNumType` **只带 `fmt=\"decimal\"`** —— `w:start` 没写；"
+        "而源件那个「另起一页」也没换出第二节（`sections_total` 是 1）。跨族走一趟，这一问两头各丢一次",
+        [dig(lbin("office-doc", fixture("pnum.docx")), "structure.page_numbering.sections_total"),
+         dig(lbin("office-doc", fixture("pnum.docx")), "structure.page_numbering.with_element"),
+         dig(lbin("office-doc", fixture("pnum.docx")), "structure.page_numbering.start_written_total"),
+         dig(lbin("office-doc", fixture("pnum.docx")), "structure.page_numbering.distinct_fmts"),
+         dig(lbin("office-doc", fixture("pnum.docx")), "structure.page_numbering.sections[0].start_written"),
+         dig(lbin("office-doc", fixture("pnum.docx")), "structure.page_numbering.sections[0].written")],
+        [1, 1, 0, ["decimal"], None, {"fmt": "decimal"}],
+    )
+    check(
+        "而 `pnum.odt` 自己那份账说：页版式一条、母版页两条（`layouts_total` 1 / `masters_total` 2，"
+        "两份母版页共用同一份版式），版式上 `num-format=\"1\"` 与 `page-number=\"1\"` 都写了 —— "
+        "「几条版式」与「几份母版页」是两个数，不拿一个顶另一个；这一族的版式住在 styles.xml，"
+        "所以 `part` 交的是那一份件名",
+        [dig(lbin("office-doc", fixture("pnum.odt")), "structure.page_numbering.layouts_total"),
+         dig(lbin("office-doc", fixture("pnum.odt")), "structure.page_numbering.masters_total"),
+         dig(lbin("office-doc", fixture("pnum.odt")), "structure.page_numbering.with_num_format"),
+         dig(lbin("office-doc", fixture("pnum.odt")), "structure.page_numbering.with_page_number"),
+         dig(lbin("office-doc", fixture("pnum.odt")), "structure.page_numbering.layouts[0].layout_name"),
+         dig(lbin("office-doc", fixture("pnum.odt")), "structure.page_numbering.layouts[0].part"),
+         dig(lbin("office-doc", fixture("pnum.odt")), "structure.page_numbering.layouts[0].written")],
+        [1, 2, 1, 1, "pl1", "styles.xml", {"num-format": "1", "page-number": "1"}],
+    )
+    check(
+        "没有这一格的件：docx 那边 `w:pgNumType` 根本不在（`with_element` 0、`written` 空表、"
+        "`element_present` false），ODF 那边连版式都没有的 `tbox.odt` 交 0 而不是缺键；"
+        "RTF 与遗留 .doc **不交这个键**（缺键 = 这一支不再交一次，不是「数过了没有」）",
+        [dig(lbin("office-doc", fixture("notes.docx")), "structure.page_numbering.sections_total"),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.page_numbering.with_element"),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.page_numbering.sections[0].element_present"),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.page_numbering.sections[0].written"),
+         dig(lbin("office-doc", fixture("tbox.odt")), "structure.page_numbering.layouts_total"),
+         dig(lbin("office-doc", fixture("tbox.odt")), "structure.page_numbering.masters_total"),
+         dig(lbin("office-doc", fixture("tabs.rtf")), "structure.page_numbering"),
+         dig(lbin("office-doc", fixture("notes-en.doc")), "structure.page_numbering")],
+        [1, 0, False, {}, 0, 0, None, None],
+    )
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
     print("=== 3i) 文档里的图：一处号一次跳，两处答案各按各的文件交 ===")
     for name in ("images.docx", "images-lo.docx", "images-float.docx",
