@@ -997,6 +997,101 @@ def ods_print_ranges(path: Path, limit: int = 100) -> dict:
     }
 
 
+def pptx_placeholder_hops(path: Path, limit: int = 100) -> dict:
+    r"""「这框对应版式里哪一条」是**一跳**：页上的 `p:ph/@idx` 对版式里那条 `p:ph/@idx`
+
+    实测这一跳在重写那份是**断的**：python-pptx 写 `idx="1"`，LibreOffice 重写时把正文
+    占位符写成空元素 `<p:ph/>` —— 号没了，于是只能交「找不到」而不是按规范默认替它接上。
+    版式自己的清单也整份抄下来（`type` 与 `idx` 都按写的），因为「这一页点的是哪份版式」
+    本身要走页自己那张关系表（`.../_rels/slideN.xml.rels`，Type 结尾是 `slideLayout`）。
+    """
+    with zipfile.ZipFile(path) as box:
+        names = [one.filename for one in box.infolist()]
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    slides = sorted(one for one in names if one.startswith("ppt/slides/slide") and one.endswith(".xml"))
+    rows = []
+    for name in slides:
+        stem = name[: name.rindex("/")]
+        rel_name = f"{stem}/_rels/{name[name.rindex('/') + 1 :]}.rels"
+        layout = None
+        if rel_name in parts:
+            rroot = ET.fromstring(parts[rel_name])
+            for rel in rroot.iter():
+                if not rel.tag.endswith("Relationship"):
+                    continue
+                if (rel.get("Type") or "").endswith("/slideLayout"):
+                    raw = rel.get("Target") or ""
+                    layout = "ppt/slideLayouts/" + raw.split("/")[-1]
+                    break
+        mine = []
+        if layout in parts:
+            lroot = ET.fromstring(parts[layout])
+            for node in lroot.iter():
+                if xml_local(node.tag) != "ph":
+                    continue
+                mine.append({
+                    "type": node.get("type"),
+                    "idx": node.get("idx"),
+                    "sz": node.get("sz"),
+                    "orient": node.get("orient"),
+                })
+        shape_rows = []
+        for sp in [one for one in ET.fromstring(parts[name]).iter() if xml_local(one.tag) == "sp"]:
+            holder = None
+            for node in sp.iter():
+                if xml_local(node.tag) == "ph":
+                    holder = node
+                    break
+            nm = None
+            for node in sp.iter():
+                if xml_local(node.tag) == "cNvPr":
+                    nm = node.get("name")
+                    break
+            wrote = holder is not None
+            idx = holder.get("idx") if wrote else None
+            kind = holder.get("type") if wrote else None
+            matched = None
+            if wrote:
+                # 号写了就按号对；没写号才按名对（版式里也有不写 type 的那一条）
+                for one in mine:
+                    if idx is not None:
+                        if one["idx"] == idx:
+                            matched = one
+                            break
+                    elif one["idx"] is None and one["type"] == kind:
+                        matched = one
+                        break
+            shape_rows.append({
+                "name": nm,
+                "ph_element": wrote,
+                "type_written": kind,
+                "idx_written": idx,
+                "layout_matched": matched,
+                "hop": ("by_idx" if idx is not None else "by_type") if wrote else "no_ph",
+            })
+        rows.append({
+            "part": name,
+            "layout_part": layout,
+            "layout_found": layout in parts,
+            "layout_placeholders": mine[:limit],
+            "shapes": shape_rows[:limit],
+        })
+    total = sum(len(one["shapes"]) for one in rows)
+    return {
+        "family": "ooxml",
+        "available": True,
+        "slides": rows[:limit],
+        "slide_total": len(rows),
+        "shape_total": total,
+        "with_ph": sum(1 for one in rows for s in one["shapes"] if s["ph_element"]),
+        "hop_found": sum(1 for one in rows for s in one["shapes"] if s["layout_matched"] is not None),
+        "hop_missing": sum(1 for one in rows for s in one["shapes"]
+                           if s["ph_element"] and s["layout_matched"] is None),
+        "no_idx_written": sum(1 for one in rows for s in one["shapes"]
+                              if s["ph_element"] and s["idx_written"] is None),
+    }
+
+
 def odf_style_holders(node) -> list:
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
     out: list = []
@@ -6384,6 +6479,8 @@ def facts(path: Path) -> dict:
         elif "ppt/presentation.xml" in parts:
             out["app"] = "powerpoint"
             out["ooxml"] = pptx_facts(path)
+            # 「这框对应版式里哪一条」那一跳（重写那份会断）
+            out["ooxml"]["placeholder_hops"] = pptx_placeholder_hops(path)
         elif "content.xml" in parts:
             out["app"] = "opendocument"
             out["odf"] = odt_facts(path)

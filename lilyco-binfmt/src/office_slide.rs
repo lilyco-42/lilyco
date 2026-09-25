@@ -260,6 +260,8 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
             "kind": "presentationml",
             "order": order,
             "slides": slides,
+            // 「这框对应版式里哪一条」是另一跳，实测重写会把它弄断
+            "placeholder_hops": crate::placeholders::hops(bytes, limit),
             "size": size,
             "masters": masters,
             "layouts": layouts,
@@ -2458,11 +2460,11 @@ mod tests {
         assert_eq!(deck["slides"][0]["title"], "预算评审");
 
         let hand = run("deck-ph.pptx");
-        let words: Vec<&Value> = hand["slides"]
+        let words: Vec<Value> = hand["slides"]
             .as_array()
             .expect("是数组")
             .iter()
-            .map(|one| &one["placeholder_words"])
+            .map(|one| one["placeholder_words"].clone())
             .collect();
         assert_eq!(words.len(), 4, "{hand}");
         assert_eq!(words[0], json!(["title", Value::Null]));
@@ -2492,5 +2494,74 @@ mod tests {
             rew["slides"][0]["paragraphs"][0]["placeholder"],
             Value::Null
         );
+    }
+
+    /// 「这一框对应版式里哪一条」是一跳，而**重写会把这一跳弄断**：python-pptx 在页上写
+    /// `idx="1"`、版式里也写 `idx="1"`（六个形状全对得上）；LibreOffice 重写同一份时页上只剩
+    /// 一个空元素 `<p:ph/>`，而它那份版式写的是 `type="body"` —— 号与名都没有，只能交「对不上」。
+    /// 期望值全部来自 `office_reader.py:pptx_placeholder_hops`
+    #[test]
+    fn the_hop_to_a_layout_survives_one_producer_and_not_the_other() {
+        let hand = run("deck-ph.pptx");
+        let hops = &hand["placeholder_hops"];
+        assert_eq!(hops["available"], json!(true));
+        assert_eq!(hops["family"], "ooxml");
+        assert_eq!(hops["slide_total"], json!(4));
+        assert_eq!(hops["shape_total"], json!(8));
+        assert_eq!(hops["with_ph"], json!(6));
+        assert_eq!(hops["hop_found"], json!(6));
+        assert_eq!(hops["hop_missing"], json!(0));
+        assert_eq!(hops["no_idx_written"], json!(3));
+        assert_eq!(
+            hops["slides"][0]["layout_part"],
+            "ppt/slideLayouts/slideLayout2.xml"
+        );
+        assert_eq!(hops["slides"][0]["layout_found"], json!(true));
+        assert_eq!(
+            hops["slides"][0]["shapes"][0]["hop"], "by_type",
+            "标题那一条写了 type，没写号：{hops}"
+        );
+        // 正文那一条反过来：写了号、没写名 —— 号对上了版式里同样只写号的那一条
+        assert_eq!(hops["slides"][0]["shapes"][1]["hop"], "by_idx");
+        assert_eq!(hops["slides"][0]["shapes"][1]["idx_written"], "1");
+        assert!(hops["slides"][0]["shapes"][1]["type_written"].is_null());
+        assert_eq!(hops["slides"][0]["shapes"][1]["layout_matched"]["idx"], "1");
+        assert!(hops["slides"][0]["shapes"][1]["layout_matched"]["type"].is_null());
+        // 自制文本框：连 `p:ph` 元素都没有，那一跳根本无从走起（与「断了」不是一回事）
+        assert_eq!(hops["slides"][1]["shapes"][2]["hop"], "no_ph");
+        assert!(hops["slides"][1]["shapes"][2]["layout_matched"].is_null());
+
+        let rew = run("deck-ph-lo.pptx");
+        let lo = &rew["placeholder_hops"];
+        // 同一份稿子：条数一模一样，可这一跳断了三条
+        assert_eq!(lo["shape_total"], json!(8));
+        assert_eq!(lo["with_ph"], json!(6));
+        assert_eq!(lo["no_idx_written"], json!(6));
+        assert_eq!(lo["hop_found"], json!(3));
+        assert_eq!(lo["hop_missing"], json!(3));
+        assert_eq!(lo["slides"][0]["shapes"][1]["hop"], "by_type");
+        assert!(lo["slides"][0]["shapes"][1]["idx_written"].is_null());
+        assert!(lo["slides"][0]["shapes"][1]["layout_matched"].is_null());
+        assert_eq!(
+            lo["slides"][0]["shapes"][1]["type_written"],
+            Value::Null,
+            "页上那一条被写成空元素：{lo}"
+        );
+        // 它那份版式却给正文写了名字 —— 一句没说对上一句说了话，所以对不上
+        let types: Vec<&str> = lo["slides"][0]["layout_placeholders"]
+            .as_array()
+            .expect("是数组")
+            .iter()
+            .map(|one| one["type"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(types, ["title", "body", "dt", "ftr", "sldNum"]);
+
+        // 第三份凭据：两边**都**没写号也没写名时，按写的东西确实相等，这一跳算通
+        let third = run("deck-lo.pptx");
+        assert_eq!(third["placeholder_hops"]["with_ph"], json!(3));
+        assert_eq!(third["placeholder_hops"]["hop_found"], json!(3));
+        assert_eq!(third["placeholder_hops"]["hop_missing"], json!(0));
+        // .ppt 那一族没有这一跳可走：键整个不在，不是 0
+        assert!(run("deck.ppt")["placeholder_hops"].is_null());
     }
 }

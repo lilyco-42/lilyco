@@ -1607,6 +1607,24 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       （`deck-ph` 第 4 页 Rust 交 `""`，读者交 `只有一个文本框`）。这是读者的规则差，不是文件的
       事实差，所以那条 blanket 只比角色账、不比标题，免得把读者的手法规成文件的说法。
 
+88. **占位符对版式那一跳：一份件走得通，另一份走不通，而这不是读者的错**
+    - 页上的 `p:ph` 只留一个号（`idx="1"`），字与位置在那一页点名的版式（`slideLayoutN.xml`）
+      里 —— 所以「这一框对应版式里哪一条」是一跳，而要走页自己那张关系表才知道是哪份版式。
+      对法只有三种，全按写的比：号写了按号对；号没写按名对；两边都空则对「版式里那条也全空」。
+    - `deck-ph.pptx`（python-pptx）：六个有 `p:ph` 的形状**全对上**（三个按号、三个按名，
+      `hop_found: 6`、`hop_missing: 0`）。`deck-ph-lo.pptx`（同一份稿子经 LibreOffice 重写）：
+      页上那三条正文占位符变成空元素 `<p:ph/>`，而它那份版式给正文写的是 `type="body"` ——
+      一句没说话对上一句说了话，于是 **`hop_found: 3` / `hop_missing: 3`**，条数一模一样。
+      按规范的默认值（body）替它接一下就能"全对上"，那是替文件说话，所以交「对不上」。
+    - 第三份凭据 `deck-lo.pptx`：它的版式里那条也什么都没写（`(None, None)`），页上那条同样
+      空 —— 两边写得一样，这一跳就算通（`hop_found: 3`、`hop_missing: 0`）。可见"断"不是
+      丢信息，而是**两边写的对不上了**。
+    - 三种情形分得开：`by_idx` / `by_type` / `no_ph` —— 最后一种是自制文本框，那一跳
+      根本无从走起，与"走了但没对上"不是一回事；`no_idx_written` 单数一本（写了 `p:ph` 而没写号）。
+    - ODF 那一族没这一跳的对应物可交：角色写在 `presentation:class` 上（本身就是答案），
+      页点哪份版式在画页样式上（`presentation:presentation-page-layout-name`），
+      所以 `.odp` 与 `.ppt` 都不带 `placeholder_hops` 这个键。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：

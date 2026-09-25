@@ -53,6 +53,7 @@ mod office_text;
 mod opack;
 mod paper;
 mod pdf;
+mod placeholders;
 mod ppt;
 mod print_ranges;
 mod props;

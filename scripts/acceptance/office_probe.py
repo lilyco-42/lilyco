@@ -4429,6 +4429,46 @@ def main() -> int:
         [["title", None], [True, True, True, True], "预算评审", None, 5],
     )
 
+    # ── 3y) 占位符对版式那一跳：同一份稿子，重写之后这一跳会断 ─────────────────
+    print("=== 3y) 这一框对应版式里哪一条：号写了才对得上，号丢了就断 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.pptx")):
+        got = lbin("office-slide", fixture(name))
+        check("%s 占位符对版式那一跳整份账与读者一致" % name,
+              dig(got, "placeholder_hops"),
+              files[name]["ooxml"]["placeholder_hops"])
+    hops = lbin("office-slide", fixture("deck-ph.pptx"))
+    hops_lo = lbin("office-slide", fixture("deck-ph-lo.pptx"))
+    check(
+        "python-pptx 那份：正文占位符写了 `idx=\"1\"`，版式里也写了 `idx=\"1\"` —— 六个形状"
+        "全对得上（三个按号、三个按名），一条也没断",
+        [dig(hops, "placeholder_hops.slide_total"),
+         dig(hops, "placeholder_hops.shape_total"),
+         dig(hops, "placeholder_hops.with_ph"),
+         dig(hops, "placeholder_hops.hop_found"),
+         dig(hops, "placeholder_hops.hop_missing"),
+         dig(hops, "placeholder_hops.slides[0].layout_part"),
+         [one["hop"] for one in dig(hops, "placeholder_hops.slides[0].shapes")],
+         dig(hops, "placeholder_hops.slides[0].shapes[1].idx_written"),
+         dig(hops, "placeholder_hops.slides[0].shapes[1].layout_matched")["idx"],
+         dig(hops, "placeholder_hops.no_idx_written")],
+        [4, 8, 6, 6, 0, "ppt/slideLayouts/slideLayout2.xml",
+         ["by_type", "by_idx"], "1", "1", 3],
+    )
+    check(
+        "LibreOffice 重写同一份：页上那条写成空元素 `<p:ph/>`（号与名都没有），版式那一条"
+        "却写着 `type=\"body\"` —— 六个形状只对上三个，断了三条。这不是读者偷懒：按规范补一个"
+        "默认值就能全「对上」，那是替文件说话，所以交 hop_missing",
+        [dig(hops_lo, "placeholder_hops.hop_found"),
+         dig(hops_lo, "placeholder_hops.hop_missing"),
+         dig(hops_lo, "placeholder_hops.no_idx_written"),
+         dig(hops_lo, "placeholder_hops.shape_total"),
+         [one["hop"] for one in dig(hops_lo, "placeholder_hops.slides[0].shapes")],
+         dig(hops_lo, "placeholder_hops.slides[0].shapes[1].layout_matched"),
+         [one["type"] for one in dig(hops_lo, "placeholder_hops.slides[0].layout_placeholders")]],
+        [3, 3, 6, 8, ["by_type", "by_type", "no_ph"], None,
+         ["title", "body", "dt", "ftr", "sldNum"]],
+    )
+
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
     print("=== 3i) 文档里的图：一处号一次跳，两处答案各按各的文件交 ===")
     for name in ("images.docx", "images-lo.docx", "images-float.docx",
