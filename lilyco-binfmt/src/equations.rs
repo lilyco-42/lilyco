@@ -1,6 +1,9 @@
 //! 文档里的公式：OOXML 写成 OMML 挂在段上，ODF 把每条式子装进一个**嵌入对象**的 MathML 部件
 //!
-//! 形状：`{family, available, items[], <聚合数>}`，三支各一本，另一族的键整个不在。
+//! 形状：`{family, available, items[], <聚合数>}`，四支各一本，另一族的键整个不在。
+//! .doc 一支（`office-doc`）每条 `{index, pool_name, streams, compobj_written, ole_written,
+//! payload_stream, payload_size, declared_size, label, user_type, prog_id}`，聚合
+//! `objects_total / equations_total / payload_stream_seen / native_bytes_total / pool_found`。
 //! pptx 一支（`office-slide`）每条 `{index, part, show_index, paragraph, holder, shape_id,
 //! shape_name, structures, runs, nor_runs, lit_runs, align_written, text, choice_requires,
 //! in_alternate, fallback_written, fallback_blip, fallback_target, fallback_found,
@@ -50,8 +53,11 @@
 //! - 表格里、脚注尾注部件里的式子不数（两支同一条口径：只看正文段 `w:p` / `text:p|h` 的**直接
 //!   孩子**）—— 那些地方住的段不在这本账走的顺序里，硬并会把两本的段号弄乱；
 //! - 不做线性化（不生成 LaTeX / UnicodeMath），只交文件自己写着的元素名与字符；
-//! - `.doc` / RTF / `.ppt` 不交这个键：那几族把式子内嵌成字段/对象是另一套记号，本机没有能写出
-//!   这些件的生产者，量不到就不写那一支。
+//! - RTF 与 `.ppt` 不交这个键：那两族的记号是另一套，本机没有能写出这些件的生产者，
+//!   量不到就不写那一支。
+//! - `.doc` 交，但只交到对象那一层：式子是 `ObjectPool` 里一枚枚内嵌 OLE 对象，正文流的名字
+//!   按写的交（`Equation Native`），字在 MTEF 二进制里 —— 本机没有第二个读者认得它，所以那一族
+//!   **整个不交 `text`**（缺键，不是空串）。
 
 use crate::xmlscan::Node;
 use crate::zipread::{self, DEFAULT_MEMBER_CAP};
@@ -1013,4 +1019,176 @@ impl PptxRun {
             "rasters_missing": self.rasters_missing,
         })
     }
+}
+
+/// 遗留 .doc 那一支：式子是内嵌 OLE 对象，住在目录树的 `ObjectPool` 下面
+const POOL: &str = "ObjectPool";
+/// 一物一 storage 里那两条**控制流**：它们不写这条对象是什么，正文那条流的名字才写
+const CONTROLLED: [&str; 2] = ["\u{1}CompObj", "\u{1}Ole"];
+/// 目录树走多深就停：畸形文件能把 `left` 指回自己，没有界就是一趟不回来的递归
+const TREE_DEPTH: usize = 64;
+
+/// 一枚 storage 的孩子，按中序（left → 自己 → right）
+///
+/// 「没有孩子」这一格各家写得不一样（规范是 `0xFFFFFFFF`，也有文件直接写 0）：
+/// 这里与第二读者同一条判据 —— 0 或越界都当结束。下标 0 永远是 Root Entry，
+/// 而 Root 不会是谁的孩子，所以两种哨兵在这里不互相冒充。
+fn ole_walk(cfb: &crate::cfb::Cfb, where_: u32, depth: usize, out: &mut Vec<usize>) {
+    if depth >= TREE_DEPTH {
+        return;
+    }
+    let index = match usize::try_from(where_) {
+        Ok(raw) => raw,
+        Err(_) => return,
+    };
+    if index == 0 {
+        return;
+    }
+    let one = match cfb.entries.get(index) {
+        Some(raw) => raw,
+        None => return,
+    };
+    ole_walk(cfb, one.left, depth + 1, out);
+    out.push(index);
+    ole_walk(cfb, one.right, depth + 1, out);
+}
+
+/// `\x01CompObj` 后半的三枚「u32 长度 + latin-1 串」：显示名、用户类型、ProgID。
+/// 头部 28 字节（u32 版本两枚 + u32 保留 + 16 字节 CLSID）—— 第一版把 CLSID 读成
+/// 「一个类型字节 + 15 字节」，三枚串全成 null，在 `eq.doc` 上才量出来。
+/// 读不出的一律 null，不拿邻居的数凑。
+fn compobj_labels(body: &[u8]) -> (Option<String>, Option<String>, Option<String>) {
+    let mut out: Vec<Option<String>> = Vec::new();
+    let mut at = 28usize;
+    while out.len() < 3 {
+        if at + 4 > body.len() {
+            break;
+        }
+        let head = [body[at], body[at + 1], body[at + 2], body[at + 3]];
+        let size = u32::from_le_bytes(head) as usize;
+        if size == 0 || size > 256 || at + 4 + size > body.len() {
+            break;
+        }
+        let text: String = body[at + 4..at + 4 + size]
+            .iter()
+            .take_while(|raw| **raw != 0)
+            .map(|raw| *raw as char)
+            .collect();
+        out.push(Some(text));
+        at += 4 + size;
+    }
+    while out.len() < 3 {
+        out.push(None);
+    }
+    let mut it = out.into_iter();
+    (
+        it.next().unwrap_or(None),
+        it.next().unwrap_or(None),
+        it.next().unwrap_or(None),
+    )
+}
+
+/// .doc 那一支：`ObjectPool` 下每枚对象一条账，正文流的名字按写的交
+///
+/// 界：MTEF 载荷**不解**（本机没有第二个读者认得它），所以式子里的字整个不在这一本里 ——
+/// 缺键，不是空串。`objects_total` 与 `equations_total` 两格各数各的，因为这一族
+/// 既装公式也装别的，判据是那条正文流自己叫什么。
+pub(crate) fn ole(cfb: &crate::cfb::Cfb, bytes: &[u8]) -> Value {
+    let pool = cfb
+        .entries
+        .iter()
+        .position(|one| one.kind == "storage" && one.name == POOL);
+    let pool = match pool {
+        Some(raw) => raw,
+        None => {
+            return json!({
+                "family": "ole",
+                "available": true,
+                "items": [],
+                "objects_total": 0,
+                "equations_total": 0,
+                "payload_stream_seen": [],
+                "native_bytes_total": 0,
+                "pool_found": false,
+            })
+        }
+    };
+    let mut objects: Vec<usize> = Vec::new();
+    ole_walk(cfb, cfb.entries[pool].child, 0, &mut objects);
+    let mut items: Vec<Value> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    let mut objects_total = 0usize;
+    let mut equations_total = 0usize;
+    let mut native_bytes = 0usize;
+    for index in objects {
+        let mut kids: Vec<usize> = Vec::new();
+        ole_walk(cfb, cfb.entries[index].child, 0, &mut kids);
+        let streams: Vec<usize> = kids
+            .into_iter()
+            .filter(|raw| cfb.entries[*raw].is_stream())
+            .collect();
+        let names: Vec<String> = streams
+            .iter()
+            .map(|raw| cfb.entries[*raw].name.clone())
+            .collect();
+        let free = |name: &str| CONTROLLED.iter().any(|one| *one == name);
+        let payload_at = streams
+            .iter()
+            .find(|raw| !free(&cfb.entries[**raw].name))
+            .copied();
+        let payload = payload_at.map(|raw| cfb.entries[raw].name.clone());
+        let body = payload_at
+            .and_then(|raw| cfb.entries.get(raw))
+            .and_then(|one| cfb.read_entry(bytes, one))
+            .unwrap_or_default();
+        let declared = payload_at
+            .and_then(|raw| cfb.entries.get(raw))
+            .map(|one| json!(one.size));
+        let comp_at = streams
+            .iter()
+            .find(|raw| cfb.entries[**raw].name == CONTROLLED[0])
+            .copied();
+        let comp_body = comp_at
+            .and_then(|raw| cfb.entries.get(raw))
+            .and_then(|one| cfb.read_entry(bytes, one))
+            .unwrap_or_default();
+        let (label, user_type, prog_id) = compobj_labels(&comp_body);
+        if payload.as_deref() == Some("Equation Native") {
+            equations_total += 1;
+            native_bytes += body.len();
+        }
+        if let Some(raw) = &payload {
+            if !seen.iter().any(|one| *one == *raw) {
+                seen.push(raw.clone());
+            }
+        }
+        let payload_size = match &payload {
+            Some(_) => json!(body.len()),
+            None => Value::Null,
+        };
+        objects_total += 1;
+        items.push(json!({
+            "index": items.len(),
+            "pool_name": cfb.entries[index].name.clone(),
+            "streams": names,
+            "compobj_written": json!(names.iter().any(|one| one.as_str() == CONTROLLED[0])),
+            "ole_written": json!(names.iter().any(|one| one.as_str() == CONTROLLED[1])),
+            "payload_stream": payload,
+            "payload_size": payload_size,
+            "declared_size": declared.unwrap_or(Value::Null),
+            "label": label,
+            "user_type": user_type,
+            "prog_id": prog_id,
+        }));
+    }
+    json!({
+        "family": "ole",
+        "available": true,
+        "items": items,
+        "objects_total": objects_total,
+        "equations_total": equations_total,
+        "payload_stream_seen": seen,
+        "native_bytes_total": native_bytes,
+        "pool_found": true,
+    })
 }

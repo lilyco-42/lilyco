@@ -628,3 +628,109 @@ def pptx_equations(path: Path) -> dict:
     stats["paragraphs_total"] = sum(one["paragraphs_total"] for one in slides)
     return {"family": "pptx", "available": True, "items": items, "slides": slides,
             "slides_total": len(slides), "structures_seen": structures_seen, **stats}
+
+
+# ── 遗留 .doc：式子是 OLE 对象，住在目录树的 ObjectPool 里 ─────────────────────────
+CONTROLLED = ("\x01CompObj", "\x01Ole")
+
+
+def compobj_labels(body: bytes):
+    """`\\x01CompObj` 后半是三枚「u32 长度 + ANSI 串」：显示名、用户类型、ProgID
+
+    头部实测 28 字节（u32 版本两枚 + u32 保留 + 16 字节 CLSID；`02 ce 00 …` 那 16 个字节
+    整个就是 CLSID 本身，不是一个「类型字节 + 15 字节」—— 第一版按后者读，三枚串全读成 null，
+    在这份件上才量出来）。
+    两份实测凭据：公式对象写 `Microsoft Equation 3.0` / `DS Equation` / `Equation.3`，
+    Word 自己的根写 `Microsoft Word-Dokument` / `MSWordDoc` / `Word.Document.8`
+    —— 同一形状，所以这三格的含义不是猜的。**读不了就交 null，不猜。**
+    """
+    out: list = []
+    at = 28
+    while len(out) < 3 and at + 4 <= len(body):
+        size = int.from_bytes(body[at:at + 4], "little")
+        if size <= 0 or size > 256 or at + 4 + size > len(body):
+            break
+        raw = body[at + 4:at + 4 + size]
+        out.append(raw.split(b"\x00", 1)[0].decode("latin-1"))
+        at += 4 + size
+    while len(out) < 3:
+        out.append(None)
+    return out
+
+
+def _ole_children(entries: list, index: int) -> list:
+    """一枚 storage 的孩子，按目录树的中序（left → 自己 → right）
+
+    两族读者都只认这一条走法：CFB 的孩子挂成一棵红黑树，`left` / `right` 是同层兄弟，
+    `child` 是自己的孩子；python 这一侧把「没有」读成 0，Rust 那一侧是 0xFFFFFFFF，
+    都当结束。界与 Rust 的 `TREE_DEPTH` 同一条：畸形文件能把 `left` 指回自己。
+    """
+    out: list = []
+
+    def go(where, depth):
+        if not where or where >= len(entries) or depth >= 64:
+            return
+        one = entries[where]
+        go(one["left"], depth + 1)
+        out.append(where)
+        go(one["right"], depth + 1)
+    go(entries[index]["child"], 0)
+    return out
+
+
+def ole_equations(parsed: dict) -> dict:
+    """遗留 .doc 那一份：式子是内嵌 OLE 对象，字在 MTEF 二进制里，**这一本不读字**
+
+    与 `equations.rs::ole` 同口径的三条判据：
+    - 对象在 `ObjectPool` 那枚 storage 的孩子里，一物一 storage（LibreOffice 写的名字是
+      `_2147483647` 起递减）；对象名之外那两条控制流（`\\x01CompObj` / `\\x01Ole`）不算正文，
+      **正文那条流的文件名按写的交**（`payload_stream`）—— 公式那份写的是 `Equation Native`，
+      这一族既装公式也装别的，所以 `objects_total` 与 `equations_total` 两格各数各的；
+    - `\\x01CompObj` 里那三枚串按上面那条布局读，读不出交 null；
+    - MTEF 载荷**不解**：本机没有第二个读者认得它，流的大小与头几字节按原样交，
+      式子里的字因此整个不在（缺键，不是空串）。
+    """
+    entries = parsed.get("entries") or []
+    bytes_at = parsed.get("bytes_at") or {}
+    pool = [i for i, one in enumerate(entries)
+            if one["type"] == "storage" and one["name"] == "ObjectPool"]
+    if not pool:
+        return {"family": "ole", "available": True, "items": [], "objects_total": 0,
+                "equations_total": 0, "payload_stream_seen": [], "native_bytes_total": 0,
+                "pool_found": False}
+    items = []
+    seen = []
+    equations_total = 0
+    native_bytes = 0
+    for index in _ole_children(entries, pool[0]):
+        streams = [i for i in _ole_children(entries, index)
+                   if entries[i]["type"] == "stream"]
+        names = [entries[i]["name"] for i in streams]
+        payload = next((one for one in names if one not in CONTROLLED), None)
+        payload_at = next((i for i in streams if entries[i]["name"] == payload), None)
+        body = bytes_at.get(payload_at, b"") if payload_at is not None else b""
+        comp_at = next((i for i in streams if entries[i]["name"] == "\x01CompObj"), None)
+        label, user_type, prog_id = compobj_labels(bytes_at.get(comp_at, b"")
+                                                   if comp_at is not None else b"")
+        if payload == "Equation Native":
+            equations_total += 1
+            native_bytes += len(body)
+        if payload and payload not in seen:
+            seen.append(payload)
+        items.append({
+            "index": len(items),
+            "pool_name": entries[index]["name"],
+            "streams": names,
+            "compobj_written": "\x01CompObj" in names,
+            "ole_written": "\x01Ole" in names,
+            "payload_stream": payload,
+            "payload_size": len(body) if payload else None,
+            "declared_size": entries[payload_at]["size"] if payload_at is not None else None,
+            "label": label,
+            "user_type": user_type,
+            "prog_id": prog_id,
+        })
+    return {"family": "ole", "available": True, "items": items,
+            "objects_total": len(items), "equations_total": equations_total,
+            "payload_stream_seen": seen, "native_bytes_total": native_bytes,
+            "pool_found": True}

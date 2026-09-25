@@ -97,6 +97,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `eq-lo.docx` | LibreOffice（`eq.docx` → .docx） | 生产者改了什么都在账上：两条行内式被**升级**成 `m:oMathPara`（3+3 变 2+4）、对齐从 1 条补到 4 条而作者写的 `centerGroup` 变成 `center`、`m:nor` 那一条多一枚 `m:lit` —— 字一个没动（13） |
 | `eq.odt` | LibreOffice（`eq.docx` → .odt） | 一条式子一个**部件**：六枚 `draw:frame`（`as-char`、尺寸 `0.314cm` 这种自带单位的串）里 `draw:object` 指 `./Object N`，字在 `Object N/content.xml` 的 MathML 里，另有六枚 `ObjectReplacements/Object N` 的替位图；六条的 `display` 一律写 `block`（行内与独立在这一族分不出来），而 `[n]` 那一条在这里比 OMML 多两个括号字符（17 对 13） |
 | `eq-od.docx` | LibreOffice（`eq.odt` → .docx） | MathML 回到 OMML 之后与那次 docx → docx 重写**一格不差** —— 两条路走出来的两副件在这一本上同形，所以不替文件合并任何一格 |
+| `eq.doc` | LibreOffice（`eq.docx` → .doc，MS Word 97） | 同一份稿子转成 97 的容器：六条式子变成**六枚内嵌 OLE 对象** —— `ObjectPool` 下 `_2147483647`…`_2147483642` 一物一 storage，各带 `\x01Ole` + `\x01CompObj` + 一条正文流 `Equation Native`（MTEF 二进制，59/71/59/56/58/59 字节，一共 362）；`\x01CompObj` 里那三枚串是 `Microsoft Equation 3.0` / `DS Equation` / `Equation.3`。**式子里的字这一本不读**（MTEF 没有第二个读者），所以整个不交 `text` 键；而 piece 表里的嵌入对象锚正好也是 6 枚 —— 两处各数一次 —— 见事实 113 |
 | `eqs.odp` | 手写 odp（`write_equations_odp`；两枚公式部件逐字用 LibreOffice 自己写的 MathML） | 两页、三条 `draw:frame`、两枚 `draw:object`：每页一条式子，各自住在 `Object N/content.xml` 里（`parts_found` 2、里面都有 `<math>` 根 → `math_found` 2），frame 写 `text:anchor-type="as-char"` 与自带单位的 `3.261cm`，第一条另有一枚替位图 `./ObjectReplacements/Object 1`（在包里）—— 外壳只能手写：**LibreOffice 没有 odt → odp 的导出过滤器**（实测 `Error: no export filter`） |
 | `eqs-lo.odp` | LibreOffice（`eqs.odp` → .odp） | 式子一条不少、字一字不变（`ab` / `12`、`{a} over {b}` / `sqrt {1 2}`），而三格改了：`text:anchor-type` **整个被丢**（`anchors_written` 2 → 0）、每页补一枚装 `draw:page-thumbnail` 的 frame（`frames_in_notes` 0 → 2、`page_thumbnails` 0 → 2，页上的 frame 数仍是 3 —— 所以两份账必须分开）、样式名从 `fr1` 换成 `gr1`，还给第二枚对象写了 `./ObjectReplacements/Object 2` —— **这个部件既不在包里也不在清单里**（`replacements_missing` 1） |
 | `eqs.pptx` | LibreOffice（`eqs.odp` → .pptx） | 反向那一转的真实形状：式子不是 OLE 也不是图框，而是**文本体里的 OMML**（`<a:p><a14:m><m:oMath …>`）套在一枚 `mc:Choice Requires="a14"` 里，同一个 `mc:Fallback` 把**那个形状又写一遍**（`cNvPr` 的 id 与名字一字不差）而改挂一张 `ppt/media/imageN.emf` —— 见事实 112 |
@@ -2146,6 +2147,26 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       正文那一段字。所以这一支的第二个生产者只能停在「按写的交」，不能拿重写当凭据。
     - OMML 那一段的读法与 docx 那一本共用同一条排除表（`r` 与 `t` 是壳与字、不算结构，
       `m:nor` / `m:lit` 各数各的），两家都在 `equations.rs` 里同一个函数，不抄两遍。
+
+113. **遗留 .doc 里的公式对象：`ObjectPool` 一物一 storage，正文流自己叫什么就交什么**
+    - 97 的 .doc 是 CFB 容器：`eq.docx` 经 LibreOffice 那一转，六条式子变成 `ObjectPool` 下
+      **六枚内嵌对象**（storage 名 `_2147483647` 起往下发号），每枚带 `\x01Ole`、
+      `\x01CompObj` 与一条**正文流**。这一族的门不只通公式（图表、别的编辑器对象走同一扇门），
+      所以判据用**正文流自己写着的名字**（`payload_stream` = `Equation Native`），
+      并且 `objects_total` 与 `equations_total` 两格各数各的 —— 拿前者当后者就是猜。
+    - `\x01CompObj` 后半是三枚「u32 长度 + ANSI 串」：`Microsoft Equation 3.0` /
+      `DS Equation` / `Equation.3`。**这个含义不是猜的**：同一份件里 Word 自己的根写
+      `Microsoft Word-Dokument` / `MSWordDoc` / `Word.Document.8` —— 两份件的三格形状一致，
+      只是各自的名字不同。（第一版把头部读成「u8 类型 + 16 字节 CLSID」= 29 字节，
+      三枚串全成 null；真实头部是 12 字节加 16 字节 CLSID = **28**。）
+    - **字整个不在这一本里**：式子的字在 MTEF 二进制里，本机没有认得它的第二个读者，
+      所以那一族**不交 `text` 键**（缺键而不是空串）—— 与 docx 那一边形成对照：
+      同一份稿子 `eq.docx` 的 `equations_total` 也是 6，只是那一边的字在 `m:t` 里读得到。
+    - 一处自证：**piece 表里正文的嵌入对象锚（U+0001）6 枚，容器目录里 `ObjectPool` 的孩子
+      也 6 枚**。两格都交（`structure.object_marks` 与 `equations.objects_total`），
+      读者自己去看它们合不合，账本不拿一格去圆另一格。
+    - 没有 `ObjectPool` 的件交 `pool_found` false 与 0（`notes.doc` / `notes-en.doc` 都是）：
+      数过了没有，与「这一族没看」是两件事 —— 后者是**缺键**。
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
 `scripts/acceptance/office_reader.py`（OOXML / ODF / MS-CFB / OLE 属性集，只用标准库）、

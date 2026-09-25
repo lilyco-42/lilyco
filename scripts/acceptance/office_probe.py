@@ -199,6 +199,7 @@ def main() -> int:
         "book.ods": ("opendocument", "excel", "ods"),
         "deck.odp": ("opendocument", "powerpoint", "odp"),
         "notes.doc": ("compound", "word", "doc"),
+        "eq.doc": ("compound", "word", "doc"),
         "notes-en.doc": ("compound", "word", "doc"),
         "formats.xlsx": ("ooxml", "excel", "xlsx"),
         "formats.ods": ("opendocument", "excel", "ods"),
@@ -6348,6 +6349,52 @@ def main() -> int:
          dig(chart, "equations.replacements_missing"),
          [dig(chart, "equations.items[%d].math_found" % i) for i in (0, 1)]],
         [2, 2, 2, 0, 2, 0, [], 2, 2, [False, False]],
+    )
+    # ── 3ax) 遗留 .doc 的公式对象：一条式子是一枚内嵌 OLE 对象，字在 MTEF 里不读 ──────
+    print("=== 3ax) .doc 的公式对象：ObjectPool 一物一 storage，正文流叫 Equation Native ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.doc")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 的公式对象那份账与读者一致（走目录树，MTEF 的字不解）" % name,
+              dig(got, "structure.equations"), files[name]["ole_equations"])
+    eqdoc = lbin("office-doc", fixture("eq.doc"))
+    check(
+        "`eq.doc`（`eq.docx` 经 LibreOffice 的 MS Word 97 那一转）六条式子变成**六枚内嵌对象**："
+        "`ObjectPool` 下一物一 storage，名字从 `_2147483647` 起往下排（账里按目录树的中序走，"
+        "所以是 `_2147483642` 在前）；每枚带 `\x01Ole` + `\x01CompObj` + 一条正文流，"
+        "正文流**自己叫什么就交什么**（`Equation Native`），六条 MTEF 一共 362 字节。"
+        "`\x01CompObj` 后半那三枚串读出来是 `Microsoft Equation 3.0` / `DS Equation` / "
+        "`Equation.3`。**两个地方各数一次、数到同一个数**：piece 表里正文的嵌入对象锚 "
+        "（U+0001）是 6 枚，容器目录里 `ObjectPool` 的孩子也是 6 枚 —— 这一本交两格，"
+        "不拿一格去圆另一格",
+        [dig(eqdoc, "structure.equations.objects_total"), dig(eqdoc, "structure.equations.equations_total"),
+         dig(eqdoc, "structure.equations.pool_found"), dig(eqdoc, "structure.equations.payload_stream_seen"),
+         dig(eqdoc, "structure.equations.native_bytes_total"),
+         [dig(eqdoc, "structure.equations.items[%d].payload_size" % i) for i in range(6)],
+         [dig(eqdoc, "structure.equations.items[%d].pool_name" % i) for i in range(6)],
+         dig(eqdoc, "structure.equations.items[0].label"),
+         dig(eqdoc, "structure.equations.items[0].user_type"),
+         dig(eqdoc, "structure.equations.items[0].prog_id"),
+         dig(eqdoc, "structure.equations.items[0].streams"),
+         dig(eqdoc, "structure.object_marks")],
+        [6, 6, True, ["Equation Native"], 362,
+         [59, 71, 59, 56, 58, 59],
+         ["_2147483642", "_2147483643", "_2147483644", "_2147483645", "_2147483646",
+          "_2147483647"],
+         "Microsoft Equation 3.0", "DS Equation", "Equation.3",
+         ["\x01Ole", "\x01CompObj", "Equation Native"], 6],
+    )
+    check(
+        "同一份的 docx 那一边是 6 条 OMML（`equations.equations_total` 6，见 3au），"
+        "转成 97 的 .doc 之后还是 6 枚 —— 只是**字从可读的 `m:t` 变成不可读的 MTEF**，"
+        "所以这一本不交 `text`：整个键不在，而不是空串。"
+        "两份没有 `ObjectPool` 的 .doc 各交 0 与 `pool_found` false（数过了没有）",
+        [lbin("office-doc", fixture("eq.docx")).get("equations", {}).get("equations_total"),
+         "text" in (dig(eqdoc, "structure.equations.items[0]") or {}),
+         dig(lbin("office-doc", fixture("notes.doc")), "structure.equations.pool_found"),
+         dig(lbin("office-doc", fixture("notes.doc")), "structure.equations.objects_total"),
+         dig(lbin("office-doc", fixture("notes-en.doc")), "structure.equations.pool_found"),
+         dig(lbin("office-doc", fixture("notes-en.doc")), "structure.equations.objects_total")],
+        [6, False, False, 0, False, 0],
     )
     # ── 3aw) pptx 的公式：一条式子挂在文本体里，同一个形状在 Fallback 里还写了一遍 ────
     print("=== 3aw) pptx 的公式：a14:m 里的 OMML 与 Fallback 里那张替身图 ===")

@@ -347,6 +347,12 @@ impl Cfb {
     /// 读一条流的字节（小流走迷你扇区，大流走 FAT —— 界由容器自己声明）
     pub fn read(&self, b: &[u8], want: &str) -> Option<Vec<u8>> {
         let one = self.find(want)?;
+        self.read_entry(b, one)
+    }
+
+    /// 读**这一条目录项**的字节：`.doc` 的 ObjectPool 里六枚对象各有一条
+    /// `Equation Native`，按名字取只会拿到其中一条（第二读者同一条判据）
+    pub fn read_entry(&self, b: &[u8], one: &Entry) -> Option<Vec<u8>> {
         let size = usize::try_from(one.size).ok()?;
         if size == 0 {
             return Some(Vec::new());

@@ -4055,6 +4055,13 @@ def main() -> int:
         print("⚠️  没拿到 eqs.pptx（odp → pptx 那一转）")
     # 同一句问题的第二种写法：python-pptx 手挂的裸 `a14:m`（没有 AlternateContent、没有替身图）
     write_equations_pptx(OUT / "eqs-pp.pptx")
+    # 再往下转一档：97 的 .doc 里每条式子变成一个**内嵌 OLE 对象**
+    # （`ObjectPool/_2147483647…` 一物一 storage，正文流叫 `Equation Native`，字是 MTEF 二进制）
+    convert(exe, eqdoc, "doc", SCRATCH / "eq-asdoc")
+    if (SCRATCH / "eq-asdoc" / "eq.doc").exists():
+        shutil.copyfile(SCRATCH / "eq-asdoc" / "eq.doc", OUT / "eq.doc")
+    else:
+        print("⚠️  没拿到 eq.doc（公式那份的 docx → doc 那一转）")
 
     convert(exe, OUT / "eq.odt", "docx", SCRATCH / "eq-round")
     if (SCRATCH / "eq-round" / "eq.docx").exists():

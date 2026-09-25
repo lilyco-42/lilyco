@@ -44,6 +44,7 @@ from lyco_equations import docx_equations as docx_equations_ledger  # OMML 那�
 from lyco_equations import odf_equations as odf_equations_ledger  # 公式部件（MathML）那一份
 from lyco_equations import odp_equations as odp_equations_ledger  # 放映每一页的公式（同一条判据）
 from lyco_equations import pptx_equations as pptx_equations_ledger  # pptx：文本体里的 OMML
+from lyco_equations import ole_equations  # 遗留 .doc：ObjectPool 里的公式对象
 
 END = "END"  # CFB 的链结束标记
 FREE = "FREE"
@@ -8616,13 +8617,17 @@ def cfb_parse(data: bytes) -> dict:
         mini_stream = bytes(buf[: roots[0]["size"]])
 
     streams: dict[str, bytes] = {}
+    # 同名流不止一条时按名字取会互相盖掉：`.doc` 的 ObjectPool 里六枚对象各有一条
+    # `Equation Native`，所以正文另按**目录项的下标**存一份
+    bytes_at: dict[int, bytes] = {}
     listing = []
-    for one in entries:
+    for position, one in enumerate(entries):
         if one["type"] != "stream":
             continue
         mini = one["size"] < cutoff
         body = follow(one["start"], one["size"], mini) if one["size"] else b""
         streams[one["name"]] = body
+        bytes_at[position] = body
         listing.append(
             {
                 "name": one["name"],
@@ -8649,6 +8654,7 @@ def cfb_parse(data: bytes) -> dict:
         "notes": notes,
         "entries": entries,
         "bytes": streams,
+        "bytes_at": bytes_at,
     }
 
 
@@ -8657,6 +8663,7 @@ def cfb_open(data: bytes) -> dict:
     parsed = cfb_parse(data)
     parsed.pop("entries", None)
     parsed.pop("bytes", None)
+    parsed.pop("bytes_at", None)
     return parsed
 
 
@@ -8842,6 +8849,9 @@ def facts(path: Path) -> dict:
         out["container"] = "cfb"
         out["cfb"] = cfb
         cfb = cfb_full
+        # 公式对象那一本（`office-doc` 的 .doc 分支）：走目录树，不进 `cfb` 那份视图
+        # （那份是给 office-info 对账用的，多一个键就会把整份比对带歪）
+        out["ole_equations"] = ole_equations(cfb)
         names = {one["name"]: one for one in cfb["streams"]}
         for stream, key in (
             ("\x05SummaryInformation", "summary"),
