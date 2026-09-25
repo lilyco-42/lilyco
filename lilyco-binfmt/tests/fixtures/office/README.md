@@ -61,6 +61,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `bkmks.docx` | python-docx（`write_bookmark_docx`，书签没有公开 API，走 `OxmlElement`） | 八段各造一种情形：完整一对（`口径`）/ 跨段一对（`跨段`，起在第 2 段、止在第 3 段）/ 只有起（`断了`）/ 只有止（号 `9`）/ Word 的光标（`_GoBack`）/ **与第一段重名**的第二条 `口径` / 站内跳转 `w:anchor="跨段"`。要紧的是 `w:bookmarkEnd` 只写号不写名字 |
 | `bkmks-lo.docx` | LibreOffice（`bkmks.docx` → .docx） | 同一份重写后：两个**断的整个被删**（5 起 5 止 → 4 起 4 止）、号整批重排成 0..3、重名那条改名 `口径_副本_1`，而锚一字未改 —— 见事实 98 |
 | `bkmks.odt` | LibreOffice（`bkmks.docx` → .odt） | 记号换成三种：闭在同段的与 Word 那条光标都变成**一枚** `text:bookmark`（3 枚），只有跨段那一对是 `bookmark-start`/`-end`（两头写名字）；改名的那条在这里写作带空格的「口径 副本 1」 —— 见事实 98 |
+| `deck-tr.pptx` | python-pptx 1.0.2（`write_transition_deck`，切换没有公开属性，走 `parse_xml`） | 三页各改一个变量：`第一页`（`p:transition spd="med" advClick="1" advTm="5000"` + 孩子 `p:fade`）/ `第二页`（只写 `spd="fast"`，方向在孩子 `p:wipe/@dir="l"` 上）/ `第三页`（切换一个字都没写）。`spd`、`advClick`、`advTm` 是三句独立的话（多快、点一下换不换、几毫秒换页） |
+| `deck-tr-lo.pptx` | LibreOffice（`deck-tr.pptx` → .pptx） | 同一份重写后：第一页的 `advClick` 没了、第二页连 `spd` 也没了（孩子的 `dir="l"` 留着），而第三页**原本什么都没写、它补了两条**（`{spd:slow,dur:2000}` 与 `{spd:slow}`，都没有效果孩子）—— 全篇 4 条而只有 3 页有 —— 见事实 99 |
+| `deck-tr.odp` | LibreOffice（`deck-tr.pptx` → .odp） | 切换没丢而是**搬了两处并换词表**：`style:drawing-page-properties` 上写 `presentation:transition-type="automatic"` / `transition-speed="fast"` / `duration="PT5S"`（dp1 有、dp2 没有），效果本身进 `anim:transitionFilter`（`smil:type="fade"` + `subtype="crossfade"`、第二页 `barWipe` + `leftToRight`），页上已无 `p:transition` —— 见事实 99 |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
@@ -1721,6 +1724,12 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - `bkmks-lo.docx`（LibreOffice 重写同一份）：两个**断的整个被删掉**（5 起 5 止 → 4 起 4 止、两本孤账都归 0）、号从 1..5 整批重排成 0..3、第二条重名的它不报错而是**改名** `口径_副本_1`，而站内跳转的 `w:anchor="跨段"` 一字未改 —— 删、排、改都是文件自己的事，读者只交现在这份件写的。
     - `bkmks.odt`：记号在这一族有**三种** —— `text:bookmark` 是一枚点，`text:bookmark-start` / `-end` 才是跨段的一对（两头都写 `text:name`，所以按**名字**配，没有号可查）。最要紧的一条：同段起止的那一对在这里变成**一枚点**，于是这一件成了「3 枚点 + 1 对跨段」，而 docx 那面是「5 起 5 止」—— 两个数不是同一个问，谁也不换算成谁。那个改名的副本在这里写作带空格的「口径 副本 1」，与 docx 那面的下划线是两个不同的串。
     - 没有书签的件交一串 0 与空表而不是缺键；RTF 不交这一份配对账（缺键 = 这一支不再交一次）：那一族的 `\bkmkstart` / `\bkmkend` 条数早就在 `structure.bookmarks` 那本账上，两份数不互相顶替。
+
+99. **这一页放映时怎么换：一页可以写两条 `p:transition`，而三个属性各说一件事**
+    - `deck-tr.pptx`（python-pptx，切换没有公开属性，走 `parse_xml`）三页各改一个变量：第一页把 `spd`（多快）、`advClick`（点一下换不换）、`advTm`（几毫秒自动换）三个都写满，效果是**孩子元素** `p:fade`；第二页只写 `spd="fast"` 而方向在孩子自己身上（`p:wipe dir="l"`）；第三页一个字都不写（`elements: 0`）。这三句是可以互相独立的：写了速度不等于说了要不要点。
+    - `deck-tr-lo.pptx`（LibreOffice 重写同一份）：第一页的 `advClick` **没了**（只剩 `spd` 与 `advTm`）、第二页连 `spd` 也没了（属性表整个是空的，而孩子的 `dir=l` 留着），第三页**原本什么都没写，它补了两条** —— `{spd:slow, dur:2000}` 与 `{spd:slow}`，两条都没有效果孩子。于是一篇里「4 条元素」而「只有 3 页有切换」：**一页两条是真会发生的**，这两个数不能互推，所以每页交 `elements`（几条）+ 每条自己的 `written`（写了哪些属性）+ 孩子清单。
+    - `deck-tr.odp`：切转换了地方也换了词表 —— 页面上一个 `p:transition` 都不剩，属性去了 `style:drawing-page-properties`（`presentation:transition-type="automatic"`、`transition-speed="fast"`、`duration="PT5S"`，且 dp1 写了 dp2 没写），效果本身去了一棵 SMIL 动画树（`anim:transitionFilter` 的 `smil:type="fade"` + `smil:subtype="crossfade"`，第二页是 `barWipe` + `leftToRight` + `smil:dur="0.5s"`）。本条账只读 OOXML 那一种，所以 odp 的页**不交这个键**（缺键 = 这一族没看，不是 0）—— 那一族的账是另一问、另一次测量。
+    - 两支读者比这一问时**不比页序**：一支按 `presentation.xml` 的放映序列页、一支按部件名，所以探针按内容排序的多重集比（外加两条求和：全篇几条、每页几条之和），位置留给放映序那一本账去说。
 
 ## 这些数字从哪来
 
