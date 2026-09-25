@@ -3097,6 +3097,7 @@ def pptx_facts(path: Path) -> dict:
         out_slides.append(
             {
                 "part": name,
+                "autofit": slide_autofit(root, _ns_prefixes(parts[name])),
                 "links": pptx_slide_links(root, rels_root),
                 "relationships": slide_rels(rels_root, name),
                 # 「放映时隐藏」这一族就写在根元素上一个 show="0"；没写等于没藏
@@ -4526,6 +4527,237 @@ def odp_drawing_page_styles(parts: dict) -> dict:
     return out
 
 
+def slide_autofit(root, nsmap: dict, limit: int = 100) -> dict:
+    r"""pptx：一个框怎么处理「字比框大」写在 `a:bodyPr` 的**独子元素名**上
+
+    与 `src/office_slide.rs` 的 `slide_autofit` 同一份账。要盯的是「一个子元素都没有」
+    那一档：python-pptx 在 MSO_AUTO_SIZE.NONE 什么都不写，而它给新建文本框的默认是
+    `<a:spAutoFit/>` —— 「没有子元素」与「写了 a:noAutofit」在文件里是两件事。
+    """
+    rows: list = []
+    by_element: dict = {}
+    shapes = no_body = says_nothing = shrinks = wrap_written = box_written = second = 0
+    for index, sp in enumerate([one for one in root.iter() if xml_local(one.tag) == "sp"]):
+        shapes += 1
+        body = None
+        for node in sp.iter():
+            if xml_local(node.tag) == "txBody":
+                body = _first_kid(node, "bodyPr")
+                break
+        element = None
+        autofit_written = None
+        others: list = []
+        if body is not None:
+            for kid in body:
+                if xml_local(kid.tag).lower().endswith("autofit"):
+                    if element is None:
+                        element = _written_name(kid.tag, nsmap)
+                        autofit_written = written_attrs(kid)
+                        by_element[element] = by_element.get(element, 0) + 1
+                        continue
+                    second += 1
+                others.append(_written_name(kid.tag, nsmap))
+        xfrm = None
+        for node in sp.iter():
+            if xml_local(node.tag) == "xfrm":
+                xfrm = node
+                break
+        off = _first_kid(xfrm, "off") if xfrm is not None else None
+        ext = _first_kid(xfrm, "ext") if xfrm is not None else None
+        wrap = of_local(body, "wrap") if body is not None else None
+        if wrap is not None:
+            wrap_written += 1
+        if off is not None or ext is not None:
+            box_written += 1
+        shrinks_here = bool(element) and element.rsplit(":", 1)[-1] == "normAutofit"
+        if shrinks_here:
+            shrinks += 1
+        if body is not None and element is None:
+            says_nothing += 1
+        if body is None:
+            no_body += 1
+        if len(rows) < limit:
+            paras = [one for one in sp.iter() if xml_local(one.tag) == "p"]
+            rows.append(
+                {
+                    "shape": index,
+                    "name": (
+                        of_local(_first_any(sp, "cNvPr"), "name")
+                        if _first_any(sp, "cNvPr") is not None
+                        else None
+                    ),
+                    "placeholder": (
+                        of_local(_first_any(sp, "ph"), "type")
+                        if _first_any(sp, "ph") is not None
+                        else None
+                    ),
+                    "paragraphs": len(paras),
+                    "text": "".join(paras[0].itertext()).strip() if paras else "",
+                    "has_bodyPr": body is not None,
+                    "written": written_attrs(body) if body is not None else None,
+                    "autofit_element": element,
+                    "autofit_written": autofit_written,
+                    "other_children": others,
+                    "shrinks_text": shrinks_here,
+                    "off": written_attrs(off) if off is not None else None,
+                    "ext": written_attrs(ext) if ext is not None else None,
+                    "off_mm": {
+                        key: (mm_of(off.get(key), "emu") if off is not None and off.get(key) is not None else None)
+                        for key in ("x", "y")
+                    },
+                    "ext_mm": {
+                        key: (mm_of(ext.get(key), "emu") if ext is not None and ext.get(key) is not None else None)
+                        for key in ("cx", "cy")
+                    },
+                }
+            )
+    return {
+        "family": "ooxml",
+        "shapes": shapes,
+        "checked": len(rows),
+        "rows": rows,
+        "no_bodyPr": no_body,
+        "by_element": by_element,
+        "second_autofit_child": second,
+        "shrinks_text": shrinks,
+        "says_nothing": says_nothing,
+        "wrap_written": wrap_written,
+        "box_written": box_written,
+        "bodyPr_total": count_local(root, "bodyPr"),
+    }
+
+
+def odp_graphic_styles_of(parts: dict) -> dict:
+    """两份件里 family=graphic 的样式：名字 → 它那一处 graphic-properties（前缀原样留着）
+
+    两份都走、同名先到的一条算数 —— 与 `odp_cell_styles` 同一条规则，不拿「自动样式一定在
+    content.xml」当文件规矩。
+    """
+    out: dict = {}
+    for part in ODP_STYLE_PARTS:
+        raw = parts.get(part)
+        if raw is None:
+            continue
+        nsmap = _ns_prefixes(raw)
+        for one in ET.fromstring(raw).iter():
+            if xml_local(one.tag) != "style" or of_local(one, "family") != "graphic":
+                continue
+            name = of_local(one, "name")
+            if not name or name in out:
+                continue
+            props = None
+            for kid in one:
+                if xml_local(kid.tag) == "graphic-properties":
+                    props = kid
+                    break
+            out[name] = {
+                "name": name,
+                "part": part,
+                "parent": of_local(one, "parent-style-name"),
+                "element": _written_name(props.tag, nsmap) if props is not None else None,
+                "attrs": _written_attrs(props, nsmap) if props is not None else None,
+            }
+    return out
+
+
+ODP_AUTOFIT_WANTS = ("shrink-to-fit", "fit-to-size", "wrap-option")
+
+
+def odp_autofit(page, styles: dict, limit: int = 100) -> dict:
+    r"""odp：同一个问题写在**样式**上 —— 框点名的 graphic 样式 → 那条 graphic-properties
+
+    实测 LibreOffice 把 pptx 的「什么都不做」与「框随字长」两档写成一模一样的一条
+    （shrink-to-fit=false + fit-to-size=false），所以这一族解不出 spAutoFit 那一档；
+    三个值各数各的，不替谁猜回哪一档。
+    """
+    rows: list = []
+    shapes = found = missing = props_written = says_nothing = shrinks = box_written = 0
+    tallies = {key: {} for key in ODP_AUTOFIT_WANTS}
+    for index, shape in enumerate(
+        [one for one in page.iter() if xml_local(one.tag) == "custom-shape"]
+    ):
+        shapes += 1
+        named = None
+        for key, value in shape.attrib.items():
+            local = key.rsplit("}", 1)[-1]
+            if local != "style-name":
+                continue
+            uri = key[1:].split("}", 1)[0] if key.startswith("{") else ""
+            # 与 Rust 同一条：只排掉 text:style-name（那一段字点的样式），前缀叫什么不管
+            if uri.endswith("text:1.0"):
+                continue
+            named = value
+            break
+        had = styles.get(named) if named else None
+        if had is None:
+            missing += 1
+        else:
+            found += 1
+        attrs = (had or {}).get("attrs")
+        picked = {}
+        if attrs is not None:
+            props_written += 1
+            for key, value in attrs.items():
+                if key.rsplit(":", 1)[-1] in ODP_AUTOFIT_WANTS:
+                    picked[key] = value
+        values = {}
+        for want in ODP_AUTOFIT_WANTS:
+            raw = None
+            for key, value in (attrs or {}).items():
+                if key.rsplit(":", 1)[-1] == want:
+                    raw = value
+                    break
+            values[want] = raw
+            slot = tallies[want]
+            mark = raw if raw is not None else "(没写)"
+            slot[mark] = slot.get(mark, 0) + 1
+        shrinks_here = values["shrink-to-fit"] == "true"
+        if shrinks_here:
+            shrinks += 1
+        if attrs is not None and not picked:
+            says_nothing += 1
+        box = {key: of_local(shape, key) for key in ("x", "y", "width", "height")}
+        if any(value is not None for value in box.values()):
+            box_written += 1
+        if len(rows) < limit:
+            paras = [one for one in shape.iter() if xml_local(one.tag) == "p"]
+            rows.append(
+                {
+                    "shape": index,
+                    "name": of_local(shape, "name"),
+                    "style": named,
+                    "style_found": had is not None,
+                    "style_part": (had or {}).get("part"),
+                    "style_parent": (had or {}).get("parent"),
+                    "props_element": (had or {}).get("element"),
+                    "written": picked if attrs is not None else None,
+                    "shrink_to_fit": values["shrink-to-fit"],
+                    "fit_to_size": values["fit-to-size"],
+                    "wrap_option": values["wrap-option"],
+                    "paragraphs": len(paras),
+                    "text": "".join(paras[0].itertext()).strip() if paras else "",
+                    "shrinks_text": shrinks_here,
+                    "box": box,
+                }
+            )
+    return {
+        "family": "odf",
+        "shapes": shapes,
+        "checked": len(rows),
+        "rows": rows,
+        "style_found": found,
+        "style_missing": missing,
+        "props_written": props_written,
+        "shrink_to_fit": tallies["shrink-to-fit"],
+        "fit_to_size": tallies["fit-to-size"],
+        "wrap_option": tallies["wrap-option"],
+        "shrinks_text": shrinks,
+        "says_nothing": says_nothing,
+        "box_written": box_written,
+        "frames": count_local(page, "frame"),
+    }
+
+
 def odp_page_visibility(styles: dict, named) -> dict:
     """一页在放映时藏不藏：ODF 不写在页上，写在页点名的那份 drawing-page 样式里"""
     if named is None or named not in styles:
@@ -4561,6 +4793,8 @@ def odp_facts(path: Path) -> dict | None:
     # 页的「放映时隐藏」在那份 family=drawing-page 的样式里，两份件都要收（不赌自动样式
     # 一定在 content.xml）
     page_styles = odp_drawing_page_styles(parts)
+    # 框的 autofit 也住在样式里（family=graphic），与格子样式同一类两跳
+    graphic_styles = odp_graphic_styles_of(parts)
 
     layout_of_master: dict = {}
     size_of_layout: dict = {}
@@ -4633,6 +4867,8 @@ def odp_facts(path: Path) -> dict | None:
                     page, ns_prefixes(parts["content.xml"].decode("utf8"))
                 ),
                 "tables": sum(1 for one in page.iter() if xml_local(one.tag) == "table"),
+                # 同一个问题这一族写在框点名的那份 graphic 样式里
+                "autofit": odp_autofit(page, graphic_styles),
                 # 这一族的链接直接写在字上，且只走页上的 frame（备注那一块另算）
                 "links": odp_slide_links(
                     [one for one in page if xml_local(one.tag) != "notes"]

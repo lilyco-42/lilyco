@@ -218,6 +218,9 @@ def main() -> int:
         "deck-tables.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-tables-lo.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-tables.odp": ("opendocument", "powerpoint", "odp"),
+        # 框与字那两件：一个框里的字装不下怎么办（python-pptx 的 pptx 与 LibreOffice 的 odp）
+        "deck-autofit.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-autofit.odp": ("opendocument", "powerpoint", "odp"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -4043,6 +4046,94 @@ def main() -> int:
          dig(plain, "structure.header_footers.sections[0].slots.header:default"),
          dig(plain, "structure.header_footers.even_and_odd_headers.written")],
         [True, True, True, None, 2, 0, None, False],
+    )
+
+    # ── 3s) 一个框里的字装不下怎么办：pptx 写独子元素，odp 写框点的那份样式 ──────
+    print("=== 3s) 框与字：a:bodyPr 的独子元素 vs 框点名的那份 graphic 样式 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.pptx")):
+        got = lbin("office-slide", fixture(name))
+        by_part = {one["part"]: one for one in files[name]["ooxml"]["slides"]}
+        for one in got.get("slides", []):
+            check("%s 每页「框与字」整份账与读者一致（独子元素名、它写的属性、框的位置尺寸）" % name,
+                  one.get("autofit"), (by_part.get(one.get("part")) or {}).get("autofit"))
+    for name in sorted(one.name for one in FIXTURES.glob("*.odp")):
+        got = lbin("office-slide", fixture(name))
+        mine = files[name]["odp"]["slides"]
+        for at, one in enumerate(got.get("slides", [])):
+            check("%s 第 %d 页「框与字」整份账与读者一致（一跳：框点名的样式 → 那条属性）"
+                  % (name, at + 1),
+                  one.get("autofit"), (mine[at] if at < len(mine) else {}).get("autofit"))
+    af = lbin("office-slide", fixture("deck-autofit.pptx"))
+    od = lbin("office-slide", fixture("deck-autofit.odp"))
+    check(
+        "pptx 三档各一条，且都写在 a:bodyPr 的独子元素上；第四档（一个子元素都没有）这份件里没有出现",
+        [dig(af, "slides[0].autofit.shapes"),
+         dig(af, "slides[0].autofit.says_nothing"),
+         dig(af, "slides[0].autofit.no_bodyPr"),
+         dig(af, "slides[0].autofit.by_element"),
+         dig(af, "slides[1].autofit.by_element"),
+         dig(af, "slides[0].autofit.bodyPr_total")],
+        [3, 0, 0,
+         {"a:noAutofit": 1, "a:spAutoFit": 1, "a:normAutofit": 1},
+         {"a:spAutoFit": 1}, 3],
+    )
+    check(
+        "算出来的缩放比按写的交：normAutofit 那一条带着 fontScale 与 lnSpcReduction，"
+        "另两条一个字都不写（{} 是「看了，没说」）",
+        [dig(af, "slides[0].autofit.rows[2].autofit_written"),
+         dig(af, "slides[0].autofit.rows[0].autofit_written"),
+         dig(af, "slides[0].autofit.rows[0].written"),
+         dig(af, "slides[1].autofit.rows[0].written")],
+        [{"fontScale": "75000", "lnSpcReduction": "20000"}, {},
+         {"wrap": "square"}, {"wrap": "none"}],
+    )
+    check(
+        "odp 那一跳解得开：三框各点一份 graphic 样式，那条 graphic-properties 键带着文件自己写的前缀",
+        [dig(od, "slides[0].autofit.shapes"),
+         dig(od, "slides[0].autofit.style_found"),
+         dig(od, "slides[0].autofit.style_missing"),
+         dig(od, "slides[0].autofit.props_written"),
+         dig(od, "slides[0].autofit.rows[0].style"),
+         dig(od, "slides[0].autofit.rows[0].props_element"),
+         dig(od, "slides[0].autofit.frames")],
+        [3, 3, 0, 3, "gr1", "style:graphic-properties", 1],
+    )
+    check(
+        "LibreOffice 把 pptx 的「什么都不做」与「框随字长」写成一模一样的一条："
+        "odp 这一族解不出 spAutoFit 那一档，这两行就是那件丢掉的事",
+        [dig(od, "slides[0].autofit.rows[0].written")
+         == dig(od, "slides[0].autofit.rows[1].written"),
+         dig(od, "slides[0].autofit.rows[0].written"),
+         dig(od, "slides[0].autofit.shrink_to_fit"),
+         dig(od, "slides[0].autofit.fit_to_size")],
+        [True,
+         {"draw:fit-to-size": "false", "style:shrink-to-fit": "false", "fo:wrap-option": "wrap"},
+         {"false": 2, "true": 1}, {"false": 3}],
+    )
+    check(
+        "跨家同一个数：哪几框明说「字缩进框」（pptx 的 normAutofit / odp 的 shrink-to-fit=true）",
+        [[one["shrinks_text"] for one in dig(af, "slides[0].autofit.rows")],
+         [one["shrinks_text"] for one in dig(od, "slides[0].autofit.rows")],
+         [dig(af, "slides[0].autofit.shrinks_text"), dig(od, "slides[0].autofit.shrinks_text")]],
+        [[False, False, True], [False, False, True], [1, 1]],
+    )
+    check(
+        "同一句问题两家的字面：会不会折行 —— pptx 写 square / none，odp 写 wrap / no-wrap，各交各的",
+        [dig(af, "slides[0].autofit.rows[0].written.wrap"),
+         dig(af, "slides[1].autofit.rows[0].written.wrap"),
+         dig(od, "slides[0].autofit.rows[0].wrap_option"),
+         dig(od, "slides[1].autofit.rows[0].wrap_option"),
+         dig(od, "slides[1].autofit.wrap_option")],
+        ["square", "none", "wrap", "no-wrap", {"no-wrap": 1}],
+    )
+    check(
+        "框自己的位置尺寸：pptx 是 EMU（另给一份 0.01mm），odp 是自带单位的原样串，谁都不换算成对方",
+        [dig(af, "slides[0].autofit.rows[0].off"),
+         dig(af, "slides[0].autofit.rows[0].off_mm"),
+         dig(od, "slides[0].autofit.rows[0].box"),
+         dig(af, "slides[0].autofit.box_written"), dig(od, "slides[0].autofit.box_written")],
+        [{"x": "457200", "y": "914400"}, {"x": 1270, "y": 2540},
+         {"x": "1.27cm", "y": "2.54cm", "width": "6.349cm", "height": "2.539cm"}, 3, 3],
     )
 
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──

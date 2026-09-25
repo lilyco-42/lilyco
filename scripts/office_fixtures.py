@@ -1312,6 +1312,49 @@ def write_styles_docx(path: Path) -> None:
     doc.save(path)
 
 
+def write_autofit_pptx(path: Path) -> None:
+    """一个框三种「字与框谁迁就谁」，再加 PowerPoint 自己算出来的那两个缩放数
+
+    `a:bodyPr` 里那一个孩子的**元素名**就是答案（`noAutofit` / `spAutoFit` / `normAutofit`），
+    而 `normAutofit` 上的 `fontScale` / `lnSpcReduction` 是生产者算完才写下来的数 ——
+    读者不该自己推，只把写的交出去。`wrap` 与四边内间距（`lIns`…）也在同一个元素上，
+    两家写出来的数不一样（python-pptx 90000 / LibreOffice 91440 EMU，正是 0.0984 与 0.1 英寸）。
+    """
+    from pptx import Presentation
+    from pptx.enum.text import MSO_AUTO_SIZE
+    from pptx.oxml.ns import qn
+    from pptx.util import Inches
+
+    pres = Presentation()
+    slide = pres.slides.add_slide(pres.slide_layouts[6])
+    kinds = (
+        (MSO_AUTO_SIZE.NONE, "不缩：这一框的字超出去就超出去"),
+        (MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT, "框随字长"),
+        (MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE, "字缩进框：这一段本来要两行，压成一行了"),
+    )
+    for at, (kind, words) in enumerate(kinds):
+        box = slide.shapes.add_textbox(Inches(0.5), Inches(1.0 + at * 1.6), Inches(2.5), Inches(1.0))
+        frame = box.text_frame
+        frame.word_wrap = True
+        frame.text = words
+        frame.auto_size = kind
+        if kind is MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE:
+            # 生产者算完之后写在 normAutofit 上的两个数（读者不自己算）
+            body = frame._txBody.find(qn("a:bodyPr"))
+            fit = body.find(qn("a:normAutofit"))
+            if fit is not None:
+                fit.set("fontScale", "75000")
+                fit.set("lnSpcReduction", "20000")
+    second = pres.slides.add_slide(pres.slide_layouts[6])
+    box = second.shapes.add_textbox(Inches(0.5), Inches(1.0), Inches(2.5), Inches(1.0))
+    box.text_frame.text = "没人设过自动缩放的新框"
+    # 量到的一条生产者脾气：python-pptx 新建的文本框**默认就写** `<a:spAutoFit/>`
+    # 并把 wrap 设成 none —— 所以「这一框没点任何一种缩放」在这一家要用
+    # `MSO_AUTO_SIZE.NONE` 显式说（第一框那样，写出来是 bodyPr 里根本没有那一个孩子），
+    # 什么都不做反而是「框跟着字长」。
+    pres.save(str(path))
+
+
 def write_runs_docx(path: Path) -> None:
     """python-docx：一段只点一个字符属性 —— 「这几个字自己写了什么格式」
 
@@ -2642,6 +2685,14 @@ def main() -> int:
             shutil.copyfile(made, OUT / out_name)
         else:
             print("⚠️  没拿到 %s（%s 那一转）" % (out_name, fmt))
+
+    # 一个框三种「字与框谁迁就谁」：python-pptx 写 pptx，LibreOffice 转 odp（第三种词表）
+    write_autofit_pptx(OUT / "deck-autofit.pptx")
+    convert(exe, OUT / "deck-autofit.pptx", "odp", SCRATCH)
+    if (SCRATCH / "deck-autofit.odp").exists():
+        shutil.copyfile(SCRATCH / "deck-autofit.odp", OUT / "deck-autofit.odp")
+    else:
+        print("⚠️  没拿到 deck-autofit.odp")
 
     # 分节的页眉页脚六格：两节 + titlePg + evenAndOddHeaders + 一条指着不存在关系的号
     write_sections_docx(OUT / "sections.docx")

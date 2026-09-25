@@ -23,6 +23,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `deck-hidden-lo.pptx` | LibreOffice（从 `deck-hidden.odp` 回转） | 同一句话过了一遍 ODF 再回来，`show="0"` 一字不动 —— 隐藏不是会被重写吃掉的那种信息 |
 | `deck-hidden.odp` | LibreOffice（从 `deck-hidden.pptx` 导出） | ODF 的第三种摆法：页上只有 `draw:style-name="dp1"` / `"dp3"`，那句 `presentation:visibility="hidden"` 在 dp3 那份 drawing-page 样式里；**同一份文件里 dp2 也写着 hidden 而没有任何页点它的名** —— 只 grep 全文就数错 |
 | `deck-tables.odp` | LibreOffice（上面那一转的中间件） | 同一张表的第三种写法：列宽换成 `7.62cm` 与 `5.08cm`、行高换成 `1.693cm` 与 `2.54cm`，而合并改成**另写一格** `table:covered-table-cell`（既不是 docx 的不写、也不是 pptx 的 `hMerge`） |
+| `deck-autofit.pptx` | python-pptx | 四个框，`a:bodyPr` 各写一种：`a:noAutofit`、`a:spAutoFit`、`a:normAutofit fontScale="75000" lnSpcReduction="20000"`，第二页那一个没人设过而 python-pptx 自己补了 `a:spAutoFit`；第一页三框 `wrap="square"`，第二页 `wrap="none"`。**内边距那四个属性一个都没写** —— `written` 里就只有 `wrap` 一个键 |
+| `deck-autofit.odp` | LibreOffice（`deck-autofit.pptx` → .odp） | 同一个问题的第三种写法：答案在框点名的 family=graphic 样式（`gr1`…`gr5`）的 `style:graphic-properties` 上，而 pptx 的 `noAutofit` 与 `spAutoFit` 两档在这里**写成一模一样的一条**（`style:shrink-to-fit="false"` 加 `draw:fit-to-size="false"`）—— 见事实 82 |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
@@ -1436,6 +1438,29 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       `linked_to_previous` —— 给第二节写页眉，字其实落进第一节那份 `word/header1.xml` 里，
       全件仍然只有页眉页脚各一份部件。所以这份件的页眉写的是「第二节页眉」而节 1 用着它，
       这不是读者的错，也不是 Word 的错，是 python-docx 的默认值。
+
+82. **一个框里的字装不下怎么办：pptx 写在框上，odp 写在框点的那份样式上，而 LO 把两档合成一档**
+    - pptx 的答案是 `a:bodyPr` 的**独子元素名**：`a:noAutofit`（什么都不做）、`a:spAutoFit`
+      （框随字长）、`a:normAutofit`（字缩进框，且带着算出来的 `fontScale="75000"` 与
+      `lnSpcReduction="20000"`）。坑不在元素名，在「一个子元素都没有」：**python-pptx 在
+      NONE 那一档什么都不写**（`deck.pptx` 两页三个框全是空的 `bodyPr`），而它给新建文本框
+      的默认反倒是 `<a:spAutoFit/>`（`deck-autofit.pptx` 第二页那一个没人设过）。于是
+      `says_nothing`（看了那条 `bodyPr`，它没说）与 `by_element["a:noAutofit"]`（文件明说了
+      什么都不做）是两本账，不并成一个「不缩放」。
+    - odp 要跳一跳：`draw:custom-shape/@draw:style-name` → 那份 family=graphic 样式 →
+      `style:graphic-properties` 上的 `style:shrink-to-fit` / `draw:fit-to-size` /
+      `fo:wrap-option`。三个键来自三个命名空间，所以**键带着文件自己写的前缀**交出去
+      （折成局部名就会互相盖掉，与 `fo:` / `loext:` 那一条同一口径）；跳不通与说了没有
+      也分两笔：`style_found` / `style_missing` / `props_written` / `says_nothing`。
+    - **量到的一条生产者脾气**：LibreOffice 把 pptx 的「什么都不做」与「框随字长」两档转成
+      odp 之后是**一模一样**的一条（`gr1` 与 `gr2` 都是 `shrink-to-fit=false` 加
+      `fit-to-size=false`）—— 那一档在这次转换里就是丢了。报告把这两行原样摆出来，
+      不替它猜回哪一档。同一次转换里 `wrap="square"` → `wrap`、`wrap="none"` → `no-wrap`：
+      一句问题两种字面，两边各交各的，只比那一个各家自己答的 `shrinks_text`。
+    - 只有 `draw:custom-shape` 进账（Impress 把普通文本框写成这个），备注块里那些
+      `draw:frame` 另数在 `frames`（实测每页 1 个）。框自己的位置尺寸 pptx 交 EMU 加换成
+      0.01mm 的那一份（`457200` → `1270`），odp 交自带单位的原样串（`1.27cm`），
+      谁都不换算成对方的单位。
 
 ## 这些数字从哪来
 
