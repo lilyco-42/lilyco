@@ -212,6 +212,55 @@ def add_bookmark(paragraph, name: str, ident: str) -> None:
     paragraph._p.append(end)
 
 
+MARK_FONT_DECLARED = "点一个字体表里有的名"
+MARK_FONT_UNDECLARED = "点一个字体表里没有的名"
+MARK_FONT_THEME = "点主题里的那一个"
+MARK_FONT_EAST = "只点东亚那一路"
+MARK_FONT_PLAIN = "什么都不点：这一段一个字都不点字体"
+
+
+def write_fonts_docx(path: Path) -> None:
+    """字体那份账：一张字体表 + 五种点法，一次只改一个变量
+
+    五段各问一句：点一个表里**有**的名（Courier）、点一个表里**没有**的名（Courier New ——
+    这才是「这份文档要用的字体没随文件走」的真形状）、点主题里的那一个（`w:asciiTheme`
+    而没有 `w:ascii`，要再跳一跳才落到字面名）、只点东亚那一路（`w:eastAsia` 而 ascii/hAnsi
+    一个字都不写 —— 同一句「用什么字」按书写系统分成四处各写各的），最后一段自己
+    一个字都不点（它用样式给的东西）。
+
+    python-docx 的 `font.name` 一次写 `w:ascii` 与 `w:hAnsi` 两遍（同一个名两个属性），
+    东亚那一路与主题那一路它没有开关，所以那两段是手写的 `w:rFonts`。
+    """
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    doc.add_heading("字体表与点它的地方", level=1)
+
+    one = doc.add_paragraph()
+    one.add_run(MARK_FONT_DECLARED).font.name = "Courier"
+
+    two = doc.add_paragraph()
+    two.add_run(MARK_FONT_UNDECLARED).font.name = "Courier New"
+
+    three = doc.add_paragraph()
+    run = three.add_run(MARK_FONT_THEME)
+    fonts = OxmlElement("w:rFonts")
+    fonts.set(qn("w:asciiTheme"), "minorHAnsi")
+    fonts.set(qn("w:hAnsiTheme"), "minorHAnsi")
+    run._element.get_or_add_rPr().append(fonts)
+
+    four = doc.add_paragraph()
+    run = four.add_run(MARK_FONT_EAST)
+    fonts = OxmlElement("w:rFonts")
+    fonts.set(qn("w:eastAsia"), "ＭＳ 明朝")
+    run._element.get_or_add_rPr().append(fonts)
+
+    doc.add_paragraph(MARK_FONT_PLAIN)
+    doc.save(path)
+
+
 def write_sections_docx(path: Path) -> None:
     """两节 + 首尾页开关 + 奇偶页开关，再加一条指着不存在关系的引用
 
@@ -2342,6 +2391,18 @@ def main() -> int:
 
     english = OUT / "notes-en.docx"
     write_english_docx(english)
+
+    # 字体那份账：一张字体表 + 五种点法（表里没有的名、主题里的那一个、只点东亚那一路）。
+    # 再过一遍 LibreOffice：它把 OOXML 那张表搬成 style:font-face，而「一个名两个属性」
+    # 在那里成了「一个 style:name 配一个带引号的 svg:font-family」
+    fonts = OUT / "fonts.docx"
+    write_fonts_docx(fonts)
+    convert(exe, fonts, "odt", SCRATCH)
+    if (SCRATCH / "fonts.odt").exists():
+        shutil.copyfile(SCRATCH / "fonts.odt", OUT / "fonts.odt")
+    convert(exe, fonts, "docx", SCRATCH)
+    if (SCRATCH / "fonts.docx").exists():
+        shutil.copyfile(SCRATCH / "fonts.docx", OUT / "fonts-lo.docx")
 
     headers = OUT / "notes-hf.docx"
     write_header_docx(headers)

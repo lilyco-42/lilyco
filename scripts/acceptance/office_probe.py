@@ -3968,6 +3968,7 @@ def main() -> int:
               [rwant["bookmarks"], rwant["bookmark_starts"], rwant["bookmark_ends"],
                rwant["anchors"], rwant["anchors_found"], rwant["anchors_missing"],
                rwant["links_external"]])
+    fldrtf = lbin("office-doc", fixture("fields.rtf"))
     check(
         "三族各 1 条指得到、1 条指不到：docx 对 w:bookmarkStart 的 name、"
         "odt 对 text:bookmark-start 的 name、rtf 对书签那一群里解过转义的那一个名",

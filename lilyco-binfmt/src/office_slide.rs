@@ -795,8 +795,9 @@ fn slide_tables(slide_root: &xmlscan::Node, limit: usize) -> Vec<Value> {
     out
 }
 
-/// 从一份属性里按**局部名**取值：键的前缀是文件自己声明的，不参与匹配
-fn attr_in(map: &serde_json::Map<String, Value>, local: &str) -> Option<&str> {
+/// 从一份属性里按**局部名**取值：键的前缀是文件自己声明的，不参与匹配。
+/// 两个输入引用都要生命周期，输出那一个明确挂在属性表上（不写就是 E0106）
+fn attr_in<'a>(map: &'a serde_json::Map<String, Value>, local: &str) -> Option<&'a str> {
     map.iter()
         .find(|(key, _)| key.rsplit(':').next().unwrap_or(key) == local)
         .map(|(_, value)| value.as_str())
