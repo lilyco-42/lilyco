@@ -843,6 +843,44 @@ def add_run_languages(path: Path) -> None:
     doc.save(path)
 
 
+def add_note_numbering(path: Path) -> None:
+    """往一份**真有脚注与尾注**的件上补编号设置：`w:footnotePr` / `w:endnotePr` 的孩子
+
+    走 python-docx 的 `document.settings.element`（那一家没有公开属性）。两处都写、值不一样是
+    这一条 lane 的头条，所以补完之后把孩子按 schema 顺序重排一遍 —— LO 自己写的是
+    `pos, numFmt, 引用×2`（顺序本就不合 schema），重排是为了把「LO 不读」与「LO 看不懂位置」分开。
+    实测：补上的 `numStart` / `numRestart` 在 settings 那份说话、sectPr 那份不说；
+    LibreOffice 重写时两处的这两格**都没了**，转 odt 时它写自己的默认（`start-value="0"`）。
+    """
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    order = ["numFmt", "numStart", "numRestart", "footnote", "endnote", "pos", "hyphen"]
+    doc = Document(path)
+    root = doc.settings.element
+
+    def add_kids(tag, kids):
+        el = root.find(qn(tag))
+        assert el is not None, "%s 不在这份件里" % tag
+        for name, val in kids:
+            had = OxmlElement("w:%s" % name)
+            had.set(qn("w:val"), val)
+            el.append(had)
+        mine = list(el)
+        for one in mine:
+            el.remove(one)
+        def rank(node):
+            name = node.tag.rsplit("}", 1)[-1]
+            return order.index(name) if name in order else len(order)
+        for one in sorted(mine, key=rank):
+            el.append(one)
+
+    add_kids("w:footnotePr", [("numRestart", "eachPage"), ("numStart", "5")])
+    add_kids("w:endnotePr", [("numRestart", "continuous"), ("numStart", "3")])
+    doc.save(path)
+
+
 def add_page_number_start(path: Path) -> None:
     """往已有的节上挂一枚「页码从 7 开始、用大写罗马、不带章号」的 `w:pgNumType`
 
@@ -3426,6 +3464,26 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "bkmks.odt", OUT / "bkmks.odt")
     else:
         print("⚠️  没拿到 bkmks.odt")
+
+    # 注的编号那三份：在真有注的 notes-end.docx 上补设置（没有注时 LO 两处都不写，量不出这一问）
+    seed = OUT / "notes-end.docx"
+    if seed.exists():
+        nset = OUT / "nset.docx"
+        shutil.copyfile(seed, nset)
+        add_note_numbering(nset)
+        convert(exe, nset, "docx", SCRATCH / "nset-back")
+        made_nset = SCRATCH / "nset-back" / "nset.docx"
+        if made_nset.exists():
+            shutil.copyfile(made_nset, OUT / "nset-lo.docx")
+        else:
+            print("⚠️  没拿到 nset-lo.docx（docx → docx 那一转）")
+        convert(exe, nset, "odt", SCRATCH / "nset-asodt")
+        if (SCRATCH / "nset-asodt" / "nset.odt").exists():
+            shutil.copyfile(SCRATCH / "nset-asodt" / "nset.odt", OUT / "nset.odt")
+        else:
+            print("⚠️  没拿到 nset.odt（docx → odt 那一转）")
+    else:
+        print("⚠️  没有 notes-end.docx，注的编号那三份件跳过")
 
     # 页码起始那两份：zipfile 写 odt，LibreOffice 导一份 docx（看它把「从 7 开始」带不带过来）
     pnum = OUT / "pnum.odt"

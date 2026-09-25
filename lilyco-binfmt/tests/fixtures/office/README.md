@@ -64,6 +64,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `lang.docx` | python-docx（`add_run_languages`，语言没有公开属性，走 `OxmlElement`） | `w:lang` 一层一个样：段上 `pPr/rPr` 写 `val="es-ES"`，三串字分别**只写** `val="fr-FR"`、**只写** `eastAsia="ja-JP"`、三路全写 `val="de-DE" eastAsia="zh-CN" bidi="ar-SA"` —— 一枚元素的三个属性各说一路文字，不并成「这文档几种语言」|
 | `lang-lo.docx` | LibreOffice（`lang.docx` → .docx） | 正文那四条一字未动（段 1 + run 3），而它**给 `Normal` / `NoSpacing` / `MacroText` 各补了一条** `en-US / en-US / ar-SA` —— 元素 5 条变 8 条、`levels_seen` 多出一层：补的是生产者的手笔，不是稿子说过的话 |
 | `lang.odt` | LibreOffice（`lang.docx` → .odt） | 换族之后只剩一格：`distinct_languages` 是 `de / en / es / fr` —— 只写 `eastAsia="ja-JP"` 那一串字**一个字都没落**（没有 ja），三路全写那串只剩 `de` + `DE`（zh 与 ar 都不见），而 `en-US` 这一族拆成 `language="en"` + `country="US"` 两个属性 |
+| `nset.docx` | python-docx（`add_note_numbering`，拿 `notes-end.docx` 补设置） | 注的编号在 OOXML 写在**两处**：settings.xml 那份 `w:footnotePr` 说 `numFmt=decimal` / `numStart=5` / `numRestart=eachPage` / `pos=sectEnd`，`w:sectPr` 里那一份**只有 `pos` 与 `numFmt`**；settings 那份还带两个分隔符引用（`w:footnote w:id="0"/"1"`），节里那份没有 |
+| `nset-lo.docx` | LibreOffice（`nset.docx` → .docx） | 同一份重写一遍：两处那两格**都没了**（只剩 `pos` 与 `numFmt`），`attrs_only_in_settings` 变空；编号格式与分隔符引用一字未动 |
+| `nset.odt` | LibreOffice（`nset.docx` → .odt） | 一类注一份 `text:notes-configuration`（两份都在 styles.xml）：footnote 那份 `num-format="1"` + `start-value="0"` + `footnotes-position="page"` + `start-numbering-at="document"`，endnote 那份**只有前两个**；而源件明写的「从 5 开始」在这里是 `start-value="0"` —— LO 写自己的默认 |
 | `pnum.odt` | zipfile 写的最小 ODF（`write_pnum_odt`） | 页码起始在 ODF 写在两处：段落属性上 `style:page-number="7"` + `style:use-page-numbering="true"`（外加 `fo:break-before="page"`），页版式上 `style:num-format="1"` + `style:page-number="1"`；两条母版页共用那一份版式，所以「几条版式」是 1 而「几份母版页」是 2 |
 | `pnum.docx` | LibreOffice（`pnum.odt` → .docx） | 转过来之后 `w:pgNumType` **只带 `fmt="decimal"`**：「从 7 开始」整格没写（`start_written` 是 null，不是 0 也不是 7），而源件那个「另起一页」也没换出第二节（`sections_total` 1）|
 | `restart.docx` | python-docx（`add_page_number_start`，页码没有公开属性，走 `OxmlElement`） | `w:pgNumType` 三个属性全写：`start="7"` / `fmt="upperRoman"` / `chpNum="none"` —— 这一节既说了用什么数、也说了从几起、也说了不跟章号 |
@@ -1807,6 +1810,35 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       （另有 `\langfe` 那一路），整名比对与归属判据还没量完 —— 实测这批件里 `\lang` 族控制字
       每份都出现 5–18 次，但「哪一段说的」没判据；而「这份文档是哪国语言」那个**属性级**问句
       早就在 `office-meta` 的 `dc:language` 那一份账上，两份数不互相顶替。
+
+103. **脚注与尾注怎么编号：OOXML 把同一句话写在两处，两处说的不一样；ODF 一类注一份，两类不对称**
+    - 形状：OOXML 的 `w:footnotePr` / `w:endnotePr` **自己不写属性**，值在孩子身上
+      （`<w:numStart w:val="5"/>`、`<w:numRestart w:val="eachPage"/>`、`<w:numFmt w:val="decimal"/>`、
+      `<w:pos w:val="sectEnd"/>`），另有两个特殊孩子 `w:footnote` / `w:endnote` 带 `w:id` ——
+      那是分隔符与延续分隔符的引用（注部件里两条空正文的占位）。它可以出现在**两处**：
+      `word/settings.xml` 一份、每一条 `w:sectPr` 又一份。
+    - 头条是「两处不一样」：`nset.docx` 的 settings 那份说了 `numStart=5` + `numRestart=eachPage`，
+      节里那一份只有 `pos` 与 `numFmt`，也没有分隔符引用 —— 所以 `attrs_only_in_settings` 是
+      `["numRestart", "numStart"]`、`attrs_in_both` 是 `["numFmt", "pos"]`，两份各交一份、不合成。
+      （另一条同类先例是图的尺寸与替代文字：两处都写就是两处都报。）
+    - LibreOffice 重写同一份（`nset-lo.docx`）：**两处的那两格都没了**，`attrs_only_in_settings`
+      因此变空 —— 「谁丢了起点」在账上看得见；编号格式与分隔符引用一字未动。
+    - ODF 是一类注一份 `text:notes-configuration`（实测两份都在 **styles.xml**），两类注**不对称**：
+      footnote 那份带 `style:num-format` + `text:start-value` + `text:footnotes-position` +
+      `text:start-numbering-at`，endnote 那份只有前两个 —— 没写的交 false / null，
+      不拿另一类的写法替它接。词汇也与 OOXML 不是一套（`1` / `i` 对 `decimal` / `lowerRoman`，
+      `text:start-value` 对 `w:numStart`，`text:start-numbering-at` 对 `w:numRestart`），两边各按写的交。
+    - 跨族那趟照旧丢：带 `numStart=5` 的 docx 转成 odt，LO 写的是自己的默认 `start-value="0"`、
+      `start-numbering-at="document"`（不是 eachPage）—— 与页码起点那条同一族事实。
+    - 反面凭据：`notes.docx`（python-docx 原件，**有脚注**）两处都没写过这一格 →
+      `footnote_written` / `endnote_written` 与两条 `sections_with_*_pr` 全是 false / 0，
+      `footnote` 是 null 而不是空表 —— 「这份件有注」与「这份件说了注怎么编号」是两件事。
+    - 造件的两条坑（记下来免得再试）：元素名是 `w:footnotePr`，写成 `w:footPr` 会被整条丢掉，
+      于是量出来的「LO 不读」是假的；而**稿子里一条注都没有时 LO 两处也都不写**，
+      那测的是「没有注所以没设置」，不是「LO 不读设置」—— 所以测量件建在真有注的 `notes-end.docx` 上，
+      并且补完之后把孩子按 schema 顺序重排一遍（LO 自己写的顺序是 `pos, numFmt, 引用×2`）。
+    - RTF 与遗留 .doc 不交这个键（缺键 = 这一族没看）：RTF 的注编号在 `\ftrprops` 那一路控制字上、
+      没有节级对应物；.doc 的注设置在 table stream 里。
 
 ## 这些数字从哪来
 

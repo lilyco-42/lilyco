@@ -278,6 +278,10 @@ def main() -> int:
         "lang.docx": ("ooxml", "word", "docx"),
         "lang-lo.docx": ("ooxml", "word", "docx"),
         "lang.odt": ("opendocument", "word", "odt"),
+        # 注的编号那三份：同一句话在两处说，两处说的不一样
+        "nset.docx": ("ooxml", "word", "docx"),
+        "nset-lo.docx": ("ooxml", "word", "docx"),
+        "nset.odt": ("opendocument", "word", "odt"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -5436,6 +5440,104 @@ def main() -> int:
     )
 
 
+
+    # ── 3an) 脚注与尾注怎么编号：OOXML 两处各说各的，ODF 一类注一份且两类不对称 ──────
+    print("=== 3an) 注的编号：settings 那份说了从几开始，sectPr 那份没说 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 注的编号那份账与读者一致（settings 一份 + 每条节一份）" % name,
+              dig(got, "structure.note_settings"),
+              files[name]["ooxml"]["note_settings"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 注的编号那份账与读者一致（一类注一份 configuration）" % name,
+              dig(got, "structure.note_settings"),
+              files[name]["odt"]["note_settings"])
+    nset = lbin("office-doc", fixture("nset.docx"))
+    check(
+        "`nset.docx`：settings 里那份 `w:footnotePr` 说了 `numFmt=decimal` / `numStart=5` / "
+        "`numRestart=eachPage` / `pos=sectEnd`，而 `w:sectPr` 里那一份**只有 `pos` 与 `numFmt`** —— "
+        "「从几开始、每页重来吗」只在一处说过话，所以 `attrs_only_in_settings` 是那两格、"
+        "`attrs_in_both` 只有 `numFmt` 与 `pos`；两处各交一份，不合成",
+        [dig(nset, "structure.note_settings.settings_part"),
+         dig(nset, "structure.note_settings.footnote_written"),
+         dig(nset, "structure.note_settings.endnote_written"),
+         dig(nset, "structure.note_settings.footnote.written"),
+         dig(nset, "structure.note_settings.footnote.note_refs"),
+         dig(nset, "structure.note_settings.sections[0].footnote.written"),
+         dig(nset, "structure.note_settings.attrs_only_in_settings"),
+         dig(nset, "structure.note_settings.attrs_only_in_sections"),
+         dig(nset, "structure.note_settings.attrs_in_both")],
+        [True, True, True,
+         {"numFmt": "decimal", "numStart": "5", "numRestart": "eachPage", "pos": "sectEnd"},
+         ["0", "1"], {"pos": "sectEnd", "numFmt": "decimal"},
+         ["numRestart", "numStart"], [], ["numFmt", "pos"]],
+    )
+    check(
+        "那两个 `w:footnote w:id` / `w:endnote w:id` 孩子是分隔符与延续分隔符的引用"
+        "（注部件里那两条空正文的占位，注那一条 lane 已经量过）—— 它们住在 `w:footnotePr` "
+        "**里面**，所以「settings 那份有引用、sectPr 那份没有」也是两处不一样的地方：`note_refs` 两份各交",
+        [dig(nset, "structure.note_settings.endnote.note_refs"),
+         dig(nset, "structure.note_settings.sections[0].footnote.note_refs"),
+         dig(nset, "structure.note_settings.sections[0].endnote.note_refs"),
+         dig(nset, "structure.note_settings.sections_with_footnote_pr"),
+         dig(nset, "structure.note_settings.sections_with_endnote_pr"),
+         dig(nset, "structure.note_settings.sections_total")],
+        [["0", "1"], [], [], 1, 1, 1],
+    )
+    nset_lo = lbin("office-doc", fixture("nset-lo.docx"))
+    check(
+        "LibreOffice 把同一份重写一遍：两处的那两格**都没了**（只剩 `pos` 与 `numFmt`），"
+        "`attrs_only_in_settings` 因此变空、`attrs_in_both` 还是那两格 —— 「谁丢了起点」在账上看得见，"
+        "而编号格式与分隔符引用一字未动",
+        [dig(nset_lo, "structure.note_settings.footnote.written"),
+         dig(nset_lo, "structure.note_settings.endnote.written"),
+         dig(nset_lo, "structure.note_settings.attrs_only_in_settings"),
+         dig(nset_lo, "structure.note_settings.attrs_in_both"),
+         dig(nset_lo, "structure.note_settings.footnote.note_refs")],
+        [{"pos": "sectEnd", "numFmt": "decimal"},
+         {"pos": "sectEnd", "numFmt": "lowerRoman"},
+         [], ["numFmt", "pos"], ["0", "1"]],
+    )
+    check(
+        "反面凭据：`notes.docx`（python-docx 的原件，**有脚注**但两处都没写过这一格）—— "
+        "两个 `*_written` 与两条 `sections_with_*_pr` 全是 false / 0；`sections.docx` 两节也一样。"
+        "「这份件有注」与「这份件说了注怎么编号」是两件事",
+        [dig(lbin("office-doc", fixture("notes.docx")), "structure.note_settings.footnote_written"),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.note_settings.footnote"),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.note_settings.sections_with_footnote_pr"),
+         dig(lbin("office-doc", fixture("sections.docx")), "structure.note_settings.sections_total"),
+         dig(lbin("office-doc", fixture("sections.docx")), "structure.note_settings.sections_with_endnote_pr"),
+         dig(lbin("office-doc", fixture("sections.docx")), "structure.note_settings.attrs_in_both")],
+        [False, None, 0, 2, 0, []],
+    )
+    check(
+        "ODF 那一面一类注一份 configuration（两份都在 styles.xml）：footnote 那份写了 "
+        "`num-format=\"1\"` + `start-value=\"0\"` + `footnotes-position=\"page\"` + "
+        "`start-numbering-at=\"document\"`，endnote 那份**只有前两个** —— 没写的交 false，"
+        "不拿另一类的写法替它接；而 LibreOffice 对这份带 `numStart=5` 的 docx 转出来的 odt "
+        "写的还是它自己的默认 `start-value=\"0\"`（不是 5）",
+        [dig(lbin("office-doc", fixture("nset.odt")), "structure.note_settings.configs_total"),
+         dig(lbin("office-doc", fixture("nset.odt")), "structure.note_settings.classes_written"),
+         dig(lbin("office-doc", fixture("nset.odt")), "structure.note_settings.distinct_num_formats"),
+         dig(lbin("office-doc", fixture("nset.odt")), "structure.note_settings.with_position"),
+         dig(lbin("office-doc", fixture("nset.odt")), "structure.note_settings.with_start_numbering"),
+         dig(lbin("office-doc", fixture("nset.odt")), "structure.note_settings.parts_seen"),
+         dig(lbin("office-doc", fixture("nset.odt")), "structure.note_settings.configs[0].written"),
+         dig(lbin("office-doc", fixture("nset.odt")), "structure.note_settings.configs[1].written"),
+         dig(lbin("office-doc", fixture("nset.odt")), "structure.note_settings.configs[1].position_written")],
+        [2, ["footnote", "endnote"], ["1", "i"], 1, 1, ["styles.xml"],
+         {"note-class": "footnote", "num-format": "1", "start-value": "0",
+          "footnotes-position": "page", "start-numbering-at": "document"},
+         {"note-class": "endnote", "num-format": "i", "start-value": "0"}, False],
+    )
+    check(
+        "RTF 与遗留 .doc **不交这个键**（缺键 = 这一支没看）：RTF 的注编号写在 `\\ftrprops` 那一路"
+        "控制字上、没有节级对应物，归属判不住；.doc 的注设置住在 table stream，这一族读者不走那里",
+        [dig(lbin("office-doc", fixture("tabs.rtf")), "structure.note_settings"),
+         dig(lbin("office-doc", fixture("notes-en.doc")), "structure.note_settings")],
+        [None, None],
+    )
     # ── 3am) 这份文档写了哪种语言：OOXML 一枚元素三路文字，ODF 只有一格还要拆两段 ────
     print("=== 3am) 语言：`w:lang` 三属性四层 vs `fo:language` + `fo:country`，含字面 none ===")
     for name in sorted(one.name for one in FIXTURES.glob("*.docx")):

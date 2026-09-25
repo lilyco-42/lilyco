@@ -2700,6 +2700,148 @@ def odf_languages(path: Path, limit: int = 100) -> dict:
     }
 
 
+def docx_note_settings(path: Path, limit: int = 100) -> dict:
+    r"""注的编号设置在 OOXML 写在**两处**：`w:settings.xml` 的 `w:footnotePr` / `w:endnotePr`，
+    以及每一条 `w:sectPr` 里的同名元素。两处内容可以不一样。
+
+    实测 `nset.docx`：settings 那份说了 `numStart="5"` 与 `numRestart="eachPage"`，
+    sectPr 那一份只有 `pos` 与 `numFmt` —— 「从几开始」只在一处说过话。settings 那份还带
+    两个 `w:footnote w:id` / `w:endnote w:id` 孩子（分隔符与延续分隔符的引用），sectPr 那份没有。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"available": False}
+        doc = ET.fromstring(box.read("word/document.xml"))
+        settings = (ET.fromstring(box.read("word/settings.xml"))
+                    if "word/settings.xml" in have else None)
+
+    def attrs_of(node) -> dict:
+        out = {}
+        for key, value in node.attrib.items():
+            tail = key.rsplit("}", 1)[-1]
+            if key == "xmlns" or key.startswith("xmlns:"):
+                continue
+            out[tail] = value
+        return out
+
+    def one_holder(root, tag):
+        if root is None:
+            return None
+        got = [one for one in root.iter() if xml_local(one.tag) == tag]
+        return got[0] if got else None
+
+    def read_pr(holder):
+        """`w:footnotePr` / `w:endnotePr` 自己不写属性：值在孩子身上（`<w:numStart w:val="5"/>`），
+        而 `w:footnote` / `w:endnote` 那两个孩子是分隔符引用（带 `w:id`）—— 两类各交一份。"""
+        if holder is None:
+            return None
+        table = {}
+        refs = []
+        for kid in holder:
+            name = xml_local(kid.tag)
+            if name in ("footnote", "endnote"):
+                refs.append(attrs_of(kid).get("id"))
+                continue
+            got = attrs_of(kid)
+            table[name] = got.get("val") if "val" in got else got
+        return {"written": table, "note_refs": refs, "holder_attrs": attrs_of(holder)}
+
+    footnote_settings = read_pr(one_holder(settings, "footnotePr"))
+    endnote_settings = read_pr(one_holder(settings, "endnotePr"))
+    body = [one for one in doc if xml_local(one.tag) == "body"]
+    sects = [x for x in (body[0].iter() if body else []) if xml_local(x.tag) == "sectPr"]
+    rows = []
+    for index, sect in enumerate(sects):
+        row = {"section": index}
+        for key, tag in (("footnote", "footnotePr"), ("endnote", "endnotePr")):
+            holder = [kid for kid in sect if xml_local(kid.tag) == tag]
+            got = read_pr(holder[0]) if holder else None
+            row[key + "_written"] = got is not None
+            row[key] = got
+        rows.append(row)
+    s_attrs = set()
+    for one in (footnote_settings, endnote_settings):
+        if one:
+            s_attrs |= set(one["written"])
+    x_attrs = set()
+    for row in rows:
+        for key in ("footnote", "endnote"):
+            if row[key]:
+                x_attrs |= set(row[key]["written"])
+    return {
+        "family": "ooxml",
+        "available": True,
+        "settings_part": settings is not None,
+        "footnote_written": footnote_settings is not None,
+        "endnote_written": endnote_settings is not None,
+        "footnote": footnote_settings,
+        "endnote": endnote_settings,
+        "sections_total": len(sects),
+        "sections_with_footnote_pr": len([one for one in rows if one["footnote_written"]]),
+        "sections_with_endnote_pr": len([one for one in rows if one["endnote_written"]]),
+        "sections": rows[:limit],
+        "attrs_only_in_settings": sorted(s_attrs - x_attrs),
+        "attrs_only_in_sections": sorted(x_attrs - s_attrs),
+        "attrs_in_both": sorted(s_attrs & x_attrs),
+    }
+
+
+def odf_note_settings(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF 是 `text:notes-configuration` 一份一类注，实测两份都在 **styles.xml**。
+
+    两类注答得不对称：footnote 那份带 `text:footnotes-position` 与 `text:start-numbering-at`，
+    endnote 那份只有 `style:num-format` 与 `text:start-value` —— 没有说的就交 null。
+    词汇与 OOXML 不是一套（`1` / `i` 对 `decimal` / `lowerRoman`），两边各按写的交。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        roots = [("content.xml", ET.fromstring(box.read("content.xml")))]
+        if "styles.xml" in have:
+            roots.append(("styles.xml", ET.fromstring(box.read("styles.xml"))))
+
+    rows = []
+    for part, root in roots:
+        for one in root.iter():
+            if xml_local(one.tag) != "notes-configuration":
+                continue
+            table = {}
+            for key, value in one.attrib.items():
+                tail = key.rsplit("}", 1)[-1]
+                if key == "xmlns" or key.startswith("xmlns:"):
+                    continue
+                table[tail] = value
+            rows.append({
+                "part": part,
+                "note_class": table.get("note-class"),
+                "written": table,
+                "num_format": table.get("num-format"),
+                "start_value": table.get("start-value"),
+                "position_written": "footnotes-position" in table,
+                "start_numbering_written": "start-numbering-at" in table,
+            })
+    formats = []
+    classes = []
+    for one in rows:
+        if one["num_format"] is not None and one["num_format"] not in formats:
+            formats.append(one["num_format"])
+        if one["note_class"] is not None and one["note_class"] not in classes:
+            classes.append(one["note_class"])
+    return {
+        "family": "odf",
+        "available": True,
+        "configs_total": len(rows),
+        "classes_written": classes,
+        "distinct_num_formats": formats,
+        "with_position": len([one for one in rows if one["position_written"]]),
+        "with_start_numbering": len([one for one in rows if one["start_numbering_written"]]),
+        "parts_seen": sorted(set(one["part"] for one in rows)),
+        "configs": rows[:limit],
+    }
+
+
 def odf_style_holders(node) -> list:
 
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
@@ -8171,6 +8313,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["page_numbering"] = docx_page_numbering(path)
             # 这份文档写了哪种语言：`w:lang` 三个属性分三路说话
             out["ooxml"]["languages"] = docx_languages(path)
+            # 注的编号：settings 与 sectPr 两处各一份，内容可以不一样
+            out["ooxml"]["note_settings"] = docx_note_settings(path)
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
@@ -8215,6 +8359,8 @@ def facts(path: Path) -> dict:
             out["odt"]["page_numbering"] = odf_page_numbering(path)
             # 同一问在 ODF 拆成 language + country（外加 script）
             out["odt"]["languages"] = odf_languages(path)
+            # 同一问在 ODF 是一类注一份 configuration
+            out["odt"]["note_settings"] = odf_note_settings(path)
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger
