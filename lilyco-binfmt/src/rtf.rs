@@ -1115,7 +1115,8 @@ impl Rtf {
             .iter()
             .filter(|raw| self.bookmarks.iter().any(|had| had == *raw))
             .count();
-        (anchors, found, anchors.len() - found, external)
+        let missing = anchors.len() - found;
+        (anchors, found, missing, external)
     }
 
     pub fn to_json(&self) -> Value {
