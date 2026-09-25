@@ -37,6 +37,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `table-header.docx` | python-docx（`write_table_header_docx`） | 四张表，一次只改一个变量：`只重复第一行` / `重复前两行` / `一个都不重复`（对照）/ `只重复中间一行`。这一族的答案是**行上**一枚没有值的 `w:trPr/w:tblHeader`（在场就是重复）：python-docx 这一版没有暴露这个开关（`repeat_table_header` 是个静默无效的属性），所以走它的 oxml 层写元素 |
 | `table-header-lo.docx` | LibreOffice（`table-header.docx` → .docx） | 同一份稿子重写后：标在**第二行**的那枚整个丢了（4 行标了 → 3 行、`non_leading` 1 → 0），而它给每一行都补了一枚**空的** `w:trPr`（四张表的枚数 1/2/0/1 → 3/3/3/3）—— 见事实 89 |
 | `table-header.odt` | LibreOffice（`table-header.docx` → .odt） | 同一问的第三种存法：`table:header-rows` 与 `table:header-rows-repeated` 坐在表身上（是两个数，不是行上的元素），而这一转**一个都没写**，四张表全 null —— 见事实 89 |
+| `tabs.docx` | python-docx（`write_tabs_docx`） | 四条段，一次只改一个变量：`左对齐无引导` / `右对齐点引导` / `居中长划引导` / `小数点对齐`，每段另加一条 9cm 左对齐下划线引导的，并按两次 Tab 键 —— 「定义了哪几个位置」与「按了几下制表键」是两本账 |
+| `tabs.odt` | LibreOffice（`tabs.docx` → .odt） | 同一问的第二种存法：制表位不在段上，一跳在段点的那份自动样式（`P1`…`P4`）里，位置变成带单位的串，而 **9cm 写成 `8.999cm`**（转一趟少 0.001cm）—— 见事实 90 |
+| `tabs.rtf` | LibreOffice（`tabs.docx` → .rtf） | 第三种：位置回到 twip（`\tx1701` 与 `\tx5102` 各 4 条），而对齐与引导符是**只管下一个位置**的前缀（`\tldot\tqr\tx1701`）—— 规则量准了，这一支读者还没读它（`tab_stops` 那一格在 RTF 里根本没有） |
 | `deck-chart.pptx` | python-pptx 1.0.2（`write_pptx_charts`） | 演示稿上的图：同一页挂柱形（两条系列）与饼图（一条），第二页一张也没有；引用指向**图自己那张内嵌工作簿**（`ppt/embeddings/Microsoft_Excel_Sheet1.xlsx` 里的 `Sheet1!$B$1`），值全缓存了，轴 id 写成**负数** |
 | `deck-chart-lo.pptx` | LibreOffice（`deck-chart.pptx` → .odp → .pptx） | 同一批图的第二种写法：`ppt/charts/` 里多出 style 与 colors 四个部件（按目录数会数成六张图，实际两张），`c:f` 里不再写引用而写 `label 0` / `categories` / `0` 这种字面量，**而缓存的数一字未变**；饼图那一侧另补了一个标题「占比」 |
 | `notes.odt` / `book.ods` / `deck.odp` | LibreOffice（从上面三个 OOXML 文件转来） | 真 ODF 写入者产出的三种 ODF |
@@ -1633,6 +1636,15 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - `table-header-lo.docx`（同一份稿子经 LibreOffice 重写）：那一枚「不是从第一行起」的标记整个不见了（4 行 → 3 行、`non_leading` 1 → 0），同时它给**每一行**都补了一枚**空的** `w:trPr`（1/2/0/1 → 3/3/3/3）。于是「有几枚 trPr」与「有几行标了表头」必须是两本账：并成一个数就会把「这一行被写过」当成「这一行是表头」。
     - `table-header.odt`（同一份稿子转 ODF）：表身上那四个属性（`table:header-rows` /`header-rows-repeated` / `header-column` / `header-columns-repeated`）**一个都没写**，四张表全交 null。这里所有 `.odt` 一件都没写过这件事（每一份的 `with_header_rows` 都是 0），所以 ODF那一支只证得到「按写的交、不替文件兜」—— null 是「这份文件没说」，0 才是「它说了不重复」。
     - 两族的形状不折算：能对齐的只有「几张表」这一问（同一份稿子两份都是 4 张）。有表却一条没标的件（`paper-a4.docx`）交 `tables_total: 0` 与空数组，不是缺键；RTF 那一族有它自己的第三种写法（`\trhdr`），这一支还没读，所以 `notes.rtf` 根本不带 `table_headers` 这个键 —— 缺键就是「这一族没看」。
+
+90. **这一段上有哪几个制表位：一家写在段上，一家一跳在段点的样式里，而位置是两个不同的串**
+    - `tabs.docx`（python-docx，四条段各改一个变量）：`w:pPr/w:tabs/w:tab` 三个属性 ——
+      `w:pos` 是整数 twip（3cm 落成 `1701`、9cm 落成 `5102`，落不下 1700.79），`w:val` 八条全写了，而 `w:leader` 有 **2 条整个属性不落**（生产者那一档叫 `SPACES`）—— 所以那两格交 null，交 `"none"` 就是替文件说话。
+    - `tabs.odt`（同一条稿子转 ODF）：**四个数一模一样**（段 5 / 有定义的段 4 / 定义 8 / 制表字符 8），可这一族的制表位不在段上 —— 段只写一个样式名（`P1`…`P4`，父名 `Standard`），定义在那份样式的 `style:paragraph-properties/style:tab-stops/style:tab-stop` 上；位置换成带单位的串，而 **9cm 成了 `8.999cm`**（谁换算的谁负责，读者不替它平回来）；对齐有 5 条没写（左对齐这一家压根不写），「引导符」是 `style:leader-style` 与 `style:leader-text` **两个**属性合起来的，小数点那一样整个换成 `type="char"` 配 `style:char="."`。
+    - 同一条稿子在 RTF 里是第三种：位置又回到 twip（`\tx1701` 4 条、`\tx5102` 4 条），而对齐与引导符是**只管紧跟的那一个** `\tx` 的前缀（`\tldot` `\tqr` `\tlul` `\tqdec`…）——规则量准了记在 `tab_stops.rs` 模块头，这一支还没读，所以那份件的 `structure.tab_stops` 根本没有这个键（缺键 = 这一族没看）。
+    - 两本账同名要分开：定义是 `w:tabs/w:tab`，字符是 run 里的 `w:tab`（ODF 是 `text:tab`）——全局数一遍 `tab` 就会把 8 条定义数成 16 个字符。这里每一份的 `tab_chars_total` 与 `stops_total` 都是 8，那是这份稿子恰好相等，不是同一条账。
+    - 「写了没人点」在这一问里又出现一次：`tabs.odt` 44 份具名段落样式里 7 份写了制表位，其中 3 份（`Header` / `Footer` / `macro`）**没有任何段点它**；`style:default-style` 没有名字可点而照样落到每一段上，所以另交一份 `default_style_stops`（这几份件里都是空的）。
+    - 有段而一条没定义的件（`paper-a4.docx` 五段）交 `with_stops: 0`、`stops_total: 0` 与空数组，不是缺键 —— 0 是数过了没有。
 
 ## 这些数字从哪来
 

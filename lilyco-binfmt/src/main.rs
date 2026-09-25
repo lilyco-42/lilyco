@@ -63,6 +63,7 @@ mod regions;
 mod revise;
 mod rtf;
 mod symbols;
+mod tab_stops;
 mod table_grid;
 mod table_headers;
 mod word;

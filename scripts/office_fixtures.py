@@ -1421,6 +1421,36 @@ def write_print_area_xlsx(path: Path) -> None:
     book.save(path)
 
 
+def write_tabs_docx(path: Path) -> None:
+    """四条段各改一个变量的制表位：左无引导 / 右点引导 / 居中划引导 / 小数点对齐
+
+    python-docx 这一问有**真的** API（`paragraph_format.tab_stops.add_tab_stop(位置, 对齐, 引导)`），
+    不必绕 oxml。两条要紧的量出来的事：3cm 落成 `w:pos="1701"`（twip 是整数，落不下 1700.79），
+    而「SPACES 那一档引导」在文件里是**整个属性不写** —— 所以读者交 null，不交 "none"。
+    每段各写两个制表位（3cm 与 9cm）并按两次 Tab 键，好让「定义」与「字符」两本账分开数。
+    """
+    from docx import Document
+    from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER
+    from docx.shared import Cm
+
+    doc = Document()
+    doc.add_paragraph("制表位那份账")
+    cases = (
+        ("左对齐无引导", WD_TAB_ALIGNMENT.LEFT, WD_TAB_LEADER.SPACES),
+        ("右对齐点引导", WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS),
+        ("居中长划引导", WD_TAB_ALIGNMENT.CENTER, WD_TAB_LEADER.DASHES),
+        ("小数点对齐", WD_TAB_ALIGNMENT.DECIMAL, WD_TAB_LEADER.SPACES),
+    )
+    for title, align, leader in cases:
+        para = doc.add_paragraph()
+        para.paragraph_format.tab_stops.add_tab_stop(Cm(3), align, leader)
+        para.paragraph_format.tab_stops.add_tab_stop(
+            Cm(9), WD_TAB_ALIGNMENT.LEFT, WD_TAB_LEADER.LINES
+        )
+        para.add_run(title + "\t第一段字\t右边")
+    doc.save(path)
+
+
 def write_table_header_docx(path: Path) -> None:
     """四张表，一次只改一个变量：只重复第一行 / 重复前两行 / 一个都不重复 / 只重复**中间**那一行
 
@@ -2870,6 +2900,20 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "deck-ph.odp", OUT / "deck-ph.odp")
     else:
         print("⚠️  没拿到 deck-ph.odp")
+
+    # 制表位那三份：python-docx 写 docx，LibreOffice 转 odt（位置换成带单位的串）与 rtf（`\tx`）
+    tabbed = OUT / "tabs.docx"
+    write_tabs_docx(tabbed)
+    convert(exe, tabbed, "odt", SCRATCH)
+    if (SCRATCH / "tabs.odt").exists():
+        shutil.copyfile(SCRATCH / "tabs.odt", OUT / "tabs.odt")
+    else:
+        print("⚠️  没拿到 tabs.odt")
+    convert(exe, tabbed, "rtf", SCRATCH)
+    if (SCRATCH / "tabs.rtf").exists():
+        shutil.copyfile(SCRATCH / "tabs.rtf", OUT / "tabs.rtf")
+    else:
+        print("⚠️  没拿到 tabs.rtf")
 
     # 表头重复那三份：python-docx 写 docx，同格式重写一份（丢掉标在中间那行的那枚）、再转一份 odt
     repeat = OUT / "table-header.docx"

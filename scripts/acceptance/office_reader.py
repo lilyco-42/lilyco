@@ -1179,6 +1179,211 @@ def odt_repeat_headers(path: Path, limit: int = 100) -> dict:
     }
 
 
+
+def _tab_stop_written(node, nsmap) -> dict:
+    """一条制表位定义：属性按文件写的局部名交出去，没写的键留 null"""
+    written = _written_attrs(node, nsmap)
+    return {
+        "position": _local_in(written, "position"),
+        "type": _local_in(written, "type"),
+        "char": _local_in(written, "char"),
+        "leader_style": _local_in(written, "leader-style"),
+        "leader_text": _local_in(written, "leader-text"),
+    }
+
+
+def _stops_under(props, nsmap) -> list:
+    """一份 `style:paragraph-properties` 里的制表位（可能与本问无关的别的属性不碰）"""
+    out = []
+    for group in props:
+        if xml_local(group.tag) != "tab-stops":
+            continue
+        for tab in group:
+            if xml_local(tab.tag) == "tab-stop":
+                out.append(_tab_stop_written(tab, nsmap))
+    return out
+
+
+def docx_tab_stops(path: Path, limit: int = 100) -> dict:
+    r"""「这一段上有哪几个制表位」在 OOXML 写在**段上**：`w:pPr/w:tabs/w:tab`
+
+    三个属性 `w:pos`（twip）/ `w:val`（对齐）/ `w:leader`（引导符）都按写的交：没写 `w:val`
+    不等于「左对齐」，那是规范默认值而不是这份文件说的话。另数一本「这一段里有几个制表**字符**」
+    —— 与定义同名（run 里的 `w:tab`），全局数一遍就会把定义当成字符。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"available": False}
+        raw = box.read("word/document.xml")
+    root = ET.fromstring(raw)
+    body = [one for one in root if xml_local(one.tag) == "body"]
+    if not body:
+        return {"available": False}
+    rows = []
+    vals, leaders, positions = {}, {}, []
+    stops_total = without_val = without_leader = chars_total = 0
+    for index, para in enumerate([one for one in body[0].iter() if xml_local(one.tag) == "p"]):
+        holder = None
+        for kid in para:
+            if xml_local(kid.tag) == "pPr":
+                holder = kid
+                break
+        stops = []
+        if holder is not None:
+            for group in holder:
+                if xml_local(group.tag) != "tabs":
+                    continue
+                for tab in group:
+                    if xml_local(tab.tag) != "tab":
+                        continue
+                    written = _written_attrs(tab, {})
+                    stops.append({
+                        "pos_written": _local_in(written, "pos"),
+                        "val": _local_in(written, "val"),
+                        "leader": _local_in(written, "leader"),
+                    })
+        chars = 0
+        for run in [one for one in para.iter() if xml_local(one.tag) == "r"]:
+            chars += sum(1 for kid in run if xml_local(kid.tag) == "tab")
+        chars_total += chars
+        stops_total += len(stops)
+        for one in stops:
+            if one["val"] is None:
+                without_val += 1
+            else:
+                vals[one["val"]] = vals.get(one["val"], 0) + 1
+            if one["leader"] is None:
+                without_leader += 1
+            else:
+                leaders[one["leader"]] = leaders.get(one["leader"], 0) + 1
+            if one["pos_written"] is not None and one["pos_written"] not in positions:
+                positions.append(one["pos_written"])
+        rows.append({"index": index, "stops": stops, "tab_chars": chars})
+    return {
+        "family": "ooxml",
+        "available": True,
+        "paragraphs_total": len(rows),
+        "with_stops": sum(1 for one in rows if one["stops"]),
+        "stops_total": stops_total,
+        "tab_chars_total": chars_total,
+        "stops_without_val": without_val,
+        "stops_without_leader": without_leader,
+        "vals_written": vals,
+        "leaders_written": leaders,
+        "distinct_positions": positions,
+        "paragraphs": rows[:limit],
+    }
+
+
+def _odf_paragraph_styles(roots: list, nsmaps: list) -> list:
+    """两份件里所有**有名字的**段落样式：(名字, 那份样式写的制表位, 写的父样式名)"""
+    out = []
+    for root, nsmap in zip(roots, nsmaps):
+        for node in root.iter():
+            if xml_local(node.tag) != "style":
+                continue
+            written = _written_attrs(node, nsmap)
+            if _local_in(written, "family") != "paragraph":
+                continue
+            name = _local_in(written, "name")
+            if name is None:
+                continue
+            stops = []
+            for props in node:
+                if xml_local(props.tag) == "paragraph-properties":
+                    stops.extend(_stops_under(props, nsmap))
+            out.append((name, stops, _local_in(written, "parent-style-name")))
+    return out
+
+
+def odf_tab_stops(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF 一跳之外：段只点一个样式名，制表位在那份样式的段落属性里
+
+    `style:position` 是带单位的串（同一条 9cm 在 docx 是 5102 twip，而 LibreOffice 转过来
+    写成 **8.999cm** —— 换算的账不归读者平），`style:type` 没写是「左」而这份件没说，
+    「引导符」是 `leader-style` 与 `leader-text` **两个**属性合起来的。
+    `style:default-style` 没有名字可点却照样落到每一段上，所以另交一份。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        content_raw = box.read("content.xml")
+        crowd = ET.fromstring(content_raw)
+        roots = [crowd]
+        nsmaps = [_ns_prefixes(content_raw)]
+        if "styles.xml" in have:
+            styles_raw = box.read("styles.xml")
+            roots.append(ET.fromstring(styles_raw))
+            nsmaps.append(_ns_prefixes(styles_raw))
+    table = _odf_paragraph_styles(roots, nsmaps)
+    defaults = []
+    for root, nsmap in zip(roots, nsmaps):
+        for node in root.iter():
+            if xml_local(node.tag) != "default-style":
+                continue
+            if _local_in(_written_attrs(node, nsmap), "family") != "paragraph":
+                continue
+            for props in node:
+                if xml_local(props.tag) == "paragraph-properties":
+                    defaults.extend(_stops_under(props, nsmap))
+    rows = []
+    types, leader_styles, positions = {}, {}, []
+    stops_total = without_type = chars_total = 0
+    pointed = []
+    for index, para in enumerate([one for one in crowd.iter() if xml_local(one.tag) == "p"]):
+        written = _written_attrs(para, nsmaps[0])
+        name = _local_in(written, "style-name")
+        found = None
+        if name is not None:
+            for had in table:
+                if had[0] == name:
+                    found = had
+                    break
+        stops = found[1] if found else []
+        if name is not None and stops and name not in pointed:
+            pointed.append(name)
+        chars = sum(1 for one in para.iter() if xml_local(one.tag) == "tab")
+        chars_total += chars
+        stops_total += len(stops)
+        for one in stops:
+            if one["type"] is None:
+                without_type += 1
+            else:
+                types[one["type"]] = types.get(one["type"], 0) + 1
+            if one["leader_style"] is not None:
+                leader_styles[one["leader_style"]] = (
+                    leader_styles.get(one["leader_style"], 0) + 1
+                )
+            if one["position"] is not None and one["position"] not in positions:
+                positions.append(one["position"])
+        rows.append({
+            "index": index,
+            "style_written": name,
+            "style_found": found is not None,
+            "parent_style_written": found[2] if found else None,
+            "stops": stops,
+            "tab_chars": chars,
+        })
+    return {
+        "family": "odf",
+        "available": True,
+        "paragraphs_total": len(rows),
+        "with_stops": sum(1 for one in rows if one["stops"]),
+        "stops_total": stops_total,
+        "tab_chars_total": chars_total,
+        "styles_total": len(table),
+        "styles_with_stops": sum(1 for had in table if had[1]),
+        "unpointed_styles": [had[0] for had in table if had[1] and had[0] not in pointed],
+        "default_style_stops": defaults,
+        "stops_without_type": without_type,
+        "types_written": types,
+        "leader_styles_written": leader_styles,
+        "distinct_positions": positions,
+        "paragraphs": rows[:limit],
+    }
+
 def odf_style_holders(node) -> list:
     """`style:style` 与 `style:default-style` 都算样式持有者，按文档顺序（不往里套）"""
     out: list = []
@@ -6552,6 +6757,8 @@ def facts(path: Path) -> dict:
             out["ooxml"] = docx_facts(path)
             # 表头重复那份账（行上的一个无值元素）
             out["ooxml"]["table_headers"] = docx_repeat_headers(path)
+            # 制表位：定义在段上，而段里的制表字符是另一本账
+            out["ooxml"]["tab_stops"] = docx_tab_stops(path)
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
@@ -6578,6 +6785,8 @@ def facts(path: Path) -> dict:
             out["odt"] = odt_structure(path)
             # 同一问在 ODF 是表身上的两个数
             out["odt"]["table_headers"] = odt_repeat_headers(path)
+            # 同一问在 ODF 一跳之外：段只点样式名，制表位在样式里
+            out["odt"]["tab_stops"] = odf_tab_stops(path)
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger
