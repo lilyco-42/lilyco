@@ -3557,7 +3557,7 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
                 "text_boxes": Value::Null,
                 // 有几个书签元素：这一格与 docx / odt 那两本账同一个问（数元素），
                 // 名字另交下面的 `bookmark_names`，两数不互相顶替
-                "bookmarks": one.bookmark_starts.len(),
+                "bookmarks": one.bookmark_starts,
                 // 域比链接多：页码与日期也是域，所以两个数分开交
                 "fields": one.fields,
                 // 这一族的编号账：段上的 `\ls` / `\ilvl` 与 listtable 那一份定义对上才算
