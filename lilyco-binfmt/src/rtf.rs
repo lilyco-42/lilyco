@@ -2902,7 +2902,8 @@ mod tests {
         assert_eq!(j["anchors_found"], 1);
         assert_eq!(j["anchors_missing"], 1, "{j}");
         assert_eq!(j["fields"], 5);
-        assert_eq!(j["links_external"], 1);
+        // 这两条跳转都是站内的（两个 # 开头），所以「站外几条」在这里是 0
+        assert_eq!(j["links_external"], 0, "{j}");
         // 读名字不改跳过：那一个名字不在页面上的任何一句话里（六行一个字都没多）
         assert_eq!(
             j["lines"],
