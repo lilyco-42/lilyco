@@ -3897,6 +3897,57 @@ def main() -> int:
          "2026-09-24", "2026-09-25", "2", "1", {"space": "preserve"}, {}],
     )
 
+    # ── 3p) ODF 那一族：链接与域也是段里的一条元素，anchor 对的还是书签名 ─────────
+    print("=== 3p) ODF 的链接与域：同一个 anchor 问题，两族两处存法 ===")
+    fodt = lbin("office-doc", fixture("fields.odt"))
+    nodt = lbin("office-doc", fixture("notes.odt"))
+    cotd = lbin("office-doc", fixture("toc.odt"))
+    check(
+        "同一个 anchor 问题两族各问一次：ODF 对 `text:bookmark-start/@text:name`，"
+        "OOXML 对 `w:bookmarkStart/@w:name`，两份都是 1 对 1 错",
+        [dig(fodt, "structure.run_formats.links"),
+         dig(fodt, "structure.run_formats.list[2].element"),
+         dig(fodt, "structure.run_formats.list[2].link_anchor"),
+         dig(fodt, "structure.run_formats.list[2].link_found"),
+         dig(fodt, "structure.run_formats.list[3].link_anchor"),
+         dig(fodt, "structure.run_formats.list[3].link_found"),
+         dig(fodt, "structure.run_formats.bookmarks_written"),
+         dig(fodt, "structure.run_formats.anchors_found"),
+         dig(fodt, "structure.run_formats.anchors_missing"),
+         dig(fld, "structure.run_formats.bookmark_names"),
+         dig(fld, "structure.run_formats.anchors_found"),
+         dig(fld, "structure.run_formats.anchors_missing")],
+        [2, "a", "表锚点", True, "没这个书签", False, 1, 1, 1, 1, 1, 1],
+    )
+    check(
+        "站外的地址在 ODF 里没有第二跳（href 就是地址）→ anchor 与 found 都交 null；"
+        "而它照样点着一个字符样式，三家各起各的名",
+        [dig(nodt, "structure.run_formats.list[6].element"),
+         dig(nodt, "structure.run_formats.list[6].link_href"),
+         dig(nodt, "structure.run_formats.list[6].link_anchor"),
+         dig(nodt, "structure.run_formats.list[6].link_found"),
+         dig(nodt, "structure.run_formats.list[6].style"),
+         dig(nodt, "structure.run_formats.list[6].resolved"),
+         dig(cotd, "structure.run_formats.list[8].style"),
+         dig(nodt, "structure.run_formats.links")],
+        ["a", "https://example.com/budget", None, None, "ListLabel_20_5", True,
+         "ListLabel_20_2", 1],
+    )
+    check(
+        "域在 ODF 是「元素自己说算了什么」：SEQ 那条被拆成名字与算式，"
+        "日期另点一份数据样式，页码的缓存值写着 0",
+        [dig(fodt, "structure.run_formats.field_pieces"),
+         dig(fodt, "structure.run_formats.list[1].element"),
+         dig(fodt, "structure.run_formats.list[1].own_written.text:formula"),
+         dig(fodt, "structure.run_formats.list[1].own_written.text:name"),
+         dig(fodt, "structure.run_formats.list[1].text"),
+         dig(fodt, "structure.run_formats.list[7].own_written.style:data-style-name"),
+         dig(fodt, "structure.run_formats.list[8].own_written.text:select-page"),
+         dig(fodt, "structure.run_formats.list[8].text"),
+         dig(fodt, "structure.run_formats.checked")],
+        [3, "sequence", "ooow:表+1", "表", "1", "N10049", "current", "0", 10],
+    )
+
     # ── 3i) 文档里那几张图：两处尺寸、两处替代文字、两处锁，摆法三家各处 ──
     print("=== 3i) 文档里的图：一处号一次跳，两处答案各按各的文件交 ===")
     for name in ("images.docx", "images-lo.docx", "images-float.docx",

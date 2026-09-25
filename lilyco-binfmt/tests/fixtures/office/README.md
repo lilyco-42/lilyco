@@ -1384,6 +1384,25 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 页脚里的第四条 PAGE **不在正文这份账里**（`structure.paragraphs` 走 body），所以 `field_runs` 是
       12 而不是 16 —— 「少了哪一条」由部件那本账与 `office-text` 的页眉页脚那一份说清，不在这里偷偷补。
 
+79. **ODF 把链接与域也写成段里的一条元素；同一个 anchor 问题两族各问一次**
+    - `text:a` 与 `text:date` / `text:time` / `text:sequence` / `text:page-number` /
+      `text:expression` 现在与 span 走同一趟账：各带 `own_written`（元素自己写着的属性，前缀留着）、
+      `link_href` / `link_anchor` / `link_found`，也照旧解一次 `text:style-name`。
+    - **同一句话，一族解得开、另一族解不开**：LibreOffice 给 ODF 那一条链接点的是
+      `ListLabel_20_5`，这一族的样式表里真有这么一份（`resolved: true`），而 OOXML 那份模板里的
+      `Hyperlink` 在整个样式表里根本没有（`style_found: false`，事实 74）。同一件事在 `toc.odt`
+      里又叫 `ListLabel_20_2` —— 号是生产者自己起的，只列不比。
+    - 站内跳转的 href 前缀一个 `#`，对的是 `text:bookmark-start` 的**名字**：这一族**不给书签写号**，
+      而 OOXML 是一对（`w:id` 配 `bookmarkStart` / `bookmarkEnd`，名字只在 start 上）。
+      两族的坏跳转数一致：`fields.docx` 与 `fields.odt` 都是 1 对 1 错 —— 同一份稿子、两种存法、
+      同一个坏名。站外的 href 就是地址本身，没有第二跳 → `link_anchor` 与 `link_found` 交 null。
+    - 域是**拆开写**的：OOXML 一句串到底的 ` SEQ 表 \* ARABIC`，在 ODF 里成
+      `text:name="表"` + `text:formula="ooow:表+1"` + `style:num-format="1"`；日期另点一份数据样式
+      （`style:data-style-name="N10049"`）并带完整时间戳（`text:date-value="2026-09-25T09:31:12…"`），
+      而页面上那句缓存值照写的交 —— 正文那一条页码的缓存值写着 `0`，重算不是读者的活。
+    - 注、软分页与书签本体仍然整块跳过：`office:annotation` 里那些 `text:date` 是批注的时间，
+      有自己的账，在带它的那一段里再算一遍就是把同一件事报两次。
+
 ## 这些数字从哪来
 
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：

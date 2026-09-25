@@ -1020,6 +1020,9 @@ ODF_RUN_SWITCHES = (
     ("style:text-underline-style", "underline"),
 )
 ODF_RUN_OFF = ("normal", "none")
+# 认得的「段里的一条元素」：链接与那四种自己算的都与 span 走同一趟账
+ODF_PIECES = ("span", "a", "date", "time", "sequence", "page-number", "expression")
+ODF_FIELDS = ODF_PIECES[2:]
 # 一串字里的「引用」那三种：元素名、它跳去的那本账、交出去用的键名
 RUN_REF_KINDS = (
     ("footnoteReference", "footnote", "footnote"),
@@ -1356,8 +1359,9 @@ def _para_pieces(node, depth: int = 1) -> list:
         if head is not None and bare_text:
             out.append(("#text", head, level))
         for kid in holder:
-            if xml_local(kid.tag) == "span":
-                out.append(("span", kid, level))
+            name = xml_local(kid.tag)
+            if name in ODF_PIECES:
+                out.append((name, kid, level))
                 walk(kid, level + 1, False)
             # 一个 span 后面的那半句字是**这一段**的话（不是里层那条 span 的），
             # 里层那些字只算在里层那条的 text 上
@@ -1410,14 +1414,33 @@ def odf_run_formats(
                 local_attr(one, "display-name"),
                 part,
             )
+    marks = [
+        local_attr(one, "name")
+        for one in _all(root, "bookmark-start")
+        if local_attr(one, "name") is not None
+    ]
     entries = []
     spans = nested = bare = resolved = with_format = 0
+    links = fields = with_anchor = anchor_found = 0
     on = {key: 0 for _, key in ODF_RUN_SWITCHES}
     off = {key: 0 for _, key in ODF_RUN_SWITCHES}
     for index, para in enumerate(paras):
         for at, (element, piece, depth) in enumerate(_para_pieces(para)):
-            if element == "span":
-                spans += 1
+            if element != "#text":
+                # 链接与域各是一条，不并进 spans 那本账（那一条说的是「点一个字符样式的串」）
+                if element == "a":
+                    links += 1
+                elif element in ODF_FIELDS:
+                    fields += 1
+                else:
+                    spans += 1
+                raw_href = local_attr(piece, "href")
+                anchor = raw_href[1:] if raw_href and raw_href.startswith("#") else None
+                found_anchor = None if anchor is None else (anchor in marks)
+                if anchor is not None:
+                    with_anchor += 1
+                    if found_anchor:
+                        anchor_found += 1
                 name = local_attr(piece, "style-name")
                 got = found.get(name) if name else None
                 if got is not None:
@@ -1439,7 +1462,7 @@ def odf_run_formats(
                     {
                         "para": index,
                         "at": at,
-                        "element": "span",
+                        "element": element,
                         "depth": depth,
                         "text": _own_text(piece),
                         "style": name,
@@ -1448,6 +1471,10 @@ def odf_run_formats(
                         "parent": got[0] if got else None,
                         "display": got[2] if got else None,
                         "written": written,
+                        "own_written": written_kept(piece, prefixes),
+                        "link_href": raw_href,
+                        "link_anchor": anchor,
+                        "link_found": found_anchor,
                         "switches": switches,
                     }
                 )
@@ -1466,14 +1493,24 @@ def odf_run_formats(
                     "parent": None,
                     "display": None,
                     "written": None,
+                    "own_written": None,
+                    "link_href": None,
+                    "link_anchor": None,
+                    "link_found": None,
                     "switches": {key: None for _, key in ODF_RUN_SWITCHES},
                 }
             )
     out = {
-        "checked": spans + bare,
+        "checked": spans + bare + links + fields,
         "listed": len(entries),
         "spans": spans,
         "nested_spans": nested,
+        "links": links,
+        "field_pieces": fields,
+        "bookmarks_written": len(marks),
+        "runs_with_anchor": with_anchor,
+        "anchors_found": anchor_found,
+        "anchors_missing": with_anchor - anchor_found,
         "bare_text": bare,
         "resolved": resolved,
         "with_format": with_format,
