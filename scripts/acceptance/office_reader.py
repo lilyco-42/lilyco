@@ -45,6 +45,7 @@ from lyco_equations import odf_equations as odf_equations_ledger  # 公式部件
 from lyco_equations import odp_equations as odp_equations_ledger  # 放映每一页的公式（同一条判据）
 from lyco_equations import pptx_equations as pptx_equations_ledger  # pptx：文本体里的 OMML
 from lyco_equations import ole_equations  # 遗留 .doc：ObjectPool 里的公式对象
+from lyco_doc_csv import doc_csv, docx_grids, odf_grids  # 文档里的表铺成 CSV
 
 END = "END"  # CFB 的链结束标记
 FREE = "FREE"
@@ -8900,6 +8901,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["markdown"] = docx_markdown_ledger(path)
             # 文档里的公式：OMML 挂在段上，行内与独立成行按文件写着的交
             out["ooxml"]["equations"] = docx_equations_ledger(path)
+            # 文档里的一张表铺成 CSV（--csv 的对照；默认第一张）
+            out["ooxml"]["csv"] = doc_csv(docx_grids(path))
             # 分页那四个开关（段上；ODF 一跳在样式里）
             out["ooxml"]["keep_switches"] = docx_keep_switches(path)
             # 这张表套的是哪个样式：样式 id 与那枚 look 分开交
@@ -8972,6 +8975,8 @@ def facts(path: Path) -> dict:
             out["odt"]["markdown"] = odf_markdown_ledger(path)
             # 同一问在 ODF 要跳进另一个部件：一条式子一个 Object N/content.xml 的 MathML
             out["odt"]["equations"] = odf_equations_ledger(path)
+            # 同一本账的 ODF 那一面：被盖住的格子是真写出来的占位格
+            out["odt"]["csv"] = doc_csv(odf_grids(path))
             ledger = odt_revision_ledger(path)
             if ledger is not None:
                 out["revisions"] = ledger

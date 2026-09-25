@@ -2184,6 +2184,30 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       `\x05SummaryInformation`（它自己把属性集撑大的），为一个负面结论押这么大一份件不值。
       量法与数字都记在这里，要复现只需一条 `--convert-to ppt`。
 
+115. **`office-doc --csv`：一行就是文件自己写着的几格，而「这一行几格」是存储的数、不是页面上的数**（`tables.docx` / `tables-merged.docx` / `tables-merged.odt` / `md.docx`）
+    - 表格铺成 CSV 是办公文件最常见的一个出口（把文档里的表搬进别的工具），这一本**不补方格**：
+      文件在一行里写了几格就交几个字段。于是同一张视觉上 2×3 的表，两家给出的不一样长 ——
+      `tables-merged.docx` 第一张 `[2, 3]`（`ragged` true、`covered_cells` 0，首行 `跨两列,第三列`），
+      `tables-merged.odt` 第一张 `[3, 3]`（`ragged` false、`covered_cells` 1 而 `empty_cells` 1，
+      首行 `跨两列,,第三列`）。差别不在谁读错了，在 OOXML 把横向合掉那一格**整个不写**、
+      ODF 照样写一枚空的 `table:covered-table-cell`（事实 42 记的是那两句话本身，这里记它的 CSV 后果）。
+    - **同一个输出串可以来自两条不同的话**：第二张（纵向合并那一张）两家的 CSV 串**一字不差**
+      （`跨两行,右上\n,右下\n`），而 `covered_cells` 是 docx 0 / odt 1 —— OOXML 留着那一格、在它身上写
+      `w:vMerge`（没写值就是 continue），ODF 把被盖住的那格写成占位元素。所以 `covered_cells`（文件写了占位格）
+      与 `empty_cells`（这格没有字）各数各的，两个都不替另一个圆场。
+    - 一格里几个段就用换行连着（`md.docx` 那格「这一格有 / 两段字」），进了 CSV 整格加引号、里面的引号翻倍；
+      引法与 `office-sheet --csv` **共用同一个 `csv_field`**（一处规矩，两族同判据）。竖线不是引用触发符，
+      所以 `尾格 | 带竖线` 是裸字段 —— 那些字符是数据，不是分隔符。
+    - `--table` 只要从 0 起的序号、按文档顺序，不给就是第一张。两条 error 各说各的事：不是数的那句把收到的串
+      原样回显（`--table 要的是从 0 起的序号，收到「没这个号」`），越界那句连「一共几张」一起给
+      （`这份文件里没有第 9 张表（一共 2 张）`）。`columns` 是**最宽那一行**的格数，不是文件声明的列数 ——
+      「这张表多宽」在 `table_layouts` 那三本账里（事实 56），这一本不替它答；`line_end` 说行尾只有 LF。
+    - RTF 与遗留 `.doc` **不交这个键**：RTF 数得清 `\row` 与 `\cell` 却归不到某一张表（量过，事实 100），
+      `.doc` 只有 piece 表里的格子标记（事实 113 那条边界）—— 两处都做不出这张 CSV，缺键而不是空串。
+    - 第二读者是 `scripts/acceptance/lyco_doc_csv.py`（`docx_grids` / `odf_grids` / `doc_csv`，只用标准库）：
+      表按 `descendants` 数、行与格按**直接孩子**走、嵌在格子里的那张表的段不算这一格，三条判据各写一遍。
+      probe 的 3ay 一条 lane 把**每一份 .docx 与 .odt** 的第一张表整份对账，再把每张表按号各取一遍
+      （`tables_total` 与 `table` 两格），最后钉上面那四条实测串与两条 error 文案。
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
 `scripts/acceptance/office_reader.py`（OOXML / ODF / MS-CFB / OLE 属性集，只用标准库）、
 文档里那几张图在它的 `docx_picture_rows()` / `odt_picture_rows()` 里：两处尺寸各自换算、

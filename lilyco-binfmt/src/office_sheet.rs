@@ -1742,7 +1742,9 @@ fn split_ref(reference: &str) -> Option<(usize, usize)> {
 }
 
 /// CSV 里的一格：RFC4180 —— 带逗号、引号、换行就整体加引号，里面的引号翻倍
-fn csv_field(raw: &str) -> String {
+///
+/// `office-doc` 那本（文档里的表）共用这一个函数：同一条引法，两个命令不各写一份。
+pub(crate) fn csv_field(raw: &str) -> String {
     if raw.contains(['"', ',', '\n', '\r']) {
         format!("\"{}\"", raw.replace('"', "\"\""))
     } else {

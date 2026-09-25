@@ -6353,6 +6353,65 @@ def main() -> int:
          [dig(chart, "equations.items[%d].math_found" % i) for i in (0, 1)]],
         [2, 2, 2, 0, 2, 0, [], 2, 2, [False, False]],
     )
+    # ── 3ay) 文档里的表铺成 CSV：两家把「合并」写得不一样，行数一样而字段数不一样 ──────
+    print("=== 3ay) office-doc --csv：一行就是文件自己写着的几格，不补方格 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name), "--csv")
+        check("%s 的第一张表铺成 CSV 与读者一致" % name,
+              got.get("csv"), files[name]["ooxml"]["csv"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name), "--csv")
+        check("%s 的第一张表铺成 CSV 与读者一致" % name,
+              got.get("csv"), files[name]["odt"]["csv"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        total = (files[name]["ooxml"].get("csv") or {}).get("tables_total", 0)
+        for at in range(total):
+            got = lbin("office-doc", fixture(name), "--csv", "--table", str(at))
+            check("%s 第 %d 张表按号取（这一份一共 %s 张）" % (name, at, total),
+                  [got.get("csv", {}).get("table"), got.get("csv", {}).get("tables_total")],
+                  [at, total])
+    plain = lbin("office-doc", fixture("tables.docx"), "--csv")
+    merged = lbin("office-doc", fixture("tables-merged.docx"), "--csv")
+    odt_merged = lbin("office-doc", fixture("tables-merged.odt"), "--csv")
+    rich = lbin("office-doc", fixture("md.docx"), "--csv")
+    check(
+        "同一张表，两家铺出来不一样长：`tables-merged.docx` 把横向合掉那一格**整个不写** → "
+        "`columns_per_row` 与 `ragged` 跟着变；`tables-merged.odt` 照样写一枚空的 "
+        "`covered-table-cell` → 每行字段数齐了，而 `covered_cells`（文件写了占位格）与 "
+        "`empty_cells`（这格没有字）各说各的。账本不替任何一边补方格",
+        [dig(merged, "csv.columns_per_row"), dig(merged, "csv.ragged"),
+         dig(merged, "csv.covered_cells"), dig(merged, "csv.empty_cells"),
+         dig(merged, "csv.rows"), dig(merged, "csv.columns"), dig(merged, "csv.text"),
+         dig(odt_merged, "csv.columns_per_row"), dig(odt_merged, "csv.ragged"),
+         dig(odt_merged, "csv.covered_cells"), dig(odt_merged, "csv.empty_cells"),
+         dig(odt_merged, "csv.rows"), dig(odt_merged, "csv.columns"),
+         dig(odt_merged, "csv.text")],
+        [[2, 3], True, 0, 0, 2, 3, "跨两列,第三列\na,b,c\n",
+         [3, 3], False, 1, 1, 2, 3, "跨两列,,第三列\na,b,c\n"],
+    )
+    check(
+        "一格里有几个段就用换行连着，进了 CSV 按 RFC4180 整格加引号、里面的引号翻倍："
+        "`md.docx` 那三行的文本原样在下面（第三行第一格是两个段拼的，第二格带竖线 —— 竖线不是引用触发符）；"
+        "一格的字先按 `text_of` 拼那几个段、再去首尾空白，与 `tables[].grid` 同一个口径，"
+        "`tables.docx` 三行两格没有要引号的，就是裸字段",
+        [dig(rich, "csv.rows"), dig(rich, "csv.columns"), dig(rich, "csv.empty_cells"),
+         dig(rich, "csv.covered_cells"), dig(rich, "csv.text"),
+         dig(plain, "csv.rows"), dig(plain, "csv.columns"), dig(plain, "csv.text")],
+        [3, 2, 0, 0, "科目,金额\n服务器 * 两台,124000\n\"这一格有\n两段字\",尾格 | 带竖线\n", 3, 2, "R0C0,R0C1\nR1C0,R1C1\nR2C0,R2C1\n"],
+    )
+    check(
+        "号只认从 0 起的序号：`--table 9` 说没有第 9 张表（并报一共几张），"
+        "`--table 没这个号` 说这不是个序号；不给号就是第一张，`line_end` 说行尾。"
+        "RTF 与遗留 .doc **不交这个键**：RTF 数得清 `\\row` 与 `\\cell` 却归不到某一张表"
+        "（量过，见事实 100），.doc 只有 piece 表里的格子标记 —— 两处都做不出这张 CSV",
+        [dig(lbin("office-doc", fixture("tables.docx"), "--csv", "--table", "9"), "csv.error"),
+         dig(lbin("office-doc", fixture("tables.docx"), "--csv", "--table", "没这个号"), "csv.error"),
+         dig(plain, "csv.table"), dig(plain, "csv.tables_total"),
+         dig(plain, "csv.cut"), dig(plain, "csv.line_end"),
+         lbin("office-doc", fixture("tabs.rtf"), "--csv").get("csv"),
+         lbin("office-doc", fixture("notes.doc"), "--csv").get("csv")],
+        ["这份文件里没有第 9 张表（一共 2 张）", "--table 要的是从 0 起的序号，收到「没这个号」", 0, 2, False, "LF", None, None],
+    )
     # ── 3ax) 遗留 .doc 的公式对象：一条式子是一枚内嵌 OLE 对象，字在 MTEF 里不读 ──────
     print("=== 3ax) .doc 的公式对象：ObjectPool 一物一 storage，正文流叫 Equation Native ===")
     for name in sorted(one.name for one in FIXTURES.glob("*.doc")):
@@ -6391,7 +6450,7 @@ def main() -> int:
         "转成 97 的 .doc 之后还是 6 枚 —— 只是**字从可读的 `m:t` 变成不可读的 MTEF**，"
         "所以这一本不交 `text`：整个键不在，而不是空串。"
         "两份没有 `ObjectPool` 的 .doc 各交 0 与 `pool_found` false（数过了没有）",
-        [lbin("office-doc", fixture("eq.docx")).get("equations", {}).get("equations_total"),
+        [dig(lbin("office-doc", fixture("eq.docx")), "structure.equations.equations_total"),
          "text" in (dig(eqdoc, "structure.equations.items[0]") or {}),
          dig(lbin("office-doc", fixture("notes.doc")), "structure.equations.pool_found"),
          dig(lbin("office-doc", fixture("notes.doc")), "structure.equations.objects_total"),

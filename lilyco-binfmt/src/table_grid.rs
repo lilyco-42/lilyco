@@ -133,6 +133,78 @@ pub fn odf(table: &Node, limit: usize) -> Grid {
     Grid { rows, cut }
 }
 
+/// `--csv`：把这张表铺成 RFC4180 的 CSV 交出去
+///
+/// 一行就是文件自己写着的几格，**不补成方格**：OOXML 把横向合并那一格整个不写，
+/// ODF 照样写一枚空的 `covered-table-cell` —— 同一张视觉上 2×3 的表，首行在这两家
+/// 分别是 2 格与 3 格，所以整张表的 `columns_per_row` 是 `[2, 3]` 与 `[3, 3]`。
+/// `columns_per_row` 与 `ragged` 因此一起交，`covered_cells` 只数 ODF 那种被盖住的占位格。
+/// 一格里的几个段用 `\n` 连着（就是 `text_of` 的拼法），进了 CSV 按 RFC4180 加引号 ——
+/// 引法与 `office-sheet` 那本共用同一个 `csv_field`。
+pub(crate) fn csv_of(want: bool, grids: &[Grid], pick: &str) -> Value {
+    if !want {
+        return Value::Null;
+    }
+    let index = if pick.trim().is_empty() {
+        0usize
+    } else {
+        match pick.trim().parse::<usize>() {
+            Ok(raw) => raw,
+            Err(_) => {
+                return json!({"error": format!("--table 要的是从 0 起的序号，收到「{}」", pick)})
+            }
+        }
+    };
+    let Some(grid) = grids.get(index) else {
+        return json!({
+            "error": format!("这份文件里没有第 {} 张表（一共 {} 张）", index, grids.len()),
+        });
+    };
+    let mut out = String::new();
+    let mut widths: Vec<usize> = Vec::new();
+    let mut empty_cells = 0usize;
+    let mut covered_cells = 0usize;
+    for line in &grid.rows {
+        let cells = line.as_array().cloned().unwrap_or_default();
+        let fields: Vec<String> = cells
+            .iter()
+            .map(|one| {
+                if one["covered"] == json!(true) {
+                    covered_cells += 1;
+                }
+                if one["text"].as_str().unwrap_or_default().is_empty() {
+                    empty_cells += 1;
+                }
+                one["text"].as_str().unwrap_or_default().to_string()
+            })
+            .collect();
+        widths.push(fields.len());
+        out.push_str(
+            &fields
+                .iter()
+                .map(|one| crate::office_sheet::csv_field(one.as_str()))
+                .collect::<Vec<String>>()
+                .join(","),
+        );
+        out.push('\n');
+    }
+    let columns = widths.iter().max().copied().unwrap_or(0);
+    json!({
+        "table": index,
+        "tables_total": grids.len(),
+        "rows": widths.len(),
+        "columns": columns,
+        "columns_per_row": widths,
+        // 有几行与最宽那行不一样长就是 true；一行也没有时是 false（数过了）
+        "ragged": json!(widths.iter().any(|one| *one != columns)),
+        "empty_cells": empty_cells,
+        "covered_cells": covered_cells,
+        "cut": grid.cut,
+        "line_end": "LF",
+        "text": out,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
