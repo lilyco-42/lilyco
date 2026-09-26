@@ -65,8 +65,11 @@ use crate::xmlscan::{self, Node};
 use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 use serde_json::{json, Value};
 
-/// 段内的硬换行先占一个不会出现在正文里的字符，拼完再换成「反斜杠 + 换行」
-const HARD: char = '\u{0}';
+/// 段内的硬换行先占一个不会出现在正文里的记号，拼完再换成「反斜杠 + 换行」
+///
+/// 存成 `&str` 而不是 `char`：`Seg::words` 要的是字面串（pptx 的 `a:br` 与 docx 的 `w:br`
+/// 走同一个 `render`，本机不许编译，这一条是 CI 的 E0308 教的）
+const HARD: &str = "\u{0}";
 /// OOXML 说「不」的三种拼法（`w:val` 上）
 const OFF: [&str; 3] = ["0", "false", "none"];
 
@@ -336,7 +339,7 @@ fn seg_text(node: &Node) -> String {
             "br" => {
                 let kind = one.attr_local("type").unwrap_or("textWrapping");
                 if kind == "textWrapping" {
-                    out.push(HARD);
+                    out.push_str(HARD);
                 }
             }
             "t" | "delText" => out.push_str(&one.text()),
@@ -1401,6 +1404,133 @@ pub fn pptx_deck(bytes: &[u8], budget: usize) -> Value {
             "levels_written": levels_written,
         }),
     )
+}
+
+/// 页上那一块里的段：表、嵌入对象、图与控件**整个不走进去**（那些字另有自己的账，
+/// 再当页上的段交一遍就是把同一句排两次 —— 这一条是镜像先犯、两边一起对出来的）
+fn deck_paragraphs(node: &Node, inside_list: bool, out: &mut Vec<(&Node, bool)>) {
+    for one in elements(node) {
+        if matches!(one.local(), "table" | "object" | "image" | "control") {
+            continue;
+        }
+        let next = inside_list || one.local() == "list";
+        if matches!(one.local(), "p" | "h") {
+            out.push((one, next));
+        }
+        deck_paragraphs(one, next, out);
+    }
+}
+
+/// `office-text --markdown` 的 odp 一支：一页一个 `#`，标题取 `presentation:class=title`，
+/// 条目是 `text:list` / `text:list-item` **元素**本身（这一族没有 `a:pPr` 那种属性），
+/// 备注那一块（`presentation:notes`，它的孩子是 `draw:page-thumbnail` 与框，**不是第二张
+/// `draw:page`**，所以按局部名数页只数到真页）整个不走进去，只数几页有它
+pub fn odp_deck(bytes: &[u8], budget: usize) -> Value {
+    let Some(content) = read_part(bytes, "content.xml") else {
+        return json!({"family": "odp", "available": false});
+    };
+    let mut run = OdfRun::new();
+    collect_odf_styles(bytes, &mut run);
+    let mut blocks: Vec<(bool, String)> = Vec::new();
+    let mut pages = 0i64;
+    let mut titles = 0i64;
+    let mut titles_missing = 0i64;
+    let mut paragraphs = 0i64;
+    let mut headings = 0i64;
+    let mut bullets_written = 0i64;
+    let mut bullets_silent = 0i64;
+    let mut tables = 0i64;
+    let mut table_rows = 0i64;
+    let mut empty_dropped = 0i64;
+    let mut notes_pages = 0i64;
+    let mut levels_written = 0i64;
+    let mut pictures = 0i64;
+    for page in content.descendants("page") {
+        pages += 1;
+        if page.children.iter().any(|kid| kid.local() == "notes") {
+            notes_pages += 1;
+        }
+        let mut title_done = false;
+        for kid in elements(page) {
+            if !matches!(kid.local(), "frame" | "custom-shape" | "image" | "group") {
+                continue;
+            }
+            let mut inner: Vec<&Node> = vec![kid];
+            walk(kid, &mut inner);
+            pictures += inner.iter().filter(|one| one.local() == "image").count() as i64;
+            for tbl in inner.iter().filter(|one| one.local() == "table") {
+                let made = odf_table_md(tbl, &mut run);
+                if !made.is_empty() {
+                    tables += 1;
+                    table_rows += elements(tbl)
+                        .iter()
+                        .filter(|one| one.local() == "table-row")
+                        .count() as i64;
+                    blocks.push((false, made));
+                }
+            }
+            let mut found: Vec<(&Node, bool)> = Vec::new();
+            deck_paragraphs(kid, false, &mut found);
+            for (par, in_list) in found {
+                let text = odf_line(par, &mut run, false).trim().to_string();
+                if text.is_empty() {
+                    empty_dropped += 1;
+                    continue;
+                }
+                if !title_done && kid.attr_local("class") == Some("title") {
+                    title_done = true;
+                    titles += 1;
+                    blocks.push((false, format!("# {text}")));
+                    continue;
+                }
+                if par.local() == "h" {
+                    headings += 1;
+                    let raw = par.attr_local("outline-level");
+                    if raw.is_some() {
+                        levels_written += 1;
+                    }
+                    let depth = raw.and_then(|one| one.parse::<usize>().ok()).unwrap_or(1);
+                    blocks.push((false, format!("{} {text}", "#".repeat((depth + 1).min(6)))));
+                    continue;
+                }
+                if in_list {
+                    bullets_written += 1;
+                } else {
+                    bullets_silent += 1;
+                }
+                let lead = if in_list { "- " } else { "" };
+                let body_line = if starts_like_marker(&text) {
+                    format!("\\{text}")
+                } else {
+                    text.clone()
+                };
+                blocks.push((in_list, format!("{lead}{body_line}")));
+                paragraphs += 1;
+            }
+        }
+        if !title_done {
+            titles_missing += 1;
+        }
+    }
+    let mut counts = json!({
+        "pages": pages, "titles": titles, "titles_missing": titles_missing,
+        "paragraphs": paragraphs, "headings": headings,
+        "bullets_written": bullets_written, "bullets_denied": 0,
+        "bullets_silent": bullets_silent,
+        "tables": tables, "table_rows": table_rows, "empty_dropped": empty_dropped,
+        "notes_pages": notes_pages, "levels_written": levels_written,
+        "pictures": pictures,
+    });
+    for key in ["covered_cells", "repeated_spans", "links"] {
+        let value = run
+            .counts
+            .iter()
+            .find(|one| one.0 == key)
+            .map(|one| one.1)
+            .unwrap_or_default();
+        counts[key] = json!(value);
+    }
+    deck_finish(blocks, "odp", budget, counts)
 }
 
 /// 块与块之间的空行：连续的列表项之间不空行（markdown 才认得出是同一串条目）
