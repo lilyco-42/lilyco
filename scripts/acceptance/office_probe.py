@@ -2458,6 +2458,176 @@ def main() -> int:
             sum(len(value) for value in files[name]["comments"].values()),
         )
 
+    # ── 3a6c) 格子里的链接：四种存法各交各的账（rels 一跳 / 元素上直接写地址 /
+    #         段里的字挂地址 / 同一条流的记录），来路不同就不硬并成一个形状 ──
+    print("=== 3a6c) office-sheet 的链接（四种存法） ===")
+    LINK_KEYS = (
+        "total", "external", "internal", "unresolved", "with_id",
+        "with_location", "with_display", "with_tooltip", "formula_cells",
+    )
+    LINK_ROW = ("ref", "id", "target", "scheme", "external",
+                "location", "display", "tooltip", "hop")
+    for name in ("cell-links.xlsx", "cell-links-lo.xlsx"):
+        got = lbin("office-sheet", fixture(name))
+        theirs = files[name]["ooxml"]["links"]
+        mine = {}
+        for index, one in enumerate(got.get("sheets", []), start=1):
+            ledger = one.get("links") or {}
+            mine["sheet%d" % index] = (
+                {key: ledger.get(key) for key in LINK_KEYS},
+                [{key: had.get(key) for key in LINK_ROW} for had in ledger.get("list", [])],
+            )
+        check(
+            "%s 每张表的链接账（逐条 + 九个数）" % name,
+            mine,
+            {
+                key: (
+                    {one: value[one] for one in LINK_KEYS},
+                    [{one: had.get(one) for one in LINK_ROW} for had in value["list"]],
+                )
+                for key, value in theirs.items()
+            },
+        )
+        check(
+            "%s 链接总账两条（元素与 HYPERLINK 公式各一本）" % name,
+            [dig(got, "workbook.totals.links"), dig(got, "workbook.totals.hyperlink_formulas")],
+            [
+                sum(value["total"] for value in theirs.values()),
+                sum(value["formula_cells"] for value in theirs.values()),
+            ],
+        )
+    odsbook = lbin("office-sheet", fixture("cell-links.ods"))
+    ods_theirs = {
+        one["name"]: one for one in files["cell-links.ods"]["ods"]["sheets"]
+    }
+    check(
+        "cell-links.ods 每张表的链接逐条（地址挂在字上，没有第二跳）",
+        {
+            one.get("name"): [
+                {key: had.get(key) for key in ("ref", "text", "target", "scheme",
+                                               "external", "id", "hop", "via")}
+                for had in (one.get("links") or {}).get("list", [])
+            ]
+            for one in odsbook.get("sheets", [])
+        },
+        {
+            key: [
+                {one: had.get(one) for one in ("ref", "text", "target", "scheme",
+                                               "external", "id", "hop", "via")}
+                for had in value["links"]
+            ]
+            for key, value in ods_theirs.items()
+        },
+    )
+    check(
+        "cell-links.ods 这一族把链接写在哪（text:a 对 table:hyperlink）",
+        {
+            one.get("name"): (
+                (one.get("links") or {}).get("via_text_a"),
+                (one.get("links") or {}).get("via_table_hyperlink"),
+                (one.get("links") or {}).get("formula_cells"),
+            )
+            for one in odsbook.get("sheets", [])
+        },
+        {
+            key: (
+                sum(1 for had in value["links"] if had["via"] == "a"),
+                sum(1 for had in value["links"] if had["via"] != "a"),
+                value["hyperlink_formulas"],
+            )
+            for key, value in ods_theirs.items()
+        },
+    )
+    check(
+        "cell-links.ods 链接总账两条",
+        [dig(odsbook, "workbook.totals.links"), dig(odsbook, "workbook.totals.hyperlink_formulas")],
+        [
+            sum(len(value["links"]) for value in ods_theirs.values()),
+            sum(value["hyperlink_formulas"] for value in ods_theirs.values()),
+        ],
+    )
+    # 第四种存法：0x01B8 记录里的两条分支，判据是第二个 GUID 在不在
+    xlsbook = lbin("office-sheet", fixture("cell-links.xls"))
+    xls_theirs = files["cell-links.xls"]["biff"]["links"]
+    check(
+        "cell-links.xls 每张表的链接逐条（两种地址 + 那两个自证数）",
+        {
+            one.get("name"): [
+                (had.get("ref"), had.get("target"), had.get("location"),
+                 had.get("external"), had.get("display"), had.get("whole"),
+                 had.get("guid_first"), had.get("at24"), had.get("at28"))
+                for had in (one.get("links") or {}).get("list", [])
+            ]
+            for one in xlsbook.get("sheets", [])
+        },
+        {
+            key: [
+                (had["ref"], had["target"], had["location"], had["guid_second"],
+                 had["friendly"], had["whole"], had["guid_first"], had["at24"], had["at28"])
+                for had in value["list"]
+            ]
+            for key, value in xls_theirs.items()
+        },
+    )
+    check(
+        "cell-links.xls 每条记录都切到自己报的长度",
+        {
+            one.get("name"): (
+                (one.get("links") or {}).get("total"),
+                (one.get("links") or {}).get("external"),
+                (one.get("links") or {}).get("records"),
+                (one.get("links") or {}).get("whole"),
+            )
+            for one in xlsbook.get("sheets", [])
+        },
+        {
+            key: (len(value["list"]), value["external"], len(value["list"]), value["whole"])
+            for key, value in xls_theirs.items()
+        },
+    )
+    # 文件自己写的那个数照它交（实测 0，而流里有六条记录）：交 null 或改成 6 都是替文件说话
+    check(
+        "cell-links.xls 0x01B7 自报的那个数按写的交",
+        dig(xlsbook, "workbook.links_written"),
+        files["cell-links.xls"]["biff"]["link_counts"],
+    )
+    check(
+        "cell-links.xls 这一族的 HYPERLINK 公式判不住就交 null",
+        [(one.get("links") or {}).get("formula_cells") for one in xlsbook.get("sheets", [])],
+        [None] * len(xlsbook.get("sheets", [])),
+    )
+    # 反面对照：没有链接的那几份件里键照样在、值为 0（缺键与零条是两件事）
+    for name in ("book.xlsx", "hidden.xlsx"):
+        check(
+            "%s 没有链接就是 0 条" % name,
+            dig(lbin("office-sheet", fixture(name)), "workbook.totals.links"),
+            sum(value["total"] for value in files[name]["ooxml"]["links"].values()),
+        )
+    check(
+        "book.xls 没有链接也是 0 条，而那条自报的记录照样在",
+        [dig(lbin("office-sheet", fixture("book.xls")), "workbook.totals.links"),
+         dig(lbin("office-sheet", fixture("book.xls")), "workbook.links_written")],
+        [0, files["book.xls"]["biff"]["link_counts"]],
+    )
+    # 跨存法的同一条链接：站内地址三种写法各写各的，不替它们归一
+    check(
+        "同一格 C3 的站内地址：三种写法各交各的",
+        {
+            name: [
+                had.get("location") or had.get("target")
+                for one in lbin("office-sheet", fixture(name)).get("sheets", [])
+                for had in (one.get("links") or {}).get("list", [])
+                if had.get("ref") == "C3"
+            ]
+            for name in ("cell-links.xlsx", "cell-links.ods", "cell-links.xls")
+        },
+        {
+            "cell-links.xlsx": ["'数据'!A1"],
+            "cell-links.ods": ["#'数据'.A1"],
+            "cell-links.xls": ["'数据'!A1"],
+        },
+    )
+
     # ── 3a7) 每张表的打印设置：三个元素各自在不在，缺的交 null，单位按各家原样 ──
     print("=== 3a7) office-sheet 的打印设置（xlsx 的两个生产者） ===")
     for name in sorted(one.name for one in FIXTURES.glob("*.xlsx")):

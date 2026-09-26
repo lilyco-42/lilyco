@@ -5577,6 +5577,108 @@ def sheet_rules(root, dxfs: list, limit: int = 200) -> dict:
     }
 
 
+def xlsx_link_of(node, want: str):
+    """按局部名取属性（第一个匹配的）：`r:id` 那个名字是文档自己声明的前缀，
+    与 Rust 的 `attr_local` 同一条找法"""
+    for key, value in node.attrib.items():
+        if key.rsplit("}", 1)[-1].rsplit(":", 1)[-1] == want:
+            return value
+    return None
+
+
+def xlsx_sheet_links(parts: dict, name: str, limit: int = 200) -> dict:
+    """一张表上的链接那份账（OOXML 那一族）。三种来路各交各的：`r:id` 跳到表自己的
+    关系表、`location` 把站内地址直接写在元素上、`HYPERLINK(...)` 公式压根不写元素。
+
+    与 Rust 的 `xlsx_links` 同一条：`external` 只看文件写了的 `TargetMode`（没写交 None，
+    那不是 false）；「指不到」= target 与 location 都没有。逐条数的是**所有** `<hyperlink>`
+    元素，不按 --limit 截（`listed` / `cut` 说的是列出来的那一段）
+    """
+    dir_name = name.rsplit("/", 1)[0] if "/" in name else ""
+    base = name.rsplit("/", 1)[-1]
+    rel_name = ("%s/_rels/%s.rels" % (dir_name, base)) if dir_name else ("_rels/%s.rels" % base)
+    pool: dict = {}
+    if rel_name in parts:
+        for one in ET.fromstring(parts[rel_name]).iter():
+            if xml_local(one.tag) != "Relationship":
+                continue
+            if (one.get("Type") or "").rsplit("/", 1)[-1] != "hyperlink":
+                continue
+            had = one.get("Id")
+            if not had:
+                continue
+            mode = one.get("TargetMode")
+            pool[had] = (one.get("Target"), None if mode is None else mode == "External")
+    root = ET.fromstring(parts[name])
+    rows: list = []
+    total = with_id = with_location = with_display = with_tooltip = 0
+    external = unresolved = formulas = 0
+    for one in root.iter():
+        if xml_local(one.tag) != "hyperlink":
+            continue
+        total += 1
+        rid = xlsx_link_of(one, "id")
+        location = one.get("location")
+        display = one.get("display")
+        tooltip = one.get("tooltip")
+        with_id += rid is not None
+        with_location += location is not None
+        with_display += display is not None
+        with_tooltip += tooltip is not None
+        target, mode = pool.get(rid, (None, None)) if rid else (None, None)
+        external += mode is True
+        if target is None and location is None:
+            unresolved += 1
+        if len(rows) < limit:
+            rows.append(
+                {
+                    "ref": one.get("ref"),
+                    "id": rid,
+                    "target": target,
+                    "scheme": link_scheme(target) if target else None,
+                    "external": mode,
+                    "location": location,
+                    "display": display,
+                    "tooltip": tooltip,
+                    "hop": "rels" if rid else "inline",
+                }
+            )
+    # 与 Rust 同一格只认第一个 `f`：`<f t="shared" si="0"/>` 那种没正文，
+    # 两个读者都不会把它算成一条 HYPERLINK
+    for cell in root.iter():
+        if xml_local(cell.tag) != "c":
+            continue
+        for kid in cell:
+            if xml_local(kid.tag) == "f":
+                if "HYPERLINK(" in (kid.text or "").strip():
+                    formulas += 1
+                break
+    return {
+        "family": "rels",
+        "total": total,
+        "external": external,
+        "internal": with_location,
+        "unresolved": unresolved,
+        "with_id": with_id,
+        "with_location": with_location,
+        "with_display": with_display,
+        "with_tooltip": with_tooltip,
+        "formula_cells": formulas,
+        "listed": len(rows),
+        "cut": len(rows) < total,
+        "list": rows,
+    }
+
+
+def xlsx_links_by_sheet(parts: dict) -> dict:
+    """每张表的链接账，按 sheetN 归位（与 Rust 那边每表一份 `links` 一对一）"""
+    return {
+        name.rsplit("/", 1)[-1][: -len(".xml")]: xlsx_sheet_links(parts, name)
+        for name in sorted(parts)
+        if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
+    }
+
+
 def xlsx_rules(parts: dict, dxfs: list) -> dict:
     """每张表上的规则那份账（条件格式 + 数据验证），按 sheetN 归位"""
     out: dict = {}
@@ -5763,6 +5865,7 @@ def xlsx_facts(path: Path) -> dict:
         "dxfs": {"written": dxf_written, "found": len(dxf_kinds),
                  "whole": dxf_written is None or int(dxf_written) == len(dxf_kinds)},
         "rules": rules_by_sheet,
+        "links": xlsx_links_by_sheet(parts),
         "defined_names": len([
             one
             for one in wb.iter()
@@ -6709,6 +6812,21 @@ def _cell_paragraphs(node) -> list:
     return out
 
 
+def _ods_link_nodes(node) -> list:
+    """这一格里的链接元素：ODF 给的两条存法（`table:hyperlink` 与段里的 `text:a`）都认，
+    批注子树整个跳过 —— 备注里的链不是格子里的链，与 .odp 那边同一条规矩。
+    按文档顺序递归，与 Rust 的 `link_nodes` 同一个走法。
+    """
+    out: list = []
+    for kid in node:
+        if xml_local(kid.tag) == "annotation":
+            continue
+        if xml_local(kid.tag) in ("hyperlink", "a"):
+            out.append(kid)
+        out.extend(_ods_link_nodes(kid))
+    return out
+
+
 def _first_text(node, wants: tuple) -> str | None:
     """孩子元素里第一条有字的（空的 `<meta:date-string/>` 算没写，不算写了空时间）"""
     for want in wants:
@@ -6996,6 +7114,8 @@ def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) ->
         hidden_rows = 0
         hidden_cols = 0
         cell_notes: list = []
+        cell_links: list = []
+        link_formulas = 0
         # 一次收集，两份账共用（尺寸账与隐藏账必须走同一批元素）
         col_elems = [one for one in table if xml_local(one.tag) == "table-column"]
         row_elems = [one for one in table if xml_local(one.tag) == "table-row"]
@@ -7036,10 +7156,30 @@ def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) ->
                             "text": "\n".join(_cell_paragraphs(had)),
                         }
                     )
+                # 链接与批注同一条规矩：这一本在「这一格算不算内容」那道闸之前收 ——
+                # 一个看起来空着的格子照样可以挂着一条链接（与 Rust 的 link_nodes 同一条）
+                for had in _ods_link_nodes(cell):
+                    target = attr(had, "href")
+                    cell_links.append(
+                        {
+                            "ref": f"{col_letter(col_at)}{row_at + 1}",
+                            "text": " ".join("".join(had.itertext()).split()),
+                            "target": target,
+                            "scheme": link_scheme(target) if target else None,
+                            # ODF 没有「站内 / 站外」那个开关，也没有第二跳的关系号
+                            "external": None,
+                            "id": None,
+                            "hop": "inline",
+                            "via": xml_local(had.tag),
+                        }
+                    )
                 value = attr(cell, "value")
                 stamp = attr(cell, "date-value")
                 flag = attr(cell, "boolean-value")
                 formula = attr(cell, "formula")
+                # `HYPERLINK(...)` 是第四种链接存法：不写链接元素，地址写在公式正文里
+                if formula and "HYPERLINK(" in formula:
+                    link_formulas += 1
                 if text or value or stamp or flag or formula:
                     cs = rep(cell, "number-columns-spanned")
                     rs = rep(cell, "number-rows-spanned")
@@ -7084,6 +7224,8 @@ def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) ->
                 "hidden_rows": hidden_rows,
                 "hidden_cols": hidden_cols,
                 "comments": cell_notes,
+                "links": cell_links,
+                "hyperlink_formulas": link_formulas,
                 "formulas": sum(1 for one in cells if one["formula"]),
                 # 这一张表上的图：ODS 的 draw:frame 就住在 table:table 里面
                 "charts": odf_charts_of(parts, table),

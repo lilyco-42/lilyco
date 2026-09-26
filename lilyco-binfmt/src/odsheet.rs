@@ -168,6 +168,14 @@ pub struct Sheet {
     /// （`office:annotation` 是 `table:table-cell` 的孩子），所以取格子的字时要跳过它 ——
     /// 与 .odt 那边「批注与修订表里的段不算正文」是同一条规矩
     pub comments: Vec<Value>,
+    /// 这张表里的链接：`{ref, text, target, scheme, external, id, hop, via}`。
+    /// ODF 规范给了两条存法（格子上的 `table:hyperlink` 与段里的 `text:a`），
+    /// 实测 LibreOffice 两份件**一条 `table:hyperlink` 都不写**，六条链接全挂在
+    /// `text:a` 上（`via` 就是记着这件事的）—— 所以两种都认，各交各的
+    pub links: Vec<Value>,
+    /// 这一族的第四种存法：`table:formula="of:=HYPERLINK(...)"`，地址写在公式参数里。
+    /// 与上面那本各记各的：一份件里它可以同时有链接元素，也可以一个都没有
+    pub hyperlink_formulas: usize,
 }
 
 /// 格子里那些「算这一格内容」的段：批注子树整个跳过。
@@ -247,6 +255,22 @@ fn annotation_nodes<'a>(node: &'a xmlscan::Node) -> Vec<&'a xmlscan::Node> {
         } else {
             out.extend(annotation_nodes(one));
         }
+    }
+    out
+}
+
+/// 这一格里的链接元素：ODF 给的两条存法都认（`table:hyperlink` 与段里的 `text:a`）。
+/// 批注子树整个跳过 —— 备注里的链不是格子里的链，与 .odp 那边同一条规矩
+fn link_nodes<'a>(node: &'a xmlscan::Node) -> Vec<&'a xmlscan::Node> {
+    let mut out: Vec<&'a xmlscan::Node> = Vec::new();
+    for one in node.children.iter() {
+        if one.is("annotation") {
+            continue;
+        }
+        if one.is("hyperlink") || one.is("a") {
+            out.push(one);
+        }
+        out.extend(link_nodes(one));
     }
     out
 }
@@ -446,6 +470,8 @@ pub fn read(bytes: &[u8]) -> Book {
                 .map(|want| ((*want).to_string(), attr_of(table, *want).map(String::from)))
                 .collect(),
             comments: Vec::new(),
+            links: Vec::new(),
+            hyperlink_formulas: 0,
         };
         if let Some(style) = attr_of(table, "style-name") {
             if let Some((_, flag)) = shown.iter().find(|(one, _)| one == style) {
@@ -546,6 +572,28 @@ pub fn read(bytes: &[u8]) -> Book {
                 let date_value = attr_of(cell, "date-value").map(|one| one.to_string());
                 let boolean_value = attr_of(cell, "boolean-value").map(|one| one.to_string());
                 let formula = attr_of(cell, "formula").map(|one| one.to_string());
+                match formula.as_deref() {
+                    Some(one) if one.contains("HYPERLINK(") => sheet.hyperlink_formulas += 1,
+                    _ => {}
+                }
+                // 链接与批注同一条规矩：这一本在 `filled` 那道闸之前收 —— 一个看起来
+                // 空着的格子照样可以挂着一条链接
+                for had in link_nodes(cell) {
+                    let target = attr_of(had, "href").map(String::from);
+                    let scheme = target.as_deref().and_then(crate::office_slide::link_scheme);
+                    sheet.links.push(json!({
+                        "ref": reference.clone(),
+                        "text": xmlscan::inline_text(had),
+                        "target": target,
+                        "scheme": scheme,
+                        // ODF 没有「站内 / 站外」那个开关，也没有第二跳的关系号：
+                        // 这两项交 null，不替文件圆一个 false
+                        "external": Value::Null,
+                        "id": Value::Null,
+                        "hop": "inline",
+                        "via": had.local(),
+                    }));
+                }
                 let filled = !text.is_empty()
                     || value.is_some()
                     || date_value.is_some()

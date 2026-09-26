@@ -23,7 +23,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-sheet",
     run = "run_office_sheet",
-    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader, and its hidden rows and columns come out of the two records the flags actually live in: bit 0x20 of the ROW record, and bit 0 of the COLINFO record (which states a range, expanded here - LibreOffice writes that record under the older id 0x007D while MS-XLS names 0x07D0 for BIFF8, so both ids are accepted). Which ROW bit means hidden was measured rather than recalled: three comparison files separate the two variables - row heights from 4pt to 250pt leave that bit alone, while hiding a single row sets exactly that bit. Hidden cells still count as cells. Spreadsheet comments are another hop: they are not in sheetN.xml at all - the sheet's own relationship part names the comments part, and the two producers measured here put it in two different places (openpyxl `xl/comments/comment1.xml` reached through an absolute target, LibreOffice `xl/comments1.xml` through `../comments1.xml`), with the author's name indexed through the `<authors>` list rather than written on the comment; ODF instead keeps the comment INSIDE the cell as `office:annotation`, which is exactly why the cell's own text skips that subtree. Authoring timestamps come back null on both producers because neither wrote one. Legacy .xls is a fourth spelling and stays inside the same stream: one record kind carries the text (offset 10 of its body is the character count it states for itself, and the first CONTINUE right after it opens with an encoding byte - 0 means one byte per character, 1 means two, which is the OPPOSITE of the BIFF8 fCompressed convention), while another record at the end of that sheet's own substream says which cell the note is on and who wrote it. The two lists are paired in order of appearance, every entry carries whole (were both self-stated counts satisfied), and both record counts are published per sheet so a mismatch shows up as data instead of a silently truncated list. This family writes no authoring timestamp, so date is null there; the reading was measured on LibreOffice-written .xls, and those two record numbers are not given spec names because MS-XLS assigns 0x001C to something else entirely. Whether a sheet can still be edited is reported per format, because the three spellings do not map onto one another: xlsx keeps two layers (workbookProtection plus each sheet's own sheetProtection, switches read in both the 1/0 and true/false spellings with an omitted one left omitted rather than false), .ods writes table:protected on the table itself together with the digest URI, and .xls has no workbook layer at all - PROTECT (0x0012), PASSWORD (0x0013) and SCENPROTECT (0x00DD) sit inside the locked sheet's own substream, so they are attributed per sheet and their raw values kept. ODF spreadsheets (.ods) are read on their own terms: cells carry the value-type the file wrote - written as-is, and null when no office:value-type was written, because guessing one from whether the cell has text is how the two readers here drifted apart (odp page tables write the attribute on none of their cells, seven of which hold text) - with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, a sheet's visibility is resolved through the automatic style it names, and hidden rows/columns are counted from table:visibility="collapse" on the element or in the row/column style it names (multiplying number-columns-repeated, so one element standing for three collapsed columns reports 3, not 1); each ODS cell additionally carries the number format it inherits - cell style, then style:data-style-name, then that number:*-style element (which lives in content.xml or styles.xml, and is reached through parent-style-name when the cell style itself names none) - reported as format_kind (taken from the element's own name, so a ¥ written as a literal text token stays a number-style), plus decimals, currency_symbol and a faithful format_tokens transcription; ODF has no format string, so none is invented. With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (legacy .xls takes the same hop too - the cell's ixfe indexes the XF records, whose format number names either a FORMAT record or a built-in id, and the epoch comes from DATEMODE; a file that never wrote DATEMODE gets the serial rather than a guessed 1900), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. With --markdown the same sheet also goes out as a pipe table under { markdown: {sheet, index, rows, columns, cells_skipped, line_end, separator_after_row, text} } - and it is literally the same square the CSV renderer fills, so the two ledgers' rows and columns are the same two numbers (the cross-check pins that equality rather than trusting it). The `| --- |` line goes after row 0 because the format requires a header row, not because the file said the first line is one - which is why that key says separator_after_row instead of claiming a header. A cell holding a pipe is escaped and a cell holding a newline is joined with <br>, because a pipe table can carry neither raw; the values themselves keep the --csv reading (ISO for dates, empty for an uncached formula, empty for a hole). Each xlsx sheet additionally carries its own print setup: the three elements `pageMargins`, `pageSetup` and `printOptions` are reported separately, and an element the file never wrote stays null rather than turning into false - openpyxl writes only the margins, while LibreOffice rewrites the same sheet with twelve `pageSetup` attributes (paperSize 9 and both dpi values included). Margins are handed over exactly as written, in the unit that family uses (`margin_unit`: inch, said once per sheet), rather than normalised to the 0.01mm integers office-doc reports - 0.5 versus 0.511811023622047 is the two producers' difference, and converting it away would erase the thing worth seeing. ODS and .xls print setup is deliberately not read: five LibreOffice-written .ods files name no page layout on the table element (the only link left is that producer's own `PageStyle_<sheet>` naming convention, not a spec hop), and while every .xls sheet does write a SETUP (0x00A1) record, nothing here can be a second reader for the field offsets inside it. A sheet's charts are two more hops: the sheet's own relationship part names a drawing part, and that drawing's relationships name the chart parts (openpyxl writes those targets absolute, LibreOffice relative - `resolve_target` eats both). So charts are attributed per sheet (`charts` and `chart_list`, and a sheet with none reports 0 rather than omitting the key): each entry reports its part, its title (a literal through `c:rich`, or a cell reference), whether the file cached any plotted values, and per plot group the kind (`barChart` / `lineChart`), every direct child's `val` as written (`barDir`, `grouping`, `gapWidth`...) with the axis ids kept separate because those are the producer's own numbering. The cached flag matters: openpyxl writes not one `c:pt`, so what the picture actually plots stays unknown and only the reference is handed over, while LibreOffice caches every point and self-states `ptCount` - that count and the number of points really found are both published, with whole saying whether they agree. Reference strings go out exactly as the file wrote them: the same cells read `'数据'!B1` in one producer's file and `数据!$B$1` in the other's, and the same text categories are a `c:numRef` in one and a `c:strRef` in the other - normalising either would be inventing what the file did not say. ODS keeps charts the ODF way - a `draw:frame` whose `draw:object` names an `Object N/` directory, whose own content.xml holds the picture - so a sheet reports its charts with the same shape as elsewhere plus a `local_table` transcription of the numbers the chart carried along. .xls still uses the BIFF object chain and is not read. Two more everyday things are read per sheet, because both answer questions people actually ask. Conditional formatting: each `conditionalFormatting` block keeps its `sqref` as written (one block may name two ranges), and each `cfRule` hands over every attribute the file wrote plus type/priority/operator named separately, its formula texts (entities decoded, so a written `$B2&gt;200` reads as `$B2>200`) and the shape inside `iconSet` / `colorScale` / `dataBar` - each `cfvo`'s type and val, each color's rgb exactly as written, since openpyxl writes 00FFFFFF where LibreOffice writes FFFFFFFF for the same white. `dxfId` is a hop: the rule names an index into `dxfs` in xl/styles.xml, so each rule says what it wrote, whether that index resolves, and which element paths that dxf contains (`font/b`, `font/color`...) - LibreOffice rewrites the same dxf with five entries where openpyxl wrote two, so nothing is folded into a shared bold-and-red shape. Priorities are each producer's own numbering (the same four rules read 1/2/3/4 in one file and 2/3/4/5 in the other), so they are reported rather than compared. Data validation: the `dataValidations` container's self-stated count is published next to how many were found and whether they agree, and each entry reports its range, type, operator, the formula1/formula2 texts as written and every attribute - including the two boolean spellings (allowBlank 1 versus true), the operator LibreOffice adds to a list rule, the formula2 it fills with 0, and the = it strips from a custom formula. ODS keeps these in number and table styles, .xls in BIFF records; neither is read, so the rules key is absent for those families rather than empty. Two everyday things per sheet come next, because both are questions people actually ask. The window: `view` hands over the attributes the `sheetView` element wrote (openpyxl writes four of them and spells booleans 1/0; LibreOffice rewrites the same sheet with fifteen and spells them true/false, so nothing is folded into one shared boolean), the one `pane` element - whose `state` keeps frozen and split apart because they are two different things - and every `selection` as written (three in one file with the first one not naming topLeft, four in the other, each with an activeCellId). Rewriting is not lossless: measured on a LibreOffice xlsx export, the pane with `state="split"` disappears entirely while the frozen one survives. The printed margins of the page: `header_footer` reports the six slot elements in a fixed order, each with whether the element is there at all, its text as written (entities decoded), the segments the `&L`/`&C`/`&R` markers name, and every other `&` sequence kept verbatim - `&&` is a literal ampersand and `&"Calibri"` is one whole code, so the scan walks codes rather than counting characters. Absent and empty stay apart: a sheet openpyxl never wrote reports present false with null text, while the same sheet after LibreOffice writes the element with empty contents (present true, text ""). ODS keeps both in its page styles, the same hop print setup could not take, and .xls keeps them in WINDOW1/WINDOW2 and HEADER/FOOTER records no second reader here can check, so both keys are absent for those families. Three more ledgers per sheet answer the three everyday "why" questions - why a column shows too little, why a row will not take what I typed, and whether this range really is one table. `layout` reports the attributes `sheetFormatPr` wrote (the two producers do not even name the same thing for a default width: `baseColWidth` in one file, `defaultColWidth` in the other), every `col` as written (the same column reads 22.5 in one file and 20.47 in the other, hidden is spelled 1 in one and true in the other, and nothing is converted), how many `col` elements there are next to how many columns they cover (summed from each element's own min and max, never expanded, and null rather than 0 when there is none), and three row counts - rows in the sheet, rows that wrote an `ht`, rows that said anything at all about height or visibility - plus those rows as written. `filter` says whether there is an `autoFilter`, its range as written, every `filterColumn` with its switches and the values being filtered out, and the `filterMode` the sheet may or may not state on `sheetPr` (one producer writes it for every sheet, true and false, the other never writes it). Table objects are another hop: `tableParts` names relationship ids only, and the parts come out of the sheet's own relationship table, the same linking style charts use; each part reports its attributes as written (name and displayName, ref, headerRowCount, plus the two totals switches LibreOffice adds), its self-stated `tableColumns/@count` next to how many were found with `whole`, the column names themselves as written (openpyxl takes the first row of the range as names, so the second column is literally called 10, and both producers carry that name unchanged), and its own `autoFilter` - which can cover a different range than the sheet's filter (A1:B3 next to A1:C3 on one sheet), so both are reported instead of picking one. ODS reads its sizes too, and they are a third shape - which is the whole reason this ledger exists: a table-column or table-row element writes only how many columns or rows it stands for (number-columns-repeated - LibreOffice pads every sheet out to exactly 16384 columns that way, measured on six files) and occasionally its own visibility, while the width and height sit one hop away in the automatic style the element names. So layout for .ods reports each axis as elements / spans (how many elements there are, next to how many columns they cover - and neither is the sheet's columns key, which counts only the rightmost cell that has content), with resolved / with_size / optimal / spoken_visibility tallied over every element, then per element: the style it named, whether that style was found in this part, the length as written plus its 0.01mm reading (unit is said once per sheet), the style's own use-optimal flag, the style's visibility kept apart from the element's because they are two ways to say the same thing, and the style's parent-style-name - the parent chain is deliberately NOT followed (no file measured here writes one), it is only reported so a missing width can explain itself. The four numbers a table may state about itself (number-columns, number-rows, default-column-width, default-row-height) come back as four keys, null when unwritten: LibreOffice writes none of them, and absent is not zero. filter and tableParts are OOXML-only and stay absent for ODS; .xls has none of the three. A result that is not a number goes out as the file wrote it: an error cell's <v> already IS the display string (#DIV/0!), so nothing is prefixed - both readers used to prepend a "#错误 " tag that appears in no file, and no producer here recomputed one until errors-lo.xlsx, so the branch stayed untested on both sides; a text result (t="str") is likewise handed over verbatim, and error_cells / string_result_cells count the two per sheet. kind_written says whether that cell wrote a t at all: the spec default is numeric, but openpyxl omits the attribute on every formula cell while LibreOffice writes t="n" for all of them, so kind alone would read one producer's silence as the other's statement - cells_with_written_type counts those who spoke. ODF spells the same cell a third way: office:value-type="string" with an EMPTY office:string-value, the displayed text only in <text:p>, plus a calcext:value-type="error" that is not followed - so an error reads kind string there, and because that export localises the name, one broken VLOOKUP is #VALUE! in its xlsx and 错误:502 in its ods: each goes out as written and they are never reconciled. A string cell keeps the whitespace the file wrote - no trimming, because the two spaces in a <t xml:space="preserve"> are the file's own and LibreOffice's own CSV export carries them too - and it additionally reports runs: how the file split that string (a rich one is several <r> elements, each with its own rPr attributes as written, while a plain <t> has none at all), one entry per run with element, text, space, props_written, props_attrs and format (the rPr's own attributes and its child elements - the two producers here put the shape on children like <b val="true"/> and write no attribute on rPr at all), next to run_total, rich_string and space_preserved on the cell and cells_with_runs / cells_with_preserved_space per sheet. The string table is also held against what it states about itself: sst/@count (references) and sst/@uniqueCount (entries) go out as written beside how many si were really found, because one string used by two cells is a file that says count 8 with seven entries and both numbers are right. ODF spells the same cell text a fourth way: spaces and tabs are MARKERS, not characters - text:s (with text:c saying how many spaces that one stands for), text:tab and text:line-break - so those are expanded here (LibreOffice's own CSV export of the same .ods keeps every one of them), and each cell says how many text:span and how many marker elements the file really wrote (spans / specials). What a cell LOOKS like is another hop: the `s=` index names one `cellXfs` row, and that row writes only three numbers - `fontId` / `fillId` / `borderId` - whose text lives in the `fonts` / `fills` / `borders` tables. Each cell therefore carries `style_attrs` (what that xf row wrote, verbatim), the three resolved rows (`style_font` / `style_fill` / `style_border`, each as written attributes plus child elements, and those children's own children one level deeper - the fill colour is not on `patternFill` but on its `fgColor` / `bgColor` child, so a one-level row can say a cell is solid without being able to say which colour), `style_alignment`, the three ids, `style_found`, and three tri-state switches (`style_bold` / `style_filled` / `style_wrapped`, null when the file said nothing) counted per sheet as cells_bold / cells_filled / cells_wrapped. style_written says whether the cell wrote an `s` at all - one producer writes s="0" on every cell, the other leaves the default unwritten. The tables report their own `count` next to how many rows were found (fonts / fills / borders / cellXfs / cellStyleXfs under `workbook.styles`), and nothing is normalised between producers: openpyxl's placeholder fill is an EMPTY `<patternFill/>` while LibreOffice writes `patternType="none"`, the same bold switch is spelled `val="1"` in one file and `val="true"` in the other, an `indexed="64"` colour comes back as `rgb="FF000000"` after the rewrite, and LibreOffice turns a `lightGrid` pattern into a `solid` one with different colours - a rewrite is not lossless, so all of it is handed over as written. .xls keeps its formats in BIFF XF/FORMAT records (already reported through the number-format hop) and ODS keeps cell looks in named styles, so neither carries these keys. ODS page styles get their own top-level ledger, because nothing inside a .ods names the page style a sheet prints with: every style:master-page is reported with its six slots, a slot the file wrote while saying display=false stays distinct from a slot the file never wrote, and paragraphs living in the style:region-left / style:region-right halves are counted too - LibreOffice puts the sheet-name and title fields in the left half and the date and time in the right, so a reader that walks only direct children reports a written header as an empty one. What a sheet prints is a separate ledger (print_ranges) because neither family keeps it on the sheet the way office software's own UI suggests: OOXML writes two reserved defined names (_xlnm.Print_Area and _xlnm.Print_Titles) in the workbook part, attributed through localSheetId which counts the ORDER of the sheets - not sheetId and not r:id, both of which are numbered separately by each producer; one name can carry several comma-separated ranges, so the whole sentence and the split pieces are both reported, and LibreOffice's rewrite of this fixture drops the quotes around every sheet name while changing nothing else (quoted_entries counts that on its own). ODF keeps it in two places: an attribute on the table itself (space-separated, with a third spelling of cell addresses) plus a set of table:named-range and table:named-expression entries kept for the Excel round trip - and the repeated-row choice exists ONLY in that second place, so reading the table attribute alone loses it; all five entries in the fixture share one base-cell-address, which means attribution lives in the address string, not in that pointer. Returns { path, format, sheets, page_styles, print_ranges, protection, csv, markdown, workbook, defined_names, tables, external_links, parts, notes }. The formula element itself is a separate ledger (formula_elems): Excel stores one column of look-alike formulas as a shared group, where the master cell writes <f t=shared ref=B1:B8 si=0>A1*2</f> and the seven followers write <f t=shared si=0/> with NO text at all - so how many cells carry a formula (16) and how many carry text (9) are two numbers, and merging them would read the file not writing that formula as the cell having no formula. attrs_seen is reported in the order the file wrote them (t, ref, si), not alphabetically. Three producers, three styles: openpyxl writes no attribute on f at all, LibreOffice's rewrite drops the shared group (16 full texts) while writing aca=false on every one of them, and the same sheet as ods moves the formula onto the cell as table:formula with all 16 texts translated row by row (of:=[.A2]*2) - that family has no si/ref/shared slot at all, so those keys are simply absent there (not 0). The element carrying the formula there IS the cell, so attrs is that cell's whole attribute table as written, sheet names the table:table the cell sits in (measured: 表一 / 预算表 / 错误 - not the style name, which has its own slot called style), and cell is null on every row because this family writes no cell address at all (columns can go unwritten and number-rows-repeated stands for several rows). The formula text prefix moved to formula_prefixes (xlsx has no such thing, so that key never appears there) while attr_values means the same in both: how often each attribute value was written. One more pair kept apart: whether a v element is present (cached_written) and what it holds (cached, as written - openpyxl's 16 are empty tags), so a tag is never reported as a value. This ledger does not expand shared groups or replay formula semantics, and legacy .xls pages do not carry the key at all. "
+    about = "Report a spreadsheet's layout: every sheet with its workbook-order index, sheetId, relationship target, r:id and visibility (hidden and very-hidden sheets are listed, not skipped - they are usually the ones worth knowing about), each sheet's self-declared dimension, and per sheet the cell count, formula count, numeric/shared/inline-string split, merged ranges, hidden rows and columns. Also reports defined names (with what they point at), table parts (names, ranges, header rows), external-link workbook parts, chart and picture parts, styles/conditional formatting presence, and whether a calcChain exists. Shared strings are resolved so LABELSST cells carry their text; a formula cell reports the formula and says whether the file also cached a result (openpyxl-written files do not, and inventing a value there is exactly what this command refuses to do). Each cell also carries its number format: the style index on the cell is a row of xl/styles.xml cellXfs (not a format id), so a date is only a date once that hop is taken - the format code and, for date/time-formatted numeric cells, the ISO reading of the serial number are reported, honouring workbook.xml date1904 and reporting Excel's non-existent 1900-02-29 as written. A text cell like "12/23/2013" stays text. Legacy .xls goes through the BIFF8 record reader, and its hidden rows and columns come out of the two records the flags actually live in: bit 0x20 of the ROW record, and bit 0 of the COLINFO record (which states a range, expanded here - LibreOffice writes that record under the older id 0x007D while MS-XLS names 0x07D0 for BIFF8, so both ids are accepted). Which ROW bit means hidden was measured rather than recalled: three comparison files separate the two variables - row heights from 4pt to 250pt leave that bit alone, while hiding a single row sets exactly that bit. Hidden cells still count as cells. Spreadsheet comments are another hop: they are not in sheetN.xml at all - the sheet's own relationship part names the comments part, and the two producers measured here put it in two different places (openpyxl `xl/comments/comment1.xml` reached through an absolute target, LibreOffice `xl/comments1.xml` through `../comments1.xml`), with the author's name indexed through the `<authors>` list rather than written on the comment; ODF instead keeps the comment INSIDE the cell as `office:annotation`, which is exactly why the cell's own text skips that subtree. Authoring timestamps come back null on both producers because neither wrote one. Legacy .xls is a fourth spelling and stays inside the same stream: one record kind carries the text (offset 10 of its body is the character count it states for itself, and the first CONTINUE right after it opens with an encoding byte - 0 means one byte per character, 1 means two, which is the OPPOSITE of the BIFF8 fCompressed convention), while another record at the end of that sheet's own substream says which cell the note is on and who wrote it. The two lists are paired in order of appearance, every entry carries whole (were both self-stated counts satisfied), and both record counts are published per sheet so a mismatch shows up as data instead of a silently truncated list. This family writes no authoring timestamp, so date is null there; the reading was measured on LibreOffice-written .xls, and those two record numbers are not given spec names because MS-XLS assigns 0x001C to something else entirely. Whether a sheet can still be edited is reported per format, because the three spellings do not map onto one another: xlsx keeps two layers (workbookProtection plus each sheet's own sheetProtection, switches read in both the 1/0 and true/false spellings with an omitted one left omitted rather than false), .ods writes table:protected on the table itself together with the digest URI, and .xls has no workbook layer at all - PROTECT (0x0012), PASSWORD (0x0013) and SCENPROTECT (0x00DD) sit inside the locked sheet's own substream, so they are attributed per sheet and their raw values kept. ODF spreadsheets (.ods) are read on their own terms: cells carry the value-type the file wrote - written as-is, and null when no office:value-type was written, because guessing one from whether the cell has text is how the two readers here drifted apart (odp page tables write the attribute on none of their cells, seven of which hold text) - with office:value / date-value / boolean-value (no serial-number epoch to guess), positions are accumulated through table:number-columns-repeated runs (which routinely stand for 16000+ empty columns and are not counted), covered cells are tallied apart from content, merges come from the span attributes, a sheet's visibility is resolved through the automatic style it names, and hidden rows/columns are counted from table:visibility="collapse" on the element or in the row/column style it names (multiplying number-columns-repeated, so one element standing for three collapsed columns reports 3, not 1); each ODS cell additionally carries the number format it inherits - cell style, then style:data-style-name, then that number:*-style element (which lives in content.xml or styles.xml, and is reached through parent-style-name when the cell style itself names none) - reported as format_kind (taken from the element's own name, so a ¥ written as a literal text token stays a number-style), plus decimals, currency_symbol and a faithful format_tokens transcription; ODF has no format string, so none is invented. With --csv it also renders one sheet (by name, or by the 0-based index this command reports; --sheet picks it, default first) as RFC4180 CSV under { csv: {sheet, index, rows, columns, cells_skipped, line_end, text} } - date cells go out as the ISO reading of the serial number (legacy .xls takes the same hop too - the cell's ixfe indexes the XF records, whose format number names either a FORMAT record or a built-in id, and the epoch comes from DATEMODE; a file that never wrote DATEMODE gets the serial rather than a guessed 1900), a formula cell with no cached result goes out empty rather than guessed, holes are empty fields, and cells whose reference cannot be parsed as A1 are left out. With --markdown the same sheet also goes out as a pipe table under { markdown: {sheet, index, rows, columns, cells_skipped, line_end, separator_after_row, text} } - and it is literally the same square the CSV renderer fills, so the two ledgers' rows and columns are the same two numbers (the cross-check pins that equality rather than trusting it). The `| --- |` line goes after row 0 because the format requires a header row, not because the file said the first line is one - which is why that key says separator_after_row instead of claiming a header. A cell holding a pipe is escaped and a cell holding a newline is joined with <br>, because a pipe table can carry neither raw; the values themselves keep the --csv reading (ISO for dates, empty for an uncached formula, empty for a hole). Each xlsx sheet additionally carries its own print setup: the three elements `pageMargins`, `pageSetup` and `printOptions` are reported separately, and an element the file never wrote stays null rather than turning into false - openpyxl writes only the margins, while LibreOffice rewrites the same sheet with twelve `pageSetup` attributes (paperSize 9 and both dpi values included). Margins are handed over exactly as written, in the unit that family uses (`margin_unit`: inch, said once per sheet), rather than normalised to the 0.01mm integers office-doc reports - 0.5 versus 0.511811023622047 is the two producers' difference, and converting it away would erase the thing worth seeing. ODS and .xls print setup is deliberately not read: five LibreOffice-written .ods files name no page layout on the table element (the only link left is that producer's own `PageStyle_<sheet>` naming convention, not a spec hop), and while every .xls sheet does write a SETUP (0x00A1) record, nothing here can be a second reader for the field offsets inside it. A sheet's charts are two more hops: the sheet's own relationship part names a drawing part, and that drawing's relationships name the chart parts (openpyxl writes those targets absolute, LibreOffice relative - `resolve_target` eats both). So charts are attributed per sheet (`charts` and `chart_list`, and a sheet with none reports 0 rather than omitting the key): each entry reports its part, its title (a literal through `c:rich`, or a cell reference), whether the file cached any plotted values, and per plot group the kind (`barChart` / `lineChart`), every direct child's `val` as written (`barDir`, `grouping`, `gapWidth`...) with the axis ids kept separate because those are the producer's own numbering. The cached flag matters: openpyxl writes not one `c:pt`, so what the picture actually plots stays unknown and only the reference is handed over, while LibreOffice caches every point and self-states `ptCount` - that count and the number of points really found are both published, with whole saying whether they agree. Reference strings go out exactly as the file wrote them: the same cells read `'数据'!B1` in one producer's file and `数据!$B$1` in the other's, and the same text categories are a `c:numRef` in one and a `c:strRef` in the other - normalising either would be inventing what the file did not say. ODS keeps charts the ODF way - a `draw:frame` whose `draw:object` names an `Object N/` directory, whose own content.xml holds the picture - so a sheet reports its charts with the same shape as elsewhere plus a `local_table` transcription of the numbers the chart carried along. .xls still uses the BIFF object chain and is not read. Two more everyday things are read per sheet, because both answer questions people actually ask. Conditional formatting: each `conditionalFormatting` block keeps its `sqref` as written (one block may name two ranges), and each `cfRule` hands over every attribute the file wrote plus type/priority/operator named separately, its formula texts (entities decoded, so a written `$B2&gt;200` reads as `$B2>200`) and the shape inside `iconSet` / `colorScale` / `dataBar` - each `cfvo`'s type and val, each color's rgb exactly as written, since openpyxl writes 00FFFFFF where LibreOffice writes FFFFFFFF for the same white. `dxfId` is a hop: the rule names an index into `dxfs` in xl/styles.xml, so each rule says what it wrote, whether that index resolves, and which element paths that dxf contains (`font/b`, `font/color`...) - LibreOffice rewrites the same dxf with five entries where openpyxl wrote two, so nothing is folded into a shared bold-and-red shape. Priorities are each producer's own numbering (the same four rules read 1/2/3/4 in one file and 2/3/4/5 in the other), so they are reported rather than compared. Data validation: the `dataValidations` container's self-stated count is published next to how many were found and whether they agree, and each entry reports its range, type, operator, the formula1/formula2 texts as written and every attribute - including the two boolean spellings (allowBlank 1 versus true), the operator LibreOffice adds to a list rule, the formula2 it fills with 0, and the = it strips from a custom formula. ODS keeps these in number and table styles, .xls in BIFF records; neither is read, so the rules key is absent for those families rather than empty. Two everyday things per sheet come next, because both are questions people actually ask. The window: `view` hands over the attributes the `sheetView` element wrote (openpyxl writes four of them and spells booleans 1/0; LibreOffice rewrites the same sheet with fifteen and spells them true/false, so nothing is folded into one shared boolean), the one `pane` element - whose `state` keeps frozen and split apart because they are two different things - and every `selection` as written (three in one file with the first one not naming topLeft, four in the other, each with an activeCellId). Rewriting is not lossless: measured on a LibreOffice xlsx export, the pane with `state="split"` disappears entirely while the frozen one survives. The printed margins of the page: `header_footer` reports the six slot elements in a fixed order, each with whether the element is there at all, its text as written (entities decoded), the segments the `&L`/`&C`/`&R` markers name, and every other `&` sequence kept verbatim - `&&` is a literal ampersand and `&"Calibri"` is one whole code, so the scan walks codes rather than counting characters. Absent and empty stay apart: a sheet openpyxl never wrote reports present false with null text, while the same sheet after LibreOffice writes the element with empty contents (present true, text ""). ODS keeps both in its page styles, the same hop print setup could not take, and .xls keeps them in WINDOW1/WINDOW2 and HEADER/FOOTER records no second reader here can check, so both keys are absent for those families. Three more ledgers per sheet answer the three everyday "why" questions - why a column shows too little, why a row will not take what I typed, and whether this range really is one table. `layout` reports the attributes `sheetFormatPr` wrote (the two producers do not even name the same thing for a default width: `baseColWidth` in one file, `defaultColWidth` in the other), every `col` as written (the same column reads 22.5 in one file and 20.47 in the other, hidden is spelled 1 in one and true in the other, and nothing is converted), how many `col` elements there are next to how many columns they cover (summed from each element's own min and max, never expanded, and null rather than 0 when there is none), and three row counts - rows in the sheet, rows that wrote an `ht`, rows that said anything at all about height or visibility - plus those rows as written. `filter` says whether there is an `autoFilter`, its range as written, every `filterColumn` with its switches and the values being filtered out, and the `filterMode` the sheet may or may not state on `sheetPr` (one producer writes it for every sheet, true and false, the other never writes it). Table objects are another hop: `tableParts` names relationship ids only, and the parts come out of the sheet's own relationship table, the same linking style charts use; each part reports its attributes as written (name and displayName, ref, headerRowCount, plus the two totals switches LibreOffice adds), its self-stated `tableColumns/@count` next to how many were found with `whole`, the column names themselves as written (openpyxl takes the first row of the range as names, so the second column is literally called 10, and both producers carry that name unchanged), and its own `autoFilter` - which can cover a different range than the sheet's filter (A1:B3 next to A1:C3 on one sheet), so both are reported instead of picking one. ODS reads its sizes too, and they are a third shape - which is the whole reason this ledger exists: a table-column or table-row element writes only how many columns or rows it stands for (number-columns-repeated - LibreOffice pads every sheet out to exactly 16384 columns that way, measured on six files) and occasionally its own visibility, while the width and height sit one hop away in the automatic style the element names. So layout for .ods reports each axis as elements / spans (how many elements there are, next to how many columns they cover - and neither is the sheet's columns key, which counts only the rightmost cell that has content), with resolved / with_size / optimal / spoken_visibility tallied over every element, then per element: the style it named, whether that style was found in this part, the length as written plus its 0.01mm reading (unit is said once per sheet), the style's own use-optimal flag, the style's visibility kept apart from the element's because they are two ways to say the same thing, and the style's parent-style-name - the parent chain is deliberately NOT followed (no file measured here writes one), it is only reported so a missing width can explain itself. The four numbers a table may state about itself (number-columns, number-rows, default-column-width, default-row-height) come back as four keys, null when unwritten: LibreOffice writes none of them, and absent is not zero. filter and tableParts are OOXML-only and stay absent for ODS; .xls has none of the three. A result that is not a number goes out as the file wrote it: an error cell's <v> already IS the display string (#DIV/0!), so nothing is prefixed - both readers used to prepend a "#错误 " tag that appears in no file, and no producer here recomputed one until errors-lo.xlsx, so the branch stayed untested on both sides; a text result (t="str") is likewise handed over verbatim, and error_cells / string_result_cells count the two per sheet. kind_written says whether that cell wrote a t at all: the spec default is numeric, but openpyxl omits the attribute on every formula cell while LibreOffice writes t="n" for all of them, so kind alone would read one producer's silence as the other's statement - cells_with_written_type counts those who spoke. ODF spells the same cell a third way: office:value-type="string" with an EMPTY office:string-value, the displayed text only in <text:p>, plus a calcext:value-type="error" that is not followed - so an error reads kind string there, and because that export localises the name, one broken VLOOKUP is #VALUE! in its xlsx and 错误:502 in its ods: each goes out as written and they are never reconciled. A string cell keeps the whitespace the file wrote - no trimming, because the two spaces in a <t xml:space="preserve"> are the file's own and LibreOffice's own CSV export carries them too - and it additionally reports runs: how the file split that string (a rich one is several <r> elements, each with its own rPr attributes as written, while a plain <t> has none at all), one entry per run with element, text, space, props_written, props_attrs and format (the rPr's own attributes and its child elements - the two producers here put the shape on children like <b val="true"/> and write no attribute on rPr at all), next to run_total, rich_string and space_preserved on the cell and cells_with_runs / cells_with_preserved_space per sheet. The string table is also held against what it states about itself: sst/@count (references) and sst/@uniqueCount (entries) go out as written beside how many si were really found, because one string used by two cells is a file that says count 8 with seven entries and both numbers are right. ODF spells the same cell text a fourth way: spaces and tabs are MARKERS, not characters - text:s (with text:c saying how many spaces that one stands for), text:tab and text:line-break - so those are expanded here (LibreOffice's own CSV export of the same .ods keeps every one of them), and each cell says how many text:span and how many marker elements the file really wrote (spans / specials). What a cell LOOKS like is another hop: the `s=` index names one `cellXfs` row, and that row writes only three numbers - `fontId` / `fillId` / `borderId` - whose text lives in the `fonts` / `fills` / `borders` tables. Each cell therefore carries `style_attrs` (what that xf row wrote, verbatim), the three resolved rows (`style_font` / `style_fill` / `style_border`, each as written attributes plus child elements, and those children's own children one level deeper - the fill colour is not on `patternFill` but on its `fgColor` / `bgColor` child, so a one-level row can say a cell is solid without being able to say which colour), `style_alignment`, the three ids, `style_found`, and three tri-state switches (`style_bold` / `style_filled` / `style_wrapped`, null when the file said nothing) counted per sheet as cells_bold / cells_filled / cells_wrapped. style_written says whether the cell wrote an `s` at all - one producer writes s="0" on every cell, the other leaves the default unwritten. The tables report their own `count` next to how many rows were found (fonts / fills / borders / cellXfs / cellStyleXfs under `workbook.styles`), and nothing is normalised between producers: openpyxl's placeholder fill is an EMPTY `<patternFill/>` while LibreOffice writes `patternType="none"`, the same bold switch is spelled `val="1"` in one file and `val="true"` in the other, an `indexed="64"` colour comes back as `rgb="FF000000"` after the rewrite, and LibreOffice turns a `lightGrid` pattern into a `solid` one with different colours - a rewrite is not lossless, so all of it is handed over as written. .xls keeps its formats in BIFF XF/FORMAT records (already reported through the number-format hop) and ODS keeps cell looks in named styles, so neither carries these keys. ODS page styles get their own top-level ledger, because nothing inside a .ods names the page style a sheet prints with: every style:master-page is reported with its six slots, a slot the file wrote while saying display=false stays distinct from a slot the file never wrote, and paragraphs living in the style:region-left / style:region-right halves are counted too - LibreOffice puts the sheet-name and title fields in the left half and the date and time in the right, so a reader that walks only direct children reports a written header as an empty one. What a sheet prints is a separate ledger (print_ranges) because neither family keeps it on the sheet the way office software's own UI suggests: OOXML writes two reserved defined names (_xlnm.Print_Area and _xlnm.Print_Titles) in the workbook part, attributed through localSheetId which counts the ORDER of the sheets - not sheetId and not r:id, both of which are numbered separately by each producer; one name can carry several comma-separated ranges, so the whole sentence and the split pieces are both reported, and LibreOffice's rewrite of this fixture drops the quotes around every sheet name while changing nothing else (quoted_entries counts that on its own). ODF keeps it in two places: an attribute on the table itself (space-separated, with a third spelling of cell addresses) plus a set of table:named-range and table:named-expression entries kept for the Excel round trip - and the repeated-row choice exists ONLY in that second place, so reading the table attribute alone loses it; all five entries in the fixture share one base-cell-address, which means attribution lives in the address string, not in that pointer. Returns { path, format, sheets, page_styles, print_ranges, protection, csv, markdown, workbook, defined_names, tables, external_links, parts, notes }. The formula element itself is a separate ledger (formula_elems): Excel stores one column of look-alike formulas as a shared group, where the master cell writes <f t=shared ref=B1:B8 si=0>A1*2</f> and the seven followers write <f t=shared si=0/> with NO text at all - so how many cells carry a formula (16) and how many carry text (9) are two numbers, and merging them would read the file not writing that formula as the cell having no formula. attrs_seen is reported in the order the file wrote them (t, ref, si), not alphabetically. Three producers, three styles: openpyxl writes no attribute on f at all, LibreOffice's rewrite drops the shared group (16 full texts) while writing aca=false on every one of them, and the same sheet as ods moves the formula onto the cell as table:formula with all 16 texts translated row by row (of:=[.A2]*2) - that family has no si/ref/shared slot at all, so those keys are simply absent there (not 0). The element carrying the formula there IS the cell, so attrs is that cell's whole attribute table as written, sheet names the table:table the cell sits in (measured: 表一 / 预算表 / 错误 - not the style name, which has its own slot called style), and cell is null on every row because this family writes no cell address at all (columns can go unwritten and number-rows-repeated stands for several rows). The formula text prefix moved to formula_prefixes (xlsx has no such thing, so that key never appears there) while attr_values means the same in both: how often each attribute value was written. One more pair kept apart: whether a v element is present (cached_written) and what it holds (cached, as written - openpyxl's 16 are empty tags), so a tag is never reported as a value. This ledger does not expand shared groups or replay formula semantics, and legacy .xls pages do not carry the key at all. Cells can also hold links, and the four families park them in four places, so each sheet reports its own ledger and `family` / `hop` say which road was taken: xlsx puts the address one rels hop away (the `TargetMode` switch lives on that hop and a producer may not write it, so `external` is a tri-state), .ods hangs it on the text run (`text:a/@xlink:href`; not one `table:hyperlink` was measured here, and with no TargetMode in this family external / internal is read off the address itself), .xls writes a 0x01B8 record inside the same stream (external versus internal is the second GUID, because the two branches' length fields count different things - bytes in one, code units in the other), while =HYPERLINK(...) is a formula rather than a link object and is counted separately as `formula_cells` (null for .xls, whose formulas are binary ptg strings this version does not disassemble). A row carries only what its family wrote: `id` and `tooltip` are null for .xls, and `range` (first / last row and column) exists only there because the record states a range. The .xls 0x01B7 record self-states a link count and is published as written in `workbook.links_written` - measured at 0 while the same stream holds six 0x01B8 records - next to the numbers actually counted. The two producers disagree on the same words (LibreOffice drops the dangling rel and every tooltip, writes a `display` on each remaining row and decodes the percent-encoded mailto subject back to Chinese, while the .ods export puts the percent encoding back), so nothing is reconciled. See fact 126. "
 )]
 pub struct OfficeSheet {
     /// 表格文件（xlsx / xlsm / xls / ods）
@@ -105,6 +105,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             "cells": 0, "formulas": 0, "numeric": 0, "shared_strings": 0,
             "inline_strings": 0, "merged": 0, "hidden_rows": 0, "hidden_cols": 0,
             "dates": 0, "comments": 0, "charts": 0, "conditional_rules": 0, "validations": 0,
+            "links": 0, "hyperlink_formulas": 0,
             // bump 只往已有的键上加，所以这几本新账要在totals里先占个位（0 是「数过了没有」）
             "error_cells": 0, "string_result_cells": 0, "cells_with_written_type": 0,
             "cells_with_runs": 0, "cells_with_preserved_space": 0,
@@ -191,9 +192,14 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                             uncached
                         ));
                     }
+                    let links = xlsx_links(bytes, &part, &sheet_root, limit);
+                    let linked = links["total"].as_u64().unwrap_or(0) as usize;
+                    entry["links"] = links;
+                    bump(&mut totals, "links", linked);
                     let mut cells: Vec<Value> = Vec::new();
                     let mut count = 0usize;
                     let mut formulas = 0usize;
+                    let mut hyperlink_formula = 0usize;
                     let mut numeric = 0usize;
                     let mut shared_count = 0usize;
                     let mut inline = 0usize;
@@ -251,7 +257,11 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                         let formula = cell.child("f").map(|one| one.text().trim().to_string());
                         if let Some(raw) = &formula {
                             formulas += 1;
-                            let _ = raw;
+                            // `HYPERLINK(...)` 是第四种链接存法：它不写 `<hyperlink>` 元素，
+                            // 地址写在公式正文里当字符串参数 —— 所以这一本单独数
+                            if raw.contains("HYPERLINK(") {
+                                hyperlink_formula += 1;
+                            }
                         }
                         if cell.child("is").is_some() {
                             inline += 1;
@@ -380,6 +390,9 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                     entry["hidden_cols"] = json!(hidden_cols);
                     entry["listed"] = json!(cells.len());
                     entry["formulas"] = json!(formulas);
+                    // HYPERLINK 公式那一本要等格子那一轮走完才有数，回填进同一本账
+                    entry["links"]["formula_cells"] = json!(hyperlink_formula);
+                    bump(&mut totals, "hyperlink_formulas", hyperlink_formula);
                     entry["numeric"] = json!(numeric);
                     entry["shared_string_cells"] = json!(shared_count);
                     entry["inline_strings"] = json!(inline);
@@ -567,6 +580,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
         let mut totals = json!({
             "cells": 0, "formulas": 0, "dates": 0, "merged": 0, "covered": 0,
             "hidden_rows": 0, "hidden_cols": 0, "comments": 0, "charts": 0,
+            "links": 0, "hyperlink_formulas": 0,
         });
         for (index, one) in book.sheets.iter().enumerate() {
             // 这一张表上的图：先按表名找到它自己的 `table:table`，再走 frame → object 那一跳
@@ -584,6 +598,9 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                     types.insert(key.clone(), json!(next));
                 }
             }
+            let links = ods_links(one, limit);
+            let linked = links["total"].as_u64().unwrap_or(0) as usize;
+            let by_formula = links["formula_cells"].as_u64().unwrap_or(0) as usize;
             sheets.push(json!({
                 "index": index,
                 "name": one.name,
@@ -599,12 +616,15 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "hidden_cols": one.hidden_cols,
                 "comments": one.comments.len(),
                 "comment_list": one.comments.iter().cloned().take(limit).collect::<Vec<Value>>(),
+                "links": links,
                 "value_types": Value::Object(types),
                 "layout": ods_layout(one, limit),
                 "cell_list": one.cells.iter().take(limit).map(|had| merge(had.to_json(), styles.for_cell(had.style_name.as_deref()))).collect::<Vec<Value>>(),
                 "charts": charted,
                 "chart_list": Value::Array(charts),
             }));
+            bump(&mut totals, "links", linked);
+            bump(&mut totals, "hyperlink_formulas", by_formula);
             bump(&mut totals, "charts", charted);
             bump(&mut totals, "cells", one.cells.len());
             bump(&mut totals, "formulas", one.formulas());
@@ -728,6 +748,16 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                     .to_string(),
             );
         }
+        if !book.link_counts.is_empty() {
+            notes.push(
+                "链接这一族另有 0x01B7 一条，它自报一个 16 位数（按写的交，在 \
+                 `workbook.links_written` 里）。实测 LibreOffice 那份写 0，\
+                 而同一条流里有六条 0x01B8 —— 它显然不是「链接条数」，但那句话是文件\
+                 自己写的，这里照它交回来，不替它改成 6。另：这一族的公式是二进制的 ptg\
+                 串，`HYPERLINK(...)` 公式那一本判不住，交 null 而不是 0"
+                    .to_string(),
+            );
+        }
         let result = json!({
             "path": app.path.to_string_lossy(),
             "format": doc.format,
@@ -742,12 +772,17 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "date1904": book.date1904,
                 "xfs": book.xfs,
                 "formats": book.formats,
+                // 0x01B7 那一条自报的数，按写的交（实测这份件写 0，而流里有六条 0x01B8）
+                "links_written": book.link_counts,
                 "totals": {
                     "cells": book.cells.len(),
                     "formulas": book.formula_cells,
                     "hidden_rows": book.sheets.iter().map(|one| one.hidden_rows.len()).sum::<usize>(),
                     "hidden_cols": book.sheets.iter().map(|one| one.hidden_cols.len()).sum::<usize>(),
                     "comments": book.sheets.iter().map(|one| one.comments.len()).sum::<usize>(),
+                    "links": book.sheets.iter().map(|one| one.links.len()).sum::<usize>(),
+                    // 记录条数与解出来的条数是两本账，两个都交
+                    "link_records": book.sheets.iter().map(|one| one.link_records).sum::<usize>(),
                 },
             },
             "protection": json!({"kind": "biff8", "sheets": locks}),
@@ -770,6 +805,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 // 两类记录各自有几条：配的条数只到小的那个，所以对不上时这里看得见
                 "note_text_records": one.note_text_records,
                 "note_cell_records": one.note_cell_records,
+                "links": xls_links(one, limit),
                 "cells": book.cells.iter().filter(|had| had.sheet.as_deref() == Some(one.name.as_str())).count(),
             })).collect::<Vec<Value>>(),
             "cells": cells,
@@ -1382,6 +1418,201 @@ fn sheet_comments(bytes: &[u8], part: &str, limit: usize) -> Vec<Value> {
         }
     }
     out
+}
+
+/// 这张表上的链接。地址有三条来路，而 `<hyperlink>` 元素自己不说它走哪一条：
+/// * `r:id` → 这一张表自己的关系表（`TargetMode="External"` 按写的交，没写是 null）
+/// * `location` → 站内跳法（`'数据'!A1`），地址就写在元素上，没有第二跳
+/// * 两个都写 → 各说各的，两条都交回去
+///
+/// 所以逐条说清「写了哪个号」「那个号指不指得到」。两个生产者写的属性面不一样：
+/// openpyxl 只写 `ref` 与来路，LibreOffice 每条都补一个 `display`，于是
+/// `with_display` 在两份件上是 0 对 5 —— 这不是谁读丢了，是文件自己写的差别。
+/// 还有第四种来路：`HYPERLINK(...)` 公式，它压根不写 `<hyperlink>` 元素，
+/// 所以那份账由格子那一轮数出来再回填进 `formula_cells`（这里先交 null，不猜）
+fn xlsx_links(bytes: &[u8], part: &str, root: &xmlscan::Node, limit: usize) -> Value {
+    let (dir, base) = match part.rsplit_once('/') {
+        Some((head, tail)) => (head.to_string(), tail),
+        None => (String::new(), part.as_str()),
+    };
+    let rels_name = if dir.is_empty() {
+        format!("_rels/{base}.rels")
+    } else {
+        format!("{dir}/_rels/{base}.rels")
+    };
+    let mut pool: Vec<(String, String, Option<bool>)> = Vec::new();
+    if let Some(member) = xml(bytes, &rels_name) {
+        let rel_root = xmlscan::parse_str(&member.as_text());
+        for one in rel_root.descendants("Relationship") {
+            if !one.attr("Type").unwrap_or_default().ends_with("/hyperlink") {
+                continue;
+            }
+            let Some(id) = one.attr("Id") else { continue };
+            pool.push((
+                id.to_string(),
+                one.attr("Target").unwrap_or_default().to_string(),
+                one.attr("TargetMode").map(|had| had == "External"),
+            ));
+        }
+    }
+    let mut list: Vec<Value> = Vec::new();
+    let mut total = 0usize;
+    let mut with_id = 0usize;
+    let mut with_location = 0usize;
+    let mut with_display = 0usize;
+    let mut with_tooltip = 0usize;
+    let mut external = 0usize;
+    let mut unresolved = 0usize;
+    for one in root.descendants("hyperlink") {
+        total += 1;
+        let id = one.attr_local("id").map(String::from);
+        let location = one.attr("location").map(String::from);
+        let display = one.attr("display").map(String::from);
+        let tooltip = one.attr("tooltip").map(String::from);
+        if id.is_some() {
+            with_id += 1;
+        }
+        if location.is_some() {
+            with_location += 1;
+        }
+        if display.is_some() {
+            with_display += 1;
+        }
+        if tooltip.is_some() {
+            with_tooltip += 1;
+        }
+        let hit = id
+            .as_ref()
+            .and_then(|want| pool.iter().find(|one| &one.0 == want));
+        let target = hit.map(|one| one.1.clone());
+        let mode = hit.and_then(|one| one.2);
+        if mode == Some(true) {
+            external += 1;
+        }
+        // 「指不到」只说这条链接一个字也没落地：有 location 就已经知道跳哪儿了
+        if target.is_none() && location.is_none() {
+            unresolved += 1;
+        }
+        if list.len() < limit {
+            let hop = if id.is_some() { "rels" } else { "inline" };
+            let scheme = target.as_deref().and_then(crate::office_slide::link_scheme);
+            list.push(json!({
+                "ref": one.attr("ref"),
+                "id": id,
+                "target": target,
+                "scheme": scheme,
+                "external": mode,
+                "location": location,
+                "display": display,
+                "tooltip": tooltip,
+                "hop": hop,
+            }));
+        }
+    }
+    json!({
+        "family": "rels",
+        "total": total,
+        "external": external,
+        "internal": with_location,
+        "unresolved": unresolved,
+        "with_id": with_id,
+        "with_location": with_location,
+        "with_display": with_display,
+        "with_tooltip": with_tooltip,
+        "formula_cells": Value::Null,
+        "listed": list.len(),
+        "cut": list.len() < total,
+        "list": list,
+    })
+}
+
+/// .ods 那一份链接账。这一族没有「站内 / 站外」那个开关（OOXML 的关系表上才有
+/// `TargetMode`），所以只能按地址的长相分：`#` 开头的是站内跳法（实测
+/// `#'数据'.A1`，注意 ODF 用点、OOXML 与 .xls 用叹号），认得出 scheme 的算站外。
+/// `via_*` 两本是回答「这一族到底把链接写在哪」：实测 LibreOffice 两份件
+/// 一条 `table:hyperlink` 都不写，六条全在段里的 `text:a` 上
+fn ods_links(sheet: &crate::odsheet::Sheet, limit: usize) -> Value {
+    let list: Vec<Value> = sheet.links.iter().cloned().take(limit).collect();
+    let internal = sheet
+        .links
+        .iter()
+        .filter(|one| matches!(one["target"].as_str(), Some(raw) if raw.starts_with('#')))
+        .count();
+    let via_text = sheet
+        .links
+        .iter()
+        .filter(|one| one["via"].as_str() == Some("a"))
+        .count();
+    json!({
+        "family": "inline",
+        "total": sheet.links.len(),
+        "external": sheet.links.iter().filter(|one| !one["scheme"].is_null()).count(),
+        "internal": internal,
+        "unresolved": sheet.links.iter().filter(|one| one["target"].is_null()).count(),
+        "formula_cells": sheet.hyperlink_formulas,
+        "via_text_a": via_text,
+        "via_table_hyperlink": sheet.links.len() - via_text,
+        "listed": list.len(),
+        "cut": list.len() < sheet.links.len(),
+        "list": list,
+    })
+}
+
+/// .xls 那一份链接账（0x01B8 记录）。站外 / 站内这一刀不是猜的，是记录自己写的：
+/// 两条分支的**长度字段数的东西不一样**（一支数字节、一支数码元），所以判据只能是
+/// 「名字串后面那 16 字节是不是第二个 GUID」—— `guid_second` 就是这一刀本身。
+/// `id` / `tooltip` 这一族压根没有，交 null；`display` 用记录里那句 friendly name，
+/// 它与 OOXML 那个 `display` 是同一类东西（元素上另写的一句名字）
+fn xls_links(sheet: &crate::biff::Sheet, limit: usize) -> Value {
+    let list: Vec<Value> = sheet
+        .links
+        .iter()
+        .take(limit)
+        .map(|one| {
+            let target = one.target.clone();
+            let location = one.location.clone();
+            let scheme = target
+                .as_deref()
+                .or(location.as_deref())
+                .and_then(crate::office_slide::link_scheme);
+            json!({
+                "ref": one.reference(),
+                "range": [one.first_row, one.last_row, one.first_col, one.last_col],
+                "target": target,
+                "scheme": scheme,
+                "external": one.guid_second,
+                "location": location,
+                "display": one.friendly,
+                "tooltip": Value::Null,
+                "hop": "record",
+                "id": Value::Null,
+                // 这两个数按写的交：实测外部支是 2 配 23、站内支是 2 配 28，
+                // 手上没有第二个读者判得住它们是什么，所以不替它们编规范名
+                "at24": one.at24,
+                "at28": one.at28,
+                "guid_first": one.guid_first,
+                "guid_second": one.guid_second,
+                "whole": one.whole,
+            })
+        })
+        .collect();
+    let external = sheet.links.iter().filter(|one| one.guid_second).count();
+    json!({
+        "family": "record",
+        "total": sheet.links.len(),
+        "external": external,
+        "internal": sheet.links.len() - external,
+        "unresolved": sheet.links.iter().filter(|one| one.target.is_none() && one.location.is_none()).count(),
+        // 这一族的公式是二进制的 ptg 串，这一版不反汇编，所以《HYPERLINK 公式》
+        // 这一本在这里是「看过而判不住」，交 null 而不是 0
+        "formula_cells": Value::Null,
+        // 记录条数与解出来的条数是两本账：解不动的那条不硬凑，但「有几条」要说真话
+        "records": sheet.link_records,
+        "whole": sheet.links.iter().filter(|one| one.whole).count(),
+        "listed": list.len(),
+        "cut": list.len() < sheet.links.len(),
+        "list": list,
+    })
 }
 
 /// 能当数看的就当数给出：xlsx 的 `<v>` 与 .xls 的 RK 是同一个数，别一个报字串一个报浮点
@@ -3981,5 +4212,145 @@ mod tests {
         assert_eq!(quiet["formula_elems"]["attrs_seen"], json!([]));
         // 遗留 .xls 不交这个键（那一族的公式在 BIFF 记录树里，是另一问）
         assert!(run("book.xls")["formula_elems"].is_null());
+    }
+
+    /// 格子上的链接有四种存法，外加第五种「压根不写链接元素」的 `HYPERLINK(...)` 公式：
+    /// * xlsx：`<hyperlink>` 写一个关系号，地址在表自己的 `.rels` 里（`hop=rels`）
+    /// * xlsx：站内跳法不写号，地址直接写在元素的 `location` 上（`hop=inline`）
+    /// * .ods：地址挂在段里那个字上（`text:a/@xlink:href`），没有第二跳也没有开关
+    /// * .xls：一条 0x01B8 记录，两条分支看第二个 GUID 在不在（外部数字节、站内数码元）
+    ///
+    /// 四本账不并成一个形状，但同一批字必须数得出同一个数；两个 xlsx 生产者除外——
+    /// 它们写的属性面本来就不同（openpyxl 不写 display，LibreOffice 每条都补一个）
+    #[test]
+    fn cell_links_are_ledgered_whichever_way_they_are_written() {
+        let openpyxl = run("cell-links.xlsx");
+        let rewritten = run("cell-links-lo.xlsx");
+        assert_eq!(
+            openpyxl["sheets"][0]["links"]["family"], "rels",
+            "{openpyxl}"
+        );
+        assert_eq!(openpyxl["sheets"][0]["links"]["total"], 6, "{openpyxl}");
+        assert_eq!(openpyxl["sheets"][0]["links"]["external"], 4, "{openpyxl}");
+        assert_eq!(openpyxl["sheets"][0]["links"]["with_id"], 5, "{openpyxl}");
+        assert_eq!(
+            openpyxl["sheets"][0]["links"]["with_location"], 1,
+            "{openpyxl}"
+        );
+        // 一个号写了、关系表里那条被删掉：target 与 location 都没有 → 指不到
+        assert_eq!(
+            openpyxl["sheets"][0]["links"]["unresolved"], 1,
+            "{openpyxl}"
+        );
+        assert_eq!(
+            openpyxl["sheets"][0]["links"]["with_display"], 0,
+            "{openpyxl}"
+        );
+        assert_eq!(
+            openpyxl["sheets"][0]["links"]["with_tooltip"], 1,
+            "{openpyxl}"
+        );
+        assert_eq!(rewritten["sheets"][0]["links"]["total"], 5, "{rewritten}");
+        assert_eq!(
+            rewritten["sheets"][0]["links"]["with_display"], 5,
+            "{rewritten}"
+        );
+        assert_eq!(
+            rewritten["sheets"][0]["links"]["unresolved"], 0,
+            "{rewritten}"
+        );
+        // 同一批字，两个生产者差的这一条不是读丢了，是文件自己写的差别
+        assert_eq!(openpyxl["workbook"]["totals"]["links"], 7, "{openpyxl}");
+        assert_eq!(rewritten["workbook"]["totals"]["links"], 6, "{rewritten}");
+        for one in [&openpyxl, &rewritten] {
+            assert_eq!(one["workbook"]["totals"]["hyperlink_formulas"], 1, "{one}");
+            // 站内那一本在第二张表上：一条 location，没有号
+            assert_eq!(one["sheets"][1]["links"]["total"], 1, "{one}");
+            assert_eq!(one["sheets"][1]["links"]["internal"], 1, "{one}");
+            assert_eq!(one["sheets"][1]["links"]["formula_cells"], 0, "{one}");
+        }
+
+        let ods = run("cell-links.ods");
+        assert_eq!(ods["sheets"][0]["links"]["family"], "inline", "{ods}");
+        assert_eq!(ods["sheets"][0]["links"]["total"], 5, "{ods}");
+        // 这一族把链接全写在段里的字上，一条 `table:hyperlink` 都不写
+        assert_eq!(ods["sheets"][0]["links"]["via_text_a"], 5, "{ods}");
+        assert_eq!(ods["sheets"][0]["links"]["via_table_hyperlink"], 0, "{ods}");
+        // 没有 TargetMode 那个开关：站外只按认得出的 scheme 数，站内是 `#` 开头那一条
+        assert_eq!(ods["sheets"][0]["links"]["external"], 4, "{ods}");
+        assert_eq!(ods["sheets"][0]["links"]["internal"], 1, "{ods}");
+        assert_eq!(ods["sheets"][0]["links"]["formula_cells"], 1, "{ods}");
+        assert_eq!(ods["workbook"]["totals"]["links"], 6, "{ods}");
+        assert_eq!(ods["workbook"]["totals"]["hyperlink_formulas"], 1, "{ods}");
+
+        let xlsbook = run("cell-links.xls");
+        assert_eq!(
+            xlsbook["sheets"][0]["links"]["family"], "record",
+            "{xlsbook}"
+        );
+        assert_eq!(xlsbook["sheets"][0]["links"]["total"], 5, "{xlsbook}");
+        assert_eq!(xlsbook["sheets"][0]["links"]["external"], 4, "{xlsbook}");
+        // 记录条数与解出来的条数是两本账，这一份件里两者相等（每条都解得动）
+        assert_eq!(xlsbook["sheets"][0]["links"]["records"], 5, "{xlsbook}");
+        assert_eq!(xlsbook["sheets"][0]["links"]["whole"], 5, "{xlsbook}");
+        assert!(
+            xlsbook["sheets"][0]["links"]["formula_cells"].is_null(),
+            "{xlsbook}"
+        );
+        assert_eq!(xlsbook["workbook"]["totals"]["links"], 6, "{xlsbook}");
+        assert_eq!(
+            xlsbook["workbook"]["totals"]["link_records"], 6,
+            "{xlsbook}"
+        );
+        // 0x01B7 自报的那个数按写的交（实测 0，而流里有六条 0x01B8）
+        assert_eq!(
+            xlsbook["workbook"]["links_written"],
+            json!([0]),
+            "{xlsbook}"
+        );
+
+        // 同一格 C3 的站内地址：三种写法各交各的，不替它们归一
+        let at = |book: &Value, sheet: usize, want: &str| -> Value {
+            book["sheets"][sheet]["links"]["list"]
+                .as_array()
+                .expect("是数组")
+                .iter()
+                .find(|one| one["ref"] == json!(want))
+                .cloned()
+                .unwrap_or(Value::Null)
+        };
+        assert_eq!(
+            at(&openpyxl, 0, "C3")["location"],
+            "'数据'!A1",
+            "{openpyxl}"
+        );
+        assert_eq!(at(&openpyxl, 0, "C3")["hop"], "inline", "{openpyxl}");
+        // ODF 用点分隔，OOXML 与 .xls 用叹号
+        assert_eq!(at(&ods, 0, "C3")["target"], "#'数据'.A1", "{ods}");
+        assert_eq!(at(&xlsbook, 0, "C3")["location"], "'数据'!A1", "{xlsbook}");
+        assert_eq!(at(&xlsbook, 0, "C3")["display"], "跳到数据页", "{xlsbook}");
+        // .xls 没有「关系号」与「悬浮提示」这两个字段，交 null 而不是空串
+        assert!(at(&xlsbook, 0, "A1")["id"].is_null(), "{xlsbook}");
+        assert!(at(&xlsbook, 0, "A1")["tooltip"].is_null(), "{xlsbook}");
+        assert_eq!(
+            at(&xlsbook, 0, "A1")["target"],
+            "https://example.com/site",
+            "{xlsbook}"
+        );
+
+        // 反面对照：没有链接的那几份件里键照样在、值为 0（缺键与零条是两件事）
+        for name in [
+            "book.xlsx",
+            "hidden.xlsx",
+            "book.ods",
+            "book.xls",
+            "hidden.xls",
+        ] {
+            assert_eq!(
+                run(name)["workbook"]["totals"]["links"],
+                0,
+                "{name} 不该有链接账"
+            );
+        }
     }
 }

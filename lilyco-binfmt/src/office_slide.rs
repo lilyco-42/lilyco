@@ -1555,7 +1555,7 @@ fn odp_cell_tally(sheet: &crate::odsheet::Sheet, styles: &[OdpCellStyle]) -> Val
 /// 一条地址里 scheme 那一截：`https` / `mailto` …；没有冒号、冒号前是空的
 /// （`#那一页` 这种站内跳法）、或者只有**一个字母**（那是 Windows 的盘符不是 scheme）、
 /// 或者太长太怪的，一律交 null —— 这里只说文件写了什么，不猜它是哪一类
-fn link_scheme(raw: &str) -> Option<String> {
+pub(crate) fn link_scheme(raw: &str) -> Option<String> {
     let (head, _rest) = raw.split_once(':')?;
     if head.len() < 2
         || head.len() > 8

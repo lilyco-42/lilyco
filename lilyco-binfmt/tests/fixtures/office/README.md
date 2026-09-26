@@ -218,6 +218,10 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `sections.docx` | python-docx（`write_sections_docx`） | 两节：第一节点名页眉与页脚（`rId9` / `rId10`），第二节只补一条指着关系表里**不存在**的号 `rId999` 的偶数页页眉，所以它的页眉与页脚两格都是「沿用第一节」；两节都写 `w:titlePg`，settings 写 `w:evenAndOddHeaders`（不带值）。**顺带量到一条生产者脾气**：python-docx 新加的节默认 `linked_to_previous` —— 给第二节写页眉等于改写第一节那份 `word/header1.xml`，全件仍然只有两份页眉页脚部件 |
 | `fields.docx` | python-docx（`write_fields_docx`） | 正文里三条域链（SEQ 编号 / DATE 带 `w:dirty` / PAGE），第四条 PAGE 写在 `word/footer1.xml` 里（不进正文那份账）；两个站内跳转：一个指着真书签 `表锚点`，另一个指着 `没这个书签`；书签是 `bookmarkStart` / `bookmarkEnd` 一对（`w:id="3"` 配对，名字只写在 start 上） |
 | `fields-lo.docx` / `fields.odt` / `fields.rtf` | LibreOffice（从 `fields.docx` 导出） | 同一批域在三条来回里各变一次样：docx 重写丢了 `w:dirty`、给指令补一个尾空格、把日期格式里的 `-` 转义成 `\-`，并把缓存值换成它自己算出来的数；ODF 把 SEQ 拆成 `text:sequence`（`text:name="表"` / `text:formula="ooow:表+1"` / `style:num-format="1"`）**并往 `text:sequence-decls` 里补一条 `表`**，页码变成页脚样式里的 `text:page-number`，书签只剩名字不再有号；RTF 写成六条 `\field{\*\fldinst …}{\fldrslt …}`，中文序列名成了 `\u-30616\'3f` 一串码位转义 |
+| `cell-links.xlsx` | openpyxl（`write_cell_links_xlsx`） | 一格只改一个变量：站外 http（`A1`）、`mailto:` 且 subject 用百分号写法（`B2`）、只有 `location` 的站内跳转（`C3`，没有第二跳）、`=HYPERLINK()` 公式（`D4`，它不写链接对象）、带悬浮提示的（`E5`，唯一一家写 tooltip）、关系号被删掉的（`F6`，格上留着 `r:id` 而那张关系表里没有它）、没有字的一格挂着一条链接（`G7`）；`数据` 表另给一条回跳 |
+| `cell-links-lo.xlsx` | LibreOffice（`cell-links.xlsx` → .xlsx） | 同一批字的第二种写法：`F6` 整个丢了（6 → 5），每条补一个 `display`（`G7` 那个就是地址本身），tooltip 一个也不写，`mailto` 的 subject 从 `%E9%A2%84%E7%AE%97` 解回「预算」，关系号从 `rId1` 起重新编 |
+| `cell-links.ods` | LibreOffice（`cell-links.xlsx` → .ods） | 第三种存法：地址挂在段的字上（`text:a/@xlink:href`，一条 `table:hyperlink` 也不写），站内跳转变成 `#'数据'.A1`（点号不是感叹号），`mailto` 的百分号写法又回来了，而 `G7` 那条地址被写成格子的字 |
+| `cell-links.xls` | LibreOffice（`cell-links.xlsx` → .xls） | 第四种：同一条 Workbook 流里的一条 0x01B8 记录（显示字、地址、行列范围与两个 GUID 并排写），外部支与站内支的长度字段一个数字节、一个数码元；0x01B7 自报的条数是 **0** 而流里有 6 条 0x01B8 |
 
 ## 几件只有踩过才会记下来的事
 
@@ -2346,6 +2350,32 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       别的账都是各交各的。
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
+
+126. **格子里的链接四种存法各交各的账：来路不同就不并成一个形状**（`cell-links` 那一家四份件）
+    - 四条来路，`family` 与 `hop` 说清这一条走的是哪一路：xlsx 的地址在**这一张表自己的关系表**那一跳上（格子里只有 `r:id`，
+      站外开关 `TargetMode` 也写在那一跳上，没写就交 null，所以 `external` 是三态而不是两态）；`.ods` 把地址**挂在段的字上**
+      （`text:a/@xlink:href`，没有第二跳）；`.xls` 写成**同一条流里的一条 0x01B8 记录**；而 `=HYPERLINK("…","…")` 谁也不挂 ——
+      它是公式，所以另计 `formula_cells`（xlsx 与 `.ods` 数得出，`.xls` 的公式是二进制 ptg 串、这一版不反汇编，那一格就交 null 而不是 0）。
+    - 「站外 / 站内」这一刀四族是四把，各按各的文件写：xlsx 看关系表写没写 `TargetMode="External"`；`.ods` 没有那个开关，
+      只能按地址的长相分（认得出 scheme 的算站外、`#` 开头算站内）；`.xls` 看记录里名字串后面那 16 字节是不是**第二个** GUID ——
+      两条分支的长度字段数的东西不一样（一支字节、一支码元），所以判据不能是长度。同一个站内跳转是三个串：xlsx 与 `.xls` 写
+      `'数据'!A1`，`.ods` 写 `#'数据'.A1`（点号不是感叹号），三个串各自原样交，不折成一个。
+    - 两个生产者对同一批字给两份账，两份都原样交：openpyxl 那份 `口径` 6 条（`with_id` 5、`with_location` 1、`with_tooltip` 1、
+      `with_display` **0**、`unresolved` 1 —— 就是那条关系号被删掉的），LibreOffice 重写后 5 条（丢的正是那条指不到的；
+      `with_display` **5**，`G7` 的 display 干脆就是地址本身；tooltip 一个不写；`mailto` 的 subject 从 `%E9%A2%84%E7%AE%97` 变回「预算」）。
+      丢掉的不替它补，改口的不替它圆。
+    - 同一批字过一遍 ODF 又是一次改口：`.ods` 里 `mailto` 的百分号写法回来了，而 `G7` 那条（xlsx 里那一格没有字）变成**格子的字
+      就是那个地址**。所以这一族没有「四份件一字不差」这种话可讲，只有四本账各摆各的。
+    - `.xls` 另有一本自报的数：0x01B7 那条记录自报链接条数，实测 LibreOffice 那份写的是 **0**，同一条流里却有 **6** 条 0x01B8。
+      文件自己写的按写的交（`workbook.links_written`，一条数一个），数出来的另放一格 —— `links/total`、`links/records` 与 `links/whole`
+      说的是「解出来的 / 记录有几条 / 自报字数切满的」三问，不是一把。
+    - 每行只交这一族写了的东西：`id` 与 `tooltip` 在 `.xls` 是 null（这一族没有那两样），`range`（首末行列四个数）只有 `.xls` 交 ——
+      那条记录写的是**行列范围**，单格时 `ref` 就是那一个格，跨格才成 `A1:B2`。
+    - 反面对照：`book.xlsx` / `hidden.xlsx` / `book.ods` / `book.xls` / `hidden.xls` 五份没链接的件报 `workbook.totals.links` = 0
+      （键在、值为零），而 `book.xls` 连 0x01B7 也写（`links_written` 是 `[0]`）。
+    - 第二读者：`office_reader.py` 的 `xlsx_sheet_links` 与 ODS 每张表的 `links`（`_ods_link_nodes` 递归下去，`office:annotation`
+      那一棵子树不进去 —— 批注的字不是链接的字），`lyco_legacy.py` 的 0x01B7 / 0x01B8 分支只吃标准库，那两个 u32、GUID、
+      码元数与 UTF-16 名字一条一条切，切不动的那条 `continue` 而不是硬凑。probe 的 3a6c 把四份件逐行逐字段对，再钉 `C3` 那三种写法。
 
 125. **RTF 的段流水：一段一行整份列，为的是「第 5 段是什么」这一问**（15 份 .rtf 全过）
     - 已有的三本都是**筛过的**：`headings` 只交标题行、`numbering.list` 只交列表项、

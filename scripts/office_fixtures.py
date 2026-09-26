@@ -89,6 +89,15 @@ MARK_FIELD_LINK = "跳到那张表"
 MARK_FIELD_DEAD = "跳一个坏了的名"
 MARK_FIELD_MISSING = "没这个书签"
 MARK_FIELD_ANCHOR = "被内部链接指着的那一段"
+# 格子上的链接那四格（cell-links 那一家四份件）：一句一格，五个变量各自只动一处 ——
+# 站内跳转、mailto、悬浮提示、公式里的链接，见 write_cell_links_xlsx
+MARK_LINK_SHEET = "口径"
+MARK_LINK_SHEET_2 = "数据"
+MARK_LINK_SITE = "官网"
+MARK_LINK_MAIL = "邮件"
+MARK_LINK_INNER = "跳到数据页"
+MARK_LINK_FORMULA = "公式里的链接"
+MARK_LINK_TIP = "两个链接各说各的"
 # 字符格式那三份件的锚点句，见 write_runs_docx：那三个字是每一个格式开关各自点的
 # 同一串字，所以「哪一串是点了的」只能按段与按位置对上，不能靠字本身分
 MARK_RUN_BASE = "基准段：什么都不点。"
@@ -2049,6 +2058,71 @@ def write_print_area_xlsx(path: Path) -> None:
     third.print_area = ["A1:B6", "C8:C12"]
     fourth.print_title_cols = "B:B"
     book.save(path)
+
+
+def write_cell_links_xlsx(path: Path) -> None:
+    """格子上的链接：一次只改一个变量 —— 六格六样，外加一条公式与一格空格
+
+    这一族有四副面孔（xlsx 两家的写法还互相丢东西），所以一份件要同时摆开：
+    站内跳转（只有 `location`，没有第二跳）、mailto（百分号 vs 解开的中文）、
+    悬浮提示（只有 openpyxl 写）、指不到的关系号、没有字的格子，以及
+    `=HYPERLINK()` —— 它是公式，不是链接对象，一条正确的路走不到链接那一本。
+    """
+    from openpyxl import Workbook
+    from openpyxl.worksheet.hyperlink import Hyperlink
+
+    book = Workbook()
+    sheet = book.active
+    sheet.title = MARK_LINK_SHEET
+    sheet["A1"] = MARK_LINK_SITE
+    sheet["A1"].hyperlink = "https://example.com/site"
+    # mailto 的 subject 按百分号写：LibreOffice 重写同一份时把它解成中文，两家答案不同
+    sheet["B2"] = MARK_LINK_MAIL
+    sheet["B2"].hyperlink = "mailto:someone@example.com?subject=%E9%A2%84%E7%AE%97"
+    sheet["C3"] = MARK_LINK_INNER
+    sheet["C3"].hyperlink = Hyperlink(ref="C3", location="'%s'!A1" % MARK_LINK_SHEET_2)
+    sheet["D4"] = '=HYPERLINK("https://example.com/formula","%s")' % MARK_LINK_FORMULA
+    # 悬浮提示只有 openpyxl 这一家写：LibreOffice 重写时丢掉 tooltip 而补一个 display
+    sheet["E5"] = MARK_LINK_TIP
+    sheet["E5"].hyperlink = Hyperlink(ref="E5", target="https://example.com/tip",
+                                      tooltip="悬浮提示")
+    sheet["F6"] = "坏号那一条"
+    sheet["F6"].hyperlink = "https://example.com/dangling"
+    # 一格没有字，只有一条链接
+    sheet["G7"].hyperlink = "https://example.com/empty"
+    other = book.create_sheet(MARK_LINK_SHEET_2)
+    other["A1"] = "被指着的那一格"
+    other["B2"] = "回跳"
+    other["B2"].hyperlink = Hyperlink(ref="B2", location="'%s'!A1" % MARK_LINK_SHEET)
+    book.save(path)
+    drop_hyperlink_rel(path, "/dangling")
+
+
+def drop_hyperlink_rel(path: Path, tail: str) -> None:
+    """把某一条链接从表自己的关系表里删掉，让格子上那个 `r:id` 指不到东西
+
+    锚点不写死：按 Target 的结尾找那一条，整条 `<Relationship …/>` 删掉。找不到、
+    或找到两条都直接抛 —— 静默的 no-op 会交出一份根本没有这个形状的 fixture。
+    """
+    from openpyxl import load_workbook
+
+    where = None
+    book = load_workbook(path)
+    for index, sheet in enumerate(book.worksheets, start=1):
+        for row in sheet.iter_rows():
+            for one in row:
+                got = one.hyperlink
+                if got is not None and str(got.target or "").endswith(tail):
+                    where = (index, one.coordinate)
+    if where is None:
+        raise SystemExit("没有哪个格子的链接以 %r 结尾，删不了关系号" % tail)
+    part = "xl/worksheets/_rels/sheet%d.xml.rels" % where[0]
+    with zipfile.ZipFile(path) as box:
+        text = box.read(part).decode("utf-8")
+    hits = re.findall(r"<Relationship[^>]*Target=\"[^\"]*%s\"[^>]*/>" % re.escape(tail), text)
+    if len(hits) != 1:
+        raise SystemExit("%s 里以 %r 结尾的关系有 %d 条，不是 1 条" % (part, tail, len(hits)))
+    patch_part(path, {part: (hits[0], "")})
 
 
 def write_tabs_docx(path: Path) -> None:
@@ -4031,6 +4105,24 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "print-area.ods", OUT / "print-area.ods")
     else:
         print("⚠️  没拿到 print-area.ods")
+
+    # 格子上的链接那一家四份件：openpyxl 写一份，LibreOffice 同格式重写一份（丢掉
+    # tooltip、补上 display、把 mailto 的百分号解回中文），再各转一份 ods 与 .xls
+    linked = OUT / "cell-links.xlsx"
+    write_cell_links_xlsx(linked)
+    convert(exe, linked, "xlsx", SCRATCH / "cell-links-back")
+    made_links = SCRATCH / "cell-links-back" / "cell-links.xlsx"
+    if made_links.exists():
+        shutil.copyfile(made_links, OUT / "cell-links-lo.xlsx")
+    else:
+        print("⚠️  没拿到 cell-links-lo.xlsx（xlsx → xlsx 那一转）")
+    for fmt in ("ods", "xls"):
+        convert(exe, linked, fmt, SCRATCH / ("cell-links-as" + fmt))
+        made = SCRATCH / ("cell-links-as" + fmt) / ("cell-links." + fmt)
+        if made.exists():
+            shutil.copyfile(made, OUT / ("cell-links." + fmt))
+        else:
+            print("⚠️  没拿到 cell-links.%s（%s 那一转）" % (fmt, fmt))
 
     # 占位符那三份：python-pptx 写 pptx，同格式重写一份（正文那格被写成空元素）、再转一份 odp
     phdeck = OUT / "deck-ph.pptx"

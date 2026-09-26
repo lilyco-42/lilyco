@@ -257,6 +257,13 @@ def a1(col: int, row: int) -> str:
 NOTE_TEXT = 0x01B6
 NOTE_CELL = 0x001C
 
+# 链接在这条流里的两条记录，同样只用「这份件里的这一条」的意义。0x01B8 的正文分两支，
+# 判据是第二个 GUID 在不在：两条分支的长度字段数的东西不一样（外部那支数字节、
+# 站内那支数码元），所以没有别的可靠切法
+HLINK_COUNT = 0x01B7
+HLINK = 0x01B8
+GUID_SECOND = bytes.fromhex("e0c9ea79f9bace118c8200aa004ba90b")
+
 
 def biff_workbook(cfb_bytes: dict) -> dict:
     """把 Workbook 流的记录表读成：工作表清单、共享字符串、带值的单元格（按表归位）"""
@@ -288,6 +295,9 @@ def biff_workbook(cfb_bytes: dict) -> dict:
     # 批注那三条记录分两处住：字在表子流里跟着格子走，格子与作者在子流末尾
     note_texts: dict = {}
     note_cells: dict = {}
+    # 链接那两条：0x01B7 自报的数按写的收（不按表分），0x01B8 逐条收在所属表名下
+    link_counts: list = []
+    hlinks: dict = {}
     for index, (offset, op, body) in enumerate(records):
         belongs = _owner(sheets, offset)
         if op == 0x0809:  # BOF
@@ -478,6 +488,60 @@ def biff_workbook(cfb_bytes: dict) -> dict:
                     "whole": len(cut) == need,
                 }
             )
+        elif op == HLINK_COUNT:
+            # 自报的那个数按写的交：实测这份件写 0，而同一条流里有六条 0x01B8，
+            # 所以它显然不是「链接条数」——但它是文件自己写的一句话，不替它改成 6
+            link_counts.append(_u16(body, 0))
+        elif op == HLINK:
+            # 布局是量的：行列 4×u16 + 第一个 GUID(16) + 偏移 24 的 u32 + 偏移 28 的 u32
+            # + 名字码元数(u32) + 名字（UTF-16，含结尾那个 NUL），然后分两支。
+            # 外部那支多写第二个 GUID 与一个**字节数**；站内那支没有第二个 GUID，
+            # 直接一个**码元数** + 位置串。两支的长度字段数的不是同一种东西，
+            # 所以判据只能是 GUID 在不在；切不到记录末尾时 whole 记 False，不圆场
+            if belongs is None:
+                continue
+            units = _u32(body, 32)
+            if units is None:
+                continue
+            friendly_at = 36 + units * 2
+            if friendly_at > len(body):
+                continue
+            external = body[friendly_at : friendly_at + 16] == GUID_SECOND
+            if external:
+                stated = _u32(body, friendly_at + 16)
+                from_at = friendly_at + 20
+                need = 0 if stated is None else stated
+            else:
+                stated = _u32(body, friendly_at)
+                from_at = friendly_at + 4
+                need = 0 if stated is None else stated * 2
+            if stated is None or from_at + need > len(body):
+                continue
+            blob = body[from_at : from_at + need]
+            # 与 Rust 那一支同一个切法：末尾凑不成一双的那一个字节不参与解码
+            text = blob[: len(blob) - len(blob) % 2].decode("utf-16-le", "replace")
+            # 记录管的是四个数说的一片格子（实测六条都是首末相同的一格），
+            # 一格时不给它编一个冒号范围 —— 与 Rust 的 reference() 同一个说法
+            first = a1(_u16(body, 4) or 0, _u16(body, 0) or 0)
+            last = a1(_u16(body, 6) or 0, _u16(body, 2) or 0)
+            hlinks.setdefault(belongs, []).append(
+                {
+                    "row": [_u16(body, 0), _u16(body, 2), _u16(body, 4), _u16(body, 6)],
+                    "ref": first if first == last else "%s:%s" % (first, last),
+                    "at24": _u32(body, 24),
+                    "at28": _u32(body, 28),
+                    "guid_first": body[8:24].hex(),
+                    "guid_second": external,
+                    "friendly": body[36:friendly_at][
+                        : (friendly_at - 36) - (friendly_at - 36) % 2
+                    ]
+                    .decode("utf-16-le", "replace")
+                    .rstrip("\x00"),
+                    "target": text.rstrip("\x00") if external else None,
+                    "location": None if external else text.rstrip("\x00"),
+                    "whole": from_at + need == len(body),
+                }
+            )
         elif op in (0x0012, 0x0013, 0x00DD):
             # PROTECT / PASSWORD / SCENPROTECT。为什么按「落在谁的子流里」记：
             # 对照 locked-sheet.xls 与 locked-second.xls（唯一差别是锁在第一张还是
@@ -517,8 +581,20 @@ def biff_workbook(cfb_bytes: dict) -> dict:
             "text_records": len(texts),
             "cell_records": len(anchors),
         }
+    # 链接按表交：站外 = 第二个 GUID 在的那几条，剩下算站内；「解出来的条数」与
+    # 「记录条数」是同一本账（这一版每条都解得动，解不动的那条不进 list）
+    links: dict = {}
+    for name in [one["name"] for one in sheets]:
+        got = hlinks.get(name, [])
+        links[name] = {
+            "list": got,
+            "external": sum(1 for one in got if one["guid_second"]),
+            "whole": sum(1 for one in got if one["whole"]),
+        }
     return {
         "comments": comments,
+        "links": links,
+        "link_counts": link_counts,
         "records": len(records),
         "bofs": bofs,
         "sheets": sheets,

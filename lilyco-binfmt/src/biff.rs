@@ -56,6 +56,17 @@ const COLINFO_OLD: u64 = 0x007D;
 /// 而这里量到的内容是「哪个格子 + 谁写的」—— 硬套规范名就是编话
 const NOTE_TEXT: u64 = 0x01B6;
 const NOTE_CELL: u64 = 0x001C;
+/// 格子上的链接：一条记录就是那一格自己的链接，地址在记录**里面**（不像 xlsx 要跳一张
+/// 关系表，也不像 ODF 挂在字上）。0x01B7 另外自报了一个条数。这两个号同样只在
+/// 「LibreOffice 写的 .xls」这个意义上用：布局是拿长度字段自证对出来的（六条记录里
+/// 各字段加回去都正好等于记录自报的长度），而手上没有第二个能写 .xls 链接的生产者
+const HLINK: u64 = 0x01B8;
+const HLINK_COUNT: u64 = 0x01B7;
+/// 分支的判据：外部那一支在名字后面还写第二个 GUID，站内那一支没有（实测六条：四条外部、
+/// 两条站内）。它只用来决定后面那一段怎么切，不写成「是不是站外」的断言
+const GUID_SECOND: [u8; 16] = [
+    0xe0, 0xc9, 0xea, 0x79, 0xf9, 0xba, 0xce, 0x11, 0x8c, 0x82, 0x00, 0xaa, 0x00, 0x4b, 0xa9, 0x0b,
+];
 
 #[derive(Debug, Clone)]
 pub struct Sheet {
@@ -76,6 +87,30 @@ pub struct Sheet {
     /// 那两类记录各几条。配的条数只能到两者中小的那个，所以这两个数要一起交出去
     pub note_text_records: usize,
     pub note_cell_records: usize,
+    /// 这张表子流里的链接记录（0x01B8），按出现顺序。切不开的那几条不进这份列表，
+    /// 但仍然算在 `link_records` 里 —— 两个数一摆开，「读不动」看得见，而不是悄悄少几条
+    pub links: Vec<Link>,
+    pub link_records: usize,
+}
+
+/// 一条链接记录（0x01B8）。`at24` / `at28` 是正文偏移 24 与 28 上那两个 32 位数，按写的交：
+/// 实测六条都是 2 配 23（外部那一支）或 2 配 28（站内那一支），而手上没有第二个读者能判住
+/// 它们是什么 —— 给它们编个规范名就是替文件说话。`whole` 说这条记录各字段的长度加回去
+/// 是否正好等于它自报的长度（六条都正好等于，所以这一版不是猜的）
+#[derive(Debug, Clone)]
+pub struct Link {
+    pub first_row: u64,
+    pub last_row: u64,
+    pub first_col: u64,
+    pub last_col: u64,
+    pub at24: u64,
+    pub at28: u64,
+    pub guid_first: String,
+    pub guid_second: bool,
+    pub friendly: String,
+    pub target: Option<String>,
+    pub location: Option<String>,
+    pub whole: bool,
 }
 
 /// 一条批注。这里没有日期字段：这一族的三条记录里都不写作者时间，
@@ -130,6 +165,85 @@ fn a1(row: u32, col: u32) -> String {
     format!("{}{}", letters.iter().collect::<String>(), row + 1)
 }
 
+/// 这一族的串自己带一个结尾的 NUL（实测六条都带）：去掉它，别的一个字不动
+fn zero_terminated(raw: &str) -> String {
+    raw.trim_end_matches('\u{0}').to_string()
+}
+
+fn hex_of(raw: &[u8]) -> String {
+    raw.iter().map(|one| format!("{one:02x}")).collect()
+}
+
+/// 0x01B8 的正文。布局是量出来的，而且每条都自证：把字段自己的长度加回去，
+/// 六条都正好等于记录自报的长度（112 / 138 / 68 / 122 / 160 / 62）。
+///
+/// `行列 4×u16` + `第一个 GUID(16)` + `偏移 24 的 u32` + `偏移 28 的 u32` +
+/// `名字码元数(u32)` + `名字（UTF-16，含结尾那个 NUL）`，然后分两支：
+/// * 外部：多写 16 字节的第二个 GUID，再一个 **字节数**（含那个 NUL），然后地址
+/// * 站内：没有第二个 GUID，直接一个 **码元数**，然后位置串（也含 NUL）
+///
+/// 两支的长度字段数的不是同一种东西（50 字节 对 8 码元），所以分支只能看第二个 GUID
+/// 在不在；哪一支都切不到记录末尾时 `whole` 是 false —— 不替文件圆一个「算得通」
+fn hlink(body: &[u8]) -> Option<Link> {
+    let (Some(first_row), Some(last_row), Some(first_col), Some(last_col)) =
+        (le16(0)(body), le16(2)(body), le16(4)(body), le16(6)(body))
+    else {
+        return None;
+    };
+    let units = usize::try_from(le32(32)(body)?).unwrap_or(usize::MAX);
+    let friendly_at = 36usize.saturating_add(units.saturating_mul(2));
+    let friendly_raw = body.get(36..friendly_at)?;
+    let external = body.get(friendly_at..friendly_at + 16) == Some(GUID_SECOND.as_slice());
+    let (target, location, end) = if external {
+        let count = usize::try_from(le32(friendly_at + 16)(body)?).unwrap_or(usize::MAX);
+        let from = friendly_at.saturating_add(20);
+        let raw = body.get(from..from.saturating_add(count))?;
+        (
+            Some(zero_terminated(&wide_text(raw))),
+            None,
+            from.saturating_add(count),
+        )
+    } else {
+        let count = usize::try_from(le32(friendly_at)(body)?).unwrap_or(usize::MAX);
+        let from = friendly_at.saturating_add(4);
+        let wide = count.saturating_mul(2);
+        let raw = body.get(from..from.saturating_add(wide))?;
+        (
+            None,
+            Some(zero_terminated(&wide_text(raw))),
+            from.saturating_add(wide),
+        )
+    };
+    Some(Link {
+        first_row,
+        last_row,
+        first_col,
+        last_col,
+        at24: le32(24)(body)?,
+        at28: le32(28)(body)?,
+        guid_first: hex_of(body.get(8..24).unwrap_or(&[])),
+        guid_second: external,
+        friendly: zero_terminated(&wide_text(friendly_raw)),
+        target,
+        location,
+        whole: end == body.len(),
+    })
+}
+
+impl Link {
+    /// 这条记录管哪一片格子：实测六条都是一格（首末相同），但记录写的是四个数，
+    /// 所以照四个数交 —— 一格时不给它编一个冒号范围
+    pub fn reference(&self) -> String {
+        let from = a1(self.first_row as u32, self.first_col as u32);
+        let to = a1(self.last_row as u32, self.last_col as u32);
+        if from == to {
+            from
+        } else {
+            format!("{from}:{to}")
+        }
+    }
+}
+
 impl Cell {
     pub fn reference(&self) -> String {
         a1(self.row, self.col)
@@ -162,6 +276,9 @@ pub struct Book {
     pub formats: BTreeMap<u64, String>,
     /// DATEMODE（0x0022）：文件自己没说就交回 None，不默认成 1900
     pub date1904: Option<bool>,
+    /// 0x01B7 那一条自报的数（按写的交，16 位）。实测这份件里它写 0，而同一张流里有六条
+    /// 0x01B8 —— 所以它显然不是「链接条数」，但它是文件自己写的一句话，就照它交回来
+    pub link_counts: Vec<u64>,
     pub notes: Vec<String>,
 }
 
@@ -197,6 +314,9 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
     // 先各自收下，走完再按出现顺序配
     let mut texts_of: BTreeMap<String, Vec<(String, bool)>> = BTreeMap::new();
     let mut cells_of: BTreeMap<String, Vec<Comment>> = BTreeMap::new();
+    // 链接那两条记录里 0x01B7 待在全局区（实测偏移 2288，比任何一张表的子流都早），
+    // 所以它不按表归位，只按出现顺序把自报的数收下来
+    let mut link_counts: Vec<u64> = Vec::new();
     for index in 0..records.len() {
         let (offset, op, body) = &records[index];
         // 这条记录落在哪张表的子流里。BOUNDSHEET 全部待在全局区，所以走到任何一条
@@ -237,6 +357,8 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                     comments: Vec::new(),
                     note_text_records: 0,
                     note_cell_records: 0,
+                    links: Vec::new(),
+                    link_records: 0,
                 });
             }
             SST => {
@@ -490,6 +612,19 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                     whole: cut.len() == need,
                 });
             }
+            HLINK_COUNT => {
+                link_counts.push(le16(0)(body).unwrap_or(0));
+            }
+            HLINK => {
+                let Some(name) = belongs else { continue };
+                let Some(one) = sheets.iter_mut().rev().find(|had| had.name == name) else {
+                    continue;
+                };
+                one.link_records += 1;
+                if let Some(had) = hlink(body) {
+                    one.links.push(had);
+                }
+            }
             _ => {}
         }
     }
@@ -523,6 +658,7 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
         xfs,
         formats,
         date1904,
+        link_counts,
         notes,
     })
 }
