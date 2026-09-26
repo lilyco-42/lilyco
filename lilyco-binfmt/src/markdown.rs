@@ -1534,6 +1534,115 @@ pub fn odp_deck(bytes: &[u8], budget: usize) -> Value {
 }
 
 /// 块与块之间的空行：连续的列表项之间不空行（markdown 才认得出是同一串条目）
+/// RTF → markdown（第五族）。**只读** caller 扫过一遍的那本 `Rtf`（`para_rows` 那一本，整份文件不扫第二遍） ——
+/// 先拿一次性脚本自己解 RTF 试过，`第一行` 解成 `ff：aff` 那种垃圾，三千行那台扫描机已经
+/// 做对的事不必再做第二遍。三条规矩都是从真件量出来的（README 事实 122）：
+///
+/// * 段里**已经带着**文件自己写的那枚列表标签 —— `{\\listtext …}` 不是带 `\\*` 的那一类，
+///   所以 `1.\t编号列表第一项` 整截都在正文里。要加 markdown 的记号必须先把那一截摘掉
+///   （`labels_stripped` 记摘了几枚），否则两个号叠在一起；
+/// * 圆点还是编号看**那一级定义自己写的** `levelnfc`（23 是圆点），不看样式名；号指不到那一级
+///   的那一段不替它编记号，交 `items_unlabelled` 并按正文排；
+/// * 表在这一族是**一整段带制表记号的字**（`科目\t金额`），所以制表记号按 docx 那一族同一口径
+///   换成一个空格（`tabs` 记几段有过），而 `tables` 交 null —— 看了，这一族判不住几张表。
+///
+/// 段自己点的样式号在样式表里查不到名字的那些段计 `styles_unresolved`（照正文排，不猜层级）
+pub fn rtf(one: &crate::rtf::Rtf, budget: usize) -> Value {
+    let mut blocks: Vec<(bool, String)> = Vec::new();
+    let mut paragraphs = 0usize;
+    let mut headings = 0usize;
+    let mut list_items = 0usize;
+    let mut bullet_items = 0usize;
+    let mut ordered_items = 0usize;
+    let mut items_unlabelled = 0usize;
+    let mut labels_stripped = 0usize;
+    let mut empty_dropped = 0usize;
+    let mut styles_unresolved = 0usize;
+    let mut tabs = 0usize;
+    for row in one.para_rows.iter() {
+        let raw = row["text"].as_str().unwrap_or_default();
+        if raw.is_empty() {
+            empty_dropped += 1;
+            continue;
+        }
+        if !row["style_index"].is_null() && row["style_name"].is_null() {
+            styles_unresolved += 1;
+        }
+        let mut text = raw.to_string();
+        if text.contains('\t') {
+            tabs += 1;
+            text = text.replace('\t', " ");
+        }
+        if let Some(level) = row["heading_level"].as_u64() {
+            blocks.push((
+                false,
+                format!("{} {}", "#".repeat(level as usize), esc(&text, false)),
+            ));
+            headings += 1;
+            paragraphs += 1;
+            continue;
+        }
+        if row["in_list"] == json!(true) {
+            list_items += 1;
+            let mut body = text.clone();
+            if let Some(label) = row["label"].as_str() {
+                if !label.is_empty() && body.starts_with(label) {
+                    let tail = &body[label.len()..];
+                    let tail = tail.strip_prefix('\t').unwrap_or(tail);
+                    let next = tail.trim_start().to_string();
+                    body = next;
+                    labels_stripped += 1;
+                }
+            }
+            let depth = row["ilvl"]
+                .as_str()
+                .and_then(|raw| raw.parse::<usize>().ok())
+                .unwrap_or(0);
+            let indent = "  ".repeat(depth);
+            match row["nfc"].as_str() {
+                Some("23") => {
+                    blocks.push((true, format!("{}- {}", indent, esc(&body, false))));
+                    bullet_items += 1;
+                }
+                Some(_) => {
+                    blocks.push((true, format!("{}1. {}", indent, esc(&body, false))));
+                    ordered_items += 1;
+                }
+                None => {
+                    items_unlabelled += 1;
+                    blocks.push((false, format!("{}{}", indent, esc(&body, false))));
+                }
+            }
+            paragraphs += 1;
+            continue;
+        }
+        let made = esc(&text, false);
+        blocks.push((
+            false,
+            if starts_like_marker(&made) {
+                format!("\\{}", made)
+            } else {
+                made
+            },
+        ));
+        paragraphs += 1;
+    }
+    let mut stats = json!({
+        "paragraphs": paragraphs,
+        "headings": headings,
+        "list_items": list_items,
+        "bullet_items": bullet_items,
+        "ordered_items": ordered_items,
+        "items_unlabelled": items_unlabelled,
+        "labels_stripped": labels_stripped,
+        "empty_dropped": empty_dropped,
+        "styles_unresolved": styles_unresolved,
+        "tabs": tabs,
+        "tables": Value::Null,
+    });
+    deck_finish(blocks, "rtf", budget, stats)
+}
+
 fn deck_finish(
     blocks: Vec<(bool, String)>,
     family: &str,

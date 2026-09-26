@@ -24,7 +24,7 @@ import sys as _sys
 from pathlib import Path as _Path
 
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
-from lyco_rtf import rtf_info, rtf_text  # 独立 RTF 实现，与 lilyco-binfmt/src/rtf.rs 对账
+from lyco_rtf import rtf_info, rtf_markdown, rtf_text  # 独立 RTF 实现，与 lilyco-binfmt/src/rtf.rs 对账
 from lyco_formats import xlsx_formats  # xlsx 数字格式的第二读者（与 numfmt.rs 对账）
 from lyco_legacy import biff_workbook, doc_pieces, ppt_text  # 遗留格式的第二读者
 from lyco_revisions import docx_revisions, odt_revisions  # 修订那份账的第二读者
@@ -9074,6 +9074,8 @@ def facts(path: Path) -> dict:
         out["container"] = "rtf"
         out["rtf"] = rtf_text(data)
         out["rtf"]["info"] = rtf_info(data)
+        # markdown 那一本单列一个键：`para_rows` 是中间账，不混进 `rtf` 那本整份对账
+        out["rtf_markdown"] = rtf_markdown(data)
         out["app"] = "word"
         return out
     if data[:5] == b"%PDF-":

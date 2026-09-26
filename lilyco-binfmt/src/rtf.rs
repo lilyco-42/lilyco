@@ -1055,6 +1055,14 @@ pub struct Rtf {
     /// 标题：样式名写成 `heading N` 的那些段，层级就写在名字里。
     /// 段用的是哪个样式号在段属性里（`\pard\s1`），名字在样式表里，两边一接才有层级
     pub headings: Vec<Value>,
+
+    /// 段的一行流水：`at` 与 `numbering.checked` / `numbering.list[].at` 是同一个序号
+    /// （按 `par` / `row` 这些断点切出来的段，空段也在，样式号是段自己点的那个）。
+    /// `headings` 与 `numbering.list` 两本都是**筛过的**，而 `--markdown` 要按文件顺序对
+    /// 每一段问三问 —— 是标题吗、是一条吗、那一条的标签文件自己写了没有 —— 拿字去对号
+    /// 会错（同一句字可以既是目录条目又是正文标题，`toc.rtf` 就是这样），所以一段记一行。
+    /// 这一本只给 `markdown::rtf` 用，不并进 `to_json`（那是 office-doc 的另一本账）
+    pub para_rows: Vec<Value>,
     /// 文档级那张纸的**原样**：`\paperw12240` 这类控制字，每个词只留没被跳过的那一层里
     /// 第一次写的那一个（后面 `{\*\sectx …}` 里的那些是某一节的覆写，而这一族不判分节归属）。
     /// 换算在 `crate::paper`（三家同一条式子），这里不预先换成毫米
@@ -1259,6 +1267,7 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         styles: Vec::new(),
         style_uses: Vec::new(),
         headings: Vec::new(),
+        para_rows: Vec::new(),
         annotations: Vec::new(),
         annotation_authors: 0,
         break_words: [0; 6],
@@ -1918,6 +1927,51 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         .sum();
     // `checked` 就是「这一族按 par / row 切出来看了几段」—— 表里的 `at` 是这个序号，
     // 与 `structure.paragraphs`（去掉空段的那本）是两个数，所以两个都在表上
+    // 段流水：见上面 `para_rows` 那条注释里的三问。号与层级都从已经算好的两本里取
+    let styles_for_rows = me.styles.clone();
+    let mut list_at: Vec<Option<&Value>> = vec![None; marks.len()];
+    for one in entries.iter() {
+        if let Some(raw) = one["at"].as_u64() {
+            let at = raw as usize;
+            if at < list_at.len() {
+                list_at[at] = Some(one);
+            }
+        }
+    }
+    let mut rows: Vec<Value> = Vec::new();
+    for (at, (start, end, style)) in marks.iter().enumerate() {
+        let had = match flows.get(at) {
+            Some(one) => one,
+            None => continue,
+        };
+        let item = list_at[at];
+        rows.push(json!({
+            "at": at,
+            "text": out
+                .get(*start..*end)
+                .map(|raw| String::from_utf8_lossy(raw).trim().to_string())
+                .unwrap_or_default(),
+            "style_index": style.clone(),
+            "style_name": name_of(*style),
+            "heading_level": style.and_then(|want| heading_level(&styles_for_rows, want)),
+            "ilvl": had.ilvl.clone(),
+            "ls": had.ls.clone(),
+            "in_list": item.is_some(),
+            "level_found": item
+                .map(|one| one["level_found"] == json!(true))
+                .unwrap_or(false),
+            "nfc": item
+                .and_then(|one| one["level"]["nfc"].as_str())
+                .map(String::from),
+            "label": item
+                .and_then(|one| one["label"].as_str())
+                .map(String::from),
+            "label_written": item
+                .and_then(|one| one["label_written"].as_str())
+                .map(String::from),
+        }));
+    }
+    me.para_rows = rows;
     me.numbering = json!({
         "checked": checked,
         "listed": listed,

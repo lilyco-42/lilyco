@@ -3374,6 +3374,48 @@ def main() -> int:
     blob = json.dumps(slide, ensure_ascii=False)
     record("deck.odp 不许把页码占位的样字当正文", "<编号>" not in blob, blob[:120])
 
+    # ── 3b3) office-text --markdown 的第五族：RTF（整本账与读者对，pinned 那几条从 15 份真件量的）──
+    print("=== 3b3) RTF → markdown：第五族整本对账 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.rtf")):
+        got = lbin("office-text", fixture(name), "--markdown")
+        check("%s 的 markdown 整本与读者一致" % name, got.get("markdown"), files[name]["rtf_markdown"])
+        record(
+            "%s 不开 --markdown 就不交那一格" % name,
+            lbin("office-text", fixture(name)).get("markdown") is None,
+            json.dumps(got.get("markdown"), ensure_ascii=False)[:60],
+        )
+    # 三条从真件量出来的规矩，各钉一处（不是规范推的）
+    lists = lbin("office-text", fixture("lists.rtf"), "--markdown").get("markdown") or {}
+    check(
+        "lists.rtf：段里自带文件写的那枚标签，摘掉之后才加 markdown 的记号",
+        [lists.get("list_items"), lists.get("bullet_items"),
+         lists.get("ordered_items"), lists.get("labels_stripped")],
+        [5, 2, 3, 5],
+    )
+    check(
+        "lists.rtf：正文里没有一枚残留的标签或制表记号",
+        [lists.get("tabs"), "\uf0b7" in (lists.get("text") or ""), "1.\t" in (lists.get("text") or "")],
+        [5, False, False],
+    )
+    tabs_ledger = lbin("office-text", fixture("tables.rtf"), "--markdown").get("markdown") or {}
+    check(
+        "tables.rtf：表在这一族是一整段带制表记号的字，所以 tables 交 null 而不是 0",
+        [tabs_ledger.get("tables"), tabs_ledger.get("tabs"), tabs_ledger.get("empty_dropped")],
+        [None, 5, 0],
+    )
+    toc = lbin("office-text", fixture("toc.rtf"), "--markdown").get("markdown") or {}
+    check(
+        "toc.rtf：目录那几条缓存条目按正文排（这一族的 entries 还没读，见事实 119 最后一条）",
+        [toc.get("paragraphs"), toc.get("headings"), toc.get("list_items")],
+        [9, 2, 0],
+    )
+    check(
+        "toc.rtf：同一段字既在目录条目里也在正文标题里，两行都在、不折成一行",
+        [(toc.get("text") or "").count("一级标题：预算口径"),
+         (toc.get("text") or "").count("# 一级标题：预算口径")],
+        [2, 1],
+    )
+
     # ── 3f) --csv：把一张表铺平成 RFC4180（期望文本逐字来自 csv_facts/biff_csv）──
     print("=== 3f) office-sheet --csv：铺平一张表 ===")
     for name in (
