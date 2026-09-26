@@ -123,6 +123,132 @@ def convert(exe: str, src: Path, fmt: str, dest: Path) -> Path:
     return dest
 
 
+PAGEMARK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
+
+# 一个「该被重排」的目录壳：`w:sdt` + `docPartGallery` + 一条 `TOC` 域指令 + 一句占位结果。
+# 占位那句是故意留的：重排成功的话它会被排出来的条目换掉，读回来一眼就能看出是哪一种。
+TOC_SHELL = (
+    '<w:sdt><w:sdtPr><w:id w:val="777002"/><w:docPartObj>'
+    '<w:docPartGallery w:val="Table of Contents"/><w:docPartUnique/></w:docPartObj></w:sdtPr>'
+    "<w:sdtContent>"
+    '<w:p><w:pPr><w:pStyle w:val="TOCHeading"/></w:pPr><w:r><w:t>目录</w:t></w:r></w:p>'
+    '<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r>'
+    '<w:r><w:instrText xml:space="preserve"> TOC \\o "1-2" \\h \\z \\u </w:instrText></w:r>'
+    '<w:r><w:fldChar w:fldCharType="separate"/></w:r>'
+    '<w:r><w:t>占位：种子写的，不是排出来的</w:t></w:r>'
+    '<w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>'
+    "</w:sdtContent></w:sdt>"
+)
+
+
+def write_toc_full_seed(src: Path, dst: Path, marker: str = "结构：二级") -> None:
+    """注一份**该被重排**的目录壳：目录 + 真标题 + 一个分页符 + `w:updateFields`。
+
+    与 `write_toc_seed` 的分别是这一条：那一份只证明「LibreOffice 保留我们注进去的域指令」，
+    而它种子里既没有真标题也没要求更新域 —— 拿它判「LO 会不会自己排目录」是一条**假阴性**。
+    这一份两样都补上（标题借 `md.docx` 已有的 Heading 1 / Heading 2，分页符让两个标题分处两页，
+    页码才不会是同一个数），交给 `update_indexes` 之后条目与页码就是**软件排出来的**。
+
+    踩过的坑：找「某段自己那一个 `<w:p>`」不能 `rfind("<w:p")` —— 同前缀的 `<w:pPr>` 先被撞上，
+    分页符插进 `pPr` 里面成个嵌套错段，LibreOffice 照样读得下去，但那一分页符就没了。
+    """
+    src_zip = zipfile.ZipFile(src)
+    doc = src_zip.read("word/document.xml").decode("utf-8")
+    before, sep, after = doc.partition("<w:body>")
+    if not sep:
+        sys.exit(f"{src.name} 里找不到 <w:body>，注不进目录")
+    doc = before + "<w:body>" + TOC_SHELL + after
+    at = doc.find(marker)
+    if at < 0:
+        sys.exit(f"{src.name} 里没有「{marker}」那一段，插不了分页符")
+    starts = [one.start() for one in re.finditer(r"<w:p[ >]", doc[:at])]
+    cut = starts[-1]
+    if 'w:val="Heading2"' not in doc[cut:cut + 90]:
+        sys.exit(f"{src.name}：{marker} 前面那一段不是 Heading2，插错位了")
+    doc = doc[:cut] + PAGEMARK + doc[cut:]
+    settings = src_zip.read("word/settings.xml").decode("utf-8")
+    if "updateFields" not in settings:
+        head, sep2, tail = settings.partition("><w:")
+        settings = head + '><w:updateFields w:val="true"/><w:' + tail
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as out:
+        for item in src_zip.infolist():
+            if item.filename == "word/document.xml":
+                out.writestr(item.filename, doc.encode("utf-8"))
+            elif item.filename == "word/settings.xml":
+                out.writestr(item.filename, settings.encode("utf-8"))
+            else:
+                out.writestr(item.filename, src_zip.read(item.filename))
+    src_zip.close()
+
+
+MACRO_UPDATE = '''
+Sub UpdateIndexes
+  Dim dummy(), oDoc As Object, oIdx As Object, i As Integer
+  oDoc = StarDesktop.loadComponentFromURL(ConvertToURL("SRC"), "_blank", 0, dummy())
+  oDoc.getTextFields().refresh()
+  oIdx = oDoc.getDocumentIndexes()
+  For i = 0 To oIdx.getCount() - 1
+    oIdx.getByIndex(i).update()
+  Next i
+  Dim stArgs(0) As New com.sun.star.beans.PropertyValue
+  stArgs(0).Name = "FilterName"
+  stArgs(0).Value = "MS Word 2007 XML"
+  oDoc.storeToURL(ConvertToURL("D1"), stArgs())
+  stArgs(0).Value = "writer8"
+  oDoc.storeToURL(ConvertToURL("D2"), stArgs())
+  oDoc.close(False)
+End Sub
+'''
+
+
+def update_indexes(exe: str, seed: Path, dst_docx: Path, dst_odt: Path, profile: Path) -> bool:
+    """让 LibreOffice **自己去重排目录**：装载 → 刷新域 → 每条 index `.update()` → 存盘。
+
+    `--convert-to` 不做这件事（两轮都量过：真标题在场 + `w:updateFields` 也只用得上注进去的那句占位），
+    要走宏。宏只写进 `profile` 那一份**临时** UserInstallation（`-env:UserInstallation`），
+    不碰用户自己的 LibreOffice 配置。顺序要紧：先拿一次普通转换让这份 profile 把自己建起来，
+    **之后**再写宏文件 —— 反了的话 LO 退出时会把它自己那份 `script.xlc` 盖回来。
+    """
+    env = "-env:UserInstallation=" + profile.resolve().as_uri()
+    warm = profile.parent / "warm.txt"
+    warm.parent.mkdir(parents=True, exist_ok=True)
+    warm.write_text("warm up\n", encoding="utf-8")
+    try:
+        subprocess.run([exe, env, "--headless", "--norestore", "--convert-to", "txt",
+                        "--outdir", str(warm.parent), str(warm)],
+                       capture_output=True, timeout=420)
+    except (subprocess.SubprocessError, OSError) as bad:
+        print(f"⚠️  临时 profile 起不来：{bad}")
+        return False
+    std = profile / "user" / "basic" / "Standard"
+    std.mkdir(parents=True, exist_ok=True)
+    body = (MACRO_UPDATE.replace("SRC", seed.resolve().as_posix())
+            .replace("D1", dst_docx.resolve().as_posix())
+            .replace("D2", dst_odt.resolve().as_posix()))
+    body = body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    (std / "script.xlb").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?><library:library '
+        'xmlns:library="http://openoffice.org/2000/library" library:name="Standard" '
+        'library:readonly="false" library:passwordprotected="false">'
+        '<library:element library:name="Module1"/></library:library>', encoding="utf-8")
+    (std / "Module1.xba").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?><script:module '
+        'xmlns:script="http://openoffice.org/2000/script" script:name="Module1" '
+        'script:language="StarBasic">' + body + "</script:module>", encoding="utf-8")
+    (profile / "user" / "basic").mkdir(parents=True, exist_ok=True)
+    (profile / "user" / "basic" / "script.xlc").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?><library:libraries '
+        'xmlns:library="http://openoffice.org/2000/library" '
+        'xmlns:xlink="http://www.w3.org/1999/xlink"><library:library library:name="Standard" '
+        'xlink:href="$(USER)/basic/Standard/script.xlb/" xlink:type="simple" '
+        'library:link="false"/></library:libraries>', encoding="utf-8")
+    dst_docx.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([exe, env, "--headless", "--norestore", "--invisible",
+                    "macro:///Standard.Module1.UpdateIndexes"], capture_output=True, timeout=420)
+    return dst_docx.exists() and dst_odt.exists()
+
+
 def add_hyperlink(paragraph, text: str, url: str):
     """python-docx 没有 add_hyperlink，走关系表那条正规路子（Word 自己也是这么写的）"""
     from docx.opc.constants import RELATIONSHIP_TYPE as RT
@@ -4373,6 +4499,25 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "toc-out" / "toc-seed.docx", OUT / "toc.docx")
     else:
         print("⚠️  没拿到 toc.docx")
+
+    # 目录里那几条**缓存条目**（「目录列了哪几条、第几页」）：`--convert-to` 排不出来，
+    # 得让 LibreOffice 自己跑一次 index.update() —— 见 `update_indexes`。
+    # 标题借 `md.docx` 那两份 Heading 1 / 2，并在第二个标题前插一个分页符，条目页码才是两个数
+    full_seed = SCRATCH / "toc" / "toc-full-seed.docx"
+    write_toc_full_seed(OUT / "md.docx", full_seed)
+    if update_indexes(exe, full_seed, SCRATCH / "toc-mac" / "toc-full.docx",
+                      SCRATCH / "toc-mac" / "toc-full.odt", SCRATCH / "toc-profile"):
+        shutil.copyfile(SCRATCH / "toc-mac" / "toc-full.docx", OUT / "toc-full.docx")
+        shutil.copyfile(SCRATCH / "toc-mac" / "toc-full.odt", OUT / "toc-full.odt")
+        # 第三族：把排好的那份再转一次 RTF —— 条目就成了 `{\field{\*\fldinst …}{\fldrslt …}}`
+        # 里的结果文字，级别在 `\sNNN` 上（样式名 `toc 1` / `toc 2`），页码还是 `{\tab 2}` 那个字面
+        convert(exe, OUT / "toc-full.docx", "rtf", SCRATCH / "toc-rtf")
+        if (SCRATCH / "toc-rtf" / "toc-full.rtf").exists():
+            shutil.copyfile(SCRATCH / "toc-rtf" / "toc-full.rtf", OUT / "toc-full.rtf")
+        else:
+            print("⚠️  没拿到 toc-full.rtf")
+    else:
+        print("⚠️  没让 LibreOffice 重排出目录（toc-full 那三份件做不出来）")
 
     # 真 ODF 写入者是 LibreOffice：从 OOXML 转过去，比手搓的 content.xml 有说服力
     for src, fmt in (

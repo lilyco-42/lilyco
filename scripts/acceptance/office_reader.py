@@ -55,6 +55,7 @@ from lyco_doc_csv import (  # 文档/放映里的表铺成 CSV
 )
 from lyco_deck_markdown import pptx_deck_markdown  # 放映的大纲搬进 markdown
 from lyco_deck_markdown import odp_deck_markdown  # 同一本大纲的 odp 那一面
+from lyco_toc_entries import docx_toc_entries, odf_toc_entries  # 目录里排出来的那几条缓存条目
 
 END = "END"  # CFB 的链结束标记
 FREE = "FREE"
@@ -244,6 +245,8 @@ def docx_contents(root) -> dict:
         "fields": toc_fields,
         "levels": levels,
         "sdt": len([one for one in root.iter() if xml_local(one.tag) == "sdt"]),
+        # 条目那一本（`w:sdtContent` 里的段，两家各写各的：见 `lyco_toc_entries` 的表）
+        "entries": docx_toc_entries(root),
     }
 
 
@@ -6242,7 +6245,8 @@ def odf_contents(root) -> dict:
     """
     blocks = [one for one in root.iter() if xml_local(one.tag) == "table-of-content"]
     if not blocks:
-        return {"present": False, "names": [], "outline_level": None, "entry_templates": 0, "title": None}
+        return {"present": False, "names": [], "outline_level": None, "entry_templates": 0,
+                "title": None, "entries": odf_toc_entries(root)}
     names = [local_attr(one, "name") for one in blocks]
     level = None
     title = None
@@ -6260,6 +6264,7 @@ def odf_contents(root) -> dict:
             [one for one in root.iter() if xml_local(one.tag) == "table-of-content-entry-template"]
         ),
         "title": title,
+        "entries": odf_toc_entries(root),
     }
 
 

@@ -150,8 +150,11 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `shaded.docx` | python-docx（`write_shaded_docx`） | 一张 2×3 的表，三格各带一样：`w:shd`（`val=clear color=auto fill=FFFF00`）、`w:tcBorders/w:top`（`double sz=6 space=0 color=FF0000`）、`w:vAlign="bottom"`；另外三格只有 `w:tcW` —— 「什么都没设」必须留着当对照 |
 | `shaded-lo.docx` | LibreOffice（`shaded.docx` → .docx，同一个格式重写） | **每一格**都被补上一个**空的** `<w:tcBorders></w:tcBorders>`（六格里五格是「元素在而一条边都没有」），`w:shd` / 那条 `w:top` / `w:vAlign` 的值一字不改（连 `FFFF00` 的大小写都保住了），只把属性顺序换了 —— 所以 `borders_present` 与 `borders` 要分两个键交 |
 | `shaded.odt` | LibreOffice（`shaded.docx` → .odt） | 同一批字的第三副账：格子上只有 `table:style-name`（按地址起的自动样式 `表格1.A1`…`表格1.C2`，六份全在 content.xml），底色变成小写带 `#` 的 `fo:background-color="#ffff00"`，那条双线变成 `fo:border-top="2.25pt double #ff0000"` 加一条记每根线多宽的 `style:border-line-width-top`，垂直对齐是 `style:vertical-align="bottom"`，而**六格都带一份 `fo:padding-*`**（默认值也写出来）—— 见事实 57 |
-| `toc.docx` | LibreOffice 的 **docx 导出器**（把目录注进 `notes.docx` 再让它照抄） | 真目录：`<w:sdt>` + `<w:docPartGallery w:val="Table of Contents"/>`，级别在域指令文字里 —— LibreOffice 把引号写成 `&quot;`，所以 `TOC \o "1-2" \h` 要还原实体才读得对 |
+| `toc.docx` | LibreOffice 的 **docx 导出器**（把目录注进 `notes.docx` 再让它照抄） | **壳是真的、条目是注进去的那一句**：`<w:sdt>` + `<w:docPartGallery w:val="Table of Contents"/>`（这一份没有排出来的条目，`entries` 因此是 0 —— 有排过的看 `toc-full.docx`，见事实 119），级别在域指令文字里 —— LibreOffice 把引号写成 `&quot;`，所以 `TOC \o "1-2" \h` 要还原实体才读得对 |
 | `toc.odt` | LibreOffice（从 `toc.docx`） | 同一件东西的另一副面孔：`text:table-of-content`（名字 `目录1`）、级别在 `text:table-of-content-source/@outline-level="2"`，另外**十级条目模板全写出来**（`entry_templates` 报的是文件写了几个，不是用上了几级） |
+| `toc-full.docx` | LibreOffice **自己排过一遍**的目录（`md.docx` 注壳 + 一个分页符 + `w:updateFields` → 临时 profile 里的 Basic 宏 `index.update()` → `storeToURL`） | 两条**排出来的**条目：`w:pStyle` 是 `TOC1` / `TOC2`（级别就写在这个号上），地址是 `w:hyperlink/@w:anchor="__RefHeading___Toc52_…"`，页码是 `w:tab` **之后的一段字面**（`1` 与 `2`，一条 `PAGEREF` 域也没有）；`w:sdtContent` 里还多一段「目录」标题（`paras` 3 而 `entries` 2）。段上另写着两条 `w:pPr/w:tabs/w:tab` —— 那是**制表位定义**，不是段里那一下记号 |
+| `toc-full.odt` | LibreOffice（同一份宏的 `writer8` 那一次存盘） | 同两条条目的 ODF 写法：容器是 `text:index-body`（标题嵌在 `text:index-title` 里，所以这里 `paras` 2 == `entries` 2），地址在 `text:a/@xlink:href` 上**带 `#`**，页码同样在 `text:tab` 之后（挂在元素的**尾**上，只收 `.text` 就一个字也读不到），而段点的样式是自动样式 `P1` / `P2` —— 那两个号与级别无关，所以级别要顺锚点两跳去看被指那段 `text:h` 写的 `text:outline-level` |
+| `toc-full.rtf` | LibreOffice（从 `toc-full.docx` 再转一次） | 第三族的缓存条目：`{\field{\*\fldinst { TOC \\z \\o "1-2" \\u \\h}}{\fldrslt {…结构：一级}{\tab 1}\par …}}` —— 字与页码在**结果群**里，级别在段前的 `\s140` / `\s141`（样式表里那两条的名字是 `toc 1` / `toc 2`）。这一族这一轮**不交条目那一本**（probe 钉的是缺键，不是空表） |
 | `toc.rtf` | LibreOffice（从 `toc.docx`） | 目录的第三种写法：没有 OOXML 那个 `w:sdt` 壳，也没有 ODF 那个 `outline-level` 属性，只有流里的一条域 `{\*\fldinst { TOC \\o "1-2" \\h}}` —— 开关前面的反斜杠**成对写**（单个会开出一个控制字），解掉那一对之后与 `toc.docx` 的 `w:instrText` 逐字相同。全文两条域（这一条 TOC 与目录条目上那一条 HYPERLINK）、`line_count` 9、`skipped_destinations` 120 |
 | `comments.docx` / `comments.odt` / `comments.rtf` | python-docx 写两条批注，LibreOffice 转 ODF 与 RTF | 批注的三种存法：docx 有 `word/comments.xml` 那个部件（作者与 ISO 日期都在 `<w:comment>` 的属性上）、odt 的 `office:annotation` **嵌在正文段里面**、RTF 分两格写 —— `{\*\atnauthor 名字}` 在前、`{\*\annotation 正文}` 在后，注自己带一个号 `{\*\atnref N}`（与锚区两头 `{\*\atrfstart N}` / `{\*\atrfend N}` 同一个数）。两条注故意让第二个作者是中文名「刘奇」：**LibreOffice 的 RTF 导出把这个名字写成两个问号**，而它自己的 docx 导出照抄 —— 生产者的差，按各家的文件交 |
 | `notes-hf.odt` | LibreOffice（从 `notes-hf.docx`） | 同一批字的 ODF 存法：页眉页脚在 **styles.xml 的 master-page** 里，两个节 = 两个 master-page（`Standard` 与 `Converted1`），各带一份 header + footer |
@@ -2285,6 +2288,36 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       三格也从同一个 `OdfRun` 里取 —— 一条 `text:a` 在这里数得到的就是那里数得到的那一条（`deck-links.odp` 3）。
     - 第二读者是同一份 `lyco_deck_markdown.py` 的 `odp_deck_markdown`；probe 的 3b1 把**每一份 .odp**
       的整本账与读者对，再钉上面这几条实测。
+119. **目录里那几条「排出来的」条目：先前那条「生产者做不出」是一条假阴性，宏这条路走得通**（`toc-full.docx` / `toc-full.odt` / `toc-full.rtf`）
+    - 为什么先前判错：`write_toc_seed` 那一份注壳用的种子**既没有真标题也没要求更新域**，
+      于是 LibreOffice 转换后目录里只剩我们注进去的那一句占位 —— 那只能证明「LO 保留域指令」，
+      证明不了「LO 会不会自己排」。补上正控制（`md.docx` 有 Heading 1 / Heading 2、
+      `settings.xml` 里写 `w:updateFields val="true"`）再转一次：`--convert-to` 仍然只照抄，
+      **PAGEREF 一条也不写**。也就是说转换器不重排索引，这句是量出来的。
+    - 走得通的那条路：临时 profile（`-env:UserInstallation`，不碰用户自己那份配置）里放一个
+      Basic 宏 —— 装载 → `getTextFields().refresh()` → 每条 `getDocumentIndexes().update()` →
+      `storeToURL` 两次（docx 与 odt）。顺序有一条坑：**先让 profile 自己建起来再写宏文件**，
+      反了会被 LibreOffice 退出时盖回它那份 `script.xlc`，于是宏静默什么也不做（第一次就踩了）。
+    - 排出来之后两家把同一件事写在三处：条目文字与页码之间都是**一枚制表记号**（不是域），
+      页码是 `1` / `2` 那样的**字面串**；OOXML 的地址在 `w:hyperlink/@w:anchor`（只有名字），
+      ODF 在 `text:a/@xlink:href`（带 `#`，照写）；级别 OOXML 写在段自己点的样式名上
+      （`TOC1` / `TOC2`），ODF 段上只有 `P1` / `P2` 这种自动样式名 —— **那两个号不是级别**，
+      所以 ODF 的级别顺锚点两跳去读被指那段 `text:h` 自己写的 `text:outline-level`，
+      每条都带 `level_from` 说清这一级是从哪来的（`paragraph-style` / `target-outline-level`）。
+    - 容器也不同：`w:sdtContent` 把「目录」那一行标题当**直接孩子**写（`paras` 3 而 `entries` 2），
+      ODF 把标题嵌在 `text:index-title` 里面（`paras` 2 == `entries` 2）—— 同一问两个答案，
+      所以两本账一起交，不折成一个数，也不替谁判「这一段算不算条目」。
+    - 两处读法坑，都是量的时候撞出来的：`w:pPr/w:tabs/w:tab` 是**制表位定义**（到 8639 右对齐、
+      点线引导），把它当段里的记号就会在第一个字之前先撞到一个，整条条目被误判成「制表符之后」；
+      ODF 的页码挂在 `text:tab` **之后的一段裸文字**上（ElementTree 里就是那个元素的尾），
+      只收元素的直接文字就一个字也读不到 —— 与批注那一条是同一个教训。
+    - 第三个生产者差别留在那儿不合并：同一个二级标题，ODF 那边它自己点的样式叫 `P3`
+      （而一级那条叫 `Heading_20_1`）—— 照文件交，不替它改成看起来该叫的名字。
+      RTF 这一族这轮**不交 `entries` 这个键**（缺键 = 这一族没读）：它的条目在结果群里、
+      级别在段前那个 `\sNNN` 上，两件事都另有读法，量到的形状已写进上面那一行表。
+    - 第二读者是 `scripts/acceptance/lyco_toc_entries.py`（两份 `toc_entries`，
+      挂在 `office_reader.py` 的 `docx_contents` / `odf_contents` 上）；probe 的 3b2 把
+      **每一份 .docx 与 .odt** 的整本条目账与读者对，再钉上面这几条实测。
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
 `scripts/acceptance/office_reader.py`（OOXML / ODF / MS-CFB / OLE 属性集，只用标准库）、
 文档里那几张图在它的 `docx_picture_rows()` / `odt_picture_rows()` 里：两处尺寸各自换算、

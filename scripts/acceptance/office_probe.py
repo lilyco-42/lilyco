@@ -418,12 +418,78 @@ def main() -> int:
         ["1-2", "1-2"],
     )
     check(
-        "toc.rtf 里没有 OOXML 那两键（不造假）",
+        "toc.rtf 里没有 OOXML 那两键、也还没有条目那一本（这一族这轮没读，不造假）",
         [
             (lbin("office-doc", fixture("toc.rtf")).get("contents") or {}).get(key, "没有这个键")
-            for key in ("galleries", "sdt")
+            for key in ("galleries", "sdt", "entries")
         ],
-        ["没有这个键", "没有这个键"],
+        ["没有这个键", "没有这个键", "没有这个键"],
+    )
+
+    # ── 3b2) 目录里那几条排出来的条目：两家三处，级别取处也不同 ────────────────────
+    print("=== 3b2) office-doc contents.entries：让软件自己排的目录，条目与页码是文件写的 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        check("%s 的条目那一本与读者一致" % name,
+              dig(lbin("office-doc", fixture(name)), "contents.entries"),
+              files[name]["ooxml"]["contents"]["entries"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        check("%s 的条目那一本与读者一致" % name,
+              dig(lbin("office-doc", fixture(name)), "contents.entries"),
+              files[name]["odt"]["contents"]["entries"])
+    d_full = lbin("office-doc", fixture("toc-full.docx"))
+    o_full = lbin("office-doc", fixture("toc-full.odt"))
+    check(
+        "`toc-full.docx` / `toc-full.odt` 是 LibreOffice **自己排过**的两份（生产者那条路见 README 事实 119）："
+        "两家都把页码写成制表符之后的一段**字面**（不是 PAGEREF 域、也不是 `text:page-number` 元素），"
+        "两条条目的页码是 '1' 与 '2'。docx 那个容器还多写一段「目录」标题（`paras` 3 而 `entries` 2），"
+        "ODF 把标题嵌在 `text:index-title` 里所以 `paras` 2 —— 同问两个答案，两本账都交，不折成一个数",
+        [dig(d_full, "contents.entries.paras"), dig(d_full, "contents.entries.entries"),
+         dig(d_full, "contents.entries.with_page"), dig(d_full, "contents.entries.with_anchor"),
+         dig(o_full, "contents.entries.paras"), dig(o_full, "contents.entries.entries"),
+         dig(o_full, "contents.entries.with_page"),
+         [one["text"] for one in dig(d_full, "contents.entries.list")][1:],
+         [one["page_written"] for one in dig(d_full, "contents.entries.list")][1:],
+         [one["text"] for one in dig(o_full, "contents.entries.list")],
+         [one["page_written"] for one in dig(o_full, "contents.entries.list")]],
+        [3, 2, 2, 2, 2, 2, 2, ['结构：一级', '结构：二级'], '1', ['结构：一级', '结构：二级'], '2'],
+    )
+    check(
+        "级别那一问两族取处不同，所以每条都带 `level_from`：docx 写在段自己点的样式名上"
+        "（['TOC1', 'TOC2'] → [1, 2]），ODF 段上那个 ['P1', 'P2'] 是**自动样式**、那两个号与级别无关，于是顺锚点两跳去看"
+        "被指那一段写的 `text:outline-level`（被指那一段自己写的 outline-level 是 ['1', '2']，解出级别 [1, 2]）。两家的锚点都指得到（`targets_found` 2），"
+        "指到的段两家写法也不同：OOXML 那边是被指段的样式名（['Heading1', 'Heading2']），ODF 那边是元素名 `h` 加它自己的"
+        "级别，而第二个标题点的样式叫 ['Heading_20_1', 'P3'] —— 照文件交，不替它改成看起来该叫的名字",
+        [[one["style"] for one in dig(d_full, "contents.entries.list")][1:],
+         [one["level"] for one in dig(d_full, "contents.entries.list")][1:],
+         [one["level_from"] for one in dig(d_full, "contents.entries.list")][1:],
+         [one["style"] for one in dig(o_full, "contents.entries.list")],
+         [one["level"] for one in dig(o_full, "contents.entries.list")],
+         [one["level_from"] for one in dig(o_full, "contents.entries.list")],
+         dig(d_full, "contents.entries.targets_found"), dig(o_full, "contents.entries.targets_found"),
+         [one["target_style"] for one in dig(d_full, "contents.entries.list")][1:],
+         [one["target_element"] for one in dig(o_full, "contents.entries.list")],
+         [one["target_outline_level"] for one in dig(o_full, "contents.entries.list")],
+         [one["target_style"] for one in dig(o_full, "contents.entries.list")]],
+        [['TOC1', 'TOC2'], [1, 2], ['paragraph-style', 'paragraph-style'], ['P1', 'P2'], [1, 2], ['target-outline-level', 'target-outline-level'], 2, 2, ['Heading1', 'Heading2'], ['h', 'h'], ['1', '2'], ['Heading_20_1', 'P3']],
+    )
+    check(
+        "`w:pPr/w:tabs/w:tab` 是**制表位定义**不是段里那一下：这一份的第一条条目自己就写着两条定义"
+        "加一枚真记号，把定义当记号数就会在第一个字之前先撞到一个，整条被判成「制表符之后」——"
+        "读回来条目文字是 ['结构：一级', '结构：二级'] 的第一串、页码是第二串，而 ODF 那一份的页码挂在 `text:tab` **之后的一段裸文字**上"
+        "（只收元素的直接文字就一个字也读不到）。老那两份 `toc.docx` / `toc.odt` 里目录是**注进去的壳**，"
+        "`entries` 因此是 0 / 0（数过了没有，不是没读）；`md.docx` 根本没有目录（`paras` 0）",
+        [[one["text"] for one in dig(d_full, "contents.entries.list")][1],
+         [one["page_written"] for one in dig(d_full, "contents.entries.list")][1],
+         [one["text"] for one in dig(o_full, "contents.entries.list")][0],
+         [one["page_written"] for one in dig(o_full, "contents.entries.list")][0],
+         dig(lbin("office-doc", fixture("toc.docx")), "contents.entries.entries"),
+         dig(lbin("office-doc", fixture("toc.docx")), "contents.entries.paras"),
+         dig(lbin("office-doc", fixture("toc.odt")), "contents.entries.entries"),
+         dig(lbin("office-doc", fixture("toc.odt")), "contents.entries.paras"),
+         dig(lbin("office-doc", fixture("md.docx")), "contents.entries.paras"),
+         dig(lbin("office-doc", fixture("md.docx")), "contents.entries.scope"),
+         lbin("office-doc", fixture("toc.rtf")).get("contents", {}).get("entries", "没有这个键")],
+        ['结构：一级', '1', '结构：一级', '1', 0, 2, 0, 1, 0, "sdt-content", "没有这个键"],
     )
 
     # ── 2c) RTF 的结构这一问：它不是包，是一条流，能数清的才报 ─────────────
