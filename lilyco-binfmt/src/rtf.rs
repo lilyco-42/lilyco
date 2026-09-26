@@ -175,6 +175,13 @@ fn field_instruction(group: &[u8]) -> Option<String> {
     Some(had.to_string())
 }
 
+/// 「这一条域指令是不是目录」的那一条判断。流里页码、日期、超链接都是域，所以不能只数
+/// `\field`；docx 那边（`w:instrText`）用的是同一句「大写以后以 TOC 开头」，两家共用一把，
+/// 免得两本账对同一个文件说出两个答案
+pub(crate) fn is_toc_instruction(inst: &str) -> bool {
+    inst.to_uppercase().starts_with("TOC")
+}
+
 /// `HYPERLINK "地址"` 里那段引号包住的地址。指令原文的大小写各家不同，这里按
 /// ASCII 大小写无关找字面量；地址本身照文件写的字节交回
 fn hyperlink_target(inst: &[u8]) -> Option<String> {
@@ -779,13 +786,16 @@ fn list_override_of(group: &[u8]) -> Option<Value> {
     }))
 }
 
-/// 一段自己说过的「列表上的话」（与 `marks` 一条一条对着收，所以段号不会分家）
+/// 一段自己说过的「列表上的话」（与 `marks` 一条一条对着收，所以段号不会分家）。
+/// `in_index` 不是列表上的话，但它同样只能在这段收尾的那一刻判（那时候才知道
+/// `\par` 落在不在目录域的字节跨度里），所以搭同一辆车 —— 见 `toc_fields`
 struct ParaFlow {
     ilvl: Option<String>,
     ls: Option<String>,
     li: Option<String>,
     fi: Option<String>,
     label: Option<Value>,
+    in_index: bool,
 }
 
 /// 一条 `{\f0 … Times New Roman;}` / `{\s1 … heading 1;}` / `{\*\cs15 … Name;}`：
@@ -1220,6 +1230,12 @@ pub fn extract(bytes: &[u8]) -> Rtf {
     // 与 `marks` 一条一条对着来的段属性：`\ilvl` / `\ls` / `\li` / `\fi`，以及那段
     // 正文前那个 `{\listtext…}` 群。收在同一处、跟着同一次走，段号才不会分家
     let mut flows: Vec<ParaFlow> = Vec::new();
+    // 目录域的字节跨度：`{\field{\*\fldinst { TOC …}}{\fldrslt …}}` 那两头的位子。
+    // 段收尾时拿 `\par` 自己的位置对着这些跨度判一次，才知道那一段是不是目录**排出来**的
+    // 一条（这一族的目录没有 `w:sdt` 那样的壳，也没有 `text:index-body` 那样的块 —— 域
+    // 就是壳）。跨度从指令那一群起、到关掉 `\field` 那一群的 `}` 止，正好把 `\fldrslt`
+    // 里那些段整个包住，而前后两段都在外面
+    let mut toc_fields: Vec<(usize, usize)> = Vec::new();
     let mut para_start = 0usize;
     let mut para_style: Option<u64> = None;
     let mut para_ilvl: Option<String> = None;
@@ -1680,11 +1696,14 @@ pub fn extract(bytes: &[u8]) -> Rtf {
                 let brace = (j..bytes.len()).find(|&k| bytes[k] == b'{');
                 if let Some(at) = brace {
                     // 先把这一群量到收尾，再在群内找 —— 不看后面域的字
-                    let (_stop, inner) = group_end(bytes, at);
+                    let (stop, inner) = group_end(bytes, at);
                     if let Some(link) = field_link(&inner) {
                         me.links.push(link);
                     }
                     if let Some(had) = field_instruction(&inner) {
+                        if is_toc_instruction(&had) {
+                            toc_fields.push((at, stop));
+                        }
                         me.field_instructions.push(had);
                     }
                 }
@@ -1699,6 +1718,7 @@ pub fn extract(bytes: &[u8]) -> Rtf {
                     li: para_li.take(),
                     fi: para_fi.take(),
                     label: para_label.take(),
+                    in_index: toc_fields.iter().any(|one| one.0 <= j && j < one.1),
                 });
                 para_start = out.len();
                 para_style = None;
@@ -1957,6 +1977,10 @@ pub fn extract(bytes: &[u8]) -> Rtf {
             "ilvl": had.ilvl.clone(),
             "ls": had.ls.clone(),
             "in_list": item.is_some(),
+            // 这一段是不是落在某条目录域的 `{\fldrslt …}` 里 —— 「这一段是目录排出来的
+            // 一条」的那一句判断，与「这一段是不是列表项」是两问（列表项的段也可以
+            // 在目录里，而这一族实测没有）
+            "in_index": had.in_index,
             "level_found": item
                 .map(|one| one["level_found"] == json!(true))
                 .unwrap_or(false),

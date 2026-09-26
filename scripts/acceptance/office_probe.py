@@ -396,7 +396,8 @@ def main() -> int:
     # 还可能没有），ODF 的级别在 source 元素的 outline-level 属性上，RTF 没有壳只有域
     # —— 所以整份账按各自的形状比，不强行归一（OOXML 专属的那两键 RTF 这边不该出现）
     print("=== 2b) 有没有目录、收了几级（toc.docx / toc.odt / toc.rtf） ===")
-    for name in ("toc.docx", "notes.docx", "toc.odt", "notes.odt", "toc.rtf", "notes.rtf"):
+    for name in ("toc.docx", "notes.docx", "toc.odt", "notes.odt", "toc.rtf", "notes.rtf",
+                 "toc-full.docx", "toc-full.odt", "toc-full.rtf"):
         # 这个循环外头还有一个 `want` 装着 notes.docx 的整份账（后面十几条检查在用），
         # 所以这里必须换个名字 —— 复用 `want` 会把那份账换成本条循环的小字典
         if name.endswith(".docx"):
@@ -418,12 +419,17 @@ def main() -> int:
         ["1-2", "1-2"],
     )
     check(
-        "toc.rtf 里没有 OOXML 那两键、也还没有条目那一本（这一族这轮没读，不造假）",
+        "toc.rtf 里没有 OOXML 那两键（`galleries` / `sdt` 造不得），而条目那一本从这一批起"
+        "有了：整份件没有目录域时那一个键也是数过了的零，不是没看",
         [
             (lbin("office-doc", fixture("toc.rtf")).get("contents") or {}).get(key, "没有这个键")
-            for key in ("galleries", "sdt", "entries")
+            for key in ("galleries", "sdt")
+        ]
+        + [
+            lbin("office-doc", fixture("notes.rtf")).get("contents", {}).get("entries", {}).get("paras", "没有这个键"),
+            lbin("office-doc", fixture("toc.rtf")).get("contents", {}).get("entries", {}).get("scope", "没有这个键"),
         ],
-        ["没有这个键", "没有这个键", "没有这个键"],
+        ["没有这个键", "没有这个键", 0, "fldrslt"],
     )
 
     # ── 3b2) 目录里那几条排出来的条目：两家三处，级别取处也不同 ────────────────────
@@ -436,8 +442,36 @@ def main() -> int:
         check("%s 的条目那一本与读者一致" % name,
               dig(lbin("office-doc", fixture(name)), "contents.entries"),
               files[name]["odt"]["contents"]["entries"])
+    # 第三族：哪些段算条目只能按「那个 `\par` 落在不在目录域的字节跨度里」判 ——
+    # 这一族既没有 `w:sdt` 壳也没有 `text:index-body` 块，域本身就是壳
+    for name in sorted(one.name for one in FIXTURES.glob("*.rtf")):
+        check("%s 的条目那一本与读者一致（第三族：域跨度里的段才算）" % name,
+              dig(lbin("office-doc", fixture(name)), "contents.entries"),
+              files[name]["rtf"]["contents"]["entries"])
+    r_full = lbin("office-doc", fixture("toc-full.rtf"))
     d_full = lbin("office-doc", fixture("toc-full.docx"))
     o_full = lbin("office-doc", fixture("toc-full.odt"))
+    check(
+        "「容器里有几段」同问三个答案：docx 3 / ODF 2 / RTF 2，而条目都是 2。RTF 这一族"
+        "把「目录」那一行标题写在 `\\s139`（样式表里那个名字就叫 `TOC Heading`）上、**在开域之前**就 `\\par`，"
+        "所以它压根不在域跨度里 —— 与 docx 把标题写成 `sdtContent` 的直接孩子、ODF 把它嵌在 "
+        "`text:index-title` 里是三种不同的形状。级别这一问 RTF 与 docx 同一取处（段自己点的样式名，"
+        "只不过这一族写的是 `toc 1` / `toc 2` 那种小写带空格的样式表名），页码还是 `\\tab` 之后的字面。"
+        "两条都在 `\\fldrslt` 的跨度里，第一条的 `\\s140` 写在**开域那一段**上（`{\\field` 之前），"
+        "第二条自己写 `\\pard\\plain \\s141` —— 段号跟着 `\\par` 收，所以两条都拿得到自己的号",
+        [dig(d_full, "contents.entries.paras"), dig(o_full, "contents.entries.paras"),
+         dig(r_full, "contents.entries.paras"),
+         dig(r_full, "contents.entries.entries"), dig(r_full, "contents.entries.with_page"),
+         [one["text"] for one in dig(r_full, "contents.entries.list")],
+         [one["page_written"] for one in dig(r_full, "contents.entries.list")],
+         [one["style"] for one in dig(r_full, "contents.entries.list")],
+         [one["level"] for one in dig(r_full, "contents.entries.list")],
+         [one["level_from"] for one in dig(r_full, "contents.entries.list")],
+         [one["paragraph"] for one in dig(r_full, "contents.entries.list")],
+         [one["style_index"] for one in dig(r_full, "contents.entries.list")]],
+        [3, 2, 2, 2, 2, ['结构：一级', '结构：二级'], ['1', '2'],
+         ['toc 1', 'toc 2'], [1, 2], ['paragraph-style', 'paragraph-style'], [1, 2], [140, 141]],
+    )
     check(
         "`toc-full.docx` / `toc-full.odt` 是 LibreOffice **自己排过**的两份（生产者那条路见 README 事实 119）："
         "两家都把页码写成制表符之后的一段**字面**（不是 PAGEREF 域、也不是 `text:page-number` 元素），"
@@ -6314,13 +6348,23 @@ def main() -> int:
         [1, 0, 3, 0, 2, 0, 0, 0, 1],
     )
     quiet = lbin("office-text", fixture("md.docx"))
-    elsewhere = lbin("office-text", fixture("notes.rtf"), "--markdown")
+    elsewhere = lbin("office-text", fixture("deck.ppt"), "--markdown")
     check(
         "没开 `--markdown` 就整个键都不给（不给一份空串装作渲染过）；开了而这一族还没搬的那一份，"
-        "键也不在，只在 notes 里说一句",
+        "键也不在，只在 notes 里说一句（那句话点名交的是哪五族 —— RTF 从 37e702a 起在列，"
+        "所以这里换成 `.ppt` 来当「还没搬的那一族」）",
         [quiet.get("markdown"), elsewhere.get("markdown"),
-         any("markdown" in str(one) for one in (dig(elsewhere, "notes") or []))],
-        [None, None, True],
+         any("markdown" in str(one) for one in (dig(elsewhere, "notes") or [])),
+         any("这份件不是那五族" in str(one) for one in (dig(elsewhere, "notes") or []))],
+        [None, None, True, True],
+    )
+    ported = lbin("office-text", fixture("notes.rtf"), "--markdown")
+    check(
+        "同一句「缺键 = 这一族还没搬」的反面：RTF 已经搬完，`notes.rtf` 开着 `--markdown` "
+        "就有那一个键，notes 里也就没有那一句了（那一本整份账在 3b3 那条 lane 上与读者对过）",
+        [ported.get("markdown") is not None,
+         any("这份件不是那五族" in str(one) for one in (dig(ported, "notes") or []))],
+        [True, False],
     )
     # ── 3au) 文档里的公式：行内与独立成行会被生产者改，ODF 一条式子住在另一个部件 ──────
     print("=== 3au) 公式：OMML 的挂法与 MathML 的部件，两家各按自己文件写的交 ===")

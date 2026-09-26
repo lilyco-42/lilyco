@@ -163,7 +163,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `toc.odt` | LibreOffice（从 `toc.docx`） | 同一件东西的另一副面孔：`text:table-of-content`（名字 `目录1`）、级别在 `text:table-of-content-source/@outline-level="2"`，另外**十级条目模板全写出来**（`entry_templates` 报的是文件写了几个，不是用上了几级） |
 | `toc-full.docx` | LibreOffice **自己排过一遍**的目录（`md.docx` 注壳 + 一个分页符 + `w:updateFields` → 临时 profile 里的 Basic 宏 `index.update()` → `storeToURL`） | 两条**排出来的**条目：`w:pStyle` 是 `TOC1` / `TOC2`（级别就写在这个号上），地址是 `w:hyperlink/@w:anchor="__RefHeading___Toc52_…"`，页码是 `w:tab` **之后的一段字面**（`1` 与 `2`，一条 `PAGEREF` 域也没有）；`w:sdtContent` 里还多一段「目录」标题（`paras` 3 而 `entries` 2）。段上另写着两条 `w:pPr/w:tabs/w:tab` —— 那是**制表位定义**，不是段里那一下记号 |
 | `toc-full.odt` | LibreOffice（同一份宏的 `writer8` 那一次存盘） | 同两条条目的 ODF 写法：容器是 `text:index-body`（标题嵌在 `text:index-title` 里，所以这里 `paras` 2 == `entries` 2），地址在 `text:a/@xlink:href` 上**带 `#`**，页码同样在 `text:tab` 之后（挂在元素的**尾**上，只收 `.text` 就一个字也读不到），而段点的样式是自动样式 `P1` / `P2` —— 那两个号与级别无关，所以级别要顺锚点两跳去看被指那段 `text:h` 写的 `text:outline-level` |
-| `toc-full.rtf` | LibreOffice（从 `toc-full.docx` 再转一次） | 第三族的缓存条目：`{\field{\*\fldinst { TOC \\z \\o "1-2" \\u \\h}}{\fldrslt {…结构：一级}{\tab 1}\par …}}` —— 字与页码在**结果群**里，级别在段前的 `\s140` / `\s141`（样式表里那两条的名字是 `toc 1` / `toc 2`）。这一族这一轮**不交条目那一本**（probe 钉的是缺键，不是空表） |
+| `toc-full.rtf` | LibreOffice（从 `toc-full.docx` 再转一次） | 第三族的缓存条目：`{\field{\*\fldinst { TOC \\z \\o "1-2" \\u \\h}}{\fldrslt {…结构：一级}{\tab 1}\par …}}` —— 字与页码在**结果群**里，级别在段前的 `\s140` / `\s141`（样式表里那两条的名字是 `toc 1` / `toc 2`）。条目那一本这一族也交了（`scope` 是 `fldrslt`：`paras` 2 == `entries` 2，标题那一行在域外面；`with_anchor` 0 而 `target_marks_written` 2 —— 见事实 123） |
 | `toc.rtf` | LibreOffice（从 `toc.docx`） | 目录的第三种写法：没有 OOXML 那个 `w:sdt` 壳，也没有 ODF 那个 `outline-level` 属性，只有流里的一条域 `{\*\fldinst { TOC \\o "1-2" \\h}}` —— 开关前面的反斜杠**成对写**（单个会开出一个控制字），解掉那一对之后与 `toc.docx` 的 `w:instrText` 逐字相同。全文两条域（这一条 TOC 与目录条目上那一条 HYPERLINK）、`line_count` 9、`skipped_destinations` 120 |
 | `comments.docx` / `comments.odt` / `comments.rtf` | python-docx 写两条批注，LibreOffice 转 ODF 与 RTF | 批注的三种存法：docx 有 `word/comments.xml` 那个部件（作者与 ISO 日期都在 `<w:comment>` 的属性上）、odt 的 `office:annotation` **嵌在正文段里面**、RTF 分两格写 —— `{\*\atnauthor 名字}` 在前、`{\*\annotation 正文}` 在后，注自己带一个号 `{\*\atnref N}`（与锚区两头 `{\*\atrfstart N}` / `{\*\atrfend N}` 同一个数）。两条注故意让第二个作者是中文名「刘奇」：**LibreOffice 的 RTF 导出把这个名字写成两个问号**，而它自己的 docx 导出照抄 —— 生产者的差，按各家的文件交 |
 | `notes-hf.odt` | LibreOffice（从 `notes-hf.docx`） | 同一批字的 ODF 存法：页眉页脚在 **styles.xml 的 master-page** 里，两个节 = 两个 master-page（`Standard` 与 `Converted1`），各带一份 header + footer |
@@ -2343,7 +2343,34 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       铺出来的 markdown 全文逐字相同 —— 这是这一批里唯一一条「三族同文」的等式，
       别的账都是各交各的。
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
-      probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与
+      probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
+
+123. **RTF 也交目录的缓存条目了：同一个「容器里有几段」，三家是三个答案**（`toc-full.rtf`）
+    - 生产者与另两族同一条路（LibreOffice 的 Basic 宏：load → refresh fields → index.update()
+      → storeToURL，见事实 119），所以三份件是同一篇文档的三种排法，可以横着对。
+    - 这一族既没有 `w:sdt` 那个壳，也没有 `text:index-body` 那个块 —— **域本身就是壳**，
+      所以「哪几段算条目」只能按字节跨度判：`{\field{\*\fldinst { TOC …}}{\fldrslt …}}`
+      那一跳量到关掉 `\field` 的 `}` 为止，段自己那个 `\par` 落在里头才算一条。
+      判在段收尾的那一刻，所以搭 `para_rows` 那辆车（`in_index` 一格），不另起解码器。
+    - 同问三个答案：标题「目录」那一行在 docx 是 `sdtContent` 的直接孩子（`paras` 3 而
+      `entries` 2），在 ODF 嵌在 `text:index-title` 里（`paras` 2 == `entries` 2），
+      在 RTF 它**在开域之前**就 `\par` 了（`\s139`，样式表里那名字就叫 `TOC Heading`），
+      所以这一族的 `scope` 里 `paras` 只有量出来的两条。三本账都交，不折成一个数。
+    - 级别与 docx 同一个取处（段自己点的样式名），只不过这一族写的是 `toc 1` / `toc 2`
+      —— 小写、数字前有个空格（那是样式表里的**显示名**，样式号是 140 / 141，两个都交）。
+      同一把 `level_from_style` 吃下 `TOC1` 与 `toc 1` 两种拼法，`level_from` 都是
+      `paragraph-style`。页码还是制表符之后的字面（`{` + `\tab 1}`：`\tab` 后面那一个空格是
+      控制字的界限符，不进字），所以 `tab_written` 与 `page_written` 是一对凭据。
+    - 两处读法上的坑，都是量出来的：第一条的段属性写在**开域那一段**上（`\field` 之前
+      的 `\s140`），只在 `{\fldrslt` 群里找 `\s` 会一条也读不到；第二条才自己写
+      `\pard\plain \s141`。段号跟着 `\par` 收，所以两条都拿得到自己的号。
+    - 条目这头**一个地址也不写**（`with_anchor` 0、`targets_found` 0 都是数过了的零），
+      而**被指那几段**写着 `__RefHeading___Toc52_744132712` 那类书签（`target_marks_written` 2）。
+      两头各交各的：这一族没有那一跳可走，不拿「两条对两个标题」的顺序去替它连上。
+      `toc.rtf`（有域、没重排）是同一问的反面：`paras` 1、`entries` 0 —— 那一段字既没有
+      `\tab` 也没有页码，而它点的样式是 `Normal`，所以 `level` 也是 null。
+    - 第二读者是 `lyco_toc_entries.rtf_toc_entries`（跨度判在 `lyco_rtf.py` 的走查里，
+      与 Rust 同一条规则各写一遍），probe 的 3b2 把 15 份 .rtf 整本对，2b 另比整份 `contents`。
 
 122. **RTF 是 markdown 的第五族：三条规矩都是从真件量出来的，不是照规范推的**（15 份 .rtf 全过）
     - 做法上最要紧的一条是**不另起解码器**：先拿一次性脚本自己解 RTF，`第一行` 被解成 `ff：aff`
@@ -2363,7 +2390,6 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       记几段有过），`tables` 交 **null 而不是 0**（看了，这一族判不住几张表 —— 事实 100）。
     - 空白段照旧不进口正文，只计 `empty_dropped`（`toc.rtf` 是 2）；遗留 `.doc` 这一族**还是不交
       这个键**（缺键 = 这一族没搬）。第二读者是 `lyco_rtf.rtf_markdown`，probe 的 3b3 逐份比整本。
-      「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 
 121. **同一个格子两家的字不一样：折行尾是读者的活，不是替文件说话**（`pipes.xlsx` 与它的两份重写）
     - 现象：`--markdown` 第一次跑就把一格铺成 `第一行\r<br>带`，而镜像读者给的是 `第一行<br>带`。

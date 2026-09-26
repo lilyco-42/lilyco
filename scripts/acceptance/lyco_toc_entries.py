@@ -178,3 +178,45 @@ def odf_toc_entries(root) -> dict:
             return toc_entries(_direct(holder, "p"), True, "index-body",
                                bookmark_targets(root))
     return toc_entries([], True, "index-body", bookmark_targets(root))
+
+
+# 生产者写在**被指那一段**上的书签名前缀（实测 toc-full.rtf 那两条 `__RefHeading___Toc…`）
+REF_MARK_HEAD = "__RefHeading__"
+
+
+def rtf_toc_entries(paras: list, target_marks: list) -> dict:
+    """RTF：条目段就是落在 `{\field…{\fldrslt …}}` 跨度里的那几段（`lyco_rtf` 一次走
+    出来的账，这里不再扫第二遍）。三处与另两族不同，都照文件交：
+
+    1. 标题那一行（`\\s139 TOC Heading`）在域**外面**先 `\\par`，所以 `paras` 只数量出来的
+       条目 —— docx 3 / entries 2、ODF 2 == 2、RTF 2 == 2，同问三个答案；
+    2. 级别在段自己点的样式名上（`toc 1` / `toc 2`，LibreOffice 写的是小写带空格的
+       样式表名），与 docx 的 `TOC1` 同一个取处、不同的拼法，`level_from_style` 一把吃下；
+    3. 条目这头**一个地址也不写**（`with_anchor` 与 `targets_found` 都是数过的 0），
+       而被指那几段写着 `__RefHeading___Toc52_744132712` 那类书签：两头各交各的，
+       不拿顺序去猜哪条对哪条。
+    """
+    rows = []
+    for one in paras:
+        text, page = split_entry(one["text"])
+        level = level_from_style(one["style_name"])
+        rows.append({
+            "index": len(rows), "paragraph": one["at"], "text": text,
+            "page_written": page, "tab_written": "\t" in one["text"],
+            "style_index": one["style_index"], "style": one["style_name"],
+            "anchor": None, "target_found": False, "target_element": None,
+            "target_style": None, "target_outline_level": None,
+            "level": level, "level_from": "paragraph-style" if level is not None else None,
+        })
+    return {
+        "scope": "fldrslt",
+        "paras": len(rows),
+        "entries": len([one for one in rows if one["page_written"] is not None]),
+        "with_page": len([one for one in rows if one["page_written"] is not None]),
+        "with_anchor": len([one for one in rows if one["anchor"] is not None]),
+        "targets_found": len([one for one in rows if one["target_found"]]),
+        "levels_resolved": len([one for one in rows if one["level"] is not None]),
+        "target_marks_written": len(target_marks),
+        "target_marks": list(target_marks),
+        "list": rows,
+    }

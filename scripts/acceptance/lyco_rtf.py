@@ -22,6 +22,10 @@ from __future__ import annotations
 import re
 
 from lyco_pages import convert
+from lyco_toc_entries import (  # 目录里排出来的那几条（三族同一形状的第三族）
+    REF_MARK_HEAD,
+    rtf_toc_entries,
+)
 
 BS = "\\"  # 一个反斜杠
 
@@ -764,9 +768,11 @@ def starred_body(text: str, head: int, named: str) -> tuple:
     return had, kids
 
 
-def contents_of(instructions: list) -> dict:
+def contents_of(instructions: list, rows: list, marks: list) -> dict:
     r"""目录那份账：RTF 没有 OOXML 那个 w:sdt 壳，也没有 ODF 的 outline-level 属性，
-    只有流里一条自报家门的 `TOC …` 域。所以这份账只有这四个键，那两家的键不造假"""
+    只有流里一条自报家门的 `TOC …` 域。级数与条目各按各的取处，那两家的键不造假。
+    `rows` 是落在域跨度里的那几段（`at` / `text` / `style_index` / `style_name`），
+    `marks` 是被指那一头的书签名 —— 条目这头一个地址也不写，两头各交各的"""
     toc = [one for one in instructions if one.upper().startswith("TOC")]
     levels = None
     for one in toc:
@@ -778,6 +784,7 @@ def contents_of(instructions: list) -> dict:
         "via": None if not toc else "field",
         "fields": toc,
         "levels": levels,
+        "entries": rtf_toc_entries(rows, marks),
     }
 
 
@@ -815,7 +822,12 @@ def rtf_text(data: bytes, with_rows: bool = False) -> dict:
     # 与 `paras` 一条一条对着收：`\ilvl` / `\ls` / `\li` / `\fi` 与那段正文前那个
     # `{\listtext…}` 群。收在同一处、跟着同一次走，段号才不会分家
     flows: list = []
-    para: dict = {"ilvl": None, "ls": None, "li": None, "fi": None, "label": None}
+    para: dict = {"ilvl": None, "ls": None, "li": None, "fi": None, "label": None,
+                  # 这一段收尾时那个 `\par` 落在不在某条目录域的跨度里 —— 「这一段是不是
+                  # 目录排出来的一条」，与上面那本「是不是列表项」是两问
+                  "index": False}
+    # 目录域的字节跨度：`{\field` 那一群从指令那一群起、到关掉它的 `}` 止
+    toc_fields: list = []
     # 文档级的那张纸：每个词只认第一次写的（`\landscape` 是个旗标，没有数字参数）
     paper_writes: dict = {}
     # 刚读到、还没配上注的那条作者：文件把 `{\*\atnauthor …}` 写在注的前面一格
@@ -1138,12 +1150,16 @@ def rtf_text(data: bytes, with_rows: bool = False) -> dict:
                 # `\fldrslt` 的显示文字是页面上的字，得留给正文
                 brace = text.find("{", j)
                 if brace >= 0:
-                    _stop, inner = group_end(text, brace)
+                    stop, inner = group_end(text, brace)
                     link = field_link(inner)
                     if link:
                         page["links"].append(link)
                     had = field_instruction(inner)
                     if had:
+                        if had.upper().startswith("TOC"):
+                            # 「这一段是不是目录排出来的一条」只按字节跨度判：这一族
+                            # 没有 sdt 壳也没有 index-body 块，域本身就是壳
+                            toc_fields.append((brace, stop))
                         page["instructions"].append(had)
         elif not skip[-1]:
             if word in BREAK_WORDS or word in ROW_WORDS:
@@ -1153,8 +1169,9 @@ def rtf_text(data: bytes, with_rows: bool = False) -> dict:
                 paras.append(
                     {"text": "".join(out[mark["start"] :]).strip(), "style": mark["style"]}
                 )
+                para["index"] = any(one[0] <= j < one[1] for one in toc_fields)
                 flows.append(dict(para))
-                for key in ("ilvl", "ls", "li", "fi", "label"):
+                for key in ("ilvl", "ls", "li", "fi", "label", "index"):
                     para[key] = None
                 mark["start"] = len(out)
                 mark["style"] = None
@@ -1324,6 +1341,19 @@ def rtf_text(data: bytes, with_rows: bool = False) -> dict:
         "list": entries,
     }
     resolve_run_rows(stats["run_rows"], colors, found["fonts"], found["styles"])
+    # 目录那几条：`flows` 里说「这一段落在目录域的跨度里」的那几段，配上样式号的名字。
+    # 与 `para_rows` 用的是同一次走出来的两本，不再扫第二遍（`with_rows` 关着也要有）
+    index_rows = [
+        {
+            "at": at,
+            "text": one["text"],
+            "style_index": one["style"],
+            "style_name": by_index.get(one["style"]) if one["style"] is not None else None,
+        }
+        for at, one in enumerate(paras)
+        if (flows[at] if at < len(flows) else {}).get("index")
+    ]
+    ref_marks = [one for one in page["bookmarks"] if one.startswith(REF_MARK_HEAD)]
     # 站内跳转的地址住在指令里（解过转义的那一份），书签住在自己那一群里：
     # 两处的名字对上才算这一跳落得地。links[].target 交的是文件写的那一串原样，两份凭据各说各的
     marks = page["bookmarks"]
@@ -1371,7 +1401,7 @@ def rtf_text(data: bytes, with_rows: bool = False) -> dict:
         # 每个域自己写的指令原文（解掉成对反斜杠之后），按文件里的顺序
         "field_instructions": page["instructions"],
         # 目录那份账：TOC 域在这份表里挑出来，级数在它自己的开关上
-        "contents": contents_of(page["instructions"]),
+        "contents": contents_of(page["instructions"], index_rows, ref_marks),
         # 批注：`{\*\annotation …}` 那一群前瞻读出来的（字不混进正文）。`date` 在
         # 这边压根没有 —— 文件写的 `atndate` 两个样本都对不上 docx 的 w:date，
         # 解不动就只交原样那串（date_written），不替它挑历法
@@ -1434,6 +1464,7 @@ def rtf_text(data: bytes, with_rows: bool = False) -> dict:
                     "ilvl": had.get("ilvl"),
                     "ls": had.get("ls"),
                     "in_list": item is not None,
+                    "in_index": bool(had.get("index")),
                     "level_found": bool(item and item.get("level_found")),
                     "nfc": (item or {}).get("level", {}).get("nfc")
                     if item and item.get("level")
