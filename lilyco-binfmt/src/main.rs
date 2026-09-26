@@ -39,6 +39,7 @@ mod cell_merges;
 mod cfb;
 mod comment_threads;
 mod comments;
+mod doc_defaults;
 mod entries;
 mod equations;
 mod field_ledger;

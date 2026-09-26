@@ -3833,6 +3833,309 @@ def odf_layout_compat(path: Path, limit: int = 100) -> dict:
     }
 
 
+DOC_DEFAULTS_PARTS = ("word/styles.xml", "word/stylesWithEffects.xml")
+ODF_DEFAULT_PARTS = ("content.xml", "styles.xml")
+RPR_CANON = ("lang", "rFonts", "sz", "szCs")
+FONT_LITERAL = ("ascii", "eastAsia", "hAnsi", "cs")
+# ODF 的 `default-style` 一层里字体名/字号各有三个槽（按局部名收）：与 docx 那四格对得上
+ODF_FONT_SLOTS = (("latin", "font-name", "font-size"),
+                  ("asian", "font-name-asian", "font-size-asian"),
+                  ("complex", "font-name-complex", "font-size-complex"))
+ODF_LANG_SLOTS = (("latin", "language", "country"),
+                  ("asian", "language-asian", "country-asian"),
+                  ("complex", "language-complex", "country-complex"))
+
+
+def direct_kid(node, name):
+    """第一个局部名等于 `name` 的直接孩子；没有就 None（与「找到了一个空元素」是两件事）"""
+    if node is None:
+        return None
+    for one in node:
+        if xml_local(one.tag) == name:
+            return one
+    return None
+
+
+def docx_doc_defaults(path: Path, limit: int = 100) -> dict:
+    r"""「没写样式的字长什么样」——OOXML 把这句话写在 `word/styles.xml` 的 `<w:docDefaults>` 里，
+    固定两层：`<w:rPrDefault>` 里一个 `<w:rPr>`、`<w:pPrDefault>` 里一个 `<w:pPr>`（实测 72 份
+    word 件的两块孩子**恒这两条、恒这个序**，所以账本按名字点这两条，不做「找第一个 rPr」那种猜测）。
+
+    实测 72 份（71 份 .docx + 那 1 份 .docm）在 styles.xml 里**恰好一块**；而 34 份模板件
+    （`docProps/app.xml` 写着 Microsoft Macintosh Word 的那一家）在 `word/stylesWithEffects.xml`
+    里**又写了一块**：两块的孩子们名字与属性**完全一致**，只差原始文本的缩进（388 对 484 字节，
+    把标签之间的空白压掉就同串）—— 所以这一格要交「几块、各在哪个部件、两块说不说的是同一句话」，
+    而不是只交第一块。39 份 .xlsx 与 21 份 .pptx 一份都没有，这一格只在 office-doc 交。
+
+    孩子那本按**写的序**交（三家都是 `rFonts, sz, szCs, lang` 打头，`lang` 在最后），三种形状：
+    66 份就这四条、4 份在 `rFonts` 后多插一条 `kern`、2 份多插一条 `color`；
+    `extras` 就是减掉那四条常项之后剩下的名字（所以它是「多写了什么」而不是「一共写了什么」）。
+    `sz` 与 `szCs` 实测 72/72 **恒等**（22 的 66 份、24 的 6 份），但两枚分开交、不做「读一枚代表两枚」。
+    `w:lang` 只有两种属性组合（66 份 `en-US/en-US/ar-SA` 对 6 份 `en-US/zh-CN/hi-IN`）。
+    `rFonts` 三家待遇（属性名实测只有三种组合）：34 份只写 `asciiTheme/eastAsiaTheme/hAnsiTheme/cstheme`
+    那四条（注意最后一条是**小写**的 `cstheme`，所以「主题指针」按前缀 `theme` 认会全数漏掉，
+    这里按结尾 `theme`（不分大小写）认）、10 份只写字面名 `ascii/eastAsia/hAnsi/cs`、28 份两套都写，
+    且**字面名可以是空串**（`w:cs=""` 在 27 份里在场）—— 所以「写了」与「写了个名字」是两件事，
+    账本把 `w:ascii` 与 `w:asciiTheme` 各交一列。
+
+    第二层在 `<w:style w:styleId="Normal">`：实测 Word 那 34 份的 Normal **一个 rPr/pPr 都不写**
+    （全靠 docDefaults），而 LibreOffice 的 38 份两个都写、且把 docDefaults 那套**摊平**进去 ——
+    同一句话在不同生产者手里写在不同的格子里。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"family": "ooxml", "available": False}
+        roots = {}
+        for part in DOC_DEFAULTS_PARTS:
+            if part in have:
+                try:
+                    roots[part] = ET.fromstring(box.read(part))
+                except ET.ParseError:
+                    roots[part] = None
+
+    def attrs_of(node) -> dict:
+        out = {}
+        for key, value in node.attrib.items():
+            if key == "xmlns" or key.startswith("xmlns:"):
+                continue
+            out[key.rsplit("}", 1)[-1]] = value
+        return out
+
+    def rows_of(node) -> list:
+        if node is None:
+            return []
+        return [{"name": xml_local(one.tag), "attrs": attrs_of(one)} for one in node]
+
+    def names_of(rows) -> list:
+        seen = []
+        for one in rows:
+            if one["name"] not in seen:
+                seen.append(one["name"])
+        return seen
+
+    def wrapper_kid(block, wrapper, inner):
+        """`<w:rPrDefault><w:rPr>` 那一跳：名字写死，两跳都可能断"""
+        return direct_kid(direct_kid(block, wrapper), inner)
+
+    blocks = []
+    for part in DOC_DEFAULTS_PARTS:
+        root = roots.get(part)
+        if root is None:
+            continue
+        for one in root.iter():
+            if xml_local(one.tag) == "docDefaults":
+                blocks.append((part, one))
+    shapes = []
+    for part, one in blocks:
+        rrows = rows_of(wrapper_kid(one, "rPrDefault", "rPr"))
+        prows = rows_of(wrapper_kid(one, "pPrDefault", "pPr"))
+        shapes.append({"part": part,
+                       "children": [xml_local(two.tag) for two in one],
+                       "rpr_names": names_of(rrows),
+                       "ppr_names": names_of(prows)})
+    first = blocks[0][1] if blocks else None
+    rpr_rows = rows_of(wrapper_kid(first, "rPrDefault", "rPr"))
+    ppr_rows = rows_of(wrapper_kid(first, "pPrDefault", "pPr"))
+    rpr_names = names_of(rpr_rows)
+    ppr_names = names_of(ppr_rows)
+    # 两条都按「第一条说了算」取：同一份件里写了第二遍也不合并、不覆盖（与 Rust 那本同一口径）
+    rfonts = {}
+    lang_written = None
+    got_font = False
+    for one in rpr_rows:
+        if one["name"] == "rFonts" and not got_font:
+            rfonts = one["attrs"]
+            got_font = True
+        if one["name"] == "lang" and lang_written is None:
+            lang_written = one["attrs"]
+
+    def val_of(name):
+        for one in rpr_rows:
+            if one["name"] == name:
+                return one["attrs"].get("val")
+        return None
+
+    parts_seen = []
+    for part, _ in blocks:
+        if part not in parts_seen:
+            parts_seen.append(part)
+    normal = {"found": False, "children": [], "rpr_rows": [], "ppr_rows": []}
+    sroot = roots.get("word/styles.xml")
+    if sroot is not None:
+        for one in sroot.iter():
+            if xml_local(one.tag) != "style":
+                continue
+            got = attrs_of(one)
+            if got.get("styleId") != "Normal" or got.get("type") != "paragraph":
+                continue
+            # Normal 这一条直接把 `<w:rPr>` / `<w:pPr>` 挂在 style 上，没有 docDefaults 那层包装；
+            # 取出来之后仍按「性质元素 + 属性表」那一本交，与上面同一口径
+            normal = {
+                "found": True,
+                "children": [xml_local(two.tag) for two in one],
+                "rpr_rows": rows_of(direct_kid(one, "rPr"))[:limit],
+                "ppr_rows": rows_of(direct_kid(one, "pPr"))[:limit],
+            }
+            break
+    return {
+        "family": "ooxml",
+        "available": True,
+        "styles_part": roots.get("word/styles.xml") is not None,
+        "styles_effects_part": roots.get("word/stylesWithEffects.xml") is not None,
+        "parts_with_block": parts_seen,
+        "blocks_total": len(blocks),
+        "block_shapes": shapes[:limit],
+        "children_total": len(list(first)) if first is not None else 0,
+        "rpr_names": rpr_names,
+        "ppr_names": ppr_names,
+        "rpr_rows": rpr_rows[:limit],
+        "ppr_rows": ppr_rows[:limit],
+        "wrote_theme": any(key.lower().endswith("theme") for key in rfonts),
+        "wrote_literal": any(key in FONT_LITERAL for key in rfonts),
+        "font_ascii_written": rfonts.get("ascii"),
+        "font_ascii_theme": rfonts.get("asciiTheme"),
+        # 写了这个属性、值却是空串：LibreOffice 有 27 份这样写 `w:cs=""`，
+        # 「在场」与「有名字」是两件事，所以这一本单独记
+        "font_blank_attrs": [one for one in FONT_LITERAL if rfonts.get(one) == ""],
+        "size_written": val_of("sz"),
+        "size_cs_written": val_of("szCs"),
+        "lang_written": lang_written,
+        "extras": [one for one in rpr_names if one not in RPR_CANON],
+        "normal_style": normal,
+    }
+
+
+def odf_doc_defaults(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF 是 `styles.xml` 里的 `<style:default-style style:family="...">`，**一家一族一条**：
+    实测 .odt 恒四条（按写的序：graphic / paragraph / table / table-row，39 份；另 2 份
+    `pnum.odt` / `tbox.odt` **有 styles.xml 但一条 default-style 都不写**，所以「零条」与「没有这个部件」
+    是两件事，账本两列分开）、.ods 恒两条（table-cell / graphic，14 份）、.odp 一条（graphic，11 份；
+    `eqs.odp` 同样有部件、零条）。
+    而且**只在 styles.xml**：67 份 odf 的 content.xml 里 `default-style` 出现 0 次 ——
+    这一格与 `layout_compat` 不同，它不按文件种类换本子（ods/odp 也照交）。
+
+    属性各在自己那一层的 children 上（`style:text-properties` 等），名字按局部名收：
+    实测这一口袋里 `font-name` / `font-size` / `language` / `country` 没有跨 namespace 撞名
+    （`style:font-name` 与 `fo:font-size` 分属两个前缀，但局部名互不重复）。
+    段落那一族写 `style:font-name`（odt 里 Cambria1 36 份 / Liberation Serif 3 份）与 `fo:font-size`
+    （11pt 36 份 / 12pt 3 份，ods 是 table-cell 10pt + graphic 12pt 两族各一条，odp 只有 graphic 一条 24pt）；
+    而**同一族可以只写大小不写名字**：`book.ods` 的 graphic 一条有 12pt 而没有 `style:font-name`，
+    所以 `fonts_written` 与 `sizes_written` 两本分交，不从一本推另一本。
+    那串 `fo:hyphenation-*` 与 `fo:hyphenate`（十三条名字一组）**只在 paragraph 那一族**，
+    67 份里 38 份写（`tbox-lo.odt` 有 paragraph 一条而一条 hyphen 都不写）；
+    table 那一族只写 `table:border-model`、table-row 只写 `fo:keep-together` —— 所以「几条」与
+    「哪几条」都得交，不能按 Word 那两层去猜。
+    孩子的局部名**跨孩子不撞名**（67 份实测：同一行里 `font-name` 只出现一次），
+    所以合并多个孩子的属性表时「先到先得」在真件里看不出来，只在合成件里测。
+
+    字体名/字号/语言各有**三个槽**（`-asian` 与 `-complex` 是另外两槽，按局部名收）：67 份 195 条里
+    117 条带 `style:text-properties`（其余 78 条是 table 与 table-row 那一层，根本没有这一格），
+    那 117 条把三个槽的**字号与语言各写满 117 次**，名字却只写了 latin 103 / asian 102 / complex 103 次
+    —— 每一槽都有「只写大小、不写名字」的时候（14 / 15 / 14 条），而 .ods 的 graphic 那 14 条是
+    **三个槽的名字全不写**、只留一个 12pt。所以名字与大小两本分交，不从一本推另一本。
+    三个槽的值也互不相同：`Cambria1` + `ＭＳ 明朝` + `F` 62 条（11pt，另 8 条 complex 是 `宋体`、
+    2 条是 `Tahoma`）、`Liberation Sans` + `Noto Sans SC` + `Lucida Sans` 14 条（10pt，.ods）、
+    `Liberation Serif` + `Noto Serif SC` + `Tahoma` 11 条（24pt，.odp）+ 4 条 complex 是 `Lucida Sans`（12pt），
+    另有 asian 那一槽写成 `Segoe UI` 的 1 条与干脆不写的 1 条 —— 「这份文档的默认字体」按文字系统
+    有三个答案，交一个就是假话。语言那三槽正对上 docx 的 `val` / `eastAsia` / `bidi`：
+    latin `en`/`US` 116 条、asian `en`/`US` 72 + `zh`/`CN` 44、complex `ar`/`SA` 72 + `hi`/`IN` 44。
+    `tbox-lo.odt` 的 graphic 那一条把**三个槽的语言都写成 `none`**，是全部 67 份里唯一的一处。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"family": "odf", "available": False}
+        roots = []
+        for part in ODF_DEFAULT_PARTS:
+            if part in have:
+                try:
+                    roots.append((part, ET.fromstring(box.read(part))))
+                except ET.ParseError:
+                    roots.append((part, None))
+
+    def attrs_of(node) -> dict:
+        out = {}
+        for key, value in node.attrib.items():
+            if key == "xmlns" or key.startswith("xmlns:"):
+                continue
+            out[key.rsplit("}", 1)[-1]] = value
+        return out
+
+    rows = []
+    fonts = []
+    sizes = []
+    langs = []
+    hyphen_rows = []
+    for part, root in roots:
+        if root is None:
+            continue
+        for one in root.iter():
+            if xml_local(one.tag) != "default-style":
+                continue
+            kids = list(one)
+            props = {}
+            for two in kids:
+                for key, value in attrs_of(two).items():
+                    if key not in props:
+                        props[key] = value
+            family = attrs_of(one).get("family")
+            rows.append({
+                "part": part,
+                "family": family,
+                "children": [xml_local(two.tag) for two in kids],
+                "props_attrs_total": sum(len(attrs_of(two)) for two in kids),
+                "font_name": props.get("font-name"),
+                "font_name_asian": props.get("font-name-asian"),
+                "font_name_complex": props.get("font-name-complex"),
+                "font_size": props.get("font-size"),
+                "font_size_asian": props.get("font-size-asian"),
+                "font_size_complex": props.get("font-size-complex"),
+                "language": props.get("language"),
+                "country": props.get("country"),
+                "language_asian": props.get("language-asian"),
+                "country_asian": props.get("country-asian"),
+                "language_complex": props.get("language-complex"),
+                "country_complex": props.get("country-complex"),
+            })
+            for slot, name_attr, size_attr in ODF_FONT_SLOTS:
+                if name_attr in props:
+                    fonts.append({"part": part, "family": family, "slot": slot,
+                                  "value": props[name_attr]})
+                if size_attr in props:
+                    sizes.append({"part": part, "family": family, "slot": slot,
+                                  "value": props[size_attr]})
+            for slot, lang_attr, country_attr in ODF_LANG_SLOTS:
+                if lang_attr in props or country_attr in props:
+                    langs.append({"part": part, "family": family, "slot": slot,
+                                  "language": props.get(lang_attr),
+                                  "country": props.get(country_attr)})
+            for key in sorted(props):
+                if "hyphen" in key.lower():
+                    hyphen_rows.append({"part": part, "family": family,
+                                        "name": key, "value": props[key]})
+    names = []
+    for one in hyphen_rows:
+        if one["name"] not in names:
+            names.append(one["name"])
+    families = sorted(set(one["family"] for one in rows if one["family"] is not None))
+    styles_part = any(part == "styles.xml" and root is not None for part, root in roots)
+    return {
+        "family": "odf",
+        "available": True,
+        "styles_part": styles_part,
+        "defaults_total": len([one for one in rows if one["part"] == "styles.xml"]),
+        "defaults_in_content": len([one for one in rows if one["part"] == "content.xml"]),
+        "families": families,
+        "rows": rows[:limit],
+        "fonts_written": fonts[:limit],
+        "sizes_written": sizes[:limit],
+        "langs_written": langs[:limit],
+        "hyphenation_names": names,
+        "hyphenation_rows": hyphen_rows[:limit],
+    }
+
+
 def odf_note_settings(path: Path, limit: int = 100) -> dict:
     r"""同一问在 ODF 是 `text:notes-configuration` 一份一类注，实测两份都在 **styles.xml**。
 
@@ -10808,6 +11111,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["note_settings"] = docx_note_settings(path)
             # 排版兼容：<w:compat> 里同一类话有两种写法（具名项与裸开关）
             out["ooxml"]["layout_compat"] = docx_layout_compat(path)
+            # 文档默认值：docDefaults 两层 + Normal 样式那一层，而模板件在第二个部件又写一块
+            out["ooxml"]["doc_defaults"] = docx_doc_defaults(path)
             # 域那一份账：两种写法、三种缺法，正文以外那几份部件一起扫
             out["ooxml"]["field_ledger"] = docx_field_ledger(path)
             out["ooxml"]["theme"] = themes
@@ -10875,6 +11180,8 @@ def facts(path: Path) -> dict:
             out["odt"]["note_settings"] = odf_note_settings(path)
             # 同一问在 ODF 是摊平的一堆具名项，四条名字里点了 Word 的只在 odt 出现
             out["odt"]["layout_compat"] = odf_layout_compat(path)
+            # 同一问在 ODF 是 style:default-style 一族一条，且只在 styles.xml
+            out["odt"]["doc_defaults"] = odf_doc_defaults(path)
             # 同一问在 ODF 是元素名本身：没有指令串，种类与格式全在名字与属性上
             out["odt"]["field_ledger"] = odf_field_ledger(path)
             # 这一族没有主题这个概念：交一本零条的账，而不是缺这个键

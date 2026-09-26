@@ -2366,6 +2366,57 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 
+134. **这份稿子的默认字与默认段：OOXML 那一块可能写两遍而 Normal 会再抄一遍，ODF 摊成一族一条且三格各一本账**（72 份 OOXML 文字包 / 41 份 .odt 出口，另 26 份 ODF 只量不出口）
+    - 形状：OOXML 那一本（`structure.doc_defaults`）交 `{family, available, styles_part, styles_effects_part,
+      parts_with_block, blocks_total, block_shapes, children_total, rpr_names, ppr_names, rpr_rows, ppr_rows,
+      wrote_theme, wrote_literal, font_ascii_written, font_ascii_theme, font_blank_attrs, size_written,
+      size_cs_written, lang_written, extras, normal_style}`；ODF 那一本同键名而**换一套内容**
+      `{family, available, styles_part, defaults_total, defaults_in_content, families, rows, fonts_written,
+      sizes_written, langs_written, hyphenation_names, hyphenation_rows}`，其中 `rows` 一族一条、每行 16 格
+      （三个字体名槽 + 三个字号槽 + 三对语言槽，再加 `part` / `children` / `props_attrs_total`）。
+    - 这一问的答复住在**两处**：`<w:docDefaults>` 那一块，与 Normal 样式自己的 `pPr` / `rPr`。34 份 Word 模板件的
+      Normal 光板一块（`normal_style.rpr_rows` 与 `ppr_rows` 都是空表，默认值只在 docDefaults 那一层），38 份
+      LibreOffice 重写的件在 Normal 里**又摊平抄了一遍**（那 38 份的 `rpr_rows` 是六条 36 份、两条 2 份）——
+      同一句话在不同生产者手里住在不同的格子里，所以两层各交各的、不相减也不合并。
+    - 那一块还可能在**两个部件各一份**：34 份在 `word/styles.xml` 之外带一份 `word/stylesWithEffects.xml`
+      （`blocks_total` 2、`parts_with_block` 两条、`block_shapes` 一块一行），38 份只有一块。取值按**文档顺序第一块**
+      说话、不合并；那两块去掉空白之后逐字相同（原始 372 对 468 字节，34 份全成立）—— 这一条是 python 那一份读者量的，
+      Rust 只数不判，交的是「几块、各在哪个部件、每块说了什么」。
+    - 四把各自独立的钥匙开同一批 34 份：`<w:docDefaults>` 写两遍、Normal 光板、`w:pPr` 那一条叫 `spacing`、
+      字体名**只写主题指针** —— 四个记号在 72 份里逐份同真同假、一个反例也没有（`extras` 不在这把锁里：那 38 份里
+      有 6 份多写一条 `kern` 或 `color`）。这是这一格里最像「生产者指纹」的一条。
+    - 72 份每份都带这一本，每块恒两个孩子（`rPrDefault` + `pPrDefault`，没有一份是 1 或 3）；`w:rPr` 三种形状
+      （66 份 `rFonts/sz/szCs/lang`、4 份多插 `kern`、2 份多插 `color`，多出来的那些交在 `extras`），`w:pPr` 两族
+      （`spacing` 34 对 `suppressAutoHyphens` 38）。字号与语言各只有两副答案：`size_written` 恒等于
+      `size_cs_written`（22 有 66、24 有 6），`w:lang` 三属性两组（`en-US`/`en-US`/`ar-SA` 66 对 `en-US`/`zh-CN`/`hi-IN` 6）。
+    - 字体名是**两个各自的布尔**（主题指针 / 字面名），三种搭配都存在（只写指针 34、两套都写 28、只写字面名 10），
+      所以「有没有 `w:rFonts` 这个孩子」问不出这件事；而 `w:cs` 可以是**空串** —— 「写了这个属性」与「点了个字体名」
+      是两件事，27 份如此，且七个属性里**只有 `cs` 会被写空**（另 45 份一个空串都没有），所以另交 `font_blank_attrs`。
+    - ODF 没有 `<w:docDefaults>`：`style:default-style` **一族一条**，41 份 .odt 里 39 份恒四条（graphic / paragraph /
+      table / table-row）、2 份（`pnum.odt` / `tbox.odt`）**有 styles.xml 却一条都不写** —— 那两本交空账而
+      `styles_part` 仍是 true，与「没有这个部件」分开两列；`defaults_in_content` 41 份恒 0（两列计数都留着，
+      断在另一头也要数得出）。`families` 是排过序的名字表而 `rows` 保持**写的序**（LibreOffice 把 graphic 写在最前，
+      而 `.ods` 那两族是 table-cell 在前 —— 排序只为一问，写的序本身另有一本）。
+    - 字体名、字号、语言是**三格各一份账**（latin / asian / complex），因为任何一格都能单独不写。出口件里的凭据是
+      `tbox-lo.odt` 的 graphic 那条**只写了 asian 的字号、没写它的名字**（`sizes_written` 6 条对 `fonts_written` 5 条）；
+      把 67 份 ODF 全量一遍更是：195 条 default-style 里 117 条带 `style:text-properties`，那 117 条把字号与语言的
+      三格**全写满**、字体名却只 103 / 102 / 103 条 —— 差额 14 / 15 / 14 全在 .ods 的 graphic 一族（`book.ods` 就是其一：
+      名字三格全不写而字号写了 `12pt`）。合成件也补了一格：一族的孩子撞名时先到的说话算。
+    - `table` 与 `table-row` 那两条**从来没点过字体**（78 行全 null，`props_attrs_total` 只有 1）；断字那 13 条
+      只住在 paragraph 下面（38 份全写这 13 条、3 份一条没有）；语言那三格里 graphic 一族有一份整对写 `none`
+      （`tbox-lo.odt`），`none` 与「没写」也不是同一句话。
+    - 这一本对 `.ods` / `.odp` **没有出口**（量到了但不交：14 份 .ods 恒两条、12 份 .odp 里 11 份一条 graphic 而
+      `eqs.odp` 零条），RTF 把默认值混在样式表 Normal 那一条里（`{\s0 …}` 与文档默认分不开），遗留 .doc 的在表流里 ——
+      两族连这个键都不出现，缺键 = 这一族没这一层。
+    - `--limit` 只砍列表、砍不动算术（与事实 131–133 同一条规矩）：宏文档限到 1 时 `block_shapes` 只交第一条，
+      而 `blocks_total` 仍是 2、`parts_with_block` 仍两条、`rpr_names` 仍四条、`size_written` 与 `normal_style` 一格没动；
+      `nset.odt` 限到 2 时 `rows` 两条（graphic / paragraph）、三本 slot 账各只交前两条，而 `defaults_total` 4、
+      `families` 四条、`hyphenation_names` 13 条全按整本数。
+    - 第二读者是 `office_reader.py` 的 `docx_doc_defaults()` / `odf_doc_defaults()`（两处出口：office-doc 的
+      OOXML 支与 ODF 支，与 Rust 的调用点对称）；probe 的 3bn 把**每一份 .docx / .docm / .odt** 的整本逐键与它对，
+      再钉上面那几条数（含四把钥匙同批、两块同文 372/468、27 份 `w:cs` 空串、fonts 5 对 sizes 6），最后钉
+      .ods / .odp / RTF / .doc 这四族这个键**不在**。
+
 133. **这份文件是按哪个版本的排版规则排的：OOXML 一种问话两种写法，ODF 摊平成另一套词汇，两边不折算**（72 份带 `<w:compat>` 的 OOXML / 39 份有 `settings.xml` 的 odt）
     - 形状：OOXML 那一本（`structure.layout_compat`）交 `{family, available, settings_part, compat_written,
       compat_total, children_total, mode, mode_total, named, switches, named_names, switch_names,
