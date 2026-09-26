@@ -492,10 +492,11 @@ pub fn refs(zip: &[u8], limit: usize) -> Value {
     let mut rows: Vec<Row> = Vec::new();
     let mut sum = new_totals();
     let mut values: Vec<Vec<String>> = CANON.iter().map(|_| Vec::new()).collect();
+    // 十二行先按「全空」摊好：非 ZIP 也交这一本（Python 那本就是这么起步的），ZIP 分支再拿实测覆盖
+    let mut slots: Vec<Value> = slot_book(&values).0;
     let mut alias: HashMap<String, Vec<String>> = HashMap::new();
     let mut uniq: HashMap<String, String> = HashMap::new();
     let mut alias_map: HashMap<String, String> = HashMap::new();
-    let mut slots: Vec<Value> = Vec::new();
     if zip.starts_with(b"PK") {
         let (dirs, _) = zipread::entries(zip);
         // 第一遍：谁写了对照谁说话（主题件可能排在 styles 后面，所以不能一边走一边判）
@@ -513,7 +514,9 @@ pub fn refs(zip: &[u8], limit: usize) -> Value {
                 }
             };
             let parsed = xmlscan::parse(&member.data);
-            let Some(root) = parsed.children.first() else {
+            // `#text` 不算根：容错解析会把「一个尖括号都没有」的一份件摊成一枚文本节点，
+            // 而那在 Python 那本里是 `ParseError`（解不开）。两家对同一份件得给同一个判决。
+            let Some(root) = parsed.children.first().filter(|one| one.name != "#text") else {
                 bump(&mut sum, "parts_unread", 1);
                 continue;
             };
@@ -689,18 +692,20 @@ mod tests {
     fn a_row_always_carries_all_fourteen_keys() {
         let one = Row::new("word/styles.xml", "wmlColor", "color", "rPr");
         let had = one.to_value();
-        assert_eq!(
-            had.as_object()
-                .expect("一行是对象")
-                .keys()
-                .cloned()
-                .collect::<Vec<String>>(),
-            vec![
-                "part", "kind", "at", "holder", "name", "slot", "via", "alt_slot", "literal",
-                "tint", "shade", "mods", "in_slots", "matches"
-            ],
-            "十四键一次写全：解不出也要有那一格"
-        );
+        // `serde_json` 的 Map 是 BTreeMap：交出去的键按字母序，声明顺序只活在源里
+        let mut got = had
+            .as_object()
+            .expect("一行是对象")
+            .keys()
+            .cloned()
+            .collect::<Vec<String>>();
+        let mut want = vec![
+            "part", "kind", "at", "holder", "name", "slot", "via", "alt_slot", "literal", "tint",
+            "shade", "mods", "in_slots", "matches",
+        ];
+        want.sort();
+        got.sort();
+        assert_eq!(got, want, "十四键一次写全：解不出也要有那一格");
         assert_eq!(had["slot"], Value::Null);
         assert_eq!(had["mods"], json!([]));
         assert_eq!(had["in_slots"], false);
@@ -957,12 +962,16 @@ mod tests {
         let had = refs(
             &packed(&[
                 ("word/document.xml", "不是一份 XML，一个尖括号都没有"),
+                ("word/empty.xml", ""),
                 ("word/media/image.png", "也不是"),
             ]),
             400,
         );
-        assert_eq!(had["totals"]["parts_scanned"], 1, "只走 `.xml` 部件");
-        assert_eq!(had["totals"]["parts_unread"], 1);
+        assert_eq!(had["totals"]["parts_scanned"], 2, "只走 `.xml` 部件");
+        assert_eq!(
+            had["totals"]["parts_unread"], 2,
+            "纯文本在容错解析下只剩一枚 `#text`，那不是部件的根；空件一个节点都没有。两家按「解不开」各记一次"
+        );
         assert_eq!(had["total"], 0);
         assert_eq!(had["listed"], 0);
         assert_eq!(had["cut"], false);
