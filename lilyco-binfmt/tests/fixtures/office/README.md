@@ -226,6 +226,12 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `sheet-pictures-lo.xlsx` | LibreOffice（`sheet-pictures.xlsx` → .xlsx） | 同样那批图的第二种写法：锚元素**全变成 `twoCellAnchor`**，三种摆法的区别搬到锚块的 `editAs` 上（`twoCell` / `oneCell` / `absolute`，两家一个用元素名、一个用属性名，正好互补），`to` 那四个 EMU 换成另一组数（同一个「跨三格」openpyxl 写 95250、这一家写 95040），每个 `pic` 多出一份 `spPr/xfrm`（`off` + `ext`），blip 上不再写 `cstate`；那条指不到的关系整个删了（5 → 4），而 117 字节那张被两个锚块指着 —— 七份媒体部件并成三份，「几个锚块」与「几个不同的图部件」是两个数（4 / 3） |
 | `sheet-pictures.ods` | LibreOffice（`sheet-pictures.xlsx` → .ods） | ODF 只有一跳：`draw:frame` 上直接挂 `draw:image/@xlink:href`，所以 `drawings` 这一格交 null（这一族没有部件那层可数）。摆位是 `draw:x` / `y` / `width` / `height` 四个厘米串，住在格子里的那几条另有 `table:end-cell-address`（`图与格.I9`）与 `table:end-x` / `end-y`；七张源图并成三个 `Pictures/` 部件（同一个 png 被两条 frame 指着），而其中一条 frame 压根没写 `draw:image`（`image_written` 是空表）—— 不是坏掉的地址，是根本没有地址 |
 | `sheet-pictures.xls` | LibreOffice（`sheet-pictures.xlsx` → .xls） | 第四族只能两格：形状按表数（0x005D 里偏移 4 的类型 8 = 图片，实测 5 / 1 / 1 / 0），0x00EC **没有图的那张表也写了一条**，而图的字节一条都不按表分 —— 三条 BLIP（OfficeArt 0xF007）全住在整本共用的那条 0x00EB（偏移 1054、正文 1217 字节）里：自报长度 178 / 171 / 722，字签都落在正文第 61 个字节上，从字签到正文末尾正好 117 / 110 / 661，与当初那三张源图的字节数一字不差 |
+| `dir-cell.docx` | python-docx（`write_direction_cell_docx`） | 五处各点一次：一行六格里前五格各写一个 `w:textDirection` 枚举（第六格什么都不写）、第二张表的表身写**空的** `w:bidiVisual`、一段写 `w:bidi w:val="1"`、一个 run 写 `w:rtl w:val="1"`，而节上什么都不写 —— 「几格点了」与「哪张表说了」是两本账 |
+| `dir-cell-lo.docx` | LibreOffice（`dir-cell.docx` → .docx） | 同一份重写后：两个「正向」枚举整个丢了（`lrTb`、`lrTbV`）、`tbRlV` 降级成 `tbRl`（于是 `tbRl` 那枚数是 2 而不是 1），`w:bidiVisual` 补上 `w:val="true"`，节上多一枚 `w:textDirection w:val="lrTb"`，段上那句从 2 段摊到 11 段（其余各补一句 `w:val="0"`）—— 见事实 128 |
+| `dir-sect.docx` | python-docx（`write_direction_sect_docx`） | 只在节上点一次 `w:bidi w:val="1"`：格、表身、段、run 四处一个字不写（`cells_written` 0、`paragraphs_written` 0）—— 「一处说了」不等于「别处也跟着说」 |
+| `dir-cell.odt` | LibreOffice（`dir-cell.docx` → .odt） | 唯一一种「不写在身上」的存法：十格全靠 `表格1.B1` 这类地址式自动样式（8 格有值），而 `bt-lr` 那一格走 LibreOffice 扩展词法 `loext:writing-mode` —— 局部名与 `style:writing-mode` 一模一样；枚举多出 OOXML 没有的那一枚 `page` |
+| `dir-sect.odt` | LibreOffice（`dir-sect.docx` → .odt） | OOXML 写在**节**上的 `w:bidi` 在这里变成**页面版式**：`Mpm1` 的 `style:page-layout-properties` 写着 `rl-tb`，而它的父元素是 `style:page-layout`（与另外三处的 `style:style` 不同名）|
+| `dir-cell.rtf` | LibreOffice（`dir-cell.docx` → .rtf） | 同一件事在 RTF 是六个控制字：`\cltxtbrl` ×2、`\cltxbtlr` ×1、`\rtlrow` ×2（表上那句落到每一行）、`\rtlpar` ×1、`\ltrpar` ×27（默认值被逐段重发）、`\rtlcol` 0。**这一支不读**，留作「缺键不是猜一个数」的凭据 —— 见事实 128 |
 
 ## 几件只有踩过才会记下来的事
 
@@ -2354,6 +2360,34 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       别的账都是各交各的。
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
+
+128. **文字走向那五处各说各的：一家写在元素身上，一家全在样式里，而样式有两种词法**（`dir-cell` 那五份件 + `dir-cell.rtf` 不交）
+    - OOXML 是五处五本账：格上的 `w:textDirection`（五个枚举 `lrTb` / `tbRl` / `btLr` / `lrTbV` / `tbRlV` 按写的交，
+      一个不折算）、表身的 `w:bidiVisual`（python-docx 写出来是**空元素** → `present` true 而 `val` null，在场就是开着）、
+      段上的 `w:bidi`、run 上的 `w:rtl`、节上的 `w:bidi`。`dir-sect.docx` 只点节那一处：只看格与段的读者会把这份件
+      报成「没有走向这回事」。
+    - LibreOffice 的 docx → docx 重写做了四件事：丢掉两个「说了等于没说」的正向枚举（有值的格 5 → 3）、把 `tbRlV`
+      换成 `tbRl`（字头方向没了，所以 `textDirection=tbRl` 那枚数是 2）、给 `w:bidiVisual` 补上 `w:val="true"`、
+      给节补一枚 `w:textDirection w:val="lrTb"`；反过来把段上那句从 2 段摊到 11 段（其余每段各补一句 `w:val="0"`，
+      关掉也要写出来）。同一份稿子两处一处多一处少 —— 不存在「这份文档是不是竖排」这么一个数。
+    - ODF 一处都不写在正文上：段与格只点样式名，那句话坐在样式的 `style:table-properties` /
+      `style:table-cell-properties` / `style:paragraph-properties` 上；**页面那一处的父元素不是 `style:style`**，
+      而是 `style:page-layout` 里的 `style:page-layout-properties`（实测 `Mpm1`）—— 四种父元素，一处也不并。
+    - 两种词法必须分开交：`loext:writing-mode` 是 LibreOffice 扩展，**局部名与 `style:writing-mode` 一模一样**
+      （`bt-lr` 那一格走的正是它），只按局部名收就会互相盖掉，所以每一行带 `vocabulary`。枚举也不通用：ODF 多一枚
+      `page`（这张表自己不说、由页面定），OOXML 那边根本没有这个值。
+    - 「点了样式名」与「样式说了话」是两个数：`dir-cell.odt` 十四段全部点了样式，其中 13 段的答案来自**命名样式**
+      `Standard` 那枚默认值（`declared_in` 是 `styles`、`style_part` 是 `styles.xml`），只有第 2 段是自己那份自动
+      样式 `P1` 写着 `rl-tb`；`paragraphs_from` / `cells_from` / `tables_from` 三本各数 automatic / named / other，
+      「文件说了」与「默认值替它说了」不混成一个数。
+    - 跨族两处各改一次：节上的 `w:bidi` 变成页面版式那条 `rl-tb`，表身的 `w:bidiVisual` 变成表样式那枚 `rl-tb` ——
+      同一句「整份倒过来」在两族落在不同的层，两边都按自己写的词交，不互相翻译。
+    - RTF **不交这个键**：那一族把同一件事写成 `\cltxtbrl` ×2、`\cltxbtlr` ×1、`\rtlrow` ×2（OOXML 写在表上的
+      一句在这里落到**每一行**）、`\rtlpar` ×1、`\ltrpar` ×27（默认值被逐段重发）、`\rtlcol` 0；归属要按行群与
+      格群切开才判得住，而本读者在这一族连「几张表」都判不住（见事实 100），所以规则记在模块头上、交回来的是缺键
+      而不是一个猜的数。
+    - 第二读者是 `office_reader.py` 的 `docx_text_direction` / `odf_text_direction`；probe 的 3b5 把全语料的 docx 与
+      odt 整本走向账与它对，再钉上面那几条跨族的数与那五份件各自的账。
 
 127. **表上那张位图四族四本账：`other_anchors` 与 `also_object` 就是「这个不是坏掉的位图」的两种说法**（`sheet-pictures` 那一家四份件 + `chart` 三份件）
     - 共享的一份账八格：`drawings`（画法部件几份 —— ODF 这一族交 null，它没有部件那一层可数）、

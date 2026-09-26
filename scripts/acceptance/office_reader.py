@@ -1878,6 +1878,325 @@ def odf_keep_switches(path: Path, limit: int = 100) -> dict:
 
 
 
+DIRECTION_KEYS = ("style:writing-mode", "loext:writing-mode")
+
+DIRECTION_PROPS = ("table-properties", "table-cell-properties",
+                   "paragraph-properties", "page-layout-properties")
+
+
+def _writing_mode(props, prefixes: dict):
+    """这一处属性块里读走向：两种拼法**分开**认
+
+    `loext:writing-mode` 是 LibreOffice 的扩展命名空间，局部名与 `style:writing-mode`
+    一模一样 —— 只按局部名收就会互相盖掉（实测 `bt-lr` 那一格走的是 `loext:` 这一路）。
+    交回来的第二个值是词法（`style` / `loext`），账本里留着它，两家读者不许私下合并。
+    """
+    if props is None:
+        return None, None
+    held = written_kept(props, prefixes)
+    for name in DIRECTION_KEYS:
+        if name in held:
+            return held[name], name.split(":", 1)[0]
+    return None, None
+
+
+def docx_text_direction(path: Path, limit: int = 100) -> dict:
+    r"""这一串字是横着走还是竖着走（OOXML）：五处各说各的，谁也不替谁圆场
+
+    格上 `w:tcPr/w:textDirection/@w:val`（五个枚举值，实测 lrTb / tbRl / btLr / lrTbV / tbRlV）、
+    表上 `w:tblPr/w:bidiVisual`（开关）、段上 `w:pPr/w:bidi`（开关）、字上 `w:rPr/w:rtl`（开关）、
+    节上 `w:sectPr` 的 `w:bidi`（开关）与 `w:textDirection`（值）。开关那几枚「在场」与「开着」
+    不是一回事（`w:val="0"` 是关），所以每枚都交 `present` + `val` + 算出来的两态。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"available": False}
+        root = ET.fromstring(box.read("word/document.xml"))
+    body = [one for one in root if xml_local(one.tag) == "body"]
+    inside = body[0].iter() if body else iter(())
+    tables = [one for one in inside if xml_local(one.tag) == "tbl"]
+
+    def holder_of(node, want: str):
+        if node is None:
+            return None
+        for kid in node:
+            if xml_local(kid.tag) == want:
+                return kid
+        return None
+
+    def val_of(node) -> str:
+        if node is None:
+            return None
+        return _local_in(_written_attrs(node, {}), "val")
+
+    def switch(present: bool, raw):
+        off = raw in ("0", "false", "off", "none")
+        return {
+            "present": present,
+            "val": raw,
+            "on_written": present and not off,
+            "off_written": present and off,
+        }
+
+    def mark(grouped: str):
+        values[grouped] = values.get(grouped, 0) + 1
+
+    values = {}
+    cell_rows, table_rows = [], []
+    cells_total = 0
+    for at, tbl in enumerate(tables):
+        props = [k for k in tbl if xml_local(k.tag) == "tblPr"]
+        props = props[0] if props else None
+        rows = [k for k in tbl if xml_local(k.tag) == "tr"]
+        marked = holder_of(props, "bidiVisual")
+        raw = val_of(marked)
+        if marked is not None:
+            mark("bidiVisual " + ("bare" if raw is None else "with_value"))
+        table_rows.append({
+            "at": at,
+            "rows": len(rows),
+            "bidi_visual": switch(marked is not None, raw),
+        })
+        for row, tr in enumerate(rows):
+            for col, tc in enumerate([k for k in tr if xml_local(k.tag) == "tc"]):
+                cells_total += 1
+                tc_pr = [k for k in tc if xml_local(k.tag) == "tcPr"]
+                held = holder_of(tc_pr[0] if tc_pr else None, "textDirection")
+                if held is None:
+                    continue
+                got = val_of(held)
+                mark("textDirection=" + ("none" if got is None else got))
+                cell_rows.append({"at": at, "row": row, "col": col, "val": got})
+
+    para_rows, indexed = [], []
+    paras = [one for one in (body[0].iter() if body else []) if xml_local(one.tag) == "p"]
+    for index, para in enumerate(paras):
+        p_pr = holder_of(para, "pPr")
+        marked = holder_of(p_pr, "bidi")
+        raw = val_of(marked)
+        if marked is not None:
+            mark("bidi " + ("bare" if raw is None else "with_value"))
+        rtl = 0
+        for run in [k for k in para.iter() if xml_local(k.tag) == "r"]:
+            held = holder_of(holder_of(run, "rPr"), "rtl")
+            if held is None:
+                continue
+            got = val_of(held)
+            mark("rtl " + ("bare" if got is None else "with_value"))
+            rtl += 1
+        if marked is not None or rtl:
+            indexed.append(index)
+        para_rows.append({
+            "index": index,
+            "bidi": switch(marked is not None, raw),
+            "rtl_runs": rtl,
+        })
+
+    sect_rows = []
+    for index, sect in enumerate([one for one in (body[0].iter() if body else [])
+                                  if xml_local(one.tag) == "sectPr"]):
+        marked = holder_of(sect, "bidi")
+        raw = val_of(marked)
+        if marked is not None:
+            mark("sectPr bidi " + ("bare" if raw is None else "with_value"))
+        held = holder_of(sect, "textDirection")
+        got = val_of(held)
+        if held is not None:
+            mark("sectPr textDirection=" + ("none" if got is None else got))
+        sect_rows.append({
+            "index": index,
+            "bidi": switch(marked is not None, raw),
+            "text_direction": got,
+            "text_direction_present": held is not None,
+        })
+    return {
+        "family": "ooxml",
+        "available": True,
+        "tables_total": len(tables),
+        "cells_total": cells_total,
+        "cells_written": len(cell_rows),
+        "cells": cell_rows[:limit],
+        "tables": table_rows[:limit],
+        "paragraphs_total": len(para_rows),
+        "paragraphs_written": len(indexed),
+        "paragraphs_indexed": indexed,
+        "paragraphs": para_rows[:limit],
+        "sections_total": len(sect_rows),
+        "sections": sect_rows[:limit],
+        "values_written": values,
+    }
+
+
+def odf_text_direction(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF：正文里一个字都不写，四处全在样式上，而且是**两种词法**
+
+    格子写 `table:style-name`（LibreOffice 按地址起名 `表格1.A1`）、表写 `table:style-name`、
+    段写 `text:style-name`，走向坐在那份样式的 `style:table-cell-properties` /
+    `style:table-properties` / `style:paragraph-properties` 上；页面那一处不在 `style:style`
+    下面 —— 它挂在 `style:page-layout` 的 `style:page-layout-properties` 上（母版页那一跳没量过，
+    所以只交「哪些定义写了它」，不判它落在哪一页）。
+    值可以是 `style:writing-mode`（正规）或 `loext:writing-mode`（扩展），实测 `bt-lr` 走后者；
+    同一个枚举值在 OOXML 是 `btLr`，两族各按自己写的词交，不互相翻译。
+    还有一条只有这一族有的分别：自动样式（`office:automatic-styles` 里，生产者按地址起名）与
+    命名样式（`office:styles` 里，如 `Standard`）—— 后者写着的值是**这份文件的默认值**，
+    实测 14 段里 13 段是靠 `Standard` 那一枚 `lr-tb` 才「说了话」的，所以两处各数一本。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        content_raw = box.read("content.xml")
+        crowd = ET.fromstring(content_raw)
+        roots = [(crowd, "content.xml", _ns_prefixes(content_raw))]
+        if "styles.xml" in have:
+            styles_raw = box.read("styles.xml")
+            roots.append((ET.fromstring(styles_raw), "styles.xml", _ns_prefixes(styles_raw)))
+    # 四类属性块各一本：按**属性块元素名**分家，一本不会串到另一本
+    books = {}
+    # 所有见过的样式名（不提走向的也算）：「点了个不存在的样式」与「样式在但没说话」是两件事
+    known = set()
+    for root, part, nsmap in roots:
+        for container in root.iter():
+            # 样式定义住在三个列表之一：自动样式 / 命名样式 / 母版页。按**住在哪儿**分家，
+            # 而不是猜名字（`表格1.A1` 是自动样式，`Standard` 是命名样式，那枚 lr-tb 是默认值）
+            where = xml_local(container.tag)
+            if where not in ("automatic-styles", "styles", "master-styles"):
+                continue
+            for one in container:
+                tag = xml_local(one.tag)
+                # 页面那一处不在 `style:style` 下面 —— 它挂在 `style:page-layout` 自己身上
+                if tag not in ("style", "page-layout"):
+                    continue
+                name = odf_attr(one, "name")
+                if name is None:
+                    continue
+                known.add(name)
+                for props_name in DIRECTION_PROPS:
+                    got, vocab = _writing_mode(_kid(one, props_name), nsmap)
+                    if got is None:
+                        continue
+                    held = books.setdefault(props_name, {})
+                    if name not in held:
+                        held[name] = (got, vocab, part,
+                                      odf_attr(one, "parent-style-name"), where)
+    values = {}
+
+    def tally(props_name, name):
+        """两问分开答：那点名的样式**在不在**（这一跳断没断），和它**提没提起走向**
+
+        「没提」有两种：样式找到了但那一处属性没写走向，与样式根本不在。实测两份件里
+        各有一种的邻居，混成一个数就看不出是哪一种。
+        """
+        held = books.get(props_name, {})
+        got = held.get(name) if name else None
+        if got is not None:
+            grouped = "%s=%s" % (got[1] + ":writing-mode", got[0])
+            values[grouped] = values.get(grouped, 0) + 1
+        return got, bool(name) and name in known
+
+    tables = [one for one in crowd.iter() if xml_local(one.tag) == "table"]
+    cell_rows, table_rows = [], []
+    cells_total = cells_named = cells_found = 0
+    used_styles = []
+    for at, tbl in enumerate(tables):
+        name = odf_attr(tbl, "style-name")
+        got, had = tally("table-properties", name)
+        rows = [k for k in tbl if xml_local(k.tag) == "table-row"]
+        table_rows.append({
+            "at": at, "name": odf_attr(tbl, "name"), "style": name,
+            "rows": len(rows), "cols": len([k for k in tbl
+                                            if xml_local(k.tag) == "table-column"]),
+            "value": got[0] if got else None,
+            "vocabulary": got[1] if got else None,
+            "style_part": got[2] if got else None,
+            "declared_in": got[4] if got else None,
+            "style_found": had,
+            "written": got is not None,
+        })
+        for row, tr in enumerate(rows):
+            for col, tc in enumerate([k for k in tr
+                                      if xml_local(k.tag) in ("table-cell", "covered-table-cell")]):
+                cells_total += 1
+                held = odf_attr(tc, "style-name")
+                got, had = tally("table-cell-properties", held)
+                if held:
+                    cells_named += 1
+                    cells_found += 1 if had else 0
+                if got is None:
+                    continue
+                used_styles.append(held)
+                cell_rows.append({
+                    "at": at, "row": row, "col": col,
+                    "covered": xml_local(tc.tag) == "covered-table-cell",
+                    "style": held, "value": got[0], "vocabulary": got[1],
+                    "style_part": got[2], "parent": got[3], "declared_in": got[4],
+                })
+
+    def count(rows, key="declared_in"):
+        return {
+            "automatic": sum(1 for one in rows if one[key] == "automatic-styles"),
+            "named": sum(1 for one in rows if one[key] == "styles"),
+            "other": sum(1 for one in rows
+                         if one[key] not in ("automatic-styles", "styles")),
+        }
+
+    para_rows, p_indexed = [], []
+    paras = [one for one in crowd.iter() if xml_local(one.tag) == "p"]
+    paras_named = paras_found = 0
+    for index, para in enumerate(paras):
+        name = odf_attr(para, "style-name")
+        got, had = tally("paragraph-properties", name)
+        if name:
+            paras_named += 1
+            paras_found += 1 if had else 0
+        if got is not None:
+            p_indexed.append(index)
+        para_rows.append({
+            "index": index, "style": name,
+            "value": got[0] if got else None,
+            "vocabulary": got[1] if got else None,
+            "style_part": got[2] if got else None,
+            "declared_in": got[4] if got else None,
+            "style_found": had,
+            "written": got is not None,
+        })
+    page_rows = [{"style": key, "value": got[0], "vocabulary": got[1],
+                  "part": got[2], "parent": got[3], "declared_in": got[4]}
+                 for key, got in sorted(books.get("page-layout-properties", {}).items())]
+    for got in page_rows:
+        grouped = "%s=%s" % (got["vocabulary"] + ":writing-mode", got["value"])
+        values[grouped] = values.get(grouped, 0) + 1
+    said_tables = [one for one in table_rows if one["written"]]
+    said_paras = [one for one in para_rows if one["written"]]
+    return {
+        "family": "odf",
+        "available": True,
+        "tables_total": len(tables),
+        "cells_total": cells_total,
+        "cells_named": cells_named,
+        "cells_found": cells_found,
+        "cells_written": len(cell_rows),
+        "distinct_cell_styles": len(set(used_styles)),
+        "cells_from": count(cell_rows),
+        "cells": cell_rows[:limit],
+        "tables_written": len(said_tables),
+        "tables_found": sum(1 for one in table_rows if one["style_found"]),
+        "tables_from": count(said_tables),
+        "tables": table_rows[:limit],
+        "paragraphs_total": len(para_rows),
+        "paragraphs_named": paras_named,
+        "paragraphs_found": paras_found,
+        "paragraphs_written": len(p_indexed),
+        "paragraphs_indexed": p_indexed,
+        "paragraphs_from": count(said_paras),
+        "paragraphs": para_rows[:limit],
+        "page_definitions_total": len(page_rows),
+        "page_definitions": page_rows[:limit],
+        "values_written": values,
+    }
+
+
 def docx_table_styles(path: Path, limit: int = 100) -> dict:
     r"""「这张表套的是哪个样式」在 OOXML 是两样东西：样式 id（`w:tblStyle`）与
     那枚 `w:tblLook`（六个位 + 一个 `w:val` 的十六进制缓存）
@@ -9379,6 +9698,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["csv"] = doc_csv(docx_grids(path))
             # 分页那四个开关（段上；ODF 一跳在样式里）
             out["ooxml"]["keep_switches"] = docx_keep_switches(path)
+            # 文字走向：五处各说各的（格 / 表 / 段 / 字 / 节）
+            out["ooxml"]["text_direction"] = docx_text_direction(path)
             # 这张表套的是哪个样式：样式 id 与那枚 look 分开交
             out["ooxml"]["table_styles"] = docx_table_styles(path)
             # 这一段的行距：那个数的**单位**由 lineRule 决定，所以两枚分开各交
@@ -9433,6 +9754,8 @@ def facts(path: Path) -> dict:
             out["odt"]["comment_ledger"] = odf_comment_ledger(path)
             out["odt"]["comment_threads"] = odf_comment_threads(path)
             out["odt"]["keep_switches"] = odf_keep_switches(path)
+            # 同一问在 ODF 全在样式上，而且是两种词法（style: 与 loext:）
+            out["odt"]["text_direction"] = odf_text_direction(path)
             out["odt"]["table_styles"] = odf_table_styles(path)
             # 同一问在 ODF 一跳在样式里，而单位是写在串上的
             out["odt"]["line_spacing"] = odf_line_spacing(path)

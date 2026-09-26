@@ -3809,6 +3809,86 @@ def write_equations_pptx(path: Path) -> None:
     print("  手写 pptx（裸挂 a14:m）：", path.name)
 
 
+DIRECTION_VALS = ["lrTb", "tbRl", "btLr", "lrTbV", "tbRlV"]
+DIRECTION_CELLS = ["走向横排", "走向竖右", "走向竖左", "走向竖右字头", "走向竖左字头", "走向没点"]
+DIRECTION_MERGE = ["合并左上", "合并右上", "合并左下", "合并右下"]
+DIRECTION_SECT_CELLS = ["节里第一格", "节里第二格"]
+
+
+def write_direction_cell_docx(path: Path) -> None:
+    """五处各说一次「这一串字往哪个方向走」：段、run、格、表身、（这份不说的）节
+
+    一家有五个地方可以点这一件事，而且**词法不同**：格上是 `w:textDirection`（五个枚举
+    `lrTb` / `tbRl` / `btLr` / `lrTbV` / `tbRlV`，最后一个才是「竖排、字头朝左」），表身上是
+    `w:bidiVisual`（空元素 = 开着），段上是 `w:bidi`，run 上是 `w:rtl`，节上是 `w:bidi`。
+    这张表故意把五个枚举一次点全、再留一格什么都不点，第二张表只点 `w:bidiVisual`，
+    这样「几个格点了」「各点了哪个值」与「表身那句话」是四本互不覆盖的账。
+
+    LibreOffice 同格式重写这一份会做的三件事（都是量出来的）：把两个「正向」枚举
+    （`lrTb`、`lrTbV`）**整个删掉**、把 `tbRlV` 降级成 `tbRl`（字头方向丢了）、给
+    `w:bidiVisual` 补上 `w:val="true"`、给节补一条 `w:textDirection w:val="lrTb"`，
+    并把段上的 `w:bidi` 从 2 段摊到 11 段（其余段各补一条 `w:val="0"`）。
+    """
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Cm
+
+    doc = Document()
+    doc.add_paragraph("走向样本的第一段：一个字都不点。")
+    one = doc.add_paragraph("这一段在段属性里点了 w:bidi。")
+    bidi = OxmlElement("w:bidi")
+    bidi.set(qn("w:val"), "1")
+    one._p.get_or_add_pPr().append(bidi)
+    rtl = doc.add_paragraph()
+    run = rtl.add_run("这一段的 run 点了 w:rtl。")
+    back = OxmlElement("w:rtl")
+    back.set(qn("w:val"), "1")
+    run._r.get_or_add_rPr().append(back)
+    table = doc.add_table(rows=1, cols=len(DIRECTION_VALS) + 1)
+    for ix, word in enumerate(DIRECTION_CELLS):
+        table.rows[0].cells[ix].text = word
+        table.rows[0].cells[ix].width = Cm(2.6)
+    for ix, name in enumerate(DIRECTION_VALS):
+        tcpr = table.rows[0].cells[ix]._tc.get_or_add_tcPr()
+        got = OxmlElement("w:textDirection")
+        got.set(qn("w:val"), name)
+        tcpr.append(got)
+    doc.add_paragraph("下一张表整张点了 bidiVisual。")
+    second = doc.add_table(rows=2, cols=2)
+    for ix, word in enumerate(DIRECTION_MERGE):
+        second.cell(ix // 2, ix % 2).text = word
+    look = OxmlElement("w:bidiVisual")
+    second._tbl.tblPr.append(look)
+    doc.save(str(path))
+    print("  走向那五处：", path.name)
+
+
+def write_direction_sect_docx(path: Path) -> None:
+    """只在节上点一次 `w:bidi`，格、表身、段、run 四处一个字都不写
+
+    这一份存在的理由是「一处说了不等于别处也跟着说」。它跟 `dir-cell.docx` 正好反过来：
+    节上那一条在 OOXML 里是独立的一格（`w:sectPr/w:bidi`），转成 ODF 之后 LibreOffice 把它
+    写成**页面版式**上的 `style:writing-mode="rl-tb"`（坐在 `style:page-layout` 里的
+    `style:page-layout-properties` 上，父元素与另外三处不一样），而表身那句 `w:bidiVisual`
+    转过去落在**表样式**上（`rl-tb`）。两处、两种父元素，不能并成一格交。
+    """
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    doc.add_paragraph("这一节在节属性里点了 w:bidi。")
+    table = doc.add_table(rows=1, cols=2)
+    for ix, word in enumerate(DIRECTION_SECT_CELLS):
+        table.rows[0].cells[ix].text = word
+    doc.add_paragraph("这一节的最后一段：也一个字都不点。")
+    bidi = OxmlElement("w:bidi")
+    bidi.set(qn("w:val"), "1")
+    doc.sections[0]._sectPr.append(bidi)
+    doc.save(str(path))
+    print("  只在节上点走向：", path.name)
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -4527,6 +4607,34 @@ def main() -> int:
             print("⚠️  没拿到 nset.odt（docx → odt 那一转）")
     else:
         print("⚠️  没有 notes-end.docx，注的编号那三份件跳过")
+
+    # ── 文字走向那五份：五处各点一次，跨族之后搬进三种样式的父元素 ─────────────
+    # dir-cell 那一份走「同格式重写 + 转 odt + 转 rtf」三条边：三家的词法与归属都在这些边上，
+    # 而 rtf 那一族这一支不读（`\cltxtbrl` 的归属要按行/群拆，这份 reader 连表群都没分）。
+    dcell = OUT / "dir-cell.docx"
+    write_direction_cell_docx(dcell)
+    convert(exe, dcell, "docx", SCRATCH / "dir-back")
+    if (SCRATCH / "dir-back" / "dir-cell.docx").exists():
+        shutil.copyfile(SCRATCH / "dir-back" / "dir-cell.docx", OUT / "dir-cell-lo.docx")
+    else:
+        print("⚠️  没拿到 dir-cell-lo.docx（docx → docx 那一转）")
+    convert(exe, dcell, "odt", SCRATCH / "dir-asodt")
+    if (SCRATCH / "dir-asodt" / "dir-cell.odt").exists():
+        shutil.copyfile(SCRATCH / "dir-asodt" / "dir-cell.odt", OUT / "dir-cell.odt")
+    else:
+        print("⚠️  没拿到 dir-cell.odt（docx → odt 那一转）")
+    convert(exe, dcell, "rtf", SCRATCH / "dir-asrtf")
+    if (SCRATCH / "dir-asrtf" / "dir-cell.rtf").exists():
+        shutil.copyfile(SCRATCH / "dir-asrtf" / "dir-cell.rtf", OUT / "dir-cell.rtf")
+    else:
+        print("⚠️  没拿到 dir-cell.rtf（docx → rtf 那一转）")
+    dsect = OUT / "dir-sect.docx"
+    write_direction_sect_docx(dsect)
+    convert(exe, dsect, "odt", SCRATCH / "dir-sect-asodt")
+    if (SCRATCH / "dir-sect-asodt" / "dir-sect.odt").exists():
+        shutil.copyfile(SCRATCH / "dir-sect-asodt" / "dir-sect.odt", OUT / "dir-sect.odt")
+    else:
+        print("⚠️  没拿到 dir-sect.odt（docx → odt 那一转）")
 
     # 页码起始那两份：zipfile 写 odt，LibreOffice 导一份 docx（看它把「从 7 开始」带不带过来）
     pnum = OUT / "pnum.odt"

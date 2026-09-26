@@ -318,6 +318,13 @@ def main() -> int:
         "sheet-pictures-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "sheet-pictures.ods": ("opendocument", "excel", "ods"),
         "sheet-pictures.xls": ("compound", "excel", "xls"),
+        # 文字走向那六份：一家五处写在身上（含节），一家四处全在样式上；rtf 那一族这一支不读
+        "dir-cell.docx": ("ooxml", "word", "docx"),
+        "dir-cell-lo.docx": ("ooxml", "word", "docx"),
+        "dir-sect.docx": ("ooxml", "word", "docx"),
+        "dir-cell.odt": ("opendocument", "word", "odt"),
+        "dir-sect.odt": ("opendocument", "word", "odt"),
+        "dir-cell.rtf": ("rtf", "word", "rtf"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -6953,6 +6960,165 @@ def main() -> int:
            [3, "结构：一级", 1, "heading 1", False, 1],
            [4, "", 0, "Normal", False, None],
            [5, "结构：二级", 2, "heading 2", False, 2]])
+
+    # ── 3b5) 这一串字是横着走还是竖着走：一家五处写在身上，一家四处全在样式上 ──────
+    print("=== 3b5) 文字走向：五处各说各的，两种词法、三处样式列表，一处也不合并 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 走向那份账与读者一致（格、表、段、字、节五处分开交）" % name,
+              dig(got, "structure.text_direction"),
+              files[name]["ooxml"]["text_direction"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 走向那份账与读者一致（四处全在样式上，词法与样式列表各交各的）" % name,
+              dig(got, "structure.text_direction"),
+              files[name]["odt"]["text_direction"])
+    dc = lbin("office-doc", fixture("dir-cell.docx"))
+    dc_lo = lbin("office-doc", fixture("dir-cell-lo.docx"))
+    ds = lbin("office-doc", fixture("dir-sect.docx"))
+    do = lbin("office-doc", fixture("dir-cell.odt"))
+    ds_odt = lbin("office-doc", fixture("dir-sect.odt"))
+    check(
+        "python-docx 那份（一格一个枚举值）：五格各写 `w:textDirection` 的一个值，五个枚举**一个都不折算**；"
+        "`w:bidiVisual` 写出来是**空元素**（在场=开着，值整个没有），而段上那枚 `w:bidi` 写着 `1`；"
+        "节上两处都没有 —— `text_direction` 是 null 而 `text_direction_present` 是 false，"
+        "这两个键一起交才不会把「没写」当成「写了空」",
+        [dig(dc, "structure.text_direction.tables_total"),
+         dig(dc, "structure.text_direction.cells_total"),
+         dig(dc, "structure.text_direction.cells_written"),
+         [one["val"] for one in dig(dc, "structure.text_direction.cells")],
+         dig(dc, "structure.text_direction.tables[1].bidi_visual"),
+         dig(dc, "structure.text_direction.paragraphs_total"),
+         dig(dc, "structure.text_direction.paragraphs_written"),
+         dig(dc, "structure.text_direction.paragraphs_indexed"),
+         dig(dc, "structure.text_direction.sections[0]"),
+         dig(dc, "structure.text_direction.values_written")],
+        [2, 10, 5, ["lrTb", "tbRl", "btLr", "lrTbV", "tbRlV"],
+         {"present": True, "val": None, "on_written": True, "off_written": False},
+         14, 2, [1, 2],
+         {"index": 0, "bidi": {"present": False, "val": None, "on_written": False,
+                               "off_written": False},
+          "text_direction": None, "text_direction_present": False},
+         {"textDirection=lrTb": 1, "textDirection=tbRl": 1, "textDirection=btLr": 1,
+          "textDirection=lrTbV": 1, "textDirection=tbRlV": 1, "bidiVisual bare": 1,
+          "bidi with_value": 1, "rtl with_value": 1}],
+    )
+    check(
+        "LibreOffice 重写同一份：**说了等于没说的那两格整个没了**（`lrTb`、`lrTbV` 不写，"
+        "`tbRlV` 被换成 `tbRl`，所以 `tbRl` 那一枚数是 2 而不是 1）；反过来给每段各补一句 "
+        "`w:bidi w:val=\"0\"`（关掉也要写出来，交着话的段 2 段 → 11 段），"
+        "而 `w:bidiVisual` 这次带着值、节上多了一枚 `w:textDirection w:val=\"lrTb\"` —— "
+        "同一个意思同一份稿子，两处一处多一处少，所以没有「这份文档是不是竖排」这么一个数",
+        [dig(dc_lo, "structure.text_direction.cells_written"),
+         [one["val"] for one in dig(dc_lo, "structure.text_direction.cells")],
+         dig(dc_lo, "structure.text_direction.tables[1].bidi_visual.val"),
+         dig(dc_lo, "structure.text_direction.paragraphs_written"),
+         dig(dc_lo, "structure.text_direction.paragraphs_indexed"),
+         dig(dc_lo, "structure.text_direction.sections[0].text_direction"),
+         dig(dc_lo, "structure.text_direction.sections[0].text_direction_present"),
+         dig(dc_lo, "structure.text_direction.values_written")],
+        [3, ["tbRl", "btLr", "tbRl"], "true", 11, [1, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13],
+         "lrTb", True,
+         {"textDirection=tbRl": 2, "textDirection=btLr": 1, "bidiVisual with_value": 1,
+          "bidi with_value": 11, "rtl with_value": 1, "sectPr textDirection=lrTb": 1}],
+    )
+    check(
+        "只在节上说的一句话（`dir-sect.docx`）：格、表、段三处全是空的（`cells_written` 0、"
+        "`paragraphs_written` 0），只有 `w:sectPr/w:bidi` 在场且 `on_written` —— "
+        "只看段与格的读者会把这份件报成「没有走向这回事」",
+        [dig(ds, "structure.text_direction.cells_written"),
+         dig(ds, "structure.text_direction.paragraphs_written"),
+         dig(ds, "structure.text_direction.sections_total"),
+         dig(ds, "structure.text_direction.sections[0].bidi"),
+         dig(ds, "structure.text_direction.values_written")],
+        [0, 0, 1,
+         {"present": True, "val": "1", "on_written": True, "off_written": False},
+         {"sectPr bidi with_value": 1}],
+    )
+    check(
+        "同一问转 ODF：正文里**一个走向字都不写**（十格全靠样式名 `表格1.B1` 这类地址式自动样式），"
+        "而且**两种词法**：`bt-lr` 那一格走的是 LibreOffice 扩展的 `loext:writing-mode`，"
+        "局部名与 `style:writing-mode` 一模一样 —— 只按局部名收就会互相盖掉，所以每行都带 `vocabulary`；"
+        "枚举值也是这一族自己的写法（`tb-rl`/`bt-lr`/`rl-tb`/`lr-tb`/`page`），与 OOXML 那五个不通用",
+        [dig(do, "structure.text_direction.cells_total"),
+         dig(do, "structure.text_direction.cells_named"),
+         dig(do, "structure.text_direction.cells_found"),
+         dig(do, "structure.text_direction.cells_written"),
+         dig(do, "structure.text_direction.distinct_cell_styles"),
+         dig(do, "structure.text_direction.cells_from"),
+         [(one["style"], one["value"], one["vocabulary"])
+          for one in dig(do, "structure.text_direction.cells")],
+         dig(do, "structure.text_direction.values_written")],
+        [10, 10, 10, 8, 4, {"automatic": 8, "named": 0, "other": 0},
+         [("表格1.B1", "tb-rl", "style"), ("表格1.C1", "bt-lr", "loext"),
+          ("表格1.D1", "lr-tb", "style"), ("表格1.B1", "tb-rl", "style"),
+          ("表格2.A1", "rl-tb", "style"), ("表格2.A1", "rl-tb", "style"),
+          ("表格2.A1", "rl-tb", "style"), ("表格2.A1", "rl-tb", "style")],
+         {"style:writing-mode=page": 1, "style:writing-mode=tb-rl": 2,
+          "loext:writing-mode=bt-lr": 1, "style:writing-mode=lr-tb": 15,
+          "style:writing-mode=rl-tb": 6}],
+    )
+    check(
+        "样式分两处住，同一枚值来自哪一处是两个问题：14 段里 13 段是靠**命名样式** `Standard` "
+        "那枚默认值才「说了话」（`declared_in` 是 `styles`、`style_part` 是 `styles.xml`），"
+        "只有第 2 段是自己那份自动样式 `P1` 写着 `rl-tb`（在 `content.xml` 里）—— "
+        "合并成「14 段都竖排」就把「文件说了」与「默认值替它说了」混成一个数",
+        [dig(do, "structure.text_direction.paragraphs_total"),
+         dig(do, "structure.text_direction.paragraphs_written"),
+         dig(do, "structure.text_direction.paragraphs_from"),
+         [(one["style"], one["value"], one["declared_in"], one["style_part"])
+          for one in [dig(do, "structure.text_direction.paragraphs[0]"),
+                      dig(do, "structure.text_direction.paragraphs[1]")]],
+         sum(1 for one in dig(do, "structure.text_direction.paragraphs")
+             if one["declared_in"] == "styles")],
+        [14, 14, {"automatic": 1, "named": 13, "other": 0},
+         [("Standard", "lr-tb", "styles", "styles.xml"),
+          ("P1", "rl-tb", "automatic-styles", "content.xml")],
+         13],
+    )
+    check(
+        "页面那一处挂的**不是** `style:style`：它坐在 `style:page-layout` 的 "
+        "`style:page-layout-properties` 上（实测 `Mpm1`），母版页那一跳没量过所以不判落在哪一页，"
+        "只交「哪些定义写了它」；`dir-sect.odt` 的 `Mpm1` 写着 `rl-tb` —— 这一枚就是 OOXML 那份"
+        "写在**节**上的 `w:bidi` 的去处（同一句「整份文档倒过来」在两族落在不同的层）",
+        [dig(do, "structure.text_direction.page_definitions_total"),
+         [(one["style"], one["value"], one["part"])
+          for one in dig(do, "structure.text_direction.page_definitions")],
+         dig(ds_odt, "structure.text_direction.page_definitions[0].value"),
+         dig(ds_odt, "structure.text_direction.cells_written"),
+         dig(ds_odt, "structure.text_direction.paragraphs_written"),
+         dig(ds_odt, "structure.text_direction.values_written"),
+         dig(ds, "structure.text_direction.sections[0].bidi.on_written")],
+        [1, [("Mpm1", "lr-tb", "styles.xml")], "rl-tb", 0, 4,
+         {"style:writing-mode=page": 1, "style:writing-mode=lr-tb": 4,
+          "style:writing-mode=rl-tb": 1},
+         True],
+    )
+    check(
+        "跨族对照里最值钱的两条，两族各按自己写的词交、不互相翻译：表上那句在 OOXML 是 "
+        "`w:tblPr/w:bidiVisual`（值可以整个没有），在 ODF 是表样式那枚 `rl-tb`；"
+        "而 ODF 多出来的那个枚举 `page` 在 OOXML 那边根本没有 —— 它是「这张表自己不说、由页面定」",
+        [dig(dc, "structure.text_direction.tables[1].bidi_visual.present"),
+         dig(do, "structure.text_direction.tables[1].value"),
+         dig(do, "structure.text_direction.tables[0].value"),
+         dig(do, "structure.text_direction.tables_written"),
+         dig(do, "structure.text_direction.tables_from")],
+        [True, "rl-tb", "page", 2, {"automatic": 2, "named": 0, "other": 0}],
+    )
+    rtf_dir = fixture("dir-cell.rtf").read_bytes().decode("latin-1")
+    check(
+        "RTF 与遗留 .doc 这一格**不交**：那一族把同一件事写成 `\\cltxtbrl`（格，实测 ×2）、"
+        "`\\cltxbtlr`（格，×1）、`\\rtlrow`（行，×2 —— OOXML 写在表上的一句在这里落到**每一行**）、"
+        "`\\rtlpar`（段，×1）与 `\\ltrpar`（×27，默认值被逐段重发），而 `\\rtlcol` 一个都没有；"
+        "归属要按行群与格群切开才判得住，本读者在这一族连「几张表」都判不住（fact 100），"
+        "所以规则记在模块头上、交回来的是缺键而不是一个猜的数",
+        [rtf_dir.count("\\cltxtbrl"), rtf_dir.count("\\cltxbtlr"), rtf_dir.count("\\rtlrow"),
+         rtf_dir.count("\\rtlpar"), rtf_dir.count("\\ltrpar") - rtf_dir.count("\\rtlpar"),
+         rtf_dir.count("\\rtlcol"),
+         dig(lbin("office-doc", fixture("dir-cell.rtf")), "structure.text_direction"),
+         dig(lbin("office-doc", fixture("eq.doc")), "structure.text_direction")],
+        [2, 1, 2, 1, 26, 0, None, None],
+    )
     # ── 3au) 文档里的公式：行内与独立成行会被生产者改，ODF 一条式子住在另一个部件 ──────
     print("=== 3au) 公式：OMML 的挂法与 MathML 的部件，两家各按自己文件写的交 ===")
     for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
