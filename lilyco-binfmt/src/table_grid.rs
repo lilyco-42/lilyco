@@ -133,15 +133,74 @@ pub fn odf(table: &Node, limit: usize) -> Grid {
     Grid { rows, cut }
 }
 
+/// pptx：`a:tr` → `a:tc`。这一族的横向合并是**第三种写法**（事实 60）：
+/// 被盖住的那一格照样在文件里，身上写 `a:hMerge` / `a:vMerge` 而字是空的，
+/// 起点那格写 `gridSpan` / `rowSpan`。所以 `covered` 按「这一格身上写了那两条之一」判，
+/// 不看不看字空不空 —— 「文件写了占位格」与「这格没有字」是两件事，两本账各数各的。
+///
+/// 一张 pptx 表在页部件里可以嵌在别处吗？这一族的 `slide_tables` 按 `descendants` 数表，
+/// 这里同一口径；行与格仍走直接孩子（与 docx / ODF 同一条）
+pub fn pptx(table: &Node, limit: usize) -> Grid {
+    let trs = table.all("tr");
+    let mut cut = trs.len() > limit;
+    let mut rows: Vec<Value> = Vec::new();
+    for tr in trs.into_iter().take(limit) {
+        let tcs = tr.all("tc");
+        cut |= tcs.len() > limit;
+        let cells: Vec<Value> = tcs
+            .into_iter()
+            .take(limit)
+            .map(|tc| {
+                let body = tc.child("txBody");
+                let paragraphs: Vec<&Node> = body.map(|one| one.all("p")).unwrap_or_default();
+                let mut merge: Vec<String> = Vec::new();
+                for word in ["hMerge", "vMerge"] {
+                    if tc.attr_local(word).is_some() {
+                        merge.push(word.to_string());
+                    }
+                }
+                // 先算布尔再交出那份表：`json!` 里前面的键会把 Vec move 进去，
+                // 后面的键再借一次就是编译错（顺序在这儿是要紧事，不是风格）
+                let covered = !merge.is_empty();
+                json!({
+                    "text": text_of(
+                        paragraphs
+                            .iter()
+                            .map(|one| crate::office_text::paragraph_text(one))
+                            .collect()
+                    ),
+                    "col_span": number(tc.attr_local("gridSpan")),
+                    "row_span": number(tc.attr_local("rowSpan")),
+                    "repeat": Value::Null,
+                    "row_merge": Value::Null,
+                    // 这一族没有「重复几格」这种属性，也不把 hMerge / vMerge 折成一个词：
+                    // 文件写了哪一条就交哪一条
+                    "merge_written": merge,
+                    "covered": json!(covered),
+                    "paragraphs": paragraphs.len(),
+                })
+            })
+            .collect();
+        rows.push(Value::Array(cells));
+    }
+    Grid { rows, cut }
+}
+
 /// `--csv`：把这张表铺成 RFC4180 的 CSV 交出去
 ///
-/// 一行就是文件自己写着的几格，**不补成方格**：OOXML 把横向合并那一格整个不写，
+/// 一行就是文件自己写着的几格，**不补成方格**：文档那一族的 OOXML 把横向合并那一格整个不写，
 /// ODF 照样写一枚空的 `covered-table-cell` —— 同一张视觉上 2×3 的表，首行在这两家
 /// 分别是 2 格与 3 格，所以整张表的 `columns_per_row` 是 `[2, 3]` 与 `[3, 3]`。
-/// `columns_per_row` 与 `ragged` 因此一起交，`covered_cells` 只数 ODF 那种被盖住的占位格。
+/// 放映那一族两家都留着那一格（pptx 写 `hMerge`、ODF 写占位元素），于是同一个 `[3, 3, 3]`
+/// 有两副不同的写法 —— 这一本只按各家的网格铺，谁也不替谁圆场。
+/// `columns_per_row` 与 `ragged` 因此一起交，`covered_cells` 只数那种被盖住的占位格。
 /// 一格里的几个段用 `\n` 连着（就是 `text_of` 的拼法），进了 CSV 按 RFC4180 加引号 ——
 /// 引法与 `office-sheet` 那本共用同一个 `csv_field`。
-pub(crate) fn csv_of(want: bool, grids: &[Grid], pick: &str) -> Value {
+///
+/// `at` 是「没有第几张表」那句话说清**在哪儿数过**：文档那一族是「这份文件里」，
+/// 放映那一族是「这一页（部件名）里」。挑错的那一层要自己说清，不能拿「这张文件没有表」
+/// 去顶「这一页没有第 3 张表」。
+pub(crate) fn csv_of(want: bool, grids: &[Grid], pick: &str, at: &str) -> Value {
     if !want {
         return Value::Null;
     }
@@ -157,7 +216,7 @@ pub(crate) fn csv_of(want: bool, grids: &[Grid], pick: &str) -> Value {
     };
     let Some(grid) = grids.get(index) else {
         return json!({
-            "error": format!("这份文件里没有第 {} 张表（一共 {} 张）", index, grids.len()),
+            "error": format!("{}没有第 {} 张表（一共 {} 张）", at, index, grids.len()),
         });
     };
     let mut out = String::new();

@@ -3272,7 +3272,7 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             "styles": styles,
             "tables": tables,
             // --csv 要的那一张：行按文件自己写着的几格铺，不补成方格
-            "csv": crate::table_grid::csv_of(app.csv, &grids, &app.table),
+            "csv": crate::table_grid::csv_of(app.csv, &grids, &app.table, "这份文件里"),
             "images": image_parts,
             "hyperlinks": hyperlinks,
             "footnotes": count("footnote", "word/footnotes.xml"),
@@ -3537,7 +3537,7 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             "tables": tables,
             // 同一本账的 ODF 那一面：被盖住的格子是文件真写出来的占位格，
             // 所以同一张表在两家的 `columns_per_row` 可以不一样长
-            "csv": crate::table_grid::csv_of(app.csv, &grids, &app.table),
+            "csv": crate::table_grid::csv_of(app.csv, &grids, &app.table, "这份文件里"),
             "images": images,
             "hyperlinks": hyperlinks,
             "footnotes": of_class("footnote"),
@@ -3933,8 +3933,11 @@ mod tests {
             run_csv("notes.doc", "").get("csv").is_none(),
             ".doc 做不出这张 CSV"
         );
-        // 不给 --csv 时整个不交
-        assert!(run("tables.docx").get("csv").is_none());
+        // 这一族读了这个开关、只是没被要求：那格是 null（「没看」），不是缺席。
+        // 缺席是 RTF 与 .doc 那种「这一族没读」——上面两条 is_none 就是它
+        let off = run("tables.docx");
+        assert!(off.get("csv").is_some(), "docx 这一族要交得出这一格");
+        assert!(off["csv"].is_null(), "没给 --csv 就是 null：{off}");
     }
 
     /// 段落的格式与分栏：docx 写在段自己身上，ODF 跳一跳在样式里，RTF 这一族不判归属
