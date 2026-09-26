@@ -234,6 +234,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `dir-cell.odt` | LibreOffice（`dir-cell.docx` → .odt） | 唯一一种「不写在身上」的存法：十格全靠 `表格1.B1` 这类地址式自动样式（8 格有值），而 `bt-lr` 那一格走 LibreOffice 扩展词法 `loext:writing-mode` —— 局部名与 `style:writing-mode` 一模一样；枚举多出 OOXML 没有的那一枚 `page` |
 | `dir-sect.odt` | LibreOffice（`dir-sect.docx` → .odt） | OOXML 写在**节**上的 `w:bidi` 在这里变成**页面版式**：`Mpm1` 的 `style:page-layout-properties` 写着 `rl-tb`，而它的父元素是 `style:page-layout`（与另外三处的 `style:style` 不同名）|
 | `dir-cell.rtf` | LibreOffice（`dir-cell.docx` → .rtf） | 同一件事在 RTF 是六个控制字：`\cltxtbrl` ×2、`\cltxbtlr` ×1、`\rtlrow` ×2（表上那句落到每一行）、`\rtlpar` ×1、`\ltrpar` ×27（默认值被逐段重发）、`\rtlcol` 0。**这一支不读**，留作「缺键不是猜一个数」的凭据 —— 见事实 128 |
+| `merges.xlsx` | openpyxl 3.1（`write_merges_xlsx`） | 合并区间的六种形状一次给全：1×4、3×1、3×2、**没有冒号的单格 `ref="A12"`**、两条互相盖住的、同一句 `merge_cells` 调两遍 —— 而**写手自己去重**（件里 5 条、`count` 也是 5）；第二张表一条也没并、第三张表只有块而**锚点格是空的** |
+| `merges-lo.xlsx` | LibreOffice（`merges.xlsx` → .xlsx） | 同一份的重写：单格那一条与重叠里较小那一条**一起丢掉**，`count` 跟着改成 3，于是 3 条（`A1:D1` / `A3:C5` / `B7:C9`）、重叠归零 |
+| `merges.ods` | LibreOffice（`merges.xlsx` → .ods） | 第三种拼法：没有区间串，也没有 count —— 跨度写在格子自己身上（`table:number-columns-spanned` / `number-rows-spanned`），区间从锚点加出来 |
 
 ## 几件只有踩过才会记下来的事
 
@@ -2362,6 +2365,16 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       别的账都是各交各的。
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
+
+130. **哪几格并成了一块：三种拼法一份账，而「几条」与「这块底下有没有字」是两问**（`merges` 那一家三份件）
+    - 老的 `merged` 只是一枚数（OOXML 数 `<mergeCell>` 的条数，ODF 只数**有字**的合并格），问不出「哪一块」与「这块底下有没有字」。这一本把每一条区间摊开，再去对文件自己声明的那个 `count`。
+    - OOXML 的 `ref` 有两种写法要认：可以**没有冒号**（`ref="A12"` 是合法的单格「合并」，这一本给它名字叫 `solo`），可以带 `$`（`written` 照文件原样交，`anchor` / `end` 交解出来的规范地址）。
+    - 生产者的三件事是量出来的：同一条 `merge_cells` 调两遍 **openpyxl 自己去重**，所以 `duplicated` 在这一族只能由 `cell_merges.rs` 的手搓单测顶；互相盖住的两条它照写（`A3:A5` 与 `A3:C5`）；LibreOffice 重写同一份时把**单格那条与重叠里较小那条一起丢掉**，`count` 改成 3、重叠归零。
+    - ODF 既没有区间串也没有 count：跨度写在格子自己的两个属性上，区间从锚点加出来，所以 `declared` 与 `declared_matches` 交 **null 而不是 0**。
+    - 两本账的关系钉在这三份件上：OOXML 族内 `merged == merges.total`（5=5、3=3、1=1 各一张表），跨族不成立 —— `只有合并块` 那张表 `merged` 是 **0** 而 `merges.total` 是 **1**，因为空锚点这一本是数进来的。
+    - 三格三本口径：`covered_cells` 是每条 `cells - 1` 的累加（`merges.xlsx` 第一张表 18、重写那份 16、`.ods` 第一张表 16），**与 ODF 那个 `table:covered-table-cell` 元素无关**（有意不读）；`overlapping` 只数后来那一条（一对算 1 不是 2）；`anchors_with_text` 只数带字的锚点。
+    - 反着写（`D1:A1`）与解不动的（`nope`）三种件都做不出来，只能手搓：前者几何按 min/max 摊平照报、另给一枚 `reversed`，但不进任何几何合计；后者只留原样串与那枚有无字，几何全交 null、`bad_ref` 立起来。
+    - 第二读者是 `office_reader.py` 的 `merge_ledger`（两家共用那本算法）；probe 的 3bj 把**每一份 .xlsx 的每一张表与每一份 .ods 的每一张表**的整本区间账逐键对，再钉上面这几条数。限额那一格同样测了：`cut` / `listed` 只管 `rows`，十二枚合计仍是整份的账。
 
 129. **域那一份账：一枚域一行，三家把「域」写成三种形状，而种类与开关是同一把尺子**（`fields-mix` 那一家 + `fields` / `fields-lo` / `toc.rtf` / `lists.rtf`）
     - 为什么另起一本：`structure.fields` 那一格数的是**正文里出现过的域标记**（`fields.docx` 交 9 = 三枚域 × begin/separate/end），

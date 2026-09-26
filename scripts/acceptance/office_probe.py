@@ -8554,6 +8554,114 @@ def main() -> int:
     locked_body = lbin("office-text", fixture("locked.pdf"))
     check("加密的 PDF 不报正文，只说明为什么", len(locked_body.get("paragraphs", [])), 0)
 
+    # ── 3bj) office-sheet 的合并区间：哪一块、跨几格、底下有没有字、与自报的 count 对账
+    print("=== 3bj) office-sheet 的合并区间：两份读者逐表逐键对整本账 ===")
+    MERGE_KEYS = ("total", "listed", "cut", "declared", "declared_matches", "distinct",
+                  "duplicated", "overlapping", "solo", "covered_cells",
+                  "anchors_with_text", "bad_refs")
+    # 全库反查：xlsx 按部件名归位、ods 按表名归位，整本账（含逐行几何）逐键对
+    for name in sorted(one.name for one in FIXTURES.glob("*.xlsx")):
+        got = lbin("office-sheet", fixture(name))
+        mine = {
+            (one.get("part") or "").rsplit("/", 1)[-1][: -len(".xml")]: one.get("merges")
+            for one in got.get("sheets", [])
+        }
+        check("%s 每张表的区间账与读者一致" % name, mine, files[name]["ooxml"]["merges"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.ods")):
+        got = lbin("office-sheet", fixture(name))
+        mine = [one.get("merges") for one in got.get("sheets", [])]
+        check("%s 每张表的区间账与读者一致" % name, mine,
+              [one["merges"] for one in files[name]["ods"]["sheets"]])
+    # 自证一：OOXML 那本里区间条数与老的 merged 同一次走查，两本不许各数各的
+    for name in ("book.xlsx", "merges.xlsx", "merges-lo.xlsx", "locked-sheet.xlsx"):
+        got = lbin("office-sheet", fixture(name))
+        check("%s 区间条数与那个只数条数的老数是同一个来源" % name,
+              [(one.get("merged"), dig(one, "merges.total")) for one in got.get("sheets", [])],
+              [(one.get("merged"), one.get("merged")) for one in got.get("sheets", [])])
+    m = lbin("office-sheet", fixture("merges.xlsx"))
+    mlo = lbin("office-sheet", fixture("merges-lo.xlsx"))
+    mods = lbin("office-sheet", fixture("merges.ods"))
+    ms = files["merges.xlsx"]["ooxml"]["merges"]
+    mlos = files["merges-lo.xlsx"]["ooxml"]["merges"]
+    mw = ms["sheet1"]
+    modw = {one["name"]: one for one in files["merges.ods"]["ods"]["sheets"]}
+    check(
+        "merges.xlsx 第一张表的区间账（重叠只数后来那条、单格合并算 solo）",
+        [dig(m, "sheets[0].merges.%s" % key) for key in MERGE_KEYS],
+        [mw[key] for key in MERGE_KEYS],
+    )
+    check(
+        "五条形状各异的区间都按文件原样交：顺序是生产者自己的，不是排过序的",
+        [one.get("written") for one in dig(m, "sheets[0].merges.rows")],
+        ["A1:D1", "A12", "B7:C9", "A3:A5", "A3:C5"],
+    )
+    check(
+        "每一块的几何各自算清：锚点、止点、跨几行几列、盖住几格",
+        [(one.get("anchor"), one.get("end"), one.get("rows"), one.get("cols"),
+          one.get("cells"), one.get("covered"), one.get("solo"),
+          one.get("anchor_has_text"), one.get("overlaps_earlier"))
+         for one in dig(m, "sheets[0].merges.rows")],
+        [(one["anchor"], one["end"], one["rows"], one["cols"], one["cells"], one["covered"],
+          one["solo"], one["anchor_has_text"], one["overlaps_earlier"])
+         for one in mw["rows"]],
+    )
+    check(
+        "LibreOffice 重写同一张表：单格那条与重叠里较小的一条一起丢掉，count 跟着改口",
+        [dig(mlo, "sheets[0].merges.total"), dig(mlo, "sheets[0].merges.declared"),
+         dig(mlo, "sheets[0].merges.overlapping"), dig(mlo, "sheets[0].merges.solo"),
+         [one.get("written") for one in dig(mlo, "sheets[0].merges.rows")]],
+        [3, 3, 0, 0, ["A1:D1", "A3:C5", "B7:C9"]],
+    )
+    check(
+        "整册那三本合计就是逐表之和（两个 xlsx 生产者各一份）",
+        [dig(m, "workbook.totals.merges_ranges"), dig(m, "workbook.totals.merges_covered"),
+         dig(m, "workbook.totals.merges_overlapping"),
+         dig(mlo, "workbook.totals.merges_ranges"), dig(mlo, "workbook.totals.merges_covered"),
+         dig(mlo, "workbook.totals.merges_overlapping")],
+        [sum(one["total"] for one in ms.values()),
+         sum(one["covered_cells"] for one in ms.values()),
+         sum(one["overlapping"] for one in ms.values()),
+         sum(one["total"] for one in mlos.values()),
+         sum(one["covered_cells"] for one in mlos.values()),
+         sum(one["overlapping"] for one in mlos.values())],
+    )
+    check(
+        "整册与那张表各守各的数：整本 6 条区间、21 格被盖、1 对重叠，第一张表自己 1 条单格、count 也对得上",
+        [dig(m, "workbook.totals.merges_ranges"), dig(m, "workbook.totals.merges_covered"),
+         dig(m, "workbook.totals.merges_overlapping"),
+         dig(m, "sheets[0].merges.solo"), dig(m, "sheets[0].merges.declared_matches")],
+        [6, 21, 1, 1, True],
+    )
+    check(
+        "ODF 没有区间串也没有 count：那一本照样有三条，锚点与止点从跨度加出来",
+        [dig(mods, "sheets[0].merges.declared"), dig(mods, "sheets[0].merges.total"),
+         [(one.get("anchor"), one.get("end"), one.get("written"))
+          for one in dig(mods, "sheets[0].merges.rows")]],
+        [None, 3, [("A1", "D1", None), ("A3", "C5", None), ("B7", "C9", None)]],
+    )
+    check(
+        "合并块底下一个字都没有：这一本数得到，老的那个只数有字合并格的数是 0",
+        [dig(mods, "sheets[2].merged"), dig(mods, "sheets[2].merges.total"),
+         dig(mods, "sheets[2].merges.anchors_with_text"), dig(mods, "sheets[2].merges.solo"),
+         dig(mods, "sheets[2].merges.covered_cells")],
+        [modw["只有合并块"]["merged"], 1, 0, 0, 3],
+    )
+    modws = {one["name"]: one["merges"] for one in files["merges.ods"]["ods"]["sheets"]}
+    check(
+        "ods 那一族的整册合计也是逐表之和",
+        [dig(mods, "workbook.totals.merges_ranges"),
+         dig(mods, "workbook.totals.merges_covered"),
+         dig(mods, "workbook.totals.merges_overlapping")],
+        [sum(one["total"] for one in modws.values()),
+         sum(one["covered_cells"] for one in modws.values()),
+         sum(one["overlapping"] for one in modws.values())],
+    )
+    check(
+        "两边同一个口径：整张表没并过格的是全零的一份账，不是缺键",
+        [dig(m, "sheets[1].merges"), dig(mods, "sheets[1].merges")],
+        [files["merges.xlsx"]["ooxml"]["merges"]["sheet2"], modw["一格也没并"]["merges"]],
+    )
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:

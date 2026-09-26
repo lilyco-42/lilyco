@@ -6691,6 +6691,11 @@ def xlsx_facts(path: Path) -> dict:
     preserved_cells = 0
     cell_strings: list = []
     merged = 0
+    # 合并区间那三本按表名存：区间串、文件自报的 count、有内容的格的规范地址
+    merge_refs: dict[str, list] = {}
+    merge_stated: dict[str, int] = {}
+    filled_spots: dict[str, list] = {}
+    merge_lists: dict = {}
     dims: dict[str, str] = {}
     layouts: dict = {}
     filters: dict = {}
@@ -6751,6 +6756,11 @@ def xlsx_facts(path: Path) -> dict:
                 except ValueError:
                     which = 0
                 looks = style_appearance(tables, which)
+                # 合并区间那一本要知道锚点格里有没有字：只看这一格自己带不带内容
+                # （`<v>` / `<f>` / 串正文 任一非空），不绕共享串那一跳去看显示成什么
+                spot_ref = split_ref(one.get("r") or "")
+                if spot_ref is not None and cell_has_content(one, parts_str):
+                    filled_spots.setdefault(local, []).append(merge_address(spot_ref))
                 cell_styles.append(
                     dict(
                         [("sheet", local), ("ref", one.get("r")),
@@ -6770,6 +6780,18 @@ def xlsx_facts(path: Path) -> dict:
                     formulas += 1
             elif tag == "mergeCell":
                 merged += 1
+                merge_refs.setdefault(local, []).append(one.get("ref") or "")
+            elif tag == "mergeCells" and local not in merge_stated:
+                # 与 Rust 的 `.first()` 同一把尺：只认文档里第一个容器，写了但解不出来也算看过了
+                raw_count = (one.get("count") or "").strip()
+                merge_stated[local] = int(raw_count) if raw_count.isdigit() else None
+        merge_lists[local] = merge_ledger(
+            [
+                merge_row_ooxml(one, filled_spots.get(local, []))
+                for one in merge_refs.get(local, [])
+            ],
+            merge_stated.get(local),
+        )
     return {
         "sheets": sheets,
         "sheet_count": len(sheets),
@@ -6799,6 +6821,8 @@ def xlsx_facts(path: Path) -> dict:
             "unique_matches": _unique_matches(sst_unique, shared),
         },
         "merged": merged,
+        # 按表名的区间账（`merged` 是整册一个数，回答不了「哪一块」）
+        "merges": merge_lists,
         "dimensions": dims,
         "print_setup": print_setups,
         "views": views,
@@ -8056,6 +8080,7 @@ def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) ->
         cells: list = []
         covered = 0
         merged = 0
+        merge_rows: list = []
         used_rows = 0
         widest = 0
         hidden_rows = 0
@@ -8127,9 +8152,18 @@ def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) ->
                 # `HYPERLINK(...)` 是第四种链接存法：不写链接元素，地址写在公式正文里
                 if formula and "HYPERLINK(" in formula:
                     link_formulas += 1
+                cs = rep(cell, "number-columns-spanned")
+                rs = rep(cell, "number-rows-spanned")
+                # 区间那一份账在「这一格算不算内容」那道闸**之前**收：合并块底下可以
+                # 一个字都不写，而老的 merged 只数有字的合并格（与 Rust 同一条规矩）
+                if cs > 1 or rs > 1:
+                    merge_rows.append(
+                        merge_row_odf(
+                            f"{col_letter(col_at)}{row_at + 1}", rs, cs,
+                            bool(text or value or stamp or flag or formula),
+                        )
+                    )
                 if text or value or stamp or flag or formula:
-                    cs = rep(cell, "number-columns-spanned")
-                    rs = rep(cell, "number-rows-spanned")
                     if cs > 1 or rs > 1:
                         merged += 1
                     row_cells.append(
@@ -8168,6 +8202,8 @@ def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) ->
                 "cell_list": cells,
                 "covered": covered,
                 "merged": merged,
+                # ODF 没有区间串：这一本是从格子的两个 spanned 属性加出来的
+                "merges": merge_ledger(merge_rows),
                 "hidden_rows": hidden_rows,
                 "hidden_cols": hidden_cols,
                 "comments": cell_notes,
@@ -9094,6 +9130,121 @@ def split_ref(reference: str):
     if row == 0:
         return None
     return (row - 1, col - 1)
+
+
+def cell_has_content(one, parts_str) -> bool:
+    """这一格自己带不带内容：`<v>` / `<f>` / 串正文 任一非空。
+    与 Rust 的 `spoken` 同三条，也不 strip 之外再多判什么。"""
+    for name in ("v", "f"):
+        holder = local_child(one, name)
+        if holder is not None and (holder.text or "").strip():
+            return True
+    return parts_str is not None and (parts_str.get("text") or "").strip() != ""
+
+
+def merge_address(spot) -> str:
+    """(行, 列)（0-based）→ `A3`：与 Rust 的 `cell_merges::address` 同一个算法"""
+    return f"{col_letter(spot[1])}{spot[0] + 1}"
+
+
+def merge_row_ooxml(raw: str, filled: list) -> dict:
+    """一条 `<mergeCell ref>`：原样串 + 解出来的两端 + 锚点格里有没有字。
+    `ref` 可以没有冒号（`A12` 是单格「合并」），可以带 `$`。"""
+    clean = (raw or "").replace("$", "")
+    halves = clean.split(":")
+    start = split_ref(halves[0])
+    stop = split_ref(halves[1]) if len(halves) > 1 else None
+    if start and stop is None:
+        span = (start, start)
+    elif start and stop:
+        span = (start, stop)
+    else:
+        span = None
+    head = split_ref(halves[0])
+    return {
+        "written": raw,
+        "span": span,
+        "has_text": bool(head) and merge_address(head) in filled,
+    }
+
+
+def merge_row_odf(anchor: str, rows: int, cols: int, has_text: bool) -> dict:
+    """ODF 没有区间串：跨度写在格子自己身上，区间从锚点加出来。"""
+    start = split_ref(anchor)
+    return {
+        "written": None,
+        "span": None if start is None else ((start[0], start[1]),
+                                            (start[0] + max(rows - 1, 0), start[1] + max(cols - 1, 0))),
+        "has_text": has_text,
+    }
+
+
+def merge_covers(lo, hi, at) -> bool:
+    return lo[0] <= at[0] <= hi[0] and lo[1] <= at[1] <= hi[1]
+
+
+def merge_ledger(rows: list, declared=None, limit: int = 400) -> dict:
+    """两家共用的那本账，与 Rust 的 `cell_merges::ledger` 逐键同形：
+    反着写的（`D1:A1`）几何按 min/max 摊平照报但不进几何合计，解析不动的只留原样串。"""
+    listed: list = []
+    seen: list = []
+    distinct: list = []
+    covered_cells = solo = with_text = overlapping = bad = 0
+    for index, one in enumerate(rows):
+        span = one["span"]
+        if span is None:
+            bad += 1
+            if len(listed) < limit:
+                listed.append(
+                    dict(
+                        index=index, written=one["written"], anchor=None, end=None,
+                        rows=None, cols=None, cells=None, covered=None, solo=None,
+                        anchor_has_text=one["has_text"], overlaps_earlier=False,
+                        reversed=None, bad_ref=True,
+                    )
+                )
+            continue
+        start, stop = span
+        lo = (min(start[0], stop[0]), min(start[1], stop[1]))
+        hi = (max(start[0], stop[0]), max(start[1], stop[1]))
+        rows_span = hi[0] - lo[0] + 1
+        cols_span = hi[1] - lo[1] + 1
+        cells = rows_span * cols_span
+        flips = start[0] > stop[0] or start[1] > stop[1]
+        hits = any(merge_covers(was_lo, was_hi, lo) or merge_covers(was_lo, was_hi, hi)
+                   or merge_covers(lo, hi, was_lo) or merge_covers(lo, hi, was_hi)
+                   for was_lo, was_hi in seen)
+        if hits:
+            overlapping += 1
+        if not flips:
+            seen.append((lo, hi))
+            covered_cells += cells - 1
+            if rows_span == 1 and cols_span == 1:
+                solo += 1
+            if one["has_text"]:
+                with_text += 1
+            key = f"{merge_address(lo)}:{merge_address(hi)}"
+            if key not in distinct:
+                distinct.append(key)
+        if len(listed) < limit:
+            listed.append(
+                dict(
+                    index=index, written=one["written"],
+                    anchor=merge_address(start), end=merge_address(stop),
+                    rows=rows_span, cols=cols_span, cells=cells, covered=cells - 1,
+                    solo=rows_span == 1 and cols_span == 1,
+                    anchor_has_text=one["has_text"], overlaps_earlier=hits,
+                    reversed=flips, bad_ref=False,
+                )
+            )
+    return dict(
+        total=len(rows), listed=len(listed), cut=len(rows) > limit,
+        declared=declared,
+        declared_matches=None if declared is None else declared == len(rows),
+        distinct=len(distinct), duplicated=len(rows) - bad - len(distinct),
+        overlapping=overlapping, solo=solo, covered_cells=covered_cells,
+        anchors_with_text=with_text, bad_refs=bad, rows=listed,
+    )
 
 
 def csv_quote(raw: str) -> str:

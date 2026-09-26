@@ -71,6 +71,15 @@ MARK_PAPER_LAND = "横过来的那一节"
 MARK_MERGED_HEAD = "合并格的样本"
 MARK_MERGED_WIDE = "跨两列"
 MARK_MERGED_TALL = "跨两行"
+# 电子表格的合并区间那七条，见 write_merges_xlsx（与上面那三行的表内合并无关）
+MARK_MERGE_SHEET = "合并的样子"
+MARK_MERGE_BLANK_SHEET = "一格也没并"
+MARK_MERGE_QUIET_SHEET = "只有合并块"
+MARK_MERGE_WIDE_REF = "A1:D1"
+MARK_MERGE_WIDE = "跨四列的头"
+MARK_MERGE_TALL = "竖着跨三行"
+MARK_MERGE_BLOCK = "行与列都跨"
+MARK_MERGE_SOLO = "只盖住自己"
 # 列表与编号那七段：一次把「编号从哪来」的三条路都摆开，见 write_list_docx
 MARK_LIST_PLAIN = "这一段不在列表里"
 MARK_LIST_NUM_1 = "编号列表第一项"
@@ -1386,6 +1395,50 @@ def write_xlsx(path: Path) -> None:
     table.tableColumns.append(TableColumn(id=1, name=MARK_CELL_A1))
     table.tableColumns.append(TableColumn(id=2, name="金额"))
     ws.add_table(table)
+    wb.properties.title = MARK_TITLE
+    wb.properties.creator = MARK_AUTHOR
+    wb.properties.description = "fixture produced by openpyxl"
+    wb.save(str(path))
+
+
+def write_merges_xlsx(path: Path) -> None:
+    """openpyxl：合并单元格的六种形状，一次给全（`structure.merges` 那一份账的出处）
+
+    为什么要专门造这一份：全库 37 份 .xlsx 里只有 4 份有合并，而那 4 份都只有同一条
+    `A5:B5`（`book.xlsx` 的表头顺手并的，另外三份是从它转出去的）—— 一条 1×2 什么也判不出来。
+    这一份里的六种形状，每一种都会咬掉一种「按 `:` 切两半」式的读法：
+
+    * `A12:A12` 写进 XML 是 **`ref="A12"`，没有冒号** —— 单格「合并」是合法存法；
+    * 同一条 `A1:D1` 调了两次 `merge_cells`，而件里**只剩一条**（`count` 也是 5）——
+      写手自己去重，所以「重复那条 count 算不算」这一问在这一族问不出来，
+      改由 `cell_merges.rs` 的手搓单测顶着；
+    * `A3:A5` 与 `A3:C5` **互相盖住** —— Excel 不让你这么存，别的写手会（openpyxl 不查）；
+    * 一块 1×4、一块 3×1、一块 3×2：行跨度与列跨度各只有一边大于 1 的那种也要在场；
+    * 第二张表**一条合并也没有**（每页各归各的账，零也得是数出来的零）；
+    * 第三张表只有合并、**锚点格是空的**（合并块底下可以一个字都不写）。
+
+    LibreOffice 再转一次（`merges-lo.xlsx`）与转 .ods（`merges.ods`）：量出来的处置是
+    「单格那一条与重叠里较小那一条一起丢掉，`count` 跟着改成 3」，重叠归零。
+    """
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = MARK_MERGE_SHEET
+    ws["A1"] = MARK_MERGE_WIDE
+    ws.merge_cells(MARK_MERGE_WIDE_REF)
+    ws.merge_cells(MARK_MERGE_WIDE_REF)  # 写手自己去重，件里只留下一条
+    ws["A3"] = MARK_MERGE_TALL
+    ws.merge_cells("A3:A5")
+    ws.merge_cells("A3:C5")  # 和上一条互相盖住
+    ws["B7"] = MARK_MERGE_BLOCK
+    ws.merge_cells("B7:C9")
+    ws["A12"] = MARK_MERGE_SOLO
+    ws.merge_cells("A12:A12")
+    blank = wb.create_sheet(MARK_MERGE_BLANK_SHEET)
+    blank["A1"] = "这张表一格也没并"
+    quiet = wb.create_sheet(MARK_MERGE_QUIET_SHEET)
+    quiet.merge_cells("E2:F3")  # 只有块，锚点格什么都不写
     wb.properties.title = MARK_TITLE
     wb.properties.creator = MARK_AUTHOR
     wb.properties.description = "fixture produced by openpyxl"
@@ -4010,6 +4063,15 @@ def main() -> int:
     write_xlsx(xlsx)
     write_formats_xlsx(OUT / "formats.xlsx")
     write_mulrk_xlsx(OUT / "mulrk.xlsx")
+    # 合并区间那一份账的六种形状：openpyxl 写一份，LibreOffice 重写一份、再转 .ods 一份
+    merges = OUT / "merges.xlsx"
+    write_merges_xlsx(merges)
+    convert(exe, merges, "xlsx", SCRATCH)
+    if (SCRATCH / "merges.xlsx").exists():
+        shutil.copyfile(SCRATCH / "merges.xlsx", OUT / "merges-lo.xlsx")
+    convert(exe, merges, "ods", SCRATCH)
+    if (SCRATCH / "merges.ods").exists():
+        shutil.copyfile(SCRATCH / "merges.ods", OUT / "merges.ods")
     # 表格批注那两跳：openpyxl 写一份（批注部件在 xl/comments/comment1.xml），
     # LibreOffice 转 .ods 一份（批注坐在格子里面），两个生产者两种存法
     write_cell_notes_xlsx(OUT / "cell-notes.xlsx")

@@ -151,6 +151,9 @@ pub struct Sheet {
     pub cells: Vec<Cell>,
     pub covered: usize,
     pub merged: usize,
+    /// 跨了行或列的格子那一份流水：`(锚点地址, 行跨, 列跨, 这一格有没有内容)`，按文档顺序。
+    /// 与 `merged` 的区别只在最后一项 —— 这一本连空锚点也收
+    pub merges: Vec<(String, usize, usize, bool)>,
     /// 隐藏的行数与列数：`table:visibility="collapse"` 可以直接写在行/列上，
     /// 也可以只写在它引的那个自动样式里，两边都得看
     pub hidden_rows: usize,
@@ -459,6 +462,7 @@ pub fn read(bytes: &[u8]) -> Book {
             cells: Vec::new(),
             covered: 0,
             merged: 0,
+            merges: Vec::new(),
             hidden_rows: 0,
             hidden_cols: 0,
             col_sizes: Vec::new(),
@@ -599,9 +603,17 @@ pub fn read(bytes: &[u8]) -> Book {
                     || date_value.is_some()
                     || boolean_value.is_some()
                     || formula.is_some();
+                let columns_spanned = repeated(cell, "number-columns-spanned");
+                let rows_spanned = repeated(cell, "number-rows-spanned");
+                // 区间那一份账在 `filled` 那道闸**之前**收：合并块底下可以一个字都不写。
+                // 老的那条 `merged` 只数有字的合并格，这一本把空锚点也数进来 ——
+                // 两者的差额就是这件事（`merges.ods` 的第三张表是出处）
+                if columns_spanned > 1 || rows_spanned > 1 {
+                    sheet
+                        .merges
+                        .push((reference.clone(), rows_spanned, columns_spanned, filled));
+                }
                 if filled {
-                    let columns_spanned = repeated(cell, "number-columns-spanned");
-                    let rows_spanned = repeated(cell, "number-rows-spanned");
                     if columns_spanned > 1 || rows_spanned > 1 {
                         sheet.merged += 1;
                     }

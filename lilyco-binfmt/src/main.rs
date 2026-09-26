@@ -35,6 +35,7 @@
 
 mod biff;
 mod bookmark_pairs;
+mod cell_merges;
 mod cfb;
 mod comment_threads;
 mod comments;
