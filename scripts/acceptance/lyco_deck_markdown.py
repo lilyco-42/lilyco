@@ -255,8 +255,9 @@ def odp_deck_markdown(path: Path, budget: int = 20000) -> dict:
     - 条目：段住在 `text:list` > `text:list-item` 里，深度是**嵌套层数**
       （`a:pPr/@lvl` 那一族在这两份件里一个字都没写，见 pptx 那一支的三本账）；
     - 表与 .odt 是同一棵树，直接借 `odf_table_md`（被盖住那一格照样是一格）；
-    - 备注住在 `presentation:notes` 里那一页 —— 那不是给观众看的字，整棵跳过，
-      只记 `notes_pages`（与 `office-slide` 那条同一个判据：框里的 `<编号>` 也不算正文）。
+    - 备注住在 `presentation:notes` 那一块里（实测它的孩子是 `draw:page-thumbnail` 与 frame，
+      **不是第二张 `draw:page`**，所以按局部名数 `page` 只数到真页）—— 那不是给观众看的字，
+      整棵跳过，只记 `notes_pages`（与 `office-slide` 那条同一个判据：框里的 `<编号>` 也不算正文）。
     """
     with zipfile.ZipFile(path) as box:
         parts = {one.filename: box.read(one.filename) for one in box.infolist()}

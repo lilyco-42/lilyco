@@ -54,6 +54,7 @@ from lyco_doc_csv import (  # 文档/放映里的表铺成 CSV
     pptx_page_grids,
 )
 from lyco_deck_markdown import pptx_deck_markdown  # 放映的大纲搬进 markdown
+from lyco_deck_markdown import odp_deck_markdown  # 同一本大纲的 odp 那一面
 
 END = "END"  # CFB 的链结束标记
 FREE = "FREE"
@@ -9022,6 +9023,8 @@ def facts(path: Path) -> dict:
                     slide["csv"] = csv_groups[which] if which < len(csv_groups) else []
                 # 一条式子一个部件；页缩略图也是 frame，所以两格分开数
                 deck["equations"] = odp_equations_ledger(path)
+                # 同一本大纲的 odp 那一面：条目标是元素，标题在 frame 的 class 上
+                deck["markdown"] = odp_deck_markdown(path)
                 out["odp"] = deck
         else:
             out["app"] = "unknown-zip"

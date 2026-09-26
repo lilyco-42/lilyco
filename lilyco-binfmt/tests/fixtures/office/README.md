@@ -2253,11 +2253,38 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 一张 `a:tbl` 走与 docx 同一条铺法（一格两段的 `<br>`、格子里的竖线才转义）：
       `deck-tables.pptx` 与 LibreOffice 那份的整本账**一字不差**（95 码位）。
     - 备注不进 markdown（那不是页面上给观众看的字），只交 `notes_pages` 数有几页带 notesSlide 部件；
-      图也不进（`pictures` 数在那儿）。**odp 还没搬**：那一族这个键整个不在（缺键 = 没读，不是空文档），
-      与它下面的 `.ods` / rtf / 遗留 .doc / .pdf 同一条边界。
+      图也不进（`pictures` 数在那儿）。**odp 现在也走这一本**（见事实 118）：没搬的是 `.ods`
+      / rtf / 遗留 .doc / .pdf —— 那一族这个键整个不在（缺键 = 没读，不是空文档）。
     - 第二读者是 `scripts/acceptance/lyco_deck_markdown.py`（`pptx_deck_markdown`：借 `lyco_markdown.py`
       的 `render` / `esc` / `rels_of`，段读者另写一份，因为那一族的记号是属性不是元素）；
       probe 的 3b0 一条 lane 把**每一份 .pptx** 的整本账与读者对，再钉上面这几条实测。
+118. **同一本大纲的第四族：odp 把「这是一条」写在元素上，而两族的渲染可以一字不差**（`deck.odp` / `deck-tables.odp` / `deck-tr.odp` / `eqs.odp` / `deck-pictures.odp`）
+    - 标题在**框自己身上**：`draw:frame`（或 `custom-shape`）的 `presentation:class=title`，取那一个框里
+      头一段非空字。`deck.odp` 两页两标题；`deck-tr.odp` 三页一个 `class=title` 都没有 → `titles` 0、
+      `titles_missing` 3、整篇**没有一行 `# `**（与 pptx 那一族的 `p:ph/@type` 是同一条判据的另一种拼法，
+      不是一处代码）。
+    - **条目是元素**：段住在 `text:list` > `text:list-item` 里就是条目，嵌套层数就是级别 —— 这一族没有
+      `a:pPr/@lvl` 那样的层级属性，所以 `levels_written` 在这里量出来全是 0（那一格交的是「文件写了几个
+      层级属性」，两家各按各的写法数）。
+    - **两族同一份渲染**：LibreOffice 出的 `deck-lo.pptx` 与 `deck.odp` 同为 87 码位、5 块、整串相等；
+      `deck-tables` 那张表两族也是同一份 markdown（95 码位、3 行）。可两本的其余账目各是一份，不互相补齐：
+      odp 每页都写一块备注（`notes_pages` 2 对 pptx 的 1）、页上的图也多数一枚（2 对 1），
+      而 `covered_cells` 那一格只有 odp 这本交（`deck-tables.odp` 2 —— pptx 那一族把合并写在 `a:hMerge` 上，
+      这一本不数它，`--csv` 那本才数）。
+    - **备注块不是第二张 `draw:page`**：`presentation:notes` 的孩子是 `draw:page-thumbnail` 加两个
+      `draw:frame`（量过），所以按局部名数 `page` 只数到真页 —— `deck.odp` `pages` 2 / `notes_pages` 2；
+      而 `eqs.odp` 两页**一个备注块都没有**（`notes_pages` 0：那一份的外壳是手写的，LibreOffice 没有
+      odt → odp 的导出过滤器，见本表 `eqs.odp` 那一行），LibreOffice 把它重写成 `eqs-lo.odp` 之后
+      `notes_pages` 变成 2 —— 同一份字，两家对「一页该不该有备注块」的答案不同，两本账因此分开。
+      这一条判不住的话，同一问就有 2 与 4 两个答案。
+    - `text:h` + `text:outline-level` 是这一族的标题形状，而**这批 12 份 odp 里一个都没有**
+      （`headings` 与 `levels_written` 全 0）：0 是数过了没有，不是没看 —— 那一条分支在本仓库里没有生产者样本。
+    - 表、嵌入对象、图与控件里的那几段**不再当页上的段交第二遍**（`table` / `object` / `image` / `control`
+      整个子树不走进去）：同一句排两次是镜像先犯、两边一起对出来的。粗与斜那一跳、空格与制表记号的展开、
+      批注跳过后单独计数，全部与 .odt 那一本共用同一条读法，`covered_cells` / `repeated_spans` / `links`
+      三格也从同一个 `OdfRun` 里取 —— 一条 `text:a` 在这里数得到的就是那里数得到的那一条（`deck-links.odp` 3）。
+    - 第二读者是同一份 `lyco_deck_markdown.py` 的 `odp_deck_markdown`；probe 的 3b1 把**每一份 .odp**
+      的整本账与读者对，再钉上面这几条实测。
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
 `scripts/acceptance/office_reader.py`（OOXML / ODF / MS-CFB / OLE 属性集，只用标准库）、
 文档里那几张图在它的 `docx_picture_rows()` / `odt_picture_rows()` 里：两处尺寸各自换算、

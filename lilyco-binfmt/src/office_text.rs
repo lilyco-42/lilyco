@@ -36,7 +36,7 @@ use crate::zipread::{self, Member, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-text",
     run = "run_office_text",
-    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored), then the parts that are not in the body at all - comments, footnotes, endnotes, headers and footers - each entry carrying from/part/author/date so a comment never reads like body text. pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels - except .ods, which answers like a spreadsheet does: one entry per non-empty cell with its sheet name, A1-style reference and declared value type (the text shown in the cell, not office:value). ODF comments are text:annotation elements nested INSIDE a body paragraph (docx keeps them in a separate part), so they are emitted as their own entries carrying from/author/date read from their meta:creator and meta:date children, and the paragraph that holds one reports only its own text. An .odt's page headers and footers are not in content.xml either - they sit in styles.xml under style:master-page (a document with two sections has two master pages, and left/right/first-page variants are separate slots), so they are read there and flagged from=header/footer with the master-page name and slot. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text; its page headers and footers live in the SAME stream as the body (only the destination groups named header / headerl / headerf / footer say which), so they are separated out and flagged from=header/footer with the slot name - one header often appears in several slots, which is reported as the file writes it rather than merged away. RTF notes are that story with a trap: LibreOffice writes footnotes AND endnotes into the same star-marked `footnote` destination group and marks the endnote with an `ftnalt` control word inside it, while that leading star means 'skip this group if you do not recognise the destination' - skipping on sight of the star silently loses every note in the file, so the destination name is read first and only unknown groups are dropped. Note text is never left in the body; each note comes out as its own entry with from=footnote/endnote plus the slot name, and the separator/continuation definitions (ftnsep, ftncn and their a-prefixed variants) are not counted as notes. RTF comments are a third destination story: the author sits in its own star-marked group BEFORE `{\\*\\annotation ...}` and the words inside that group, so the two lists are paired in file order and BOTH counts are published (a mismatch stays visible instead of being smoothed over); the annotation carries a number of its own which is the same number the anchored range writes at both its ends, so 'which run of text does this comment hang on' is answerable from the file rather than guessed; and the date those groups carry does not match the ISO stamp the docx of the same words holds (two measured samples), so date comes back null next to the raw digits as written. A Chinese author name is lost by the producer itself - LibreOffice writes question marks into the RTF while its own docx export keeps the name - and this reports what each file says instead of recovering it. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=record-tree with every text atom found by walking the tree (master placeholders included, because they really are in the file). A .pdf answers kind=pages: content streams are inflated, glyph codes mapped through each font's /ToUnicode CMap, and lines rebuilt from the text positions (BT resets the matrix, glyph advance moves x only, a TJ number pushes the pen the opposite way), so a Chinese heading comes back as words rather than as its characters shuffled; an encrypted PDF returns no paragraphs and says why, because its streams are ciphertext and this domain does not decrypt. With --markdown it also renders a word-processing document's structure as markdown under { markdown: {family, available, text, chars, cut, blocks, paragraphs, headings, list_items, bullet_items, ordered_items, list_from_style, unresolved_fmt, tables, table_rows, empty_dropped; an .odt adds lists_named, lists_unnamed, spans_unresolved, annotations_dropped, notes_dropped, space_markers, links, images, covered_cells, repeated_spans} }: heading levels, list items (indentation taken only from the ilvl the file wrote), tables, external links, pictures, bold and italic runs and hard line breaks, with the counts published beside the text so a rendering is never just a string. Measured on md.docx and its LibreOffice rewrite: the two renderings are identical, 359 code points, while list_from_style goes 5 to 0, because one producer writes the numbering on the paragraph's style and the other copies it onto the paragraph - the text cannot show that, the ledger can. Escaping is applied only where markdown would otherwise read the file's own words as structure (a body paragraph starting with # or 1., a pipe inside a table cell) and nowhere else, and link and picture targets are handed over exactly as the relationship part wrote them. Empty paragraphs and a paragraph that is only a page break do not appear in markdown, so their count is reported instead. An .odt renders through the same shape reading that family's own markers: bold and italic sit one HOP away on a character style (a hop that resolves to nothing is counted in spans_unresolved instead of guessed), spaces, tabs and line breaks are ELEMENTS that must be expanded (space_markers counts them), list depth comes from nested text:list elements rather than an ilvl number, and a comment or note nested INSIDE a body paragraph is skipped with its own counter because its words are not body text. Measured on md.odt (LibreOffice's docx to odt of the same draft): 35 lines, and exactly one differs from the docx rendering - the picture address, because each family hands over the target its own file wrote (media/image1.png versus a content-hashed Pictures name). A pptx renders the SAME shape through its own spellings: one `#` per page taken from the shape whose `p:ph/@type` is title/ctrTitle, and a leading `- ` ONLY where the paragraph's own `a:pPr` wrote `a:buChar` (or `a:buAutoNum` for an ordered item) - measured on one draft and LibreOffice's rewrite of it: python-pptx writes no `a:pPr` at all on those paragraphs (84 code points, bullets_written 0, bullets_silent 2) while the rewrite writes buChar on two of them (87 code points, same 5 blocks), so the two renderings differ by exactly the two markers the files themselves spoke, and nothing is filled in for a silent paragraph; pages with no title shape (deck-tr.pptx, 3) report titles_missing 3 rather than getting an invented heading. Bold and italic are ATTRIBUTES on `a:rPr` here (`b="1"`), not docx's child elements, `a:br` and `a:tab` are siblings of the runs (not inside them), and a link's address is one hop away in THAT page's own relationship part. Pages go in show order (presentation.xml's sldId list), which is not the numeric part order this ledger's paragraphs use - two orders in one file are both reported, never reconciled. Speaker notes do not enter the markdown (that is not what the audience sees); notes_pages counts the pages that have a notesSlide part. A `a:tbl` renders through the same pipe-table rule, and on deck-tables the two producers' ledgers are identical down to the code-point count. odp, ods, rtf, legacy .doc and .pdf do not carry this key at all: a missing key means this family was never moved here, not that the document is empty. See fact 109. "
+    about = "Read the human-readable text an office document actually contains. docx/docm: one entry per w:p in word/document.xml (Word's own paragraph notion, table cells included, w:tab and w:br restored), then the parts that are not in the body at all - comments, footnotes, endnotes, headers and footers - each entry carrying from/part/author/date so a comment never reads like body text. pptx/pptm: slides in numeric order, one entry per paragraph inside each shape, entries flagged title when the shape has a:ph type=title and separately flagged notes for notesSlideN.xml. xlsx/xlsm: one entry per valued cell with its reference and sheet name, covering both inline strings and the shared-string table, with formula cells reported as the formula because the file carries no cached result. odt/ods/odp: text:p and text:h from content.xml with outline levels - except .ods, which answers like a spreadsheet does: one entry per non-empty cell with its sheet name, A1-style reference and declared value type (the text shown in the cell, not office:value). ODF comments are text:annotation elements nested INSIDE a body paragraph (docx keeps them in a separate part), so they are emitted as their own entries carrying from/author/date read from their meta:creator and meta:date children, and the paragraph that holds one reports only its own text. An .odt's page headers and footers are not in content.xml either - they sit in styles.xml under style:master-page (a document with two sections has two master pages, and left/right/first-page variants are separate slots), so they are read there and flagged from=header/footer with the master-page name and slot. rtf: a destination-aware extractor that drops font/color/stylesheet tables and field instructions instead of leaking control words into the text; its page headers and footers live in the SAME stream as the body (only the destination groups named header / headerl / headerf / footer say which), so they are separated out and flagged from=header/footer with the slot name - one header often appears in several slots, which is reported as the file writes it rather than merged away. RTF notes are that story with a trap: LibreOffice writes footnotes AND endnotes into the same star-marked `footnote` destination group and marks the endnote with an `ftnalt` control word inside it, while that leading star means 'skip this group if you do not recognise the destination' - skipping on sight of the star silently loses every note in the file, so the destination name is read first and only unknown groups are dropped. Note text is never left in the body; each note comes out as its own entry with from=footnote/endnote plus the slot name, and the separator/continuation definitions (ftnsep, ftncn and their a-prefixed variants) are not counted as notes. RTF comments are a third destination story: the author sits in its own star-marked group BEFORE `{\\*\\annotation ...}` and the words inside that group, so the two lists are paired in file order and BOTH counts are published (a mismatch stays visible instead of being smoothed over); the annotation carries a number of its own which is the same number the anchored range writes at both its ends, so 'which run of text does this comment hang on' is answerable from the file rather than guessed; and the date those groups carry does not match the ISO stamp the docx of the same words holds (two measured samples), so date comes back null next to the raw digits as written. A Chinese author name is lost by the producer itself - LibreOffice writes question marks into the RTF while its own docx export keeps the name - and this reports what each file says instead of recovering it. Returns { path, format, app, kind, paragraphs: [{index, text, heading?, style?, slide?, sheet?, ref?, notes?, part}], line_count, chars, total_paragraphs, total_chars, cut, parts_read, notes } and cuts output at max_chars while still reporting full totals, so a silent truncation is impossible. Legacy .doc answers with its real paragraphs by walking the FIB piece table (the per-piece compression bit halves fc); legacy .xls answers with the shared-string table plus its sheet list and visibility; a .ppt (PowerPoint 97 record tree) answers kind=record-tree with every text atom found by walking the tree (master placeholders included, because they really are in the file). A .pdf answers kind=pages: content streams are inflated, glyph codes mapped through each font's /ToUnicode CMap, and lines rebuilt from the text positions (BT resets the matrix, glyph advance moves x only, a TJ number pushes the pen the opposite way), so a Chinese heading comes back as words rather than as its characters shuffled; an encrypted PDF returns no paragraphs and says why, because its streams are ciphertext and this domain does not decrypt. With --markdown it also renders a word-processing document's structure as markdown under { markdown: {family, available, text, chars, cut, blocks, paragraphs, headings, list_items, bullet_items, ordered_items, list_from_style, unresolved_fmt, tables, table_rows, empty_dropped; an .odt adds lists_named, lists_unnamed, spans_unresolved, annotations_dropped, notes_dropped, space_markers, links, images, covered_cells, repeated_spans} }: heading levels, list items (indentation taken only from the ilvl the file wrote), tables, external links, pictures, bold and italic runs and hard line breaks, with the counts published beside the text so a rendering is never just a string. Measured on md.docx and its LibreOffice rewrite: the two renderings are identical, 359 code points, while list_from_style goes 5 to 0, because one producer writes the numbering on the paragraph's style and the other copies it onto the paragraph - the text cannot show that, the ledger can. Escaping is applied only where markdown would otherwise read the file's own words as structure (a body paragraph starting with # or 1., a pipe inside a table cell) and nowhere else, and link and picture targets are handed over exactly as the relationship part wrote them. Empty paragraphs and a paragraph that is only a page break do not appear in markdown, so their count is reported instead. An .odt renders through the same shape reading that family's own markers: bold and italic sit one HOP away on a character style (a hop that resolves to nothing is counted in spans_unresolved instead of guessed), spaces, tabs and line breaks are ELEMENTS that must be expanded (space_markers counts them), list depth comes from nested text:list elements rather than an ilvl number, and a comment or note nested INSIDE a body paragraph is skipped with its own counter because its words are not body text. Measured on md.odt (LibreOffice's docx to odt of the same draft): 35 lines, and exactly one differs from the docx rendering - the picture address, because each family hands over the target its own file wrote (media/image1.png versus a content-hashed Pictures name). A pptx renders the SAME shape through its own spellings: one `#` per page taken from the shape whose `p:ph/@type` is title/ctrTitle, and a leading `- ` ONLY where the paragraph's own `a:pPr` wrote `a:buChar` (or `a:buAutoNum` for an ordered item) - measured on one draft and LibreOffice's rewrite of it: python-pptx writes no `a:pPr` at all on those paragraphs (84 code points, bullets_written 0, bullets_silent 2) while the rewrite writes buChar on two of them (87 code points, same 5 blocks), so the two renderings differ by exactly the two markers the files themselves spoke, and nothing is filled in for a silent paragraph; pages with no title shape (deck-tr.pptx, 3) report titles_missing 3 rather than getting an invented heading. Bold and italic are ATTRIBUTES on `a:rPr` here (`b="1"`), not docx's child elements, `a:br` and `a:tab` are siblings of the runs (not inside them), and a link's address is one hop away in THAT page's own relationship part. Pages go in show order (presentation.xml's sldId list), which is not the numeric part order this ledger's paragraphs use - two orders in one file are both reported, never reconciled. Speaker notes do not enter the markdown (that is not what the audience sees); notes_pages counts the pages that have a notesSlide part. A `a:tbl` renders through the same pipe-table rule, and on deck-tables the two producers' ledgers are identical down to the code-point count. odp renders that SAME outline through its own spellings: a page's title is the first non-empty paragraph of the shape whose `presentation:class` says title, so `deck-tr.odp` - three pages, no such class anywhere - gets `titles_missing` 3 and not one `#` line; and a bullet is not an attribute at all here, the paragraph simply lives inside a `text:list` > `text:list-item` element, so nesting is the level and `levels_written` comes back 0 on every odp in this corpus because that family writes no level number to look at. Measured: LibreOffice's own .pptx and .odp of the same draft render to the SAME 87 code points and 5 blocks even though one writes `a:buChar` and the other wraps the paragraph in an element - while the rest of the two ledgers stay one-family-each (notes_pages 2 to 1, pictures 2 to 1, and covered_cells is a key only the odp ledger carries, 2 on deck-tables.odp, because that family writes a placeholder cell). `presentation:notes` is NOT a second `draw:page` - its children are a `draw:page-thumbnail` frame plus the note frames, and it holds no `draw:image` - so counting elements whose local name is page reaches real pages only: eqs.odp reports 2 pages / 0 note blocks and LibreOffice's rewrite of it, eqs-lo.odp, reports 2 pages / 2 note blocks with one extra picture and the same 11 code points of text. Paragraphs inside a table, an embedded object, a picture or a control are not handed over a second time as page text (the mirror printed one sentence twice before this rule was added), and bold/italic hops, space and tab markers, skipped annotations and the covered_cells / repeated_spans / links tallies ride the same OdfRun the .odt ledger uses. ods, rtf, legacy .doc and .pdf do not carry this key at all: a missing key means this family was never moved here, not that the document is empty. See fact 109, 117, 118. "
 )]
 pub struct OfficeText {
     /// 办公文件
@@ -55,7 +55,8 @@ pub struct OfficeText {
     #[arg(about = "Read at most this many bytes", default = 67108864)]
     max_bytes: u64,
 
-    /// 把结构搬成 markdown 一起交（目前三族走这一本：OOXML 的 word、OOXML 的 powerpoint 与 ODF 的 odt）
+    /// 把结构搬成 markdown 一起交（目前四族走这一本：OOXML 的 word、OOXML 的 powerpoint、
+    /// ODF 的 odt 与 ODF 的 presentation）
     #[arg(about = "Also render the document structure as markdown")]
     markdown: bool,
 }
@@ -419,6 +420,12 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                     let budget = crate::opack::take_limit(app.max_chars, MAX_CHARS_DEFAULT);
                     markdown = Some(crate::markdown::odf(bytes, budget));
                 }
+                if app.markdown && doc.app == "presentation" {
+                    // 放映的大纲走页序（`content.xml` 里 `draw:page` 的先后），不是上面那份
+                    // 全文段序：这一本按页交，两序本来可以不一样，各按各的交不合并
+                    let budget = crate::opack::take_limit(app.max_chars, MAX_CHARS_DEFAULT);
+                    markdown = Some(crate::markdown::odp_deck(bytes, budget));
+                }
                 // 批注（ODF 里叫 text:annotation）：作者与时间挂在它自己的 meta:* 孩子上，
                 // 不是属性 —— 这跟 docx 的 w:comment 正好相反，两边都得照文件读。
                 let annotations = root.descendants("annotation");
@@ -709,7 +716,7 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
     }
     if app.markdown && markdown.is_none() {
         notes.push(
-            "markdown 这一本目前只交三族：OOXML 的 word（docx / docm）、OOXML 的 powerpoint（pptx / pptm）与 ODF 的 odt —— 这份件不是那三族，所以那个键整个不在（缺键 = 这一族还没搬，不是空文档）".to_string(),
+            "markdown 这一本目前只交四族：OOXML 的 word（docx / docm）、OOXML 的 powerpoint（pptx / pptm）、ODF 的 odt 与 ODF 的 odp —— 这份件不是那四族，所以那个键整个不在（缺键 = 这一族还没搬，不是空文档）".to_string(),
         );
     }
     let mut result = json!({
@@ -1071,10 +1078,179 @@ mod tests {
                 .contains("# "),
             "没有标题就不要有标题行"
         );
-        // odp 这一族还没搬：那个键整个不在（缺键 = 这一族没读，不是空文档）
-        assert!(rendered("deck.odp").get("markdown").is_none());
+        // ── 同一本大纲的 odp 那一面：条目是 `text:list` 元素，标题在框的 class 上 ──────
+        // 两族把「这是一条」说在两处，而 LibreOffice 的两份导出渲染可以一字不差
+        let odp = rendered("deck.odp");
+        let md_odp = &odp["markdown"];
+        assert_eq!(md_odp["family"], "odp");
+        assert_eq!(md_odp["available"], true);
+        assert_eq!(md_odp["pages"], 2);
+        assert_eq!(md_odp["titles"], 2);
+        assert_eq!(md_odp["titles_missing"], 0);
+        assert_eq!(md_odp["paragraphs"], 2);
+        assert_eq!(md_odp["headings"], 0);
+        assert_eq!(md_odp["bullets_written"], 2);
+        assert_eq!(md_odp["bullets_denied"], 0);
+        assert_eq!(md_odp["bullets_silent"], 0);
+        assert_eq!(md_odp["tables"], 1);
+        assert_eq!(md_odp["table_rows"], 2);
+        assert_eq!(md_odp["empty_dropped"], 0);
+        assert_eq!(md_odp["notes_pages"], 2);
+        assert_eq!(md_odp["links"], 0);
+        assert_eq!(md_odp["pictures"], 2);
+        assert_eq!(md_odp["levels_written"], 0);
+        assert_eq!(md_odp["covered_cells"], 0);
+        assert_eq!(md_odp["repeated_spans"], 0);
+        assert_eq!(md_odp["blocks"], 5);
+        assert_eq!(md_odp["chars"], 87);
+        assert_eq!(md_odp["cut"], false);
+        assert_eq!(md_odp["text"], "# 预算评审\n\n- 新增两台 64 核应用服务器\n- 第二条要点\n\n# 第二页：数字\n\n| 科目 | 金额 |\n| --- | --- |\n| 服务器 | 124000 |\n");
+        assert_eq!(md_odp["text"], md_back["text"], "两族同一份渲染");
+        assert_eq!(md_odp["chars"], md_back["chars"], "码位也一样");
+        assert_ne!(
+            md_odp["notes_pages"], md_back["notes_pages"],
+            "备注这一家每页都写一块，pptx 那份只有一页有：两本账各数各的"
+        );
+        assert_ne!(
+            md_odp["pictures"], md_back["pictures"],
+            "页上的图也一样多数一枚"
+        );
+        let odp_tab = rendered("deck-tables.odp");
+        let md_odp_tab = &odp_tab["markdown"];
+        assert_eq!(md_odp_tab["family"], "odp");
+        assert_eq!(md_odp_tab["available"], true);
+        assert_eq!(md_odp_tab["pages"], 1);
+        assert_eq!(md_odp_tab["titles"], 1);
+        assert_eq!(md_odp_tab["titles_missing"], 0);
+        assert_eq!(md_odp_tab["paragraphs"], 0);
+        assert_eq!(md_odp_tab["headings"], 0);
+        assert_eq!(md_odp_tab["bullets_written"], 0);
+        assert_eq!(md_odp_tab["bullets_denied"], 0);
+        assert_eq!(md_odp_tab["bullets_silent"], 0);
+        assert_eq!(md_odp_tab["tables"], 1);
+        assert_eq!(md_odp_tab["table_rows"], 3);
+        assert_eq!(md_odp_tab["empty_dropped"], 0);
+        assert_eq!(md_odp_tab["notes_pages"], 1);
+        assert_eq!(md_odp_tab["links"], 0);
+        assert_eq!(md_odp_tab["pictures"], 1);
+        assert_eq!(md_odp_tab["levels_written"], 0);
+        assert_eq!(md_odp_tab["covered_cells"], 2);
+        assert_eq!(md_odp_tab["repeated_spans"], 0);
+        assert_eq!(md_odp_tab["blocks"], 2);
+        assert_eq!(md_odp_tab["chars"], 95);
+        assert_eq!(md_odp_tab["cut"], false);
+        assert_eq!(md_odp_tab["text"], "# 表格那一页\n\n| 科目<br>金额 |  | 备注 |\n| --- | --- | --- |\n| 服务器 | 124000 | 含税 |\n| 网络<br>设备 | 8000 |  |\n");
+        assert_eq!(
+            md_odp_tab["text"], md_tab["text"],
+            "同一张表在两族手里铺成同一份 markdown"
+        );
+        let odp_tr = rendered("deck-tr.odp");
+        let md_odp_tr = &odp_tr["markdown"];
+        assert_eq!(md_odp_tr["family"], "odp");
+        assert_eq!(md_odp_tr["available"], true);
+        assert_eq!(md_odp_tr["pages"], 3);
+        assert_eq!(md_odp_tr["titles"], 0);
+        assert_eq!(md_odp_tr["titles_missing"], 3);
+        assert_eq!(md_odp_tr["paragraphs"], 3);
+        assert_eq!(md_odp_tr["headings"], 0);
+        assert_eq!(md_odp_tr["bullets_written"], 0);
+        assert_eq!(md_odp_tr["bullets_denied"], 0);
+        assert_eq!(md_odp_tr["bullets_silent"], 3);
+        assert_eq!(md_odp_tr["tables"], 0);
+        assert_eq!(md_odp_tr["table_rows"], 0);
+        assert_eq!(md_odp_tr["empty_dropped"], 0);
+        assert_eq!(md_odp_tr["notes_pages"], 3);
+        assert_eq!(md_odp_tr["links"], 0);
+        assert_eq!(md_odp_tr["pictures"], 0);
+        assert_eq!(md_odp_tr["levels_written"], 0);
+        assert_eq!(md_odp_tr["covered_cells"], 0);
+        assert_eq!(md_odp_tr["repeated_spans"], 0);
+        assert_eq!(md_odp_tr["blocks"], 3);
+        assert_eq!(md_odp_tr["chars"], 54);
+        assert_eq!(md_odp_tr["cut"], false);
+        assert_eq!(md_odp_tr["text"], "第一页：淡入、点一下也换、五秒自动换\n\n第二页：只写切换效果（左向擦除）\n\n第三页：切换这件事一个字都没写\n");
+        assert!(
+            !md_odp_tr["text"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("# "),
+            "没有标题形状就不要有标题行"
+        );
+        let odp_eqs = rendered("eqs.odp");
+        let md_odp_eqs = &odp_eqs["markdown"];
+        assert_eq!(md_odp_eqs["family"], "odp");
+        assert_eq!(md_odp_eqs["available"], true);
+        assert_eq!(md_odp_eqs["pages"], 2);
+        assert_eq!(md_odp_eqs["titles"], 0);
+        assert_eq!(md_odp_eqs["titles_missing"], 2);
+        assert_eq!(md_odp_eqs["paragraphs"], 1);
+        assert_eq!(md_odp_eqs["headings"], 0);
+        assert_eq!(md_odp_eqs["bullets_written"], 0);
+        assert_eq!(md_odp_eqs["bullets_denied"], 0);
+        assert_eq!(md_odp_eqs["bullets_silent"], 1);
+        assert_eq!(md_odp_eqs["tables"], 0);
+        assert_eq!(md_odp_eqs["table_rows"], 0);
+        assert_eq!(md_odp_eqs["empty_dropped"], 0);
+        assert_eq!(md_odp_eqs["notes_pages"], 0);
+        assert_eq!(md_odp_eqs["links"], 0);
+        assert_eq!(md_odp_eqs["pictures"], 1);
+        assert_eq!(md_odp_eqs["levels_written"], 0);
+        assert_eq!(md_odp_eqs["covered_cells"], 0);
+        assert_eq!(md_odp_eqs["repeated_spans"], 0);
+        assert_eq!(md_odp_eqs["blocks"], 1);
+        assert_eq!(md_odp_eqs["chars"], 11);
+        assert_eq!(md_odp_eqs["cut"], false);
+        assert_eq!(md_odp_eqs["text"], "这一页还有一句普通字\n");
+        assert_eq!(
+            md_odp_eqs["notes_pages"], 0,
+            "这份 odp 一个备注块都没有：0 是数过了没有，不是没看"
+        );
+        // 同一份字被 LibreOffice 重写一遍：备注块从无变有，页上的图也多一枚
+        let odp_eqs_lo = rendered("eqs-lo.odp");
+        assert_eq!(
+            odp_eqs_lo["markdown"]["notes_pages"], 2,
+            "`presentation:notes` 那一块不是第二张 `draw:page`：按局部名数页只数到真页"
+        );
+        assert_eq!(odp_eqs_lo["markdown"]["pictures"], 2);
+        assert_eq!(odp_eqs_lo["markdown"]["pages"], 2);
+        assert_eq!(
+            odp_eqs_lo["markdown"]["chars"], 11,
+            "字一句没多，只有那两块账在动"
+        );
+        let odp_pic = rendered("deck-pictures.odp");
+        let md_odp_pic = &odp_pic["markdown"];
+        assert_eq!(md_odp_pic["family"], "odp");
+        assert_eq!(md_odp_pic["available"], true);
+        assert_eq!(md_odp_pic["pages"], 3);
+        assert_eq!(md_odp_pic["titles"], 0);
+        assert_eq!(md_odp_pic["titles_missing"], 3);
+        assert_eq!(md_odp_pic["paragraphs"], 1);
+        assert_eq!(md_odp_pic["headings"], 0);
+        assert_eq!(md_odp_pic["bullets_written"], 0);
+        assert_eq!(md_odp_pic["bullets_denied"], 0);
+        assert_eq!(md_odp_pic["bullets_silent"], 1);
+        assert_eq!(md_odp_pic["tables"], 0);
+        assert_eq!(md_odp_pic["table_rows"], 0);
+        assert_eq!(md_odp_pic["empty_dropped"], 0);
+        assert_eq!(md_odp_pic["notes_pages"], 3);
+        assert_eq!(md_odp_pic["links"], 0);
+        assert_eq!(md_odp_pic["pictures"], 2);
+        assert_eq!(md_odp_pic["levels_written"], 0);
+        assert_eq!(md_odp_pic["covered_cells"], 0);
+        assert_eq!(md_odp_pic["repeated_spans"], 0);
+        assert_eq!(md_odp_pic["blocks"], 1);
+        assert_eq!(md_odp_pic["chars"], 7);
+        assert_eq!(md_odp_pic["cut"], false);
+        assert_eq!(md_odp_pic["text"], "没有图的一页\n");
+        assert_eq!(
+            md_odp_pic["pictures"], 2,
+            "三页里两张图：`draw:image` 直接挂在页上时也要数到（不只在 frame 里）"
+        );
+        // .ods 没有页级大纲那棵树：那个键整个不在（缺键 = 这一族没读，不是空文档）
+        assert!(rendered("book.ods").get("markdown").is_none());
         // 不开 --markdown 时也是整个不在（不交一份空串装作渲染过）
         assert!(run("deck.pptx", 20000, false).get("markdown").is_none());
+        assert!(run("deck.odp", 20000, false).get("markdown").is_none());
     }
 
     fn texts(out: &Value) -> Vec<String> {

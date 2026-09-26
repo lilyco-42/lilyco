@@ -6389,14 +6389,62 @@ def main() -> int:
     check(
         "没有标题形状的那份件不替它编标题：`deck-tr.pptx` 三页全是 `titles_missing`，"
         "整篇没有一行 `# `；备注不进 markdown（那不是给观众看的字），只数几页有备注部件；"
-        "odp 这一族还没搬所以那个键整个不在，`--markdown` 不开时也一样",
+        "没搬的是 .ods —— 它按格子交字，没有页级大纲那棵树，所以那个键整个不在，"
+        "`--markdown` 不开时也一样（odp 这一族已经搬进来了，上面逐份对账）",
         [dig(lbin("office-text", fixture("deck-tr.pptx"), "--markdown"), "markdown.titles"),
          dig(lbin("office-text", fixture("deck-tr.pptx"), "--markdown"), "markdown.titles_missing"),
          dig(back, "markdown.notes_pages"), dig(back, "markdown.links"),
          dig(back, "markdown.pictures"),
-         lbin("office-text", fixture("deck.odp"), "--markdown").get("markdown"),
+         lbin("office-text", fixture("book.ods"), "--markdown").get("markdown"),
          lbin("office-text", fixture("deck-lo.pptx")).get("markdown")],
         [0, 3, 1, 0, 1, None, None],
+    )
+    # ── 3b1) 同一本大纲的 odp 那一面：条目是元素，标题在框的 class 上 ──────────────
+    print("=== 3b1) office-text --markdown 的 odp 支：两族把「条目」说在两处，渲染却可以一字不差 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.odp")):
+        got = lbin("office-text", fixture(name), "--markdown")
+        check("%s 的大纲整份与读者一致（渲染逐字、计数逐格）" % name,
+              got.get("markdown"), files[name]["odp"]["markdown"])
+    odp_deck = lbin("office-text", fixture("deck.odp"), "--markdown")
+    odp_tab = lbin("office-text", fixture("deck-tables.odp"), "--markdown")
+    odp_tr = lbin("office-text", fixture("deck-tr.odp"), "--markdown")
+    odp_eqs = lbin("office-text", fixture("eqs.odp"), "--markdown")
+    odp_eqs_lo = lbin("office-text", fixture("eqs-lo.odp"), "--markdown")
+    check(
+        "同一份稿子从 LibreOffice 出去的两族，渲染可以一字不差：`deck-lo.pptx` 与 `deck.odp`"
+        "同为 87 码位 5 块、整串相等 —— pptx 把条目写在 `a:pPr/a:buChar` 上，odp 直接把段装进"
+        "`text:list-item` 元素，两处各说各的，读者不替对方翻译；`deck-tables` 那张表在两家手里也"
+        "是同一份 markdown（95 码位，1 张表 2 个被盖住的占位格）。可其余账目一家一份，"
+        "谁也不替谁补齐：odp 每页都写备注块（notes_pages 2 对 pptx 的 1）、页上的图也多数一枚"
+        "（2 对 1），而这一族没有 `a:pPr/@lvl` 那样的层级属性（levels_written 0）",
+        [dig(odp_deck, "markdown.chars"), dig(odp_deck, "markdown.blocks"),
+         dig(odp_deck, "markdown.text") == dig(back, "markdown.text"),
+         dig(odp_deck, "markdown.notes_pages"), dig(back, "markdown.notes_pages"),
+         dig(odp_deck, "markdown.pictures"), dig(back, "markdown.pictures"),
+         dig(odp_deck, "markdown.levels_written"),
+         dig(odp_tab, "markdown.text") == dig(tab, "markdown.text"),
+         dig(odp_tab, "markdown.chars"), dig(odp_tab, "markdown.tables"),
+         dig(odp_tab, "markdown.covered_cells")],
+        [87, 5, True, 2, 1, 2, 1, 0, True, 95, 1, 2],
+    )
+    check(
+        "备注块不是第二张 `draw:page`：LibreOffice 把 `presentation:notes` 写成 "
+        "`draw:page-thumbnail` 加两个 `draw:frame`（那块里一枚 `draw:image` 也没有），按局部名数 "
+        "`page` 只数到真页 —— `deck.odp` 2 页 2 个备注块，而 `eqs.odp` 2 页一个备注块都没有"
+        "（0：那一份的外壳是手写的，LibreOffice 没有 odt → odp 的导出过滤器），同一份字被它重写成 "
+        "`eqs-lo.odp` 后备注块变成 2、页上的图也多一枚（2 对 1）—— 两家对「一页该不该有备注块」答案"
+        "不同，两本账分开。`deck-tr.odp` 3 页没有一个 `presentation:class=title`，整篇一行 "
+        "`# ` 也不写、3 页全记 `titles_missing`；`text:h` 在这一批 odp 里一个都没有，所以"
+        "`headings` 与 `levels_written` 全 0（0 = 数过了没有，不是没看）",
+        [dig(odp_deck, "markdown.pages"), dig(odp_deck, "markdown.notes_pages"),
+         dig(odp_eqs, "markdown.pages"), dig(odp_eqs, "markdown.notes_pages"),
+         dig(odp_eqs_lo, "markdown.notes_pages"), dig(odp_eqs_lo, "markdown.pictures"),
+         dig(odp_eqs, "markdown.pictures"),
+         dig(odp_tr, "markdown.titles"), dig(odp_tr, "markdown.titles_missing"),
+         "# " in str(dig(odp_tr, "markdown.text")),
+         dig(odp_tr, "markdown.headings"), dig(odp_tr, "markdown.levels_written"),
+         dig(odp_deck, "markdown.headings")],
+        [2, 2, 2, 0, 2, 2, 1, 0, 3, False, 0, 0, 0],
     )
     # ── 3az) 放映里那张表铺成 CSV：挑页有三层，两家都留着被盖住那一格 ──────────────
     print("=== 3az) office-slide --csv：一页一张表一份账，页身份与页号一起交 ===")
