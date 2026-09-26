@@ -29,6 +29,13 @@ const SLIDE_CONTAINER: u64 = 0x03F8;
 /// 一页一个的这种容器装着该页的文字原子（归属关系是拿 pptx 那副面孔对出来的，
 /// 不是我给这个数值起的名字 —— 手上没有 [MS-PPT] 的规范文本，所以这里只报数值）
 const SLIDE_RECORD: u64 = 0x03EE;
+/// 每一块文字**前面**那条四字记录：LibreOffice 在这里写一个 u32，量出来它是
+/// 「这一块是什么」的凭据 —— 但名字我不背规范，只报文件写的数值。
+/// 凭据是同一批稿子的两副面孔：deck.ppt / deck-ph-lo.ppt / deck-tables-lo.ppt /
+/// deck-hidden-lo.ppt 四份件里，pptx 那头 `p:ph/@type="title"` 的那一块在这里都是 0
+/// （数过的标题块共 7 个，没有一个例外），而正文占位符、自由文本框与一张表摊平出来的
+/// 格子都是 4；母版与版式里那些块的标题也是 0、正文是 1。
+const BLOCK_TYPE_ATOM: u64 = 0x0F9F;
 const MAX_RECORDS: usize = 200_000;
 // 真件里幻灯片文字在第 6~7 层；再深就分不清「子容器」和「碰巧能铺满的 blob」了
 const MAX_DEPTH: usize = 8;
@@ -148,6 +155,9 @@ fn decode_text(kind: u64, body: &[u8]) -> String {
 
 fn walk_tree(buf: &[u8], depth: usize, current: Option<usize>, deck: &mut Walk) {
     let mut at = 0usize;
+    // 「这一层最近说过的那块文字是什么」：只在本层有效，进子容器另起一个
+    // （实测两者是同一层的兄弟记录：`0x0F9F` 紧跟它的文字原子）
+    let mut block_type: Option<u64> = None;
     while at + 8 <= buf.len() && deck.records < MAX_RECORDS {
         let Some((kind, len)) = head(buf, at) else {
             break;
@@ -172,6 +182,12 @@ fn walk_tree(buf: &[u8], depth: usize, current: Option<usize>, deck: &mut Walk) 
         // deck.ppt 里这样的容器有 2 个，各自的文字与 deck.pptx 的
         // ppt/slides/slide1.xml / slide2.xml 逐张一致。
         let mut next = current;
+        if kind == BLOCK_TYPE_ATOM {
+            // 读得出才换：一条太短的同类记录不该把上一块说过的值抹成「没说过」
+            if let Some(had) = le32(0)(body) {
+                block_type = Some(had);
+            }
+        }
         if kind == SLIDE_RECORD && tiles_here {
             deck.slides.push(Slide {
                 offset: at,
@@ -179,6 +195,7 @@ fn walk_tree(buf: &[u8], depth: usize, current: Option<usize>, deck: &mut Walk) 
                 name: String::new(),
                 atoms: 0,
                 lines: Vec::new(),
+                blocks: Vec::new(),
             });
             next = Some(deck.slides.len() - 1);
         }
@@ -200,6 +217,9 @@ fn walk_tree(buf: &[u8], depth: usize, current: Option<usize>, deck: &mut Walk) 
                         slide.name = text;
                     }
                 } else {
+                    // 一块一行：这块自己前面写的那个数值 + 文件写的整截字（不按 `\r` 摊开 ——
+                    // 摊开是 `lines` 那本账的口径，这一本要说的是「哪一块」）
+                    slide.blocks.push((block_type, text.clone()));
                     for line in text.split(['\r', '\n', '\u{b}']) {
                         if !line.trim().is_empty() {
                             slide.lines.push(line.to_string());
@@ -228,6 +248,9 @@ pub struct Slide {
     pub name: String,
     pub atoms: usize,
     pub lines: Vec<String>,
+    /// 一块一行：`(这一块前面那条四字记录写的数值, 文件写的整截字)`。
+    /// 数值按文件写的交，不翻译；哪些块是标题见 `BLOCK_TYPE_ATOM` 那段
+    pub blocks: Vec<(Option<u64>, String)>,
 }
 
 struct Walk {
@@ -311,6 +334,87 @@ mod tests {
             "{grouped} vs {}",
             deck.atoms.len()
         );
+    }
+
+    /// 每一块文字前面那个数值：0 与 4 的分别是拿同一批稿子的 pptx 那副面孔量出来的
+    /// （期望值全部来自 `lyco_legacy.ppt_text` 的 `blocks`，一份一份生成，不手写）
+    #[test]
+    fn a_block_of_text_carries_the_number_written_before_it() {
+        let (bytes, cfb) = open("deck.ppt");
+        let deck = read(&cfb, &bytes).expect("读得出记录树");
+        assert_eq!(
+            deck.slides[0].blocks,
+            vec![
+                (Some(0), "预算评审".to_string()),
+                (Some(4), "新增两台 64 核应用服务器\r第二条要点".to_string()),
+            ],
+            "第一页两块：标题那块写 0，正文那块写 4"
+        );
+        assert_eq!(
+            deck.slides[1].blocks,
+            vec![
+                (Some(0), "第二页：数字".to_string()),
+                (Some(4), "科目".to_string()),
+                (Some(4), "金额".to_string()),
+                (Some(4), "服务器".to_string()),
+                (Some(4), "124000".to_string()),
+            ]
+        );
+        // 第二份件：四页里有三页带标题块，第四页只有一个自由文本框（没有 0 的那一页
+        // 也在同一份件里 —— 「这一页没有标题块」是数出来的，不是读不到）
+        let (bytes, cfb) = open("deck-ph-lo.ppt");
+        let deck = read(&cfb, &bytes).expect("读得出记录树");
+        assert_eq!(deck.slides.len(), 4, "0x03EE 的容器应当一页一个");
+        assert_eq!(
+            deck.slides[0].blocks,
+            vec![
+                (Some(0), "预算评审".to_string()),
+                (Some(4), "先讲口径\r再讲数字".to_string()),
+            ]
+        );
+        assert_eq!(
+            deck.slides[1].blocks,
+            vec![
+                (Some(0), "第二页".to_string()),
+                (Some(4), "这不是占位符".to_string()),
+            ]
+        );
+        assert!(
+            deck.slides[2].blocks.is_empty(),
+            "{:?}",
+            deck.slides[2].blocks
+        );
+        assert_eq!(
+            deck.slides[3].blocks,
+            vec![(Some(4), "只有一个文本框".to_string())]
+        );
+        // 第三份件：一页一张 3×3 的表，在这一族被**摊平成一块块文字**（八个格子八个块，
+        // 其中两个块自己带着文件写的 `\r`），所以「这页有几块字」与「这张表有几格」
+        // 在两种存法里不是同一个数
+        let (bytes, cfb) = open("deck-tables-lo.ppt");
+        let deck = read(&cfb, &bytes).expect("读得出记录树");
+        assert_eq!(
+            deck.slides[0].blocks,
+            vec![
+                (Some(0), "表格那一页".to_string()),
+                (Some(4), "科目\r金额".to_string()),
+                (Some(4), "备注".to_string()),
+                (Some(4), "服务器".to_string()),
+                (Some(4), "124000".to_string()),
+                (Some(4), "含税".to_string()),
+                (Some(4), "网络\r设备".to_string()),
+                (Some(4), "8000".to_string()),
+            ]
+        );
+        // 三份件里出现过的数值只有 0 与 4：没有第三种，所以也不去猜第三种是什么意思
+        let mut seen: Vec<Option<u64>> = deck
+            .slides
+            .iter()
+            .flat_map(|page| page.blocks.iter().map(|one| one.0))
+            .collect();
+        seen.sort();
+        seen.dedup();
+        assert_eq!(seen, vec![Some(0), Some(4)], "{seen:?}");
     }
 
     /// LibreOffice 由 deck.pptx 转出的真件：幻灯片文字一条不少、顺序对，

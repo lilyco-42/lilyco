@@ -206,6 +206,8 @@ def main() -> int:
         "book.xls": ("compound", "excel", "xls"),
         "hidden.xls": ("compound", "excel", "xls"),
         "deck.ppt": ("compound", "powerpoint", "ppt"),
+        "deck-ph-lo.ppt": ("compound", "powerpoint", "ppt"),
+        "deck-tables-lo.ppt": ("compound", "powerpoint", "ppt"),
         "notes.rtf": ("rtf", "word", "rtf"),
         "hidden.xlsx": ("ooxml", "excel", "xlsx"),
         "hidden-lo.xlsx": ("ooxml", "excel", "xlsx"),
@@ -513,7 +515,8 @@ def main() -> int:
         "加一枚真记号，把定义当记号数就会在第一个字之前先撞到一个，整条被判成「制表符之后」——"
         "读回来条目文字是 ['结构：一级', '结构：二级'] 的第一串、页码是第二串，而 ODF 那一份的页码挂在 `text:tab` **之后的一段裸文字**上"
         "（只收元素的直接文字就一个字也读不到）。老那两份 `toc.docx` / `toc.odt` 里目录是**注进去的壳**，"
-        "`entries` 因此是 0 / 0（数过了没有，不是没读）；`md.docx` 根本没有目录（`paras` 0）",
+        "`entries` 因此是 0 / 0（数过了没有，不是没读）；`md.docx` 根本没有目录（`paras` 0）。"
+        "最后那一格是第三族：RTF 也交这一本了，整份账拿读者的当期望（它的形状见下面「同问三个答案」那条）",
         [[one["text"] for one in dig(d_full, "contents.entries.list")][1],
          [one["page_written"] for one in dig(d_full, "contents.entries.list")][1],
          [one["text"] for one in dig(o_full, "contents.entries.list")][0],
@@ -524,8 +527,9 @@ def main() -> int:
          dig(lbin("office-doc", fixture("toc.odt")), "contents.entries.paras"),
          dig(lbin("office-doc", fixture("md.docx")), "contents.entries.paras"),
          dig(lbin("office-doc", fixture("md.docx")), "contents.entries.scope"),
-         lbin("office-doc", fixture("toc.rtf")).get("contents", {}).get("entries", "没有这个键")],
-        ['结构：一级', '1', '结构：一级', '1', 0, 2, 0, 1, 0, "sdt-content", "没有这个键"],
+         lbin("office-doc", fixture("toc.rtf")).get("contents", {}).get("entries")],
+        ['结构：一级', '1', '结构：一级', '1', 0, 2, 0, 1, 0, "sdt-content",
+         files["toc.rtf"]["rtf"]["contents"]["entries"]],
     )
 
     # ── 2c) RTF 的结构这一问：它不是包，是一条流，能数清的才报 ─────────────
@@ -1777,6 +1781,27 @@ def main() -> int:
     check("deck.ppt 与 deck.pptx 页数相同", len(slide97.get("slides", [])), len(slide.get("slides", [])))
     check("deck.ppt 与 deck.pptx 每页标题", [one["title"] for one in slide97.get("slides", [])],
           [one["title"] for one in slide.get("slides", [])])
+    # 每一块文字前面那条四字记录写的数值：两份读者各走一遍树，逐块比「数值 + 整截字」。
+    # 而 0 是不是「这一页的标题那块」，拿同一份稿子的 pptx 那一头逐页对（不是背规范）
+    for stem in ("deck", "deck-ph-lo", "deck-tables-lo"):
+        name = stem + ".ppt"
+        got = lbin("office-slide", fixture(name))
+        want = files[name]["ppt_text"]["slides"]
+        check("%s 每页那几块（文件写的数值与整截字）与读者一致" % name,
+              [one["blocks"] for one in got.get("slides", [])],
+              [one["blocks"] for one in want])
+        check("%s 每页块数与 blocks 那一本同一问" % name,
+              [one["blocks_total"] for one in got.get("slides", [])],
+              [len(one["blocks"]) for one in want])
+        peer = lbin("office-slide", fixture(stem + ".pptx"))
+        check("%s 写着 0 的那一块就是 %s.pptx 每页的标题（两副面孔逐页对）" % (name, stem),
+              [[one["text"] for one in page["blocks"] if one["type_written"] == 0]
+               for page in got.get("slides", [])],
+              [[one["title"]] if one["title"] else [] for one in peer.get("slides", [])])
+        check("%s 除了 0 就是 4：这一族没有第三种数在这几份件里出现过" % name,
+              sorted({one["type_written"] for page in got.get("slides", [])
+                      for one in page["blocks"]}),
+              [0, 4])
     rtf = lbin("office-text", fixture("notes.rtf"))
     # 这一支现在也有侧账了（那一份流里有一条批注），所以正文行要挑「没有 from 的那些」——
     # 与页眉页脚、注那几条同一个口径

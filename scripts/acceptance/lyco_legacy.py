@@ -551,6 +551,10 @@ PPT_SLIDE_CONTAINER = 0x03F8
 PPT_C_STRING = 0x0FBA
 # 一页一个的容器（数值是实测出来的，与 pptx 侧逐张对过；名字我没有）
 PPT_SLIDE_RECORD = 0x03EE
+# 每一块文字**前面**那条四字记录：它写一个 u32。0 与 4 的分别是拿同一批稿子的 pptx
+# 那副面孔量出来的（四份件、7 个标题块全是 0；正文占位符、自由文本框与被摊平成一块块
+# 文字的表格格子全是 4）。名字不背规范，只报数值
+PPT_BLOCK_TYPE_ATOM = 0x0F9F
 PPT_MAX_DEPTH = 8
 
 
@@ -605,6 +609,8 @@ def ppt_text(cfb_bytes: dict) -> dict:
 
     def walk(buf: bytes, depth: int, current: int | None) -> None:
         at = 0
+        # 本层最近说过的那块文字的数值（进子容器另起一个，跨层不传染）
+        block_type = None
         while at + 8 <= len(buf) and box["records"] < 200000:
             head = _ppt_head(buf, at)
             if head is None:
@@ -616,12 +622,16 @@ def ppt_text(cfb_bytes: dict) -> dict:
                 return
             box["records"] += 1
             body = buf[at + 8 : end]
+            if kind == PPT_BLOCK_TYPE_ATOM and len(body) >= 4:
+                # 「这一块是什么」写在紧挨着它前面那条记录里，所以只记本层最近的那一个
+                block_type = _u32(body, 0)
             tiles_here = depth < PPT_MAX_DEPTH and bool(body) and _ppt_tiles(bytes(body))
             # 按页归位：recType 0x03EE 的容器一页一个（这条对应关系是拿同一份文档的
             # pptx 那一份逐张对出来的，不是照 recType 的名字猜的 —— 名字我没有）
             child = current
             if kind == PPT_SLIDE_RECORD and tiles_here:
-                slides.append({"record_offset": at, "depth": depth, "name": "", "atoms": 0, "lines": []})
+                slides.append({"record_offset": at, "depth": depth, "name": "", "atoms": 0,
+                               "lines": [], "blocks": []})
                 # 只往**这一条记录的子树**里传，不复用 current：改了它，同一层后面的
                 # 兄弟记录（母版、备注…）就会被算进上一页
                 child = len(slides) - 1
@@ -643,6 +653,8 @@ def ppt_text(cfb_bytes: dict) -> dict:
                         if not one["name"]:
                             one["name"] = text
                     else:
+                        # 一块一行：这块自己前面写的数值 + 整截字（摊开成行是 lines 那本账）
+                        one["blocks"].append({"type_written": block_type, "text": text})
                         for part in text.replace("\r", "\n").replace("\x0b", "\n").split("\n"):
                             if part.strip():
                                 one["lines"].append(part)

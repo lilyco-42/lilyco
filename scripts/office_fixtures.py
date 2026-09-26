@@ -4640,6 +4640,11 @@ def main() -> int:
         # 批注的第三种存法：作者与正文分在注的前后两格，中文作者名在 RTF 里被写成
         # 两个问号（同一批字的 docx 那边照抄「刘奇」）—— 两种答案都要留着
         (commented, "rtf"),
+        # .ppt 先前只有 deck.ppt 一份件，「这一块文字是什么」这一问量不出第二个样本。
+        # 这两份从现成的 .pptx 转：一份有占位符与自由文本框（还有带项目符号的段），
+        # 一份一页一张 3×3 的表 —— 标题与非标题的分别、表被摊平成一块块文字，都各有对照
+        (OUT / "deck-ph-lo.pptx", "ppt"),
+        (OUT / "deck-tables-lo.pptx", "ppt"),
     ):
         convert(exe, src, fmt, SCRATCH)
     for name in (

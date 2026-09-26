@@ -187,6 +187,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `mulrk.xlsx` | openpyxl | 一行连续的八个数字 + 隔开一行三个 —— 就是为了逼出 MULRK 那种记录 |
 | `mulrk.xls` | LibreOffice（从 `mulrk.xlsx`） | BIFF8 的 MULRK(0x00BD)：一行连续格子共用一条记录，每格自己带 `{ixfe(2), rkmac(4)}`；这份件里正好两条（8 格与 3 格） |
 | `deck.ppt` | LibreOffice（从 `deck.pptx`） | PowerPoint 97 记录树 + 一个 59 万字节、走 FAT 的属性集流（大流那条分支的样本）；按 `0x03EE` 归出 2 页，与 `deck.pptx` 每页逐张一致 |
+| `deck-ph-lo.ppt` | LibreOffice（从 `deck-ph-lo.pptx`） | .ppt 那一族的第二与第三副样本：四页里有占位符页、只有一个自由文本框的页与**整页没有标题块**的那一页（`blocks` 空表是数出来的）；pptx 那头 `a:buChar` 的两段与 `a:buNone` 的两段，转过来段属性一字不差 —— 项目符号这一问在这族没有凭据，见事实 124 |
+| `deck-tables-lo.ppt` | LibreOffice（从 `deck-tables-lo.pptx`） | 一页一张 3×3 的表：在 .ppt 里被**摊平成八块文字**（两块自己带着文件写的 \r），所以「这页有几块字」与「这张表有几格」在两种存法里不是同一个数；每块前面那个四字数值在这里只有 0（标题那块）与 4（其余全部）|
 | `notes.rtf` | LibreOffice（从 `notes.docx`） | 字体表、颜色表、样式表、`\*\userprops`、域代码与 `\'hh` 回退字节 |
 | `hidden.xlsx` | openpyxl 3.1（`write_hidden_xlsx`） | 第 3、4 行隐藏，C/D/E 三列隐藏，**D2/E2 里有字**；一列一条 `<col min="3" max="3" hidden="1">` |
 | `hidden-lo.xlsx` | LibreOffice（`hidden.ods` 转回 OOXML） | 同一份账的另一种写法：`<col min="3" max="5" hidden="true">` 一条盖三列，没隐藏的行也写着 `hidden="false"` |
@@ -2344,6 +2346,31 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       别的账都是各交各的。
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
+
+124. **.ppt 里「这一块是什么」写在它前面那条四字记录里；段的项目符号在这族没有凭据**
+    - 怎么量的：手上 `.ppt` 只有一份（`deck.ppt`），一个问题一份件不算量过。于是把三份现成的
+      `.pptx`（`deck-ph-lo` / `deck-tables-lo` / `deck-hidden-lo`）用
+      `soffice --headless --norestore --convert-to ppt` 各转一份 —— 同一篇稿子的两副面孔，
+      可以横着对。前两份进了库，第三份只作对照（它证明的是隐藏页那一问，与这一条无关）。
+    - 每一块文字**前面**都有一条 `recType 0x0F9F` 的四字记录。pptx 那头 `p:ph/@type="title"`
+      的那一块，在这里写的数值是 **0**；正文占位符、自由文本框与被摊平成一块块字的表格格子
+      写的都是 **4**；母版与版式里那些块的标题也是 0、正文是 1。三份进的件里 5 个标题块
+      一字不差，没有出现第三种数值 —— 所以账上只交 `type_written`（文件写的数）与整截字，
+      **不背规范里的名字**（那份规范手上没有；而 LibreOffice 连 MS-PPT 说容器该写的版本半字节
+      都没写 `0xF`，靠版本位判容器在这位生产者上直接走不通，页归位用的是「正文能不能铺成
+      一条完整的记录流」，见事实 84 那条）。
+    - 反过来，有一件**没做**的要写清楚：段这一级没有「这一项带项目符号」的凭据。
+      `deck-ph-lo.ppt` 里，pptx 那头带 `a:buChar` 的两段与带 `a:buNone` 的两段，转过来
+      那段属性（`0x0FAA`）的载荷**一字不差**（只有开头那个「字属性流有多大」在变）。
+      所以 `--markdown` 的第六族不做：不是「还没搬」，是这一族的文件里没那句话
+      （对照：pptx 写 `a:buChar`、odp 写 `text:list-header` 上的 `buChar`、RTF 写 `levelnfc`）。
+    - 顺带量到一处形状：pptx 那张 3×3 的表在 .ppt 里是**八块文字**（一格一块，两块里
+      有文件自己写的 `\r`），所以「这页有几块字」与「这张表有几格」不是同一个问，
+      两边各交各的，不拿一边替另一边圆场。
+    - 还有一颗没人用的常量要记下来：`ppt.rs` 里 `TEXT_BYTES = 0x0FA8` 在这三份新件里
+      **一次也没出现**，而出现成对的是 `0x0FA1` 与 `0x0FA6`（46/46、42/42、36/36），
+      它们的载荷不是字。常量留着（删它是另一件事），但这一族的 8 位文本原子这条分支
+      **没有真件命中过** —— 说读过就是假的。
 
 123. **RTF 也交目录的缓存条目了：同一个「容器里有几段」，三家是三个答案**（`toc-full.rtf`）
     - 生产者与另两族同一条路（LibreOffice 的 Basic 宏：load → refresh fields → index.update()

@@ -682,6 +682,14 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
                         "depth": one.depth,
                         "text_atoms": one.atoms,
                         "layout_name": one.name,
+                        // 一块一行：这块自己前面那条四字记录写的数值（按文件写的交，不翻译）
+                        // 与整截字。哪些是 0 与哪些是 4 的对照见 `ppt::BLOCK_TYPE_ATOM` 那段
+                        "blocks": one
+                            .blocks
+                            .iter()
+                            .map(|(written, text)| json!({"type_written": written, "text": text}))
+                            .collect::<Vec<Value>>(),
+                        "blocks_total": one.blocks.len(),
                     }));
                 }
                 notes.push(format!(
