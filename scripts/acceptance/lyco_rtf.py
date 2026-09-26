@@ -798,7 +798,7 @@ def field_link(group: str) -> dict:
     return {"target": hit.group(1), "text": shown}
 
 
-def rtf_text(data: bytes) -> dict:
+def rtf_text(data: bytes, with_rows: bool = False) -> dict:
     """返回 `{text, lines, line_count, chars, ...}`：计数都是文件自己账上的数"""
     text = data.decode("latin-1", "replace")
     out: list[str] = []
@@ -1338,7 +1338,7 @@ def rtf_text(data: bytes) -> dict:
             else:
                 external += 1
     hits = [one for one in anchors if one in marks]
-    return {
+    out = {
         "headings": headings,
         "numbering": numbering,
         # 文档级那张纸的原样（`{"paperw":"12240","margt":"1440","landscape":"1"}`）——
@@ -1410,6 +1410,134 @@ def rtf_text(data: bytes) -> dict:
         "nested_table_cells": stats["nest_cells"],
         "ftnalt": bool(stats["alt"]),
         "replacement_chars": stats["replacements"],
+    }
+    if with_rows:
+        # 一段一行（`marks` 的序号，空段也在）。`headings` 与 `numbering.list` 两本都是
+        # 筛过的，按文件顺序问「这一段是标题吗 / 是一条吗 / 那一条的标签文件自己写了没有」
+        # 要靠这一本，不靠把两本的字拿去猜对号
+        by_at = {one["at"]: one for one in entries}
+        rows = []
+        for at, one in enumerate(paras):
+            had = flows[at] if at < len(flows) else {}
+            style = one["style"]
+            named = by_index.get(style) if style is not None else None
+            hit = HEADING_NAME.match(named) if named else None
+            item = by_at.get(at)
+            label = had.get("label") or {}
+            rows.append(
+                {
+                    "at": at,
+                    "text": one["text"],
+                    "style_index": style,
+                    "style_name": named,
+                    "heading_level": int(hit.group(1)) if hit else None,
+                    "ilvl": had.get("ilvl"),
+                    "ls": had.get("ls"),
+                    "in_list": item is not None,
+                    "level_found": bool(item and item.get("level_found")),
+                    "nfc": (item or {}).get("level", {}).get("nfc")
+                    if item and item.get("level")
+                    else None,
+                    "label_written": label.get("written"),
+                    "label": label.get("text"),
+                }
+            )
+        out["para_rows"] = rows
+    return out
+
+
+MD_MARKS = "\\*_`[]<>"
+
+
+def md_esc(text: str) -> str:
+    """与 `lyco_markdown.esc` 同一套字面集合（表外不躲竖线 —— 躲了就把「不是一张表」说成表）"""
+    out = []
+    for ch in text:
+        if ch in MD_MARKS:
+            out.append("\\")
+        out.append(ch)
+    return "".join(out)
+
+
+def rtf_markdown(data: bytes, budget: int = 20000) -> dict:
+    """RTF → markdown：只用 `rtf_text(with_rows=True)` 那本段流水，不另起一台解码器"""
+    led = rtf_text(data, with_rows=True)
+    stats = {
+        "paragraphs": 0,
+        "headings": 0,
+        "list_items": 0,
+        "bullet_items": 0,
+        "ordered_items": 0,
+        "items_unlabelled": 0,
+        "labels_stripped": 0,
+        "empty_dropped": 0,
+        "styles_unresolved": 0,
+        "tabs": 0,
+    }
+    from lyco_markdown import LEAD  # 同一枚「段首像记号」的判据，两族共用一把
+
+    blocks = []
+    for one in led["para_rows"]:
+        text = one["text"]
+        if not text:
+            stats["empty_dropped"] += 1
+            continue
+        if one["style_index"] is not None and one["style_name"] is None:
+            stats["styles_unresolved"] += 1
+        if "\t" in text:
+            stats["tabs"] += 1
+            # 口径与 docx / odt 那两族一致：段里的制表记号换成一个空格（`tabs` 记着几段有过）
+            text = text.replace("\t", " ")
+        if one["heading_level"]:
+            blocks.append((False, "#" * one["heading_level"] + " " + md_esc(text)))
+            stats["headings"] += 1
+            stats["paragraphs"] += 1
+            continue
+        if one["in_list"]:
+            stats["list_items"] += 1
+            body = text
+            label = one.get("label") or ""
+            # 摘掉文件自己写的那一枚标签（连同紧跟其后的制表记号）
+            if label and body.startswith(label):
+                rest = body[len(label):]
+                if rest.startswith("\t"):
+                    rest = rest[1:]
+                body = rest.lstrip()
+                stats["labels_stripped"] += 1
+            depth = int(one["ilvl"]) if (one["ilvl"] or "").lstrip("-").isdigit() else 0
+            indent = "  " * depth
+            if one["nfc"] == "23":
+                blocks.append((True, indent + "- " + md_esc(body)))
+                stats["bullet_items"] += 1
+            elif one["nfc"]:
+                blocks.append((True, indent + "1. " + md_esc(body)))
+                stats["ordered_items"] += 1
+            else:
+                # 号指不到那一级（定义没写、或 `\ilvl` 越界）：不替它编一个标记
+                stats["items_unlabelled"] += 1
+                blocks.append((False, indent + md_esc(body)))
+            stats["paragraphs"] += 1
+            continue
+        made = md_esc(text)
+        blocks.append((False, "\\" + made if LEAD.match(made) else made))
+        stats["paragraphs"] += 1
+    pieces = []
+    for index, (is_list, block) in enumerate(blocks):
+        if index:
+            pieces.append("\n" if is_list and blocks[index - 1][0] else "\n\n")
+        pieces.append(block)
+    text = ("".join(pieces) + "\n") if blocks else ""
+    chars = len(text)
+    shown = text[:budget]
+    return {
+        "family": "rtf",
+        "available": True,
+        "text": shown,
+        "chars": chars,
+        "cut": chars > budget,
+        "blocks": len(blocks),
+        "tables": None,
+        **stats,
     }
 
 
