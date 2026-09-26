@@ -1234,7 +1234,9 @@ pub fn pptx_deck(bytes: &[u8], budget: usize) -> Value {
     let Some(pres) = read_part(bytes, "ppt/presentation.xml") else {
         return json!({"family": "pptx", "available": false});
     };
-    let pres_source = "ppt/_rels/presentation.xml.rels";
+    // `Rel.source` 存的是**源部件**（`rel_source` 把 `_rels/` 与 `.rels` 都剥掉了），
+    // 拿关系表的成员名去比永远配不上 —— 那样放映序解不出来、页上三条链也全成「指不到」
+    let pres_source = "ppt/presentation.xml";
     let mut order: Vec<String> = Vec::new();
     for one in pres.descendants("sldId") {
         let Some(rid) = prefixed_id(one) else {
@@ -1286,15 +1288,9 @@ pub fn pptx_deck(bytes: &[u8], budget: usize) -> Value {
         {
             notes_pages += 1;
         }
-        let source = format!(
-            "{}/_rels/{}.rels",
-            part.rsplit_once('/')
-                .map(|(head, _)| head)
-                .unwrap_or_default(),
-            part.rsplit_once('/')
-                .map(|(_, tail)| tail)
-                .unwrap_or_default()
-        );
+        // 这一页自己的关系表：查 `Rel.source` 要写**部件名**（`ppt/slides/slideN.xml`），
+        // 不是 `_rels/slideN.xml.rels`（见上面 `pres_source` 那一条，两处是同一个坑）
+        let source = part.clone();
         let mut title_done = false;
         // 页上的形状按**文档顺序**走（组的孩子也算页上的形状）：分开三种名字各走一遍
         // 会把叠放顺序说成「先所有文本框、再所有图框」，那是读者的顺序不是文件的顺序

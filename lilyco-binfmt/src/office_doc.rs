@@ -5073,7 +5073,8 @@ mod tests {
             "条目那一本与读者一致：{contents}"
         );
         // RTF 这一族这一轮没读条目：那一个键整个不在（缺键 = 没看，不是数过了没有）
-        let rtf_entries = run("toc.rtf")["contents"].get("entries");
+        let rtf_doc = run("toc.rtf");
+        let rtf_entries = rtf_doc["contents"].get("entries");
         assert!(rtf_entries.is_none(), "RTF 不交这一格：{rtf_entries:?}");
 
         // 第三种写法：RTF 的目录就是流里的一条域，指令原文里的开关成对写反斜杠

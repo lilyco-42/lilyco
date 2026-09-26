@@ -6465,6 +6465,22 @@ def main() -> int:
          lbin("office-text", fixture("deck-lo.pptx")).get("markdown")],
         [0, 3, 1, 0, 1, None, None],
     )
+    link = lbin("office-text", fixture("deck-links.pptx"), "--markdown")
+    link_lo = lbin("office-text", fixture("deck-links-lo.pptx"), "--markdown")
+    check(
+        "页上那三条链在 markdown 里必须是 `[字](地址)`：`a:rPr/a:hlinkClick/@r:id` 只写一个号，"
+        "地址在**这一页自己的**关系表里（`Rel.source` 存的是源部件 `ppt/slides/slide1.xml`，"
+        "不是成员名 `ppt/slides/_rels/slide1.xml.rels` —— 拿后者去比，三条链全成「指不到」，"
+        "而 `links` 那一格照样是 3，只有整串文本对得上才看得见这种错）；"
+        "两家写的号不一样（一家 rId2 起、重写那份 rId1 起）而地址一字未变",
+        [dig(link, "markdown.links"), dig(link_lo, "markdown.links"),
+         "[第三季度的说明](https://example.com/budget)" in str(dig(link, "markdown.text")),
+         "[发邮件问预算](mailto:liuqi@example.com)" in str(dig(link, "markdown.text")),
+         "[https://example.com/raw](https://example.com/raw)" in str(dig(link, "markdown.text")),
+         dig(link, "markdown.chars"), dig(link_lo, "markdown.chars"),
+         dig(link, "markdown.text"), dig(link_lo, "markdown.text")],
+        [3, 3, True, True, True, 169, 169, '# 链接那一页\n\n[第三季度的说明](https://example.com/budget)\n\n（口径见附页，这一段没链）\n\n[发邮件问预算](mailto:liuqi@example.com)\n\n[https://example.com/raw](https://example.com/raw)\n\n# 第二页\n\n这一页一条链接也没有\n', '# 链接那一页\n\n[第三季度的说明](https://example.com/budget)\n\n（口径见附页，这一段没链）\n\n[发邮件问预算](mailto:liuqi@example.com)\n\n[https://example.com/raw](https://example.com/raw)\n\n# 第二页\n\n这一页一条链接也没有\n'],
+    )
     # ── 3b1) 同一本大纲的 odp 那一面：条目是元素，标题在框的 class 上 ──────────────
     print("=== 3b1) office-text --markdown 的 odp 支：两族把「条目」说在两处，渲染却可以一字不差 ===")
     for name in sorted(one.name for one in FIXTURES.glob("*.odp")):
