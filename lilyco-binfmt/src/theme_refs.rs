@@ -448,7 +448,10 @@ fn survey(node: &Node, values: &mut Vec<Vec<String>>, alias: &mut HashMap<String
                     continue;
                 }
                 let name = attr_local_name(key);
-                alias.entry(name).or_default().push(value.to_string());
+                alias
+                    .entry(name.to_string())
+                    .or_default()
+                    .push(value.to_string());
             }
         }
         _ => {}
