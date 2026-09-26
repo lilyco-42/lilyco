@@ -6353,6 +6353,105 @@ def main() -> int:
          [dig(chart, "equations.items[%d].math_found" % i) for i in (0, 1)]],
         [2, 2, 2, 0, 2, 0, [], 2, 2, [False, False]],
     )
+    # ── 3az) 放映里那张表铺成 CSV：挑页有三层，两家都留着被盖住那一格 ──────────────
+    print("=== 3az) office-slide --csv：一页一张表一份账，页身份与页号一起交 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.pptx")):
+        deck = lbin("office-slide", fixture(name))
+        want = files[name]["ooxml"]["slides"]
+        check("%s 不给 --csv 时这一格在场而值是 null —— 这一族读了这个开关、只是没被要求；"
+              "「这一族没读」是 .ppt 那种缺席（下面最后一条钉住）" % name,
+              [("csv" in deck), deck.get("csv")], [True, None])
+        check("%s 两读者的页序（部件名）要一致，否则下面按号比的就是两页" % name,
+              [one.get("part") for one in deck.get("slides") or []],
+              [one.get("part") for one in want])
+        for at, entry in enumerate(deck.get("slides") or []):
+            part = entry.get("part")
+            ledgers = (want[at] or {}).get("csv") or []
+            for give in (str(at), part):
+                got = lbin("office-slide", fixture(name), "--csv", "--page", give)
+                check("%s 第 %d 页按「%s」挑，页身份要指到同一页" % (name, at, give),
+                      [got.get("csv", {}).get("page"), got.get("csv", {}).get("page_index")],
+                      [part, at])
+            for ti, one_csv in enumerate(ledgers):
+                got = dict(lbin("office-slide", fixture(name), "--csv", "--page", part,
+                                "--table", str(ti)).get("csv") or {})
+                got.pop("page", None)
+                got.pop("page_index", None)
+                check("%s 第 %d 页第 %d 张表铺成 CSV 与读者整份一致" % (name, at, ti),
+                      got, one_csv)
+            n = len(ledgers)
+            got = lbin("office-slide", fixture(name), "--csv", "--page", part,
+                       "--table", str(n)).get("csv") or {}
+            check("%s 那一页只有 %d 张表：再说第 %d 张要说清是哪一页，不能拿「这份文件」顶"
+                  % (name, n, n),
+                  [got.get("error"), got.get("page")],
+                  ["这一页（%s）里没有第 %d 张表（一共 %d 张）" % (part, n, n), part])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odp")):
+        deck = lbin("office-slide", fixture(name))
+        want = files[name]["odp"]["slides"]
+        check("%s 不给 --csv 时这一格在场而值是 null —— 这一族读了这个开关、只是没被要求；"
+              "「这一族没读」是 .ppt 那种缺席（下面最后一条钉住）" % name,
+              [("csv" in deck), deck.get("csv")], [True, None])
+        check("%s 两读者的页序（页名）要一致" % name,
+              [one.get("name") for one in deck.get("slides") or []],
+              [one.get("name") for one in want])
+        for at, entry in enumerate(deck.get("slides") or []):
+            pname = entry.get("name") or ""
+            ledgers = (want[at] or {}).get("csv") or []
+            for give in (str(at), pname):
+                got = lbin("office-slide", fixture(name), "--csv", "--page", give)
+                check("%s 第 %d 页按「%s」挑，页身份要指到同一页" % (name, at, give),
+                      [got.get("csv", {}).get("page"), got.get("csv", {}).get("page_index")],
+                      [pname, at])
+            for ti, one_csv in enumerate(ledgers):
+                got = dict(lbin("office-slide", fixture(name), "--csv", "--page", pname,
+                                "--table", str(ti)).get("csv") or {})
+                got.pop("page", None)
+                got.pop("page_index", None)
+                check("%s 第 %d 页第 %d 张表铺成 CSV 与读者整份一致" % (name, at, ti),
+                      got, one_csv)
+    dt_p = lbin("office-slide", fixture("deck-tables.pptx"), "--csv")
+    dt_lo = lbin("office-slide", fixture("deck-tables-lo.pptx"), "--csv")
+    dt_o = lbin("office-slide", fixture("deck-tables.odp"), "--csv")
+    check(
+        "同一张表的三种合并写法在这里露出两面：pptx 在被盖住那一格身上写 `hMerge` / `vMerge`、"
+        "ODF 另写一枚 `covered-table-cell` —— 两家的字段数都是齐的 [3, 3, 3]、`covered_cells` 与 "
+        "`empty_cells` 各 2，而**铺出来的串一字不差**（文档那一族的 OOXML 才是整个不写那一格： "
+        "`[2, 3]` 且 `ragged`，见 3ay）。一格里两个段的那两格进 CSV 都按 RFC4180 加了引号；"
+        "两家 pptx 那一支连 `page` 都同名，odp 那一支页身份是页名",
+        [dig(dt_p, "csv.columns_per_row"), dig(dt_p, "csv.ragged"),
+         dig(dt_p, "csv.empty_cells"), dig(dt_p, "csv.covered_cells"),
+         dig(dt_p, "csv.rows"), dig(dt_p, "csv.columns"), dig(dt_p, "csv.text"),
+         dig(dt_p, "csv.page"), dig(dt_p, "csv.page_index"),
+         dig(dt_lo, "csv"), dig(dt_o, "csv.columns_per_row"), dig(dt_o, "csv.text"),
+         dig(dt_o, "csv.page"), dig(dt_o, "csv.covered_cells"),
+         dig(dt_o, "csv.tables_total")],
+        [[3, 3, 3], False, 2, 2, 3, 3, '"科目\n金额",,备注\n服务器,124000,含税\n"网络\n设备",8000,\n', 'ppt/slides/slide1.xml', 0, {'table': 0, 'tables_total': 1, 'rows': 3, 'columns': 3, 'columns_per_row': [3, 3, 3], 'ragged': False, 'empty_cells': 2, 'covered_cells': 2, 'cut': False, 'line_end': 'LF', 'text': '"科目\n金额",,备注\n服务器,124000,含税\n"网络\n设备",8000,\n', 'page': 'ppt/slides/slide1.xml', 'page_index': 0}, [3, 3, 3], '"科目\n金额",,备注\n服务器,124000,含税\n"网络\n设备",8000,\n', '表格那一页', 2, 1],
+    )
+    deck_p = lbin("office-slide", fixture("deck.pptx"), "--csv", "--page", "1")
+    deck_first = lbin("office-slide", fixture("deck.pptx"), "--csv")
+    deck_o = lbin("office-slide", fixture("deck.odp"), "--csv", "--page", '第二页：数字')
+    check(
+        "表不在第一页的那份件：不给号挑到的是标题页，它交的是「这一页没有表」那句话而不是空串；"
+        "按号挑到第 1 页才拿得到那张 2×2。odp 那一支同一张表的身份是页名（%s），字段数一样"
+        % '第二页：数字',
+        [dig(deck_p, "csv.page"), dig(deck_p, "csv.columns_per_row"), dig(deck_p, "csv.text"),
+         dig(deck_p, "csv.page_index"), dig(deck_first, "csv.error"),
+         dig(deck_first, "csv.page"), dig(deck_o, "csv.page"),
+         dig(deck_o, "csv.columns_per_row"), dig(deck_o, "csv.text")],
+        ['ppt/slides/slide2.xml', [2, 2], '科目,金额\n服务器,124000\n', 1, '这一页（ppt/slides/slide1.xml）里没有第 0 张表（一共 0 张）', 'ppt/slides/slide1.xml', '第二页：数字', [2, 2], '科目,金额\n服务器,124000\n'],
+    )
+    check(
+        "页与表两层各说各的失败：`--page 9` 说这份放映一共几页，`--page 没这页` 说这既不是序号"
+        "也不是这份件里点得到的名字；遗留 .ppt **不交这个键**（那一族到不了页部件这一层，"
+        "与它不交 equations 同一个边界，见事实 114）",
+        [dig(lbin("office-slide", fixture("deck.pptx"), "--csv", "--page", "9"), "csv.error"),
+         dig(lbin("office-slide", fixture("deck.pptx"), "--csv", "--page", "没这页"),
+             "csv.error"),
+         ["csv" in lbin("office-slide", fixture("deck.ppt"), "--csv"),
+          lbin("office-slide", fixture("deck.ppt"), "--csv").get("csv")]],
+        ['这份放映里没有第 9 页（一共 2 页）', '--page 要的是从 0 起的序号、部件名或页名，收到「没这页」（一共 2 页）', [False, None]],
+    )
     # ── 3ay) 文档里的表铺成 CSV：两家把「合并」写得不一样，行数一样而字段数不一样 ──────
     print("=== 3ay) office-doc --csv：一行就是文件自己写着的几格，不补方格 ===")
     for name in sorted(one.name for one in FIXTURES.glob("*.docx")):

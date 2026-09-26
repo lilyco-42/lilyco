@@ -80,29 +80,35 @@ def docx_grids(path: Path, limit: int = LIMIT):
     return out
 
 
+def odf_grid(tbl, limit: int = LIMIT) -> dict:
+    """一张 ODF 表（`table:table`）→ 网格：行与格都走直接孩子，被盖住的那一格照样算一格"""
+    rows = []
+    cut = len(kids(tbl, "table-row")) > limit
+    for tr in kids(tbl, "table-row")[:limit]:
+        tcs = kids(tr, "table-cell", "covered-table-cell")
+        cut |= len(tcs) > limit
+        cells = []
+        for tc in tcs[:limit]:
+            parts = [odf_para_text(one) for one in kids(tc, "p", "h")]
+            cells.append({"text": text_of(parts),
+                          "covered": local(tc.tag) == "covered-table-cell"})
+        rows.append(cells)
+    return {"rows": rows, "cut": cut}
+
+
 def odf_grids(path: Path, limit: int = LIMIT):
     with zipfile.ZipFile(path) as box:
         root = ET.fromstring(box.read("content.xml"))
     tables = [one for one in root.iter() if local(one.tag) == "table"]
-    out = []
-    for tbl in tables[:limit]:
-        rows = []
-        cut = len(kids(tbl, "table-row")) > limit
-        for tr in kids(tbl, "table-row")[:limit]:
-            tcs = kids(tr, "table-cell", "covered-table-cell")
-            cut |= len(tcs) > limit
-            cells = []
-            for tc in tcs[:limit]:
-                parts = [odf_para_text(one) for one in kids(tc, "p", "h")]
-                cells.append({"text": text_of(parts),
-                              "covered": local(tc.tag) == "covered-table-cell"})
-            rows.append(cells)
-        out.append({"rows": rows, "cut": cut})
-    return out
+    return [odf_grid(one, limit) for one in tables[:limit]]
 
 
-def doc_csv(grids, pick: str = ""):
-    """把第 pick 张表铺成 CSV（与 `csv_of` 同一组键、同一个 pick 语义）"""
+def doc_csv(grids, pick: str = "", at: str = "这份文件里"):
+    """把第 pick 张表铺成 CSV（与 `csv_of` 同一组键、同一个 pick 语义）
+
+    `at` 是那句「没有第几张表」说清在哪儿数过：文档那一族是「这份文件里」，
+    放映那一族是「这一页（部件名）里」——与 Rust 的 `csv_of(want, grids, pick, at)` 同一条。
+    """
     pick = (pick or "").strip()
     if not pick:
         index = 0
@@ -112,7 +118,7 @@ def doc_csv(grids, pick: str = ""):
         except ValueError:
             return {"error": "--table 要的是从 0 起的序号，收到「%s」" % pick}
     if index >= len(grids) or index < 0:
-        return {"error": "这份文件里没有第 %d 张表（一共 %d 张）" % (index, len(grids))}
+        return {"error": "%s没有第 %d 张表（一共 %d 张）" % (at, index, len(grids))}
     grid = grids[index]
     lines, widths, empty_cells, covered_cells = [], [], 0, 0
     for cells in grid["rows"]:
@@ -140,3 +146,48 @@ def doc_csv(grids, pick: str = ""):
         "line_end": "LF",
         "text": text,
     }
+
+
+# ── 放映那一族：一页可以有几张表，页是挑的第一层 ──────────────────────────────────
+def pptx_grid(tbl, limit: int = LIMIT) -> dict:
+    """一张 `a:tbl` → 网格。这一族的合并是**第三种写法**（事实 60）：
+    被盖住的那一格照样在场，身上写 `a:hMerge` / `a:vMerge` 而字是空的 ——
+    所以 `covered` 按「身上写了那两条之一」判，不看字空不空（那是另一本账 `empty_cells`）"""
+    from office_reader import ooxml_para_text  # 晚一点引：office_reader 顶层就 import 本模块
+
+    rows = []
+    cut = len(kids(tbl, "tr")) > limit
+    for tr in kids(tbl, "tr")[:limit]:
+        tcs = kids(tr, "tc")
+        cut |= len(tcs) > limit
+        cells = []
+        for tc in tcs[:limit]:
+            bodies = kids(tc, "txBody")
+            parts = [ooxml_para_text(one).strip() for one in kids(bodies[0], "p")] if bodies else []
+            merge = [one for one in ("hMerge", "vMerge")
+                     if any(local(key) == one for key in tc.attrib)]
+            cells.append({"text": text_of(parts), "covered": bool(merge)})
+        rows.append(cells)
+    return {"rows": rows, "cut": cut}
+
+
+def pptx_page_grids(raw: bytes, limit: int = LIMIT) -> list:
+    """一页部件（`ppt/slides/slideN.xml` 的字节）里那些表的网格，按文档顺序"""
+    root = ET.fromstring(raw)
+    tables = [one for one in root.iter() if local(one.tag) == "tbl"]
+    return [pptx_grid(one, limit) for one in tables[:limit]]
+
+
+def odp_page_grids(page, limit: int = LIMIT) -> list:
+    """一页 `draw:page` 里那些表的网格：与 .ods / .odt 同一个 `odf_grid`（合并另写占位格）"""
+    tables = [one for one in page.iter() if local(one.tag) == "table"]
+    return [odf_grid(one, limit) for one in tables[:limit]]
+
+
+def page_csv(grids, limit: int = LIMIT) -> list:
+    """这一页每张表一份 CSV 账（按文档顺序）；一页没有表就是空表，不是缺键。
+
+    `limit` 只影响上面那几位建网格的人（`pptx_page_grids` / `odp_page_grids`），
+    这里只按已有的网格逐张铺 —— 与被挑中的那张表一共几张，是网格那一层决定的
+    """
+    return [doc_csv(grids, str(one)) for one in range(len(grids))]

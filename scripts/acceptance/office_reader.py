@@ -45,7 +45,14 @@ from lyco_equations import odf_equations as odf_equations_ledger  # 公式部件
 from lyco_equations import odp_equations as odp_equations_ledger  # 放映每一页的公式（同一条判据）
 from lyco_equations import pptx_equations as pptx_equations_ledger  # pptx：文本体里的 OMML
 from lyco_equations import ole_equations  # 遗留 .doc：ObjectPool 里的公式对象
-from lyco_doc_csv import doc_csv, docx_grids, odf_grids  # 文档里的表铺成 CSV
+from lyco_doc_csv import (  # 文档/放映里的表铺成 CSV
+    doc_csv,
+    docx_grids,
+    odp_page_grids,
+    odf_grids,
+    page_csv,
+    pptx_page_grids,
+)
 
 END = "END"  # CFB 的链结束标记
 FREE = "FREE"
@@ -6116,6 +6123,8 @@ def pptx_facts(path: Path) -> dict:
                 "chart_list": page_charts,
                 # 这一页上那张表的网（与 src/office_slide.rs 的 slide_tables 同一份账）
                 "table_list": slide_tables_of(root),
+                # 这一页每张表一份 CSV 账（`--csv --page 部件名` 的对照；按文档顺序）
+                "csv": page_csv(pptx_page_grids(parts[name])),
             }
         )
     pres = ET.fromstring(parts["ppt/presentation.xml"])
@@ -8997,6 +9006,16 @@ def facts(path: Path) -> dict:
                 groups = odp_slide_tables(path)
                 for which, slide in enumerate(deck["slides"]):
                     slide["table_list"] = groups[which] if which < len(groups) else []
+                # 同一问的 CSV 那一本：按页取那一页 `draw:page` 里的那些表（文档顺序）
+                with zipfile.ZipFile(path) as box:
+                    odp_root = ET.fromstring(box.read("content.xml"))
+                csv_groups = [
+                    page_csv(odp_page_grids(one))
+                    for one in odp_root.iter()
+                    if xml_local(one.tag) == "page"
+                ]
+                for which, slide in enumerate(deck["slides"]):
+                    slide["csv"] = csv_groups[which] if which < len(csv_groups) else []
                 # 一条式子一个部件；页缩略图也是 frame，所以两格分开数
                 deck["equations"] = odp_equations_ledger(path)
                 out["odp"] = deck

@@ -2208,6 +2208,28 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       表按 `descendants` 数、行与格按**直接孩子**走、嵌在格子里的那张表的段不算这一格，三条判据各写一遍。
       probe 的 3ay 一条 lane 把**每一份 .docx 与 .odt** 的第一张表整份对账，再把每张表按号各取一遍
       （`tables_total` 与 `table` 两格），最后钉上面那四条实测串与两条 error 文案。
+116. **`office-slide --csv`：一页一张表一份账，三种合并写法在这里两两分开**（`deck-tables.pptx` / `deck-tables-lo.pptx` / `deck-tables.odp` / `deck.pptx` / `deck.odp`）
+    - 挑页有三层，失败的话也分三层各说各的：`--page` 收**放映顺序里从 0 起的序号**、部件名（pptx 那一族）、
+      页名（odp 那一族），不给就是第一页。页挑不到说的是「这份放映里没有第 9 页（一共 2 页）」；
+      页挑到了而那一页没有那张表，说的是「这一页（ppt/slides/slide1.xml）里没有第 1 张表（一共 1 张）」——
+      两句话不互相顶。账里带 `page` 与 `page_index`，**错误那条也带 `page`**，不然不知道是哪一页说的。
+    - 合并的**第三种写法**（事实 60 那一条的 CSV 后果）：pptx 把被盖住那一格照样留在文件里、在它身上写
+      `a:hMerge` / `a:vMerge`（字是空的），ODF 另写一枚 `table:covered-table-cell`。于是同一张 3×3 的表在
+      这三份件里都是 `columns_per_row` `[3, 3, 3]`、`covered_cells` 2、`empty_cells` 2，而**铺出来的串一字不差**：
+      `"科目\n金额",,备注\n服务器,124000,含税\n"网络\n设备",8000,\n`。这与文档那一族正相反 —— 那边
+      OOXML 把那一格整个不写，同一张表交回 `[2, 3]` 且 `ragged` true（见事实 115）。
+    - `covered` 只问「这一格身上有没有那两条之一」，不问字空不空：`merge_written` 把文件写了哪一条交出来
+      （hMerge 与 vMerge 不折成一个词），没有字的格子由 `empty_cells` 另数。
+    - 表不住在第一页的那份件最能看出挑页要分层：`deck.pptx` 第一页（`ppt/slides/slide1.xml`）没有表，
+      不给号挑到的就是它 → 交的是那句话而不是空串；`--page 1` 才拿到那张 2×2（`科目,金额\n服务器,124000\n`）。
+      odp 那一支同一页的身份证是页名「第二页：数字」——这一族没有部件路径可指。
+    - `tables_total` 数的是**这一页**几张表（实测这几份都是 1），不是整份放映几张；`cut` 与文档那一本同一条
+      判据（被 `--limit` 截过的行/格不在网格里，这件事由它自己说）。
+    - **「这一族没读」与「读了而没被要求」是两件事**：遗留 `.ppt` 那一族**整个不交这个键**（与它不交 `equations` 是同一个边界，事实 114），而 pptx 与 odp 读了这个开关 —— 不给 `--csv` 时那一格**在场而值是 null**。这条是 CI 量出来的：把它写成 `is_none()` 在那两支会红（文档那一族的 RTF / .doc 才是缺席，见事实 115 最后一条）。
+    - 第二读者在 `lyco_doc_csv.py`：`pptx_grid` / `pptx_page_grids`（放映那一族自己走 `a:tr` → `a:tc`，
+      一格的字仍按段拼再 trim）、`odp_page_grids`（与 .odt / .ods 共用同一个 `odf_grid`，合并那枚占位格同一口径）、
+      `page_csv`（一页每张表一份账，按文档顺序）。probe 的 3az 一条 lane 把**每一份 .pptx 与 .odp 的每一页**
+      按号与按名字各挑一遍（页序两读者先对齐才比），再逐张表整份对账，最后钉上面那三条实测串与两层失败。
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
 `scripts/acceptance/office_reader.py`（OOXML / ODF / MS-CFB / OLE 属性集，只用标准库）、
 文档里那几张图在它的 `docx_picture_rows()` / `odt_picture_rows()` 里：两处尺寸各自换算、

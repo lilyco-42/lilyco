@@ -29,7 +29,7 @@ use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 #[app(
     name = "office-slide",
     run = "run_office_slide",
-    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP answers with its own ladder: pages are draw:page (name on draw:name), the title comes from the frame whose presentation:class is title, speaker notes are the presentation:class=notes frame inside presentation:notes - the page-number placeholder sitting next to it holds the literal sample text <编号> and is never reported as slide content - and the page size is resolved through draw:master-page-name to styles.xml's style:master-page and then its style:page-layout. A file may name a presentation page layout (presentation-page-layout-name) without carrying any definition for it, which this command reports instead of inventing one. Legacy .ppt is a PowerPoint 97 record tree rather than a package: it reports the record / container / text-atom counts and one entry per slide, because containers of recType 0x03EE occur exactly one per slide and their subtrees hold that slide's text atoms - a correspondence this reader measured against the very same document's .pptx form (count, order, and every line), not a name it copied from the spec, which is why the entries carry record offsets and not spec names. Text that belongs to no such container (master and layout placeholder wording) is counted but not attributed to a page. A slide's charts are read from the page's own relationships (only entries whose Type ends in `chart`), never by listing ppt/charts/: LibreOffice drops style and colors parts into that same directory, so counting files there would report six charts where the page carries two. Each chart reports its part, title, whether any value was cached, and per plot group the kind (barChart / pieChart ...), the direct children's val attributes as written, the axis ids kept apart (each producer numbers them differently, and python-pptx even writes negative ones) and one entry per series with the reference string and the cached points. The reference strings are NOT comparable across producers here: python-pptx writes the real hop into the chart's own embedded workbook (`Sheet1!$B$1`), while LibreOffice's pptx export puts literal labels in the same place (`label 0`, `categories`, `0`) - the cached numbers survive that rewrite unchanged, which is why both are reported instead of a single reconciled answer. Two counters keep runs and paragraphs apart: paragraph_total counts a:p inside p:sp, text_runs counts a:t, and the same deck from the two producers reads 3/1 paragraphs with 3 versus 5 runs - joining runs into paragraph text is what makes the wording comparable at all. The slide size's own type attribute is reported only when written: python-pptx says screen4x3, LibreOffice omits it for the identical cx/cy, and it is left null rather than being called custom. ODF answers the same question its own way: a `draw:frame` holds a `draw:object` whose `xlink:href` names an `Object N/` directory - the notes frame holds no such thing, so it is not a chart - and there the type sits on each `chart:series` (`chart:bar`, and `chart:circle` for a pie) rather than on an outer plot group, points are self-stated with `chart:repeated`, and a range can name the chart's own `local-table` (`local-table.$B$2:.$B$3`) instead of the deck's data, so those strings go over as written. Frame names count the notes frame too, which is why a page's first chart can be called Chart 2. Legacy .ppt keeps charts inside the record tree and is not read. Per pptx slide the tables are a ledger of their own (`table_list`): the `a:tblPr` attributes as written next to whether that element exists at all (python-pptx writes firstRow/bandRow plus an `a:tableStyleId`, while LibreOffice rewrites the same table with an EMPTY tblPr - present, saying nothing), the grid columns with their EMU width as written plus its 0.01mm reading, each row's h the same way, and every cell with its a:tc attributes, its a:tcPr attributes and child element names, the a:bodyPr attributes kept separately because LibreOffice writes the cell margins a second time in there, the paragraph text, and how many paragraphs and runs it holds. Merging is a third convention in this family and the reason three counters exist: the covered cell STAYS in the file (marked hMerge or vMerge, with empty text) while the origin carries gridSpan / rowSpan, so one row of a three-column table holds 3 cells whose spans add up to 4 - cells, spans and grid columns go out side by side instead of being reconciled. Row heights do not survive the rewrite either: the same unspecified row is 609600 EMU in one file and 609480 in the other, and the .odp written in between says 1.693cm - all three land on 1693 in 0.01mm, which is what makes the EMU conversion something a reader can check rather than take on trust. ODP keeps page tables as table:table inside a draw:frame, and the frame is the only place that names one: measured on deck-tables.odp the table element itself writes NO attribute at all while the frame carries name, x, y, width and height (17.779cm - the same grid the two pptx files write as 6400800 EMU), so the odp entry reports the frame's attributes, the table's own (empty here) attribute map, and the very same size ledger .ods uses, because a page table and a spreadsheet table are the same element and their widths again sit one hop away in the column styles. Merging is the third spelling of the three: the covered cell gets its own covered-table-cell element while the origin says number-columns-spanned / number-rows-spanned. A cell's value type is NOT guessed: Impress writes office:value-type on none of the nine cell elements of deck-tables.odp, seven of which hold text, so every odp cell comes back with kind null. The same rule now covers .ods cells, where the two readers had been guessing differently - one from whether the cell had text, one always calling an unwritten type "empty" - and only agreed because every .ods cell that reaches the ledger does write the attribute (measured over all six files). A cell's own style is one hop and it is read: style_props resolves the name the cell wrote against the family=table-cell styles of BOTH parts: measured here all five cell styles sit in content.xml and styles.xml holds no table-cell style at all, while the covered cells' standard is a family=graphic style of another kind - walking only one part would turn this reader's guess about the producer into a rule. The three property elements are handed over separately and each carries its own written name: the fill, the vertical alignment and the four paddings sit on loext:graphic-properties, LibreOffice's own experimental namespace rather than style:, the border that same style carries sits on style:paragraph-properties, and the style:table-cell-properties an odt table uses is written by none of the nine table-family styles of deck-tables.odp. Attribute names keep their prefixes for the same reason fo:text-indent and loext:text-indent must never collide. style / found / part tell which of the three cases a cell is in - wrote no name, named one nobody defines, or resolved - and the table adds the same counts as a tally. Per slide `links` answers 'what can a reader click here', and the two families spell it differently. OOXML needs two hops: the run's `a:rPr` carries only `a:hlinkClick/@r:id`, the address lives in that slide's own relationship part, with `TargetMode` reported as written (absent stays null, not false); ODF writes the address on the word itself (`text:a/@xlink:href`), so there is no second hop and no external switch at all - `external` and `id` come back null there rather than being filled in. The ids are each producer's own numbering (one file starts at rId2, its rewrite at rId1) while the addresses survive unchanged, so the ids go over as written and are never compared. Walking only `draw:frame` for ODP would read all three links as zero: Impress turns a plain text box into `draw:custom-shape`, so the walk covers everything the page holds except its `presentation:notes` block - a link typed in the notes is not a link on the slide. Per slide `relationships` is that page's own relationship part in the order it was written, internal targets resolved to package paths and external ones kept verbatim; the table lives at `ppt/slides/_rels/slideN.xml.rels`, i.e. the `_rels/` hop is part of the member name and `slideN.xml.rels` alone resolves to nothing. A slide's links are therefore a subset of what that ledger says about the page, not a second opinion on it. Whether a page is hidden during a show is written in a different place per family: pptx puts show="0" on the slide root (and a LibreOffice rewrite through odp keeps it verbatim), while ODF never mentions it on the page - draw:page only names a drawing-page style, and presentation:visibility lives in style:drawing-page-properties of that style, so the answer is one hop away and is resolved against BOTH parts (measured: dp1 carries the property element but not the attribute, dp3 says hidden, and dp2 - which writes hidden too - is named by no page, so grepping the file would mis-count). Each odp page therefore publishes hidden plus the visibility ledger it came from (page_style / style_found / visibility_written / style_part); when the named style cannot be found hidden is null, because 'could not look' is not 'not hidden', and an unwritten attribute stays null while hidden is false because ODF's default is visible - the file's own silence and the spec's default are kept apart by those two keys. Per slide `picture_list` answers 'what pictures sit here and what did each one say'. This family writes size in ONE place only (`p:spPr/a:xfrm/a:ext` - the docx family has two and they differ), and position (`a:off`) in that same place, so off carries x/y as written plus the 0.01mm reading. Alt text has ONE place here (`p:cNvPr/@descr`) and that is the trap: python-pptx, given no alt text at all, writes the SOURCE FILE NAME into that attribute (descr=dot.png), so the file says 'has alt text' while what is written is not a description. descr therefore goes out as written, descr_written says only whether the attribute exists, and pictures_with_alt_text counts non-empty strings - those three together are the honest answer, while judging whether the wording describes the picture is left to whoever reads it. The id is the producer's own numbering and is looked up in THAT slide's relationship part only. A measured round trip through Impress loses things: the same picture keeps its name and its descr but its rId moves (rId2 to rId1), its shape id becomes 63, a:picLocks disappears entirely (locks null), the stretch element keeps existing but its fillRect child is gone (so stretch goes from [fillRect] to []), and the size changes - 1440000 EMU (4000) becomes 1439640 (3999) while the offset survives untouched. A picture added without width/height is written as 508000 EMU for a 40px image, i.e. python-pptx assumed 72 DPI; no file here states that DPI anywhere, so the number is reported and the assumption is not. ODP pages reuse the odt frame ledger unchanged, which shows up differently: sizes are self-describing length strings (3.999cm lands on the same 3999), the address is an xlink:href with no relationship hop, alt text is a child svg:desc - and Impress writes NO text:anchor-type on a picture frame, so placed is null there, not as-char and not 'the file said visible'. A page with no picture reports an empty list, not a missing key. Per slide `autofit` is a ledger of its own: OOXML writes what to do when the words do not fit as the SINGLE CHILD ELEMENT of `a:bodyPr` - a:noAutofit, a:spAutoFit (the box grows) or a:normAutofit (the text shrinks, carrying the computed fontScale and lnSpcReduction) - and python-pptx writes NO child at all for the do-nothing setting while the default it gives a fresh text box is a:spAutoFit, so silence and an explicit a:noAutofit are two different facts and are counted apart (`says_nothing` versus `by_element`). Element names and attribute values go over as written and prefixed, and `shrinks_text` is the one question each family answers for itself. ODP answers the same question one hop away: the shape names a family=graphic style and `style:shrink-to-fit`, `draw:fit-to-size` and `fo:wrap-option` sit on that style's `style:graphic-properties`, so each row carries the style name it wrote, which part resolved it and that property element's own written name. Measured on one deck written by two producers: LibreOffice's odp spells the pptx a:noAutofit and a:spAutoFit settings IDENTICALLY (shrink-to-fit=false next to fit-to-size=false), so that distinction does not survive the rewrite and is shown rather than guessed back, while pptx wrap=square / none lands in odp as wrap / no-wrap - one question, two vocabularies, both kept. A shape also reports its own box: EMU as written plus its 0.01mm reading on the OOXML side, self-describing length strings on the ODF side, and neither is converted into the other's unit. Only draw:custom-shape is walked on the ODF side, because Impress turns a plain text box into one, and the notes block's frames are counted apart under `frames`. Each slide also carries placeholder_words: what every shape on the page said about its own role, one entry per shape in document order, straight from `p:ph/@type` - and null when the file wrote no type at all, which BOTH producers do (python-pptx writes the body placeholder as just `idx="1"`, and LibreOffice's rewrite of that same file writes an EMPTY `p:ph`, dropping the idx too). The spec has a default for that attribute, but a default is the spec's statement, not this file's, so nothing is filled in and nothing is called "other" either; the shape count sits next to this list precisely so a page where three shapes speak two words is visible. ODF keeps the same question somewhere else again: the role is `presentation:class`, whether it is a placeholder is a separate `presentation:placeholder` attribute, and a plain text box is a draw:custom-shape with no presentation:style-name at all. One more hop is published apart (placeholder_hops): a slide's p:ph keeps only an id, while the wording and the geometry live in the layout that THIS slide's own relationship part names, so matching them is a hop and the match is made three ways only - by the id when the slide wrote one, by the type when it wrote one, or between two entries that both wrote nothing at all. Measured on one deck written by two producers: the python-pptx file matches 6 shapes out of 6, while LibreOffice's rewrite of the very same deck leaves an empty p:ph on the body placeholders and writes type=body in ITS layouts, so only 3 match - filling in the specification's default would report 6 and that would be this reader speaking for a file that stayed silent. A plain text box has no p:ph at all, and that is counted apart as no_ph, because 'the hop could not be taken' is not 'the hop was taken and found nothing'. ODP and legacy .ppt do not carry this key. Per slide `transition_detail` answers 'how does this page change during a show': OOXML writes a `p:transition` whose spd / advClick / advTm are three separate statements (how fast, whether a click advances, how many milliseconds before it does) and any of them can be missing, while the effect is a CHILD element (p:fade, or p:wipe carrying its own dir=l). The measured surprise is that ONE SLIDE CAN HOLD TWO p:transition elements: python-pptx writes nothing at all on the third page of deck-tr.pptx, and LibreOffice's rewrite of that same file adds two (spd=slow with an extra dur=2000, and a bare spd=slow), neither holding an effect - so this ledger publishes elements-per-slide and each element's own written attributes instead of a 'has a transition' flag, and the deck tallies 4 elements over 3 pages because those two numbers do not imply each other. Converting the same deck to odp leaves no p:transition on any page: the attributes move to style:drawing-page-properties (presentation:transition-type, duration=PT5S) and the effect moves into an SMIL animation tree (anim:transitionFilter with smil:type and smil:subtype), so the ODP branch does not carry this key at all - an absent key, not a zero. The two readers compare this question as a multiset plus two sums, never by page position, because one walks the show order from presentation.xml and the other lists parts by name. The same question on the odp side is published as odp_transition and it is written in TWO places inside one file: the drawing-page style the page names carries transition-type / transition-speed / duration right next to the effect's own type / subtype / fadeColor, while the page body also holds an anim:par timing tree whose anim:transitionFilter states the effect again (smil:dur, type, subtype) - both are handed over, neither is used to confirm or replace the other, the same rule as the two picture sizes in OOXML. A style can also say half a sentence: dp3 writes transition-speed and barWipe/leftToRight/reverse but no transition-type and no duration, and nothing is filled in for it. The third page shows the distinction between the two failure modes: dp4 exists and is found, yet writes no transition attribute at all, so written is an empty map with style_found true - only a style the page names that nobody defines gives style_found false. And the two export directions of one producer disagree: that same third page gets TWO p:transition elements in LibreOffice's pptx rewrite while its odp export says nothing about it, so each file is reported as written. The families keep separate keys - pptx pages carry transition_detail, odp pages carry odp_transition, the other family simply lacks the key - and the two readers compare these by content multiset and by summing effects, never by page position. Each page also carries a shape_tree ledger: the child order of p:spTree IS the z-order, one row per shape with kind, name, id, depth, parent, xfrm, size_written, text_carrier, paragraphs_direct and children, and the tree itself is not a shape. A group is one row whose children point back at its index: deck-gr.pptx page 1 is 5 rows = 2 top-level plus 3 inside the group, page 2 is an empty ledger (0, not a missing key). The group's own a:xfrm carries all four parts (off is 0,0 while ext equals chExt - page space and child space are two different statements); LibreOffice's rewrite keeps them, renumbers ids 2..6 to 61..65, re-derives the coordinates and adds an all-zero a:xfrm to the tree itself, which is why the transform is looked for two levels deep only. The odp page keeps the same 5 rows and hierarchy but the group is svg:g (there is no draw:group), ids do not exist in that family (null), sizes are unit-carrying strings like 5.555cm, and the group row writes no size at all (an empty map, not 0); nested means something else per family because draw:frame holding draw:image is also one level (deck.odp page 1: nested 1, groups 0). text_carrier is the new fact: pptx always says txBody (a lone pic says nothing at all), while one odp page mixes text-box frames with self, because draw:custom-shape hangs its text:p straight on the shape - counting only text boxes would drop that page from 4 paragraphs to 3 and deck-gr.odp from 4 to 0. Notes are not in this ledger and legacy .ppt pages do not carry the key at all. Per deck equations answers 'how many formulas does this show carry and where does each one live'. ODP writes one formula as one embedded part: a draw:frame on the page holds a draw:object whose xlink:href names ./Object N, the words are in Object N/content.xml as MathML, and a separate draw:image points at a raster replacement - both addresses go over as written, and replacement_found says whether that part is actually in the package (measured: a LibreOffice rewrite of a hand-authored odp wrote a reference to ObjectReplacements/Object 2 that exists neither in the package nor in its manifest). Frames are counted apart from page thumbnails and from the frames inside presentation:notes, because that same rewrite adds one frame holding a draw:page-thumbnail per page: deck.odp has no formula at all yet still reports 5 page frames, 3 in-notes and 2 thumbnails, so 'how many frames' is not 'how many equations'. Whether a part really is a formula is decided by the math root it parses to (math_found against objects_without_math), since a chart object comes through the same draw:object door. The rewrite also drops every text:anchor-type (2 to 0) and renames the frame style fr1 to gr1, while the words and the StarMath linear source come back identical, so nothing needs reconciling there. pptx answers the same question a third way, and it is why that page carries three counters: the words are OMML hanging in the text body (a:p -> a14:m -> m:oMath), and LibreOffice wraps the shape in an mc:AlternateContent whose mc:Choice Requires="a14" holds the formula while mc:Fallback writes THAT SAME SHAPE AGAIN - same cNvPr id and name (measured: 9 and 10, duplicated_shapes 2) - with no text body at all, a raster a:blipFill pointing at one EMF instead. One formula page therefore holds 2 p:sp and 1 equation, so shapes_total, paragraphs_total and formulas go out apart and never reconciled; fallback_blip, fallback_target and fallback_found follow the reference the file wrote as far as the package. python-pptx writes the bare form (a14:m next to the run, no AlternateContent, no raster), and there those three keys are null because that producer wrote nothing about them, while the words and the OMML structure names come out identical to LibreOffice's - the difference is the wrapping, not the content. A bare a14:m is also what LibreOffice drops on import: that same file converted to odp returns 0 draw:object, so this second producer cannot be validated by a rewrite and is published as written. See fact 112."
+    about = "Report a presentation's structure in show order: presentation.xml's sldId list decides that order (component filenames are NOT the order - slide12.xml can be the second slide), each slide is resolved through the package relationships to its own layout and, through the layout, to its master. Per slide it lists the title (the a:t text of the shape whose placeholder type is title/ctrTitle), every other paragraph with its placeholder type, shape/picture/table/chart counts, notes text from its notesSlide, transitions and whether the slide is hidden. Also reports slide size (cx/cy as numbers in EMU plus the file's own type attribute), the master and layout inventories, media, embedded fonts, themes and any embedded OLE objects. ODP answers with its own ladder: pages are draw:page (name on draw:name), the title comes from the frame whose presentation:class is title, speaker notes are the presentation:class=notes frame inside presentation:notes - the page-number placeholder sitting next to it holds the literal sample text <编号> and is never reported as slide content - and the page size is resolved through draw:master-page-name to styles.xml's style:master-page and then its style:page-layout. A file may name a presentation page layout (presentation-page-layout-name) without carrying any definition for it, which this command reports instead of inventing one. Legacy .ppt is a PowerPoint 97 record tree rather than a package: it reports the record / container / text-atom counts and one entry per slide, because containers of recType 0x03EE occur exactly one per slide and their subtrees hold that slide's text atoms - a correspondence this reader measured against the very same document's .pptx form (count, order, and every line), not a name it copied from the spec, which is why the entries carry record offsets and not spec names. Text that belongs to no such container (master and layout placeholder wording) is counted but not attributed to a page. A slide's charts are read from the page's own relationships (only entries whose Type ends in `chart`), never by listing ppt/charts/: LibreOffice drops style and colors parts into that same directory, so counting files there would report six charts where the page carries two. Each chart reports its part, title, whether any value was cached, and per plot group the kind (barChart / pieChart ...), the direct children's val attributes as written, the axis ids kept apart (each producer numbers them differently, and python-pptx even writes negative ones) and one entry per series with the reference string and the cached points. The reference strings are NOT comparable across producers here: python-pptx writes the real hop into the chart's own embedded workbook (`Sheet1!$B$1`), while LibreOffice's pptx export puts literal labels in the same place (`label 0`, `categories`, `0`) - the cached numbers survive that rewrite unchanged, which is why both are reported instead of a single reconciled answer. Two counters keep runs and paragraphs apart: paragraph_total counts a:p inside p:sp, text_runs counts a:t, and the same deck from the two producers reads 3/1 paragraphs with 3 versus 5 runs - joining runs into paragraph text is what makes the wording comparable at all. The slide size's own type attribute is reported only when written: python-pptx says screen4x3, LibreOffice omits it for the identical cx/cy, and it is left null rather than being called custom. ODF answers the same question its own way: a `draw:frame` holds a `draw:object` whose `xlink:href` names an `Object N/` directory - the notes frame holds no such thing, so it is not a chart - and there the type sits on each `chart:series` (`chart:bar`, and `chart:circle` for a pie) rather than on an outer plot group, points are self-stated with `chart:repeated`, and a range can name the chart's own `local-table` (`local-table.$B$2:.$B$3`) instead of the deck's data, so those strings go over as written. Frame names count the notes frame too, which is why a page's first chart can be called Chart 2. Legacy .ppt keeps charts inside the record tree and is not read. Per pptx slide the tables are a ledger of their own (`table_list`): the `a:tblPr` attributes as written next to whether that element exists at all (python-pptx writes firstRow/bandRow plus an `a:tableStyleId`, while LibreOffice rewrites the same table with an EMPTY tblPr - present, saying nothing), the grid columns with their EMU width as written plus its 0.01mm reading, each row's h the same way, and every cell with its a:tc attributes, its a:tcPr attributes and child element names, the a:bodyPr attributes kept separately because LibreOffice writes the cell margins a second time in there, the paragraph text, and how many paragraphs and runs it holds. Merging is a third convention in this family and the reason three counters exist: the covered cell STAYS in the file (marked hMerge or vMerge, with empty text) while the origin carries gridSpan / rowSpan, so one row of a three-column table holds 3 cells whose spans add up to 4 - cells, spans and grid columns go out side by side instead of being reconciled. Row heights do not survive the rewrite either: the same unspecified row is 609600 EMU in one file and 609480 in the other, and the .odp written in between says 1.693cm - all three land on 1693 in 0.01mm, which is what makes the EMU conversion something a reader can check rather than take on trust. ODP keeps page tables as table:table inside a draw:frame, and the frame is the only place that names one: measured on deck-tables.odp the table element itself writes NO attribute at all while the frame carries name, x, y, width and height (17.779cm - the same grid the two pptx files write as 6400800 EMU), so the odp entry reports the frame's attributes, the table's own (empty here) attribute map, and the very same size ledger .ods uses, because a page table and a spreadsheet table are the same element and their widths again sit one hop away in the column styles. Merging is the third spelling of the three: the covered cell gets its own covered-table-cell element while the origin says number-columns-spanned / number-rows-spanned. A cell's value type is NOT guessed: Impress writes office:value-type on none of the nine cell elements of deck-tables.odp, seven of which hold text, so every odp cell comes back with kind null. The same rule now covers .ods cells, where the two readers had been guessing differently - one from whether the cell had text, one always calling an unwritten type "empty" - and only agreed because every .ods cell that reaches the ledger does write the attribute (measured over all six files). A cell's own style is one hop and it is read: style_props resolves the name the cell wrote against the family=table-cell styles of BOTH parts: measured here all five cell styles sit in content.xml and styles.xml holds no table-cell style at all, while the covered cells' standard is a family=graphic style of another kind - walking only one part would turn this reader's guess about the producer into a rule. The three property elements are handed over separately and each carries its own written name: the fill, the vertical alignment and the four paddings sit on loext:graphic-properties, LibreOffice's own experimental namespace rather than style:, the border that same style carries sits on style:paragraph-properties, and the style:table-cell-properties an odt table uses is written by none of the nine table-family styles of deck-tables.odp. Attribute names keep their prefixes for the same reason fo:text-indent and loext:text-indent must never collide. style / found / part tell which of the three cases a cell is in - wrote no name, named one nobody defines, or resolved - and the table adds the same counts as a tally. Per slide `links` answers 'what can a reader click here', and the two families spell it differently. OOXML needs two hops: the run's `a:rPr` carries only `a:hlinkClick/@r:id`, the address lives in that slide's own relationship part, with `TargetMode` reported as written (absent stays null, not false); ODF writes the address on the word itself (`text:a/@xlink:href`), so there is no second hop and no external switch at all - `external` and `id` come back null there rather than being filled in. The ids are each producer's own numbering (one file starts at rId2, its rewrite at rId1) while the addresses survive unchanged, so the ids go over as written and are never compared. Walking only `draw:frame` for ODP would read all three links as zero: Impress turns a plain text box into `draw:custom-shape`, so the walk covers everything the page holds except its `presentation:notes` block - a link typed in the notes is not a link on the slide. Per slide `relationships` is that page's own relationship part in the order it was written, internal targets resolved to package paths and external ones kept verbatim; the table lives at `ppt/slides/_rels/slideN.xml.rels`, i.e. the `_rels/` hop is part of the member name and `slideN.xml.rels` alone resolves to nothing. A slide's links are therefore a subset of what that ledger says about the page, not a second opinion on it. Whether a page is hidden during a show is written in a different place per family: pptx puts show="0" on the slide root (and a LibreOffice rewrite through odp keeps it verbatim), while ODF never mentions it on the page - draw:page only names a drawing-page style, and presentation:visibility lives in style:drawing-page-properties of that style, so the answer is one hop away and is resolved against BOTH parts (measured: dp1 carries the property element but not the attribute, dp3 says hidden, and dp2 - which writes hidden too - is named by no page, so grepping the file would mis-count). Each odp page therefore publishes hidden plus the visibility ledger it came from (page_style / style_found / visibility_written / style_part); when the named style cannot be found hidden is null, because 'could not look' is not 'not hidden', and an unwritten attribute stays null while hidden is false because ODF's default is visible - the file's own silence and the spec's default are kept apart by those two keys. Per slide `picture_list` answers 'what pictures sit here and what did each one say'. This family writes size in ONE place only (`p:spPr/a:xfrm/a:ext` - the docx family has two and they differ), and position (`a:off`) in that same place, so off carries x/y as written plus the 0.01mm reading. Alt text has ONE place here (`p:cNvPr/@descr`) and that is the trap: python-pptx, given no alt text at all, writes the SOURCE FILE NAME into that attribute (descr=dot.png), so the file says 'has alt text' while what is written is not a description. descr therefore goes out as written, descr_written says only whether the attribute exists, and pictures_with_alt_text counts non-empty strings - those three together are the honest answer, while judging whether the wording describes the picture is left to whoever reads it. The id is the producer's own numbering and is looked up in THAT slide's relationship part only. A measured round trip through Impress loses things: the same picture keeps its name and its descr but its rId moves (rId2 to rId1), its shape id becomes 63, a:picLocks disappears entirely (locks null), the stretch element keeps existing but its fillRect child is gone (so stretch goes from [fillRect] to []), and the size changes - 1440000 EMU (4000) becomes 1439640 (3999) while the offset survives untouched. A picture added without width/height is written as 508000 EMU for a 40px image, i.e. python-pptx assumed 72 DPI; no file here states that DPI anywhere, so the number is reported and the assumption is not. ODP pages reuse the odt frame ledger unchanged, which shows up differently: sizes are self-describing length strings (3.999cm lands on the same 3999), the address is an xlink:href with no relationship hop, alt text is a child svg:desc - and Impress writes NO text:anchor-type on a picture frame, so placed is null there, not as-char and not 'the file said visible'. A page with no picture reports an empty list, not a missing key. Per slide `autofit` is a ledger of its own: OOXML writes what to do when the words do not fit as the SINGLE CHILD ELEMENT of `a:bodyPr` - a:noAutofit, a:spAutoFit (the box grows) or a:normAutofit (the text shrinks, carrying the computed fontScale and lnSpcReduction) - and python-pptx writes NO child at all for the do-nothing setting while the default it gives a fresh text box is a:spAutoFit, so silence and an explicit a:noAutofit are two different facts and are counted apart (`says_nothing` versus `by_element`). Element names and attribute values go over as written and prefixed, and `shrinks_text` is the one question each family answers for itself. ODP answers the same question one hop away: the shape names a family=graphic style and `style:shrink-to-fit`, `draw:fit-to-size` and `fo:wrap-option` sit on that style's `style:graphic-properties`, so each row carries the style name it wrote, which part resolved it and that property element's own written name. Measured on one deck written by two producers: LibreOffice's odp spells the pptx a:noAutofit and a:spAutoFit settings IDENTICALLY (shrink-to-fit=false next to fit-to-size=false), so that distinction does not survive the rewrite and is shown rather than guessed back, while pptx wrap=square / none lands in odp as wrap / no-wrap - one question, two vocabularies, both kept. A shape also reports its own box: EMU as written plus its 0.01mm reading on the OOXML side, self-describing length strings on the ODF side, and neither is converted into the other's unit. Only draw:custom-shape is walked on the ODF side, because Impress turns a plain text box into one, and the notes block's frames are counted apart under `frames`. Each slide also carries placeholder_words: what every shape on the page said about its own role, one entry per shape in document order, straight from `p:ph/@type` - and null when the file wrote no type at all, which BOTH producers do (python-pptx writes the body placeholder as just `idx="1"`, and LibreOffice's rewrite of that same file writes an EMPTY `p:ph`, dropping the idx too). The spec has a default for that attribute, but a default is the spec's statement, not this file's, so nothing is filled in and nothing is called "other" either; the shape count sits next to this list precisely so a page where three shapes speak two words is visible. ODF keeps the same question somewhere else again: the role is `presentation:class`, whether it is a placeholder is a separate `presentation:placeholder` attribute, and a plain text box is a draw:custom-shape with no presentation:style-name at all. One more hop is published apart (placeholder_hops): a slide's p:ph keeps only an id, while the wording and the geometry live in the layout that THIS slide's own relationship part names, so matching them is a hop and the match is made three ways only - by the id when the slide wrote one, by the type when it wrote one, or between two entries that both wrote nothing at all. Measured on one deck written by two producers: the python-pptx file matches 6 shapes out of 6, while LibreOffice's rewrite of the very same deck leaves an empty p:ph on the body placeholders and writes type=body in ITS layouts, so only 3 match - filling in the specification's default would report 6 and that would be this reader speaking for a file that stayed silent. A plain text box has no p:ph at all, and that is counted apart as no_ph, because 'the hop could not be taken' is not 'the hop was taken and found nothing'. ODP and legacy .ppt do not carry this key. Per slide `transition_detail` answers 'how does this page change during a show': OOXML writes a `p:transition` whose spd / advClick / advTm are three separate statements (how fast, whether a click advances, how many milliseconds before it does) and any of them can be missing, while the effect is a CHILD element (p:fade, or p:wipe carrying its own dir=l). The measured surprise is that ONE SLIDE CAN HOLD TWO p:transition elements: python-pptx writes nothing at all on the third page of deck-tr.pptx, and LibreOffice's rewrite of that same file adds two (spd=slow with an extra dur=2000, and a bare spd=slow), neither holding an effect - so this ledger publishes elements-per-slide and each element's own written attributes instead of a 'has a transition' flag, and the deck tallies 4 elements over 3 pages because those two numbers do not imply each other. Converting the same deck to odp leaves no p:transition on any page: the attributes move to style:drawing-page-properties (presentation:transition-type, duration=PT5S) and the effect moves into an SMIL animation tree (anim:transitionFilter with smil:type and smil:subtype), so the ODP branch does not carry this key at all - an absent key, not a zero. The two readers compare this question as a multiset plus two sums, never by page position, because one walks the show order from presentation.xml and the other lists parts by name. The same question on the odp side is published as odp_transition and it is written in TWO places inside one file: the drawing-page style the page names carries transition-type / transition-speed / duration right next to the effect's own type / subtype / fadeColor, while the page body also holds an anim:par timing tree whose anim:transitionFilter states the effect again (smil:dur, type, subtype) - both are handed over, neither is used to confirm or replace the other, the same rule as the two picture sizes in OOXML. A style can also say half a sentence: dp3 writes transition-speed and barWipe/leftToRight/reverse but no transition-type and no duration, and nothing is filled in for it. The third page shows the distinction between the two failure modes: dp4 exists and is found, yet writes no transition attribute at all, so written is an empty map with style_found true - only a style the page names that nobody defines gives style_found false. And the two export directions of one producer disagree: that same third page gets TWO p:transition elements in LibreOffice's pptx rewrite while its odp export says nothing about it, so each file is reported as written. The families keep separate keys - pptx pages carry transition_detail, odp pages carry odp_transition, the other family simply lacks the key - and the two readers compare these by content multiset and by summing effects, never by page position. Each page also carries a shape_tree ledger: the child order of p:spTree IS the z-order, one row per shape with kind, name, id, depth, parent, xfrm, size_written, text_carrier, paragraphs_direct and children, and the tree itself is not a shape. A group is one row whose children point back at its index: deck-gr.pptx page 1 is 5 rows = 2 top-level plus 3 inside the group, page 2 is an empty ledger (0, not a missing key). The group's own a:xfrm carries all four parts (off is 0,0 while ext equals chExt - page space and child space are two different statements); LibreOffice's rewrite keeps them, renumbers ids 2..6 to 61..65, re-derives the coordinates and adds an all-zero a:xfrm to the tree itself, which is why the transform is looked for two levels deep only. The odp page keeps the same 5 rows and hierarchy but the group is svg:g (there is no draw:group), ids do not exist in that family (null), sizes are unit-carrying strings like 5.555cm, and the group row writes no size at all (an empty map, not 0); nested means something else per family because draw:frame holding draw:image is also one level (deck.odp page 1: nested 1, groups 0). text_carrier is the new fact: pptx always says txBody (a lone pic says nothing at all), while one odp page mixes text-box frames with self, because draw:custom-shape hangs its text:p straight on the shape - counting only text boxes would drop that page from 4 paragraphs to 3 and deck-gr.odp from 4 to 0. Notes are not in this ledger and legacy .ppt pages do not carry the key at all. Per deck equations answers 'how many formulas does this show carry and where does each one live'. ODP writes one formula as one embedded part: a draw:frame on the page holds a draw:object whose xlink:href names ./Object N, the words are in Object N/content.xml as MathML, and a separate draw:image points at a raster replacement - both addresses go over as written, and replacement_found says whether that part is actually in the package (measured: a LibreOffice rewrite of a hand-authored odp wrote a reference to ObjectReplacements/Object 2 that exists neither in the package nor in its manifest). Frames are counted apart from page thumbnails and from the frames inside presentation:notes, because that same rewrite adds one frame holding a draw:page-thumbnail per page: deck.odp has no formula at all yet still reports 5 page frames, 3 in-notes and 2 thumbnails, so 'how many frames' is not 'how many equations'. Whether a part really is a formula is decided by the math root it parses to (math_found against objects_without_math), since a chart object comes through the same draw:object door. The rewrite also drops every text:anchor-type (2 to 0) and renames the frame style fr1 to gr1, while the words and the StarMath linear source come back identical, so nothing needs reconciling there. pptx answers the same question a third way, and it is why that page carries three counters: the words are OMML hanging in the text body (a:p -> a14:m -> m:oMath), and LibreOffice wraps the shape in an mc:AlternateContent whose mc:Choice Requires="a14" holds the formula while mc:Fallback writes THAT SAME SHAPE AGAIN - same cNvPr id and name (measured: 9 and 10, duplicated_shapes 2) - with no text body at all, a raster a:blipFill pointing at one EMF instead. One formula page therefore holds 2 p:sp and 1 equation, so shapes_total, paragraphs_total and formulas go out apart and never reconciled; fallback_blip, fallback_target and fallback_found follow the reference the file wrote as far as the package. python-pptx writes the bare form (a14:m next to the run, no AlternateContent, no raster), and there those three keys are null because that producer wrote nothing about them, while the words and the OMML structure names come out identical to LibreOffice's - the difference is the wrapping, not the content. A bare a14:m is also what LibreOffice drops on import: that same file converted to odp returns 0 draw:object, so this second producer cannot be validated by a rewrite and is published as written. See fact 112. `--csv [--page index-or-part-or-page-name] [--table N]` renders ONE table from ONE page as RFC4180 text, and the ledger carries which page it came from (`page`, `page_index`) - the error entries carry `page` too, because 'this show has 2 pages' and 'this page holds 1 table' are two different answers to two different misses: --page 9 says how many pages exist, while --table 3 on a found page says 这一页（ppt/slides/slide1.xml）里没有第 3 张表（一共 1 张）. Merging is the third convention here, and it is the reason this family's rows are square: pptx keeps the covered cell in the file and writes `a:hMerge` / `a:vMerge` on it, ODF writes a `table:covered-table-cell` - so the measured 3x3 table comes back [3, 3, 3] with covered_cells 2 and empty_cells 2 in BOTH producers and in the odp, with a byte-identical string (two cells that hold two paragraphs each arrive quoted, one merged-away cell arrives as an empty field), where the same merge in a .docx loses a field and reads [2, 3] with ragged true (fact 115). `covered` therefore asks only 'did this cell write one of those two words' and `merge_written` hands over which ones, never folded into 'is empty' - empty_cells counts that apart. deck.pptx keeps its table on the SECOND page, so the default pick answers with 'this page has no table' rather than an empty string, and the same page in deck.odp identifies itself by its own name (第二页：数字) because that family writes names on draw:page and has no part path to point at. tables_total is the count for THIS page, not for the show. Legacy .ppt does not carry the csv key at all - the same boundary that keeps it from carrying equations (fact 114). See fact 116. "
 )]
 pub struct OfficeSlide {
     /// 演示文稿（pptx / pptm / odp / ppt）
@@ -47,10 +47,122 @@ pub struct OfficeSlide {
     /// 最多读多少字节
     #[arg(about = "Read at most this many bytes", default = 67108864)]
     max_bytes: u64,
+
+    /// 顺带把某一页上的一张表铺成 CSV（RFC4180：带逗号/引号/换行的字段加引号）
+    #[arg(about = "Also render one slide table as CSV")]
+    csv: bool,
+
+    /// `--csv` 要哪一页：页名、部件名，或放映顺序里从 0 起的序号；不给就是第一页
+    #[arg(about = "Slide for --csv: name, part or 0-based index", default = "")]
+    page: String,
+
+    /// `--csv` 要那一页的第几张表（从 0 起，按文档顺序；不给就是第一张）
+    #[arg(about = "Table for --csv: 0-based index", default = "")]
+    table: String,
 }
 
 /// CLI 的 `#[arg(default = N)]` 与各端省略参数时的回退值必须是同一个数
 const LIMIT_DEFAULT: usize = 100;
+
+/// `--page` 收三种写法：放映顺序里从 0 起的序号、部件名、页自己写的名字（odp 那一族）。
+/// 挑不到就说这一共几页 —— 「没有这一页」与「这一页没有表」是两层事，不拿后一句顶前一句
+fn pick_page(slides: &[Value], want: &str) -> Result<usize, String> {
+    let want = want.trim();
+    if want.is_empty() {
+        if slides.is_empty() {
+            return Err("这份放映一页也没有，没有可铺的表".to_string());
+        }
+        return Ok(0);
+    }
+    if let Ok(raw) = want.parse::<usize>() {
+        return slides
+            .get(raw)
+            .map(|_| raw)
+            .ok_or_else(|| format!("这份放映里没有第 {} 页（一共 {} 页）", raw, slides.len()));
+    }
+    slides
+        .iter()
+        .position(|one| {
+            one.get("part").and_then(Value::as_str) == Some(want)
+                || one.get("name").and_then(Value::as_str) == Some(want)
+        })
+        .ok_or_else(|| {
+            format!(
+                "--page 要的是从 0 起的序号、部件名或页名，收到「{}」（一共 {} 页）",
+                want,
+                slides.len()
+            )
+        })
+}
+
+/// 那一页的账要说是哪一页交出来的：号与身份一起钉回去（错误那条也钉，才知道挑到了哪一层）
+fn stamp_page(ledger: &mut Value, page: &str, at: usize) {
+    if let Some(one) = ledger.as_object_mut() {
+        one.insert("page".to_string(), json!(page));
+        one.insert("page_index".to_string(), json!(at));
+    }
+}
+
+/// pptx 那一支的 `--csv`：表是页部件里的 `a:tbl`，被盖住的那一格照样在场、
+/// 身上写 `hMerge` / `vMerge`（与 docx「整个不写」、ODF「另写一枚占位格」都不同）
+fn pptx_csv(app: &OfficeSlide, bytes: &[u8], slides: &[Value], limit: usize) -> Value {
+    if !app.csv {
+        return Value::Null;
+    }
+    let at = match pick_page(slides, &app.page) {
+        Ok(one) => one,
+        Err(why) => return json!({"error": why}),
+    };
+    let page = match slides[at].get("part").and_then(Value::as_str) {
+        Some(one) => one.to_string(),
+        None => return json!({"error": "这一页没有部件名可指"}),
+    };
+    let Some(member) = xml(bytes, &page) else {
+        return json!({"error": format!("这一页（{}）的部件读不出来", page)});
+    };
+    let root = xmlscan::parse_str(&member.as_text());
+    let grids: Vec<crate::table_grid::Grid> = root
+        .descendants("tbl")
+        .into_iter()
+        .take(limit)
+        .map(|one| crate::table_grid::pptx(one, limit))
+        .collect();
+    let mut ledger =
+        crate::table_grid::csv_of(true, &grids, &app.table, &format!("这一页（{}）里", page));
+    stamp_page(&mut ledger, &page, at);
+    ledger
+}
+
+/// odp 那一支的 `--csv`：表与 .ods 同一棵树（合并另写一枚 `covered-table-cell`），
+/// 页的身份用 `draw:name` —— 没写名字的那一页不替它编一个。
+/// `pages` 就是这一族建那本账走过的那一份 `draw:page` 清单，所以这里的序号与 `slides` 同源
+fn odp_csv(app: &OfficeSlide, pages: &[&xmlscan::Node], slides: &[Value], limit: usize) -> Value {
+    if !app.csv {
+        return Value::Null;
+    }
+    let at = match pick_page(slides, &app.page) {
+        Ok(one) => one,
+        Err(why) => return json!({"error": why}),
+    };
+    let page = match slides[at].get("name").and_then(Value::as_str) {
+        Some(one) if !one.is_empty() => one.to_string(),
+        _ => format!("第 {} 页（这一页没写名字）", at),
+    };
+    let grids: Vec<crate::table_grid::Grid> = pages
+        .get(at)
+        .map(|one| -> Vec<crate::table_grid::Grid> {
+            one.descendants("table")
+                .into_iter()
+                .take(limit)
+                .map(|tbl| crate::table_grid::odf(tbl, limit))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut ledger =
+        crate::table_grid::csv_of(true, &grids, &app.table, &format!("这一页（{}）里", page));
+    stamp_page(&mut ledger, &page, at);
+    ledger
+}
 
 fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError> {
     let start = std::time::Instant::now();
@@ -261,12 +373,15 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
             .map(|one| one.name.clone())
             .filter(|one| one.starts_with("ppt/slideLayouts/slideLayout") && one.ends_with(".xml"))
             .collect::<Vec<String>>();
+        let csv = pptx_csv(app, bytes, &slides, limit);
         let result = json!({
             "path": app.path.to_string_lossy(),
             "format": doc.format,
             "kind": "presentationml",
             "order": order,
             "slides": slides,
+            // 某一页上那张表铺成 CSV（挑页与挑表各说各的失败）
+            "csv": csv,
             // 这一本按放映顺序逐页喂，最后一次性交出（页级那几格与条目都在它自己那里算）
             "equations": eqrun.finish(limit),
             // 「这框对应版式里哪一条」是另一跳，实测重写会把它弄断
@@ -523,12 +638,15 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
         if masters.is_empty() {
             notes.push("这些页没写 master-page-name".to_string());
         }
+        let csv = odp_csv(app, &pages, &slides, limit);
         let result = json!({
             "path": app.path.to_string_lossy(),
             "format": doc.format,
             "kind": "opendocument-presentation",
             "order": Value::Array((0..pages.len()).map(|one| json!({"show_index": one})).collect()),
             "slides": slides,
+            // 同一问在 odp 是这一族的 `table:table`（合并另写一枚占位格）
+            "csv": csv,
             "size": size,
             "masters": masters,
             "layouts": layouts,
@@ -1679,9 +1797,146 @@ mod tests {
                 .join(name),
             limit: 100,
             max_bytes: 1 << 26,
+            csv: false,
+            page: String::new(),
+            table: String::new(),
         };
         let (tx, _rx) = mpsc::channel();
         run_office_slide(&app, &Context::new_test(tx)).expect("office-slide 应成功")
+    }
+
+    fn run_csv(name: &str, page: &str, table: &str) -> Value {
+        let app = OfficeSlide {
+            path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/office")
+                .join(name),
+            limit: 100,
+            max_bytes: 1 << 26,
+            csv: true,
+            page: page.to_string(),
+            table: table.to_string(),
+        };
+        let (tx, _rx) = mpsc::channel();
+        run_office_slide(&app, &Context::new_test(tx)).expect("office-slide --csv 应成功")
+    }
+
+    /// `--csv`：放映里那一页的那张表铺成 RFC4180。这一族的合并是第三种写法：
+    /// 被盖住的那一格照样在文件里（pptx 在它身上写 `hMerge` / `vMerge`、ODF 另写一枚
+    /// `covered-table-cell`），所以两家这里的 `columns_per_row` 都是齐的 —— 而「整个不写
+    /// 那一格」是文档那一族 OOXML 的存法（同一张表在那边 `[2, 3]` 且 `ragged`，事实 115）
+    #[test]
+    fn a_slide_table_renders_as_csv_the_way_the_file_wrote_it() {
+        let mine = run_csv("deck-tables.pptx", "ppt/slides/slide1.xml", "");
+        assert_eq!(
+            mine["csv"]["page"], "ppt/slides/slide1.xml",
+            "挑中的那一页要自报身份"
+        );
+        assert_eq!(mine["csv"]["page_index"], 0);
+        assert_eq!(mine["csv"]["table"], 0);
+        assert_eq!(mine["csv"]["tables_total"], 1);
+        assert_eq!(mine["csv"]["rows"], 3);
+        assert_eq!(mine["csv"]["columns"], 3);
+        assert_eq!(mine["csv"]["columns_per_row"], json!([3, 3, 3]));
+        assert_eq!(mine["csv"]["ragged"], false);
+        assert_eq!(mine["csv"]["empty_cells"], 2);
+        assert_eq!(mine["csv"]["covered_cells"], 2);
+        assert_eq!(mine["csv"]["cut"], false);
+        assert_eq!(mine["csv"]["line_end"], "LF");
+        assert_eq!(
+            mine["csv"]["text"],
+            "\"科目\n金额\",,备注\n服务器,124000,含税\n\"网络\n设备\",8000,\n"
+        );
+        // 同一张表在 LibreOffice 手里：那一页的整份账一字不差（合并换了写法也留着那一格）
+        let rewritten = run_csv("deck-tables-lo.pptx", "", "");
+        assert_eq!(
+            rewritten["csv"], mine["csv"],
+            "两家这一张要交同一份账：{rewritten}"
+        );
+        let odp = run_csv("deck-tables.odp", "表格那一页", "");
+        assert_eq!(odp["csv"]["page"], "表格那一页", "挑中的那一页要自报身份");
+        assert_eq!(odp["csv"]["page_index"], 0);
+        assert_eq!(odp["csv"]["table"], 0);
+        assert_eq!(odp["csv"]["tables_total"], 1);
+        assert_eq!(odp["csv"]["rows"], 3);
+        assert_eq!(odp["csv"]["columns"], 3);
+        assert_eq!(odp["csv"]["columns_per_row"], json!([3, 3, 3]));
+        assert_eq!(odp["csv"]["ragged"], false);
+        assert_eq!(odp["csv"]["empty_cells"], 2);
+        assert_eq!(odp["csv"]["covered_cells"], 2);
+        assert_eq!(odp["csv"]["cut"], false);
+        assert_eq!(odp["csv"]["line_end"], "LF");
+        assert_eq!(
+            odp["csv"]["text"],
+            "\"科目\n金额\",,备注\n服务器,124000,含税\n\"网络\n设备\",8000,\n"
+        );
+        // 挑页三种接受法要落在同一页上：不给号 = 第一页，按号 = 按名
+        assert_eq!(
+            run_csv("deck-tables.odp", "0", "")["csv"],
+            odp["csv"],
+            "按号与按名"
+        );
+        assert_eq!(
+            run_csv("deck-tables.pptx", "", "")["csv"],
+            mine["csv"],
+            "不给号"
+        );
+        let second = run_csv("deck.pptx", "1", "");
+        assert_eq!(
+            second["csv"]["page"], "ppt/slides/slide2.xml",
+            "挑中的那一页要自报身份"
+        );
+        assert_eq!(second["csv"]["page_index"], 1);
+        assert_eq!(second["csv"]["table"], 0);
+        assert_eq!(second["csv"]["tables_total"], 1);
+        assert_eq!(second["csv"]["rows"], 2);
+        assert_eq!(second["csv"]["columns"], 2);
+        assert_eq!(second["csv"]["columns_per_row"], json!([2, 2]));
+        assert_eq!(second["csv"]["ragged"], false);
+        assert_eq!(second["csv"]["empty_cells"], 0);
+        assert_eq!(second["csv"]["covered_cells"], 0);
+        assert_eq!(second["csv"]["cut"], false);
+        assert_eq!(second["csv"]["line_end"], "LF");
+        assert_eq!(second["csv"]["text"], "科目,金额\n服务器,124000\n");
+        // 这份的第一页没有表：那句话要说清是「这一页」，不拿「这份文件」顶
+        let empty = run_csv("deck.pptx", "0", "");
+        assert_eq!(
+            empty["csv"]["error"], "这一页（ppt/slides/slide1.xml）里没有第 0 张表（一共 0 张）",
+            "页上没表要说哪一页：{empty}"
+        );
+        assert_eq!(
+            empty["csv"]["page"], "ppt/slides/slide1.xml",
+            "错误那条也带页身份"
+        );
+        // 页与表两层各说各的失败：号越界、串不是号
+        let nine = run_csv("deck.pptx", "9", "");
+        assert_eq!(nine["csv"]["error"], "这份放映里没有第 9 页（一共 2 页）");
+        let bad = run_csv("deck.pptx", "没这页", "");
+        assert_eq!(
+            bad["csv"]["error"],
+            "--page 要的是从 0 起的序号、部件名或页名，收到「没这页」（一共 2 页）"
+        );
+        let beyond = run_csv("deck-tables.pptx", "0", "3");
+        assert_eq!(
+            beyond["csv"]["error"],
+            "这一页（ppt/slides/slide1.xml）里没有第 3 张表（一共 1 张）"
+        );
+        let notnum = run_csv("deck-tables.pptx", "0", "第三张");
+        assert_eq!(
+            notnum["csv"]["error"],
+            "--table 要的是从 0 起的序号，收到「第三张」"
+        );
+        // 遗留 .ppt 不交这个键（那一族到不了页部件这一层）；不给 --csv 也不交
+        assert!(
+            run_csv("deck.ppt", "", "").get("csv").is_none(),
+            ".ppt 做不出这张 CSV"
+        );
+        // 「这一族没读」与「读了而没被要求」是两件事：pptx 与 odp 读了这个开关，
+        // 没给 --csv 时那一格在场而值是 null（上面 .ppt 那条 is_none 才是缺席）
+        for one in ("deck-tables.pptx", "deck-tables.odp") {
+            let off = run(one);
+            assert!(off.get("csv").is_some(), "%s 这一族要交得出这一格", one);
+            assert!(off["csv"].is_null(), "没给 --csv 就是 null：{off}");
+        }
     }
 
     /// 一个框怎么处理「字比框大」：pptx 写 `a:bodyPr` 的独子元素，odp 写框点的那份
@@ -2370,6 +2625,9 @@ mod tests {
             path: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/office/book.xlsx"),
             limit: 10,
             max_bytes: 1 << 20,
+            csv: false,
+            page: String::new(),
+            table: String::new(),
         };
         let (tx, _rx) = mpsc::channel();
         let why = run_office_slide(&app, &Context::new_test(tx)).unwrap_err();
