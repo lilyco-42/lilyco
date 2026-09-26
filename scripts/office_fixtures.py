@@ -1805,6 +1805,32 @@ def write_rich_xlsx(path: Path) -> None:
     wb.save(path)
 
 
+def write_pipes_xlsx(path: Path) -> None:
+    """一格里带竖线、带换行：markdown 的表格装不下这两个东西，得看读者怎么躲
+
+    现有 fixture 量过一遍：`rich*` 三副里有换行格（`第一行\\n第二行`），**整库里没有
+    一格带竖线** —— 那支转义没人测过就别说它成立，所以专门做一副。三个变量分开摆：
+    竖线在中间（B2 的 `1|2`）、竖线在首尾（A4）、整格只有一个竖线（B4），
+    另有一格同时带竖线与换行（A3 与 B3）—— 那一格最能看出「先躲竖线、再铺换行」
+    这一对的顺序。两家生产者各写一份（LibreOffice 重写常把换行摊成别的写法）。
+    """
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "格"
+    ws["A1"] = "名称"
+    ws["B1"] = "备注"
+    ws["A2"] = "a|b"
+    ws["B2"] = "1|2|3"
+    ws["A3"] = "第一行\n带|竖线\n第三行"
+    ws["B3"] = "两行\n第二行"
+    ws["A4"] = "|首尾都带|"
+    ws["B4"] = "|"
+    ws["A5"] = "普通一格"
+    wb.save(path)
+
+
 def write_styled_xlsx(path: Path) -> None:
     """一个格子「长什么样」那一跳：格式在 `cellXfs` 之外的三张表里
 
@@ -3817,6 +3843,23 @@ def main() -> int:
         shutil.copyfile(made, OUT / "rich.ods")
     else:
         print("⚠️  没拿到 rich.ods")
+
+    # 竖线那一支：整库量过没有一格带竖线，所以专门做一副（换行那支 rich* 已经有了）
+    pipes = OUT / "pipes.xlsx"
+    write_pipes_xlsx(pipes)
+    convert(exe, pipes, "xlsx", SCRATCH / "pipes-back")
+    made = SCRATCH / "pipes-back" / "pipes.xlsx"
+    if made.exists():
+        shutil.copyfile(made, OUT / "pipes-lo.xlsx")
+    else:
+        print("⚠️  没拿到 pipes-lo.xlsx（xlsx → xlsx 那一转）")
+    convert(exe, pipes, "ods", SCRATCH / "pipes-ods")
+    made = SCRATCH / "pipes-ods" / "pipes.ods"
+    if made.exists():
+        shutil.copyfile(made, OUT / "pipes.ods")
+    else:
+        print("⚠️  没拿到 pipes.ods")
+
 
     # 「长相」那一跳的两副：格式在 cellXfs 之外的三张表里，两家补的东西差很多
     styled = OUT / "styled.xlsx"

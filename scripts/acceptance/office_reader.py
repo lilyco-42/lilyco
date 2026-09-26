@@ -8012,15 +8012,51 @@ def csv_quote(raw: str) -> str:
     return raw
 
 
-def csv_render(cells: list) -> str:
+def square(cells: list) -> list:
+    """(行, 列, 文本) 铺成一张方格：洞是空格，尾部不裁（空格子也是格子）。
+    CSV 与 markdown 两个出口共用这一份，于是两本账的行数列数是同一个数。"""
     rows = max((one[0] for one in cells), default=-1) + 1
     cols = max((one[1] for one in cells), default=-1) + 1
     grid = [["" for _ in range(cols)] for _ in range(rows)]
     for row, col, raw in cells:
         grid[row][col] = raw
+    return grid
+
+
+def csv_render(cells: list) -> str:
     return "".join(
-        ",".join(csv_quote(one) for one in line) + "\n" for line in grid
+        ",".join(csv_quote(one) for one in line) + "\n" for line in square(cells)
     )
+
+
+def md_quote(raw: str) -> str:
+    """竖线躲成 `\\|`、格内换行铺成 `<br>`：markdown 的表格装不下这两个东西原样"""
+    return raw.replace("|", "\\|").replace("\n", "<br>")
+
+
+def md_render(cells: list) -> str:
+    """那行 `| --- |` 加在第 0 行之后 —— 格式要表头，不是文件说第一行是表头"""
+    out = []
+    for index, line in enumerate(square(cells)):
+        out.append("| " + " | ".join(md_quote(one) for one in line) + " |\n")
+        if index == 0:
+            out.append("| " + " | ".join(["---"] * len(line)) + " |\n")
+    return "".join(out)
+
+
+def render_ledger(sheets: list) -> dict:
+    """一张表两份出口：铺平的东西同源，所以两本账一起交（rows / columns 也算自同一张方格）"""
+    out = []
+    for name, cells in sheets:
+        grid = square(cells)
+        out.append({
+            "name": name,
+            "csv": csv_render(cells),
+            "markdown": md_render(cells),
+            "rows": len(grid),
+            "columns": max((len(one) for one in grid), default=0),
+        })
+    return {"sheets": out}
 
 
 def number_text(raw: str) -> str:
@@ -8109,7 +8145,7 @@ def xlsx_csv(path: Path) -> list:
             else:
                 display = value
             cells.append((spot[0], spot[1], display))
-        out.append((name, csv_render(cells)))
+        out.append((name, cells))
     return out
 
 
@@ -8132,7 +8168,7 @@ def ods_csv(path: Path) -> list:
             else:
                 display = had["text"]
             cells.append((spot[0], spot[1], display))
-        out.append((one["name"], csv_render(cells)))
+        out.append((one["name"], cells))
     return out
 
 
@@ -8152,8 +8188,8 @@ def biff_csv(book: dict) -> dict:
             raw = had.get("value")
             display = raw if isinstance(raw, str) else number_text(raw)
             cells.append((int(had["row"]), int(had["col"]), display))
-        out.append((one["name"], csv_render(cells)))
-    return {"sheets": [{"name": name, "csv": body} for name, body in out]}
+        out.append((one["name"], cells))
+    return render_ledger(out)
 
 
 def xlsx_hidden(path: Path) -> dict:
@@ -8313,7 +8349,7 @@ def ods_styles(path: Path) -> dict:
 
 def csv_facts(path: Path) -> dict:
     sheets = xlsx_csv(path) if path.suffix.lower() in (".xlsx", ".xlsm") else ods_csv(path)
-    return {"sheets": [{"name": name, "csv": body} for name, body in sheets]}
+    return render_ledger(sheets)
 
 
 # ---------------------------------------------------------------- MS-CFB（.doc/.xls/.ppt）

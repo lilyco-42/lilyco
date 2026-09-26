@@ -441,17 +441,19 @@ def main() -> int:
     check(
         "`toc-full.docx` / `toc-full.odt` 是 LibreOffice **自己排过**的两份（生产者那条路见 README 事实 119）："
         "两家都把页码写成制表符之后的一段**字面**（不是 PAGEREF 域、也不是 `text:page-number` 元素），"
-        "两条条目的页码是 '1' 与 '2'。docx 那个容器还多写一段「目录」标题（`paras` 3 而 `entries` 2），"
+        "两条条目的页码是 '1' 与 '2'（交回的是一整列，与条目文字那一列同长）。docx 那个容器还多写一段「目录」标题（`paras` 3 而 `entries` 2，而条目表里的第一行就是它、`page_written` 为 null），"
         "ODF 把标题嵌在 `text:index-title` 里所以 `paras` 2 —— 同问两个答案，两本账都交，不折成一个数",
         [dig(d_full, "contents.entries.paras"), dig(d_full, "contents.entries.entries"),
          dig(d_full, "contents.entries.with_page"), dig(d_full, "contents.entries.with_anchor"),
          dig(o_full, "contents.entries.paras"), dig(o_full, "contents.entries.entries"),
          dig(o_full, "contents.entries.with_page"),
-         [one["text"] for one in dig(d_full, "contents.entries.list")][1:],
-         [one["page_written"] for one in dig(d_full, "contents.entries.list")][1:],
+         [one["text"] for one in dig(d_full, "contents.entries.list")],
+         [one["page_written"] for one in dig(d_full, "contents.entries.list")],
          [one["text"] for one in dig(o_full, "contents.entries.list")],
          [one["page_written"] for one in dig(o_full, "contents.entries.list")]],
-        [3, 2, 2, 2, 2, 2, 2, ['结构：一级', '结构：二级'], '1', ['结构：一级', '结构：二级'], '2'],
+        [3, 2, 2, 2, 2, 2, 2,
+         ['目录', '结构：一级', '结构：二级'], [None, '1', '2'],
+         ['结构：一级', '结构：二级'], ['1', '2']],
     )
     check(
         "级别那一问两族取处不同，所以每条都带 `level_from`：docx 写在段自己点的样式名上"
@@ -3418,6 +3420,76 @@ def main() -> int:
             )
         bad = lbin("office-sheet", fixture(name), "--csv", "--sheet", "没这张表")
         check("%s --csv 认错表名就把候选说清楚" % name, isinstance(dig(bad, "csv.error"), str), True)
+
+    # ── 3f1) --markdown：同一张方格的第二个出口（全文期望逐字来自 md_render）──
+    print("=== 3f1) office-sheet --markdown：一张方格两个出口 ===")
+    for name in (
+        "book.xlsx",
+        "book.xls",
+        "book.ods",
+        "formats.xlsx",
+        "formats.ods",
+        "errors.xlsx",
+        "errors.ods",
+        "epoch.xlsx",
+        "rich.xlsx",
+        "rich-lo.xlsx",
+        "rich.ods",
+        # 竖线那一支：三家生产者各一副（库里原本没有一格带竖线，这副是为此做的）
+        "pipes.xlsx",
+        "pipes-lo.xlsx",
+        "pipes.ods",
+    ):
+        led = files[name]["csv"]["sheets"]
+        want = {one["name"]: one["markdown"] for one in led}
+        shape = {one["name"]: [one["rows"], one["columns"]] for one in led}
+        plain = lbin("office-sheet", fixture(name))
+        record(
+            "%s 不开 --markdown 就不交那份账" % name,
+            plain.get("markdown") is None,
+            json.dumps(plain.get("markdown"), ensure_ascii=False)[:80],
+        )
+        both = lbin("office-sheet", fixture(name), "--csv", "--markdown")
+        order = [one["name"] for one in both.get("sheets", [])]
+        check("%s --markdown 的表序与命令报的一致" % name, order, list(want))
+        check("%s --markdown 默认第一张" % name, dig(both, "markdown.text"), want.get(order[0]))
+        for at, one in enumerate(both.get("sheets", [])):
+            nm = one["name"]
+            got = lbin("office-sheet", fixture(name), "--markdown", "--sheet", nm, "--csv")
+            check("%s --markdown %s 全文" % (name, nm), dig(got, "markdown.text"), want.get(nm))
+            check("%s --markdown %s 的序号" % (name, nm), dig(got, "markdown.index"), at)
+            # 两个出口读的是同一张方格：那两个数不许各算一遍
+            check(
+                "%s --markdown %s 的行列与 --csv 同源" % (name, nm),
+                [dig(got, "markdown.rows"), dig(got, "markdown.columns")],
+                [dig(got, "csv.rows"), dig(got, "csv.columns")],
+            )
+            # 而镜像也算了一遍行列（一条是格子坐标、一条是解出来的表）
+            check("%s --markdown %s 的行列对得上镜像" % (name, nm),
+                  [dig(got, "markdown.rows"), dig(got, "markdown.columns")], shape.get(nm))
+            rows = shape.get(nm, [0])[0]
+            check(
+                "%s --markdown %s 那行分隔线在第 0 行之后" % (name, nm),
+                dig(got, "markdown.separator_after_row"),
+                0 if rows else None,
+            )
+        bad = lbin("office-sheet", fixture(name), "--markdown", "--sheet", "没这张表")
+        check(
+            "%s --markdown 认错表名就把候选说清楚" % name,
+            isinstance(dig(bad, "markdown.error"), str),
+            True,
+        )
+
+    # 竖线与格内换行：markdown 的表格装不下原样，躲法是钉死的（全文上面已与镜像逐字比过）
+    for name in ("pipes.xlsx", "pipes-lo.xlsx", "pipes.ods"):
+        text = dig(lbin("office-sheet", fixture(name), "--markdown"), "markdown.text") or ""
+        record("%s 的竖线躲成反斜杠竖线" % name, "a\\|b" in text, text[:70])
+        record("%s 的格内换行铺成 <br>" % name, "第一行<br>带" in text, text[:70])
+        line = next((one for one in text.split("\n") if "a\\|b" in one), "")
+        # 把躲过的竖线按占位符收回来再分列：那一行仍然只有两格，说明 `\|` 没被当成分列符
+        marked = line.replace("\\|", "@@")
+        cells = [one.strip().replace("@@", "|") for one in marked.split("|")][1:-1]
+        check("%s 躲过的竖线不再被当分列符" % name, cells, ["a|b", "1|2|3"])
 
     # ── 3f2) 结果不是数的那几种：文件写着什么就交什么，一家没重算就什么都没有 ──
     print("=== 3f2) 错误格、文本结果与「没重算」 ===")

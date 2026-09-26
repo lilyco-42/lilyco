@@ -131,6 +131,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `rich.xlsx` | openpyxl（`write_rich_xlsx`，`CellRichText` + `InlineFont`） | 一个格子的字分成几段的第一种摆法：**整个文件没有 `sharedStrings.xml`**，富文本全写成行内串（`t="inlineStr"` + `<is><r><rPr><b val="1"/>…</rPr><t>重要</t></r>…`）；A2 两段各有格式，A6 第一段**整个没有 `rPr`** 而第二段有（「没写」与「写了但是空的」），A3 首尾各两个空格、A7 开头一个制表符（这两格的 `t` 带 `xml:space="preserve"`，其余不带），A1 与 A5 是同一条「甲」（被引用两次），B1 的粗体写在**格子上**不在串里 |
 | `rich-lo.xlsx` | LibreOffice（`rich.xlsx` → .xlsx，同一个格式重写） | 第二种摆法：八次引用全搬进 `sst`（自报 `count="8"` 配 `uniqueCount="7"`，七条串），每一个 `t` 都补 `xml:space="preserve"`，同一个粗体开关改写成 `val="true"` 并补 `family` / `charset`，A7 那一格还按字体 fallback **切成两段**（`Calibri` 与 `Noto Sans SC`）—— 分段数是生产者的决定，只交不比 |
 | `rich.ods` | LibreOffice（`rich.xlsx` → .ods） | 第三种摆法，而且是记号不是字面：`  两头有空格  ` 写作 `<text:s text:c="2"/>…<text:s text:c="2"/>`（`text:c` 说这一个记号顶几个空格），A7 的制表符是 `<text:tab/>`，A4 的两行是两个 `<text:p>`；富文本变成 `<text:span text:style-name="T1">`（那三份字符样式不追，只交 `spans` / `specials` 两本条数） |
+| `pipes.xlsx` | openpyxl | markdown 表格的两个装不下的东西：格里的**竖线**与**格内换行**。五个变量分开摆 —— 竖线在中间（A2 `a|b`、B2 `1|2|3`）、竖线在首尾（A4 `|首尾都带|`）、整格只有一个竖线（B4 `|`）、一格同时带竖线与换行（A3）、只带换行（B3）。**做这副的理由是量出来的**：`--markdown` 那两个转义分支在库里没有任何一格带竖线，换行那一支只有 `rich*` 覆盖（`第一行\n第二行`）
+| `pipes-lo.xlsx` | LibreOffice（`pipes.xlsx` → .xlsx，同一个格式重写） | 第二个生产者：竖线是普通字符，两家都原样带着走（`sst` 与行内串两条路都过）；这一副铺出来的方格与上一副逐字相同
+| `pipes.ods` | LibreOffice（`pipes.xlsx` → .ods） | 第三种存法：换行是三个 `text:p`（不是格里的 `\n` 字符）、竖线仍是串里的普通字 —— 三家到 markdown 这一个出口上铺出同一份文本，这条等式在探针里钉着
 | `styled.xlsx` | openpyxl（`write_styled_xlsx`） | 「长相」那一跳的第一种写法：五份字体（默认那份什么都不写、粗体深红换字体、`<i/><u/>` 那份连 `name`/`sz` 都没有、只有 `<color indexed="64"/>` 的、只有 `<color theme="1" tint="0.5"/>` 的）、四条填充（**第 0 条是空的 `<patternFill/>`**、第 1 条 gray125 占位、实心黄底只写 `fgColor`、`lightGrid` 写 `fgColor` + `bgColor`）、两条边界（第 0 条五个空孩子、第 1 条四条 `style="thin"` 各带一个 `color`）、十条 `cellXfs` 而 `cellStyleXfs` 只有一条；只有一格写了 `applyAlignment="1"` 并带 `<alignment horizontal="right" vertical="center" wrapText="1"/>`，`A3` 那一格**连 `s` 都不写** |
 | `styled-lo.xlsx` | LibreOffice（`styled.xlsx` → .xlsx，同一个格式重写） | 第二种写法：九份字体（多出来的是 Arial 10 那几份占位）、`cellStyleXfs` 从 1 条变 20 条、每格都写 `s="…"`、粗体开关换成 `val="true"`、`indexed="64"` 那个颜色被换成 `rgb="FF000000"`、空占位改成 `patternType="none"`、`solid` 那一条补出 `bgColor`，而**点状网格底整个换成实心底并改了颜色**（`FF00B050` → `FF90DDB3`）；每一格还补一份写着 `wrapText="false"` 的 `alignment` —— 「没写」与「写了关」在两副件里是两个不同的数 |
 | `size.xlsx` | openpyxl | 列宽行高与筛选/表对象的第一种写法：A 列 `22.5`、C 列 `4` 且藏着，第 2 行 `40`、第 3 行 `8`（第 1 行什么都不写），默认行高 18 写在 `sheetFormatPr`（那一族管默认宽度叫 **`baseColWidth`**），筛选范围 `A1:C3` 带一个筛掉的值「甲」，另挂一个范围**不同**的表对象 `A1:B3`（列名拿范围第一行的字当，于是第二列叫 `10`）；`tableParts` 自己写 `count="1"` |
@@ -2318,6 +2321,24 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `scripts/acceptance/lyco_toc_entries.py`（两份 `toc_entries`，
       挂在 `office_reader.py` 的 `docx_contents` / `odf_contents` 上）；probe 的 3b2 把
       **每一份 .docx 与 .odt** 的整本条目账与读者对，再钉上面这几条实测。
+
+120. **一张方格两个出口：`--markdown` 与 `--csv` 用的是同一份铺平，转义按 markdown 的规矩**（`pipes.xlsx` / `pipes-lo.xlsx` / `pipes.ods`）
+    - 为什么另做一副件：`--markdown` 有两个分支（竖线躲成 `\|`、格内换行铺成 `<br>`），
+      量过 212 份存量 fixture 之后确认**整库里没有一格带竖线**（`office_reader.py` 铺平再用
+      `csv` 模块解回来数过），换行那一支只有 `rich*` 三副有。没件可测的分支不能说它成立。
+    - 两本账同源：`square()` 只算一次方格，`render_csv` 与 `render_markdown` 各自转义，
+      所以 `rows` / `columns` 在两边是同一个数（探针 3f1 对每一份都 assert 这条等式，
+      并且与第二读者的 `rows` / `columns` 三方对）。
+    - `separator_after_row` 说的是一句格式事实：`| --- |` 加在第 0 行之后，因为 markdown 的
+      表格**必须有表头**；文件没说第一行是表头（`book.ods` 的「草稿」只有一行字，那一行照样
+      被当成表头），所以这一格叫「分隔线在第几行之后」而不叫「表头」。
+    - 三家生产者到这一个出口上合上：`pipes.xlsx`（openpyxl，行内/串表两条路）、
+      `pipes-lo.xlsx`（LibreOffice 重写 xlsx）、`pipes.ods`（ODF 把换行写成三个 `text:p`）
+      铺出来的 markdown 全文逐字相同 —— 这是这一批里唯一一条「三族同文」的等式，
+      别的账都是各交各的。
+    - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
+      probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与
+      「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
 `scripts/acceptance/office_reader.py`（OOXML / ODF / MS-CFB / OLE 属性集，只用标准库）、
 文档里那几张图在它的 `docx_picture_rows()` / `odt_picture_rows()` 里：两处尺寸各自换算、
