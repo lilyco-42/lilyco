@@ -348,9 +348,43 @@ impl Node {
     }
 }
 
+/// 行尾折成 `\n`：XML §2.11 规定处理器**必须**把输入里的 `\r\n` 与裸 `\r` 当成一个 `\n`，
+/// 所以「文件里躺着两个字节」不是交回两个字符的理由。这一条是被 `pipes.xlsx` 顶出来的：
+/// openpyxl 在 Windows 上把串里的换行写成 `\r\n`，而标准库的读者（ElementTree）交回 `\n`，
+/// 于是同一个格子两家的字不一样 —— 以前这一族照字节交，`--markdown` 把它铺成 `\r<br>` 才露出来。
+/// 存量件里的 CR 全部躺在 XML 声明那一行（`?>` 之后），不经过这条路，所以这一折不改任何既有期望。
+fn fold_newlines(raw: &str) -> String {
+    if !raw.contains('\r') {
+        return raw.to_string();
+    }
+    let mut out = String::with_capacity(raw.len());
+    let mut skip_lf = false;
+    for one in raw.chars() {
+        if skip_lf && one == '\n' {
+            skip_lf = false;
+            continue;
+        }
+        skip_lf = false;
+        if one == '\r' {
+            out.push('\n');
+            skip_lf = true;
+            continue;
+        }
+        out.push(one);
+    }
+    out
+}
+
 /// 解 XML 实体：五个具名 + 数字引用（十进制与十六进制）。其它 `&xxx;` 原样留着 ——
 /// 那是没声明的实体，替文件猜一个值比承认「这里有个我不认的实体」更糟。
+/// 正文与属性值都走这一条（先折行尾再解引用），所以两家读者交的字才是同一份
 pub fn unescape(text: &str) -> String {
+    // 先折行尾再解实体：§2.11 归一的是**输入字节**，`&#13;` 那样引用出来的 CR 是一个
+    // 明确要来的字符，不该被当成行尾吃掉（ElementTree 也是这么处理的）
+    unescape_entities(&fold_newlines(text))
+}
+
+fn unescape_entities(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     loop {
@@ -412,6 +446,19 @@ pub fn inline_text(node: &Node) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn line_ends_fold_to_one_newline() {
+        // CRLF 是一个换行，裸 CR 也是一个换行，`&#10;` 本来就是
+        assert_eq!(unescape("a\r\nb\rc&#10;d"), "a\nb\nc\nd");
+        // 没有 CR 的串原样（既有期望全靠这条不变）
+        assert_eq!(unescape("a\nb"), "a\nb");
+        // 末尾一个裸 CR 不许多出一行
+        assert_eq!(unescape("a\r"), "a\n");
+        // 但 `&#13;` 是文件明确要来的那一个 CR，不是行尾：不许折成 LF（§2.11 只归输入）
+        assert!(unescape("a&#13;b").contains('\r'), "解引用出来的 CR 要留着");
+        assert_eq!(unescape("a&#13;&#10;b"), "a\r\nb");
+    }
+
     use super::*;
 
     #[test]

@@ -3453,6 +3453,12 @@ def main() -> int:
         order = [one["name"] for one in both.get("sheets", [])]
         check("%s --markdown 的表序与命令报的一致" % name, order, list(want))
         check("%s --markdown 默认第一张" % name, dig(both, "markdown.text"), want.get(order[0]))
+        md_text = dig(both, "markdown.text") or ""
+        record(
+            "%s --markdown 的正文里没有裸 CR（行尾按 §2.11 折过）" % name,
+            "\r" not in md_text,
+            repr(md_text)[:70],
+        )
         for at, one in enumerate(both.get("sheets", [])):
             nm = one["name"]
             got = lbin("office-sheet", fixture(name), "--markdown", "--sheet", nm, "--csv")

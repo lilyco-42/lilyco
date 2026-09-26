@@ -2847,6 +2847,16 @@ mod tests {
         );
         assert_eq!(run_md("book.ods", "2")["markdown"]["index"], 2);
         // 分段与首尾空格那一副（ODF 那族把记号摊开之后）
+        // 折行尾是读者的活（XML §2.11）：openpyxl 在 Windows 上把格里的换行写成 CRLF，
+        // 两家读者不折就一个字不同 —— 这里钉「交回的正文里不许有裸 CR」，见 README 事实 121
+        for name in ["pipes.xlsx", "pipes-lo.xlsx", "pipes.ods"] {
+            let body = run_md(name, "")["markdown"]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            assert!(!body.contains('\r'), "{}：格里的行尾要折成一个 LF", name);
+        }
+        // 分段与首尾空格那一副（ODF 那族把记号摊开之后）
         assert_eq!(
             run_md("rich.ods", "")["markdown"]["text"],
             json!("| 甲 | 整格加粗（格式在格子上不在串里） |\n| --- | --- |\n| 重要普通 |  |\n|   两头有空格   |  |\n| 第一行<br>第二行 |  |\n| 甲 |  |\n| 整段一个格式斜体那截 |  |\n| \ttab 开头 |  |\n")
