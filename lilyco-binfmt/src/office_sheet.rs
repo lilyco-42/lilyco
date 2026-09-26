@@ -1433,7 +1433,7 @@ fn sheet_comments(bytes: &[u8], part: &str, limit: usize) -> Vec<Value> {
 fn xlsx_links(bytes: &[u8], part: &str, root: &xmlscan::Node, limit: usize) -> Value {
     let (dir, base) = match part.rsplit_once('/') {
         Some((head, tail)) => (head.to_string(), tail),
-        None => (String::new(), part.as_str()),
+        None => (String::new(), part),
     };
     let rels_name = if dir.is_empty() {
         format!("_rels/{base}.rels")
