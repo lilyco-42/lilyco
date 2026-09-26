@@ -2206,6 +2206,10 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       `.doc` 只有 piece 表里的格子标记（事实 113 那条边界）—— 两处都做不出这张 CSV，缺键而不是空串。
     - 第二读者是 `scripts/acceptance/lyco_doc_csv.py`（`docx_grids` / `odf_grids` / `doc_csv`，只用标准库）：
       表按 `descendants` 数、行与格按**直接孩子**走、嵌在格子里的那张表的段不算这一格，三条判据各写一遍。
+      「段」那一层也照 Rust 的判据走（`.scratch/probe_csv_trim.py` 在 30 份有表的件上逐格量过一致）：
+      每段**各自** trim、ODF 跳过 `text:annotation` 子树，而 `text:s` 与 `text:line-break` 在网格这一本
+      **不展开**（展开是 `office-text --markdown` 那一族的事）—— 写在这里是为了将来真出现带记号的格子时，
+      两边先在这里分道，而不是各自猜一个页面上的样子。
       probe 的 3ay 一条 lane 把**每一份 .docx 与 .odt** 的第一张表整份对账，再把每张表按号各取一遍
       （`tables_total` 与 `table` 两格），最后钉上面那四条实测串与两条 error 文案。
 116. **`office-slide --csv`：一页一张表一份账，三种合并写法在这里两两分开**（`deck-tables.pptx` / `deck-tables-lo.pptx` / `deck-tables.odp` / `deck.pptx` / `deck.odp`）

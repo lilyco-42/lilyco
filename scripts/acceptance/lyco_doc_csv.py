@@ -26,27 +26,53 @@ def kids(node, *want):
 
 
 def docx_para_text(node) -> str:
-    """一段的字：`w:t` 的后代按文档顺序拼（与 `office_text.rs::paragraph_text` 同一条）"""
-    return "".join(one.text or "" for one in node.iter() if local(one.tag) == "t")
+    """一段的字：与 Rust 的 `office_text::paragraph_text` = `run_text` 同一条 ——
+    按文档顺序拼每个节点的自有字与孩子的尾巴（xmlscan 把 `#text` 当字存，所以
+    「前 `<t>中</t>` 后」两边都读成「前中后」），`w:tab` 是一个制表、`w:br` / `w:cr`
+    是一个换行，最后**整段 trim**（Rust 那本每段都 trim，不是只把拼完的整格 trim）。
+    段读者直接借 `office_reader.ooxml_para_text`：那是这条判据的第二份实现，不另写一遍。
+    """
+    from office_reader import ooxml_para_text  # 晚一点引：本模块是被它 import 的那一个
+
+    return ooxml_para_text(node).strip()
 
 
 def odf_para_text(node) -> str:
-    """ODF 一段：空格与制表是**记号**不是字符，`text:s` 按自己的 `c` 展开（同 Rust 那本）"""
-    out = []
-    for one in node.iter():
+    """ODF 一段：与 Rust 的 `odf_paragraph_text` = `text_skipping(node, "annotation")` 同一条。
+
+    三件事都照那本做，不照「页面上看到什么」自己补：
+    - **`text:annotation` 整棵子树跳过**（注里的段不是这一格的字）；
+    - `text:tab` 是一个制表（Rust 那边认的名字就是 `tab`），而 **`text:s` 与
+      `text:line-break` 不展开** —— 网格这一本交的是文件写成字符的那些字，
+      记号要展开是 `office-text --markdown` 那一族的事（`lyco_markdown.py` 那一份读者）；
+    - 整段 **trim**（与 docx 那一条同一个待遇）。
+    """
+    out: list = []
+
+    def keep(chunk: str) -> bool:
+        """纯空白且带换行的是 pretty-print 的缩进噪声；不带换行的空白是文件写的字"""
+        if not chunk:
+            return False
+        return not (chunk.strip() == "" and ("\n" in chunk or "\r" in chunk))
+
+    def walk(one, top: bool = False):
         name = local(one.tag)
-        if name == "s":
-            count = one.get("c") or one.get("{urn:oasis:names:tc:opendocument:xmlns:text:1.0}c")
-            out.append(" " * int(count) if count else " ")
-        elif name == "tab":
+        if not top and name == "annotation":
+            if one.tail and keep(one.tail):
+                out.append(one.tail)  # 注后面那段尾巴字仍属于这一段
+            return
+        if name == "tab":
             out.append("\t")
-        elif name == "line-break":
-            out.append("\n")
-        elif one.text:
+        elif one.text and keep(one.text):
             out.append(one.text)
-        if one.tail:
+        for kid in one:
+            walk(kid)
+        if one.tail and keep(one.tail):
             out.append(one.tail)
-    return "".join(out)
+
+    walk(node, top=True)
+    return "".join(out).strip()
+
 
 
 def csv_field(raw: str) -> str:
