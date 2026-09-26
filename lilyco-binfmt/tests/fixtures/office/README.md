@@ -5,6 +5,12 @@
 重跑 `python scripts/office_fixtures.py --force`（需要 LibreOffice；python-docx / python-pptx /
 openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里，PATH 上的 uv python 没有）。
 
+**用哪一套解释器要写清楚**：那套装了 lxml，openpyxl 就用 lxml 的序列化器（非 ASCII 写成
+`&#31532;` 这种数字引用、行尾是 LF）；换一套没装 lxml 的（例如 anaconda 那套），openpyxl 退回
+标准库 ElementTree 写，同一份值就变成原样 UTF-8 加上串里的 `CRLF` —— 版本号一样、字节不一样。
+`pipes.xlsx` 与它的两份重写是后一种解释器产出的（这一批只有这三份），那三个 CRLF 就是
+事实 121 的凭据；其余件都出自前一种。重做谁之前先看这一条。
+
 | 文件 | 生产者 | 里面故意放了什么 |
 |------|--------|------------------|
 | `notes.docx` | python-docx 1.2 | 两级标题、正文、2×2 表、站外超链接、一张 PNG、一条批注、分页符、核心属性 + 自定义属性 |
@@ -132,7 +138,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `rich-lo.xlsx` | LibreOffice（`rich.xlsx` → .xlsx，同一个格式重写） | 第二种摆法：八次引用全搬进 `sst`（自报 `count="8"` 配 `uniqueCount="7"`，七条串），每一个 `t` 都补 `xml:space="preserve"`，同一个粗体开关改写成 `val="true"` 并补 `family` / `charset`，A7 那一格还按字体 fallback **切成两段**（`Calibri` 与 `Noto Sans SC`）—— 分段数是生产者的决定，只交不比 |
 | `rich.ods` | LibreOffice（`rich.xlsx` → .ods） | 第三种摆法，而且是记号不是字面：`  两头有空格  ` 写作 `<text:s text:c="2"/>…<text:s text:c="2"/>`（`text:c` 说这一个记号顶几个空格），A7 的制表符是 `<text:tab/>`，A4 的两行是两个 `<text:p>`；富文本变成 `<text:span text:style-name="T1">`（那三份字符样式不追，只交 `spans` / `specials` 两本条数） |
 | `pipes.xlsx` | openpyxl | markdown 表格的两个装不下的东西：格里的**竖线**与**格内换行**。五个变量分开摆 —— 竖线在中间（A2 `a|b`、B2 `1|2|3`）、竖线在首尾（A4 `|首尾都带|`）、整格只有一个竖线（B4 `|`）、一格同时带竖线与换行（A3）、只带换行（B3）。**做这副的理由是量出来的**：`--markdown` 那两个转义分支在库里没有任何一格带竖线，换行那一支只有 `rich*` 覆盖（`第一行\n第二行`）
-| `pipes-lo.xlsx` | LibreOffice（`pipes.xlsx` → .xlsx，同一个格式重写） | 第二个生产者：竖线是普通字符，两家都原样带着走（`sst` 与行内串两条路都过）；这一副铺出来的方格与上一副逐字相同。**但串里的换行写法不同**：openpyxl（Windows，3.1.5）把值里的 `\n` 写成 `\r\n`，LibreOffice 重写时写成 `&#10;` —— 行尾归一是 XML §2.11 要求读者做的，见事实 121
+| `pipes-lo.xlsx` | LibreOffice（`pipes.xlsx` → .xlsx，同一个格式重写） | 第二个生产者：竖线是普通字符，两家都原样带着走（`sst` 与行内串两条路都过）；这一副铺出来的方格与上一副逐字相同。**但串里的换行写法不同**：openpyxl（Windows，3.1.5）把值里的 `\n` 写成 `\r\n`，LibreOffice 重写时写成 `&#10;` —— 行尾归一是 XML §2.11 要求读者做的，见事实 121（写出这一副的解释器没有 lxml，openpyxl 因此用标准库序列化 —— 与语料其余部分不同，README 前言那条有记）
 | `pipes.ods` | LibreOffice（`pipes.xlsx` → .ods） | 第三种存法：换行是三个 `text:p`（不是格里的 `\n` 字符）、竖线仍是串里的普通字 —— 三家到 markdown 这一个出口上铺出同一份文本，这条等式在探针里钉着
 | `styled.xlsx` | openpyxl（`write_styled_xlsx`） | 「长相」那一跳的第一种写法：五份字体（默认那份什么都不写、粗体深红换字体、`<i/><u/>` 那份连 `name`/`sz` 都没有、只有 `<color indexed="64"/>` 的、只有 `<color theme="1" tint="0.5"/>` 的）、四条填充（**第 0 条是空的 `<patternFill/>`**、第 1 条 gray125 占位、实心黄底只写 `fgColor`、`lightGrid` 写 `fgColor` + `bgColor`）、两条边界（第 0 条五个空孩子、第 1 条四条 `style="thin"` 各带一个 `color`）、十条 `cellXfs` 而 `cellStyleXfs` 只有一条；只有一格写了 `applyAlignment="1"` 并带 `<alignment horizontal="right" vertical="center" wrapText="1"/>`，`A3` 那一格**连 `s` 都不写** |
 | `styled-lo.xlsx` | LibreOffice（`styled.xlsx` → .xlsx，同一个格式重写） | 第二种写法：九份字体（多出来的是 Arial 10 那几份占位）、`cellStyleXfs` 从 1 条变 20 条、每格都写 `s="…"`、粗体开关换成 `val="true"`、`indexed="64"` 那个颜色被换成 `rgb="FF000000"`、空占位改成 `patternType="none"`、`solid` 那一条补出 `bgColor`，而**点状网格底整个换成实心底并改了颜色**（`FF00B050` → `FF90DDB3`）；每一格还补一份写着 `wrapText="false"` 的 `alignment` —— 「没写」与「写了关」在两副件里是两个不同的数 |
