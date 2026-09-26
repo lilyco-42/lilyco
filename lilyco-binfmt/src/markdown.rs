@@ -1408,7 +1408,11 @@ pub fn pptx_deck(bytes: &[u8], budget: usize) -> Value {
 
 /// 页上那一块里的段：表、嵌入对象、图与控件**整个不走进去**（那些字另有自己的账，
 /// 再当页上的段交一遍就是把同一句排两次 —— 这一条是镜像先犯、两边一起对出来的）
-fn deck_paragraphs(node: &Node, inside_list: bool, out: &mut Vec<(&Node, bool)>) {
+///
+/// 生命周期必须命名：`out` 里那个 `&Node` 与 `node` 不是同一个匿名生命周期就不成立 ——
+/// `&mut Vec<_>` 对里面的引用是**不变的**，本机不许编译，这一条是 CI 的
+/// 「lifetime may not live long enough」教的
+fn deck_paragraphs<'a>(node: &'a Node, inside_list: bool, out: &mut Vec<(&'a Node, bool)>) {
     for one in elements(node) {
         if matches!(one.local(), "table" | "object" | "image" | "control") {
             continue;
