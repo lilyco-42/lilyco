@@ -278,7 +278,7 @@ TOBJ_PICTURE = 8
 BLIP = 0xF007
 BLIP_CONTAINERS = (0xF000, 0xF001)
 # 图片字节的字签。只认这四个：第一个字节互不重叠，误判不了。
-# 按这个顺序找，找到第一个就用（与 Rust 的 SIGNATURES 同一条顺序）
+# 判据是「最靠前的那个位置」，位置相同才按这张表的先后（与 Rust 的 signature_of 同一条）
 SIGNATURES = (
     (b"\x89PNG\r\n\x1a\n", "png"),
     (b"\xff\xd8\xff", "jpeg"),
@@ -289,14 +289,19 @@ SIGNATURES = (
 
 def _art_signature(body: bytes):
     """字签在第几个字节上（没有就两个 None）。只在前 128 字节里找 ——
-    头部之外撞到 `BM` 这两个字母的机会不小，找错了还不如说没找到
+    头部之外撞到 `BM` 这两个字母的机会不小，找错了还不如说没找到。
+    取最靠前的位置而不是表的先后：`BM` 若真在 PNG 之前出现，按表判就报成 bmp，
+    两份读者各用一条规则就会在探针上对不上
     """
     window = body[:128]
-    for mark, kind in SIGNATURES:
+    best = None
+    for index, (mark, kind) in enumerate(SIGNATURES):
         at = window.find(mark)
-        if at >= 0:
-            return at, kind
-    return None, None
+        if at < 0:
+            continue
+        if best is None or (at, index) < (best[0], best[1]):
+            best = (at, index, kind)
+    return (best[0], best[2]) if best is not None else (None, None)
 
 
 def officeart_blips(buf: bytes, base: int, depth: int, out: list) -> None:

@@ -1794,9 +1794,13 @@ fn picture_ledger(
 }
 
 /// 画法部件里那三种「摆在哪里」的元素，按文档顺序取（两种生产者会把三种混着写，
-/// 分开数就丢了先后）
+/// 分开数就丢了先后）。`parse_str` 交回来的是伪根，文档元素 `xdr:wsDr` 坐在它下面一层，
+/// 锚块是**那个元素**的直接孩子 —— 在伪根上数孩子只会数到 `wsDr` 自己，于是一份
+/// 有五张图的件读成零张（CI 上那一次红就是这个形状）
 fn drawing_anchors(root: &xmlscan::Node) -> Vec<&xmlscan::Node> {
-    root.children
+    let holder = root.child("wsDr").unwrap_or(root);
+    holder
+        .children
         .iter()
         .filter(|one| {
             matches!(
