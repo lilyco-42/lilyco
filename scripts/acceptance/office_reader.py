@@ -5463,8 +5463,11 @@ def xlsx_charts(parts: dict) -> dict:
     return out
 
 
-def rels_of_parts(parts: dict, source: str) -> list:
-    """那个部件自己的关系表：(Type 结尾那个名字, 解成包内全名的 Target)，按文件里的顺序"""
+def rels_with_ids_parts(parts: dict, source: str) -> list:
+    """那条关系表的全部四条：(Type 结尾的名字, 关系自己写的 Id, 解出来的 Target, 是否外部)。
+    与 Rust 的 `rels_with_ids` 一对一 —— 外部的 Target 是个 URL，按包内路径解析没有意义，
+    原样交。位图那本账要用 Id 去配 `r:embed="rIdN"`，所以这一版不能先把 Id 丢掉
+    """
     dir_name = source.rsplit("/", 1)[0] if "/" in source else ""
     base = source.rsplit("/", 1)[-1]
     name = ("_rels/%s.rels" % base) if not dir_name else ("%s/_rels/%s.rels" % (dir_name, base))
@@ -5473,19 +5476,290 @@ def rels_of_parts(parts: dict, source: str) -> list:
     root = ET.fromstring(parts[name])
     out = []
     for one in root.iter():
-        if xml_local(one.tag) != "Relationship" or one.get("TargetMode") == "External":
+        if xml_local(one.tag) != "Relationship":
             continue
         kind = (one.get("Type") or "").rsplit("/", 1)[-1]
         target = one.get("Target")
         if target is None:
             continue
-        out.append((kind, opc_target(source, target)))
+        external = one.get("TargetMode") == "External"
+        out.append(
+            (
+                kind,
+                one.get("Id") or "",
+                target if external else opc_target(source, target),
+                external,
+            )
+        )
     return out
+
+
+def rels_of_parts(parts: dict, source: str) -> list:
+    """那个部件自己的关系表：(Type 结尾那个名字, 解成包内全名的 Target)，按文件里的顺序。
+    旧口径：丢掉 `TargetMode="External"` 那几条，也不交 Id —— 批注、图（chart）、表对象用的就是它
+    """
+    return [
+        (kind, target)
+        for kind, _, target, external in rels_with_ids_parts(parts, source)
+        if not external
+    ]
 
 
 def written_attrs(node) -> dict:
     """一个元素上写着的属性：去掉命名空间前缀，值原样交（与 Rust 的 written_attrs 同一条）"""
     return {xml_local(key): value for key, value in node.attrib.items()}
+
+
+# ── 表上那张位图：三种包内形状（xlsx / ods / xls）各一本账，与 Rust 的 picture_ledger 同形 ──
+# 那份账的公共外壳：total 是**看到**的条数（截断之前），listed 是列出的那些，
+# 所以 cut 一摆开就不会把「只列了前 N 个」读成「只有 N 张」。
+# drawings 只有 OOXML 那一族有（画法部件的个数），ODF 没有这一层，交 None 不交 0
+PICTURE_KEYS = (
+    "drawings", "total", "distinct_media", "unresolved", "missing_media",
+    "other_anchors", "listed", "cut",
+)
+# 每个锚块自己写的那几样（摆法、两个角、形状名与替代文字、跳到的图部件与它的字节数）。
+# 两家的区别全在这本明细里，只看总数什么都看不见
+XDR_ROW_KEYS = (
+    "drawing", "placed", "anchor_attrs", "from", "to", "pos", "ext",
+    "shape_id", "shape_name", "descr", "shape_attrs", "blip_attrs", "blip_id",
+    "external", "target", "media_bytes", "xfrm",
+)
+ODS_ROW_KEYS = (
+    "in_cell", "written", "name", "x", "y", "width", "height", "end_cell_address",
+    "href", "also_object", "mime", "image_written", "alt", "media_bytes",
+)
+ANCHOR_KINDS = ("twoCellAnchor", "oneCellAnchor", "absoluteAnchor")
+
+
+def picture_ledger(drawings, total, rows, unresolved, missing_media, other_anchors) -> dict:
+    """三种包形状共用的那份账外壳（unresolved 与 missing_media 只数列出的那些）。
+    去重按「这一条自己写的地址」：OOXML 那个键叫 target，ODF 只有一跳、那个键叫 href。
+    other_anchors 是那份画法里根本不是位图的摆位（图表与嵌入对象占的那些），另记一本
+    """
+    distinct = []
+    for one in rows:
+        raw = one.get("target")
+        if raw is None:
+            raw = one.get("href")
+        if raw is not None and raw not in distinct:
+            distinct.append(raw)
+    return {
+        "drawings": drawings,
+        "total": total,
+        "distinct_media": len(distinct),
+        "unresolved": unresolved,
+        "missing_media": missing_media,
+        "other_anchors": other_anchors,
+        "listed": len(rows),
+        "cut": len(rows) < total,
+        "list": rows,
+    }
+
+
+def numeric_or_text(text):
+    """文字能当数就交数（文件写的是 EMU 与列行号，这里不做任何换算）。
+    带头尾空白的串按 Rust 那条 `parse::<f64>` 的规矩当文字交 —— 它不吃空白
+    """
+    if text is None:
+        return None
+    if text != text.strip():
+        return text
+    try:
+        return float(text)
+    except ValueError:
+        return text
+
+
+def pic_child(node, want):
+    """第一个局部名对得上的直接孩子（与 Rust 的 Node::child 同一条：全名或局部名都算）"""
+    for one in node:
+        if xml_local(one.tag) == want:
+            return one
+    return None
+
+
+def pic_text(node):
+    """整棵子树的文本拼起来（`<xdr:col>` 里的数就是这么读的）；没有这个孩子交 None"""
+    if node is None:
+        return None
+    return "".join(node.itertext())
+
+
+def xdr_corner(anchor, want):
+    """锚块里那一个角的四个数。absoluteAnchor 一个角都不写，那一支交 None"""
+    one = pic_child(anchor, want)
+    if one is None:
+        return None
+    return {
+        "col": numeric_or_text(pic_text(pic_child(one, "col"))),
+        "col_off": numeric_or_text(pic_text(pic_child(one, "colOff"))),
+        "row": numeric_or_text(pic_text(pic_child(one, "row"))),
+        "row_off": numeric_or_text(pic_text(pic_child(one, "rowOff"))),
+    }
+
+
+def xdr_attrs_of(node, want):
+    """某个**直接孩子**的属性表。没有那个孩子交 None，而不是空表 ——
+    空表是「有这个元素但它一个属性都没写」，两件事得分开
+    """
+    one = pic_child(node, want)
+    return None if one is None else written_attrs(one)
+
+
+def xdr_xfrm(sp_pr):
+    """`spPr/xfrm`：LibreOffice 写（off 与 ext 各一对 EMU 数），openpyxl 整个不写"""
+    one = pic_child(sp_pr, "xfrm")
+    if one is None:
+        return None
+    return {
+        "attrs": written_attrs(one),
+        "off": xdr_attrs_of(one, "off"),
+        "ext": xdr_attrs_of(one, "ext"),
+    }
+
+
+def xdr_picture(drawing, anchor, rels, sizes) -> dict:
+    """一个锚块里那张图的全部。`rels` 是画法部件自己的关系表（带 Id 那版），
+    按 `r:embed` 那个号配 —— 配不上的那条不圆场，target 交 None
+    """
+    pic = pic_child(anchor, "pic")
+    nv = pic_child(pic, "nvPicPr") if pic is not None else None
+    shape = pic_child(nv, "cNvPr") if nv is not None else None
+    fill = pic_child(pic, "blipFill") if pic is not None else None
+    blip = pic_child(fill, "blip") if fill is not None else None
+    embed = local_attr(blip, "embed") if blip is not None else None
+    found = None
+    if embed is not None:
+        found = next((one for one in rels if one[1] == embed), None)
+    target = found[2] if found is not None else None
+    return {
+        "drawing": drawing,
+        "placed": xml_local(anchor.tag),
+        "anchor_attrs": written_attrs(anchor),
+        "from": xdr_corner(anchor, "from"),
+        "to": xdr_corner(anchor, "to"),
+        "pos": xdr_attrs_of(anchor, "pos"),
+        "ext": xdr_attrs_of(anchor, "ext"),
+        "shape_id": None if shape is None else shape.get("id"),
+        "shape_name": None if shape is None else shape.get("name"),
+        "descr": None if shape is None else shape.get("descr"),
+        "shape_attrs": None if shape is None else written_attrs(shape),
+        "blip_attrs": None if blip is None else written_attrs(blip),
+        "blip_id": embed,
+        "external": bool(found[3]) if found is not None else False,
+        "target": target,
+        "media_bytes": sizes.get(target) if target is not None else None,
+        "xfrm": (
+            xdr_xfrm(pic_child(pic, "spPr"))
+            if pic is not None and pic_child(pic, "spPr") is not None
+            else None
+        ),
+    }
+
+
+def xlsx_pictures(parts: dict, sizes: dict, part: str, limit: int = 200) -> dict:
+    """那张表上的位图那一份账：三跳（表 →（自己的关系表）→ 画法部件 →（它的关系表）→ 图部件）。
+    判画法部件的口径照 Rust 那边抄：结尾是 `.xml` 且名字里有 `/drawings/`（不看关系的类型名）
+    """
+    rows: list = []
+    drawings = 0
+    total = 0
+    unresolved = 0
+    missing = 0
+    others = 0
+    for _, drawing in rels_of_parts(parts, part):
+        if not (drawing.endswith(".xml") and "/drawings/" in drawing):
+            continue
+        drawings += 1
+        if drawing not in parts:
+            continue
+        rels = rels_with_ids_parts(parts, drawing)
+        for anchor in [one for one in ET.fromstring(parts[drawing])
+                       if xml_local(one.tag) in ANCHOR_KINDS]:
+            # 没有 pic 的那个锚块装的是别的东西（图表走 graphicFrame）：不是坏掉的位图
+            if pic_child(anchor, "pic") is None:
+                others += 1
+                continue
+            total += 1
+            if len(rows) >= limit:
+                continue
+            one = xdr_picture(drawing, anchor, rels, sizes)
+            if one["target"] is None:
+                unresolved += 1
+            elif one["media_bytes"] is None:
+                missing += 1
+            rows.append(one)
+    return picture_ledger(drawings, total, rows, unresolved, missing, others)
+
+
+def xlsx_pictures_by_sheet(parts: dict, sizes: dict, limit: int = 200) -> dict:
+    """每张表的位图账，按 sheetN 归位（与 Rust 那边每表一份 `pictures` 一对一）"""
+    return {
+        name.rsplit("/", 1)[-1][: -len(".xml")]: xlsx_pictures(parts, sizes, name, limit)
+        for name in sorted(parts)
+        if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
+    }
+
+
+def ods_frame_picture(frame, in_cell, sizes) -> dict:
+    """一个 `draw:frame` 里那张图的全部。尺寸是**自带单位的串**（`svg:width="1.057cm"`），
+    原样交不换算；`in_cell` 是结构事实（走过了一个 `table:table-cell`）
+    """
+    image = pic_child(frame, "image")
+    href = local_attr(image, "href") if image is not None else None
+    if href is not None:
+        while href.startswith("./"):
+            href = href[2:]
+    desc = pic_child(frame, "desc")
+    return {
+        "in_cell": in_cell,
+        "written": written_attrs(frame),
+        "name": local_attr(frame, "name"),
+        "x": local_attr(frame, "x"),
+        "y": local_attr(frame, "y"),
+        "width": local_attr(frame, "width"),
+        "height": local_attr(frame, "height"),
+        "end_cell_address": local_attr(frame, "end-cell-address"),
+        "href": href,
+        # 同一个 frame 里还有 draw:object 的，这张位图只是那个图表/嵌入对象的预览缓存
+        "also_object": pic_child(frame, "object") is not None,
+        "mime": local_attr(image, "mime-type") if image is not None else None,
+        "image_written": None if image is None else written_attrs(image),
+        "alt": None if desc is None else pic_text(desc),
+        "media_bytes": sizes.get(href) if href is not None else None,
+    }
+
+
+def ods_frames(node, in_cell, sizes, limit, out: list) -> None:
+    """往下走时把「经过了一个 table:table-cell」这个记号带下去：ElementTree 的 parent
+    也拿不到，判「在格子里」只能在下去的路上判。只收带 `draw:image` 的那些 frame
+    """
+    deeper = in_cell or xml_local(node.tag) == "table-cell"
+    for one in node:
+        if len(out) >= limit:
+            return
+        if xml_local(one.tag) == "frame":
+            if pic_child(one, "image") is not None:
+                out.append(ods_frame_picture(one, deeper, sizes))
+            continue
+        ods_frames(one, deeper, sizes, limit, out)
+
+
+def ods_pictures(table, sizes, limit: int = 200) -> dict:
+    """ODF 的表上那张图：地址只有一跳（`draw:image/@xlink:href`），没有关系表，
+    所以「配不上号」这一本在这里是「压根没写 href」。`drawings` 交 None：这一族没有那一层
+    """
+    rows: list = []
+    ods_frames(table, False, sizes, limit, rows)
+    frames = [one for one in table.iter() if xml_local(one.tag) == "frame"]
+    total = sum(1 for one in frames if pic_child(one, "image") is not None)
+    unresolved = sum(1 for one in rows if one["href"] is None)
+    missing = sum(
+        1 for one in rows if one["href"] is not None and one["media_bytes"] is None
+    )
+    # 不带 draw:image 的那些 frame 装的是图表/嵌入对象本体，不是坏掉的位图
+    return picture_ledger(None, total, rows, unresolved, missing, len(frames) - total)
 
 
 def dxf_table(parts: dict):
@@ -5696,6 +5970,8 @@ def xlsx_facts(path: Path) -> dict:
     with zipfile.ZipFile(path) as box:
         names = [one.filename for one in box.infolist()]
         parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+        # 中央目录自报的「解压后长度」：位图那本账的 media_bytes 用这个口径，不解压
+        sizes = {one.filename: one.file_size for one in box.infolist()}
     print_setups = xlsx_print_setup(parts)
     views = xlsx_views(parts)
     headers = xlsx_headers(parts)
@@ -5866,6 +6142,7 @@ def xlsx_facts(path: Path) -> dict:
                  "whole": dxf_written is None or int(dxf_written) == len(dxf_kinds)},
         "rules": rules_by_sheet,
         "links": xlsx_links_by_sheet(parts),
+        "pictures": xlsx_pictures_by_sheet(parts, sizes),
         "defined_names": len([
             one
             for one in wb.iter()
@@ -6987,6 +7264,7 @@ def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) ->
     """
     with zipfile.ZipFile(path) as box:
         parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+        sizes = {one.filename: one.file_size for one in box.infolist()}
     root = ET.fromstring(parts["content.xml"])
     if require_spreadsheet and not any(xml_local(one.tag) == "spreadsheet" for one in root.iter()):
         return None
@@ -7229,6 +7507,8 @@ def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) ->
                 "formulas": sum(1 for one in cells if one["formula"]),
                 # 这一张表上的图：ODS 的 draw:frame 就住在 table:table 里面
                 "charts": odf_charts_of(parts, table),
+                # 表上那张位图：地址只有一跳，「坐在格子里还是表上」是结构事实
+                "pictures": ods_pictures(table, sizes),
                 "layout": {
                     "unit": MM_UNIT,
                     "columns": axis_of(col_elems, "column"),

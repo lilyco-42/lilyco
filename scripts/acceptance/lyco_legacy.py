@@ -264,6 +264,89 @@ HLINK_COUNT = 0x01B7
 HLINK = 0x01B8
 GUID_SECOND = bytes.fromhex("e0c9ea79f9bace118c8200aa004ba90b")
 
+# 图在这条流里的三条记录，同样只用「这份件里的这一条」的意义：0x005D 是一条形状
+# （正文偏移 4 的那个短整数写 8 才是图片，批注框写 25），0x00EC 是表子流里的画法数据
+# （实测没有图的那张表照样写一条，80 字节），0x00EB 是工作簿级的那一条 —— 图的字节
+# 全在这条里，所以按表归位只归得出形状，归不出字节
+SHAPE = 0x005D
+DRAWING = 0x00EC
+DRAWING_GROUP = 0x00EB
+TOBJ_PICTURE = 8
+
+# OfficeArt 里那张内嵌图与它的两个容器。头 8 字节 = verInstance(2) + type(2) + cb(4)，
+# 与 BIFF 自己的「号在前长度在后」正好相反
+BLIP = 0xF007
+BLIP_CONTAINERS = (0xF000, 0xF001)
+# 图片字节的字签。只认这四个：第一个字节互不重叠，误判不了。
+# 按这个顺序找，找到第一个就用（与 Rust 的 SIGNATURES 同一条顺序）
+SIGNATURES = (
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"\xff\xd8\xff", "jpeg"),
+    (b"GIF8", "gif"),
+    (b"BM", "bmp"),
+)
+
+
+def _art_signature(body: bytes):
+    """字签在第几个字节上（没有就两个 None）。只在前 128 字节里找 ——
+    头部之外撞到 `BM` 这两个字母的机会不小，找错了还不如说没找到
+    """
+    window = body[:128]
+    for mark, kind in SIGNATURES:
+        at = window.find(mark)
+        if at >= 0:
+            return at, kind
+    return None, None
+
+
+def officeart_blips(buf: bytes, base: int, depth: int, out: list) -> None:
+    """走一条 OfficeArt 记录流，把 0xF007 那些内嵌图收进 out（与 Rust 同一走法）"""
+    if depth > 8:
+        return
+    at = 0
+    while at + 8 <= len(buf):
+        head = _u32(buf, at)
+        cb = _u32(buf, at + 4)
+        if head is None or cb is None:
+            return
+        kind = (head >> 16) & 0xFFFF
+        instance = (head >> 4) & 0xFFF
+        start = at + 8
+        rest = len(buf) - start
+        # 与 Rust 的 `buf.get(start..start + cb).unwrap_or(&[])` 同一条：自报的长度
+        # 装不下时正文按空处理，不做 Python 那种「切到末尾为止」的宽限
+        body = buf[start:start + cb] if start + cb <= len(buf) else b""
+        if kind == BLIP:
+            magic, mark = _art_signature(body)
+            out.append(
+                {
+                    "offset": base + at,
+                    "instance": instance,
+                    "cb": cb,
+                    "magic_at": magic,
+                    "kind": mark,
+                    "inline_bytes": None if magic is None else cb - magic,
+                }
+            )
+        elif kind in BLIP_CONTAINERS:
+            officeart_blips(body, base + start, depth + 1, out)
+        if cb > rest:
+            # 自报的长度装不下：再走就是读越界，剩下的条数交给调用方按记录数说真话
+            return
+        at = start + cb
+
+
+def _biff_owner(sheets: list, name):
+    """按名字归位到那张表的账本（与 Rust 的 `sheets.iter_mut().rev().find` 同一条：
+    重名时归给最后出现的那一张）
+    """
+    if name is None:
+        return None
+    for one in reversed(sheets):
+        if one["name"] == name:
+            return one
+    return None
+
 
 def biff_workbook(cfb_bytes: dict) -> dict:
     """把 Workbook 流的记录表读成：工作表清单、共享字符串、带值的单元格（按表归位）"""
@@ -298,6 +381,9 @@ def biff_workbook(cfb_bytes: dict) -> dict:
     # 链接那两条：0x01B7 自报的数按写的收（不按表分），0x01B8 逐条收在所属表名下
     link_counts: list = []
     hlinks: dict = {}
+    # 图那三条：形状与画法记录按表归位，内嵌图从全局区那条 0x00EB 里走出来
+    drawing_groups: list = []
+    blips: list = []
     for index, (offset, op, body) in enumerate(records):
         belongs = _owner(sheets, offset)
         if op == 0x0809:  # BOF
@@ -327,6 +413,9 @@ def biff_workbook(cfb_bytes: dict) -> dict:
                         grbit & 3, "visible"
                     ),
                     "record_start": _u32(body, 0),
+                    # 这一族每张表只有这两个数：几条「形状 = 图片」、几条画法记录。
+                    # 图的字节不在表子流里（见返回里的 pictures），所以这里不编列表
+                    "pictures": {"shapes": 0, "drawing_records": 0},
                 }
             )
         elif op == 0x00E0:  # XF：ixfeParent(2) + ifmt(2) + 样式位，格式号在偏移 2
@@ -542,6 +631,20 @@ def biff_workbook(cfb_bytes: dict) -> dict:
                     "whole": from_at + need == len(body),
                 }
             )
+        elif op == SHAPE:
+            # 表上的形状：只数类型是图片的那些，别的形状（批注框写 25）不进这本账
+            had = _biff_owner(sheets, belongs)
+            if had is not None and _u16(body, 4) == TOBJ_PICTURE:
+                had["pictures"]["shapes"] += 1
+        elif op == DRAWING:
+            had = _biff_owner(sheets, belongs)
+            if had is not None:
+                had["pictures"]["drawing_records"] += 1
+        elif op == DRAWING_GROUP:
+            # 这一条待在全局区（实测偏移 1054，比任何一张表的子流都早），所以图的字节
+            # 不按表分；正文整个当成一条 OfficeArt 记录流走一遍
+            drawing_groups.append({"offset": offset, "cb": len(body)})
+            officeart_blips(body, offset + 4, 0, blips)
         elif op in (0x0012, 0x0013, 0x00DD):
             # PROTECT / PASSWORD / SCENPROTECT。为什么按「落在谁的子流里」记：
             # 对照 locked-sheet.xls 与 locked-second.xls（唯一差别是锁在第一张还是
@@ -595,6 +698,13 @@ def biff_workbook(cfb_bytes: dict) -> dict:
         "comments": comments,
         "links": links,
         "link_counts": link_counts,
+        # 图的字节待在哪：那条 0x00EB 的偏移与正文长度，和从它的嵌套层里走出来的内嵌图
+        # （OfficeArt 的 0xF007）。instance 与字签位置都按文件写的原值交，不做任何换算
+        "pictures": {
+            "drawing_groups": drawing_groups,
+            "blips": blips,
+            "total": len(blips),
+        },
         "records": len(records),
         "bofs": bofs,
         "sheets": sheets,

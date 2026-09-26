@@ -313,6 +313,11 @@ def main() -> int:
         "nset.docx": ("ooxml", "word", "docx"),
         "nset-lo.docx": ("ooxml", "word", "docx"),
         "nset.odt": ("opendocument", "word", "odt"),
+        # 表上那张位图那四份：四族各写各的来路，两个生产者把同四张图写成两套明细
+        "sheet-pictures.xlsx": ("ooxml", "excel", "xlsx"),
+        "sheet-pictures-lo.xlsx": ("ooxml", "excel", "xlsx"),
+        "sheet-pictures.ods": ("opendocument", "excel", "ods"),
+        "sheet-pictures.xls": ("compound", "excel", "xls"),
     }
     print("=== 1) office-info：识别与包账 ===")
     for name, (family, app, fmt) in expect.items():
@@ -2626,6 +2631,348 @@ def main() -> int:
             "cell-links.ods": ["#'数据'.A1"],
             "cell-links.xls": ["'数据'!A1"],
         },
+    )
+
+    # ── 3a6d) 表上那张位图：OOXML 跳三跳、ODF 只有一跳、XLS 的字节根本不在表子流里。
+    #         两个生产者把同样四张图写成两套明细（openpyxl 用三种锚块元素名分表示
+    #         跨格/单格/绝对，LibreOffice 一律写 twoCellAnchor 而把区别放进 editAs），
+    #         所以整份明细一起比：只看总数什么都看不见 ──
+    print("=== 3a6d) office-sheet 的位图（四种包形状，两个生产者） ===")
+    PIC_KEYS = (
+        "drawings", "total", "distinct_media", "unresolved", "missing_media",
+        "other_anchors", "listed", "cut",
+    )
+    XDR_KEYS = (
+        "drawing", "placed", "anchor_attrs", "from", "to", "pos", "ext",
+        "shape_id", "shape_name", "descr", "shape_attrs", "blip_attrs", "blip_id",
+        "external", "target", "media_bytes", "xfrm",
+    )
+    ODS_KEYS = (
+        "in_cell", "written", "name", "x", "y", "width", "height",
+        "end_cell_address", "href", "also_object", "mime", "image_written",
+        "alt", "media_bytes",
+    )
+    BLIP_KEYS = ("offset", "instance", "cb", "magic_at", "kind", "inline_bytes")
+
+    def pic_counts(ledger):
+        return {one: ledger.get(one) for one in PIC_KEYS}
+
+    def pic_view(ledger, row_keys):
+        return (
+            pic_counts(ledger),
+            [{one: had.get(one) for one in row_keys} for had in ledger.get("list", [])],
+        )
+
+    for name in ("sheet-pictures.xlsx", "sheet-pictures-lo.xlsx"):
+        got = lbin("office-sheet", fixture(name))
+        theirs = files[name]["ooxml"]["pictures"]
+        check(
+            "%s 每张表的位图整份账（八个数 + 每个锚块的明细）" % name,
+            {
+                "sheet%d" % index: pic_view(one.get("pictures") or {}, XDR_KEYS)
+                for index, one in enumerate(got.get("sheets", []), start=1)
+            },
+            {
+                key: pic_view(value, XDR_KEYS)
+                for key, value in theirs.items()
+            },
+        )
+        check(
+            "%s 位图总账（四张表加起来的条数）" % name,
+            dig(got, "workbook.totals.pictures"),
+            sum(value["total"] for value in theirs.values()),
+        )
+    openpyxl = lbin("office-sheet", fixture("sheet-pictures.xlsx"))
+    losheet = lbin("office-sheet", fixture("sheet-pictures-lo.xlsx"))
+    # 摆法这个名字在两族手里完全不是一套：元素名与属性名各说各的
+    check(
+        "openpyxl 用三种锚块元素名，一个 anchor 属性都不写",
+        [
+            [had.get("placed") for had in (dig(openpyxl, "sheets[0].pictures.list") or [])],
+            [had.get("anchor_attrs") for had in (dig(openpyxl, "sheets[0].pictures.list") or [])],
+        ],
+        [
+            ["twoCellAnchor", "oneCellAnchor", "oneCellAnchor", "oneCellAnchor",
+             "absoluteAnchor"],
+            [{}, {}, {}, {}, {}],
+        ],
+    )
+    check(
+        "LibreOffice 一律写 twoCellAnchor，区别全在 editAs 那四个值里",
+        [
+            [had.get("placed") for had in (dig(losheet, "sheets[0].pictures.list") or [])],
+            [had.get("anchor_attrs") for had in (dig(losheet, "sheets[0].pictures.list") or [])],
+        ],
+        [
+            ["twoCellAnchor"] * 4,
+            [{"editAs": "twoCell"}, {"editAs": "oneCell"}, {"editAs": "oneCell"},
+             {"editAs": "absolute"}],
+        ],
+    )
+    check(
+        "同四张图的两种尺寸写法：一家在锚块的 ext，一家在 spPr/xfrm 的 off+ext",
+        [
+            dig(openpyxl, "sheets[0].pictures.list[1].ext"),
+            dig(openpyxl, "sheets[0].pictures.list[1].xfrm"),
+            dig(losheet, "sheets[0].pictures.list[1].ext"),
+            dig(losheet, "sheets[0].pictures.list[1].xfrm"),
+        ],
+        [
+            {"cx": "381000", "cy": "228600"}, None,
+            None,
+            {"attrs": {}, "off": {"x": "601920", "y": "190440"},
+             "ext": {"cx": "380520", "cy": "228240"}},
+        ],
+    )
+    # 单位都写 EMU，但两家的数就不相等：跨格右下角那一个偏移
+    check(
+        "同一条跨格图的两个角：EMU 数不等，两家各按自己那次换算交",
+        [
+            dig(openpyxl, "sheets[0].pictures.list[0].to"),
+            dig(losheet, "sheets[0].pictures.list[0].to"),
+            dig(losheet, "sheets[0].pictures.list[0].xfrm.off"),
+        ],
+        [
+            {"col": 8.0, "col_off": 95250.0, "row": 8.0, "row_off": 66675.0},
+            {"col": 8.0, "col_off": 95040.0, "row": 8.0, "row_off": 66240.0},
+            {"x": "3009960", "y": "952560"},
+        ],
+    )
+    check(
+        "absoluteAnchor 那一支：两个角都不在，pos 与 ext 各一对坐标",
+        [
+            dig(openpyxl, "sheets[0].pictures.list[4].from"),
+            dig(openpyxl, "sheets[0].pictures.list[4].to"),
+            dig(openpyxl, "sheets[0].pictures.list[4].pos"),
+            dig(openpyxl, "sheets[0].pictures.list[4].ext"),
+        ],
+        [None, None, {"x": "2857500", "y": "1905000"}, {"cx": "571500", "cy": "285750"}],
+    )
+    # 关系被删掉而锚块还在：那一条既算一张图，又跳不到任何字节
+    check(
+        "rId5 那条关系被删掉了：锚块还在，target 交 null 而不编一个",
+        [
+            dig(openpyxl, "sheets[0].pictures.list[3].blip_id"),
+            dig(openpyxl, "sheets[0].pictures.list[3].target"),
+            dig(openpyxl, "sheets[0].pictures.list[3].media_bytes"),
+            dig(openpyxl, "sheets[0].pictures.unresolved"),
+            dig(openpyxl, "sheets[0].pictures.missing_media"),
+        ],
+        ["rId5", None, None, 1, 0],
+    )
+    check(
+        "blip 的属性两家不同：openpyxl 写了 cstate=print，LibreOffice 没有那一样",
+        [dig(openpyxl, "sheets[0].pictures.list[0].blip_attrs"),
+         dig(losheet, "sheets[0].pictures.list[0].blip_attrs")],
+        [{"cstate": "print", "embed": "rId3"}, {"embed": "rId1"}],
+    )
+    check(
+        "形状名与替代文字：改过的那一条两家都留着，其余是生产者自己编的 Image N",
+        [
+            [had.get("shape_name") for had in (dig(openpyxl, "sheets[0].pictures.list") or [])],
+            [had.get("descr") for had in (dig(openpyxl, "sheets[0].pictures.list") or [])],
+            [had.get("shape_name") for had in (dig(losheet, "sheets[0].pictures.list") or [])],
+        ],
+        [
+            ["Image 3", "Image 1", "第二张", "Image 5", "Image 4"],
+            ["Picture", "Picture", "一个蓝点", "Picture", "Picture"],
+            ["Image 3", "Image 1", "第二张", "Image 4"],
+        ],
+    )
+    # 同一张位图被两个锚块引用：去重数小于条数，这一本是分得开的
+    check(
+        "去重按这一条自己写的地址：LibreOffice 那份 image1.png 被引用两次",
+        [
+            dig(losheet, "sheets[0].pictures.total"),
+            dig(losheet, "sheets[0].pictures.distinct_media"),
+            [had.get("target") for had in (dig(losheet, "sheets[0].pictures.list") or [])][:2],
+            dig(openpyxl, "sheets[0].pictures.total"),
+            dig(openpyxl, "sheets[0].pictures.distinct_media"),
+        ],
+        [4, 3, ["xl/media/image1.png", "xl/media/image1.png"], 5, 4],
+    )
+    check(
+        "每张表有自己的画法部件：drawing2/drawing3 各挂一张，第四张表一个都没挂",
+        [
+            [dig(one, "pictures.drawings") for one in openpyxl.get("sheets", [])],
+            [had.get("drawing") for one in openpyxl.get("sheets", [])
+             for had in (one.get("pictures") or {}).get("list", []) if had.get("drawing") != "xl/drawings/drawing1.xml"],
+            [dig(one, "pictures.drawings") for one in losheet.get("sheets", [])],
+        ],
+        [
+            [1, 1, 1, 0],
+            ["xl/drawings/drawing2.xml", "xl/drawings/drawing3.xml"],
+            [1, 1, 1, 0],
+        ],
+    )
+    # 画法部件里那些不是位图的摆位（图表走 graphicFrame）：另记一本，不算坏图
+    for name in ("chart.xlsx", "chart-lo.xlsx"):
+        theirs = files[name]["ooxml"]["pictures"]
+        check(
+            "%s 两张图挂在表上而一张位图也没有：other_anchors 记着那两个锚块" % name,
+            {
+                "sheet%d" % index: pic_counts(one.get("pictures") or {})
+                for index, one in enumerate(lbin("office-sheet", fixture(name)).get("sheets", []), start=1)
+            },
+            {key: pic_counts(value) for key, value in theirs.items()},
+        )
+    check(
+        "chart.xlsx 那一份的 other_anchors 是 2 而 unresolved 是 0（不是两张坏图）",
+        [dig(lbin("office-sheet", fixture("chart.xlsx")), "sheets[0].pictures.other_anchors"),
+         dig(lbin("office-sheet", fixture("chart.xlsx")), "sheets[0].pictures.unresolved"),
+         dig(lbin("office-sheet", fixture("chart.xlsx")), "sheets[0].pictures.total"),
+         dig(lbin("office-sheet", fixture("chart.xlsx")), "sheets[0].pictures.drawings")],
+        [2, 0, 0, 1],
+    )
+    # ODF 那一族：一跳、没有 drawings 那一层、尺寸是自带单位的串
+    odsbook = lbin("office-sheet", fixture("sheet-pictures.ods"))
+    ods_theirs = {one["name"]: one["pictures"] for one in files["sheet-pictures.ods"]["ods"]["sheets"]}
+    check(
+        "sheet-pictures.ods 每张表的位图整份账（八个数 + 每个 frame 的明细）",
+        {
+            one.get("name"): pic_view(one.get("pictures") or {}, ODS_KEYS)
+            for one in odsbook.get("sheets", [])
+        },
+        {key: pic_view(value, ODS_KEYS) for key, value in ods_theirs.items()},
+    )
+    check(
+        "sheet-pictures.ods 位图总账 + drawings 这一族整个交 null",
+        [dig(odsbook, "workbook.totals.pictures"),
+         {one.get("name"): dig(one, "pictures.drawings") for one in odsbook.get("sheets", [])}],
+        [7, {key: None for key in ods_theirs}],
+    )
+    check(
+        "「坐在格子里」是结构事实：四条里只有一条不在，而它带着 svg:x/svg:y",
+        [
+            [had.get("in_cell") for had in (dig(odsbook, "sheets[0].pictures.list") or [])],
+            [had.get("x") for had in (dig(odsbook, "sheets[0].pictures.list") or [])],
+            [had.get("end_cell_address") for had in (dig(odsbook, "sheets[0].pictures.list") or [])],
+        ],
+        [
+            [False, True, True, True, True],
+            ["7.938cm", "0cm", "0cm", "0cm", "0cm"],
+            [None, None, None, "图与格.I9", None],
+        ],
+    )
+    check(
+        "ODF 那一族的「配不上号」是压根没写 href：frame 与空的 draw:image 都还在",
+        [
+            dig(odsbook, "sheets[0].pictures.list[4].name"),
+            dig(odsbook, "sheets[0].pictures.list[4].href"),
+            dig(odsbook, "sheets[0].pictures.list[4].mime"),
+            dig(odsbook, "sheets[0].pictures.list[4].image_written"),
+            dig(odsbook, "sheets[0].pictures.unresolved"),
+            dig(odsbook, "sheets[0].pictures.distinct_media"),
+        ],
+        ["Image 5", None, None, {}, 1, 3],
+    )
+    # 隐藏的表照样有自己的那份账：字节在包里，看不见不等于没有
+    check(
+        "隐藏的表那张图照数（藏着 1 条、只有字 0 条）",
+        {
+            one.get("name"): [dig(one, "pictures.total"), dig(one, "pictures.listed"),
+                              dig(one, "pictures.drawings")]
+            for one in odsbook.get("sheets", [])
+        },
+        {
+            "图与格": [5, 5, None], "另一张": [1, 1, None],
+            "藏着": [1, 1, None], "只有字": [0, 0, None],
+        },
+    )
+    check(
+        "chart.ods 那两张是图表的预览缓存位图：also_object 全为 true，另有一份嵌入对象账",
+        [
+            {one.get("name"): pic_counts(one.get("pictures") or {})
+             for one in lbin("office-sheet", fixture("chart.ods")).get("sheets", [])},
+            [had.get("also_object") for had in
+             (dig(lbin("office-sheet", fixture("chart.ods")), "sheets[0].pictures.list") or [])],
+            [had.get("href") for had in
+             (dig(lbin("office-sheet", fixture("chart.ods")), "sheets[0].pictures.list") or [])],
+        ],
+        [
+            {key: pic_counts(value)
+             for key, value in {one["name"]: one["pictures"]
+                                for one in files["chart.ods"]["ods"]["sheets"]}.items()},
+            [True, True],
+            ["ObjectReplacements/Object 1", "ObjectReplacements/Object 2"],
+        ],
+    )
+    # 第四族：位图字节只住在 global 流的那一条 OfficeArt 记录里，表子流一个字节都没有
+    xlsbook = lbin("office-sheet", fixture("sheet-pictures.xls"))
+    xls_theirs = files["sheet-pictures.xls"]["biff"]
+    xls_blips = [
+        {one: had.get(one) for one in BLIP_KEYS}
+        for had in (dig(xlsbook, "workbook.pictures.blips") or [])
+    ]
+    check(
+        "sheet-pictures.xls 三条 0x00EB 的字节整份账（偏移、instance、cb、字签位置都照文件交）",
+        xls_blips,
+        [{one: had.get(one) for one in BLIP_KEYS}
+         for had in xls_theirs["pictures"]["blips"]],
+    )
+    check(
+        # 那三个 instance 与「字签到正文末尾」的字节数是生产者自己写的数，逐条钉住
+        "sheet-pictures.xls 那三个 instance（6/6/5）与三条 inline_bytes（117/110/661）",
+        xls_blips,
+        [
+            {"offset": 1130, "instance": 6, "cb": 178, "magic_at": 61, "kind": "png",
+             "inline_bytes": 117},
+            {"offset": 1316, "instance": 6, "cb": 171, "magic_at": 61, "kind": "png",
+             "inline_bytes": 110},
+            {"offset": 1495, "instance": 5, "cb": 722, "magic_at": 61, "kind": "jpeg",
+             "inline_bytes": 661},
+        ],
+    )
+    check(
+        "sheet-pictures.xls 那两个自证数：每条画法记录与图形状各几笔",
+        [
+            {one.get("name"): [dig(one, "pictures.shapes"), dig(one, "pictures.drawing_records")]
+             for one in xlsbook.get("sheets", [])},
+            [dig(xlsbook, "workbook.pictures.drawing_groups[0]")],
+            [dig(xlsbook, "workbook.totals.picture_shapes"), dig(xlsbook, "workbook.totals.drawing_records")],
+        ],
+        [
+            {one["name"]: [one["pictures"]["shapes"], one["pictures"]["drawing_records"]]
+             for one in xls_theirs["sheets"]},
+            [xls_theirs["pictures"]["drawing_groups"][0]],
+            [7, 8],
+        ],
+    )
+    # 跨存法的自证：同一批源图片在四族里的字节数一样，这一本不是自说自话
+    check(
+        "同一批源图片在四族里的字节：117 / 110 / 661 三个数对得上",
+        [
+            {had.get("media_bytes") for one in openpyxl.get("sheets", [])
+             for had in (one.get("pictures") or {}).get("list", [])},
+            {had.get("media_bytes") for one in odsbook.get("sheets", [])
+             for had in (one.get("pictures") or {}).get("list", [])},
+            {one.get("inline_bytes") for one in dig(xlsbook, "workbook.pictures.blips") or []},
+        ],
+        [{117, 110, 661, None}] * 2 + [{117, 110, 661}],
+    )
+    # 反面对照：没有图的件里键照样在、八个数全交（缺键与零条是两件事）
+    for name in ("book.xlsx", "hidden.xlsx", "book.ods", "print-area.ods"):
+        got = lbin("office-sheet", fixture(name))
+        theirs = (
+            files[name]["ooxml"]["pictures"] if name.endswith(".xlsx")
+            else {one["name"]: one["pictures"] for one in files[name]["ods"]["sheets"]}
+        )
+        mine = {
+            ("sheet%d" % (index + 1)) if name.endswith(".xlsx") else one.get("name"):
+            pic_counts(one.get("pictures") or {})
+            for index, one in enumerate(got.get("sheets", []))
+        }
+        check(
+            "%s 没有位图就是 0 条（drawings 那一族各交各的：OOXML 数出 0，ODF 没有那一层）" % name,
+            mine,
+            {key: pic_counts(value) for key, value in theirs.items()},
+        )
+    check(
+        "book.xls 一条 blip 也没有，而那条画法记录照样数得到",
+        [dig(lbin("office-sheet", fixture("book.xls")), "workbook.pictures.total"),
+         dig(lbin("office-sheet", fixture("book.xls")), "workbook.totals.picture_shapes"),
+         dig(lbin("office-sheet", fixture("book.xls")), "workbook.totals.drawing_records")],
+        [0, 0, 3],
     )
 
     # ── 3a7) 每张表的打印设置：三个元素各自在不在，缺的交 null，单位按各家原样 ──

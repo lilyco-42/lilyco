@@ -68,6 +68,16 @@ const GUID_SECOND: [u8; 16] = [
     0xe0, 0xc9, 0xea, 0x79, 0xf9, 0xba, 0xce, 0x11, 0x8c, 0x82, 0x00, 0xaa, 0x00, 0x4b, 0xa9, 0x0b,
 ];
 
+/// 表上的形状与画法那三条记录。`0x005D` 是「这张表上摆了一个形状」，正文偏移 4 那 16 位
+/// 是形状类型（量到的这一份全是 8 = 图片；批注用的是 25 加一条 0x01B6，不是一类）。
+/// `0x00EC` 是某一张表子流里的画法数据，`0x00EB` 是整本工作簿共用的那一条 ——
+/// **图的字节在 0x00EB 的嵌套记录里，不按表分**，所以这两个号各是一本账
+const SHAPE: u64 = 0x005D;
+const DRAWING: u64 = 0x00EC;
+const DRAWING_GROUP: u64 = 0x00EB;
+/// 偏移 4 那个类型里「图片」的原值（按写的交回来比对，不写成规范名）
+const TOBJ_PICTURE: u64 = 8;
+
 #[derive(Debug, Clone)]
 pub struct Sheet {
     pub name: String,
@@ -91,6 +101,11 @@ pub struct Sheet {
     /// 但仍然算在 `link_records` 里 —— 两个数一摆开，「读不动」看得见，而不是悄悄少几条
     pub links: Vec<Link>,
     pub link_records: usize,
+    /// 这张表子流里「形状类型 = 图片」的 SHAPE 记录条数，与 0x00EC 的记录条数。
+    /// 两本分开数：实测没有图的那张表照样写了一条 0x00EC（80 字节），而图的字节
+    /// 根本不在这里 —— 它在整本共用的 0x00EB 里，所以两个数都不能单独当「有几张图」
+    pub picture_shapes: usize,
+    pub drawing_records: usize,
 }
 
 /// 一条链接记录（0x01B8）。`at24` / `at28` 是正文偏移 24 与 28 上那两个 32 位数，按写的交：
@@ -262,6 +277,90 @@ impl Cell {
     }
 }
 
+/// 一条内嵌的图（OfficeArt 的 BLIP 记录，类型 0xF007，住在 0x00EB 的嵌套层里）。
+///
+/// `instance` 按文件写的原值交：实测这个生产者给两条 PNG 写 6、给一条 JPEG 写 5，
+/// 而字节签名与它一致 —— 这个对应只在「这一份件」的意义上成立，不写成规范断言。
+/// `cb` 是记录自报的正文长度，`magic_at` 是字签（`\x89PNG`、`\xFF\xD8\xFF` 这些）
+/// 在正文里的偏移（找不到交 None），`inline_bytes` 是从签名到正文末尾的字节数 ——
+/// 实测三条都正好等于当初那张图的字节数，所以这一版不是猜的
+#[derive(Debug, Clone)]
+pub struct Blip {
+    pub offset: usize,
+    pub instance: u64,
+    pub cb: usize,
+    pub magic_at: Option<usize>,
+    pub kind: Option<&'static str>,
+    pub inline_bytes: Option<usize>,
+}
+
+/// 图片字节的字签。只认这四个
+const SIGNATURES: [(&[u8], &str); 4] = [
+    (&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a], "png"),
+    (&[0xff, 0xd8, 0xff], "jpeg"),
+    (b"GIF8", "gif"),
+    (b"BM", "bmp"),
+];
+
+/// 字签在第几个字节上（没有就 None）。只在前 128 字节里找，而且取最靠前的那个 ——
+/// 头部那几十字节里撞到 `BM` 两个字母的机会不小，按表的先后判就会认错了类型
+fn signature_of(body: &[u8]) -> Option<(usize, &'static str)> {
+    let window = body.len().min(128);
+    let mut best: Option<(usize, &'static str)> = None;
+    for (mark, kind) in SIGNATURES {
+        if let Some(at) = body[..window]
+            .windows(mark.len())
+            .position(|one| one == mark)
+        {
+            if best.map_or(true, |done| at < done.0) {
+                best = Some((at, kind));
+            }
+        }
+    }
+    best
+}
+
+/// 走一条 OfficeArt 记录流：头 8 字节 = verInstance(2) + recType(2) + recLen(4)，
+/// 与 BIFF 自己的「号在前长度在后」正好相反，所以这里不能套 BIFF 那条走法。
+/// 容器（实测 0xF000 与 0xF001 两个，版本字段写的是 0xF 而不是规范说的 0x2）
+/// 的正文还是同一种记录流，递归进去；深度上限是为了不让一份坏件把栈吃掉
+fn officeart_blips(buf: &[u8], base: usize, depth: usize, out: &mut Vec<Blip>) {
+    if depth > 8 {
+        return;
+    }
+    let mut at = 0usize;
+    while at + 8 <= buf.len() {
+        let Some(head) = le32(at)(buf) else { return };
+        let instance = (head >> 4) & 0xFFF;
+        let rectype = (head >> 16) & 0xFFFF;
+        let cb = usize::try_from(le32(at + 4)(buf).unwrap_or(0)).unwrap_or(0);
+        let start = at + 8;
+        let rest = buf.len().saturating_sub(start);
+        let body = buf.get(start..start + cb).unwrap_or(&[]);
+        match rectype {
+            0xF007 => {
+                let found = signature_of(body);
+                out.push(Blip {
+                    offset: base + at,
+                    instance,
+                    cb,
+                    magic_at: found.map(|one| one.0),
+                    kind: found.map(|one| one.1),
+                    inline_bytes: found.map(|one| cb - one.0),
+                });
+            }
+            0xF000 | 0xF001 => officeart_blips(body, base + start, depth + 1, out),
+            // 其余记录（0xF006 那种描述用的）不认，只按自报长度跨过去
+            _ => {}
+        }
+        if cb > rest {
+            // 自报的长度装不下：再走就是读越界，剩下的条数交给调用方按记录数说真话
+            return;
+        }
+        at = start + cb;
+    }
+}
+
 #[derive(Debug)]
 pub struct Book {
     pub records: usize,
@@ -280,6 +379,10 @@ pub struct Book {
     /// 0x01B8 —— 所以它显然不是「链接条数」，但它是文件自己写的一句话，就照它交回来
     pub link_counts: Vec<u64>,
     pub notes: Vec<String>,
+    /// 0x00EB 那条工作簿级画法记录的条数与正文长度（实测这个生产者只写一条）
+    pub drawing_groups: Vec<(usize, usize)>,
+    /// 从那些记录里走出来的内嵌图，按出现的顺序
+    pub blips: Vec<Blip>,
 }
 
 pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
@@ -317,6 +420,9 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
     // 链接那两条记录里 0x01B7 待在全局区（实测偏移 2288，比任何一张表的子流都早），
     // 所以它不按表归位，只按出现顺序把自报的数收下来
     let mut link_counts: Vec<u64> = Vec::new();
+    // 图：0x00EB 的条数与正文长度，以及从它的嵌套层里走出来的那些内嵌图
+    let mut drawing_groups: Vec<(usize, usize)> = Vec::new();
+    let mut blips: Vec<Blip> = Vec::new();
     for index in 0..records.len() {
         let (offset, op, body) = &records[index];
         // 这条记录落在哪张表的子流里。BOUNDSHEET 全部待在全局区，所以走到任何一条
@@ -359,6 +465,8 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                     note_cell_records: 0,
                     links: Vec::new(),
                     link_records: 0,
+                    picture_shapes: 0,
+                    drawing_records: 0,
                 });
             }
             SST => {
@@ -491,6 +599,27 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                 if let Some(one) = sheets.iter_mut().rev().find(|had| had.name == name) {
                     one.protection.insert(code, u64::from(value));
                 }
+            }
+            // 表上的形状：只数类型是图片的那些，别的形状（批注框是 25）不进这本账
+            SHAPE => {
+                if le16(4)(body) == Some(TOBJ_PICTURE) {
+                    let Some(name) = belongs else { continue };
+                    if let Some(one) = sheets.iter_mut().rev().find(|had| had.name == name) {
+                        one.picture_shapes += 1;
+                    }
+                }
+            }
+            DRAWING => {
+                let Some(name) = belongs else { continue };
+                if let Some(one) = sheets.iter_mut().rev().find(|had| had.name == name) {
+                    one.drawing_records += 1;
+                }
+            }
+            DRAWING_GROUP => {
+                // 这一条待在全局区（实测偏移 1054，比任何一张表的子流都早），
+                // 所以图的字节不按表分；正文整个当成一条 OfficeArt 记录流走一遍
+                drawing_groups.push((*offset, body.len()));
+                officeart_blips(body, *offset + 4, 0, &mut blips);
             }
             XF => {
                 // 格子记的 ixfe 就是 XF 记录在这条流里的**出现序号**，所以这里只能按顺序收。
@@ -659,6 +788,8 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
         formats,
         date1904,
         link_counts,
+        drawing_groups,
+        blips,
         notes,
     })
 }
@@ -1175,5 +1306,115 @@ mod tests {
             .filter(|(_, rows, cols)| !rows.is_empty() || !cols.is_empty())
             .collect();
         assert!(reported.is_empty(), "{reported:?}");
+    }
+
+    /// 表上的形状与内嵌的图：真件上四张表各有 5/1/1/0 个图片形状，而图的字节一条都不按表分 ——
+    /// 三条 BLIP 全住在整本共用的那一条 0x00EB 里（期望值抄 `lyco_legacy.py` 的对账输出）
+    #[test]
+    fn picture_shapes_are_counted_per_sheet_while_the_bytes_sit_in_one_group() {
+        let (bytes, cfb) = open("sheet-pictures.xls");
+        let book = read(&cfb, &bytes).expect("读得出 BIFF8");
+        let per_sheet: Vec<(String, usize, usize)> = book
+            .sheets
+            .iter()
+            .map(|one| (one.name.clone(), one.picture_shapes, one.drawing_records))
+            .collect();
+        assert_eq!(
+            per_sheet,
+            vec![
+                ("图与格".to_string(), 5, 5),
+                ("另一张".to_string(), 1, 1),
+                ("藏着".to_string(), 1, 1),
+                ("只有字".to_string(), 0, 1),
+            ],
+            "{per_sheet:?}"
+        );
+        assert_eq!(
+            book.drawing_groups,
+            vec![(1054usize, 1217usize)],
+            "工作簿级那条画法记录"
+        );
+        let blips: Vec<(
+            usize,
+            u64,
+            usize,
+            Option<usize>,
+            Option<String>,
+            Option<usize>,
+        )> = book
+            .blips
+            .iter()
+            .map(|one| {
+                (
+                    one.offset,
+                    one.instance,
+                    one.cb,
+                    one.magic_at,
+                    one.kind.map(|had| had.to_string()),
+                    one.inline_bytes,
+                )
+            })
+            .collect();
+        assert_eq!(
+            blips,
+            vec![
+                (1130, 6, 178, Some(61), Some("png".to_string()), Some(117)),
+                (1316, 6, 171, Some(61), Some("png".to_string()), Some(110)),
+                (1495, 5, 722, Some(61), Some("jpeg".to_string()), Some(661)),
+            ],
+            "{blips:?}"
+        );
+        // 反面对照：没画图的那一本照样写了 0x00EB，可是一条 BLIP 也没有
+        let (plain_bytes, plain_cfb) = open("book.xls");
+        let plain = read(&plain_cfb, &plain_bytes).expect("读得出 BIFF8");
+        assert_eq!(plain.drawing_groups, vec![(1174usize, 106usize)]);
+        assert!(plain.blips.is_empty(), "{:?}", plain.blips);
+        assert!(plain.sheets.iter().all(|one| one.picture_shapes == 0));
+    }
+
+    /// 走不动的两条路要在本层就说清：自报长度装不下就止步（那条 BLIP 交 None，不编字节），
+    /// 嵌套深过八层也不再往下钻 —— 真件没有这两种形状，只能自己拼
+    #[test]
+    fn a_blip_that_overruns_or_hides_too_deep_is_not_walked_out() {
+        fn art(instance: u64, rectype: u64, body: &[u8]) -> Vec<u8> {
+            let mut one = Vec::new();
+            let head = (((rectype << 16) | (instance << 4)) as u32).to_le_bytes();
+            one.extend_from_slice(&head);
+            one.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            one.extend_from_slice(body);
+            one
+        }
+        let png = [0x89u8, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        // 自报 4000 字节、实际只跟着八分字节：收下一条，字段全 None，然后止步
+        let mut cut = art(6, 0xF007, &png);
+        cut[4..8].copy_from_slice(&4000u32.to_le_bytes());
+        cut.extend_from_slice(b"12345678");
+        let mut out: Vec<Blip> = Vec::new();
+        officeart_blips(&cut, 0, 0, &mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].cb, 4000);
+        assert_eq!(out[0].instance, 6);
+        assert!(
+            out[0].magic_at.is_none() && out[0].kind.is_none() && out[0].inline_bytes.is_none(),
+            "{:?}",
+            out[0]
+        );
+        // 套九层 0xF000，最里层那张 png 深过 8：整棵都不该走进去
+        let mut deep = art(6, 0xF007, &png);
+        for _ in 0..9 {
+            deep = art(0, 0xF000, &deep);
+        }
+        let mut nested: Vec<Blip> = Vec::new();
+        officeart_blips(&deep, 0, 0, &mut nested);
+        assert!(nested.is_empty(), "{nested:?}");
+        // 同一条拼装只套八层是走得到的 —— 深度这道闸不是「一律不读」
+        let mut eight = art(6, 0xF007, &png);
+        for _ in 0..8 {
+            eight = art(0, 0xF000, &eight);
+        }
+        let mut ok: Vec<Blip> = Vec::new();
+        officeart_blips(&eight, 0, 0, &mut ok);
+        assert_eq!(ok.len(), 1, "{ok:?}");
+        assert_eq!(ok[0].kind, Some("png"));
     }
 }

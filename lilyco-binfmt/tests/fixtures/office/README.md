@@ -222,6 +222,10 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `cell-links-lo.xlsx` | LibreOffice（`cell-links.xlsx` → .xlsx） | 同一批字的第二种写法：`F6` 整个丢了（6 → 5），每条补一个 `display`（`G7` 那个就是地址本身），tooltip 一个也不写，`mailto` 的 subject 从 `%E9%A2%84%E7%AE%97` 解回「预算」，关系号从 `rId1` 起重新编 |
 | `cell-links.ods` | LibreOffice（`cell-links.xlsx` → .ods） | 第三种存法：地址挂在段的字上（`text:a/@xlink:href`，一条 `table:hyperlink` 也不写），站内跳转变成 `#'数据'.A1`（点号不是感叹号），`mailto` 的百分号写法又回来了，而 `G7` 那条地址被写成格子的字 |
 | `cell-links.xls` | LibreOffice（`cell-links.xlsx` → .xls） | 第四种：同一条 Workbook 流里的一条 0x01B8 记录（显示字、地址、行列范围与两个 GUID 并排写），外部支与站内支的长度字段一个数字节、一个数码元；0x01B7 自报的条数是 **0** 而流里有 6 条 0x01B8 |
+| `sheet-pictures.xlsx` | openpyxl 3.1.5（`write_sheet_pictures_xlsx`） | 同一批图一次只改一个变量地摆在四张表上：三种锚元素各写一种摆法（跨格的 `twoCellAnchor` 只写 `from`+`to`、`oneCellAnchor` 写 `from`+`ext`、`absoluteAnchor` 写 `pos`+`ext` 而**连 `from` 都没有**），三条各缺一块；第五条的关系被整条删掉（格上 `r:embed` 那个号还在、图部件 `xl/media/image5.png` 也还在包里，只是那个号指不到任何东西 → 地址与字节都交 null）；每条 `cNvPr` 都带 `descr="Picture"` 那句占位的话，只有一条被改成真名字与真描述（`第二张` / `一个蓝点`）；藏起来的那张表照挂一张，第四张一个不挂 —— 每张表有自己那一份画法账 |
+| `sheet-pictures-lo.xlsx` | LibreOffice（`sheet-pictures.xlsx` → .xlsx） | 同样那批图的第二种写法：锚元素**全变成 `twoCellAnchor`**，三种摆法的区别搬到锚块的 `editAs` 上（`twoCell` / `oneCell` / `absolute`，两家一个用元素名、一个用属性名，正好互补），`to` 那四个 EMU 换成另一组数（同一个「跨三格」openpyxl 写 95250、这一家写 95040），每个 `pic` 多出一份 `spPr/xfrm`（`off` + `ext`），blip 上不再写 `cstate`；那条指不到的关系整个删了（5 → 4），而 117 字节那张被两个锚块指着 —— 七份媒体部件并成三份，「几个锚块」与「几个不同的图部件」是两个数（4 / 3） |
+| `sheet-pictures.ods` | LibreOffice（`sheet-pictures.xlsx` → .ods） | ODF 只有一跳：`draw:frame` 上直接挂 `draw:image/@xlink:href`，所以 `drawings` 这一格交 null（这一族没有部件那层可数）。摆位是 `draw:x` / `y` / `width` / `height` 四个厘米串，住在格子里的那几条另有 `table:end-cell-address`（`图与格.I9`）与 `table:end-x` / `end-y`；七张源图并成三个 `Pictures/` 部件（同一个 png 被两条 frame 指着），而其中一条 frame 压根没写 `draw:image`（`image_written` 是空表）—— 不是坏掉的地址，是根本没有地址 |
+| `sheet-pictures.xls` | LibreOffice（`sheet-pictures.xlsx` → .xls） | 第四族只能两格：形状按表数（0x005D 里偏移 4 的类型 8 = 图片，实测 5 / 1 / 1 / 0），0x00EC **没有图的那张表也写了一条**，而图的字节一条都不按表分 —— 三条 BLIP（OfficeArt 0xF007）全住在整本共用的那条 0x00EB（偏移 1054、正文 1217 字节）里：自报长度 178 / 171 / 722，字签都落在正文第 61 个字节上，从字签到正文末尾正好 117 / 110 / 661，与当初那三张源图的字节数一字不差 |
 
 ## 几件只有踩过才会记下来的事
 
@@ -2350,6 +2354,42 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       别的账都是各交各的。
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
+
+127. **表上那张位图四族四本账：`other_anchors` 与 `also_object` 就是「这个不是坏掉的位图」的两种说法**（`sheet-pictures` 那一家四份件 + `chart` 三份件）
+    - 共享的一份账八格：`drawings`（画法部件几份 —— ODF 这一族交 null，它没有部件那一层可数）、
+      `total`（**数在截断之前**）、`distinct_media`（按图部件地址去重）、`unresolved`（配不上地址的）、
+      `missing_media`（地址写了而部件不在包里）、`other_anchors`、`listed`、`cut`。前两个数与中间两个
+      数的口径不同：`total` 是全量，`unresolved` / `missing_media` 只在看得到的那几行里数 —— 一把算不出来。
+    - `distinct_media` 摆的就是那一句「几张图」与「几个图部件」：openpyxl 那份 sheet1 是 5 个锚块 4 个
+      地址（红点、蓝点、另一张红点、JPEG，加一条断的），LibreOffice 重写后是 4 个锚块 3 个地址 —— 同一个
+      `image1.png` 被两条关系指着。两份都原样交，不并成一把。
+    - `other_anchors` 是这一批改出来的闸门：画法部件里不只有位图，图表走的 `graphicFrame` 也挂在锚块上。
+      `chart.xlsx` 与 `chart-lo.xlsx` 各有 2 个这种锚块，旧版本把它们算成**两张坏掉的图**（`unresolved` 2）。
+      判据是文件自己写的：那个锚块里有没有 `xdr:pic`。没有就是别的形状住在画法层，交 `other_anchors`，不进 `total`。
+    - `also_object` 是 ODF 那一侧同一件事的第二种形状：`chart.ods` 的 `数据` 表里两个 `draw:frame` **既写**
+      `draw:image`（预览缓存：`Pictures/…jpg`，8550 / 8484 字节）**又写** `draw:object`（图表本体，指 `ObjectReplacements/Object 1`、
+      `Object 2`）。这一族把「图」与「嵌入对象」在同一条 frame 里并排写，只数 `draw:image` 就会把图表的预览当成位图，
+      所以每条交一个布尔，两本账都在 —— 与事实 112 那条嵌入对象那一份账是同一件事的两个视角。
+    - 同一个家族里两个生产者写成两套明细，两处都记：openpyxl 用**三种锚元素名**（`twoCellAnchor` /
+      `oneCellAnchor` / `absoluteAnchor`）、不写 `xfrm`、锚块一个属性都不写、blip 上写 `cstate="print"`；
+      LibreOffice 只用 `twoCellAnchor`、把区别写进 `editAs`、每个 `pic` 补一份 `spPr/xfrm/off+ext`、不写 `cstate`，
+      连同一个「跨三格」的 EMU 也是另一组数（95250 vs 95040）。**元素名相同不等于摆法相同，摆法相同不等于数相同。**
+    - 断掉的那条关系两家待遇不同：openpyxl 那份留着 `rId5` 的号，地址与字节全 null（`unresolved` 1，而
+      `xl/media/image5.png` **还在包里** —— 号配不上，不是部件丢了，所以 `missing_media` 是 0）；LibreOffice 重写时
+      把那个锚块整个删了（sheet1 的 `total` 5 → 4）。丢掉的不替它补，断的不替它圆。
+    - `.xls` 只交两格：`shapes`（0x005D 里偏移 4 的类型 = 8 的那几条，5/1/1/0）与 `drawing_records`（0x00EC，
+      5/1/1/1 —— **没有图的那张表也写了一条**）。图的字节全在整本共用的 0x00EB（偏移 1054、正文 1217 字节）的
+      嵌套层里，按表分不出来，所以那一族不硬凑一个「每张表几张图」。三条 BLIP 的自报长度 178/171/722、字签都在
+      正文第 61 字节、从字签到末尾正好 117/110/661（与三份 OOXML 报的媒体字节同一把尺，跨族自证）。
+    - 走不通的两条路在 biff 那一层就交实底：嵌套记录自报的长度装不下 → 那条照收、字段全 null 然后止步；
+      OfficeArt 的容器（0xF000 / 0xF001）钻过 8 层就不钻。这两条真件做不出来，是 `biff.rs` 里自己拼字节测的。
+    - 反面对照：`book.xlsx` / `hidden.xlsx` / `cell-links.xlsx` / `size.xlsx` 四份 xlsx、`book.ods` /
+      `cell-notes.ods` / `errors.ods` / `print-area.ods` 四份 ods、`book.xls` / `hidden.xls` / `cell-links.xls`
+      三份 xls 全报 0（键在、值为零；`book.xls` 连 0x00EB 也写，正文 106 字节，而一条 BLIP 也没有）。
+    - 第二读者：`office_reader.py` 的 `xlsx_pictures_by_sheet`（三跳；认画法部件只看结尾 `.xml` 与名字里有
+      `/drawings/`，不看关系的类型名）、`ods_pictures`（一跳）、`lyco_legacy.py` 的 BIFF 分支（0x005D / 0x00EC /
+      0x00EB 与 OfficeArt 0xF007 的嵌套走法，深度闸 8）。probe 的 3a6d 把四份件整本账逐行逐字段对，再钉 `chart`
+      三份件的 `other_anchors` / `also_object` 与那十一份反例。
 
 126. **格子里的链接四种存法各交各的账：来路不同就不并成一个形状**（`cell-links` 那一家四份件）
     - 四条来路，`family` 与 `hop` 说清这一条走的是哪一路：xlsx 的地址在**这一张表自己的关系表**那一跳上（格子里只有 `r:id`，

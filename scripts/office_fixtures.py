@@ -98,6 +98,14 @@ MARK_LINK_MAIL = "邮件"
 MARK_LINK_INNER = "跳到数据页"
 MARK_LINK_FORMULA = "公式里的链接"
 MARK_LINK_TIP = "两个链接各说各的"
+# 表上那张图那一家四份件的锚点名（`sheet-pictures*`，见 write_sheet_pictures_xlsx）
+MARK_PIC_SHEET = "图与格"
+MARK_PIC_SHEET_2 = "另一张"
+MARK_PIC_HIDDEN = "藏着"
+MARK_PIC_BARE = "只有字"
+MARK_PIC_ALT = "一个蓝点"
+MARK_PIC_NAME = "第二张"
+
 # 字符格式那三份件的锚点句，见 write_runs_docx：那三个字是每一个格式开关各自点的
 # 同一串字，所以「哪一串是点了的」只能按段与按位置对上，不能靠字本身分
 MARK_RUN_BASE = "基准段：什么都不点。"
@@ -2125,6 +2133,127 @@ def drop_hyperlink_rel(path: Path, tail: str) -> None:
     patch_part(path, {part: (hits[0], "")})
 
 
+def write_dot_jpg(path: Path) -> None:
+    """一张 60×30 的 JPEG：图那一份账要的第二种媒体（部件扩展名跟着源文件走，`.jpg` 写成 `.jpeg`）"""
+    from PIL import Image
+
+    Image.new("RGB", (60, 30), (30, 200, 90)).save(path, "JPEG")
+
+
+def set_picture_alt(path: Path, want_id: int, name: str, alt: str) -> None:
+    """给某一条 `cNvPr` 补上名字与替代文字：openpyxl 每条都写 `descr="Picture"` 那句占位话
+
+    部件名不写死：把所有 `xl/drawings/drawingN.xml` 翻一遍，`id="N"` 全包只许命中一条，
+    否则抛 —— 静默的 no-op 会交出一份根本没有替代文字的 fixture。
+    """
+    want = re.compile(r'<cNvPr id="%d" name="[^"]*" descr="[^"]*"/>' % want_id)
+    hits = []
+    with zipfile.ZipFile(path) as box:
+        parts = [one for one in box.namelist()
+                 if re.match(r"xl/drawings/drawing\d+\.xml$", one)]
+        for one in parts:
+            text = box.read(one).decode("utf-8")
+            hits += [(one, got.group(0)) for got in want.finditer(text)]
+    if len(hits) != 1:
+        raise SystemExit("cNvPr id=%d 在全包命中 %d 条，不是 1 条" % (want_id, len(hits)))
+    part, whole = hits[0]
+    patch_part(path, {part: (whole, '<cNvPr id="%d" name="%s" descr="%s"/>'
+                             % (want_id, name, alt))})
+
+
+def drop_drawing_rel(path: Path, tail: str) -> None:
+    """把画法部件关系表里指向某个媒体的那一条整条删掉，让 `r:embed` 那个号指不到东西
+
+    与 `drop_hyperlink_rel` 同一个规矩：按 Target 的结尾找，找不到、有两条、或散在
+    两个部件里都抛。删完之后那个媒体部件仍在包里 —— 于是「包里有几个媒体」比「走得到的
+    图」多一个，这一格差就是这条 fixture 的存在理由。
+    """
+    where = None
+    with zipfile.ZipFile(path) as box:
+        parts = [one for one in box.namelist()
+                 if re.match(r"xl/drawings/_rels/drawing\d+\.xml\.rels$", one)]
+        for one in parts:
+            text = box.read(one).decode("utf-8")
+            got = re.findall(r'<Relationship[^>]*Target="[^"]*%s"[^>]*/>' % re.escape(tail), text)
+            if not got:
+                continue
+            if where is not None or len(got) != 1:
+                raise SystemExit("%r 结尾的关系不止一条或散在两个部件里，删哪条说不清" % tail)
+            where = (one, got[0])
+    if where is None:
+        raise SystemExit("没有哪条关系以 %r 结尾，删不了" % tail)
+    patch_part(path, {where[0]: (where[1], "")})
+
+
+def write_sheet_pictures_xlsx(path: Path, dot: Path, blue: Path, shot: Path) -> None:
+    """表上那张图：一次只改一个变量 —— 三种锚法、一处替代文字、一条坏号、一张藏着的表
+
+    `Image.anchor` 给字串写成 `oneCellAnchor`（`from` + `ext`，没有末点），给
+    `TwoCellAnchor` 写成两点锚（`from` + `to`，没有 `ext`），给 `AbsoluteAnchor` 写成
+    `absoluteAnchor`（`pos` + `ext`，**连 `from` 都没有**）—— 三种各缺一块，所以读者
+    三个字段各交各的、缺的交 null，不替它们互相换算。
+    两条要紧的量出来的事：`cNvPr/@descr` **每一条都写了，而那句话不是描述** —— openpyxl 给
+    五个锚块一律写 `descr="Picture"`（它自己的占位话，实测五条一条不漏），这一份里只有
+    `@id=2` 那一条被下面的 `set_picture_alt` 改成真名字与真描述，所以「alt 在不在场」与
+    「alt 是不是生产者编的」是两件事，分开交；
+    而它在 XML 里的**排列次序不是插入次序**（`cNvPr/@id` 按插入给 1..N，两点锚那一条却排在最前），
+    所以「第几张」与「号是几」是两个数。
+    红点用三次、蓝点三次、那张 JPEG 一次：openpyxl 按插入各给一个媒体部件（七个部件、七条关系），
+    LibreOffice 重写时按内容并成三份（两张同一个部件被两条关系指着）—— 「几张图」与
+    「几个媒体部件」是两个数。
+    """
+    from openpyxl import Workbook
+    from openpyxl.drawing.image import Image as XlImage
+    from openpyxl.drawing.spreadsheet_drawing import (
+        AbsoluteAnchor,
+        AnchorMarker,
+        TwoCellAnchor,
+    )
+    from openpyxl.drawing.xdr import XDRPoint2D, XDRPositiveSize2D
+    from openpyxl.utils.units import pixels_to_EMU
+
+    book = Workbook()
+    sheet = book.active
+    sheet.title = MARK_PIC_SHEET
+    sheet["A1"] = "这一格有字，没有图"
+    first = XlImage(str(dot))
+    first.anchor = "B2"
+    sheet.add_image(first)
+    second = XlImage(str(blue))
+    second.anchor = "D4"
+    sheet.add_image(second)
+    third = XlImage(str(dot))
+    third.anchor = TwoCellAnchor(
+        _from=AnchorMarker(col=5, colOff=0, row=5, rowOff=0),
+        to=AnchorMarker(col=8, colOff=pixels_to_EMU(10), row=8, rowOff=pixels_to_EMU(7)),
+    )
+    sheet.add_image(third)
+    fourth = XlImage(str(shot))
+    fourth.anchor = AbsoluteAnchor(
+        pos=XDRPoint2D(x=pixels_to_EMU(300), y=pixels_to_EMU(200)),
+        ext=XDRPositiveSize2D(cx=pixels_to_EMU(60), cy=pixels_to_EMU(30)),
+    )
+    sheet.add_image(fourth)
+    fifth = XlImage(str(blue))
+    fifth.anchor = "J10"
+    sheet.add_image(fifth)
+    other = book.create_sheet(MARK_PIC_SHEET_2)
+    sixth = XlImage(str(dot))
+    sixth.anchor = "C3"
+    other.add_image(sixth)
+    quiet = book.create_sheet(MARK_PIC_HIDDEN)
+    quiet.sheet_state = "hidden"
+    seventh = XlImage(str(blue))
+    seventh.anchor = "A2"
+    quiet.add_image(seventh)
+    bare = book.create_sheet(MARK_PIC_BARE)
+    bare["A1"] = "一格字，一张图都没有"
+    book.save(path)
+    # 第二条（D4 那张蓝点）补上名字与替代文字；第五条的关系删掉，让号指不到部件
+    set_picture_alt(path, 2, MARK_PIC_NAME, MARK_PIC_ALT)
+    drop_drawing_rel(path, "image5.png")
+
+
 def write_tabs_docx(path: Path) -> None:
     """四条段各改一个变量的制表位：左无引导 / 右点引导 / 居中划引导 / 小数点对齐
 
@@ -4123,6 +4252,31 @@ def main() -> int:
             shutil.copyfile(made, OUT / ("cell-links." + fmt))
         else:
             print("⚠️  没拿到 cell-links.%s（%s 那一转）" % (fmt, fmt))
+
+    # 表上那张图那一家四份件：openpyxl 写四种锚（三种元素 + 一条绝对），同格式重写一份
+    # （三种锚全被写成 twoCellAnchor 加 editAs、媒体按内容去重、指不到关系的那张整个不见），
+    # 再各转一份 ods 与 .xls
+    red = SCRATCH / "pic-red.png"
+    blue = SCRATCH / "pic-blue.png"
+    shot = SCRATCH / "pic-shot.jpg"
+    write_dot_png(red)
+    tiny_png(blue)
+    write_dot_jpg(shot)
+    pics = OUT / "sheet-pictures.xlsx"
+    write_sheet_pictures_xlsx(pics, red, blue, shot)
+    convert(exe, pics, "xlsx", SCRATCH / "sheet-pictures-back")
+    made_pics = SCRATCH / "sheet-pictures-back" / "sheet-pictures.xlsx"
+    if made_pics.exists():
+        shutil.copyfile(made_pics, OUT / "sheet-pictures-lo.xlsx")
+    else:
+        print("⚠️  没拿到 sheet-pictures-lo.xlsx（xlsx → xlsx 那一转）")
+    for fmt in ("ods", "xls"):
+        convert(exe, pics, fmt, SCRATCH / ("sheet-pictures-as" + fmt))
+        made = SCRATCH / ("sheet-pictures-as" + fmt) / ("sheet-pictures." + fmt)
+        if made.exists():
+            shutil.copyfile(made, OUT / ("sheet-pictures." + fmt))
+        else:
+            print("⚠️  没拿到 sheet-pictures.%s（%s 那一转）" % (fmt, fmt))
 
     # 占位符那三份：python-pptx 写 pptx，同格式重写一份（正文那格被写成空元素）、再转一份 odp
     phdeck = OUT / "deck-ph.pptx"
