@@ -2415,7 +2415,7 @@ def odf_field_ledger(path: Path, limit: int = 100) -> dict:
     两份件都得扫：页眉页脚那一份版面住在 `styles.xml`，正文在 `content.xml`，只读一份
     就会把另一份里的域当成不存在（每行带 `part`）。`text:sequence-decl` 是**声明**不是域
     —— LibreOffice 六个全写，用没用到都写 —— 所以它不进 rows，另交份数与名字。
-    认字表那 41 个名字里只有左边七个在这一库里量过（其余是 spec 的名字），所以再交一份
+    认字表那 42 个名字里只有左边七个在这一库里量过（其余是 spec 的名字），所以再交一份
     `text_names`：这份件里出现过的所有 `text:` 元素名。新形状只要落在这一族里，就一定
     在这本里露出来，而 kinds 里没有它 —— 漏掉的形状藏不住。
     """

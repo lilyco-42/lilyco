@@ -8426,8 +8426,9 @@ mod tests {
     #[test]
     fn field_ledger_keeps_book_for_three_families() {
         // 一份账的几行摊成 [[键…], …]：整本比一次，位置错、少一行都当场露
-        let proj = |led: &Value, keys: &[&str]| -> Vec<Value> {
-            led["rows"]
+        // 交回 Value 而不是 Vec<Value>，assert 才能直接对 json!([[…], …]) 的字面量
+        let proj = |led: &Value, keys: &[&str]| -> Value {
+            json!(led["rows"]
                 .as_array()
                 .expect("rows 是数组")
                 .iter()
@@ -8437,7 +8438,7 @@ mod tests {
                         .map(|k| one.get(*k).cloned().unwrap_or(Value::Null))
                         .collect::<Vec<Value>>())
                 })
-                .collect::<Vec<Value>>()
+                .collect::<Vec<Value>>())
         };
         let num = |led: &Value, keys: &[&str]| -> Vec<u64> {
             keys.iter()

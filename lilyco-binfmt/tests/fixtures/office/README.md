@@ -2379,7 +2379,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - LibreOffice 重写同一份稿子改了六处，账本一处都不遮：15 行 → 13 行（两枚 `w:fldSimple` 被摊平成复杂式，
       `forms.simple` 2 → 0）、`\* MERGEFORMAT` 剩一枚、`\r` 一枚变两枚、`w:dirty` 整族不写（`markers.dirty` 1 → 0）、
       separate/end 全补齐（`unclosed` 1 → 0）、`STYLEREF` 的缓存换成那句错误文字「错误: 引用源未找到」。
-    - ODF 没有「域指令」这个东西：种类就是元素名（认得 41 个 `text:` 名字，其中 7 个的缓存文字实测量过，其余进 `unmeasured`），
+    - ODF 没有「域指令」这个东西：种类就是元素名（认得 42 个 `text:` 名字，其中 7 个的缓存文字实测量过，其余进 `unmeasured`），
       `instruction` 与 `switches` 两格整本为空。跨族对应只在这里成立：`MERGEFIELD` → `text:database-display`；
       而 `HYPERLINK` → `text:a`，它**不是一门域**，所以 `kinds` 里查不到 hyperlink。两枚 `text:bookmark-ref` 靠
       `text:reference-format` 分成 number / page 两种读法（种类数 2、格式各 1）；序列号得先有声明

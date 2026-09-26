@@ -447,7 +447,7 @@ fn odf_walk(
 
 /// 认字表。**实测过**的只有下面那七个（这一库 41 份 odt/ott 里出现过的全部）；其余是
 /// spec 里这一族的名字，认了它们不等于量过它们 —— 所以另交一份 `text_names`
-const ODF_FIELD_NAMES: [&str; 41] = [
+const ODF_FIELD_NAMES: [&str; 42] = [
     "annotation-count",
     "bookmark-ref",
     "char-count",
