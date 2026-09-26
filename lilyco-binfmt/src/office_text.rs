@@ -2308,15 +2308,14 @@ mod tests {
             ),
         ] {
             let one = rendered(name);
-            assert_eq!(one["markdown"], want, "%s", name);
-            assert_eq!(one["markdown"]["family"], "rtf", "%s", name);
+            assert_eq!(one["markdown"], want, "{name}");
+            assert_eq!(one["markdown"]["family"], "rtf", "{name}");
             assert!(
                 !one["markdown"]["text"]
                     .as_str()
                     .unwrap_or_default()
                     .contains('\t'),
-                "制表记号按 docx 那一族同一口径换成空格：%s",
-                name
+                "制表记号按 docx 那一族同一口径换成空格：{name}"
             );
         }
         let lists = rendered("lists.rtf");
