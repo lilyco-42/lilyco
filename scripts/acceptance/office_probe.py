@@ -21,6 +21,7 @@ import os
 import subprocess
 import sys
 import zipfile
+from collections import Counter
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -8660,6 +8661,144 @@ def main() -> int:
         "两边同一个口径：整张表没并过格的是全零的一份账，不是缺键",
         [dig(m, "sheets[1].merges"), dig(mods, "sheets[1].merges")],
         [files["merges.xlsx"]["ooxml"]["merges"]["sheet2"], modw["一格也没并"]["merges"]],
+    )
+
+    # ── 3bk) 主题那一本：十二格有两种写法、「写了空串」与「没这个槽」是两件事、一份包可以有很多本
+    print("=== 3bk) theme：主题部件那本账逐件与第二读者对（OOXML 三家读内容，ODF 三家交零条）===")
+    theme_rows: list = []
+    for name in sorted(one.name for one in list(FIXTURES.glob("*.docx"))
+                       + list(FIXTURES.glob("*.docm"))):
+        got = dig(lbin("office-doc", fixture(name), "--limit", "400"), "structure.theme")
+        check("%s 的主题账整本与读者一致（两种写法、三个 @name、字体那三槽各交各的）" % name,
+              got, files[name]["ooxml"]["theme"])
+        theme_rows.extend(got["parts"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.xlsx")):
+        got = dig(lbin("office-sheet", fixture(name), "--limit", "400"), "theme")
+        check("%s 的主题账整本与读者一致（这一族按序号点主题，格序就是答案的一半）" % name,
+              got, files[name]["ooxml"]["theme"])
+        theme_rows.extend(got["parts"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.pptx")):
+        got = dig(lbin("office-slide", fixture(name), "--limit", "400"), "theme")
+        check("%s 的主题账整本与读者一致（一个母版一个部件，所以逐件记账）" % name,
+              got, files[name]["ooxml"]["theme"])
+        theme_rows.extend(got["parts"])
+    # ODF 三家一件主题部件都没有：那一格交零条的账，而不是缺这个键
+    for pattern, command, key, mine in (
+        ("*.odt", "office-doc", "structure.theme", "odt"),
+        ("*.ods", "office-sheet", "theme", "ods"),
+        ("*.odp", "office-slide", "theme", "odp"),
+    ):
+        for name in sorted(one.name for one in FIXTURES.glob(pattern)):
+            check("%s 的 ODF 那一面没有主题这个概念（零条）" % name,
+                  dig(lbin(command, fixture(name), "--limit", "400"), key),
+                  files[name][mine]["theme"])
+    # 语料级：整库 194 个部件（来自上面三份 OOXML 家族的真件，不是读者算的）
+    dk1_sys = [one["part"] for one in theme_rows
+               if one["slots"] and one["slots"][0]["kind"] == "sysClr"]
+    with_extra = [one["part"] for one in theme_rows
+                  if "extraClrSchemeLst" in one["root_children"]]
+    roles = [row for one in theme_rows for row in one["fonts"]]
+    fmt_shapes = sorted({tuple((x["list"], x["entries"]) for x in one["fmt"])
+                         for one in theme_rows})
+    check(
+        "整库 194 个主题部件的三条自证：十二格的名字与顺序全对（194/194 canonical、每本 12 格）、"
+        "fmtScheme 全是四列各三条（数出来的一致，不是照规范抄的）、"
+        "而 dk1 用 sysClr 的那一批与写了 extraClrSchemeLst 的那一批是同一批（68 = 68，一份不差）—— "
+        "「MS 那一路」在这两个记号上同进同出，所以这一路认得出",
+        [len(theme_rows), sum(1 for one in theme_rows if one["unread"]),
+         sorted({one["slot_total"] for one in theme_rows}),
+         sum(1 for one in theme_rows if one["canonical"]), fmt_shapes,
+         len(dk1_sys), len(with_extra), sorted(dk1_sys) == sorted(with_extra)],
+        [194, 0, [12], 194, [(("fillStyleLst", 3), ("lnStyleLst", 3), ("effectStyleLst", 3),
+                             ("bgFillStyleLst", 3))], 68, 68, True],
+    )
+    check(
+        "一个部件里的三个 @name 各说各的：theme 两种（Office Theme 187 / Office 7）、"
+        "clrScheme 两种（Office 186 / LibreOffice 8，LibreOffice 重写时改的就是这一个）、"
+        "fontScheme 一种（194 个全写 Office），而 fmtScheme 只在那 68 个里点名",
+        [dict(Counter(one["theme_name"] for one in theme_rows)),
+         dict(Counter(one["scheme_name"] for one in theme_rows)),
+         dict(Counter(one["font_name"] for one in theme_rows)),
+         dict(Counter("写了" if one["fmt_name"] is not None else "没写" for one in theme_rows))],
+        [{"Office Theme": 187, "Office": 7}, {"Office": 186, "LibreOffice": 8},
+         {"Office": 194}, {"没写": 126, "写了": 68}],
+    )
+    check(
+        "字体那三槽的待遇：latin 388 个角色全写了名字（没有一个空串），"
+        "ea 与 cs 各是 164 写了值、224 写了空串、0 个没这个槽 —— "
+        "空串与不在场是两件事，这一本分列而不是并成一格；"
+        "按书写系统分的那一批 6650 条，29 或 30 条一套（差一枚 Geor），"
+        "而 script=Hans 那一条整库只有一个答案",
+        [len(roles),
+         [sum(1 for one in roles if isinstance(one[which], str) and one[which] != "")
+          for which in ("latin", "ea", "cs")],
+         [sum(1 for one in roles if one[which] == "") for which in ("latin", "ea", "cs")],
+         [sum(1 for one in roles if one[which] is None) for which in ("latin", "ea", "cs")],
+         sum(len(one["faces"]) for one in roles),
+         sorted(Counter(len(one["faces"]) for one in roles).items()),
+         sorted({one["typeface"] for role in roles for one in role["faces"]
+                 if one["script"] == "Hans"})],
+        [388, [388, 164, 164], [0, 224, 224], [0, 0, 0], 6650,
+         [(0, 164), (29, 70), (30, 154)], ["宋体"]],
+    )
+    d = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "400"), "theme")
+    dl = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "5"), "theme")
+    check(
+        "限额这一格是真截：`parts` 交 5 本、`listed` 5、`cut` true，"
+        "可 `total` 与合计那一本仍是 12 本的账 —— 限额只管列几本，不管这份包里有几个部件",
+        [d["total"], d["listed"], d["cut"], dl["listed"], dl["cut"],
+         dl["totals"]["theme_parts"], dl["totals"]["slots"], dl["totals"]["by_scheme_name"]],
+        [12, 12, False, 5, True, 12, 144, {"Office": 11, "LibreOffice": 1}],
+    )
+    w = dig(lbin("office-doc", fixture("bkmks.docx"), "--limit", "400"), "structure.theme")
+    wlo = dig(lbin("office-doc", fixture("bkmks-lo.docx"), "--limit", "400"), "structure.theme")
+
+    def slot_of(book: dict, which: str) -> dict:
+        return next(one for one in book["parts"][0]["slots"] if one["slot"] == which)
+
+    check(
+        "两家写的不是同一本：Word 那份 dk1 是 `sysClr`（`lastClr=000000` 加 `val=windowText` 两格），"
+        "LibreOffice 重写那份换成 `srgbClr` 且 `system` 那一格随之没有 —— 同一个黑换了写法，"
+        "而 accent1 两家都是 4F81BD（原样留着，没被重写）；这一族的颜色还有第二种存法："
+        "themeElements 之外那一跳（objectDefaults）只有 MS 那一路写",
+        [[slot_of(w, "dk1")[key] for key in ("kind", "written", "system")],
+         [slot_of(wlo, "dk1")[key] for key in ("kind", "written", "system")],
+         [slot_of(w, "accent1")["written"], slot_of(wlo, "accent1")["written"]],
+         [w["parts"][0]["root_children"], wlo["parts"][0]["root_children"]]],
+        [["sysClr", "000000", "windowText"], ["srgbClr", "000000", None],
+         ["4F81BD", "4F81BD"],
+         [["themeElements", "objectDefaults", "extraClrSchemeLst"], ["themeElements"]]],
+    )
+    check(
+        "重打那一本与照搬那一本不是一本账：LibreOffice 重写 docx 时把 MS 的主题照搬"
+        "（60 条 `a:font`、两个空串槽都还在），自己重打的 pptx 一份 `a:font` 也不写、"
+        "ea/cs 全交 DejaVu Sans —— 所以 faces 60 对 0、ea_blank 2 对 0 是两族的实测差",
+        [wlo["totals"]["faces"], wlo["totals"]["ea_blank"], wlo["parts"][0]["fonts"][0]["ea"],
+         d["totals"]["faces"], d["totals"]["ea_written"], d["totals"]["ea_blank"],
+         d["parts"][0]["fonts"][0]["ea"], d["parts"][0]["fonts"][0]["kids"]],
+        [60, 2, "", 0, 24, 0, "DejaVu Sans", ["latin", "ea", "cs"]],
+    )
+
+    def no_theme_key(command: str, name: str) -> bool:
+        """整份输出里找 `theme` 这个键（遗留那三家还没读，缺键要说得出口）"""
+        stack = [lbin(command, fixture(name))]
+        while stack:
+            one = stack.pop()
+            if isinstance(one, dict):
+                if "theme" in one:
+                    return True
+                stack.extend(one.values())
+            elif isinstance(one, list):
+                stack.extend(one)
+        return False
+
+    check(
+        "遗留那三家（.doc / .ppt / .xls）与 RTF 现在还没有这一本：那一份主题数据住在 CFB 的 "
+        "`theme` 流里（RTF 是 `{\\*\\themedata}` 那一段 base64），实测这一批件里都没有 `theme` 这个键 —— "
+        "说得出的才交，交不出的别交一个零条的账冒充读过了",
+        [no_theme_key("office-doc", "eq.doc"), no_theme_key("office-slide", "deck.ppt"),
+         no_theme_key("office-sheet", "book.xls"), no_theme_key("office-doc", "comments.rtf")],
+        [False, False, False, False],
     )
 
     failed = [one for one in RESULTS if not one[1]]

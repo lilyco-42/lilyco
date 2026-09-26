@@ -10134,6 +10134,166 @@ def docprops(path: Path) -> dict:
     return out
 
 
+# ── 主题部件那一份账（`lilyco-binfmt/src/theme_ledger.rs` 的第二读者）───────────────
+# 三条口径两边逐字对齐：一切按**文件写着的**交（`sysClr` 的 `lastClr` 只是缓存的猜测，
+# `val` 才是「跟着系统走」那一句，两个键都留）；「写了但是空串」与「没写这一路」是两个答案
+# （合计里分列 `*_blank` / `*_missing`）；顺序是文件自己的文档顺序，不排序。
+# 这一本**不算色**：正文的指针可以带 tint / shade，tint 与「线性混白」逐格吻合（480/480），
+# 而 shade 那一支在 2136 条里与八种算法（RGB 与 HSL 两个空间 × 四种取整）都对不齐 —— 交不出的就别交
+THEME_SLOTS = [
+    "dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3", "accent4",
+    "accent5", "accent6", "hlink", "folHlink",
+]
+# 键名一次说清：闸门拿它与 Rust 那份合计比，两边少一个键就算跑偏
+THEME_TOTALS_KEYS = [
+    "theme_parts", "unread", "slots", "sys_clr", "srgb_clr", "other_kind",
+    "empty_slot", "canon", "off_canon", "font_roles", "latin_written",
+    "latin_blank", "latin_missing", "ea_written", "ea_blank", "ea_missing",
+    "cs_written", "cs_blank", "cs_missing", "faces", "roles_with_faces",
+    "roles_without_faces", "fmt_lists", "fmt_named", "fmt_unnamed",
+    "extra_clr_scheme", "object_defaults", "by_theme_name", "by_scheme_name",
+]
+
+
+def theme_part_named(name: str) -> bool:
+    """部件名只看尾巴：`theme1.xml` / `theme12.xml` / `theme.xml` 都算（`.xml` 必须有）"""
+    tail = name.rsplit("/", 1)[-1]
+    return bool(re.fullmatch(r"theme\d*\.xml", tail))
+
+
+def theme_slot_row(one) -> dict:
+    kids = list(one)
+    here = xml_local(one.tag)
+    if not kids:
+        return {"slot": here, "kind": None, "written": None, "system": None}
+    head = kids[0]
+    kind = xml_local(head.tag)
+    if kind == "srgbClr":
+        return {"slot": here, "kind": kind, "written": head.get("val"), "system": None}
+    if kind == "sysClr":
+        return {"slot": here, "kind": kind, "written": head.get("lastClr"),
+                "system": head.get("val")}
+    return {"slot": here, "kind": kind, "written": None, "system": None}
+
+
+def theme_face_row(role: str, node) -> dict:
+    faces = [{"script": one.get("script"), "typeface": one.get("typeface")}
+             for one in node if xml_local(one.tag) == "font"]
+    row = {"role": role, "kids": [xml_local(one.tag) for one in node],
+           "faces": faces, "face_total": len(faces)}
+    for which in ("latin", "ea", "cs"):
+        holder = next((one for one in node if xml_local(one.tag) == which), None)
+        row[which] = None if holder is None else holder.get("typeface")
+    return row
+
+
+def theme_fmt_rows(node) -> list:
+    return [{"list": xml_local(one.tag), "entries": len(list(one))} for one in node]
+
+
+def theme_unread_row(name: str) -> dict:
+    """解不出来的那一份件：键要与解得出来的一样多，只是每一格都没内容"""
+    return {"part": name, "unread": True, "theme_name": None, "root_children": [],
+            "scheme_name": None, "font_name": None, "fmt_name": None, "slots": [],
+            "slot_total": 0, "sys_clr": 0, "srgb_clr": 0, "other_kind": 0,
+            "empty_slot": 0, "canonical": False, "fonts": [], "font_roles": 0,
+            "fmt": [], "fmt_lists": 0}
+
+
+def theme_part_row(name: str, raw: bytes) -> dict:
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        return theme_unread_row(name)
+    elements = next((one for one in root if xml_local(one.tag) == "themeElements"), None)
+    scheme = font_scheme = fmt_scheme = None
+    if elements is not None:
+        scheme = next((one for one in elements if xml_local(one.tag) == "clrScheme"), None)
+        font_scheme = next((one for one in elements if xml_local(one.tag) == "fontScheme"), None)
+        fmt_scheme = next((one for one in elements if xml_local(one.tag) == "fmtScheme"), None)
+    slots = [theme_slot_row(one) for one in scheme] if scheme is not None else []
+    fonts: list = []
+    if font_scheme is not None:
+        for role in ("majorFont", "minorFont"):
+            holder = next((one for one in font_scheme if xml_local(one.tag) == role), None)
+            if holder is not None:
+                fonts.append(theme_face_row(role, holder))
+    fmt = theme_fmt_rows(fmt_scheme) if fmt_scheme is not None else []
+    return {
+        "part": name,
+        "unread": False,
+        "theme_name": root.get("name"),
+        "root_children": [xml_local(one.tag) for one in root],
+        "scheme_name": None if scheme is None else scheme.get("name"),
+        "font_name": None if font_scheme is None else font_scheme.get("name"),
+        "fmt_name": None if fmt_scheme is None else fmt_scheme.get("name"),
+        "slots": slots,
+        "slot_total": len(slots),
+        "sys_clr": sum(1 for one in slots if one["kind"] == "sysClr"),
+        "srgb_clr": sum(1 for one in slots if one["kind"] == "srgbClr"),
+        "other_kind": sum(1 for one in slots
+                          if one["kind"] not in ("sysClr", "srgbClr", None)),
+        "empty_slot": sum(1 for one in slots if one["kind"] is None),
+        "canonical": [one["slot"] for one in slots] == THEME_SLOTS,
+        "fonts": fonts,
+        "font_roles": len(fonts),
+        "fmt": fmt,
+        "fmt_lists": len(fmt),
+    }
+
+
+def theme_totals(rows: list) -> dict:
+    out: dict = {one: 0 for one in THEME_TOTALS_KEYS}
+    out["theme_parts"] = len(rows)
+    out["by_theme_name"] = {}
+    out["by_scheme_name"] = {}
+    for one in rows:
+        if one["unread"]:
+            out["unread"] += 1
+            continue
+        out["slots"] += one["slot_total"]
+        for key in ("sys_clr", "srgb_clr", "other_kind", "empty_slot"):
+            out[key] += one[key]
+        out["canon" if one["canonical"] else "off_canon"] += 1
+        out["font_roles"] += one["font_roles"]
+        for role in one["fonts"]:
+            for which in ("latin", "ea", "cs"):
+                had = role[which]
+                if had is None:
+                    out[f"{which}_missing"] += 1
+                else:
+                    out[f"{which}_blank" if had == "" else f"{which}_written"] += 1
+            out["faces"] += role["face_total"]
+            out["roles_with_faces" if role["face_total"] else "roles_without_faces"] += 1
+        out["fmt_lists"] += one["fmt_lists"]
+        out["fmt_named" if one["fmt_name"] is not None else "fmt_unnamed"] += 1
+        out["extra_clr_scheme"] += 1 if "extraClrSchemeLst" in one["root_children"] else 0
+        out["object_defaults"] += 1 if "objectDefaults" in one["root_children"] else 0
+        for key, field in (("by_theme_name", "theme_name"), ("by_scheme_name", "scheme_name")):
+            had = one[field] if one[field] is not None else "(没写)"
+            out[key][had] = out[key].get(had, 0) + 1
+    return out
+
+
+def theme_ledger(path: Path, limit: int = 400) -> dict:
+    """一册包的主题账：逐件一本，合计一本。非 ZIP（.doc / .ppt / .xls / RTF）交零条"""
+    rows: list = []
+    if path.read_bytes()[:2] == b"PK":
+        with zipfile.ZipFile(path) as box:
+            for one in box.infolist():
+                if not theme_part_named(one.filename):
+                    continue
+                try:
+                    raw = box.read(one.filename)
+                except Exception:  # noqa: BLE001 部件读不出来就是「解不出」，与 Rust 同一条口径
+                    rows.append(theme_unread_row(one.filename))
+                    continue
+                rows.append(theme_part_row(one.filename, raw))
+    listed = rows[:limit]
+    return {"parts": listed, "total": len(rows), "listed": len(listed),
+            "cut": len(rows) > limit, "totals": theme_totals(rows)}
+
+
 def facts(path: Path) -> dict:
     data = path.read_bytes()
     out: dict = {"path": str(path), "size": len(data), "magic": data[:8].hex()}
@@ -10180,6 +10340,8 @@ def facts(path: Path) -> dict:
         parts = set(pkg["parts"])
         out["opc"] = pkg
         out["docprops"] = docprops(path)
+        # 主题部件那一本：谁家有这个部件谁读，没有的交一本零条的账（与 Rust 六个出口同形）
+        themes = theme_ledger(path)
         if "word/document.xml" in parts:
             out["app"] = "word"
             out["ooxml"] = docx_facts(path)
@@ -10219,6 +10381,7 @@ def facts(path: Path) -> dict:
             out["ooxml"]["note_settings"] = docx_note_settings(path)
             # 域那一份账：两种写法、三种缺法，正文以外那几份部件一起扫
             out["ooxml"]["field_ledger"] = docx_field_ledger(path)
+            out["ooxml"]["theme"] = themes
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
@@ -10233,6 +10396,8 @@ def facts(path: Path) -> dict:
             # 打印区域与重复标题行：不在表上，在 workbook.xml 那两条保留名上
             out["ooxml"]["print_ranges"] = xlsx_print_ranges(path)
             out["ooxml"]["formula_elems"] = xlsx_formula_elems(path)
+            # 这一族的格子按**序号**点主题，所以那十二格的顺序本身就是答案的一半
+            out["ooxml"]["theme"] = themes
         elif "ppt/presentation.xml" in parts:
             out["app"] = "powerpoint"
             out["ooxml"] = pptx_facts(path)
@@ -10243,6 +10408,8 @@ def facts(path: Path) -> dict:
             # 大纲那一本（`office-text --markdown` 的 pptx 支）：一页一个 `#`，
             # 条目标不标是文件自己说的（buChar / buNone / 什么都不写，三本账分开）
             out["ooxml"]["markdown"] = pptx_deck_markdown(path)
+            # 一个母版一个主题部件：那份名字清单之外，这一本才读部件里写了什么
+            out["ooxml"]["theme"] = themes
         elif "content.xml" in parts:
             out["app"] = "opendocument"
             out["odf"] = odt_facts(path)
@@ -10276,6 +10443,8 @@ def facts(path: Path) -> dict:
             out["odt"]["note_settings"] = odf_note_settings(path)
             # 同一问在 ODF 是元素名本身：没有指令串，种类与格式全在名字与属性上
             out["odt"]["field_ledger"] = odf_field_ledger(path)
+            # 这一族没有主题这个概念：交一本零条的账，而不是缺这个键
+            out["odt"]["theme"] = themes
             # 结构搬进 markdown：与 docx 那一本同一个键形状，只是层级与记号是另一族的写法
             out["odt"]["markdown"] = odf_markdown_ledger(path)
             # 同一问在 ODF 要跳进另一个部件：一条式子一个 Object N/content.xml 的 MathML
@@ -10294,6 +10463,7 @@ def facts(path: Path) -> dict:
                 # 打印范围：这一族写在表自己身上，另有一份为与 Excel 来回而留的 named-*
                 sheets["print_ranges"] = ods_print_ranges(path)
                 sheets["formula_elems"] = ods_formula_elems(path)
+                sheets["theme"] = themes
                 out["csv"] = csv_facts(path)
                 out["ods_styles"] = ods_styles(path)
             deck = odp_facts(path)
@@ -10314,6 +10484,7 @@ def facts(path: Path) -> dict:
                     slide["csv"] = csv_groups[which] if which < len(csv_groups) else []
                 # 一条式子一个部件；页缩略图也是 frame，所以两格分开数
                 deck["equations"] = odp_equations_ledger(path)
+                deck["theme"] = themes
                 # 同一本大纲的 odp 那一面：条目标是元素，标题在 frame 的 class 上
                 deck["markdown"] = odp_deck_markdown(path)
                 out["odp"] = deck

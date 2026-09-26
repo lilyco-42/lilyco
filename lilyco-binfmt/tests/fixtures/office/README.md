@@ -2366,6 +2366,18 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 
+131. **主题那一本账：十二格颜色有两套写法、字体角色有三态，而 tint 认得、shade 不认**（194 份 theme 部件 / 132 个包）
+    - 老的只交了一份文件名清单（`themes` 把包名以 `ppt/theme/` 开头的成员列出来给 pptx），问不出「这十二格各写了什么颜色」「字体角色到底填了没」。这一本改成逐件一本账，再另记一本整套包的合计。
+    - 颜色有两套写法要分开数：`a:srgbClr/@val` 直接给十六进制，而 `a:dk1` 这一格常写成 `a:sysClr` —— 颜色坐在 `lastClr`，`val` 那格是系统名字（`windowText` / `window`）。`written` 交文件写的那串，`system` 只在 sysClr 那格非 null，`sys_clr` / `srgb_clr` / `other_kind` / `empty_slot` 四格并存，不折成一枚「有没有颜色」。
+    - 三格 `@name` 是三套各自独立的分布（194 件量出来的）：theme 是 187 个 Office Theme + 7 个 Office，clrScheme 是 186 Office + 8 LibreOffice，fontScheme 194 全写 Office，而 fmtScheme 只在那 68 件里写了名字、另 126 件空着 —— 所以 `fmt_named` / `fmt_unnamed` 与 `by_theme_name` / `by_scheme_name` 各记各的，不互相推。
+    - 字体角色是三态不是两态：`latin` 388 个角色全写了，`ea` 与 `cs` 各 164 写 / 224 交空串 / 0 缺键 —— 空串是生产者明说「这里没有」，缺键才是压根没写，所以 `*_blank` 与 `*_missing` 分列。`a:font` 整册 6650 行，逐角色的行数分布是 0 有 164、29 有 70、30 有 154，而 `script="Hans"` 的 typeface 全场只有一个值（宋体）。
+    - 两个生产者落在同一份件上是相反的两件事，钉在 `bkmks` 与 `deck-lo`：LibreOffice 重写 word 那一份时把 dk1 从 sysClr 换成 srgbClr、把 `objectDefaults` 与 `extraClrSchemeLst` 整个丢掉、并留空 fmtScheme 的名字，而十二格颜色与 60 行 `a:font` 一个字没动；它重建 deck 时把 24 个角色的 `a:font` 全清光（`faces` 0、`roles_without_faces` 24）却给 ea 填上 DejaVu Sans —— 「保住了字面」与「丢掉了清单」是两问。
+    - 两条并集是量出来的巧合而不是规则：dk1 用 sysClr 的那 68 件，与写了 `extraClrSchemeLst` 的那 68 件，正好是同一批（Word 的行为）。`fmt` 那一份清单 194 件全是 fillStyleLst / lnStyleLst / effectStyleLst / bgFillStyleLst 各 3 条，`slot_total` 全是 12、`canonical` 194/194 —— 顺序按文件自己的文档顺序交、不排，所以这一格说的是「这批里没有一份打乱过」，不是「不可能打乱」。
+    - `--limit` 只切列表不切算术：`deck-lo.pptx` 限到 5 时 `listed` 5、`cut` true，而 `totals` 仍然是 12 件 / 144 格（`theme_parts` 与 `slots` 不跟着缩）。
+    - 这一本**不算色**：正文的指针可以带 tint / shade，tint 那一支与「线性混白」逐格吻合（480/480），而 shade 那一支在 2136 条记录里与八种候选算法（RGB 与 HSL 两个空间 × 四种取整）都对不齐 —— 交不出的就别交，所以每一格只交文件写的那串，模块里连 `tint` / `shade` 两个函数都不存在。
+    - ODF 三族（odt / ods / odp）压根不带 theme 部件，出口交零本账而不是缺键；老的 `.doc` / `.ppt` / `.xls` 与 RTF 目前**不交** `theme` 键（CFB 里那条 `Theme` 流与 RTF 的 `{\*\themedata` 还没接）。probe 用「键在不在」钉住这两种差别的不同：前三族是「读了，没有」，后一族是「这一版还没读」。
+    - 第二读者是 `office_reader.py` 的 `theme_ledger()`（六处出口挂钩：OOXML 三族各一处、ODF 三族各一处）；probe 的 3bk 把**每一份 docx / docm / xlsx / pptx / odt / ods / odp** 的整本逐件账与合计那一本逐键对，再钉上面这几条数与那三族键的有无。
+
 130. **哪几格并成了一块：三种拼法一份账，而「几条」与「这块底下有没有字」是两问**（`merges` 那一家三份件）
     - 老的 `merged` 只是一枚数（OOXML 数 `<mergeCell>` 的条数，ODF 只数**有字**的合并格），问不出「哪一块」与「这块底下有没有字」。这一本把每一条区间摊开，再去对文件自己声明的那个 `count`。
     - OOXML 的 `ref` 有两种写法要认：可以**没有冒号**（`ref="A12"` 是合法的单格「合并」，这一本给它名字叫 `solo`），可以带 `$`（`written` 照文件原样交，`anchor` / `end` 交解出来的规范地址）。
@@ -2660,6 +2672,10 @@ ODF 那一路的 `text:list-style-name` 与 `text:list` 上的 `text:style-name`
 `fo:margin-left` 折成 `{uri}margin-left` —— 于是先从这份 `content.xml` 自己的 `xmlns:fo=` 那几条声明里
 建一张 uri→前缀 的表再还原名字（前缀是文件自己起的，不是抄来的）。两边都不把
 `xmlns` / `xmlns:*` 当属性，样式的解析都只一跳、同名取第一个（与 Rust 的 `find` 同一条规则）。
+主题那一本在同一份 `office_reader.py` 里（`theme_ledger` / `theme_part_row` / `theme_totals`）：
+十二格按文件的文档顺序交、不排，`sysClr` 的 `lastClr` 与 `val` 分两格，字体角色的空串与缺键分两列，
+`unread` 那一行把十八个键一个不少地交出来、只是每格没内容 —— 与 Rust 的 `theme_ledger.rs` 逐键同形，
+键名两边各列一份清单，少一个键 probe 的整本相等断言当场就红。
 CI 的 `apps` job 会把编出来的 `lbin` 再跑一遍 `office_probe.py` 与它们逐字段对账，
 不一致就红 —— 而不是只跑一遍单元测试说"自己跟自己也挺一致"。
 
