@@ -4262,24 +4262,26 @@ mod tests {
             "lists.rtf 那几本计数：{flow}"
         );
         assert_eq!(
-            flow["rows"]
-                .as_array()
-                .expect("流水那份是数组")
-                .iter()
-                .map(|one| {
-                    json!([
-                        one["at"].clone(),
-                        one["text"].clone(),
-                        one["style_index"].clone(),
-                        one["style_name"].clone(),
-                        one["heading_level"].clone(),
-                        one["in_list"].clone(),
-                        one["in_index"].clone(),
-                        one["nfc"].clone(),
-                        one["label"].clone(),
-                    ])
-                })
-                .collect::<Vec<Value>>(),
+            Value::Array(
+                flow["rows"]
+                    .as_array()
+                    .expect("流水那份是数组")
+                    .iter()
+                    .map(|one| {
+                        json!([
+                            one["at"].clone(),
+                            one["text"].clone(),
+                            one["style_index"].clone(),
+                            one["style_name"].clone(),
+                            one["heading_level"].clone(),
+                            one["in_list"].clone(),
+                            one["in_index"].clone(),
+                            one["nfc"].clone(),
+                            one["label"].clone(),
+                        ])
+                    })
+                    .collect::<Vec<Value>>(),
+            ),
             json!([
                 [
                     0,
@@ -4383,21 +4385,23 @@ mod tests {
             "目录那两段在流水里是 in_index true，正文那两个标题另有两行：{toc_flow}"
         );
         assert_eq!(
-            toc_flow["rows"]
-                .as_array()
-                .expect("流水那份是数组")
-                .iter()
-                .map(|one| {
-                    json!([
-                        one["at"].clone(),
-                        one["text"].clone(),
-                        one["style_index"].clone(),
-                        one["style_name"].clone(),
-                        one["in_index"].clone(),
-                        one["heading_level"].clone(),
-                    ])
-                })
-                .collect::<Vec<Value>>(),
+            Value::Array(
+                toc_flow["rows"]
+                    .as_array()
+                    .expect("流水那份是数组")
+                    .iter()
+                    .map(|one| {
+                        json!([
+                            one["at"].clone(),
+                            one["text"].clone(),
+                            one["style_index"].clone(),
+                            one["style_name"].clone(),
+                            one["in_index"].clone(),
+                            one["heading_level"].clone(),
+                        ])
+                    })
+                    .collect::<Vec<Value>>(),
+            ),
             json!([
                 [0, "目录", 139, "TOC Heading", false, null],
                 [1, "结构：一级\t1", 140, "toc 1", true, null],
