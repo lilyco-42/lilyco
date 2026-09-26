@@ -86,6 +86,7 @@ mod table_styles;
 mod text_boxes;
 mod text_direction;
 mod theme_ledger;
+mod theme_refs;
 mod word;
 mod xmlscan;
 mod zipread;

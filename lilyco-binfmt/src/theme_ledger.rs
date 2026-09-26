@@ -39,14 +39,16 @@ use serde_json::{json, Value};
 use crate::xmlscan::{self, Node};
 use crate::zipread;
 
-/// 十二格按规范说的顺序；文件写的顺序与这个一致就叫 canonical（实测全都一致）
-const CANON: [&str; 12] = [
+/// 十二格按规范说的顺序；文件写的顺序与这个一致就叫 canonical（实测全都一致）。
+/// 手指那一本（`theme_refs`）点的就是这十二个名字，所以那张表放在这里两边共用
+pub(crate) const CANON: [&str; 12] = [
     "dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6",
     "hlink", "folHlink",
 ];
 
-/// 主题部件的名字：`theme1.xml`、`theme11.xml`、`theme.xml` 都算（`.xml` 后缀必须有）
-fn is_theme_part(name: &str) -> bool {
+/// 主题部件的名字：`theme1.xml`、`theme11.xml`、`theme.xml` 都算（`.xml` 后缀必须有）。
+/// 手指那一本也要认这同一种名字（它数 `theme_parts`），所以这条也交出去共用
+pub(crate) fn is_theme_part(name: &str) -> bool {
     let tail = name.rsplit('/').next().unwrap_or(name);
     let Some(body) = tail.strip_suffix(".xml") else {
         return false;

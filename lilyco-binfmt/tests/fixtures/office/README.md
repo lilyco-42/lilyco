@@ -2366,6 +2366,64 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 
+132. **正文里那只手指的账：三种点法、三条来路，而「解到哪一格」与「算出什么色」是两问**（132 个 OOXML 包 / 30404 条指针）
+    - 事实 131 数的是格子里写了什么；这一本数的是正文**怎么指过去**：Word 的 `w:color/@themeColor`、
+      DrawingML 的 `a:schemeClr/@val`、Excel 样式上的 `theme="N"`。三条点法各自数得回来
+      （25084 + 5210 + 110 = 30404），走过 1832 个 `.xml` 部件一个都没读不开（`parts_unread` 0），
+      其中手指在场的 543 个、主题部件 194 个（与事实 131 同一数，两问共用一份底账）。
+    - 名字到十二格有三条来路，逐条分列而不是合成一个「解出率」：名字本身就是一格（`via = name`）5957、
+      Word 那一族的别名表 21628（这一族只写四个别名：`background1`→lt1、`dark1`→dk1、`text1`→dk1、
+      `text2`→dk2）、文件自己写的 `a:clrMap` 580、Excel 的序号 110，剩下 2129 条交 null。
+    - 三条来路按族拆开各交各的，这也是「同一个名字在两种包里两个答案」的另一半凭据：
+      Word 那 72 个包 26262 条里名字自己是一格 3686、四个别名 21628、解不出 948；
+      Excel 那 39 个包 677 条里名字 12、序号 110、解不出 555；幻灯片那 21 个包 3465 条里
+      名字 2259、`a:clrMap` 580、解不出 626。横着加回来才是那五个数：5957 / 21628 / 580 / 110 / 2129。
+    - 那 2129 条不是「读不到」而是文件自己没说，而且两个方向算出同一个数：`phClr` 2079 条
+      （主题占位色，压根不是那十二格之一）+ `dark2` 8 条（`crep-r.docx` 的 `word/styles.xml`：这个名字
+      既不在十二格也不在那四个别名里，而它们又都带着 `themeShade`，两条理由同时成立）
+      + `tx1` / `bg1` 那 622 条里落在没写对照的包里的那 42 条（622 − 580 = 42，拆开是 tx1 40 + bg1 2）。
+    - `a:clrMap` 只有幻灯片这一族写：21 份 pptx 全写（83 份对照 = 81 个 `slideMasterN.xml`
+      + 2 个 `notesMaster1.xml`，而主题部件里一份都不写），Word 与 Excel 那 111 个包一个都不写；
+      83 份说的都是同一套十二对（`alias_conflict` 0，`alias_names` 252 = 21 × 12）。于是同名的一指
+      在两种包里是两个答案：`deck.pptx` 的 62 条 tx1/bg1 由文件自己解到 dk1/lt1，而 `chart-lo.xlsx`
+      那 8 条同一名字落在没写对照的包里就交解不出（`slot` null、`via` null，部件是
+      `xl/charts/style1.xml` 与 `style2.xml`）—— 不是替文件猜一个补上。
+    - Word 那一路是自己跟自己核对的，所以这一支的「判得住」是硬的：那 26262 条里 25084 条 `w:color`
+      每一条都另写了一遍六位实色当影子（`skip_no_literal` 那 238 条全是 DrawingML 的），无修饰符的
+      22440 条与本包主题那一格逐条对上、`mismatched` **0 条**；带 `themeTint` / `themeShade` 的 3298 条
+      不判（wml 2644 + DrawingML 654，与事实 131 里「shade 与八种候选算法都对不齐所以不交色」是同一个
+      决定），点不出格的 286 条不判。四种分列，加上对上的那些正好是那一路的 26262 条，一条也没被揉成一格。
+    - 序号那一族两读都交，因为这里真有两个答案：110 条点的是 `1` 与 `4` 两个数字。`1` 那 102 条按规范的
+      槽位顺序说 lt1，而 Excel 自己实际用的那张映射表说 dk1（`index_disagree`）；`4` 那 8 条两边说的是
+      同一格 accent1（`index_agree`）。谁胜出不是这本的活，把两格并排放着（`slot` 与 `alt_slot`）才是答案。
+    - 一条手指 14 格：`part` / `kind` / `at` / `holder` / `name` / `slot` / `via` / `alt_slot` / `literal`
+      / `tint` / `shade` / `mods` / `in_slots` / `matches`。合计里 `by_holder` 说坐在哪个座位上、
+      `by_name` 说名字的分布：Word 那一路 25084 条 `w:color` 全在 `color/rPr` 这一个座位上，而 DrawingML
+      分在六处（`solidFill` 3643、渐变stops 的 `gs` 1155、`fontRef` 100、`lnRef` / `fillRef` /
+      `effectRef` 各 92、`colorStyle` 24、`bgRef` 12），Excel 的 110 条序号又分五处（`color/font` 49、
+      `color/rPr` 53、页边 `left` 1 / `right` 1 / `top` 2 / `bottom` 1）与 `bgColor/patternFill` 3。
+      第一条钉在 `bkmks.docx` 的 `word/styles.xml`：名字 accent1 本身就是一格、影子实色 `365F91`、
+      这一格带着 `themeShade=BF`（`shade` 交的就是文件写的那个 BF），于是 `matches` 交 null
+      —— 带修饰符的不判，要判就得先算色。
+    - 分家要按包族按 glob 分，不能按「这个包里有没有 `w:color`」分：72 个 Word 包里有 6 份一个
+      `w:color` 都不写（`notes-end.docx` / `notes-foot.docx` / `nset.docx` / `nset-lo.docx`
+      / `pnum.docx` / `tbox.docx`，各 6 条 DrawingML 指针、共 36 条），拿「写了才算这一路」去数会量成
+      66 个包 / 26226 条而没人报错。三族各自数：Word 72 包 26262 条（909 个部件，25084 + DrawingML 1178）、
+      Excel 39 包 677 条（370 个部件，567 + 序号 110）、幻灯片 21 包 3465 条（553 个部件，全是 DrawingML）。
+    - 限额这一格只管列几条，不管这份包里的账（与事实 131 同一条规矩）：`bkmks.docx` 用 `--limit 5` 交 5 条，
+      而 `total` 与合计那一本仍然是 543 条的账（`parts_scanned` 13、`parts_with_refs` 3、`matched` 466
+      一个都不动）；整库被 400 截住的只有那 34 个 Word 包，`cut` 就是说给你听的。
+    - ODF 那 67 份（41 文字 / 14 表格 / 12 演示）压根没有主题这个概念：交零条而不是缺键——
+      键一个不少、十二格每格都空着，而 `parts_scanned` 是 213 / 76 / 68、`parts_unread` 0，
+      `total` / `listed` / `cut` 也是 (0, 0, False) 的样子；「这一层不存在」与「我没读」是两件事。
+      老的 `.doc` / `.ppt` / `.xls` 与 RTF 目前**不交** `color_refs` 这个键：那一份主题数据坐在 CFB 的
+      `Theme` 流与 RTF 的 `{\*\themedata}` 群里，本机做不出凭据，所以那一本还没开——开不了就说没开，
+      别交一本零条的账冒充读过了。
+    - 第二读者是 `office_reader.py` 的 `theme_refs()`（六处出口挂钩：doc / sheet / slide 各 OOXML 与 ODF
+      一支，与 Rust 的六个出口对称）；probe 的 3bl 把**每一份 docx / docm / xlsx / pptx / odt / ods / odp**
+      的整本逐件账与合计那一本逐键对（含 `mods` 那串数组与 `matches` 的 null），再钉上面这几条数、
+      两读的 `slot` / `alt_slot` 配对，以及那四族 `color_refs` 键的有无。
+
 131. **主题那一本账：十二格颜色有两套写法、字体角色有三态，而 tint 认得、shade 不认**（194 份 theme 部件 / 132 个包）
     - 老的只交了一份文件名清单（`themes` 把包名以 `ppt/theme/` 开头的成员列出来给 pptx），问不出「这十二格各写了什么颜色」「字体角色到底填了没」。这一本改成逐件一本账，再另记一本整套包的合计。
     - 颜色有两套写法要分开数：`a:srgbClr/@val` 直接给十六进制，而 `a:dk1` 这一格常写成 `a:sysClr` —— 颜色坐在 `lastClr`，`val` 那格是系统名字（`windowText` / `window`）。`written` 交文件写的那串，`system` 只在 sysClr 那格非 null，`sys_clr` / `srgb_clr` / `other_kind` / `empty_slot` 四格并存，不折成一枚「有没有颜色」。

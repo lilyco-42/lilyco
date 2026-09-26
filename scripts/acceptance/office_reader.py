@@ -10294,6 +10294,283 @@ def theme_ledger(path: Path, limit: int = 400) -> dict:
             "cut": len(rows) > limit, "totals": theme_totals(rows)}
 
 
+# ── 正文那些手指：写着的颜色点到主题那十二格，三种点法一本账（与 Rust 的 theme_refs.rs 同形）──
+# 三种点法各数各的：Word 写 `w:color` 的 `themeColor`（实测 25084 条，每一条都另写了一遍
+# 六位实色当影子，所以那一路可以自己跟自己核对：22440 条逐条对得上、0 条对不上）；
+# DrawingML 写 `a:schemeClr` 的 `val`（5210 条，实测一条都没少写 `val`，修饰符是它的孩子元素，
+# 而这一族没有伴随实色可对，所以那一路的 `matches` 一律 null）；Excel 写 `theme="序号"`
+# （110 条，一条伴随实色都没有）。
+# 名字点到格有三条来路，都记在 `via` 上：名字本身就是一格（`via = "name"`，5957 条）；
+# 本包自己写的 `a:clrMap` 说了这个名对应哪一格（`via = "clrMap"`，实测 83 份对照分布在 21 个包里，
+# 全写在幻灯片母版与备注母版那两种部件上（`slideMasterN.xml` 81 份、`notesMaster1.xml` 2 份），
+# 主题那一份件里一个都没有，而 83 份说的是同一套十二对，于是 `tx1` / `bg1` 这一族 580 条
+# 由文件自己解，不用猜；另 42 条落在没写对照的包里，就交解不出）；剩下 Word 那一族别名
+# （`via = "wml-alias"`，21628 条）—— 那张表只收「无修饰符而写了影子」量出来的四个名字：
+# `text1`→`dk1`、`background1`→`lt1`、`text2`→`dk2`、`dark1`→`dk1`，`matches` 就是这张表的自证。
+# 解不出来的 2129 条交 null，别照着规范补全：`phClr` 2079 条（主题占位色，压根不是那十二格）、
+# `dark2` 8 条（整批带 shade，别名表不收）、另 42 条没有对照可走。
+# 序号那一族有两读：规范顺序与 Excel 实际用的顺序前四格要互换，于是 `slot` / `alt_slot`
+# 都交，只有两边说同一格的 8 条算 `index_agree`，另 102 条算 `index_disagree`。
+# 这一本照样**不算色**：带 `tint` / `shade` / `themeTint` / `themeShade` / `satMod` 的 4540 条
+# 一律 `matches = null`（对不上是应该的，对上才是巧合），字面量按写的交；
+# 判不住的四种在合计里分列（modified / no_slot / no_literal / multi_value），不揉成一格。
+THEME_REF_ALIAS = {
+    "background1": "lt1",
+    "dark1": "dk1",
+    "text1": "dk1",
+    "text2": "dk2",
+}
+# 别名表只给 Word 那一族用：`accent1` / `accent2` 那 1600 条不需要表（名字本身就是一格）
+THEME_REF_EXCEL = [
+    "lt1", "dk1", "lt2", "dk2", "accent1", "accent2", "accent3", "accent4",
+    "accent5", "accent6", "hlink", "folHlink",
+]
+THEME_REF_ROW_KEYS = [
+    "part", "kind", "at", "holder", "name", "slot", "via", "alt_slot",
+    "literal", "tint", "shade", "mods", "in_slots", "matches",
+]
+THEME_REF_TOTALS_KEYS = [
+    "refs", "wml_color", "scheme_clr", "theme_index", "parts_scanned",
+    "parts_unread", "parts_with_refs", "theme_parts", "clr_map_written",
+    "alias_names", "alias_conflict", "in_slots", "off_slots", "resolved",
+    "unresolved", "matched", "mismatched", "skip_modified", "skip_no_literal",
+    "skip_no_slot", "skip_multi_value", "index_agree", "index_disagree",
+    "by_kind", "by_name", "by_holder", "by_via", "slot_refs", "mods_seen",
+]
+
+
+def bump_ref(table: dict, key, add: int = 1) -> None:
+    """往一张计数表里加一笔；没写的记成 `(没写)`（与主题那本同一口径）"""
+    had = "(没写)" if key is None else key
+    table[had] = table.get(had, 0) + add
+
+
+def theme_ref_row(part: str, kind: str, at: str, holder: str) -> dict:
+    """一行先十四键全齐再填：Rust 那边 `json!` 也是一次写全，谁都不许缺键"""
+    return {"part": part, "kind": kind, "at": at, "holder": holder, "name": None,
+            "slot": None, "via": None, "alt_slot": None, "literal": None,
+            "tint": None, "shade": None, "mods": [], "in_slots": False,
+            "matches": None}
+
+
+def theme_ref_slot_of(nm, kind: str, alias: dict) -> tuple:
+    """这个名字点到哪一格、从哪条路过去的：
+    名字本身就是一格 → `name`；本包 `a:clrMap` 说过 → `clrMap`；
+    Word 那一族的四个量出来的别名 → `wml-alias`；都不在交 (None, False, None)"""
+    if nm in THEME_SLOTS:
+        return nm, True, "name"
+    had = alias.get(nm) if isinstance(nm, str) else None
+    if had is not None:
+        return had, False, "clrMap"
+    if kind == "wmlColor" and isinstance(nm, str) and nm in THEME_REF_ALIAS:
+        return THEME_REF_ALIAS[nm], False, "wml-alias"
+    return None, False, None
+
+
+def theme_ref_wml(part: str, at: str, holder: str, had: dict, alias: dict) -> dict:
+    """Word 那一路：`themeColor` 点名字，`val` 又写了一遍实色（按写的交，不换算）"""
+    one = theme_ref_row(part, "wmlColor", at, holder)
+    nm = had.get("themeColor")
+    one["name"] = nm
+    one["slot"], one["in_slots"], one["via"] = theme_ref_slot_of(nm, "wmlColor", alias)
+    one["literal"] = had.get("val")
+    one["tint"] = had.get("themeTint")
+    one["shade"] = had.get("themeShade")
+    one["mods"] = [key for key in ("themeTint", "themeShade") if had.get(key) is not None]
+    return one
+
+
+def theme_ref_scheme(part: str, at: str, holder: str, had: dict, kid,
+                     alias: dict) -> dict:
+    """DrawingML 那一路：`val` 点名字，修饰符是孩子元素；这一路没有伴随实色可核"""
+    one = theme_ref_row(part, "schemeClr", at, holder)
+    nm = had.get("val")
+    one["name"] = nm
+    one["slot"], one["in_slots"], one["via"] = theme_ref_slot_of(nm, "schemeClr", alias)
+    one["mods"] = [xml_local(c.tag) for c in kid]
+    for which in ("tint", "shade"):
+        head = next((c for c in kid if xml_local(c.tag) == which), None)
+        one[which] = None if head is None else written_attrs(head).get("val")
+    return one
+
+
+def theme_ref_index(part: str, at: str, holder: str, had: dict) -> dict:
+    """Excel 那一路：点的是序号，所以两种顺序都交；`rgb` 有就交（实测一条都没有）"""
+    one = theme_ref_row(part, "themeIndex", at, holder)
+    raw = had.get("theme")
+    one["name"] = raw
+    try:
+        number = int(str(raw))
+    except (TypeError, ValueError):
+        number = -1
+    if 0 <= number < len(THEME_SLOTS):
+        one["slot"] = THEME_SLOTS[number]
+        one["alt_slot"] = THEME_REF_EXCEL[number]
+        one["via"] = "index"
+    one["literal"] = had.get("rgb")
+    one["tint"] = had.get("tint")
+    one["mods"] = ["tint"] if had.get("tint") is not None else []
+    return one
+
+
+def theme_ref_matches(one: dict, uniq: dict):
+    """影子与那一格的取值对不对得上。带修饰符的不判（不算色），点不出格的不判，
+    本包里那一格有多值的不判 —— 三种不判在合计里分列，别揉成一格"""
+    if one["literal"] is None or one["slot"] is None or one["mods"]:
+        return None
+    want = uniq.get(one["slot"])
+    if want is None:
+        return None
+    return str(want).upper() == str(one["literal"]).upper()
+
+
+def theme_ref_tally(totals: dict, one: dict) -> None:
+    totals["refs"] += 1
+    totals[{"wmlColor": "wml_color", "schemeClr": "scheme_clr",
+            "themeIndex": "theme_index"}[one["kind"]]] += 1
+    bump_ref(totals["by_kind"], one["kind"])
+    bump_ref(totals["by_name"].setdefault(one["kind"], {}), one["name"])
+    bump_ref(totals["by_holder"].setdefault(one["kind"], {}),
+             one["at"] + "/" + one["holder"])
+    bump_ref(totals["by_via"], one["via"])
+    totals["in_slots" if one["in_slots"] else "off_slots"] += 1
+    if one["slot"] is None:
+        totals["unresolved"] += 1
+    else:
+        totals["resolved"] += 1
+        bump_ref(totals["slot_refs"], one["slot"])
+        if one["kind"] == "themeIndex":
+            agree = one["slot"] == one["alt_slot"]
+            totals["index_agree" if agree else "index_disagree"] += 1
+    if one["matches"] is True:
+        totals["matched"] += 1
+    elif one["matches"] is False:
+        totals["mismatched"] += 1
+    elif one["mods"]:
+        totals["skip_modified"] += 1
+    elif one["slot"] is None:
+        totals["skip_no_slot"] += 1
+    elif one["literal"] is None:
+        totals["skip_no_literal"] += 1
+    else:
+        totals["skip_multi_value"] += 1
+    for name in one["mods"]:
+        bump_ref(totals["mods_seen"], name)
+
+
+def theme_ref_walk(node, holder: str, part: str, uniq: dict, alias: dict,
+                   rows: list, totals: dict) -> None:
+    """前序走一遍：先办自己再进孩子，孩子办完的顺序就是文件写的顺序（Rust 同一条递归）"""
+    for kid in list(node):
+        at = xml_local(kid.tag)
+        had = written_attrs(kid)
+        one = None
+        if at == "color" and "themeColor" in had:
+            one = theme_ref_wml(part, at, holder, had, alias)
+        elif at == "schemeClr":
+            one = theme_ref_scheme(part, at, holder, had, kid, alias)
+        elif "theme" in had:
+            one = theme_ref_index(part, at, holder, had)
+        if one is not None:
+            one["matches"] = theme_ref_matches(one, uniq)
+            rows.append(one)
+            theme_ref_tally(totals, one)
+        theme_ref_walk(kid, at, part, uniq, alias, rows, totals)
+
+
+def theme_ref_new_totals() -> dict:
+    """合计的键一次声明完（计数 0、映射 {}）：闸门拿这份与 Rust 那份比键"""
+    out: dict = {one: 0 for one in THEME_REF_TOTALS_KEYS}
+    for one in ("by_kind", "by_name", "by_holder", "by_via", "slot_refs",
+                "mods_seen"):
+        out[one] = {}
+    return out
+
+
+def theme_ref_survey(root, values: dict, alias: dict) -> None:
+    """第一遍只收两样东西：十二格都取值是什么（`values`），以及文件自己写的
+    名字→格对照（`alias`，来自 `a:clrMap`）。两者都是「一个名字可能有多份件说话」，
+    所以取值交列表，同意与否留给后面判"""
+    for node in root.iter():
+        here = xml_local(node.tag)
+        if here == "clrScheme":
+            for slot in node:
+                head = list(slot)
+                name = xml_local(slot.tag)
+                if name in values and head:
+                    had = written_attrs(head[0])
+                    values[name].append(had.get("lastClr") or had.get("val"))
+        elif here == "clrMap":
+            for key, target in written_attrs(node).items():
+                alias.setdefault(key, []).append(target)
+
+
+def theme_ref_slot_book(values: dict) -> list:
+    """十二格各自的取值清单：值去重并大写，`parts` 是几份主题件写了这一格，
+    `agree` 是「有件写了、而且说的都是同一件事」—— 一格没件写的时候 agree 不成立，
+    别把「没人说话」读成「大家都同意」（一份包有多本主题时这一格才判得住）"""
+    out: list = []
+    for slot in THEME_SLOTS:
+        got = [one for one in values[slot] if one is not None]
+        distinct = sorted({str(one).upper() for one in got})
+        out.append({"slot": slot, "values": distinct, "parts": len(got),
+                    "agree": len(distinct) == 1})
+    return out
+
+
+def theme_refs(path: Path, limit: int = 400) -> dict:
+    """一册包的正文手指账：`.xml` 部件走两遍（第一遍收那两份对照，第二遍收手指）。
+    非 ZIP（.doc / .ppt / .xls / RTF）交一本零条的账 —— 键一个不少，只是每格都空"""
+    rows: list = []
+    totals = theme_ref_new_totals()
+    values: dict = {one: [] for one in THEME_SLOTS}
+    alias: dict = {}
+    uniq: dict = {}
+    if path.read_bytes()[:2] == b"PK":
+        with zipfile.ZipFile(path) as box:
+            names = [one.filename for one in box.infolist()]
+            # 第一遍：谁写了对照谁说话（主题件可能排在 styles 后面，所以不能一边走一边判）
+            good: list = []
+            for name in names:
+                if not name.endswith(".xml"):
+                    continue
+                totals["parts_scanned"] += 1
+                try:
+                    root = ET.fromstring(box.read(name))
+                except Exception:  # noqa: BLE001 解不开的部件两遍都不走，只记一次
+                    totals["parts_unread"] += 1
+                    continue
+                good.append(name)
+                if theme_part_named(name):
+                    totals["theme_parts"] += 1
+                theme_ref_survey(root, values, alias)
+                totals["clr_map_written"] += sum(
+                    1 for node in root.iter() if xml_local(node.tag) == "clrMap")
+            uniq = {one["slot"]: one["values"][0]
+                    for one in theme_ref_slot_book(values) if one["agree"]}
+            # 名字→格那张对照：一个名字被多份件说成两格就不判（实测 83 份说的是同一套）
+            alias_map = {}
+            for key, got in alias.items():
+                distinct = sorted(set(got))
+                if len(distinct) == 1:
+                    alias_map[key] = distinct[0]
+                else:
+                    totals["alias_conflict"] += 1
+            totals["alias_names"] = len(alias_map)
+            # 第二遍：谁写手指就收谁
+            for name in good:
+                root = ET.fromstring(box.read(name))
+                before = len(rows)
+                theme_ref_walk(root, xml_local(root.tag), name, uniq, alias_map,
+                               rows, totals)
+                if len(rows) > before:
+                    totals["parts_with_refs"] += 1
+    listed = rows[:limit]
+    return {"refs": listed, "total": len(rows), "listed": len(listed),
+            "cut": len(rows) > limit, "slots": theme_ref_slot_book(values),
+            "totals": totals}
+
+
 def facts(path: Path) -> dict:
     data = path.read_bytes()
     out: dict = {"path": str(path), "size": len(data), "magic": data[:8].hex()}
@@ -10342,6 +10619,8 @@ def facts(path: Path) -> dict:
         out["docprops"] = docprops(path)
         # 主题部件那一本：谁家有这个部件谁读，没有的交一本零条的账（与 Rust 六个出口同形）
         themes = theme_ledger(path)
+        # 正文那些手指那一本：三种点法各数各的，解到格就解，解不到交 null
+        refs = theme_refs(path)
         if "word/document.xml" in parts:
             out["app"] = "word"
             out["ooxml"] = docx_facts(path)
@@ -10382,6 +10661,7 @@ def facts(path: Path) -> dict:
             # 域那一份账：两种写法、三种缺法，正文以外那几份部件一起扫
             out["ooxml"]["field_ledger"] = docx_field_ledger(path)
             out["ooxml"]["theme"] = themes
+            out["ooxml"]["color_refs"] = refs
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
@@ -10398,6 +10678,7 @@ def facts(path: Path) -> dict:
             out["ooxml"]["formula_elems"] = xlsx_formula_elems(path)
             # 这一族的格子按**序号**点主题，所以那十二格的顺序本身就是答案的一半
             out["ooxml"]["theme"] = themes
+            out["ooxml"]["color_refs"] = refs
         elif "ppt/presentation.xml" in parts:
             out["app"] = "powerpoint"
             out["ooxml"] = pptx_facts(path)
@@ -10410,6 +10691,7 @@ def facts(path: Path) -> dict:
             out["ooxml"]["markdown"] = pptx_deck_markdown(path)
             # 一个母版一个主题部件：那份名字清单之外，这一本才读部件里写了什么
             out["ooxml"]["theme"] = themes
+            out["ooxml"]["color_refs"] = refs
         elif "content.xml" in parts:
             out["app"] = "opendocument"
             out["odf"] = odt_facts(path)
@@ -10445,6 +10727,7 @@ def facts(path: Path) -> dict:
             out["odt"]["field_ledger"] = odf_field_ledger(path)
             # 这一族没有主题这个概念：交一本零条的账，而不是缺这个键
             out["odt"]["theme"] = themes
+            out["odt"]["color_refs"] = refs
             # 结构搬进 markdown：与 docx 那一本同一个键形状，只是层级与记号是另一族的写法
             out["odt"]["markdown"] = odf_markdown_ledger(path)
             # 同一问在 ODF 要跳进另一个部件：一条式子一个 Object N/content.xml 的 MathML
@@ -10464,6 +10747,7 @@ def facts(path: Path) -> dict:
                 sheets["print_ranges"] = ods_print_ranges(path)
                 sheets["formula_elems"] = ods_formula_elems(path)
                 sheets["theme"] = themes
+                sheets["color_refs"] = refs
                 out["csv"] = csv_facts(path)
                 out["ods_styles"] = ods_styles(path)
             deck = odp_facts(path)
@@ -10485,6 +10769,7 @@ def facts(path: Path) -> dict:
                 # 一条式子一个部件；页缩略图也是 frame，所以两格分开数
                 deck["equations"] = odp_equations_ledger(path)
                 deck["theme"] = themes
+                deck["color_refs"] = refs
                 # 同一本大纲的 odp 那一面：条目标是元素，标题在 frame 的 class 上
                 deck["markdown"] = odp_deck_markdown(path)
                 out["odp"] = deck

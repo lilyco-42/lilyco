@@ -8779,13 +8779,13 @@ def main() -> int:
         [60, 2, "", 0, 24, 0, "DejaVu Sans", ["latin", "ea", "cs"]],
     )
 
-    def no_theme_key(command: str, name: str) -> bool:
-        """整份输出里找 `theme` 这个键（遗留那三家还没读，缺键要说得出口）"""
+    def no_theme_key(command: str, name: str, key: str = "theme") -> bool:
+        """整份输出里找 `key` 这个键（遗留那三家还没读，缺键要说得出口）"""
         stack = [lbin(command, fixture(name))]
         while stack:
             one = stack.pop()
             if isinstance(one, dict):
-                if "theme" in one:
+                if key in one:
                     return True
                 stack.extend(one.values())
             elif isinstance(one, list):
@@ -8798,6 +8798,193 @@ def main() -> int:
         "说得出的才交，交不出的别交一个零条的账冒充读过了",
         [no_theme_key("office-doc", "eq.doc"), no_theme_key("office-slide", "deck.ppt"),
          no_theme_key("office-sheet", "book.xls"), no_theme_key("office-doc", "comments.rtf")],
+        [False, False, False, False],
+    )
+
+    # ── 3bl) 正文那些手指：主题那一本问「这一格坐着什么」，这一本反过来问「谁点了这一格」。
+    #         三种点法各数各的（Word 的名字+影子实色、DrawingML 的名字+孩子修饰符、Excel 的序号），
+    #         名字→格三条来路都记在 via 上，解不出交 null；带修饰符的一律不判（不算色）。
+    print("=== 3bl) color_refs：手指账逐件与第二读者对（三条点法、三条来路、序号两读、ODF 交零条）===")
+    ref_rows: list = []
+    odf_groups: dict = {}
+    ref_groups: dict = {}
+    for pattern, command, key, mine in (
+        ("*.docx", "office-doc", "structure.color_refs", "ooxml"),
+        ("*.docm", "office-doc", "structure.color_refs", "ooxml"),
+        ("*.xlsx", "office-sheet", "color_refs", "ooxml"),
+        ("*.pptx", "office-slide", "color_refs", "ooxml"),
+        ("*.odt", "office-doc", "structure.color_refs", "odt"),
+        ("*.ods", "office-sheet", "color_refs", "ods"),
+        ("*.odp", "office-slide", "color_refs", "odp"),
+    ):
+        for name in sorted(one.name for one in FIXTURES.glob(pattern)):
+            got = dig(lbin(command, fixture(name), "--limit", "400"), key)
+            check("%s 的手指账整本与读者一致（名字、来路、影子、修饰符、两读，一格都不许差）" % name,
+                  got, files[name][mine]["color_refs"])
+            if pattern.startswith("*.od"):
+                odf_groups.setdefault(pattern, []).append(got)
+            else:
+                ref_rows.append(got)
+                ref_groups.setdefault(pattern, []).append(got)
+
+    ref_counters = [
+        "refs", "wml_color", "scheme_clr", "theme_index", "parts_scanned", "parts_unread",
+        "parts_with_refs", "theme_parts", "clr_map_written", "alias_names", "alias_conflict",
+        "in_slots", "off_slots", "resolved", "unresolved", "matched", "mismatched",
+        "skip_modified", "skip_no_literal", "skip_no_slot", "skip_multi_value",
+        "index_agree", "index_disagree",
+    ]
+    summed = {one: sum(row["totals"][one] for row in ref_rows) for one in ref_counters}
+    via: Counter = Counter()
+    for row in ref_rows:
+        via.update(row["totals"]["by_via"])
+    check(
+        "132 个 OOXML 包 30404 条手指：三条点法各自数得回来（Word 25084 + DrawingML 5210 + Excel 序号 110），"
+        "走过 1832 个 `.xml` 部件一个都没读不开（`parts_unread` 0），其中 194 个是主题部件（与主题那本同一数）、"
+        "543 个部件里手指在场；名字→格的三条来路之和也是 30404 —— 名字本身就是一格 5957、"
+        "Word 那一族的别名 21628、文件自己写的 `a:clrMap` 580、序号 110，剩下 2129 条交 null 而不照着规范替文件补",
+        [len(ref_rows), summed["refs"], summed["wml_color"], summed["scheme_clr"],
+         summed["theme_index"], summed["parts_scanned"], summed["parts_unread"],
+         summed["theme_parts"], summed["parts_with_refs"],
+         [summed["in_slots"], summed["off_slots"], summed["resolved"], summed["unresolved"]],
+         [via["name"], via["wml-alias"], via["clrMap"], via["index"], via["(没写)"],
+          sum(via.values())],
+         [summed["alias_names"], summed["alias_conflict"], summed["clr_map_written"],
+          summed["skip_multi_value"]]],
+        [132, 30404, 25084, 5210, 110, 1832, 0, 194, 543,
+         [5957, 24447, 28275, 2129],
+         [5957, 21628, 580, 110, 2129, 30404],
+         [252, 0, 83, 0]],
+    )
+    check(
+        "解不出那 2129 条不是「读不到」而是文件自己没说，而且数目能拆开对：按名字 "
+        "`phClr` 2079 条（主题占位色，压根不是那十二格之一）+ `dark2` 8 条（整批带 shade，别名表不收）"
+        "剩 42 条；`tx1` / `bg1` 一共 622 条，走 `a:clrMap` 解出的 580 条，"
+        "两本一减也是 42 —— 两个方向算出同一个数，那 42 条就是落在没写对照的包里的那些",
+        [via["(没写)"],
+         sum(row["totals"]["by_name"].get("schemeClr", {}).get("phClr", 0) for row in ref_rows),
+         sum(row["totals"]["by_name"].get("wmlColor", {}).get("dark2", 0) for row in ref_rows),
+         sum(row["totals"]["by_name"].get("schemeClr", {}).get(one, 0) for one in ("tx1", "bg1")
+             for row in ref_rows),
+         via["clrMap"],
+         sum(row["totals"]["by_name"].get("schemeClr", {}).get(one, 0) for one in ("tx1", "bg1")
+             for row in ref_rows) - via["clrMap"],
+         via["(没写)"] - 2079 - 8],
+        [2129, 2079, 8, 622, 580, 42, 42],
+    )
+    doc_rows = ref_groups["*.docx"] + ref_groups["*.docm"]
+    check(
+        "Word 那一路是自己跟自己核对的：每一条 `w:color` 都另写了一遍六位实色当影子，"
+        "无修饰符的 22440 条与本包主题那一格逐条对上、`mismatched` 0 条，"
+        "剩下 3298 条带 `themeTint` / `themeShade`（不算色）、238 条连影子都没写、286 条点不出格 —— "
+        "四种判不住分列，加起来正好是那一路的 26262 条，一条也没被揉成一格",
+        [len(doc_rows), sum(one["totals"]["wml_color"] for one in doc_rows),
+         sum(one["totals"]["matched"] for one in doc_rows),
+         sum(one["totals"]["mismatched"] for one in doc_rows),
+         sum(one["totals"]["skip_modified"] for one in doc_rows),
+         sum(one["totals"]["skip_no_literal"] for one in doc_rows),
+         sum(one["totals"]["skip_no_slot"] for one in doc_rows),
+         sum(one["totals"]["refs"] for one in doc_rows),
+         sum(one["totals"]["matched"] + one["totals"]["mismatched"]
+             + one["totals"]["skip_modified"] + one["totals"]["skip_no_literal"]
+             + one["totals"]["skip_no_slot"] + one["totals"]["skip_multi_value"]
+             for one in doc_rows)],
+        [72, 25084, 22440, 0, 3298, 238, 286, 26262, 26262],
+    )
+    idx_rows = [one for one in ref_rows if one["totals"]["theme_index"]]
+    check(
+        "序号那一族两读都交：110 条点的是 `1` 或 `4` 两个数字，"
+        "`1` 那 102 条规范顺序说 lt1 而 Excel 实际用的那张表说 dk1（`index_disagree`），"
+        "`4` 那 8 条两边说的是同一格 accent1（`index_agree`）—— 谁胜出不是这本的活，"
+        "两格并排放着才是答案",
+        [len(idx_rows), sum(one["totals"]["theme_index"] for one in idx_rows),
+         sum(one["totals"]["index_agree"] for one in idx_rows),
+         sum(one["totals"]["index_disagree"] for one in idx_rows),
+         sorted({one for row in idx_rows for one in row["totals"]["by_name"]["themeIndex"]}),
+         sorted({(one["name"], one["slot"], one["alt_slot"], one["via"])
+                 for row in idx_rows for one in row["refs"] if one["kind"] == "themeIndex"})],
+        [39, 110, 8, 102, ["1", "4"],
+         [("1", "lt1", "dk1", "index"), ("4", "accent1", "accent1", "index")]],
+    )
+    deck_tx = [one for one in files["deck.pptx"]["ooxml"]["color_refs"]["refs"]
+               if one["name"] in ("tx1", "bg1")]
+    chart_tx = [one for one in files["chart-lo.xlsx"]["ooxml"]["color_refs"]["refs"]
+                if one["name"] in ("tx1", "bg1")]
+    check(
+        "`a:clrMap` 只有幻灯片这一族写（21 份 pptx 全写、Word 与 Excel 那 111 个包一个都不写），"
+        "而 83 份对照说的是同一套十二对（`alias_conflict` 0）：于是同名的一指在两种包里两个答案 —— "
+        "deck.pptx 里 62 条 tx1/bg1 由文件自己解到 dk1/lt1，chart-lo.xlsx 那 8 条同一名字落在"
+        "没写对照的包里就交解不出（slot null、via null），不是猜一个补上",
+        [sum(1 for one in ref_rows if one["totals"]["clr_map_written"]),
+         sum(1 for one in ref_rows if not one["totals"]["clr_map_written"]),
+         sum(one["totals"]["clr_map_written"] for one in ref_rows),
+         sum(one["totals"]["by_via"].get("clrMap", 0) for one in ref_rows),
+         len(deck_tx), sorted({(one["slot"], one["via"]) for one in deck_tx}),
+         len(chart_tx), sorted({(one["slot"], one["via"], one["part"]) for one in chart_tx})],
+        [21, 111, 83, 580, 62, [("dk1", "clrMap"), ("lt1", "clrMap")],
+         8, [(None, None, "xl/charts/style1.xml"), (None, None, "xl/charts/style2.xml")]],
+    )
+    crefs = dig(lbin("office-doc", fixture("bkmks.docx"), "--limit", "400"),
+               "structure.color_refs")
+    crefs5 = dig(lbin("office-doc", fixture("bkmks.docx"), "--limit", "5"),
+                 "structure.color_refs")
+    check(
+        "限额这一格只管列几条，不管这份包里的账：`--limit 5` 交 5 条而 `total` 与合计仍是 543 条的账"
+        "（`parts_scanned` 13、`parts_with_refs` 3、`matched` 466 一个都不动）—— "
+        "整库被 400 截住的只有那 34 个 Word 包，`cut` 就是说给你听的",
+        [crefs["total"], crefs["listed"], crefs["cut"], crefs5["total"], crefs5["listed"],
+         crefs5["cut"], crefs5["totals"]["refs"], crefs5["totals"]["parts_scanned"],
+         crefs5["totals"]["parts_with_refs"], crefs5["totals"]["matched"],
+         sorted(one["part"] for one in crefs5["refs"])[:2],
+         sum(1 for one in ref_rows if one["cut"])],
+        [543, 400, True, 543, 5, True, 543, 13, 3, 466,
+         ["word/styles.xml", "word/styles.xml"], 34],
+    )
+    check(
+        "第一条就是这样写的：`word/styles.xml` 里 `rPr` 上那枚 `w:color`，名字 accent1 本身就是一格"
+        "（`via = name`），影子实色另写了一遍 `365F91`，而这一格带着 `themeShade=BF`"
+        "（`shade` 交的就是文件写的 BF），于是 `matches` 交 null —— 带修饰符的不判，判它就得先算色；"
+        "Word 那一路 520 条全坐在 `color/rPr` 这一个座位上",
+        [crefs["refs"][0], crefs["totals"]["by_holder"]["wmlColor"]],
+        [{"part": "word/styles.xml", "kind": "wmlColor", "at": "color", "holder": "rPr",
+          "name": "accent1", "slot": "accent1", "via": "name", "alt_slot": None,
+          "literal": "365F91", "tint": None, "shade": "BF", "mods": ["themeShade"],
+          "in_slots": True, "matches": None},
+         {"color/rPr": 520}],
+    )
+    odf_counters = ["refs", "parts_scanned", "parts_unread", "theme_parts",
+                    "clr_map_written", "wml_color", "scheme_clr", "theme_index",
+                    "resolved", "unresolved", "matched"]
+    for pattern, describe, want_packages, want_scanned in (
+        ("*.odt", "文字", 41, 213),
+        ("*.ods", "表格", 14, 76),
+        ("*.odp", "演示", 12, 68),
+    ):
+        rows = odf_groups[pattern]
+        got = {one: sum(row["totals"][one] for row in rows) for one in odf_counters}
+        check(
+            "ODF 那 %s 份 %s件没有主题这个概念：手指一本零条，可部件照样数得到（%s 个 `.xml`，"
+            "一个都没读不开）—— 「这一层不存在」与「我没读」是两件事："
+            "键一个不少、十二格每格都空着交出去，`total` / `listed` / `cut` 也是零条的样子"
+            % (want_packages, describe, want_scanned),
+            [len(rows), got["refs"], got["parts_scanned"], got["parts_unread"],
+             [got[one] for one in ("theme_parts", "clr_map_written", "wml_color",
+                                   "scheme_clr", "theme_index", "resolved",
+                                   "unresolved", "matched")],
+             sorted({len(row["slots"]) for row in rows}),
+             sorted({sum(len(one["values"]) for one in row["slots"]) for row in rows}),
+             sorted({(row["total"], row["listed"], row["cut"]) for row in rows})],
+            [want_packages, 0, want_scanned, 0, [0, 0, 0, 0, 0, 0, 0, 0], [12], [0],
+             [(0, 0, False)]],
+        )
+    check(
+        "遗留那三家与 RTF 连这一本都没有：`color_refs` 这个键在 .doc / .ppt / .xls / RTF 的整份输出里"
+        "一次都没出现 —— 那一份主题数据坐在 CFB 的 `Theme` 流与 RTF 的 `{\\*\\themedata}` 群里，"
+        "本机做不出凭据，所以那一本还没开；开不了就说没开，别交一本零条的账冒充读过了",
+        [no_theme_key("office-doc", "eq.doc", "color_refs"),
+         no_theme_key("office-slide", "deck.ppt", "color_refs"),
+         no_theme_key("office-sheet", "book.xls", "color_refs"),
+         no_theme_key("office-doc", "comments.rtf", "color_refs")],
         [False, False, False, False],
     )
 
