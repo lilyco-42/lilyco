@@ -175,6 +175,31 @@ fn field_instruction(group: &[u8]) -> Option<String> {
     Some(had.to_string())
 }
 
+/// 一枚 `\field` 群的一行账：指令原文、有没有 `\fldrslt` 那一段、那一段写的字。
+/// 只交文件自己写的那些东西 —— 种类与开关那两把尺子在 `crate::field_ledger`，三家共用
+/// 一只，这一族不再造。`\fldrslt` 的显示文字**同时**是页面上的字（游标不吞它），所以这里
+/// 的 `cached` 与正文那本是同一串字的两个视角。没有那一段交回 null，与「有那一段、里面
+/// 没字」的空串分别是文件写出来的，不替它补
+fn field_group_row(group: &[u8], index: usize) -> Value {
+    let had = field_instruction(group);
+    let Some(at) = windows_position(group, 0, FLDRSLT_HEAD) else {
+        return json!({
+            "index": index,
+            "instruction": had,
+            "has_result": false,
+            "cached": Value::Null,
+        });
+    };
+    let (_stop, result) = group_end(group, at + FLDRSLT_HEAD.len());
+    let shown = extract(&result).text;
+    json!({
+        "index": index,
+        "instruction": had,
+        "has_result": true,
+        "cached": shown.trim(),
+    })
+}
+
 /// 「这一条域指令是不是目录」的那一条判断。流里页码、日期、超链接都是域，所以不能只数
 /// `\field`；docx 那边（`w:instrText`）用的是同一句「大写以后以 TOC 开头」，两家共用一把，
 /// 免得两本账对同一个文件说出两个答案
@@ -1054,6 +1079,10 @@ pub struct Rtf {
     /// `\fldinst` 那一群照旧是「不认识就跳」的目标群 —— 这里只**前瞻**读一眼，
     /// 一个字不进正文
     pub field_instructions: Vec<String>,
+    /// 一条域一行：`{index, instruction, has_result, cached}`（`field_group_row`）。
+    /// 与上面那本的区别是这一本**每群一行**（没写指令的也有行）， kinds / switches
+    /// 那两把尺子在 `crate::field_ledger` 里量；域套域时内外各一行
+    pub field_rows: Vec<Value>,
     /// 字体表与样式表里的定义（前瞻读出来的，那一群照旧不进正文）。
     /// 每条是 `{kind, index, charset, name}`；字体条目自己声明了非 ANSI 字符集
     /// （`\fcharset128` 是 Shift-JIS）而名字里又有非 ASCII 字节时交回 `name: null` ——
@@ -1276,6 +1305,7 @@ pub fn extract(bytes: &[u8]) -> Rtf {
         links: Vec::new(),
         fields: 0,
         field_instructions: Vec::new(),
+        field_rows: Vec::new(),
         bookmarks: Vec::new(),
         bookmark_starts: 0,
         bookmark_ends: 0,
@@ -1697,6 +1727,10 @@ pub fn extract(bytes: &[u8]) -> Rtf {
                 if let Some(at) = brace {
                     // 先把这一群量到收尾，再在群内找 —— 不看后面域的字
                     let (stop, inner) = group_end(bytes, at);
+                    // 一条域一行账：指令与 `\fldrslt` 各交各的，缺哪样报哪样。域套域时
+                    // 内外各算一枚（游标不吞整群，里面那条 `\field` 自己也会被走到）
+                    me.field_rows
+                        .push(field_group_row(&inner, me.field_rows.len()));
                     if let Some(link) = field_link(&inner) {
                         me.links.push(link);
                     }

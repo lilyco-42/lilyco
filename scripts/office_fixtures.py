@@ -3814,6 +3814,24 @@ DIRECTION_CELLS = ["走向横排", "走向竖右", "走向竖左", "走向竖右
 DIRECTION_MERGE = ["合并左上", "合并右上", "合并左下", "合并右下"]
 DIRECTION_SECT_CELLS = ["节里第一格", "节里第二格"]
 
+# 域那一份账：一行一枚，标签写「这一枚故意缺了什么」，其余列全照同一形状来
+MIX_FIELDS_BOOKMARK = "_RefMix1"
+MIX_FIELDS_ROWS = [
+    ("页码-复合", " PAGE ", "1", {}),
+    ("页码-带开关且脏", " PAGE \\* MERGEFORMAT ", "2", {"dirty": True}),
+    ("总页数", " NUMPAGES ", "1", {}),
+    ("日期带格式", ' DATE \\@ "yyyy-MM-dd" ', "2026-09-26", {}),
+    ("时间带格式", ' TIME \\@ "HH:mm" ', "03:00", {}),
+    ("序号", " SEQ 图 \\* ARABIC ", "1", {}),
+    ("引用书签", r" REF _RefMix1 \r \h ", "1", {}),
+    ("引用页码", r" PAGEREF _RefMix1 \h ", "1", {}),
+    ("样式引用", ' STYLEREF "标题 1" ', "标题一：给 STYLEREF 用", {}),
+    ("合并域", " MERGEFIELD Name ", "«Name»", {}),
+    ("没有缓存值的域", " PAGE ", "", {"separate": False}),
+    ("缺尾的那一枚", " PAGE ", "9", {"close": False}),
+    ("空指令", "  ", "空", {}),
+]
+
 
 def write_direction_cell_docx(path: Path) -> None:
     """五处各说一次「这一串字往哪个方向走」：段、run、格、表身、（这份不说的）节
@@ -3888,6 +3906,90 @@ def write_direction_sect_docx(path: Path) -> None:
     doc.sections[0]._sectPr.append(bidi)
     doc.save(str(path))
     print("  只在节上点走向：", path.name)
+
+
+def write_fields_mix_docx(path: Path) -> None:
+    r"""域那一份账（OOXML）：一行只改一个变量，十种域各点一次，三种「不全」各来一枚
+
+    OOXML 的一句域话可以有两种写法：`w:fldSimple`（指令是元素的一个属性）与
+    `w:fldChar` 的 begin / separate / end 三段（指令是中间的 `w:instrText`，缓存值是
+    separate 到 end 之间的那些 `w:t`）。这一份把两种都写了，还写了三种不完整的：
+    **没有 separate**（于是没有缓存值）、**缺 end**（断在半路）、**指令是空的**。
+
+    实测 LibreOffice 重写同一份（`fields-mix-lo.docx`）会做四件事，全都不是「翻译」而是「改写」：
+    两枚 `w:fldSimple` 整个变成复合式（`fldSimple` 归零）、那枚缺 end 的域**连字带域一起被丢掉**、
+    空指令那枚的 `w:instrText` 元素整个不写（13 枚域只剩 12 条指令），而 `w:dirty="true"` 与
+    `\* MERGEFORMAT` 一律消失。还有一处只有真件才看得出：`STYLEREF "标题 1"` 的样式名被它改成
+    `标题 1 (user)`，于是它自己算不出来源，把**一句错误消息当成缓存值写进正文**
+    （`错误: 引用源未找到`）—— 缓存值重算之后可以是这句话。`REF _RefMix1 \r \h` 的 `\r` 则被
+    重发成 `\r \r`。日期与时间两枚重算成了导出那一刻的值。
+
+    转成 ODF（`fields-mix.odt`）之后种类从 13 掉到 11，而且**kinds 的落点整个换了**：
+    OOXML 把种类写在指令字符串的第一个 token 上，ODF 把它写在**元素名**上
+    （`text:page-number` / `text:page-count` / `text:date` / `text:time` / `text:sequence` /
+    `text:database-display`），而 `REF` 与 `PAGEREF` 两枚在这家**塌成同一个元素**
+    `text:bookmark-ref`，分别只剩 `text:reference-format="number"` 与 `"page"` 那一枚属性。
+    日期时间的格式开关 `\@ "yyyy-MM-dd"` 也不再是字，而是一次跳转（`style:data-style-name="N10049"`）。
+    丢掉的那两枚就是 `STYLEREF`（变成上面那句错误消息的字面文本）与空指令那枚。另有一本
+    只属于这家的账：`text:sequence-decl` 写了六条序号类型声明（Illustration / Table / Text /
+    Drawing / Figure / 图），**用没用到都写**，跟目录那十条模板是同一种生产者习惯。
+    """
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    doc.add_heading("标题一：给 STYLEREF 用", level=1)
+
+    def char(run, kind, dirty=False):
+        node = OxmlElement("w:fldChar")
+        node.set(qn("w:fldCharType"), kind)
+        if dirty:
+            node.set(qn("w:dirty"), "true")
+        run._r.append(node)
+
+    def field(par, instr, cached, dirty=False, separate=True, close=True):
+        char(par.add_run(), "begin", dirty=dirty)
+        run = par.add_run()
+        text = OxmlElement("w:instrText")
+        text.set(qn("xml:space"), "preserve")
+        text.text = instr
+        run._r.append(text)
+        if separate:
+            char(par.add_run(), "separate")
+            par.add_run(cached)
+        if close:
+            char(par.add_run(), "end")
+
+    def simple(par, instr, cached):
+        node = OxmlElement("w:fldSimple")
+        node.set(qn("w:instr"), instr)
+        inner = OxmlElement("w:r")
+        text = OxmlElement("w:t")
+        text.text = cached
+        inner.append(text)
+        node.append(inner)
+        par._p.append(node)
+
+    for label, instr, cached, opts in MIX_FIELDS_ROWS:
+        one = doc.add_paragraph(label + "：")
+        field(one, instr, cached, dirty=opts.get("dirty", False),
+              separate=opts.get("separate", True), close=opts.get("close", True))
+    # REF / PAGEREF 指的那个书签：起与止都写，中间是被指的那一句
+    tail = doc.add_paragraph("书签所指：")
+    start = OxmlElement("w:bookmarkStart")
+    start.set(qn("w:id"), "77")
+    start.set(qn("w:name"), MIX_FIELDS_BOOKMARK)
+    tail._p.append(start)
+    tail.add_run("被指的那一句")
+    stop = OxmlElement("w:bookmarkEnd")
+    stop.set(qn("w:id"), "77")
+    tail._p.append(stop)
+    # 简单式的两枚：一枚页码，一枚是「域兼链接」——它到 ODF 就不再是域而是 text:a
+    simpler = doc.add_paragraph("简单式那两枚：")
+    simple(simpler, " PAGE ", "1")
+    simple(simpler, ' HYPERLINK "https://example.com/mix" ', "站内字样")
+    doc.save(str(path))
 
 
 def main() -> int:
@@ -4635,6 +4737,26 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "dir-sect-asodt" / "dir-sect.odt", OUT / "dir-sect.odt")
     else:
         print("⚠️  没拿到 dir-sect.odt（docx → odt 那一转）")
+
+    # 域那一份账：一份种子走三条边（同格式重写看 LibreOffice 改了哪些枚、转 odt 看种类
+    # 从指令字符串的第一个 token 搬到元素名上、转 rtf 看指令串要不要重新转义）
+    fmix = OUT / "fields-mix.docx"
+    write_fields_mix_docx(fmix)
+    convert(exe, fmix, "docx", SCRATCH / "mix-back")
+    if (SCRATCH / "mix-back" / "fields-mix.docx").exists():
+        shutil.copyfile(SCRATCH / "mix-back" / "fields-mix.docx", OUT / "fields-mix-lo.docx")
+    else:
+        print("⚠️  没拿到 fields-mix-lo.docx（docx → docx 那一转）")
+    convert(exe, fmix, "odt", SCRATCH / "mix-asodt")
+    if (SCRATCH / "mix-asodt" / "fields-mix.odt").exists():
+        shutil.copyfile(SCRATCH / "mix-asodt" / "fields-mix.odt", OUT / "fields-mix.odt")
+    else:
+        print("⚠️  没拿到 fields-mix.odt（docx → odt 那一转）")
+    convert(exe, fmix, "rtf", SCRATCH / "mix-asrtf")
+    if (SCRATCH / "mix-asrtf" / "fields-mix.rtf").exists():
+        shutil.copyfile(SCRATCH / "mix-asrtf" / "fields-mix.rtf", OUT / "fields-mix.rtf")
+    else:
+        print("⚠️  没拿到 fields-mix.rtf（docx → rtf 那一转）")
 
     # 页码起始那两份：zipfile 写 odt，LibreOffice 导一份 docx（看它把「从 7 开始」带不带过来）
     pnum = OUT / "pnum.odt"

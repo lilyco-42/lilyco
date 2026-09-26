@@ -218,6 +218,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `sections.docx` | python-docx（`write_sections_docx`） | 两节：第一节点名页眉与页脚（`rId9` / `rId10`），第二节只补一条指着关系表里**不存在**的号 `rId999` 的偶数页页眉，所以它的页眉与页脚两格都是「沿用第一节」；两节都写 `w:titlePg`，settings 写 `w:evenAndOddHeaders`（不带值）。**顺带量到一条生产者脾气**：python-docx 新加的节默认 `linked_to_previous` —— 给第二节写页眉等于改写第一节那份 `word/header1.xml`，全件仍然只有两份页眉页脚部件 |
 | `fields.docx` | python-docx（`write_fields_docx`） | 正文里三条域链（SEQ 编号 / DATE 带 `w:dirty` / PAGE），第四条 PAGE 写在 `word/footer1.xml` 里（不进正文那份账）；两个站内跳转：一个指着真书签 `表锚点`，另一个指着 `没这个书签`；书签是 `bookmarkStart` / `bookmarkEnd` 一对（`w:id="3"` 配对，名字只写在 start 上） |
 | `fields-lo.docx` / `fields.odt` / `fields.rtf` | LibreOffice（从 `fields.docx` 导出） | 同一批域在三条来回里各变一次样：docx 重写丢了 `w:dirty`、给指令补一个尾空格、把日期格式里的 `-` 转义成 `\-`，并把缓存值换成它自己算出来的数；ODF 把 SEQ 拆成 `text:sequence`（`text:name="表"` / `text:formula="ooow:表+1"` / `style:num-format="1"`）**并往 `text:sequence-decls` 里补一条 `表`**，页码变成页脚样式里的 `text:page-number`，书签只剩名字不再有号；RTF 写成六条 `\field{\*\fldinst …}{\fldrslt …}`，中文序列名成了 `\u-30616\'3f` 一串码位转义 |
+| `fields-mix.docx` | python-docx（`write_fields_mix_docx`） | 域那一份账的原件：十种域各点一次，两种写法都写（2 枚 `w:fldSimple` + 13 条 `w:fldChar` 链 = 15 行），三种「不全」各来一枚 —— 没有 `separate` 的那条、缺 `end` 的那条、指令写成空串的那条，于是 `no_separate` / `unclosed` / `empty_instruction` 各是 1 而 `no_instruction` 是 0；另有 3 处域套域（`nested` 3）与一枚 `w:dirty="true"` |
+| `fields-mix-lo.docx` / `fields-mix.odt` / `fields-mix.rtf` | LibreOffice（从 `fields-mix.docx` 导出） | 同一批域的三种改写。docx 重写 15 → 13 行：两枚简单式并成复合式、缺 `end` 那条连字带域一起丢、空指令那枚的 `w:instrText` 整个不写（于是 `no_instruction` 1 而 `empty_instruction` 0），`w:dirty` 归零，而 `STYLEREF` 算不出来源时把「错误: 引用源未找到」这一句字当缓存值写进正文。odt 只剩 11 行，而且种类改写在**元素名**上（`REF` 与 `PAGEREF` 塌成同一枚 `text:bookmark-ref`，只靠 `text:reference-format` 的 `number` / `page` 分开），另多一本只有这家有的 `text:sequence-decl`（6 条序号类型声明，用没用到都写）。rtf 14 群，`control_words` 与行数同为 14，那枚空指令在这里是「群里没有指令」（`no_instruction` 1），而缓存值有 1 条是空串 |
 | `cell-links.xlsx` | openpyxl（`write_cell_links_xlsx`） | 一格只改一个变量：站外 http（`A1`）、`mailto:` 且 subject 用百分号写法（`B2`）、只有 `location` 的站内跳转（`C3`，没有第二跳）、`=HYPERLINK()` 公式（`D4`，它不写链接对象）、带悬浮提示的（`E5`，唯一一家写 tooltip）、关系号被删掉的（`F6`，格上留着 `r:id` 而那张关系表里没有它）、没有字的一格挂着一条链接（`G7`）；`数据` 表另给一条回跳 |
 | `cell-links-lo.xlsx` | LibreOffice（`cell-links.xlsx` → .xlsx） | 同一批字的第二种写法：`F6` 整个丢了（6 → 5），每条补一个 `display`（`G7` 那个就是地址本身），tooltip 一个也不写，`mailto` 的 subject 从 `%E9%A2%84%E7%AE%97` 解回「预算」，关系号从 `rId1` 起重新编 |
 | `cell-links.ods` | LibreOffice（`cell-links.xlsx` → .ods） | 第三种存法：地址挂在段的字上（`text:a/@xlink:href`，一条 `table:hyperlink` 也不写），站内跳转变成 `#'数据'.A1`（点号不是感叹号），`mailto` 的百分号写法又回来了，而 `G7` 那条地址被写成格子的字 |
@@ -2360,6 +2362,38 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       别的账都是各交各的。
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
+
+129. **域那一份账：一枚域一行，三家把「域」写成三种形状，而种类与开关是同一把尺子**（`fields-mix` 那一家 + `fields` / `fields-lo` / `toc.rtf` / `lists.rtf`）
+    - 为什么另起一本：`structure.fields` 那一格数的是**正文里出现过的域标记**（`fields.docx` 交 9 = 三枚域 × begin/separate/end），
+      而「这份文件里有哪些域」要按域逐行列、还要跨部件那一跳 —— 同一份件里那一枚页码域坐在 `word/footer1.xml`，
+      正文那棵树根本看不见它。两格并存，各自口径写在键名上。
+    - OOXML 有两种形状，各交一条链的账：复杂式是 `w:fldChar` 的 begin → `w:instrText`\* → separate → 结果 → end，
+      简单式是 `w:fldSimple` 一行装完。链断在哪就报在哪：`markers` 数文件里写了几枚，`loose` 数游离在外的
+      （没有 begin 就出现的 separate/end），`unclosed` 数开了头没闭合的那一行（`closed` 交 `false`，不替它补一句）——
+      「没带 separate」与「没闭合」可以是两个不同的行号（`fields-mix.docx` 第 10 行与第 11 行）。
+    - 没闭合那一枚不是「少一句」而已：它的链还开着，**后面每一段的字都被算进它的缓存**（第 11 行 depth 仍是 0，
+      缓存串却吞下了第 12 行那句「空指令」的字；第 12 行开在这条链里，所以 depth 1）。这就是 `nested` 那一本存在的意思。
+    - `pieces` 记的是生产者把**同一条指令切成几段 `w:instrText`**（Word 切两段、LO 一段），
+      与 `markers.instrText` 那个总数不是同一问；`empty_instruction`（只有空白）与 `no_instruction`（一段都没写）
+      也是两格 —— LibreOffice 那份正有一枚 begin 什么指令都不写，所以它的 `instrText` 12 比 `begin` 13 少一根。
+    - LibreOffice 重写同一份稿子改了六处，账本一处都不遮：15 行 → 13 行（两枚 `w:fldSimple` 被摊平成复杂式，
+      `forms.simple` 2 → 0）、`\* MERGEFORMAT` 剩一枚、`\r` 一枚变两枚、`w:dirty` 整族不写（`markers.dirty` 1 → 0）、
+      separate/end 全补齐（`unclosed` 1 → 0）、`STYLEREF` 的缓存换成那句错误文字「错误: 引用源未找到」。
+    - ODF 没有「域指令」这个东西：种类就是元素名（认得 41 个 `text:` 名字，其中 7 个的缓存文字实测量过，其余进 `unmeasured`），
+      `instruction` 与 `switches` 两格整本为空。跨族对应只在这里成立：`MERGEFIELD` → `text:database-display`；
+      而 `HYPERLINK` → `text:a`，它**不是一门域**，所以 `kinds` 里查不到 hyperlink。两枚 `text:bookmark-ref` 靠
+      `text:reference-format` 分成 number / page 两种读法（种类数 2、格式各 1）；序列号得先有声明
+      （`sequence_declarations` 6 条，名字另交 `sequence_declared`）。页码那一枚住在哪一份件里有两个答案：`fields.odt` 那一枚在 `styles.xml` 的页版式里（`parts` 因此是 content.xml 3 + styles.xml 1，这一本两份件都要扫），而 `fields-mix.odt` 那四枚全写在正文里。
+    - RTF 一枚 `\field` 群一行，`control_words` 与行数同数。群里的指令写成双反斜杠，解一遍之后与 docx 的
+      `w:instrText` **逐字同一个形状**，所以种类与开关两族共用一把尺子；但这一族解完顺手 trim，docx 那本交原样
+      （同一枚 REF：`fields-mix-lo.docx` 交 ` REF _RefMix1 \r \r \h `，前后两个空格留着；`fields-mix.rtf` 交 `REF _RefMix1 \r \r \h`，两格空白没了 —— 差的就是那两格），因此**比开关不比整串**。显示文字取 `\fldrslt`；
+      群里连字都没有时 `instruction` 与 `kind` 一起交 null，而那一行照样在账里 —— 群在场就是文件写过。
+    - 开关这把尺子的口径：只认**单反斜杠 + ASCII 字母或 `*`**（`\h`、`\*`、`\o`、`\r`）。`\@` 与 `\-` 那种
+      带引号格式串的不算开关（`DATE \@ "yyyy-MM-dd"` 的种类仍解为 `DATE`）—— 要扩就三家一起扩，别一家先扩。
+    - 第二读者是 `office_reader.py` 的 `docx_field_ledger` / `odf_field_ledger` 与 `lyco_rtf.py` 的 `field_group_row`；
+      probe 的 3b6 把**每一份 .docx、.odt、.rtf**（71 / 41 / 17 份，共 129 本账）的整本域账与读者逐格对，
+      再钉上面那几条跨族与跨生产者的数。限额那一格也测了：`--limit 3` 只截 `rows`，
+      `fields_total` 与 kinds / switch_tokens / parts 三本簿仍是整份的账。
 
 128. **文字走向那五处各说各的：一家写在元素身上，一家全在样式里，而样式有两种词法**（`dir-cell` 那五份件 + `dir-cell.rtf` 不交）
     - OOXML 是五处五本账：格上的 `w:textDirection`（五个枚举 `lrTb` / `tbRl` / `btLr` / `lrTbV` / `tbRlV` 按写的交，

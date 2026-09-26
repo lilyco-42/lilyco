@@ -6961,6 +6961,147 @@ def main() -> int:
            [4, "", 0, "Normal", False, None],
            [5, "结构：二级", 2, "heading 2", False, 2]])
 
+    # ── 3b6) 域那一份账：复杂式那条链、简单式那一行、ODF 的元素名、RTF 的那一群 ─────
+    print("=== 3b6) office-doc structure.field_ledger：三家各写各的，逐行与第二读者对 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        check("%s 的域账整本与读者一致（链的断口、指令段数、标记与游离标记分开交）" % name,
+              dig(lbin("office-doc", fixture(name)), "structure.field_ledger"),
+              files[name]["ooxml"]["field_ledger"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        check("%s 的域账整本与读者一致（种类就是元素名，序列声明另交一本）" % name,
+              dig(lbin("office-doc", fixture(name)), "structure.field_ledger"),
+              files[name]["odt"]["field_ledger"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.rtf")):
+        check("%s 的域账整本与读者一致（一枚 `\\field` 群一行，指令与结果各交各的）" % name,
+              dig(lbin("office-doc", fixture(name)), "structure.field_ledger"),
+              files[name]["rtf"]["field_ledger"])
+
+    mix = dig(lbin("office-doc", fixture("fields-mix.docx")), "structure.field_ledger")
+    lo = dig(lbin("office-doc", fixture("fields-mix-lo.docx")), "structure.field_ledger")
+    check(
+        "同一份稿子两家写：Word 那份 15 行 = 13 枚复杂式 + 2 枚 `w:fldSimple`，"
+        "LibreOffice 重写那份只有 13 行 —— 两枚简单式被摊平成复杂式（`forms.simple` 2 → 0），"
+        "`\\*` 从两枚剩一枚（`MERGEFORMAT` 不写了），`\\r` 从一枚变两枚（同一个开关写了两遍），"
+        "`w:dirty` 整族不再写（`markers.dirty` 1 → 0、`dirty_on` 1 → 0）；"
+        "反过来 LO 给每一枚都补齐了 separate/end（`unclosed` 1 → 0），却有一枚 begin 什么指令都没写"
+        "（`no_instruction` 1，而 `markers.instrText` 12 比 `markers.begin` 13 少一根）",
+        [mix["fields_total"], mix["forms"], lo["fields_total"], lo["forms"],
+         mix["switch_tokens"], lo["switch_tokens"],
+         [mix["markers"]["dirty"], lo["markers"]["dirty"]],
+         [mix["unclosed"], lo["unclosed"]],
+         [mix["no_instruction"], lo["no_instruction"]],
+         [mix["markers"]["instrText"], lo["markers"]["instrText"],
+          mix["markers"]["begin"], lo["markers"]["begin"]],
+         [mix["dirty_on"], lo["dirty_on"]],
+         [one["switches"] for one in mix["rows"] if one["kind"] == "REF"],
+         [one["switches"] for one in lo["rows"] if one["kind"] == "REF"]],
+        [15, {"simple": 2, "complex": 13}, 13, {"simple": 0, "complex": 13},
+         {"\\*": 2, "\\r": 1, "\\h": 2}, {"\\*": 1, "\\r": 2, "\\h": 2},
+         [1, 0], [1, 0], [0, 1], [13, 12, 13, 13], [1, 0],
+         [["\\r", "\\h"]], [["\\r", "\\r", "\\h"]]],
+    )
+    check(
+        "这一本的两条减法：复杂式的行数就是 `w:fldChar begin` 的枚数（没有别的形状能开出复杂式），"
+        "而「闭合」的枚数 = `end` 减去游离在外的那几枚 —— 游离的 end 不算闭合，"
+        "断在哪一行就报在哪一行（`closed` 交 false 而不是替它补一句）。"
+        "「没带 separate」与「没闭合」是两行两回事：前者第 10 行，后者第 11 行",
+        [mix["forms"]["complex"] == mix["markers"]["begin"],
+         mix["markers"]["end"] - mix["loose"]["end"] == mix["forms"]["complex"] - mix["unclosed"],
+         [one["index"] for one in mix["rows"] if one["closed"] is False],
+         [one["index"] for one in mix["rows"] if one["has_separate"] is False]],
+        [True, True, [11], [10]],
+    )
+    check(
+        "没闭合的那一枚不是「少一句」而已：它的链还开着，后面每一段都被算进它的缓存字里"
+        "（第 11 行 depth 仍是 0，可缓存串把第 12 行那句「空指令」的字也吞了；"
+        "第 12 行是开在这条没闭合的链里，所以 depth 1）。"
+        "而第 12 行自己指令为空 —— 空白指令与没指令是两格，`empty_instruction` 数它",
+        [mix["rows"][11]["depth"], mix["rows"][11]["cached"], mix["rows"][11]["closed"],
+         mix["rows"][12]["depth"], mix["rows"][12]["instruction"], mix["rows"][12]["kind"],
+         mix["empty_instruction"], mix["nested"]],
+        [0, "9空指令：书签所指：被指的那一句简单式那两枚：", False,
+         1, "  ", None, 1, 3],
+    )
+    foot = dig(lbin("office-doc", fixture("fields.docx")), "structure.field_ledger")
+    check(
+        "这一本与老那一格（`structure.fields`）不是一个问：老那格数正文里出现过的域标记（9 枚，"
+        "三枚域 × begin/separate/end），这一本按域逐行列、并且把跨部件那一跳也算进来 —— "
+        "`parts` 里除 `word/document.xml` 那 3 行外还有 `word/footer1.xml` 的 1 行，"
+        "页脚里那枚 PAGE 在正文那棵树里根本看不见",
+        [foot["fields_total"], dig(lbin("office-doc", fixture("fields.docx")), "structure.fields"),
+         foot["parts"], foot["kinds"], [one["part"] for one in foot["rows"]]],
+        [4, 9, {"word/document.xml": 3, "word/footer1.xml": 1},
+         {"SEQ": 1, "DATE": 1, "PAGE": 2},
+         ["word/document.xml", "word/document.xml", "word/document.xml", "word/footer1.xml"]],
+    )
+    few = dig(lbin("office-doc", fixture("fields-mix.docx"), "--limit", "3"),
+              "structure.field_ledger")
+    check(
+        "截断这一格是真截：`rows` 交 3 行、`listed` 3、`cut` true，"
+        "可 `fields_total` 与三本簿（kinds / switch_tokens / parts）仍是整份的账 —— "
+        "限额只管列多少行，不管这份文件里有几枚域",
+        [len(few["rows"]), few["listed"], few["cut"], few["fields_total"],
+         few["kinds"]["PAGE"], few["parts"]["word/document.xml"]],
+        [3, 3, True, 15, 5, 15],
+    )
+    odt = dig(lbin("office-doc", fixture("fields-mix.odt")), "structure.field_ledger")
+    check(
+        "ODF 那一族没有「域指令」这回事：种类就是元素名，`instruction` 与 `switches` 整本为空；"
+        "docx 的 MERGEFIELD 在这里叫 `text:database-display`，"
+        "而链接是 `text:a` —— 它不是一门域，所以 `kinds` 里查不到 hyperlink；"
+        "两枚 `text:bookmark-ref` 靠 `text:reference-format` 分成 number / page 两种读法，"
+        "所以种类那一本数 2 而格式那一本各数 1；序列号还要先有声明（`sequence_declarations` 6 条）",
+        [odt["fields_total"],
+         [one["index"] for one in odt["rows"] if one["instruction"] is not None],
+         [one["index"] for one in odt["rows"] if one["switches"]],
+         "hyperlink" in odt["kinds"], odt["kinds"]["bookmark-ref"],
+         odt["kinds"]["database-display"], odt["reference_formats"],
+         odt["sequence_declarations"], odt["sequence_declared"],
+         odt["kinds"]["page-number"]],
+        [11, [], [], False, 2, 1, {"number": 1, "page": 1}, 6,
+         ["Drawing", "Figure", "Illustration", "Table", "Text", "图"], 4],
+    )
+    odt_page = dig(lbin("office-doc", fixture("fields.odt")), "structure.field_ledger")
+    check(
+        "跨部件那一跳在 ODF 这里是 styles.xml：页码那枚域写在页版式的样式里，不在正文，"
+        "所以 `parts` 两格分得清清楚楚（content.xml 3、styles.xml 1）—— "
+        "只读正文的读者会少报这一枚，而它正是「第几页」那一个字",
+        [odt_page["parts"], odt_page["fields_total"],
+         [(one["part"], one["kind"]) for one in odt_page["rows"]]],
+        [{"content.xml": 3, "styles.xml": 1}, 4,
+         [("content.xml", "sequence"), ("content.xml", "date"),
+          ("content.xml", "page-number"), ("styles.xml", "page-number")]],
+    )
+    rtf = dig(lbin("office-doc", fixture("fields-mix.rtf")), "structure.field_ledger")
+    check(
+        "RTF 一本 14 行 = 流里 14 枚 `\\field` 群（`control_words` 同数，一个群一行）；"
+        "「空指令」那一枚连群里的字都解不出来，`instruction` 与 `kind` 一起交 null，"
+        "可它照样有一行 —— 因为群在场；显示文字取 `\\fldrslt`，页码域的缓存就是页上的那个数。"
+        "同一个 REF 种子在这一族解完转义顺手 trim（`REF _RefMix1 \\r \\r \\h`），"
+        "docx 那本交的是原样带前后空格的一串，所以比开关不比整串",
+        [rtf["fields_total"], rtf["control_words"],
+         [one["index"] for one in rtf["rows"] if one["instruction"] is None],
+         rtf["rows"][6]["switches"], lo["rows"][6]["switches"],
+         rtf["rows"][6]["instruction"], lo["rows"][6]["instruction"],
+         rtf["rows"][13]["cached"], rtf["kinds"]["PAGE"], rtf["cached_empty"],
+         rtf["rows"][11]["cached"]],
+        [14, 14, [11], ["\\r", "\\r", "\\h"], ["\\r", "\\r", "\\h"],
+         "REF _RefMix1 \\r \\r \\h", " REF _RefMix1 \\r \\r \\h ",
+         "站内字样", 4, 1, "空"],
+    )
+    toc_rtf = dig(lbin("office-doc", fixture("toc.rtf")), "structure.field_ledger")
+    no_field = dig(lbin("office-doc", fixture("lists.rtf")), "structure.field_ledger")
+    check(
+        "`toc` 那一格与目录那本账共用一把尺子：解出来的指令第一个字是 TOC 才算一行（2 行里 1 行是），"
+        "而一份全是列表、一枚域都没有的流两本账都是零 —— 账本仍然 available，"
+        "「读了，没有」与「没读这一族」是两个答案",
+        [toc_rtf["fields_total"], toc_rtf["toc"], toc_rtf["kinds"], toc_rtf["switch_tokens"],
+         no_field["available"], no_field["fields_total"], no_field["rows"],
+         no_field["control_words"]],
+        [2, 1, {"TOC": 1, "HYPERLINK": 1}, {"\\o": 1, "\\h": 1},
+         True, 0, [], 0],
+    )
+
     # ── 3b5) 这一串字是横着走还是竖着走：一家五处写在身上，一家四处全在样式上 ──────
     print("=== 3b5) 文字走向：五处各说各的，两种词法、三处样式列表，一处也不合并 ===")
     for name in sorted(one.name for one in FIXTURES.glob("*.docx")):

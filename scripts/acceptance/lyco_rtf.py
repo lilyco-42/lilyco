@@ -805,6 +805,24 @@ def field_link(group: str) -> dict:
     return {"target": hit.group(1), "text": shown}
 
 
+def field_group_row(group: str, index: int) -> dict:
+    r"""一枚 `\field` 群的一份账：指令原文、有没有 `\fldrslt` 那一段、那一段写的字
+
+    只交文件自己写的那些字：种类（第一个词）与 `\X` 开关留给后面的账本算 —— 那把
+    读取器三家共用，RTF 这一族不该再造一只。`\fldrslt` 的显示文字**同时**是页面上的
+    字（这一族没有「整群跳过」那回事，游标不吞它），所以这里的 `cached` 与正文那本
+    是同一串字的两个视角，不是两件事。没有 `\fldrslt` 就交回 None（与「有群、群里
+    没字」的 `""` 分别是文件写出来的，不替它补）。
+    """
+    had = field_instruction(group)
+    at = group.find(FLDRSLT_HEAD)
+    shown = None
+    if at >= 0:
+        _stop, result = group_end(group, at + len(FLDRSLT_HEAD))
+        shown = rtf_text(result.encode("latin-1", "replace"))["text"].strip()
+    return {"index": index, "instruction": had, "has_result": at >= 0, "cached": shown}
+
+
 def rtf_text(data: bytes, with_rows: bool = False) -> dict:
     """返回 `{text, lines, line_count, chars, ...}`：计数都是文件自己账上的数"""
     text = data.decode("latin-1", "replace")
@@ -812,6 +830,7 @@ def rtf_text(data: bytes, with_rows: bool = False) -> dict:
     page: dict = {
         "headers": [], "footers": [], "notes": [], "links": [],
         "instructions": [], "annotations": [], "bookmarks": [], "destinations": 0,
+        "field_rows": [],
     }
     # 定义类（字体与样式）不是页面上的字，也不进 page 那几个口袋
     found: dict = {"fonts": [], "styles": [], "list_defs": [], "list_over": []}
@@ -1151,6 +1170,9 @@ def rtf_text(data: bytes, with_rows: bool = False) -> dict:
                 brace = text.find("{", j)
                 if brace >= 0:
                     stop, inner = group_end(text, brace)
+                    # 一条域一行账（指令与 `\fldrslt` 各交各的，缺哪样报哪样）。域套域时
+                    # 内外各算一枚：游标不吞整群，里面那条 `\field` 自己也会被走到
+                    page["field_rows"].append(field_group_row(inner, len(page["field_rows"])))
                     link = field_link(inner)
                     if link:
                         page["links"].append(link)
@@ -1400,6 +1422,8 @@ def rtf_text(data: bytes, with_rows: bool = False) -> dict:
         "fields": stats["fields"],
         # 每个域自己写的指令原文（解掉成对反斜杠之后），按文件里的顺序
         "field_instructions": page["instructions"],
+        # 一条域一行：指令 + `\fldrslt` 在不在、它写了什么字（种类与开关留给账本算）
+        "field_rows": page["field_rows"],
         # 目录那份账：TOC 域在这份表里挑出来，级数在它自己的开关上
         "contents": contents_of(page["instructions"], index_rows, ref_marks),
         # 批注：`{\*\annotation …}` 那一群前瞻读出来的（字不混进正文）。`date` 在

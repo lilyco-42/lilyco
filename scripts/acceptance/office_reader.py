@@ -2197,6 +2197,356 @@ def odf_text_direction(path: Path, limit: int = 100) -> dict:
     }
 
 
+FIELD_SWITCH_RE = re.compile(r"\\[A-Za-z*]")
+# ODF 那一份的认字表。**实测过**的只有左边七种（这一库 41 份 odt/ott 里出现过的全部）：
+# page-number / page-count / date / time / sequence / bookmark-ref / database-display。
+# 其余是 spec 里那一族的名字，这一库里没有生产者做过 —— 认了它们不等于量过它们，
+# 所以名字下面单独交一份「这份件里出现过的元素名」的账，别的新形状不至于悄悄漏掉。
+ODF_FIELD_NAMES = (
+    "annotation-count", "bookmark-ref", "char-count", "conditional-text", "creation-date",
+    "database-column-count", "database-display", "database-row-count", "database-select",
+    "database-set-count", "date", "dde-item", "editing-duration", "execute-macro",
+    "expression", "formula", "hidden-text", "line-count", "line-number", "measure-time",
+    "modified-date", "non-word-count", "page-count", "page-number", "page-number-format",
+    "page-number-orientation", "paragraph-count", "print-date", "print-time",
+    "publication-state", "sender-company", "sender-first-name", "sender-full-name",
+    "sender-initials", "sender-last-name", "sender-title", "sequence", "sheet-count",
+    "syllable-count", "table-count", "time", "word-count",
+)
+# 上面那张表里**这一库真量过**的七个（其余只是 spec 的名字，认得 ≠ 量过）
+ODF_MEASURED = ("bookmark-ref", "database-display", "date", "page-count",
+                "page-number", "sequence", "time")
+
+
+def _field_kind(instruction):
+    """指令里第一个空格前的那个词 —— 这一族把「哪种域」写在它身上（ODF 写在元素名上）"""
+    if instruction is None:
+        return None
+    head = instruction.strip().split(" ", 1)[0].strip()
+    return head or None
+
+
+def _field_switches(instruction):
+    """指令里那些 `\\X` 开关，按文件写的顺序原样交
+
+    尺子只认「反斜杠 + 一个 ASCII 字母或 `*`」，所以 `\\*` / `\\r` / `\\h` 收得到，
+    `\\@` 与 `\\-` 收不到 —— 与 Rust 那把共用尺子同一规格，要扩就三家一起扩。
+    """
+    if instruction is None:
+        return []
+    return FIELD_SWITCH_RE.findall(instruction)
+
+
+def _docx_text_part(name: str) -> bool:
+    """正文以外还能有域的那几份部件：页眉 / 页脚 / 脚注 / 尾注（按文件名认，不查关系）"""
+    if not name.startswith("word/") or not name.endswith(".xml"):
+        return False
+    base = name.rsplit("/", 1)[-1]
+    return (base == "document.xml" or base.startswith("header")
+            or base.startswith("footer") or base in ("footnotes.xml", "endnotes.xml"))
+
+
+def docx_field_ledger(path: Path, limit: int = 100) -> dict:
+    r"""域那一份账（OOXML）：一句话里的「这里有个域」可以写在两种地方，而且能缺三样
+
+    写法一 `w:fldSimple`：指令是元素自己的一枚属性（`@w:instr`），缓存值是体内那些 `w:t`。
+    写法二是散开的三段 `w:fldChar`：`begin` 开一条，中间的 `w:instrText` 是指令（生产者
+    爱切几段切几段，所以交 `pieces`），`separate` 之后到 `end` 之间那些 `w:t` 是缓存值。
+    也就是说「一条域」在这一族不是一枚元素，而是**一串散落的位置**，缺哪一段都是文件
+    自己写的：没有 `separate` 就没有缓存值那一段（`has_separate: false`，与「缓存值是空串」
+    两件事），没有 `end` 就断在半路（`closed: false`），一条 `w:instrText` 都没写是
+    `instruction: null` 而写了空串是 `""`。`w:dirty` 是「下次打开重算」，它可以只挂在
+    begin 那一枚上，所以交这一条域碰到的第一枚原值。域能套域（缓存值里再开一条），
+    所以每行带 `depth`。简单式那两枚没有 separate / closed 这两个问，交 null。
+
+    部件这一问只数正文是量不到的：`structure.fields` 那一个整数只看 `w:body`，而页脚里
+    那枚 PAGE 是真件就有的形状 —— 实测 `fields.docx` 正文 3 条、`word/footer1.xml` 里还有
+    1 条。所以这一本把 `word/header*.xml` / `word/footer*.xml` / `footnotes.xml` /
+    `endnotes.xml` 一起扫（按部件名认，不查 rels），每行带 `part`，`markers` 那一本
+    是裸计数（begin / separate / end / simple / instrText / dirty）：复杂式的行数
+    一定等于 begin 的枚数，闭了的那几枚等于 end，没家可归的（没有 begin 就写了
+    separate / end）单独一本 `loose` —— 三个数各交各的，才对得上账。
+    """
+    with zipfile.ZipFile(path) as box:
+        names = sorted(one.filename for one in box.infolist())
+        parts = [one for one in names if _docx_text_part(one)]
+        if "word/document.xml" not in parts:
+            return {"available": False}
+        roots = [(one, ET.fromstring(box.read(one))) for one in parts]
+    rows = []
+    markers = {"begin": 0, "separate": 0, "end": 0, "simple": 0, "instrText": 0, "dirty": 0}
+    loose = {"separate": 0, "end": 0, "instrText": 0}
+
+    for part, root in roots:
+        state = {"para": -1, "stack": []}
+
+        def new_row(form, instr=None):
+            one = {
+                "part": part,
+                "index": len(rows),
+                "para": state["para"],
+                "form": form,
+                "instruction": instr,
+                "pieces": 0,
+                "cached": "" if form == "simple" else None,
+                "has_separate": None if form == "simple" else False,
+                "dirty_written": None,
+                "closed": None if form == "simple" else False,
+                "depth": len(state["stack"]),
+            }
+            state["stack"].append(one)
+            rows.append(one)
+            return one
+
+        def descend(node):
+            tag = xml_local(node.tag)
+            top = state["stack"][-1] if state["stack"] else None
+            if tag == "p":
+                state["para"] += 1
+            elif tag == "fldChar":
+                held = _written_attrs(node, {})
+                kind = _local_in(held, "fldCharType")
+                dirtied = _local_in(held, "dirty")
+                if kind == "begin":
+                    markers["begin"] += 1
+                    new_row("complex")
+                elif kind == "separate":
+                    markers["separate"] += 1
+                    if top is None:
+                        loose["separate"] += 1
+                    else:
+                        top["has_separate"] = True
+                elif kind == "end":
+                    markers["end"] += 1
+                    if top is None or top["form"] != "complex":
+                        loose["end"] += 1
+                    else:
+                        state["stack"].pop()
+                        top["closed"] = True
+                if dirtied is not None:
+                    markers["dirty"] += 1
+                    open_one = state["stack"][-1] if state["stack"] else None
+                    if open_one is not None and open_one["dirty_written"] is None:
+                        open_one["dirty_written"] = dirtied
+            elif tag == "instrText":
+                markers["instrText"] += 1
+                if top is None:
+                    loose["instrText"] += 1
+                else:
+                    top["pieces"] += 1
+                    had = node.text or ""
+                    top["instruction"] = had if top["instruction"] is None \
+                        else top["instruction"] + had
+            elif tag == "t" and top is not None:
+                if top["form"] == "simple" or top["has_separate"]:
+                    had = node.text or ""
+                    top["cached"] = had if top["cached"] is None else top["cached"] + had
+            elif tag == "fldSimple":
+                markers["simple"] += 1
+                new_row("simple", _local_in(_written_attrs(node, {}), "instr"))
+                depth = len(state["stack"]) - 1
+                for kid in node:
+                    descend(kid)
+                # 收掉自己，体内没闭合的那些也一起收（文件断在哪就报断在哪）
+                while len(state["stack"]) > depth:
+                    state["stack"].pop()
+                return
+            for kid in node:
+                descend(kid)
+
+        descend(root)
+
+    for one in rows:
+        one["kind"] = _field_kind(one["instruction"])
+        one["switches"] = _field_switches(one["instruction"])
+    kinds, switches, parts_book = {}, {}, {}
+    for one in rows:
+        if one["kind"] is not None:
+            kinds[one["kind"]] = kinds.get(one["kind"], 0) + 1
+        for tok in one["switches"]:
+            switches[tok] = switches.get(tok, 0) + 1
+        parts_book[one["part"]] = parts_book.get(one["part"], 0) + 1
+
+    def count(pred):
+        return sum(1 for one in rows if pred(one))
+
+    return {
+        "family": "ooxml",
+        "available": True,
+        "fields_total": len(rows),
+        "listed": min(len(rows), limit),
+        "cut": len(rows) > limit,
+        "forms": {"simple": count(lambda one: one["form"] == "simple"),
+                  "complex": count(lambda one: one["form"] == "complex")},
+        "kinds": kinds,
+        "switch_tokens": switches,
+        "parts": parts_book,
+        "markers": markers,
+        "loose": loose,
+        "unclosed": count(lambda one: one["closed"] is False),
+        "no_separate": count(lambda one: one["has_separate"] is False),
+        "no_instruction": count(lambda one: one["instruction"] is None),
+        "empty_instruction": count(lambda one: one["instruction"] is not None
+                                   and not one["instruction"].strip()),
+        "dirty_on": count(lambda one: one["dirty_written"] == "true"),
+        "cached_written": count(lambda one: one["cached"] is not None),
+        "cached_empty": count(lambda one: one["cached"] == ""),
+        "nested": count(lambda one: one["depth"] > 0),
+        "rows": rows[:limit],
+    }
+
+
+def odf_field_ledger(path: Path, limit: int = 100) -> dict:
+    r"""域那一份账（ODF）：「哪种域」是**元素名**，这一族根本没有指令串
+
+    与 OOXML 正好写在两处相反的地方：那边一条域是 `w:instrText` 里的一串字
+    （` PAGE \\* MERGEFORMAT `），种类要从第一个词读出来；这边的种类就是元素名本身
+    （`text:page-number` / `text:page-count` / `text:date` / `text:time` /
+    `text:sequence` / `text:bookmark-ref` / `text:database-display`），格式、选哪一页、
+    序列公式全在元素自己的属性上（`style:data-style-name`、`text:select-page`、
+    `text:formula`）。所以这一本交**文件写的那个名字**加整份属性表，不替它编一条
+    指令串 —— 每行 `instruction` 一律 null，`kind` 取局部名，`switches` 一律空表
+    （这一族的开关是属性，不是指令里的 `\X`）。
+    两类 REF 在这一族塌成一枚：`REF _RefMix1 \\r \\h` 与 `PAGEREF _RefMix1 \\h` 都写成
+    `text:bookmark-ref`，只有 `text:reference-format`（`number` / `page`）分得出谁是谁，
+    所以单独数一本。缓存值是元素自己的字（`cached` = 整棵子树的文本），与 docx 那个
+    「separate 之后到 end 之间」是两件事，别互相冒充。
+
+    两份件都得扫：页眉页脚那一份版面住在 `styles.xml`，正文在 `content.xml`，只读一份
+    就会把另一份里的域当成不存在（每行带 `part`）。`text:sequence-decl` 是**声明**不是域
+    —— LibreOffice 六个全写，用没用到都写 —— 所以它不进 rows，另交份数与名字。
+    认字表那 41 个名字里只有左边七个在这一库里量过（其余是 spec 的名字），所以再交一份
+    `text_names`：这份件里出现过的所有 `text:` 元素名。新形状只要落在这一族里，就一定
+    在这本里露出来，而 kinds 里没有它 —— 漏掉的形状藏不住。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        roots = []
+        for part in ("content.xml", "styles.xml"):
+            if part not in have:
+                continue
+            raw = box.read(part)
+            roots.append((part, ET.fromstring(raw), _ns_prefixes(raw)))
+    rows = []
+    seen = set()
+    state = {"decl": 0, "declared": []}
+
+    for part, root, nsmap in roots:
+
+        def walk(node, depth):
+            written = _written_name(node.tag, nsmap)
+            head, _sep, local = written.rpartition(":")
+            if head != "text":
+                for kid in node:
+                    walk(kid, depth)
+                return
+            seen.add(local)
+            held = _written_attrs(node, nsmap)
+            if local == "sequence-decl":
+                state["decl"] += 1
+                state["declared"].append(_local_in(held, "name") or "")
+            elif local in ODF_FIELD_NAMES:
+                rows.append({
+                    "part": part,
+                    "index": len(rows),
+                    "element": written,
+                    "kind": local,
+                    "instruction": None,
+                    "switches": [],
+                    "attrs": held,
+                    "cached": "".join(node.itertext()),
+                    "depth": depth,
+                    "measured": local in ODF_MEASURED,
+                })
+                depth += 1
+            for kid in node:
+                walk(kid, depth)
+
+        walk(root, 0)
+
+    kinds, elements, parts_book, ref_formats = {}, {}, {}, {}
+    for one in rows:
+        kinds[one["kind"]] = kinds.get(one["kind"], 0) + 1
+        elements[one["element"]] = elements.get(one["element"], 0) + 1
+        parts_book[one["part"]] = parts_book.get(one["part"], 0) + 1
+        had = _local_in(one["attrs"], "reference-format")
+        if had is not None:
+            ref_formats[had] = ref_formats.get(had, 0) + 1
+
+    def count(pred):
+        return sum(1 for one in rows if pred(one))
+
+    return {
+        "family": "odf",
+        "available": True,
+        "fields_total": len(rows),
+        "listed": min(len(rows), limit),
+        "cut": len(rows) > limit,
+        "kinds": kinds,
+        "elements": elements,
+        "parts": parts_book,
+        "reference_formats": ref_formats,
+        "sequence_declarations": state["decl"],
+        "sequence_declared": sorted(state["declared"]),
+        "unmeasured": count(lambda one: not one["measured"]),
+        "cached_empty": count(lambda one: one["cached"] == ""),
+        "nested": count(lambda one: one["depth"] > 0),
+        "text_names": sorted(seen),
+        "rows": rows[:limit],
+    }
+
+
+def rtf_field_ledger(page: dict, limit: int = 100) -> dict:
+    r"""域那一份账（RTF）：一枚 `{\field …}` 一行，指令与 `\fldrslt` 各交各的
+
+    这一族的形状是 `{\field{\*\fldinst 指令}{\fldrslt 显示文字}}`，所以两问各自独立：
+    有没有 `{\*\fldinst` 那一群（没有则 `instruction` 是 null —— 这一族解不出「空指令」，
+    群里没字与没群是同一个答案，docx 那边才分得开），有没有 `{\fldrslt` 那一群
+    （`has_result`），以及那一群里写的字（`cached`）。指令里那些开关必须写成成对的
+    反斜杠（单反斜杠就开出一个控制字），解一遍之后 `TOC \o "1-2" \h` 与 docx 的
+    `w:instrText` **逐字同一个形状**，所以种类与开关这两把读取器三家共用一只，不各造。
+
+    `control_words` 是流里 `\field` 的裸计数，`fields_total` 是这本账的行数 —— 两个数
+    分开交，因为被整群跳掉的那一类（`\field` 坐在一个不认识的星号群或目标群里时）
+    只在裸计数里露一次头，账本不替它编一行。
+    入参是 `rtf_text` 那份解码（行是解码时顺手收的，不读第二遍文件）。
+    """
+    rows = []
+    for one in page["field_rows"]:
+        held = dict(one)
+        held["kind"] = _field_kind(one["instruction"])
+        held["switches"] = _field_switches(one["instruction"])
+        rows.append(held)
+    kinds, switches = {}, {}
+    for one in rows:
+        if one["kind"] is not None:
+            kinds[one["kind"]] = kinds.get(one["kind"], 0) + 1
+        for tok in one["switches"]:
+            switches[tok] = switches.get(tok, 0) + 1
+
+    def count(pred):
+        return sum(1 for one in rows if pred(one))
+
+    return {
+        "family": "rtf",
+        "available": True,
+        "fields_total": len(rows),
+        "listed": min(len(rows), limit),
+        "cut": len(rows) > limit,
+        "control_words": page["fields"],
+        "kinds": kinds,
+        "switch_tokens": switches,
+        "no_instruction": count(lambda one: one["instruction"] is None),
+        "no_result": count(lambda one: not one["has_result"]),
+        "cached_empty": count(lambda one: one["cached"] == ""),
+        "toc": count(lambda one: one["instruction"] is not None
+                     and one["instruction"].upper().startswith("TOC")),
+        "rows": rows[:limit],
+    }
+
+
 def docx_table_styles(path: Path, limit: int = 100) -> dict:
     r"""「这张表套的是哪个样式」在 OOXML 是两样东西：样式 id（`w:tblStyle`）与
     那枚 `w:tblLook`（六个位 + 一个 `w:val` 的十六进制缓存）
@@ -9716,6 +10066,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["languages"] = docx_languages(path)
             # 注的编号：settings 与 sectPr 两处各一份，内容可以不一样
             out["ooxml"]["note_settings"] = docx_note_settings(path)
+            # 域那一份账：两种写法、三种缺法，正文以外那几份部件一起扫
+            out["ooxml"]["field_ledger"] = docx_field_ledger(path)
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
         elif "xl/workbook.xml" in parts:
@@ -9771,6 +10123,8 @@ def facts(path: Path) -> dict:
             out["odt"]["languages"] = odf_languages(path)
             # 同一问在 ODF 是一类注一份 configuration
             out["odt"]["note_settings"] = odf_note_settings(path)
+            # 同一问在 ODF 是元素名本身：没有指令串，种类与格式全在名字与属性上
+            out["odt"]["field_ledger"] = odf_field_ledger(path)
             # 结构搬进 markdown：与 docx 那一本同一个键形状，只是层级与记号是另一族的写法
             out["odt"]["markdown"] = odf_markdown_ledger(path)
             # 同一问在 ODF 要跳进另一个部件：一条式子一个 Object N/content.xml 的 MathML
@@ -9820,6 +10174,8 @@ def facts(path: Path) -> dict:
         # `with_rows=True`：段流水那份账（`structure.para_flow`）要与这一段一行一行对
         out["rtf"] = rtf_text(data, with_rows=True)
         out["rtf"]["info"] = rtf_info(data)
+        # 域那一份账：行是上面那次解码顺手收的，这里只把种类与开关算出来
+        out["rtf"]["field_ledger"] = rtf_field_ledger(out["rtf"])
         # markdown 那一本单列一个键：`para_rows` 是中间账，不混进 `rtf` 那本整份对账
         out["rtf_markdown"] = rtf_markdown(data)
         out["app"] = "word"
