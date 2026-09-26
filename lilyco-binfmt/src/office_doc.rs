@@ -4223,7 +4223,7 @@ mod tests {
         run_office_doc(&app, &Context::new_test(tx)).expect("office-doc --csv 应成功")
     }
     /// 带 limit 的那一个：只为了钉「截的是行、不是整份的账」
-    fn run_with_limit(name: &str, limit: usize) -> Value {
+    fn run_with_limit(name: &str, limit: u64) -> Value {
         let app = OfficeDoc {
             path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("tests/fixtures/office")
@@ -4263,18 +4263,22 @@ mod tests {
         );
         assert_eq!(
             flow["rows"]
+                .as_array()
+                .expect("流水那份是数组")
                 .iter()
-                .map(|one| json!([
-                    one["at"],
-                    one["text"],
-                    one["style_index"],
-                    one["style_name"],
-                    one["heading_level"],
-                    one["in_list"],
-                    one["in_index"],
-                    one["nfc"],
-                    one["label"],
-                ]))
+                .map(|one| {
+                    json!([
+                        one["at"].clone(),
+                        one["text"].clone(),
+                        one["style_index"].clone(),
+                        one["style_name"].clone(),
+                        one["heading_level"].clone(),
+                        one["in_list"].clone(),
+                        one["in_index"].clone(),
+                        one["nfc"].clone(),
+                        one["label"].clone(),
+                    ])
+                })
                 .collect::<Vec<Value>>(),
             json!([
                 [
@@ -4380,15 +4384,19 @@ mod tests {
         );
         assert_eq!(
             toc_flow["rows"]
+                .as_array()
+                .expect("流水那份是数组")
                 .iter()
-                .map(|one| json!([
-                    one["at"],
-                    one["text"],
-                    one["style_index"],
-                    one["style_name"],
-                    one["in_index"],
-                    one["heading_level"]
-                ]))
+                .map(|one| {
+                    json!([
+                        one["at"].clone(),
+                        one["text"].clone(),
+                        one["style_index"].clone(),
+                        one["style_name"].clone(),
+                        one["in_index"].clone(),
+                        one["heading_level"].clone(),
+                    ])
+                })
                 .collect::<Vec<Value>>(),
             json!([
                 [0, "目录", 139, "TOC Heading", false, null],
