@@ -9072,7 +9072,8 @@ def facts(path: Path) -> dict:
         return out
     if data[:5] == b"{\\rtf":
         out["container"] = "rtf"
-        out["rtf"] = rtf_text(data)
+        # `with_rows=True`：段流水那份账（`structure.para_flow`）要与这一段一行一行对
+        out["rtf"] = rtf_text(data, with_rows=True)
         out["rtf"]["info"] = rtf_info(data)
         # markdown 那一本单列一个键：`para_rows` 是中间账，不混进 `rtf` 那本整份对账
         out["rtf_markdown"] = rtf_markdown(data)

@@ -6391,6 +6391,51 @@ def main() -> int:
          any("这份件不是那五族" in str(one) for one in (dig(ported, "notes") or []))],
         [True, False],
     )
+    # ── 3b4) RTF 的段流水：一段一行整份列（headings / numbering.list / entries.list 都筛过）──
+    print("=== 3b4) office-doc RTF structure.para_flow：逐行与读者的 para_rows 对 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.rtf")):
+        got = lbin("office-doc", fixture(name))
+        rows = files[name]["rtf"]["para_rows"]
+        flow = dig(got, "structure.para_flow") or {}
+        listed = flow.get("listed") or 0
+        check("%s 的段流水逐行与读者一致（按 --limit 截之后）" % name,
+              flow.get("rows"), rows[:listed])
+        check("%s 段流水那几本计数都数得回来" % name,
+              [flow.get("family"), flow.get("available"), flow.get("paragraphs"),
+               flow.get("empty"), flow.get("headings"), flow.get("in_list"),
+               flow.get("in_index"), flow.get("labelled"),
+               flow.get("styles_unresolved"), flow.get("cut")],
+              ["rtf", True, len(rows),
+               len([one for one in rows if not one["text"]]),
+               len([one for one in rows if one["heading_level"] is not None]),
+               len([one for one in rows if one["in_list"]]),
+               len([one for one in rows if one["in_index"]]),
+               len([one for one in rows if one["label"] is not None]),
+               len([one for one in rows
+                    if one["style_index"] is not None and one["style_name"] is None]),
+               len(rows) > listed])
+        # 这道减法就是这一本存在的理由：流水整份数 = 老那本（不带空段的那本）+ 空段
+        check("%s 的流水段数 = structure.paragraphs + empty" % name,
+              [flow.get("paragraphs")
+               == dig(got, "structure.paragraphs") + flow.get("empty"),
+               flow.get("paragraphs") >= dig(got, "structure.paragraphs")],
+              [True, True])
+    few = lbin("office-doc", fixture("lists.rtf"), "--limit", "3")
+    check("截断这一格是真截：lists.rtf 交 3 行、paragraphs 仍是整份的 7、cut 是 true",
+          [len(dig(few, "structure.para_flow.rows")), dig(few, "structure.para_flow.paragraphs"),
+           dig(few, "structure.para_flow.listed"), dig(few, "structure.para_flow.cut")],
+          [3, 7, 3, True])
+    pin = dig(lbin("office-doc", fixture("toc-full.rtf")), "structure.para_flow") or {}
+    check("toc-full.rtf 那三格钉住：目录那一段的样式号 140 与名字 toc 1 是一起交的，"
+          "而正文里那句「结构：一级」是另一个 in_index 为 false 的段（同一个字两处都在）",
+          [[one["at"], one["text"], one["style_index"], one["style_name"], one["in_index"],
+            one["heading_level"]] for one in pin.get("rows", [])[:6]],
+          [[0, "目录", 139, "TOC Heading", False, None],
+           [1, "结构：一级\t1", 140, "toc 1", True, None],
+           [2, "结构：二级\t2", 141, "toc 2", True, None],
+           [3, "结构：一级", 1, "heading 1", False, 1],
+           [4, "", 0, "Normal", False, None],
+           [5, "结构：二级", 2, "heading 2", False, 2]])
     # ── 3au) 文档里的公式：行内与独立成行会被生产者改，ODF 一条式子住在另一个部件 ──────
     print("=== 3au) 公式：OMML 的挂法与 MathML 的部件，两家各按自己文件写的交 ===")
     for name in sorted(one.name for one in FIXTURES.glob("*.docx")):

@@ -2347,6 +2347,33 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 
+125. **RTF 的段流水：一段一行整份列，为的是「第 5 段是什么」这一问**（15 份 .rtf 全过）
+    - 已有的三本都是**筛过的**：`headings` 只交标题行、`numbering.list` 只交列表项、
+      `contents.entries.list` 只交目录条目。拿它们拼整份是拼不出来的，而 `toc-full.rtf`
+      正是那个反例 —— 「结构：一级」在文件里有两处（正文标题一处、目录条目一处），
+      按字去对号会把一条对成两条。所以 `structure.para_flow` 是**同一批账的第二次交法**：
+      一次走出来的 `para_rows` 一段一行，按文件切段的顺序整份列，谁也不筛。
+    - 不另起解码器：这一本就骑在 markdown 那一批用的同一辆车上（`para_rows`），
+      段号跟着 `\par` 收，所以「在不在目录域里」（`in_index`）与「在不在列表里」（`in_list`）
+      是同一行上的两格，两问各答各的。每行交 `at`、段的字、段自己点的样式号（`style_index`）
+      与那个号在样式表里的名字（`style_name`）、样式名解出的层级（`heading_level`）、
+      `\ilvl` / `\ls`、`level_found`、那一级写的 `nfc`、文件自己写下的标签（`label` /
+      `label_written`），解不出的样式号另计 `styles_unresolved`（实测 15 份全是 0）。
+    - 两本「有几段」是**一道减法**：`paragraphs` = `structure.paragraphs` + `empty`
+      （量过 15 份：`toc-full.rtf` 28 = 24 + 4、`notes.rtf` 9 = 7 + 2、`toc.rtf` 11 = 9 + 2、
+      `lists.rtf` 与 `tables.rtf` 没有空段所以两个数相同）。`empty` 说的是「这一段切出来
+      没有字」，与 Word 自己统计口径的 `empty_paragraphs` 不是同一个问，所以两格各交各的。
+    - 目录那一问在这本里另有一个数：`toc.rtf`（有域、没重排）的 `in_index` 是 **1**
+      而 `contents.entries` 是 **0** —— 域里那一段占位文字在流水里算一段（它确实在群里），
+      但它不是条目（没 `\tab`、没页码、点的是 `Normal`）。**「段在域里」与「段是条目」是两问**，
+      这一本只答前一个。
+    - `rows` 听 `--limit` 的话（`listed` / `cut` 说截了多少），**上面那七本计数不跟着截**：
+      `lists.rtf` 截到 3 行时 `paragraphs` 仍是 7（这条也钉进 probe 的 3b4）。
+    - 第二读者是 `lyco_rtf.rtf_text(..., with_rows=True)` 交出的同一份 `para_rows`，
+      probe 的 3b4 把 15 份 .rtf 逐行比对，并另钉两道：每份的减法
+      （`paragraphs` == `structure.paragraphs` + `empty`）与 `toc-full.rtf` 前六行
+      （目录那两段的样式号 140 / 141 与名字 `toc 1` / `toc 2` 一起交）。
+
 124. **.ppt 里「这一块是什么」写在它前面那条四字记录里；段的项目符号在这族没有凭据**
     - 怎么量的：手上 `.ppt` 只有一份（`deck.ppt`），一个问题一份件不算量过。于是把三份现成的
       `.pptx`（`deck-ph-lo` / `deck-tables-lo` / `deck-hidden-lo`）用
