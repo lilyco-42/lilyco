@@ -114,7 +114,7 @@ fn attrs_of(node: &Node) -> serde_json::Map<String, Value> {
 }
 
 /// 第一个局部名等于 `name` 的直接元素孩子；没有就 None（与「找到了一个空元素」是两件事）
-fn direct_kid(node: Option<&Node>, name: &str) -> Option<&Node> {
+fn direct_kid<'a>(node: Option<&'a Node>, name: &str) -> Option<&'a Node> {
     match node {
         Some(one) => element_kids(one)
             .into_iter()
@@ -124,7 +124,7 @@ fn direct_kid(node: Option<&Node>, name: &str) -> Option<&Node> {
 }
 
 /// `<w:rPrDefault><w:rPr>` 那一跳：名字写死，两跳都可能断
-fn wrapper_kid(block: Option<&Node>, wrapper: &str, inner: &str) -> Option<&Node> {
+fn wrapper_kid<'a>(block: Option<&'a Node>, wrapper: &str, inner: &str) -> Option<&'a Node> {
     direct_kid(direct_kid(block, wrapper), inner)
 }
 
@@ -168,7 +168,7 @@ fn props_json(rows: &[Prop], limit: usize) -> Vec<Value> {
 }
 
 /// 「第一条说了算」：同一份件里同一类性质写了两遍时不合并、不覆盖（与 Python 那本同一口径）
-fn first_prop(rows: &[Prop], name: &str) -> Option<&Prop> {
+fn first_prop<'a>(rows: &'a [Prop], name: &str) -> Option<&'a Prop> {
     rows.iter().find(|one| one.name == name)
 }
 

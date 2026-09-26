@@ -8435,8 +8435,8 @@ mod tests {
             blank["normal_style"]["rpr_rows"].as_array().map(|one| one
                 .iter()
                 .map(|row| row["name"].as_str().unwrap_or(""))
-                .collect::<Vec<String>>()),
-            Some(vec!["sz".to_string(), "lang".to_string()])
+                .collect::<Vec<&str>>()),
+            Some(vec!["sz", "lang"])
         );
         assert_eq!(
             thin["structure"]["doc_defaults"],
