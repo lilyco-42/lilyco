@@ -1932,9 +1932,9 @@ mod tests {
         );
         // 「这一族没读」与「读了而没被要求」是两件事：pptx 与 odp 读了这个开关，
         // 没给 --csv 时那一格在场而值是 null（上面 .ppt 那条 is_none 才是缺席）
-        for one in ("deck-tables.pptx", "deck-tables.odp") {
+        for one in ["deck-tables.pptx", "deck-tables.odp"] {
             let off = run(one);
-            assert!(off.get("csv").is_some(), "%s 这一族要交得出这一格", one);
+            assert!(off.get("csv").is_some(), "{} 这一族要交得出这一格", one);
             assert!(off["csv"].is_null(), "没给 --csv 就是 null：{off}");
         }
     }
