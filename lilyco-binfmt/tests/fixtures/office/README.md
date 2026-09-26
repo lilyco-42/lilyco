@@ -2234,6 +2234,30 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       一格的字仍按段拼再 trim）、`odp_page_grids`（与 .odt / .ods 共用同一个 `odf_grid`，合并那枚占位格同一口径）、
       `page_csv`（一页每张表一份账，按文档顺序）。probe 的 3az 一条 lane 把**每一份 .pptx 与 .odp 的每一页**
       按号与按名字各挑一遍（页序两读者先对齐才比），再逐张表整份对账，最后钉上面那三条实测串与两层失败。
+117. **`office-text --markdown` 有了第三族：放映的大纲，条目标不标是文件自己说的**（`deck.pptx` / `deck-lo.pptx` / `deck-tables.pptx` / `-lo` / `deck-tr.pptx` / `deck.odp`）
+    - 一页一个 `#`，标题取自那一族自己写的那句话：pptx 是形状的 `p:ph/@type=title|ctrTitle`。
+      `deck-tr.pptx` 三页一个标题形状都没有 → `titles` 0、`titles_missing` 3，整篇**没有一行 `# `**
+      （不替页编一个标题）。
+    - **条目这一件事三家写得都不一样**，所以三本账分开：`deck.pptx`（python-pptx）连 `a:pPr` 都不写
+      （84 码位、`bullets_written` 0、`bullets_silent` 2）；LibreOffice 重写同一份稿子时给两条写了
+      `a:buChar`（87 码位、`bullets_written` 2、`bullets_silent` 0，`blocks` 都是 5）。
+      两处相差 3 个码位 = 两个 `- ` 的标记 + 列表项之间不再空一行。
+      `a:buNone` 是第四种情形（明说这不是条目 → `bullets_denied`），沉默的那一段不替它补标记。
+    - 这一族的粗与斜是 `a:rPr` **身上的属性**（`b="1"` / `i="1"`，不是 docx 那种孩子元素），
+      `a:br` 与 `a:tab` 是**段的直接孩子**（不在 run 里也要还原，不然一个字都读不出来），
+      链接在 `a:rPr/a:hlinkClick/@r:id` 而地址在这一页自己的关系表里（两跳，各家 id 各编各的号）。
+    - 页序有两本：正文那一份 `paragraphs` 按部件名序，markdown 这一本按**放映顺序**
+      （`presentation.xml` 的 `sldId` 清单）—— 两处页序本来可以不一样，各按各的交，不折成一个。
+      量的时候踩过一条：这一处关系表的 `Target` 是**相对 `ppt/`** 写的（`slides/slideN.xml`），
+      只把 `../` 那种接上前缀，解出来的名字指不到任何部件，于是整份放映一页也读不到（两份读者各踩各的）。
+    - 一张 `a:tbl` 走与 docx 同一条铺法（一格两段的 `<br>`、格子里的竖线才转义）：
+      `deck-tables.pptx` 与 LibreOffice 那份的整本账**一字不差**（95 码位）。
+    - 备注不进 markdown（那不是页面上给观众看的字），只交 `notes_pages` 数有几页带 notesSlide 部件；
+      图也不进（`pictures` 数在那儿）。**odp 还没搬**：那一族这个键整个不在（缺键 = 没读，不是空文档），
+      与它下面的 `.ods` / rtf / 遗留 .doc / .pdf 同一条边界。
+    - 第二读者是 `scripts/acceptance/lyco_deck_markdown.py`（`pptx_deck_markdown`：借 `lyco_markdown.py`
+      的 `render` / `esc` / `rels_of`，段读者另写一份，因为那一族的记号是属性不是元素）；
+      probe 的 3b0 一条 lane 把**每一份 .pptx** 的整本账与读者对，再钉上面这几条实测。
 Rust 测试里每个期望值都来自第二读者对这些文件的独立读取：
 `scripts/acceptance/office_reader.py`（OOXML / ODF / MS-CFB / OLE 属性集，只用标准库）、
 文档里那几张图在它的 `docx_picture_rows()` / `odt_picture_rows()` 里：两处尺寸各自换算、

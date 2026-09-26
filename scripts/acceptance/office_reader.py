@@ -53,6 +53,7 @@ from lyco_doc_csv import (  # 文档/放映里的表铺成 CSV
     page_csv,
     pptx_page_grids,
 )
+from lyco_deck_markdown import pptx_deck_markdown  # 放映的大纲搬进 markdown
 
 END = "END"  # CFB 的链结束标记
 FREE = "FREE"
@@ -8951,6 +8952,9 @@ def facts(path: Path) -> dict:
             out["ooxml"]["placeholder_hops"] = pptx_placeholder_hops(path)
             # 一条式子是文本体里的 OMML，而同一个形状在 Fallback 里还写了一遍（挂着替身图）
             out["ooxml"]["equations"] = pptx_equations_ledger(path)
+            # 大纲那一本（`office-text --markdown` 的 pptx 支）：一页一个 `#`，
+            # 条目标不标是文件自己说的（buChar / buNone / 什么都不写，三本账分开）
+            out["ooxml"]["markdown"] = pptx_deck_markdown(path)
         elif "content.xml" in parts:
             out["app"] = "opendocument"
             out["odf"] = odt_facts(path)

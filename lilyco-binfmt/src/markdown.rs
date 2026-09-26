@@ -1125,3 +1125,315 @@ pub(crate) fn docx(bytes: &[u8], budget: usize) -> Value {
         "empty_dropped": stats["empty_dropped"],
     })
 }
+
+/// 带前缀的那个「号」：`r:id` 而不是 `id`（这一族的 id 各家自己编，只有配上命名空间才是同一件事）
+fn prefixed_id(node: &Node) -> Option<&str> {
+    node.attrs
+        .iter()
+        .find(|(key, _)| key.ends_with(":id"))
+        .map(|(_, value)| value.as_str())
+}
+
+/// 放映里一段的字：这一族的粗与斜是 `a:rPr` **身上的属性**（不是 docx 那种孩子元素），
+/// `a:br` 与 `a:tab` 是段里的独立元素（不在 run 里也要还原，不然一个字都读不出），
+/// 链接在 `a:rPr/a:hlinkClick/@r:id`，地址仍在这一页自己的关系表里（两跳）
+fn deck_segments(para: &Node, rels: &[Rel], source: &str) -> Vec<Seg> {
+    let mut out: Vec<Seg> = Vec::new();
+    for one in &para.children {
+        match one.local() {
+            "pPr" => {}
+            "br" => out.push(Seg::words(HARD, false, false)),
+            "tab" => out.push(Seg::words(" ", false, false)),
+            "r" => {
+                let props = one.child("rPr");
+                let said = |key: &str| {
+                    props
+                        .and_then(|one| one.attr(key))
+                        .is_some_and(|raw| !OFF.contains(&raw))
+                };
+                let link = props.and_then(|holder| {
+                    holder
+                        .children
+                        .iter()
+                        .find(|kid| kid.local() == "hlinkClick")
+                        .and_then(|kid| prefixed_id(kid))
+                        .and_then(|want| {
+                            rels.iter()
+                                .find(|one| one.source == source && one.id == want)
+                        })
+                        .and_then(|one| one.resolved.clone().or_else(|| Some(one.target.clone())))
+                });
+                let text = one.text();
+                if !text.is_empty() {
+                    out.push(Seg::said(&text, said("b"), said("i"), link));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// 一个格子的字：多段用 `<br>` 连，竖线在这里才转义（与 docx 那一条同一个待遇）
+fn deck_cell_text(tc: &Node, rels: &[Rel], source: &str) -> String {
+    let mut bits: Vec<String> = Vec::new();
+    for body in kids(tc, "txBody") {
+        for par in kids(body, "p") {
+            let flat = render(&deck_segments(par, rels, source), true)
+                .trim()
+                .replace('\n', "<br>");
+            if !flat.is_empty() {
+                bits.push(flat);
+            }
+        }
+    }
+    bits.join("<br>")
+}
+
+/// 一张表：这一族的 `a:tbl` / `a:tr` / `a:tc` 与 docx 那一条形状同一个铺法
+fn deck_table_md(tbl: &Node, rels: &[Rel], source: &str) -> String {
+    let rows: Vec<Vec<String>> = kids(tbl, "tr")
+        .into_iter()
+        .map(|tr| {
+            kids(tr, "tc")
+                .into_iter()
+                .map(|tc| deck_cell_text(tc, rels, source))
+                .collect()
+        })
+        .collect();
+    let Some(width) = rows.iter().map(|one| one.len()).max() else {
+        return String::new();
+    };
+    if width == 0 {
+        return String::new();
+    }
+    let mut lines: Vec<String> = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        let mut cells = row.clone();
+        cells.resize(width, String::new());
+        lines.push(format!("| {} |", cells.join(" | ")));
+        if index == 0 {
+            lines.push(format!("| {} |", vec!["---"; width].join(" | ")));
+        }
+    }
+    lines.join("\n")
+}
+
+/// 这一页上有没有备注部件（`ppt/notesSlides/notesSlideN.xml` 是页部件名的固定换写）
+fn notes_part_of(part: &str) -> String {
+    part.replace("/slides/slide", "/notesSlides/notesSlide")
+}
+
+/// `office-text --markdown` 的 pptx 一支：一页一个 `#`，条目标不标按文件自己写的交
+pub fn pptx_deck(bytes: &[u8], budget: usize) -> Value {
+    let doc = opack::open(bytes);
+    let (all_rels, _) = opack::relationships(bytes, &doc.entries);
+    let Some(pres) = read_part(bytes, "ppt/presentation.xml") else {
+        return json!({"family": "pptx", "available": false});
+    };
+    let pres_source = "ppt/_rels/presentation.xml.rels";
+    let mut order: Vec<String> = Vec::new();
+    for one in pres.descendants("sldId") {
+        let Some(rid) = prefixed_id(one) else {
+            continue;
+        };
+        if let Some(hit) = all_rels
+            .iter()
+            .find(|rel| rel.source == pres_source && rel.id == rid)
+            .and_then(|rel| rel.resolved.as_deref())
+        {
+            order.push(hit.to_string());
+        }
+    }
+    // 放映序解不出来才退回部件名序（按名字排，两读者才是同一个序）：那份顺序不是文件说的
+    // 页序，但总比一页也不交强
+    if order.is_empty() {
+        order = doc
+            .entries
+            .iter()
+            .map(|one| one.name.clone())
+            .filter(|one| one.starts_with("ppt/slides/slide") && one.ends_with(".xml"))
+            .collect();
+        order.sort();
+    }
+    let mut blocks: Vec<(bool, String)> = Vec::new();
+    let mut pages = 0i64;
+    let mut titles = 0i64;
+    let mut titles_missing = 0i64;
+    let mut paragraphs = 0i64;
+    let mut bullets_written = 0i64;
+    let mut bullets_denied = 0i64;
+    let mut bullets_silent = 0i64;
+    let mut tables = 0i64;
+    let mut table_rows = 0i64;
+    let mut empty_dropped = 0i64;
+    let mut notes_pages = 0i64;
+    let mut links = 0i64;
+    let mut pictures = 0i64;
+    let mut levels_written = 0i64;
+    for part in &order {
+        let Some(root) = read_part(bytes, part) else {
+            continue;
+        };
+        pages += 1;
+        if doc
+            .entries
+            .iter()
+            .any(|one| one.name == notes_part_of(part))
+        {
+            notes_pages += 1;
+        }
+        let source = format!(
+            "{}/_rels/{}.rels",
+            part.rsplit_once('/')
+                .map(|(head, _)| head)
+                .unwrap_or_default(),
+            part.rsplit_once('/')
+                .map(|(_, tail)| tail)
+                .unwrap_or_default()
+        );
+        let mut title_done = false;
+        // 页上的形状按**文档顺序**走（组的孩子也算页上的形状）：分开三种名字各走一遍
+        // 会把叠放顺序说成「先所有文本框、再所有图框」，那是读者的顺序不是文件的顺序
+        let mut nodes: Vec<&Node> = Vec::new();
+        walk(&root, &mut nodes);
+        for shape in nodes
+            .iter()
+            .filter(|one| matches!(one.local(), "sp" | "graphicFrame" | "pic"))
+        {
+            let mut inner: Vec<&Node> = Vec::new();
+            walk(shape, &mut inner);
+            for one in &inner {
+                match one.local() {
+                    "hlinkClick" => links += 1,
+                    "blip" => pictures += 1,
+                    _ => {}
+                }
+            }
+            if shape.local() == "pic" {
+                continue;
+            }
+            let ph = inner
+                .iter()
+                .find(|one| one.local() == "ph")
+                .and_then(|one| one.attr_local("type"))
+                .unwrap_or_default()
+                .to_string();
+            for tbl in inner.iter().filter(|one| one.local() == "tbl") {
+                let made = deck_table_md(tbl, &all_rels, &source);
+                if !made.is_empty() {
+                    tables += 1;
+                    table_rows += kids(tbl, "tr").len() as i64;
+                    blocks.push((false, made));
+                }
+            }
+            for body in kids(shape, "txBody") {
+                for par in kids(body, "p") {
+                    let text = render(&deck_segments(par, &all_rels, &source), false)
+                        .trim()
+                        .to_string();
+                    let ppr = kids(par, "pPr").into_iter().next();
+                    if ppr.and_then(|one| one.attr_local("lvl")).is_some() {
+                        levels_written += 1;
+                    }
+                    if text.is_empty() {
+                        empty_dropped += 1;
+                        continue;
+                    }
+                    if !title_done && (ph == "title" || ph == "ctrTitle") {
+                        title_done = true;
+                        titles += 1;
+                        blocks.push((false, format!("# {text}")));
+                        continue;
+                    }
+                    // 条目标不标是这一格自己说的：buChar 是、buAutoNum 是编号条目、
+                    // buNone 明说不是，而 python-pptx 两条都不写（那是第四种情形）
+                    let marker = match ppr {
+                        None => None,
+                        Some(holder) => {
+                            if !kids(holder, "buChar").is_empty() {
+                                Some("char")
+                            } else if !kids(holder, "buAutoNum").is_empty() {
+                                Some("auto")
+                            } else if !kids(holder, "buNone").is_empty() {
+                                Some("none")
+                            } else {
+                                None
+                            }
+                        }
+                    };
+                    match marker {
+                        Some("none") => bullets_denied += 1,
+                        Some(_) => bullets_written += 1,
+                        None => bullets_silent += 1,
+                    }
+                    let lead = match marker {
+                        Some("char") => "- ",
+                        Some("auto") => "1. ",
+                        _ => "",
+                    };
+                    let body_line = if starts_like_marker(&text) {
+                        format!("\\{text}")
+                    } else {
+                        text.clone()
+                    };
+                    blocks.push((!lead.is_empty(), format!("{lead}{body_line}")));
+                    paragraphs += 1;
+                }
+            }
+        }
+        // 标题只认这一页第一次出现的那一句：后面再出现同角色的段是正文，不再开一行
+        if !title_done {
+            titles_missing += 1;
+        }
+    }
+    deck_finish(
+        blocks,
+        "pptx",
+        budget,
+        json!({
+            "pages": pages, "titles": titles, "titles_missing": titles_missing,
+            "paragraphs": paragraphs, "headings": 0,
+            "bullets_written": bullets_written, "bullets_denied": bullets_denied,
+            "bullets_silent": bullets_silent,
+            "tables": tables, "table_rows": table_rows, "empty_dropped": empty_dropped,
+            "notes_pages": notes_pages, "links": links, "pictures": pictures,
+            "levels_written": levels_written,
+        }),
+    )
+}
+
+/// 块与块之间的空行：连续的列表项之间不空行（markdown 才认得出是同一串条目）
+fn deck_finish(
+    blocks: Vec<(bool, String)>,
+    family: &str,
+    budget: usize,
+    mut stats: Value,
+) -> Value {
+    let mut text = String::new();
+    for (index, (is_list, block)) in blocks.iter().enumerate() {
+        if index > 0 {
+            text.push_str(if *is_list && blocks[index - 1].0 {
+                "\n"
+            } else {
+                "\n\n"
+            });
+        }
+        text.push_str(block);
+    }
+    if !blocks.is_empty() {
+        text.push('\n');
+    }
+    let chars = text.chars().count() as i64;
+    let shown: String = text.chars().take(budget).collect();
+    let cut = chars > budget as i64;
+    if let Some(map) = stats.as_object_mut() {
+        map.insert("family".to_string(), json!(family));
+        map.insert("available".to_string(), json!(true));
+        map.insert("text".to_string(), json!(shown));
+        map.insert("chars".to_string(), json!(chars));
+        map.insert("cut".to_string(), json!(cut));
+        map.insert("blocks".to_string(), json!(blocks.len()));
+    }
+    stats
+}

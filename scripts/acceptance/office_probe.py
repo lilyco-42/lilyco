@@ -6353,6 +6353,51 @@ def main() -> int:
          [dig(chart, "equations.items[%d].math_found" % i) for i in (0, 1)]],
         [2, 2, 2, 0, 2, 0, [], 2, 2, [False, False]],
     )
+    # ── 3b0) 放映的大纲搬进 markdown：页、标题、条目标记与表 ────────────────────────
+    print("=== 3b0) office-text --markdown 的 pptx 支：标不标条目是文件自己说的 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.pptx")):
+        got = lbin("office-text", fixture(name), "--markdown")
+        check("%s 的大纲整份与读者一致（渲染逐字、计数逐格）" % name,
+              got.get("markdown"), files[name]["ooxml"]["markdown"])
+    hand = lbin("office-text", fixture("deck.pptx"), "--markdown")
+    back = lbin("office-text", fixture("deck-lo.pptx"), "--markdown")
+    check(
+        "同一份稿子在两家手里：python-pptx 一个 `a:pPr` 都不写（那两段是普通段），"
+        "LibreOffice 给它们写了 `a:buChar`（于是两行前面有 `- `）—— "
+        "两处渲染相差 3 个码位：两个 `- ` 的标记，加上列表项之间不再空一行；"
+        "块数与页数一根不多一根不少，沉默的那一段不替它补标记，"
+        "`bullets_silent` 与 `bullets_written` 两本账各数各的",
+        [dig(hand, "markdown.chars"), dig(hand, "markdown.blocks"),
+         dig(hand, "markdown.pages"), dig(hand, "markdown.titles"),
+         dig(hand, "markdown.bullets_written"), dig(hand, "markdown.bullets_silent"),
+         dig(hand, "markdown.text"),
+         dig(back, "markdown.chars"), dig(back, "markdown.blocks"),
+         dig(back, "markdown.bullets_written"), dig(back, "markdown.bullets_denied"),
+         dig(back, "markdown.text")],
+        [84, 5, 2, 2, 0, 2, '# 预算评审\n\n新增两台 64 核应用服务器\n\n第二条要点\n\n# 第二页：数字\n\n| 科目 | 金额 |\n| --- | --- |\n| 服务器 | 124000 |\n', 87, 5, 2, 0, '# 预算评审\n\n- 新增两台 64 核应用服务器\n- 第二条要点\n\n# 第二页：数字\n\n| 科目 | 金额 |\n| --- | --- |\n| 服务器 | 124000 |\n'],
+    )
+    tab = lbin("office-text", fixture("deck-tables.pptx"), "--markdown")
+    tab_lo = lbin("office-text", fixture("deck-tables-lo.pptx"), "--markdown")
+    check(
+        "一张 `a:tbl` 在两家手里铺成同一份 markdown：页身份、行数与那一格两段的 `<br>` 都一样"
+        "（与 3az 那本 CSV 同一批件，两种出口各按各的规矩）",
+        [dig(tab, "markdown.tables"), dig(tab, "markdown.table_rows"),
+         dig(tab, "markdown.chars"), dig(tab, "markdown.text"),
+         tab_lo.get("markdown") == tab.get("markdown")],
+        [1, 3, 95, '# 表格那一页\n\n| 科目<br>金额 |  | 备注 |\n| --- | --- | --- |\n| 服务器 | 124000 | 含税 |\n| 网络<br>设备 | 8000 |  |\n', True],
+    )
+    check(
+        "没有标题形状的那份件不替它编标题：`deck-tr.pptx` 三页全是 `titles_missing`，"
+        "整篇没有一行 `# `；备注不进 markdown（那不是给观众看的字），只数几页有备注部件；"
+        "odp 这一族还没搬所以那个键整个不在，`--markdown` 不开时也一样",
+        [dig(lbin("office-text", fixture("deck-tr.pptx"), "--markdown"), "markdown.titles"),
+         dig(lbin("office-text", fixture("deck-tr.pptx"), "--markdown"), "markdown.titles_missing"),
+         dig(back, "markdown.notes_pages"), dig(back, "markdown.links"),
+         dig(back, "markdown.pictures"),
+         lbin("office-text", fixture("deck.odp"), "--markdown").get("markdown"),
+         lbin("office-text", fixture("deck-lo.pptx")).get("markdown")],
+        [0, 3, 1, 0, 1, None, None],
+    )
     # ── 3az) 放映里那张表铺成 CSV：挑页有三层，两家都留着被盖住那一格 ──────────────
     print("=== 3az) office-slide --csv：一页一张表一份账，页身份与页号一起交 ===")
     for name in sorted(one.name for one in FIXTURES.glob("*.pptx")):
