@@ -8988,6 +8988,187 @@ def main() -> int:
         [False, False, False, False],
     )
 
+    # ── 3bm) 排版兼容：OOXML 一种问话两种写法，ODF 把开关摊平在另一本账里 ──────────
+    print("=== 3bm) 排版兼容：`<w:compat>` 两种写法各摊一本，ODF 那一格根本不存在 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 排版兼容那份账与读者一致（具名项一本 + 裸开关一本）" % name,
+              dig(got, "structure.layout_compat"),
+              files[name]["ooxml"]["layout_compat"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 排版兼容那份账与读者一致（ooo:configuration-settings 摊平的那几条）" % name,
+              dig(got, "structure.layout_compat"),
+              files[name]["odt"]["layout_compat"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.docm")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 排版兼容那份账与读者一致（这一族的第 72 份，带这一格的是 .docx 之外还有宏文档）" % name,
+              dig(got, "structure.layout_compat"),
+              files[name]["ooxml"]["layout_compat"])
+    dm = dig(lbin("office-doc", fixture("notes.docm")), "structure.layout_compat")
+    check(
+        "那一份 .docm 是带这一格的**第 72 份**（71 份 .docx 全有，宏文档也有），而它的账与那 33 份"
+        " python-docx 模板件同形：`compatibilityMode=14` 之外还带三条具名项（`overrideTableStyleFontSizeAndJustification`"
+        " / `enableOpenTypeFeatures` / `doNotFlipMirrorIndents`，三条的 `w:val` 都写着 1），裸开关仍然只有"
+        " `useFELayout` 一枚。把宏文档算进来，具名项的名字总数**不增**（还是六个）、`w:uri` 也不增 —— "
+        "第 72 份不是新形状，只是这一格不独属于 .docx",
+        [dm["children_total"], dm["mode"], len(dm["named"]), dm["named_names"],
+         dm["named"][1:], len(dm["switches"]), dm["switch_names"],
+         dm["names_in_both_encodings"], dm["uris"], dm["mode_total"]],
+        [5, "14", 4,
+         ["compatibilityMode", "overrideTableStyleFontSizeAndJustification",
+          "enableOpenTypeFeatures", "doNotFlipMirrorIndents"],
+         [{"name": "overrideTableStyleFontSizeAndJustification",
+           "uri": "http://schemas.microsoft.com/office/word", "val": "1"},
+          {"name": "enableOpenTypeFeatures",
+           "uri": "http://schemas.microsoft.com/office/word", "val": "1"},
+          {"name": "doNotFlipMirrorIndents",
+           "uri": "http://schemas.microsoft.com/office/word", "val": "1"}],
+         1, ["useFELayout"], [], ["http://schemas.microsoft.com/office/word"], 1],
+    )
+    compat = dict((one, had) for one, had in files.items()
+                  if one.endswith(".docx") and "ooxml" in had)
+    shapes = {}
+    for had in compat.values():
+        book = had["ooxml"]["layout_compat"]
+        key = "%d+%d" % (len(book["named"]), len(book["switches"]))
+        shapes[key] = shapes.get(key, 0) + 1
+    check(
+        "两种写法在同一段里搭配出六种形状（71 份 .docx 按「几条具名项 + 几枚裸开关」数）："
+        "`4+1` 是那 33 份模板件，`4+0` 是 28 份 LibreOffice 重写且一个开关都不补，`1+2` 是 `nset` 那一家"
+        "四份（只说 compatibilityMode 与两枚开关），`3+0` 三份、`3+2` 两份，而 `2+0` **只有一份** —— "
+        "所以「具名项至少写四条」是生产者的习惯，不是这一格的规矩",
+        [shapes.get("4+1"), shapes.get("4+0"), shapes.get("1+2"), shapes.get("3+0"),
+         shapes.get("3+2"), shapes.get("2+0"), len(shapes)],
+        [33, 28, 4, 3, 2, 1, 6],
+    )
+    bad = sorted(one for one, had in compat.items() if not (
+        had["ooxml"]["layout_compat"]["settings_part"]
+        and had["ooxml"]["layout_compat"]["compat_written"]
+        and had["ooxml"]["layout_compat"]["compat_total"] == 1
+        and had["ooxml"]["layout_compat"]["children_total"] > 0
+        and had["ooxml"]["layout_compat"]["names_in_both_encodings"] == []
+        and had["ooxml"]["layout_compat"]["uris"] == ["http://schemas.microsoft.com/office/word"]
+        and all(not row["val_written"]
+                for row in had["ooxml"]["layout_compat"]["switches"])))
+    modes, switches = {}, {}
+    for had in compat.values():
+        book = had["ooxml"]["layout_compat"]
+        modes[book["mode"]] = modes.get(book["mode"], 0) + 1
+        for one in book["switch_names"]:
+            switches[one] = switches.get(one, 0) + 1
+    check(
+        "全语料不变量（71 份 .docx）：`<w:compat>` 只在 `word/settings.xml`（132 份 OOXML 包的 2518 份 "
+        "xml 部件里只此一名）、没有一份是空的、两种写法的名字互不重叠、`w:uri` 恒那一条、"
+        "而**没有一枚裸开关写过 `w:val`** —— 违反的那几份交出来（这里应当是空表）",
+        [len(compat), bad, modes, switches],
+        [71, [], {"14": 60, "15": 6, "12": 5},
+         {"useFELayout": 33, "doNotUseHTMLParagraphAutoSpacing": 6,
+          "doNotBreakWrappedTables": 4, "adjustLineHeightInTable": 2}],
+    )
+    only_fe = sorted(one for one, had in compat.items() if had["ooxml"]["layout_compat"]["switch_names"]
+                     == ["useFELayout"])
+    with_break = sorted(one for one, had in compat.items() if "doNotBreakWrappedTables"
+                        in had["ooxml"]["layout_compat"]["switch_names"])
+    flat = dict((one, had) for one, had in files.items()
+                if one.endswith(".odt") and "odt" in had)
+    same_name = sorted(one for one, had in flat.items() if had["odt"]["layout_compat"]["same_name_rows"])
+    no_block = sorted(one for one, had in flat.items()
+                      if not had["odt"]["layout_compat"]["item_set_written"])
+    check(
+        "同一个 `<w:compat>` 两套笔迹（按 `docProps/app.xml` 的 Application 分）：python-docx 那份模板"
+        "（写着 Microsoft Macintosh Word）33 份**都只带 `useFELayout`**，另外 38 份出自 LibreOffice、"
+        "其中 32 份一个裸开关都不写。而跨到 ODF 那一头是**另一套丢法**：带 `doNotBreakWrappedTables` "
+        "的 .docx 有 4 份，只有一条同名字段的 .odt 只有 2 份，另有 2 份 odt 整个没有 settings.xml",
+        [len(only_fe), only_fe[:1], len(with_break), with_break, len(flat),
+         same_name, no_block],
+        [33, ["bkmks.docx"], 4,
+         ["notes-end.docx", "notes-foot.docx", "nset-lo.docx", "nset.docx"], 41,
+         ["notes-end.odt", "nset.odt"], ["pnum.odt", "tbox.odt"]],
+    )
+    lc_docx = lbin("office-doc", fixture("nset.docx"))
+    lc_odt = lbin("office-doc", fixture("nset.odt"))
+    check(
+        "`nset.docx`：`<w:compat>` 三个孩子、一种写法一条 —— 具名项只写了 `compatibilityMode=12`，"
+        "裸开关 `doNotUseHTMLParagraphAutoSpacing` 与 `doNotBreakWrappedTables` **身上什么都没有**"
+        "（在场即开，`val_written` 是 false）。转成 odt 之后 `<w:compat>` 整格不复存在，"
+        "同一条 `DoNotBreakWrappedTables` 变成 `ooo:configuration-settings` 123 格里的一条",
+        [dig(lc_docx, "structure.layout_compat.children_total"),
+         dig(lc_docx, "structure.layout_compat.mode"),
+         dig(lc_docx, "structure.layout_compat.named"),
+         dig(lc_docx, "structure.layout_compat.switches"),
+         dig(lc_docx, "structure.layout_compat.names_in_both_encodings"),
+         dig(lc_odt, "structure.layout_compat.items_total"),
+         dig(lc_odt, "structure.layout_compat.same_name_rows")],
+        [3, "12",
+         [{"name": "compatibilityMode", "uri": "http://schemas.microsoft.com/office/word",
+           "val": "12"}],
+         [{"name": "doNotUseHTMLParagraphAutoSpacing", "val_written": False, "val": None,
+           "on": True},
+          {"name": "doNotBreakWrappedTables", "val_written": False, "val": None, "on": True}],
+         [], 123, ["DoNotBreakWrappedTables"]],
+    )
+    check(
+        "ODF 那一本的**大小本身**是一份账：这一组 123 条、其中 108 条是 `boolean`、"
+        "63 条写着 true；类型直方图按类型名排序（缺 `config:type` 的自成一类，这里没有）",
+        [dig(lc_odt, "structure.layout_compat.settings_part"),
+         dig(lc_odt, "structure.layout_compat.item_set_written"),
+         dig(lc_odt, "structure.layout_compat.booleans_total"),
+         dig(lc_odt, "structure.layout_compat.booleans_true"),
+         dig(lc_odt, "structure.layout_compat.types"),
+         dig(lc_odt, "structure.layout_compat.compat_item_total")],
+        [True, True, 108, 63,
+         [{"type": "base64Binary", "count": 2}, {"type": "boolean", "count": 108},
+          {"type": "int", "count": 4}, {"type": "short", "count": 3},
+          {"type": "string", "count": 6}], 5],
+    )
+    check(
+        "那四条名字 39 份全写，**可值不是套话**：`MsWordUlTrailSpace` 39 份全 false，"
+        "另外三条多数 true —— 而 `tbox-lo.odt` 四条全 false、`images-float.odt` 只错开一条。"
+        "（每份按名字排序，所以第一格在同名那一条存在时是 `DoNotBreakWrappedTables`）",
+        [dict((one, [row["value"] for row in
+                     flat[one]["odt"]["layout_compat"]["compat_items"]])
+              for one in ["nset.odt", "tabs.odt", "images-float.odt", "tbox-lo.odt"])],
+        [{"nset.odt": ["true", "true", "true", "true", "false"],
+          "tabs.odt": ["true", "true", "true", "false"],
+          "images-float.odt": ["true", "false", "true", "false"],
+          "tbox-lo.odt": ["false", "false", "false", "false"]}],
+    )
+    lim_docx = dig(lbin("office-doc", fixture("notes.docm"), "--limit", "2"), "structure.layout_compat")
+    lim_odt = dig(lbin("office-doc", fixture("nset.odt"), "--limit", "1"), "structure.layout_compat")
+    check(
+        "`--limit` 只砍列表、砍不动算术（与主题那本同一条规矩）：宏文档限到 2 时 `named` 交按文档顺序的前两条，"
+        "而 `named_names` 仍是四条、`children_total` 5 一格没动；odt 限到 1 时 `compat_items` 只剩一条"
+        "（按名字排的第一条正是同名那条 `DoNotBreakWrappedTables`），而 `compat_item_total` 5、`items_total` 123、"
+        "`booleans_true` 63 全按整本数",
+        [len(lim_docx["named"]), lim_docx["named"], len(lim_docx["named_names"]),
+         lim_docx["children_total"], lim_docx["switch_names"], len(lim_odt["compat_items"]),
+         lim_odt["compat_items"], lim_odt["compat_item_total"], lim_odt["items_total"],
+         lim_odt["booleans_true"], len(lim_odt["types"])],
+        [2, [{"name": "compatibilityMode", "uri": "http://schemas.microsoft.com/office/word",
+              "val": "14"},
+             {"name": "overrideTableStyleFontSizeAndJustification",
+              "uri": "http://schemas.microsoft.com/office/word", "val": "1"}],
+         4, 5, ["useFELayout"], 1,
+         [{"name": "DoNotBreakWrappedTables", "type": "boolean", "value": "true",
+           "via": "same-name"}],
+         5, 123, 63, 5],
+    )
+    check(
+        "反面凭据：`pnum.odt` 与 `tbox.odt` **整个没有 `settings.xml`** —— 于是这一本交空账"
+        "（`settings_part` / `item_set_written` 是 false，不是「有 0 条的组」）。"
+        "另外两族写了同一组却没有那四条名字（14 份 .ods 恒 39 条、11 份 .odp 写 42 或 43 条），"
+        "而 RTF 与遗留 .doc 连这一本都没有 —— 缺键 = 这一族没这一层",
+        [dig(lbin("office-doc", fixture("pnum.odt")), "structure.layout_compat.items_total"),
+         dig(lbin("office-doc", fixture("pnum.odt")),
+             "structure.layout_compat.item_set_written"),
+         no_theme_key("office-doc", "tabs.rtf", "layout_compat"),
+         no_theme_key("office-doc", "notes-en.doc", "layout_compat"),
+         no_theme_key("office-sheet", "book.ods", "layout_compat"),
+         no_theme_key("office-slide", "deck.odp", "layout_compat")],
+        [0, False, False, False, False, False],
+    )
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:

@@ -46,6 +46,7 @@ mod formula_elems;
 mod identify;
 mod keep_switches;
 mod languages;
+mod layout_compat;
 mod line_spacing;
 mod markdown;
 mod note_settings;

@@ -3685,6 +3685,154 @@ def docx_note_settings(path: Path, limit: int = 100) -> dict:
     }
 
 
+# 与 OOXML 裸开关**同名**核对表：这四个名字是本族料实测出现过的全部裸开关名，
+# 不是语义映射表 —— 只用来回答「这一条 ODF 项在 OOXML 那边有没有同名的写法」。
+OOXML_COMPAT_SWITCHES = (
+    "adjustLineHeightInTable",
+    "doNotBreakWrappedTables",
+    "doNotUseHTMLParagraphAutoSpacing",
+    "useFELayout",
+)
+
+
+def docx_layout_compat(path: Path, limit: int = 100) -> dict:
+    r"""「这份文件按哪个版本的排版规则来排」——OOXML 写在 `word/settings.xml` 的 `<w:compat>` 里，
+    而**同一类话有两种写法**：具名项 `<w:compatSetting w:name="..." w:uri="..." w:val="..."/>`
+    （值在三个属性上），与裸开关 `<w:useFELayout/>`（**在场即为开**，没有属性）。
+
+    实测 71 份 .docx 全有 `<w:compat>`，那一份 .docm 也有（共 72 份），且**只在这一处**
+    （132 份 OOXML 包的 2518 份 xml 部件里只此一名），
+    也没有一份是空的（孩子数 2 到 5）。裸开关只出现过四个名字（`useFELayout` 33、
+    `doNotUseHTMLParagraphAutoSpacing` 6、`doNotBreakWrappedTables` 4、`adjustLineHeightInTable` 2），
+    而**没有一枚写 `w:val`**；具名项只出现过六个名字，`w:uri` 全是
+    `http://schemas.microsoft.com/office/word`。两种写法的名字**互不重叠**。
+    按生产者分（`docProps/app.xml` 的 Application）：python-docx 那份模板（写 Microsoft Macintosh Word）
+    33 份都只带 `useFELayout`；LibreOffice 写的 38 份里 32 份一个裸开关都不写、6 份写另外三个名字。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"family": "ooxml", "available": False}
+        settings = None
+        if "word/settings.xml" in have:
+            try:
+                settings = ET.fromstring(box.read("word/settings.xml"))
+            except ET.ParseError:
+                settings = None
+
+    def attrs_of(node) -> dict:
+        out = {}
+        for key, value in node.attrib.items():
+            if key == "xmlns" or key.startswith("xmlns:"):
+                continue
+            out[key.rsplit("}", 1)[-1]] = value
+        return out
+
+    holders = [one for one in (settings.iter() if settings is not None else [])
+               if xml_local(one.tag) == "compat"]
+    kids = list(holders[0]) if holders else []
+    named = []
+    switches = []
+    for one in kids:
+        got = attrs_of(one)
+        if xml_local(one.tag) == "compatSetting":
+            named.append({"name": got.get("name"), "uri": got.get("uri"), "val": got.get("val")})
+            continue
+        raw = got.get("val")
+        switches.append({"name": xml_local(one.tag), "val_written": raw is not None,
+                         "val": raw, "on": raw not in ("0", "false")})
+    mode = [one["val"] for one in named if one["name"] == "compatibilityMode"]
+    seen = []
+    for one in named:
+        if one["name"] is not None and one["name"] not in seen:
+            seen.append(one["name"])
+    hit = []
+    for one in switches:
+        if one["name"] not in hit:
+            hit.append(one["name"])
+    return {
+        "family": "ooxml",
+        "available": True,
+        "settings_part": settings is not None,
+        "compat_written": bool(holders),
+        "compat_total": len(holders),
+        "children_total": len(kids),
+        "mode": mode[0] if mode else None,
+        "mode_total": len(mode),
+        "named": named[:limit],
+        "switches": switches[:limit],
+        "named_names": seen,
+        "switch_names": hit,
+        "names_in_both_encodings": sorted(set(seen) & set(hit)),
+        "uris": sorted(set(one["uri"] for one in named if one["uri"] is not None)),
+    }
+
+
+def odf_layout_compat(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF 没有 `<w:compat>` 这一格：LibreOffice 把兼容开关**摊平**在 `settings.xml` 的
+    `<config:config-item-set config:name="ooo:configuration-settings">` 里 —— 一条一个具名项，
+    类型写在 `config:type` 上、值写在正文里（`boolean` 的 `true` / `false`）。
+
+    实测这块**不是文字处理独有**：39/41 份 odt 有 settings.xml（其中 39 份都有这一组），
+    条数 121 到 123；而 14 份 ods 恒 39 条、11 份 odp 写 42 或 43 条，**但那四条名字里点 Word 的
+    一条都没有** —— 所以账本里这一本只在 office-doc 交。
+    那四条（`MsWordCompTrailingBlanks` / `MsWordCompMinLineHeightByFly` / `MsWordCompGridMetrics` /
+    `MsWordUlTrailSpace`）在 39/39 份 odt 全写，但不是常量：`MsWordUlTrailSpace` 39 份全 false，
+    另外三条多数 true，而 `tbox-lo.odt` 三条全 false、`images-float.odt` 只有一条 false。
+    与 OOXML 裸开关**同名**的只有一条：`DoNotBreakWrappedTables`（首字母大小写不同），
+    39 份 odt 里只有 2 份写（`notes-end.odt` / `nset.odt`），而带那枚开关的 .docx 有 4 份 —— 两头各丢。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"family": "odf", "available": False}
+        settings = None
+        if "settings.xml" in have:
+            try:
+                settings = ET.fromstring(box.read("settings.xml"))
+            except ET.ParseError:
+                settings = None
+
+    CFG = "{urn:oasis:names:tc:opendocument:xmlns:config:1.0}"
+    sets = [] if settings is None else [
+        one for one in settings.iter()
+        if xml_local(one.tag) == "config-item-set"
+        and one.get(CFG + "name") == "ooo:configuration-settings"]
+    kids = list(sets[0]) if sets else []
+    rows = []
+    types = {}
+    lowered = set(one.lower() for one in OOXML_COMPAT_SWITCHES)
+    for one in kids:
+        name = one.get(CFG + "name")
+        kind = one.get(CFG + "type")
+        types[kind] = types.get(kind, 0) + 1
+        via = None
+        if isinstance(name, str) and name.startswith("MsWord"):
+            via = "msword-prefix"
+        elif isinstance(name, str) and name.lower() in lowered:
+            via = "same-name"
+        if via is None:
+            continue
+        rows.append({"name": name, "type": kind,
+                     "value": (one.text or "").strip(), "via": via})
+    rows.sort(key=lambda one: str(one["name"]))
+    bools = [one for one in kids if one.get(CFG + "type") == "boolean"]
+    return {
+        "family": "odf",
+        "available": True,
+        "settings_part": settings is not None,
+        "item_set_written": bool(sets),
+        "items_total": len(kids),
+        "booleans_total": len(bools),
+        "booleans_true": len([one for one in bools if (one.text or "").strip() == "true"]),
+        "types": [{"type": key, "count": types[key]}
+         for key in sorted(types, key=lambda one: "-" if one is None else str(one))],
+        "compat_items": rows[:limit],
+        "compat_item_total": len(rows),
+        "same_name_rows": [one["name"] for one in rows if one["via"] == "same-name"],
+    }
+
+
 def odf_note_settings(path: Path, limit: int = 100) -> dict:
     r"""同一问在 ODF 是 `text:notes-configuration` 一份一类注，实测两份都在 **styles.xml**。
 
@@ -10658,6 +10806,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["languages"] = docx_languages(path)
             # 注的编号：settings 与 sectPr 两处各一份，内容可以不一样
             out["ooxml"]["note_settings"] = docx_note_settings(path)
+            # 排版兼容：<w:compat> 里同一类话有两种写法（具名项与裸开关）
+            out["ooxml"]["layout_compat"] = docx_layout_compat(path)
             # 域那一份账：两种写法、三种缺法，正文以外那几份部件一起扫
             out["ooxml"]["field_ledger"] = docx_field_ledger(path)
             out["ooxml"]["theme"] = themes
@@ -10723,6 +10873,8 @@ def facts(path: Path) -> dict:
             out["odt"]["languages"] = odf_languages(path)
             # 同一问在 ODF 是一类注一份 configuration
             out["odt"]["note_settings"] = odf_note_settings(path)
+            # 同一问在 ODF 是摊平的一堆具名项，四条名字里点了 Word 的只在 odt 出现
+            out["odt"]["layout_compat"] = odf_layout_compat(path)
             # 同一问在 ODF 是元素名本身：没有指令串，种类与格式全在名字与属性上
             out["odt"]["field_ledger"] = odf_field_ledger(path)
             # 这一族没有主题这个概念：交一本零条的账，而不是缺这个键

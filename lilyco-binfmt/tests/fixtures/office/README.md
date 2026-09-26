@@ -2366,6 +2366,49 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 
+133. **这份文件是按哪个版本的排版规则排的：OOXML 一种问话两种写法，ODF 摊平成另一套词汇，两边不折算**（72 份带 `<w:compat>` 的 OOXML / 39 份有 `settings.xml` 的 odt）
+    - 形状：OOXML 那一本（`structure.layout_compat`）交 `{family, available, settings_part, compat_written,
+      compat_total, children_total, mode, mode_total, named, switches, named_names, switch_names,
+      names_in_both_encodings, uris}`；ODF 那一本同键名而**换一套内容** `{family, available, settings_part,
+      item_set_written, items_total, booleans_total, booleans_true, types, compat_items, compat_item_total,
+      same_name_rows}`。键名相同不代表同一问：ODF 根本没有 `<w:compat>` 这一格，LibreOffice 把兼容开关摊进
+      `settings.xml` 的 `ooo:configuration-settings`，类型在 `config:type` 上、值在正文里。
+    - 两种写法的**语义差别**是这一本存在的全部理由：`<w:compatSetting>` 的值在 `w:val` 属性上，
+      而裸开关 `<w:useFELayout/>` **身上什么都没有**，在场即为开。实测 72 份里**一枚 `w:val` 都没写过**，
+      所以「在场即开」是本族料唯一走得通的读法；`w:val="0"` 与 `"false"` 说「明确不要」那一条读法
+      只有合成件能测（`layout_compat.rs` 的单测），真件里一个例子都没有。
+    - 裸开关只出现过四个名字（按 71 份 .docx 数：`useFELayout` 33、`doNotUseHTMLParagraphAutoSpacing` 6、
+      `doNotBreakWrappedTables` 4、`adjustLineHeightInTable` 2），具名项只出现过六个名字，`w:uri` 恒
+      `http://schemas.microsoft.com/office/word`，而两种写法的名字**互不重叠**（`names_in_both_encodings`
+      72 份全空）。`compatibilityMode` 三个答案：14（60 份）、15（6 份）、12（5 份）。
+    - 同一个 `<w:compat>` 两套笔迹（按 `docProps/app.xml` 的 Application 分）：33 份写着 Microsoft Macintosh Word
+      （python-docx 那个模板）**都只带 `useFELayout`**、也都写满四条具名项；LibreOffice 写的 38 份里 32 份
+      一个裸开关都不补。按「几条具名项 + 几枚裸开关」数是**六种搭配**：`4+1` 33 份、`4+0` 28 份、`1+2` 4 份
+      （`nset` 那一家）、`3+0` 3 份、`3+2` 2 份、`2+0` **只有一份** —— 「具名项至少写四条」是生产者的习惯，
+      不是这一格的规矩，所以两个数各交各的，不合成一个「有没有 compatSetting」。
+    - 那一份 `.docm` 是带这一格的**第 72 份**：账与那 33 份模板件同形（`compatibilityMode=14` 加三条、
+      一枚 `useFELayout`），而具名项的名字总数与 `w:uri` 都**不增** —— 第 72 份不是新形状，只是这一格
+      不独属于 .docx。整批 OOXML（132 份包的 2518 份 xml 部件，含 `.rels`）里 `<w:compat` 只出现在
+      `word/settings.xml`，且没有一份是空的（孩子数 2 到 5）。
+    - ODF 那一本不是常量也不是套话：`ooo:configuration-settings` 在 39/41 份 odt 里（另 2 份整个没有
+      `settings.xml` → 交空账，`settings_part` / `item_set_written` 是 false，而不是「有 0 条的一组」），
+      条数 121 / 122 / 123（36 份 122），`booleans_total` 只有 106 / 107 / 108 三种值，而 `booleans_true`
+      从 32 到 63（34 份 61）。名字里点了 Word 的四条 39 份**全写**，可 `MsWordUlTrailSpace` 39 份全 false、
+      另外三条多数 true，而 `tbox-lo.odt` 三条全 false、`images-float.odt` 只错开一条 —— 「兼容模式」在
+      这一族是四条各管一件事的开关，不是一枚版本号。
+    - 跨族**只核对同名，不译语义**：与 OOXML 裸开关同名的只有一条 `DoNotBreakWrappedTables`
+      （首字母大小写正好差一位），39 份 odt 里 2 份写它，而带那枚开关的 .docx 有 4 份 —— 一问两转，两头各丢。
+      同一组配置在另外两族也在（14 份 .ods 恒 39 条、12 份 .odp 里 11 份写 42 或 43 条、1 份没有 settings），
+      **但那四类点了 Word 的名字一条都没有** —— 所以这一本只在 office-doc 交。
+    - 缺键 = 这一族没这一层：RTF 与遗留 .doc 连 `layout_compat` 这个键都不出现（`.doc` 的兼容位在 FIB 的位段里，
+      而改那些位要 Word 本尊，本族料的 .doc 全出自 LibreOffice，判不住就不报）。放映设置那一类开关同理还没开。
+    - `--limit` 只砍列表、砍不动算术（与事实 131、132 那两本同一条规矩）：宏文档限到 2 时 `named` 交按文档顺序的
+      前两条，而 `named_names` 仍四条、`children_total` 5 不动；`nset.odt` 限到 1 时 `compat_items` 只剩按名字排的
+      第一条（正是同名那条），而 `compat_item_total` 5、`items_total` 123、`booleans_true` 63 全按整本数。
+    - 第二读者是 `office_reader.py` 的 `docx_layout_compat()` / `odf_layout_compat()`（两处出口：office-doc 的
+      OOXML 支与 ODF 支，与 Rust 的调用点对称）；probe 的 3bm 把**每一份 .docx / .docm / .odt** 的整本逐键与它对，
+      再钉上面那几条数（含 `w:val` 一条没写、六种搭配、两条空账），最后钉 RTF 与 .doc 那两族这个键**不在**。
+
 132. **正文里那只手指的账：三种点法、三条来路，而「解到哪一格」与「算出什么色」是两问**（132 个 OOXML 包 / 30404 条指针）
     - 事实 131 数的是格子里写了什么；这一本数的是正文**怎么指过去**：Word 的 `w:color/@themeColor`、
       DrawingML 的 `a:schemeClr/@val`、Excel 样式上的 `theme="N"`。三条点法各自数得回来
