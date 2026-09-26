@@ -607,13 +607,13 @@ fn rtf_toc_entries(rows: &[Value], target_marks: &[String]) -> Value {
         let level = level_from_style(style.as_deref());
         listed.push(json!({
             "index": listed.len(),
-            "paragraph": one["at"],
+            "paragraph": one["at"].clone(),
             "text": text,
             "page_written": page,
             // 制表符是文件自己写的还是没写：页码那一格靠它分开，所以这一格是那句
             // 「这一段到底排没排版码」的凭据，不是页码本身
             "tab_written": tab,
-            "style_index": one["style_index"],
+            "style_index": one["style_index"].clone(),
             "style": style,
             "anchor": Value::Null,
             "target_found": false,
