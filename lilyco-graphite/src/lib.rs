@@ -23,15 +23,20 @@
 //! ```ignore
 //! let mut host = GraphiteHost::new();
 //! host.new_document("demo");
-//! host.set_primary_color(parse_hex_color("#E14D2A")?);
+//! host.set_fill_color(parse_hex_color("#E14D2A")?); // 填充工作色（副色槽位）
 //! host.draw_rectangle(0., 0., 200., 100.);
 //! host.set_fill(0.5);
 //! let (name, bytes) = host.save_content()?; // .graphite 序列化字节
 //! ```
 
 pub mod app;
+pub mod export;
 pub mod host;
 
+pub use export::{gpu_available, render_png, render_svg};
 pub use host::{parse_hex_color, shared_host, GraphiteHost};
 
-pub use app::{GraphiteAddRect, GraphiteDocNew, GraphiteSave, GraphiteSetFill};
+pub use app::{
+    GraphiteAddRect, GraphiteDocNew, GraphiteExportPng, GraphiteExportSvg, GraphiteSave,
+    GraphiteSetFill,
+};

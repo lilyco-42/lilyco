@@ -12,7 +12,8 @@
 
 use lilyco::prelude::*;
 use lilyco_graphite::{
-    parse_hex_color, shared_host, GraphiteAddRect, GraphiteDocNew, GraphiteSave, GraphiteSetFill,
+    gpu_available, parse_hex_color, shared_host, GraphiteAddRect, GraphiteDocNew,
+    GraphiteExportPng, GraphiteExportSvg, GraphiteSave, GraphiteSetFill,
 };
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
@@ -229,6 +230,176 @@ fn save_writes_document_bytes_to_disk() {
     assert!(
         value.get("network_interface").is_some(),
         "产物应为 Graphite 文档序列化格式"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+// ── P1 出图验证：消息总线建图 → DynamicExecutor 渲染 → 图片文件落盘 ──
+
+/// **决定性 golden**：doc-new → add-rect(红) → export-svg → 断言真实 SVG 图片文件
+///
+/// 链路 = 消息总线文档 → save_content 序列化 → load_network → wrap_network_in_scope
+/// → Preprocessor → Compiler → DynamicExecutor → RenderConfig{Svg} 图求值 → SVG 落盘
+/// （官方 graphene-cli 同款渲染初始化序列，复刻见 src/export.rs）
+#[test]
+fn export_svg_renders_red_rect_golden() {
+    let _session = driver();
+
+    // 1) 消息总线建图：新建文档 + 红色矩形
+    // 注意：编辑器默认路由是 "副色喂填充、主色喂描边"，要出填充红必须设填充工作色
+    {
+        let mut host = lock_host();
+        host.new_document("export-svg");
+        host.set_fill_color(parse_hex_color("#E14D2A").unwrap());
+        host.draw_rectangle(10., 20., 200., 100.);
+    }
+
+    // 2) 经 App 层导出（不持宿主锁——handler 线程要拿宿主锁 save_content）
+    let path = std::env::temp_dir().join("lilyco-export-golden.svg");
+    let mut reg = Registry::new();
+    reg.register(RegisteredCommand::from_app::<GraphiteExportSvg>())
+        .unwrap();
+
+    let outcome = execute(
+        handler_of(&reg, "graphite-export-svg"),
+        serde_json::json!({
+            "out": path.to_string_lossy(),
+            "scale": 1.0,
+            "width": 256,
+            "height": 256,
+        }),
+    );
+    let result = outcome
+        .result
+        .expect("SVG 导出必须成功（这是 P1 决定性验证）");
+    assert!(result["bytes"].as_u64().unwrap() > 0, "SVG 应非空");
+    assert!(
+        outcome.events.iter().any(|e| matches!(
+            e,
+            Progress::Telemetry { key, value }
+                if key == "graphite.export_format" && value.as_str() == Some("svg")
+        )),
+        "应发出格式遥测"
+    );
+
+    // 3) 断言产物：真实存在的合法 SVG，含形状元素与填充色
+    // 注意：Graphite 的 SVG 渲染器把所有矢量形状统一发射为 <path d="…">（不发射
+    // <rect>，rect 只出现在 clipPath defs 里），所以这里断言 <path 而非 <rect>
+    let svg = std::fs::read_to_string(&path).expect("SVG 文件必须存在");
+    assert!(
+        svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\""),
+        "SVG 应以标准 <svg> 根元素开头（合法 XML），实际开头: {}",
+        &svg.chars().take(80).collect::<String>()
+    );
+    assert!(svg.trim_end().ends_with("</svg>"), "SVG 应有闭合根元素");
+    assert!(svg.contains("<path d="), "应包含 <path> 矢量形状元素");
+
+    // 失败诊断数据：序列化文档里的节点全貌（fill 节点是否落进文档一查便知）
+    let doc_dump = {
+        let (_, bytes) = lock_host().save_content().unwrap();
+        String::from_utf8_lossy(&bytes).to_string()
+    };
+    assert!(
+        svg.to_lowercase().contains("e14d2a"),
+        "应包含矩形填充色 #E14D2A（SVG 内以 fill=\"#…\" 十六进制发射）。\
+         实际 fill 属性: {:?}；SVG 全文: {svg}；文档 JSON: {}",
+        svg.match_indices("fill=")
+            .map(|(i, _)| &svg[i..svg.len().min(i + 40)])
+            .collect::<Vec<_>>(),
+        &doc_dump[..doc_dump.len().min(24000)]
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+/// 从 .graphite 文件渲染（而非当前文档）：save 落盘 → export-svg 读盘渲染
+#[test]
+fn export_svg_from_saved_file_roundtrip() {
+    let _session = driver();
+
+    // 建图并落盘成 .graphite 文件
+    let doc_path = std::env::temp_dir().join("lilyco-export-roundtrip.graphite");
+    {
+        let mut host = lock_host();
+        host.new_document("roundtrip");
+        host.set_fill_color(parse_hex_color("#2244EE").unwrap());
+        host.draw_rectangle(0., 0., 80., 40.);
+        let (_, bytes) = host.save_content().unwrap();
+        std::fs::write(&doc_path, &bytes).unwrap();
+    }
+
+    let out_path = std::env::temp_dir().join("lilyco-export-roundtrip.svg");
+    let mut reg = Registry::new();
+    reg.register(RegisteredCommand::from_app::<GraphiteExportSvg>())
+        .unwrap();
+
+    let outcome = execute(
+        handler_of(&reg, "graphite-export-svg"),
+        serde_json::json!({
+            "doc": doc_path.to_string_lossy(),
+            "out": out_path.to_string_lossy(),
+            "width": 256,
+            "height": 256,
+        }),
+    );
+    let result = outcome.result.expect("从文件渲染 SVG 必须成功");
+    assert!(result["bytes"].as_u64().unwrap() > 0);
+
+    let svg = std::fs::read_to_string(&out_path).unwrap();
+    assert!(
+        svg.contains("<path d="),
+        "文件渲染产物应含 <path> 矢量形状元素"
+    );
+    assert!(
+        svg.to_lowercase().contains("2244ee"),
+        "文件渲染产物应含填充色 #2244EE"
+    );
+    let _ = std::fs::remove_file(&doc_path);
+    let _ = std::fs::remove_file(&out_path);
+}
+
+/// PNG 导出（GPU/Vello 路径，尽力而为）：有可用 GPU 时完整跑通并断言 PNG 魔数；
+/// 无 GPU（裸 CI 容器）时优雅跳过——不阻塞 CI，结论随 PR 汇报。
+#[test]
+fn export_png_when_gpu_available() {
+    // GPU 软探测：WgpuExecutor 初始化失败 → 跳过（装了 Mesa lavapipe/llvmpipe 的
+    // CI 或有独显的本机会真实执行）
+    if !gpu_available() {
+        eprintln!(
+            "跳过 PNG 导出测试：当前环境无可用 GPU 执行器（WgpuExecutor 初始化失败）。\
+             SVG 为主力出图路径不受影响；需要验证 PNG 时安装 Mesa 软件 GPU 栈 \
+             （mesa-vulkan-drivers/libegl1）后重跑"
+        );
+        return;
+    }
+
+    let _session = driver();
+    {
+        let mut host = lock_host();
+        host.new_document("export-png");
+        host.set_fill_color(parse_hex_color("#E14D2A").unwrap());
+        host.draw_rectangle(10., 20., 200., 100.);
+    }
+
+    let path = std::env::temp_dir().join("lilyco-export-golden.png");
+    let mut reg = Registry::new();
+    reg.register(RegisteredCommand::from_app::<GraphiteExportPng>())
+        .unwrap();
+
+    let outcome = execute(
+        handler_of(&reg, "graphite-export-png"),
+        serde_json::json!({
+            "out": path.to_string_lossy(),
+            "width": 256,
+            "height": 256,
+        }),
+    );
+    let result = outcome.result.expect("有 GPU 时 PNG 导出必须成功");
+    assert!(result["bytes"].as_u64().unwrap() > 0, "PNG 应非空");
+
+    let png = std::fs::read(&path).expect("PNG 文件必须存在");
+    assert!(
+        png.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]),
+        "产物应为 PNG 魔数开头"
     );
     let _ = std::fs::remove_file(&path);
 }
