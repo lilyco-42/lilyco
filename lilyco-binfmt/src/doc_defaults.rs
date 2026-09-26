@@ -529,19 +529,28 @@ mod tests {
     /// 一份只有 `<w:docDefaults>` 与 Normal 样式的 styles.xml
     fn docx_with(defaults: &str, normal: &str) -> Value {
         let body = format!(
-            "<w:styles {W}>{defaults}<w:style w:type=\"paragraph\" w:styleId=\"Normal\">{normal}\
+            "<w:styles {W}><w:docDefaults>{defaults}</w:docDefaults>\
+             <w:style w:type=\"paragraph\" w:styleId=\"Normal\">{normal}\
              </w:style></w:styles>",
             W = W_ATTR,
             defaults = defaults,
             normal = normal
         );
-        docx(
+        let mine = docx(
             &packed(&[
                 ("word/document.xml", "<w:document/>"),
                 ("word/styles.xml", body.as_str()),
             ]),
             100,
-        )
+        );
+        // 这个助手得真的写出一块：少了 `<w:docDefaults>` 那层包装时下面每条断言读的都是
+        // 「这块压根没有」那一份答案，测试照样绿 —— 所以闸门放在这里
+        assert_eq!(
+            mine["blocks_total"],
+            json!(1),
+            "助手没写出 docDefaults 那一块"
+        );
+        mine
     }
 
     /// 两跳都可能断：没有 `pPrDefault` 不等于「段落默认值是空的」，
