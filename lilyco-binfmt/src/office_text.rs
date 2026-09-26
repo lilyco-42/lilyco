@@ -420,9 +420,11 @@ fn run_office_text(app: &OfficeText, ctx: &Context) -> Result<Value, AppError> {
                     let budget = crate::opack::take_limit(app.max_chars, MAX_CHARS_DEFAULT);
                     markdown = Some(crate::markdown::odf(bytes, budget));
                 }
-                if app.markdown && doc.app == "presentation" {
+                if app.markdown && doc.app == "powerpoint" {
                     // 放映的大纲走页序（`content.xml` 里 `draw:page` 的先后），不是上面那份
-                    // 全文段序：这一本按页交，两序本来可以不一样，各按各的交不合并
+                    // 全文段序：这一本按页交，两序本来可以不一样，各按各的交不合并。
+                    // `doc.app` 这一族沿用 OOXML 那三个名字（odp 是 "powerpoint"，见 `opack.rs`），
+                    // 写成 "presentation" 会一句也不进 —— 那是 CI 的那条 Null 教的
                     let budget = crate::opack::take_limit(app.max_chars, MAX_CHARS_DEFAULT);
                     markdown = Some(crate::markdown::odp_deck(bytes, budget));
                 }
