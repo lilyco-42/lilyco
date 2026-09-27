@@ -1982,6 +1982,82 @@ def write_images_docx(path: Path, dot: Path) -> None:
     doc.save(path)
 
 
+def write_picture_dpi_images(root: Path) -> dict:
+    """图自己那 24 个字节说的东西：五种格式、四种密度来历、一张被硬拉的
+
+    每一张的用途（全部实测过才写下来）：
+    - `dot300.png` 40×24、pHYs 11811 像素/米（= 300 DPI，注意 300/0.0254 取整成
+      11811，反算回来是 299.9994，所以 DPI 只能交四舍五入的整数）
+    - `dot72.png` 同一张像素、pHYs 2835（72 DPI）—— 与上一张**看着一样而字节不同**，
+      LibreOffice 转 ODF 时把两张并成了一张（见 README 事实 136）
+    - `bar150.jpg` 60×30、JFIF 单位 1（=英寸）150×150
+    - `bare0.jpg` 48×20、Pillow 不带 `dpi` 参数时也写 JFIF，只是把单位字节写成 0
+      （=只表纵横比）而密度两个数各写 1 —— 「有这一格」与「这一格没说」是两件事
+    - `dot.gif` / `dot.bmp` / `dot.tif` 各 32×16，python-docx 认这三种、不认 webp；
+      BMP 白送 3780 像素/米（= 96 DPI），TIFF 一个分辨率标签都不写（Pillow 的默认）
+    - `res.tif` 44×22 带 `XResolution/YResolution`（RATIONAL，走偏移那一跳）与
+      `ResolutionUnit=2`（英寸）—— TIFF 那一路密度要三张标签配合才说得清
+    """
+    from PIL import Image
+
+    root.mkdir(parents=True, exist_ok=True)
+    out: dict = {}
+    red = (200, 30, 30)
+    for name, size, dpi, mode, save in (
+        ("dot300.png", (40, 24), (300, 300), "RGB", {}),
+        ("dot72.png", (40, 24), (72, 72), "RGB", {}),
+        ("bar150.jpg", (60, 30), (150, 150), "RGB", {}),
+        ("bare0.jpg", (48, 20), None, "RGB", {}),
+        ("dot.gif", (32, 16), None, "P", {}),
+        ("dot.bmp", (32, 16), None, "RGB", {}),
+        ("dot.tif", (32, 16), None, "RGB", {}),
+        ("res.tif", (44, 22), None, "RGB", {"x_resolution": 300,
+                                            "y_resolution": 300,
+                                            "resolution_unit": "inch"}),
+    ):
+        one = root / name
+        image = Image.new(mode, size, red)
+        if mode == "P":
+            image = image.convert("P")
+        if dpi is None:
+            image.save(one, **save)
+        else:
+            image.save(one, dpi=dpi)
+        out[name] = one
+    return out
+
+
+def write_picture_dpi_docx(path: Path, arts: dict) -> None:
+    """一份文档里九张图：原尺寸、放大、硬拉、以及 gif/bmp/tif 三种格式
+
+    三条尺寸各占一样，全都是从生产者手里量出来的（`docx/shared` 那套 EMU 换算）：
+    - 只给 `dot300.png` 不给尺寸：python-docx 按 pHYs 算出 `121920×73152` EMU，
+      也就是**图片自带 DPI 的原尺寸**（3.39mm × 2.03mm）
+    - 同一张只给 `width=Cm(8)`：python-docx 自己按纵横比补出 `cy`，两处数一致
+    - `dot72.png` 给 `width=Cm(4), height=Cm(1)`：**纵横比被硬拉**（40×24 塞进 40×10mm）
+    - 剩下几张（jpeg×2/gif/bmp/tif×2）各给 `width=Cm(3)`，只为让五种格式的头部都被读到
+    """
+    from docx import Document
+    from docx.shared import Cm
+
+    doc = Document()
+    doc.add_paragraph("原尺寸那一张（按图自带的 300 DPI）。")
+    doc.add_picture(str(arts["dot300.png"]))
+    doc.add_paragraph("放大那一张（同一张图，只给宽度）。")
+    doc.add_picture(str(arts["dot300.png"]), width=Cm(8))
+    doc.add_paragraph("硬拉那一张（宽 4cm、高 1cm，而图是 40×24）。")
+    doc.add_picture(str(arts["dot72.png"]), width=Cm(4), height=Cm(1))
+    doc.add_paragraph("另外几种格式各一张。")
+    doc.add_picture(str(arts["bar150.jpg"]), width=Cm(3))
+    doc.add_picture(str(arts["bare0.jpg"]), width=Cm(3))
+    doc.add_picture(str(arts["dot.gif"]), width=Cm(3))
+    doc.add_picture(str(arts["dot.bmp"]), width=Cm(3))
+    doc.add_picture(str(arts["dot.tif"]), width=Cm(3))
+    doc.add_picture(str(arts["res.tif"]), width=Cm(3))
+    doc.add_paragraph("最后一段。")
+    doc.save(path)
+
+
 def poke_anchor(src: Path, dst: Path) -> None:
     """把 `images.odt` 那一格的锚点改成 page，让 LibreOffice 有理由写出 `wp:anchor`
 
@@ -4361,6 +4437,31 @@ def main() -> int:
                 shutil.copyfile(again, OUT / "images-float.odt")
             else:
                 print("⚠️  没拿到 images-float.odt（anchor 那一族转回 ODF）")
+
+    # 图自己那一份账（事实 136）：一份 docx 里九张图（五种格式、三种尺寸来历），
+    # 再让 LibreOffice 转出 odt 与 rtf —— 那一家把尺寸拆成「目标 × 缩放百分比」两半
+    arts = write_picture_dpi_images(SCRATCH / "pics")
+    dpi_docx = OUT / "images-dpi.docx"
+    write_picture_dpi_docx(dpi_docx, arts)
+    convert(exe, dpi_docx, "odt", SCRATCH / "dpi-odt")
+    made = SCRATCH / "dpi-odt" / "images-dpi.odt"
+    if made.exists():
+        shutil.copyfile(made, OUT / "images-dpi.odt")
+        # 同一条 LO 的两副 OOXML：这一份里 LO 把 .jpg 部件改写成了 .jpeg
+        convert(exe, OUT / "images-dpi.odt", "docx", SCRATCH / "dpi-back")
+        again = SCRATCH / "dpi-back" / "images-dpi.docx"
+        if again.exists():
+            shutil.copyfile(again, OUT / "images-dpi-lo.docx")
+        else:
+            print("⚠️  没拿到 images-dpi-lo.docx（dpi 那一族转回 docx）")
+    else:
+        print("⚠️  没拿到 images-dpi.odt")
+    convert(exe, dpi_docx, "rtf", SCRATCH / "dpi-rtf")
+    made = SCRATCH / "dpi-rtf" / "images-dpi.rtf"
+    if made.exists():
+        shutil.copyfile(made, OUT / "images-dpi.rtf")
+    else:
+        print("⚠️  没拿到 images-dpi.rtf")
 
     # 页上那两张图：pptx 由 python-pptx 写，odp 由 LibreOffice 导出，再转回一份 pptx
     # （第三份正是那条来回：LO 的 OOXML 会丢掉 a:picLocks 并把尺寸换成另一个 EMU 数）

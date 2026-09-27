@@ -70,6 +70,7 @@ mod page_numbering;
 mod paper;
 mod para_borders;
 mod pdf;
+mod picture_bytes;
 mod placeholders;
 mod ppt;
 mod print_ranges;

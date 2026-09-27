@@ -8692,7 +8692,7 @@ def main() -> int:
             check("%s 的 ODF 那一面没有主题这个概念（零条）" % name,
                   dig(lbin(command, fixture(name), "--limit", "400"), key),
                   files[name][mine]["theme"])
-    # 语料级：整库 194 个部件（来自上面三份 OOXML 家族的真件，不是读者算的）
+    # 语料级：整库 196 个部件（来自上面三份 OOXML 家族的真件，不是读者算的）
     dk1_sys = [one["part"] for one in theme_rows
                if one["slots"] and one["slots"][0]["kind"] == "sysClr"]
     with_extra = [one["part"] for one in theme_rows
@@ -8701,33 +8701,33 @@ def main() -> int:
     fmt_shapes = sorted({tuple((x["list"], x["entries"]) for x in one["fmt"])
                          for one in theme_rows})
     check(
-        "整库 194 个主题部件的三条自证：十二格的名字与顺序全对（194/194 canonical、每本 12 格）、"
+        "整库 196 个主题部件的三条自证：十二格的名字与顺序全对（196/196 canonical、每本 12 格）、"
         "fmtScheme 全是四列各三条（数出来的一致，不是照规范抄的）、"
-        "而 dk1 用 sysClr 的那一批与写了 extraClrSchemeLst 的那一批是同一批（68 = 68，一份不差）—— "
+        "而 dk1 用 sysClr 的那一批与写了 extraClrSchemeLst 的那一批是同一批（69 = 69，一份不差）—— "
         "「MS 那一路」在这两个记号上同进同出，所以这一路认得出",
         [len(theme_rows), sum(1 for one in theme_rows if one["unread"]),
          sorted({one["slot_total"] for one in theme_rows}),
          sum(1 for one in theme_rows if one["canonical"]), fmt_shapes,
          len(dk1_sys), len(with_extra), sorted(dk1_sys) == sorted(with_extra)],
-        [194, 0, [12], 194, [(("fillStyleLst", 3), ("lnStyleLst", 3), ("effectStyleLst", 3),
-                             ("bgFillStyleLst", 3))], 68, 68, True],
+        [196, 0, [12], 196, [(("fillStyleLst", 3), ("lnStyleLst", 3), ("effectStyleLst", 3),
+                             ("bgFillStyleLst", 3))], 69, 69, True],
     )
     check(
-        "一个部件里的三个 @name 各说各的：theme 两种（Office Theme 187 / Office 7）、"
-        "clrScheme 两种（Office 186 / LibreOffice 8，LibreOffice 重写时改的就是这一个）、"
-        "fontScheme 一种（194 个全写 Office），而 fmtScheme 只在那 68 个里点名",
+        "一个部件里的三个 @name 各说各的：theme 两种（Office Theme 189 / Office 7）、"
+        "clrScheme 两种（Office 188 / LibreOffice 8，LibreOffice 重写时改的就是这一个）、"
+        "fontScheme 一种（196 个全写 Office），而 fmtScheme 只在那 69 个里点名",
         [dict(Counter(one["theme_name"] for one in theme_rows)),
          dict(Counter(one["scheme_name"] for one in theme_rows)),
          dict(Counter(one["font_name"] for one in theme_rows)),
          dict(Counter("写了" if one["fmt_name"] is not None else "没写" for one in theme_rows))],
-        [{"Office Theme": 187, "Office": 7}, {"Office": 186, "LibreOffice": 8},
-         {"Office": 194}, {"没写": 126, "写了": 68}],
+        [{"Office Theme": 189, "Office": 7}, {"Office": 188, "LibreOffice": 8},
+         {"Office": 196}, {"没写": 127, "写了": 69}],
     )
     check(
-        "字体那三槽的待遇：latin 388 个角色全写了名字（没有一个空串），"
-        "ea 与 cs 各是 164 写了值、224 写了空串、0 个没这个槽 —— "
+        "字体那三槽的待遇：latin 392 个角色全写了名字（没有一个空串），"
+        "ea 与 cs 各是 166 写了值、226 写了空串、0 个没这个槽 —— "
         "空串与不在场是两件事，这一本分列而不是并成一格；"
-        "按书写系统分的那一批 6650 条，29 或 30 条一套（差一枚 Geor），"
+        "按书写系统分的那一批 6710 条，29 或 30 条一套（差一枚 Geor），"
         "而 script=Hans 那一条整库只有一个答案",
         [len(roles),
          [sum(1 for one in roles if isinstance(one[which], str) and one[which] != "")
@@ -8738,8 +8738,8 @@ def main() -> int:
          sorted(Counter(len(one["faces"]) for one in roles).items()),
          sorted({one["typeface"] for role in roles for one in role["faces"]
                  if one["script"] == "Hans"})],
-        [388, [388, 164, 164], [0, 224, 224], [0, 0, 0], 6650,
-         [(0, 164), (29, 70), (30, 154)], ["宋体"]],
+        [392, [392, 166, 166], [0, 226, 226], [0, 0, 0], 6710,
+         [(0, 166), (29, 70), (30, 156)], ["宋体"]],
     )
     d = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "400"), "theme")
     dl = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "5"), "theme")
@@ -8839,10 +8839,10 @@ def main() -> int:
     for row in ref_rows:
         via.update(row["totals"]["by_via"])
     check(
-        "132 个 OOXML 包 30404 条手指：三条点法各自数得回来（Word 25084 + DrawingML 5210 + Excel 序号 110），"
-        "走过 1832 个 `.xml` 部件一个都没读不开（`parts_unread` 0），其中 194 个是主题部件（与主题那本同一数）、"
-        "543 个部件里手指在场；名字→格的三条来路之和也是 30404 —— 名字本身就是一格 5957、"
-        "Word 那一族的别名 21628、文件自己写的 `a:clrMap` 580、序号 110，剩下 2129 条交 null 而不照着规范替文件补",
+        "134 个 OOXML 包 30984 条手指：三条点法各自数得回来（Word 25635 + DrawingML 5239 + Excel 序号 110），"
+        "走过 1855 个 `.xml` 部件一个都没读不开（`parts_unread` 0），其中 196 个是主题部件（与主题那本同一数）、"
+        "548 个部件里手指在场；名字→格的三条来路之和也是 30984 —— 名字本身就是一格 6056、"
+        "Word 那一族的别名 22085、文件自己写的 `a:clrMap` 580、序号 110，剩下 2153 条交 null 而不照着规范替文件补",
         [len(ref_rows), summed["refs"], summed["wml_color"], summed["scheme_clr"],
          summed["theme_index"], summed["parts_scanned"], summed["parts_unread"],
          summed["theme_parts"], summed["parts_with_refs"],
@@ -8851,16 +8851,16 @@ def main() -> int:
           sum(via.values())],
          [summed["alias_names"], summed["alias_conflict"], summed["clr_map_written"],
           summed["skip_multi_value"]]],
-        [132, 30404, 25084, 5210, 110, 1832, 0, 194, 543,
-         [5957, 24447, 28275, 2129],
-         [5957, 21628, 580, 110, 2129, 30404],
+        [134, 30984, 25635, 5239, 110, 1855, 0, 196, 548,
+         [6056, 24928, 28831, 2153],
+         [6056, 22085, 580, 110, 2153, 30984],
          [252, 0, 83, 0]],
     )
     check(
-        "解不出那 2129 条不是「读不到」而是文件自己没说，而且数目能拆开对：按名字 "
-        "`phClr` 2079 条（主题占位色，压根不是那十二格之一）+ `dark2` 8 条（整批带 shade，别名表不收）"
-        "剩 42 条；`tx1` / `bg1` 一共 622 条，走 `a:clrMap` 解出的 580 条，"
-        "两本一减也是 42 —— 两个方向算出同一个数，那 42 条就是落在没写对照的包里的那些",
+        "解不出那 2153 条不是「读不到」而是文件自己没说，而且数目能拆开对：按名字 "
+        "`phClr` 2100 条（主题占位色，压根不是那十二格之一）+ `dark2` 10 条（整批带 shade，别名表不收）"
+        "剩 43 条；`tx1` / `bg1` 一共 623 条，走 `a:clrMap` 解出的 580 条，"
+        "两本一减也是 43 —— 两个方向算出同一个数，那 43 条就是落在没写对照的包里的那些",
         [via["(没写)"],
          sum(row["totals"]["by_name"].get("schemeClr", {}).get("phClr", 0) for row in ref_rows),
          sum(row["totals"]["by_name"].get("wmlColor", {}).get("dark2", 0) for row in ref_rows),
@@ -8869,15 +8869,15 @@ def main() -> int:
          via["clrMap"],
          sum(row["totals"]["by_name"].get("schemeClr", {}).get(one, 0) for one in ("tx1", "bg1")
              for row in ref_rows) - via["clrMap"],
-         via["(没写)"] - 2079 - 8],
-        [2129, 2079, 8, 622, 580, 42, 42],
+         via["(没写)"] - 2100 - 10],
+        [2153, 2100, 10, 623, 580, 43, 43],
     )
     doc_rows = ref_groups["*.docx"] + ref_groups["*.docm"]
     check(
         "Word 那一路是自己跟自己核对的：每一条 `w:color` 都另写了一遍六位实色当影子，"
-        "无修饰符的 22440 条与本包主题那一格逐条对上、`mismatched` 0 条，"
-        "剩下 3298 条带 `themeTint` / `themeShade`（不算色）、238 条连影子都没写、286 条点不出格 —— "
-        "四种判不住分列，加起来正好是那一路的 26262 条，一条也没被揉成一格",
+        "无修饰符的 22924 条与本包主题那一格逐条对上、`mismatched` 0 条，"
+        "剩下 3376 条带 `themeTint` / `themeShade`（不算色）、245 条连影子都没写、297 条点不出格 —— "
+        "四种判不住分列，加起来正好是那一路的 26842 条，一条也没被揉成一格",
         [len(doc_rows), sum(one["totals"]["wml_color"] for one in doc_rows),
          sum(one["totals"]["matched"] for one in doc_rows),
          sum(one["totals"]["mismatched"] for one in doc_rows),
@@ -8889,7 +8889,7 @@ def main() -> int:
              + one["totals"]["skip_modified"] + one["totals"]["skip_no_literal"]
              + one["totals"]["skip_no_slot"] + one["totals"]["skip_multi_value"]
              for one in doc_rows)],
-        [72, 25084, 22440, 0, 3298, 238, 286, 26262, 26262],
+        [74, 25635, 22924, 0, 3376, 245, 297, 26842, 26842],
     )
     idx_rows = [one for one in ref_rows if one["totals"]["theme_index"]]
     check(
@@ -8911,7 +8911,7 @@ def main() -> int:
     chart_tx = [one for one in files["chart-lo.xlsx"]["ooxml"]["color_refs"]["refs"]
                 if one["name"] in ("tx1", "bg1")]
     check(
-        "`a:clrMap` 只有幻灯片这一族写（21 份 pptx 全写、Word 与 Excel 那 111 个包一个都不写），"
+        "`a:clrMap` 只有幻灯片这一族写（21 份 pptx 全写、Word 与 Excel 那 113 个包一个都不写），"
         "而 83 份对照说的是同一套十二对（`alias_conflict` 0）：于是同名的一指在两种包里两个答案 —— "
         "deck.pptx 里 62 条 tx1/bg1 由文件自己解到 dk1/lt1，chart-lo.xlsx 那 8 条同一名字落在"
         "没写对照的包里就交解不出（slot null、via null），不是猜一个补上",
@@ -8921,7 +8921,7 @@ def main() -> int:
          sum(one["totals"]["by_via"].get("clrMap", 0) for one in ref_rows),
          len(deck_tx), sorted({(one["slot"], one["via"]) for one in deck_tx}),
          len(chart_tx), sorted({(one["slot"], one["via"], one["part"]) for one in chart_tx})],
-        [21, 111, 83, 580, 62, [("dk1", "clrMap"), ("lt1", "clrMap")],
+        [21, 113, 83, 580, 62, [("dk1", "clrMap"), ("lt1", "clrMap")],
          8, [(None, None, "xl/charts/style1.xml"), (None, None, "xl/charts/style2.xml")]],
     )
     crefs = dig(lbin("office-doc", fixture("bkmks.docx"), "--limit", "400"),
@@ -8931,14 +8931,14 @@ def main() -> int:
     check(
         "限额这一格只管列几条，不管这份包里的账：`--limit 5` 交 5 条而 `total` 与合计仍是 543 条的账"
         "（`parts_scanned` 13、`parts_with_refs` 3、`matched` 466 一个都不动）—— "
-        "整库被 400 截住的只有那 34 个 Word 包，`cut` 就是说给你听的",
+        "整库被 400 截住的只有那 35 个 Word 包，`cut` 就是说给你听的",
         [crefs["total"], crefs["listed"], crefs["cut"], crefs5["total"], crefs5["listed"],
          crefs5["cut"], crefs5["totals"]["refs"], crefs5["totals"]["parts_scanned"],
          crefs5["totals"]["parts_with_refs"], crefs5["totals"]["matched"],
          sorted(one["part"] for one in crefs5["refs"])[:2],
          sum(1 for one in ref_rows if one["cut"])],
         [543, 400, True, 543, 5, True, 543, 13, 3, 466,
-         ["word/styles.xml", "word/styles.xml"], 34],
+         ["word/styles.xml", "word/styles.xml"], 35],
     )
     check(
         "第一条就是这样写的：`word/styles.xml` 里 `rPr` 上那枚 `w:color`，名字 accent1 本身就是一格"
@@ -8956,7 +8956,7 @@ def main() -> int:
                     "clr_map_written", "wml_color", "scheme_clr", "theme_index",
                     "resolved", "unresolved", "matched"]
     for pattern, describe, want_packages, want_scanned in (
-        ("*.odt", "文字", 41, 213),
+        ("*.odt", "文字", 42, 218),
         ("*.ods", "表格", 14, 76),
         ("*.odp", "演示", 12, 68),
     ):
@@ -9002,16 +9002,16 @@ def main() -> int:
               files[name]["odt"]["layout_compat"])
     for name in sorted(one.name for one in FIXTURES.glob("*.docm")):
         got = lbin("office-doc", fixture(name))
-        check("%s 排版兼容那份账与读者一致（这一族的第 72 份，带这一格的是 .docx 之外还有宏文档）" % name,
+        check("%s 排版兼容那份账与读者一致（这一族的第 74 份，带这一格的是 .docx 之外还有宏文档）" % name,
               dig(got, "structure.layout_compat"),
               files[name]["ooxml"]["layout_compat"])
     dm = dig(lbin("office-doc", fixture("notes.docm")), "structure.layout_compat")
     check(
-        "那一份 .docm 是带这一格的**第 72 份**（71 份 .docx 全有，宏文档也有），而它的账与那 33 份"
+        "那一份 .docm 是带这一格的**第 74 份**（73 份 .docx 全有，宏文档也有），而它的账与那 34 份"
         " python-docx 模板件同形：`compatibilityMode=14` 之外还带三条具名项（`overrideTableStyleFontSizeAndJustification`"
         " / `enableOpenTypeFeatures` / `doNotFlipMirrorIndents`，三条的 `w:val` 都写着 1），裸开关仍然只有"
         " `useFELayout` 一枚。把宏文档算进来，具名项的名字总数**不增**（还是六个）、`w:uri` 也不增 —— "
-        "第 72 份不是新形状，只是这一格不独属于 .docx",
+        "第 74 份不是新形状，只是这一格不独属于 .docx",
         [dm["children_total"], dm["mode"], len(dm["named"]), dm["named_names"],
          dm["named"][1:], len(dm["switches"]), dm["switch_names"],
          dm["names_in_both_encodings"], dm["uris"], dm["mode_total"]],
@@ -9034,13 +9034,13 @@ def main() -> int:
         key = "%d+%d" % (len(book["named"]), len(book["switches"]))
         shapes[key] = shapes.get(key, 0) + 1
     check(
-        "两种写法在同一段里搭配出六种形状（71 份 .docx 按「几条具名项 + 几枚裸开关」数）："
-        "`4+1` 是那 33 份模板件，`4+0` 是 28 份 LibreOffice 重写且一个开关都不补，`1+2` 是 `nset` 那一家"
-        "四份（只说 compatibilityMode 与两枚开关），`3+0` 三份、`3+2` 两份，而 `2+0` **只有一份** —— "
+        "两种写法在同一段里搭配出六种形状（73 份 .docx 按「几条具名项 + 几枚裸开关」数）："
+        "`4+1` 是那 34 份模板件，`4+0` 是 28 份 LibreOffice 重写且一个开关都不补，`1+2` 是 `nset` 那一家"
+        "四份（只说 compatibilityMode 与两枚开关），`3+0` 四份、`3+2` 两份，而 `2+0` **只有一份** —— "
         "所以「具名项至少写四条」是生产者的习惯，不是这一格的规矩",
         [shapes.get("4+1"), shapes.get("4+0"), shapes.get("1+2"), shapes.get("3+0"),
          shapes.get("3+2"), shapes.get("2+0"), len(shapes)],
-        [33, 28, 4, 3, 2, 1, 6],
+        [34, 28, 4, 4, 2, 1, 6],
     )
     bad = sorted(one for one, had in compat.items() if not (
         had["ooxml"]["layout_compat"]["settings_part"]
@@ -9058,12 +9058,12 @@ def main() -> int:
         for one in book["switch_names"]:
             switches[one] = switches.get(one, 0) + 1
     check(
-        "全语料不变量（71 份 .docx）：`<w:compat>` 只在 `word/settings.xml`（132 份 OOXML 包的 2518 份 "
+        "全语料不变量（73 份 .docx）：`<w:compat>` 只在 `word/settings.xml`（134 份 OOXML 包的 2546 份 "
         "xml 部件里只此一名）、没有一份是空的、两种写法的名字互不重叠、`w:uri` 恒那一条、"
         "而**没有一枚裸开关写过 `w:val`** —— 违反的那几份交出来（这里应当是空表）",
         [len(compat), bad, modes, switches],
-        [71, [], {"14": 60, "15": 6, "12": 5},
-         {"useFELayout": 33, "doNotUseHTMLParagraphAutoSpacing": 6,
+        [73, [], {"14": 61, "15": 7, "12": 5},
+         {"useFELayout": 34, "doNotUseHTMLParagraphAutoSpacing": 6,
           "doNotBreakWrappedTables": 4, "adjustLineHeightInTable": 2}],
     )
     only_fe = sorted(one for one, had in compat.items() if had["ooxml"]["layout_compat"]["switch_names"]
@@ -9077,13 +9077,13 @@ def main() -> int:
                       if not had["odt"]["layout_compat"]["item_set_written"])
     check(
         "同一个 `<w:compat>` 两套笔迹（按 `docProps/app.xml` 的 Application 分）：python-docx 那份模板"
-        "（写着 Microsoft Macintosh Word）33 份**都只带 `useFELayout`**，另外 38 份出自 LibreOffice、"
-        "其中 32 份一个裸开关都不写。而跨到 ODF 那一头是**另一套丢法**：带 `doNotBreakWrappedTables` "
+        "（写着 Microsoft Macintosh Word）34 份**都只带 `useFELayout`**，另外 39 份出自 LibreOffice、"
+        "其中 33 份一个裸开关都不写。而跨到 ODF 那一头是**另一套丢法**：带 `doNotBreakWrappedTables` "
         "的 .docx 有 4 份，只有一条同名字段的 .odt 只有 2 份，另有 2 份 odt 整个没有 settings.xml",
         [len(only_fe), only_fe[:1], len(with_break), with_break, len(flat),
          same_name, no_block],
-        [33, ["bkmks.docx"], 4,
-         ["notes-end.docx", "notes-foot.docx", "nset-lo.docx", "nset.docx"], 41,
+        [34, ["bkmks.docx"], 4,
+         ["notes-end.docx", "notes-foot.docx", "nset-lo.docx", "nset.docx"], 42,
          ["notes-end.odt", "nset.odt"], ["pnum.odt", "tbox.odt"]],
     )
     lc_docx = lbin("office-doc", fixture("nset.docx"))
@@ -9123,7 +9123,7 @@ def main() -> int:
           {"type": "string", "count": 6}], 5],
     )
     check(
-        "那四条名字 39 份全写，**可值不是套话**：`MsWordUlTrailSpace` 39 份全 false，"
+        "那四条名字 40 份全写，**可值不是套话**：`MsWordUlTrailSpace` 40 份全 false，"
         "另外三条多数 true —— 而 `tbox-lo.odt` 四条全 false、`images-float.odt` 只错开一条。"
         "（每份按名字排序，所以第一格在同名那一条存在时是 `DoNotBreakWrappedTables`）",
         [dict((one, [row["value"] for row in
@@ -9179,7 +9179,7 @@ def main() -> int:
               files[name]["ooxml"]["doc_defaults"])
     for name in sorted(one.name for one in FIXTURES.glob("*.docm")):
         got = lbin("office-doc", fixture(name))
-        check("%s 默认值那份账与读者一致（宏文档也写这一格，第 72 份不是新形状）" % name,
+        check("%s 默认值那份账与读者一致（宏文档也写这一格，第 74 份不是新形状）" % name,
               dig(got, "structure.doc_defaults"),
               files[name]["ooxml"]["doc_defaults"])
     for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
@@ -9201,8 +9201,8 @@ def main() -> int:
     dd = dict((one, had["ooxml"]["doc_defaults"]) for one, had in files.items()
               if one.endswith((".docx", ".docm")))
     check(
-        "72 份 word 件（71 份 .docx + 1 份 .docm）**全有这一层、且 `word/styles.xml` 里恒恰好一块**，"
-        "块的孩子恒 `rPrDefault + pPrDefault` 两条（没有一份是 1 或 3）；34 份在 "
+        "74 份 word 件（73 份 .docx + 1 份 .docm）**全有这一层、且 `word/styles.xml` 里恒恰好一块**，"
+        "块的孩子恒 `rPrDefault + pPrDefault` 两条（没有一份是 1 或 3）；35 份在 "
         "`word/stylesWithEffects.xml` 又写了一遍，而这一格在 39 份 .xlsx 与 21 份 .pptx 里一份都没有 —— "
         "所以账本交「几块、各在哪个部件、每块说了什么」，只在 office-doc 这一族交",
         [len(dd), tally([one["blocks_total"] for one in dd.values()]),
@@ -9211,51 +9211,51 @@ def main() -> int:
          tally([one["parts_with_block"] for one in dd.values()]),
          tally([one["block_shapes"][0]["children"] == one["block_shapes"][-1]["children"]
                 == ["rPrDefault", "pPrDefault"] for one in dd.values()])],
-        [72, {1: 38, 2: 34}, {2: 72}, {True: 72},
-         {("word/styles.xml",): 38,
-          ("word/styles.xml", "word/stylesWithEffects.xml"): 34},
-         {True: 72}],
+        [74, {1: 39, 2: 35}, {2: 74}, {True: 74},
+         {("word/styles.xml",): 39,
+          ("word/styles.xml", "word/stylesWithEffects.xml"): 35},
+         {True: 74}],
     )
     check(
-        "`rPr` 三种形状（66 份就 `rFonts, sz, szCs, lang` 四条、4 份在 `rFonts` 后多插 `kern`、"
+        "`rPr` 三种形状（68 份就 `rFonts, sz, szCs, lang` 四条、4 份在 `rFonts` 后多插 `kern`、"
         "2 份多插 `color`；`extras` 交的是「四条常项以外还写了什么」），`pPr` 两家各一条 "
-        "（38 份 LibreOffice 写 `suppressAutoHyphens`、34 份 Word 写 `spacing`）",
+        "（39 份 LibreOffice 写 `suppressAutoHyphens`、35 份 Word 写 `spacing`）",
         [tally([one["rpr_names"] for one in dd.values()]),
          tally([one["ppr_names"] for one in dd.values()]),
          tally([one["extras"] for one in dd.values()])],
-        [{("rFonts", "sz", "szCs", "lang"): 66,
+        [{("rFonts", "sz", "szCs", "lang"): 68,
           ("rFonts", "kern", "sz", "szCs", "lang"): 4,
           ("rFonts", "color", "sz", "szCs", "lang"): 2},
-         {("spacing",): 34, ("suppressAutoHyphens",): 38},
-         {(): 66, ("kern",): 4, ("color",): 2}],
+         {("spacing",): 35, ("suppressAutoHyphens",): 39},
+         {(): 68, ("kern",): 4, ("color",): 2}],
     )
     check(
-        "字体指针两列各交各的：34 份只写四条主题指针（末条是**小写开头**的 `cstheme`，"
-        "按前缀 `theme` 认会一条不中，所以按结尾认）、28 份主题与字面名两套都写、10 份只写四条字面名；"
+        "字体指针两列各交各的：35 份只写四条主题指针（末条是**小写开头**的 `cstheme`，"
+        "按前缀 `theme` 认会一条不中，所以按结尾认）、28 份主题与字面名两套都写、11 份只写四条字面名；"
         "而字面名**可以是空串** —— `w:cs=\"\"` 在 27 份里在场，「写了这个属性」与「点了个字体名」是两件事",
         [tally([[one["wrote_theme"], one["wrote_literal"]] for one in dd.values()]),
          tally([one["font_blank_attrs"] for one in dd.values()]),
          tally([one for value in dd.values() for one in value["font_blank_attrs"]])],
-        [{(True, False): 34, (True, True): 28, (False, True): 10},
-         {("cs",): 27, (): 45}, {"cs": 27}],
+        [{(True, False): 35, (True, True): 28, (False, True): 11},
+         {("cs",): 27, (): 47}, {"cs": 27}],
     )
     check(
-        "`sz` 与 `szCs` 在 72 份里**恒等**（22 的 66 份、24 的 6 份）但两枚分开交；"
-        "`w:lang` 只有两组属性（66 份 `en-US/en-US/ar-SA` 对 6 份 `en-US/zh-CN/hi-IN`）",
+        "`sz` 与 `szCs` 在 74 份里**恒等**（22 的 68 份、24 的 6 份）但两枚分开交；"
+        "`w:lang` 只有两组属性（68 份 `en-US/en-US/ar-SA` 对 6 份 `en-US/zh-CN/hi-IN`）",
         [tally([one["size_written"] == one["size_cs_written"] for one in dd.values()]),
          tally([one["size_written"] for one in dd.values()]),
          tally([[one["lang_written"]["val"], one["lang_written"]["eastAsia"],
                  one["lang_written"]["bidi"]] for one in dd.values()]),
          tally([tuple(sorted(one["lang_written"])) for one in dd.values()])],
-        [{True: 72}, {"22": 66, "24": 6},
-         {("en-US", "en-US", "ar-SA"): 66, ("en-US", "zh-CN", "hi-IN"): 6},
-         {("bidi", "eastAsia", "val"): 72}],
+        [{True: 74}, {"22": 68, "24": 6},
+         {("en-US", "en-US", "ar-SA"): 68, ("en-US", "zh-CN", "hi-IN"): 6},
+         {("bidi", "eastAsia", "val"): 74}],
     )
     check(
         "第二层在 `<w:style w:styleId=\"Normal\">`（`styleId` 与 `type` 两个属性都对上才算，"
-        "字符样式也叫 Normal）：72 份全找得到。Word 那 34 份的 Normal **一个 `rPr`/`pPr` 都不写**"
-        "（全靠 docDefaults），LibreOffice 的 38 份两个都写、并把上面那套**摊平**进来"
-        "（`rPr` 六条 rFonts/color/kern/sz/szCs/lang 的 36 份，另有 2 份只写 sz + lang）—— "
+        "字符样式也叫 Normal）：74 份全找得到。Word 那 35 份的 Normal **一个 `rPr`/`pPr` 都不写**"
+        "（全靠 docDefaults），LibreOffice 的 39 份两个都写、并把上面那套**摊平**进来"
+        "（`rPr` 六条 rFonts/color/kern/sz/szCs/lang 的 37 份，另有 2 份只写 sz + lang）—— "
         "同一句话在不同生产者手里住在不同的格子里，所以两层的账都得交",
         [tally([one["normal_style"]["found"] for one in dd.values()]),
          tally([one["normal_style"]["children"] for one in dd.values()]),
@@ -9263,11 +9263,11 @@ def main() -> int:
          tally([len(one["normal_style"]["rpr_rows"]) for one in dd.values()
                 if one["normal_style"]["rpr_rows"]]),
          tally([one["normal_style"]["found"] and one["blocks_total"] > 0 for one in dd.values()])],
-        [{True: 72},
-         {("name", "qFormat", "rsid"): 34,
+        [{True: 74},
+         {("name", "qFormat", "rsid"): 35,
           ("name", "qFormat", "rsid", "pPr", "rPr"): 28,
-          ("name", "qFormat", "pPr", "rPr"): 6, ("name", "pPr", "rPr"): 4},
-         {True: 34, False: 38}, {6: 36, 2: 2}, {True: 72}],
+          ("name", "qFormat", "pPr", "rPr"): 7, ("name", "pPr", "rPr"): 4},
+         {True: 35, False: 39}, {6: 37, 2: 2}, {True: 74}],
     )
     check(
         "两家各自同形（同一句话的两种写法在这一格里数得出）：`.docm` 与它的 .docx 原型逐键相同、"
@@ -9284,22 +9284,22 @@ def main() -> int:
     )
 
     check(
-        "四把各自独立的钥匙开同一批 34 份（生产者标记在这一格里合上）：`<w:docDefaults>` 在第二个部件"
+        "四把各自独立的钥匙开同一批 35 份（生产者标记在这一格里合上）：`<w:docDefaults>` 在第二个部件"
         "又写一遍、Normal **一个 `rPr` 都不写**、`w:pPr` 那一条叫 `spacing`、字体名**只写主题指针** —— "
-        "四个记号在 72 份里逐份同真同假，一个反例也没有（`extras` 不在这把锁里：那 38 份里有 6 份多写一条）",
+        "四个记号在 74 份里逐份同真同假，一个反例也没有（`extras` 不在这把锁里：那 39 份里有 6 份多写一条）",
         tally([[one["blocks_total"] == 2, one["normal_style"]["rpr_rows"] == [],
                 one["ppr_names"] == ["spacing"],
                 [one["wrote_theme"], one["wrote_literal"]] == [True, False]]
                for one in dd.values()]),
-        {(True, True, True, True): 34, (False, False, False, False): 38},
+        {(True, True, True, True): 35, (False, False, False, False): 39},
     )
 
     of = dict((one, had["odt"]["doc_defaults"]) for one, had in files.items()
               if one.endswith(".odt"))
     check(
-        "ODF 那一问一族一条：41 份 .odt 里 39 份恒四条（**写的序** graphic / paragraph / table / table-row，"
+        "ODF 那一问一族一条：42 份 .odt 里 40 份恒四条（**写的序** graphic / paragraph / table / table-row，"
         "`families` 是排过序的同一组）、另 2 份（`pnum.odt` / `tbox.odt`）**有 `styles.xml` 而一条都不写** —— "
-        "「零条」与「没有这个部件」两列分开交；41 份的 content.xml 里 `default-style` 出现 **0 次**，"
+        "「零条」与「没有这个部件」两列分开交；42 份的 content.xml 里 `default-style` 出现 **0 次**，"
         "但两列计数都留着（断在另一头也要数得出）",
         [len(of), tally([one["defaults_total"] for one in of.values()]),
          tally([one["styles_part"] for one in of.values()]),
@@ -9307,17 +9307,17 @@ def main() -> int:
          tally([one["families"] for one in of.values()]),
          tally([one["rows"][0]["family"] if one["rows"] else None for one in of.values()]),
          tally([len(one["rows"]) == one["defaults_total"] for one in of.values()])],
-        [41, {4: 39, 0: 2}, {True: 41}, {0: 41},
-         {("graphic", "paragraph", "table", "table-row"): 39, (): 2},
-         {"graphic": 39, None: 2}, {True: 41}],
+        [42, {4: 40, 0: 2}, {True: 42}, {0: 42},
+         {("graphic", "paragraph", "table", "table-row"): 40, (): 2},
+         {"graphic": 40, None: 2}, {True: 42}],
     )
     check(
         "字体名、字号、语言**各三格**（latin / asian / complex），和 docx 的 `rFonts` 四条与 `w:lang` 三条"
-        "是同一句话的两种写法。.odt 出口里 78 条带 `text-properties` 的行**字号与语言三格全写满**（各 78 条），"
-        "字体名却只有 78 / 77 / 78 —— 差的那一条正是 `tbox-lo.odt` 的 graphic 行 asian 格"
+        "是同一句话的两种写法。.odt 出口里 80 条带 `text-properties` 的行**字号与语言三格全写满**（各 80 条），"
+        "字体名却只有 80 / 79 / 80 —— 差的那一条正是 `tbox-lo.odt` 的 graphic 行 asian 格"
         "「只写号不写名」；而 table 与 table-row 那两条**从来一个字体都不点**（各只带一条属性）。"
-        "整库 67 份 odf 摊开是 195 条行、117 条带 `text-properties`，字体名 103 / 102 / 103 对"
-        "字号与语言各 117（差额 14 / 15 / 14 就是「只写号不写名」，.ods 的 graphic 一族 14 条全不点名）",
+        "整库 68 份 odf 摊开是 199 条行、119 条带 `text-properties`，字体名 105 / 104 / 105 对"
+        "字号与语言各 119（差额 14 / 15 / 14 就是「只写号不写名」，.ods 的 graphic 一族 14 条全不点名）",
         [tally([row["slot"] for row in rows_of(of, "fonts_written")]),
          tally([row["slot"] for row in rows_of(of, "sizes_written")]),
          tally([row["slot"] for row in rows_of(of, "langs_written")]),
@@ -9325,13 +9325,13 @@ def main() -> int:
          tally([row["props_attrs_total"] for one in of.values() for row in one["rows"][2:]]),
          tally([[row["language"], row["country"]] for row in rows_of(of, "langs_written")
                 if row["language"] == "none"])],
-        [{"latin": 78, "asian": 77, "complex": 78},
-         {"latin": 78, "asian": 78, "complex": 78},
-         {"latin": 78, "asian": 78, "complex": 78},
-         {"graphic": 116, "paragraph": 117}, {1: 78}, {("none", "none"): 3}],
+        [{"latin": 80, "asian": 79, "complex": 80},
+         {"latin": 80, "asian": 80, "complex": 80},
+         {"latin": 80, "asian": 80, "complex": 80},
+         {"graphic": 119, "paragraph": 120}, {1: 80}, {("none", "none"): 3}],
     )
     check(
-        "那串连字符设置（十三条名字一组，按局部名排序）**只出现在 paragraph 那一族**：41 份里 38 份写，"
+        "那串连字符设置（十三条名字一组，按局部名排序）**只出现在 paragraph 那一族**：42 份里 39 份写，"
         "`tbox-lo.odt` 有 paragraph 一条却一个都不写，另两份整本零条；table 一族只写 "
         "`table:border-model`、table-row 一族只写 `fo:keep-together`",
         [sum(1 for one in of.values() if one["hyphenation_names"]),
@@ -9340,7 +9340,7 @@ def main() -> int:
          len(of["nset.odt"]["hyphenation_names"]),
          of["nset.odt"]["hyphenation_names"][:2],
          [row["props_attrs_total"] for row in of["nset.odt"]["rows"]]],
-        [38, {13: 38, 0: 3}, ["paragraph"], 13,
+        [39, {13: 39, 0: 3}, ["paragraph"], 13,
          ["hyphenate", "hyphenation-compound-push-char-count"], [31, 34, 1, 1]],
     )
     lim_docx = dig(lbin("office-doc", fixture("notes.docm"), "--limit", "1"), "structure.doc_defaults")
@@ -9407,7 +9407,7 @@ def main() -> int:
               dig(lbin("office-doc", fixture(name)), "structure.cross_refs"),
               files[name]["ooxml"]["cross_refs"])
     for name in sorted(one.name for one in FIXTURES.glob("*.docm")):
-        check("%s 的交叉引用整本与读者一致（宏文档也写这一格，第 72 份不是新形状）" % name,
+        check("%s 的交叉引用整本与读者一致（宏文档也写这一格，第 74 份不是新形状）" % name,
               dig(lbin("office-doc", fixture(name)), "structure.cross_refs"),
               files[name]["ooxml"]["cross_refs"])
     for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
@@ -9424,7 +9424,7 @@ def main() -> int:
     co = dict((one, had["odt"]["cross_refs"]) for one, had in files.items() if one.endswith(".odt"))
     cr = dict((one, had["rtf"]["cross_refs"]) for one, had in files.items() if one.endswith(".rtf"))
     check(
-        "同一套格子三族共有：130 份（72 word + 41 份 .odt + 17 份 .rtf）的键集一模一样（18 格），"
+        "同一套格子三族共有：134 份（74 word + 42 份 .odt + 18 份 .rtf）的键集一模一样（18 格），"
         "`books` 那六本也是同一套 —— 差别只在**哪几本填得出东西**：OOXML 与 RTF 的 `sequences` 恒 null"
         "（这一族没有序列声明那一层），ODF 的 `style_ids` 恒 null（样式只有名字，没有 `w:styleId` 那一格）。"
         "`caption_styles` 少的正是 `styles_part` 那一格：**只属于 OOXML** —— ODF 的题注样式住在哪个部件"
@@ -9436,20 +9436,20 @@ def main() -> int:
          tally([tuple(sorted(one["caption_styles"])) for one in cx.values()]),
          tally([tuple(sorted(one["caption_styles"])) for one in co.values()]),
          tally([tuple(sorted(one["caption_styles"])) for one in cr.values()])],
-        [72, 41, 17,
+        [74, 42, 18,
          {("available", "books", "cache_missing", "cache_values", "cached_but_unresolved",
            "caption_styles", "cut", "declarations", "family", "kinds", "listed", "notes", "quoted",
-           "resolves", "resolving_but_no_cache", "rows", "target_books", "target_rows"): 130},
-         {("bookmark_marks", "bookmarks", "sequences", "style_defs", "style_ids", "style_names"): 130},
-         {("declared", "paragraphs_using_them", "rows", "styles_part"): 72},
-         {("declared", "paragraphs_using_them", "rows"): 41},
-         {("declared", "paragraphs_using_them", "rows"): 17}],
+           "resolves", "resolving_but_no_cache", "rows", "target_books", "target_rows"): 134},
+         {("bookmark_marks", "bookmarks", "sequences", "style_defs", "style_ids", "style_names"): 134},
+         {("declared", "paragraphs_using_them", "rows", "styles_part"): 74},
+         {("declared", "paragraphs_using_them", "rows"): 42},
+         {("declared", "paragraphs_using_them", "rows"): 18}],
     )
     check(
-        "72 份 word 件**每一份都交这一格**，可只有 4 份写着这五种域（`target_rows`：68 份 0 条、"
+        "74 份 word 件**每一份都交这一格**，可只有 4 份写着这五种域（`target_rows`：70 份 0 条、"
         "2 份 1 条、2 份 4 条）——「没有交叉引用」与「这一族没有这一层」是两件事，所以零行也整本交。"
         "`kinds` 的总和恒等于 `target_rows`；SEQ 那一种在 OOXML **判不出成不成立**（没有声明那本书可查），"
-        "所以 72 份的 `resolves.null` 与 `kinds.SEQ` 全对得上，`declarations` 那一格根本不交，"
+        "所以 74 份的 `resolves.null` 与 `kinds.SEQ` 全对得上，`declarations` 那一格根本不交，"
         "`notes` 里恒写着那一句解释",
         [tally([one["available"] for one in cx.values()]),
          tally([one["target_rows"] for one in cx.values()]),
@@ -9458,15 +9458,15 @@ def main() -> int:
          tally([sum(one["kinds"].values()) == one["target_rows"] for one in cx.values()]),
          tally([one["resolves"]["null"] == one["kinds"].get("SEQ", 0) for one in cx.values()]),
          tally([one["notes"][0] for one in cx.values()])],
-        [{True: 72}, {0: 68, 1: 2, 4: 2}, {None: 72}, {None: 72}, {True: 72}, {True: 72},
-         {"这一族没有序列声明这一层：SEQ 的 resolves 一律 null": 72}],
+        [{True: 74}, {0: 70, 1: 2, 4: 2}, {None: 74}, {None: 74}, {True: 74}, {True: 74},
+         {"这一族没有序列声明这一层：SEQ 的 resolves 一律 null": 74}],
     )
     check(
-        "题注样式那两本各查各的：70 份的 `<w:style w:styleId=\"Caption\">` 两个名字都对上"
-        "（`w:styleId` 是大写 C、`w:name` 是小写 caption，所以 `matched_on` 交两条），72 份全都"
+        "题注样式那两本各查各的：72 份的 `<w:style w:styleId=\"Caption\">` 两个名字都对上"
+        "（`w:styleId` 是大写 C、`w:name` 是小写 caption，所以 `matched_on` 交两条），74 份全都"
         "**声明了没人用**（`paragraphs_using_them` 恒 0 —— 题注段用的是生产者摊出来的直接格式）。"
         "`pnum.docx`、`tbox.docx` 两份一条题注样式都没有，交 `declared` 0 不是缺格。"
-        "样式那三本账（元素数、`w:styleId` 数、`w:name` 数）72 份恒等，164 与 169 只是两家存量不同；"
+        "样式那三本账（元素数、`w:styleId` 数、`w:name` 数）74 份恒等，164 与 169 只是两家存量不同；"
         "`bookmarks` 是**名字**那本、`bookmark_marks` 是**元素**那本，名字数永不超过元素数",
         [tally([one["caption_styles"]["declared"] for one in cx.values()]),
          tally([one["caption_styles"]["paragraphs_using_them"] for one in cx.values()]),
@@ -9478,18 +9478,18 @@ def main() -> int:
                 == one["books"]["style_names"] for one in cx.values()]),
          tally([one["books"]["style_defs"] for one in cx.values()]),
          tally([len(one["books"]["bookmarks"]) <= one["books"]["bookmark_marks"] for one in cx.values()])],
-        [{1: 70, 0: 2}, {0: 72}, {True: 72}, {"Caption|paragraph|styleId,name": 70},
-         ["pnum.docx", "tbox.docx"], {True: 72},
-         {169: 8, 164: 34, 168: 18, 171: 1, 71: 1, 68: 3, 16: 3, 11: 1, 3: 1, 2: 1, 172: 1},
-         {True: 72}],
+        [{1: 72, 0: 2}, {0: 74}, {True: 74}, {"Caption|paragraph|styleId,name": 72},
+         ["pnum.docx", "tbox.docx"], {True: 74},
+         {169: 8, 164: 35, 168: 18, 171: 1, 71: 1, 68: 4, 16: 3, 11: 1, 3: 1, 2: 1, 172: 1},
+         {True: 74}],
     )
     check(
         "ODF 那一族多一本**声明**的账，四格都是数出来的：`elements` 是 `text:sequence-decl` 的枚数"
-        "（37 份 5 枚、2 份 6 枚、2 份一枚不写），它与 `books.sequences` 的长度在 41 份里**恒等**；"
+        "（38 份 5 枚、2 份 6 枚、2 份一枚不写），它与 `books.sequences` 的长度在 42 份里**恒等**；"
         "`wrappers` 交的是「哪个部件里写了几枚」（恒在 `content.xml`，与 `elements` 同数）。"
         "LO 每次存 .odt 都把 Drawing/Figure/Illustration/Table/Text 那五条**模板序列**写进来，"
-        "39 份的 `declared_unused` 就是这五个名字 —— 声明了没人用在这一族是常态而不是缺陷；"
-        "`used_without_decl` 41 份全空，`sequence_ref_elements` 也全 0（认字表里没有 `text:sequence-ref`）",
+        "40 份的 `declared_unused` 就是这五个名字 —— 声明了没人用在这一族是常态而不是缺陷；"
+        "`used_without_decl` 42 份全空，`sequence_ref_elements` 也全 0（认字表里没有 `text:sequence-ref`）",
         [tally([one["available"] for one in co.values()]),
          tally([one["target_rows"] for one in co.values()]),
          tally([one["declarations"]["elements"] for one in co.values()]),
@@ -9505,26 +9505,26 @@ def main() -> int:
          tally([one["notes"] for one in co.values()]),
          sorted(k for k, v in co.items() if len(v["books"]["sequences"]) == 6),
          sorted(k for k, v in co.items() if v["caption_styles"]["declared"] == 0)],
-        [{True: 41}, {0: 39, 3: 1, 1: 1}, {5: 37, 6: 2, 0: 2}, {True: 41},
-         {("Drawing", "Figure", "Illustration", "Table", "Text"): 39, (): 2},
-         {(): 41}, {0: 41}, {(): 41},
-         {(("content.xml", 5),): 37, (("content.xml", 6),): 2, (): 2},
-         {None: 41}, {True: 41}, {(): 41},
+        [{True: 42}, {0: 40, 3: 1, 1: 1}, {5: 38, 6: 2, 0: 2}, {True: 42},
+         {("Drawing", "Figure", "Illustration", "Table", "Text"): 40, (): 2},
+         {(): 42}, {0: 42}, {(): 42},
+         {(("content.xml", 5),): 38, (("content.xml", 6),): 2, (): 2},
+         {None: 42}, {True: 42}, {(): 42},
          ["fields-mix.odt", "fields.odt"], ["pnum.odt", "tbox-lo.odt", "tbox.odt"]],
     )
     check(
         "题注样式在 ODF 只有一本可查：`style:name` 那本命中（`matched_on` 一条 `name`），"
-        "`style_id` 交 null 而不是 0 —— 这一族没有 id 那一格。38 份命中、3 份没有；"
+        "`style_id` 交 null 而不是 0 —— 这一族没有 id 那一格。39 份命中、3 份没有；"
         "`styles_part` 这一格在这一族根本不出现（缺键，不是 false）",
         [tally([tuple([str(r["style_id"]), r["part"], ",".join(r["matched_on"]),
                        str(r["paragraphs_using_it"])])
                 for r in one["caption_styles"]["rows"]] for one in co.values()),
          tally(["styles_part" in one["caption_styles"] for one in co.values()])],
-        [{(("None", "styles.xml", "name", "0"),): 38, (): 3}, {False: 41}],
+        [{(("None", "styles.xml", "name", "0"),): 39, (): 3}, {False: 42}],
     )
     check(
-        "RTF 的 17 份全都有题注样式，而它的 `style_id` 是**样式号**（`\\s` 后面那个数），"
-        "各家自己写的：54 的 11 份、55 的 3 份、24/109/110 各一份 —— 同一个名字在不同文件里号不同，"
+        "RTF 的 18 份全都有题注样式，而它的 `style_id` 是**样式号**（`\\s` 后面那个数），"
+        "各家自己写的：54 的 12 份、55 的 3 份、24/109/110 各一份 —— 同一个名字在不同文件里号不同，"
         "所以号只按文件交、不折成 docx 的 `Caption`。`sequences` 与 `style_ids` 两本恒 null"
         "（这一族既没有序列声明层，样式表也只有号与名），`notes` 那一句与 OOXML 同义但措辞各自写",
         [tally([one["target_rows"] for one in cr.values()]),
@@ -9538,10 +9538,10 @@ def main() -> int:
          tally([one["notes"][0] for one in cr.values()]),
          tally([one["resolves"]["null"] == one["kinds"].get("SEQ", 0) for one in cr.values()]),
          tally([tuple(sorted({o["part"] for o in one["rows"]})) for one in cr.values() if one["rows"]])],
-        [{0: 15, 4: 1, 1: 1}, {None: 17}, {None: 17}, {1: 17}, {0: 17}, {"stylesheet": 17},
-         {(54, "paragraph", "name"): 11, (55, "paragraph", "name"): 3, (24, "paragraph", "name"): 1,
+        [{0: 16, 4: 1, 1: 1}, {None: 18}, {None: 18}, {1: 18}, {0: 18}, {"stylesheet": 18},
+         {(54, "paragraph", "name"): 12, (55, "paragraph", "name"): 3, (24, "paragraph", "name"): 1,
           (110, "paragraph", "name"): 1, (109, "paragraph", "name"): 1},
-         {"这一族也没有序列声明这一层：SEQ 的 resolves 一律 null": 17}, {True: 17},
+         {"这一族也没有序列声明这一层：SEQ 的 resolves 一律 null": 18}, {True: 18},
          {("stream",): 2}],
     )
     x_written = dict((k, v) for pool in (cx, co, cr) for k, v in pool.items() if v["target_rows"])
@@ -9680,7 +9680,7 @@ def main() -> int:
          ["SEQ", "REF", "PAGEREF", "STYLEREF"]],
     )
     check(
-        "反面凭据：这一格只在 office-doc 交，三族都有出口（RTF 那 17 份也交）。"
+        "反面凭据：这一格只在 office-doc 交，三族都有出口（RTF 那 18 份也交）。"
         "遗留 .doc 的交叉引用住在 piece 流里的 field 指令，本机没有第二个读者可核对，"
         "所以那一家连「零条」都不报；.ods / .odp 的题注样式在 office-doc 没有出口 —— "
         "12 份 .odp 里 10 份各写 28 条 `presentation` 族样式（名字带 Caption 的那批**是母版样式不是题注**，"
@@ -9691,6 +9691,282 @@ def main() -> int:
          no_theme_key("office-sheet", "book.ods", "cross_refs"),
          no_theme_key("office-slide", "deck.odp", "cross_refs")],
         [True, True, False, False, False],
+    )
+
+    # ── 3bp) 图自己那串字节 vs 文档说的那两个尺寸：一族一条链，五种「没有」各交各的 ──
+    print("=== 3bp) office-doc structure.picture_bytes：声明、字节与摆放三份账，逐行与第二读者对 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        check("%s 的图账整本与读者一致（声明在 `[Content_Types].xml`、地址要顺着 rels 跳一跳）" % name,
+              dig(lbin("office-doc", fixture(name)), "structure.picture_bytes"),
+              files[name]["ooxml"]["picture_bytes"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.docm")):
+        check("%s 的图账整本与读者一致（宏文档走同一条 OOXML 链，第 74 份不是新形状）" % name,
+              dig(lbin("office-doc", fixture(name)), "structure.picture_bytes"),
+              files[name]["ooxml"]["picture_bytes"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        check("%s 的图账整本与读者一致（声明是 `draw:mime-type` 属性、地址直接是包内路径）" % name,
+              dig(lbin("office-doc", fixture(name)), "structure.picture_bytes"),
+              files[name]["odt"]["picture_bytes"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.rtf")):
+        check("%s 的图账整本与读者一致（声明就是控制字本身，尺寸写成目标 twips × 缩放百分比）" % name,
+              dig(lbin("office-doc", fixture(name)), "structure.picture_bytes"),
+              files[name]["rtf"]["picture_bytes"])
+
+    pb_dx = dict((one, had["ooxml"]["picture_bytes"]) for one, had in files.items()
+                 if one.endswith((".docx", ".docm")))
+    pb_od = dict((one, had["odt"]["picture_bytes"]) for one, had in files.items()
+                 if one.endswith(".odt"))
+    pb_rt = dict((one, had["rtf"]["picture_bytes"]) for one, had in files.items()
+                 if one.endswith(".rtf"))
+    pb_all = {}
+    for pool in (pb_dx, pb_od, pb_rt):
+        pb_all.update(pool)
+    pb_rows = [(n, one_row) for n in sorted(pb_all) for one_row in pb_all[n]["rows"]]
+
+    def pb_sum(field, sub):
+        return [sum(one[field][sub] for one in pool.values())
+                for pool in (pb_dx, pb_od, pb_rt)]
+
+    def pb_rows_where(key, want):
+        return [(n, one_row["where"]) for n, one_row in pb_rows if one_row[key] is want]
+
+    check(
+        "同一套格子三族共有：134 份（73 份 .docx + 1 份 .docm + 42 份 .odt + 18 份 .rtf）"
+        "账本 19 格、行 22 格，两家各只有一种取值。`family` 在 ODF 那一族叫 `odf` 而不是 `odt`；"
+        "`read_cap` 记的是这一族最多读进图的前多少字节 —— OOXML 两本 65536（够走完 PNG 的块表与 "
+        "TIFF 的第一个 IFD），RTF 只有 8192（群头扫 16KB、十六进制解出来的上限），"
+        "两边封顶不同本身就是一条实测事实。134 份全都 `available`，没有一份被截过行",
+        [len(pb_dx), len(pb_od), len(pb_rt), len(pb_all),
+         sorted(set((one["family"], one["read_cap"]) for one in pb_all.values())),
+         [sum(1 for one in pb_all.values() if one["available"]),
+          sum(1 for one in pb_all.values() if one["cut"]),
+          sum(1 for one in pb_all.values() if one["listed"] == one["total"])],
+         tally([tuple(sorted(one)) for one in pb_all.values()]),
+         tally([tuple(sorted(one_row)) for _, one_row in pb_rows])],
+        [74, 42, 18, 134,
+         [("docx", 65536), ("odf", 65536), ("rtf", 8192)],
+         [134, 0, 134],
+         {("addr", "agrees", "at_natural", "available", "cut", "declared_pixels", "density",
+           "detected", "distinct_parts", "ext_agrees", "family", "listed", "natural", "pixels",
+           "placed", "read_cap", "rows", "stretched", "total"): 134},
+         {("addr", "agrees", "aspect_permille", "at_natural", "declared_pixels", "density", "ext",
+           "ext_agrees", "ext_name", "head_hex", "how", "nat_mm100", "note", "pixels",
+           "placed_mm100", "px_agrees", "scale_permille", "sig", "stretched", "where", "word",
+           "word_name"): 71}],
+    )
+    check(
+        "整库摊开：74 份 word 里 18 份写了图共 34 行、去重部件 30 个（九张框可以指向六个部件 —— "
+        "LibreOffice 存件时按**像素内容**去重帧的部件，`distinct_parts` 就是为这件事交的一格）；"
+        "42 份 .odt 里 11 份有图 24 行 21 个部件；18 份 .rtf 里 5 份有图 13 行 13 个部件 —— "
+        "RTF 的图住在 `{\\pict}` 群里，没有包内路径可去重，所以那一族行数恒等于部件数。"
+        "合起来 34 份有图、71 行，最多的一份 9 行；剩下 100 份交**零行的整本账** —— "
+        "「这份文档没有图」与「这一族没这一层」是两件事，所以三族都恒开这一格",
+        [[len(pool), sum(one["total"] for one in pool.values()),
+          sum(one["distinct_parts"] for one in pool.values())]
+         for pool in (pb_dx, pb_od, pb_rt)]
+        + [[sum(1 for one in pb_all.values() if one["total"])],
+           max(one["total"] for one in pb_all.values()), len(pb_rows)],
+        [[74, 34, 30], [42, 24, 21], [18, 13, 13], [34], 9, 71],
+    )
+    check(
+        "地址那一格四态：`read` 三族 33 / 24 / 13 全都落到了部件，`unresolved`（跳不到）与 "
+        "`missing`（部件不在包里）本库各 0 —— 那两条分支由合成件守着，不是没人写。"
+        "`none` 只有 `tbox.docx` 那一条：框里既没有 `a:blip` 也没有 `r:embed`，于是那一行连字节都没有，"
+        "`head_hex` 交**空串**（说了「读过、没有」）而签名与像素交 null —— "
+        "「没有字节可读」是这本账里的第五种「没有」，前四种在 `density.state` 上",
+        [[pb_sum("addr", f) for f in ("read", "unresolved", "missing", "none")],
+         [(n, one_row["where"], one_row["sig"], one_row["head_hex"], one_row["note"])
+          for n, one_row in pb_rows if one_row["addr"] == "none"]],
+        [[[33, 24, 13], [0, 0, 0], [0, 0, 0], [1, 0, 0]],
+         [("tbox.docx", "(no-blip)", None, "", None)]],
+    )
+    check(
+        "自带密度四态（`read` 写了可用单位 / `unitless` 写了那个字段但只说长宽比 / "
+        "`absent` 这个格式有这一格而这份件没写或写零 / `none` 这个格式压根没有这一格）"
+        "三族各 [12,6,6]、[2,1,1]、[16,9,4]、[3,8,2] —— 71 行里只有 24 行说得出自己该占多大地方，"
+        "也就是说**三分之二的图只能靠文档那一侧**。单位只有三种真写得出来：ppm 17、dpi 7、"
+        "aspect 4（那四条就是 Pillow 存 JPEG 时 JFIF 单位给 0 的那几张），剩下 43 行交 null",
+        [[pb_sum("density", f) for f in ("read", "unitless", "absent", "none")],
+         tally([one_row["density"]["unit"] for _, one_row in pb_rows])],
+        [[[12, 6, 6], [2, 1, 1], [16, 9, 4], [3, 8, 2]],
+         {"ppm": 17, "dpi": 7, "aspect": 4, None: 43}],
+    )
+    check(
+        "文件在引用处写下的类型名与图自己头里的签名**从不互相打脸**：`agrees` 64 真 / 0 假 / "
+        "7 判不了（那 7 条是 `eq.odt` 的六条 SVM 加 `tbox.docx` 那条没字节的，两边都没有可比的名字）；"
+        "扩展名那一本 `ext_agrees` 51 真 / 0 假 / 20 判不了 —— 其中 13 条是 RTF（`{\\pict}` 群里"
+        "压根没有扩展名这一说，那一格恒 null），另 7 条同上。"
+        "「打脸的行」这一问整库答案是**空清单**，两条都逐行交出来而不是只报一个 0",
+        [[pb_sum("agrees", f) for f in ("yes", "no", "undecided")],
+         [pb_sum("ext_agrees", f) for f in ("yes", "no", "undecided")],
+         pb_rows_where("agrees", False) + pb_rows_where("ext_agrees", False)],
+        [[[33, 18, 13], [0, 0, 0], [1, 6, 0]],
+         [[33, 18, 0], [0, 0, 0], [1, 6, 13]],
+         []],
+    )
+    check(
+        "三种「它是什么格式」各交各的：`word` 是文件写在引用处的名字（OOXML 是 `image/png` 那种 MIME、"
+        "RTF 是 `\\pngblip` / `\\jpegblip` / `\\wmetafile` 控制字、ODF 的 `draw:mime-type` 可以整条不写 "
+        "所以 7 行 null），`ext` 是包内路径尾巴上那个扩展名，`sig` 是从头里认出来的。"
+        "名字对得上不等于写法一样：`ext` 交的是 `tif` 4 条、`jpg` 4 条，而认出来是 `tiff` / `jpeg` —— "
+        "认字表里那两行同名映射就是为它们写的；`word_name` 与 `ext_name` 是把两种写法归到同一个名字上"
+        "的那两本（`png` 42 / `jpeg` 8 / `gif` 5 / `bmp` 3 / `tiff` 4），`how` 那一本记的是**从哪儿读出来的**"
+        "（PNG 的 IHDR、JPEG 的 SOF0、BMP 的 LogicalScreenDescriptor 与 BITMAPHEADER40 两式、"
+        "TIFF 的 IFD0、WMF 的 Header）",
+        [tally([one_row["word"] for _, one_row in pb_rows]),
+         tally([one_row["word_name"] for _, one_row in pb_rows]),
+         tally([one_row["ext"] for _, one_row in pb_rows]),
+         tally([one_row["ext_name"] for _, one_row in pb_rows]),
+         tally([one_row["sig"] for _, one_row in pb_rows]),
+         tally([one_row["how"] for _, one_row in pb_rows]),
+         [(n, one_row["where"], one_row["ext"], one_row["sig"]) for n, one_row in pb_rows
+          if one_row["ext"] and one_row["ext"] != one_row["sig"]]],
+        [{"image/png": 33, "image/jpeg": 6, "image/gif": 5, "image/bmp": 3, "image/tiff": 4,
+          None: 7, "pngblip": 9, "jpegblip": 2, "wmetafile": 2},
+         {"png": 42, "jpeg": 8, "gif": 5, "bmp": 3, "tiff": 4, None: 7, "wmf": 2},
+         {"png": 33, "jpeg": 2, "gif": 5, "bmp": 3, "tif": 4, "jpg": 4, None: 20},
+         {"png": 33, "jpeg": 6, "gif": 5, "bmp": 3, "tiff": 4, None: 20},
+         {"png": 42, "jpeg": 8, "gif": 5, "bmp": 3, "tiff": 4, None: 1, "svm": 6, "wmf": 2},
+         {"IHDR": 42, "SOF0": 8, "LogicalScreenDescriptor": 5, "BITMAPHEADER40": 3, "IFD0": 4,
+          None: 7, "Header": 2},
+         [("images-dpi-lo.docx", "word/media/image6.tif", "tif", "tiff"),
+          ("images-dpi.docx", "word/media/image3.jpg", "jpg", "jpeg"),
+          ("images-dpi.docx", "word/media/image4.jpg", "jpg", "jpeg"),
+          ("images-dpi.docx", "word/media/image7.tif", "tif", "tiff"),
+          ("images-dpi.docx", "word/media/image8.tif", "tif", "tiff"),
+          ("images-dpi.odt", "Pictures/100000000000003C0000001EF1C6D9F6.jpg", "jpg", "jpeg"),
+          ("images-dpi.odt", "Pictures/10000000000000300000001498F99A9F.jpg", "jpg", "jpeg"),
+          ("images-dpi.odt", "Pictures/100000010000002C000000166BE96C63.tif", "tif", "tiff")]],
+    )
+    check(
+        "`head_hex` 是头八个字节本身，它与 `sig` 一一对得上：png 42 份同一个值、jpeg 8 份同一个 JFIF 前缀，"
+        "SVM 六条 `56434c4d54460100`（`VCLMTF\\x01\\x00`），两张 WMF 各是 `010009000003120d` 与 "
+        "`0100090000035a13`（同一族记录头、后面跟的字节不同）—— 只有 `tbox.docx` 那一条是空串。"
+        "`detected` 那一本按族摊开：word 74 份 png 21 / jpeg 4 / gif 3 / tiff 3 / bmp 2 加一枚「(没读到)」，"
+        "ODF 42 份 png 12 / svm 6 / gif 2 / jpeg 2 / bmp 1 / tiff 1，"
+        "RTF 18 份只有 png 9 / jpeg 2 / wmf 2 —— LO 存 .rtf 时把 gif / bmp / tif 全转成了 png 或 wmf，"
+        "于是那三种名字在这一族的账里一次都不出现",
+        [tally([one_row["head_hex"] for _, one_row in pb_rows]),
+         [tally([dn for one in pool.values() for dn, cnt in one["detected"].items()
+                 for _ in range(cnt)]) for pool in (pb_dx, pb_od, pb_rt)]],
+        [{"89504e470d0a1a0a": 42, "ffd8ffe000104a46": 8, "4749463837612000": 5,
+          "424d360600000000": 3, "49492a0008000000": 4, "": 1, "56434c4d54460100": 6,
+          "010009000003120d": 1, "0100090000035a13": 1},
+         [{"png": 21, "jpeg": 4, "gif": 3, "bmp": 2, "tiff": 3, "(没读到)": 1},
+          {"png": 12, "svm": 6, "gif": 2, "jpeg": 2, "bmp": 1, "tiff": 1},
+          {"png": 9, "jpeg": 2, "wmf": 2}]],
+    )
+    check(
+        "两种「只有合成件才给」的形状逐行交出来：`eq.odt` 里那六条嵌入公式的替位图是 SVM，"
+        "既没有 `draw:mime-type` 也没有扩展名，所以 `word` / `ext` 两本都交 null 而 `sig` 有答案，"
+        "像素与自然尺寸也全 null（SVM 的头里只有一个魔数，没有尺寸格）；"
+        "`images-dpi.rtf` 那两条是**普通** WMF —— 头里只有记录长度（`how` 交 `Header`），"
+        "可它自己声明了 `\\picw` 32×16 与 44×22，于是 `declared_pixels` 有值而 `pixels` 没有、"
+        "`px_agrees` 判不了，密度那一格落在 `none`（WMF 压根没有这一格）",
+        [[(n, one_row["where"], one_row["how"], one_row["pixels"], one_row["declared_pixels"])
+          for n, one_row in pb_rows if one_row["sig"] == "svm"],
+         [(n, one_row["where"], one_row["how"], one_row["pixels"], one_row["declared_pixels"],
+           one_row["px_agrees"], one_row["density"]["state"])
+          for n, one_row in pb_rows if one_row["sig"] == "wmf"]],
+        [[("eq.odt", "ObjectReplacements/Object 1", None, {"w": None, "h": None}, None),
+          ("eq.odt", "ObjectReplacements/Object 2", None, {"w": None, "h": None}, None),
+          ("eq.odt", "ObjectReplacements/Object 3", None, {"w": None, "h": None}, None),
+          ("eq.odt", "ObjectReplacements/Object 4", None, {"w": None, "h": None}, None),
+          ("eq.odt", "ObjectReplacements/Object 5", None, {"w": None, "h": None}, None),
+          ("eq.odt", "ObjectReplacements/Object 6", None, {"w": None, "h": None}, None)],
+         [("images-dpi.rtf", "pict#7", "Header", {"w": None, "h": None}, {"w": 32, "h": 16},
+           None, "none"),
+          ("images-dpi.rtf", "pict#8", "Header", {"w": None, "h": None}, {"w": 44, "h": 22},
+           None, "none")]],
+    )
+    check(
+        "三本尺寸各数各的：`pixels`（图自己头里的像素）62 条知道、9 条不知道（六条 SVM、两条 WMF "
+        "加没字节那条）；`natural`（拿自带密度乘回去的自然尺寸）只有 24 条算得出；"
+        "`placed`（页面上占的那块）71 条全有 —— 有框就有摆放。由这三本派生的两问：`stretched` "
+        "长宽比变了 4 条、`at_natural` 恰好按原尺寸摆的 4 条，两批**没有一行重合**"
+        "（`images-dpi` 那一份件的三家出口各一条，长宽比差 583‰ / 583‰ / 583‰ / 582‰，"
+        "判据是 1‰ 的零头而不是相等 —— 生产者在最后一位上就不一致；原尺寸那四条的偏差恒 2‰）。"
+        "看着像重合的两处各在 `images-dpi-lo.docx` 与 `images-dpi.odt`：LibreOffice 把两张图并成"
+        "同一个部件名，被拉大的那一张与按原尺寸摆的那一张各顶一行 —— 「同一份字节」与"
+        "「同一行」是两问；判不了的分别 9 条与 47 条",
+        [[pb_sum("pixels", "known"), pb_sum("natural", "known"), pb_sum("placed", "known")],
+         [pb_sum("pixels", "unknown"), pb_sum("natural", "unknown"), pb_sum("placed", "unknown")],
+         [pb_sum("stretched", f) for f in ("yes", "no", "undecided")],
+         [pb_sum("at_natural", f) for f in ("yes", "no", "undecided")],
+         [(n, one_row["where"], one_row["aspect_permille"]) for n, one_row in pb_rows
+          if one_row["stretched"] is True],
+         [(n, one_row["where"], one_row["scale_permille"], one_row["aspect_permille"])
+          for n, one_row in pb_rows if one_row["at_natural"] is True]],
+        [[[33, 18, 11], [12, 6, 6], [34, 24, 13]],
+         [[1, 6, 2], [22, 18, 7], [0, 0, 0]],
+         [[2, 1, 1], [31, 17, 10], [1, 6, 2]],
+         [[2, 1, 1], [10, 5, 5], [22, 18, 7]],
+         [("images-dpi-lo.docx", "word/media/image1.png", 583),
+          ("images-dpi.docx", "word/media/image2.png", 583),
+          ("images-dpi.odt", "Pictures/100000000000002800000018CB9DEC0B.png", 583),
+          ("images-dpi.rtf", "pict#2", 582)],
+         [("images-dpi-lo.docx", "word/media/image1.png", {"w": 1000, "h": 1000}, 2),
+          ("images-dpi.docx", "word/media/image1.png", {"w": 1000, "h": 1000}, 2),
+          ("images-dpi.odt", "Pictures/100000000000002800000018CB9DEC0B.png",
+           {"w": 1000, "h": 1000}, 2),
+          ("images-dpi.rtf", "pict#0", {"w": 1000, "h": 1000}, 2)]],
+    )
+    check(
+        "RTF 独家那一格：`\\picw` / `\\pich` 是文件**自己声明**的像素数，13 行全写了、11 行与头里认出来的"
+        "像素数一致、2 行判不了（那两张 WMF 头里没有像素），`disagrees` 恒 0 —— 而这一格在 OOXML 与 ODF "
+        "两族根本没有可写的地方，所以那两族 58 行交 null 且计数全落在 `undecided`。"
+        "`px_agrees` 因此只在 RTF 上有 true，另两族整本 null —— 缺这一问的族交 null，不交 false",
+        [[pb_sum("declared_pixels", f)
+          for f in ("written", "agrees", "disagrees", "undecided")],
+         {k: tally([one_row["px_agrees"] for n, one_row in pb_rows
+                    if pb_all[n]["family"] == k]) for k in ("docx", "odf", "rtf")},
+         [sum(1 for _, one_row in pb_rows if one_row["declared_pixels"] is not None)]],
+        [[[0, 0, 13], [0, 0, 11], [0, 0, 0], [34, 24, 2]],
+         {"docx": {None: 34}, "odf": {None: 24}, "rtf": {True: 11, None: 2}},
+         [13]],
+    )
+    check(
+        "「页面占的那块」的来路三族三条：OOXML 从 `wp:extent` 的 EMU、ODF 从 "
+        "`draw:frame/@svg:width` 的自带单位、RTF 从 `\\picwgoal × \\picscalex` —— 同一张 300 dpi 的 "
+        "40×24 PNG，python-docx 写 `121920` EMU 而 LibreOffice 写 `0.339cm`、RTF 写 192 twips × 100%，"
+        "换到 0.01mm 三边都是 339×203 而**串长得不一样**，所以 `from` 与 `written` 两样都交、不合并。"
+        "`note` 那一格在整库 71 行里恒 null：这一族的含糊全有格子可放，不需要旁白",
+        [tally([one_row["placed_mm100"]["from"] for _, one_row in pb_rows]),
+         [(n, one_row["where"], one_row["note"]) for n, one_row in pb_rows if one_row["note"]]],
+        [{"wp:extent": 34, "draw:frame/@svg:width": 24, r"\picwgoal×\picscalex": 13}, []],
+    )
+    x_pic = dig(lbin("office-doc", fixture("images-dpi.docx")), "structure.picture_bytes")
+    pb_cut = dig(lbin("office-doc", fixture("images-dpi.docx"), "--limit", "1"),
+                 "structure.picture_bytes")
+    check(
+        "截行不截账：`--limit 1` 只砍 `rows`（`listed` 1、`cut` true，交出来的那一行还是那张 40×24 的 PNG），"
+        "九本计数仍按全部 9 行算 —— `addr` 9 条、`agrees` 九个 yes、`density` 四种各就各位、"
+        "`pixels` / `placed` 九个 known、`natural` 六比三、`declared_pixels` 九个 undecided、"
+        "`detected` 五种合起来九枚、`distinct_parts` 仍是 8（九个框指向八个部件）",
+        [pb_cut["total"], pb_cut["listed"], pb_cut["cut"], len(pb_cut["rows"]),
+         pb_cut["rows"][0]["where"], pb_cut["addr"], pb_cut["agrees"], pb_cut["density"],
+         pb_cut["pixels"], pb_cut["natural"], pb_cut["placed"], pb_cut["declared_pixels"],
+         pb_cut["detected"], pb_cut["distinct_parts"],
+         [one["where"] for one in x_pic["rows"][:3]]],
+        [9, 1, True, 1, "word/media/image1.png",
+         {"read": 9, "unresolved": 0, "missing": 0, "none": 0},
+         {"yes": 9, "no": 0, "undecided": 0},
+         {"read": 6, "unitless": 1, "absent": 1, "none": 1},
+         {"known": 9, "unknown": 0}, {"known": 6, "unknown": 3}, {"known": 9, "unknown": 0},
+         {"written": 0, "agrees": 0, "disagrees": 0, "undecided": 9},
+         {"png": 3, "jpeg": 2, "gif": 1, "bmp": 1, "tiff": 2}, 8,
+         ["word/media/image1.png", "word/media/image1.png", "word/media/image2.png"]],
+    )
+    check(
+        "反面凭据：这一格只在 office-doc 交，三族都有出口（RTF 那 18 份也交）。"
+        "遗留 .doc 的图住在 piece 流里，本机没有第二个读者可核对，所以那一家连「零条」都不报；"
+        ".ods / .odp 的图在 office-sheet / office-slide 各有各的账，在 office-doc 没有出口 —— "
+        "把它们算进这一族只会替文件编一本假账，缺键 = 这一族没这一层",
+        [no_theme_key("office-doc", "images-dpi.rtf", "picture_bytes"),
+         no_theme_key("office-doc", "notes-en.doc", "picture_bytes"),
+         no_theme_key("office-sheet", "book.ods", "picture_bytes"),
+         no_theme_key("office-slide", "deck.odp", "picture_bytes")],
+        [True, False, False, False],
     )
 
     failed = [one for one in RESULTS if not one[1]]

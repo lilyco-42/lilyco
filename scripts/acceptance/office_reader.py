@@ -25,11 +25,14 @@ from pathlib import Path as _Path
 
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 from lyco_rtf import rtf_info, rtf_markdown, rtf_text  # 独立 RTF 实现，与 lilyco-binfmt/src/rtf.rs 对账
+from lyco_pictures import docx_ledger as pic_docx_ledger  # 图自己那一份账（OOXML）：声明 vs 字节
 from lyco_cross_refs import (  # 题注与交叉引用那一份账（行来自上面各家已经交过的域账）
     docx_cross_refs,
     odf_cross_refs,
     rtf_cross_refs,
 )
+from lyco_pictures import odf_ledger as pic_odf_ledger  # 同一问的 ODF 那一面
+from lyco_pictures import rtf_ledger as pic_rtf_ledger  # 同一问的 RTF 那一面
 from lyco_formats import xlsx_formats  # xlsx 数字格式的第二读者（与 numfmt.rs 对账）
 from lyco_legacy import biff_workbook, doc_pieces, ppt_text  # 遗留格式的第二读者
 from lyco_revisions import docx_revisions, odt_revisions  # 修订那份账的第二读者
@@ -10594,8 +10597,9 @@ def docprops(path: Path) -> dict:
 # 三条口径两边逐字对齐：一切按**文件写着的**交（`sysClr` 的 `lastClr` 只是缓存的猜测，
 # `val` 才是「跟着系统走」那一句，两个键都留）；「写了但是空串」与「没写这一路」是两个答案
 # （合计里分列 `*_blank` / `*_missing`）；顺序是文件自己的文档顺序，不排序。
-# 这一本**不算色**：正文的指针可以带 tint / shade，tint 与「线性混白」逐格吻合（480/480），
-# 而 shade 那一支在 2136 条里与八种算法（RGB 与 HSL 两个空间 × 四种取整）都对不齐 —— 交不出的就别交
+# 这一本**不算色**：正文的指针可以带 tint / shade，而两支都判不住 —— tint 那 515 条与
+# `c*t + 255*(1-t)` 逐格吻合（515/515）而按字面读「掺进 t 的白」一条也不吻合（0/515），
+# shade 那 2186 条候选铺到 32 种也只说中 1078 条 —— 认任何一种都是替文件猜，交不出的就别交
 THEME_SLOTS = [
     "dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3", "accent4",
     "accent5", "accent6", "hlink", "folHlink",
@@ -10763,11 +10767,11 @@ def theme_ledger(path: Path, limit: int = 400) -> dict:
 # 由文件自己解，不用猜；另 42 条落在没写对照的包里，就交解不出）；剩下 Word 那一族别名
 # （`via = "wml-alias"`，21628 条）—— 那张表只收「无修饰符而写了影子」量出来的四个名字：
 # `text1`→`dk1`、`background1`→`lt1`、`text2`→`dk2`、`dark1`→`dk1`，`matches` 就是这张表的自证。
-# 解不出来的 2129 条交 null，别照着规范补全：`phClr` 2079 条（主题占位色，压根不是那十二格）、
-# `dark2` 8 条（整批带 shade，别名表不收）、另 42 条没有对照可走。
+# 解不出来的 2153 条交 null，别照着规范补全：`phClr` 2100 条（主题占位色，压根不是那十二格）、
+# `dark2` 10 条（整批带 shade，别名表不收）、另 43 条没有对照可走。
 # 序号那一族有两读：规范顺序与 Excel 实际用的顺序前四格要互换，于是 `slot` / `alt_slot`
 # 都交，只有两边说同一格的 8 条算 `index_agree`，另 102 条算 `index_disagree`。
-# 这一本照样**不算色**：带 `tint` / `shade` / `themeTint` / `themeShade` / `satMod` 的 4540 条
+# 这一本照样**不算色**：带 `tint` / `shade` / `themeTint` / `themeShade` / `satMod` 的 4618 条
 # 一律 `matches = null`（对不上是应该的，对上才是巧合），字面量按写的交；
 # 判不住的四种在合计里分列（modified / no_slot / no_literal / multi_value），不揉成一格。
 THEME_REF_ALIAS = {
@@ -11120,6 +11124,7 @@ def facts(path: Path) -> dict:
             out["ooxml"]["doc_defaults"] = docx_doc_defaults(path)
             # 题注与交叉引用：目标只住在指令串里，SEQ 这一族没有声明那一层可查
             out["ooxml"]["cross_refs"] = docx_cross_refs(path)
+            out["ooxml"]["picture_bytes"] = pic_docx_ledger(path)
             # 域那一份账：两种写法、三种缺法，正文以外那几份部件一起扫
             out["ooxml"]["field_ledger"] = docx_field_ledger(path)
             out["ooxml"]["theme"] = themes
@@ -11191,6 +11196,7 @@ def facts(path: Path) -> dict:
             out["odt"]["doc_defaults"] = odf_doc_defaults(path)
             # 同一问在 ODF 目标是属性，而且序列声明那一层只有这一族有
             out["odt"]["cross_refs"] = odf_cross_refs(path)
+            out["odt"]["picture_bytes"] = pic_odf_ledger(path)
             # 同一问在 ODF 是元素名本身：没有指令串，种类与格式全在名字与属性上
             out["odt"]["field_ledger"] = odf_field_ledger(path)
             # 这一族没有主题这个概念：交一本零条的账，而不是缺这个键
@@ -11253,6 +11259,7 @@ def facts(path: Path) -> dict:
         out["rtf"]["field_ledger"] = rtf_field_ledger(out["rtf"])
         # 题注与交叉引用：指令那一串与 docx 逐字同形，书签名这边已经解过 \u
         out["rtf"]["cross_refs"] = rtf_cross_refs(out["rtf"])
+        out["rtf"]["picture_bytes"] = pic_rtf_ledger(data)
         # markdown 那一本单列一个键：`para_rows` 是中间账，不混进 `rtf` 那本整份对账
         out["rtf_markdown"] = rtf_markdown(data)
         out["app"] = "word"

@@ -111,6 +111,22 @@ pub fn member(zip: &[u8], want: &str, cap: u64) -> Result<Member, String> {
 /// 读一个已知条目。长度与 CRC 一律信中央目录（见模块注释第 3 条）。
 pub fn read_member(zip: &[u8], e: &ZipEntry, cap: u64) -> Result<Member, String> {
     let cap = if cap == 0 { DEFAULT_MEMBER_CAP } else { cap };
+    let raw = local_data(zip, e)?;
+    let (data, method_name) = match e.method {
+        0 => (raw.to_vec(), "stored".to_string()),
+        8 => (inflate(raw, cap, &e.name)?, "deflate".to_string()),
+        other => {
+            return Err(format!(
+                "`{}` 用的是压缩方法 {other}，本域只读 stored(0) 与 deflate(8)",
+                e.name
+            ))
+        }
+    };
+    Ok(check(e, data, method_name))
+}
+
+/// 本地头之后、按中央目录自报长度切出来的那一段压缩字节
+fn local_data<'a>(zip: &'a [u8], e: &ZipEntry) -> Result<&'a [u8], String> {
     let off = usize::try_from(e.offset).map_err(|_| format!("offset {} 放不下", e.offset))?;
     let head = zip
         .get(off..off + 30)
@@ -134,23 +150,34 @@ pub fn read_member(zip: &[u8], e: &ZipEntry, cap: u64) -> Result<Member, String>
     let Some(stop) = start.checked_add(csize) else {
         return Err(format!("`{}` 的压缩长度溢出", e.name));
     };
-    let raw = zip.get(start..stop).ok_or_else(|| {
+    zip.get(start..stop).ok_or_else(|| {
         format!(
             "`{}` 自报压缩长度 {csize} 从 offset {start} 起超出了文件",
             e.name
         )
-    })?;
-    let (data, method_name) = match e.method {
-        0 => (raw.to_vec(), "stored".to_string()),
-        8 => (inflate(raw, cap, &e.name)?, "deflate".to_string()),
-        other => {
-            return Err(format!(
-                "`{}` 用的是压缩方法 {other}，本域只读 stored(0) 与 deflate(8)",
-                e.name
-            ))
+    })
+}
+
+/// 只取解压出来的**头** `cap` 个字节。判一张图是什么格式要的是它自己那几十个字节的头，
+/// 而一张照片有几兆 —— 那种量在 `read_member` 那里是 zip 炸弹闸门（该报的错），在这里
+/// 只是「后面还有没看的」，所以这一条不走 `Err`：认不了的（别的压缩方法、流坏了、
+/// 没有这个成员）一律 None，调用方自己决定怎么记账。
+/// **不校 CRC、也不报长度**：那是 `read_member` 的活，这里只走了前半条流。
+pub fn member_head(zip: &[u8], want: &str, cap: usize) -> Option<Vec<u8>> {
+    let (dirs, _) = central_directory(zip);
+    let e = find_in(&dirs, want)?;
+    let raw = local_data(zip, e).ok()?;
+    match e.method {
+        0 => Some(raw.iter().take(cap).copied().collect()),
+        8 => {
+            let mut decoder =
+                flate2::read::DeflateDecoder::new(raw).take(u64::try_from(cap).unwrap_or(u64::MAX));
+            let mut out = Vec::new();
+            decoder.read_to_end(&mut out).ok()?;
+            Some(out)
         }
-    };
-    Ok(check(e, data, method_name))
+        _ => None,
+    }
 }
 
 /// 把「算出来的」与「条目自报的」并排放，不一致就写进 `note`，不丢掉字节

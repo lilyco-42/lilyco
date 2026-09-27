@@ -758,20 +758,21 @@ fn dex_header(b: &[u8]) -> Value {
 }
 
 fn png_header(b: &[u8]) -> Value {
-    let wide = le32(8)(b).and_then(|value| usize::try_from(value).ok());
+    // IHDR 的字段是大端的，且从 16 起：8..12 是那块自己的长度、12..16 是 `IHDR`
+    let wide = be32(16)(b).and_then(|value| usize::try_from(value).ok());
     let (Some(width), Some(height)) = (
         wide,
-        le32(12)(b).and_then(|value| usize::try_from(value).ok()),
+        be32(20)(b).and_then(|value| usize::try_from(value).ok()),
     ) else {
         return json!({});
     };
     json!({
         "width": width,
         "height": height,
-        "bit_depth": b.get(16),
-        "color_type": b.get(17),
+        "bit_depth": b.get(24),
+        "color_type": b.get(25),
         "interlaced": b.get(28),
-        "first_chunk": fourcc(b, 20),
+        "first_chunk": fourcc(b, 12),
     })
 }
 
@@ -910,5 +911,29 @@ mod tests {
         assert_eq!(cstr(raw, 0, 4).as_deref(), Some("AB"));
         assert_eq!(cstr(raw, 2, 2).as_deref(), Some(""));
         assert_eq!(cstr(raw, 6, 8), None, "窗口里没有 NUL 就不该编一个名字");
+    }
+
+    /// IHDR 的数是大端的，而且从第 16 字节才开始：拿小端读 8 那两格，读出的是块长和 `IHDR`
+    /// 四个字母。这些字节照真件 `images-dpi.docx` 的 `word/media/image1.png` 摆，
+    /// 40×24 与 Pillow 报的一致。
+    #[test]
+    fn png_ihdr_numbers_are_big_endian_and_start_at_byte_16() {
+        let mut raw = vec![0u8; 33];
+        raw[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        raw[8..12].copy_from_slice(&13u32.to_be_bytes()); // 这一块自己的长度
+        raw[12..16].copy_from_slice(b"IHDR");
+        raw[16..20].copy_from_slice(&40u32.to_be_bytes()); // 宽
+        raw[20..24].copy_from_slice(&24u32.to_be_bytes()); // 高
+        raw[24] = 8; // bit depth
+        raw[25] = 2; // color type
+        raw[26] = 0;
+        raw[27] = 0;
+        raw[28] = 0; // interlace
+        raw[29..33].copy_from_slice(&0x07e6_2897u32.to_be_bytes()); // IHDR 的 CRC
+        assert_eq!(
+            png_header(&raw),
+            json!({"width": 40, "height": 24, "bit_depth": 8, "color_type": 2,
+                   "interlaced": 0, "first_chunk": "IHDR"})
+        );
     }
 }

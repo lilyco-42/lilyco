@@ -312,14 +312,18 @@ def word_in_group(group: str, want: str):
 
 PIC_CAP = 16 * 1024
 PIC_ROW_CAP = 512
+# 判格式要看到的那几个字节：44 是 EMF 签名的末尾（签名在偏移 40），而报给外面的
+# `head_hex` 只交前 8 个 —— 那两个数是两件事，别把它们合成一个
+PIC_SIG_CAP = 44
+PIC_HEX_CAP = 8
 PIC_MAGIC = [
     (b"\x89PNG", "png"),
     (b"\xff\xd8", "jpeg"),
     (b"BM", "bmp"),
     (b"GIF8", "gif"),
-    (b"\xd7\xcd\xc6\x9a", "emf"),
     (b"II*\x00", "tiff"),
     (b"MM\x00*", "tiff"),
+    (b"VCLMTF\x01\x00", "svm"),
 ]
 
 
@@ -503,19 +507,20 @@ def blip_word(group: str):
             k += 1
         while k < len(group) and (group[k].isdigit() or group[k] == "-"):
             k += 1
-        if name.endswith("blip") or name in ("dibitmap", "pictbitmap", "macpict"):
+        if name.endswith("blip") or name in PIC_WORDS:
             return name, k
         i = k if k > i + 1 else i + 1
     return None, None
 
 
-def hex_head(group: str, frm: int) -> bytes:
-    """那串十六进制的前 8 个字节：数据行里可以夹着换行与空格（LibreOffice 就是折行写的），
-    碰上既不是十六进制也不是空白的字节才停"""
+def hex_head(group: str, frm: int, want: int = 8) -> bytes:
+    """那串十六进制的前 `want` 个字节（默认 8，够看清 png/jpeg 那一族）：数据行里可以夹着
+    换行与空格（LibreOffice 就是折行写的），碰上既不是十六进制也不是空白的字节才停。
+    判 EMF 要读到偏移 44（那枚签名在 40），所以调用点按需放大这个数"""
     got: list[int] = []
     pending = None
     i = frm
-    while i < len(group) and len(got) < 8:
+    while i < len(group) and len(got) < want:
         ch = group[i]
         if ch in " \t\r\n":
             i += 1
@@ -533,21 +538,46 @@ def hex_head(group: str, frm: int) -> bytes:
     return bytes(got)
 
 
+def _le16(raw: bytes, at: int):
+    return int.from_bytes(raw[at:at + 2], "little") if len(raw) >= at + 2 else None
+
+
+def _le32(raw: bytes, at: int):
+    return int.from_bytes(raw[at:at + 4], "little") if len(raw) >= at + 4 else None
+
+
+# 那三个不带 `blip` 尾巴的控制字说的也是同一件事：文件自己声明了是哪种图。
+# `\pictbitmap` 只说「这是一张位图，格式你自己看」，所以它没有名字可给
+PIC_WORDS = {"wmetafile": "wmf", "dibitmap": "bmp", "macpict": "pict", "pictbitmap": None}
+
+
 def picture_kind(head: bytes):
-    """那几个字节是什么图。认不出名字交 "unknown"，一个字节都没读到才交 None"""
+    r"""那几个字节是什么图。认不出名字交 "unknown"，一个字节都没读到才交 None
+
+    EMF 与普通 WMF 的头**前四字节撞车**（都是 `01 00 00 00`：一个是记录类型、一个是文件
+    类型），所以 EMF 要问偏移 40 那枚 ` EMF` 签名、WMF 问偏移 2 那个头长（9 个字）；
+    可放置 WMF 另有自己的 `d7 cd c6 9a` —— 那一条从前被记在了 EMF 名下，而真 EMF
+    （`01 00 00 00 6c 00 00 00`）一个都不认得。
+    """
     for want, name in PIC_MAGIC:
         if head.startswith(want):
             return name
+    if _le32(head, 0) == 1 and _le32(head, 40) == 0x464D4520:
+        return "emf"
+    if _le32(head, 0) == 0x9AC6CDD7:
+        return "wmf"  # 可放置那一族：头里带单位数与英寸数
+    if _le16(head, 0) in (1, 2) and _le16(head, 2) == 9:
+        return "wmf"
     return "unknown" if head else None
 
 
 def blip_agrees(kind, sig):
-    """「文件说这是什么格式」与「字节自己说这是什么格式」对不对得上。
-    只在两边都认得时才比（`\dibitmap` 那种没有词干可读 → null，不猜一个「不一致」）"""
-    if not kind or not kind.endswith("blip"):
+    r"""「文件说这是什么格式」与「字节自己说这是什么格式」对不对得上。
+    只在两边都认得时才比（`\pictbitmap` 那种没有词干可读 → null，不猜一个「不一致」）"""
+    if not kind:
         return None
-    said = kind[: -len("blip")]
-    if not said or sig == "unknown" or sig is None:
+    said = kind[: -len("blip")] if kind.endswith("blip") else PIC_WORDS.get(kind)
+    if not said or sig is None or sig == "unknown":
         return None
     return said == sig
 
@@ -587,7 +617,7 @@ def picture_ledger(text: str, at: int) -> dict:
     stop = group_stop(text, at)
     head = text[at:min(stop, at + PIC_CAP)]
     kind, data_at = blip_word(head)
-    read = hex_head(head, data_at) if data_at is not None else b""
+    read = hex_head(head, data_at, PIC_SIG_CAP) if data_at is not None else b""
     sig = picture_kind(read)
     seen, props = shape_props(head)
     alt = None
@@ -599,7 +629,7 @@ def picture_ledger(text: str, at: int) -> dict:
         "blip": kind,
         "sig": sig,
         "sig_agrees": blip_agrees(kind, sig),
-        "head_hex": read.hex(),
+        "head_hex": read[:PIC_HEX_CAP].hex(),
         "pixels": {"w": word_in_group(head, "picw"), "h": word_in_group(head, "pich")},
         "goal": {
             "w": word_in_group(head, "picwgoal"),

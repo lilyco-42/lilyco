@@ -5,19 +5,19 @@
 //! `<a:schemeClr val="tx1"/>`，Excel 写 `theme="4"` 一个序号。名字点到格有三条来路，
 //! 都记在 `via` 上，解不出来就交 null，不照着规范替文件补全。
 //!
-//! 实测（240 份件里 30404 条手指：Word 那一路 25084、DrawingML 5210、Excel 序号 110；
-//! 走过 2189 个 `.xml` 部件，543 个部件里手指在场）：
+//! 实测（202 份出口里 30984 条手指：Word 那一路 25635、DrawingML 5239、Excel 序号 110；
+//! 走过 2217 个 `.xml` 部件（OOXML 1855 + ODF 362），548 个部件里手指在场）：
 //! * Word 那一路**每一条都另写了一遍六位实色**（`@val`）当影子，所以那一路可以自己跟自己
-//!   核对：不带修饰符的 22440 条逐条与本包主题格对上，`mismatched` 0 条 —— 这张表是自检的；
-//! * DrawingML 那一路 5210 条都写了 `val`（一条都没少），但它没有伴随实色可核，
+//!   核对：不带修饰符的 22924 条逐条与本包主题格对上，`mismatched` 0 条 —— 这张表是自检的；
+//! * DrawingML 那一路 5239 条都写了 `val`（一条都没少），但它没有伴随实色可核，
 //!   所以那一族的 `matches` 全为 null；名字坐实靠的是文件自己写的 `a:clrMap`——
 //!   实测 83 份对照分布在 21 个包里，全写在母版那两种部件上（`slideMasterN.xml` 81 份、
 //!   `notesMaster1.xml` 2 份，主题那一份件里一个都没有），说的是同一套十二对
 //!   （`alias_conflict` 0），于是 `tx1` / `bg1` 这一族 580 条由文件自己解，
-//!   而 42 条落在没有对照的包里就交解不出（不是猜）；
+//!   而 43 条落在没有对照的包里就交解不出（不是猜）；
 //! * 别名表（`via = "wml-alias"`）只收 Word 那一族、且只用「无修饰符而写了影子」量出来的
-//!   那四个名字：`text1`→`dk1`、`background1`→`lt1`、`text2`→`dk2`、`dark1`→`dk1`，共 21628 条；
-//!   `dark2`（8 条，整批带 shade）与 `phClr`（2079 条，主题占位色，压根不是那十二格之一）
+//!   那四个名字：`text1`→`dk1`、`background1`→`lt1`、`text2`→`dk2`、`dark1`→`dk1`，共 22085 条；
+//!   `dark2`（10 条，整批带 shade）与 `phClr`（2100 条，主题占位色，压根不是那十二格之一）
 //!   都不在这张表里，也不补；
 //! * 序号那一族有**两读**：规范顺序与 Excel 实际用的顺序前四格要对调，所以 `slot` 与
 //!   `alt_slot` 都交，只有两边说同一格的 8 条算 `index_agree`，另 102 条是 `index_disagree`；
@@ -25,13 +25,13 @@
 //!   所以 `slots` 那一本交十二行、每行带 `parts` 与 `agree`，判得住与否留给 `matches`。
 //!
 //! 不做的事与主题那一本同一条：**不替文件算色**。带 `tint` / `shade` / `themeTint` /
-//! `themeShade` / `satMod` 的 4540 条一律 `matches = null`（对不上是应该的，对上才是巧合），
+//! `themeShade` / `satMod` 的 4618 条一律 `matches = null`（对不上是应该的，对上才是巧合），
 //! 字面量按写的交；四种「判不住」在合计里分列（`skip_modified` / `skip_no_slot` /
 //! `skip_no_literal` / `skip_multi_value`），不揉成一格。
 //!
 //! 非 ZIP 的件（`.doc` / `.ppt` / `.xls` / RTF / PDF）交一本零条的账而不是缺键 ——
 //! 那两族的主题坐在 CFB 的 `Theme` 流与 RTF 的 `{\*\themedata}` 群里，本机做不出凭据，
-//! 所以那一本还没开。ODF 那 67 份没有主题这个概念：`parts_scanned` 非零而 `refs` 零条。
+//! 所以那一本还没开。ODF 那 68 份没有主题这个概念：`parts_scanned` 非零而 `refs` 零条。
 
 use std::collections::HashMap;
 

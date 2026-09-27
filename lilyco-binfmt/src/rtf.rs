@@ -306,7 +306,7 @@ fn written_of(group: &[u8]) -> String {
 
 /// 一群里第一个叫 `want` 的控制字：交回紧跟它的那串数字（没有数字时交空串），
 /// 整群没有才交 None
-fn word_in_group(group: &[u8], want: &str) -> Option<String> {
+pub(crate) fn word_in_group(group: &[u8], want: &str) -> Option<String> {
     let mut i = 0usize;
     while i < group.len() {
         if group[i] != b'\\' {
@@ -334,10 +334,32 @@ fn word_in_group(group: &[u8], want: &str) -> Option<String> {
 /// 一张 `{\pict …}` 群的**群头**最多看这么多字节：两个生产者都把形状写在数据之前
 /// （`{\*\picprop …}` 那格、`\picscalex` 一串、最后才是 `\pngblip` 与那几个兆的
 /// 十六进制），而数据本身可以长到几万个字符 —— 抄一遍不值，扫到底也不值
-const PICTURE_SCAN_CAP: usize = 16 * 1024;
+pub(crate) const PICTURE_SCAN_CAP: usize = 16 * 1024;
 
 /// 逐张账本最多存几张图（`pictures` 那个条数不受它影响，一直数到底）
 const PICTURE_ROW_CAP: usize = 512;
+
+/// 判「那串字节自己是什么格式」要读到第几个字节。44 是 EMF 那枚签名的末尾（签名住在
+/// 偏移 40），而报给外面的 `head_hex` 只交前 8 个 —— 那两个数是两件事，别合成一个
+const PICTURE_SIG_CAP: usize = 44;
+const PICTURE_HEX_CAP: usize = 8;
+
+/// 那三个不带 `blip` 尾巴的控制字说的也是同一件事：文件自己声明了是哪种图。
+/// `\pictbitmap` 只说「这是一张位图，格式你自己看字节」，所以它没有名字可给（第二条 null）
+const PICTURE_WORDS: [(&str, Option<&str>); 4] = [
+    ("wmetafile", Some("wmf")),
+    ("dibitmap", Some("bmp")),
+    ("macpict", Some("pict")),
+    ("pictbitmap", None),
+];
+
+/// 一个声明字说的是什么图（不在那张表里交 None）
+fn declared_kind(word: &str) -> Option<&'static str> {
+    PICTURE_WORDS
+        .iter()
+        .find(|one| one.0 == word)
+        .and_then(|one| one.1)
+}
 
 /// 跳过 `\*` 那个「不认识就整群跳过」的标记：`{\*\picprop …}` 那一群的内容开头是
 /// `\*\picprop`，而这一族确实认得 picprop 里写的是什么，所以要能看见那个名字
@@ -349,7 +371,7 @@ fn unstar(group: &[u8]) -> &[u8] {
 }
 
 /// 从 `at` 起走到「关掉当前这一群」的那个 `}`，只交那个下标（不抄整群）
-fn group_stop(bytes: &[u8], at: usize) -> usize {
+pub(crate) fn group_stop(bytes: &[u8], at: usize) -> usize {
     let mut depth = 0i32;
     let mut i = at;
     while i < bytes.len() {
@@ -375,7 +397,7 @@ fn group_stop(bytes: &[u8], at: usize) -> usize {
 
 /// 一群里第一个「说这是哪种图」的控制字（`\pngblip`、`\jpegblip`、`\dibitmap` 这些）：
 /// 交回它自己的名字与它写完之后的位置 —— 紧跟其后的就是那串十六进制
-fn blip_word(group: &[u8]) -> Option<(String, usize)> {
+pub(crate) fn blip_word(group: &[u8]) -> Option<(String, usize)> {
     let mut i = 0usize;
     while i < group.len() {
         if group[i] != b'\\' {
@@ -392,8 +414,7 @@ fn blip_word(group: &[u8]) -> Option<(String, usize)> {
             k += 1;
         }
         let text = String::from_utf8_lossy(&name).into_owned();
-        if text.ends_with("blip") || matches!(text.as_str(), "dibitmap" | "pictbitmap" | "macpict")
-        {
+        if text.ends_with("blip") || PICTURE_WORDS.iter().any(|one| one.0 == text) {
             return Some((text, k));
         }
         i = if k > i + 1 { k } else { i + 1 };
@@ -411,14 +432,14 @@ fn hex_nibble(one: u8) -> Option<u8> {
     }
 }
 
-/// 从 `from` 起那串十六进制的前 8 个字节。数据行里可以夹着换行与空格（实测
-/// LibreOffice 就是这么折行的），所以空白跳过而不是停下；碰上一个不是十六进制
-/// 也不是空白的字节才停（那已经是群里的别的东西了）
-fn hex_head(group: &[u8], from: usize) -> Vec<u8> {
+/// 从 `from` 起那串十六进制的前 `want` 个字节（8 个够看清 png 那一族，判 EMF 要 44 个）。
+/// 数据行里可以夹着换行与空格（实测 LibreOffice 就是这么折行的），所以空白跳过而不是停下；
+/// 碰上一个不是十六进制也不是空白的字节才停（那已经是群里的别的东西了）
+pub(crate) fn hex_head(group: &[u8], from: usize, want: usize) -> Vec<u8> {
     let mut out: Vec<u8> = Vec::new();
     let mut high: Option<u8> = None;
     let mut i = from;
-    while i < group.len() && out.len() < 8 {
+    while i < group.len() && out.len() < want {
         let one = group[i];
         if matches!(one, b' ' | b'\t' | b'\r' | b'\n') {
             i += 1;
@@ -439,6 +460,11 @@ fn hex_head(group: &[u8], from: usize) -> Vec<u8> {
 
 /// 那几个字节是什么图。认不出名字的交 "unknown"（读到了字节但不替它编名字），
 /// 一个字节都没读到才交 None
+///
+/// EMF 与普通 WMF 的头**前四字节撞车**（都是 `01 00 00 00`：一个是记录类型、一个是文件
+/// 类型），所以 EMF 要问偏移 40 那枚 ` EMF` 签名、WMF 问偏移 2 那个头长（9 个字）；
+/// 可放置 WMF 另有自己的 `d7 cd c6 9a` —— 那一条从前被记在了 EMF 名下，而真 EMF
+/// （`01 00 00 00 6c 00 00 00`）一个都不认得
 fn picture_kind(head: &[u8]) -> Option<&'static str> {
     if head.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
         return Some("png");
@@ -452,11 +478,20 @@ fn picture_kind(head: &[u8]) -> Option<&'static str> {
     if head.starts_with(&[0x47, 0x49, 0x46, 0x38]) {
         return Some("gif");
     }
-    if head.starts_with(&[0xD7, 0xCD, 0xC6, 0x9A]) {
-        return Some("emf");
-    }
     if head.starts_with(&[0x49, 0x49, 0x2A, 0x00]) || head.starts_with(&[0x4D, 0x4D, 0x00, 0x2A]) {
         return Some("tiff");
+    }
+    if head.starts_with(b"VCLMTF\x01\x00") {
+        return Some("svm");
+    }
+    if head.starts_with(&[0xD7, 0xCD, 0xC6, 0x9A]) {
+        return Some("wmf");
+    }
+    if le32(head, 0) == Some(1) && le32(head, 40) == Some(0x464D_4520) {
+        return Some("emf");
+    }
+    if le16(head, 0).map_or(false, |one| one == 1 || one == 2) && le16(head, 2) == Some(9) {
+        return Some("wmf");
     }
     if head.is_empty() {
         return None;
@@ -464,11 +499,27 @@ fn picture_kind(head: &[u8]) -> Option<&'static str> {
     Some("unknown")
 }
 
+/// 头里 little-endian 的两个字节（不够长交 None，不猜 0）
+fn le16(head: &[u8], at: usize) -> Option<u16> {
+    let raw = head.get(at..at + 2)?;
+    Some(u16::from_le_bytes([raw[0], raw[1]]))
+}
+
+/// 头里 little-endian 的四个字节（同上）
+fn le32(head: &[u8], at: usize) -> Option<u32> {
+    let raw = head.get(at..at + 4)?;
+    Some(u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]))
+}
+
 /// 「文件说这是什么格式」与「那串字节自己说这是什么格式」对不对得上。
-/// 只在两边说的是同一个词表里的东西时才比：`\pngblip` 的词干是 `png`，
-/// 而 `\dibitmap` 那种没有词干可读 —— 那种交 null 而不是猜一个「不一致」
+/// 只在两边都认得时才比：`\pngblip` 的词干是 `png`，不带 `blip` 尾巴的那三个查
+/// [`PICTURE_WORDS`]，而 `\pictbitmap` 那种根本没有名字可给 —— 那种交 null 而不是
+/// 猜一个「不一致」
 fn blip_agrees(kind: &str, sig: Option<&str>) -> Option<bool> {
-    let said = kind.strip_suffix("blip")?;
+    let said = match kind.strip_suffix("blip") {
+        Some(stem) => stem,
+        None => declared_kind(kind)?,
+    };
     let got = sig?;
     if said.is_empty() || got == "unknown" {
         return None;
@@ -517,7 +568,8 @@ fn shape_props(group: &[u8]) -> (bool, Vec<Value>) {
 /// 三个数各按各的原样给出（实测 `images.rtf` 的 `480` twips 与同一批字的 docx 里
 /// 那个 `1440000` EMU 不是同一个数，这一族把尺寸拆成了「目标 × 缩放」两半）。
 /// 「这是什么格式的图」有两份凭据：`pngblip` 那个控制字说的，与紧跟其后那串
-/// 十六进制自己带的前八个字节，两个都交，再给一个只在两边都认得时才比的 `sig_agrees`。
+/// 十六进制自己的前 [`PICTURE_SIG_CAP`] 个字节（判 EMF 要看到偏移 40 那枚签名），
+/// 两个都交，再给一个只在两边都认得时才比的 `sig_agrees`；`head_hex` 只报前八个字节。
 /// 替代文字住在 `{\*\picprop}` 的 `wzDescription` 那一条里（`notes.rtf` 写的是空值，
 /// 所以 `alt_written` 与「alt 非空」是两件事）。
 fn picture_ledger(bytes: &[u8], at: usize) -> Value {
@@ -528,7 +580,7 @@ fn picture_ledger(bytes: &[u8], at: usize) -> Value {
     let blip = blip_word(head);
     let kind: Option<String> = blip.as_ref().map(|one| one.0.clone());
     let read: Vec<u8> = match blip.as_ref().map(|one| one.1) {
-        Some(at_data) => hex_head(head, at_data),
+        Some(at_data) => hex_head(head, at_data, PICTURE_SIG_CAP),
         None => Vec::new(),
     };
     let sig = picture_kind(&read);
@@ -549,7 +601,11 @@ fn picture_ledger(bytes: &[u8], at: usize) -> Value {
         "blip": kind,
         "sig": sig,
         "sig_agrees": agrees,
-        "head_hex": read.iter().map(|one| format!("{:02x}", one)).collect::<String>(),
+        "head_hex": read
+            .iter()
+            .take(PICTURE_HEX_CAP)
+            .map(|one| format!("{:02x}", one))
+            .collect::<String>(),
         "pixels": {"w": side("picw"), "h": side("pich")},
         "goal": {
             "w": side("picwgoal"),

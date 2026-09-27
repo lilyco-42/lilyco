@@ -236,7 +236,11 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `dir-cell.rtf` | LibreOffice（`dir-cell.docx` → .rtf） | 同一件事在 RTF 是六个控制字：`\cltxtbrl` ×2、`\cltxbtlr` ×1、`\rtlrow` ×2（表上那句落到每一行）、`\rtlpar` ×1、`\ltrpar` ×27（默认值被逐段重发）、`\rtlcol` 0。**这一支不读**，留作「缺键不是猜一个数」的凭据 —— 见事实 128 |
 | `merges.xlsx` | openpyxl 3.1（`write_merges_xlsx`） | 合并区间的六种形状一次给全：1×4、3×1、3×2、**没有冒号的单格 `ref="A12"`**、两条互相盖住的、同一句 `merge_cells` 调两遍 —— 而**写手自己去重**（件里 5 条、`count` 也是 5）；第二张表一条也没并、第三张表只有块而**锚点格是空的** |
 | `merges-lo.xlsx` | LibreOffice（`merges.xlsx` → .xlsx） | 同一份的重写：单格那一条与重叠里较小那一条**一起丢掉**，`count` 跟着改成 3，于是 3 条（`A1:D1` / `A3:C5` / `B7:C9`）、重叠归零 |
-| `merges.ods` | LibreOffice（`merges.xlsx` → .ods） | 第三种拼法：没有区间串，也没有 count —— 跨度写在格子自己身上（`table:number-columns-spanned` / `number-rows-spanned`），区间从锚点加出来 |
+| `merges.ods` | LibreOffice（`merges.xlsx` → .ods） |
+| `images-dpi.docx` | python-docx（`write_picture_dpi_docx`） | 九张图、五种格式、三种尺寸来历：按原尺寸摆一张、只给宽一张、硬拉成 4cm×1cm 一张，另五张都按 Cm(3) 摆。字节里三种密度来历：PNG 带 pHYs（300 与 72 DPI 各一张）、JPEG 带 JFIF 密度（unit=1 与 unit=0 各一张）、TIFF 用 RATIONAL |
+| `images-dpi.odt` | LibreOffice（`images-dpi.docx` → .odt） | 同一份稿子换成第二家：九个框只留六份字节（两张 40×24 的 PNG 按像素数并成一份、32×16 的 GIF 把同尺寸的 TIFF 吸走），尺寸写成 `svg:width` 的 `cm` |
+| `images-dpi-lo.docx` | LibreOffice（`images-dpi.odt` → .docx） | 同一条来回的第二副 OOXML：部件后缀 `.jpg` 被改写成 `.jpeg`，被并掉的那两份至今共用一个部件名 —— 于是拉伸的那一张与另一张同名 |
+| `images-dpi.rtf` | LibreOffice（`images-dpi.docx` → .rtf） | 第三族：尺寸拆成 `\picwgoal` × `\picscalex` 两半，另写 `\picw` / `\pich` 声明像素；GIF 与 BMP 被重编码成 PNG、两张 TIFF 变成 WMF | 第三种拼法：没有区间串，也没有 count —— 跨度写在格子自己身上（`table:number-columns-spanned` / `number-rows-spanned`），区间从锚点加出来 |
 
 ## 几件只有踩过才会记下来的事
 
@@ -2366,7 +2370,57 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 
-135. **这一条引用指的是谁、题注序列数到第几：三族各抄一遍域指令，而「能不能解析」要查三本不同的书**（72 份 OOXML 文字包 / 41 份 .odt / 17 份 .rtf 出口）
+136. **图自己那串字节说的三本账：声明、签名与摆在页上的那块，而「密度住在字节里」是量出来的**（134 份出口 / 71 行，其中 34 份有图）
+    - 形状：账本 19 格 `{family, available, addr, agrees, at_natural, cut, declared_pixels, density,
+      detected, distinct_parts, ext_agrees, listed, natural, pixels, placed, read_cap, rows, total}`，
+      行 22 格（`where` / `word` / `word_name` / `ext` / `ext_name` / `sig` / `head_hex` / `how` /
+      `pixels` / `declared_pixels` / `px_agrees` / `density` / `nat_mm100` / `placed_mm100` /
+      `scale_permille` / `aspect_permille` / `stretched` / `at_natural` / `agrees` / `ext_agrees` / `note`）。
+    - 三本尺寸各数各的，不相减也不合并：`placed`（页上占的那块）71 行全有、`pixels`（图自己头里的像素）
+      62 行有、`natural`（拿自带密度乘回去的自然尺寸）只 24 行算得出 —— 三分之二的图只能靠文档那一侧说话。
+      来路三种：`wp:extent` 34 行、`draw:frame/@svg:width` 24 行、`\picwgoal × \picscalex` 13 行，
+      `from` 与 `written` 两样都交，因为同一张图三家写的串长短不一（121920 EMU / `0.339cm` / 192 twips）。
+    - 地址那一格四态：`read` 70 行落到部件，`none` 只有 `tbox.docx` 那一条（框里既没有 `a:blip` 也没有
+      `r:embed`，连字节都没有，于是 `head_hex` 交空串而签名与像素交 null），`unresolved` 与 `missing`
+      本库各 0 —— 那两条分支由合成件守着。71 行只指向 64 份不同的字节（`distinct_parts`）。
+    - 「它是什么格式」有三处说法，各交各的：`word` 是文件写在引用处的名字（OOXML 的 `image/png`、RTF 的
+      `\pngblip` / `\jpegblip` / `\wmetafile`、ODF 的 `draw:mime-type` 可以整条不写所以 7 行 null）、
+      `ext` 是部件名尾巴（RTF 恒 null）、`sig` 是头八个字节认出来的。三本从不互相打脸：`agrees` 64 真 /
+      0 假 / 7 判不了，`ext_agrees` 51 真 / 0 假 / 20 判不了（13 条 RTF 没名字 + 6 条 `eq.odt` 的 SVM +
+      1 条没字节）。名字短写的有 8 行（`.jpg` 4、`.tif` 4），仍按文件自己那一格判真。
+    - 签名与「从哪儿读出来的」也各交一本：png 42（`IHDR`）、jpeg 8（`SOF0`）、svm 6、gif 5、tiff 4
+      （`IFD0`）、bmp 3（`LogicalScreenDescriptor` 5 与 `BITMAPHEADER40` 3 两式）、wmf 2（头里只有记录
+      长度，`how` 交 `Header`）、另 1 行没读到 —— 固定偏移与走目录是两条路，不是一条。
+    - 自带密度四态再加一 null：`read` 24 / `unitless` 4 / `absent` 29 / `none` 13 / null 1（那一条就是没字节
+      的那一行）。`unitless` 是 JFIF 写了密度字段而单位给 0（`bare0.jpg`），与「这个格式有这一格而这份件
+      没写」（`absent`）是两句话；`none` 是这个格式压根没有这一格（WMF）。单位只写得出来三种：ppm 17、
+      dpi 7、aspect 4，另 43 行交 null。
+    - 拉伸四行、按原尺寸摆的四行，全部出自那四份 `images-dpi`：`stretched` 4 / 58 / 9 判不了，`at_natural`
+      4 / 20 / 47 判不了。四行的长宽比偏差是 583‰ / 583‰ / 583‰ / 582‰（判据是 1‰ 的零头而不是相等 ——
+      生产者在最后一位上就不一致），原尺寸那四行的偏差恒 2‰。两批**没有一行重合**，只是两处看着像同一行
+      —— 被并成同一个部件名的两张图各自顶着一行，「同一份字节」与「同一行」是两问。
+    - RTF 独家那一格：`\picw` / `\pich` 是文件自己声明的像素数，13 行全写了、11 行与头里认出来的对上、
+      0 行打架、2 行判不了（那两张 WMF 头里没有像素）；OOXML 与 ODF 两族 58 行压根没有可写这一问的地方，
+      所以交 null 而计数全落在 `undecided` —— 缺这一问的族交 null，不交 false。
+    - 封顶不同本身就是一条实测事实：`read_cap` 在 OOXML 与 ODF 是 65536（够走完 PNG 的块表与 TIFF 的第一个
+      IFD），RTF 只有 8192（群头扫 16KB、十六进制解出来的上限）。
+    - 生产者指纹一（LibreOffice 存 .odt）：九个框只留六份字节 —— 它按**像素内容**去重帧，于是 72 DPI 那一张
+      借了兄弟的 11811 ppm 与自然尺寸 339×203（本该是 2835 / 1411×847），32×16 的 GIF 把同尺寸的 TIFF
+      吸走、那一行的 `absent` 密度跟着没了，而 583‰ 那一格没变。教训：**密度住在字节里，不住在像素里**。
+    - 生产者指纹二（同一条来回的另两副）：.odt 转回 .docx 时部件后缀 `.jpg` 被写成 `.jpeg`；存成 .rtf 时
+      GIF 与 BMP 被重编码成 PNG、两张 TIFF 变成 WMF，于是 `detected` 只剩 png 5 / jpeg 2 / wmf 2，
+      gif / bmp / tiff 三个名字在这一族的账里一次都不出现。
+    - `note` 在整库 71 行恒 null：这一族的含糊全有格子可放，不需要旁白。
+    - 截行不截账（与事实 131–135 同一条规矩）：`images-dpi.docx` 限到 1 时 `listed` 1、`cut` true，
+      而 `total` 9、`distinct_parts` 8、`addr` / `agrees` / `density` / `pixels` / `natural` /
+      `declared_pixels` / `detected` 各本计数一格没动。
+    - 反面凭据：这一格在 office-doc 的三条链上都交（74 份 word / 42 份 .odt / 18 份 .rtf，零行的也交整本），
+      而 office-sheet 的 `book.ods`、office-slide 的 `deck.odp` 与遗留 `notes-en.doc` 三处**不带这个键** ——
+      表格与放映上那张图另有一本 `pictures`（事实 71），那一家连「零行」都不报。
+    - 第二读者是 `lyco_pictures.py` 的 `picture_bytes()`（三处出口与 Rust 的三个调用点对称）；probe 的 3bp
+      把**每一份 .docx / .docm / .odt / .rtf** 的整本与逐行和它对（134 份），再钉上面那十几条数。
+
+135. **这一条引用指的是谁、题注序列数到第几：三族各抄一遍域指令，而「能不能解析」要查三本不同的书**（74 份 OOXML 文字包 / 42 份 .odt / 18 份 .rtf 出口）
     - 形状：三族共有那 18 格（`structure.cross_refs`）交 `{family, available, target_rows, listed, cut,
       books{bookmarks, bookmark_marks, style_defs, style_ids, style_names, sequences}, kinds, target_books,
       resolves{true,false,null}, quoted{true,false,null}, resolving_but_no_cache, cached_but_unresolved,
@@ -2376,21 +2430,21 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       （样式只有名字，没有 `w:styleId` 那一格）。
     - 行的来源是**已经交过的那本域账**（`field_ledger`）：这里只把「有目标的那几条」挑出来，不重读文件、
       不替文件补一条指令。所以「没有交叉引用」与「这一族没有这一层」是两件事，零行也整本交。
-    - 72 份 word 件每一份都交这一格，可只有 4 份写着这五种域（`target_rows`：68 份 0 条、2 份 1 条、2 份 4 条），
-      而 `kinds` 的总和在每一份都恒等于 `target_rows`。SEQ 在 OOXML 判不出成不成立，所以 72 份的
+    - 74 份 word 件每一份都交这一格，可只有 4 份写着这五种域（`target_rows`：70 份 0 条、2 份 1 条、2 份 4 条），
+      而 `kinds` 的总和在每一份都恒等于 `target_rows`。SEQ 在 OOXML 判不出成不成立，所以 74 份的
       `resolves.null` 与 `kinds.SEQ` 全对得上，`notes` 里恒写着那一句解释——把它当成 false 就等于替文件编一条「引用坏了」。
-    - 题注样式两本各查各的：70 份的 `<w:style w:styleId="Caption">` 两个名字都对上（`w:styleId` 大写 C、
+    - 题注样式两本各查各的：72 份的 `<w:style w:styleId="Caption">` 两个名字都对上（`w:styleId` 大写 C、
       `w:name` 小写 caption，故 `matched_on` 交两条），`pnum.docx` 与 `tbox.docx` 两条都没有而交 `declared` 0
-      （不是缺格）；72 份的 `paragraphs_using_them` **恒 0**——题注段用的是生产者摊出来的直接格式，
-      声明了没人用在这一族是常态。样式那三本账（元素数 / `w:styleId` 数 / `w:name` 数）72 份恒等，
-      164 与 169 只是 Word 与 LibreOffice 两家存量不同。
-    - ODF 多一本**声明**的账，四格都是数出来的：`elements` 是 `text:sequence-decl` 的枚数（37 份 5 枚、2 份 6 枚、
-      2 份一枚不写），与 `books.sequences` 的长度在 41 份里**恒等**；`wrappers` 说「哪个部件写了几枚」（恒在
+      （不是缺格）；74 份的 `paragraphs_using_them` **恒 0**——题注段用的是生产者摊出来的直接格式，
+      声明了没人用在这一族是常态。样式那三本账（元素数 / `w:styleId` 数 / `w:name` 数）74 份恒等，
+      164 是那 35 份模板件的存量，而 LibreOffice 那 39 份从 2 一路散布到 172。
+    - ODF 多一本**声明**的账，四格都是数出来的：`elements` 是 `text:sequence-decl` 的枚数（38 份 5 枚、2 份 6 枚、
+      2 份一枚不写），与 `books.sequences` 的长度在 42 份里**恒等**；`wrappers` 说「哪个部件写了几枚」（恒在
       `content.xml`）。LO 每次存 .odt 都把 Drawing/Figure/Illustration/Table/Text 那五条模板序列写进来，
-      39 份的 `declared_unused` 就是这五个名字。题注样式在 ODF 只有一本可查：38 份命中且 `matched_on` 只一条
+      40 份的 `declared_unused` 就是这五个名字。题注样式在 ODF 只有一本可查：39 份命中且 `matched_on` 只一条
       `name`、`style_id` 交 null 而不是 0。
-    - RTF 的 17 份全有题注样式，而它的 `style_id` 是**样式号**（`\s` 后面那个数），各家自己写的：
-      54 的 11 份、55 的 3 份、24 / 109 / 110 各一份——同一个名字在不同文件里号不同，所以号只按文件交、
+    - RTF 的 18 份全有题注样式，而它的 `style_id` 是**样式号**（`\s` 后面那个数），各家自己写的：
+      54 的 12 份、55 的 3 份、24 / 109 / 110 各一份——同一个名字在不同文件里号不同，所以号只按文件交、
       不折成 docx 的 `Caption`。目标解自 `\fldinst` 那一群，指令串消掉转义就是 docx 那一串。
     - 整个语料只有 8 份写了这五种域（4 份 word、2 份 .odt、2 份 .rtf），合起来 19 条。按 `target` × `resolves` ×
       `book` 摊开：`REF` / `PAGEREF` 三族都判得出成不成立（书签那本有名字可查，全 true），`STYLEREF` 两族都 false
@@ -2416,9 +2470,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       把它们算进这一族只会替文件编一本假账，缺键 = 这一族没这一层。
     - 第二读者是 `lyco_cross_refs.py` 的 `docx_cross_refs()` / `odf_cross_refs()` / `rtf_cross_refs()`
       （三处出口与 Rust 的调用点对称）；probe 的 3bo 把**每一份 .docx / .docm / .odt / .rtf** 的整本逐键与它对
-      （130 份），再钉上面那十几条数，最后钉 .ods / .odp / .doc 这三家这个键**不在**。
+      （134 份），再钉上面那十几条数，最后钉 .ods / .odp / .doc 这三家这个键**不在**。
 
-134. **这份稿子的默认字与默认段：OOXML 那一块可能写两遍而 Normal 会再抄一遍，ODF 摊成一族一条且三格各一本账**（72 份 OOXML 文字包 / 41 份 .odt 出口，另 26 份 ODF 只量不出口）
+134. **这份稿子的默认字与默认段：OOXML 那一块可能写两遍而 Normal 会再抄一遍，ODF 摊成一族一条且三格各一本账**（74 份 OOXML 文字包 / 42 份 .odt 出口，另 26 份 ODF 只量不出口）
     - 形状：OOXML 那一本（`structure.doc_defaults`）交 `{family, available, styles_part, styles_effects_part,
       parts_with_block, blocks_total, block_shapes, children_total, rpr_names, ppr_names, rpr_rows, ppr_rows,
       wrote_theme, wrote_literal, font_ascii_written, font_ascii_theme, font_blank_attrs, size_written,
@@ -2426,36 +2480,36 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       `{family, available, styles_part, defaults_total, defaults_in_content, families, rows, fonts_written,
       sizes_written, langs_written, hyphenation_names, hyphenation_rows}`，其中 `rows` 一族一条、每行 16 格
       （三个字体名槽 + 三个字号槽 + 三对语言槽，再加 `part` / `children` / `props_attrs_total`）。
-    - 这一问的答复住在**两处**：`<w:docDefaults>` 那一块，与 Normal 样式自己的 `pPr` / `rPr`。34 份 Word 模板件的
-      Normal 光板一块（`normal_style.rpr_rows` 与 `ppr_rows` 都是空表，默认值只在 docDefaults 那一层），38 份
-      LibreOffice 重写的件在 Normal 里**又摊平抄了一遍**（那 38 份的 `rpr_rows` 是六条 36 份、两条 2 份）——
+    - 这一问的答复住在**两处**：`<w:docDefaults>` 那一块，与 Normal 样式自己的 `pPr` / `rPr`。35 份 Word 模板件的
+      Normal 光板一块（`normal_style.rpr_rows` 与 `ppr_rows` 都是空表，默认值只在 docDefaults 那一层），39 份
+      LibreOffice 重写的件在 Normal 里**又摊平抄了一遍**（那 39 份的 `rpr_rows` 是六条 37 份、两条 2 份）——
       同一句话在不同生产者手里住在不同的格子里，所以两层各交各的、不相减也不合并。
-    - 那一块还可能在**两个部件各一份**：34 份在 `word/styles.xml` 之外带一份 `word/stylesWithEffects.xml`
-      （`blocks_total` 2、`parts_with_block` 两条、`block_shapes` 一块一行），38 份只有一块。取值按**文档顺序第一块**
-      说话、不合并；那两块去掉空白之后逐字相同（原始 372 对 468 字节，34 份全成立）—— 这一条是 python 那一份读者量的，
+    - 那一块还可能在**两个部件各一份**：35 份在 `word/styles.xml` 之外带一份 `word/stylesWithEffects.xml`
+      （`blocks_total` 2、`parts_with_block` 两条、`block_shapes` 一块一行），39 份只有一块。取值按**文档顺序第一块**
+      说话、不合并；那两块去掉空白之后逐字相同（原始 388 对 484 字节，35 份全成立）—— 这一条是 python 那一份读者量的，
       Rust 只数不判，交的是「几块、各在哪个部件、每块说了什么」。
-    - 四把各自独立的钥匙开同一批 34 份：`<w:docDefaults>` 写两遍、Normal 光板、`w:pPr` 那一条叫 `spacing`、
-      字体名**只写主题指针** —— 四个记号在 72 份里逐份同真同假、一个反例也没有（`extras` 不在这把锁里：那 38 份里
+    - 四把各自独立的钥匙开同一批 35 份：`<w:docDefaults>` 写两遍、Normal 光板、`w:pPr` 那一条叫 `spacing`、
+      字体名**只写主题指针** —— 四个记号在 74 份里逐份同真同假、一个反例也没有（`extras` 不在这把锁里：那 39 份里
       有 6 份多写一条 `kern` 或 `color`）。这是这一格里最像「生产者指纹」的一条。
-    - 72 份每份都带这一本，每块恒两个孩子（`rPrDefault` + `pPrDefault`，没有一份是 1 或 3）；`w:rPr` 三种形状
-      （66 份 `rFonts/sz/szCs/lang`、4 份多插 `kern`、2 份多插 `color`，多出来的那些交在 `extras`），`w:pPr` 两族
-      （`spacing` 34 对 `suppressAutoHyphens` 38）。字号与语言各只有两副答案：`size_written` 恒等于
-      `size_cs_written`（22 有 66、24 有 6），`w:lang` 三属性两组（`en-US`/`en-US`/`ar-SA` 66 对 `en-US`/`zh-CN`/`hi-IN` 6）。
-    - 字体名是**两个各自的布尔**（主题指针 / 字面名），三种搭配都存在（只写指针 34、两套都写 28、只写字面名 10），
+    - 74 份每份都带这一本，每块恒两个孩子（`rPrDefault` + `pPrDefault`，没有一份是 1 或 3）；`w:rPr` 三种形状
+      （68 份 `rFonts/sz/szCs/lang`、4 份多插 `kern`、2 份多插 `color`，多出来的那些交在 `extras`），`w:pPr` 两族
+      （`spacing` 35 对 `suppressAutoHyphens` 39）。字号与语言各只有两副答案：`size_written` 恒等于
+      `size_cs_written`（22 有 68、24 有 6），`w:lang` 三属性两组（`en-US`/`en-US`/`ar-SA` 68 对 `en-US`/`zh-CN`/`hi-IN` 6）。
+    - 字体名是**两个各自的布尔**（主题指针 / 字面名），三种搭配都存在（只写指针 35、两套都写 28、只写字面名 11），
       所以「有没有 `w:rFonts` 这个孩子」问不出这件事；而 `w:cs` 可以是**空串** —— 「写了这个属性」与「点了个字体名」
-      是两件事，27 份如此，且七个属性里**只有 `cs` 会被写空**（另 45 份一个空串都没有），所以另交 `font_blank_attrs`。
-    - ODF 没有 `<w:docDefaults>`：`style:default-style` **一族一条**，41 份 .odt 里 39 份恒四条（graphic / paragraph /
+      是两件事，27 份如此，且七个属性里**只有 `cs` 会被写空**（另 47 份一个空串都没有），所以另交 `font_blank_attrs`。
+    - ODF 没有 `<w:docDefaults>`：`style:default-style` **一族一条**，42 份 .odt 里 40 份恒四条（graphic / paragraph /
       table / table-row）、2 份（`pnum.odt` / `tbox.odt`）**有 styles.xml 却一条都不写** —— 那两本交空账而
-      `styles_part` 仍是 true，与「没有这个部件」分开两列；`defaults_in_content` 41 份恒 0（两列计数都留着，
+      `styles_part` 仍是 true，与「没有这个部件」分开两列；`defaults_in_content` 42 份恒 0（两列计数都留着，
       断在另一头也要数得出）。`families` 是排过序的名字表而 `rows` 保持**写的序**（LibreOffice 把 graphic 写在最前，
       而 `.ods` 那两族是 table-cell 在前 —— 排序只为一问，写的序本身另有一本）。
     - 字体名、字号、语言是**三格各一份账**（latin / asian / complex），因为任何一格都能单独不写。出口件里的凭据是
       `tbox-lo.odt` 的 graphic 那条**只写了 asian 的字号、没写它的名字**（`sizes_written` 6 条对 `fonts_written` 5 条）；
-      把 67 份 ODF 全量一遍更是：195 条 default-style 里 117 条带 `style:text-properties`，那 117 条把字号与语言的
-      三格**全写满**、字体名却只 103 / 102 / 103 条 —— 差额 14 / 15 / 14 全在 .ods 的 graphic 一族（`book.ods` 就是其一：
+      把 68 份 ODF 全量一遍更是：199 条 default-style 里 119 条带 `style:text-properties`，那 119 条把字号与语言的
+      三格**全写满**、字体名却只 105 / 104 / 105 条 —— 差额 14 / 15 / 14 全在 .ods 的 graphic 一族（`book.ods` 就是其一：
       名字三格全不写而字号写了 `12pt`）。合成件也补了一格：一族的孩子撞名时先到的说话算。
-    - `table` 与 `table-row` 那两条**从来没点过字体**（78 行全 null，`props_attrs_total` 只有 1）；断字那 13 条
-      只住在 paragraph 下面（38 份全写这 13 条、3 份一条没有）；语言那三格里 graphic 一族有一份整对写 `none`
+    - `table` 与 `table-row` 那两条**从来没点过字体**（80 行全 null，`props_attrs_total` 只有 1）；断字那 13 条
+      只住在 paragraph 下面（39 份全写这 13 条、3 份一条没有）；语言那三格里 graphic 一族有一份整对写 `none`
       （`tbox-lo.odt`），`none` 与「没写」也不是同一句话。
     - 这一本对 `.ods` / `.odp` **没有出口**（量到了但不交：14 份 .ods 恒两条、12 份 .odp 里 11 份一条 graphic 而
       `eqs.odp` 零条），RTF 把默认值混在样式表 Normal 那一条里（`{\s0 …}` 与文档默认分不开），遗留 .doc 的在表流里 ——
@@ -2466,10 +2520,10 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       `families` 四条、`hyphenation_names` 13 条全按整本数。
     - 第二读者是 `office_reader.py` 的 `docx_doc_defaults()` / `odf_doc_defaults()`（两处出口：office-doc 的
       OOXML 支与 ODF 支，与 Rust 的调用点对称）；probe 的 3bn 把**每一份 .docx / .docm / .odt** 的整本逐键与它对，
-      再钉上面那几条数（含四把钥匙同批、两块同文 372/468、27 份 `w:cs` 空串、fonts 5 对 sizes 6），最后钉
+      再钉上面那几条数（含四把钥匙同批、两块同文 388/484、27 份 `w:cs` 空串、fonts 5 对 sizes 6），最后钉
       .ods / .odp / RTF / .doc 这四族这个键**不在**。
 
-133. **这份文件是按哪个版本的排版规则排的：OOXML 一种问话两种写法，ODF 摊平成另一套词汇，两边不折算**（72 份带 `<w:compat>` 的 OOXML / 39 份有 `settings.xml` 的 odt）
+133. **这份文件是按哪个版本的排版规则排的：OOXML 一种问话两种写法，ODF 摊平成另一套词汇，两边不折算**（74 份带 `<w:compat>` 的 OOXML / 40 份有 `settings.xml` 的 odt）
     - 形状：OOXML 那一本（`structure.layout_compat`）交 `{family, available, settings_part, compat_written,
       compat_total, children_total, mode, mode_total, named, switches, named_names, switch_names,
       names_in_both_encodings, uris}`；ODF 那一本同键名而**换一套内容** `{family, available, settings_part,
@@ -2477,30 +2531,30 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       same_name_rows}`。键名相同不代表同一问：ODF 根本没有 `<w:compat>` 这一格，LibreOffice 把兼容开关摊进
       `settings.xml` 的 `ooo:configuration-settings`，类型在 `config:type` 上、值在正文里。
     - 两种写法的**语义差别**是这一本存在的全部理由：`<w:compatSetting>` 的值在 `w:val` 属性上，
-      而裸开关 `<w:useFELayout/>` **身上什么都没有**，在场即为开。实测 72 份里**一枚 `w:val` 都没写过**，
+      而裸开关 `<w:useFELayout/>` **身上什么都没有**，在场即为开。实测 74 份里**一枚 `w:val` 都没写过**，
       所以「在场即开」是本族料唯一走得通的读法；`w:val="0"` 与 `"false"` 说「明确不要」那一条读法
       只有合成件能测（`layout_compat.rs` 的单测），真件里一个例子都没有。
-    - 裸开关只出现过四个名字（按 71 份 .docx 数：`useFELayout` 33、`doNotUseHTMLParagraphAutoSpacing` 6、
+    - 裸开关只出现过四个名字（按 73 份 .docx 数：`useFELayout` 34、`doNotUseHTMLParagraphAutoSpacing` 6、
       `doNotBreakWrappedTables` 4、`adjustLineHeightInTable` 2），具名项只出现过六个名字，`w:uri` 恒
       `http://schemas.microsoft.com/office/word`，而两种写法的名字**互不重叠**（`names_in_both_encodings`
-      72 份全空）。`compatibilityMode` 三个答案：14（60 份）、15（6 份）、12（5 份）。
-    - 同一个 `<w:compat>` 两套笔迹（按 `docProps/app.xml` 的 Application 分）：33 份写着 Microsoft Macintosh Word
-      （python-docx 那个模板）**都只带 `useFELayout`**、也都写满四条具名项；LibreOffice 写的 38 份里 32 份
-      一个裸开关都不补。按「几条具名项 + 几枚裸开关」数是**六种搭配**：`4+1` 33 份、`4+0` 28 份、`1+2` 4 份
-      （`nset` 那一家）、`3+0` 3 份、`3+2` 2 份、`2+0` **只有一份** —— 「具名项至少写四条」是生产者的习惯，
+      74 份全空）。`compatibilityMode` 三个答案：14（61 份）、15（7 份）、12（5 份）。
+    - 同一个 `<w:compat>` 两套笔迹（按 `docProps/app.xml` 的 Application 分）：34 份写着 Microsoft Macintosh Word
+      （python-docx 那个模板）**都只带 `useFELayout`**、也都写满四条具名项；LibreOffice 写的 39 份里 33 份
+      一个裸开关都不补。按「几条具名项 + 几枚裸开关」数是**六种搭配**：`4+1` 34 份、`4+0` 28 份、`1+2` 4 份
+      （`nset` 那一家）、`3+0` 4 份、`3+2` 2 份、`2+0` **只有一份** —— 「具名项至少写四条」是生产者的习惯，
       不是这一格的规矩，所以两个数各交各的，不合成一个「有没有 compatSetting」。
-    - 那一份 `.docm` 是带这一格的**第 72 份**：账与那 33 份模板件同形（`compatibilityMode=14` 加三条、
-      一枚 `useFELayout`），而具名项的名字总数与 `w:uri` 都**不增** —— 第 72 份不是新形状，只是这一格
-      不独属于 .docx。整批 OOXML（132 份包的 2518 份 xml 部件，含 `.rels`）里 `<w:compat` 只出现在
+    - 那一份 `.docm` 也带这一格：账与那 34 份模板件同形（`compatibilityMode=14` 加三条、一枚
+      `useFELayout`），而具名项的名字总数与 `w:uri` 都**不增** —— 宏文档不是新形状，只是这一格不
+      独属于 .docx。整批 OOXML（134 份包的 2546 份 xml 部件，含 `.rels`）里 `<w:compat` 只出现在
       `word/settings.xml`，且没有一份是空的（孩子数 2 到 5）。
-    - ODF 那一本不是常量也不是套话：`ooo:configuration-settings` 在 39/41 份 odt 里（另 2 份整个没有
+    - ODF 那一本不是常量也不是套话：`ooo:configuration-settings` 在 40/42 份 odt 里（另 2 份整个没有
       `settings.xml` → 交空账，`settings_part` / `item_set_written` 是 false，而不是「有 0 条的一组」），
-      条数 121 / 122 / 123（36 份 122），`booleans_total` 只有 106 / 107 / 108 三种值，而 `booleans_true`
-      从 32 到 63（34 份 61）。名字里点了 Word 的四条 39 份**全写**，可 `MsWordUlTrailSpace` 39 份全 false、
+      条数 121 / 122 / 123（37 份 122），`booleans_total` 只有 106 / 107 / 108 三种值，而 `booleans_true`
+      从 32 到 63（35 份 61）。名字里点了 Word 的四条 40 份**全写**，可 `MsWordUlTrailSpace` 40 份全 false、
       另外三条多数 true，而 `tbox-lo.odt` 三条全 false、`images-float.odt` 只错开一条 —— 「兼容模式」在
       这一族是四条各管一件事的开关，不是一枚版本号。
     - 跨族**只核对同名，不译语义**：与 OOXML 裸开关同名的只有一条 `DoNotBreakWrappedTables`
-      （首字母大小写正好差一位），39 份 odt 里 2 份写它，而带那枚开关的 .docx 有 4 份 —— 一问两转，两头各丢。
+      （首字母大小写正好差一位），40 份 odt 里 2 份写它，而带那枚开关的 .docx 有 4 份 —— 一问两转，两头各丢。
       同一组配置在另外两族也在（14 份 .ods 恒 39 条、12 份 .odp 里 11 份写 42 或 43 条、1 份没有 settings），
       **但那四类点了 Word 的名字一条都没有** —— 所以这一本只在 office-doc 交。
     - 缺键 = 这一族没这一层：RTF 与遗留 .doc 连 `layout_compat` 这个键都不出现（`.doc` 的兼容位在 FIB 的位段里，
@@ -2512,55 +2566,55 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       OOXML 支与 ODF 支，与 Rust 的调用点对称）；probe 的 3bm 把**每一份 .docx / .docm / .odt** 的整本逐键与它对，
       再钉上面那几条数（含 `w:val` 一条没写、六种搭配、两条空账），最后钉 RTF 与 .doc 那两族这个键**不在**。
 
-132. **正文里那只手指的账：三种点法、三条来路，而「解到哪一格」与「算出什么色」是两问**（132 个 OOXML 包 / 30404 条指针）
+132. **正文里那只手指的账：三种点法、三条来路，而「解到哪一格」与「算出什么色」是两问**（134 个 OOXML 包 / 30984 条指针）
     - 事实 131 数的是格子里写了什么；这一本数的是正文**怎么指过去**：Word 的 `w:color/@themeColor`、
       DrawingML 的 `a:schemeClr/@val`、Excel 样式上的 `theme="N"`。三条点法各自数得回来
-      （25084 + 5210 + 110 = 30404），走过 1832 个 `.xml` 部件一个都没读不开（`parts_unread` 0），
-      其中手指在场的 543 个、主题部件 194 个（与事实 131 同一数，两问共用一份底账）。
-    - 名字到十二格有三条来路，逐条分列而不是合成一个「解出率」：名字本身就是一格（`via = name`）5957、
-      Word 那一族的别名表 21628（这一族只写四个别名：`background1`→lt1、`dark1`→dk1、`text1`→dk1、
-      `text2`→dk2）、文件自己写的 `a:clrMap` 580、Excel 的序号 110，剩下 2129 条交 null。
+      （25635 + 5239 + 110 = 30984），走过 1855 个 `.xml` 部件一个都没读不开（`parts_unread` 0），
+      其中手指在场的 548 个、主题部件 196 个（与事实 131 同一数，两问共用一份底账）。
+    - 名字到十二格有三条来路，逐条分列而不是合成一个「解出率」：名字本身就是一格（`via = name`）6056、
+      Word 那一族的别名表 22085（这一族只写四个别名：`background1`→lt1、`dark1`→dk1、`text1`→dk1、
+      `text2`→dk2）、文件自己写的 `a:clrMap` 580、Excel 的序号 110，剩下 2153 条交 null。
     - 三条来路按族拆开各交各的，这也是「同一个名字在两种包里两个答案」的另一半凭据：
-      Word 那 72 个包 26262 条里名字自己是一格 3686、四个别名 21628、解不出 948；
+      Word 那 74 个包 26842 条里名字自己是一格 3785、四个别名 22085、解不出 972；
       Excel 那 39 个包 677 条里名字 12、序号 110、解不出 555；幻灯片那 21 个包 3465 条里
-      名字 2259、`a:clrMap` 580、解不出 626。横着加回来才是那五个数：5957 / 21628 / 580 / 110 / 2129。
-    - 那 2129 条不是「读不到」而是文件自己没说，而且两个方向算出同一个数：`phClr` 2079 条
-      （主题占位色，压根不是那十二格之一）+ `dark2` 8 条（`crep-r.docx` 的 `word/styles.xml`：这个名字
+      名字 2259、`a:clrMap` 580、解不出 626。横着加回来才是那五个数：6056 / 22085 / 580 / 110 / 2153。
+    - 那 2153 条不是「读不到」而是文件自己没说，而且两个方向算出同一个数：`phClr` 2100 条
+      （主题占位色，压根不是那十二格之一）+ `dark2` 10 条（5 份件的 `word/styles.xml`，`crep-r.docx` 是头一份：这个名字
       既不在十二格也不在那四个别名里，而它们又都带着 `themeShade`，两条理由同时成立）
-      + `tx1` / `bg1` 那 622 条里落在没写对照的包里的那 42 条（622 − 580 = 42，拆开是 tx1 40 + bg1 2）。
+      + `tx1` / `bg1` 那 623 条里落在没写对照的包里的那 43 条（623 − 580 = 43，拆开是 tx1 41 + bg1 2）。
     - `a:clrMap` 只有幻灯片这一族写：21 份 pptx 全写（83 份对照 = 81 个 `slideMasterN.xml`
-      + 2 个 `notesMaster1.xml`，而主题部件里一份都不写），Word 与 Excel 那 111 个包一个都不写；
+      + 2 个 `notesMaster1.xml`，而主题部件里一份都不写），Word 与 Excel 那 113 个包一个都不写；
       83 份说的都是同一套十二对（`alias_conflict` 0，`alias_names` 252 = 21 × 12）。于是同名的一指
       在两种包里是两个答案：`deck.pptx` 的 62 条 tx1/bg1 由文件自己解到 dk1/lt1，而 `chart-lo.xlsx`
       那 8 条同一名字落在没写对照的包里就交解不出（`slot` null、`via` null，部件是
       `xl/charts/style1.xml` 与 `style2.xml`）—— 不是替文件猜一个补上。
-    - Word 那一路是自己跟自己核对的，所以这一支的「判得住」是硬的：那 26262 条里 25084 条 `w:color`
-      每一条都另写了一遍六位实色当影子（`skip_no_literal` 那 238 条全是 DrawingML 的），无修饰符的
-      22440 条与本包主题那一格逐条对上、`mismatched` **0 条**；带 `themeTint` / `themeShade` 的 3298 条
-      不判（wml 2644 + DrawingML 654，与事实 131 里「shade 与八种候选算法都对不齐所以不交色」是同一个
-      决定），点不出格的 286 条不判。四种分列，加上对上的那些正好是那一路的 26262 条，一条也没被揉成一格。
+    - Word 那一路是自己跟自己核对的，所以这一支的「判得住」是硬的：那 26842 条里 25635 条 `w:color`
+      每一条都另写了一遍六位实色当影子（`skip_no_literal` 那 245 条全是 DrawingML 的），无修饰符的
+      22924 条与本包主题那一格逐条对上、`mismatched` **0 条**；带 `themeTint` / `themeShade` 的 3376 条
+      不判（wml 2711 + DrawingML 665，与事实 131 里「tint 与 shade 两支都判不住所以不交色」是同一个
+      决定），点不出格的 297 条不判。四种分列，加上对上的那些正好是那一路的 26842 条，一条也没被揉成一格。
     - 序号那一族两读都交，因为这里真有两个答案：110 条点的是 `1` 与 `4` 两个数字。`1` 那 102 条按规范的
       槽位顺序说 lt1，而 Excel 自己实际用的那张映射表说 dk1（`index_disagree`）；`4` 那 8 条两边说的是
       同一格 accent1（`index_agree`）。谁胜出不是这本的活，把两格并排放着（`slot` 与 `alt_slot`）才是答案。
     - 一条手指 14 格：`part` / `kind` / `at` / `holder` / `name` / `slot` / `via` / `alt_slot` / `literal`
       / `tint` / `shade` / `mods` / `in_slots` / `matches`。合计里 `by_holder` 说坐在哪个座位上、
-      `by_name` 说名字的分布：Word 那一路 25084 条 `w:color` 全在 `color/rPr` 这一个座位上，而 DrawingML
-      分在六处（`solidFill` 3643、渐变stops 的 `gs` 1155、`fontRef` 100、`lnRef` / `fillRef` /
-      `effectRef` 各 92、`colorStyle` 24、`bgRef` 12），Excel 的 110 条序号又分五处（`color/font` 49、
+      `by_name` 说名字的分布：Word 那一路 25635 条 `w:color` 全在 `color/rPr` 这一个座位上，而 DrawingML
+      分在六处（`solidFill` 3654、渐变stops 的 `gs` 1165、`fontRef` 102、`lnRef` / `fillRef` /
+      `effectRef` 各 94、`colorStyle` 24、`bgRef` 12），Excel 的 110 条序号又分五处（`color/font` 49、
       `color/rPr` 53、页边 `left` 1 / `right` 1 / `top` 2 / `bottom` 1）与 `bgColor/patternFill` 3。
       第一条钉在 `bkmks.docx` 的 `word/styles.xml`：名字 accent1 本身就是一格、影子实色 `365F91`、
       这一格带着 `themeShade=BF`（`shade` 交的就是文件写的那个 BF），于是 `matches` 交 null
       —— 带修饰符的不判，要判就得先算色。
-    - 分家要按包族按 glob 分，不能按「这个包里有没有 `w:color`」分：72 个 Word 包里有 6 份一个
+    - 分家要按包族按 glob 分，不能按「这个包里有没有 `w:color`」分：74 个 Word 包里有 6 份一个
       `w:color` 都不写（`notes-end.docx` / `notes-foot.docx` / `nset.docx` / `nset-lo.docx`
       / `pnum.docx` / `tbox.docx`，各 6 条 DrawingML 指针、共 36 条），拿「写了才算这一路」去数会量成
-      66 个包 / 26226 条而没人报错。三族各自数：Word 72 包 26262 条（909 个部件，25084 + DrawingML 1178）、
+      68 个包 / 26806 条而没人报错。三族各自数：Word 74 包 26842 条（932 个部件，25635 + DrawingML 1207）、
       Excel 39 包 677 条（370 个部件，567 + 序号 110）、幻灯片 21 包 3465 条（553 个部件，全是 DrawingML）。
     - 限额这一格只管列几条，不管这份包里的账（与事实 131 同一条规矩）：`bkmks.docx` 用 `--limit 5` 交 5 条，
       而 `total` 与合计那一本仍然是 543 条的账（`parts_scanned` 13、`parts_with_refs` 3、`matched` 466
-      一个都不动）；整库被 400 截住的只有那 34 个 Word 包，`cut` 就是说给你听的。
-    - ODF 那 67 份（41 文字 / 14 表格 / 12 演示）压根没有主题这个概念：交零条而不是缺键——
-      键一个不少、十二格每格都空着，而 `parts_scanned` 是 213 / 76 / 68、`parts_unread` 0，
+      一个都不动）；整库被 400 截住的只有那 35 个 Word 包，`cut` 就是说给你听的。
+    - ODF 那 68 份（42 文字 / 14 表格 / 12 演示）压根没有主题这个概念：交零条而不是缺键——
+      键一个不少、十二格每格都空着，而 `parts_scanned` 是 218 / 76 / 68、`parts_unread` 0，
       `total` / `listed` / `cut` 也是 (0, 0, False) 的样子；「这一层不存在」与「我没读」是两件事。
       老的 `.doc` / `.ppt` / `.xls` 与 RTF 目前**不交** `color_refs` 这个键：那一份主题数据坐在 CFB 的
       `Theme` 流与 RTF 的 `{\*\themedata}` 群里，本机做不出凭据，所以那一本还没开——开不了就说没开，
@@ -2570,15 +2624,15 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       的整本逐件账与合计那一本逐键对（含 `mods` 那串数组与 `matches` 的 null），再钉上面这几条数、
       两读的 `slot` / `alt_slot` 配对，以及那四族 `color_refs` 键的有无。
 
-131. **主题那一本账：十二格颜色有两套写法、字体角色有三态，而 tint 认得、shade 不认**（194 份 theme 部件 / 132 个包）
+131. **主题那一本账：十二格颜色有两套写法、字体角色有三态，而 tint 认得、shade 不认**（196 份 theme 部件 / 134 个包）
     - 老的只交了一份文件名清单（`themes` 把包名以 `ppt/theme/` 开头的成员列出来给 pptx），问不出「这十二格各写了什么颜色」「字体角色到底填了没」。这一本改成逐件一本账，再另记一本整套包的合计。
     - 颜色有两套写法要分开数：`a:srgbClr/@val` 直接给十六进制，而 `a:dk1` 这一格常写成 `a:sysClr` —— 颜色坐在 `lastClr`，`val` 那格是系统名字（`windowText` / `window`）。`written` 交文件写的那串，`system` 只在 sysClr 那格非 null，`sys_clr` / `srgb_clr` / `other_kind` / `empty_slot` 四格并存，不折成一枚「有没有颜色」。
-    - 三格 `@name` 是三套各自独立的分布（194 件量出来的）：theme 是 187 个 Office Theme + 7 个 Office，clrScheme 是 186 Office + 8 LibreOffice，fontScheme 194 全写 Office，而 fmtScheme 只在那 68 件里写了名字、另 126 件空着 —— 所以 `fmt_named` / `fmt_unnamed` 与 `by_theme_name` / `by_scheme_name` 各记各的，不互相推。
-    - 字体角色是三态不是两态：`latin` 388 个角色全写了，`ea` 与 `cs` 各 164 写 / 224 交空串 / 0 缺键 —— 空串是生产者明说「这里没有」，缺键才是压根没写，所以 `*_blank` 与 `*_missing` 分列。`a:font` 整册 6650 行，逐角色的行数分布是 0 有 164、29 有 70、30 有 154，而 `script="Hans"` 的 typeface 全场只有一个值（宋体）。
+    - 三格 `@name` 是三套各自独立的分布（196 件量出来的）：theme 是 189 个 Office Theme + 7 个 Office，clrScheme 是 188 Office + 8 LibreOffice，fontScheme 196 全写 Office，而 fmtScheme 只在那 69 件里写了名字、另 127 件空着 —— 所以 `fmt_named` / `fmt_unnamed` 与 `by_theme_name` / `by_scheme_name` 各记各的，不互相推。
+    - 字体角色是三态不是两态：`latin` 392 个角色全写了，`ea` 与 `cs` 各 166 写 / 226 交空串 / 0 缺键 —— 空串是生产者明说「这里没有」，缺键才是压根没写，所以 `*_blank` 与 `*_missing` 分列。`a:font` 整册 6710 行，逐角色的行数分布是 0 有 166、29 有 70、30 有 156，而 `script="Hans"` 的 typeface 全场只有一个值（宋体）。
     - 两个生产者落在同一份件上是相反的两件事，钉在 `bkmks` 与 `deck-lo`：LibreOffice 重写 word 那一份时把 dk1 从 sysClr 换成 srgbClr、把 `objectDefaults` 与 `extraClrSchemeLst` 整个丢掉、并留空 fmtScheme 的名字，而十二格颜色与 60 行 `a:font` 一个字没动；它重建 deck 时把 24 个角色的 `a:font` 全清光（`faces` 0、`roles_without_faces` 24）却给 ea 填上 DejaVu Sans —— 「保住了字面」与「丢掉了清单」是两问。
-    - 两条并集是量出来的巧合而不是规则：dk1 用 sysClr 的那 68 件，与写了 `extraClrSchemeLst` 的那 68 件，正好是同一批（Word 的行为）。`fmt` 那一份清单 194 件全是 fillStyleLst / lnStyleLst / effectStyleLst / bgFillStyleLst 各 3 条，`slot_total` 全是 12、`canonical` 194/194 —— 顺序按文件自己的文档顺序交、不排，所以这一格说的是「这批里没有一份打乱过」，不是「不可能打乱」。
+    - 两条并集是量出来的巧合而不是规则：dk1 用 sysClr 的那 69 件，与写了 `extraClrSchemeLst` 的那 69 件，正好是同一批（Word 的行为）。`fmt` 那一份清单 196 件全是 fillStyleLst / lnStyleLst / effectStyleLst / bgFillStyleLst 各 3 条，`slot_total` 全是 12、`canonical` 196/196 —— 顺序按文件自己的文档顺序交、不排，所以这一格说的是「这批里没有一份打乱过」，不是「不可能打乱」。
     - `--limit` 只切列表不切算术：`deck-lo.pptx` 限到 5 时 `listed` 5、`cut` true，而 `totals` 仍然是 12 件 / 144 格（`theme_parts` 与 `slots` 不跟着缩）。
-    - 这一本**不算色**：正文的指针可以带 tint / shade，tint 那一支与「线性混白」逐格吻合（480/480），而 shade 那一支在 2136 条记录里与八种候选算法（RGB 与 HSL 两个空间 × 四种取整）都对不齐 —— 交不出的就别交，所以每一格只交文件写的那串，模块里连 `tint` / `shade` 两个函数都不存在。
+    - 这一本**不算色**：正文的指针可以带 tint / shade，而两支都判不住。tint 那 515 条与 `c×t + 255×(1−t)` 逐格吻合（515/515），按字面读「掺进 t 的白」却一条也不吻合（0/515）—— 同一枚数两种读法正好相反，认哪一种都是替文件猜；shade 那 2186 条没有一种算法说得出全部：候选铺到 32 种（RGB 与 HSL 两个空间 × 四种取整 × 四种式子）也只有 1078 条被其中某一说中，而「往黑压」那一式对上的 98 条底子全是 `000000`（黑往哪个方向仍是黑），等于没判。所以每一格只交文件写的那串，模块里连 `tint` / `shade` 两个函数都不存在。
     - ODF 三族（odt / ods / odp）压根不带 theme 部件，出口交零本账而不是缺键；老的 `.doc` / `.ppt` / `.xls` 与 RTF 目前**不交** `theme` 键（CFB 里那条 `Theme` 流与 RTF 的 `{\*\themedata` 还没接）。probe 用「键在不在」钉住这两种差别的不同：前三族是「读了，没有」，后一族是「这一版还没读」。
     - 第二读者是 `office_reader.py` 的 `theme_ledger()`（六处出口挂钩：OOXML 三族各一处、ODF 三族各一处）；probe 的 3bk 把**每一份 docx / docm / xlsx / pptx / odt / ods / odp** 的整本逐件账与合计那一本逐键对，再钉上面这几条数与那三族键的有无。
 
