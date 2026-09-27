@@ -102,14 +102,10 @@ pub(crate) fn docx(bytes: &[u8], limit: usize) -> Value {
         };
         let mut index = 0usize;
         for cell in root.descendants("tc").iter() {
-            let mut found = false;
-            let mut got: Option<String> = None;
-            for one in cell.descendants("tcPr").iter() {
-                let (had, mine) = val_child(one, "vAlign");
-                found = had;
-                got = mine;
-                break;
-            }
+            let (found, got) = match cell.descendants("tcPr").first() {
+                Some(one) => val_child(one, "vAlign"),
+                None => (false, None),
+            };
             cells_total += 1;
             if found {
                 cells_with += 1;
