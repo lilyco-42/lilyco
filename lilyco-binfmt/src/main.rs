@@ -40,6 +40,7 @@ mod cfb;
 mod comment_threads;
 mod comments;
 mod cross_refs;
+mod custom_xml;
 mod doc_defaults;
 mod entries;
 mod equations;

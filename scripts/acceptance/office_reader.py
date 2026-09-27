@@ -4816,6 +4816,156 @@ def odp_background_ledger(parts, limit: int = 400) -> dict:
     }
 
 
+# ── 包里那几份自定义 XML 存储（`customXml/` 那一族部件）：一份包一本账 ──
+# 实测形状来自本机 25 份真件（Word 的引用管理器写的那一份 `b:Sources`）与两份
+# `customxml*.docx`（一份合成件、一份 LibreOffice 重写）。两条链各交各的：
+# 存储 →（件自己的 `.rels`）→ 那一份 `itemPropsN.xml` →（`ds:itemID`）→ 一个号；
+# 正文那条 `w:dataBinding/@w:storeItemID` 指的就是这个号 —— 两边对得上是一问，
+# 存储里到底还有没有字是另一问（LibreOffice 重写把 `itemN.xml` 整件清空了）。
+CX_ITEM_NAME = re.compile(r"^customXml/item\d+\.xml$")
+
+
+def _cx_root(raw: bytes) -> tuple:
+    """那件存储的根元素名与直接孩子数；0 字节或不成一句 XML 时两格都交 null"""
+    if not (raw or b"").strip():
+        return None, None
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        return None, None
+    return xml_local(root.tag), len(list(root))
+
+
+def _cx_content_types(parts: dict) -> tuple:
+    """`[Content_Types].xml`：点名了几条 customXml 部件，以及有没有一条 `Default Extension="xml"` 兜着"""
+    named: list = []
+    has_default = False
+    raw = parts.get("[Content_Types].xml")
+    if raw is None:
+        return named, False
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        return named, False
+    for one in root:
+        local = xml_local(one.tag)
+        name = one.get("PartName") or ""
+        if local == "Override" and name.startswith("/customXml/"):
+            named.append(name.lstrip("/"))
+        elif local == "Default" and (one.get("Extension") or "").lower() == "xml":
+            has_default = True
+    return named, has_default
+
+
+def _cx_body_pointers(parts: dict) -> tuple:
+    """正文那两条手指：`w:customXml` 圈住一段字、`w:sdt` 上的 `w:dataBinding` 指某一份存储。
+    整包都扫（正文之外的部件也算），条数与每条写的 `storeItemID` 各交一本"""
+    xmls = 0
+    bindings: list = []
+    for name, raw in parts.items():
+        if not name.endswith(".xml") or name.startswith("customXml/") or name.endswith(".rels"):
+            continue
+        if name == "[Content_Types].xml":
+            continue
+        try:
+            root = ET.fromstring(raw)
+        except ET.ParseError:
+            continue
+        for one in root.iter():
+            local = xml_local(one.tag)
+            if local == "customXml":
+                xmls += 1
+            elif local == "dataBinding":
+                bindings.append(of_local(one, "storeItemID"))
+    return xmls, bindings
+
+
+def cx_ledger(parts: dict, limit: int = 200) -> dict:
+    """这一份包里躺了哪几件自定义 XML 存储：各件还剩多少字、它自己说自己是哪个 schema、
+    正文有没有一条手指着它，以及那一跳（`.rels` → `itemPropsN.xml`）断没断"""
+    items = sorted(one for one in parts if CX_ITEM_NAME.match(one))
+    named, has_default = _cx_content_types(parts)
+    xmls, bindings = _cx_body_pointers(parts)
+    bound: dict = {}
+    for one in bindings:
+        bound[one] = bound.get(one, 0) + 1
+    entries: list = []
+    empty = 0
+    for part in items:
+        raw = parts[part]
+        root, children = _cx_root(raw)
+        if not (raw or b"").strip():
+            empty += 1
+        # `rels_of_parts` 已经把 Target 解成包内全名了，这里再拼一次目录就成了
+        # 「`customXml/customXml/itemProps1.xml`」—— 那一跳解不开时交的是 null 而不是猜
+        props_part = None
+        for kind, target in rels_of_parts(parts, part):
+            if kind != "customXmlProps":
+                continue
+            props_part = (target or "").lstrip("/")
+            break
+        found = bool(props_part) and props_part in parts
+        item_id = None
+        uris: list = []
+        if found:
+            try:
+                head = ET.fromstring(parts[props_part])
+            except ET.ParseError:
+                head = None
+            if head is not None:
+                item_id = of_local(head, "itemID")
+                for one in head.iter():
+                    if xml_local(one.tag) == "schemaRef":
+                        uris.append(of_local(one, "uri"))
+        entries.append({
+            "part": part,
+            "size": len(raw),
+            "root": root,
+            "children": children,
+            "props_rel": props_rel(props_part),
+            "props_found": found,
+            "item_id": item_id,
+            "schema_uris": uris,
+            "bound": bound.get(item_id, 0) if item_id else 0,
+            "declared": part in named,
+        })
+    listed = entries[:limit]
+    return {
+        "family": "ooxml",
+        "available": True,
+        "parts_total": len([one for one in parts if one.startswith("customXml/")]),
+        "items": len(items),
+        "items_empty": empty,
+        "overrides": len(named),
+        "default_for_xml": has_default,
+        "anchors_custom_xml": xmls,
+        "anchors_data_binding": len(bindings),
+        "binding_ids": bindings,
+        "unresolved_bindings": sum(
+            1 for one in bindings if one not in [row["item_id"] for row in entries]
+        ),
+        "entries": listed,
+        "cut": len(entries) > len(listed),
+    }
+
+
+def _cx_parts(path: Path) -> dict:
+    with zipfile.ZipFile(path) as box:
+        return {one.filename: box.read(one.filename) for one in box.infolist()}
+
+
+def docx_custom_xml(path: Path) -> dict:
+    """`customXml/` 那一族部件的账 —— docx / pptx / xlsx 是同一个包形状，三家走同一个函数"""
+    return cx_ledger(_cx_parts(path))
+
+
+def props_rel(props_part):
+    """那一跳的目的地只交短名：`customXml/itemProps1.xml` → `itemProps1.xml`（件名尾巴）"""
+    if not props_part:
+        return None
+    return props_part.rsplit("/", 1)[-1]
+
+
 def _f_attr_map(node) -> dict:
     """一枚元素的属性表（局部名，`xmlns` 那类不算）"""
     out = {}
@@ -11505,6 +11655,8 @@ def facts(path: Path) -> dict:
         if "word/document.xml" in parts:
             out["app"] = "word"
             out["ooxml"] = docx_facts(path)
+            # 包里那几份自定义 XML 存储：件、那一跳到 itemProps、正文有没有一条手指着它
+            out["ooxml"]["custom_xml"] = docx_custom_xml(path)
             # 表头重复那份账（行上的一个无值元素）
             out["ooxml"]["table_headers"] = docx_repeat_headers(path)
             # 制表位：定义在段上，而段里的制表字符是另一本账
@@ -11555,6 +11707,8 @@ def facts(path: Path) -> dict:
         elif "xl/workbook.xml" in parts:
             out["app"] = "excel"
             out["ooxml"] = xlsx_facts(path)
+            # 包里那几份自定义 XML 存储：件、那一跳到 itemProps、正文有没有一条手指着它
+            out["ooxml"]["custom_xml"] = docx_custom_xml(path)
             out["protection"] = protection_for(path)
             if path.suffix.lower() == ".xlsx":
                 out["formats"] = xlsx_formats(path)
@@ -11570,6 +11724,8 @@ def facts(path: Path) -> dict:
         elif "ppt/presentation.xml" in parts:
             out["app"] = "powerpoint"
             out["ooxml"] = pptx_facts(path)
+            # 包里那几份自定义 XML 存储：件、那一跳到 itemProps、正文有没有一条手指着它
+            out["ooxml"]["custom_xml"] = docx_custom_xml(path)
             # 「这框对应版式里哪一条」那一跳（重写那份会断）
             out["ooxml"]["placeholder_hops"] = pptx_placeholder_hops(path)
             # 一条式子是文本体里的 OMML，而同一个形状在 Fallback 里还写了一遍（挂着替身图）

@@ -2979,6 +2979,130 @@ def add_macro_part(path: Path, out: Path) -> None:
             box.writestr(name, data)
 
 
+XMLDECL = "<?xml version='1.0' encoding='UTF-8' standalone='yes'?>\n"
+DS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/customXml"
+BIB_NS = "http://schemas.openxmlformats.org/officeDocument/2006/bibliography"
+CUSTOMXML_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml"
+CUSTOMXML_PROPS_TYPE = CUSTOMXML_TYPE + "Props"
+CUSTOMXML_PROPS_CT = (
+    "application/vnd.openxmlformats-officedocument.customXmlProperties+xml"
+)
+STORE_ID_A = "{1B2C3D4E-5F60-4142-8384-858687888990}"
+STORE_ID_B = "{0A0B0C0D-0E0F-4041-9293-949596979899}"
+
+# 引用管理器那一份存储的形状是从本机 25 份真件量出来的（根元素 `b:Sources`、
+# 每条一份 `b:Source`、`customXml/itemProps1.xml` 里 `ds:itemID` + 一条
+# `ds:schemaRef ds:uri`）；那 25 份里正文**一条手指都没写**，所以第二份存储
+# 故意照那份「`schemaRefs` 在、里面空着」的真件形状写（24/25 有 uri，1/25 没有）。
+CX_ITEM_A = (
+    XMLDECL +
+    f'<b:Sources xmlns:b="{BIB_NS}" xmlns="{BIB_NS}">'
+    "<b:StyleRef><b:StyleName>APA</b:StyleName></b:StyleRef>"
+    f"<b:Source><b:Tag>{MARK_KEYWORD}</b:Tag><b:SourceGuid>{{7A1B2C3D-4E5F-4647-8849-0A1B2C3D4E5F}}</b:SourceGuid>"
+    f"<b:Author><b:NameList><b:Name><b:Fixed>{MARK_AUTHOR}</b:Fixed></b:Name></b:NameList></b:Author>"
+    f"<b:Title>{MARK_TITLE}</b:Title><b:Year>2026</b:Year></b:Source>"
+    f"<b:Source><b:Tag>second</b:Tag><b:Title>{MARK_BODY}</b:Title><b:Year>2025</b:Year></b:Source>"
+    "</b:Sources>"
+)
+CX_ITEM_B = (
+    XMLDECL +
+    f'<s:customData xmlns:s="{BIB_NS}"><customSectProps><customSectPr role="owner"/>'
+    "</customSectProps></s:customData>"
+)
+
+
+def cx_props_part(item_id: str, schema_uri: str | None) -> str:
+    """`itemPropsN.xml`：那份存储自己说自己是哪个 schema —— `schema_uri` 给 None 就写一枚空的
+    `ds:schemaRefs`（真件里 25 份有这一格、24 份里面有 uri，那一份没有的就是这个形状）"""
+    inner = (
+        f'<ds:schemaRefs><ds:schemaRef ds:uri="{schema_uri}"/></ds:schemaRefs>'
+        if schema_uri
+        else "<ds:schemaRefs/>"
+    )
+    return (
+        XMLDECL +
+        f'<ds:datastoreItem xmlns:ds="{DS_NS}" ds:itemID="{item_id}">{inner}</ds:datastoreItem>'
+    )
+
+
+def cx_rels_part(props_name: str) -> str:
+    return (
+        XMLDECL +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        f'<Relationship Id="rId1" Type="{CUSTOMXML_PROPS_TYPE}" Target="{props_name}"/>'
+        "</Relationships>"
+    )
+
+
+# 正文那两条手指：`w:customXml` 把一段字圈起来（它自己说 schema 在哪），
+# `w:sdt` 上挂一条 `w:dataBinding`（它指着某一份存储的 `ds:itemID` + 一条 XPath）。
+# 本机真件里 0 份写过这两条 —— 这两枚是**合成**的，只证明「认得这两条手指」，
+# 不证明真生产者会这么写（与 `notes.docm` 那枚合成宏同一待遇）。
+CX_ANCHOR_XML = (
+    f'<w:customXml w:sid="{{11AA22BB-33CC-44DD-8E5F-001122334455}}" w:name="{MARK_KEYWORD}">'
+    "<w:customXmlPr>"
+    f'<w:schemaLoc w:uri="{BIB_NS}"/>'
+    f'<w:alias w:val="{MARK_TITLE}"/>'
+    "</w:customXmlPr>"
+    f"<w:p><w:r><w:t>{MARK_BODY}</w:t></w:r></w:p>"
+    "</w:customXml>"
+)
+CX_ANCHOR_SDT = (
+    "<w:sdt><w:sdtPr>"
+    '<w:id w:val="424242"/>'
+    '<w:alias w:val="绑定到那份存储的第一条"/>'
+    "<w:dataBinding "
+    f'w:xpath="/b:Sources/b:Source/b:Title[1]" w:storeItemID="{STORE_ID_A}" '
+    f'w:storeSchemaID="{BIB_NS}" w:prefixMappings="b={BIB_NS}"/>'
+    "</w:sdtPr>"
+    f"<w:sdtContent><w:p><w:r><w:t>{MARK_TOTAL_LABEL}</w:t></w:r></w:p></w:sdtContent>"
+    "</w:sdt>"
+)
+
+
+def add_customxml_parts(path: Path, out: Path) -> None:
+    """把一份 docx 加上 `customXml/` 那四件 + 两条正文手指 —— 自定义 XML 存储要有样本
+
+    部件与属性名的形状按本机 25 份真件（Word 的引用管理器写的那一份 `b:Sources`）；
+    正文那两条手指是合成的（真件 0 份写过），值与名字都是本仓自有的串。
+    """
+    with zipfile.ZipFile(path) as box:
+        types = box.read("[Content_Types].xml").decode("utf-8")
+        rels = box.read("word/_rels/document.xml.rels").decode("utf-8")
+        doc = box.read("word/document.xml").decode("utf-8")
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    # 那两枚存储的部件（item 自己**不**在 Content_Types 上点名，靠 `Default Extension="xml"` 兜）
+    parts["customXml/item1.xml"] = CX_ITEM_A.encode("utf-8")
+    parts["customXml/item2.xml"] = CX_ITEM_B.encode("utf-8")
+    parts["customXml/itemProps1.xml"] = cx_props_part(STORE_ID_A, BIB_NS).encode("utf-8")
+    parts["customXml/itemProps2.xml"] = cx_props_part(STORE_ID_B, None).encode("utf-8")
+    parts["customXml/_rels/item1.xml.rels"] = cx_rels_part("itemProps1.xml").encode("utf-8")
+    parts["customXml/_rels/item2.xml.rels"] = cx_rels_part("itemProps2.xml").encode("utf-8")
+    # 打底件（python-docx 那份模板）本来就带一条 `/customXml/itemProps1.xml` 的 Override，
+    # 所以这里只补没点过名的那一份 —— 补重了就是这份包自己说话不算数
+    extra = "".join(
+        f'<Override PartName="/customXml/{name}" ContentType="{CUSTOMXML_PROPS_CT}"/>'
+        for name in ("itemProps1.xml", "itemProps2.xml")
+        if f'PartName="/customXml/{name}"' not in types
+    )
+    parts["[Content_Types].xml"] = types.replace("</Types>", extra + "</Types>").encode("utf-8")
+    # 文档级的两条关系：`w:customXml` 那两条手指之外，包级还有一条关系指着每份存储
+    used = [int(one) for one in re.findall(r'Id="rId(\d+)"', rels)]
+    first, second = max(used) + 1, max(used) + 2
+    parts["word/_rels/document.xml.rels"] = rels.replace(
+        "</Relationships>",
+        f'<Relationship Id="rId{first}" Type="{CUSTOMXML_TYPE}" Target="../customXml/item1.xml"/>'
+        f'<Relationship Id="rId{second}" Type="{CUSTOMXML_TYPE}" Target="../customXml/item2.xml"/>'
+        "</Relationships>",
+    ).encode("utf-8")
+    at = doc.rfind("<w:sectPr")
+    assert at > 0, "这一份打底件里得有 sectPr，两条手指要插在它之前"
+    parts["word/document.xml"] = (doc[:at] + CX_ANCHOR_XML + CX_ANCHOR_SDT + doc[at:]).encode("utf-8")
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as box:
+        for name, data in parts.items():
+            box.writestr(name, data)
+
+
 def write_csv(path: Path) -> None:
     """CSV 是给 LO 转 xls 的备用输入（openpyxl 缺席时才用）"""
     rows = [

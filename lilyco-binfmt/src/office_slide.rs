@@ -393,6 +393,8 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
             "placeholder_hops": crate::placeholders::hops(bytes, limit),
             // 底色那本逐件的账：页上那一条常常什么都不写，实际给色的是版式或母版
             "backgrounds": crate::page_background::pptx_parts(bytes, &all_parts, limit),
+            // 同一问在演示这一族是同一个包形状，所以走同一个读者
+            "custom_xml": crate::custom_xml::ledger(bytes, limit),
             "size": size,
             "masters": masters,
             "layouts": layouts,

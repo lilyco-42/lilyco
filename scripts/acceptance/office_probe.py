@@ -10178,6 +10178,86 @@ def main() -> int:
         [None, None, None, None],
     )
 
+    # ── 3br) 包里那几份自定义 XML 存储：件、那一跳到 itemProps、正文那两条手指 ──
+    print("=== 3br) custom_xml：`customXml/itemN.xml` 那一族部件一本账（三份件 + 逐件对）===")
+
+    for name in sorted(one.name for one in list(FIXTURES.glob("*.docx"))
+                       + list(FIXTURES.glob("*.pptx")) + list(FIXTURES.glob("*.xlsx"))):
+        cmd = "office-slide" if name.endswith(".pptx") else ("office-sheet" if name.endswith(".xlsx") else "office-doc")
+        got = lbin(cmd, fixture(name))
+        want = (files[name].get("ooxml") or {}).get("custom_xml")
+        check("%s 那一族存储的整本账与读者一致（含逐件那一列）" % name, dig(got, "custom_xml"), want)
+
+    cx = lbin("office-doc", fixture("customxml.docx"))
+    check(
+        "`customxml.docx` 一份包两枚存储：每一件都靠**自己的 `.rels`** 跳到那一份 `itemPropsN.xml`，"
+        "再从那一份里读出 `ds:itemID` 与 `ds:schemaRefs/ds:schemaRef/@ds:uri` —— 第二枚那一份 "
+        "`schemaRefs` 在而里面空（真件 25 份里正有一份就是这个形状），所以它的 uri 是空表而**不是**「读不出」",
+        [dig(cx, "custom_xml.items"), dig(cx, "custom_xml.items_empty"), dig(cx, "custom_xml.overrides"),
+         dig(cx, "custom_xml.default_for_xml"),
+         [[one["part"], one["root"], one["children"], one["props_rel"], one["props_found"],
+           len(one["schema_uris"]), one["bound"], one["declared"]]
+          for one in dig(cx, "custom_xml.entries")]],
+        [2, 0, 2, True,
+         [["customXml/item1.xml", "Sources", 3, "itemProps1.xml", True, 1, 1, False],
+          ["customXml/item2.xml", "customData", 1, "itemProps2.xml", True, 0, 0, False]]],
+    )
+    check(
+        "`itemN.xml` 自己**不在** `[Content_Types].xml` 上点名（只有 props 那一份点），它靠 "
+        "`Default Extension=\"xml\"` 兜着 —— 所以每行 `declared` 是 false 而整本那格 "
+        "`default_for_xml` 是 true，这两格合起来才是「这一族部件怎么被包承认」的答案。"
+        "正文那两条手指各一条：`w:customXml` 圈字、`w:sdt` 上 `w:dataBinding/@w:storeItemID` "
+        "指着第一枚的号，所以 `bound` 那列是 1 / 0 而 `unresolved_bindings` 是 0",
+        [dig(cx, "custom_xml.anchors_custom_xml"), dig(cx, "custom_xml.anchors_data_binding"),
+         dig(cx, "custom_xml.binding_ids"), dig(cx, "custom_xml.unresolved_bindings")],
+        [1, 1, ["{1B2C3D4E-5F60-4142-8384-858687888990}"], 0],
+    )
+    cxb = lbin("office-doc", fixture("customxml-lo.docx"))
+    check(
+        "同一份过一遍 LibreOffice：三枚 `itemN.xml` 全被**清空成 0 字节**（部件在、名字在、"
+        "那一跳也在，可里面没字了 —— 所以 `root` / `children` 两格是 null，与「部件不在」是两件事），"
+        "而 props 从两份变**三份**（它给正文那条绑定另写了一份存储）",
+        [dig(cxb, "custom_xml.items"), dig(cxb, "custom_xml.items_empty"), dig(cxb, "custom_xml.parts_total"),
+         dig(cxb, "custom_xml.overrides"),
+         [[one["part"], one["size"], one["root"], one["props_rel"], one["item_id"]]
+          for one in dig(cxb, "custom_xml.entries")]],
+        [3, 3, 9, 3,
+         [["customXml/item1.xml", 0, None, "itemProps1.xml", "{1B2C3D4E-5F60-4142-8384-858687888990}"],
+          ["customXml/item2.xml", 0, None, "itemProps2.xml", "{1B2C3D4E-5F60-4142-8384-858687888990}"],
+          ["customXml/item3.xml", 0, None, "itemProps3.xml", "{0A0B0C0D-0E0F-4041-9293-949596979899}"]]],
+    )
+    check(
+        "重写之后那一条手指**说不清指到哪一份**了：`itemProps1` 与 `itemProps2` 里 "
+        "`ds:itemID` 是同一个号，于是两行的 `bound` 都是 1 —— 判不住就如实交两个 1，"
+        "不替文件挑一份。另一条手指它干脆不认：`w:customXml` 整条丢了（1 → 0），"
+        "`w:dataBinding` 照样留着（还自己补一枚 `<w:text/>`），同一族里两条手指两种待遇",
+        [dig(cxb, "custom_xml.anchors_custom_xml"), dig(cxb, "custom_xml.anchors_data_binding"),
+         [one["bound"] for one in dig(cxb, "custom_xml.entries")],
+         dig(cxb, "custom_xml.unresolved_bindings")],
+        [0, 1, [1, 1, 0], 0],
+    )
+    check(
+        "`notes.docx` 那一份**不是加上去的**：python-docx 的打底模板本来就带一枚 `b:Sources`"
+        "（0 条孩子、props 里一个 GUID 加一条 bibliography 的 uri），本机 25 份真件 docx 里那一份"
+        "与它同形状 —— 这一族在真件里就是「存储躺在包里、正文一条手指都不写」（25/25 份两条手指各 0 处）",
+        [dig(lbin("office-doc", fixture("notes.docx")), "custom_xml.items"),
+         [one["root"] for one in dig(lbin("office-doc", fixture("notes.docx")), "custom_xml.entries")],
+         [one["children"] for one in dig(lbin("office-doc", fixture("notes.docx")), "custom_xml.entries")],
+         dig(lbin("office-doc", fixture("notes.docx")), "custom_xml.anchors_data_binding")],
+        [1, ["Sources"], [0], 0],
+    )
+    check(
+        "没有那一族的包交一本空账而不是缺键：表格件 `book.xlsx` 里 `customXml/` 0 件，"
+        "而 `default_for_xml` 仍是 true（那条 Default 每个 OPC 包都写）—— 「没有存储」与"
+        "「包没承认过 xml 这一族」是两问。ODF 那一族不交这个键（没有 OPC 包，这一层不存在）",
+        [dig(lbin("office-sheet", fixture("book.xlsx")), "custom_xml.items"),
+         dig(lbin("office-sheet", fixture("book.xlsx")), "custom_xml.parts_total"),
+         dig(lbin("office-sheet", fixture("book.xlsx")), "custom_xml.default_for_xml"),
+         dig(lbin("office-doc", fixture("notes.odt")), "structure.custom_xml"),
+         dig(lbin("office-slide", fixture("deck.odp")), "custom_xml")],
+        [0, 0, True, None, None],
+    )
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:

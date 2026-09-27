@@ -212,6 +212,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `deck-bg.pptx` | python-pptx 1.0.2（`write_background_deck`） | 四页一次只改一个变量的**页底色**：`第1页` 实色 `1A1A2E`、`第2页` **显式**写 `<p:bg><p:bgPr><a:noFill/>`、`第3页` 渐变（两站都点 `schemeClr accent1`，修饰 `tint 100000/50000` + `shade 100000` + `satMod 130000/350000` 全挂在那枚颜色元素的**孩子**上，方向写 `a:lin @scaled="0"`）、`第4页` 整枚 `p:bg` 都不写；每页底色后面跟一枚**空的** `<a:effectLst/>`。模板那份只在**母版**写 `bgRef idx="1001"` + `schemeClr bg1`，11 份版式一枚都不写 |
 | `deck-bg-lo.pptx` | LibreOffice（`deck-bg.pptx` → .pptx 重写） | 同四页，三处搬家：第 1 页字面色一字未动；第 3 页两站换成**替文件算完**的字面 `srgbClr 3E7FCC` / `A4C1FF`（修饰整批不写、`@scaled` 改 `@ang="0"`、`rotWithShape` 从 `1` 变 `0`）；**第 2 页那枚 `noFill` 整条丢掉**，于是它与第 4 页交出同一份全 null 的记录。空壳 `effectLst` 一枚都不写；母版那枚 `bgRef bg1` 被**摊到 11 份版式上写成字面 `FFFFFF`** 而母版自己那枚没了（`parts_with_bg` 4 → 13） |
 | `deck-bg.odp` | LibreOffice（`deck-bg.pptx` → .odp） | 同一件事换了地方：页只**点名**（dp1 / dp3 / dp4 / **dp3**），第 2、4 页共用 dp3，而那份样式的 `drawing-page-properties` 里 5 句话一条 `draw:fill` 都没有；渐变要两跳才解得开（`draw:fill-gradient-name="msFillGradient_20_1"` → styles.xml 的 `<draw:gradient>`，八格属性含 `angle="90deg"`）；继承那一跳是三跳 `Blank → Mdp1 → draw:fill="solid" #ffffff`，11 份 `style:master-page` 全部点同一份 Mdp1，另两份样式（content.xml 的 dp2、styles.xml 的 Mdp2）**没人点**而四句一字不差 |
+| `customxml.docx` | python-docx 打底 + `zipfile` 按真件形状加部件（`add_customxml_parts`） | 包里两枚自定义 XML 存储：`customXml/item1.xml` 是 Word 引用管理器那份 `b:Sources`（三条孩子）加 `item2.xml` 一枚 `s:customData`，各带一份 `itemPropsN.xml`（第一枚有一条 `ds:uri`、第二枚的 `ds:schemaRefs` 在而里面空——真件 25 份里就有一份这样写），item 自己不点名、靠 `Default Extension="xml"` 兜；另在正文合成两条手指（一枚 `w:customXml`、一枚带 `w:dataBinding` 的 `w:sdt`，号指向第一枚）——真件里这两条 0 份写过
+| `customxml-lo.docx` | LibreOffice（`customxml.docx` → .docx 重写） | 同一件事三种待遇：三枚 `itemN.xml` 全被清空成 0 字节而 props 与那一跳留着、存储从两份变三份、头两份 props 的 `ds:itemID` 撞成同一个号（正文那一条手指说不清指到哪一份），`w:customXml` 整条丢掉而 `w:dataBinding` 照样留着 |
 | `styled-text.docx` | python-docx（`write_runs_docx`） | 一段只点一个字符属性（粗 / 斜 / 下划线 / 删除线 / 上标 / 红 `C00000` / 黄 / 9 磅写成 `sz="18"` 半磅 / 宋体），另有点「明确不粗」（`<w:b w:val="0"/>`）、一串字里两个孩子（`<w:b/><w:i/>`）与**一段里三种字各一串**；没格式那几串**不写 `w:rPr`** |
 | `styled-text-lo.docx` | LibreOffice（`styled-text.docx` → .docx） | 同一份件重写一次：每一串字都补一个**空的** `<w:rPr></w:rPr>`（30 串里 16 串是空的），而 `w:val="0"` 换成 `w:val="false"` —— 「有没有这一格」与「这一格说不说不」两家正好一边一种 |
 | `styled-text.odt` / `styled-text.rtf` | LibreOffice（从 `styled-text.docx` 导出） | 第三种与第四种存法：ODF 把格式搬到 `text:span/@text:style-name="T1"…T12"`，值在**同一份 content.xml** 的 `style:text-properties` 上（`fo:font-weight="bold"`、`style:text-underline-style="solid"`、`style:text-position="super 58%"`、`fo:color="#c00000"`），「明确不粗」成 `fo:font-weight="normal"`；RTF 只在群头写 `b` / `i` / `strike` / `super` / `cf23` / `highlight7` / `fs18` / `af9`，否定是 `b0`，CJK 的下划线落在 `aul` 那个口袋，而颜色与字体只是**一个号**，要跳文件自己那两张表 |
@@ -2372,6 +2374,39 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       别的账都是各交各的。
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
+
+138. **包里那几份自定义 XML 存储：件自己还剩多少字、那一跳到 `itemProps` 断没断、正文有没有一条手指着它**（三份件 + 本机 25 份真件 docx，真件只量数、不入库）
+    - 形状：一本包账 `{family, available, parts_total, items, items_empty, overrides, default_for_xml,
+      anchors_custom_xml, anchors_data_binding, binding_ids, unresolved_bindings, entries, cut}`，
+      每条 entry 十格 `{part, size, root, children, props_rel, props_found, item_id, schema_uris, bound, declared}`。
+      两条链各交各的：件 →（它自己的 `.rels` 里那条 `customXmlProps`）→ props →（`ds:itemID` /
+      `ds:schemaRef/@ds:uri`）→ 号与 schema；正文 `w:sdt` 上那条 `w:dataBinding/@w:storeItemID` 指的就是这个号。
+    - **这一族在真件里就是「躺在包里、没人指」**：本机 25 份带存储的 docx 里 `w:customXml` 与
+      `w:dataBinding` 各 0 处，而那 25 份的 `item1.xml` 全是 Word 引用管理器写的 `b:Sources`；
+      `python-docx` 的打底模板自带同一形状的那一枚（`notes.docx` items 1、uri 1 条、手指 0 条），
+      所以「自产件里也有存储」不是本仓加的。
+    - 「部件在」与「部件里还有字」是两问：LibreOffice 重写 `customxml.docx` 时把三枚 `itemN.xml`
+      **整件清空成 0 字节**，而三份 `itemPropsN.xml` 与那一跳、与 `ds:itemID` 全留着 —— 于是
+      `items` 3 / `items_empty` 3 / 每行 `root`、`children` 是 null（0 字节没有根元素可读），
+      清空不是丢失，两者在这一格里分得开。
+    - 同一件事它多写了一份（两份存储变三份），而头两份 props 的 `ds:itemID` 是**同一个号**：
+      正文那一条手指于是同时指着两份（`bound` 两行都是 1）—— 「一条手指解到哪一份」在这副件里
+      判不住，如实交两个 1 而不是替文件挑一份。另一条手指它不认：`w:customXml` 整条丢掉
+      （`anchors_custom_xml` 1 → 0）而 `w:dataBinding` 留着，同族两条手指两种待遇。
+    - 包怎么承认这一族也是两格：`customXml/itemN.xml` 自己**不在** `[Content_Types].xml` 上点名
+      （只有 props 那一份点，`overrides` 数的就是这个），它靠 `Default Extension="xml"` 兜着
+      （`default_for_xml`）—— 所以每行 `declared` 恒 false 而那一格恒 true，合起来才是答案。
+      第二枚存储的 `ds:schemaRefs` 在而里面空（真件 25 份里正有一份这样写），所以 `schema_uris`
+      是空表，与「那一跳解不开」交 `props_found: false` + null 是两件事。
+    - 边界：这一族只在上 OOXML 包的那三个出口交（`office-doc` 的 docx、`office-sheet` 的 xlsx、
+      `office-slide` 的 pptx）；odt / odp / .doc / .rtf 不交这个键——ODF 没有 OPC 包，这一层不存在。
+      没有存储的包交一本零条的账（`book.xlsx`：`items` 0 而 `default_for_xml` true）而不是缺键。
+      存储里的**字不解释**：那是一份别人定义的 schema，本仓只交件名、字节数与孩子条数。
+    - 第二读者是 `office_reader.py` 的 `cx_ledger` / `docx_custom_xml`（三份件与 246 份影子跑过）；
+      probe 的 **3br** 段逐件对这三族的整本账，Rust 那侧是 `office_doc.rs` 的
+      `a_store_can_sit_in_the_package_with_no_pointer_at_all`。正文那两条手指的写法（`w:customXml`
+      与 `w:sdt`/`w:dataBinding`）本机真件 0 份写过，是**合成**的（照 ECMA 的写法与真件那一份
+      存储的形状拼），与 `notes.docm` 那枚合成宏同一待遇：它只证明「认得这两条手指」。
 
 137. **这一页的底色是谁给的：页自己写、版式与母版写、还是整册都不写，而「写了不填充」与「什么都没写」在两家手里不可分辨**（三份 `deck-bg*` + 本机 104 份真件 pptx / 940 页，真件只量数、不入库）
     - 形状：页级 OOXML 17 格 `{family, available, holder, written, via, attrs, fill, fill_element, fill_attrs,
