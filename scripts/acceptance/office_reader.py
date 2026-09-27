@@ -4700,6 +4700,431 @@ def _bg_inherited_row(master, named) -> dict:
     }
 
 
+BULLET_KINDS = ("buNone", "buChar", "buAutoNum")
+# 「这一段属于哪个框」的载体：形状、图、表格格子里的段各有自己的 pPr
+BULLET_CARRIERS = ("sp", "pic", "graphicFrame", "grpSp", "cxnSp", "tc")
+
+
+def bullet_attr(node, want: str):
+    """DrawingML 的属性是不带前缀的，ODF 的带 —— 两边都按局部名取"""
+    for key, value in node.attrib.items():
+        if key.rsplit("}", 1)[-1] != want:
+            continue
+        return value
+    return None
+
+
+def bullet_spc(ppr, want: str):
+    """`spcBef` / `spcAft` 里那枚点的数（百分之一磅）：没有那个孩子交 None，
+    有孩子但里面是空壳也交 None —— 两者在账本里由 `bullet_spc_present` 分开。
+    """
+    kid = None
+    for one in ppr:
+        if isinstance(one.tag, str) and xml_local(one.tag) == want:
+            kid = one
+            break
+    if kid is None:
+        return None
+    for inner in kid:
+        if isinstance(inner.tag, str) and xml_local(inner.tag) == "spcPts":
+            return bullet_attr(inner, "val")
+        if isinstance(inner.tag, str) and xml_local(inner.tag) == "spcPct":
+            return bullet_attr(inner, "val")
+    return None
+
+
+def bullet_ppr_row(ppr, at: int, carrier: str, shape: int) -> dict:
+    """一条 `a:pPr`（或没有）→ 那一行的格子：没写的一律 null，不替文件补规范默认值"""
+    row = {
+        "para": at,
+        "carrier": carrier,
+        "shape": shape,
+        "ppr_written": ppr is not None,
+        "kind": "(无 pPr)",
+        "char": None,
+        "auto_type": None,
+        "start_at": None,
+        "bu_sz_pct": None,
+        "bu_sz_pts": None,
+        "bu_font": None,
+        "lvl": None,
+        "mar_l": None,
+        "indent": None,
+        "align": None,
+        "spc_before": None,
+        "spc_after": None,
+        "spc_before_written": False,
+        "spc_after_written": False,
+        "attrs_written": 0,
+    }
+    if ppr is None:
+        return row
+    hit = [one for one in ppr if isinstance(one.tag, str) and xml_local(one.tag) in BULLET_KINDS]
+    row["kind"] = xml_local(hit[0].tag) if len(hit) == 1 else (
+        "(没写)" if not hit else "+".join(xml_local(one.tag) for one in hit))
+    if hit:
+        one = hit[0]
+        row["char"] = bullet_attr(one, "char")
+        row["auto_type"] = bullet_attr(one, "type")
+        row["start_at"] = bullet_attr(one, "startAt")
+    row["lvl"] = bullet_attr(ppr, "lvl")
+    row["mar_l"] = bullet_attr(ppr, "marL")
+    row["indent"] = bullet_attr(ppr, "indent")
+    row["align"] = bullet_attr(ppr, "algn")
+    for key in ("spcBef", "spcAft"):
+        got = bullet_spc(ppr, key)
+        has = any(isinstance(one.tag, str) and xml_local(one.tag) == key for one in ppr)
+        row["spc_before" if key == "spcBef" else "spc_after"] = got
+        row["spc_before_written" if key == "spcBef" else "spc_after_written"] = has
+    for one in ppr:
+        if not isinstance(one.tag, str):
+            continue
+        name = xml_local(one.tag)
+        if name == "buSzPct":
+            row["bu_sz_pct"] = bullet_attr(one, "val")
+        elif name == "buSzPts":
+            row["bu_sz_pts"] = bullet_attr(one, "val")
+        elif name == "buFont":
+            row["bu_font"] = bullet_attr(one, "typeface")
+    row["attrs_written"] = len([key for key in ppr.attrib if not key.startswith("xmlns")])
+    return row
+
+
+def slide_bullets_pptx(root, limit: int = 100) -> dict:
+    """一页（或一份版式 / 母版）里每段的「前面画什么」：只看这一件自己写没写
+
+    实测：python-pptx 那一份只在写了符号的段上放 `a:pPr`（标题那条整个没有），
+    LibreOffice 重写时给每段都补上 `a:pPr`，并顺手把 `algn`、`defTabSz`、`lnSpc`、
+    `spcBef`、`buClr`、`buFont` 一起写下来，连 `marL` 的数都换了（342900 → 343080）。
+    所以「写没写 pPr」「写没写 bu*」「那个数是几分之几」是三问，各交各的。
+    """
+    parents = {id(one): parent for parent in root.iter() for one in parent}
+    order: dict = {}
+    names: dict = {}
+    rows: list = []
+    kinds: dict = {}
+    chars: dict = {}
+    autos: dict = {}
+    total = 0
+    for one in root.iter():
+        if not isinstance(one.tag, str) or xml_local(one.tag) != "p":
+            continue
+        # 载体：往上找到第一个认识的名字（表格格子里的段与形状里的段不是一回事）
+        carrier = "(没有)"
+        cur = parents.get(id(one))
+        shape = None
+        while cur is not None:
+            name = xml_local(cur.tag) if isinstance(cur.tag, str) else ""
+            if name in BULLET_CARRIERS:
+                carrier = name
+                if id(cur) not in order:
+                    order[id(cur)] = len(order)
+                    names[name] = names.get(name, 0) + 1
+                shape = order[id(cur)]
+                break
+            cur = parents.get(id(cur))
+        ppr = None
+        for kid in one:
+            if isinstance(kid.tag, str) and xml_local(kid.tag) == "pPr":
+                ppr = kid
+                break
+        row = bullet_ppr_row(ppr, total, carrier, shape)
+        total += 1
+        kinds[row["kind"]] = kinds.get(row["kind"], 0) + 1
+        if row["char"] is not None:
+            chars[row["char"]] = chars.get(row["char"], 0) + 1
+        if row["auto_type"] is not None:
+            autos[row["auto_type"]] = autos.get(row["auto_type"], 0) + 1
+        rows.append(row)
+    return {
+        "family": "ooxml",
+        "available": True,
+        "paragraphs": total,
+        "ppr_written": sum(1 for one in rows if one["ppr_written"]),
+        "ppr_missing": sum(1 for one in rows if not one["ppr_written"]),
+        "declared": sum(1 for one in rows if one["kind"] in BULLET_KINDS),
+        "silent": sum(1 for one in rows if one["kind"] in ("(没写)", "(无 pPr)")),
+        "kinds": kinds,
+        "chars": chars,
+        "auto_types": autos,
+        "lvl_written": sum(1 for one in rows if one["lvl"] is not None),
+        "marl_written": sum(1 for one in rows if one["mar_l"] is not None),
+        "indent_written": sum(1 for one in rows if one["indent"] is not None),
+        "bu_sz_written": sum(1 for one in rows
+                             if one["bu_sz_pct"] is not None or one["bu_sz_pts"] is not None),
+        "spc_before_written": sum(1 for one in rows if one["spc_before_written"]),
+        "spc_after_written": sum(1 for one in rows if one["spc_after_written"]),
+        "carriers_found": len(order),
+        "carriers_seen": names,
+        "rows": rows[:limit],
+        "listed": min(len(rows), limit),
+        "cut": len(rows) > limit,
+    }
+
+
+def bullet_level_rows(root) -> list:
+    """版式 / 母版那一层的 `a:lvlNpPr`：符号在那里，而不在任何一段字上
+
+    真件普查（103 份 pptx、228 份版式与母版件）：`a:lstStyle` 出现在 125 份里，
+    一共 2665 枚 `lvlNpPr`，其中 buNone 642、buChar 999、什么都没写的 1024 ——
+    所以「页上这段没写」离「这一段没有符号」还差着这一层。
+    """
+    out: list = []
+    for one in root.iter():
+        if not isinstance(one.tag, str):
+            continue
+        name = xml_local(one.tag)
+        if not name.startswith("lvl") or not name.endswith("pPr"):
+            continue
+        row = bullet_ppr_row(one, len(out), "(版式层)", None)
+        row["level"] = name
+        out.append(row)
+    return out
+
+
+def slide_bullets_layers_pptx(parts, names, limit: int = 400) -> dict:
+    """版式与母版那两层各自的符号账（不含页 —— 页上那本在 slides[i].bullets 里）"""
+    rows: list = []
+    parts_seen = 0
+    lst_parts = 0
+    for name in names:
+        if not (name.startswith("ppt/slideLayouts/") or name.startswith("ppt/slideMasters/")):
+            continue
+        raw = parts.get(name)
+        if raw is None:
+            continue
+        try:
+            root = ET.fromstring(raw)
+        except ET.ParseError:
+            continue
+        parts_seen += 1
+        if any(isinstance(one.tag, str) and xml_local(one.tag) == "lstStyle" for one in root.iter()):
+            lst_parts += 1
+        for row in bullet_level_rows(root):
+            row["part"] = name
+            row["layer"] = "layout" if "slideLayouts" in name else "master"
+            rows.append(row)
+    kinds: dict = {}
+    chars: dict = {}
+    levels: dict = {}
+    for row in rows:
+        kinds[row["kind"]] = kinds.get(row["kind"], 0) + 1
+        if row["char"] is not None:
+            chars[row["char"]] = chars.get(row["char"], 0) + 1
+        levels[row["level"]] = levels.get(row["level"], 0) + 1
+    return {
+        "family": "ooxml",
+        "available": True,
+        "parts": parts_seen,
+        "parts_with_lst_style": lst_parts,
+        "levels": levels,
+        "kinds": kinds,
+        "chars": chars,
+        "declared": sum(1 for row in rows if row["kind"] in BULLET_KINDS),
+        "silent": sum(1 for row in rows if row["kind"] == "(没写)"),
+        "rows": rows[:limit],
+        "rows_total": len(rows),
+        "listed": min(len(rows), limit),
+        "cut": len(rows) > limit,
+    }
+
+
+def odp_bullet_styles(parts) -> dict:
+    """全包（跨两份部件）的 `text:list-style`：名 → 那十级各自画什么
+
+    实测：LibreOffice 从 pptx 转来的 odp 把每份列表样式写进 `content.xml`（自动样式），
+    而母版页用的那几份（`ML1`…`ML10`）住在 `styles.xml` —— 所以点名解不开时得两份都找。
+    """
+    table: dict = {}
+    for name in ("content.xml", "styles.xml"):
+        root = _bg_member(parts, name)
+        if root is None:
+            continue
+        for one in root.iter():
+            if not isinstance(one.tag, str) or xml_local(one.tag) != "list-style":
+                continue
+            want = bullet_attr(one, "name")
+            if want is None or want in table:
+                continue
+            levels = []
+            for kid in one:
+                if not isinstance(kid.tag, str):
+                    continue
+                kind = xml_local(kid.tag)
+                if not kind.startswith("list-level-style"):
+                    continue
+                levels.append({
+                    "level": bullet_attr(kid, "level"),
+                    "kind": kind,
+                    "char": bullet_attr(kid, "bullet-char"),
+                    "num_format": bullet_attr(kid, "num-format"),
+                    "num_prefix": bullet_attr(kid, "num-prefix"),
+                    "num_suffix": bullet_attr(kid, "num-suffix"),
+                    "start_value": bullet_attr(kid, "start-value"),
+                    "letter_order": bullet_attr(kid, "letter-order"),
+                    "length": bullet_attr(kid, "length"),
+                })
+            table[want] = {"part": name, "levels": levels}
+    return table
+
+
+def slide_bullets_odp(table, page, limit: int = 100) -> dict:
+    """一页上那些 `text:list`：谁点了哪份样式、那份样式第几级画什么
+
+    ODF 把级别当嵌套用（外层 `text:list` 才点名样式，里层的不写 `text:style-name`），
+    而且 LibreOffice 从 pptx 转来时**一行拆一份列表** —— 所以「几段字有符号」在这一族
+    是「几份列表」，与 pptx 的「一段一个 pPr」对不上是形状之差，不是谁读错了。
+    """
+    parents = {id(one): parent for parent in page.iter() for one in parent}
+    LISTY = ("list", "ordered-list", "unordered-list")
+    rows: list = []
+    kinds: dict = {}
+    chars: dict = {}
+    lists = 0
+    unnamed = 0
+    nested = 0
+    found = 0
+    unfound = 0
+    items = 0
+    direct_p = 0
+    for one in page.iter():
+        if not isinstance(one.tag, str) or xml_local(one.tag) not in LISTY:
+            continue
+        lists += 1
+        cur = parents.get(id(one))
+        depth = 0
+        frame = None
+        while cur is not None:
+            name = xml_local(cur.tag) if isinstance(cur.tag, str) else ""
+            if name in LISTY:
+                depth += 1
+            if name == "frame" and frame is None:
+                frame = bullet_attr(cur, "name")
+            cur = parents.get(id(cur))
+        if depth:
+            nested += 1
+        want = bullet_attr(one, "style-name")
+        mine = table.get(want) if want is not None else None
+        if want is None:
+            unnamed += 1
+        elif mine is None:
+            unfound += 1
+        else:
+            found += 1
+        first = (mine or {}).get("levels", [{}])[0] if mine else {}
+        kind = ((first.get("kind") or "").rsplit("-", 1)[-1]) if first else None
+        key = "(没点名)" if want is None else (kind or "(解不开)")
+        kinds[key] = kinds.get(key, 0) + 1
+        if first.get("char") is not None:
+            chars[first["char"]] = chars.get(first["char"], 0) + 1
+        kids = [kid for kid in one if isinstance(kid.tag, str) and xml_local(kid.tag) == "list-item"]
+        got_p = sum(1 for kid in kids for g in kid
+                    if isinstance(g.tag, str) and xml_local(g.tag) == "p")
+        items += len(kids)
+        direct_p += got_p
+        rows.append({
+            "list": lists - 1,
+            "element": xml_local(one.tag),
+            "depth": depth,
+            "frame": frame,
+            "style_name": want,
+            "style_found": mine is not None,
+            "style_part": (mine or {}).get("part"),
+            "levels_defined": len((mine or {}).get("levels", [])),
+            "level1_kind": kind or None,
+            "level1_char": first.get("char"),
+            "level1_num_format": first.get("num_format"),
+            "level1_start_value": first.get("start_value"),
+            "level1_num_suffix": first.get("num_suffix"),
+            "items": len(kids),
+            "paras_direct": got_p,
+        })
+    in_list = 0
+    paras = 0
+    for one in page.iter():
+        if not isinstance(one.tag, str) or xml_local(one.tag) != "p":
+            continue
+        paras += 1
+        cur = parents.get(id(one))
+        while cur is not None:
+            if isinstance(cur.tag, str) and xml_local(cur.tag) in LISTY:
+                in_list += 1
+                break
+            cur = parents.get(id(cur))
+    return {
+        "family": "odf",
+        "available": True,
+        "lists": lists,
+        "lists_nested": nested,
+        "lists_unnamed": unnamed,
+        "styles_found": found,
+        "styles_unfound": unfound,
+        "items": items,
+        "paras": paras,
+        "paras_in_lists": in_list,
+        "paras_outside": paras - in_list,
+        "kinds": kinds,
+        "chars": chars,
+        "styles_defined": len(table),
+        "rows": rows[:limit],
+        "listed": min(len(rows), limit),
+        "cut": len(rows) > limit,
+    }
+
+
+def odp_bullet_ledger(parts, table, limit: int = 400) -> dict:
+    """整册（ODF）：样式一共定义了几份、页点了几份、哪几份没人点"""
+    used: dict = {}
+    for root_name in ("content.xml",):
+        root = _bg_member(parts, root_name)
+        if root is None:
+            continue
+        for one in root.iter():
+            if not isinstance(one.tag, str) or xml_local(one.tag) not in (
+                    "list", "ordered-list", "unordered-list"):
+                continue
+            want = bullet_attr(one, "style-name")
+            if want is not None:
+                used[want] = used.get(want, 0) + 1
+    rows: list = []
+    kinds: dict = {}
+    chars: dict = {}
+    one_level: dict = {}
+    for name in sorted(table):
+        mine = table[name]
+        first = mine["levels"][0] if mine["levels"] else {}
+        kind = (first.get("kind") or "").rsplit("-", 1)[-1] or "(空)"
+        kinds[kind] = kinds.get(kind, 0) + 1
+        if first.get("char") is not None:
+            chars[first["char"]] = chars.get(first["char"], 0) + 1
+        one_level[len(mine["levels"])] = one_level.get(len(mine["levels"]), 0) + 1
+        if len(rows) < limit:
+            rows.append({
+                "name": name,
+                "part": mine["part"],
+                "levels": len(mine["levels"]),
+                "used_by": used.get(name, 0),
+                "level1_kind": kind,
+                "level1_char": first.get("char"),
+                "level1_num_format": first.get("num_format"),
+                "level1_start_value": first.get("start_value"),
+            })
+    unused = sum(1 for name in table if used.get(name, 0) == 0)
+    return {
+        "family": "odf",
+        "available": True,
+        "styles": len(table),
+        "styles_used": len([one for one in table if used.get(one, 0)]),
+        "styles_unused": unused,
+        "kinds": kinds,
+        "chars": chars,
+        "levels_per_style": {str(key): value for key, value in sorted(one_level.items())},
+        "rows": rows,
+        "listed": len(rows),
+        "cut": len(table) > len(rows),
+    }
+
+
 def odp_inherited(parts, page) -> dict:
     """继承那一跳是三跳：页 → 母版页名 → 那份母版页点名的 drawing-page 样式；断了交 False"""
     master = of_local(page, "master-page-name")
@@ -8713,6 +9138,8 @@ def pptx_facts(path: Path) -> dict:
                 "shape_tree": slide_shape_tree_pptx(root),
                 # 这一页的底色：p:bg 坐在 cSld 的第一枚孩子上，也可以整枚不写（走继承）
                 "page_background": _bg_ooxml(root),
+                # 这一段前面画什么：`a:pPr` 里那几枚孩子的名字就是答案
+                "bullets": slide_bullets_pptx(root),
                 "links": pptx_slide_links(root, rels_root),
                 "relationships": slide_rels(rels_root, name),
                 # 「放映时隐藏」这一族就写在根元素上一个 show="0"；没写等于没藏
@@ -8753,6 +9180,8 @@ def pptx_facts(path: Path) -> dict:
         "slides": out_slides,
         # 底色那本逐件的账：页上那一条常常什么都不写，实际给色的是版式或母版
         "backgrounds": pptx_background_ledger(parts, names),
+        # 页上没写符号的那些段，符号在版式与母版那一层（`a:lvlNpPr`）
+        "bullet_layers": slide_bullets_layers_pptx(parts, names),
         "slide_size": size,
         "slide_size_type": size_type,
         "masters": sorted(one for one in names if one.startswith("ppt/slideMasters/slideMaster")),
@@ -10548,6 +10977,8 @@ def odp_facts(path: Path) -> dict | None:
     page_styles = odp_drawing_page_styles(parts)
     # 框的 autofit 也住在样式里（family=graphic），与格子样式同一类两跳
     graphic_styles = odp_graphic_styles_of(parts)
+    # 列表符号那本账点名的样式跨两份部件（页用的在 content.xml、母版页用的在 styles.xml）
+    bullet_styles = odp_bullet_styles(parts)
 
     layout_of_master: dict = {}
     size_of_layout: dict = {}
@@ -10635,6 +11066,8 @@ def odp_facts(path: Path) -> dict | None:
                 "shape_tree": slide_shape_tree_odp(page),
                 # 底色在这里是两跳：页上的样式名 → drawing-page 样式，样式不在就是「没写」
                 "page_background": slide_page_background_odp(parts, page),
+                # 这一页上那些列表各自点了哪份样式
+                "bullets": slide_bullets_odp(bullet_styles, page),
                 "size": size_of_layout.get(layout_of_master.get(master)),
             }
         )
@@ -10642,6 +11075,8 @@ def odp_facts(path: Path) -> dict | None:
         "slides": slides,
         # 底色在这一族是样式名那一本账：同一个 dp3 可以两页共用
         "backgrounds": odp_background_ledger(parts),
+        # 那一族样式一共定义了几份、被页点了几份、哪几份没人点
+        "bullet_layers": odp_bullet_ledger(parts, bullet_styles),
         "masters": sorted({one["master"] for one in slides if one["master"]}),
         "layouts": sorted({one["layout"] for one in slides if one["layout"]}),
         # 页上写着版式名，文件里没有版式定义：这是这份真件的事实，不是我漏读

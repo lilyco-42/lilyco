@@ -219,6 +219,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `row-height.docx` | python-docx（`write_row_height_docx`） | 这一行多高的三种「没有」一次摆开：`w:trPr/w:trHeight` 的 `@w:val` 与 `@w:hRule` 各说一半（`exact` 1361 / `atLeast` 680 / 第四行写 `0` 而把 `@w:hRule` **摘掉**），第三行故意连 `w:trPr` 都不写 —— 三种「没有」是三格：`rows_without_tr_pr` 1、`rules` 里 `(没有 trHeight)` 与 `(没写)` 各 1；缺 hRule 不补 atLeast |
 | `row-height.odt` | LibreOffice（`row-height.docx` → .odt 那一转） | 换一家：行只写 `table:style-name`，`style:row-height` 与 `style:min-row-height` 两个键在那一跳的目的地里（`2.401cm` / `1.199cm` —— docx 那 1361 与 680 twips 经厘米一绕就多了个 1，本仓不换算也不比对）；"什么都不写"那一行的样式里两个键都没有、只剩 `keep-together`（`rows_unwritten` 1 而 `styles_unfound` 0），零那一行是 `min-row-height="0cm"` |
 | `row-height-lo.docx` | LibreOffice（`row-height.odt` → .docx，一趟来回） | 零不翼而飞：`@w:val="0"` 被它写成 `@w:val="1" @w:hRule="atLeast"`（它不承认零高，`1` 是它自己挑的数），而那个空行回来时带着一枚**空壳** `w:trPr`（`has_tr_pr` true 而 `tr_pr_children` 空表）—— `rows_without_tr_pr` 1 → 0、`zero_height` 1 → 0，两处都是「壳在」与「壳里写了什么」两个数 |
+| `bullets.pptx` | python-pptx 打底 + 按 ECMA 手写 `a:pPr`（`write_bullets_pptx`） | 四页四种答案：一页什么都不写、一页三枚 `buChar`（含 `buSzPct` 与 `spcAft/spcPts`）、一页两枚 `buAutoNum`（`startAt` 只写一条）、一页两枚 `buNone`（其中一条 `marL` 留大） |
+| `bullets.odp` | LibreOffice（`bullets.pptx` → .odp 那一转） | 换一家：段上不写，写的是 `text:list/@text:style-name`，样式里十级各一枚 `list-level-style-bullet`/`-number`（第 3 页那两条编号的样式带 `start-value="3"`），而第 4 页整页没有列表 |
+| `bullets-lo.pptx` | LibreOffice（`bullets.pptx` → .pptx 同格式重写） | 每段都被补上 `a:pPr`（13 段全有，`silent` 0），`marL` 从 `342900` 变 `343080`，母版的 `p:txBody` 整个丢掉（带 `a:lstStyle` 的件从 12 变 11） |
 | `wrap.docx` | python-docx 打底 + 按 ECMA **合成**两枚 `wp:anchor`（`write_wrap_docx`） | 图是怎么摆的三种形状一份里摆开：`wp:inline`（随字走，结构上**没有**环绕那一支）+ `wp:anchor` 两枚各写一种环绕（`wrapSquare` / `wrapTopAndBottom`）；浮着才写的那几格也在（`@behindDoc` `@locked` `@allowOverlap` `@relativeHeight` 与四格 `@dist*` EMU），位置分横竖两条（`positionH/@relativeFrom="margin"` 加 `wp:align`，另一枚写 `wp:positionOffset` 那个数）—— 真件稀缺：本机 33 份 docx 的正文 161 枚 `w:drawing` 里只有 1 枚是 anchor |
 | `wrap.odt` | LibreOffice 版式的 ODF（`write_wrap_odt`，三种锚各一枚） | 换一家：框自己只写 `text:anchor-type`（`as-char` / `paragraph` / `page`），环绕、穿透、四个边距全在它点名的那份 `style:family="graphic"` 样式里（`style:wrap="parallel"` / `"through"`、`style:run-through="front"`、`fo:margin-left="0.21cm"`）；「随字」那一枚的样式里**没有** `style:wrap` 这一格 —— 「文件没说」与「说了不环绕」是两句话 |
 | `wrap-lo.docx` | LibreOffice（`wrap.odt` → .docx，一趟来回） | 三份框只剩两张图（按页锚那一张**整张丢掉**，`drawings` 3 → 2），留着的那枚 anchor 把层序号从 `251658240` 换成 `3`（同一意思两种写法，两边都按原样交），环绕方式它自己挑了 `wrapSquare`（ODF 那面写的是 `parallel`），而 `wp:positionV` 的孩子叫 `posOffset` 不是 `positionOffset` —— `offset_written` 只认 ECMA 那个名字，于是 false 而 `children` 仍写着那个名字 |
@@ -2383,6 +2386,41 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 
+142. **这一段前面画什么：OOXML 把答案写在段自己的 `a:pPr` 上，ODF 写在段点名的那份列表样式里**
+    - 形状：pptx 逐页一本 `{family, available, paragraphs, ppr_written, ppr_missing, declared,
+      silent, kinds, chars, auto_types, lvl_written, marl_written, indent_written, bu_sz_written,
+      spc_before_written, spc_after_written, carriers_found, carriers_seen, rows, listed, cut}`，
+      每段一行 16 格 `{para, carrier, shape, ppr_written, kind, char, auto_type, start_at,
+      bu_sz_pct, bu_sz_pts, bu_font, lvl, mar_l, indent, align, spc_before, spc_after,
+      spc_before_written, spc_after_written, attrs_written}`；另有版式与母版那一本
+      `{parts, parts_with_lst_style, levels, kinds, chars, declared, silent, marl_written,
+      indent_written, rows, rows_total, listed, cut}`（行是 `a:lvl1pPr`…`a:lvl9pPr` 各一条）。
+      odp 逐页一本 `{lists, lists_nested, lists_unnamed, styles_found, styles_unfound, items,
+      paras, paras_in_lists, paras_outside, kinds, chars, styles_defined, rows, listed, cut}`，
+      每份列表一行；整册那本 `{styles, styles_used, styles_unused, kinds, chars,
+      levels_per_style, rows, listed, cut}`。
+    - `kind` 四态各是两句话：`buNone` / `buChar` / `buAutoNum` 是文件说了，`"(没写)"` 是壳在而
+      里面没有那三枚，`"(无 pPr)"` 是连壳都没有 —— 后两格合起来才叫 `silent`，都不替版式补一个符号。
+    - 两家密度差：python-pptx 只在写了符号的段上放壳（13 段里 7 段有），LibreOffice 重写同一份时
+      13 段全有并把 `algn`、`defTabSz`、`lnSpc`、`spcBef`、`buClr`、`buFont` 一起写下来；
+      同一个左边距它换数（`342900` → `343080`）。`attrs_written` 因此从 2 涨到 4，而那一格是笔迹不是答案。
+    - 上面那层是真的存在：这一本 134 枚 `a:lvlNpPr` 里 61 枚什么都不写，重写那本 88 枚一枚不落，
+      且母版的 `p:txBody` 在重写里整层消失（`parts` 同为 24、`parts_with_lst_style` 12 → 11）。
+    - ODF 那一族：LibreOffice 从 pptx 转来时**一行拆一份 `text:list`**（4 页 2/3/2/0 份，每份一个
+      `text:list-item` 套一段字），点名的是 `content.xml` 里的 `L1`…`L5`；整包 54 份列表样式
+      （含母版页用的、住在 `styles.xml` 的 `ML1`…`ML10`）各定义十级，页只点 5 份、49 份没人点。
+      自动编号那两条变成 `list-level-style-number`：`num-format="1"`、`num-suffix="."`、
+      `start-value="3"` 只写在第一条上。而 pptx 里那两条 `buNone` 转过来之后**一页没有列表** ——
+      「明确不画」与「这一族不写」在 ODF 这一格上分不开，只按交的回答。
+    - 真件普查（本机 104 份 pptx、1866 个页与备注部件、11146 枚 `a:pPr`）：`buNone` 7064、
+      `buChar` 3672（`•` 3626、`●` 46）、什么符号都没写 410、`buAutoNum` **0** —— 所以自动编号
+      那一支只能合成件守；`marL`+`indent` 10868、两个都不写 278；`spcAft` 4096、`spcBef` 61，
+      两族的数全部按文件写着的串交（EMU 与百分之一磅都不换算）。
+    - 出口：`office-slide` 的 pptx 支逐页交 `slides[i].bullets` 并交 `bullet_layers`，odp 支同；
+      遗留 `.ppt` 与 `.odt` / `.ods` 那些出口不交这个键。
+    - 第二读者是 `office_reader.py` 的 `slide_bullets_pptx` / `slide_bullets_layers_pptx` /
+      `slide_bullets_odp` / `odp_bullet_styles` / `odp_bullet_ledger`；probe 的 3bv 把三家 producers
+      的逐页账与整册账各钉一遍。
 141. **这一行多高：`w:trHeight` 的数与那条规则写在行上，而 ODF 的两个键在一跳之外的 table-row 样式里**（三份件）
     - 形状：OOXML 一本 `{family, available, parts_scanned, tables, rows, rows_total, rows_with_height,
       rows_without_tr_pr, zero_height, rules, listed, cut}`，每条行 11 格 `{part, table, row, has_tr_pr,

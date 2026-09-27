@@ -2556,6 +2556,73 @@ def write_row_height_docx(path: Path) -> None:
     doc.save(path)
 
 
+BULLET_NS = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+
+
+def _set_bullet(par: object, body: str, *, mar_l: int, indent: int) -> None:
+    """把一枚写好的 `a:pPr` 换进这一段（python-pptx 不碰项目符号，只能按 ECMA 的写法摆）"""
+    from pptx.oxml import parse_xml
+    from pptx.oxml.ns import qn
+
+    holder = par._p
+    old = holder.find(qn("a:pPr"))
+    if old is not None:
+        holder.remove(old)
+    piece = parse_xml(
+        '<a:pPr %s marL="%d" indent="%d">%s</a:pPr>' % (BULLET_NS, mar_l, indent, body)
+    )
+    holder.insert(0, piece)
+
+
+def write_bullets_pptx(path: Path) -> None:
+    """四种「这一段前面画什么」一份件里摆开，一种一格
+
+    `a:pPr` 里那几枚孩子的**元素名**就是答案：`buNone`（明确不画）、`buChar`（画这个字符，
+    `@char` 是那个字）、`buAutoNum`（自动编号，`@type` 说哪一种），一个都不写则是「文件没说」
+    —— 这一族的符号本来自版式，所以「没写」不等于「没有符号」。缩进是 `@marL` + `@indent`
+    两个数（前者是文字左边距、后者是符号 hanging 出去的那一段），间距是 `spcBef` / `spcAft`
+    里那枚 `spcPts`（百分之一磅）。
+
+    第 2 页故意写一个不常用的符号字（`‣`）与 `buSzPct`，第 3 页写自动编号（真件里 104 份
+    一份都没写过 `buAutoNum`，所以那一支只能合成），第 4 页只写 `buNone` 而不写 `marL` 的
+    缺省 —— LibreOffice 重写时把那三样全展开成实数，正好是「同一问的两种写法」。
+    """
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    deck = Presentation()
+    body_layout = deck.slide_layouts[1]
+    lines = (
+        [("第一页什么都不写", None), ("第二行也照样不写", None)],
+        [("符号是圆点", ('<a:buSzPct val="100000"/><a:buChar char="•"/>', 342900, -342900)),
+         ("符号是三级箭头", ('<a:buSzPct val="90000"/><a:buChar char="‣"/>', 342900, -228600)),
+         ("这一行后面留一行间距", ('<a:spcAft><a:spcPts val="1200"/></a:spcAft>'
+                                '<a:buChar char="•"/>', 342900, -342900))],
+        [("自动编号从三开始", ('<a:buAutoNum type="arabicPeriod" startAt="3"/>', 457200, -457200)),
+         ("第二条编号它自己排", ('<a:buAutoNum type="arabicPeriod"/>', 457200, -457200))],
+        [("明确不画符号", ('<a:buNone/>', 0, 0)),
+         ("缩进留大而不给符号", ('<a:buNone/>', 914400, 0))],
+    )
+    for slide_lines in lines:
+        slide = deck.slides.add_slide(body_layout)
+        box = slide.placeholders[1]
+        box.left, box.top = Inches(0.8), Inches(1.6)
+        box.width, box.height = Inches(8.4), Inches(4.2)
+        frame = box.text_frame
+        frame.text = slide_lines[0][0]
+        first = True
+        for text, spec in slide_lines:
+            par = frame.paragraphs[0] if first else frame.add_paragraph()
+            first = False
+            if not par.runs:
+                run = par.add_run()
+                run.text = text
+            if spec is not None:
+                body, mar_l, indent = spec
+                _set_bullet(par, body, mar_l=mar_l, indent=indent)
+    deck.save(path)
+
+
 def write_autofit_pptx(path: Path) -> None:
     """一个框三种「字与框谁迁就谁」，再加 PowerPoint 自己算出来的那两个缩放数
 
@@ -4977,6 +5044,20 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "deck-autofit.odp", OUT / "deck-autofit.odp")
     else:
         print("⚠️  没拿到 deck-autofit.odp")
+
+    # 段前画什么：python-pptx 写 pptx，LibreOffice 转 odp（第三种词表）、再同格式重写一份
+    write_bullets_pptx(OUT / "bullets.pptx")
+    convert(exe, OUT / "bullets.pptx", "odp", SCRATCH)
+    if (SCRATCH / "bullets.odp").exists():
+        shutil.copyfile(SCRATCH / "bullets.odp", OUT / "bullets.odp")
+    else:
+        print("⚠️  没拿到 bullets.odp")
+    convert(exe, OUT / "bullets.pptx", "pptx", SCRATCH / "bullets-back")
+    made_bul = SCRATCH / "bullets-back" / "bullets.pptx"
+    if made_bul.exists():
+        shutil.copyfile(made_bul, OUT / "bullets-lo.pptx")
+    else:
+        print("⚠️  没拿到 bullets-lo.pptx")
 
     # 打印区域那三份：openpyxl 写 xlsx，同格式重写一份（引号整层没了）、再转一份 ods
     area = OUT / "print-area.xlsx"
