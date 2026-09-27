@@ -3143,6 +3143,165 @@ def write_alternate_docx(path: Path) -> None:
             box.writestr(name, data)
 
 
+# ── 图是怎么摆的：锚、环绕、层序（`wp:anchor` 与 ODF 的 `text:anchor-type`）──
+A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+PIC_NS = "http://schemas.openxmlformats.org/drawingml/2006/picture"
+REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+
+def wrap_anchor(rid: str, *, docpr_id: int, name: str, wrap: str, behind: str, locked: str,
+                overlap: str, height_pos: str, pos_h, pos_v, descr: str = "") -> str:
+    # 两枚合成 anchor 的骨架：属性表按 ECMA 那一条写全，环绕那一支换元素名即可
+    fills = {
+        "square": '<wp:wrapSquare wrapText="bothSides"/>',
+        "top": '<wp:wrapTopAndBottom distT="114300" distB="114300"/>',
+        "none": "<wp:wrapNone/>",
+    }
+    return (
+        "<w:p><w:r><w:drawing>"
+        '<wp:anchor distT="0" distB="114300" distL="114300" distR="114300" simplePos="0" '
+        f'relativeHeight="{height_pos}" behindDoc="{behind}" locked="{locked}" '
+        f'layoutInCell="1" allowOverlap="{overlap}">'
+        '<wp:simplePos x="0" y="0"/>'
+        f'<wp:positionH relativeFrom="{pos_h[0]}">{pos_h[1]}</wp:positionH>'
+        f'<wp:positionV relativeFrom="{pos_v[0]}">{pos_v[1]}</wp:positionV>'
+        + fills[wrap] +
+        '<wp:effectExtent l="0" t="0" r="12700" b="12700"/>'
+        + f'<wp:docPr id="{docpr_id}" name="{name}"'
+        + (f' descr="{descr}"' if descr else "")
+        + "/>"
+        f'<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="{A_NS}" noChangeAspect="1"/>'
+        "</wp:cNvGraphicFramePr>"
+        f'<a:graphic xmlns:a="{A_NS}"><a:graphicData uri="{REL_NS}/picture">'
+        f'<pic:pic xmlns:pic="{PIC_NS}"><pic:nvPicPr><pic:cNvPr id="{docpr_id}" name="dot.png"/>'
+        "<pic:cNvPicPr/></pic:nvPicPr>"
+        f'<pic:blipFill><a:blip r:embed="{rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+        '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1440000" cy="864000"/></a:xfrm>'
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'
+        "</a:graphicData></a:graphic></wp:anchor></w:drawing></w:r></w:p>"
+    )
+
+
+def write_wrap_docx(path: Path, art: Path) -> None:
+    """打底件一张 `wp:inline` 的图，再补两枚合成 `wp:anchor`（方形环绕 / 上下环绕且压在字下）
+
+    真件里 `wp:anchor` 只有 2 份 docx 写过（本机 137 份 OOXML 件），而 python-docx 只会写
+    `wp:inline` —— 这两枚是**合成**的（照 ECMA 的写法与真件那两份的形状拼，`r:embed` 复用
+    打底件那张图的号），与 `notes.docm` 那枚合成宏同一待遇：只证明认得这两种摆法。
+    """
+    from docx import Document
+    from docx.shared import Inches
+
+    book = Document()
+    book.add_paragraph(MARK_BODY)
+    book.add_picture(str(art), width=Inches(0.4))
+    tmp = path.with_suffix(".seed.docx")
+    book.save(str(tmp))
+    with zipfile.ZipFile(tmp) as box:
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    doc = parts["word/document.xml"].decode("utf-8")
+    rels = parts["word/_rels/document.xml.rels"].decode("utf-8")
+    hit = re.findall(r'Id="(rId\d+)"[^>]*Type="[^"]*/image"', rels)
+    assert hit, "打底件里得先有一张图，两枚 anchor 复用它的号"
+    rid = hit[0]
+    blocks = (
+        wrap_anchor(rid, docpr_id=7001, name="绕方块那张", wrap="square", behind="0", locked="0",
+                    overlap="1", height_pos="251658240",
+                    pos_h=("margin", "<wp:align>center</wp:align>"),
+                    pos_v=("paragraph", "<wp:posOffset>0</wp:posOffset>"),
+                    descr=MARK_COMMENT)
+        + wrap_anchor(rid, docpr_id=7002, name="压在字下那张", wrap="top", behind="1", locked="1",
+                      overlap="0", height_pos="251658241",
+                      pos_h=("page", "<wp:positionOffset>114300</wp:positionOffset>"),
+                      pos_v=("page", "<wp:positionOffset>72000</wp:positionOffset>"))
+    )
+    at = doc.rfind("<w:sectPr")
+    assert at > 0, "打底件里得有 sectPr，两枚 anchor 要插在它之前"
+    parts["word/document.xml"] = (doc[:at] + blocks + doc[at:]).encode("utf-8")
+    tmp.unlink()
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as box:
+        for name, data in parts.items():
+            box.writestr(name, data)
+
+
+ODT_GRAPHIC_NS = " ".join([
+    'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"',
+    'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"',
+    'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"',
+    'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"',
+    'xmlns:xlink="http://www.w3.org/1999/xlink"',
+    'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0"',
+    'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"',
+])
+
+
+def odt_frame(style: str, name: str, anchor: str, xy: str, z: str, text: str) -> str:
+    return (
+        f'<draw:frame draw:style-name="{style}" draw:name="{name}" text:anchor-type="{anchor}" '
+        + xy + f'svg:width="3cm" svg:height="2cm" draw:z-index="{z}">'
+        '<draw:image xlink:href="Pictures/dot.png" xlink:type="simple" xlink:show="embed" '
+        'xlink:actuate="onLoad"/></draw:frame>' + text
+    )
+
+
+def write_wrap_odt(path: Path, art: Path) -> None:
+    """ODF 那一面的三种摆法：随字（`as-char`）、按段锚 + 平行环绕、按页锚 + 穿透环绕
+
+    这一份同时是 `wrap-lo.docx` 的种子：LibreOffice 把它导成 docx 会写出真的 `wp:anchor`，
+    而**一个环绕元素都不写**（实测 `style:wrap="parallel"` 过去之后 `wrap*` 消失）——
+    「环绕方式没写」与「环绕方式是某种」是两问，这一对件就是那两问的凭据。
+    """
+    content = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        f"<office:document-content {ODT_GRAPHIC_NS} office:version=\"1.2\">"
+        "<office:automatic-styles>"
+        '<style:style style:name="frChar" style:family="graphic" style:parent-style-name="Graphics">'
+        '<style:graphic-properties style:vertical-pos="top" style:vertical-rel="baseline" '
+        'style:horizontal-pos="center" style:horizontal-rel="char" '
+        'style:flow-with-text="true"/></style:style>'
+        '<style:style style:name="frPara" style:family="graphic" style:parent-style-name="Graphics">'
+        '<style:graphic-properties style:wrap="parallel" style:wrap-contour="false" '
+        'style:vertical-pos="top" style:vertical-rel="paragraph" style:horizontal-pos="left" '
+        'style:horizontal-rel="paragraph" fo:margin-top="0cm" fo:margin-bottom="0.21cm" '
+        'fo:margin-left="0cm" fo:margin-right="0.21cm" '
+        'style:flow-with-text="false"/></style:style>'
+        '<style:style style:name="frPage" style:family="graphic" style:parent-style-name="Graphics">'
+        '<style:graphic-properties style:wrap="through" style:run-through="front" '
+        'style:vertical-pos="from-top" style:vertical-rel="page" style:horizontal-pos="from-left" '
+        'style:horizontal-rel="page" fo:margin-top="0cm" fo:margin-bottom="0cm" '
+        'fo:margin-left="0cm" fo:margin-right="0cm" '
+        'style:flow-with-text="false"/><style:text-properties fo:opacity="30%"/></style:style>'
+        "</office:automatic-styles><office:body><office:text>"
+        + f"<text:p>{MARK_BODY}</text:p><text:p>"
+        + odt_frame("frChar", "Picture1", "as-char", "", "0", "随字那一段")
+        + "</text:p><text:p>"
+        + odt_frame("frPara", "Picture2", "paragraph",
+                    'svg:x="0cm" svg:y="0cm" ', "1", "绕着的那一段")
+        + "</text:p><text:p>按页那一段在前</text:p>"
+        + odt_frame("frPage", "Picture3", "page", 'svg:x="1cm" svg:y="2cm" ', "2", "")
+        + "</office:text></office:body></office:document-content>"
+    )
+    manifest = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<manifest:manifest xmlns:manifest='
+        '"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0">'
+        '<manifest:file-entry manifest:full-path="/" '
+        'manifest:media-type="application/vnd.oasis.opendocument.text"/>'
+        '<manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>'
+        '<manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/>'
+        '<manifest:file-entry manifest:full-path="Pictures/dot.png" '
+        'manifest:media-type="image/png"/></manifest:manifest>'
+    )
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as box:
+        box.writestr("mimetype", "application/vnd.oasis.opendocument.text")
+        box.writestr("content.xml", content)
+        box.writestr("styles.xml", '<?xml version="1.0" encoding="UTF-8"?>'
+                                   f"<office:document-styles {ODT_GRAPHIC_NS} "
+                                   'office:version="1.2"/>')
+        box.writestr("META-INF/manifest.xml", manifest)
+        box.writestr("Pictures/dot.png", art.read_bytes())
+
+
 def write_csv(path: Path) -> None:
     """CSV 是给 LO 转 xls 的备用输入（openpyxl 缺席时才用）"""
     rows = [

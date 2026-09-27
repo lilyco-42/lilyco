@@ -5028,6 +5028,243 @@ def docx_alternate(path: Path) -> dict:
     return alternate_ledger(_cx_parts(path))
 
 
+# ── 图是怎么摆的：锚、环绕、层序（`wp:inline` / `wp:anchor` 与 ODF 的 `text:anchor-type`）──
+# 两问分得很开：「这张图是随字还是浮着」与「浮着的话文字怎么绕」——
+# `wp:inline` 结构上就没有环绕那一支（它随字走），所以它的 `wrap_element` 是 null，
+# 而 `wp:anchor` 也可以**一个环绕元素都不写**（实测 LibreOffice 把 ODF 的
+# `style:wrap="parallel"` 导成 docx 时写的是 `wp:wrapSquare`，而它自己那份 anchor
+# 在未必要处不写环绕）—— null 在这里是「文件没说」，不是「不环绕」。
+WRAP_ELEMENTS = ("wrapSquare", "wrapTight", "wrapThrough", "wrapTopAndBottom", "wrapNone",
+                 "wrapNone")
+DOCX_LAYOUT_PARTS = ("word/document.xml", "word/header", "word/footer", "word/footnotes.xml",
+                     "word/endnotes.xml")
+
+
+def _cx_child_names(node) -> list:
+    return [xml_local(one.tag) for one in node]
+
+
+def _cx_pos(node) -> dict:
+    """`wp:positionH` / `positionV`：基准写在属性上，怎么定写在孩子上（align 或 offset，可以都写）"""
+    if node is None:
+        return {"present": False, "relative_from": None, "align": None, "offset": None,
+                "offset_written": False, "children": []}
+    align = next((of_local(one, "align") for one in node if xml_local(one.tag) == "align"), None)
+    offset = next((one.text for one in node if xml_local(one.tag) == "positionOffset"), None)
+    return {
+        "present": True,
+        "relative_from": of_local(node, "relativeFrom"),
+        "align": align,
+        "offset": (offset or "").strip() if offset is not None else None,
+        "offset_written": any(xml_local(one.tag) == "positionOffset" for one in node),
+        "children": _cx_child_names(node),
+    }
+
+
+def picture_layout_docx(path: Path) -> dict:
+    """OOXML：一张图的摆法一条行，随字与浮着两种各交自己那几格"""
+    parts = _cx_parts(path)
+    rows: list = []
+    scanned = 0
+    for name in sorted(parts):
+        if not any(name.startswith(one) for one in DOCX_LAYOUT_PARTS) or not name.endswith(".xml"):
+            continue
+        try:
+            root = ET.fromstring(parts[name])
+        except ET.ParseError:
+            continue
+        paras = [one for one in root.iter() if xml_local(one.tag) == "p"]
+        at_para = {id(one): k for k, one in enumerate(paras)}
+        found = False
+        for drawing in root.iter():
+            if xml_local(drawing.tag) != "drawing":
+                continue
+            holder = next((one for one in drawing if xml_local(one.tag) in ("inline", "anchor")), None)
+            if holder is None:
+                rows.append({"part": name, "para": -1, "kind": None, "attrs": {},
+                             "wrap_element": None, "wrap_attrs": None, "children": [],
+                             "dist": None, "behind_doc": None, "locked": None,
+                             "allow_overlap": None, "layout_in_cell": None, "simple_pos": None,
+                             "relative_height": None, "doc_pr": None, "locks": None,
+                             "graphic_uri": None, "effect_extent": None})
+                found = True
+                continue
+            kind = xml_local(holder.tag)
+            attrs = written_attrs(holder)
+            wrap = next((one for one in holder if xml_local(one.tag).startswith("wrap")), None)
+            docpr = next((one for one in holder if xml_local(one.tag) == "docPr"), None)
+            graphic = next((one for one in holder if xml_local(one.tag) == "graphic"), None)
+            data = None
+            if graphic is not None:
+                data = next((one for one in graphic if xml_local(one.tag) == "graphicData"), None)
+            lockholder = next((one for one in holder
+                                if xml_local(one.tag) == "cNvGraphicFramePr"), None)
+            locks = None
+            if lockholder is not None:
+                inner = next((one for one in lockholder if xml_local(one.tag) == "graphicFrameLocks"),
+                             None)
+                locks = {"element": xml_local(inner.tag) if inner is not None else None,
+                         "attrs": written_attrs(inner) if inner is not None else {},
+                         "written": bool(written_attrs(inner)) if inner is not None else False}
+            para = -1
+            for one in paras:
+                if any(id(kid) == id(drawing) for kid in one.iter()):
+                    para = at_para[id(one)]
+                    break
+            rows.append({
+                "part": name,
+                "para": para,
+                "kind": kind,
+                "attrs": attrs,
+                "wrap_element": xml_local(wrap.tag) if wrap is not None else None,
+                "wrap_attrs": written_attrs(wrap) if wrap is not None else None,
+                "children": _cx_child_names(holder),
+                "dist": {k: attrs.get(k) for k in ("distT", "distB", "distL", "distR")}
+                        if any(k in attrs for k in ("distT", "distB", "distL", "distR")) else None,
+                "behind_doc": attrs.get("behindDoc"),
+                "locked": attrs.get("locked"),
+                "allow_overlap": attrs.get("allowOverlap"),
+                "layout_in_cell": attrs.get("layoutInCell"),
+                "simple_pos": attrs.get("simplePos"),
+                "relative_height": attrs.get("relativeHeight"),
+                "doc_pr": None if docpr is None else {
+                    "id": of_local(docpr, "id"),
+                    "name": of_local(docpr, "name"),
+                    "descr": of_local(docpr, "descr"),
+                    "descr_written": "descr" in written_attrs(docpr),
+                    "written": sorted(written_attrs(docpr)),
+                },
+                "locks": locks,
+                "graphic_uri": of_local(data, "uri") if data is not None else None,
+                "effect_extent": written_attrs(next((one for one in holder
+                                                     if xml_local(one.tag) == "effectExtent"), None))
+                                 if any(xml_local(one.tag) == "effectExtent" for one in holder)
+                                 else None,
+                "position_h": _cx_pos(next((one for one in holder
+                                            if xml_local(one.tag) == "positionH"), None)),
+                "position_v": _cx_pos(next((one for one in holder
+                                            if xml_local(one.tag) == "positionV"), None)),
+            })
+            found = True
+        if found:
+            scanned += 1
+    inline = sum(1 for one in rows if one["kind"] == "inline")
+    anchor = sum(1 for one in rows if one["kind"] == "anchor")
+    wraps = {}
+    for one in rows:
+        if one["wrap_element"]:
+            wraps[one["wrap_element"]] = wraps.get(one["wrap_element"], 0) + 1
+    return {
+        "family": "ooxml",
+        "available": True,
+        "parts_scanned": scanned,
+        "drawings": len(rows),
+        "inline": inline,
+        "anchor": anchor,
+        "other_kind": len(rows) - inline - anchor,
+        "anchor_without_wrap": sum(1 for one in rows
+                                   if one["kind"] == "anchor" and not one["wrap_element"]),
+        "wrap_elements": wraps,
+        "listed": len(rows[:400]),
+        "rows": rows[:400],
+        "cut": len(rows) > 400,
+    }
+
+
+def picture_layout_odf(path: Path) -> dict:
+    """ODF：摆法在框点名的那份 family=graphic 样式上，所以一跳是这一族的默认形状"""
+    with zipfile.ZipFile(path) as box:
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    styles: dict = {}
+    order = []
+    for name in ("content.xml", "styles.xml"):
+        if name not in parts:
+            continue
+        try:
+            root = ET.fromstring(parts[name])
+        except ET.ParseError:
+            continue
+        for one in root.iter():
+            if xml_local(one.tag) != "style" or of_local(one, "family") != "graphic":
+                continue
+            key = of_local(one, "name")
+            if key in styles:
+                continue
+            props = next((kid for kid in one if xml_local(kid.tag) == "graphic-properties"), None)
+            styles[key] = {"part": name, "props": written_attrs(props) if props is not None else {},
+                           "parent": of_local(one, "parent-style-name")}
+    rows: list = []
+    for name in ("content.xml", "styles.xml"):
+        if name not in parts:
+            continue
+        try:
+            root = ET.fromstring(parts[name])
+        except ET.ParseError:
+            continue
+        for one in root.iter():
+            if xml_local(one.tag) != "frame":
+                continue
+            if not any(xml_local(kid.tag) == "image" for kid in one):
+                continue
+            style_name = of_local(one, "style-name")
+            mine = styles.get(style_name)
+            props = mine["props"] if mine else {}
+            rows.append({
+                "part": name,
+                "frame_name": of_local(one, "name"),
+                "anchor_type": of_local(one, "anchor-type"),
+                "style_name": style_name,
+                "style_found": mine is not None,
+                "style_part": mine["part"] if mine else None,
+                "parent_style": mine["parent"] if mine else None,
+                "wrap": props.get("wrap"),
+                "wrap_written": "wrap" in props,
+                "wrap_contour": props.get("wrap-contour"),
+                "run_through": props.get("run-through"),
+                "flow_with_text": props.get("flow-with-text"),
+                "vertical_pos": props.get("vertical-pos"),
+                "vertical_rel": props.get("vertical-rel"),
+                "horizontal_pos": props.get("horizontal-pos"),
+                "horizontal_rel": props.get("horizontal-rel"),
+                "margins": {k: props.get(k) for k in
+                            ("margin-top", "margin-bottom", "margin-left", "margin-right")},
+                "props_written": len(props),
+                "x": of_local(one, "x"),
+                "y": of_local(one, "y"),
+                "width": of_local(one, "width"),
+                "height": of_local(one, "height"),
+                "z_index": of_local(one, "z-index"),
+                "href": of_local(next(kid for kid in one if xml_local(kid.tag) == "image"), "href"),
+            })
+    kinds: dict = {}
+    wraps: dict = {}
+    for one in rows:
+        kinds[one["anchor_type"]] = kinds.get(one["anchor_type"], 0) + 1
+        if one["wrap"] is not None:
+            wraps[one["wrap"]] = wraps.get(one["wrap"], 0) + 1
+    return {
+        "family": "odf",
+        "available": True,
+        "frames": len(rows),
+        "anchor_types": kinds,
+        "wrap_values": wraps,
+        "wrap_unwritten": sum(1 for one in rows if not one["wrap_written"]),
+        "style_unfound": sum(1 for one in rows if not one["style_found"]),
+        "rows": rows[:400],
+        "listed": len(rows[:400]),
+        "cut": len(rows) > 400,
+    }
+
+
+def docx_picture_layout(path: Path) -> dict:
+    """同一问按包形状分家：OOXML 走 anchor/inline，ODF 走 frame + 那份 graphic 样式"""
+    with zipfile.ZipFile(path) as box:
+        names = box.namelist()
+    if "content.xml" in names:
+        return picture_layout_odf(path)
+    return picture_layout_docx(path)
+
+
 def _cx_parts(path: Path) -> dict:
     with zipfile.ZipFile(path) as box:
         return {one.filename: box.read(one.filename) for one in box.infolist()}
@@ -11856,6 +12093,8 @@ def facts(path: Path) -> dict:
             # 同一问在 ODF 目标是属性，而且序列声明那一层只有这一族有
             out["odt"]["cross_refs"] = odf_cross_refs(path)
             out["odt"]["picture_bytes"] = pic_odf_ledger(path)
+            # 同一问在 odt 是框 + 那份 family=graphic 样式，一跳是默认形状
+            out["odt"]["picture_layout"] = docx_picture_layout(path)
             # 同一问在 ODF 是元素名本身：没有指令串，种类与格式全在名字与属性上
             out["odt"]["field_ledger"] = odf_field_ledger(path)
             # 这一族没有主题这个概念：交一本零条的账，而不是缺这个键
