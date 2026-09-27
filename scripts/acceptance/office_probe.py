@@ -153,6 +153,14 @@ def main() -> int:
         if one.is_file() and not one.name.startswith("."):
             files[one.name] = office_reader.facts(one)
     print(f"=== 对账 {len(files)} 份真实生产者文件（{BIN}） ===")
+    # 语料指纹先打一行：语料级的聚合钉值一失败，第一眼就要能判断是「件数变了」还是「读者变了」。
+    # 上一轮 13 条失败全是前者（word 88→92、odt 47→49），而日志里没有这份指纹，只能回头数件。
+    by_ext = {}
+    for one in sorted(files):
+        tail = one.rsplit(".", 1)[-1] if "." in one else "(无后缀)"
+        by_ext[tail] = by_ext.get(tail, 0) + 1
+    print("=== 语料指纹：" + " ".join(
+        "%s=%d" % pair for pair in sorted(by_ext.items(), key=lambda x: (-x[1], x[0]))) + " ===")
 
     # ── 识别：每条命令都得把文件认成同一个东西 ──────────────────────
     expect = {
@@ -12064,6 +12072,168 @@ def main() -> int:
         sorted({str(one["counts"]["fileVersion"]) for one in decks.values()})
         + sorted({one["elements"].get("calcPr", {}).get("refMode", "-") for one in decks.values()}),
         ["0", "1", "2", "-", "A1", "row"])
+
+    # ── 3de) 中文排版那九枚段开关：三处住处、裸写与空串是两句话、字侧那枚另交一本 ──
+    print("=== 3de) cjk_typography：段上九枚（docx/docm）与 ODF 那四枚近亲 ===")
+    CJK_W = ["kinsoku", "wordWrap", "overflowPunct", "autoSpaceDE", "autoSpaceDN",
+             "adjustRightInd", "snapToGrid", "contextualSpacing", "textAlignment"]
+    CJK_O = ["contextual-spacing", "line-break", "punctuation-wrap", "snap-to-layout-grid"]
+
+    def cjk_shape(mine):
+        """把一份段的账摊成一行可钉的数（整本那一条已经逐格比过，这里钉的是说法）"""
+        return [mine["paragraphs_total"], mine["paragraphs_with_any"], mine["p_pr_elements"],
+                mine["conflicts"], mine["styles_seen"],
+                [[one, mine["words_written"][one]["written"], mine["words_written"][one]["bare"],
+                  mine["words_written"][one]["empty_val"]] for one in CJK_W
+                 if mine["words_written"][one]["written"]],
+                [[one, n] for one, n in sorted(mine["style_written"].items()) if n],
+                [one for one in CJK_W if mine["defaults_written"].get(one)],
+                mine["paragraphs_see_defaults"],
+                [mine["run_no_proof"]["runs"], mine["run_no_proof"]["paragraphs"],
+                 [[k, v] for k, v in sorted(mine["run_no_proof"]["values"].items())]],
+                mine["paragraphs_indexed"],
+                [row["index"] for row in mine["paragraphs"] if row["conflict_with_style"]]]
+
+    def odf_shape(mine):
+        return [mine["paragraphs_total"], mine["paragraphs_with_any"], mine["styles_seen"],
+                [[one, mine["words_written"][one]["written"],
+                  [[k, v] for k, v in sorted(mine["words_written"][one]["values"].items())]]
+                 for one in CJK_O if mine["words_written"][one]["written"]],
+                mine["paragraphs_indexed"]]
+
+    def cjk_cells(rows):
+        """整库摊开：每枚 [段上次数, 裸写, 空串, 有此枚的份数, 样式那跳次数, 打架的段数]"""
+        out = dict((word, [0, 0, 0, 0, 0, 0]) for word in CJK_W)
+        out["run_no_proof"] = [0, 0, 0, 0, 0, 0]
+        for mine in rows:
+            for word in CJK_W:
+                had = mine["words_written"][word]
+                cell = out[word]
+                cell[0] += had["written"]
+                cell[1] += had["bare"]
+                cell[2] += had["empty_val"]
+                cell[3] += 1 if had["written"] else 0
+                cell[4] += mine["style_written"][word]
+                cell[5] += sum(1 for row in mine["paragraphs"] if row["conflict_with_style"])
+            cell = out["run_no_proof"]
+            cell[0] += mine["run_no_proof"]["runs"]
+            cell[1] += mine["run_no_proof"]["paragraphs"]
+            cell[3] += 1 if mine["run_no_proof"]["runs"] else 0
+        return out
+
+    cjk_rows = []
+    for name in sorted(one.name for one in list(FIXTURES.glob("*.docx"))
+                       + list(FIXTURES.glob("*.docm"))):
+        got = dig(lbin("office-doc", fixture(name)), "structure.cjk_typography")
+        check("%s 的段开关九枚整本与读者一致（三处都交、值按字面、字侧另交一本）" % name,
+              got, files[name]["ooxml"]["cjk_typography"])
+        cjk_rows.append(got)
+    cjk_odf = []
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = dig(lbin("office-doc", fixture(name)), "structure.cjk_typography")
+        check("%s 的 ODF 那四枚近亲整本与读者一致（段只看正文，一跳在样式）" % name,
+              got, files[name]["odt"]["cjk_typography"])
+        cjk_odf.append(got)
+
+    check("手写那一份把九枚一次摆开：20 段里 16 段段上写着、18 枚 pPr，autoSpaceDE 六枚里有一枚**写了空串**，"
+          "docDefaults 那处只有 adjustRightInd 一枚（真件 129 份**一处都不写**，所以这一枚是合成的），"
+          "字侧三 run 交两枚 noProof（一枚裸、一枚 0），打架的两段正是段与样式都写而不一致的那两段（15、16）",
+          cjk_shape(dig(lbin("office-doc", fixture("cjk-switches.docx")),
+                        "structure.cjk_typography")),
+          [20, 16, 18, 2, 166,
+           [["kinsoku", 2, 1, 0], ["wordWrap", 3, 1, 0], ["overflowPunct", 2, 1, 0],
+            ["autoSpaceDE", 6, 2, 1], ["autoSpaceDN", 2, 1, 0], ["adjustRightInd", 2, 2, 0],
+            ["snapToGrid", 3, 1, 0], ["contextualSpacing", 3, 2, 0], ["textAlignment", 3, 0, 0]],
+           [["autoSpaceDE", 3], ["contextualSpacing", 3], ["snapToGrid", 3],
+            ["textAlignment", 3], ["wordWrap", 1]],
+           ["adjustRightInd"], 20,
+           [2, 1, [["0", 1], ["<没写 val>", 1]]],
+           [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+           [15, 16]])
+    check("LibreOffice 重写同一份在这一层动得最狠：kinsoku / wordWrap（含那枚 off）/ autoSpaceDE / "
+          "autoSpaceDN / adjustRightInd / 字侧 noProof **六处整个不再写**，docDefaults 那枚也不留；"
+          "overflowPunct 两枚都改写成 false，snapToGrid 的裸写与 0 与 1 换成 true true false，"
+          "contextualSpacing 显式关掉的那一枚不见，只有 textAlignment 的三个枚举值一字不动穿过",
+          cjk_shape(dig(lbin("office-doc", fixture("cjk-switches-lo.docx")),
+                        "structure.cjk_typography")),
+          [20, 7, 20, 1, 170,
+           [["overflowPunct", 2, 0, 0], ["snapToGrid", 3, 0, 0],
+            ["contextualSpacing", 2, 2, 0], ["textAlignment", 3, 0, 0]],
+           [["contextualSpacing", 3], ["snapToGrid", 3], ["textAlignment", 3]],
+           [], 0, [0, 0, []], [6, 9, 10, 11, 13, 14, 15], [15]])
+    check("反方向那一份（手写的 .odt 转回 docx）只搬得动四件事：kinsoku 与 overflowPunct 与 snapToGrid "
+          "与裸写的 contextualSpacing，auto-space 两枚、adjustRightInd、wordWrap、textAlignment、noProof **全是零** "
+          "—— 两族之间没有一一对应可走；样式表只剩一份（模板那份），所以那一跳一次都没走到",
+          cjk_shape(dig(lbin("office-doc", fixture("cjk-odf-lo.docx")),
+                        "structure.cjk_typography")),
+          [5, 3, 5, 0, 1,
+           [["kinsoku", 1, 0, 0], ["overflowPunct", 2, 0, 0], ["snapToGrid", 1, 0, 0],
+            ["contextualSpacing", 1, 1, 0]],
+           [], [], 0, [0, 0, []], [0, 1, 2], []])
+    check("ODF 手写那一份四枚都摆开：两枚从样式一跳拿到 contextual-spacing（true 与 false 各一段）、"
+          "line-break 只有 strict 一枚、punctuation-wrap 两枚（hanging 与 simple）、"
+          "snap-to-layout-grid 那一枚是**规范有而本机 64 份真件一条都不写**的形状；"
+          "最后一段连样式名都不点，所以四枚全不在场",
+          odf_shape(dig(lbin("office-doc", fixture("cjk-odf.odt")), "structure.cjk_typography")),
+          [5, 3, 4,
+           [["contextual-spacing", 2, [["false", 1], ["true", 1]]],
+            ["line-break", 1, [["strict", 1]]],
+            ["punctuation-wrap", 2, [["hanging", 1], ["simple", 1]]],
+            ["snap-to-layout-grid", 1, [["false", 1]]]],
+           [0, 1, 2]])
+    check("docx 转 ODF 那一转把九枚换成另一套词：contextual-spacing 逐段补满（15 段，false 11 / true 4）、"
+          "snap-to-layout-grid 五段（false 3 / true 2）、punctuation-wrap 两枚都是 simple，"
+          "而 line-break **一段都没有**（真件那 123 枚 strict 写在没人点的样式上，按段解出来就是零），"
+          "第 9 段一处不写 —— 段上没写不等于这一族不写，那一格在样式表那本里",
+          odf_shape(dig(lbin("office-doc", fixture("cjk-switches.odt")),
+                        "structure.cjk_typography")),
+          [20, 18, 50,
+           [["contextual-spacing", 15, [["false", 11], ["true", 4]]],
+            ["punctuation-wrap", 2, [["simple", 2]]],
+            ["snap-to-layout-grid", 5, [["false", 3], ["true", 2]]]],
+           [0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15, 16, 17, 18, 19]])
+    cells = cjk_cells(cjk_rows)
+    check("整库摊开（自产件 " + str(len(cjk_rows)) + " 份 docx/docm）：" + "、".join([
+        "%s 段上 %d 次 / 样式那跳 %d 次" % (one, cells[one][0], cells[one][4])
+        for one in ("kinsoku", "overflowPunct", "autoSpaceDE", "contextualSpacing")]) +
+        "；段上有任何一枚的只有 3 份（全是本仓手写的），而样式那一跳有 13 份 —— 真件那边九枚**段上一次都没写**",
+        cells,
+        {"kinsoku": [3, 1, 0, 2, 44, 3], "wordWrap": [3, 1, 0, 1, 1, 3],
+         "overflowPunct": [6, 1, 0, 3, 44, 3], "autoSpaceDE": [6, 2, 1, 1, 47, 3],
+         "autoSpaceDN": [2, 1, 0, 1, 0, 3], "adjustRightInd": [2, 2, 0, 1, 0, 3],
+         "snapToGrid": [7, 1, 0, 3, 6, 3], "contextualSpacing": [6, 5, 0, 3, 27, 3],
+         "textAlignment": [6, 0, 0, 2, 6, 3], "run_no_proof": [2, 1, 0, 1, 0, 0]})
+    odf_tally = dict((word, [0, 0, 0, 0]) for word in CJK_O)
+    for mine in cjk_odf:
+        for word in CJK_O:
+            had = mine["words_written"][word]
+            cell = odf_tally[word]
+            cell[0] += had["written"]
+            cell[1] += 1 if had["written"] else 0
+            for k, v in had["values"].items():
+                if k == "false":
+                    cell[2] += v
+                elif k == "true":
+                    cell[3] += v
+    check("整库摊开（自产件 " + str(len(cjk_odf)) + " 份 odt）：contextual-spacing 按段解出 %d 枚"
+          "（false %d / true %d，带它的 %d 份）—— LibreOffice 写 odt 时把这一枚**逐段补成 false**，"
+          "所以这一族里「段上没写」是少数；line-break 只有 1 枚 strict；punctuation-wrap %d 枚里 "
+          "hanging 6 / simple 5；snap-to-layout-grid 6 枚全在本仓手写的两份里" % (
+              odf_tally["contextual-spacing"][0], odf_tally["contextual-spacing"][2],
+              odf_tally["contextual-spacing"][3], odf_tally["contextual-spacing"][1],
+              odf_tally["punctuation-wrap"][0]),
+        odf_tally,
+        {"contextual-spacing": [377, 46, 372, 5], "line-break": [1, 1, 0, 0],
+         "punctuation-wrap": [11, 6, 0, 0], "snap-to-layout-grid": [6, 2, 4, 2]})
+    check("反面凭据：这一格只住 `w:pPr` 与 ODF 的段落样式那两路。RTF 没有对应的控制词、遗留 .doc 的在 "
+          "SEPX 与样式流的位段里（本机没有第二个读者能核对那些位），而表格与演示那两家根本没有段开关这一层"
+          "—— 那五份出口的账本里这个键**整个不在场**，而不是交一份零账",
+          [no_theme_key("office-doc", "notes.rtf", "cjk_typography"),
+           no_theme_key("office-doc", "notes.doc", "cjk_typography"),
+           no_theme_key("office-sheet", "book.xlsx", "cjk_typography"),
+           no_theme_key("office-slide", "deck.pptx", "cjk_typography"),
+           no_theme_key("office-doc", "cjk-switches.odt", "cjk_typography")],
+          [False, False, False, False, True])
 
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")

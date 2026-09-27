@@ -13957,6 +13957,238 @@ def theme_refs(path: Path, limit: int = 400) -> dict:
             "totals": totals}
 
 
+CJK_WORDS = ("kinsoku", "wordWrap", "overflowPunct", "autoSpaceDE", "autoSpaceDN",
+             "adjustRightInd", "snapToGrid", "contextualSpacing", "textAlignment")
+CJK_ODF_WORDS = ("contextual-spacing", "line-break", "punctuation-wrap", "snap-to-layout-grid")
+CJK_BARE = "<没写 val>"
+
+
+def _cjk_attrs_of(holder) -> dict:
+    """一枚 `w:pPr` 里这九枚各写了什么：`present` 说在不在，`val` 按文件写的字面交（裸写交 null）"""
+    out = {}
+    for name in CJK_WORDS:
+        found = None
+        if holder is not None:
+            for kid in holder:
+                if xml_local(kid.tag) == name:
+                    found = kid
+                    break
+        raw = None
+        if found is not None:
+            raw = _local_in(_written_attrs(found, {}), "val")
+        out[name] = _switch(found is not None, raw)
+    return out
+
+
+def _cjk_tally(into: dict, had: dict) -> None:
+    for name in CJK_WORDS:
+        one = had[name]
+        if not one["present"]:
+            continue
+        mine = into[name]
+        mine["written"] += 1
+        if one["val"] is None:
+            mine["bare"] += 1
+        elif one["val"] == "":
+            mine["empty_val"] += 1
+        key = CJK_BARE if one["val"] is None else one["val"]
+        mine["values"][key] = mine["values"].get(key, 0) + 1
+
+
+def _cjk_ppr_of(node):
+    for kid in node:
+        if xml_local(kid.tag) == "pPr":
+            return kid
+    return None
+
+
+def _cjk_text(node) -> str:
+    out = ""
+    for one in node.iter():
+        if xml_local(one.tag) == "t":
+            out += one.text or ""
+    return out
+
+
+def docx_cjk_typography(path: Path, limit: int = 100) -> dict:
+    r"""中文排版那几枚段开关：段上、样式里、docDefaults 里三处都摊开，值一律按文件写的字面交
+
+    九枚 `w:pPr` 下的元素。三件事不折成一个数：这枚在不在、它写没写 `@w:val`（裸写是真，
+    空串是「写了但没值」），以及值原样是什么 —— 真件里 `wordWrap` 写过 `off`，而
+    `textAlignment` 根本不是布尔（`auto` / `baseline` / `top` / `center` / `bottom`）。
+    字侧那枚 `w:noProof` 实测全住 `w:rPr`，另交一本，不混进段上这九枚。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"available": False}
+        root = ET.fromstring(box.read("word/document.xml"))
+        table = {}
+        defaults = dict((one, {"present": False, "val": None,
+                               "on_written": False, "off_written": False}) for one in CJK_WORDS)
+        if "word/styles.xml" in have:
+            sroot = ET.fromstring(box.read("word/styles.xml"))
+            for one in sroot.iter():
+                if xml_local(one.tag) != "style":
+                    continue
+                sid = _local_in(_written_attrs(one, {}), "styleId")
+                if sid is not None:
+                    table[sid] = _cjk_ppr_of(one)
+            dd = None
+            for one in sroot.iter():
+                if xml_local(one.tag) == "docDefaults":
+                    dd = one
+                    break
+            if dd is not None:
+                for one in dd.iter():
+                    if xml_local(one.tag) == "pPr":
+                        defaults = _cjk_attrs_of(one)
+                        break
+    body = [one for one in root if xml_local(one.tag) == "body"]
+    paras = [one for one in body[0].iter() if xml_local(one.tag) == "p"] if body else []
+    rows, indexed = [], []
+    words = dict((one, {"written": 0, "bare": 0, "empty_val": 0, "values": {}}) for one in CJK_WORDS)
+    style_words = dict((one, 0) for one in CJK_WORDS)
+    no_proof = {"runs": 0, "paragraphs": 0, "values": {}}
+    p_pr = conflicts_total = defaults_hits = 0
+    for index, para in enumerate(paras):
+        holder = _cjk_ppr_of(para)
+        if holder is not None:
+            p_pr += 1
+        own = _cjk_attrs_of(holder)
+        touched = [one for one in CJK_WORDS if own[one]["present"]]
+        sid = None
+        if holder is not None:
+            for kid in holder:
+                if xml_local(kid.tag) == "pStyle":
+                    sid = _local_in(_written_attrs(kid, {}), "val")
+                    break
+        style = _cjk_attrs_of(table.get(sid)) if sid in table else {
+            one: {"present": False, "val": None, "on_written": False, "off_written": False}
+            for one in CJK_WORDS}
+        for one in CJK_WORDS:
+            if style[one]["present"]:
+                style_words[one] += 1
+        clash = [one for one in touched
+                 if style[one]["present"] and style[one]["val"] != own[one]["val"]]
+        if clash:
+            conflicts_total += 1
+        if any(defaults[one]["present"] for one in CJK_WORDS):
+            defaults_hits += 1
+        _cjk_tally(words, own)
+        hit = 0
+        for kid in para.iter():
+            if xml_local(kid.tag) != "rPr":
+                continue
+            for sub in kid:
+                if xml_local(sub.tag) != "noProof":
+                    continue
+                hit += 1
+                no_proof["runs"] += 1
+                attrs = _written_attrs(sub, {})
+                key = CJK_BARE if "val" not in [k.rsplit(":", 1)[-1] for k in attrs] else (
+                    _local_in(attrs, "val") or "")
+                no_proof["values"][key] = no_proof["values"].get(key, 0) + 1
+        if hit:
+            no_proof["paragraphs"] += 1
+        if touched:
+            indexed.append(index)
+        rows.append({"index": index, "has_pPr": holder is not None, "style_id": sid,
+                     "style_found": sid in table, "own": own, "style": style,
+                     "written": touched, "conflict_with_style": clash,
+                     "defaults_present": [one for one in CJK_WORDS if defaults[one]["present"]],
+                     "text": _cjk_text(para)})
+    return {
+        "family": "ooxml",
+        "available": True,
+        "paragraphs_total": len(rows),
+        "p_pr_elements": p_pr,
+        "paragraphs_with_any": len(indexed),
+        "paragraphs_indexed": indexed,
+        "words_written": words,
+        "style_written": style_words,
+        "defaults_written": dict((one, int(bool(defaults[one]["present"]))) for one in CJK_WORDS),
+        "paragraphs_see_defaults": defaults_hits,
+        "run_no_proof": no_proof,
+        "conflicts": conflicts_total,
+        "styles_seen": len(table),
+        "paragraphs": rows[:limit],
+        "listed": min(len(rows), limit),
+        "cut": len(rows) > limit,
+    }
+
+
+def odf_cjk_typography(path: Path, limit: int = 100) -> dict:
+    r"""ODF 那一头的四枚近亲：段只点样式名，词在跳到的那份段落属性上
+
+    `style:contextual-spacing` / `style:line-break` / `style:punctuation-wrap` /
+    `style:snap-to-layout-grid`。按字面交（`strict` / `hanging` / `simple` / `true` / `false`），
+    不与 OOXML 那九枚折算语义。真件里最后一枚一条都没写，本仓靠手写的件测这一格。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        roots = [("content.xml", ET.fromstring(box.read("content.xml")))]
+        if "styles.xml" in have:
+            roots.append(("styles.xml", ET.fromstring(box.read("styles.xml"))))
+    table = {}
+    for part, root in roots:
+        for one in root.iter():
+            if xml_local(one.tag) != "style":
+                continue
+            attrs = _written_attrs(one, {})
+            if _local_in(attrs, "family") != "paragraph":
+                continue
+            name = _local_in(attrs, "name")
+            if name is None:
+                continue
+            holder = None
+            for kid in one:
+                if xml_local(kid.tag) == "paragraph-properties":
+                    holder = kid
+                    break
+            had = {}
+            for key in CJK_ODF_WORDS:
+                had[key] = {"present": False, "val": None}
+                if holder is not None:
+                    raw = _local_in(_written_attrs(holder, {}), key)
+                    had[key] = {"present": raw is not None, "val": raw}
+            table[name] = (part, had)
+    rows, indexed = [], []
+    words = dict((one, {"written": 0, "values": {}}) for one in CJK_ODF_WORDS)
+    part = "content.xml"
+    for para in roots[0][1].iter():
+        if xml_local(para.tag) != "p":
+            continue
+        sid = _local_in(_written_attrs(para, {}), "style-name")
+        hit = table.get(sid) if sid is not None else None
+        had = hit[1] if hit else dict((one, {"present": False, "val": None})
+                                      for one in CJK_ODF_WORDS)
+        touched = [one for one in CJK_ODF_WORDS if had[one]["present"]]
+        if touched:
+            indexed.append(len(rows))
+        for one in touched:
+            words[one]["written"] += 1
+            key = had[one]["val"]
+            words[one]["values"][key] = words[one]["values"].get(key, 0) + 1
+        rows.append({"part": part, "index": len(rows), "style_id": sid,
+                     "style_found": sid in table, "written": touched, "attrs": had,
+                     "text": _cjk_text(para)})
+    return {
+        "family": "odf",
+        "available": True,
+        "paragraphs_total": len(rows),
+        "paragraphs_with_any": len(indexed),
+        "paragraphs_indexed": indexed,
+        "words_written": words,
+        "styles_seen": len(table),
+        "rows": rows[:limit],
+        "listed": min(len(rows), limit),
+        "cut": len(rows) > limit,
+    }
+
+
 def facts(path: Path) -> dict:
     data = path.read_bytes()
     out: dict = {"path": str(path), "size": len(data), "magic": data[:8].hex()}
@@ -14023,6 +14255,7 @@ def facts(path: Path) -> dict:
             out["ooxml"]["vertical_align"] = docx_vertical_align(path)
             out["ooxml"]["content_controls"] = docx_content_controls(path)
             out["ooxml"]["outline_levels"] = docx_outline_levels(path)
+            out["ooxml"]["cjk_typography"] = docx_cjk_typography(path)
             # 表头重复那份账（行上的一个无值元素）
             out["ooxml"]["table_headers"] = docx_repeat_headers(path)
             # 制表位：定义在段上，而段里的制表字符是另一本账
@@ -14123,6 +14356,7 @@ def facts(path: Path) -> dict:
             out["odt"]["comment_ledger"] = odf_comment_ledger(path)
             out["odt"]["comment_threads"] = odf_comment_threads(path)
             out["odt"]["keep_switches"] = odf_keep_switches(path)
+            out["odt"]["cjk_typography"] = odf_cjk_typography(path)
             # 同一问在 ODF 全在样式上，而且是两种词法（style: 与 loext:）
             out["odt"]["text_direction"] = odf_text_direction(path)
             out["odt"]["table_styles"] = odf_table_styles(path)

@@ -2886,6 +2886,169 @@ def write_levels_docx(path: Path) -> None:
     doc.save(path)
 
 
+def write_cjk_docx(path: Path) -> None:
+    """中文排版的那几枚开关：同一件事可能写在段上、样式里、docDefaults 里，而「裸」与「写了 0」是两句话
+
+    真件普查（本机 129 份真件 docx/docm，聚合数字，不外带文件名与正文）：
+    `contextualSpacing` 108 份写（正文 2868 + 样式 1473，4341 枚**全是裸的**）、
+    `snapToGrid` 12 份（正文 788，值 `0` 597 / 裸 210）、`autoSpaceDE` 19 份（正文 242 + 样式 52，
+    值 裸 229 / `0` 43 / `true` 22）、`autoSpaceDN` 11 份、`adjustRightInd` 10 份（`0` 8）、
+    `wordWrap` 10 份（`0` 131 与 **`off` 1** —— 一枚非布尔拼法）、`textAlignment` 9 份
+    （**不是布尔**：`auto` 229 / `baseline` 14）、`kinsoku` 与 `overflowPunct` 各 10 份、
+    `noProof` 10 份 148 枚**全在 `w:rPr` 里、全是裸的**（所以它是字侧不是段侧）；
+    三处里 **docDefaults 一处都不写** 这九枚。
+    python-docx 一件都做不出，所以九枚全按 ECMA 手写，并特意造出真件里没有的那几形：
+    `@w:val=""`（写了但没值）、段与样式**都写而不一致**、以及 `style:snap-to-layout-grid` 那种
+    ODF 侧无人写的属性。子元素按 ECMA 那一序写（`kinsoku, wordWrap, overflowPunct, autoSpaceDE,
+    autoSpaceDN, bidi, adjustRightInd, snapToGrid, …, contextualSpacing, …, textAlignment`），
+    真件里带这些开关的 508 段几乎每段只写一枚，只有一段把 `autoSpaceDE` 与 `autoSpaceDN` 连着写。
+    """
+    from docx import Document
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    styles = doc.styles.element
+    # 样式里写着四枚，其中两枚与段上的打算写成不一致
+    styles.append(parse_xml(
+        '<w:style xmlns:w="%s" w:type="paragraph" w:styleId="cjkstyle">'
+        '<w:name w:val="cjk style"/>'
+        '<w:pPr><w:autoSpaceDE/><w:snapToGrid w:val="0"/>'
+        '<w:contextualSpacing/><w:textAlignment w:val="baseline"/></w:pPr>'
+        '</w:style>' % W_NS))
+    styles.append(parse_xml(
+        '<w:style xmlns:w="%s" w:type="paragraph" w:styleId="cjkbare">'
+        '<w:name w:val="cjk bare"/><w:pPr><w:wordWrap w:val="off"/></w:pPr>'
+        '</w:style>' % W_NS))
+    # docDefaults 那一处：真件不写，这里特意写一枚，测「三处都摊开」而不是只测两处
+    defaults = styles.find(qn("w:docDefaults"))
+    pdef = defaults.find(qn("w:pPrDefault")) if defaults is not None else None
+    if pdef is not None:
+        holder = pdef.find(qn("w:pPr"))
+        if holder is None:
+            holder = parse_xml('<w:pPr xmlns:w="%s"/>' % W_NS)
+            pdef.append(holder)
+        holder.append(parse_xml('<w:adjustRightInd xmlns:w="%s" w:val="0"/>' % W_NS))
+
+    body = doc.element.body
+    tail = body.find(qn("w:sectPr"))
+    rows = [
+        (None, None, "基线那一段：九枚一个都不写"),
+        (None, "<w:autoSpaceDE/>", "autoSpaceDE 裸写（那是「开」，不是「没值」）"),
+        (None, '<w:autoSpaceDE w:val="0"/>', "autoSpaceDE 显式关（值 0）"),
+        (None, '<w:autoSpaceDE w:val="false"/>', "同一件事换一种拼法（false）"),
+        (None, '<w:autoSpaceDE w:val=""/>', "写了这枚而 @w:val 是空串"),
+        (None, '<w:autoSpaceDN w:val="1"/>', "autoSpaceDN 值 1"),
+        (None, "<w:adjustRightInd/><w:snapToGrid w:val=\"0\"/>",
+         "两枚连着写：一枚裸、一枚 0"),
+        (None, '<w:wordWrap w:val="off"/>', "wordWrap 写 off（真件里真出现过一次）"),
+        (None, '<w:wordWrap w:val="0"/>', "wordWrap 写 0"),
+        (None, '<w:textAlignment w:val="baseline"/>', "textAlignment 不是布尔：baseline"),
+        (None, '<w:textAlignment w:val="auto"/>', "textAlignment 的另一个枚举值 auto"),
+        (None, "<w:contextualSpacing/>", "contextualSpacing 裸写（真件里全是这一形）"),
+        (None, '<w:contextualSpacing w:val="0"/>', "contextualSpacing 显式关"),
+        (None, '<w:kinsoku w:val="true"/><w:overflowPunct w:val="true"/>',
+         "中文紧凑与标点悬垂两枚都写 true"),
+        (None, "<w:kinsoku/><w:wordWrap/><w:overflowPunct/><w:autoSpaceDE/>"
+               "<w:autoSpaceDN/><w:adjustRightInd/><w:snapToGrid/>"
+               "<w:contextualSpacing/><w:textAlignment w:val=\"center\"/>",
+         "九枚一次写满（按 ECMA 那一序）"),
+        ("cjkstyle", '<w:snapToGrid w:val="1"/>', "段与样式都写而 snapToGrid 不一致（段 1 / 样式 0）"),
+        ("cjkstyle", "<w:autoSpaceDE w:val=\"0\"/>", "段与样式都写 autoSpaceDE 而不一致（段 0 / 样式裸）"),
+        ("cjkstyle", None, "一个字都不写、只点样式：四枚都靠那一跳"),
+        ("cjkbare", None, "点另一份样式：只跳到一个 wordWrap=off"),
+    ]
+    for style_id, own, text in rows:
+        head = ""
+        if style_id:
+            head += '<w:pStyle w:val="%s"/>' % style_id
+        # 手写那串本身已按 ECMA 序排好，直接跟在 pStyle 之后即可
+        if own:
+            head += own
+        para = ('<w:p xmlns:w="%s">%s<w:r><w:t>%s</w:t></w:r></w:p>'
+                % (W_NS, ("<w:pPr>%s</w:pPr>" % head) if head else "", text))
+        one = parse_xml(para)
+        if tail is not None:
+            tail.addprevious(one)
+        else:
+            body.append(one)
+    # 字侧那两枚：一段三个 run，两个写 noProof（一个裸、一个 0）、一个不写
+    para = ('<w:p xmlns:w="%s"><w:r><w:rPr><w:noProof/></w:rPr><w:t>裸写的 noProof</w:t></w:r>'
+            '<w:r><w:rPr><w:noProof w:val="0"/></w:rPr><w:t>关掉的那一个</w:t></w:r>'
+            '<w:r><w:t>没写的那一个</w:t></w:r></w:p>' % W_NS)
+    one = parse_xml(para)
+    if tail is not None:
+        tail.addprevious(one)
+    else:
+        body.append(one)
+    doc.save(path)
+
+
+def write_cjk_odf(path: Path) -> None:
+    """ODF 那一头的三枚近亲，另加一枚真件里没人写的 `style:snap-to-layout-grid`
+
+    真件普查（本机 64 份 .odt）：`style:contextual-spacing` 1841 枚（false 1085 / true 756）、
+    `style:line-break` 全写 `strict`（123 枚）、`style:punctuation-wrap` 写 `hanging` 69 /
+    `simple` 3；而 `style:snap-to-layout-grid`、auto-space、adjust-right-indent、text-align-last
+    **一条都没有** —— 那四件事只有 OOXML 有说法，故这里按规范手写一枚，测「规范有而无人写」那一形。
+    """
+    content = """<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+ xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"
+ xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" office:version="1.2">
+ <office:automatic-styles>
+  <style:style style:name="P1" style:family="paragraph">
+   <style:paragraph-properties fo:margin-left="0cm" fo:margin-right="0cm"
+     style:contextual-spacing="true" style:line-break="strict"/>
+  </style:style>
+  <style:style style:name="P2" style:family="paragraph">
+   <style:paragraph-properties style:contextual-spacing="false"
+     style:punctuation-wrap="hanging"/>
+  </style:style>
+  <style:style style:name="P3" style:family="paragraph">
+   <style:paragraph-properties style:snap-to-layout-grid="false"
+     style:punctuation-wrap="simple"/>
+  </style:style>
+  <style:style style:name="P4" style:family="paragraph">
+   <style:paragraph-properties/>
+  </style:style>
+ </office:automatic-styles>
+ <office:body><office:text>
+  <text:p text:style-name="P1">一跳拿到 line-break 与 contextual-spacing=true</text:p>
+  <text:p text:style-name="P2">一跳拿到 punctuation-wrap=hanging 而上下文间距是 false</text:p>
+  <text:p text:style-name="P3">这一族的规范有这枚而本机无人写：snap-to-layout-grid</text:p>
+  <text:p text:style-name="P4">样式在而一条属性都不写</text:p>
+  <text:p>连样式名都不点</text:p>
+ </office:text></office:body>
+</office:document-content>"""
+    styles = """<?xml version="1.0" encoding="UTF-8"?>
+<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
+ xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2">
+ <office:master-styles>
+  <style:master-page style:name="mp1" style:page-layout-name="pl1"/>
+ </office:master-styles>
+ <office:automatic-styles>
+  <style:page-layout style:name="pl1">
+   <style:page-layout-properties fo:page-width="21.001cm" fo:page-height="29.7cm"/>
+  </style:page-layout>
+ </office:automatic-styles>
+</office:document-styles>"""
+    manifest = """<?xml version="1.0" encoding="UTF-8"?>
+<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2">
+ <manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.text"/>
+ <manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>
+ <manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/>
+</manifest:manifest>"""
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as box:
+        box.writestr(zipfile.ZipInfo("mimetype"), "application/vnd.oasis.opendocument.text")
+        box.writestr("META-INF/manifest.xml", manifest)
+        box.writestr("content.xml", content)
+        box.writestr("styles.xml", styles)
+
+
 def _cell_mar(holder, element: str, dirs: list) -> None:
     """往 `w:tblPr` 或 `w:tcPr` 上挂一枚 `w:tblCellMar` / `w:tcMar`（方向按给的序写）
 
@@ -5754,6 +5917,24 @@ def main() -> int:
         shutil.copyfile(made_ods, OUT / "workbook-settings.ods")
     else:
         print("⚠️  没拿到 workbook-settings.ods（ods 那一转）")
+
+    # 中文排版那几枚开关：python-docx 打底 + 按 ECMA 手写九枚，LibreOffice 重写一份、转一份 odt；
+    # 另有 ODF 那一头的手写一份（三枚近亲 + 一枚规范有而本机无人写的）
+    cjk = OUT / "cjk-switches.docx"
+    write_cjk_docx(cjk)
+    cjk_odf = OUT / "cjk-odf.odt"
+    write_cjk_odf(cjk_odf)
+    convert(exe, cjk, "docx", SCRATCH / "cjk-back")
+    made_cjk = SCRATCH / "cjk-back" / "cjk-switches.docx"
+    if made_cjk.exists():
+        shutil.copyfile(made_cjk, OUT / "cjk-switches-lo.docx")
+    else:
+        print("⚠️  没拿到 cjk-switches-lo.docx（docx → docx 那一转）")
+    convert(exe, cjk, "odt", SCRATCH)
+    if (SCRATCH / "cjk-switches.odt").exists():
+        shutil.copyfile(SCRATCH / "cjk-switches.odt", OUT / "cjk-switches.odt")
+    else:
+        print("⚠️  没拿到 cjk-switches.odt")
 
     # 格子上的链接那一家四份件：openpyxl 写一份，LibreOffice 同格式重写一份（丢掉
     # tooltip、补上 display、把 mailto 的百分号解回中文），再各转一份 ods 与 .xls

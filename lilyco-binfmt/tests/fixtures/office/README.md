@@ -40,6 +40,11 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `workbook-settings.xlsx` | openpyxl 打底 + `zipfile` 按 MS-XLSX 的序列手写（`office_fixtures.py` 的 `write_workbook_settings_xlsx`） | 这一本工作簿自己的设置：`workbookPr` 四格（`codeName` / `backupFile="1"` / `showObjects` / `defaultThemeVersion`）、**两枚** `fileVersion`（`xl15` 与 `GenuineMicrosoftOffice`，各带 `lastEdited` / `lowestEdited` / `rupBuild`）、`calcPr` 七格（`calcMode="manual"` + `iterate="true"` + `iterateCount` / `iterateDelta` + `refMode="row"` + `fullCalcOnLoad="1"`）、`workbookView` 十三格而 `activeTab="2"`（打开停在三张表里的第三张）且 `autoFilterDateGrouping="false"`、`customWorkbookViews` 一枚带 `name` 与 `guid` 的共享视图 —— **同一份件里两种布尔拼法同时存在** |
 | `workbook-settings-lo.xlsx` | LibreOffice（`workbook-settings.xlsx` → .xlsx） | 同一层每一处都换了写法：两枚 `fileVersion` **合成一枚**而 `appName` 变成 `"Calc"`、`lastEdited` 与 `rupBuild` 都不写而 `lowestEdited="5"` 从第二枚留下；`calcPr` 的 `calcId` / `calcMode` / `fullCalcOnLoad` 三格不见，而 **`refMode` 从 `"row"` 变成 `"A1"`**（同一格两个意思）；`workbookPr` 那四格换成它自己补的三格（`codeName` 与 `defaultThemeVersion` 没了、`date1904="false"` 多出）；`workbookView` 的窗口四格值被改（120/90/18000/9000 → 0/0/16384/8192）而 `visibility` / `minimized` / `autoFilterDateGrouping` 整枚不见，只有 `activeTab="2"` 与 `firstSheet` / `tabRatio` 原样穿过；`customWorkbookViews` **整层不留** |
 | `workbook-settings.ods` | LibreOffice（`workbook-settings.xlsx` → .ods） | ODF 根本没有 `workbookPr` / `fileVersion` / `calcPr` 这三枚元素：同一问摊在 `settings.xml` 的 `ooo:configuration-settings` 里（这一份写 `AutoCalculate`、`SyntaxStringRef`、`ShowFormulasMarks`、`ImagePreferredDPI` 等），而**迭代计算那三格一份都不写**（`IterateSteps` / `IterateMinChange` 都不出现）—— 转格式丢掉的事，所以 `workbook_settings` 这个键在 .ods 的整份输出里不存在 |
+| `cjk-switches.docx` | python-docx 打底 + 按 ECMA 手写九枚 | 九枚段开关一次摆开：段上 16 段写着、`autoSpaceDE` 六枚里一枚**写了空串**、两枚裸写，`docDefaults` 那处只写 `adjustRightInd` 一枚（真件一处都不写），字侧三 run 交两枚 `noProof`（一枚裸、一枚 `0`），两段是段与样式**都写而不一致**（`snapToGrid` 段 1 / 样式 0，`autoSpaceDE` 段 `0` / 样式裸），还有一段只点样式、字面一个不写 —— 那一跳要走到 |
+| `cjk-switches-lo.docx` | LibreOffice（`cjk-switches.docx` → .docx） | 这一层重写后只剩四枚：`kinsoku`、`wordWrap`（含那枚 `off`）、`autoSpaceDE`、`autoSpaceDN`、`adjustRightInd` 与字侧 `noProof` **整个不再写**，`docDefaults` 那枚也不留；`overflowPunct` 两枚都改写成 `false`，`snapToGrid` 的裸写与 `0` 与 `1` 换成 `true` / `false` / `true`，`contextualSpacing` 显式关掉的那枚不见了，只有 `textAlignment` 的 `baseline` / `auto` / `center` 一字不动 |
+| `cjk-switches.odt` | LibreOffice（`cjk-switches.docx` → .odt） | 九枚换成另一套词：`style:contextual-spacing` 逐段补满（15 段，false 11 / true 4）、`style:snap-to-layout-grid` 五段（false 3 / true 2）、`style:punctuation-wrap` 两枚 `simple`；`line-break` 按段解出来是**零**（那两枚 strict 写在没人点用的样式上）；`wordWrap` 那枚 `off` 换成 `fo:wrap-option` 的 `no-wrap`，而那一格这一族不读 |
+| `cjk-odf.odt` | 手写（python zipfile，按 ODF 1.2） | ODF 那一头的手写形状：四枚近亲全在段落样式上（`contextual-spacing` true 与 false 各一段、`line-break` 一枚 `strict`、`punctuation-wrap` hanging 与 simple 各一段、`snap-to-layout-grid` 一枚 `false` —— 真件 64 份 .odt **一条都没写过**这一枚），另两段是「样式在而一条属性都不写」与「连样式名都不点」 |
+| `cjk-odf-lo.docx` | LibreOffice（`cjk-odf.odt` → .docx） | 反方向只搬得动四件事：`kinsoku` 给 true、`overflowPunct` 给 true 与 false 各一枚（来自 `punctuation-wrap`）、`snapToGrid` 给 false、`contextualSpacing` 裸写；`autoSpaceDE`、`autoSpaceDN`、`adjustRightInd`、`wordWrap`、`textAlignment`、`noProof` **全是零** —— 两族之间没有一一对应可走，所以两边各按各的原样交 |
 | `deck-ph.pptx` | python-pptx | 四页，一次只改一个变量：`第1页` 标题 + 内容占位符（内容两段字）、`第2页` 再加一个**自制文本框**、`第3页` 两个占位符都在而**字是空的**、`第4页` 只有文本框（空版式）。要点：正文占位符写的是 `<p:ph idx="1"/>` —— **没有 `type`** |
 | `deck-ph-lo.pptx` | LibreOffice（`deck-ph.pptx` → .pptx） | 同一份稿子重写后：标题那一句照旧 `<p:ph type="title"/>`，正文那一句变成**空元素 `<p:ph/>`**（连 idx 都没了），形状名从 `Title 1`/`Content Placeholder 2` 换成 `PlaceHolder 1`/`PlaceHolder 2`；版式里 `dt`/`ftr`/`sldNum` 的 idx 也整个重排（模板是 10/11/12，这里 1/2/3、4/5/6…28/29/30） |
 | `deck-ph.odp` | LibreOffice（`deck-ph.pptx` → .odp） | 第三家：角色写成 `presentation:class="title"`，占位符另带 `presentation:placeholder="true"` 与 `presentation:style-name="prN"`，而**文本框是 `draw:custom-shape` 且没有 `presentation:style-name`**；页的版式名不在页上，在画页样式里（`presentation:presentation-page-layout-name="AL1T11"`） |
@@ -2415,6 +2420,34 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       别的账都是各交各的。
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
+
+150. **中文排版那几枚段开关的三处住处，与「裸写 / 空串 / 枚举值」的三种说法**（`cjk-switches.docx` 手写、
+    `cjk-switches-lo.docx` 与 `cjk-switches.odt` 是 LibreOffice 重写的同一份、`cjk-odf.odt` 手写 ODF 那一头、
+    `cjk-odf-lo.docx` 是它转回 docx；普查 = 本机真件聚合，只留数、不外带文件名与正文）
+    - 九枚写在 `w:pPr` 底下：`kinsoku`、`wordWrap`、`overflowPunct`、`autoSpaceDE`、`autoSpaceDN`、
+      `adjustRightInd`、`snapToGrid`、`contextualSpacing`、`textAlignment`。同一枚也可能只写在段点的那份样式里，
+      或写在 `docDefaults` 那一处，所以三处都按原样交，不折成「这份文档开没开中文紧凑」那一个数。
+    - 真件普查（129 份真件 docx/docm）：`contextualSpacing` 108 份写、正文 2868 + 样式 1473 枚，而 4341 枚
+      **全是裸写**（没写 `@w:val` —— 规范里那算真，不是「没值」）；`snapToGrid` 12 份 788 枚里值 `0` 占 597；
+      `autoSpaceDE` 19 份（裸 229 / `0` 43 / `true` 22）；`wordWrap` 360 枚正文里有一枚拼成 **`off`**；
+      `textAlignment` **不是布尔**，只出现 `auto` 与 `baseline`；`noProof` 148 枚**全部**住 `w:rPr`（所以它在
+      `run_no_proof` 那一本而不是段上九枚里）；**`docDefaults` 一处都不写**这九枚 —— 这一枚只能合成，所以
+      真件上 `defaults_written` 恒全 0 是一句实测话，而不是一条规范话。
+    - ODF 那一头只有四枚近亲（64 份真件 .odt）：`contextual-spacing` 1841 枚（false 1085 / true 756）、
+      `line-break` 恒 `strict` 123 枚、`punctuation-wrap` `hanging` 69 / `simple` 3，而 `snap-to-layout-grid`
+      与 auto-space、adjust-right-indent、text-align-last **一条都没有**。跨族只核对名字不折算语义
+      （`kinsoku`↔`line-break`、`overflowPunct`↔`punctuation-wrap` 是近亲不是同义）。
+    - LibreOffice 同格式重写动得最狠：`kinsoku` / `wordWrap`（含那枚 `off`）/ `autoSpaceDE` / `autoSpaceDN` /
+      `adjustRightInd` / 字侧 `noProof` **六处整个不再写**，`docDefaults` 那枚也不留；`overflowPunct` 两枚都
+      改写成 `false`；`snapToGrid` 的「裸 / 0 / 1」换成 `true`、`false`、`true`；`contextualSpacing` 显式关掉的
+      那一枚不见了（裸写的两枚留着）；只有 `textAlignment` 的三个枚举值**一字不动**穿过。
+    - 反方向只搬得动四件事（手写 .odt 转回 docx）：`kinsoku=true`、`overflowPunct`（true 与 false 各一枚）、
+      `snapToGrid=false`、裸写的 `contextualSpacing`；其余五枚全 0。docx → ODF 那一转把 `wordWrap="off"` 换成
+      `fo:wrap-option="no-wrap"`（**这一族不读那一格**，它归排版兼容那本），并把 `contextual-spacing` 逐段补满
+      （20 段里 15 段有，false 11 / true 4），`line-break` 那两枚写在没人点用的样式上，所以按段解出来是 **0 枚**。
+    - 自产件的语料级一句话：段上写着九枚之一的只有 3 份（全是本仓手写的），而**样式那一跳**有 13 份能拿到
+      （python-docx 那份模板的样式自己写满 `kinsoku`/`overflowPunct`/`autoSpaceDE` 各 44 段）——
+      「段上没写」与「这一族不写」是两件事，与事实 149 那条同一个讲法。
 
 149. **这一本工作簿自己的设置：谁存的、算不算、打开停在哪一张 —— 而这三问两家的答案几乎不重合**。
     `xl/workbook.xml` 顶上那一排元素不在任何一张表上，所以也不在任何一份按表的账里；
