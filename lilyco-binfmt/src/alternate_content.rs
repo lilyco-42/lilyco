@@ -7,10 +7,12 @@
 //! 什么元素」，三处族（docx / xlsx / pptx）走同一个读者：
 //!
 //! * `blocks` 数的是 `mc:AlternateContent` 那枚元素，`choices` / `fallbacks` 数的是它们
-//!   肚子里的分支 —— 三个数互不相减：**「写了两遍」不是这条规矩的常态**（本机真件 3 块里
-//!   只有 1 块配了 Fallback，另两块只有 Choice）；
-//! * 一块里可以有几条 Choice（ECMA 允许按 `Requires` 挑第一条能认的），所以 `choices`
-//!   比 `blocks` 大不是矛盾，而 `orphans`（这一块里 Choice 有、Fallback 没有）单独数；
+//!   肚子里的分支 —— 三个数互不相减：**「写了两遍」不是这条规矩的常态**（本机真件里 4 份件
+//!   带 4 块、4 枚 Choice，而 Fallback 只有 1 枚，也就是 3 块是孤儿）；
+//! * 一块里可以有几条 Choice（ECMA 允许按 `Requires` 挑第一条能认的），所以两条分支都把
+//!   **全部**孩子数进去 —— `choices` 比 `blocks` 大不是矛盾（真件里没量到那样的块，
+//!   `alternate.docx` 那一份是合成出来的），而 `orphans`（这一块里 Choice 有、Fallback 没有）
+//!   单独数；
 //! * `requires` 原样交文件写的前缀名（不解命名空间 URI —— 前缀是在那枚根元素的
 //!   `xmlns:` 上定义的，本仓不在这里再走一跳），`requires_prefixes` 按「出现次数从多到少、
 //!   同数按名字」排 —— 两家生产者的词汇几乎不重叠：docx 画布那一条点 `wps`，
@@ -21,8 +23,9 @@
 //! 1. LibreOffice 重写时把三块 **连字一起丢掉**（`blocks` 3 → 0，五句只写在分支里的字
 //!    一句都不剩，只剩打底那一段），所以这一族不是「换种写法」而是「换个读者就读不到」——
 //!    这也是本仓要把它数出来的理由；
-//! 2. 真件那一份分布：13 份自产 fixture 里 31 块、31 枚 Choice、31 枚 Fallback、
-//!    `orphans` 0（两个生产者都写全两遍），而本机真件 3 块 3 枚 Choice 只有 1 枚 Fallback；
+//! 2. 真件那一份分布：14 份自产 fixture 里 34 块、35 枚 Choice、33 枚 Fallback、`orphans` 1
+//!    （多出来的那一枚 Choice 与少掉的那一枚 Fallback 都在这份合成件里），而本机真件里
+//!    4 块只有 1 块配了两遍（pptx 那一份每页都写全两遍，是 fixture 里的 `*-lo.pptx` 那一族）；
 //! 3. 「件名之外」的那一格也要交：`parts_scanned` 是**有块的件数**（不是整包件数），
 //!    它与 `entries` 的行数一起说清「哪几件里躺着这些分支」。
 //!

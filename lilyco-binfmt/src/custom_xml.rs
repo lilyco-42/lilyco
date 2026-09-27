@@ -69,11 +69,25 @@ fn member_parse(bytes: &[u8], part: &str) -> Option<xmlscan::Node> {
     Some(xmlscan::parse_str(&text))
 }
 
+/// `#doc` 那枚伪根下面的第一枚元素：属性与局部名都挂在它身上，而 `parse_str` 交回来的是伪根
+fn doc_element(node: &xmlscan::Node) -> Option<&xmlscan::Node> {
+    element_kids(node).into_iter().next()
+}
+
+/// 只数元素孩子：容错解析会把「两个标签之间的一个空格」摊成一枚 `#text`，
+/// 而 ElementTree 遍历孩子只给元素 —— 两家对同一份件得数出同一个孩子数
+fn element_kids(node: &xmlscan::Node) -> Vec<&xmlscan::Node> {
+    node.children
+        .iter()
+        .filter(|one| one.name != "#text")
+        .collect()
+}
+
 /// `[Content_Types].xml`：点过名的 customXml 部件，与有没有一条 `Default Extension="xml"`
 fn content_types(root: &xmlscan::Node) -> (Vec<String>, bool) {
     let mut named: Vec<String> = Vec::new();
     let mut has_default = false;
-    for one in root.children.iter() {
+    for one in element_kids(root) {
         let local = one.local();
         if local == "Override" {
             if let Some(had) = one.attr_local("PartName") {
@@ -162,7 +176,8 @@ pub(crate) fn ledger(bytes: &[u8], limit: usize) -> Value {
         .iter()
         .filter(|one| one.starts_with(CX_FOLDER))
         .count();
-    let (named, has_default) = match member_parse(bytes, "[Content_Types].xml") {
+    let ct_doc = member_parse(bytes, "[Content_Types].xml");
+    let (named, has_default) = match ct_doc.as_ref().and_then(doc_element) {
         Some(root) => content_types(&root),
         None => (Vec::new(), false),
     };
@@ -179,8 +194,11 @@ pub(crate) fn ledger(bytes: &[u8], limit: usize) -> Value {
             empty += 1;
         }
         let parsed = member_parse(bytes, part.as_str());
-        let (root_name, children) = match &parsed {
-            Some(node) => (Some(node.local().to_string()), Some(node.children.len())),
+        let (root_name, children) = match parsed.as_ref().and_then(doc_element) {
+            Some(node) => (
+                Some(node.local().to_string()),
+                Some(element_kids(node).len()),
+            ),
             None => (None, None),
         };
         let hop = props_of(bytes, part);
@@ -197,7 +215,8 @@ pub(crate) fn ledger(bytes: &[u8], limit: usize) -> Value {
         let mut item_id: Option<String> = None;
         let mut uris: Vec<Value> = Vec::new();
         if let Some(had) = &hop {
-            if let Some(head) = member_parse(bytes, had) {
+            let props_doc = member_parse(bytes, had);
+            if let Some(head) = props_doc.as_ref().and_then(doc_element) {
                 item_id = head.attr_local("itemID").map(|one| one.to_string());
                 for one in head.descendants("schemaRef") {
                     if uris.len() >= limit {

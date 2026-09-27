@@ -4979,19 +4979,21 @@ def alternate_ledger(parts: dict, limit: int = 200) -> dict:
                 continue
             mine_blocks += 1
             kids = [kid for kid in one]
-            choice = next((kid for kid in kids if xml_local(kid.tag) == "Choice"), None)
-            fallback = next((kid for kid in kids if xml_local(kid.tag) == "Fallback"), None)
-            if choice is not None:
-                mine_choices += 1
+            # 一块里可以有几条 Choice（ECMA 允许按 `Requires` 挑第一条能认的），所以两条
+            # 分支都把**全部**孩子数进去：只取第一枚会把同一块里第二遍写的那些字漏掉
+            choices_kids = [kid for kid in kids if xml_local(kid.tag) == "Choice"]
+            fallback_kids = [kid for kid in kids if xml_local(kid.tag) == "Fallback"]
+            mine_choices += len(choices_kids)
+            mine_fallbacks += len(fallback_kids)
+            for choice in choices_kids:
                 req = of_local(choice, "Requires") or ""
                 for hit in req.split():
                     mine_requires.append(hit)
                     prefixes[hit] = prefixes.get(hit, 0) + 1
                 mine_choice_elems.extend(xml_local(kid.tag) for kid in choice)
-            if fallback is not None:
-                mine_fallbacks += 1
+            for fallback in fallback_kids:
                 mine_fallback_elems.extend(xml_local(kid.tag) for kid in fallback)
-            if choice is not None and fallback is None:
+            if choices_kids and not fallback_kids:
                 mine_orphans += 1
         blocks += mine_blocks
         choices += mine_choices
@@ -5061,7 +5063,34 @@ def _cx_pos(node) -> dict:
     }
 
 
-def picture_layout_docx(path: Path) -> dict:
+def _cx_blank_row(part: str, para: int) -> dict:
+    """一枚 `w:drawing` 肚子里既没有 `wp:inline` 也没有 `wp:anchor`：键一个不少，全交空"""
+    return {
+        "part": part, "para": para, "kind": None, "attrs": {}, "wrap_element": None,
+        "wrap_attrs": None, "children": [], "dist": None, "behind_doc": None, "locked": None,
+        "allow_overlap": None, "layout_in_cell": None, "simple_pos": None,
+        "relative_height": None, "doc_pr": None, "locks": None, "graphic_uri": None,
+        "effect_extent": None, "position_h": _cx_pos(None), "position_v": _cx_pos(None),
+    }
+
+
+def _cx_walk_drawings(root):
+    """按文档序给出（`w:drawing`，它所在段落的序号）：段落序号是**前序数过来的 `w:p` 个数减一**，
+    不在任何段里的那一枚交 -1 —— 两份读者用同一条数法，不去比对象身份"""
+    seen = [0]
+
+    def walk(node):
+        if xml_local(node.tag) == "p":
+            seen[0] += 1
+        if xml_local(node.tag) == "drawing":
+            yield node, seen[0] - 1
+        for kid in node:
+            yield from walk(kid)
+
+    yield from walk(root)
+
+
+def picture_layout_docx(path: Path, limit: int = 200) -> dict:
     """OOXML：一张图的摆法一条行，随字与浮着两种各交自己那几格"""
     parts = _cx_parts(path)
     rows: list = []
@@ -5073,20 +5102,11 @@ def picture_layout_docx(path: Path) -> dict:
             root = ET.fromstring(parts[name])
         except ET.ParseError:
             continue
-        paras = [one for one in root.iter() if xml_local(one.tag) == "p"]
-        at_para = {id(one): k for k, one in enumerate(paras)}
         found = False
-        for drawing in root.iter():
-            if xml_local(drawing.tag) != "drawing":
-                continue
+        for drawing, para in _cx_walk_drawings(root):
             holder = next((one for one in drawing if xml_local(one.tag) in ("inline", "anchor")), None)
             if holder is None:
-                rows.append({"part": name, "para": -1, "kind": None, "attrs": {},
-                             "wrap_element": None, "wrap_attrs": None, "children": [],
-                             "dist": None, "behind_doc": None, "locked": None,
-                             "allow_overlap": None, "layout_in_cell": None, "simple_pos": None,
-                             "relative_height": None, "doc_pr": None, "locks": None,
-                             "graphic_uri": None, "effect_extent": None})
+                rows.append(_cx_blank_row(name, para))
                 found = True
                 continue
             kind = xml_local(holder.tag)
@@ -5106,11 +5126,6 @@ def picture_layout_docx(path: Path) -> dict:
                 locks = {"element": xml_local(inner.tag) if inner is not None else None,
                          "attrs": written_attrs(inner) if inner is not None else {},
                          "written": bool(written_attrs(inner)) if inner is not None else False}
-            para = -1
-            for one in paras:
-                if any(id(kid) == id(drawing) for kid in one.iter()):
-                    para = at_para[id(one)]
-                    break
             rows.append({
                 "part": name,
                 "para": para,
@@ -5154,6 +5169,7 @@ def picture_layout_docx(path: Path) -> dict:
     for one in rows:
         if one["wrap_element"]:
             wraps[one["wrap_element"]] = wraps.get(one["wrap_element"], 0) + 1
+    # 截行不截账：行按 `limit` 交，上面那些数一律按全量算
     return {
         "family": "ooxml",
         "available": True,
@@ -5165,13 +5181,13 @@ def picture_layout_docx(path: Path) -> dict:
         "anchor_without_wrap": sum(1 for one in rows
                                    if one["kind"] == "anchor" and not one["wrap_element"]),
         "wrap_elements": wraps,
-        "listed": len(rows[:400]),
-        "rows": rows[:400],
-        "cut": len(rows) > 400,
+        "listed": len(rows[:limit]),
+        "rows": rows[:limit],
+        "cut": len(rows) > limit,
     }
 
 
-def picture_layout_odf(path: Path) -> dict:
+def picture_layout_odf(path: Path, limit: int = 200) -> dict:
     """ODF：摆法在框点名的那份 family=graphic 样式上，所以一跳是这一族的默认形状"""
     with zipfile.ZipFile(path) as box:
         parts = {one.filename: box.read(one.filename) for one in box.infolist()}
@@ -5239,7 +5255,10 @@ def picture_layout_odf(path: Path) -> dict:
     kinds: dict = {}
     wraps: dict = {}
     for one in rows:
-        kinds[one["anchor_type"]] = kinds.get(one["anchor_type"], 0) + 1
+        # 两张表都只数文件写着的那些值：`anchor-type` 与 `style:wrap` 都可以没有那一格，
+        # 把 null 记成一类会让「几枚框」与「表里之和」对不上
+        if one["anchor_type"] is not None:
+            kinds[one["anchor_type"]] = kinds.get(one["anchor_type"], 0) + 1
         if one["wrap"] is not None:
             wraps[one["wrap"]] = wraps.get(one["wrap"], 0) + 1
     return {
@@ -5250,19 +5269,19 @@ def picture_layout_odf(path: Path) -> dict:
         "wrap_values": wraps,
         "wrap_unwritten": sum(1 for one in rows if not one["wrap_written"]),
         "style_unfound": sum(1 for one in rows if not one["style_found"]),
-        "rows": rows[:400],
-        "listed": len(rows[:400]),
-        "cut": len(rows) > 400,
+        "rows": rows[:limit],
+        "listed": len(rows[:limit]),
+        "cut": len(rows) > limit,
     }
 
 
-def docx_picture_layout(path: Path) -> dict:
+def docx_picture_layout(path: Path, limit: int = 200) -> dict:
     """同一问按包形状分家：OOXML 走 anchor/inline，ODF 走 frame + 那份 graphic 样式"""
     with zipfile.ZipFile(path) as box:
         names = box.namelist()
     if "content.xml" in names:
-        return picture_layout_odf(path)
-    return picture_layout_docx(path)
+        return picture_layout_odf(path, limit)
+    return picture_layout_docx(path, limit)
 
 
 def _cx_parts(path: Path) -> dict:
@@ -11974,6 +11993,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["alternate_content"] = docx_alternate(path)
             # 包里那几份自定义 XML 存储：件、那一跳到 itemProps、正文有没有一条手指着它
             out["ooxml"]["custom_xml"] = docx_custom_xml(path)
+            # 图是怎么摆的：`wp:inline` 随字走、`wp:anchor` 浮着才有环绕那一支
+            out["ooxml"]["picture_layout"] = docx_picture_layout(path)
             # 表头重复那份账（行上的一个无值元素）
             out["ooxml"]["table_headers"] = docx_repeat_headers(path)
             # 制表位：定义在段上，而段里的制表字符是另一本账

@@ -8705,33 +8705,33 @@ def main() -> int:
     fmt_shapes = sorted({tuple((x["list"], x["entries"]) for x in one["fmt"])
                          for one in theme_rows})
     check(
-        "整库 202 个主题部件的三条自证：十二格的名字与顺序全对（202/202 canonical、每本 12 格）、"
+        "整库 204 个主题部件的三条自证：十二格的名字与顺序全对（204/204 canonical、每本 12 格）、"
         "fmtScheme 全是四列各三条（数出来的一致，不是照规范抄的）、"
-        "而 dk1 用 sysClr 的那一批与写了 extraClrSchemeLst 的那一批是同一批（72 = 72，一份不差）—— "
+        "而 dk1 用 sysClr 的那一批与写了 extraClrSchemeLst 的那一批是同一批（73 = 73，一份不差）—— "
         "「MS 那一路」在这两个记号上同进同出，所以这一路认得出",
         [len(theme_rows), sum(1 for one in theme_rows if one["unread"]),
          sorted({one["slot_total"] for one in theme_rows}),
          sum(1 for one in theme_rows if one["canonical"]), fmt_shapes,
          len(dk1_sys), len(with_extra), sorted(dk1_sys) == sorted(with_extra)],
-        [202, 0, [12], 202, [(("fillStyleLst", 3), ("lnStyleLst", 3), ("effectStyleLst", 3),
+        [204, 0, [12], 204, [(("fillStyleLst", 3), ("lnStyleLst", 3), ("effectStyleLst", 3),
                              ("bgFillStyleLst", 3))], 72, 72, True],
     )
     check(
         "一个部件里的三个 @name 各说各的：theme 两种（Office Theme 195 / Office 7）、"
         "clrScheme 两种（Office 194 / LibreOffice 8，LibreOffice 重写时改的就是这一个）、"
-        "fontScheme 一种（202 个全写 Office），而 fmtScheme 只在那 72 个里点名",
+        "fontScheme 一种（204 个全写 Office），而 fmtScheme 只在那 73 个里点名",
         [dict(Counter(one["theme_name"] for one in theme_rows)),
          dict(Counter(one["scheme_name"] for one in theme_rows)),
          dict(Counter(one["font_name"] for one in theme_rows)),
          dict(Counter("写了" if one["fmt_name"] is not None else "没写" for one in theme_rows))],
-        [{"Office Theme": 195, "Office": 7}, {"Office": 194, "LibreOffice": 8},
-         {"Office": 202}, {"没写": 130, "写了": 72}],
+        [{"Office Theme": 196, "Office": 8}, {"Office": 195, "LibreOffice": 9},
+         {"Office": 204}, {"没写": 131, "写了": 73}],
     )
     check(
-        "字体那三槽的待遇：latin 404 个角色全写了名字（没有一个空串），"
-        "ea 与 cs 各是 166 写了值、238 写了空串、0 个没这个槽 —— "
+        "字体那三槽的待遇：latin 408 个角色全写了名字（没有一个空串），"
+        "ea 与 cs 各是 168 写了值、240 写了空串、0 个没这个槽 —— "
         "空串与不在场是两件事，这一本分列而不是并成一格；"
-        "按书写系统分的那一批 6710 条，29 或 30 条一套（差一枚 Geor），"
+        "按书写系统分的那一批 7130 条，29 或 30 条一套（差一枚 Geor），"
         "而 script=Hans 那一条整库只有一个答案",
         [len(roles),
          [sum(1 for one in roles if isinstance(one[which], str) and one[which] != "")
@@ -8742,8 +8742,8 @@ def main() -> int:
          sorted(Counter(len(one["faces"]) for one in roles).items()),
          sorted({one["typeface"] for role in roles for one in role["faces"]
                  if one["script"] == "Hans"})],
-        [404, [404, 166, 166], [0, 238, 238], [0, 0, 0], 7070,
-         [(0, 166), (29, 70), (30, 168)], ["宋体"]],
+        [408, [408, 168, 168], [0, 240, 240], [0, 0, 0], 7130,
+         [(0, 168), (29, 70), (30, 170)], ["宋体"]],
     )
     d = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "400"), "theme")
     dl = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "5"), "theme")
@@ -8843,10 +8843,10 @@ def main() -> int:
     for row in ref_rows:
         via.update(row["totals"]["by_via"])
     check(
-        "140 个 OOXML 包 32938 条手指：三条点法各自数得回来（Word 27195 + DrawingML 5633 + Excel 序号 110），"
-        "走过 1961 个 `.xml` 部件、`parts_unread` 3 个读不开（那三件是 `customxml-lo.docx` 里被 LibreOffice 清空的 0 字节 `customXml/itemN.xml` —— 件在而里面没字，不是解析器不行），其中 202 个是主题部件（与主题那本同一数）、"
-        "548 个部件里手指在场；名字→格的三条来路之和也是 32938 —— 名字本身就是一格 6526、"
-        "Word 那一族的别名 23435、文件自己写的 `a:clrMap` 631、序号 110，剩下 2236 条交 null 而不照着规范替文件补",
+        "142 个 OOXML 包 33487 条手指：三条点法各自数得回来（Word 27715 + DrawingML 5662 + Excel 序号 110），"
+        "走过 1982 个 `.xml` 部件、`parts_unread` 3 个读不开（那三件是 `customxml-lo.docx` 里被 LibreOffice 清空的 0 字节 `customXml/itemN.xml` —— 件在而里面没字，不是解析器不行），其中 204 个是主题部件（与主题那本同一数）、"
+        "584 个部件里手指在场；名字→格的三条来路之和也是 33487 —— 名字本身就是一格 6603、"
+        "Word 那一族的别名 23885、文件自己写的 `a:clrMap` 631、序号 110，剩下 2258 条交 null 而不照着规范替文件补",
         [len(ref_rows), summed["refs"], summed["wml_color"], summed["scheme_clr"],
          summed["theme_index"], summed["parts_scanned"], summed["parts_unread"],
          summed["theme_parts"], summed["parts_with_refs"],
@@ -8855,16 +8855,16 @@ def main() -> int:
           sum(via.values())],
          [summed["alias_names"], summed["alias_conflict"], summed["clr_map_written"],
           summed["skip_multi_value"]]],
-        [140, 32938, 27195, 5633, 110, 1961, 3, 202, 580,
-         [6526, 26412, 30702, 2236],
-         [6526, 23435, 631, 110, 2236, 32938],
+        [142, 33487, 27715, 5662, 110, 1982, 3, 204, 584,
+         [6603, 26884, 31229, 2258],
+         [6603, 23885, 631, 110, 2258, 33487],
          [276, 0, 85, 0]],
     )
     check(
-        "解不出那 2236 条不是「读不到」而是文件自己没说，而且数目能拆开对：按名字 "
-        "`phClr` 2181 条（主题占位色，压根不是那十二格之一）+ `dark2` 10 条（整批带 shade，别名表不收）"
-        "剩 45 条；`tx1` / `bg1` 一共 676 条，走 `a:clrMap` 解出的 631 条，"
-        "两本一减也是 45 —— 两个方向算出同一个数，那 45 条就是落在没写对照的包里的那些",
+        "解不出那 2258 条不是「读不到」而是文件自己没说，而且数目能拆开对：按名字 "
+        "`phClr` 2202 条（主题占位色，压根不是那十二格之一）+ `dark2` 10 条（整批带 shade，别名表不收）"
+        "剩 46 条；`tx1` / `bg1` 一共 677 条，走 `a:clrMap` 解出的 631 条，"
+        "两本一减也是 46 —— 两个方向算出同一个数，那 46 条就是落在没写对照的包里的那些",
         [via["(没写)"],
          sum(row["totals"]["by_name"].get("schemeClr", {}).get("phClr", 0) for row in ref_rows),
          sum(row["totals"]["by_name"].get("wmlColor", {}).get("dark2", 0) for row in ref_rows),
@@ -8873,15 +8873,15 @@ def main() -> int:
          via["clrMap"],
          sum(row["totals"]["by_name"].get("schemeClr", {}).get(one, 0) for one in ("tx1", "bg1")
              for row in ref_rows) - via["clrMap"],
-         via["(没写)"] - 2181 - 10],
-        [2236, 2181, 10, 676, 631, 45, 45],
+         via["(没写)"] - 2202 - 10],
+        [2258, 2202, 10, 677, 631, 46, 46],
     )
     doc_rows = ref_groups["*.docx"] + ref_groups["*.docm"]
     check(
         "Word 那一路是自己跟自己核对的：每一条 `w:color` 都另写了一遍六位实色当影子，"
-        "无修饰符的 24322 条与本包主题那一格逐条对上、`mismatched` 0 条，"
-        "剩下 3580 条带 `themeTint` / `themeShade`（不算色）、259 条连影子都没写、311 条点不出格 —— "
-        "四种判不住分列，加起来正好是那一路的 28472 条，一条也没被揉成一格",
+        "无修饰符的 24788 条与本包主题那一格逐条对上、`mismatched` 0 条，"
+        "剩下 3645 条带 `themeTint` / `themeShade`（不算色）、266 条连影子都没写、322 条点不出格 —— "
+        "四种判不住分列，加起来正好是那一路的 29021 条，一条也没被揉成一格",
         [len(doc_rows), sum(one["totals"]["wml_color"] for one in doc_rows),
          sum(one["totals"]["matched"] for one in doc_rows),
          sum(one["totals"]["mismatched"] for one in doc_rows),
@@ -8893,7 +8893,7 @@ def main() -> int:
              + one["totals"]["skip_modified"] + one["totals"]["skip_no_literal"]
              + one["totals"]["skip_no_slot"] + one["totals"]["skip_multi_value"]
              for one in doc_rows)],
-        [78, 27195, 24322, 0, 3580, 259, 311, 28472, 28472],
+        [80, 27715, 24788, 0, 3645, 266, 322, 29021, 29021],
     )
     idx_rows = [one for one in ref_rows if one["totals"]["theme_index"]]
     check(
@@ -8915,7 +8915,7 @@ def main() -> int:
     chart_tx = [one for one in files["chart-lo.xlsx"]["ooxml"]["color_refs"]["refs"]
                 if one["name"] in ("tx1", "bg1")]
     check(
-        "`a:clrMap` 只有幻灯片这一族写（23 份 pptx 全写、Word 与 Excel 那 117 个包一个都不写），"
+        "`a:clrMap` 只有幻灯片这一族写（23 份 pptx 全写、Word 与 Excel 那 119 个包一个都不写），"
         "而 85 份对照说的是同一套十二对（`alias_conflict` 0）：于是同名的一指在两种包里两个答案 —— "
         "deck.pptx 里 62 条 tx1/bg1 由文件自己解到 dk1/lt1，chart-lo.xlsx 那 8 条同一名字落在"
         "没写对照的包里就交解不出（slot null、via null），不是猜一个补上",
@@ -8925,7 +8925,7 @@ def main() -> int:
          sum(one["totals"]["by_via"].get("clrMap", 0) for one in ref_rows),
          len(deck_tx), sorted({(one["slot"], one["via"]) for one in deck_tx}),
          len(chart_tx), sorted({(one["slot"], one["via"], one["part"]) for one in chart_tx})],
-        [23, 117, 85, 631, 62, [("dk1", "clrMap"), ("lt1", "clrMap")],
+        [23, 119, 85, 631, 62, [("dk1", "clrMap"), ("lt1", "clrMap")],
          8, [(None, None, "xl/charts/style1.xml"), (None, None, "xl/charts/style2.xml")]],
     )
     crefs = dig(lbin("office-doc", fixture("bkmks.docx"), "--limit", "400"),
@@ -8935,14 +8935,14 @@ def main() -> int:
     check(
         "限额这一格只管列几条，不管这份包里的账：`--limit 5` 交 5 条而 `total` 与合计仍是 543 条的账"
         "（`parts_scanned` 13、`parts_with_refs` 3、`matched` 466 一个都不动）—— "
-        "整库被 400 截住的只有那 35 个 Word 包，`cut` 就是说给你听的",
+        "整库被 400 截住的只有那 38 个 Word 包，`cut` 就是说给你听的",
         [crefs["total"], crefs["listed"], crefs["cut"], crefs5["total"], crefs5["listed"],
          crefs5["cut"], crefs5["totals"]["refs"], crefs5["totals"]["parts_scanned"],
          crefs5["totals"]["parts_with_refs"], crefs5["totals"]["matched"],
          sorted(one["part"] for one in crefs5["refs"])[:2],
          sum(1 for one in ref_rows if one["cut"])],
         [543, 400, True, 543, 5, True, 543, 13, 3, 466,
-         ["word/styles.xml", "word/styles.xml"], 35],
+         ["word/styles.xml", "word/styles.xml"], 38],
     )
     check(
         "第一条就是这样写的：`word/styles.xml` 里 `rPr` 上那枚 `w:color`，名字 accent1 本身就是一格"
@@ -8960,7 +8960,7 @@ def main() -> int:
                     "clr_map_written", "wml_color", "scheme_clr", "theme_index",
                     "resolved", "unresolved", "matched"]
     for pattern, describe, want_packages, want_scanned in (
-        ("*.odt", "文字", 42, 218),
+        ("*.odt", "文字", 43, 221),
         ("*.ods", "表格", 14, 76),
         ("*.odp", "演示", 13, 73),
     ):
@@ -10185,19 +10185,21 @@ def main() -> int:
                        + list(FIXTURES.glob("*.pptx")) + list(FIXTURES.glob("*.xlsx"))):
         cmd = "office-slide" if name.endswith(".pptx") else ("office-sheet" if name.endswith(".xlsx") else "office-doc")
         got = lbin(cmd, fixture(name))
+        # office-doc 的那本账挂在 `structure` 下面，另两家是平的一层
+        pre = "structure." if cmd == "office-doc" else ""
         want = (files[name].get("ooxml") or {}).get("custom_xml")
-        check("%s 那一族存储的整本账与读者一致（含逐件那一列）" % name, dig(got, "custom_xml"), want)
+        check("%s 那一族存储的整本账与读者一致（含逐件那一列）" % name, dig(got, pre + "custom_xml"), want)
 
     cx = lbin("office-doc", fixture("customxml.docx"))
     check(
         "`customxml.docx` 一份包两枚存储：每一件都靠**自己的 `.rels`** 跳到那一份 `itemPropsN.xml`，"
         "再从那一份里读出 `ds:itemID` 与 `ds:schemaRefs/ds:schemaRef/@ds:uri` —— 第二枚那一份 "
         "`schemaRefs` 在而里面空（真件 25 份里正有一份就是这个形状），所以它的 uri 是空表而**不是**「读不出」",
-        [dig(cx, "custom_xml.items"), dig(cx, "custom_xml.items_empty"), dig(cx, "custom_xml.overrides"),
-         dig(cx, "custom_xml.default_for_xml"),
+        [dig(cx, "structure.custom_xml.items"), dig(cx, "structure.custom_xml.items_empty"), dig(cx, "structure.custom_xml.overrides"),
+         dig(cx, "structure.custom_xml.default_for_xml"),
          [[one["part"], one["root"], one["children"], one["props_rel"], one["props_found"],
            len(one["schema_uris"]), one["bound"], one["declared"]]
-          for one in dig(cx, "custom_xml.entries")]],
+          for one in dig(cx, "structure.custom_xml.entries")]],
         [2, 0, 2, True,
          [["customXml/item1.xml", "Sources", 3, "itemProps1.xml", True, 1, 1, False],
           ["customXml/item2.xml", "customData", 1, "itemProps2.xml", True, 0, 0, False]]],
@@ -10208,8 +10210,8 @@ def main() -> int:
         "`default_for_xml` 是 true，这两格合起来才是「这一族部件怎么被包承认」的答案。"
         "正文那两条手指各一条：`w:customXml` 圈字、`w:sdt` 上 `w:dataBinding/@w:storeItemID` "
         "指着第一枚的号，所以 `bound` 那列是 1 / 0 而 `unresolved_bindings` 是 0",
-        [dig(cx, "custom_xml.anchors_custom_xml"), dig(cx, "custom_xml.anchors_data_binding"),
-         dig(cx, "custom_xml.binding_ids"), dig(cx, "custom_xml.unresolved_bindings")],
+        [dig(cx, "structure.custom_xml.anchors_custom_xml"), dig(cx, "structure.custom_xml.anchors_data_binding"),
+         dig(cx, "structure.custom_xml.binding_ids"), dig(cx, "structure.custom_xml.unresolved_bindings")],
         [1, 1, ["{1B2C3D4E-5F60-4142-8384-858687888990}"], 0],
     )
     cxb = lbin("office-doc", fixture("customxml-lo.docx"))
@@ -10217,10 +10219,10 @@ def main() -> int:
         "同一份过一遍 LibreOffice：三枚 `itemN.xml` 全被**清空成 0 字节**（部件在、名字在、"
         "那一跳也在，可里面没字了 —— 所以 `root` / `children` 两格是 null，与「部件不在」是两件事），"
         "而 props 从两份变**三份**（它给正文那条绑定另写了一份存储）",
-        [dig(cxb, "custom_xml.items"), dig(cxb, "custom_xml.items_empty"), dig(cxb, "custom_xml.parts_total"),
-         dig(cxb, "custom_xml.overrides"),
+        [dig(cxb, "structure.custom_xml.items"), dig(cxb, "structure.custom_xml.items_empty"), dig(cxb, "structure.custom_xml.parts_total"),
+         dig(cxb, "structure.custom_xml.overrides"),
          [[one["part"], one["size"], one["root"], one["props_rel"], one["item_id"]]
-          for one in dig(cxb, "custom_xml.entries")]],
+          for one in dig(cxb, "structure.custom_xml.entries")]],
         [3, 3, 9, 3,
          [["customXml/item1.xml", 0, None, "itemProps1.xml", "{1B2C3D4E-5F60-4142-8384-858687888990}"],
           ["customXml/item2.xml", 0, None, "itemProps2.xml", "{1B2C3D4E-5F60-4142-8384-858687888990}"],
@@ -10231,19 +10233,19 @@ def main() -> int:
         "`ds:itemID` 是同一个号，于是两行的 `bound` 都是 1 —— 判不住就如实交两个 1，"
         "不替文件挑一份。另一条手指它干脆不认：`w:customXml` 整条丢了（1 → 0），"
         "`w:dataBinding` 照样留着（还自己补一枚 `<w:text/>`），同一族里两条手指两种待遇",
-        [dig(cxb, "custom_xml.anchors_custom_xml"), dig(cxb, "custom_xml.anchors_data_binding"),
-         [one["bound"] for one in dig(cxb, "custom_xml.entries")],
-         dig(cxb, "custom_xml.unresolved_bindings")],
+        [dig(cxb, "structure.custom_xml.anchors_custom_xml"), dig(cxb, "structure.custom_xml.anchors_data_binding"),
+         [one["bound"] for one in dig(cxb, "structure.custom_xml.entries")],
+         dig(cxb, "structure.custom_xml.unresolved_bindings")],
         [0, 1, [1, 1, 0], 0],
     )
     check(
         "`notes.docx` 那一份**不是加上去的**：python-docx 的打底模板本来就带一枚 `b:Sources`"
         "（0 条孩子、props 里一个 GUID 加一条 bibliography 的 uri），本机 25 份真件 docx 里那一份"
         "与它同形状 —— 这一族在真件里就是「存储躺在包里、正文一条手指都不写」（25/25 份两条手指各 0 处）",
-        [dig(lbin("office-doc", fixture("notes.docx")), "custom_xml.items"),
-         [one["root"] for one in dig(lbin("office-doc", fixture("notes.docx")), "custom_xml.entries")],
-         [one["children"] for one in dig(lbin("office-doc", fixture("notes.docx")), "custom_xml.entries")],
-         dig(lbin("office-doc", fixture("notes.docx")), "custom_xml.anchors_data_binding")],
+        [dig(lbin("office-doc", fixture("notes.docx")), "structure.custom_xml.items"),
+         [one["root"] for one in dig(lbin("office-doc", fixture("notes.docx")), "structure.custom_xml.entries")],
+         [one["children"] for one in dig(lbin("office-doc", fixture("notes.docx")), "structure.custom_xml.entries")],
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.custom_xml.anchors_data_binding")],
         [1, ["Sources"], [0], 0],
     )
     check(
@@ -10265,46 +10267,49 @@ def main() -> int:
                        + list(FIXTURES.glob("*.pptx")) + list(FIXTURES.glob("*.xlsx"))):
         cmd = "office-slide" if name.endswith(".pptx") else ("office-sheet" if name.endswith(".xlsx") else "office-doc")
         got = lbin(cmd, fixture(name))
+        pre = "structure." if cmd == "office-doc" else ""
         want = (files[name].get("ooxml") or {}).get("alternate_content")
-        check("%s 那两遍写法的整本账与读者一致" % name, dig(got, "alternate_content"), want)
+        check("%s 那两遍写法的整本账与读者一致" % name, dig(got, pre + "alternate_content"), want)
 
     alt = lbin("office-doc", fixture("alternate.docx"))
     check(
-        "`alternate.docx` 三种形状一份件里摆开：三块都写了一遍（`blocks` 3 / `choices` 3），"
-        "但只有两块配了退路（`fallbacks` 2）—— **「写了两遍」不是这条规矩的常态**，本机真件里"
-        "3 块只有 1 块配了 Fallback。所以 `orphans`（Choice 在、Fallback 没有的那几块）"
+        "`alternate.docx` 三种形状一份件里摆开：三块各写了一遍而**第三块写了两条 Choice**"
+        "（`blocks` 3 / `choices` 4 —— ECMA 让读者按 `Requires` 挑第一条能认的），但只有两块"
+        "配了退路（`fallbacks` 2）—— **「写了两遍」不是这条规矩的常态**，本机真件里 4 块"
+        "只有 1 块配了两遍（另 3 块是孤儿）。所以 `orphans`（Choice 在、Fallback 没有的那几块）"
         "单独数一个数，别拿 `blocks - fallbacks` 去减：一块里可以有几条 Choice",
-        [dig(alt, "alternate_content.blocks"), dig(alt, "alternate_content.choices"),
-         dig(alt, "alternate_content.fallbacks"), dig(alt, "alternate_content.orphans"),
-         dig(alt, "alternate_content.parts_scanned"), dig(alt, "alternate_content.requires_prefixes"),
-         dig(alt, "alternate_content.requires_counts")],
-        [3, 3, 2, 1, 1, ["wps", "w14"], {"wps": 2, "w14": 1}],
+        [dig(alt, "structure.alternate_content.blocks"), dig(alt, "structure.alternate_content.choices"),
+         dig(alt, "structure.alternate_content.fallbacks"), dig(alt, "structure.alternate_content.orphans"),
+         dig(alt, "structure.alternate_content.parts_scanned"), dig(alt, "structure.alternate_content.requires_prefixes"),
+         dig(alt, "structure.alternate_content.requires_counts")],
+        [3, 4, 2, 1, 1, ["w14", "wps"], {"w14": 2, "wps": 2}],
     )
     check(
         "同一块里的两条分支各写了什么也交：`requires` 按文档序原样交文件写的前缀名"
-        "（不解成 URI —— 前缀是在根元素那些 `xmlns:` 上定义的，这一本不再走那一跳）",
-        [dig(alt, "alternate_content.entries[0].requires"),
-         dig(alt, "alternate_content.entries[0].choice_elements"),
-         dig(alt, "alternate_content.entries[0].fallback_elements")],
-        [["wps", "w14", "wps"], ["r", "r", "r"], ["r", "r"]],
+        "（不解成 URI —— 前缀是在根元素那些 `xmlns:` 上定义的，这一本不再走那一跳），"
+        "而 `choice_elements` 把**每一枚** Choice 的孩子都摊平在这一列里（那第二枚点的是 `w14`）",
+        [dig(alt, "structure.alternate_content.entries[0].requires"),
+         dig(alt, "structure.alternate_content.entries[0].choice_elements"),
+         dig(alt, "structure.alternate_content.entries[0].fallback_elements")],
+        [["wps", "w14", "wps", "w14"], ["r", "r", "r", "r"], ["r", "r"]],
     )
     check(
         "LibreOffice 重写同一份：三块**连字一起丢掉**（`blocks` 3 → 0，五句只写在分支里的字"
         "一句都不剩）—— 这一族的存在意义就是「同一个文件对不同读者说不同的话」，"
         "所以那些只写在某一条分支里的话必须被数出来，而不是被当成没写字",
-        [dig(lbin("office-doc", fixture("alternate-lo.docx")), "alternate_content.blocks"),
-         dig(lbin("office-doc", fixture("alternate-lo.docx")), "alternate_content.choices"),
-         dig(lbin("office-doc", fixture("alternate-lo.docx")), "alternate_content.parts_scanned"),
-         dig(lbin("office-doc", fixture("alternate-lo.docx")), "alternate_content.requires_prefixes")],
+        [dig(lbin("office-doc", fixture("alternate-lo.docx")), "structure.alternate_content.blocks"),
+         dig(lbin("office-doc", fixture("alternate-lo.docx")), "structure.alternate_content.choices"),
+         dig(lbin("office-doc", fixture("alternate-lo.docx")), "structure.alternate_content.parts_scanned"),
+         dig(lbin("office-doc", fixture("alternate-lo.docx")), "structure.alternate_content.requires_prefixes")],
         [0, 0, 0, []],
     )
     check(
         "两个生产者的词汇几乎不重叠，而这一格就是答案的一半：docx 画布那一条点 `wps` 且"
         "**两遍写的是两种东西**（Choice 里 `drawing`、Fallback 里 `pict` —— DrawingML 的图"
         "对 VML 的图），pptx 整册每页点 `p14`，xlsx 的批注点 `v2`",
-        [[dig(lbin("office-doc", fixture("tbox.docx")), "alternate_content.requires_prefixes"),
-          dig(lbin("office-doc", fixture("tbox.docx")), "alternate_content.entries[0].choice_elements"),
-          dig(lbin("office-doc", fixture("tbox.docx")), "alternate_content.entries[0].fallback_elements")],
+        [[dig(lbin("office-doc", fixture("tbox.docx")), "structure.alternate_content.requires_prefixes"),
+          dig(lbin("office-doc", fixture("tbox.docx")), "structure.alternate_content.entries[0].choice_elements"),
+          dig(lbin("office-doc", fixture("tbox.docx")), "structure.alternate_content.entries[0].fallback_elements")],
          dig(lbin("office-slide", fixture("deck-chart-lo.pptx")), "alternate_content.requires_prefixes"),
          dig(lbin("office-sheet", fixture("cell-notes-lo.xlsx")), "alternate_content.requires_prefixes")],
         [[["wps"], ["drawing"], ["pict"]], ["p14"], ["v2"]],
@@ -10325,11 +10330,113 @@ def main() -> int:
     check(
         "没有那一族的包交一本零条的账（`blocks` 0 而 `available` 仍 true），"
         "而 ODF 那一族不交这个键（`mc:AlternateContent` 是 OPC 的东西，ODF 没有这一层）",
-        [dig(lbin("office-doc", fixture("notes.docx")), "alternate_content.blocks"),
+        [dig(lbin("office-doc", fixture("notes.docx")), "structure.alternate_content.blocks"),
          dig(lbin("office-doc", fixture("notes.odt")), "structure.alternate_content"),
          dig(lbin("office-slide", fixture("deck.odp")), "alternate_content"),
          dig(lbin("office-doc", fixture("notes.doc")), "structure.alternate_content")],
         [0, None, None, None],
+    )
+
+    print("=== 3bt) picture_layout：图是怎么摆的（锚、环绕、层序）——两族两份账 ===")
+
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 那张图的摆法（OOXML：inline / anchor 与环绕那一支）与读者一致" % name,
+              dig(got, "structure.picture_layout"), files[name]["ooxml"]["picture_layout"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 那张图的摆法（ODF：框 + 那份 family=graphic 样式，一跳是默认形状）与读者一致" % name,
+              dig(got, "structure.picture_layout"), files[name]["odt"]["picture_layout"])
+
+    lay = lbin("office-doc", fixture("wrap.docx"))
+    check(
+        "`wrap.docx` 三种摆法一份件里摆开：`wp:inline` 那一枚**结构上就没有**环绕那一支"
+        "（`wrap_element` 是 null，与「anchor 而文件一个环绕都没写」靠 `kind` 分得开），"
+        "两枚 `wp:anchor` 各写一种环绕（`wrapSquare` / `wrapTopAndBottom`）—— 四本数各数各的",
+        [dig(lay, "structure.picture_layout.parts_scanned"), dig(lay, "structure.picture_layout.drawings"),
+         dig(lay, "structure.picture_layout.inline"), dig(lay, "structure.picture_layout.anchor"),
+         dig(lay, "structure.picture_layout.other_kind"), dig(lay, "structure.picture_layout.anchor_without_wrap"),
+         dig(lay, "structure.picture_layout.wrap_elements"), dig(lay, "structure.picture_layout.listed"),
+         dig(lay, "structure.picture_layout.cut")],
+        [1, 3, 1, 2, 0, 0, {"wrapSquare": 1, "wrapTopAndBottom": 1}, 3, False],
+    )
+    check(
+        "浮着才写的那几格：层序号 `@relativeHeight`（合成那两枚写的是 251658240 这种大数）、"
+        "压不压字 `@behindDoc`、锁不锁 `@locked`、能不能叠 `@allowOverlap` —— 全按文件自己那个串交，"
+        "而「图周围留多少」那四格 EMU 两枚都有（`wp:inline` 那一枚没有，所以它的 `dist` 是 null）",
+        [[one["kind"], one["para"], one["wrap_element"], one["behind_doc"], one["locked"],
+          one["allow_overlap"], one["relative_height"], one["dist"]]
+         for one in dig(lay, "structure.picture_layout.rows")],
+        [["inline", 1, None, None, None, None, None, None],
+         ["anchor", 2, "wrapSquare", "0", "0", "1", "251658240",
+          {"distT": "0", "distB": "114300", "distL": "114300", "distR": "114300"}],
+         ["anchor", 3, "wrapTopAndBottom", "1", "1", "0", "251658241",
+          {"distT": "0", "distB": "114300", "distL": "114300", "distR": "114300"}]],
+    )
+    check(
+        "位置分横竖两条，而「怎么定」写在孩子上：一枚 `positionH` 可以只点基准"
+        "（`@relativeFrom=\"margin\"`）加一枚 `align`，另一枚可以写 `positionOffset` 那个数 —— "
+        "`offset_written` 说的是「这一格在不在」，`offset` 才是它写的字。"
+        "（LibreOffice 那一份里 `positionV` 的孩子叫 `posOffset` 而不是 `positionOffset`，"
+        "于是 `offset_written` false 而 `children` 仍写着那个名字 —— 两家按同一格判，都不补）",
+        [[one["kind"], one["position_h"], one["position_v"]]
+         for one in dig(lay, "structure.picture_layout.rows")],
+        [["inline", {"present": False, "relative_from": None, "align": None, "offset": None,
+                     "offset_written": False, "children": []},
+          {"present": False, "relative_from": None, "align": None, "offset": None,
+           "offset_written": False, "children": []}],
+         ["anchor", {"present": True, "relative_from": "margin", "align": None, "offset": None,
+                     "offset_written": False, "children": ["align"]},
+          {"present": True, "relative_from": "paragraph", "align": None, "offset": None,
+           "offset_written": False, "children": ["posOffset"]}],
+         ["anchor", {"present": True, "relative_from": "page", "align": None, "offset": "114300",
+                     "offset_written": True, "children": ["positionOffset"]},
+          {"present": True, "relative_from": "page", "align": None, "offset": "72000",
+           "offset_written": True, "children": ["positionOffset"]}]],
+    )
+    back = lbin("office-doc", fixture("wrap-lo.docx"))
+    check(
+        "来回一趟丢掉一条、改了一个数（同一个意思的两种写法，谁也没错，两边都按原样交）："
+        "三份框导成 docx 只剩两张图（按页锚的那一张整张丢掉，`drawings` 3 → 2），"
+        "而留着的那枚 anchor 的 `relativeHeight` 从 `251658240` 变成 `3`，"
+        "环绕方式也被它自己挑了一种（ODF 那面写 `parallel`，这面写 `wrapSquare`）",
+        [dig(back, "structure.picture_layout.drawings"), dig(back, "structure.picture_layout.inline"),
+         dig(back, "structure.picture_layout.anchor"), dig(back, "structure.picture_layout.wrap_elements"),
+         dig(back, "structure.picture_layout.rows[1].relative_height"),
+         dig(back, "structure.picture_layout.rows[1].wrap_element"),
+         dig(back, "structure.picture_layout.rows[0].children")],
+        [2, 1, 1, {"wrapSquare": 1}, "3", "wrapSquare",
+         ["extent", "effectExtent", "docPr", "cNvGraphicFramePr", "graphic"]],
+    )
+    odt = lbin("office-doc", fixture("wrap.odt"))
+    check(
+        "同一问在 ODF 是**框 + 一跳**：框自己只写 `text:anchor-type`（三种锚各一枚），"
+        "环绕、穿透、四个边距全在它点名的那份 `family=\"graphic\"` 样式里。"
+        "「随字走」那一枚的样式里**根本没有 `style:wrap` 这一格**（`wrap_unwritten` 1）——"
+        "「文件没说」与「说了不环绕」（`wrapNone`）是两句话，所以两张表都只数文件写着的那些值",
+        [dig(odt, "structure.picture_layout.frames"), dig(odt, "structure.picture_layout.anchor_types"),
+         dig(odt, "structure.picture_layout.wrap_values"), dig(odt, "structure.picture_layout.wrap_unwritten"),
+         dig(odt, "structure.picture_layout.style_unfound"),
+         [[one["anchor_type"], one["style_name"], one["style_found"], one["style_part"],
+           one["wrap"], one["wrap_written"], one["props_written"]]
+          for one in dig(odt, "structure.picture_layout.rows")]],
+        [3, {"as-char": 1, "paragraph": 1, "page": 1}, {"parallel": 1, "through": 1}, 1, 0,
+         [["as-char", "frChar", True, "content.xml", None, False, 5],
+          ["paragraph", "frPara", True, "content.xml", "parallel", True, 11],
+          ["page", "frPage", True, "content.xml", "through", True, 11]]],
+    )
+    check(
+        "那一跳断了不替文件补一个「不环绕」：`notes.odt` 那一枚框的样式里 `wrap` 没写、"
+        "四个边距却写着（`margin-left` 是 `0.319cm` —— 单位按文件的串交，不换算成毫米），"
+        "而 .pptx / .rtf / 遗留 .doc 这三族**不交这个键**（图住在页自己的形状树里，不是这条规矩）",
+        [dig(lbin("office-doc", fixture("notes.odt")), "structure.picture_layout.frames"),
+         dig(lbin("office-doc", fixture("notes.odt")), "structure.picture_layout.wrap_unwritten"),
+         dig(lbin("office-doc", fixture("notes.odt")), "structure.picture_layout.rows[0].margins"),
+         dig(lbin("office-slide", fixture("deck-pictures.pptx")), "picture_layout"),
+         dig(lbin("office-doc", fixture("notes.rtf")), "structure.picture_layout"),
+         dig(lbin("office-doc", fixture("notes.doc")), "structure.picture_layout")],
+        [1, 1, {"margin-top": "0cm", "margin-bottom": "0cm", "margin-left": "0.319cm",
+                "margin-right": "0.319cm"}, None, None, None],
     )
 
     failed = [one for one in RESULTS if not one[1]]
