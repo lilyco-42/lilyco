@@ -219,8 +219,13 @@ pub(crate) fn docx(bytes: &[u8], limit: usize) -> Value {
     }
     let defaults_touched = touched_of(&defaults);
 
+    // 九枚全在场：语料级那本按枚名逐格取，缺席的一枚交 0 而不是没有这一格
     let mut words: BTreeMap<String, Cell> = BTreeMap::new();
     let mut style_words: BTreeMap<String, u64> = BTreeMap::new();
+    for one in WORDS.iter() {
+        words.insert((*one).to_string(), (0, 0, 0, BTreeMap::new()));
+        style_words.insert((*one).to_string(), 0);
+    }
     let mut proof_runs = 0u64;
     let mut proof_paragraphs = 0u64;
     let mut proof_values: BTreeMap<String, u64> = BTreeMap::new();
@@ -367,7 +372,11 @@ pub(crate) fn odf(content: &Node, styles: Option<&Node>, limit: usize) -> Value 
             table.insert(name.to_string(), ((*part).to_string(), Value::Object(had)));
         }
     }
+    // 同 docx 那一头：四枚近亲全在场，缺席交 0
     let mut words: BTreeMap<String, (u64, BTreeMap<String, u64>)> = BTreeMap::new();
+    for key in ODF_WORDS.iter() {
+        words.insert((*key).to_string(), (0, BTreeMap::new()));
+    }
     let mut rows: Vec<Value> = Vec::new();
     let mut indexed: Vec<u64> = Vec::new();
     let part = "content.xml";
