@@ -5640,6 +5640,170 @@ def holder_of(mine):
     return (mine or {}).get("holder")
 
 
+# ── 这份稿子有多少字：生产者自报的那份与正文实算的那份并排 ──────────────────────
+#
+# office-doc 那一族早就两份并交（`statistics.ours` 与 `statistics.producer`），放映那一族以前
+# 根本没有这一格。实测（`stats.pptx` = python-pptx 打底 + 按 ECMA 手写 app.xml；`stats-lo.pptx`
+# = LibreOffice 重写同一份；`stats.odp` = LibreOffice 转出去的那份；真件普查见模块注释）：
+# 三个「实算」口径都交，因为生产者数了什么文件里没写；对不上就是事实，不判谁对。
+STAT_NAMES = (("words", "Words"), ("paragraphs", "Paragraphs"), ("slides", "Slides"),
+              ("notes", "Notes"), ("hidden_slides", "HiddenSlides"),
+              ("mm_clips", "MMClips"), ("total_time", "TotalTime"))
+STAT_KEYS = ("characters", "characters_no_spaces", "words_by_space", "paragraphs", "text_atoms")
+# ODF 那一族没有 `a:t` 这种「文字原子」，所以它的键少一个（缺的键不交 0，交了就是判过）
+ODF_STAT_KEYS = ("characters", "characters_no_spaces", "words_by_space", "paragraphs")
+
+
+def stat_zero() -> dict:
+    return {key: 0 for key in STAT_KEYS}
+
+
+def stat_add(into: dict, got: dict) -> dict:
+    for key, value in got.items():
+        into[key] = into.get(key, 0) + value
+    return into
+
+
+def stat_tally(nodes) -> dict:
+    """DrawingML 的段与文字原子：只按局部名认 `p` / `t`（与旧账同一口径）"""
+    out = stat_zero()
+    for one in nodes:
+        tag = xml_local(one.tag)
+        if tag == "p":
+            out["paragraphs"] += 1
+        elif tag == "t":
+            text = one.text or ""
+            out["characters"] += len(text)
+            out["characters_no_spaces"] += len("".join(text.split()))
+            out["words_by_space"] += len(text.split())
+            out["text_atoms"] += 1
+    return out
+
+
+def odf_stat_zero() -> dict:
+    return {key: 0 for key in ODF_STAT_KEYS}
+
+
+def odf_stat_tally(host) -> dict:
+    """ODF 的一页：段与标题都算一段，整段的字按 `itertext` 拼（跨 span 与换行记号）"""
+    out = odf_stat_zero()
+    for one in host.iter():
+        if xml_local(one.tag) not in ("p", "h"):
+            continue
+        text = "".join(x or "" for x in one.itertext())
+        out["characters"] += len(text)
+        out["characters_no_spaces"] += len("".join(text.split()))
+        out["words_by_space"] += len(text.split())
+        out["paragraphs"] += 1
+    return out
+
+
+def pptx_stats(path: Path, limit: int = 400) -> dict:
+    """pptx 的三份账：页部件实算、备注与版式实算、`docProps/app.xml` 自报
+
+    「实算」有三个口径（只数页 / 页 + 备注 / 包里所有带 `a:t` 的部件），因为生产者到底数了
+    什么文件里没写；三个都交、三个都比，谁也不选。
+    """
+    parts = _mar_parts(path)
+
+    def names(head: str, skip=()):
+        return sorted(one for one in parts
+                      if one.startswith(head) and one.endswith(".xml")
+                      and "_rels" not in one and one not in skip)
+
+    slides = names("ppt/slides/slide")
+    notes = names("ppt/notesSlides/notesSlide")
+    others = [one for one in names("ppt/slide") if one not in slides and one not in notes]
+    rows = []
+    ours = stat_zero()
+    for name in slides:
+        root = _mar_root(parts[name])
+        got = stat_zero() if root is None else stat_tally(root.iter())
+        stat_add(ours, got)
+        if len(rows) < limit:
+            rows.append(dict(got, part=name, has_text=got["characters"] > 0))
+    notes_tally = stat_zero()
+    for name in notes:
+        root = _mar_root(parts[name])
+        if root is not None:
+            stat_add(notes_tally, stat_tally(root.iter()))
+    other_tally = stat_zero()
+    for name in others:
+        root = _mar_root(parts[name])
+        if root is not None:
+            stat_add(other_tally, stat_tally(root.iter()))
+    with_notes = stat_add(dict(notes_tally), ours)
+    all_parts = stat_add(dict(other_tally), with_notes)
+    app = _mar_root(parts.get("docProps/app.xml")) if "docProps/app.xml" in parts else None
+    declared = None
+    if app is not None:
+        declared = {}
+        for key, want in STAT_NAMES:
+            hit = [one for one in app.iter() if xml_local(one.tag) == want]
+            if not hit:
+                continue
+            body = (hit[0].text or "").strip()
+            try:
+                declared[key] = int(body)
+            except ValueError:
+                declared[key] = body
+
+    def same(key: str, mine):
+        if declared is None or key not in declared:
+            return None
+        return declared[key] == mine
+
+    agree = {
+        "words": {"slides": same("words", ours["words_by_space"]),
+                  "with_notes": same("words", with_notes["words_by_space"]),
+                  "all": same("words", all_parts["words_by_space"])},
+        "paragraphs": {"slides": same("paragraphs", ours["paragraphs"]),
+                       "all": same("paragraphs", all_parts["paragraphs"])},
+        "slides": same("slides", len(slides)),
+        "notes": same("notes", len(notes)),
+    }
+    return {"family": "ooxml", "available": declared is not None,
+            "slide_parts": len(slides), "notes_parts": len(notes),
+            "other_text_parts": len(others), "declared": declared, "ours": ours,
+            "notes": notes_tally, "others": other_tally, "with_notes": with_notes,
+            "all_parts": all_parts, "agree": agree, "rows": rows, "listed": len(rows),
+            "cut": len(slides) > len(rows)}
+
+
+def odf_stats(parts, limit: int = 400) -> dict:
+    """odp 的三份账：`meta.xml` 那一枚元素照抄 + 正文按页实算
+
+    实测：LibreOffice 转出 odp 时 `meta:document-statistic` **只写 `object-count` 一条**
+    （16 份自产 odp 全是这一个名，值 138~150），字数、字符数、段落数、页数一条都没有；
+    同一件转成 odt 时那枚元素写着八条 —— 所以放映这一族的「生产者声明」只有那一个
+    与字数无关的数，而它数的是整套母版与版式里的图形，不是页上那几枚形状。
+    """
+    root = _bg_member(parts, "content.xml")
+    meta = _bg_member(parts, "meta.xml")
+    declared = None
+    present = False
+    if meta is not None:
+        hit = [one for one in meta.iter() if xml_local(one.tag) == "document-statistic"]
+        present = bool(hit)
+        if hit:
+            declared = {xml_local(key): value for key, value in hit[0].attrib.items()}
+    pages = [] if root is None else [one for one in root.iter() if xml_local(one.tag) == "page"]
+    rows = []
+    in_pages = odf_stat_zero()
+    for index, page in enumerate(pages):
+        got = odf_stat_tally(page)
+        stat_add(in_pages, got)
+        if len(rows) < limit:
+            rows.append(dict(got, page=index, name=odf_attr(page, "name"),
+                             klass=odf_attr(page, "class"),
+                             has_text=got["characters"] > 0))
+    ours = odf_stat_zero() if root is None else odf_stat_tally(root)
+    return {"family": "odf", "available": True, "statistic_part": meta is not None,
+            "statistic_present": present, "declared": declared, "pages": len(pages),
+            "ours": ours, "ours_in_pages": in_pages, "rows": rows, "listed": len(rows),
+            "cut": len(pages) > len(rows)}
+
+
 # ── 表格边框：这一圈到底有没有线 ────────────────────────────────────────────────
 #
 # 三族三个形状（实测见 `table_borders.rs` 的模块注释）：
@@ -13565,6 +13729,7 @@ def facts(path: Path) -> dict:
             out["ooxml"]["cell_margins"] = pptx_cell_margins(path)
             out["ooxml"]["table_borders"] = pptx_table_borders(path)
             out["ooxml"]["vertical_align"] = pptx_vertical_align(path)
+            out["ooxml"]["statistics"] = pptx_stats(path)
             # 一条式子是文本体里的 OMML，而同一个形状在 Fallback 里还写了一遍（挂着替身图）
             out["ooxml"]["equations"] = pptx_equations_ledger(path)
             # 大纲那一本（`office-text --markdown` 的 pptx 支）：一页一个 `#`，
@@ -13673,6 +13838,7 @@ def facts(path: Path) -> dict:
                 out["odp"]["cell_margins"] = odf_cell_margins(_mar_parts(path))
                 out["odp"]["table_borders"] = odf_table_borders(_mar_parts(path))
                 out["odp"]["vertical_align"] = odf_vertical_align(_mar_parts(path))
+                out["odp"]["statistics"] = odf_stats(_mar_parts(path))
         else:
             out["app"] = "unknown-zip"
         return out

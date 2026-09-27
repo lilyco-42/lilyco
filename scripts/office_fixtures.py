@@ -2635,6 +2635,42 @@ def write_valign_pptx(path: Path) -> None:
     deck.save(path)
 
 
+def write_stats_pptx(path: Path) -> None:
+    """这一族「这份稿子有多少字」：生产者自报的那份要手写，因为 python-pptx 只写 0
+
+    真件普查（本机 104 份 pptx，102 份带 `docProps/app.xml`）：`Words` / `Paragraphs` /
+    `Slides` / `Notes` / `HiddenSlides` / `MMClips` / `TotalTime` 那七个名 102 份里**全写**，
+    其中 `Slides` 与件里真正的页部件数对得上（101/102）、`Notes` 与备注部件数对得上
+    （102/102），而 `Words` 与「按空白切出的词」、`Paragraphs` 与 `a:p` 条数
+    **一份都对不上**（0/102），另有 78 份写着 `Words=0` 而正文有字 —— 所以
+    「自报非零而不对」这一形只能手写（python-pptx 那里所有名都是 0）。
+    """
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    deck = Presentation()
+    blank = deck.slide_layouts[5]
+    first = deck.slides.add_slide(blank)
+    box = first.shapes.add_textbox(Inches(0.6), Inches(1.6), Inches(6.0), Inches(2.2))
+    box.text_frame.text = "中文字数 一句话"
+    for one in ("English words only here", "混 一起 two"):
+        box.text_frame.add_paragraph().text = one
+    second = deck.slides.add_slide(blank)
+    shape = second.shapes.add_table(2, 2, Inches(0.6), Inches(1.6), Inches(6.0), Inches(1.6))
+    for index, text in enumerate(("表格里的字 a b", "第二格", "第三格 一句话", "第四格")):
+        shape.table.cell(index // 2, index % 2).text = text
+    second.notes_slide.notes_text_frame.text = "备注里的字不算进正文"
+    slides = sum(1 for _ in deck.slides)
+    deck.save(path)
+    # 手写自报数：`Slides` 写成真件那一个对得上的数，其余两个写成非零而不对的数
+    for anchor, replacement in (
+        ("<Slides>0</Slides>", "<Slides>%d</Slides>" % slides),
+        ("<Words>0</Words>", "<Words>999999</Words>"),
+        ("<Paragraphs>0</Paragraphs>", "<Paragraphs>7</Paragraphs>"),
+    ):
+        patch_part(path, {"docProps/app.xml": (anchor, replacement)})
+
+
 def _cell_mar(holder, element: str, dirs: list) -> None:
     """往 `w:tblPr` 或 `w:tcPr` 上挂一枚 `w:tblCellMar` / `w:tcMar`（方向按给的序写）
 
@@ -5442,6 +5478,20 @@ def main() -> int:
         else:
             print("⚠️  没拿到 %s" % back)
 
+    # 这一族「多少字」三份账：python-pptx 打底 + 手写自报数，LibreOffice 转 odp、同格式重写一份
+    stats = OUT / "stats.pptx"
+    write_stats_pptx(stats)
+    convert(exe, stats, "odp", SCRATCH)
+    if (SCRATCH / "stats.odp").exists():
+        shutil.copyfile(SCRATCH / "stats.odp", OUT / "stats.odp")
+    else:
+        print("⚠️  没拿到 stats.odp（odp 那一转）")
+    convert(exe, stats, "pptx", SCRATCH / "stats-back")
+    made_stats = SCRATCH / "stats-back" / "stats.pptx"
+    if made_stats.exists():
+        shutil.copyfile(made_stats, OUT / "stats-lo.pptx")
+    else:
+        print("⚠️  没拿到 stats-lo.pptx（pptx → pptx 那一转）")
     # 打印区域那三份：openpyxl 写 xlsx，同格式重写一份（引号整层没了）、再转一份 ods
     area = OUT / "print-area.xlsx"
     write_print_area_xlsx(area)

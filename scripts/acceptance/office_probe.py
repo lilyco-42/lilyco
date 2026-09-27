@@ -11443,6 +11443,185 @@ def main() -> int:
         [False, False, False, False, False, True, True, True, True],
     )
 
+    # ── 3bz) 这份稿子有多少字：`docProps/app.xml` 自报的七个名与正文实算的三个口径 ──
+    print("=== 3bz) statistics：自报 vs 实算（三个口径都交） ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.pptx")):
+        check("%s 这一族多少字与读者一致（页 / 页加备注 / 整包三份实算）" % name,
+              dig(lbin("office-slide", fixture(name)), "statistics"),
+              files[name]["ooxml"]["statistics"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odp")):
+        check("%s 这一族多少字与读者一致（自报那一份只有一条 `object-count`）" % name,
+              dig(lbin("office-slide", fixture(name)), "statistics"),
+              files[name]["odp"]["statistics"])
+    check(
+        "`stats.pptx` 的三份账并排（自报那份是手写的，`Slides` 写成正件那个对得上的数）——七个名全写 {'words': 999999, 'paragraphs': 7, 'slides': 2, 'notes': 0, 'hidden_slides': 0, 'mm_clips': 0, 'total_time': 1}、正文只数页部件 {'characters': 61, 'characters_no_spaces': 52, 'words_by_space': 16, 'paragraphs': 9, 'text_atoms': 7}、备注部件那份 {'characters': 10, 'characters_no_spaces': 10, 'words_by_space': 1, 'paragraphs': 1, 'text_atoms': 1}、版式与母版那份 {'characters': 1369, 'characters_no_spaces': 1203, 'words_by_space': 252, 'paragraphs': 99, 'text_atoms': 86}、整包那份 {'characters': 1440, 'characters_no_spaces': 1265, 'words_by_space': 269, 'paragraphs': 109, 'text_atoms': 94}、等号三本 {'words': {'slides': False, 'with_notes': False, 'all': False}, 'paragraphs': {'slides': False, 'all': False}, 'slides': True, 'notes': False}、页部件数 2（备注与其余部件数在同一条的另一半）、第一页那一行 {'characters': 39, 'characters_no_spaces': 33, 'words_by_space': 9, 'paragraphs': 4, 'text_atoms': 3, 'part': 'ppt/slides/slide1.xml', 'has_text': True}",
+        [dig(lbin("office-slide", fixture('stats.pptx')), 'statistics.declared'),
+         dig(lbin("office-slide", fixture('stats.pptx')), 'statistics.ours'),
+         dig(lbin("office-slide", fixture('stats.pptx')), 'statistics.notes'),
+         dig(lbin("office-slide", fixture('stats.pptx')), 'statistics.others'),
+         dig(lbin("office-slide", fixture('stats.pptx')), 'statistics.all_parts'),
+         dig(lbin("office-slide", fixture('stats.pptx')), 'statistics.agree'),
+         dig(lbin("office-slide", fixture('stats.pptx')), 'statistics.slide_parts'),
+         dig(lbin("office-slide", fixture('stats.pptx')), 'statistics.rows[0]')],
+        [{'words': 999999, 'paragraphs': 7, 'slides': 2, 'notes': 0, 'hidden_slides': 0, 'mm_clips': 0, 'total_time': 1},
+         {'characters': 61, 'characters_no_spaces': 52, 'words_by_space': 16, 'paragraphs': 9, 'text_atoms': 7},
+         {'characters': 10, 'characters_no_spaces': 10, 'words_by_space': 1, 'paragraphs': 1, 'text_atoms': 1},
+         {'characters': 1369, 'characters_no_spaces': 1203, 'words_by_space': 252, 'paragraphs': 99, 'text_atoms': 86},
+         {'characters': 1440, 'characters_no_spaces': 1265, 'words_by_space': 269, 'paragraphs': 109, 'text_atoms': 94},
+         {'words': {'slides': False, 'with_notes': False, 'all': False}, 'paragraphs': {'slides': False, 'all': False}, 'slides': True, 'notes': False},
+         2,
+         {'characters': 39, 'characters_no_spaces': 33, 'words_by_space': 9, 'paragraphs': 4, 'text_atoms': 3, 'part': 'ppt/slides/slide1.xml', 'has_text': True}],
+    )
+    check(
+        "LibreOffice 重写同一份 pptx：手写的 `Words`/`Paragraphs` 原样搬过去，另四个名整个丢掉——自报只剩三个名 {'words': 999999, 'paragraphs': 7, 'total_time': 1}、字符数一字没动而文字原子被拆细 {'characters': 61, 'characters_no_spaces': 52, 'words_by_space': 16, 'paragraphs': 9, 'text_atoms': 9}、那两个数于是变成 null 而不是 false {'words': {'slides': False, 'with_notes': False, 'all': False}, 'paragraphs': {'slides': False, 'all': False}, 'slides': None, 'notes': None}、备注那份 {'characters': 14, 'characters_no_spaces': 14, 'words_by_space': 2, 'paragraphs': 2, 'text_atoms': 2}",
+        [dig(lbin("office-slide", fixture('stats-lo.pptx')), 'statistics.declared'),
+         dig(lbin("office-slide", fixture('stats-lo.pptx')), 'statistics.ours'),
+         dig(lbin("office-slide", fixture('stats-lo.pptx')), 'statistics.agree'),
+         dig(lbin("office-slide", fixture('stats-lo.pptx')), 'statistics.notes')],
+        [{'words': 999999, 'paragraphs': 7, 'total_time': 1},
+         {'characters': 61, 'characters_no_spaces': 52, 'words_by_space': 16, 'paragraphs': 9, 'text_atoms': 9},
+         {'words': {'slides': False, 'with_notes': False, 'all': False}, 'paragraphs': {'slides': False, 'all': False}, 'slides': None, 'notes': None},
+         {'characters': 14, 'characters_no_spaces': 14, 'words_by_space': 2, 'paragraphs': 2, 'text_atoms': 2}],
+    )
+    check(
+        "python-pptx 打底那份（没手写）：七个名全写 0，而正文有字——自报 {'words': 0, 'paragraphs': 0, 'slides': 0, 'notes': 0, 'hidden_slides': 0, 'mm_clips': 0, 'total_time': 1}、实算 {'characters': 42, 'characters_no_spaces': 40, 'words_by_space': 10, 'paragraphs': 8, 'text_atoms': 8}、整包 {'characters': 1422, 'characters_no_spaces': 1254, 'words_by_space': 263, 'paragraphs': 108, 'text_atoms': 95}、等号 {'words': {'slides': False, 'with_notes': False, 'all': False}, 'paragraphs': {'slides': False, 'all': False}, 'slides': False, 'notes': False}",
+        [dig(lbin("office-slide", fixture('deck.pptx')), 'statistics.declared'),
+         dig(lbin("office-slide", fixture('deck.pptx')), 'statistics.ours'),
+         dig(lbin("office-slide", fixture('deck.pptx')), 'statistics.all_parts'),
+         dig(lbin("office-slide", fixture('deck.pptx')), 'statistics.agree')],
+        [{'words': 0, 'paragraphs': 0, 'slides': 0, 'notes': 0, 'hidden_slides': 0, 'mm_clips': 0, 'total_time': 1},
+         {'characters': 42, 'characters_no_spaces': 40, 'words_by_space': 10, 'paragraphs': 8, 'text_atoms': 8},
+         {'characters': 1422, 'characters_no_spaces': 1254, 'words_by_space': 263, 'paragraphs': 108, 'text_atoms': 95},
+         {'words': {'slides': False, 'with_notes': False, 'all': False}, 'paragraphs': {'slides': False, 'all': False}, 'slides': False, 'notes': False}],
+    )
+    check(
+        "odp 这一头：`meta:document-statistic` 只写了一条 `object-count`——那一枚元素的属性 {'object-count': '144'}、整份件实算 {'characters': 75, 'characters_no_spaces': 66, 'words_by_space': 18, 'paragraphs': 9}、按页之和同一个数（备注在页里面）{'characters': 75, 'characters_no_spaces': 66, 'words_by_space': 18, 'paragraphs': 9}、页数 2、第一页 {'characters': 39, 'characters_no_spaces': 33, 'words_by_space': 9, 'paragraphs': 3, 'page': 0, 'name': 'page1', 'klass': None, 'has_text': True}、第二页 {'characters': 36, 'characters_no_spaces': 33, 'words_by_space': 9, 'paragraphs': 6, 'page': 1, 'name': 'page2', 'klass': None, 'has_text': True}",
+        [dig(lbin("office-slide", fixture('stats.odp')), 'statistics.declared'),
+         dig(lbin("office-slide", fixture('stats.odp')), 'statistics.ours'),
+         dig(lbin("office-slide", fixture('stats.odp')), 'statistics.ours_in_pages'),
+         dig(lbin("office-slide", fixture('stats.odp')), 'statistics.pages'),
+         dig(lbin("office-slide", fixture('stats.odp')), 'statistics.rows[0]'),
+         dig(lbin("office-slide", fixture('stats.odp')), 'statistics.rows[1]')],
+        [{'object-count': '144'},
+         {'characters': 75, 'characters_no_spaces': 66, 'words_by_space': 18, 'paragraphs': 9},
+         {'characters': 75, 'characters_no_spaces': 66, 'words_by_space': 18, 'paragraphs': 9},
+         2,
+         {'characters': 39, 'characters_no_spaces': 33, 'words_by_space': 9, 'paragraphs': 3, 'page': 0, 'name': 'page1', 'klass': None, 'has_text': True},
+         {'characters': 36, 'characters_no_spaces': 33, 'words_by_space': 9, 'paragraphs': 6, 'page': 1, 'name': 'page2', 'klass': None, 'has_text': True}],
+    )
+    check(
+        "另一份 odp：页名是标题给的，自报仍然只有那一条——自报 {'object-count': '144'}、实算 {'characters': 57, 'characters_no_spaces': 55, 'words_by_space': 12, 'paragraphs': 11}、第一页的名字 '预算评审'",
+        [dig(lbin("office-slide", fixture('deck.odp')), 'statistics.declared'),
+         dig(lbin("office-slide", fixture('deck.odp')), 'statistics.ours'),
+         dig(lbin("office-slide", fixture('deck.odp')), 'statistics.rows[0].name')],
+        [{'object-count': '144'},
+         {'characters': 57, 'characters_no_spaces': 55, 'words_by_space': 12, 'paragraphs': 11},
+         '预算评审'],
+    )
+    check(
+        "反面凭据（生产者）：`eqs.odp` 整份 `meta.xml` 都没有，于是自报那格是 null 而不是 0——meta 在不在 False、那一枚在不在 False、自报 None、实算照交 {'characters': 10, 'characters_no_spaces': 10, 'words_by_space': 1, 'paragraphs': 1}",
+        [dig(lbin("office-slide", fixture('eqs.odp')), 'statistics.statistic_part'),
+         dig(lbin("office-slide", fixture('eqs.odp')), 'statistics.statistic_present'),
+         dig(lbin("office-slide", fixture('eqs.odp')), 'statistics.declared'),
+         dig(lbin("office-slide", fixture('eqs.odp')), 'statistics.ours')],
+        [False,
+         False,
+         None,
+         {'characters': 10, 'characters_no_spaces': 10, 'words_by_space': 1, 'paragraphs': 1}],
+    )
+    check(
+        "截行不截账（pptx）：`--limit 1` 只砍 `rows`，三份实算仍按全部页算——列了几行 1、砍没砍 True、实算不变 {'characters': 61, 'characters_no_spaces': 52, 'words_by_space': 16, 'paragraphs': 9, 'text_atoms': 7}、交出来的那一行 {'characters': 39, 'characters_no_spaces': 33, 'words_by_space': 9, 'paragraphs': 4, 'text_atoms': 3, 'part': 'ppt/slides/slide1.xml', 'has_text': True}",
+        [dig(lbin("office-slide", fixture('stats.pptx'), '--limit', '1'), 'statistics.listed'),
+         dig(lbin("office-slide", fixture('stats.pptx'), '--limit', '1'), 'statistics.cut'),
+         dig(lbin("office-slide", fixture('stats.pptx'), '--limit', '1'), 'statistics.ours'),
+         dig(lbin("office-slide", fixture('stats.pptx'), '--limit', '1'), 'statistics.rows[0]')],
+        [1,
+         True,
+         {'characters': 61, 'characters_no_spaces': 52, 'words_by_space': 16, 'paragraphs': 9, 'text_atoms': 7},
+         {'characters': 39, 'characters_no_spaces': 33, 'words_by_space': 9, 'paragraphs': 4, 'text_atoms': 3, 'part': 'ppt/slides/slide1.xml', 'has_text': True}],
+    )
+    check(
+        "截行不截账（odp）：`--limit 1` 砍掉第二页的行，整份件与按页之和都不动——列了几页 1、砍没砍 True、整份件 {'characters': 75, 'characters_no_spaces': 66, 'words_by_space': 18, 'paragraphs': 9}、按页之和 {'characters': 75, 'characters_no_spaces': 66, 'words_by_space': 18, 'paragraphs': 9}",
+        [dig(lbin("office-slide", fixture('stats.odp'), '--limit', '1'), 'statistics.listed'),
+         dig(lbin("office-slide", fixture('stats.odp'), '--limit', '1'), 'statistics.cut'),
+         dig(lbin("office-slide", fixture('stats.odp'), '--limit', '1'), 'statistics.ours'),
+         dig(lbin("office-slide", fixture('stats.odp'), '--limit', '1'), 'statistics.ours_in_pages')],
+        [1,
+         True,
+         {'characters': 75, 'characters_no_spaces': 66, 'words_by_space': 18, 'paragraphs': 9},
+         {'characters': 75, 'characters_no_spaces': 66, 'words_by_space': 18, 'paragraphs': 9}],
+    )
+    def _stat(name, fam):
+        had = files.get(name) or {}
+        one = had.get(fam)
+        return one["statistics"] if isinstance(one, dict) and "statistics" in one else None
+
+    deckst = dict((one, had) for one, _raw in files.items() if one.endswith(".pptx")
+                  for had in [_stat(one, "ooxml")] if had)
+    odpst = dict((one, had) for one, _raw in files.items() if one.endswith(".odp")
+                 for had in [_stat(one, "odp")] if had)
+    check(
+        "整库摊开（自产件）：" + "份数 pptx 33、带 app.xml 33、页部件之和 80、备注部件之和 4、其余带字部件之和 418、正文实算字符 1107、整包实算字符 44645、正文实算切词 203、Words 写 0 而正文有字 24、Words 与三口径都对 0、Paragraphs 与段数对 0、Slides 对 1、Slides 不对 16、Slides 没写 16、Notes 对 15、Notes 不对 2、Notes 没写 16、份数 odp 18、odp 带那一枚 17、odp 页数之和 43、odp 整份件字符 610、odp 按页与整份同一数 18",
+        [len(deckst),
+         sum(1 for one in deckst.values() if one["available"]),
+         sum(one["slide_parts"] for one in deckst.values()),
+         sum(one["notes_parts"] for one in deckst.values()),
+         sum(one["other_text_parts"] for one in deckst.values()),
+         sum(one["ours"]["characters"] for one in deckst.values()),
+         sum(one["all_parts"]["characters"] for one in deckst.values()),
+         sum(one["ours"]["words_by_space"] for one in deckst.values()),
+         sum(1 for one in deckst.values() if one["declared"] and one["declared"].get("words") == 0 and one["ours"]["characters"] > 0),
+         sum(1 for one in deckst.values() if one["agree"]["words"]["all"] is True),
+         sum(1 for one in deckst.values() if one["agree"]["paragraphs"]["slides"] is True),
+         sum(1 for one in deckst.values() if one["agree"]["slides"] is True),
+         sum(1 for one in deckst.values() if one["agree"]["slides"] is False),
+         sum(1 for one in deckst.values() if one["agree"]["slides"] is None),
+         sum(1 for one in deckst.values() if one["agree"]["notes"] is True),
+         sum(1 for one in deckst.values() if one["agree"]["notes"] is False),
+         sum(1 for one in deckst.values() if one["agree"]["notes"] is None),
+         len(odpst),
+         sum(1 for one in odpst.values() if one["statistic_present"]),
+         sum(one["pages"] for one in odpst.values()),
+         sum(one["ours"]["characters"] for one in odpst.values()),
+         sum(1 for one in odpst.values() if one["ours"] == one["ours_in_pages"])],
+        [33,
+         33,
+         80,
+         4,
+         418,
+         1107,
+         44645,
+         203,
+         24,
+         0,
+         0,
+         1,
+         16,
+         16,
+         15,
+         2,
+         16,
+         18,
+         17,
+         43,
+         610,
+         18],
+    )
+    check(
+        "反面凭据：这一格只在读了放映那两族的出口交。遗留 `.ppt` 的自报数在 `SummaryInformation` "
+        "的属性流里（那是 office-meta 读的那一本），而表格与 PDF 与 office-text 那三个命令根本没有 "
+        "`statistics` 这个键（office-doc 那一族的住在 `structure` 下面，所以它说得出口）",
+        [no_theme_key("office-slide", "deck.ppt", "statistics"),
+         no_theme_key("office-sheet", "book.xlsx", "statistics"),
+         no_theme_key("office-pdf", "risk.pdf", "statistics"),
+         no_theme_key("office-text", "notes.docx", "statistics"),
+         no_theme_key("office-slide", "stats.pptx", "statistics"),
+         no_theme_key("office-slide", "stats.odp", "statistics"),
+         no_theme_key("office-doc", "valign.docx", "statistics"),
+         no_theme_key("office-slide", "deck.odp", "statistics")],
+        [False, False, False, False, True, True, True, True],
+    )
+
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:
         print(f"  FAIL {name}: {detail}")

@@ -89,6 +89,7 @@ mod rtf;
 mod section_starts;
 mod shape_tree;
 mod slide_bullets;
+mod slide_stats;
 mod symbols;
 mod tab_stops;
 mod table_borders;

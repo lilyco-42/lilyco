@@ -239,6 +239,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `valign.odp` | LibreOffice（`valign.pptx` → .odp 那一转） | 表与样式都在，而**没有任何一格带这一条** —— 转换整层没写下来，那一本只交 0 |
 | `valign.pptx` | python-pptx 打底 + 按 ECMA 手写 `@anchor`（`write_valign_pptx`） | 四态各一枚，其中一枚另带 `@anchorCtr="1"`；两枚都不写的两格与「没这枚属性」同形 |
 | `valign-lo.pptx` | LibreOffice（`valign.pptx` → .pptx 同格式重写） | 六格全被补上 `@anchor`（`t` 四、`ctr` 一、`b` 一），`just` 被换成 `t`，而 `@anchorCtr` 一枚不剩 |
+| `stats.pptx` | python-pptx 打底 + 按 ECMA **手写** `docProps/app.xml`（`write_stats_pptx`） | 多少字那三份账：两页正文 + 一页备注 + 一张表，而自报写着 `Words=999999`、`Paragraphs=7`（非零而不对）、`Slides=2`（与页部件数对得上）、`Notes=0`（备注部件其实有一枚） |
+| `stats-lo.pptx` | LibreOffice（`stats.pptx` → .pptx 同格式重写） | 手写的 `Words`/`Paragraphs` 原样搬过去，而 `Slides`/`Notes`/`HiddenSlides`/`MMClips` 四个名整个丢掉；页上的字符数一个字没动，文字原子从 7 枚被拆成 9 枚 |
+| `stats.odp` | LibreOffice（`stats.pptx` → .odp 那一转） | `meta:document-statistic` **只写一条** `object-count="144"`（字数、字符数、段落数、页数一条都没有），而备注在 `draw:page` 里面 |
 | `margins.odp` | LibreOffice（`margins.pptx` → .odp 那一转） | 那一族的格是图形对象：四枚 padding 住在 `style:graphic-properties` 上而不是 `table-cell-properties`，六格里两格**连样式名都不点** —— 那一格只交「这一格没说」 |
 | `wrap.docx` | python-docx 打底 + 按 ECMA **合成**两枚 `wp:anchor`（`write_wrap_docx`） | 图是怎么摆的三种形状一份里摆开：`wp:inline`（随字走，结构上**没有**环绕那一支）+ `wp:anchor` 两枚各写一种环绕（`wrapSquare` / `wrapTopAndBottom`）；浮着才写的那几格也在（`@behindDoc` `@locked` `@allowOverlap` `@relativeHeight` 与四格 `@dist*` EMU），位置分横竖两条（`positionH/@relativeFrom="margin"` 加 `wp:align`，另一枚写 `wp:positionOffset` 那个数）—— 真件稀缺：本机 33 份 docx 的正文 161 枚 `w:drawing` 里只有 1 枚是 anchor |
 | `wrap.odt` | LibreOffice 版式的 ODF（`write_wrap_odt`，三种锚各一枚） | 换一家：框自己只写 `text:anchor-type`（`as-char` / `paragraph` / `page`），环绕、穿透、四个边距全在它点名的那份 `style:family="graphic"` 样式里（`style:wrap="parallel"` / `"through"`、`style:run-through="front"`、`fo:margin-left="0.21cm"`）；「随字」那一枚的样式里**没有** `style:wrap` 这一格 —— 「文件没说」与「说了不环绕」是两句话 |
@@ -2403,6 +2406,31 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       别的账都是各交各的。
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
+
+146. **这份稿子有多少字：`docProps/app.xml` 自报的七个名与正文实算的三个口径并排，谁也不盖谁**。
+    「实算」交三份：只数 `ppt/slides/slideN.xml`、页 + 备注、包里所有带 `a:t` 的部件（版式与母版里也有字）——
+    生产者到底数了哪些部件，文件里没写，所以三个口径都交、三个各自打等号，不替它挑一个。
+    - **真件普查（本机 104 份 pptx，102 份带 `docProps/app.xml`）：数件数的都对、数字数的都不对** ——
+      `Slides` 与页部件数对 101/102、`Notes` 与备注部件数对 102/102，而 `Words` 与三个口径的实算切词
+      **96 份可比 0 份对**、`Paragraphs` 与 `a:p` 条数 **98 份可比 0 份对**；另有 78 份 `Words` 写着 `0`
+      而正文有字（103/104 份的页部件有字）——「自报 0」是「没数过」，不是「这份没有字」；
+      2 份整件没有 app.xml（那种件的这一格是 null），6 份带了 app.xml 却没写 `Words`。
+    - **版式与母版里有没有字是生产者差异，不是文档差异**：真件只有 3/104 份有，而 python-pptx 那份模板
+      给每份自产件写了 12 个部件、1369 个字符，于是「按整包实算」在自产件上是正文的二十倍（1440 对 61）。
+    - LibreOffice 重写同一份 pptx 时把**手写的** `Words`（999999）与 `Paragraphs`（7）原样搬过去，
+      却把 `Slides` / `Notes` / `HiddenSlides` / `MMClips` 四个名整个丢掉 —— 那两个本来对得上的数于是变成
+      `null` 而不是 `false`：**「没写」与「写了而不对」是两句话**。同一趟它把 7 枚 `a:t` 拆成 9 枚，
+      而字符数 61 一个字没动。
+    - odp 那一族的「自报」只有 `object-count` 一条（17 份自产 odp 全是这一个名，值 28~150，另有一份连
+      `meta.xml` 都没有），字数、字符数、段落数、页数**一条都没写**；同一件转成 odt 时那枚元素写着八条。
+      而 odp 的备注住在 `draw:page` **里面**（`presentation:notes` 是页的孩子），所以「按页之和」与
+      「按整份件实算」是同一个数（`stats.odp` 两处都是 75 / 66 / 18 / 9）；pptx 的备注在另一个部件里，
+      `ours` 不算它 —— 两族对「备注算不算正文」的答案不同，所以两处都交。
+    - 单位与词表都不换算：`words_by_space` 只按空白切（一整段中文可能算一个），键名把口径写在脸上；
+      自报那份按串的数交（能进 i64 就交数，进不去就交原串）。
+    - 出口：`office-slide` 的 pptx 支与 odp 支各交一份 `statistics`。遗留 `.ppt` 没有这一格（它的自报数在
+      `SummaryInformation` 的属性流里，那是 `office-meta` 读的那一本），office-sheet / office-pdf /
+      office-text 也没有这个键；`office-doc` 那一族的同问住在 `structure.statistics`，两家不合并。
 
 145. **这一格的字贴哪一边：docx 是一枚元素（同名那枚在节上回答另一个问），pptx 是两枚属性，ODF 一跳且空串照原样交**。
     自产件 6 个格里四格各写一枚 `w:vAlign`，把 ECMA 四态一次摆全（`center` / `top` / `bottom` /
