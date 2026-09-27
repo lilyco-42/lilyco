@@ -9219,7 +9219,7 @@ def main() -> int:
           {"type": "string", "count": 6}], 5],
     )
     check(
-        "那四条名字 40 份全写，**可值不是套话**：`MsWordUlTrailSpace` 40 份全 false，"
+        "那四条名字 47 份全写（45 份就这四条、另 2 份多一条 `DoNotBreakWrappedTables`），**可值不是套话**：`MsWordUlTrailSpace` 47 份全 false，"
         "另外三条多数 true —— 而 `tbox-lo.odt` 四条全 false、`images-float.odt` 只错开一条。"
         "（每份按名字排序，所以第一格在同名那一条存在时是 `DoNotBreakWrappedTables`）",
         [dict((one, [row["value"] for row in
@@ -9253,7 +9253,7 @@ def main() -> int:
     check(
         "反面凭据：`pnum.odt` 与 `tbox.odt` **整个没有 `settings.xml`** —— 于是这一本交空账"
         "（`settings_part` / `item_set_written` 是 false，不是「有 0 条的组」）。"
-        "另外两族写了同一组却没有那四条名字（.ods 那 15 份里 14 份 39 条、`workbook-settings.ods` 40 条（多的那格是 `CodeName`）、11 份 .odp 写 42 或 43 条），"
+        "另外两族写了同一组却没有那四条名字（.ods 那 15 份里 14 份 39 条、`workbook-settings.ods` 40 条（多的那格是 `CodeName`）、17 份 .odp 写 42 或 43 条（另 1 份零条）），"
         "而 RTF 与遗留 .doc 连这一本都没有 —— 缺键 = 这一族没这一层",
         [dig(lbin("office-doc", fixture("pnum.odt")), "structure.layout_compat.items_total"),
          dig(lbin("office-doc", fixture("pnum.odt")),
@@ -9297,10 +9297,11 @@ def main() -> int:
     dd = dict((one, had["ooxml"]["doc_defaults"]) for one, had in files.items()
               if one.endswith((".docx", ".docm")))
     check(
-        "82 份 word 件（81 份 .docx + 1 份 .docm）**全有这一层、且 `word/styles.xml` 里恒恰好一块**，"
-        "块的孩子恒 `rPrDefault + pPrDefault` 两条（没有一份是 1 或 3）；39 份在 "
-        "`word/stylesWithEffects.xml` 又写了一遍，而这一格在 39 份 .xlsx 与 25 份 .pptx 里一份都没有 —— "
-        "所以账本交「几块、各在哪个部件、每块说了什么」，只在 office-doc 这一族交",
+        "95 份 word 件（94 份 .docx + 1 份 .docm）**全有这一层**，50 份只在 `word/styles.xml` 写一块、"
+        "45 份在 `word/stylesWithEffects.xml` 又写了一遍（所以 `blocks_total` 是 1 或 2，没有一份是 3）；"
+        "每一块的孩子恒 `rPrDefault + pPrDefault` 两条（没有一份是 1 或 3），而这一格在 43 份 .xlsx 与"
+        "33 份 .pptx 里一份都没有 —— 所以账本交「几块、各在哪个部件、每块说了什么」，"
+        "只在 office-doc 这一族交",
         [len(dd), tally([one["blocks_total"] for one in dd.values()]),
          tally([one["children_total"] for one in dd.values()]),
          tally([one["styles_effects_part"] == (one["blocks_total"] == 2) for one in dd.values()]),
@@ -9310,26 +9311,28 @@ def main() -> int:
         [95, {1: 50, 2: 45}, {2: 95}, {True: 95}, {('word/styles.xml',): 50, ('word/styles.xml', 'word/stylesWithEffects.xml'): 45}, {True: 95}],
     )
     check(
-        "`rPr` 三种形状（75 份就 `rFonts, sz, szCs, lang` 四条、4 份在 `rFonts` 后多插 `kern`、"
-        "2 份多插 `color`；`extras` 交的是「四条常项以外还写了什么」），`pPr` 两家各一条 "
-        "（43 份 LibreOffice 写 `suppressAutoHyphens`、39 份 Word 写 `spacing`）",
+        "`rPr` 三种形状（87 份就 `rFonts, sz, szCs, lang` 四条、4 份在 `rFonts` 后多插 `kern`、"
+        "4 份多插 `color`；`extras` 交的是「四条常项以外还写了什么」），`pPr` 三档 "
+        "（50 份 LibreOffice 写 `suppressAutoHyphens`、44 份 Word 写 `spacing`、1 份在 `spacing` 后"
+        "多一条 `adjustRightInd`）",
         [tally([one["rpr_names"] for one in dd.values()]),
          tally([one["ppr_names"] for one in dd.values()]),
          tally([one["extras"] for one in dd.values()])],
         [{('rFonts', 'sz', 'szCs', 'lang'): 87, ('rFonts', 'color', 'sz', 'szCs', 'lang'): 4, ('rFonts', 'kern', 'sz', 'szCs', 'lang'): 4}, {('suppressAutoHyphens',): 50, ('spacing',): 44, ('spacing', 'adjustRightInd'): 1}, {(): 87, ('color',): 4, ('kern',): 4}],
     )
     check(
-        "字体指针两列各交各的：39 份只写四条主题指针（末条是**小写开头**的 `cstheme`，"
-        "按前缀 `theme` 认会一条不中，所以按结尾认）、28 份主题与字面名两套都写、11 份只写四条字面名；"
-        "而字面名**可以是空串** —— `w:cs=\"\"` 在 27 份里在场，「写了这个属性」与「点了个字体名」是两件事",
+        "字体指针两列各交各的：45 份只写四条主题指针（末条是**小写开头**的 `cstheme`，"
+        "按前缀 `theme` 认会一条不中，所以按结尾认）、36 份主题与字面名两套都写、14 份只写四条字面名；"
+        "而字面名**可以是空串** —— `w:cs=\"\"` 在 35 份里在场，「写了这个属性」与「点了个字体名」是两件事",
         [tally([[one["wrote_theme"], one["wrote_literal"]] for one in dd.values()]),
          tally([one["font_blank_attrs"] for one in dd.values()]),
          tally([one for value in dd.values() for one in value["font_blank_attrs"]])],
         [{(True, True): 36, (True, False): 45, (False, True): 14}, {('cs',): 35, (): 60}, {'cs': 35}],
     )
     check(
-        "`sz` 与 `szCs` 在 74 份里**恒等**（22 的 75 份、24 的 7 份）但两枚分开交；"
-        "`w:lang` 只有两组属性（68 份 `en-US/en-US/ar-SA` 对 6 份 `en-US/zh-CN/hi-IN`）",
+        "`sz` 与 `szCs` 在 95 份里**恒等**（22 的 87 份、24 的 8 份）但两枚分开交；"
+        "`w:lang` 三条属性名 95 份全写，值却只有两组（87 份 `en-US/en-US/ar-SA` 对 8 份 "
+        "`en-US/zh-CN/hi-IN`）",
         [tally([one["size_written"] == one["size_cs_written"] for one in dd.values()]),
          tally([one["size_written"] for one in dd.values()]),
          tally([[one["lang_written"]["val"], one["lang_written"]["eastAsia"],
@@ -9339,9 +9342,9 @@ def main() -> int:
     )
     check(
         "第二层在 `<w:style w:styleId=\"Normal\">`（`styleId` 与 `type` 两个属性都对上才算，"
-        "字符样式也叫 Normal）：74 份全找得到。Word 那 35 份的 Normal **一个 `rPr`/`pPr` 都不写**"
-        "（全靠 docDefaults），LibreOffice 的 39 份两个都写、并把上面那套**摊平**进来"
-        "（`rPr` 六条 rFonts/color/kern/sz/szCs/lang 的 37 份，另有 2 份只写 sz + lang）—— "
+        "字符样式也叫 Normal）：95 份全找得到。45 份的 Normal **一个 `rPr`/`pPr` 都不写**"
+        "（全靠 docDefaults），另 50 份两个都写、并把上面那套**摊平**进来"
+        "（`rPr` 六条 rFonts/color/kern/sz/szCs/lang 的 46 份，另有 4 份只写 sz + lang）—— "
         "同一句话在不同生产者手里住在不同的格子里，所以两层的账都得交",
         [tally([one["normal_style"]["found"] for one in dd.values()]),
          tally([one["normal_style"]["children"] for one in dd.values()]),
@@ -9366,9 +9369,11 @@ def main() -> int:
     )
 
     check(
-        "四把各自独立的钥匙开同一批 39 份（生产者标记在这一格里合上）：`<w:docDefaults>` 在第二个部件"
+        "四把各自独立的钥匙开同一批 44 份（生产者标记在这一格里合上）：`<w:docDefaults>` 在第二个部件"
         "又写一遍、Normal **一个 `rPr` 都不写**、`w:pPr` 那一条叫 `spacing`、字体名**只写主题指针** —— "
-        "四个记号在 74 份里逐份同真同假，一个反例也没有（`extras` 不在这把锁里：那 39 份里有 6 份多写一条）",
+        "四个记号有 50 份逐份同假、44 份逐份同真，只有 1 份前三条真而第四条不是（它 `w:pPr` 写的是"
+        "`spacing` 之外还多一条 `adjustRightInd`），所以这四把锁交的仍是四列而不是一个「Word 造」布尔"
+        "（`extras` 也不在这把锁里：95 份里多写一条的那 8 份全在只写一块的 50 份里）",
         tally([[one["blocks_total"] == 2, one["normal_style"]["rpr_rows"] == [],
                 one["ppr_names"] == ["spacing"],
                 [one["wrote_theme"], one["wrote_literal"]] == [True, False]]
@@ -9379,10 +9384,10 @@ def main() -> int:
     of = dict((one, had["odt"]["doc_defaults"]) for one, had in files.items()
               if one.endswith(".odt"))
     check(
-        "ODF 那一问一族一条：44 份 .odt 里 40 份恒四条（**写的序** graphic / paragraph / table / table-row，"
-        "`families` 是排过序的同一组）、另 2 份（`pnum.odt` / `tbox.odt`）**有 `styles.xml` 而一条都不写** —— "
-        "「零条」与「没有这个部件」两列分开交；42 份的 content.xml 里 `default-style` 出现 **0 次**，"
-        "但两列计数都留着（断在另一头也要数得出）",
+        "ODF 那一问一族一条：51 份 .odt 里 47 份恒四条（**写的序** graphic / paragraph / table / table-row，"
+        "`families` 是排过序的同一组）、另 4 份（`cjk-odf.odt` / `pnum.odt` / `tbox.odt` / `wrap.odt`）"
+        "**有 `styles.xml` 而一条都不写** —— 「零条」与「没有这个部件」两列分开交；51 份的 content.xml 里"
+        "`default-style` 出现 **0 次**，但两列计数都留着（断在另一头也要数得出）",
         [len(of), tally([one["defaults_total"] for one in of.values()]),
          tally([one["styles_part"] for one in of.values()]),
          tally([one["defaults_in_content"] for one in of.values()]),
@@ -9393,11 +9398,12 @@ def main() -> int:
     )
     check(
         "字体名、字号、语言**各三格**（latin / asian / complex），和 docx 的 `rFonts` 四条与 `w:lang` 三条"
-        "是同一句话的两种写法。.odt 出口里 80 条带 `text-properties` 的行**字号与语言三格全写满**（各 80 条），"
-        "字体名却只有 80 / 79 / 80 —— 差的那一条正是 `tbox-lo.odt` 的 graphic 行 asian 格"
+        "是同一句话的两种写法。.odt 出口里 94 条带 `text-properties` 的行**字号与语言三格全写满**（各 94 条），"
+        "字体名却只有 94 / 93 / 94 —— 差的那一条正是 `tbox-lo.odt` 的 graphic 行 asian 格"
         "「只写号不写名」；而 table 与 table-row 那两条**从来一个字体都不点**（各只带一条属性）。"
-        "整库 68 份 odf 摊开是 199 条行、119 条带 `text-properties`，字体名 105 / 104 / 105 对"
-        "字号与语言各 119（差额 14 / 15 / 14 就是「只写号不写名」，.ods 的 graphic 一族 14 条全不点名）",
+        "整库 84 份 odf（51 .odt + 15 .ods + 18 .odp）摊开是 235 条行、141 条带 `text-properties`，"
+        "字体名 126 / 125 / 126 对字号与语言各 141（差额 15 / 16 / 15 共 46 条就是「只写号不写名」——"
+        "其中 15 份 .ods 的 graphic 行三格全不点名，剩下那 1 条就是 `tbox-lo.odt`）",
         [tally([row["slot"] for row in rows_of(of, "fonts_written")]),
          tally([row["slot"] for row in rows_of(of, "sizes_written")]),
          tally([row["slot"] for row in rows_of(of, "langs_written")]),
@@ -9408,9 +9414,10 @@ def main() -> int:
         [{'latin': 94, 'asian': 93, 'complex': 94}, {'latin': 94, 'asian': 94, 'complex': 94}, {'latin': 94, 'asian': 94, 'complex': 94}, {'graphic': 140, 'paragraph': 141}, {1: 94}, {('none', 'none'): 3}],
     )
     check(
-        "那串连字符设置（十三条名字一组，按局部名排序）**只出现在 paragraph 那一族**：44 份里 40 份写，"
-        "`tbox-lo.odt` 有 paragraph 一条却一个都不写，另两份整本零条；table 一族只写 "
-        "`table:border-model`、table-row 一族只写 `fo:keep-together`",
+        "那串连字符设置（十三条名字一组，按局部名排序）**只出现在 paragraph 那一族**：51 份里 46 份写，"
+        "`tbox-lo.odt` 有 paragraph 一条却一个都不写，另四份（`cjk-odf.odt` / `pnum.odt` / "
+        "`tbox.odt` / `wrap.odt`）整本零条；table 一族只写 `table:border-model`、"
+        "table-row 一族只写 `fo:keep-together`",
         [sum(1 for one in of.values() if one["hyphenation_names"]),
          tally([len(one["hyphenation_names"]) for one in of.values()]),
          sorted({row["family"] for one in of.values() for row in one["hyphenation_rows"]}),
