@@ -755,7 +755,7 @@ fn row(item: &Item) -> Value {
     let px_agrees = match (&declared, got.pw) {
         (None, _) => None,
         (Some(_), None) => None,
-        (Some(_), Some(one)) if one == 0 => None,
+        (Some(_), Some(0)) => None,
         (Some(want), Some(one)) => Some(want.0 == got.pw && want.1 == got.ph),
     };
     let written = item.placed_written.as_ref().map(|list| {

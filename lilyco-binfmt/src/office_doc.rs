@@ -10654,7 +10654,7 @@ mod tests {
             "{odt}"
         );
         assert_eq!(
-            odt["rows"]
+            json!(odt["rows"]
                 .as_array()
                 .expect("rows 是数组")
                 .iter()
@@ -10663,7 +10663,7 @@ mod tests {
                     one["placed_mm100"]["from"],
                     one["placed_mm100"]["written"]
                 ]))
-                .collect::<Vec<Value>>(),
+                .collect::<Vec<Value>>()),
             json!([
                 ["image/png", "draw:frame/@svg:width", ["0.339cm", "0.203cm"]],
                 ["image/png", "draw:frame/@svg:width", ["7.999cm", "4.8cm"]],
@@ -10743,12 +10743,12 @@ mod tests {
             "{rtf}"
         );
         assert_eq!(
-            rtf["rows"]
+            json!(rtf["rows"]
                 .as_array()
                 .expect("rows 是数组")
                 .iter()
                 .map(|one| json!([one["declared_pixels"], one["px_agrees"]]))
-                .collect::<Vec<Value>>(),
+                .collect::<Vec<Value>>()),
             json!([
                 [{"w": 40, "h": 24}, true],
                 [{"w": 40, "h": 24}, true],
