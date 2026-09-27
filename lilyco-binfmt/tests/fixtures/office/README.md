@@ -212,7 +212,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `deck-bg.pptx` | python-pptx 1.0.2（`write_background_deck`） | 四页一次只改一个变量的**页底色**：`第1页` 实色 `1A1A2E`、`第2页` **显式**写 `<p:bg><p:bgPr><a:noFill/>`、`第3页` 渐变（两站都点 `schemeClr accent1`，修饰 `tint 100000/50000` + `shade 100000` + `satMod 130000/350000` 全挂在那枚颜色元素的**孩子**上，方向写 `a:lin @scaled="0"`）、`第4页` 整枚 `p:bg` 都不写；每页底色后面跟一枚**空的** `<a:effectLst/>`。模板那份只在**母版**写 `bgRef idx="1001"` + `schemeClr bg1`，11 份版式一枚都不写 |
 | `deck-bg-lo.pptx` | LibreOffice（`deck-bg.pptx` → .pptx 重写） | 同四页，三处搬家：第 1 页字面色一字未动；第 3 页两站换成**替文件算完**的字面 `srgbClr 3E7FCC` / `A4C1FF`（修饰整批不写、`@scaled` 改 `@ang="0"`、`rotWithShape` 从 `1` 变 `0`）；**第 2 页那枚 `noFill` 整条丢掉**，于是它与第 4 页交出同一份全 null 的记录。空壳 `effectLst` 一枚都不写；母版那枚 `bgRef bg1` 被**摊到 11 份版式上写成字面 `FFFFFF`** 而母版自己那枚没了（`parts_with_bg` 4 → 13） |
 | `deck-bg.odp` | LibreOffice（`deck-bg.pptx` → .odp） | 同一件事换了地方：页只**点名**（dp1 / dp3 / dp4 / **dp3**），第 2、4 页共用 dp3，而那份样式的 `drawing-page-properties` 里 5 句话一条 `draw:fill` 都没有；渐变要两跳才解得开（`draw:fill-gradient-name="msFillGradient_20_1"` → styles.xml 的 `<draw:gradient>`，八格属性含 `angle="90deg"`）；继承那一跳是三跳 `Blank → Mdp1 → draw:fill="solid" #ffffff`，11 份 `style:master-page` 全部点同一份 Mdp1，另两份样式（content.xml 的 dp2、styles.xml 的 Mdp2）**没人点**而四句一字不差 |
-| `customxml.docx` | python-docx 打底 + `zipfile` 按真件形状加部件（`add_customxml_parts`） | 包里两枚自定义 XML 存储：`customXml/item1.xml` 是 Word 引用管理器那份 `b:Sources`（三条孩子）加 `item2.xml` 一枚 `s:customData`，各带一份 `itemPropsN.xml`（第一枚有一条 `ds:uri`、第二枚的 `ds:schemaRefs` 在而里面空——真件 25 份里就有一份这样写），item 自己不点名、靠 `Default Extension="xml"` 兜；另在正文合成两条手指（一枚 `w:customXml`、一枚带 `w:dataBinding` 的 `w:sdt`，号指向第一枚）——真件里这两条各有凭据（本机 162 份 docx/docm：**6 份**各写一枚 `w:sdt` + `w:dataBinding`，都在 `word/document.xml`，且那 6 份都带着 `customXml/item` 部件；`w:customXml` **1 份**写了 2 枚），只是没有一份把「存储 + 手指」凑成可控的形状，所以这里仍按 ECMA 合成（早先这一格记的「真件里这两条 0 份写过」是假负，见事实 147）
+| `customxml.docx` | python-docx 打底 + `zipfile` 按真件形状加部件（`add_customxml_parts`） | 包里两枚自定义 XML 存储：`customXml/item1.xml` 是 Word 引用管理器那份 `b:Sources`（三条孩子）加 `item2.xml` 一枚 `s:customData`，各带一份 `itemPropsN.xml`（第一枚有一条 `ds:uri`、第二枚的 `ds:schemaRefs` 在而里面空——真件 25 份里就有一份这样写），item 自己不点名、靠 `Default Extension="xml"` 兜；另在正文合成两条手指（一枚 `w:customXml`、一枚带 `w:dataBinding` 的 `w:sdt`，号指向第一枚）——真件里这两条 0 份写过（本机 33 份真件 docx/docm，排在仓库之外；`w:sdt` 那 4 枚全在页脚且一枚都不带 `w:dataBinding`），所以这里是**合成**的；注意别把自产件的数当真件读——本仓 90 份自产件里那 6 枚带 `w:dataBinding` 的控件是自己写的，见事实 147
 | `customxml-lo.docx` | LibreOffice（`customxml.docx` → .docx 重写） | 同一件事三种待遇：三枚 `itemN.xml` 全被清空成 0 字节而 props 与那一跳留着、存储从两份变三份、头两份 props 的 `ds:itemID` 撞成同一个号（正文那一条手指说不清指到哪一份），`w:customXml` 整条丢掉而 `w:dataBinding` 照样留着 |
 | `alternate.docx` | python-docx 打底 + `zipfile` 插三块（`write_alternate_docx`） | `mc:AlternateContent` 的三种形状一次摆开：一块配齐（Choice 点 `wps` + Fallback）、一块只有 Choice（点 `w14`，**没有退路**）、一块里两条 Choice 共用一份 Fallback。只有 Choice / 两条 Choice 那两形按 ECMA 的写法**合成**（两个生产者都不这么写，本机真件里 4 块没有一块写两条 Choice）
 | `alternate-lo.docx` | LibreOffice（`alternate.docx` → .docx 重写） | 三块**连字一起丢掉**（`blocks` 3 → 0，五句只写在分支里的字一句不剩）—— 这一族最狠的一条生产者差异 |
@@ -2418,14 +2418,21 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       cells, runs, chars}`；整本 26 格 ＝ 16 本合计 + `parts_with_controls` + 四张分布表（`children`/`types`/
       `galleries`/`locks`）+ `family`/`available` + `rows`/`listed`/`cut`。三个名各交两格（`alias` 是值、
       `alias_present` 是在场）——「没写」「写了空串」「写了值」是三句话，只交一个 `alias: ""` 就把前两句混成一句。
-    - **真件普查（本机 162 份 docx/docm）：14 份写了这一层（8.6%），共 42 枚** —— 39 枚在顶层、3 枚套在另一枚里面；
-      类型分布 `text` 16、`docPartObj` 7、`dropDownList` 3、`date` 3、`richText` 3，而**「没写类型元素」10 枚**
-      （四分之一 —— 那是「文件没说它是哪一种」，不是「这一枚没有类型」，所以 `type_seen` 交 null 而 `type_none` 记一笔）；
-      6 枚带 `w:sdtEndPr`、6 枚带 `w:dataBinding`（`prefixMappings`/`xpath`/`storeItemID` 各 6、`storeSchemaID` 只有 2）、
-      3 枚带 `w:lock` 且三枚都写 `sdtContentLocked`；`w:alias` 28 枚里 2 枚是空串，`w:id` **只有 34/42 枚写了值**
-      —— 「一枚控件有没有号」在真件里不是必然，所以 `id_present` 与 `id` 分开交。
-    - **住址不止正文**：那 42 枚里 38 枚在 `word/document.xml`、**4 枚在 `word/footer1.xml`** —— 只顺着正文那一路走会
-      整批漏掉页脚里的控件，所以这一族扫 `word/*.xml` 全部部件并按件名排序（自产 90 份 docx/docm 的 25 枚则全在正文）。
+    - **真件普查（本机 33 份真件 docx/docm，排在仓库之外）：只有 4 份写了这一层、各一枚，共 4 枚** ——
+      而这四枚的形状与自产件完全不同：**四枚全住 `word/footer1.xml`（正文里一枚都没有）**、全部没写类型元素、
+      全部带 `w:sdtEndPr`、全部写了 `w:id`，而 `w:alias` / `w:tag` / `w:dataBinding` / `w:lock` / `w:placeholder`
+      **真件零枚写过** —— 「Word 自己导出的控件长这样」与「模板里那块目录长这样」是两种形状，所以
+      `type_none` 与 `endpr_present` 分列，而不是合成一句「完整吗」。
+    - **自产件是另一本账（90 份 docx/docm，6 份写了、共 25 枚，全在 `word/document.xml`）**：
+      类型分布 `text` 9、`richText` 3、`docPartObj` 4、`dropDownList` 2、`date` 2、没写类型元素 5，
+      `alias` 19 枚（其中 2 枚是空串）、`id` 写了值 20 枚、`lock` 2 枚都写 `sdtContentLocked`、
+      `dataBinding` 4 枚（`prefixMappings`/`xpath`/`storeItemID` 各 4、`storeSchemaID` 2）——
+      这些数**只属于自产件**，别拿它们当真件分布说话。
+    - **住址这一条是真件给的，不是自产件给的**：真件那 4 枚全在页脚部件里，只顺着正文那一路走会**一枚都不剩**，
+      所以这一族扫 `word/*.xml` 全部部件并按件名排序。（这一趟先前写成「本机 162 份、14 份带控件、共 42 枚」，
+      那是**把仓库里的 fixture 也算进了真件分母**——`D:\Code` 之下本来就含 `tests/fixtures/office`；
+      按「件是否住在那一目录之下」分开重扫才是上面这两个数。教训与「扫不到要先怀疑判据」同一条：
+      **分母混了自产件，比例与分布就都成了自产件的画像**。）
     - LibreOffice 同格式重写那一份动了七处，每一处都是「说了别的话」而不是「没说」：11→10（正文空着的那枚**整枚不见**，
       于是「这一层有几枚」也变了）、`w:sdtEndPr` 那两枚全丢（`endpr_present` 2 → 0）、`richText` 降级成 `text`、
       `w:alias` 被改写成**空串**（不是没写，而 `alias_present` 仍然 true）、同一枚的 `w:id` 于是没了、日期那枚把
@@ -2442,16 +2449,21 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 模板里那块目录本身就是一枚控件（`w:sdt` + `w:sdtPr/w:docPartObj/w:docPartGallery val="Table of Contents"`，
       `toc.docx` 交 1 枚），而「这份有没有目录、排出来几条」是 `structure.contents` 那本账 —— 两问分开交：
       拿这一枚当那一条会得出「有目录但没有条目」这种看着矛盾其实都对的答案（`toc.docx` 正是：控件 1、条目 0）。
-    - **一处假负更正**：`custom_xml` 那条事实（138）与 `customxml.docx` 那格先前都记着「正文那两条手指（`w:customXml`
-      与 `w:sdt`/`w:dataBinding`）本机真件 0 份写过」，这一趟逐份重扫量出 6 份各写一枚、且那 6 份都带着 `customXml/item`
-      部件 —— 两处已按实测改掉。教训是**「扫不到」要先怀疑判据**：一次字符串匹配不足以下「0 份」这种结论。
+    - **一条更正的历史（两次都值得记）**：`custom_xml` 那条事实（138）与 `customxml.docx` 那格原本记着
+      「正文那两条手指（`w:customXml` 与 `w:sdt`/`w:dataBinding`）本机真件 0 份写过」。本趟普查先把这句当成假负
+      改掉了，理由是「逐份重扫量出 6 份写了」——**那句“改掉”才是错的**：那 6 份全在仓库的 fixture 里
+      （`sdt.docx` / `sdt-lo.docx` / `customxml*.docx` 那一类），排掉 fixture 之后**真件 33 份里 `w:dataBinding`
+      与 `w:customXml` 确实一枚都没有**，所以那两处已按分开的口径改回来，并把「真件 0 份 / 自产 6 枚」两件事
+      分开写。教训是**同一句话的两次改写都错在同一步：没先问「这批件是谁写的」**——真件与自产件混在一个分母里，
+      既会把自产件的形状当成真件的分布，也会把「扫到」当成「真件写过」。
     - 截行不截账：`--limit` 只砍 `rows`（`listed` 与 `cut` 说这一格），16 本合计与四张分布表恒按全部枚数算
       （`--limit 3` 那一条钉的就是这个：列出 3、`cut` true，而 `controls` 仍是 11）。
-    - 两条边界都在真件上量过：**`w:date` 那三格两种写法都真**（本机 3 枚里 2 枚写成 `w:date` 的**孩子**
-      （`calendar`/`dateFormat`/`lid`/`storeMappedDataAs`）而属性只剩 `fullDate`、1 枚写成属性），本仓只交
-      属性那一本，所以前一种写法的 `date` 看着只剩一个数；`w:listItem` 的 `@w:value` 与 `@w:displayText`
+    - 两条边界都在那三份件上量过（真件里 `w:date` 一枚都没有，所以这一句只能说「两个生产者各写一种」）：
+      **`w:date` 那三格两种写法都真** —— 手写那枚写成属性（`dateFormat="yyyy年MM月"` + `calendarType="chineseLunar"`），
+      LibreOffice 那枚既写属性 `fullDate` 又写孩子（`dateFormat` / `calendar` / `lid` / `storeMappedDataAs`），
+      本仓只交属性那一本，所以后一种写法的 `date` 看着只剩一个数；`w:listItem` 的 `@w:value` 与 `@w:displayText`
       是两格（`list_values` 只交值，而 LibreOffice 重写改的正是 `displayText`：`甲选项` → `甲`，值一字未动）。
-    - 第二读者是 `office_reader.py` 的 `docx_content_controls` / `sdt_row`（90 份 docx/docm 逐份影子跑过，与那 162 份真件
+    - 第二读者是 `office_reader.py` 的 `docx_content_controls` / `sdt_row`（90 份自产 docx/docm 逐份影子跑过，与那 33 份真件
       的普查各自独立）；probe 的 **3ca** 段逐件对整本账，再钉三份件的整本、`--limit 3` 那一格、模板那枚目录控件、
       一份没有控件的件（`available` true 而 16 本全零 —— 「没有」与「没读」两件事）、整库摊开那 11 本与反面凭据那 8 格；
       Rust 那侧是 `office_doc.rs` 的 `a_content_control_says_which_kind_it_is_and_how_much_text_it_holds`，
@@ -2739,11 +2751,11 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `office_reader.py` 的 `cx_ledger` / `docx_custom_xml`（三份件与 246 份影子跑过）；
       probe 的 **3br** 段逐件对这三族的整本账，Rust 那侧是 `office_doc.rs` 的
       `a_store_can_sit_in_the_package_with_no_pointer_at_all`。正文那两条手指的写法（`w:customXml`
-      与 `w:sdt`/`w:dataBinding`）这里曾记作「本机真件 0 份写过」，那是**假负**：逐份重扫 162 份
-      docx/docm 量出 6 份各写一枚 `w:sdt` + `w:dataBinding`（都在 `word/document.xml`，而那 6 份都带
-      `customXml/item` 部件）、1 份写了 2 枚 `w:customXml`（数字与判据见事实 147）。这一份仍是**合成**的
-      （照 ECMA 的写法与真件那一份存储的形状拼——真件里没有一份把「存储 + 手指」凑成可控的形状），
-      与 `notes.docm` 那枚合成宏同一待遇：它只证明「认得这两条手指」。
+      与 `w:sdt`/`w:dataBinding`）本机真件 0 份写过，是**合成**的（照 ECMA 的写法与真件那一份
+      存储的形状拼），与 `notes.docm` 那枚合成宏同一待遇：它只证明「认得这两条手指」。
+      这一句中间被改掉过一次——那次普查把仓库的 90 份自产件也算进了「本机 162 份」的分母，于是
+      「量出 6 份写过」量的其实是自己写的 fixture；按「真件 / 自产件」分开重扫，真件 33 份里
+      `w:dataBinding` 与 `w:customXml` 确实一枚都没有（两个口径与教训都记在事实 147）。
 
 137. **这一页的底色是谁给的：页自己写、版式与母版写、还是整册都不写，而「写了不填充」与「什么都没写」在两家手里不可分辨**（三份 `deck-bg*` + 本机 104 份真件 pptx / 940 页，真件只量数、不入库）
     - 形状：页级 OOXML 17 格 `{family, available, holder, written, via, attrs, fill, fill_element, fill_attrs,

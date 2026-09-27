@@ -24,16 +24,16 @@
 //! 2. 「正文里有几段」在两本里是两个数：手写那本 `paras_direct` 11 而 `paras_total` 14
 //!    （表格里与套娃内层各带段），重写那本**只剩 3** —— 因为 LibreOffice 把段摊成直接挂在
 //!    `w:sdtContent` 下的 `w:r`（字还在：`chars` 82 → 69 而 `runs` 14 → 23）；两个口径都交；
-//! 3. 真件普查（本机 162 份 .docx / .docm）：**14 份写了这一层、共 42 枚**（39 枚在顶层、3 枚套娃），
-//!    类型分布 `text` 16、`docPartObj` 7、`dropDownList` 3、`date` 3、`richText` 3，而**「没写类型元素」
-//!    10 枚**（四分之一是「文件没说它是哪一种」，不是「这一枚没有类型」）；6 枚带 `w:sdtEndPr`、
-//!    6 枚带 `w:dataBinding`（`storeSchemaID` 只有 2 枚写）、3 枚带 `w:lock` 且都写 `sdtContentLocked`；
-//!    `w:alias` 28 枚里 2 枚是空串，而 `w:id` **只有 34/42 枚写了值** —— 所以值与「有没有写」分两格交；
-//! 4. 住址不止正文：那 42 枚里 38 枚在 `word/document.xml`、**4 枚在 `word/footer1.xml`**，
-//!    所以这一族扫 `word/*.xml` 全部部件（只走正文那一路会整批漏掉页脚里的控件）。自产 90 份
-//!    docx/docm 里 6 份写了这一层、共 25 枚（`sdt.docx` 11、`sdt-lo.docx` 10、`toc.docx` /
-//!    `toc-full.docx` / `customxml.docx` / `customxml-lo.docx` 各 1，全在正文）—— 目录那一块本身就是
-//!    这一族的一个 gallery 值（`toc.docx`：控件 1 而 `contents.entries` 0），所以那一本账与这一本各数各的；
+//! 3. 真件普查（本机 33 份真件 .docx / .docm，排在仓库之外）：**只有 4 份写了这一层、各一枚**，
+//!    而这四枚 `sdtPr` 里**只写了 `w:id`**（类型元素一枚都没有、`alias` 与 `tag` 也一枚没有、
+//!    `dataBinding` 与 `lock` 零枚），而那四枚**全都带** `w:sdtEndPr` —— 「Word 自己导出的控件长这样」
+//!    与「模板里那块目录长这样」是两种形状，所以 `type_none` 与 `endpr_present` 分列，
+//!    而不是合成一句「完整吗」；
+//! 4. 住址这一条是真件给的：那 4 枚**全住 `word/footer1.xml`，正文里一枚都没有** —— 只顺着正文那一路走
+//!    会一枚不剩，所以这一族扫 `word/*.xml` 全部部件并按件名排序。自产件是另一本账（90 份 docx/docm
+//!    里 6 份写了、共 25 枚，全在正文：`sdt.docx` 11、`sdt-lo.docx` 10、`toc.docx` / `toc-full.docx` /
+//!    `customxml.docx` / `customxml-lo.docx` 各 1）—— 目录那一块本身就是这一族的一个 gallery 值
+//!    （`toc.docx`：控件 1 而 `contents.entries` 0），所以那一本账（`contents`）与这一本各数各的，不互推；
 //! 5. 转成 .odt：ODF **标准**里没有这一层（`<form:` 零枚），但 LibreOffice 把那 10 枚中的 6 枚写进了
 //!    自家扩展命名空间 `loext:content-control`（五个名 `alias`/`id`/`tag`/`lock`/`plain-text`，
 //!    一个类型都不写），控件里的字与段落都还在（`text:p` 14）。本仓的 odt 读者不读 `loext:`，
@@ -43,10 +43,11 @@
 //! 不做的事：**不猜类型**（`sdtPr` 的孩子整列按写的序交，`type_seen` 只取词表里第一枚，
 //! 另交 `type_count` 说一共写了几枚）、**不解 `dataBinding` 那一跳**（`@w:xpath` 指到包里
 //! 哪份 XML 要读 `customXml/itemN.xml`，那是 `custom_xml` 那一本的事）、**不判锁得住不住**
-//! （`w:lock/@w:val` 有五种枚举，这里只按写的串交）、**不读 `w:date` 的孩子**（那三格两种写法都真：
-//! 本机真件 3 枚里 2 枚把它们写成 `w:date` 的孩子（`calendar` / `dateFormat` / `lid` /
-//! `storeMappedDataAs`）而属性只剩 `fullDate`、1 枚写成属性 —— 这里只交属性那一本，所以前一种写法
-//! 的那一格看着只剩一个数）、**不交 `@w:displayText`**（`w:listItem` 那两格同名不同事，LibreOffice
+//! （`w:lock/@w:val` 有五种枚举，这里只按写的串交）、**不读 `w:date` 的孩子**（那三格两个生产者各写一种：
+//! 手写那枚写成 `w:date` 的属性（`dateFormat` + `calendarType`），LibreOffice 那枚既写属性 `fullDate`
+//! 又写成它的孩子（`dateFormat` / `calendar` / `lid` / `storeMappedDataAs`）—— 这里只交属性那一本，
+//! 所以后一种写法的那一格看着只剩一个数；真件 33 份里 `w:date` 一枚都没有，这一句只能说两个生产者）、
+//! **不交 `@w:displayText`**（`w:listItem` 那两格同名不同事，LibreOffice
 //! 重写时改的正是 `displayText`（`甲选项` → `甲`）而 `@w:value` 一字未动，所以 `list_values`
 //! 只交值那一本）。
 
