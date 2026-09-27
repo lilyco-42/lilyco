@@ -185,7 +185,7 @@ struct RowStyle {
     parent: Option<String>,
 }
 
-fn prop_of(table: &[(String, String)], want: &str) -> Option<&str> {
+fn prop_of<'a>(table: &'a [(String, String)], want: &str) -> Option<&'a str> {
     table
         .iter()
         .find(|one| one.0 == want)
