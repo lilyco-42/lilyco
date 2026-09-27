@@ -233,6 +233,12 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `borders.odp` | LibreOffice（`borders.pptx` → .odp 那一转） | 边框住在 `style:paragraph-properties` 上（不是 graphic-properties），短款与长款各 2、虚线 `dashed` 转过来还在，六格里两格连样式名都不点 |
 | `borders.pptx` | python-pptx 打底 + 按 ECMA 手写 `a:ln*`（`write_borders_pptx`） | 六格里 1 格写满上下左右、2 格只写一两枚（含一枚 `@w="0"` 与一枚 `noFill`、一枚对角线 `lnTlToBr`）、3 格一枚都没有（第二页那张表整个没人写过）|
 | `borders-lo.pptx` | LibreOffice（`borders.pptx` → .pptx 同格式重写） | 六格全被补齐四条，`6350` → `6480`、`12700` 与 `25400` → `12240`，对角线整个丢掉，还有一枚线不写 `@w` |
+| `valign.docx` | python-docx 打底 + 按 ECMA 手写 `w:tcPr/w:vAlign` 与 `w:sectPr/w:vAlign`（`write_valign_docx`） | 四态一次摆全（`center` / `top` / `bottom` / `just`）+ 两格连元素都没有；另给这一节写一枚同名的节属性（另一个问）|
+| `valign-lo.docx` | LibreOffice（`valign.docx` → .docx 同格式重写） | 只剩 `center` 与 `bottom` 两格还写着，`top` 与 `just` 整枚被丢；节上那一枚留着 |
+| `valign.odt` | LibreOffice（`valign.docx` → .odt 那一转） | 词表换成 `middle` / `bottom`，两格被写成**空串** `style:vertical-align=""`，值住在 `style:table-cell-properties` 上 |
+| `valign.odp` | LibreOffice（`valign.pptx` → .odp 那一转） | 表与样式都在，而**没有任何一格带这一条** —— 转换整层没写下来，那一本只交 0 |
+| `valign.pptx` | python-pptx 打底 + 按 ECMA 手写 `@anchor`（`write_valign_pptx`） | 四态各一枚，其中一枚另带 `@anchorCtr="1"`；两枚都不写的两格与「没这枚属性」同形 |
+| `valign-lo.pptx` | LibreOffice（`valign.pptx` → .pptx 同格式重写） | 六格全被补上 `@anchor`（`t` 四、`ctr` 一、`b` 一），`just` 被换成 `t`，而 `@anchorCtr` 一枚不剩 |
 | `margins.odp` | LibreOffice（`margins.pptx` → .odp 那一转） | 那一族的格是图形对象：四枚 padding 住在 `style:graphic-properties` 上而不是 `table-cell-properties`，六格里两格**连样式名都不点** —— 那一格只交「这一格没说」 |
 | `wrap.docx` | python-docx 打底 + 按 ECMA **合成**两枚 `wp:anchor`（`write_wrap_docx`） | 图是怎么摆的三种形状一份里摆开：`wp:inline`（随字走，结构上**没有**环绕那一支）+ `wp:anchor` 两枚各写一种环绕（`wrapSquare` / `wrapTopAndBottom`）；浮着才写的那几格也在（`@behindDoc` `@locked` `@allowOverlap` `@relativeHeight` 与四格 `@dist*` EMU），位置分横竖两条（`positionH/@relativeFrom="margin"` 加 `wp:align`，另一枚写 `wp:positionOffset` 那个数）—— 真件稀缺：本机 33 份 docx 的正文 161 枚 `w:drawing` 里只有 1 枚是 anchor |
 | `wrap.odt` | LibreOffice 版式的 ODF（`write_wrap_odt`，三种锚各一枚） | 换一家：框自己只写 `text:anchor-type`（`as-char` / `paragraph` / `page`），环绕、穿透、四个边距全在它点名的那份 `style:family="graphic"` 样式里（`style:wrap="parallel"` / `"through"`、`style:run-through="front"`、`fo:margin-left="0.21cm"`）；「随字」那一枚的样式里**没有** `style:wrap` 这一格 —— 「文件没说」与「说了不环绕」是两句话 |
@@ -2397,6 +2403,30 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       别的账都是各交各的。
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
+
+145. **这一格的字贴哪一边：docx 是一枚元素（同名那枚在节上回答另一个问），pptx 是两枚属性，ODF 一跳且空串照原样交**。
+    自产件 6 个格里四格各写一枚 `w:vAlign`，把 ECMA 四态一次摆全（`center` / `top` / `bottom` /
+    `just`），另两格连元素都没有；`w:sectPr/w:vAlign` 与它同名而不同事 —— 那一枚说的是
+    「这一节的字在纸上顶对齐还是居中」，所以账分成 `vals` 与 `section_vals` 两本，
+    而 `word/styles.xml` 这一份里 0 枚（与 `cell_margins`、`table_borders` 那种「样式表里恒有一份」不同）。
+    - **「没这枚元素」「有这枚但没写 `@w:val`」「写了空串」是三句话**：ODF 那一跳实测被 LibreOffice
+      写成 `style:vertical-align=""` 两枚（账里记成 `(空串)`），而 pptx 的两枚属性都不写是另一格
+      （`cells_silent`）—— 都不折成 null、也不推成某个默认词。
+    - 三族词表不同名而**不换算**：docx 的 `center` 在 ODF 叫 `middle`、在 pptx 叫 `ctr`；
+      odp 那一头转过来**整层不写**（六格 0 格带这一条），所以 odp 那本只有 0 而不是「读不出来」。
+    - LibreOffice 重写这份 docx：六格里只剩两格还写着（`center` 与 `bottom`），`top` 与 `just`
+      整枚被丢掉（默认值不写是它的算法），而节上那一枚 `center` 留着；
+      重写那份 pptx：六格全被写上 `@anchor`（`t` 四、`ctr` 一、`b` 一），`just` 被换成 `t`、
+      本来不写的两格补成 `t`，而 `@anchorCtr` 一枚都不剩。
+    - 真件普查（本机 32 份 .docx + 1 份 .docm；104 份 pptx、893 枚 `a:tcPr`）：docx 格级只有
+      `center` 2898 与 `bottom` 1，`top` 与 `just` **零条**，节上那一枚也**零条**；
+      pptx 里 `@anchor` 只有 `ctr` 314 次、`@anchorCtr` 零次，其余 579 枚两枚都不写 ——
+      四态、`anchorCtr` 与节上那一支都只能靠合成件守。整库自产件：88 份 word 的 309 个格里
+      **只有 8 格**写了、96 个节里 2 个写了；31 份 pptx 的 62 个格里 36 个写了 `@anchor`、
+      26 个都没写；47 份 .odt 的 170 格里 5 格跳得到值，17 份 .odp 一个都没有。
+    - 出口：`office-doc` 的 docx 支与 odt 支各交 `structure.vertical_align`，`office-slide` 的
+      pptx 支与 odp 支各交 `vertical_align`；遗留 `.doc` / `.rtf` / `.ppt` 不交这个键，
+      表格那一族（xlsx / .xls）的垂直对齐住在 `alignment/@vertical` 与 XF 那一本里，也不在这个键里。
 
 144. **这一圈有没有线：OOXML 一块里的方向孩子带七个属性，DrawingML 一枚线是一整串，ODF 一跳且三种写法**。
     `w:tblPr/w:tblBorders` 是整张表的默认，`w:tcPr/w:tcBorders` 是这一格改的 —— 两块形状一样

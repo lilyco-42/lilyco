@@ -5432,6 +5432,210 @@ def odf_cell_margins(parts, limit: int = 400) -> dict:
             "rows": rows, "listed": len(rows), "cut": cells > len(rows)}
 
 
+# ── 垂直对齐：这一格的字贴哪一边（而整页那一问同名而不同事）────────────────────
+#
+# 实测（`valign.docx` = python-docx 打底 + 按 ECMA 手写四格四态与一节；`valign.pptx` =
+# python-pptx 打底 + 按 ECMA 手写四枚 `@anchor`；`valign.odt` / `valign.odp` = LibreOffice
+# 两转；`valign-lo.*` = 同格式重写）：
+# - docx 是**元素**：`w:tcPr/w:vAlign/@w:val` 四态（`top` / `center` / `bottom` / `just`），
+#   而 `w:sectPr/w:vAlign` 同名回答的是「这一节的字在纸上居中吗」—— 两本分开数；
+# - pptx 是**属性**：`a:tcPr/@anchor` 四态（`t` / `ctr` / `b` / `just`），另有一枚
+#   `@anchorCtr`（真件里一条都没有）；两枚都不写才是真件里的常态；
+# - ODF 一跳在样式的 properties 上，而 LibreOffice 写的是 `style:vertical-align`，
+#   取值是 ODF 那一套名（`top` / `middle` / `bottom`），并且**会写出一枚空串**
+#   —— 空串与「没这个属性」是两句话，所以这里原样交串，不折成 null 也不折成某个词。
+# 真件普查（本机 32 份 .docx + 1 份 .docm）：格级 `vAlign` 只有 `center` 2898 与 `bottom` 1，
+# `top` 与 `just` 一条都没有，整页那一枚**零条**；104 份真 pptx 的 893 枚 `a:tcPr` 里
+# `@anchor` 只出现过 `ctr` 314 次、`@anchorCtr` 0 次。本机真件里没有一份 ODF。
+# 不做的事：不换算词表（`center` / `ctr` / `middle` 各按自己那族的话交），不判渲染结果。
+
+VALIGN_STATES = ("top", "center", "bottom", "just")
+PPT_ANCHORS = ("t", "ctr", "b", "just")
+
+
+def valign_child(holder, want: str):
+    """`w:tcPr` / `w:sectPr` 里那枚 `w:vAlign` → (在不在, 它写的串)
+
+    「没这枚元素」与「有这枚但没写 `@w:val`」是两句话，所以两个值分开交。
+    """
+    for kid in holder:
+        if xml_local(kid.tag) == want:
+            return True, mar_attr(kid, "val")
+    return False, None
+
+
+def docx_vertical_align(path: Path, limit: int = 400) -> dict:
+    """格级那一本与整页那一本：同名的 `w:vAlign` 在两个住处回答两个问"""
+    parts = _mar_parts(path)
+    rows = []
+    sect_rows = []
+    cells_total = 0
+    cells_with = 0
+    vals = {}
+    sections_total = 0
+    sections_with = 0
+    sect_vals = {}
+    for name, raw in sorted(parts.items()):
+        if not (name.startswith("word/") and name.endswith(".xml")) or name.endswith(".rels"):
+            continue
+        root = _mar_root(raw)
+        if root is None:
+            continue
+        index = 0
+        for cell in (one for one in root.iter() if xml_local(one.tag) == "tc"):
+            found = False
+            got = None
+            for one in cell.iter():
+                if xml_local(one.tag) == "tcPr":
+                    found, got = valign_child(one, "vAlign")
+                    break
+            cells_total += 1
+            if found:
+                cells_with += 1
+                key = got if got is not None else "(没写 val)"
+                vals[key] = vals.get(key, 0) + 1
+            if len(rows) < limit:
+                rows.append({"part": name, "cell": index, "val": got, "said": found})
+            index += 1
+        sect_index = 0
+        for sect in (one for one in root.iter() if xml_local(one.tag) == "sectPr"):
+            sections_total += 1
+            found, got = valign_child(sect, "vAlign")
+            if found:
+                sections_with += 1
+                key = got if got is not None else "(没写 val)"
+                sect_vals[key] = sect_vals.get(key, 0) + 1
+            if len(sect_rows) < limit:
+                sect_rows.append({"part": name, "section": sect_index, "val": got,
+                                  "said": found})
+            sect_index += 1
+    style_root = _mar_root(parts.get("word/styles.xml", b""))
+    st_val = 0
+    if style_root is not None:
+        for one in style_root.iter():
+            if xml_local(one.tag) == "vAlign":
+                st_val += 1
+    return {"family": "ooxml", "available": True, "cells_total": cells_total,
+            "cells_with_valign": cells_with, "cells_without_valign": cells_total - cells_with,
+            "vals": vals, "sections_total": sections_total, "sections_with_valign": sections_with,
+            "section_vals": sect_vals, "styles_part_valign": st_val,
+            "rows": rows, "section_rows": sect_rows, "listed": len(rows),
+            "sect_listed": len(sect_rows),
+            "cut": cells_total > len(rows) or sections_total > len(sect_rows)}
+
+
+def pptx_vertical_align(path: Path, limit: int = 400) -> dict:
+    """DrawingML 那一本：`@anchor` 与 `@anchorCtr` 两枚属性，不写才是常态"""
+    parts = _mar_parts(path)
+    rows = []
+    parts_scanned = 0
+    cells = 0
+    with_anchor = 0
+    silent = 0
+    with_ctr = 0
+    anchors = {}
+    ctr_vals = {}
+    for name, raw in sorted(parts.items()):
+        if not name.startswith("ppt/slides/slide") or not name.endswith(".xml"):
+            continue
+        root = _mar_root(raw)
+        if root is None:
+            continue
+        parts_scanned += 1
+        for index, holder in enumerate(x for x in root.iter() if xml_local(x.tag) == "tcPr"):
+            cells += 1
+            got = mar_attr(holder, "anchor")
+            ctr = mar_attr(holder, "anchorCtr")
+            if got is None:
+                silent += 1
+            else:
+                with_anchor += 1
+                anchors[got] = anchors.get(got, 0) + 1
+            if ctr is not None:
+                with_ctr += 1
+                ctr_vals[ctr] = ctr_vals.get(ctr, 0) + 1
+            if len(rows) < limit:
+                rows.append({"part": name, "cell": index, "anchor": got, "anchor_ctr": ctr,
+                             "said": got is not None})
+    return {"family": "ooxml", "available": True, "parts_scanned": parts_scanned, "cells": cells,
+            "cells_with_anchor": with_anchor, "cells_silent": silent,
+            "cells_with_anchor_ctr": with_ctr, "anchors": anchors, "anchor_ctr_vals": ctr_vals,
+            "rows": rows, "listed": len(rows), "cut": cells > len(rows)}
+
+
+def odf_val_of_style(style):
+    """一份样式的垂直对齐：住在哪枚 properties 上、写的是什么串（**空串照原样交**）"""
+    holder = None
+    got = None
+    for kid in style:
+        tag = xml_local(kid.tag)
+        if tag not in ODF_BOR_PROPS:
+            continue
+        for key, value in kid.attrib.items():
+            if key.rsplit("}", 1)[-1] == "vertical-align":
+                holder = tag
+                got = value
+    return holder, got
+
+
+def odf_val_styles(parts) -> dict:
+    """跨两份部件收 table-cell 样式的那一枚值（`content.xml` 优先，与 `cell_margins` 同一口径）"""
+    table = {}
+    for name in ("content.xml", "styles.xml"):
+        root = _bg_member(parts, name)
+        if root is None:
+            continue
+        for one in root.iter():
+            if xml_local(one.tag) != "style" or of_local(one, "family") != "table-cell":
+                continue
+            want = of_local(one, "name")
+            if want is None or want in table:
+                continue
+            holder, got = odf_val_of_style(one)
+            table[want] = {"part": name, "holder": holder, "val": got}
+    return table
+
+
+def odf_vertical_align(parts, limit: int = 400) -> dict:
+    """ODF 那一本：格点的名 → 那份样式的 `style:vertical-align`（三族词表各按各的）"""
+    table = odf_val_styles(parts)
+    root = _bg_member(parts, "content.xml")
+    rows = []
+    cells = named = unnamed = found = unfound = with_val = 0
+    vals = {}
+    holders = {}
+    if root is not None:
+        for one in root.iter():
+            if xml_local(one.tag) not in ("table-cell", "covered-table-cell"):
+                continue
+            cells += 1
+            want = of_local(one, "style-name")
+            if want is None:
+                unnamed += 1
+            else:
+                named += 1
+            mine = table.get(want) if want is not None else None
+            if mine is None:
+                unfound += 1 if want is not None else 0
+            else:
+                found += 1
+            got = (mine or {}).get("val")
+            holder = (mine or {}).get("holder")
+            if got is not None:
+                with_val += 1
+                vals[got if got != "" else "(空串)"] = vals.get(got if got != "" else "(空串)", 0) + 1
+                holders[holder] = holders.get(holder, 0) + 1
+            if len(rows) < limit:
+                rows.append({"cell": cells - 1, "style_name": want, "style_found": mine is not None,
+                             "style_part": (mine or {}).get("part"), "holder": holder,
+                             "val": got, "written": got is not None})
+    return {"family": "odf", "available": True, "cells": cells, "cells_named": named,
+            "cells_unnamed": unnamed, "styles_found": found, "styles_unfound": unfound,
+            "cells_with_valign": with_val, "vals": vals, "holders": holders,
+            "styles_defined": len(table), "rows": rows, "listed": len(rows),
+            "cut": cells > len(rows)}
+
+
 def holder_of(mine):
     return (mine or {}).get("holder")
 
@@ -13283,6 +13487,7 @@ def facts(path: Path) -> dict:
             # 格子的字离边多远：表级与格级两块同形状、两个住处
             out["ooxml"]["cell_margins"] = docx_cell_margins(path)
             out["ooxml"]["table_borders"] = docx_table_borders(path)
+            out["ooxml"]["vertical_align"] = docx_vertical_align(path)
             # 表头重复那份账（行上的一个无值元素）
             out["ooxml"]["table_headers"] = docx_repeat_headers(path)
             # 制表位：定义在段上，而段里的制表字符是另一本账
@@ -13359,6 +13564,7 @@ def facts(path: Path) -> dict:
             # 格子的字离边多远：`a:tcPr` 上那四个属性（EMU），一个都不写就是这一格没说
             out["ooxml"]["cell_margins"] = pptx_cell_margins(path)
             out["ooxml"]["table_borders"] = pptx_table_borders(path)
+            out["ooxml"]["vertical_align"] = pptx_vertical_align(path)
             # 一条式子是文本体里的 OMML，而同一个形状在 Fallback 里还写了一遍（挂着替身图）
             out["ooxml"]["equations"] = pptx_equations_ledger(path)
             # 大纲那一本（`office-text --markdown` 的 pptx 支）：一页一个 `#`，
@@ -13412,6 +13618,7 @@ def facts(path: Path) -> dict:
             # 格子的字离边多远：一跳在 table-cell 样式的 properties 上（四长款或一枚短款）
             out["odt"]["cell_margins"] = odf_cell_margins(_mar_parts(path))
             out["odt"]["table_borders"] = odf_table_borders(_mar_parts(path))
+            out["odt"]["vertical_align"] = odf_vertical_align(_mar_parts(path))
             # 同一问在 ODF 是元素名本身：没有指令串，种类与格式全在名字与属性上
             out["odt"]["field_ledger"] = odf_field_ledger(path)
             # 这一族没有主题这个概念：交一本零条的账，而不是缺这个键
@@ -13465,6 +13672,7 @@ def facts(path: Path) -> dict:
                 # 同一问在 odp 住在 graphic-properties 上（那一族的格是图形对象），还有两格不点名样式
                 out["odp"]["cell_margins"] = odf_cell_margins(_mar_parts(path))
                 out["odp"]["table_borders"] = odf_table_borders(_mar_parts(path))
+                out["odp"]["vertical_align"] = odf_vertical_align(_mar_parts(path))
         else:
             out["app"] = "unknown-zip"
         return out

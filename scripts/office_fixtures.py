@@ -2559,6 +2559,82 @@ def write_row_height_docx(path: Path) -> None:
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 
+def _valign(holder, val: str, before: str = "") -> None:
+    """往一枚 `w:tcPr` 或 `w:sectPr` 上挂一枚 `w:vAlign`
+
+    `w:sectPr` 里 `vAlign` 排在 `cols` **前面**，所以给这一支留一个「插在哪枚孩子前面」的口子。
+    """
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import qn
+
+    piece = parse_xml('<w:vAlign xmlns:w="%s" w:val="%s"/>' % (W_NS, val))
+    if before:
+        anchor = holder.find(qn(before))
+        if anchor is not None:
+            anchor.addprevious(piece)
+            return
+    holder.append(piece)
+
+
+VALIGN_PPT = (("贴顶", {"anchor": "t"}),
+              ("居中且整块居中", {"anchor": "ctr", "anchorCtr": "1"}),
+              ("贴底", {"anchor": "b"}),
+              ("两端对齐", {"anchor": "just"}))
+
+
+def write_valign_docx(path: Path) -> None:
+    """四种「这一格的字贴哪一边」各摆一格，外加整页那一问
+
+    `w:tcPr/w:vAlign` 是**格级**的一条（ECMA 四态：`top` / `center` / `bottom` / `just`），
+    而 `w:sectPr/w:vAlign` 同名却回答另一问：这一节的字在纸上居中吗。真件普查
+    （本机 32 份 .docx + 1 份 .docm）里格级只有 `center` 2898 与 `bottom` 1 两种，
+    整页那一枚**一条都没有** —— 所以 `top`、`just` 与整页那一支都只能合成。
+    """
+    from docx import Document
+
+    doc = Document()
+    doc.add_paragraph("这一格的字贴哪一边")
+    table = doc.add_table(rows=2, cols=2)
+    for index, name in enumerate(("center", "top", "bottom", "just")):
+        cell = table.cell(index // 2, index % 2)
+        cell.text = "vAlign %s" % name
+        _valign(cell._tc.get_or_add_tcPr(), name)
+    quiet = doc.add_table(rows=1, cols=2)
+    for col in range(2):
+        quiet.cell(0, col).text = "整块不写 %d" % col
+    _valign(doc.sections[0]._sectPr, "center", before="w:cols")
+    doc.save(path)
+
+
+def write_valign_pptx(path: Path) -> None:
+    """`a:tcPr` 上那两枚属性：`@anchor`（贴哪边）与 `@anchorCtr`（整块居中吗）
+
+    DrawingML 把这一问答成**属性**而不是孩子：`@anchor` 四态（`t` / `ctr` / `b` / `just`），
+    另有 `@anchorCtr`。真件普查（104 份真 pptx、893 枚 `a:tcPr`）里 `@anchor` 只出现过
+    `ctr` 314 次、`@anchorCtr` **一条都没有**，而绝大多数格子两枚都不写 ——
+    「不写」才是这一族的常态，四态与 `anchorCtr` 只能合成。
+    """
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    deck = Presentation()
+    blank = deck.slide_layouts[5]
+    first = deck.slides.add_slide(blank)
+    shape = first.shapes.add_table(2, 2, Inches(0.6), Inches(1.6), Inches(6.0), Inches(1.6))
+    table = shape.table
+    for index, (text, attrs) in enumerate(VALIGN_PPT):
+        cell = table.cell(index // 2, index % 2)
+        cell.text = text
+        holder = cell._tc.get_or_add_tcPr()
+        for key, value in attrs.items():
+            holder.set(key, value)
+    second = deck.slides.add_slide(blank)
+    kept = second.shapes.add_table(1, 2, Inches(0.6), Inches(1.6), Inches(6.0), Inches(0.9))
+    kept.table.cell(0, 0).text = "两枚都不写"
+    kept.table.cell(0, 1).text = "也不写"
+    deck.save(path)
+
+
 def _cell_mar(holder, element: str, dirs: list) -> None:
     """往 `w:tblPr` 或 `w:tcPr` 上挂一枚 `w:tblCellMar` / `w:tcMar`（方向按给的序写）
 
@@ -5318,6 +5394,28 @@ def main() -> int:
     for src_doc, back in (("margins.docx", "margins-lo.docx"), ("margins.pptx", "margins-lo.pptx")):
         convert(exe, OUT / src_doc, src_doc.rsplit(".", 1)[-1], SCRATCH / ("mar-" + back))
         made = SCRATCH / ("mar-" + back) / src_doc
+        if made.exists():
+            shutil.copyfile(made, OUT / back)
+        else:
+            print("⚠️  没拿到 %s" % back)
+
+    # 这一格的字贴哪一边：docx 与 pptx 各一份，LibreOffice 各转一份、各重写一份
+    write_valign_docx(OUT / "valign.docx")
+    write_valign_pptx(OUT / "valign.pptx")
+    for src_doc, fmt, out_name in (
+        ("valign.docx", "odt", "valign.odt"),
+        ("valign.pptx", "odp", "valign.odp"),
+    ):
+        convert(exe, OUT / src_doc, fmt, SCRATCH)
+        made = SCRATCH / out_name
+        if made.exists():
+            shutil.copyfile(made, OUT / out_name)
+        else:
+            print("⚠️  没拿到 %s（%s 那一转）" % (out_name, src_doc))
+    for src_doc, back in (("valign.docx", "valign-lo.docx"), ("valign.pptx", "valign-lo.pptx")):
+        dest = SCRATCH / ("val-" + back)
+        convert(exe, OUT / src_doc, src_doc.rsplit(".", 1)[-1], dest)
+        made = dest / src_doc
         if made.exists():
             shutil.copyfile(made, OUT / back)
         else:

@@ -99,6 +99,7 @@ mod text_boxes;
 mod text_direction;
 mod theme_ledger;
 mod theme_refs;
+mod vertical_align;
 mod word;
 mod xmlscan;
 mod zipread;
