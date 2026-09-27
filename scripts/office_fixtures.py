@@ -956,6 +956,62 @@ def write_group_deck(path: Path) -> None:
     prs.save(str(path))
 
 
+def write_background_deck(path: Path) -> None:
+    """四页一次改一个底色变量：实色 / 显式无填充 / 渐变 / 什么都不写（走继承）
+
+    存在的理由：**页级** `p:bg` 在仓里 32 份 pptx 一个都没有（母版 112 个部件、版式 88 个部件
+    都写过，页上 0 枚），而本机 104 份真件里 `ppt/slides/slideN.xml` 写了 940 枚 ——
+    所以「这一页的底色是谁给的」这一问一直没有凭据。四页的差别都在 `p:cSld` 的第一枚孩子上，
+    页里各放一个框写页名（转 odp 后页名是 `page1`..`page4`，LO 不采纳框名）。
+    实测两家的岔路（`.scratch/pb_bg_pin.py` 逐字量本轮生成的三份件）：
+    1. 第 1 页 python-pptx 写 `<a:solidFill><a:srgbClr val="1A1A2E"/></a:solidFill>` 后面
+       跟一枚**空壳** `<a:effectLst/>`；LibreOffice 同格式重写把空壳丢了，色留着；
+    2. 第 2 页原本 `<a:noFill/>`；LibreOffice 重写后**整枚 `p:bg` 不见了** ——
+       「显式不填充」与「没写、走继承」在它手里是同一份字（第 4 页本来就什么都没写，两份件里
+       这两页一模一样）；
+    3. 第 3 页原本是 `schemeClr val="accent1"` 带 `tint/shade/satMod` 三个修饰、
+       `rotWithShape="1"`、`<a:lin scaled="0"/>`；LO 重写时把主题色**解成两个字面 RGB**
+       （`3E7FCC` / `A4C1FF`）、`rotWithShape` 改成 0、修饰整批不写，
+       而那条线改成 `<a:lin ang="0"/>` —— 同一位置两家点的**属性名都不一样**；
+    4. 还有一处整族的岔路：母版原本写 `<p:bgRef idx="1001"><a:schemeClr val="bg1"/>`，
+       LO 重写时把它**摊到 11 份版式上变成字面 `FFFFFF`**，而母版自己那枚 `p:bg` 没了 ——
+       同一本底色在两个生产者手里坐在不同层，所以「谁给了这页颜色」要连版式与母版一起交；
+    5. 转 odp 时页底进 content.xml 的自动样式（family=drawing-page）：第 1 页 dp1
+       `draw:fill="solid" draw:fill-color="#1a1a2e"`、第 3 页 dp4
+       `draw:fill="gradient" draw:fill-gradient-name="msFillGradient_20_1"`（那份定义在
+       styles.xml 的 `office:styles` 里，是 `<draw:gradient draw:style="linear"
+       draw:start-color="#3e7fcc" draw:end-color="#a4c1ff">` —— 名字解得开，两跳），
+       而第 2、4 页**共用一份什么都没写的 dp3**（只带
+       `presentation:background-visible="true"`）；母版那份底色在 styles.xml：
+       页点名 `master-page-name="Blank"` → `style:master-page/@draw:style-name="Mdp1"` →
+       `draw:background-size="border" draw:fill="solid" draw:fill-color="#ffffff"`。
+    """
+    from pptx import Presentation
+    from pptx.dml.color import RGBColor
+    from pptx.util import Emu
+
+    prs = Presentation()
+
+    def page(word):
+        had = prs.slides.add_slide(prs.slide_layouts[6])
+        box = had.shapes.add_textbox(Emu(500000), Emu(500000), Emu(4000000), Emu(400000))
+        box.text_frame.text = word
+        box.name = word
+        return had
+
+    solid = page("实色")
+    solid.background.fill.solid()
+    solid.background.fill.fore_color.rgb = RGBColor(0x1A, 0x1A, 0x2E)
+
+    none = page("无填充")
+    none.background.fill.background()
+
+    grad = page("渐变")
+    grad.background.fill.gradient()
+    page("什么都不写")
+    prs.save(str(path))
+
+
 def write_transition_deck(path: Path) -> None:
     """三页，一次只改一个变量：淡入 + 五秒自动换 / 只有左向擦除 / 什么都不写
 
@@ -4743,6 +4799,21 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "deck-gr-asodp" / "deck-gr.odp", OUT / "deck-gr.odp")
     else:
         print("⚠️  没拿到 deck-gr.odp（pptx → odp 那一转）")
+
+    # 页底那三份：python-pptx 四页各一个变量，LO 重写一份（noFill 整枚丢）、转一份 odp（进自动样式）
+    backed = OUT / "deck-bg.pptx"
+    write_background_deck(backed)
+    convert(exe, backed, "pptx", SCRATCH / "deck-bg-back")
+    made_backed = SCRATCH / "deck-bg-back" / "deck-bg.pptx"
+    if made_backed.exists():
+        shutil.copyfile(made_backed, OUT / "deck-bg-lo.pptx")
+    else:
+        print("⚠️  没拿到 deck-bg-lo.pptx（pptx → pptx 那一转）")
+    convert(exe, backed, "odp", SCRATCH / "deck-bg-asodp")
+    if (SCRATCH / "deck-bg-asodp" / "deck-bg.odp").exists():
+        shutil.copyfile(SCRATCH / "deck-bg-asodp" / "deck-bg.odp", OUT / "deck-bg.odp")
+    else:
+        print("⚠️  没拿到 deck-bg.odp（pptx → odp 那一转）")
 
     # ── 公式那枚 <f> 自己写了什么：一份共享组，三个生产者三种写法 ─────────
     base = SCRATCH / "shared-src" / "shared-src.xlsx"

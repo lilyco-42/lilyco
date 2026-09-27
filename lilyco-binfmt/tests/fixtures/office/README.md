@@ -209,6 +209,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `deck-pictures.pptx` | python-pptx（`write_pictures_pptx`，图仍是那张 40×24 的 `dot.png`） | 页上那张图的第一种摆法：尺寸只有 `a:xfrm/a:ext` **一处**（`1440000` = 4000）而位置 `a:off` 也在同一层（`360000` = 1cm）、alt 只有 `p:cNvPr/@descr` 一处（第一页写「一个红点」，**第二页什么都没给，python-pptx 把文件名 `dot.png` 填进了那个键**）、第二页不写宽高，于是按 72 DPI 换成 `508000`（=1411），另有 `a:picLocks noChangeAspect="1"` 与 `<a:stretch><a:fillRect/></a:stretch>`；第三页一张图也没有（交空表） |
 | `deck-pictures.odp` | LibreOffice（从 `deck-pictures.pptx` 导出） | 换一家：`svg:width="3.999cm"`（同一个 3999）、alt 搬成孩子元素 `svg:desc`、地址是 `draw:image/@xlink:href`，而**图框不写** `text:anchor-type`（odt 那边写 `as-char`）→ 那一族的 `placed` 是 null |
 | `deck-pictures-lo.pptx` | LibreOffice（`deck-pictures.odp` → .pptx，一趟来回） | 来回之后不见的三样：`a:picLocks` 整个没了、`<a:stretch/>` 缩成空的（`fillRect` 没了）、尺寸从 `1440000` 换成 `1439640`（4000 → 3999）；留下的：名字与两句 alt 一字未变、`a:off` 分毫未动，而号全被重排（`rId2` → `rId1`、形状 id 2 → 63） |
+| `deck-bg.pptx` | python-pptx 1.0.2（`write_background_deck`） | 四页一次只改一个变量的**页底色**：`第1页` 实色 `1A1A2E`、`第2页` **显式**写 `<p:bg><p:bgPr><a:noFill/>`、`第3页` 渐变（两站都点 `schemeClr accent1`，修饰 `tint 100000/50000` + `shade 100000` + `satMod 130000/350000` 全挂在那枚颜色元素的**孩子**上，方向写 `a:lin @scaled="0"`）、`第4页` 整枚 `p:bg` 都不写；每页底色后面跟一枚**空的** `<a:effectLst/>`。模板那份只在**母版**写 `bgRef idx="1001"` + `schemeClr bg1`，11 份版式一枚都不写 |
+| `deck-bg-lo.pptx` | LibreOffice（`deck-bg.pptx` → .pptx 重写） | 同四页，三处搬家：第 1 页字面色一字未动；第 3 页两站换成**替文件算完**的字面 `srgbClr 3E7FCC` / `A4C1FF`（修饰整批不写、`@scaled` 改 `@ang="0"`、`rotWithShape` 从 `1` 变 `0`）；**第 2 页那枚 `noFill` 整条丢掉**，于是它与第 4 页交出同一份全 null 的记录。空壳 `effectLst` 一枚都不写；母版那枚 `bgRef bg1` 被**摊到 11 份版式上写成字面 `FFFFFF`** 而母版自己那枚没了（`parts_with_bg` 4 → 13） |
+| `deck-bg.odp` | LibreOffice（`deck-bg.pptx` → .odp） | 同一件事换了地方：页只**点名**（dp1 / dp3 / dp4 / **dp3**），第 2、4 页共用 dp3，而那份样式的 `drawing-page-properties` 里 5 句话一条 `draw:fill` 都没有；渐变要两跳才解得开（`draw:fill-gradient-name="msFillGradient_20_1"` → styles.xml 的 `<draw:gradient>`，八格属性含 `angle="90deg"`）；继承那一跳是三跳 `Blank → Mdp1 → draw:fill="solid" #ffffff`，11 份 `style:master-page` 全部点同一份 Mdp1，另两份样式（content.xml 的 dp2、styles.xml 的 Mdp2）**没人点**而四句一字不差 |
 | `styled-text.docx` | python-docx（`write_runs_docx`） | 一段只点一个字符属性（粗 / 斜 / 下划线 / 删除线 / 上标 / 红 `C00000` / 黄 / 9 磅写成 `sz="18"` 半磅 / 宋体），另有点「明确不粗」（`<w:b w:val="0"/>`）、一串字里两个孩子（`<w:b/><w:i/>`）与**一段里三种字各一串**；没格式那几串**不写 `w:rPr`** |
 | `styled-text-lo.docx` | LibreOffice（`styled-text.docx` → .docx） | 同一份件重写一次：每一串字都补一个**空的** `<w:rPr></w:rPr>`（30 串里 16 串是空的），而 `w:val="0"` 换成 `w:val="false"` —— 「有没有这一格」与「这一格说不说不」两家正好一边一种 |
 | `styled-text.odt` / `styled-text.rtf` | LibreOffice（从 `styled-text.docx` 导出） | 第三种与第四种存法：ODF 把格式搬到 `text:span/@text:style-name="T1"…T12"`，值在**同一份 content.xml** 的 `style:text-properties` 上（`fo:font-weight="bold"`、`style:text-underline-style="solid"`、`style:text-position="super 58%"`、`fo:color="#c00000"`），「明确不粗」成 `fo:font-weight="normal"`；RTF 只在群头写 `b` / `i` / `strike` / `super` / `cf23` / `highlight7` / `fs18` / `af9`，否定是 `b0`，CJK 的下划线落在 `aul` 那个口袋，而颜色与字体只是**一个号**，要跳文件自己那两张表 |
@@ -2369,6 +2372,61 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       别的账都是各交各的。
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
+
+137. **这一页的底色是谁给的：页自己写、版式与母版写、还是整册都不写，而「写了不填充」与「什么都没写」在两家手里不可分辨**（三份 `deck-bg*` + 本机 104 份真件 pptx / 940 页，真件只量数、不入库）
+    - 形状：页级 OOXML 17 格 `{family, available, holder, written, via, attrs, fill, fill_element, fill_attrs,
+      fill_children, stops, stop_positions, colors, color_names, effect_lst_written, effects, idx}`；整册 8 格
+      `{family, available, parts_scanned, parts_with_bg, layers, fills_seen, entries, cut}`，每条 `entries` 在那 17 格
+      之外多两格 `layer` + `part`。ODF 页级 13 格（`page_style` / `style_found` / `style_part` / `fill_written` /
+      `fill_attrs` / `background_attrs` / `props_written` / `gradient` / `inherited` 那一本），整册 8 格
+      `{family, available, pages, pages_unnamed, shared_styles, silent_styles, styles, unfound_styles}`；而样式那一行
+      只有 8 格、**不带 `props_written`** —— 那份样式说了几句话只跟着页交，不跟整册那本重复一遍。
+    - 两种 null 不是一件事：`bgRef` 那一支的 `fill` / `fill_element` / `fill_attrs` 交 null 而 `fill_children` 交
+      空表，因为它的颜色**直接挂在 `bgRef` 下面**、压根没有填充元素那一层；第 4 页那种 null 是「整枚 `p:bg` 不在」，
+      于是 14 格全 null 而只有 `written: false` 是真的。把前者当后者会把 `idx` 与那枚主题色名一起丢掉。
+    - **DrawingML 的颜色修饰是孩子元素，不是属性**：`tint` / `shade` / `satMod` / `alpha` 都写在颜色元素肚子里。
+      所以 `colors` 每行交四格（元素名、`val`、`modifiers` 属性、`modifier_elements` 孩子）—— 只收属性那一格
+      在 fixture 与真件里都是**恒空**，等于把「这一站调过色」这句话的证据整批丢掉；真件里量到 17 行带修饰，
+      每行恰好一枚，且全是 `a:alpha val="100000"`（写了全不透明 vs 什么都不写，渲染上等价、在这一格里可分辨）。
+    - 生产者指纹一（LibreOffice 重写同一册）：它把第 2 页那枚完整的 `<p:bg><p:bgPr><a:noFill/>` **整条丢掉**，
+      于是 `deck-bg-lo.pptx` 的第 2 页与第 4 页交出**同一份全 null 的记录**（Rust 测试直接把两行与 python-pptx
+      那份的第 4 页对相等）。这不是读不出来，是文件里没了 —— 所以这一格不判「谁覆盖了谁」，只交「写没写」。
+    - 生产者指纹二（同一册的层间搬家）：模板只在**母版**写 `bgRef idx="1001"` + `schemeClr bg1`
+      （`parts_scanned` 16 / `parts_with_bg` 4，`layers` = master 1 + slide 3），LibreOffice 重写时把它**摊到
+      11 份版式上写成字面 `FFFFFF`，而母版自己那一枚没了**（16 / 13，`layers` = layout 11 + slide 2，
+      整本里 master 与 notesMaster 两层 0 条）。只看页部件会把这次搬家读成「底色丢了」，这就是 `layers` 的意义。
+    - 生产者指纹三（替文件算完了）：python-pptx 的渐变两站都写 `schemeClr accent1` + `tint 100000/50000` +
+      `shade 100000` + `satMod 130000/350000`（六枚修饰孩子），LibreOffice 交回两个 `srgbClr` 字面值
+      （`3E7FCC` / `A4C1FF`）而 `modifier_elements` 两行都是空表；同一枚渐变方向元素两家点的属性名也不一样
+      （`a:lin @scaled="0"` vs `@ang="0"`），真件里第三种是 `@ang="2700000"`，而 `rotWithShape` 三种写法都见得到
+      （`1` / `0` / `true`）—— 全按原样交，不折算。空壳 `<a:effectLst/>` 是一句说过的话：`effect_lst_written`
+      （在不在）与 `effects`（肚子里几个孩子）是两个数；真件里 210 / 940 页写了空壳，而母版、版式、备注母版
+      那三层**一枚都没有**（0 / 233 条）。
+    - 真件那本（104 份 pptx / 940 页，只在本机量、不进仓）：页级**全部写了**底色（`written` 940/940、`via` 全
+      `bgPr`、`holder` 全 `cSld`），填充只见到两族（`solid` 932 / `gradient` 8，`none` / `blip` / `pattern` /
+      `group` 各 0 面 —— 那三族的形状由 fixture 与 null 的规矩守着）；页级 948 行颜色**全是字面 `srgbClr`**、
+      31 个不同值、最勤的一枚 `1A1A2E` 顶 628 页，`schemeClr` 在页上 0 处；主题色只在另外三层（`notesMaster`
+      103 / `layout` 101 / `master` 25 条，全是 `bgRef` + `idx="1001"` + `schemeClr bg1`），而 master 那一层
+      只在 27 份件里出现。`parts_scanned` 13~54 不等、`parts_with_bg` 3~54、`cut` 104 份全 false（只砍逐件列表
+      那一条规矩在这本上同样不触发）。还有一份 0 页的 pptx：页级记录 0 份，整册那本照样交 —— 两本不是一份账。
+    - ODF 那一面（`deck-bg.odp`，本机真件 `.odp` 0 份，所以这一支只有自产件撑）：页只点名，底色写在
+      `drawing-page-properties` 上，句数 `props_written` 量到 dp1 7 / dp2 4 / dp3 5 / dp4 7（content.xml）、
+      Mdp1 3 / Mdp2 4（styles.xml）；第 2、4 页**共用一份 dp3**，那份 5 句话里一条 `draw:fill` 都没有，
+      于是整册账上 dp3 挂着 2 页（`shared_styles` 1 / `silent_styles` 1）—— 靠页数才看得出来这一格被共用。
+      两份**没人点**的样式（dp2 与 Mdp2）写的四句一字不差，而整册那本只列页点名到的那三份，所以它们不在这本上；
+      11 份 `style:master-page` 全部点同一份 `Mdp1`。继承那一跳在 ODF 是**三跳**（页 `@draw:master-page-name`
+      → `style:master-page/@draw:style-name` → 那一份 drawing-page 样式），实测 `Blank → Mdp1 →
+      draw:fill="solid" #ffffff`，这才是那两页看起来「有底色」的来路；任一跳断了交 `found: false`，
+      不替文件补一个白色。渐变要两跳：`draw:fill-gradient-name="msFillGradient_20_1"` → styles.xml 的
+      `office:styles` 里 `<draw:gradient draw:name=…>`（元素名是 `draw:gradient` 不是 `style:gradient`），
+      八格属性原样交（`angle="90deg"`、两端色、两端 `intensity`、`border`、`display-name`、`style`）。
+    - 边界：遗留 `.ppt` 不交这个键（它的记录树里没有页底这一层，本机没有凭据），docx / odt 也不交
+      （本机 32 份真件与 105 份自产件的 `word/document.xml` 里 `w:background` 与 `w:displayBackgroundShape`
+      各 0 处，python-docx 1.2.0 没有这个口，LibreOffice 的 docx 导出一个字都不写 —— 生产者做不出，
+      不是读不出来）。
+    - 第二读者是 `office_reader.py` 的 `_bg_ooxml` / `pptx_background_ledger` / `slide_page_background_odp` /
+      `odp_background_ledger`（246 份影子跑过）；probe 的 **3bq** 段逐件对这两族的整本账，Rust 那侧是
+      `office_slide.rs` 的 `a_silent_page_and_an_explicit_no_fill_read_alike`（三份件全钉）。
 
 136. **图自己那串字节说的三本账：声明、签名与摆在页上的那块，而「密度住在字节里」是量出来的**（134 份出口 / 71 行，其中 34 份有图）
     - 形状：账本 19 格 `{family, available, addr, agrees, at_natural, cut, declared_pixels, density,

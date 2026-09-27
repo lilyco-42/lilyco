@@ -286,6 +286,10 @@ def main() -> int:
         "deck-gr.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-gr-lo.pptx": ("ooxml", "powerpoint", "pptx"),
         "deck-gr.odp": ("opendocument", "powerpoint", "odp"),
+        # 页底那三份：实色 / 显式 noFill / 渐变 / 什么都不写，四页三种存法
+        "deck-bg.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-bg-lo.pptx": ("ooxml", "powerpoint", "pptx"),
+        "deck-bg.odp": ("opendocument", "powerpoint", "odp"),
         "crep.docx": ("ooxml", "word", "docx"),
         "crep-lo.docx": ("ooxml", "word", "docx"),
         "crep-r.docx": ("ooxml", "word", "docx"),
@@ -9967,6 +9971,211 @@ def main() -> int:
          no_theme_key("office-sheet", "book.ods", "picture_bytes"),
          no_theme_key("office-slide", "deck.odp", "picture_bytes")],
         [True, False, False, False],
+    )
+
+    # ── 3bq) 这一页的底色：pptx 写在页自己身上，odp 写在页点名的那份样式里，两边都能不写 ──
+    print("=== 3bq) office-slide page_background：三族一份账，「写了 noFill」与「什么都没写」 ===")
+
+    def bg_pages_multiset(rows):
+        return sorted(json.dumps(one.get("page_background"), sort_keys=True, ensure_ascii=False)
+                      for one in rows)
+
+    for name in sorted(one.name for one in FIXTURES.glob("*.pptx")):
+        got = lbin("office-slide", fixture(name))
+        want = files[name]["ooxml"]["slides"]
+        check("%s 每页底色记录合起来与读者一致（多重集，不比页序）" % name,
+              bg_pages_multiset(got.get("slides", [])), bg_pages_multiset(want))
+        check("%s 整册那本底色账（六类部件逐件）与读者一致" % name,
+              dig(got, "backgrounds"), files[name]["ooxml"]["backgrounds"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odp")):
+        got = lbin("office-slide", fixture(name))
+        want = files[name].get("odp", {})
+        check("%s 每页底色（跳一跳在样式里）与读者一致（多重集，不比页序）" % name,
+              bg_pages_multiset(got.get("slides", [])), bg_pages_multiset(want.get("slides", [])))
+        check("%s 整册那份样式账（几页共用一份 dp）与读者一致" % name,
+              dig(got, "backgrounds"), want.get("backgrounds"))
+    bg = lbin("office-slide", fixture("deck-bg.pptx"))
+    check(
+        "`deck-bg.pptx` 第 1 页：python-pptx 把实色写在**页自己身上** —— `p:bg` → `p:bgPr` → "
+        "`a:solidFill`，色是字面 `1A1A2E`（没有修饰），而它每条底色后面都跟一枚**空壳** "
+        "`<a:effectLst/>`：于是「这枚元素在不在」是 true、「它肚子里有几个孩子」是 0，两个数各说各的",
+        [dig(bg, "slides[0].page_background.written"),
+         dig(bg, "slides[0].page_background.via"),
+         dig(bg, "slides[0].page_background.fill"),
+         dig(bg, "slides[0].page_background.fill_element"),
+         dig(bg, "slides[0].page_background.colors[0]"),
+         dig(bg, "slides[0].page_background.effect_lst_written"),
+         dig(bg, "slides[0].page_background.effects")],
+        [True, "bgPr", "solid", "solidFill",
+         {"element": "srgbClr", "val": "1A1A2E", "modifiers": {},
+          "modifier_elements": []}, True, 0],
+    )
+    check(
+        "同一本里第 2、4 页是这一族最难的一对：第 2 页写了整枚 `<p:bg><p:bgPr><a:noFill/>`"
+        "（`fill` 短名 `none`、`colors` 是空表），第 4 页**一枚 `p:bg` 都没有** —— "
+        "「显式不填充」与「什么都不写、去看母版」是两件事，所以后者的每一格是 null 而不是 false / 0："
+        "`written` false、`colors` null、`effect_lst_written` null",
+        [dig(bg, "slides[1].page_background.fill"),
+         dig(bg, "slides[1].page_background.colors"),
+         dig(bg, "slides[1].page_background.stops"),
+         dig(bg, "slides[3].page_background.written"),
+         dig(bg, "slides[3].page_background.fill"),
+         dig(bg, "slides[3].page_background.colors"),
+         dig(bg, "slides[3].page_background.effect_lst_written")],
+        ["none", [], 0, False, None, None, None],
+    )
+    check(
+        "第 3 页那份渐变按文件写的交：两站各点一次主题色 `accent1`，站号是万分比原串 "
+        "`0` / `100000`，方向元素自己带 `@scaled` —— 解成什么色、朝哪边都不替文件算。"
+        "而这一族的修饰**不是属性、是孩子元素**（`a:tint` / `a:shade` / `a:satMod`），"
+        "所以颜色那一行交四格：`modifiers` 是空表、`modifier_elements` 才是那三句；"
+        "填充元素自己的属性（`rotWithShape`）与它的直接孩子照样整份交出来",
+        [dig(bg, "slides[2].page_background.fill"),
+         dig(bg, "slides[2].page_background.stop_positions"),
+         dig(bg, "slides[2].page_background.color_names"),
+         [one["val"] for one in dig(bg, "slides[2].page_background.colors")],
+         [one["modifiers"] for one in dig(bg, "slides[2].page_background.colors")],
+         [one["modifier_elements"] for one in dig(bg, "slides[2].page_background.colors")],
+         dig(bg, "slides[2].page_background.fill_attrs"),
+         dig(bg, "slides[2].page_background.fill_children")],
+        ["gradient", ["0", "100000"], ["schemeClr"], ["accent1", "accent1"], [{}, {}],
+         [[{"element": "tint", "attrs": {"val": "100000"}},
+           {"element": "shade", "attrs": {"val": "100000"}},
+           {"element": "satMod", "attrs": {"val": "130000"}}],
+          [{"element": "tint", "attrs": {"val": "50000"}},
+           {"element": "shade", "attrs": {"val": "100000"}},
+           {"element": "satMod", "attrs": {"val": "350000"}}]],
+         {"rotWithShape": "1"},
+         [{"element": "gsLst", "attrs": {}}, {"element": "lin", "attrs": {"scaled": "0"}}]],
+    )
+    check(
+        "整册那本账看得见页级记录看不见的事：这一本只有 4 件写过底色，其中一件是**母版** —— "
+        "它走的是另一条路 `p:bgRef @idx=\"1001\"`，肚子里没有填充族（`fill` 是 null 而不是 "
+        "\"没有填充\"），色直接挂在 `bgRef` 下面点 `bg1`。11 份版式一枚都不写",
+        [dig(bg, "backgrounds.parts_scanned"),
+         dig(bg, "backgrounds.parts_with_bg"),
+         dig(bg, "backgrounds.layers"),
+         dig(bg, "backgrounds.fills_seen"),
+         dig(bg, "backgrounds.entries[0].layer"),
+         dig(bg, "backgrounds.entries[0].via"),
+         dig(bg, "backgrounds.entries[0].idx"),
+         dig(bg, "backgrounds.entries[0].fill"),
+         dig(bg, "backgrounds.entries[0].colors")],
+        [16, 4, [{"layer": "master", "parts": 1}, {"layer": "slide", "parts": 3}],
+         ["solid", "none", "gradient"], "master", "bgRef", "1001", None,
+         [{"element": "schemeClr", "val": "bg1", "modifiers": {},
+           "modifier_elements": []}]],
+    )
+    bglo = lbin("office-slide", fixture("deck-bg-lo.pptx"))
+    check(
+        "LibreOffice 重写同一份稿子，三处搬家：① 第 2 页那枚**显式 `noFill` 整条丢掉**，"
+        "于是「写了不填充」与「什么都没写」在两份件里都不可分辨（方向还相反）；"
+        "② 主题色它**替文件算完了** —— 两个 `srgbClr` 字面值 `3E7FCC` / `A4C1FF`，"
+        "python-pptx 那三枚修饰（`tint` / `shade` / `satMod`）一个字不写；"
+        "③ 同一枚渐变方向元素点的属性名都不一样（`@scaled` → `@ang`），空壳 `effectLst` 一枚也不写",
+        [dig(bglo, "slides[1].page_background.written"),
+         dig(bglo, "slides[3].page_background.written"),
+         [one["element"] for one in dig(bglo, "slides[2].page_background.colors")],
+         [one["val"] for one in dig(bglo, "slides[2].page_background.colors")],
+         dig(bglo, "slides[2].page_background.colors[0].modifiers"),
+         [one["modifier_elements"] for one in dig(bglo, "slides[2].page_background.colors")],
+         dig(bglo, "slides[2].page_background.fill_children[1]"),
+         dig(bglo, "slides[2].page_background.effect_lst_written"),
+         dig(bglo, "slides[2].page_background.effects")],
+        [False, False, ["srgbClr", "srgbClr"], ["3E7FCC", "A4C1FF"], {}, [[], []],
+         {"element": "lin", "attrs": {"ang": "0"}}, False, None],
+    )
+    check(
+        "同一本账里那次「层与层之间搬家」：母版那枚 `bgRef` 没了，LibreOffice 把它摊到 "
+        "**11 份版式**上写成字面 `FFFFFF` —— 只看页部件会读成「底色丢了」，而页上写的两句还在。"
+        "`parts_with_bg` 因此从 4 涨到 13，`layers` 从「母版 1 + 页 3」变成「版式 11 + 页 2」",
+        [dig(bglo, "backgrounds.parts_scanned"),
+         dig(bglo, "backgrounds.parts_with_bg"),
+         dig(bglo, "backgrounds.layers"),
+         dig(bglo, "backgrounds.fills_seen"),
+         dig(bglo, "backgrounds.entries[0].layer"),
+         dig(bglo, "backgrounds.entries[0].part"),
+         dig(bglo, "backgrounds.entries[0].colors[0].val")],
+        [16, 13, [{"layer": "layout", "parts": 11}, {"layer": "slide", "parts": 2}],
+         ["solid", "gradient"], "layout", "ppt/slideLayouts/slideLayout1.xml", "FFFFFF"],
+    )
+    bgodp = lbin("office-slide", fixture("deck-bg.odp"))
+    check(
+        "同一份东西转成 odp，这句话换了地方：页只点一个样式名，底色在那份 `drawing-page` 样式里 —— "
+        "第 1 页 `dp1` 写 `draw:fill=\"solid\"` + `draw:fill-color=\"#1a1a2e\"`，"
+        "而 `props_written` 7 是「那份样式一共说了几句话」（`display-footer` 那些也算），"
+        "底色那一堆只是子集，两个数不互相解释",
+        [dig(bgodp, "slides[0].page_background.page_style"),
+         dig(bgodp, "slides[0].page_background.style_found"),
+         dig(bgodp, "slides[0].page_background.style_part"),
+         dig(bgodp, "slides[0].page_background.written"),
+         dig(bgodp, "slides[0].page_background.fill"),
+         dig(bgodp, "slides[0].page_background.fill_attrs"),
+         dig(bgodp, "slides[0].page_background.props_written"),
+         dig(bgodp, "slides[0].page_background.background_attrs")],
+        ["dp1", True, "content.xml", True, "solid",
+         {"fill": "solid", "fill-color": "#1a1a2e"}, 7,
+         {"background-objects-visible": "true", "background-visible": "true"}],
+    )
+    check(
+        "这一族里「不填充」与「没写」也不可分辨，但露出来的地方不同：第 2、4 页**共用同一份 `dp3**`，"
+        "那份样式的属性表里一条 `draw:fill` 都没有（`fill_written` false、`written` false、"
+        "`props_written` 5 —— 那五句全是页脚/背景可见性），所以 `written` 是 false 而不是 null："
+        "样式读到了，它没说。真正管色的是继承那一跳 —— 母版页 `Blank` → `Mdp1` → `solid #ffffff`",
+        [dig(bgodp, "slides[1].page_background.page_style"),
+         dig(bgodp, "slides[1].page_background.written"),
+         dig(bgodp, "slides[1].page_background.fill"),
+         dig(bgodp, "slides[1].page_background.fill_attrs"),
+         dig(bgodp, "slides[1].page_background.props_written"),
+         dig(bgodp, "slides[3].page_background.page_style"),
+         dig(bgodp, "slides[1].page_background.inherited")],
+        ["dp3", False, None, {}, 5, "dp3",
+         {"master": "Blank", "master_style": "Mdp1", "found": True, "part": "styles.xml",
+          "fill": "solid",
+          "fill_attrs": {"fill": "solid", "fill-color": "#ffffff"},
+          "background_attrs": {"background-size": "border"}}],
+    )
+    check(
+        "渐变那一跳要两跳才解得开：样式里只有一个名字 `msFillGradient_20_1`，定义住在 "
+        "styles.xml 的 `office:styles` 里，而元素名是 `draw:gradient`（不是 `style:gradient`）。"
+        "解开了交那份定义自己写的属性（`style=\"linear\"` `angle=\"90deg\"` 两端色），"
+        "解不开时 `found` 是 false —— 两边都是两串字面值，与 pptx 那两份的 `3E7FCC` / `A4C1FF` 对得上",
+        [dig(bgodp, "slides[2].page_background.fill"),
+         dig(bgodp, "slides[2].page_background.fill_attrs"),
+         dig(bgodp, "slides[2].page_background.gradient.name"),
+         dig(bgodp, "slides[2].page_background.gradient.found"),
+         dig(bgodp, "slides[2].page_background.gradient.part"),
+         dig(bgodp, "slides[2].page_background.gradient.element"),
+         [dig(bgodp, "slides[2].page_background.gradient.attrs." + one)
+          for one in ("style", "start-color", "end-color", "angle")]],
+        ["gradient", {"fill": "gradient", "fill-gradient-name": "msFillGradient_20_1"},
+         "msFillGradient_20_1", True, "styles.xml", "gradient",
+         ["linear", "#3e7fcc", "#a4c1ff", "90deg"]],
+    )
+    check(
+        "整册那份样式账在 ODF 顶的是「这一格被几页共用」：四页全点了样式名（`pages_unnamed` 0）、"
+        "三份样式各 1 / 2 / 1 页，其中一份被两页共用、一份读了却说不了底色 —— "
+        "「一份样式挂几页」与「几份样式沉默」是两个数，光看每页那份记录拼不出来",
+        [dig(bgodp, "backgrounds.pages"),
+         dig(bgodp, "backgrounds.pages_unnamed"),
+         dig(bgodp, "backgrounds.shared_styles"),
+         dig(bgodp, "backgrounds.silent_styles"),
+         dig(bgodp, "backgrounds.unfound_styles"),
+         [[one["style"], one["pages"], one["fill_written"]]
+          for one in dig(bgodp, "backgrounds.styles")]],
+        [4, 0, 1, 1, 0,
+         [["dp1", 1, True], ["dp3", 2, False], ["dp4", 1, True]]],
+    )
+    check(
+        "两族之外没有这一层：遗留 .ppt 的记录树里没有页底这一族（不交这个键，"
+        "与形状树那一条同一规矩），docx / odt 也不交 —— 本机 32 份真件与 105 份 fixture 的 "
+        "`word/document.xml` 里 `w:background` 与 `w:displayBackgroundShape` 各 0 处、"
+        "python-docx 1.2.0 没有这个口，那是生产者做不出而不是读不出来",
+        [dig(lbin("office-slide", fixture("deck.ppt")), "slides[0].page_background"),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.page_background"),
+         dig(lbin("office-doc", fixture("notes.odt")), "structure.page_background"),
+         dig(lbin("office-sheet", fixture("book.xlsx")), "backgrounds")],
+        [None, None, None, None],
     )
 
     failed = [one for one in RESULTS if not one[1]]

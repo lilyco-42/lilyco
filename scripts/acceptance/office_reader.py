@@ -4403,6 +4403,419 @@ def slide_shape_tree_odp(page, limit: int = 400) -> dict:
     return _ledger("odf", rows[:limit])
 
 
+BG_FILL_LOCALS = (
+    ("noFill", "none"),
+    ("solidFill", "solid"),
+    ("gradFill", "gradient"),
+    ("blipFill", "blip"),
+    ("pattFill", "pattern"),
+    ("grpFill", "group"),
+)
+BG_COLOR_LOCALS = ("srgbClr", "schemeClr", "sysClr", "prstClr", "hslClr", "scrgbClr")
+# 会写页底的六种部件：整段目录名一起比（`ppt/slideLayouts/` 也以 `ppt/slide` 开头）
+BG_PART_PREFIXES = (
+    ("ppt/slides/slide", "slide"),
+    ("ppt/slideLayouts/slideLayout", "layout"),
+    ("ppt/slideMasters/slideMaster", "master"),
+    ("ppt/notesSlides/notesSlide", "notesSlide"),
+    ("ppt/notesMasters/notesMaster", "notesMaster"),
+    ("ppt/handoutMasters/handoutMaster", "handoutMaster"),
+)
+
+
+def _bg_attrs(node, skip=()) -> dict:
+    """一个元素的属性表（局部名；`xmlns` 那类声明与 `skip` 里的名字不算属性）"""
+    out = {}
+    for key, value in node.attrib.items():
+        if key == "xmlns" or key.startswith("xmlns:"):
+            continue
+        local = key.rsplit("}", 1)[-1].rsplit(":", 1)[-1]
+        if local in skip:
+            continue
+        out[local] = value
+    return out
+
+
+def _bg_attr_local(node, want: str):
+    for key, value in node.attrib.items():
+        local = key.rsplit("}", 1)[-1].rsplit(":", 1)[-1]
+        if local == want:
+            return value
+    return None
+
+
+def _bg_first_fill(inner):
+    """第一枚填充元素（元素名、短名、那个节点）。`p:bgRef` 没有填充族 —— 色挂在它自己身上"""
+    for local, short in BG_FILL_LOCALS:
+        for kid in list(inner):
+            if xml_local(kid.tag) == local:
+                return local, short, kid
+    return None
+
+
+def _bg_walk_colors(node, out, limit: int) -> None:
+    for kid in list(node):
+        if len(out) >= limit:
+            return
+        name = xml_local(kid.tag)
+        if name in BG_COLOR_LOCALS:
+            # 修饰在这一族是孩子元素（`<a:tint val="100000"/>` 那一串），不是属性
+            out.append({
+                "element": name,
+                "val": _bg_attr_local(kid, "val"),
+                "modifiers": _bg_attrs(kid, ("val",)),
+                "modifier_elements": [
+                    {"element": xml_local(one.tag), "attrs": _bg_attrs(one)}
+                    for one in list(kid)
+                ],
+            })
+        _bg_walk_colors(kid, out, limit)
+
+
+def _bg_unwritten() -> dict:
+    """「这一层什么都没写」：None 而不是 0 —— 0 是「写了且数是 0」"""
+    return {
+        "family": "ooxml",
+        "available": True,
+        "written": False,
+        "holder": None,
+        "via": None,
+        "attrs": None,
+        "fill": None,
+        "fill_element": None,
+        "fill_attrs": None,
+        "fill_children": None,
+        "stops": None,
+        "stop_positions": None,
+        "colors": None,
+        "color_names": None,
+        "effect_lst_written": None,
+        "effects": None,
+        "idx": None,
+    }
+
+
+def _bg_ooxml(root, limit: int = 400) -> dict:
+    """一枚 `p:bg` 的记录（页 / 版式 / 母版同一条路，因为这句话在三族里写法一样）"""
+    holders = [one for one in root.iter() if xml_local(one.tag) == "cSld"]
+    if not holders:
+        return _bg_unwritten()
+    holder = holders[0]
+    bg = local_child(holder, "bg")
+    if bg is None:
+        return _bg_unwritten()
+    inner = local_child(bg, "bgPr")
+    if inner is None:
+        inner = local_child(bg, "bgRef")
+    colors: list[dict] = []
+    _bg_walk_colors(bg, colors, limit)
+    color_names: list[str] = []
+    for one in colors:
+        if one["element"] not in color_names:
+            color_names.append(one["element"])
+    stop_positions: list = []
+    if inner is not None:
+        for one in inner.iter():
+            if len(stop_positions) >= limit:
+                break
+            if xml_local(one.tag) == "gs":
+                stop_positions.append(_bg_attr_local(one, "pos"))
+    fill = _bg_first_fill(inner) if inner is not None else None
+    effect_lst = local_child(inner, "effectLst") if inner is not None else None
+    via = xml_local(inner.tag) if inner is not None else None
+    return {
+        "family": "ooxml",
+        "available": True,
+        "written": True,
+        "holder": xml_local(holder.tag),
+        "via": via if via else None,
+        "attrs": _bg_attrs(bg),
+        "fill": fill[1] if fill else None,
+        "fill_element": fill[0] if fill else None,
+        "fill_attrs": _bg_attrs(fill[2]) if fill else None,
+        "fill_children": [
+            {"element": xml_local(one.tag), "attrs": _bg_attrs(one)}
+            for one in list(fill[2])
+        ] if fill else [],
+        "stops": len(stop_positions),
+        "stop_positions": stop_positions,
+        "colors": colors,
+        "color_names": color_names,
+        # 「这枚元素在不在」与「它肚子里有几个孩子」是两个数：空壳 `<a:effectLst/>` 是
+        # python-pptx 的常态（实测每条底色后面都跟一枚空的），LibreOffice 一枚都不写
+        "effect_lst_written": effect_lst is not None,
+        "effects": len(list(effect_lst)) if effect_lst is not None else None,
+        "idx": _bg_attr_local(inner, "idx") if inner is not None else None,
+    }
+
+
+def _bg_holder(name: str):
+    for prefix, label in BG_PART_PREFIXES:
+        if name.startswith(prefix) and name.endswith(".xml"):
+            return label
+    return None
+
+
+def _bg_member(parts, name: str):
+    raw = parts.get(name)
+    if raw is None:
+        return None
+    try:
+        return ET.fromstring(raw)
+    except ET.ParseError:
+        return None
+
+
+def pptx_background_ledger(parts, names, limit: int = 400) -> dict:
+    r"""整册（OOXML）：哪些层写过底色、各是什么填法
+
+    页级那一份记录看不见母版与版式之间那次搬家（实测 LibreOffice 重写把母版的
+    `bgRef` 摊到 11 份版式上写成字面色，而母版自己那枚没了），所以逐件来一遍。
+    先按部件名定序再走：`layers` 与 `fills_seen` 交的是「第一次见到」的顺序，
+    而 zip 里的存储序跟着生产者走。
+    """
+    entries: list[tuple[str, dict]] = []
+    layers: list[list] = []
+    fills: list[str] = []
+    scanned = 0
+    written = 0
+    for name in sorted(names):
+        label = _bg_holder(name)
+        if label is None:
+            continue
+        root = _bg_member(parts, name)
+        if root is None:
+            continue
+        scanned += 1
+        one = _bg_ooxml(root, limit)
+        if one["written"] is not True:
+            continue
+        written += 1
+        if one["fill"] and one["fill"] not in fills:
+            fills.append(one["fill"])
+        hit = next((slot for slot in layers if slot[0] == label), None)
+        if hit is None:
+            layers.append([label, 1])
+        else:
+            hit[1] += 1
+        if len(entries) < limit:
+            row = dict(one)
+            row["layer"] = label
+            entries.append((name, row))
+    entries.sort(key=lambda one: one[0])
+    rows = []
+    for part, row in entries:
+        mine = dict(row)
+        mine["part"] = part
+        rows.append(mine)
+    return {
+        "family": "ooxml",
+        "available": True,
+        "parts_scanned": scanned,
+        "parts_with_bg": written,
+        "layers": [{"layer": slot[0], "parts": slot[1]} for slot in layers],
+        "fills_seen": fills,
+        "entries": rows,
+        "cut": written > len(rows),
+    }
+
+
+def _bg_draw_style(part_name: str, props):
+    """一份 drawing-page 样式里与底色有关的那几格，拆开两堆：`fill*` 与 `background*`
+
+    `props_written` 是「那份样式一共说了几句话」（`display-footer` 那些也算），
+    底色那一堆只是其中的子集 —— 两个数不互相解释。
+    """
+    mine = {"part": part_name, "fill": {}, "background": {}, "props_written": 0}
+    if props is None:
+        return mine
+    for key, value in props.attrib.items():
+        if key == "xmlns" or key.startswith("xmlns:"):
+            continue
+        mine["props_written"] += 1
+        local = key.rsplit("}", 1)[-1].rsplit(":", 1)[-1]
+        if local == "fill" or local.startswith("fill-"):
+            mine["fill"][local] = value
+        elif local.startswith("background"):
+            mine["background"][local] = value
+    return mine
+
+
+def _bg_props_of(style):
+    for one in style.iter():
+        if one is style:
+            continue
+        if xml_local(one.tag) == "drawing-page-properties":
+            return one
+    return None
+
+
+def odp_drawing_style(parts, want: str):
+    """页点名的那份 drawing-page 样式：两份件都找，跳不通交 None"""
+    for part_name in ("content.xml", "styles.xml"):
+        root = _bg_member(parts, part_name)
+        if root is None:
+            continue
+        for one in root.iter():
+            if xml_local(one.tag) != "style":
+                continue
+            if of_local(one, "family") != "drawing-page":
+                continue
+            if of_local(one, "name") != want:
+                continue
+            return _bg_draw_style(part_name, _bg_props_of(one))
+    return None
+
+
+def odp_gradient(parts, named: str) -> dict:
+    """`draw:fill-gradient-name` 那一跳：定义在 `office:styles` 里，元素名是 `draw:gradient`"""
+    for part_name in ("styles.xml", "content.xml"):
+        root = _bg_member(parts, part_name)
+        if root is None:
+            continue
+        for one in root.iter():
+            if xml_local(one.tag) != "gradient":
+                continue
+            if of_local(one, "name") != named:
+                continue
+            return {
+                "name": named,
+                "found": True,
+                "part": part_name,
+                "element": xml_local(one.tag),
+                "attrs": _bg_attrs(one, ("name",)),
+            }
+    return {"name": named, "found": False, "part": None, "element": None, "attrs": None}
+
+
+def _bg_inherited_row(master, named) -> dict:
+    return {
+        "master": master,
+        "master_style": named,
+        "found": False,
+        "part": None,
+        "fill": None,
+        "fill_attrs": None,
+        "background_attrs": None,
+    }
+
+
+def odp_inherited(parts, page) -> dict:
+    """继承那一跳是三跳：页 → 母版页名 → 那份母版页点名的 drawing-page 样式；断了交 False"""
+    master = of_local(page, "master-page-name")
+    if master is None:
+        return _bg_inherited_row(None, None)
+    named = None
+    root = _bg_member(parts, "styles.xml")
+    if root is not None:
+        for one in root.iter():
+            if xml_local(one.tag) != "master-page":
+                continue
+            if of_local(one, "name") != master:
+                continue
+            named = of_local(one, "style-name")
+            break
+    if named is None:
+        return _bg_inherited_row(master, None)
+    mine = odp_drawing_style(parts, named)
+    if mine is None:
+        return _bg_inherited_row(master, named)
+    return {
+        "master": master,
+        "master_style": named,
+        "found": True,
+        "part": mine["part"],
+        "fill": mine["fill"].get("fill"),
+        "fill_attrs": dict(mine["fill"]),
+        "background_attrs": dict(mine["background"]),
+    }
+
+
+def slide_page_background_odp(parts, page) -> dict:
+    """ODF 那一面：这一页点名的那份样式，加上母版那一跳（两族都能「什么都不写」）"""
+    named = of_local(page, "style-name")
+    inherited = odp_inherited(parts, page)
+    mine = odp_drawing_style(parts, named) if named is not None else None
+    gradient = None
+    if mine is not None and mine["fill"].get("fill-gradient-name") is not None:
+        gradient = odp_gradient(parts, mine["fill"]["fill-gradient-name"])
+    return {
+        "family": "odf",
+        "available": True,
+        # 样式不在场是 None（「没东西可读」），不是 False（「读了，它没写」）
+        "written": (mine["fill"] != {}) if mine is not None else None,
+        "page_style": named,
+        "style_found": mine is not None,
+        "style_part": mine["part"] if mine is not None else None,
+        "fill_written": mine is not None and mine["fill"] != {},
+        "fill": mine["fill"].get("fill") if mine is not None else None,
+        "fill_attrs": dict(mine["fill"]) if mine is not None else None,
+        "background_attrs": (
+            dict(mine["background"]) if mine is not None else None
+        ),
+        "props_written": mine["props_written"] if mine is not None else None,
+        "gradient": gradient,
+        "inherited": inherited,
+    }
+
+
+def odp_background_ledger(parts, limit: int = 400) -> dict:
+    """整册（ODF）：几页共用一份样式 —— 「显式不填充」与「什么都没写」就靠这一格露出来"""
+    rows: list[list] = []
+    pages = 0
+    unnamed = 0
+    root = _bg_member(parts, "content.xml")
+    if root is not None:
+        for one in root.iter():
+            if xml_local(one.tag) != "page":
+                continue
+            pages += 1
+            want = of_local(one, "style-name")
+            if want is None:
+                unnamed += 1
+                continue
+            hit = next((slot for slot in rows if slot[0] == want), None)
+            if hit is None:
+                rows.append([want, 1])
+            else:
+                hit[1] += 1
+    entries = []
+    shared = 0
+    silent = 0
+    unfound = 0
+    for name, count in rows[:limit]:
+        mine = odp_drawing_style(parts, name)
+        written = mine is not None and mine["fill"] != {}
+        if count > 1:
+            shared += 1
+        if mine is not None and not written:
+            silent += 1
+        if mine is None:
+            unfound += 1
+        entries.append({
+            "style": name,
+            "pages": count,
+            "style_found": mine is not None,
+            "style_part": mine["part"] if mine is not None else None,
+            "fill_written": written,
+            "fill": mine["fill"].get("fill") if mine is not None else None,
+            "fill_attrs": dict(mine["fill"]) if mine is not None else None,
+            "background_attrs": (
+                dict(mine["background"]) if mine is not None else None
+            ),
+        })
+    return {
+        "family": "odf",
+        "available": True,
+        "pages": pages,
+        "pages_unnamed": unnamed,
+        "styles": entries,
+        "shared_styles": shared,
+        "silent_styles": silent,
+        "unfound_styles": unfound,
+    }
+
+
 def _f_attr_map(node) -> dict:
     """一枚元素的属性表（局部名，`xmlns` 那类不算）"""
     out = {}
@@ -7643,6 +8056,8 @@ def pptx_facts(path: Path) -> dict:
                 # 切换的细则：几条、每条写了哪些属性、效果孩子自己带了什么
                 "transition_detail": slide_transition_detail(root),
                 "shape_tree": slide_shape_tree_pptx(root),
+                # 这一页的底色：p:bg 坐在 cSld 的第一枚孩子上，也可以整枚不写（走继承）
+                "page_background": _bg_ooxml(root),
                 "links": pptx_slide_links(root, rels_root),
                 "relationships": slide_rels(rels_root, name),
                 # 「放映时隐藏」这一族就写在根元素上一个 show="0"；没写等于没藏
@@ -7681,6 +8096,8 @@ def pptx_facts(path: Path) -> dict:
     return {
         "slide_count": len(slides),
         "slides": out_slides,
+        # 底色那本逐件的账：页上那一条常常什么都不写，实际给色的是版式或母版
+        "backgrounds": pptx_background_ledger(parts, names),
         "slide_size": size,
         "slide_size_type": size_type,
         "masters": sorted(one for one in names if one.startswith("ppt/slideMasters/slideMaster")),
@@ -9561,11 +9978,15 @@ def odp_facts(path: Path) -> dict | None:
                 "visibility": odp_page_visibility(page_styles, of_local(page, "style-name")),
                 "odp_transition": odp_transition(parts, of_local(page, "style-name"), page),
                 "shape_tree": slide_shape_tree_odp(page),
+                # 底色在这里是两跳：页上的样式名 → drawing-page 样式，样式不在就是「没写」
+                "page_background": slide_page_background_odp(parts, page),
                 "size": size_of_layout.get(layout_of_master.get(master)),
             }
         )
     return {
         "slides": slides,
+        # 底色在这一族是样式名那一本账：同一个 dp3 可以两页共用
+        "backgrounds": odp_background_ledger(parts),
         "masters": sorted({one["master"] for one in slides if one["master"]}),
         "layouts": sorted({one["layout"] for one in slides if one["layout"]}),
         # 页上写着版式名，文件里没有版式定义：这是这份真件的事实，不是我漏读
