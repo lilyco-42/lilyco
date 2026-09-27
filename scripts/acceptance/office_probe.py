@@ -128,13 +128,15 @@ def diff_paths(got, want, at: str = "") -> str:
 
 def check(name: str, got, want, hint: str = "") -> None:
     ok = got == want
-    # 两边各留 400 字：留少了就只看得到共同的前缀，差的偏偏在后头（修订那一条就这样）。
+    # 两边各留 4000 字：留少了就只看得到共同的前缀，差的偏偏在后头（修订那一条就这样）。
+    # 上一档是 400：语料级聚合（主题那三本 @name、手指按族拆开的合计）差的常在后半截，
+    # 日志里抄不回完整新值，就得再跑一条 68 分钟的闸门去要一个数。
     # 整本比对失败时再补一句「第一个不一样的路径」（diff_paths）—— 两边的共同前缀
     # 一直相同，截断里永远看不见差在哪一格；这一句只对 dict / list 算，标量不必。
     if not ok and not hint and isinstance(got, (dict, list)) and isinstance(want, (dict, list)):
         hint = diff_paths(got, want)
-    record(name, ok, "" if ok else f"lbin={json.dumps(flat(got), ensure_ascii=False, default=str)[:400]} "
-                                   f"读者={json.dumps(flat(want), ensure_ascii=False, default=str)[:400]}"
+    record(name, ok, "" if ok else f"lbin={json.dumps(flat(got), ensure_ascii=False, default=str)[:4000]} "
+                                   f"读者={json.dumps(flat(want), ensure_ascii=False, default=str)[:4000]}"
                                    + (f" ▸ {hint}" if hint else ""))
 
 
