@@ -129,8 +129,10 @@ def diff_paths(got, want, at: str = "") -> str:
 def check(name: str, got, want, hint: str = "") -> None:
     ok = got == want
     # 两边各留 400 字：留少了就只看得到共同的前缀，差的偏偏在后头（修订那一条就这样）。
-    # 整本比对失败时再带上 hint（diff_paths 给的「第一个不一样的路径」），
-    # 否则两边的共同前缀一直相同，截断里永远看不见差在哪一格。
+    # 整本比对失败时再补一句「第一个不一样的路径」（diff_paths）—— 两边的共同前缀
+    # 一直相同，截断里永远看不见差在哪一格；这一句只对 dict / list 算，标量不必。
+    if not ok and not hint and isinstance(got, (dict, list)) and isinstance(want, (dict, list)):
+        hint = diff_paths(got, want)
     record(name, ok, "" if ok else f"lbin={json.dumps(flat(got), ensure_ascii=False, default=str)[:400]} "
                                    f"读者={json.dumps(flat(want), ensure_ascii=False, default=str)[:400]}"
                                    + (f" ▸ {hint}" if hint else ""))
@@ -1687,7 +1689,7 @@ def main() -> int:
 
     for name in ("tables.rtf",):
         got = lbin("office-doc", fixture(name)).get("structure", {})
-        check("%s 不报表宽：RTF 里没有「表宽」这个东西（只有 \intbl 与格分隔）" % name,
+        check("%s 不报表宽：RTF 里没有「表宽」这个东西（只有 \\intbl 与格分隔）" % name,
               [one for one in ("table_layouts",) if got.get(one) is not None], [])
     for name in ("notes.doc",):
         got = (lbin("office-doc", fixture(name)).get("structure") or {})
@@ -8757,7 +8759,7 @@ def main() -> int:
          sorted({one["slot_total"] for one in theme_rows}),
          sum(1 for one in theme_rows if one["canonical"]), fmt_shapes,
          len(dk1_sys), len(with_extra), sorted(dk1_sys) == sorted(with_extra)],
-        [228, 0, [12], 228, [(('fillStyleLst', 3), ('lnStyleLst', 3), ('effectStyleLst', 3), ('bgFillStyleLst', 3))], 85, 85, True],
+        [230, 0, [12], 230, [(('fillStyleLst', 3), ('lnStyleLst', 3), ('effectStyleLst', 3), ('bgFillStyleLst', 3))], 86, 86, True],
     )
     check(
         "一个部件里的三个 @name 各说各的：theme 两种（Office Theme 198 / Office 8）、"
@@ -8969,8 +8971,7 @@ def main() -> int:
          sorted({one for row in idx_rows for one in row["totals"]["by_name"]["themeIndex"]}),
          sorted({(one["name"], one["slot"], one["alt_slot"], one["via"])
                  for row in idx_rows for one in row["refs"] if one["kind"] == "themeIndex"})],
-        [39, 110, 8, 102, ["1", "4"],
-         [("1", "lt1", "dk1", "index"), ("4", "accent1", "accent1", "index")]],
+        [41, 127, 8, 119, ['1', '4'], [('1', 'lt1', 'dk1', 'index'), ('4', 'accent1', 'accent1', 'index')]],
     )
     deck_tx = [one for one in files["deck.pptx"]["ooxml"]["color_refs"]["refs"]
                if one["name"] in ("tx1", "bg1")]
@@ -8987,7 +8988,7 @@ def main() -> int:
          sum(one["totals"]["by_via"].get("clrMap", 0) for one in ref_rows),
          len(deck_tx), sorted({(one["slot"], one["via"]) for one in deck_tx}),
          len(chart_tx), sorted({(one["slot"], one["via"], one["part"]) for one in chart_tx})],
-        [33, 131, 97, 897, 62, [('dk1', 'clrMap'), ('lt1', 'clrMap')], 8, [(None, None, 'xl/charts/style1.xml'), (None, None, 'xl/charts/style2.xml')]],
+        [33, 133, 97, 897, 62, [('dk1', 'clrMap'), ('lt1', 'clrMap')], 8, [(None, None, 'xl/charts/style1.xml'), (None, None, 'xl/charts/style2.xml')]],
     )
     crefs = dig(lbin("office-doc", fixture("bkmks.docx"), "--limit", "400"),
                "structure.color_refs")
@@ -9218,7 +9219,7 @@ def main() -> int:
     check(
         "反面凭据：`pnum.odt` 与 `tbox.odt` **整个没有 `settings.xml`** —— 于是这一本交空账"
         "（`settings_part` / `item_set_written` 是 false，不是「有 0 条的组」）。"
-        "另外两族写了同一组却没有那四条名字（14 份 .ods 恒 39 条、11 份 .odp 写 42 或 43 条），"
+        "另外两族写了同一组却没有那四条名字（.ods 那 15 份里 14 份 39 条、`workbook-settings.ods` 40 条（多的那格是 `CodeName`）、11 份 .odp 写 42 或 43 条），"
         "而 RTF 与遗留 .doc 连这一本都没有 —— 缺键 = 这一族没这一层",
         [dig(lbin("office-doc", fixture("pnum.odt")), "structure.layout_compat.items_total"),
          dig(lbin("office-doc", fixture("pnum.odt")),
@@ -9431,7 +9432,7 @@ def main() -> int:
     check(
         "反面凭据：这一格只在 office-doc 交。RTF 把默认值混在 `{\\s0 …}` 那一条 Normal 样式里、"
         "归属判不住就不报；遗留 .doc 的住在 styles heap 里、本族料的 .doc 全出自 LibreOffice，"
-        "没有第二个读者能核对就不照一个没核过的读法写。另两族也写这一层（14 份 .ods 恒两条、"
+        "没有第二个读者能核对就不照一个没核过的读法写。另两族也写这一层（15 份 .ods 恒两条、"
         "写的序 table-cell 在前；12 份 .odp 里 11 份一条 graphic、`eqs.odp` 零条）可 office-doc 不读它们 —— "
         "**这一本对那两族没有出口**，缺键 = 这一族没这一层",
         [no_theme_key("office-doc", "tabs.rtf", "doc_defaults"),
@@ -11034,7 +11035,7 @@ def main() -> int:
     check(
         "反面凭据：这一格只在读了表的三个出口交。遗留 `.ppt` 与 `.xls` 的记录里"
         "没有「格子内间距」这个东西（BIFF 的 `MULBLANK` / ppt 的 `TextFooterAtom` 都不带），"
-        "RTF 的表只有 `\intbl` 与格分隔，所以三家的整份输出里都找不到 `cell_margins` 这个键",
+        "RTF 的表只有 `\\intbl` 与格分隔，所以三家的整份输出里都找不到 `cell_margins` 这个键",
         [no_theme_key("office-doc", "notes.rtf", "cell_margins"),
          no_theme_key("office-doc", "notes.doc", "cell_margins"),
          no_theme_key("office-sheet", "book.xls", "cell_margins"),
@@ -11954,6 +11955,113 @@ def main() -> int:
          no_theme_key("office-doc", "levels-lo.docx", "outline_levels")],
         [False, False, False, False, False, True, False, True],
     )
+
+    print("=== 3dc) workbook_settings：这一本工作簿自己的设置（谁存的、算不算、停在哪一张）===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.xlsx")):
+        check("%s 工作簿那一层的账整本与读者一致（在场、写了哪几格、值原样）" % name,
+              dig(lbin("office-sheet", fixture(name)), "workbook_settings"),
+              files[name]["ooxml"]["workbook_settings"])
+    mine = dig(lbin("office-sheet", fixture("workbook-settings.xlsx"), "--limit", "400"),
+               "workbook_settings")
+    check("手写那一份把这一层的四种说法一次摆开：两枚 fileVersion、manual 模式、"
+          "迭代的 1/true 两拼、停在三张表里的第三张、一枚没人点的共享视图",
+          [len(mine["file_versions"]), mine["elements"]["calcPr"]["calcMode"],
+           mine["elements"]["calcPr"]["refMode"], mine["elements"]["calcPr"]["iterate"],
+           mine["elements"]["calcPr"]["fullCalcOnLoad"],
+           mine["views"][0]["attrs"]["activeTab"],
+           mine["counts"]["customWorkbookView"], mine["counts"]["fileVersion"],
+           mine["element_names"], mine["empty_elements"],
+           [sorted(one) for one in sorted(mine["boolean_spellings"].items())
+            if one[0] in ("backupFile", "autoFilterDateGrouping", "iterate", "minimized")]],
+          [2, "manual", "row", "true", "1", "2", 1, 2,
+           ["bookViews", "calcPr", "customWorkbookViews", "workbookPr"],
+           ["customWorkbookViews"],
+           [["autoFilterDateGrouping", ["false"]], ["backupFile", ["1"]],
+            ["iterate", ["true"]], ["minimized", ["0"]]]])
+    back = dig(lbin("office-sheet", fixture("workbook-settings-lo.xlsx"), "--limit", "400"),
+               "workbook_settings")
+    check("LibreOffice 重写同一份，这一层每一处都换了写法：两枚 fileVersion 合成一枚而 appName "
+          "换成 Calc、calcMode 与 calcId 与 fullCalcOnLoad 三格不见、refMode 从 row 变成 A1"
+          "（**同一格两个意思**，两边都按原样交而不判）、workbookPr 那四格换成它自己补的三格而 "
+          "date1904 是其中唯一与别人同名的一枚、共享视图整层不见，只有「停在哪一张」原样穿过",
+          [back["file_versions"], back["elements"]["calcPr"],
+           sorted(back["attrs_written"]["workbookPr"]),
+           back["counts"]["customWorkbookView"], back["counts"]["fileVersion"],
+           back["element_names"], back["empty_elements"],
+           back["views"][0]["attrs"]["activeTab"],
+           back["views"][0]["attrs"]["windowWidth"],
+           sorted(back["boolean_spellings"].items())],
+          [[{"appName": "Calc", "lowestEdited": "5"}],
+           {"iterateCount": "200", "refMode": "A1", "iterate": "true",
+            "iterateDelta": "0.0005"},
+           ["backupFile", "date1904", "showObjects"], 0, 1,
+           ["bookViews", "calcPr", "workbookPr"], [], "2", "16384",
+           [["backupFile", {"false": 1}], ["date1904", {"false": 1}],
+            ["firstSheet", {"0": 1}], ["iterate", {"true": 1}],
+            ["showHorizontalScroll", {"true": 1}], ["showSheetTabs", {"true": 1}],
+            ["showVerticalScroll", {"true": 1}], ["xWindow", {"0": 1}],
+            ["yWindow", {"0": 1}]]])
+    plain = dig(lbin("office-sheet", fixture("book.xlsx"), "--limit", "400"), "workbook_settings")
+    check("默认那一份就是「没写」的那一形：`workbookPr` **在场而一个属性都没有**（空壳是一句说过的话），"
+          "没有 fileVersion、没有迭代，`definedName` 那本另有一枚",
+          [plain["elements"]["workbookPr"], plain["empty_elements"],
+           plain["counts"]["fileVersion"], plain["counts"]["definedName"],
+           plain["counts"]["customWorkbookView"], plain["file_versions"],
+           sorted(one for one in plain["boolean_spellings"]
+                  if len(plain["boolean_spellings"][one]) > 1)],
+          [{}, ["workbookPr"], 0, 1, 0, [], []])
+    check("反面凭据：这一格只住 OOXML 的表格那一家。ODF 没有 `workbookPr` / `fileVersion` / `calcPr` "
+          "这三枚元素，同类问题写在 `settings.xml` 的 `ooo:configuration-settings` 那一组里"
+          "（`AutoCalculate` 与 `SyntaxStringRef` 15/15 份 .ods 全写，而迭代那三格一份都不写；其中 14 份的 `AutoCalculate` 写 true，从这一族转出去的那一份写 false（xlsx 写了 `calcMode` manual 是唯一穿过转换的一格），而那一份还多带一整格 `CodeName`，条数因此 39 变 40 —— "
+          "转格式丢掉的事），那一本的名字与住处由排版兼容那条账交代；遗留 .xls 把计算模式记在 "
+          "BIFF 的 DBSTAT / CALCCOUNT 里，本机没有第二个读者能核对那些字段偏移",
+          [no_theme_key("office-sheet", "workbook-settings.ods", "workbook_settings"),
+           no_theme_key("office-sheet", "book.ods", "workbook_settings"),
+           no_theme_key("office-sheet", "book.xls", "workbook_settings"),
+           no_theme_key("office-doc", "notes.docx", "workbook_settings"),
+           no_theme_key("office-slide", "deck.pptx", "workbook_settings"),
+           no_theme_key("office-sheet", "workbook-settings.xlsx", "workbook_settings"),
+           no_theme_key("office-sheet", "workbook-settings-lo.xlsx", "workbook_settings")],
+          [False, False, False, False, False, True, True])
+    decks = dict((one, had["ooxml"]["workbook_settings"]) for one in files
+                 if one.endswith(".xlsx") and "workbook_settings" in had.get("ooxml", {}))
+    print("=== 3dc 汇总：语料 %d 份 xlsx 的工作簿层 ===" % len(decks))
+    check("整库摊开（自产件）：" + "、".join([
+        "份数 %d" % len(decks),
+        "带 fileVersion %d" % sum(1 for one in decks.values() if one["counts"]["fileVersion"]),
+        "fileVersion 枚数之和 %d" % sum(one["counts"]["fileVersion"] for one in decks.values()),
+        "写了 calcPr %d" % sum(1 for one in decks.values() if "calcPr" in one["element_names"]),
+        "写了 iterate %d" % sum(1 for one in decks.values()
+                                if "iterate" in one["elements"].get("calcPr", {})),
+        "其中 true %d" % sum(1 for one in decks.values()
+                             if one["elements"].get("calcPr", {}).get("iterate") == "true"),
+        "空壳 workbookPr 的份数 %d" % sum(1 for one in decks.values()
+                                       if "workbookPr" in one["empty_elements"]),
+        "带共享视图 %d" % sum(1 for one in decks.values() if one["counts"]["customWorkbookView"]),
+        "写了 workbookView %d" % sum(1 for one in decks.values()
+                                     if one["counts"]["workbookView"] >= 1),
+        "workbookPr 写了 date1904 %d" % sum(1 for one in decks.values()
+                                          if "date1904" in one["elements"].get("workbookPr", {})),
+    ]),
+        [len(decks),
+         sum(1 for one in decks.values() if one["counts"]["fileVersion"]),
+         sum(one["counts"]["fileVersion"] for one in decks.values()),
+         sum(1 for one in decks.values() if "calcPr" in one["element_names"]),
+         sum(1 for one in decks.values() if "iterate" in one["elements"].get("calcPr", {})),
+         sum(1 for one in decks.values()
+             if one["elements"].get("calcPr", {}).get("iterate") == "true"),
+         sum(1 for one in decks.values() if "workbookPr" in one["empty_elements"]),
+         sum(1 for one in decks.values() if one["counts"]["customWorkbookView"]),
+         sum(1 for one in decks.values() if one["counts"]["workbookView"] >= 1),
+         sum(1 for one in decks.values()
+             if "date1904" in one["elements"].get("workbookPr", {}))],
+        [41, 19, 20, 41, 19, 2, 21, 1, 41, 19],
+    )
+    check("同一层里「两种拼法」与「同一格两个意思」都在语料里数得出来："
+          "fileVersion 的枚数只有 0 / 1 / 2 三种，`refMode` 只出现 `-`（没写）、`A1` 与 `row` 两种",
+        sorted({str(one["counts"]["fileVersion"]) for one in decks.values()})
+        + sorted({one["elements"].get("calcPr", {}).get("refMode", "-") for one in decks.values()}),
+        ["0", "1", "2", "-", "A1", "row"])
 
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")

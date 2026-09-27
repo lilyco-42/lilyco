@@ -625,7 +625,7 @@ def write_header_docx(path: Path) -> None:
 
 
 def write_tables_docx(path: Path) -> None:
-    """两张表的 docx：3×2 与 2×2，中间夹一段正文，首尾各一个标题
+    r"""两张表的 docx：3×2 与 2×2，中间夹一段正文，首尾各一个标题
 
     这份样本存在的理由：RTF 那条流里「几张表」判不住。`\row` 与 `\cell` 的条数在两份件上
     都与 docx 那副账一字不差（2 行 4 格、5 行 10 格），可「连续的 \trowd 算一张表」这条
@@ -2251,6 +2251,70 @@ def write_print_area_xlsx(path: Path) -> None:
     third.print_area = ["A1:B6", "C8:C12"]
     fourth.print_title_cols = "B:B"
     book.save(path)
+
+
+def write_workbook_settings_xlsx(path: Path) -> None:
+    """这一本工作簿自己的设置：谁存的、算不算、打开停在哪一张，一次摆开
+
+    openpyxl 在这一层只写三样：一枚**空**的 `<workbookPr/>`、一副 1/0 拼法的 `workbookView`、
+    一枚只带 `calcId` 与 `fullCalcOnLoad` 的 `calcPr`。LibreOffice 同格式重写时这一层整个换了
+    笔迹（补 `fileVersion@appName="Calc"`、把 `workbookPr` 填成三格而布尔改写成 true/false、把
+    `calcPr` 的 `calcId` 与 `fullCalcOnLoad` 丢掉换成一整套 `iterate*`、`refMode` 从 `"row"`
+    变成 `"A1"`、`workbookView` 换成 xWindow / windowWidth 那一套而 `autoFilterDateGrouping`
+    整枚不见），所以要两份生产者的件。手写那几枚按 MS-XLSX 的序列位置放，值故意在同一份件里
+    把两种布尔拼法各写一枚（`backupFile="1"` 与 `autoFilterDateGrouping="false"`）——
+    「写了 false」与「没写」在这份件里同时存在，读者才有地方交代这一层到底谁说了话。
+    """
+    import zipfile
+
+    from openpyxl import Workbook
+
+    book = Workbook()
+    first = book.active
+    first.title = "自动重算"
+    second = book.create_sheet("手动重算")
+    third = book.create_sheet("打开停这里")
+    for sheet in (first, second, third):
+        sheet["A1"] = "项目"
+        sheet["B1"] = "金额"
+        for row in range(2, 9):
+            sheet.cell(row=row, column=1, value="条目%d" % row)
+            sheet.cell(row=row, column=2, value=row * 12)
+    third["A10"] = "打开时停在第三张"
+    book.save(path)
+
+    with zipfile.ZipFile(path) as box:
+        order = [one.filename for one in box.infolist()]
+        blobs = dict((one, box.read(one)) for one in order)
+    head = blobs["xl/workbook.xml"].decode("utf-8")
+    body = head.replace(
+        "<workbookPr/>",
+        '<workbookPr codeName="ThisWorkbook" backupFile="1" showObjects="all" '
+        'defaultThemeVersion="166925"/>'
+        '<fileVersion appName="xl15" lastEdited="7" lowestEdited="7" rupBuild="12345"/>'
+        '<fileVersion appName="GenuineMicrosoftOffice" lastEdited="5" lowestEdited="5" '
+        'rupBuild="9999"/>',
+        1)
+    body = body.replace(
+        'activeTab="0" autoFilterDateGrouping="1"',
+        'xWindow="120" yWindow="90" windowWidth="18000" windowHeight="9000" '
+        'activeTab="2" autoFilterDateGrouping="false"',
+        1)
+    body = body.replace(
+        '<calcPr calcId="124519" fullCalcOnLoad="1"/>',
+        '<calcPr calcId="191029" calcMode="manual" fullCalcOnLoad="1" iterate="true" '
+        'iterateCount="200" iterateDelta="0.0005" refMode="row"/>'
+        '<customWorkbookViews><customWorkbookView name="共享视图" '
+        'guid="{11111111-2222-3333-4444-555555555555}" autoUpdate="1" mergeCell="0" '
+        'live="0" showInToolbar="0" showComments="0" showWindowFilters="0" '
+        '/></customWorkbookViews>',
+        1)
+    assert "fileVersion" in body and "customWorkbookView" in body, "手写没落上"
+    assert body != head, "workbook.xml 一字未改"
+    blobs["xl/workbook.xml"] = body.encode("utf-8")
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as out:
+        for one in order:
+            out.writestr(one, blobs[one])
 
 
 def write_cell_links_xlsx(path: Path) -> None:
@@ -5672,6 +5736,24 @@ def main() -> int:
         shutil.copyfile(SCRATCH / "print-area.ods", OUT / "print-area.ods")
     else:
         print("⚠️  没拿到 print-area.ods")
+
+    # 工作簿那一层的设置：openpyxl 打底 + 按 ECMA 手写 workbookPr / fileVersion / calcPr /
+    # workbookView / customWorkbookViews，LibreOffice 同格式重写一份（这一层它每一处都换了写法）、
+    # 再转一份 ods（ODF 根本没有这一层，那一转就是「丢掉的事」的凭据）
+    wbs = OUT / "workbook-settings.xlsx"
+    write_workbook_settings_xlsx(wbs)
+    convert(exe, wbs, "xlsx", SCRATCH / "workbook-settings-back")
+    made_wbs = SCRATCH / "workbook-settings-back" / "workbook-settings.xlsx"
+    if made_wbs.exists():
+        shutil.copyfile(made_wbs, OUT / "workbook-settings-lo.xlsx")
+    else:
+        print("⚠️  没拿到 workbook-settings-lo.xlsx（xlsx → xlsx 那一转）")
+    convert(exe, wbs, "ods", SCRATCH / "workbook-settings-as-ods")
+    made_ods = SCRATCH / "workbook-settings-as-ods" / "workbook-settings.ods"
+    if made_ods.exists():
+        shutil.copyfile(made_ods, OUT / "workbook-settings.ods")
+    else:
+        print("⚠️  没拿到 workbook-settings.ods（ods 那一转）")
 
     # 格子上的链接那一家四份件：openpyxl 写一份，LibreOffice 同格式重写一份（丢掉
     # tooltip、补上 display、把 mailto 的百分号解回中文），再各转一份 ods 与 .xls

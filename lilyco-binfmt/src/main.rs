@@ -104,6 +104,7 @@ mod theme_ledger;
 mod theme_refs;
 mod vertical_align;
 mod word;
+mod workbook_settings;
 mod xmlscan;
 mod zipread;
 

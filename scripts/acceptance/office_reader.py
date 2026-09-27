@@ -3782,7 +3782,7 @@ def odf_layout_compat(path: Path, limit: int = 100) -> dict:
     类型写在 `config:type` 上、值写在正文里（`boolean` 的 `true` / `false`）。
 
     实测这块**不是文字处理独有**：39/41 份 odt 有 settings.xml（其中 39 份都有这一组），
-    条数 121 到 123；而 14 份 ods 恒 39 条、11 份 odp 写 42 或 43 条，**但那四条名字里点 Word 的
+    条数 121 到 123；而 15 份 ods 里 14 份 39 条、workbook-settings.ods 40 条（多的那格是 CodeName）、11 份 odp 写 42 或 43 条，**但那四条名字里点 Word 的
     一条都没有** —— 所以账本里这一本只在 office-doc 交。
     那四条（`MsWordCompTrailingBlanks` / `MsWordCompMinLineHeightByFly` / `MsWordCompGridMetrics` /
     `MsWordUlTrailSpace`）在 39/39 份 odt 全写，但不是常量：`MsWordUlTrailSpace` 39 份全 false，
@@ -4018,7 +4018,7 @@ def odf_doc_defaults(path: Path, limit: int = 100) -> dict:
     r"""同一问在 ODF 是 `styles.xml` 里的 `<style:default-style style:family="...">`，**一家一族一条**：
     实测 .odt 恒四条（按写的序：graphic / paragraph / table / table-row，39 份；另 2 份
     `pnum.odt` / `tbox.odt` **有 styles.xml 但一条 default-style 都不写**，所以「零条」与「没有这个部件」
-    是两件事，账本两列分开）、.ods 恒两条（table-cell / graphic，14 份）、.odp 一条（graphic，11 份；
+    是两件事，账本两列分开）、.ods 恒两条（table-cell / graphic，15 份）、.odp 一条（graphic，11 份；
     `eqs.odp` 同样有部件、零条）。
     而且**只在 styles.xml**：67 份 odf 的 content.xml 里 `default-style` 出现 0 次 ——
     这一格与 `layout_compat` 不同，它不按文件种类换本子（ods/odp 也照交）。
@@ -7961,6 +7961,92 @@ def xlsx_tables_of(parts: dict, source: str, limit: int = 200) -> dict:
     }
 
 
+def xlsx_workbook_settings(parts: dict) -> dict:
+    """这一本工作簿自己的设置：`xl/workbook.xml` 顶上那几枚元素，一格都不换算
+
+    `workbookPr` / `fileVersion`（可以写好几枚，逐枚交）/ `calcPr` / `bookViews` 里的
+    `workbookView` 与 `customWorkbookView`，再加上几枚只数不读的容器（`pivotCaches`、
+    `externalReferences`、`definedNames` 的条数 —— 内容另有 `defined_names` 那一本）。
+    每一枚同时交「这枚元素在不在场」与「它写了哪些属性、值原样是什么」：openpyxl 写
+    `<workbookPr/>`（在场、一个属性都没有），LibreOffice 同格式重写时把它填成三枚属性 ——
+    那两件事不是一件事，所以 `empty_elements` 与 `attrs_written` 各记一笔。
+    """
+    name = "xl/workbook.xml"
+    absent = {"family": "ooxml", "available": False}
+    if name not in parts:
+        return absent
+    root = ET.fromstring(parts[name])
+    if xml_local(root.tag) != "workbook":
+        # 顶层不是 `<workbook>`：与 Rust 同一判断，交「不可用」那一形而不是空账
+        return absent
+
+    def attrs_of(node) -> dict:
+        return {xml_local(key): val for key, val in node.attrib.items()}
+
+    wanted = ("workbookPr", "fileVersion", "calcPr", "webPublishing", "smartTagPr",
+              "reviewPr", "pivotCaches", "externalReferences", "smartTagTypes")
+    singles: dict = {}
+    lists: dict = {}
+    counts: dict = {}
+    for one in root:
+        local = xml_local(one.tag)
+        if local == "bookViews":
+            for kid in one:
+                klocal = xml_local(kid.tag)
+                if klocal != "workbookView":
+                    continue
+                lists.setdefault(klocal, []).append(
+                    {"element": klocal, "attrs": attrs_of(kid)})
+            singles[local] = {"present": True, "attrs": attrs_of(one),
+                              "children": sorted({xml_local(kid.tag) for kid in one})}
+            continue
+        if local == "customWorkbookViews":
+            # 共享视图住在这一枚容器里（不是 `bookViews` 的孩子），所以另走一路
+            for kid in one:
+                if xml_local(kid.tag) == "customWorkbookView":
+                    lists.setdefault("customWorkbookView", []).append(
+                        {"element": "customWorkbookView", "attrs": attrs_of(kid)})
+            singles[local] = {"present": True, "attrs": attrs_of(one),
+                              "children": sorted({xml_local(kid.tag) for kid in one})}
+            continue
+        if local in wanted:
+            row = {"element": local, "attrs": attrs_of(one)}
+            lists.setdefault(local, []).append(row)
+            if local != "fileVersion":
+                singles[local] = {"present": True, "attrs": attrs_of(one)}
+    counts["fileVersion"] = len(lists.get("fileVersion", []))
+    counts["workbookView"] = len(lists.get("workbookView", []))
+    counts["customWorkbookView"] = len(lists.get("customWorkbookView", []))
+    for local, kid_rows in (("pivotCaches", "pivotCache"),
+                            ("externalReferences", "externalReference")):
+        host = singles.get(local)
+        counts[kid_rows] = 0 if host is None else len(
+            [kid for kid in root.iter() if xml_local(kid.tag) == kid_rows])
+    counts["definedName"] = len([kid for kid in root.iter() if xml_local(kid.tag) == "definedName"])
+    spelled: dict = {}
+    for row in lists.get("workbookView", []) + [
+            {"attrs": one["attrs"]} for one in singles.values()]:
+        for key, val in row["attrs"].items():
+            if val in ("0", "1", "true", "false"):
+                spelled.setdefault(key, {})[val] = spelled.setdefault(key, {}).get(val, 0) + 1
+    return {
+        "family": "ooxml",
+        "available": True,
+        "part": name,
+        "elements": {key: singles[key]["attrs"] for key in sorted(singles)},
+        "element_names": sorted(singles),
+        "attrs_written": {key: sorted(singles[key]["attrs"]) for key in sorted(singles)},
+        "empty_elements": sorted(key for key in singles if not singles[key]["attrs"]
+                                 and key != "bookViews"),
+        "views": lists.get("workbookView", []),
+        "custom_views": lists.get("customWorkbookView", []),
+        "file_versions": [one["attrs"] for one in lists.get("fileVersion", [])],
+        "counts": {key: counts[key] for key in sorted(counts)},
+        "boolean_spellings": {key: dict(sorted(spelled[key].items()))
+                              for key in sorted(spelled)},
+    }
+
+
 def xlsx_views(parts: dict) -> dict:
     out: dict = {}
     for name in sorted(parts):
@@ -10106,6 +10192,7 @@ def xlsx_facts(path: Path) -> dict:
         "dimensions": dims,
         "print_setup": print_setups,
         "views": views,
+        "workbook_settings": xlsx_workbook_settings(parts),
         "headers": headers,
         "layouts": layouts,
         "filters": filters,

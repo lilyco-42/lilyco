@@ -37,6 +37,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `print-area.xlsx` | openpyxl | 四张表，一次只改一个变量：`区域与标题` 只给打印区域、`区域加标题` 给区域 + 重复第 1 行、`两段区域` 把区域给成**两段**（一条 definedName 里逗号分隔）、`什么都没给` 只给重复**列**。五条件都写成 `_xlnm.Print_Area` / `_xlnm.Print_Titles` 两条保留名，sheet 名一律带引号 |
 | `print-area-lo.xlsx` | LibreOffice（`print-area.xlsx` → .xlsx） | 同一份的五条**一字不差地少了一层**：引号全没了（5 条带引号 → 0 条），条目顺序也换了（LO 按自己的分组重排），而 `localSheetId` 与范围串本身不变 —— 见事实 86 |
 | `print-area.ods` | LibreOffice（`print-area.xlsx` → .ods） | 同一问的第三种存法：表自己身上 `table:print-ranges`（分隔符换成空白、地址是 `表名.A1:表名.C10`），另有一份为与 Excel 来回留的 `table:named-*` 五条 —— 四样 `named-range` 而两段那一样是 `named-expression`，五样的 `base-cell-address` 全是同一个 |
+| `workbook-settings.xlsx` | openpyxl 打底 + `zipfile` 按 MS-XLSX 的序列手写（`office_fixtures.py` 的 `write_workbook_settings_xlsx`） | 这一本工作簿自己的设置：`workbookPr` 四格（`codeName` / `backupFile="1"` / `showObjects` / `defaultThemeVersion`）、**两枚** `fileVersion`（`xl15` 与 `GenuineMicrosoftOffice`，各带 `lastEdited` / `lowestEdited` / `rupBuild`）、`calcPr` 七格（`calcMode="manual"` + `iterate="true"` + `iterateCount` / `iterateDelta` + `refMode="row"` + `fullCalcOnLoad="1"`）、`workbookView` 十三格而 `activeTab="2"`（打开停在三张表里的第三张）且 `autoFilterDateGrouping="false"`、`customWorkbookViews` 一枚带 `name` 与 `guid` 的共享视图 —— **同一份件里两种布尔拼法同时存在** |
+| `workbook-settings-lo.xlsx` | LibreOffice（`workbook-settings.xlsx` → .xlsx） | 同一层每一处都换了写法：两枚 `fileVersion` **合成一枚**而 `appName` 变成 `"Calc"`、`lastEdited` 与 `rupBuild` 都不写而 `lowestEdited="5"` 从第二枚留下；`calcPr` 的 `calcId` / `calcMode` / `fullCalcOnLoad` 三格不见，而 **`refMode` 从 `"row"` 变成 `"A1"`**（同一格两个意思）；`workbookPr` 那四格换成它自己补的三格（`codeName` 与 `defaultThemeVersion` 没了、`date1904="false"` 多出）；`workbookView` 的窗口四格值被改（120/90/18000/9000 → 0/0/16384/8192）而 `visibility` / `minimized` / `autoFilterDateGrouping` 整枚不见，只有 `activeTab="2"` 与 `firstSheet` / `tabRatio` 原样穿过；`customWorkbookViews` **整层不留** |
+| `workbook-settings.ods` | LibreOffice（`workbook-settings.xlsx` → .ods） | ODF 根本没有 `workbookPr` / `fileVersion` / `calcPr` 这三枚元素：同一问摊在 `settings.xml` 的 `ooo:configuration-settings` 里（这一份写 `AutoCalculate`、`SyntaxStringRef`、`ShowFormulasMarks`、`ImagePreferredDPI` 等），而**迭代计算那三格一份都不写**（`IterateSteps` / `IterateMinChange` 都不出现）—— 转格式丢掉的事，所以 `workbook_settings` 这个键在 .ods 的整份输出里不存在 |
 | `deck-ph.pptx` | python-pptx | 四页，一次只改一个变量：`第1页` 标题 + 内容占位符（内容两段字）、`第2页` 再加一个**自制文本框**、`第3页` 两个占位符都在而**字是空的**、`第4页` 只有文本框（空版式）。要点：正文占位符写的是 `<p:ph idx="1"/>` —— **没有 `type`** |
 | `deck-ph-lo.pptx` | LibreOffice（`deck-ph.pptx` → .pptx） | 同一份稿子重写后：标题那一句照旧 `<p:ph type="title"/>`，正文那一句变成**空元素 `<p:ph/>`**（连 idx 都没了），形状名从 `Title 1`/`Content Placeholder 2` 换成 `PlaceHolder 1`/`PlaceHolder 2`；版式里 `dt`/`ftr`/`sldNum` 的 idx 也整个重排（模板是 10/11/12，这里 1/2/3、4/5/6…28/29/30） |
 | `deck-ph.odp` | LibreOffice（`deck-ph.pptx` → .odp） | 第三家：角色写成 `presentation:class="title"`，占位符另带 `presentation:placeholder="true"` 与 `presentation:style-name="prN"`，而**文本框是 `draw:custom-shape` 且没有 `presentation:style-name`**；页的版式名不在页上，在画页样式里（`presentation:presentation-page-layout-name="AL1T11"`） |
@@ -2413,6 +2416,35 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 
+149. **这一本工作簿自己的设置：谁存的、算不算、打开停在哪一张 —— 而这三问两家的答案几乎不重合**。
+    `xl/workbook.xml` 顶上那一排元素不在任何一张表上，所以也不在任何一份按表的账里；
+    `workbook_settings` 对每一枚同时交「元素在不在场」与「它写了哪些属性、值原样是什么」。
+    - **空壳是一句说过的话**：openpyxl 写一枚 `<workbookPr/>`（在场而一个属性都没有），
+      语料 41 份 xlsx 里这样的空壳有 **21 份**；LibreOffice 重写时把它填成三格 —— 于是
+      `empty_elements` 与 `attrs_written` 各记一本，合并就把「生产者没说话」说成「生产者是 false」。
+    - **同一份件里两种布尔拼法**：手写那份 `backupFile="1"` 与 `autoFilterDateGrouping="false"`
+      并存，`boolean_spellings` 就是数这个的（语料里 `date1904` 出现三种拼法：`false` / `true` / `1`，
+      19 份写了这一格）。
+    - **「最后一版是谁存的」在两处**：`fileVersion` 的 `appName` 与那三个数字。语料 41 份里
+      **19 份有 `fileVersion`、枚数之和 20**（真 Excel 会补一枚 `GenuineMicrosoftOffice`），
+      而 `lastEdited` / `lowestEdited` / `rupBuild` 只有 9 份真件写 —— openpyxl 与 LibreOffice
+      都不写；同一份 `workbook-settings.xlsx` 手写两枚，LibreOffice 重写后**合成一枚**、
+      `appName` 换成 `"Calc"`、两个数字丢一个。
+    - **`calcPr` 两家零重合，而且同一格两个意思**：openpyxl 那 22 份只写 `calcId` 与
+      `fullCalcOnLoad`，LibreOffice 那 19 份反过来写 `iterate` / `iterateCount` / `iterateDelta` /
+      `refMode`；`refMode` 在 MS-XLSX 里是迭代引用的行 / 交叉模式（`row` / `crossSheet`），
+      LibreOffice 在同一格写的是它自己的公式语言记号 `A1` —— 语料里三种值（没写、`A1`、`row`）
+      都在，所以两边按原样交而**不换算也不判**。`iterate` 写了 19 份而值等于 `true` 的只有 2 份：
+      「迭代计算开没开」这一问，多数件是「文件说了关」。
+    - **「打开停在哪一张」是这层里少数两家人都认的**：`workbookView/@activeTab` 与
+      `firstSheet` / `tabRatio` 从手写件原样穿过 LibreOffice 的重写，而窗口四格的值被改、
+      `visibility` / `minimized` / `autoFilterDateGrouping` 整枚不见。
+    - **ODF 与 .xls 不交这一格**：`.ods` 没有这三枚元素，同类问题在 `settings.xml` 的
+      `ooo:configuration-settings` 那一组（15 份 `.ods` 全写 `AutoCalculate` 与 `SyntaxStringRef`，
+      而迭代计算那三格**一份都不写** —— 转格式丢掉的事。同一趟还量到两件「改掉」的：`AutoCalculate` 14 份写 true 而这本转出的那一份写 false（openpyxl 那本写了 `calcMode` manual，转换认它），而 `workbook-settings.ods` 比另外 14 份**多一整格** `CodeName`（值 `ThisWorkbook`，从 xlsx 的 `workbookPr/@codeName` 搬来），那一组因此是 40 条而不是 39 条 —— 「恒 39 条」这句在这份件之后不再成立，排版兼容那本（事实 133）与探针里各有一句同一说法也跟着改，那一组的形状与条数由排版兼容
+      那条账（事实 107）交代；`.xls` 把计算模式记在 BIFF 的 `DBSTAT` / `CALCCOUNT` 里，
+      本机没有第二个读者能核对那些字段偏移，所以不读。缺键 = 这一族没这一层。
+
 148. **这一段是第几级：级可能写在三处，而真件最常写的那一处是样式的名字，不是段上那串号**。
     Word 不说「这是标题」，它给段点一个样式号（`w:pStyle/@w:val`），而「第几级」有三个住处：
     段自己的 `w:pPr/w:outlineLvl`、被点名的那份样式的 `w:name`（`heading 3` / 「标题 #1」）、
@@ -2996,7 +3028,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - `table` 与 `table-row` 那两条**从来没点过字体**（80 行全 null，`props_attrs_total` 只有 1）；断字那 13 条
       只住在 paragraph 下面（39 份全写这 13 条、3 份一条没有）；语言那三格里 graphic 一族有一份整对写 `none`
       （`tbox-lo.odt`），`none` 与「没写」也不是同一句话。
-    - 这一本对 `.ods` / `.odp` **没有出口**（量到了但不交：14 份 .ods 恒两条、12 份 .odp 里 11 份一条 graphic 而
+    - 这一本对 `.ods` / `.odp` **没有出口**（量到了但不交：15 份 .ods 恒两条、12 份 .odp 里 11 份一条 graphic 而
       `eqs.odp` 零条），RTF 把默认值混在样式表 Normal 那一条里（`{\s0 …}` 与文档默认分不开），遗留 .doc 的在表流里 ——
       两族连这个键都不出现，缺键 = 这一族没这一层。
     - `--limit` 只砍列表、砍不动算术（与事实 131–133 同一条规矩）：宏文档限到 1 时 `block_shapes` 只交第一条，
@@ -3040,7 +3072,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       这一族是四条各管一件事的开关，不是一枚版本号。
     - 跨族**只核对同名，不译语义**：与 OOXML 裸开关同名的只有一条 `DoNotBreakWrappedTables`
       （首字母大小写正好差一位），40 份 odt 里 2 份写它，而带那枚开关的 .docx 有 4 份 —— 一问两转，两头各丢。
-      同一组配置在另外两族也在（14 份 .ods 恒 39 条、12 份 .odp 里 11 份写 42 或 43 条、1 份没有 settings），
+      同一组配置在另外两族也在（15 份 .ods 里 14 份 39 条、`workbook-settings.ods` 40 条（多的那格是 `CodeName`）、12 份 .odp 里 11 份写 42 或 43 条、1 份没有 settings），
       **但那四类点了 Word 的名字一条都没有** —— 所以这一本只在 office-doc 交。
     - 缺键 = 这一族没这一层：RTF 与遗留 .doc 连 `layout_compat` 这个键都不出现（`.doc` 的兼容位在 FIB 的位段里，
       而改那些位要 Word 本尊，本族料的 .doc 全出自 LibreOffice，判不住就不报）。放映设置那一类开关同理还没开。
