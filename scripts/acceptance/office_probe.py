@@ -3119,7 +3119,7 @@ def main() -> int:
             for chart in one.get("chart_list") or []:
                 if not chart.get("present"):
                     continue
-                had = chart["frame"]
+                had = chart["chart_space"]
                 out.append([chart["part"].rsplit("/", 1)[-1][: -len(".xml")],
                             [had[key] for key in FRAME_KEYS]])
         return out

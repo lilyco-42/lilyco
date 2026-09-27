@@ -9500,7 +9500,7 @@ def chart_ref(node) -> dict:
     }
 
 
-def chart_frame(chart) -> dict:
+def chart_space(chart) -> dict:
     """图自己说的那几句 chartSpace 层的话：图例在不在、放哪、叠不叠、删没删，空值怎么办，标题删没删
 
     一律「元素在不在」与「它写的值」分开交：`c:legend` 整个不见（python-pptx 与 openpyxl 写的两份）
@@ -9580,7 +9580,7 @@ def chart_one(root, part: str) -> dict:
             "series_list": series,
         })
     return {"part": part, "present": True, "title": title, "cached": cached, "groups": groups,
-            "frame": chart_frame(chart)}
+            "chart_space": chart_space(chart)}
 
 
 def xlsx_charts(parts: dict) -> dict:
