@@ -440,7 +440,7 @@ fn jpeg(raw: &[u8]) -> Head {
             };
             // 单位 0 那两个数只是长宽比（Pillow 不带 dpi 参数时也写 JFIF，就是这种），
             // 它说不了「一英寸里几个像素」，所以与「压根没写」同等待遇：不算密度
-            let written = format!("JFIF,{unit},{},{})", shown(x), shown(y));
+            let written = format!("JFIF,{unit},{},{}", shown(x), shown(y));
             dens = if matches!(name, Some("dpi") | Some("dpcm")) {
                 Dens::set(Some("read"), name, x, y, written)
             } else {
@@ -492,7 +492,8 @@ fn bmp(raw: &[u8]) -> Head {
         if x.unwrap_or(0) != 0 && y.unwrap_or(0) != 0 {
             Dens::set(Some("read"), Some("ppm"), x, y, written)
         } else {
-            Dens::set(Some("absent"), None, x, y, written)
+            // 那两个 0 只留在 `written` 里当证据；既然判成「没说」，x/y 就别装作读出了数
+            Dens::set(Some("absent"), None, None, None, written)
         }
     };
     Head {
