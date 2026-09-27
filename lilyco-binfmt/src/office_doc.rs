@@ -10973,9 +10973,11 @@ mod tests {
         let rows = lay["rows"].as_array().expect("是数组");
         assert_eq!(rows.len(), 3);
         assert_eq!(
-            rows.iter()
-                .map(|one| json!([one["kind"], one["para"], one["wrap_element"]]))
-                .collect::<Vec<Value>>(),
+            Value::Array(
+                rows.iter()
+                    .map(|one| json!([one["kind"], one["para"], one["wrap_element"]]))
+                    .collect::<Vec<Value>>(),
+            ),
             json!([
                 ["inline", 1, null],
                 ["anchor", 2, "wrapSquare"],
@@ -11065,17 +11067,19 @@ mod tests {
         assert_eq!(frames["style_unfound"], json!(0));
         let frows = frames["rows"].as_array().expect("是数组");
         assert_eq!(
-            frows
-                .iter()
-                .map(|one| json!([
-                    one["anchor_type"],
-                    one["style_name"],
-                    one["style_found"],
-                    one["wrap"],
-                    one["wrap_written"],
-                    one["props_written"]
-                ]))
-                .collect::<Vec<Value>>(),
+            Value::Array(
+                frows
+                    .iter()
+                    .map(|one| json!([
+                        one["anchor_type"],
+                        one["style_name"],
+                        one["style_found"],
+                        one["wrap"],
+                        one["wrap_written"],
+                        one["props_written"]
+                    ]))
+                    .collect::<Vec<Value>>()
+            ),
             json!([
                 ["as-char", "frChar", true, null, false, 5],
                 ["paragraph", "frPara", true, "parallel", true, 11],

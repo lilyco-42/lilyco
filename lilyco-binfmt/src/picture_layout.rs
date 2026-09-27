@@ -387,12 +387,8 @@ pub(crate) fn odf(bytes: &[u8], limit: usize) -> Value {
                 continue;
             }
             let name = one.attr_local("style-name");
-            let mine = name.and_then(|want| {
-                styles
-                    .iter()
-                    .find(|had: &(String, DrawStyle)| had.0 == want)
-                    .map(|hit| &hit.1)
-            });
+            let mine =
+                name.and_then(|want| styles.iter().find(|had| had.0 == want).map(|hit| &hit.1));
             let props: &[(String, String)] = match mine {
                 Some(had) => &had.props,
                 None => &[],
