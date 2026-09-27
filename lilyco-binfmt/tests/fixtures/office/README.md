@@ -214,6 +214,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `deck-bg.odp` | LibreOffice（`deck-bg.pptx` → .odp） | 同一件事换了地方：页只**点名**（dp1 / dp3 / dp4 / **dp3**），第 2、4 页共用 dp3，而那份样式的 `drawing-page-properties` 里 5 句话一条 `draw:fill` 都没有；渐变要两跳才解得开（`draw:fill-gradient-name="msFillGradient_20_1"` → styles.xml 的 `<draw:gradient>`，八格属性含 `angle="90deg"`）；继承那一跳是三跳 `Blank → Mdp1 → draw:fill="solid" #ffffff`，11 份 `style:master-page` 全部点同一份 Mdp1，另两份样式（content.xml 的 dp2、styles.xml 的 Mdp2）**没人点**而四句一字不差 |
 | `customxml.docx` | python-docx 打底 + `zipfile` 按真件形状加部件（`add_customxml_parts`） | 包里两枚自定义 XML 存储：`customXml/item1.xml` 是 Word 引用管理器那份 `b:Sources`（三条孩子）加 `item2.xml` 一枚 `s:customData`，各带一份 `itemPropsN.xml`（第一枚有一条 `ds:uri`、第二枚的 `ds:schemaRefs` 在而里面空——真件 25 份里就有一份这样写），item 自己不点名、靠 `Default Extension="xml"` 兜；另在正文合成两条手指（一枚 `w:customXml`、一枚带 `w:dataBinding` 的 `w:sdt`，号指向第一枚）——真件里这两条 0 份写过
 | `customxml-lo.docx` | LibreOffice（`customxml.docx` → .docx 重写） | 同一件事三种待遇：三枚 `itemN.xml` 全被清空成 0 字节而 props 与那一跳留着、存储从两份变三份、头两份 props 的 `ds:itemID` 撞成同一个号（正文那一条手指说不清指到哪一份），`w:customXml` 整条丢掉而 `w:dataBinding` 照样留着 |
+| `alternate.docx` | python-docx 打底 + `zipfile` 插三块（`write_alternate_docx`） | `mc:AlternateContent` 的三种形状一次摆开：一块配齐（Choice 点 `wps` + Fallback）、一块只有 Choice（点 `w14`，**没有退路**）、一块里两条 Choice 共用一份 Fallback。只有 Choice / 两条 Choice 那两形按 ECMA 的写法**合成**（两个生产者都不这么写，真件里有 2/3 处）
+| `alternate-lo.docx` | LibreOffice（`alternate.docx` → .docx 重写） | 三块**连字一起丢掉**（`blocks` 3 → 0，五句只写在分支里的字一句不剩）—— 这一族最狠的一条生产者差异 |
 | `styled-text.docx` | python-docx（`write_runs_docx`） | 一段只点一个字符属性（粗 / 斜 / 下划线 / 删除线 / 上标 / 红 `C00000` / 黄 / 9 磅写成 `sz="18"` 半磅 / 宋体），另有点「明确不粗」（`<w:b w:val="0"/>`）、一串字里两个孩子（`<w:b/><w:i/>`）与**一段里三种字各一串**；没格式那几串**不写 `w:rPr`** |
 | `styled-text-lo.docx` | LibreOffice（`styled-text.docx` → .docx） | 同一份件重写一次：每一串字都补一个**空的** `<w:rPr></w:rPr>`（30 串里 16 串是空的），而 `w:val="0"` 换成 `w:val="false"` —— 「有没有这一格」与「这一格说不说不」两家正好一边一种 |
 | `styled-text.odt` / `styled-text.rtf` | LibreOffice（从 `styled-text.docx` 导出） | 第三种与第四种存法：ODF 把格式搬到 `text:span/@text:style-name="T1"…T12"`，值在**同一份 content.xml** 的 `style:text-properties` 上（`fo:font-weight="bold"`、`style:text-underline-style="solid"`、`style:text-position="super 58%"`、`fo:color="#c00000"`），「明确不粗」成 `fo:font-weight="normal"`；RTF 只在群头写 `b` / `i` / `strike` / `super` / `cf23` / `highlight7` / `fs18` / `af9`，否定是 `b0`，CJK 的下划线落在 `aul` 那个口袋，而颜色与字体只是**一个号**，要跳文件自己那两张表 |
@@ -2375,6 +2377,35 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 
+139. **同一件事写两遍：`mc:AlternateContent` 的块 / Choice / Fallback / 孤儿块是四本数，而「写了两遍」不是常态**（四份件 + 本机真件量分布）
+    - 形状：一本包账 `{family, available, parts_scanned, blocks, choices, fallbacks, orphans,
+      requires_prefixes, requires_counts, entries, cut}`，每行九格 `{part, blocks, choices, fallbacks,
+      orphans, requires, choice_elements, fallback_elements}`。三个数互不相减：`blocks` 数那枚外壳，
+      `choices` / `fallbacks` 数肚子里的分支，`orphans` 数「Choice 在、Fallback 没有」的那几块 ——
+      一块里可以有几条 Choice（按 `Requires` 挑第一条认得的），所以 `choices > blocks` 不是矛盾。
+    - **真件那一份分布**（本机 137 份 OOXML 办公件）：3 份件带 3 块、3 枚 Choice，而 Fallback 只有 1 枚
+      （`orphans` 2），块坐在 `word/settings.xml` 与 `word/header2.xml` 那种地方；自产 fixture 里
+      13 份带 31 块、31 枚 Choice、31 枚 Fallback、`orphans` 0 —— 两个生产者都写全两遍，
+      真件里那两处只写一遍。所以这一格不能按「两遍都在」当默认。
+    - 两遍各写了什么是这本账最有用的部分：`tbox.docx` 那一条画布在 Choice 里写 `drawing`
+      （DrawingML 的图）、在 Fallback 里写 `pict`（VML 的图）—— 同一个形状两种画法；
+      pptx 那一份每页都点 `p14` 且两边写的是**同一个元素名**（`transition`）；
+      xlsx 的批注点 `v2`，`Choice` 里 `commentPr`。`requires` 只交文件写的前缀名，
+      **不解成 URI**（前缀在那枚根元素的 `xmlns:` 上定义，这一本不再走那一跳）。
+    - 空壳那条老规矩在这里第三条：`cell-notes-lo.xlsx` 三块都**配了** `mc:Fallback` 元素
+      （`fallbacks` 3）而它肚子里一个元素都没写（`fallback_elements` 空表）——
+      「这枚分支在不在」与「它写了什么」是两个数。
+    - 生产者差异最狠的一条（`alternate.docx` → LibreOffice 重写）：三块**连字一起丢掉**
+      （`blocks` 3 → 0，五句只写在分支里的字一句不剩，只剩打底那一段）。这一族的存在意义就是
+      「同一个文件对不同读者说不同的话」，所以只写在某一条分支里的话必须被数出来 ——
+      否则下一个读者会以为这份稿子没写过那些字。
+    - 边界：`mc:AlternateContent` 是 OPC 的东西，ODF（odt / ods / odp）与遗留 .doc / .rtf 不交这个键；
+      没有那一族的包交一本零条的账（`blocks` 0 而 `available` true），不是缺键。
+      **不判哪条分支会被用**（那是读者自己解析 `Requires` 的结果，不是文件写着的事实），
+      也不比较两条分支的字。
+    - 第二读者是 `office_reader.py:alternate_ledger`（四份件与 246 份影子跑过）；probe 的 **3bs**
+      段逐件对三族的整本账，Rust 那侧是 `office_doc.rs` 的 `two_branches_do_not_have_to_be_there_twice`。
+
 138. **包里那几份自定义 XML 存储：件自己还剩多少字、那一跳到 `itemProps` 断没断、正文有没有一条手指着它**（三份件 + 本机 25 份真件 docx，真件只量数、不入库）
     - 形状：一本包账 `{family, available, parts_total, items, items_empty, overrides, default_for_xml,
       anchors_custom_xml, anchors_data_binding, binding_ids, unresolved_bindings, entries, cut}`，
@@ -2659,19 +2690,19 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       OOXML 支与 ODF 支，与 Rust 的调用点对称）；probe 的 3bm 把**每一份 .docx / .docm / .odt** 的整本逐键与它对，
       再钉上面那几条数（含 `w:val` 一条没写、六种搭配、两条空账），最后钉 RTF 与 .doc 那两族这个键**不在**。
 
-132. **正文里那只手指的账：三种点法、三条来路，而「解到哪一格」与「算出什么色」是两问**（134 个 OOXML 包 / 30984 条指针）
+132. **正文里那只手指的账：三种点法、三条来路，而「解到哪一格」与「算出什么色」是两问**（140 个 OOXML 包 / 32938 条指针）
     - 事实 131 数的是格子里写了什么；这一本数的是正文**怎么指过去**：Word 的 `w:color/@themeColor`、
       DrawingML 的 `a:schemeClr/@val`、Excel 样式上的 `theme="N"`。三条点法各自数得回来
-      （25635 + 5239 + 110 = 30984），走过 1855 个 `.xml` 部件一个都没读不开（`parts_unread` 0），
-      其中手指在场的 548 个、主题部件 196 个（与事实 131 同一数，两问共用一份底账）。
-    - 名字到十二格有三条来路，逐条分列而不是合成一个「解出率」：名字本身就是一格（`via = name`）6056、
-      Word 那一族的别名表 22085（这一族只写四个别名：`background1`→lt1、`dark1`→dk1、`text1`→dk1、
-      `text2`→dk2）、文件自己写的 `a:clrMap` 580、Excel 的序号 110，剩下 2153 条交 null。
+      （27195 + 5633 + 110 = 32938），走过 1961 个 `.xml` 部件、`parts_unread` 3 个读不开（那三件是 `customxml-lo.docx` 里被 LibreOffice 清空的 0 字节 `customXml/itemN.xml` —— 件在而里面没字，不是解析器不行），
+      其中手指在场的 580 个、主题部件 202 个（与事实 131 同一数，两问共用一份底账）。
+    - 名字到十二格有三条来路，逐条分列而不是合成一个「解出率」：名字本身就是一格（`via = name`）6526、
+      Word 那一族的别名表 23435（这一族只写四个别名：`background1`→lt1、`dark1`→dk1、`text1`→dk1、
+      `text2`→dk2）、文件自己写的 `a:clrMap` 631、Excel 的序号 110，剩下 2236 条交 null。
     - 三条来路按族拆开各交各的，这也是「同一个名字在两种包里两个答案」的另一半凭据：
-      Word 那 74 个包 26842 条里名字自己是一格 3785、四个别名 22085、解不出 972；
-      Excel 那 39 个包 677 条里名字 12、序号 110、解不出 555；幻灯片那 21 个包 3465 条里
-      名字 2259、`a:clrMap` 580、解不出 626。横着加回来才是那五个数：6056 / 22085 / 580 / 110 / 2153。
-    - 那 2153 条不是「读不到」而是文件自己没说，而且两个方向算出同一个数：`phClr` 2100 条
+      Word 那 78 个包 28472 条里名字自己是一格 4009、四个别名 23435、解不出 1028；
+      Excel 那 39 个包 677 条里名字 12、序号 110、解不出 555；幻灯片那 23 个包 3789 条里
+      名字 2505、`a:clrMap` 631、解不出 653。横着加回来才是那五个数：6526 / 23435 / 631 / 110 / 2236。
+    - 那 2236 条不是「读不到」而是文件自己没说，而且两个方向算出同一个数：`phClr` 2181 条
       （主题占位色，压根不是那十二格之一）+ `dark2` 10 条（5 份件的 `word/styles.xml`，`crep-r.docx` 是头一份：这个名字
       既不在十二格也不在那四个别名里，而它们又都带着 `themeShade`，两条理由同时成立）
       + `tx1` / `bg1` 那 623 条里落在没写对照的包里的那 43 条（623 − 580 = 43，拆开是 tx1 41 + bg1 2）。
@@ -2717,7 +2748,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       的整本逐件账与合计那一本逐键对（含 `mods` 那串数组与 `matches` 的 null），再钉上面这几条数、
       两读的 `slot` / `alt_slot` 配对，以及那四族 `color_refs` 键的有无。
 
-131. **主题那一本账：十二格颜色有两套写法、字体角色有三态，而 tint 认得、shade 不认**（196 份 theme 部件 / 134 个包）
+131. **主题那一本账：十二格颜色有两套写法、字体角色有三态，而 tint 认得、shade 不认**（202 份 theme 部件 / 140 个包）
     - 老的只交了一份文件名清单（`themes` 把包名以 `ppt/theme/` 开头的成员列出来给 pptx），问不出「这十二格各写了什么颜色」「字体角色到底填了没」。这一本改成逐件一本账，再另记一本整套包的合计。
     - 颜色有两套写法要分开数：`a:srgbClr/@val` 直接给十六进制，而 `a:dk1` 这一格常写成 `a:sysClr` —— 颜色坐在 `lastClr`，`val` 那格是系统名字（`windowText` / `window`）。`written` 交文件写的那串，`system` 只在 sysClr 那格非 null，`sys_clr` / `srgb_clr` / `other_kind` / `empty_slot` 四格并存，不折成一枚「有没有颜色」。
     - 三格 `@name` 是三套各自独立的分布（196 件量出来的）：theme 是 189 个 Office Theme + 7 个 Office，clrScheme 是 188 Office + 8 LibreOffice，fontScheme 196 全写 Office，而 fmtScheme 只在那 69 件里写了名字、另 127 件空着 —— 所以 `fmt_named` / `fmt_unnamed` 与 `by_theme_name` / `by_scheme_name` 各记各的，不互相推。

@@ -579,6 +579,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             "formula_elems": crate::formula_elems::xlsx(bytes, limit),
             // 包里那几份自定义 XML 存储（真件里 0 份表格件带，键照样交，空账也是账）
             "custom_xml": crate::custom_xml::ledger(bytes, limit),
+            "alternate_content": crate::alternate_content::ledger(bytes, limit),
             // 主题那一份账：这一族的格子是**按序号**点主题的（`theme="4"`），
             // 所以那十二格的顺序就是答案的一半，另一半点它的人另有出处
             "theme": crate::theme_ledger::themes(bytes, limit),

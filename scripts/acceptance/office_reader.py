@@ -4949,6 +4949,85 @@ def cx_ledger(parts: dict, limit: int = 200) -> dict:
     }
 
 
+# ── `mc:AlternateContent`：同一件事写两遍（一枚 Choice + 一枚 Fallback）──
+# 这块在两家手里待遇不同：本仓 fixture 里 LibreOffice 给 chart / 艺术字都写全两遍
+# （31 块 31 Choice 31 Fallback），而本机 13 份真件里 3 块只有 1 块配了 Fallback ——
+# 「写了两遍」不是这条规矩的常态，所以 `orphans` 与 `fallbacks` 两个数分开交。
+def alternate_ledger(parts: dict, limit: int = 200) -> dict:
+    """逐件数 `mc:AlternateContent`：块数、两遍各写了吗、Choice 点的是哪几个前缀、两遍各写了什么"""
+    entries = []
+    blocks = choices = fallbacks = orphans = 0
+    prefixes: dict = {}
+    scanned = 0
+    for name in sorted(parts):
+        if not name.endswith(".xml") or name.endswith(".rels"):
+            continue
+        raw = parts[name]
+        if b"AlternateContent" not in raw:
+            continue
+        try:
+            root = ET.fromstring(raw)
+        except ET.ParseError:
+            continue
+        scanned += 1
+        mine_blocks = mine_choices = mine_fallbacks = mine_orphans = 0
+        mine_requires: list = []
+        mine_choice_elems: list = []
+        mine_fallback_elems: list = []
+        for one in root.iter():
+            if xml_local(one.tag) != "AlternateContent":
+                continue
+            mine_blocks += 1
+            kids = [kid for kid in one]
+            choice = next((kid for kid in kids if xml_local(kid.tag) == "Choice"), None)
+            fallback = next((kid for kid in kids if xml_local(kid.tag) == "Fallback"), None)
+            if choice is not None:
+                mine_choices += 1
+                req = of_local(choice, "Requires") or ""
+                for hit in req.split():
+                    mine_requires.append(hit)
+                    prefixes[hit] = prefixes.get(hit, 0) + 1
+                mine_choice_elems.extend(xml_local(kid.tag) for kid in choice)
+            if fallback is not None:
+                mine_fallbacks += 1
+                mine_fallback_elems.extend(xml_local(kid.tag) for kid in fallback)
+            if choice is not None and fallback is None:
+                mine_orphans += 1
+        blocks += mine_blocks
+        choices += mine_choices
+        fallbacks += mine_fallbacks
+        orphans += mine_orphans
+        if len(entries) < limit:
+            entries.append({
+                "part": name,
+                "blocks": mine_blocks,
+                "choices": mine_choices,
+                "fallbacks": mine_fallbacks,
+                "orphans": mine_orphans,
+                "requires": mine_requires,
+                "choice_elements": mine_choice_elems,
+                "fallback_elements": mine_fallback_elems,
+            })
+    return {
+        "family": "ooxml",
+        "available": True,
+        "parts_scanned": scanned,
+        "blocks": blocks,
+        "choices": choices,
+        "fallbacks": fallbacks,
+        "orphans": orphans,
+        "requires_prefixes": [one for one in sorted(prefixes, key=lambda k: (-prefixes[k], k))],
+        "requires_counts": {one: prefixes[one] for one in sorted(prefixes)},
+        "entries": entries,
+        "cut": scanned > len(entries),
+    }
+
+
+def docx_alternate(path: Path) -> dict:
+    """同一问在 docx / pptx / xlsx 是同一个包形状"""
+    return alternate_ledger(_cx_parts(path))
+
+
 def _cx_parts(path: Path) -> dict:
     with zipfile.ZipFile(path) as box:
         return {one.filename: box.read(one.filename) for one in box.infolist()}
@@ -11655,6 +11734,7 @@ def facts(path: Path) -> dict:
         if "word/document.xml" in parts:
             out["app"] = "word"
             out["ooxml"] = docx_facts(path)
+            out["ooxml"]["alternate_content"] = docx_alternate(path)
             # 包里那几份自定义 XML 存储：件、那一跳到 itemProps、正文有没有一条手指着它
             out["ooxml"]["custom_xml"] = docx_custom_xml(path)
             # 表头重复那份账（行上的一个无值元素）
@@ -11707,6 +11787,7 @@ def facts(path: Path) -> dict:
         elif "xl/workbook.xml" in parts:
             out["app"] = "excel"
             out["ooxml"] = xlsx_facts(path)
+            out["ooxml"]["alternate_content"] = docx_alternate(path)
             # 包里那几份自定义 XML 存储：件、那一跳到 itemProps、正文有没有一条手指着它
             out["ooxml"]["custom_xml"] = docx_custom_xml(path)
             out["protection"] = protection_for(path)
@@ -11724,6 +11805,7 @@ def facts(path: Path) -> dict:
         elif "ppt/presentation.xml" in parts:
             out["app"] = "powerpoint"
             out["ooxml"] = pptx_facts(path)
+            out["ooxml"]["alternate_content"] = docx_alternate(path)
             # 包里那几份自定义 XML 存储：件、那一跳到 itemProps、正文有没有一条手指着它
             out["ooxml"]["custom_xml"] = docx_custom_xml(path)
             # 「这框对应版式里哪一条」那一跳（重写那份会断）

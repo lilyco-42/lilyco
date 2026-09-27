@@ -99,7 +99,7 @@ fn props_of(bytes: &[u8], part: &str) -> Option<String> {
         None => String::new(),
     };
     let rels = format!("{}._rels/{}.rels", folder, part.rsplit('/').next()?);
-    let root = member_parse(bytes, &rels)?;
+    let root = member_parse(bytes, rels.as_str())?;
     for one in root.descendants("Relationship") {
         let kind = one.attr_local("Type")?.rsplit('/').next()?;
         if kind != "customXmlProps" {
@@ -166,19 +166,19 @@ pub(crate) fn ledger(bytes: &[u8], limit: usize) -> Value {
         Some(root) => content_types(&root),
         None => (Vec::new(), false),
     };
-    let (xmls, ids) = body_pointers(bytes, names, limit);
+    let (xmls, ids) = body_pointers(bytes, &names, limit);
     let mut entries: Vec<Value> = Vec::new();
     let mut empty = 0usize;
     let mut rows: Vec<(Option<String>, Option<String>)> = Vec::new();
     for part in items.iter() {
-        let raw = match zipread::member(bytes, part, zipread::DEFAULT_MEMBER_CAP) {
+        let raw = match zipread::member(bytes, part.as_str(), zipread::DEFAULT_MEMBER_CAP) {
             Ok(one) => one.as_text(),
             Err(_) => String::new(),
         };
         if raw.trim().is_empty() {
             empty += 1;
         }
-        let parsed = member_parse(bytes, part);
+        let parsed = member_parse(bytes, part.as_str());
         let (root_name, children) = match &parsed {
             Some(node) => (Some(node.local().to_string()), Some(node.children.len())),
             None => (None, None),

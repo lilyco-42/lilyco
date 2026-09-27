@@ -3103,6 +3103,46 @@ def add_customxml_parts(path: Path, out: Path) -> None:
             box.writestr(name, data)
 
 
+# `mc:AlternateContent` 那两遍写法的三种形状：块配齐（Choice + Fallback）、只有 Choice、
+# 一块里两条 Choice。本机真件里 3 块只有 1 块配了 Fallback，所以「写了两遍」不是常态 ——
+# 这一枚 Fallback-only-缺失的形状真件有（2/3 处），但两个生产者都不肯这样写，
+# 于是它按 ECMA 的写法**合成**（`notes.docm` 那枚合成宏同一待遇：只证明认得这一形，
+# 不证明真生产者会这么写）。命名空间 `mc` / `wps` / `w14` python-docx 的根元素都替我们声明了。
+ALT_BLOCKS = (
+    '<mc:AlternateContent><mc:Choice Requires="wps">'
+    f'<w:r><w:t>两遍里 Choice 那一遍：{MARK_TITLE}</w:t></w:r></mc:Choice>'
+    '<mc:Fallback><w:r><w:t>两遍里 Fallback 那一遍（画布画不出来才走这条）</w:t></w:r></mc:Fallback>'
+    '</mc:AlternateContent>'
+    '<mc:AlternateContent><mc:Choice Requires="w14">'
+    '<w:r><w:t>只写了一遍：这一枚没有 Fallback</w:t></w:r></mc:Choice></mc:AlternateContent>'
+    '<mc:AlternateContent>'
+    '<mc:Choice Requires="wps"><w:r><w:t>第一条 Choice</w:t></w:r></mc:Choice>'
+    '<mc:Choice Requires="w14"><w:r><w:t>第二条 Choice</w:t></w:r></mc:Choice>'
+    '<mc:Fallback><w:r><w:t>两块 Choice 共用的一份退路</w:t></w:r></mc:Fallback>'
+    '</mc:AlternateContent>'
+)
+
+
+def write_alternate_docx(path: Path) -> None:
+    """`mc:AlternateContent` 的三种形状（配齐 / 只有 Choice / 一块里两条 Choice）"""
+    from docx import Document
+
+    book = Document()
+    book.add_paragraph(MARK_BODY)
+    tmp = path.with_suffix(".seed.docx")
+    book.save(str(tmp))
+    with zipfile.ZipFile(tmp) as box:
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+        doc = parts["word/document.xml"].decode("utf-8")
+    at = doc.rfind("<w:sectPr")
+    assert at > 0, "打底件里得有 sectPr，那三块要插在它之前"
+    parts["word/document.xml"] = (doc[:at] + ALT_BLOCKS + doc[at:]).encode("utf-8")
+    tmp.unlink()
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as box:
+        for name, data in parts.items():
+            box.writestr(name, data)
+
+
 def write_csv(path: Path) -> None:
     """CSV 是给 LO 转 xls 的备用输入（openpyxl 缺席时才用）"""
     rows = [

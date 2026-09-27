@@ -33,6 +33,7 @@
 //! lbin --schema     # 打印整张注册表清单
 //! ```
 
+mod alternate_content;
 mod biff;
 mod bookmark_pairs;
 mod cell_merges;
