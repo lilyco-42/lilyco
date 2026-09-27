@@ -4887,7 +4887,9 @@ def slide_bullets_layers_pptx(parts, names, limit: int = 400) -> dict:
     rows: list = []
     parts_seen = 0
     lst_parts = 0
-    for name in names:
+    # 按部件名排（不是包里的先后）—— 与 Rust 的 `pptx_layers` 同一口径，
+    # 否则同一份件的行序两边不同（CI 量出来过一次：母版在包里排在版式前面）
+    for name in sorted(names):
         if not name.endswith(".xml") or not (
                 name.startswith("ppt/slideLayouts/") or name.startswith("ppt/slideMasters/")):
             continue
@@ -5432,6 +5434,373 @@ def odf_cell_margins(parts, limit: int = 400) -> dict:
 
 def holder_of(mine):
     return (mine or {}).get("holder")
+
+
+# ── 表格边框：这一圈到底有没有线 ────────────────────────────────────────────────
+#
+# 三族三个形状（实测见 `table_borders.rs` 的模块注释）：
+# - OOXML 文本那一族是**两个住处、一块里的方向孩子**，每枚方向带七个属性
+#   （`val` / `sz` / `space` / `color` / `themeColor` / `themeTint` / `themeShade`）；
+#   `val` 四态里 `nil` 与 `none` 是两个说法（真件普查：`nil` 39746、`single` 39483、
+#   `double` 952、`none` 12），而 `nil` 那些**不写** `sz` / `space` / `color`。
+# - DrawingML 那一族线是 `a:tcPr` 的**孩子**（`a:lnL` 等六枚），一枚线又是一串
+#   （`@w` + `@cap` + `@cmpd` + `@algn` 与 `solidFill`/`noFill`、`prstDash`、`round`、
+#   `headEnd`、`tailEnd`）。
+# - ODF 是一跳：格点样式名，数在那份样式的 properties 上，而 odt 住
+#   `style:table-cell-properties`、odp 住 `style:paragraph-properties`（实测如此），
+#   写法有短款 `fo:border`、四枚长款 `fo:border-*`，另有第三种 `style:border-line-width-*`。
+BOR_DIRS = ("top", "left", "bottom", "right", "insideH", "insideV", "tl2br", "tr2bl",
+            "start", "end")
+BOR_ATTRS = ("val", "sz", "space", "color", "themeColor", "themeTint", "themeShade")
+PPT_EDGES = ("lnL", "lnR", "lnT", "lnB", "lnTlToBr", "lnBlToTr")
+PPT_EDGE_ATTRS = ("w", "cap", "cmpd", "algn")
+ODF_BOR_PROPS = ("table-cell-properties", "paragraph-properties", "graphic-properties")
+
+
+def bor_attr(node, want: str):
+    """`w:val` 这类带前缀的属性按局部名取（与 Rust 的 attr_local 同一口径）"""
+    for key, value in node.attrib.items():
+        if key.rsplit("}", 1)[-1] == want:
+            return value
+    return None
+
+
+def bor_entry(holder):
+    """一枚 `w:tblBorders` / `w:tcBorders` → 方向序 + 每方向的七个属性（没写的交 None）"""
+    order = []
+    values = {}
+    for kid in holder:
+        name = xml_local(kid.tag)
+        if name not in BOR_DIRS:
+            continue
+        order.append(name)
+        values[name] = {key: bor_attr(kid, key) for key in BOR_ATTRS}
+    return order, values
+
+
+def bor_tally(order, values, dirs, vals, szs, spaces, colors, theme, auto, no_val, miss):
+    """表级与格级同一段：把这些方向的数记进票里（`nil` 不写 sz 是形状，不是漏读）"""
+    for name in order:
+        got = values[name]
+        dirs[name] = dirs.get(name, 0) + 1
+        key = got["val"] if got["val"] is not None else "(没写 val)"
+        vals[key] = vals.get(key, 0) + 1
+        if got["val"] is None:
+            no_val += 1
+        if got["sz"] is None:
+            miss += 1
+        else:
+            szs[got["sz"]] = szs.get(got["sz"], 0) + 1
+        if got["space"] is not None:
+            spaces[got["space"]] = spaces.get(got["space"], 0) + 1
+        if got["color"] is not None:
+            hit = got["color"].lower()
+            colors[hit] = colors.get(hit, 0) + 1
+            if hit == "auto":
+                auto += 1
+        if got["themeColor"] is not None:
+            theme += 1
+    return auto, miss, no_val, theme
+
+
+def docx_table_borders(path: Path, limit: int = 400) -> dict:
+    """OOXML 那两本：表级的 `w:tblBorders` 与格级的 `w:tcBorders`（形状一样、住处不同）"""
+    parts = _mar_parts(path)
+    rows = []
+    cell_rows = []
+    parts_scanned = 0
+    tally = {"tables": 0, "tables_with_block": 0, "tables_without_block": 0, "tables_shell": 0,
+             "cells_total": 0, "cells_with_block": 0, "cells_shell": 0}
+    dirs = {}
+    vals = {}
+    szs = {}
+    spaces = {}
+    colors = {}
+    auto = 0
+    theme = 0
+    no_val = 0
+    miss = 0
+    for name, raw in sorted(parts.items()):
+        if not (name.startswith("word/") and name.endswith(".xml")) or name.endswith(".rels"):
+            continue
+        root = _mar_root(raw)
+        if root is None:
+            continue
+        tables = [one for one in root.iter() if xml_local(one.tag) == "tbl"]
+        if not tables:
+            continue
+        parts_scanned += 1
+        for index, tbl in enumerate(tables):
+            tally["tables"] += 1
+            holder = None
+            for one in tbl.iter():
+                if xml_local(one.tag) == "tblBorders":
+                    holder = one
+                    break
+            order, values = bor_entry(holder) if holder is not None else ([], {})
+            if holder is None:
+                tally["tables_without_block"] += 1
+            elif not order:
+                tally["tables_shell"] += 1
+            else:
+                tally["tables_with_block"] += 1
+            auto, miss, no_val, theme = bor_tally(order, values, dirs, vals, szs, spaces,
+                                                   colors, theme, auto, no_val, miss)
+            if len(rows) < limit:
+                rows.append({"part": name, "table": index, "block_present": holder is not None,
+                             "dirs": order, "values": values,
+                             "shell": holder is not None and not order})
+            cells = [one for one in tbl.iter() if xml_local(one.tag) == "tc"]
+            tally["cells_total"] += len(cells)
+            for cell_index, cell in enumerate(cells):
+                mine = None
+                for one in cell.iter():
+                    if xml_local(one.tag) == "tcBorders":
+                        mine = one
+                        break
+                if mine is None:
+                    continue
+                tally["cells_with_block"] += 1
+                corder, cvalues = bor_entry(mine)
+                if not corder:
+                    tally["cells_shell"] += 1
+                auto, miss, no_val, theme = bor_tally(corder, cvalues, dirs, vals, szs, spaces,
+                                                      colors, theme, auto, no_val, miss)
+                if len(cell_rows) < limit:
+                    cell_rows.append({"part": name, "table": index, "cell": cell_index,
+                                      "dirs": corder, "values": cvalues, "shell": not corder})
+    style_root = _mar_root(parts.get("word/styles.xml", b""))
+    st_tbl = st_tc = 0
+    if style_root is not None:
+        for one in style_root.iter():
+            if xml_local(one.tag) == "tblBorders":
+                st_tbl += 1
+            elif xml_local(one.tag) == "tcBorders":
+                st_tc += 1
+    return {"family": "ooxml", "available": True, "parts_scanned": parts_scanned,
+            "tables": tally["tables"], "tables_with_block": tally["tables_with_block"],
+            "tables_without_block": tally["tables_without_block"],
+            "tables_shell": tally["tables_shell"], "cells_total": tally["cells_total"],
+            "cells_with_block": tally["cells_with_block"], "cells_shell": tally["cells_shell"],
+            "dirs": dirs, "vals": vals, "szs": szs, "spaces": spaces, "colors": colors,
+            "auto_color": auto, "theme_pointed": theme, "no_val": no_val, "no_sz": miss,
+            "styles_part_tbl": st_tbl, "styles_part_tc": st_tc,
+            "rows": rows, "cell_rows": cell_rows,
+            "listed": len(rows), "cell_listed": len(cell_rows),
+            "cut": tally["tables"] > len(rows) or tally["cells_with_block"] > len(cell_rows)}
+
+
+def pptx_line(kid) -> dict:
+    """一枚 `a:ln*` → 那四枚属性与孩子们的名字（填法是哪种、虚线预设是什么）"""
+    out = {key: None for key in PPT_EDGE_ATTRS}
+    for key in PPT_EDGE_ATTRS:
+        for k, v in kid.attrib.items():
+            if k.rsplit("}", 1)[-1] == key:
+                out[key] = v
+    out["fill"] = None
+    out["dash"] = None
+    out["round"] = False
+    out["head"] = None
+    out["tail"] = None
+    for sub in kid:
+        tag = xml_local(sub.tag)
+        if out["fill"] is None and tag.endswith("Fill"):
+            out["fill"] = tag
+        elif tag == "prstDash":
+            out["dash"] = bor_attr(sub, "val")
+        elif tag == "round":
+            out["round"] = True
+        elif tag == "headEnd":
+            out["head"] = bor_attr(sub, "type")
+        elif tag == "tailEnd":
+            out["tail"] = bor_attr(sub, "type")
+    return out
+
+
+def pptx_table_borders(path: Path, limit: int = 400) -> dict:
+    """DrawingML 那一本：线是 `a:tcPr` 的孩子，一枚线是一串而不是一枚属性"""
+    parts = _mar_parts(path)
+    rows = []
+    parts_scanned = 0
+    cells = 0
+    with_edges = 0
+    full = 0
+    partial = 0
+    silent = 0
+    edges = {}
+    widths = {}
+    fills = {}
+    dashes = {}
+    zero_width = 0
+    no_width = 0
+    for name, raw in sorted(parts.items()):
+        if not name.startswith("ppt/slides/slide") or not name.endswith(".xml"):
+            continue
+        root = _mar_root(raw)
+        if root is None:
+            continue
+        parts_scanned += 1
+        for index, holder in enumerate(x for x in root.iter() if xml_local(x.tag) == "tcPr"):
+            cells += 1
+            lines = {}
+            order = []
+            for kid in holder:
+                tag = xml_local(kid.tag)
+                if tag not in PPT_EDGES:
+                    continue
+                order.append(tag)
+                lines[tag] = pptx_line(kid)
+            if order:
+                with_edges += 1
+            else:
+                silent += 1
+            if sum(1 for one in order if one in ("lnL", "lnR", "lnT", "lnB")) == 4:
+                full += 1
+            elif order:
+                partial += 1
+            for tag in order:
+                edges[tag] = edges.get(tag, 0) + 1
+                got = lines[tag]
+                if got["w"] is None:
+                    no_width += 1
+                else:
+                    widths[got["w"]] = widths.get(got["w"], 0) + 1
+                    try:
+                        if float(got["w"]) == 0.0:
+                            zero_width += 1
+                    except ValueError:
+                        pass
+                if got["fill"] is not None:
+                    fills[got["fill"]] = fills.get(got["fill"], 0) + 1
+                if got["dash"] is not None:
+                    dashes[got["dash"]] = dashes.get(got["dash"], 0) + 1
+            if len(rows) < limit:
+                one = {"part": name, "cell": index, "edges": order, "lines": lines,
+                       "four": sum(1 for x in order if x in ("lnL", "lnR", "lnT", "lnB")) == 4,
+                       "said": bool(order)}
+                rows.append(one)
+    return {"family": "ooxml", "available": True, "parts_scanned": parts_scanned,
+            "cells": cells, "cells_with_edges": with_edges, "cells_all_four": full,
+            "cells_partial": partial, "cells_silent": silent, "edges": edges, "widths": widths,
+            "fills": fills, "dashes": dashes, "zero_width": zero_width, "no_width": no_width,
+            "rows": rows, "listed": len(rows), "cut": cells > len(rows)}
+
+
+def odf_bor_split(val: str):
+    """`"1pt solid #000000"` → 三段；`"none"` → 只有一截（ODF 把「没有」写成一句话）"""
+    pieces = str(val).split()
+    if len(pieces) >= 3:
+        return pieces[0], pieces[1], " ".join(pieces[2:])
+    if len(pieces) == 2:
+        return pieces[0], pieces[1], None
+    return None, (pieces[0] if pieces else None), None
+
+
+def odf_bor_of_style(style):
+    """一份样式 → 边框住在哪枚孩子上、那几个串（短款与长款都收，第三种 `border-line-width` 另记）"""
+    holder = None
+    out = {}
+    widths = {}
+    for kid in style:
+        tag = xml_local(kid.tag)
+        if tag not in ODF_BOR_PROPS:
+            continue
+        for key, value in kid.attrib.items():
+            local = key.rsplit("}", 1)[-1]
+            if local.startswith("border-line-width"):
+                widths[local] = value
+                continue
+            if not (local == "border" or local.startswith("border-")):
+                continue
+            out[local] = value
+            holder = tag
+    return holder, out, widths
+
+
+def odf_bor_styles(parts) -> dict:
+    """跨两份部件收 table-cell 样式（`content.xml` 优先，与 `cell_margins` 同一口径）"""
+    table = {}
+    for name in ("content.xml", "styles.xml"):
+        root = _bg_member(parts, name)
+        if root is None:
+            continue
+        for one in root.iter():
+            if xml_local(one.tag) != "style" or of_local(one, "family") != "table-cell":
+                continue
+            want = of_local(one, "name")
+            if want is None or want in table:
+                continue
+            holder, got, widths = odf_bor_of_style(one)
+            table[want] = {"part": name, "holder": holder, "borders": got, "widths": widths}
+    return table
+
+
+def odf_table_borders(parts, limit: int = 400) -> dict:
+    """ODF 那一本：格点的名 → 那份样式的边框（短款、四长款、还有第三种线宽写法）"""
+    table = odf_bor_styles(parts)
+    models = {}
+    for name in ("content.xml", "styles.xml"):
+        root = _bg_member(parts, name)
+        if root is None:
+            continue
+        for one in root.iter():
+            for key, value in one.attrib.items():
+                if key.rsplit("}", 1)[-1] == "border-model":
+                    hit = "%s/%s" % (xml_local(one.tag), value)
+                    models[hit] = models.get(hit, 0) + 1
+    root = _bg_member(parts, "content.xml")
+    rows = []
+    cells = named = unnamed = found = unfound = with_bor = 0
+    shorthand = longhand = lines = 0
+    holders = {}
+    keys = {}
+    kinds = {}
+    if root is not None:
+        for one in root.iter():
+            if xml_local(one.tag) not in ("table-cell", "covered-table-cell"):
+                continue
+            cells += 1
+            want = of_local(one, "style-name")
+            if want is None:
+                unnamed += 1
+            else:
+                named += 1
+            mine = table.get(want) if want is not None else None
+            if mine is None:
+                unfound += 1 if want is not None else 0
+            else:
+                found += 1
+            got = (mine or {}).get("borders") or {}
+            row = {"cell": cells - 1, "style_name": want, "style_found": mine is not None,
+                   "style_part": (mine or {}).get("part"), "holder": holder_of(mine),
+                   "shorthand": got.get("border"), "top": got.get("border-top"),
+                   "bottom": got.get("border-bottom"), "left": got.get("border-left"),
+                   "right": got.get("border-right"), "written": len(got)}
+            if got:
+                with_bor += 1
+                holders[row["holder"]] = holders.get(row["holder"], 0) + 1
+                if "border" in got:
+                    shorthand += 1
+                if any(k.startswith("border-") for k in got):
+                    longhand += 1
+                for key, val in got.items():
+                    keys[key] = keys.get(key, 0) + 1
+                    lines += 1
+                    _w, kind, _c = odf_bor_split(val)
+                    hit = kind if kind is not None else "(空)"
+                    kinds[hit] = kinds.get(hit, 0) + 1
+            if (mine or {}).get("widths"):
+                for key in (mine or {}).get("widths", {}):
+                    keys[key] = keys.get(key, 0) + 1
+            if len(rows) < limit:
+                rows.append(row)
+    return {"family": "odf", "available": True, "cells": cells, "cells_named": named,
+            "cells_unnamed": unnamed, "styles_found": found, "styles_unfound": unfound,
+            "cells_with_borders": with_bor, "shorthand": shorthand, "longhand": longhand,
+            "holders": holders, "keys": keys, "kinds": kinds, "lines": lines,
+            "styles_defined": len(table), "border_models": models,
+            "rows": rows, "listed": len(rows), "cut": cells > len(rows)}
+
 
 
 def odp_inherited(parts, page) -> dict:
@@ -12913,6 +13282,7 @@ def facts(path: Path) -> dict:
             out["ooxml"]["row_heights"] = docx_row_heights(path)
             # 格子的字离边多远：表级与格级两块同形状、两个住处
             out["ooxml"]["cell_margins"] = docx_cell_margins(path)
+            out["ooxml"]["table_borders"] = docx_table_borders(path)
             # 表头重复那份账（行上的一个无值元素）
             out["ooxml"]["table_headers"] = docx_repeat_headers(path)
             # 制表位：定义在段上，而段里的制表字符是另一本账
@@ -12988,6 +13358,7 @@ def facts(path: Path) -> dict:
             out["ooxml"]["placeholder_hops"] = pptx_placeholder_hops(path)
             # 格子的字离边多远：`a:tcPr` 上那四个属性（EMU），一个都不写就是这一格没说
             out["ooxml"]["cell_margins"] = pptx_cell_margins(path)
+            out["ooxml"]["table_borders"] = pptx_table_borders(path)
             # 一条式子是文本体里的 OMML，而同一个形状在 Fallback 里还写了一遍（挂着替身图）
             out["ooxml"]["equations"] = pptx_equations_ledger(path)
             # 大纲那一本（`office-text --markdown` 的 pptx 支）：一页一个 `#`，
@@ -13040,6 +13411,7 @@ def facts(path: Path) -> dict:
             out["odt"]["row_heights"] = docx_row_heights(path)
             # 格子的字离边多远：一跳在 table-cell 样式的 properties 上（四长款或一枚短款）
             out["odt"]["cell_margins"] = odf_cell_margins(_mar_parts(path))
+            out["odt"]["table_borders"] = odf_table_borders(_mar_parts(path))
             # 同一问在 ODF 是元素名本身：没有指令串，种类与格式全在名字与属性上
             out["odt"]["field_ledger"] = odf_field_ledger(path)
             # 这一族没有主题这个概念：交一本零条的账，而不是缺这个键
@@ -13092,6 +13464,7 @@ def facts(path: Path) -> dict:
                 out["odp"] = deck
                 # 同一问在 odp 住在 graphic-properties 上（那一族的格是图形对象），还有两格不点名样式
                 out["odp"]["cell_margins"] = odf_cell_margins(_mar_parts(path))
+                out["odp"]["table_borders"] = odf_table_borders(_mar_parts(path))
         else:
             out["app"] = "unknown-zip"
         return out

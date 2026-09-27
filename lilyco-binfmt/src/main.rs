@@ -91,6 +91,7 @@ mod shape_tree;
 mod slide_bullets;
 mod symbols;
 mod tab_stops;
+mod table_borders;
 mod table_grid;
 mod table_headers;
 mod table_styles;

@@ -227,6 +227,12 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `margins.odt` | LibreOffice（`margins.docx` → .odt 那一转） | 同一问换成两跳：12 格各点一份 `family="table-cell"` 的自动样式，11 份写四枚 `style:padding-*`、全零那份被收成短款 `fo:padding="0cm"`；`113` twips 落成 `0.199cm` |
 | `margins.pptx` | python-pptx 的 `cell.margin_*`（`write_margins_pptx`） | 六格里两格写满四枚、一格只有 `marL`、三格一枚都没有（第二页那张表整个没人写过）；`marT` 写的是 `36576` EMU |
 | `margins-lo.pptx` | LibreOffice（`margins.pptx` → .pptx 同格式重写） | 六格全被补齐四枚，而 `36576` 绕一圈回来是 `36360`（过一遍磅再进 EMU）；两本各按写的交，不换算也不判谁对 |
+| `borders.docx` | python-docx 打底 + 按 ECMA 手写 `w:tblBorders` / `w:tcBorders`（`write_borders_docx`） | 三张表三种答案：一张六方向写满、一张连块都没有、一张表级只写 `nil` 与两条实线；格级另有 `double` + 主题指针、`tl2br` 对角线、一条 `none` 与一枚空壳 |
+| `borders-lo.docx` | LibreOffice（`borders.docx` → .docx 同格式重写） | 三张表并成一张、表级那份全摊到格上（10 格各有块）、方向改名 `start/end`、`nil` 与 `auto` 与主题指针全换成写实的数 |
+| `borders.odt` | LibreOffice（`borders.docx` → .odt 那一转） | 10 格各点一份 `family="table-cell"` 的自动样式，四枚长款 `fo:border-*` 一条不落；`sz="8"` 变成 `1pt solid #000000`、`double` 变成 `2.25pt double`、`nil` 与 `none` 合成同一个 `none`，另有一枚第三种写法 `style:border-line-width-top` |
+| `borders.odp` | LibreOffice（`borders.pptx` → .odp 那一转） | 边框住在 `style:paragraph-properties` 上（不是 graphic-properties），短款与长款各 2、虚线 `dashed` 转过来还在，六格里两格连样式名都不点 |
+| `borders.pptx` | python-pptx 打底 + 按 ECMA 手写 `a:ln*`（`write_borders_pptx`） | 六格里 1 格写满上下左右、2 格只写一两枚（含一枚 `@w="0"` 与一枚 `noFill`、一枚对角线 `lnTlToBr`）、3 格一枚都没有（第二页那张表整个没人写过）|
+| `borders-lo.pptx` | LibreOffice（`borders.pptx` → .pptx 同格式重写） | 六格全被补齐四条，`6350` → `6480`、`12700` 与 `25400` → `12240`，对角线整个丢掉，还有一枚线不写 `@w` |
 | `margins.odp` | LibreOffice（`margins.pptx` → .odp 那一转） | 那一族的格是图形对象：四枚 padding 住在 `style:graphic-properties` 上而不是 `table-cell-properties`，六格里两格**连样式名都不点** —— 那一格只交「这一格没说」 |
 | `wrap.docx` | python-docx 打底 + 按 ECMA **合成**两枚 `wp:anchor`（`write_wrap_docx`） | 图是怎么摆的三种形状一份里摆开：`wp:inline`（随字走，结构上**没有**环绕那一支）+ `wp:anchor` 两枚各写一种环绕（`wrapSquare` / `wrapTopAndBottom`）；浮着才写的那几格也在（`@behindDoc` `@locked` `@allowOverlap` `@relativeHeight` 与四格 `@dist*` EMU），位置分横竖两条（`positionH/@relativeFrom="margin"` 加 `wp:align`，另一枚写 `wp:positionOffset` 那个数）—— 真件稀缺：本机 33 份 docx 的正文 161 枚 `w:drawing` 里只有 1 枚是 anchor |
 | `wrap.odt` | LibreOffice 版式的 ODF（`write_wrap_odt`，三种锚各一枚） | 换一家：框自己只写 `text:anchor-type`（`as-char` / `paragraph` / `page`），环绕、穿透、四个边距全在它点名的那份 `style:family="graphic"` 样式里（`style:wrap="parallel"` / `"through"`、`style:run-through="front"`、`fo:margin-left="0.21cm"`）；「随字」那一枚的样式里**没有** `style:wrap` 这一格 —— 「文件没说」与「说了不环绕」是两句话 |
@@ -2391,6 +2397,50 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       别的账都是各交各的。
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
+
+144. **这一圈有没有线：OOXML 一块里的方向孩子带七个属性，DrawingML 一枚线是一整串，ODF 一跳且三种写法**。
+    `w:tblPr/w:tblBorders` 是整张表的默认，`w:tcPr/w:tcBorders` 是这一格改的 —— 两块形状一样
+    （方向 `top/left/bottom/right`，表级另有 `insideH`/`insideV`，格级另有对角线 `tl2br`/`tr2bl`），
+    每枚带 `@w:val` + `@w:sz`（八分之一磅）+ `@w:space` + `@w:color` 与主题那一套三个指针。
+    这份自产件里 3 张表 2 张写了表级块、10 格里 3 格自己改了（其中一格是空壳），
+    `@w:val` 一口气出现四态：`single` 9、`nil` 2、`double` 1、`none` 1。
+    - **`nil` 与 `none` 是两句话**：前者是「连继承来的那条也关掉」，而且 `nil` 那些**不写**
+      `sz`/`space`/`color` —— 于是 `no_sz` 2 是一格单独的账，缺属性不是漏读。真件普查里
+      `nil` 39746 条与 `single` 39483 条几乎各半，而带 `sz` 的只有 40446 条。
+    - **表上没写不等于没有线**：`word/styles.xml` 恒有 85 枚 `tblBorders` 与 406 枚 `tcBorders`
+      （打底模板的表格样式各带一份），整库 86 份 word 件里 54 张表**只有 2 张**写了表级块，
+      而 148 个格自己写了块 —— 所以「正文这一处写了没有」与「样式表里有多少枚」分开交。
+    - LibreOffice 重写同一份 docx 做四件事：3 张表并成 1 张、表级那份**一份都不剩**而摊到
+      每个格上（`cells_with_block` 3 → 10）、方向改名（`left/right` → `start/end`）、
+      把 `nil`/`none`/`auto`/主题指针全换成写实的数（`vals` 只剩 `single` 与 `double`，
+      `auto_color` 3 → 0、`theme_pointed` 2 → 0、`no_sz` 2 → 0）。
+    - 演示那一族线不是属性而是 `a:tcPr` 的**孩子**（`lnL`/`lnR`/`lnT`/`lnB` 与两枚对角线），
+      一枚线带 `@w`（EMU）+ `@cap`/`@cmpd`/`@algn` 与 `solidFill`|`noFill` + `prstDash` +
+      `round` + `headEnd`/`tailEnd`。本仓按**文档序**交，所以「写了哪几枚」看得见：
+      自产件 6 格里 1 格写满四条、2 格只写一两枚、3 格一枚都没有，另有零宽那枚 `@w="0"`。
+      LibreOffice 重写时六格全补齐四条、`6350` 换成 `6480`、两枚换成 `12240`、
+      **对角线整个丢掉**，还有一枚线**不写 `@w`**（`no_width` 1）——
+      「一枚都没有」与「有一枚但没宽度」是两种「没说」。
+    - 真件普查（本机 104 份真 pptx、940 个 slide 部件）：893 枚 `a:tcPr` **每一枚**都写满四条，
+      `@w` 只有 `6350`（3444 次）与 `0`（128 次），`cap` 恒 `flat`、`cmpd` 恒 `sng`、`algn` 恒
+      `ctr`，孩子一律是 solidFill + prstDash + round + headEnd + tailEnd 那一套 ——
+      所以「只写一两枚」「一枚都不写」「noFill」「虚线」「对角线」这几形只在自产件里有。
+    - ODF 是一跳加**三种写法**：格点 `table:style-name`，数在 `family="table-cell"` 那份样式上，
+      可以是短款 `fo:border`、四枚长款 `fo:border-*`，也可以是第三种
+      `style:border-line-width-*`（只写线宽）。两族住的 properties **不是同一枚孩子**：
+      odt 是 `table-cell-properties`，而 odp 的表格框把边框写在 `paragraph-properties` 上
+      （同一份样式的页边距却在 `graphic-properties`，两本各交各的）。整库 46 份 .odt 的 164 格里
+      155 格跳得到样式、142 份写短款而 13 份写长款；16 份 .odp 共 25 格，12 格连样式名都不点。
+    - 那一跳是有损的：`single` + `sz="8"` 回来是 `1pt solid #000000`、`double` 是 `2.25pt double`，
+      `auto` 与主题指针被换成实色（`#000000`、`#c0504d`），而 `nil` 与 `none` 在 ODF 这一格上
+      **合成同一个 `none`**（`kinds` 里 none 8）—— 本仓只按交的回答，不替文件分辨。
+      一张表是叠画还是各画各的记在 `border_models`（`table-properties/collapsing`）。
+    - 单位一律不换算：八分之一磅、EMU、`1pt` 都按写的串交（与 `row_heights`、`cell_margins` 同一处理）。
+    - 出口：`office-doc` 的 docx 支与 odt 支各交 `structure.table_borders`，`office-slide` 的
+      pptx 支与 odp 支各交 `table_borders`；遗留 `.doc`/`.rtf`/`.ppt` 不交这个键，
+      表格那一族（xlsx / .xls）的边框走 `cell_style` 那一本（XF → borders），也不在这个键里。
+    - 本机真件里 **.odt / .ods / .odp 一份都没有** —— ODF 那一头只有生产者的凭据，
+      这是「没有件可读」，不是「读不出来」。
 
 143. **格子的字离格边多远：OOXML 一份文档里这块有两个住处，ODF 是两跳而且两种写法等价**。
     `w:tblPr/w:tblCellMar` 是整张表的默认，`w:tcPr/w:tcMar` 是这一格自己改的 —— 两块形状一样

@@ -2652,6 +2652,153 @@ def write_margins_pptx(path: Path) -> None:
     deck.save(path)
 
 
+BORDER_DIRS = ("top", "left", "bottom", "right", "insideH", "insideV", "tl2br", "tr2bl")
+
+
+def _cell_border(holder, element: str, dirs: list) -> None:
+    """往 `w:tblPr` 或 `w:tcPr` 上挂一枚 `w:tblBorders` / `w:tcBorders`（方向按给的序写）
+
+    每个方向是**一条线**：`@w:val` 四态（`single` / `double` 有线，`none` 是「这一条明确没有」，
+    `nil` 是「继承来的那条也关掉」—— 真件里 `nil` 与 `single` 各占一半，见下方普查）、
+    `@w:sz`（八分之一磅）、`@w:space`（线离字多远）、`@w:color`（`auto` 是一句说过的话，
+    不是某个色值），另有 `@w:themeColor` / `@w:themeTint` / `@w:themeShade` 那一套指针。
+    真件普查（本机 32 份 .docx + 1 份 .docm）：`tblBorders` 3067 枚、`tcBorders` 14345 枚，
+    方向条目 80193 条**全部**带 `@w:val`，其中只有一半带 `sz` / `space`（带 `val="nil"` 的
+    那半不带），`space` 恒为 `0`，`color` 出现过 `auto` 4208 次，`themeColor` 指针 34433 次。
+    """
+    from docx.oxml import parse_xml
+
+    parts = []
+    for name, attrs in dirs:
+        body = "".join(' w:%s="%s"' % (k, v) for k, v in attrs.items())
+        parts.append("<w:%s%s/>" % (name, body))
+    holder.append(parse_xml('<w:%s xmlns:w="%s">%s</w:%s>'
+                            % (element, W_NS, "".join(parts), element)))
+
+
+def _border_attrs(**attrs) -> dict:
+    return dict(attrs)
+
+
+def write_borders_docx(path: Path) -> None:
+    """四张表四种「这一圈有没有线」：六方向写满 / 只写 nil / 格级带主题指针 / none 与空壳
+
+    Word 里这块有**两个住处、形状一样**：`w:tblPr/w:tblBorders`（表级，含 `insideH` / `insideV`
+    那两枚只有表级才有的）与 `w:tcPr/w:tcBorders`（这一格自己改的，另有 `tl2br` / `tr2bl` 两枚
+    对角线）。表级没写不等于没有线 —— 那张表套的样式里也可能有一份，所以这一族只报「正文里
+    这一处写了什么」，样式表里有多少枚另交一格（与 `cell_margins` 同一处理）。
+    """
+    from docx import Document
+
+    doc = Document()
+    doc.add_paragraph("这一圈有没有线")
+
+    full = doc.add_table(rows=2, cols=2)
+    for r in range(2):
+        for c in range(2):
+            full.cell(r, c).text = "六方向 %d-%d" % (r, c)
+    _cell_border(full._tbl.tblPr, "tblBorders", [
+        (name, _border_attrs(val="single", sz="8", space="0", color="000000"))
+        for name in BORDER_DIRS[:6]])
+
+    quiet = doc.add_table(rows=1, cols=2)
+    for c in range(2):
+        quiet.cell(0, c).text = "整块不写 %d" % c
+
+    nils = doc.add_table(rows=2, cols=2)
+    for r in range(2):
+        for c in range(2):
+            nils.cell(r, c).text = "nil 与 double %d-%d" % (r, c)
+    _cell_border(nils._tbl.tblPr, "tblBorders", [
+        ("top", _border_attrs(val="nil")),
+        ("left", _border_attrs(val="nil")),
+        ("bottom", _border_attrs(val="single", sz="18", space="0", color="auto")),
+        ("right", _border_attrs(val="single", sz="4", space="1", color="C0504D",
+                                themeColor="accent1", themeTint="90000")),
+    ])
+    # 格级：一条 double 带主题指针、一条 none（明确没有）、一枚对角线、一块空壳
+    _cell_border(nils.cell(0, 0)._tc.get_or_add_tcPr(), "tcBorders", [
+        ("top", _border_attrs(val="double", sz="6", space="2", color="auto")),
+        ("tl2br", _border_attrs(val="single", sz="8", space="0", color="000000",
+                                themeColor="text1")),
+    ])
+    _cell_border(nils.cell(0, 1)._tc.get_or_add_tcPr(), "tcBorders", [
+        ("left", _border_attrs(val="none", sz="0", space="0", color="auto")),
+    ])
+    _cell_border(nils.cell(1, 1)._tc.get_or_add_tcPr(), "tcBorders", [])
+    doc.save(path)
+
+
+PPT_LINE_NS = ('xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+               'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"')
+
+
+def _ppt_lines(cell, edges: list) -> None:
+    """往一枚 `a:tcPr` 上摆那几枚线（`a:lnL` / `lnR` / `lnT` / `lnB`，可加两枚对角线）
+
+    一枚线是**一串**而不是一枚属性：`@w`（EMU，`0` 是「有这条线但宽度为零」）、`@cap`、`@cmpd`、
+    `@algn`，孩子里 `a:solidFill` 或 `a:noFill`（填法）+ `a:prstDash`（虚线预设）+ `a:round`
+    （接头）+ `a:headEnd` / `a:tailEnd`（端点）。真件普查（104 份 pptx、940 个 slide 部件）：
+    893 枚 `a:tcPr` 每一枚都写满上下左右四条，`@w` 只有 `6350`（3444 次）与 `0`（128 次）两种，
+    `cap` 恒 `flat`、`cmpd` 恒 `sng`、`algn` 恒 `ctr`，孩子一律是
+    solidFill + prstDash + round + headEnd + tailEnd 那一套。
+    """
+    from pptx.oxml import parse_xml
+
+    tc_pr = cell._tc.get_or_add_tcPr()
+    for spec in edges:
+        tc_pr.append(parse_xml(spec))
+
+
+def _line(tag: str, color: str = "000000", width: int = 6350, dash: str = "solid",
+          fill: str = "solidFill") -> str:
+    """一枚线的完整 XML（默认就是真件里那一套：6350 EMU、flat、sng、ctr、solid）"""
+    inner = {
+        "solidFill": '<a:solidFill><a:srgbClr val="%s"/></a:solidFill>' % color,
+        "noFill": "<a:noFill/>",
+    }[fill]
+    return ('<a:%s %s w="%d" cap="flat" cmpd="sng" algn="ctr">%s'
+            '<a:prstDash val="%s"/><a:round/>'
+            '<a:headEnd type="none" w="med" len="med"/>'
+            '<a:tailEnd type="none" w="med" len="med"/></a:%s>') % (
+        tag, PPT_LINE_NS, width, inner, dash, tag)
+
+
+def write_borders_pptx(path: Path) -> None:
+    """两张表：一张把线的四种说法逐格摆开，一张一格都不碰（全走缺省）
+
+    DrawingML 与 OOXML 文本那一族不同：线不是 `a:tcPr` 的属性而是它的**孩子**，
+    所以「没写」在这里有两种 —— 一枚线都没有（这一格没说），与写了但 `@w="0"`
+    （文件明明白白给了一条零宽的线）。`a:noFill` 又是第三种（有这条线但它是空的）。
+    """
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    deck = Presentation()
+    blank = deck.slide_layouts[5]
+    first = deck.slides.add_slide(blank)
+    shape = first.shapes.add_table(2, 2, Inches(0.6), Inches(1.6), Inches(6.0), Inches(1.6))
+    table = shape.table
+    table.cell(0, 0).text = "四条实线"
+    _ppt_lines(table.cell(0, 0), [_line("ln%s" % side) for side in ("L", "R", "T", "B")])
+    table.cell(0, 1).text = "零宽与虚线"
+    _ppt_lines(table.cell(0, 1), [
+        _line("lnL", width=0),
+        _line("lnT", color="FF0000", width=12700, dash="dash"),
+    ])
+    table.cell(1, 0).text = "noFill 与对角线"
+    _ppt_lines(table.cell(1, 0), [
+        _line("lnB", fill="noFill"),
+        _line("lnTlToBr", color="0070C0", width=25400),
+    ])
+    table.cell(1, 1).text = "一枚线都不写"
+    second = deck.slides.add_slide(blank)
+    kept = second.shapes.add_table(1, 2, Inches(0.6), Inches(1.6), Inches(6.0), Inches(0.9))
+    kept.table.cell(0, 0).text = "缺省左"
+    kept.table.cell(0, 1).text = "缺省右"
+    deck.save(path)
+
+
 BULLET_NS = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
 
 
@@ -5171,6 +5318,27 @@ def main() -> int:
     for src_doc, back in (("margins.docx", "margins-lo.docx"), ("margins.pptx", "margins-lo.pptx")):
         convert(exe, OUT / src_doc, src_doc.rsplit(".", 1)[-1], SCRATCH / ("mar-" + back))
         made = SCRATCH / ("mar-" + back) / src_doc
+        if made.exists():
+            shutil.copyfile(made, OUT / back)
+        else:
+            print("⚠️  没拿到 %s" % back)
+
+    # 这一圈有没有线：docx / pptx 各写一份，LibreOffice 各转一份、各重写一份
+    write_borders_docx(OUT / "borders.docx")
+    write_borders_pptx(OUT / "borders.pptx")
+    for src_doc, fmt, out_name in (
+        ("borders.docx", "odt", "borders.odt"),
+        ("borders.pptx", "odp", "borders.odp"),
+    ):
+        convert(exe, OUT / src_doc, fmt, SCRATCH)
+        made = SCRATCH / out_name
+        if made.exists():
+            shutil.copyfile(made, OUT / out_name)
+        else:
+            print("⚠️  没拿到 %s（%s 那一转）" % (out_name, src_doc))
+    for src_doc, back in (("borders.docx", "borders-lo.docx"), ("borders.pptx", "borders-lo.pptx")):
+        convert(exe, OUT / src_doc, src_doc.rsplit(".", 1)[-1], SCRATCH / ("bor-" + back))
+        made = SCRATCH / ("bor-" + back) / src_doc
         if made.exists():
             shutil.copyfile(made, OUT / back)
         else:
