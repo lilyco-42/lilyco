@@ -2423,6 +2423,29 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 
+152. **图的 chartSpace 那一层：图例在不在、空值怎么办、标题删没删，八张图四件对照**
+    （`chart.xlsx` 与 `chart-lo.xlsx`、`deck-chart.pptx` 与 `deck-chart-lo.pptx`；这四个部件是两族共用的
+    同一套 `c:` 词汇，所以两家同一个形状交）
+    - `c:legend` 只在表格那一路在场：两份 xlsx 各两张图都写图例且都写 `c:legendPos val="r"`，
+      而两份 pptx 的四张图**一张都不写**（python-pptx 不写，LibreOffice 的 pptx 导出也不写）。
+      「图例没有」与「这一族不写图例」在账里是同一格 `legend_found=false`，
+      靠它旁边的 `groups[].written` 与系列数才分得开。
+    - LibreOffice 存 xlsx 时多写两枚：`c:overlay val="0"` 与 `c:autoTitleDeleted val="0"`；
+      openpyxl / python-pptx 那一路 `overlay` 不写 —— 于是「图例叠不叠」有 `0` 与「没写」两种形状，
+      而 ECMA 的默认（不叠）是规范的话，不替文件填。
+    - `c:autoTitleDeleted` 是**逐图**的而不是逐件的：LibreOffice 重写的那份 pptx 里，
+      同一页那两张图一张写 `1`、另一张写 `0`（`deck-chart-lo.pptx` 第一页）—— 所以这一格按每张图
+      各交一值，绝不折成「这份稿子删过标题没有」。
+    - `c:dispBlanksAs` 八张全写 `gap`，本库没有一件写 `zero` 或 `span`；交的是文件写的那个词，
+      不换算成「空值当洞/当零/连线」三种说法。
+    - 两枚读错过位置才找到的：`c:varyColors` 坐在**绘制组里**而不是 chartSpace 层（第一版按
+      chartSpace 读，八张全交 null —— 那是读错层交出来的零，已由 `groups[].written` 交过，
+      这一层就干脆不放这一格）；`c:delete` 那四枚在**坐标轴**上，图例里一枚都不写，
+      所以 `legend_delete` 八张全 null 是实测而不是没读。
+    - 本机做不出、因此这一本里根本没有那一格的：`c:multiLvlStrRef` / `c:multiLvlStrCache`
+      （两级类别）。真件普查里它出现在 `ppt/charts/chartN`，而 python-pptx、openpyxl、
+      LibreOffice 三家都不写它 —— 没有可复现生产者就不开那一格，也不拿单级缓存冒充两级。
+
 151. **单元格样式自己那两枚锁定位：三个容器、两种拼法，而「表锁了」与「格式设了锁」是两件事**
     （`cell-locks.xlsx` 手写、`cell-locks-lo.xlsx` 是 LibreOffice 重写同一份；普查 = 43 份自产 .xlsx 的聚合，
     外加真件里已有的 `locked-sheet*.xlsx` 那一对）

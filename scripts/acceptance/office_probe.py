@@ -3106,6 +3106,50 @@ def main() -> int:
               sum(len(value) for value in want.values()))
     hand = lbin("office-sheet", fixture("chart.xlsx"))
     lo = lbin("office-sheet", fixture("chart-lo.xlsx"))
+    FRAME_KEYS = ("legend_found", "legend_pos", "legend_overlay", "legend_delete",
+                  "auto_title_deleted", "disp_blanks_as")
+
+    def frames_of(ledger):
+        """一份包里所有图的 chartSpace 层摊成一列（表与页两种容器都走这一条）"""
+        out = []
+        rows = ledger.get("sheets")
+        if rows is None:
+            rows = ledger.get("slides")
+        for one in rows or []:
+            for chart in one.get("chart_list") or []:
+                if not chart.get("present"):
+                    continue
+                had = chart["frame"]
+                out.append([chart["part"].rsplit("/", 1)[-1][: -len(".xml")],
+                            [had[key] for key in FRAME_KEYS]])
+        return out
+
+    sheet_frames = [frames_of(hand), frames_of(lo),
+                    frames_of(lbin("office-slide", fixture("deck-chart.pptx"))),
+                    frames_of(lbin("office-slide", fixture("deck-chart-lo.pptx")))]
+    check("chartSpace 那一层四件对照：两份 xlsx 都写图例（`r`）而不写 `delete`，LibreOffice 那一份多写一枚 "
+          "`overlay=\"0\"` 与 `autoTitleDeleted=\"0\"`；两份 pptx 里**图例整个不见**（导出时丢了），"
+          "而 LibreOffice 那份 pptx 同一页的两张图 `autoTitleDeleted` 一张 `1` 一张 `0` —— 同一次重写里逐图不同，"
+          "所以这一格不能按「这份稿子删过标题没有」折成一个布尔",
+          sheet_frames,
+          [[["chart1", [True, "r", None, None, None, "gap"]],
+            ["chart2", [True, "r", None, None, None, "gap"]]],
+           [["chart1", [True, "r", "0", None, "0", "gap"]],
+            ["chart2", [True, "r", "0", None, "0", "gap"]]],
+           [["chart1", [False, None, None, None, "0", "gap"]],
+            ["chart2", [False, None, None, None, "0", "gap"]]],
+           [["chart1", [False, None, None, None, "1", "gap"]],
+            ["chart2", [False, None, None, None, "0", "gap"]]]],
+    )
+    check("图例那一格四件里两份写两份不写：写图例的只有 xlsx 那两家（各 2 张），"
+          "pptx 那两家四张全不写；`dispBlanksAs` 八张全写 `gap`（本库没有一件写 zero 或 span）",
+          [[sum(1 for row in ones for one in row if one[1][0]),
+            sum(1 for row in ones for one in row if one[1][2] is not None),
+            sum(1 for row in ones for one in row if one[1][4] is not None),
+            sorted({one[1][5] for row in ones for one in row})]
+           for ones in ([sheet_frames[0], sheet_frames[1]], [sheet_frames[2], sheet_frames[3]])],
+          [[4, 2, 2, ["gap"]], [0, 0, 4, ["gap"]]],
+    )
     SER0 = "sheets[0].chart_list[0].groups[0].series_list[0]"
     check(
         "两张图挂在同一张表上，另一张表 0 张",

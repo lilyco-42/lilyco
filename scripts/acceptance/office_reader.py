@@ -9500,6 +9500,37 @@ def chart_ref(node) -> dict:
     }
 
 
+def chart_frame(chart) -> dict:
+    """图自己说的那几句 chartSpace 层的话：图例在不在、放哪、叠不叠、删没删，空值怎么办，标题删没删
+
+    一律「元素在不在」与「它写的值」分开交：`c:legend` 整个不见（python-pptx 与 openpyxl 写的两份）
+    与 `c:legend` 在而 `c:legendPos` 不写是两件事，谁都没写时交 null 而不是替文件挑一个默认值 ——
+    ECMA 的默认（图例不叠、空值当洞）是规范的话，不是这份件的话。
+    """
+    kids = list(chart)
+
+    def first_of(nodes, want):
+        for one in nodes:
+            if xml_local(one.tag) == want:
+                return one
+        return None
+
+    legend = first_of(kids, "legend")
+    inside = list(legend) if legend is not None else []
+
+    def val(node) -> object:
+        return None if node is None else node.get("val")
+
+    return {
+        "legend_found": legend is not None,
+        "legend_pos": val(first_of(inside, "legendPos")),
+        "legend_overlay": val(first_of(inside, "overlay")),
+        "legend_delete": val(first_of(inside, "delete")),
+        "auto_title_deleted": val(first_of(kids, "autoTitleDeleted")),
+        "disp_blanks_as": val(first_of(kids, "dispBlanksAs")),
+    }
+
+
 def chart_one(root, part: str) -> dict:
     """一张图：类型那一组、标题的两种写法、每条系列，以及有没有缓存过数值"""
     charts = [t for t in root.iter() if xml_local(t.tag) == "chart"]
@@ -9548,7 +9579,8 @@ def chart_one(root, part: str) -> dict:
             "series": len(series),
             "series_list": series,
         })
-    return {"part": part, "present": True, "title": title, "cached": cached, "groups": groups}
+    return {"part": part, "present": True, "title": title, "cached": cached, "groups": groups,
+            "frame": chart_frame(chart)}
 
 
 def xlsx_charts(parts: dict) -> dict:
