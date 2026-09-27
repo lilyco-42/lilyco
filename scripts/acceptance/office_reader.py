@@ -5712,6 +5712,150 @@ def sdt_row(one, name: str, index: int, depth: int) -> dict:
     return row
 
 
+def ascii_int(text):
+    """整串都是 ASCII 数字才算一个数：空串、带别的字符（含全角数字）都算「写了但没说数」"""
+    if not text:
+        return None
+    return int(text) if all(one in "0123456789" for one in text) else None
+
+
+def docx_outline_levels(path: Path, limit: int = 400) -> dict:
+    """这一段是第几级：级别可能写在三处，而三处可以互相不一致
+
+    真件普查（本机 33 份 docx/docm）里 Word 把号写成 `w:pStyle/@w:val="3"` 这种**数字 id**，
+    而 "heading 3" 在样式表的 `w:name` 上 —— 现成的 `headings` 那一本只拿 id 比前缀，
+    701 段里有级的只认到 290。这里把三处都摊开：段自己的 `w:outlineLvl`、样式名里的数字、
+    样式自己的 `w:outlineLvl`，谁在场都照原样交，`level` 才按一条写死的优先序算
+    （段 > 样式名 > 样式自己的 `outlineLvl`），不一致的那几段由 `conflict` 说。
+    `w:outlineLvl w:val="9"` 在 ECMA 里是「正文」而不是第 10 级，所以那一格交 null 而
+    `level_from` 写着「9 是正文」—— 这是本仓唯一一处**不照着数加一**的地方，故意的。
+    """
+    with zipfile.ZipFile(path) as box:
+        names = sorted(one.filename for one in box.infolist()
+                       if one.filename.startswith("word/") and one.filename.endswith(".xml")
+                       and not one.filename.endswith(".rels"))
+        docs = []
+        table = {}
+        for name in names:
+            root = _mar_root(box.read(name))
+            if root is None:
+                continue
+            if name == "word/styles.xml":
+                for st in root:
+                    if xml_local(st.tag) != "style":
+                        continue
+                    own = None
+                    own_present = False
+                    nm = None
+                    for kid in st:
+                        tag = xml_local(kid.tag)
+                        if tag == "name":
+                            nm = sdt_attrs(kid).get("val")
+                        if tag == "pPr":
+                            for sub in kid:
+                                if xml_local(sub.tag) == "outlineLvl":
+                                    own_present = True
+                                    own = sdt_attrs(sub).get("val")
+                    style_id = sdt_attrs(st).get("styleId")
+                    if style_id is not None:
+                        table[style_id] = (nm, own, own_present)
+            if any(xml_local(one.tag) == "p" for one in root.iter()):
+                docs.append((name, root))
+    rows = []
+    total = {"paragraphs": 0, "with_style": 0, "style_missing": 0, "name_matched": 0,
+             "own_written": 0, "own_no_val": 0, "style_written": 0, "style_no_val": 0,
+             "conflicts": 0, "body_written": 0, "resolved": 0, "levels": {}, "froms": {}}
+    for name, root in docs:
+        for one in root.iter():
+            if xml_local(one.tag) != "p":
+                continue
+            pr = None
+            for kid in one:
+                if xml_local(kid.tag) == "pPr":
+                    pr = kid
+                    break
+            sid = None
+            own = None
+            own_present = False
+            for kid in (pr if pr is not None else []):
+                tag = xml_local(kid.tag)
+                if tag == "pStyle":
+                    sid = sdt_attrs(kid).get("val")
+                if tag == "outlineLvl":
+                    own_present = True
+                    own = sdt_attrs(kid).get("val")
+            if sid is None and not own_present:
+                continue
+            nm, style_own, style_present = table.get(sid, (None, None, False))
+            name_level = None
+            if nm and (nm.lower().startswith("heading") or nm.startswith("标题")):
+                digits = "".join(c for c in nm if c in "0123456789")
+                name_level = max(int(digits), 1) if digits else 1
+            own_num = ascii_int(own)
+            style_num = ascii_int(style_own)
+            level = None
+            if own_present:
+                total["own_written"] += 1
+            if own_present and own is None:
+                total["own_no_val"] += 1
+            if style_present:
+                total["style_written"] += 1
+            if style_present and style_own is None:
+                total["style_no_val"] += 1
+            total["name_matched"] += name_level is not None
+            froms = None
+            if own_num is not None and own_num < 9:
+                level = own_num + 1
+                froms = "段上"
+            elif own_num == 9:
+                froms = "段上写 9（那是正文）"
+            elif name_level is not None:
+                level = name_level
+                froms = "样式名"
+            elif style_num is not None and style_num < 9:
+                level = style_num + 1
+                froms = "样式自己的 outlineLvl"
+            elif style_num == 9:
+                froms = "样式写 9（那是正文）"
+            elif own_present:
+                # 写了这枚元素却没写出一个数：它不给级，但也不是「没写」，所以留一句
+                froms = "段上写了但没值"
+            elif style_present:
+                froms = "样式写了但没值"
+            else:
+                froms = "(没说)"
+            conflict = bool(name_level is not None and own_num is not None and own_num < 9
+                            and own_num + 1 != name_level)
+            conflict = conflict or bool(name_level is not None and style_num is not None
+                                        and style_num < 9 and style_num + 1 != name_level)
+            total["paragraphs"] += 1
+            total["with_style"] += sid is not None
+            total["style_missing"] += sid is not None and sid not in table
+            total["conflicts"] += conflict
+            total["body_written"] += own_num == 9 or style_num == 9
+            total["resolved"] += level is not None
+            if level is not None:
+                total["levels"][str(level)] = total["levels"].get(str(level), 0) + 1
+            total["froms"][froms] = total["froms"].get(froms, 0) + 1
+            text = "".join(x.text or "" for x in one.iter() if xml_local(x.tag) == "t")
+            rows.append({"part": name, "index": total["paragraphs"] - 1, "style_id": sid,
+                         "style_found": sid in table, "style_name": nm,
+                         "name_level": name_level, "own_written": own,
+                         "own_present": own_present, "style_written": style_own,
+                         "style_present": style_present,
+                         "level": level, "level_from": froms, "conflict": conflict,
+                         "text": text})
+    out = {"family": "ooxml", "available": True}
+    out.update({key: value for key, value in total.items() if key != "levels" and key != "froms"})
+    out["levels"] = total["levels"]
+    out["froms"] = total["froms"]
+    out["styles_seen"] = len(table)
+    out["rows"] = rows[:limit]
+    out["listed"] = min(len(rows), limit)
+    out["cut"] = len(rows) > limit
+    return out
+
+
 def docx_content_controls(path: Path, limit: int = 400) -> dict:
     """Word 的内容控件账：`sdtPr` 那几样、是哪一种、正文那一层有几段几张表"""
     with zipfile.ZipFile(path) as box:
@@ -13789,6 +13933,7 @@ def facts(path: Path) -> dict:
             out["ooxml"]["table_borders"] = docx_table_borders(path)
             out["ooxml"]["vertical_align"] = docx_vertical_align(path)
             out["ooxml"]["content_controls"] = docx_content_controls(path)
+            out["ooxml"]["outline_levels"] = docx_outline_levels(path)
             # 表头重复那份账（行上的一个无值元素）
             out["ooxml"]["table_headers"] = docx_repeat_headers(path)
             # 制表位：定义在段上，而段里的制表字符是另一本账

@@ -2750,6 +2750,78 @@ def write_sdt_docx(path: Path) -> None:
         sect.addprevious(parse_xml(one))
     doc.save(path)
 
+
+def _lvl_style(style_id: str, name: str, outline=None) -> str:
+    """按真件那一种写法手写一枚段落样式：`w:styleId` 是**号**，级别的名字在 `w:name` 上
+
+    真件普查（本机 33 份 docx/docm）里 Word 就是这么写的：`<w:pStyle w:val="3"/>`，
+    而 "heading 3" 在样式表里（701 段有级别的里 411 段的 id 是号，不是可认的名字）。
+    `outline` 给 None 就不写 `w:outlineLvl`；给字符串（含空串）就照写，用来测「写了但没值」。
+    """
+    from docx.oxml import parse_xml
+
+    props = "" if outline is None else '<w:pPr><w:outlineLvl w:val="%s"/></w:pPr>' % outline
+    one = parse_xml('<w:style xmlns:w="%s" w:type="paragraph" w:styleId="%s">'
+                    '<w:name w:val="%s"/>%s</w:style>' % (W_NS, style_id, name, props))
+    return one
+
+
+def write_levels_docx(path: Path) -> None:
+    """这一段是第几级：级别可能写在三处，而三处可以互相不一致
+
+    python-docx 只会按模板点名（`Heading1` 这种可读 id），所以十一种形状全部按 ECMA 手写：
+    样式名给级（`heading 1`、`heading 2`、本地化的 `标题 #1`）、样式自己的 `w:outlineLvl` 给级、
+    两处都给且**给得不一样**、两处都给且一样、只有样式给、名字不像标题而样式给、
+    `w:outlineLvl w:val="9"`（那是「正文」，不是第 10 级 —— 段上与样式上各测一枚）、
+    段自己写级而没点样式、点了样式表里根本没有的那个号、样式写了 `outlineLvl` 但 `@w:val` 是空串。
+    """
+    from docx import Document
+
+    doc = Document()
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import qn
+
+    styles = doc.styles.element
+    for one in ((_lvl_style("1", "heading 1")),
+                (_lvl_style("2", "heading 2", outline="1")),
+                (_lvl_style("15", "标题 #1", outline="3")),
+                (_lvl_style("21", "Custom Text", outline="0")),
+                (_lvl_style("31", "TOC Heading", outline="9")),
+                (_lvl_style("5", "heading 5", outline="4")),
+                (_lvl_style("7", "empty outline", outline=""))):
+        styles.append(one)
+    body = doc.element.body
+    tail = body.find(qn("w:sectPr"))
+    rows = [
+        (None, None, "这一份是级别样板（没有样式也没有级）"),
+        ("1", None, "样式名给的第一级"),
+        ("2", None, "名字与样式都给、而且给得一样的第二级"),
+        ("15", None, "本地化样式名给 1、样式自己的 outlineLvl 给 4"),
+        ("21", None, "名字不像标题，级只在样式上"),
+        ("31", None, "outlineLvl=9：那是正文，不是第 10 级"),
+        ("5", None, "名给 5、样式给 5（一样的两处）"),
+        (None, "2", "段自己写第 3 级而没点样式"),
+        (None, "9", "段自己写 outlineLvl=9（正文）"),
+        ("1", "4", "样式名给 1 而段自己给 5：两处不一致"),
+        ("999", None, "点了一个样式表里没有的号"),
+        ("7", None, "样式写了 outlineLvl 而 @w:val 是空串"),
+    ]
+    for style_id, own, text in rows:
+        head = ""
+        if style_id:
+            head += '<w:pStyle w:val="%s"/>' % style_id
+        if own is not None:
+            head += '<w:outlineLvl w:val="%s"/>' % own
+        para = ('<w:p xmlns:w="%s">%s<w:r><w:t>%s</w:t></w:r></w:p>'
+                % (W_NS, ("<w:pPr>%s</w:pPr>" % head) if head else "", text))
+        one = parse_xml(para)
+        if tail is not None:
+            tail.addprevious(one)
+        else:
+            body.append(one)
+    doc.save(path)
+
+
 def _cell_mar(holder, element: str, dirs: list) -> None:
     """往 `w:tblPr` 或 `w:tcPr` 上挂一枚 `w:tblCellMar` / `w:tcMar`（方向按给的序写）
 

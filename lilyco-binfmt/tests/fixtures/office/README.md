@@ -245,6 +245,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `sdt.docx` | python-docx 打底 + 按 ECMA **手写**十一枚 `w:sdt`（`write_sdt_docx`） | 内容控件那一层的形状：11 枚住 1 个部件、类型元素五样各写各的（`text` 2、`richText` 3、`date` 1、`dropDownList` 1、`docPartObj` 1，另 3 枚**没写类型元素**）、`w:sdtPr` 的孩子序就是文件自己写的序（`alias`/`tag`/`id`/`text`/`placeholder`）、一枚套娃（外层 `depth` 0、里层 1）、两枚带 `w:sdtEndPr`、一枚带 `w:dataBinding`（四个属性齐，`storeSchemaID` 是第四个）、下拉那枚两个候选按文件自己写的序、正文那一层的两个口径 11 对 14 而住在表格格子里的那两格也算 |
 | `sdt-lo.docx` | LibreOffice（`sdt.docx` → .docx 同格式重写） | 重写动了七处，每一处都是「说了别的话」：11→10（正文空着的那枚**整枚不见**）、`w:sdtEndPr` 那两枚全丢、`richText` 降级成 `text`、`w:alias` 被改写成**空串**（不是没写）而同名的 `w:id` 于是没了、日期那枚把文件写的 `dateFormat`/`calendarType` 两格换成它自己算的 `fullDate` 一格、绑定那枚的孩子**换了序**（`dataBinding` 挪到最后）而它自己的四格属性只剩三格（`storeSchemaID` 被丢掉）、套娃外层失去类型元素；段被摊平成 `w:r`：两个口径都变 3 而 runs 23 |
 | `sdt.odt` | LibreOffice（`sdt.docx` → .odt 那一转） | ODF 标准里没有这一层（`<form:` 零枚），而 LibreOffice 把那 10 枚中的 6 枚写进自家扩展命名空间 `loext:content-control`（五个名 `loext:alias` / `id` / `tag` / `lock="sdtContentLocked"` / `plain-text`，**没有类型**），控件里的字与段落都还在（`text:p` 14）—— odt 读者不读 `loext:`，所以这一族对 ODF 交的是「没有这一格」而不是「这一层不存在」 |
+| `levels.docx` | python-docx 打底 + 按 ECMA **手写**七枚样式与十二段（`write_levels_docx`） | 那一段是第几级的十一种形状：号写成**数字**（`1`/`2`/`15`/`21`/`31`/`5`/`7`）而 "heading 1"、「标题 #1」写在样式的 `w:name` 上、样式自己也带一枚 `w:pPr/w:outlineLvl`、两处都给且**给得不一样**（名字 1 对样式 3）、名字不像标题而级只在样式上、段自己写 `w:outlineLvl`（一枚 2、一枚 **9**）、点了样式表里根本没有的号 `999`、样式写了 `outlineLvl` 而 `@w:val` 是**空串** |
+| `levels-lo.docx` | LibreOffice（`levels.docx` → .docx 同格式重写） | 重写动了六处：号被换成可读 id（`Heading1`/`CustomText`/`emptyoutline`/`TOCHeading`）、每一段都被点上样式（`with_style` 9 → 12）、断链 `999` 被**修成** `Normal`（`style_missing` 1 → 0）、写着 9 的那两枚 `outlineLvl` 被**整个丢掉**（`body_written` 2 → 0）、空串那枚被**补成 `0`**（那一段于是从「写了但没值」变成第 1 级）、而 `TOC Heading` 的级也没了 |
+| `levels.odt` | LibreOffice（`levels.docx` → .odt 那一转） | ODF 换一种说法：那 7 段有级的成了 `<text:h text:outline-level="N">`（1 两枚、2/3/4/5 各…），**「是标题」写在元素名上而不是任何属性上**，级才在 `@text:outline-level`；其余 5 段是 `text:p`。这一族的 `outline_levels` 只住 OOXML，odt 那一支不交这一格（级由 `headings` 那一本答） |
 | `margins.odp` | LibreOffice（`margins.pptx` → .odp 那一转） | 那一族的格是图形对象：四枚 padding 住在 `style:graphic-properties` 上而不是 `table-cell-properties`，六格里两格**连样式名都不点** —— 那一格只交「这一格没说」 |
 | `wrap.docx` | python-docx 打底 + 按 ECMA **合成**两枚 `wp:anchor`（`write_wrap_docx`） | 图是怎么摆的三种形状一份里摆开：`wp:inline`（随字走，结构上**没有**环绕那一支）+ `wp:anchor` 两枚各写一种环绕（`wrapSquare` / `wrapTopAndBottom`）；浮着才写的那几格也在（`@behindDoc` `@locked` `@allowOverlap` `@relativeHeight` 与四格 `@dist*` EMU），位置分横竖两条（`positionH/@relativeFrom="margin"` 加 `wp:align`，另一枚写 `wp:positionOffset` 那个数）—— 真件稀缺：本机 33 份 docx 的正文 161 枚 `w:drawing` 里只有 1 枚是 anchor |
 | `wrap.odt` | LibreOffice 版式的 ODF（`write_wrap_odt`，三种锚各一枚） | 换一家：框自己只写 `text:anchor-type`（`as-char` / `paragraph` / `page`），环绕、穿透、四个边距全在它点名的那份 `style:family="graphic"` 样式里（`style:wrap="parallel"` / `"through"`、`style:run-through="front"`、`fo:margin-left="0.21cm"`）；「随字」那一枚的样式里**没有** `style:wrap` 这一格 —— 「文件没说」与「说了不环绕」是两句话 |
@@ -2410,7 +2413,47 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 
-147. **这一层可以填：一枚 `w:sdt` 说自己是什么，而「是什么」写在它 `w:sdtPr` 的孩子里，不在它自己身上**（三份 `sdt*` + 本机 162 份真件 docx/docm，真件只量数、不入库）
+148. **这一段是第几级：级可能写在三处，而真件最常写的那一处是样式的名字，不是段上那串号**。
+    Word 不说「这是标题」，它给段点一个样式号（`w:pStyle/@w:val`），而「第几级」有三个住处：
+    段自己的 `w:pPr/w:outlineLvl`、被点名的那份样式的 `w:name`（`heading 3` / 「标题 #1」）、
+    那份样式自己的 `w:pPr/w:outlineLvl`。`outline_levels` 把三处都交，`level` 只按一条写死的优先序
+    取一个（**段 > 样式名 > 样式自己的那个数**），两处打架的那些段由 `conflict` 说。
+    - **这一本存在的理由是现成那一本的漏**：`headings` 只拿段上那串**号**比 `heading`/`标题` 前缀，
+      而真件把号写成 `1`/`2`/`3`/`21`/`31`/`15` 这样的数字，级在样式名上 —— 本机 33 份真件
+      （排掉仓库自产件）12525 段里 **701 段有级**，旧那一本只认到 **290，漏 411 段（59%）**；
+      701 段的级**全部**来自样式名，真件里**没有一段**自己写 `w:outlineLvl`。
+      同一份 `levels.docx` 上两本账各说一个数：`headings` 0 条，而这一本 `resolved` 7 ——
+      旧那一本不是「这份没有标题」，是「这一处它没去看」。
+    - **`w:outlineLvl w:val="9"` 不是第 10 级**：ECMA 那一格 0..8 才是九级大纲，9 是「正文本身」。
+      所以写着 9 的那一行交 `level: null` 而 `level_from` 写「那是正文」—— 本仓唯一一处**不照着数加一**
+      的地方；自产件两份各测一枚（段上一枚、样式上一枚，`body_written` 2）。真件那一趟只量到「级从样式名来」
+      这一种来源（701 段全是），段自己写与样式自己写 `outlineLvl` 这两形本机真件**一段都没有** ——
+      那两形的凭据是自产件，别把它说成真件分布；
+    - **断链就在自产件里**：普通件 `notes.docx` 的 3 段里有 1 段点着样式表根本没有的号（整库摊开那份账：
+      92 份自产件里 `style_missing` 合计 10）。所以 `style_found` 与 `style_missing` 各交一笔，
+      那一行的 `level_from` 是 `"(没说)"`，而不是把它默认成「普通段」——LibreOffice 重写时会替它补一个
+      `Normal`（`style_missing` 1 → 0），那是**生产者替文件做主**，不是文件自己写的。
+    - LibreOffice 重写那一份动六处：号换成可读 id（`Heading1`/`CustomText`/`emptyoutline`/`TOCHeading`）、
+      每段都点上样式（`with_style` 9 → 12）、断链修成 `Normal`、写着 9 的那两枚 `outlineLvl` **整个丢掉**
+      （`body_written` 2 → 0 —— 它认为正文就是不写）、样式里 `@w:val=""` 那枚**替文件补成 `0`**
+      （那一段于是从「写了但没值」变成第 1 级）、而 `TOC Heading` 那份样式的级也没了（两处都不说）。
+      号换成可读 id 之后，旧那一本反倒认到 4 条 —— 同一份文档，认得多少取决于生产者怎么写号。
+    - 转成 .odt 换一种说法：那 7 段有级的成了 `<text:h text:outline-level="N">`（1 两枚、2/3/4/5 各一枚），
+      **「是标题」写在元素名上而不是任何属性上**，级才在 `@text:outline-level`；其余 5 段是 `text:p`。
+      这一族的 `outline_levels` 只住 OOXML：odt / rtf / 遗留 .doc 不交这一格，级由 `headings` 那一本答。
+    - 空串与「没写」是两句话：`@w:val=""` 在场而不算数，那一行交 `style_written: ""` +
+      `level_from`「样式写了但没值」；整枚元素不在场才是 `null` +「(没说)」。数字也只认 **ASCII** 的，
+      全角数字与混着别的字符都算「写了但没说数」（两份读者同一口径）。
+    - 截行不截账：`--limit` 只砍 `rows`（`listed`/`cut` 说这一格），十一本合计与那两张分布表
+      （`levels`/`froms`）恒按全部段数算。整库摊开（自产 92 份 docx/docm）：段数之和 527、
+      算得出级的 75、名字像标题的 70、段自己写级的 5、两处不一致的 4、写着 9 的 4、断链的 10。
+    - 第二读者是 `office_reader.py` 的 `docx_outline_levels` / `ascii_int`（92 份 docx/docm 逐份影子跑过，
+      与 33 份真件的普查各自独立）；probe 的 **3db** 段逐件对整本账，再钉 `levels.docx` 的十一种形状、
+      LibreOffice 那六处、`--limit 3` 那一格、两本账在同一份件上的 0 与 7、整库摊开那十本与反面凭据那 8 格；
+      Rust 那侧是 `office_doc.rs` 的 `the_level_of_a_paragraph_can_come_from_three_places`，
+      模块是 `lilyco-binfmt/src/outline_levels.rs`。
+
+147. **这一层可以填：一枚 `w:sdt` 说自己是什么，而「是什么」写在它 `w:sdtPr` 的孩子里，不在它自己身上**（三份 `sdt*` + 本机 33 份真件 docx/docm 与自产 90 份各算一本，真件只量数、不入库）
     - 形状：每枚一行 35 格 `{part, index, depth, pr_present, pr_children, type_seen, type_count, alias,
       alias_present, tag, tag_present, id, id_present, lock, lock_present, placeholder, placeholder_present,
       showing_plc_hdr, data_binding, date, list_kind, list_items, list_values, doc_part_obj, gallery,

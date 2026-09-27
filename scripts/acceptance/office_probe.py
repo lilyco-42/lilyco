@@ -11754,7 +11754,7 @@ def main() -> int:
     ctl = dict((one, had) for one, _raw in files.items() if one.endswith((".docx", ".docm"))
                for had in [_ctl(one)] if had)
     check(
-        "整库摊开（自产件）：份 docx/docm 90、带控件的份数 6、控件枚数之和 25、部件数之和 6、套娃枚数 2、没写 sdtPr 的枚数 1、没有类型元素的枚数 5、带 sdtEndPr 的枚数 2、带 dataBinding 的枚数 4、正文两个口径 20 对 23、字数之和 180",
+        "整库摊开（自产件）：份 docx/docm 92、带控件的份数 6、控件枚数之和 25、部件数之和 6、套娃枚数 2、没写 sdtPr 的枚数 1、没有类型元素的枚数 5、带 sdtEndPr 的枚数 2、带 dataBinding 的枚数 4、正文两个口径 20 对 23、字数之和 180",
         [len(ctl),
          sum(1 for one in ctl.values() if one["controls"] > 0),
          sum(one["controls"] for one in ctl.values()),
@@ -11806,6 +11806,198 @@ def main() -> int:
          6,
          1,
          True],
+    )
+
+    # ── 3db) 这一段是第几级：级别可能写在段上、样式名里、样式自己的 outlineLvl 上，而 9 是正文 ──
+    print("=== 3db) outline_levels：三处都交、level 按一条优先序算、9 不加一 ===")
+    for name in sorted(one.name for one in list(FIXTURES.glob("*.docx")) + list(FIXTURES.glob("*.docm"))):
+        check("%s 的级别账与读者一致（逐段一行，序按文档序）" % name,
+              dig(lbin("office-doc", fixture(name), "--limit", "400"),
+                  "structure.outline_levels"),
+              files[name]["ooxml"]["outline_levels"])
+    check(
+        "`levels.docx` 十一种形状（号写成数字、级在名字上、两处不一致、9 是正文、断链、空串）——"
+        "共 11 段、点了样式的 9 段、名字像标题的 5 段、段自己写级的 3 段、样式自己写的 6 段、"
+        "两处不一致的 2 段、写着 9 的 2 段、算得出级的 7 段、样式表里 171 枚样式、"
+        "第一行那一枚号是 '1' 而名字是 'heading 1' 所以 level 1 来自 '样式名'、"
+        "本地化那一枚名字 '标题 #1' 给 1 而样式给 '3' 所以 level 1 且 conflict true、"
+        "名字不像标题那一枚 level 1 来自 '样式自己的 outlineLvl'、"
+        "写着 9 的那两行 level 都是 None 而 level_from 一句是 '样式写 9（那是正文）' 一句是 '段上写 9（那是正文）'、"
+        "断链那一行 style_found false 而 level_from '(没说)'、空串那一行 style_written 是 '' 而 "
+        "level_from '样式写了但没值'",
+        [dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.paragraphs"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.with_style"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.name_matched"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.own_written"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.style_written"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.conflicts"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.body_written"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.resolved"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.style_missing"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.styles_seen"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.levels"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[0].style_id"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[0].style_name"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[0].level"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[0].level_from"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[2].style_name"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[2].style_written"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[2].level"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[2].conflict"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[3].level_from"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[4].level"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[4].level_from"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[7].level_from"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[9].style_found"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[9].level_from"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[10].style_written"),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.rows[10].level_from")],
+        [11,
+         9,
+         5,
+         3,
+         6,
+         2,
+         2,
+         7,
+         1,
+         171,
+         {"1": 3, "2": 1, "5": 2, "3": 1},
+         "1",
+         "heading 1",
+         1,
+         "样式名",
+         "标题 #1",
+         "3",
+         1,
+         True,
+         "样式自己的 outlineLvl",
+         None,
+         "样式写 9（那是正文）",
+         "段上写 9（那是正文）",
+         False,
+         "(没说)",
+         "",
+         "样式写了但没值"],
+    )
+    check(
+        "LibreOffice 重写同一份动了六处：把号 `1`/`21`/`7`/`31` 换成可读的 id、给每一段都点上样式"
+        "（于是 `with_style` 9 → 12）、把断链 `999` 修成 `Normal`（`style_missing` 1 → 0）、"
+        "把写着 9 的那两枚 `outlineLvl` 整个丢掉（`body_written` 2 → 0）、把样式里 `@w:val=""` 那枚"
+        "补成 `0`（那一段于是从「写了但没值」变成第 1 级）、而 `TOC Heading` 那份样式的级也没了——"
+        "共 12 段、算得出级的 8 段、两处不一致仍 2 段、第一行点的是 'Normal' 而 level_from '(没说)'、"
+        "第三行那个号被换成 '1' 而名字还是 '标题 #1'、第五行 'TOCHeading' 的 style_written 没了、"
+        "第八行段自己写的那枚 9 不见了、第十二行 'emptyoutline' 的 style_written 是 '0' 而 level 1",
+        [dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.paragraphs"),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.with_style"),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.style_missing"),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.body_written"),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.resolved"),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.conflicts"),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.levels"),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.rows[0].style_id"),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.rows[0].level_from"),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.rows[3].style_id"),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.rows[3].style_name"),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.rows[5].style_id"),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.rows[5].style_written"),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.rows[8].own_written"),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.rows[11].style_written"),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.rows[11].level")],
+        [12,
+         12,
+         0,
+         0,
+         8,
+         2,
+         {"1": 4, "2": 1, "5": 2, "3": 1},
+         "Normal",
+         "(没说)",
+         "1",
+         "标题 #1",
+         "TOCHeading",
+         None,
+         None,
+         "0",
+         1],
+    )
+    check(
+        "同一份件、两本账各说一个数：现成的 `headings` 那一本只拿段上那串**号**比 `heading`/`标题` 前缀，"
+        "所以这份号写成数字的件它交 0 条，而这一本从样式名那一站把 7 段的级都取回来 —— "
+        "LibreOffice 把号换成可读的 id 之后旧那一本突然认到 4 条，两本都不等于「这份没有标题」"
+        "（真件 33 份 12525 段里 701 段有级，旧那一本只认到 290）",
+        [len(dig(lbin("office-doc", fixture("levels.docx")), "headings") or []),
+         dig(lbin("office-doc", fixture("levels.docx")), "structure.outline_levels.resolved"),
+         len(dig(lbin("office-doc", fixture("levels-lo.docx")), "headings") or []),
+         dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.resolved"),
+         len(dig(lbin("office-doc", fixture("notes.docx")), "headings") or []),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.outline_levels.resolved")],
+        [0,
+         7,
+         4,
+         8,
+         2,
+         2],
+    )
+    check(
+        "截行不截账：`--limit 3` 只砍 `rows`（`listed` 3、`cut` true），那十一本合计一个都不动——"
+        "列了几段 3、砍没砍 True、段数仍按全部 11、算得出级的仍是 7、交出来的第三行的名字是 '标题 #1'",
+        [dig(lbin("office-doc", fixture("levels.docx"), "--limit", "3"), "structure.outline_levels.listed"),
+         dig(lbin("office-doc", fixture("levels.docx"), "--limit", "3"), "structure.outline_levels.cut"),
+         dig(lbin("office-doc", fixture("levels.docx"), "--limit", "3"), "structure.outline_levels.paragraphs"),
+         dig(lbin("office-doc", fixture("levels.docx"), "--limit", "3"), "structure.outline_levels.resolved"),
+         dig(lbin("office-doc", fixture("levels.docx"), "--limit", "3"), "structure.outline_levels.rows[2].style_name")],
+        [3,
+         True,
+         11,
+         7,
+         "标题 #1"],
+    )
+    def _lv(name):
+        had = files.get(name) or {}
+        one = had.get("ooxml")
+        return one["outline_levels"] if isinstance(one, dict) and "outline_levels" in one else None
+
+    lv = dict((one, had) for one, _raw in files.items() if one.endswith((".docx", ".docm"))
+              for had in [_lv(one)] if had)
+    check(
+        "整库摊开（自产件）：份 docx/docm 92、每一份都交这一格 92、段数之和 527、算得出级的 75、"
+        "名字像标题的 70、段自己写级的 5、两处不一致的 4、写着 9 的 4、断链的 10、"
+        "级从样式名来的份数 33",
+        [len(lv),
+         sum(1 for one in lv.values() if one["available"]),
+         sum(one["paragraphs"] for one in lv.values()),
+         sum(one["resolved"] for one in lv.values()),
+         sum(one["name_matched"] for one in lv.values()),
+         sum(one["own_written"] for one in lv.values()),
+         sum(one["conflicts"] for one in lv.values()),
+         sum(one["body_written"] for one in lv.values()),
+         sum(one["style_missing"] for one in lv.values()),
+         sum(1 for one in lv.values() if one["froms"].get("样式名"))],
+        [92,
+         92,
+         527,
+         75,
+         70,
+         5,
+         4,
+         4,
+         10,
+         33],
+    )
+    check(
+        "反面凭据：这一格只住 OOXML 的文字那一族。ODF 把级写在**段落样式**的 "
+        "`style:paragraph-properties/@fo:font-weight` 之外另有 `text:outline-level` 一条路，"
+        "而 RTF 写在样式名 `\\sN` 指向的那条 `\\toc N` 上，遗留 .doc 与表与放映那几个出口更没有这一问",
+        [no_theme_key("office-doc", "notes.odt", "outline_levels"),
+         no_theme_key("office-doc", "notes.rtf", "outline_levels"),
+         no_theme_key("office-doc", "notes.doc", "outline_levels"),
+         no_theme_key("office-sheet", "book.xlsx", "outline_levels"),
+         no_theme_key("office-slide", "deck.pptx", "outline_levels"),
+         no_theme_key("office-doc", "levels.docx", "outline_levels"),
+         no_theme_key("office-doc", "levels.odt", "outline_levels"),
+         no_theme_key("office-doc", "levels-lo.docx", "outline_levels")],
+        [False, False, False, False, False, True, False, True],
     )
 
     failed = [one for one in RESULTS if not one[1]]

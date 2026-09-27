@@ -70,6 +70,7 @@ mod office_sheet;
 mod office_slide;
 mod office_text;
 mod opack;
+mod outline_levels;
 mod page_background;
 mod page_numbering;
 mod paper;
