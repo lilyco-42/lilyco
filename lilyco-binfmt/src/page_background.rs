@@ -457,7 +457,7 @@ fn odf_inherited(bytes: &[u8], page: &Node) -> Value {
     };
     let mine = match odp_drawing_style(bytes, style) {
         Some(one) => one,
-        None => return odf_inherited_row(json!(master), named),
+        None => return odf_inherited_row(json!(master), json!(named)),
     };
     json!({
         "master": master,
