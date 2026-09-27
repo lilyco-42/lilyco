@@ -82,10 +82,8 @@ type Entry = (Option<String>, Option<String>, bool);
 
 fn style_table(root: &Node) -> BTreeMap<String, Entry> {
     let mut out: BTreeMap<String, Entry> = BTreeMap::new();
-    for st in kids(Some(root)) {
-        if st.local() != "style" {
-            continue;
-        }
+    // `parse_str` 交的是伪根 `#doc`，真正的 `<w:styles>` 是它的孩子 —— 只看一层孩子会一枚样式都收不到
+    for st in root.descendants("style") {
         let id = match st.attr_local("styleId") {
             Some(one) => (*one).to_string(),
             None => continue,
