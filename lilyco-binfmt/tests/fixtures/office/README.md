@@ -222,6 +222,12 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `bullets.pptx` | python-pptx 打底 + 按 ECMA 手写 `a:pPr`（`write_bullets_pptx`） | 四页四种答案：一页什么都不写、一页三枚 `buChar`（含 `buSzPct` 与 `spcAft/spcPts`）、一页两枚 `buAutoNum`（`startAt` 只写一条）、一页两枚 `buNone`（其中一条 `marL` 留大） |
 | `bullets.odp` | LibreOffice（`bullets.pptx` → .odp 那一转） | 换一家：段上不写，写的是 `text:list/@text:style-name`，样式里十级各一枚 `list-level-style-bullet`/`-number`（第 3 页那两条编号的样式带 `start-value="3"`），而第 4 页整页没有列表 |
 | `bullets-lo.pptx` | LibreOffice（`bullets.pptx` → .pptx 同格式重写） | 每段都被补上 `a:pPr`（13 段全有，`silent` 0），`marL` 从 `342900` 变 `343080`，母版的 `p:txBody` 整个丢掉（带 `a:lstStyle` 的件从 12 变 11） |
+| `margins.docx` | python-docx 打底 + 按 ECMA 手写 `w:tblCellMar` / `w:tcMar`（`write_margins_docx`） | 四张表四种答案：一张表级写满四条、一张只写左右、一张写了块但一条方向都没有（空壳）、一张连块都没有；12 格里四格自己改过，其中一格只写一条 `w:type="auto"`，另一格四条全零 |
+| `margins-lo.docx` | LibreOffice（`margins.docx` → .docx 同格式重写） | 四张表并成一张、方向改名 `start/end`、11 格各补四条、`auto` 换成 `dxa`，表级那四条换成第一个格写过的值（`57` / `170`） |
+| `margins.odt` | LibreOffice（`margins.docx` → .odt 那一转） | 同一问换成两跳：12 格各点一份 `family="table-cell"` 的自动样式，11 份写四枚 `style:padding-*`、全零那份被收成短款 `fo:padding="0cm"`；`113` twips 落成 `0.199cm` |
+| `margins.pptx` | python-pptx 的 `cell.margin_*`（`write_margins_pptx`） | 六格里两格写满四枚、一格只有 `marL`、三格一枚都没有（第二页那张表整个没人写过）；`marT` 写的是 `36576` EMU |
+| `margins-lo.pptx` | LibreOffice（`margins.pptx` → .pptx 同格式重写） | 六格全被补齐四枚，而 `36576` 绕一圈回来是 `36360`（过一遍磅再进 EMU）；两本各按写的交，不换算也不判谁对 |
+| `margins.odp` | LibreOffice（`margins.pptx` → .odp 那一转） | 那一族的格是图形对象：四枚 padding 住在 `style:graphic-properties` 上而不是 `table-cell-properties`，六格里两格**连样式名都不点** —— 那一格只交「这一格没说」 |
 | `wrap.docx` | python-docx 打底 + 按 ECMA **合成**两枚 `wp:anchor`（`write_wrap_docx`） | 图是怎么摆的三种形状一份里摆开：`wp:inline`（随字走，结构上**没有**环绕那一支）+ `wp:anchor` 两枚各写一种环绕（`wrapSquare` / `wrapTopAndBottom`）；浮着才写的那几格也在（`@behindDoc` `@locked` `@allowOverlap` `@relativeHeight` 与四格 `@dist*` EMU），位置分横竖两条（`positionH/@relativeFrom="margin"` 加 `wp:align`，另一枚写 `wp:positionOffset` 那个数）—— 真件稀缺：本机 33 份 docx 的正文 161 枚 `w:drawing` 里只有 1 枚是 anchor |
 | `wrap.odt` | LibreOffice 版式的 ODF（`write_wrap_odt`，三种锚各一枚） | 换一家：框自己只写 `text:anchor-type`（`as-char` / `paragraph` / `page`），环绕、穿透、四个边距全在它点名的那份 `style:family="graphic"` 样式里（`style:wrap="parallel"` / `"through"`、`style:run-through="front"`、`fo:margin-left="0.21cm"`）；「随字」那一枚的样式里**没有** `style:wrap` 这一格 —— 「文件没说」与「说了不环绕」是两句话 |
 | `wrap-lo.docx` | LibreOffice（`wrap.odt` → .docx，一趟来回） | 三份框只剩两张图（按页锚那一张**整张丢掉**，`drawings` 3 → 2），留着的那枚 anchor 把层序号从 `251658240` 换成 `3`（同一意思两种写法，两边都按原样交），环绕方式它自己挑了 `wrapSquare`（ODF 那面写的是 `parallel`），而 `wp:positionV` 的孩子叫 `posOffset` 不是 `positionOffset` —— `offset_written` 只认 ECMA 那个名字，于是 false 而 `children` 仍写着那个名字 |
@@ -2386,6 +2392,42 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 
+143. **格子的字离格边多远：OOXML 一份文档里这块有两个住处，ODF 是两跳而且两种写法等价**。
+    `w:tblPr/w:tblCellMar` 是整张表的默认，`w:tcPr/w:tcMar` 是这一格自己改的 —— 两块形状一样
+    （方向孩子 `top/left/bottom/right`，或双向安全那一对 `start/end`，每枚带 `@w:w` 与
+    `@w:type`），而账必须分开数：这份 4 张表里 2 张写了、1 张只写了个空壳、1 张干脆没有那块，
+    12 格里 4 格自己改过。**表上没写不等于没有边距** —— `word/styles.xml` 里恒有 100 枚
+    `w:tblCellMar`（打底模板的表格样式各带一份），所以「正文里写没写」与「样式表里有多少枚」
+    分两格交，不替文件挑一份样式。
+    - 序也是笔迹：表级 python-docx 写 `top,left,bottom,right`，格级自己写的是
+      `top,bottom,left,right`，同一份件里两种序并存（真件普查 3180 枚表级块里 3143 枚前者、
+      232 枚格级块全是后者）。
+    - `@w:type` 有 `dxa` 与 `auto` 两态，`auto` 是「这一条让排版自己定」而不是数（真件里
+      13583 条方向条目**全部**带 `@w:w` 与 `@w:type`，而 `type` 恒为 `dxa`，`auto` 0 条 ——
+      那一形只有自产件能守）。零是一句说过的话：6 枚零与 11 枚非零分开交，缺 `@w:w` 的记
+      `missing_w`，不猜一个数。
+    - LibreOffice 同格式重写这份 docx 做了四件事：4 张表并成 1 张、方向**改名**
+      （`left/right` → `start/end`，四张票各 12）、11 个格各补四条、`auto` 换成 `dxa`，
+      还把表级那四条换成第一个格写过的值 —— 块的对调是它的算法，本仓只按文件记下的数交。
+    - 同一问在 ODF 是**两跳加两种写法**：格只写 `table:style-name`，数在那份
+      `family="table-cell"` 样式的 `style:table-cell-properties` 上（odp 那一族的格是图形对象，
+      同一族数住在 `style:graphic-properties` 上，properties 的名字都不一样）；四枚长款
+      `style:padding-*` 与一枚短款 `fo:padding` 等价，而 LibreOffice 把全零那一份收成短款、
+      其余 11 份仍写长款（整库 144 格里长款 143、短款 1）。样式跨 `content.xml` 与
+      `styles.xml` 找，解不开的说「解不开」，不塌成零。
+    - 单位一律不换算：twips `113` 到 ODF 变成 `0.199cm`（有损），EMU `36576` 绕 pptx 一圈
+      变 `36360`，两族各交自己那个串（与 `row_heights` 同一处理）。
+    - 演示那一族只有一处：`a:tcPr` 的四枚属性 `@marL/marR/marT/marB`（EMU），一个都不写就是
+      这一格没说。python-pptx 只写被设过的那几枚（6 格里 2 格写满、1 格只有 `marL`、
+      3 格一枚都没有），LibreOffice 重写时给每格补齐四枚；真件普查 104 份 pptx 的 893 枚
+      `a:tcPr` **每一枚都写满四条**，所以「没写」这一形在真件里没有、只在自产件里有。
+    - 真件普查（本机 32 份 .docx + 1 份 .docm、268 个 `word/*.xml` 部件；104 份 pptx、
+      940 个 slide 部件）：docx 表级块 3180 枚、格级块 232 枚，另有 28 枚表级块只写左右、
+      9 枚写三条；pptx 里 128 个属性值是 `0`。
+    - 出口：`office-doc` 的 docx 支与 odt 支各交 `structure.cell_margins`，`office-slide` 的
+      pptx 支与 odp 支各交 `cell_margins`；遗留 `.doc` / `.rtf` / `.ppt` 与表格那几个出口
+      不交这个键（BIFF 与 ppt 的记录树里没有格子内间距这一层）。
+
 142. **这一段前面画什么：OOXML 把答案写在段自己的 `a:pPr` 上，ODF 写在段点名的那份列表样式里**
     - 形状：pptx 逐页一本 `{family, available, paragraphs, ppr_written, ppr_missing, declared,
       silent, kinds, chars, auto_types, lvl_written, marl_written, indent_written, bu_sz_written,
@@ -2405,7 +2447,7 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       13 段全有并把 `algn`、`defTabSz`、`lnSpc`、`spcBef`、`buClr`、`buFont` 一起写下来；
       同一个左边距它换数（`342900` → `343080`）。`attrs_written` 因此从 2 涨到 4，而那一格是笔迹不是答案。
     - 上面那层是真的存在：这一本 134 枚 `a:lvlNpPr` 里 61 枚什么都不写，重写那本 88 枚一枚不落，
-      且母版的 `p:txBody` 在重写里整层消失（`parts` 同为 24、`parts_with_lst_style` 12 → 11）。
+      且母版的 `p:txBody` 在重写里整层消失（`parts` 同为 12、`parts_with_lst_style` 12 → 11）。
     - ODF 那一族：LibreOffice 从 pptx 转来时**一行拆一份 `text:list`**（4 页 2/3/2/0 份，每份一个
       `text:list-item` 套一段字），点名的是 `content.xml` 里的 `L1`…`L5`；整包 54 份列表样式
       （含母版页用的、住在 `styles.xml` 的 `ML1`…`ML10`）各定义十级，页只点 5 份、49 份没人点。

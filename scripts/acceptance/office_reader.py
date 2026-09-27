@@ -4888,7 +4888,8 @@ def slide_bullets_layers_pptx(parts, names, limit: int = 400) -> dict:
     parts_seen = 0
     lst_parts = 0
     for name in names:
-        if not (name.startswith("ppt/slideLayouts/") or name.startswith("ppt/slideMasters/")):
+        if not name.endswith(".xml") or not (
+                name.startswith("ppt/slideLayouts/") or name.startswith("ppt/slideMasters/")):
             continue
         raw = parts.get(name)
         if raw is None:
@@ -5123,6 +5124,314 @@ def odp_bullet_ledger(parts, table, limit: int = 400) -> dict:
         "listed": len(rows),
         "cut": len(table) > len(rows),
     }
+
+
+def _mar_parts(path: Path) -> dict:
+    with zipfile.ZipFile(path) as box:
+        return {one.filename: box.read(one.filename) for one in box.infolist()}
+
+
+def _mar_root(raw):
+    """部件读不动就是读不动：交 None，不替它当「这一件没有」"""
+    text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw or "")
+    if not text.strip():
+        return None
+    try:
+        return ET.fromstring(text)
+    except ET.ParseError:
+        return None
+
+
+MAR_DIRS = ("top", "left", "bottom", "right", "start", "end")
+MAR_PROPS = ("table-cell-properties", "graphic-properties")
+
+
+def mar_attr(node, want: str):
+    """`w:w` 与 `w:type` 都带前缀 —— 两边都按局部名取（与 Rust 的 attr_local 同一口径）"""
+    for key, value in node.attrib.items():
+        if key.rsplit("}", 1)[-1] == want:
+            return value
+    return None
+
+
+def mar_zero(val) -> bool:
+    """`0` / `0cm` / `0.0pt` 才是零；`0.3cm` 不是（判前缀会把 0.3 当 0）"""
+    if val is None:
+        return False
+    body = str(val).strip()
+    for tail in ("cm", "pt", "inch", "in", "mm", "pc", "twips"):
+        if body.endswith(tail):
+            body = body[:-len(tail)]
+            break
+    try:
+        return float(body) == 0.0
+    except ValueError:
+        return body == "0"
+
+
+def mar_dirs_of(holder):
+    """一枚 `w:tblCellMar` / `w:tcMar` → 它按写的序列出的方向与每个方向的两个属性"""
+    order = []
+    values = {}
+    for kid in holder:
+        name = xml_local(kid.tag)
+        if name not in MAR_DIRS:
+            continue
+        order.append(name)
+        values[name] = {"w": mar_attr(kid, "w"), "type": mar_attr(kid, "type")}
+    return order, values
+
+
+def docx_cell_margins(path: Path, limit: int = 400) -> dict:
+    """OOXML 那两本：表级的 `w:tblCellMar` 与格级的 `w:tcMar`（同一形状、两个住处）
+
+    实测（`margins.docx` = python-docx 打底 + 按 ECMA 手写四张表；`margins-lo.docx` =
+    LibreOffice 重写同一份）：LibreOffice 把 `left/right` 改名成 `start/end`，把表级与格级的
+    值**对调着摊开**（表级那条取自第一个格、每个格再补一份），`w:type="auto"` 被换成 `dxa`，
+    而四张表被并成一张 —— 所以「哪一块在谁身上」按文件自己的树数，不猜。
+    """
+    parts = _mar_parts(path)
+    rows = []
+    cell_rows = []
+    parts_scanned = 0
+    tally = {"tables": 0, "tables_with_mar": 0, "tables_without_mar": 0, "tables_shell": 0,
+             "cells_total": 0, "cells_with_mar": 0, "cells_shell": 0}
+    dirs = {}
+    types = {}
+    zeros = 0
+    nonzeros = 0
+    missing = 0
+    for name, raw in sorted(parts.items()):
+        if not (name.startswith("word/") and name.endswith(".xml")) or name.endswith(".rels"):
+            continue
+        root = _mar_root(raw)
+        if root is None:
+            continue
+        if not any(xml_local(one.tag) == "tbl" for one in root.iter()):
+            continue
+        parts_scanned += 1
+        for index, tbl in enumerate(one for one in root.iter() if xml_local(one.tag) == "tbl"):
+            tally["tables"] += 1
+            holder = None
+            for one in tbl.iter():
+                if xml_local(one.tag) == "tblCellMar":
+                    holder = one
+                    break
+            order, values = mar_dirs_of(holder) if holder is not None else ([], {})
+            if holder is None:
+                tally["tables_without_mar"] += 1
+            elif not order:
+                tally["tables_shell"] += 1
+            else:
+                tally["tables_with_mar"] += 1
+            for key in order:
+                dirs[key] = dirs.get(key, 0) + 1
+                got = values[key]
+                types[got["type"] if got["type"] is not None else "(没写 type)"] = \
+                    types.get(got["type"] if got["type"] is not None else "(没写 type)", 0) + 1
+                if got["w"] is None:
+                    missing += 1
+                elif mar_zero(got["w"]):
+                    zeros += 1
+                else:
+                    nonzeros += 1
+            if len(rows) < limit:
+                rows.append({"part": name, "table": index, "mar_present": holder is not None,
+                             "dirs": order, "values": values, "shell": holder is not None and not order})
+            cells = [one for one in tbl.iter() if xml_local(one.tag) == "tc"]
+            tally["cells_total"] += len(cells)
+            for cell_index, cell in enumerate(cells):
+                mine = None
+                for one in cell.iter():
+                    if xml_local(one.tag) == "tcMar":
+                        mine = one
+                        break
+                if mine is None:
+                    continue
+                tally["cells_with_mar"] += 1
+                corder, cvalues = mar_dirs_of(mine)
+                if not corder:
+                    tally["cells_shell"] += 1
+                for key in corder:
+                    dirs[key] = dirs.get(key, 0) + 1
+                    got = cvalues[key]
+                    types[got["type"] if got["type"] is not None else "(没写 type)"] = \
+                        types.get(got["type"] if got["type"] is not None else "(没写 type)", 0) + 1
+                    if got["w"] is None:
+                        missing += 1
+                    elif mar_zero(got["w"]):
+                        zeros += 1
+                    else:
+                        nonzeros += 1
+                if len(cell_rows) < limit:
+                    cell_rows.append({"part": name, "table": index, "cell": cell_index,
+                                      "dirs": corder, "values": cvalues, "shell": not corder})
+    style_root = _mar_root(parts.get("word/styles.xml", b""))
+    style_mar = 0 if style_root is None else sum(
+        1 for one in style_root.iter() if xml_local(one.tag) == "tblCellMar")
+    return {"family": "ooxml", "available": True, "parts_scanned": parts_scanned,
+            "tables": tally["tables"], "tables_with_mar": tally["tables_with_mar"],
+            "tables_without_mar": tally["tables_without_mar"], "tables_shell": tally["tables_shell"],
+            "cells_total": tally["cells_total"], "cells_with_mar": tally["cells_with_mar"],
+            "cells_shell": tally["cells_shell"], "dirs": dirs, "types": types,
+            "zero": zeros, "nonzero": nonzeros, "missing_w": missing,
+            "styles_part_mar": style_mar, "rows": rows, "cell_rows": cell_rows,
+            "listed": len(rows), "cell_listed": len(cell_rows),
+            "cut": tally["tables"] > len(rows) or tally["cells_with_mar"] > len(cell_rows)}
+
+
+MAR_ATTRS = ("marL", "marR", "marT", "marB")
+
+
+def pptx_cell_margins(path: Path, limit: int = 400) -> dict:
+    """DrawingML 那一本：`a:tcPr` 上四个属性（EMU），一个都不写就是这一格没说
+
+    实测：python-pptx 只写被设过的那个属性（有一种只写着 `marL`，也有一种一个都没有），
+    LibreOffice 重写时给每格补齐四个，并把 `36576` 这个数绕 EMU 换成 `36360`。
+    真件普查（104 份 pptx、940 个 slide 部件、893 枚 `a:tcPr`）每一枚都写满四个、
+    128 个值是 `0` —— 「没写」在真件里没有，在自产件里就有。
+    """
+    parts = _mar_parts(path)
+    rows = []
+    parts_scanned = 0
+    cells = 0
+    silent = 0
+    full = 0
+    partial = 0
+    seen = {}
+    zeros = 0
+    nonzeros = 0
+    for name, raw in sorted(parts.items()):
+        if not name.startswith("ppt/slides/slide") or not name.endswith(".xml"):
+            continue
+        root = _mar_root(raw)
+        if root is None:
+            continue
+        parts_scanned += 1
+        for index, one in enumerate(x for x in root.iter() if xml_local(x.tag) == "tcPr"):
+            cells += 1
+            got = {key: one.get(key) for key in MAR_ATTRS}
+            written = [key for key in MAR_ATTRS if got[key] is not None]
+            if not written:
+                silent += 1
+            elif len(written) == 4:
+                full += 1
+            else:
+                partial += 1
+            for key in written:
+                seen[key] = seen.get(key, 0) + 1
+                zeros += 1 if got[key] == "0" else 0
+                nonzeros += 0 if got[key] == "0" else 1
+            if len(rows) < limit:
+                rows.append({"part": name, "cell": index, "written": written,
+                             "mar_l": got["marL"], "mar_r": got["marR"],
+                             "mar_t": got["marT"], "mar_b": got["marB"],
+                             "all_four": len(written) == 4, "said": bool(written)})
+    return {"family": "ooxml", "available": True, "parts_scanned": parts_scanned,
+            "cells": cells, "cells_all_four": full, "cells_partial": partial,
+            "cells_silent": silent, "attrs_seen": seen, "zero": zeros, "nonzero": nonzeros,
+            "rows": rows, "listed": len(rows), "cut": cells > len(rows)}
+
+
+def odf_mar_styles(parts) -> dict:
+    """跨两份部件收 `family=table-cell` 的样式：四长款或 `fo:padding` 短款，住在哪一枚孩子上"""
+    out = {}
+    for name in ("content.xml", "styles.xml"):
+        root = _bg_member(parts, name)
+        if root is None:
+            continue
+        for one in root.iter():
+            if xml_local(one.tag) != "style" or of_local(one, "family") != "table-cell":
+                continue
+            want = of_local(one, "name")
+            if want is None or want in out:
+                continue
+            holder = None
+            pads = {}
+            for kid in one:
+                if xml_local(kid.tag) not in MAR_PROPS:
+                    continue
+                got = {k.rsplit("}", 1)[-1]: v for k, v in kid.attrib.items()
+                       if "padding" in k.rsplit("}", 1)[-1]}
+                if got:
+                    holder = xml_local(kid.tag)
+                    pads.update(got)
+            out[want] = {"part": name, "holder": holder, "pads": pads}
+    return out
+
+
+def odf_cell_margins(parts, limit: int = 400) -> dict:
+    """ODF 那一本：格只点一份样式名，数在样式的 properties 上（odt 与 odp 连住的孩子都不同名）
+
+    实测（`margins.odt` / `margins.odp` 都是 LibreOffice 从 python 那两份转出来的）：
+    odt 把四个方向写在 `style:table-cell-properties` 上，而**全零那一条被它写成短款**
+    `fo:padding="0cm"`；odp 同样四个方向却住在 `style:graphic-properties` 里（那一族的格
+    是图形对象）。twips 绕成厘米是有损的：113 → `0.199cm`、57 → `0.101cm`、170 → `0.3cm`，
+    本仓不换算也不比对。odp 里还有两格连样式名都不点。
+    """
+    table = odf_mar_styles(parts)
+    root = _bg_member(parts, "content.xml")
+    rows = []
+    cells = 0
+    named = 0
+    unnamed = 0
+    found = 0
+    unfound = 0
+    with_pads = 0
+    shorthand = 0
+    longhand = 0
+    zeros = 0
+    nonzeros = 0
+    holders = {}
+    keys = {}
+    if root is not None:
+        for one in root.iter():
+            if xml_local(one.tag) != "table-cell":
+                continue
+            cells += 1
+            want = of_local(one, "style-name")
+            if want is None:
+                unnamed += 1
+            else:
+                named += 1
+            mine = table.get(want) if want is not None else None
+            if mine is None:
+                unfound += 1 if want is not None else 0
+            else:
+                found += 1
+            pads = (mine or {}).get("pads") or {}
+            if pads:
+                with_pads += 1
+                holder = (mine or {}).get("holder")
+                holders[holder] = holders.get(holder, 0) + 1
+                if "padding" in pads:
+                    shorthand += 1
+                if any(key.startswith("padding-") for key in pads):
+                    longhand += 1
+                for key, val in pads.items():
+                    keys[key] = keys.get(key, 0) + 1
+                    if mar_zero(val):
+                        zeros += 1
+                    else:
+                        nonzeros += 1
+            if len(rows) < limit:
+                rows.append({
+                    "cell": cells - 1, "style_name": want, "style_found": mine is not None,
+                    "style_part": (mine or {}).get("part"), "holder": holder_of(mine),
+                    "shorthand": pads.get("padding"), "top": pads.get("padding-top"),
+                    "bottom": pads.get("padding-bottom"), "left": pads.get("padding-left"),
+                    "right": pads.get("padding-right"), "written": len(pads),
+                })
+    return {"family": "odf", "available": True, "cells": cells, "cells_named": named,
+            "cells_unnamed": unnamed, "styles_found": found, "styles_unfound": unfound,
+            "cells_with_pads": with_pads, "shorthand": shorthand, "longhand": longhand,
+            "holders": holders, "keys": keys, "styles_defined": len(table),
+            "zero": zeros, "nonzero": nonzeros,
+            "rows": rows, "listed": len(rows), "cut": cells > len(rows)}
+
+
+def holder_of(mine):
+    return (mine or {}).get("holder")
 
 
 def odp_inherited(parts, page) -> dict:
@@ -12602,6 +12911,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["picture_layout"] = docx_picture_layout(path)
             # 这一行多高：`w:trHeight` 的数与那条规则都写在行上
             out["ooxml"]["row_heights"] = docx_row_heights(path)
+            # 格子的字离边多远：表级与格级两块同形状、两个住处
+            out["ooxml"]["cell_margins"] = docx_cell_margins(path)
             # 表头重复那份账（行上的一个无值元素）
             out["ooxml"]["table_headers"] = docx_repeat_headers(path)
             # 制表位：定义在段上，而段里的制表字符是另一本账
@@ -12675,6 +12986,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["custom_xml"] = docx_custom_xml(path)
             # 「这框对应版式里哪一条」那一跳（重写那份会断）
             out["ooxml"]["placeholder_hops"] = pptx_placeholder_hops(path)
+            # 格子的字离边多远：`a:tcPr` 上那四个属性（EMU），一个都不写就是这一格没说
+            out["ooxml"]["cell_margins"] = pptx_cell_margins(path)
             # 一条式子是文本体里的 OMML，而同一个形状在 Fallback 里还写了一遍（挂着替身图）
             out["ooxml"]["equations"] = pptx_equations_ledger(path)
             # 大纲那一本（`office-text --markdown` 的 pptx 支）：一页一个 `#`，
@@ -12725,6 +13038,8 @@ def facts(path: Path) -> dict:
             out["odt"]["picture_layout"] = docx_picture_layout(path)
             # 同一问在 ODF 一跳在 `family="table-row"` 的那份样式上
             out["odt"]["row_heights"] = docx_row_heights(path)
+            # 格子的字离边多远：一跳在 table-cell 样式的 properties 上（四长款或一枚短款）
+            out["odt"]["cell_margins"] = odf_cell_margins(_mar_parts(path))
             # 同一问在 ODF 是元素名本身：没有指令串，种类与格式全在名字与属性上
             out["odt"]["field_ledger"] = odf_field_ledger(path)
             # 这一族没有主题这个概念：交一本零条的账，而不是缺这个键
@@ -12775,6 +13090,8 @@ def facts(path: Path) -> dict:
                 # 同一本大纲的 odp 那一面：条目标是元素，标题在 frame 的 class 上
                 deck["markdown"] = odp_deck_markdown(path)
                 out["odp"] = deck
+                # 同一问在 odp 住在 graphic-properties 上（那一族的格是图形对象），还有两格不点名样式
+                out["odp"]["cell_margins"] = odf_cell_margins(_mar_parts(path))
         else:
             out["app"] = "unknown-zip"
         return out

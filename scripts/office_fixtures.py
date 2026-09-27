@@ -2556,6 +2556,102 @@ def write_row_height_docx(path: Path) -> None:
     doc.save(path)
 
 
+W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def _cell_mar(holder, element: str, dirs: list) -> None:
+    """往 `w:tblPr` 或 `w:tcPr` 上挂一枚 `w:tblCellMar` / `w:tcMar`（方向按给的序写）
+
+    真件普查（本机 33 份 .docx、269 个 `word/*.xml` 部件）：表级块 3180 枚、格级块 232 枚，
+    两边的**序不一样**（表级 `top,left,bottom,right` 3143 枚、格级 `top,bottom,left,right` 232 枚），
+    另有 28 枚只写 `left,right`、9 枚写三条；13583 个方向条目**全部**带 `@w:w` 与 `@w:type`，
+    `type` 恒为 `dxa`、`w` 有一半是 `0`，而**负数与 `auto` 一条都没有** —— 那两形只能合成。
+    """
+    from docx.oxml import parse_xml
+
+    body = "".join('<w:%s w:w="%s" w:type="%s"/>' % one for one in dirs)
+    holder.append(parse_xml('<w:%s xmlns:w="%s">%s</w:%s>' % (element, W_NS, body, element)))
+
+
+def write_margins_docx(path: Path) -> None:
+    """四张表各是一种「离边多远」：全写 / 整块不写 / 只写左右 / 空壳
+
+    `w:tblCellMar` 是**表级**的四个方向（格子的字离格边多远），`w:tcPr/w:tcMar` 是**格级**覆盖，
+    两块的形状一样而住处不同 —— 所以一份账要同时数「表上写了没有」与「这一格自己改了没有」。
+    每个方向都是两个属性：`@w:w`（twips 串）与 `@w:type`（`dxa` 才是数，`auto` 是「让排版自己定」）。
+    """
+    from docx import Document
+    from docx.shared import Inches
+
+    doc = Document()
+    doc.add_paragraph("格子的字离边多远")
+    full = doc.add_table(rows=2, cols=3)
+    for row in range(2):
+        for col in range(3):
+            full.cell(row, col).text = "全写 %d-%d" % (row, col)
+    _cell_mar(full._tbl.tblPr, "tblCellMar",
+              [("top", "113", "dxa"), ("left", "227", "dxa"),
+               ("bottom", "113", "dxa"), ("right", "227", "dxa")])
+    # 格级覆盖：四种各一（四方向、只左右、零、空壳、auto）
+    _cell_mar(full.cell(0, 0)._tc.get_or_add_tcPr(), "tcMar",
+              [("top", "57", "dxa"), ("bottom", "57", "dxa"),
+               ("left", "170", "dxa"), ("right", "170", "dxa")])
+    _cell_mar(full.cell(0, 1)._tc.get_or_add_tcPr(), "tcMar",
+              [("left", "0", "dxa"), ("right", "0", "dxa")])
+    _cell_mar(full.cell(1, 0)._tc.get_or_add_tcPr(), "tcMar",
+              [("top", "0", "dxa"), ("left", "0", "dxa"),
+               ("bottom", "0", "dxa"), ("right", "0", "dxa")])
+    _cell_mar(full.cell(1, 1)._tc.get_or_add_tcPr(), "tcMar",
+              [("left", "1440", "auto")])
+
+    quiet = doc.add_table(rows=1, cols=2)
+    for col in range(2):
+        quiet.cell(0, col).text = "整块不写 %d" % col
+    halves = doc.add_table(rows=1, cols=2)
+    for col in range(2):
+        halves.cell(0, col).text = "只写左右 %d" % col
+    _cell_mar(halves._tbl.tblPr, "tblCellMar", [("left", "227", "dxa"), ("right", "227", "dxa")])
+    shells = doc.add_table(rows=1, cols=2)
+    for col in range(2):
+        shells.cell(0, col).text = "空壳 %d" % col
+    _cell_mar(shells._tbl.tblPr, "tblCellMar", [])
+    doc.save(path)
+
+
+def write_margins_pptx(path: Path) -> None:
+    """两张表：一张按 python-pptx 的开关逐格设数（含零），一张一格都不碰
+
+    DrawingML 把同一问答在**格子自己**身上：`a:tcPr` 的四个属性 `@marL` / `@marR` / `@marT` /
+    `@marB`（EMU）。真件普查（104 份 pptx、940 个 slide 部件、893 枚 `a:tcPr`）里
+    **每一枚都写满四个**、一个「什么都不写」的都没有，而其中 128 个值是 `0` ——
+    所以这一族的「没写」是缺省（`a:lstStyle` 那层给），不是文件没说。
+    """
+    from pptx import Presentation
+    from pptx.util import Emu, Inches
+
+    deck = Presentation()
+    blank = deck.slide_layouts[5]
+    first = deck.slides.add_slide(blank)
+    shape = first.shapes.add_table(2, 2, Inches(0.6), Inches(1.6), Inches(6.0), Inches(1.6))
+    table = shape.table
+    table.cell(0, 0).text = "四边都给"
+    table.cell(0, 0).margin_left = Emu(91440)
+    table.cell(0, 0).margin_right = Emu(45720)
+    table.cell(0, 0).margin_top = Emu(36576)
+    table.cell(0, 0).margin_bottom = Emu(0)
+    table.cell(0, 1).text = "四边全零"
+    for key in ("margin_left", "margin_right", "margin_top", "margin_bottom"):
+        setattr(table.cell(0, 1), key, Emu(0))
+    table.cell(1, 0).text = "只改左边"
+    table.cell(1, 0).margin_left = Emu(182880)
+    table.cell(1, 1).text = "一格都不碰"
+    second = deck.slides.add_slide(blank)
+    kept = second.shapes.add_table(1, 2, Inches(0.6), Inches(1.6), Inches(6.0), Inches(0.9))
+    kept.table.cell(0, 0).text = "缺省左"
+    kept.table.cell(0, 1).text = "缺省右"
+    deck.save(path)
+
+
 BULLET_NS = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
 
 
@@ -5058,6 +5154,27 @@ def main() -> int:
         shutil.copyfile(made_bul, OUT / "bullets-lo.pptx")
     else:
         print("⚠️  没拿到 bullets-lo.pptx")
+
+    # 格子的字离边多远：python-docx / python-pptx 各写一份，LibreOffice 各转一份、各重写一份
+    write_margins_docx(OUT / "margins.docx")
+    write_margins_pptx(OUT / "margins.pptx")
+    for src_doc, fmt, out_name in (
+        ("margins.docx", "odt", "margins.odt"),
+        ("margins.pptx", "odp", "margins.odp"),
+    ):
+        convert(exe, OUT / src_doc, fmt, SCRATCH)
+        made = SCRATCH / out_name
+        if made.exists():
+            shutil.copyfile(made, OUT / out_name)
+        else:
+            print("⚠️  没拿到 %s（%s 那一转）" % (out_name, src_doc))
+    for src_doc, back in (("margins.docx", "margins-lo.docx"), ("margins.pptx", "margins-lo.pptx")):
+        convert(exe, OUT / src_doc, src_doc.rsplit(".", 1)[-1], SCRATCH / ("mar-" + back))
+        made = SCRATCH / ("mar-" + back) / src_doc
+        if made.exists():
+            shutil.copyfile(made, OUT / back)
+        else:
+            print("⚠️  没拿到 %s" % back)
 
     # 打印区域那三份：openpyxl 写 xlsx，同格式重写一份（引号整层没了）、再转一份 ods
     area = OUT / "print-area.xlsx"

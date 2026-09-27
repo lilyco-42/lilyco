@@ -9055,7 +9055,7 @@ def main() -> int:
         "所以「具名项至少写四条」是生产者的习惯，不是这一格的规矩",
         [shapes.get("4+1"), shapes.get("4+0"), shapes.get("1+2"), shapes.get("3+0"),
          shapes.get("3+2"), shapes.get("2+0"), len(shapes)],
-        [38, 30, 4, 5, 3, 1, 6],
+        [39, 31, 4, 5, 3, 1, 6],
     )
     bad = sorted(one for one, had in compat.items() if not (
         had["ooxml"]["layout_compat"]["settings_part"]
@@ -9077,9 +9077,13 @@ def main() -> int:
         "xml 部件里只此一名）、没有一份是空的、两种写法的名字互不重叠、`w:uri` 恒那一条、"
         "而**没有一枚裸开关写过 `w:val`** —— 违反的那几份交出来（这里应当是空表）",
         [len(compat), bad, modes, switches],
-        [81, [], {"14": 67, "15": 9, "12": 5},
-         {"useFELayout": 38, "doNotUseHTMLParagraphAutoSpacing": 7,
-          "doNotBreakWrappedTables": 4, "adjustLineHeightInTable": 3}],
+        [83,
+         [],
+         {'14': 69, '15': 9, '12': 5},
+         {'useFELayout': 39,
+          'doNotUseHTMLParagraphAutoSpacing': 7,
+          'doNotBreakWrappedTables': 4,
+          'adjustLineHeightInTable': 3}],
     )
     only_fe = sorted(one for one, had in compat.items() if had["ooxml"]["layout_compat"]["switch_names"]
                      == ["useFELayout"])
@@ -9097,9 +9101,13 @@ def main() -> int:
         "的 .docx 有 4 份，只有一条同名字段的 .odt 只有 2 份，另有 3 份 odt 整个没有 settings.xml",
         [len(only_fe), only_fe[:1], len(with_break), with_break, len(flat),
          same_name, no_block],
-        [38, ["alternate.docx"], 4,
-         ["notes-end.docx", "notes-foot.docx", "nset-lo.docx", "nset.docx"], 44,
-         ["notes-end.odt", "nset.odt"], ["pnum.odt", "tbox.odt", "wrap.odt"]],
+        [39,
+         ['alternate.docx'],
+         4,
+         ['notes-end.docx', 'notes-foot.docx', 'nset-lo.docx', 'nset.docx'],
+         45,
+         ['notes-end.odt', 'nset.odt'],
+         ['pnum.odt', 'tbox.odt', 'wrap.odt']],
     )
     lc_docx = lbin("office-doc", fixture("nset.docx"))
     lc_odt = lbin("office-doc", fixture("nset.odt"))
@@ -9226,10 +9234,12 @@ def main() -> int:
          tally([one["parts_with_block"] for one in dd.values()]),
          tally([one["block_shapes"][0]["children"] == one["block_shapes"][-1]["children"]
                 == ["rPrDefault", "pPrDefault"] for one in dd.values()])],
-        [82, {1: 43, 2: 39}, {2: 82}, {True: 82},
-         {("word/styles.xml",): 43,
-          ("word/styles.xml", "word/stylesWithEffects.xml"): 39},
-         {True: 82}],
+        [84,
+         {1: 44, 2: 40},
+         {2: 84},
+         {True: 84},
+         {('word/styles.xml',): 44, ('word/styles.xml', 'word/stylesWithEffects.xml'): 40},
+         {True: 84}],
     )
     check(
         "`rPr` 三种形状（75 份就 `rFonts, sz, szCs, lang` 四条、4 份在 `rFonts` 后多插 `kern`、"
@@ -9238,11 +9248,11 @@ def main() -> int:
         [tally([one["rpr_names"] for one in dd.values()]),
          tally([one["ppr_names"] for one in dd.values()]),
          tally([one["extras"] for one in dd.values()])],
-        [{('rFonts', 'sz', 'szCs', 'lang'): 75,
+        [{('rFonts', 'sz', 'szCs', 'lang'): 77,
           ('rFonts', 'kern', 'sz', 'szCs', 'lang'): 4,
           ('rFonts', 'color', 'sz', 'szCs', 'lang'): 3},
-         {('suppressAutoHyphens',): 43, ('spacing',): 39},
-         {(): 75, ('kern',): 4, ('color',): 3}],
+         {('suppressAutoHyphens',): 44, ('spacing',): 40},
+         {(): 77, ('kern',): 4, ('color',): 3}],
     )
     check(
         "字体指针两列各交各的：39 份只写四条主题指针（末条是**小写开头**的 `cstheme`，"
@@ -9251,9 +9261,9 @@ def main() -> int:
         [tally([[one["wrote_theme"], one["wrote_literal"]] for one in dd.values()]),
          tally([one["font_blank_attrs"] for one in dd.values()]),
          tally([one for value in dd.values() for one in value["font_blank_attrs"]])],
-        [{(True, True): 30, (True, False): 39, (False, True): 13},
-         {('cs',): 29, (): 53},
-         {'cs': 29}],
+        [{(True, True): 31, (True, False): 40, (False, True): 13},
+         {('cs',): 30, (): 54},
+         {'cs': 30}],
     )
     check(
         "`sz` 与 `szCs` 在 74 份里**恒等**（22 的 75 份、24 的 7 份）但两枚分开交；"
@@ -9263,10 +9273,10 @@ def main() -> int:
          tally([[one["lang_written"]["val"], one["lang_written"]["eastAsia"],
                  one["lang_written"]["bidi"]] for one in dd.values()]),
          tally([tuple(sorted(one["lang_written"])) for one in dd.values()])],
-        [{True: 82},
-         {'22': 75, '24': 7},
-         {('en-US', 'en-US', 'ar-SA'): 75, ('en-US', 'zh-CN', 'hi-IN'): 7},
-         {('bidi', 'eastAsia', 'val'): 82}],
+        [{True: 84},
+         {'22': 77, '24': 7},
+         {('en-US', 'en-US', 'ar-SA'): 77, ('en-US', 'zh-CN', 'hi-IN'): 7},
+         {('bidi', 'eastAsia', 'val'): 84}],
     )
     check(
         "第二层在 `<w:style w:styleId=\"Normal\">`（`styleId` 与 `type` 两个属性都对上才算，"
@@ -9280,14 +9290,14 @@ def main() -> int:
          tally([len(one["normal_style"]["rpr_rows"]) for one in dd.values()
                 if one["normal_style"]["rpr_rows"]]),
          tally([one["normal_style"]["found"] and one["blocks_total"] > 0 for one in dd.values()])],
-        [{True: 82},
-         {('name', 'qFormat', 'rsid', 'pPr', 'rPr'): 30,
-          ('name', 'qFormat', 'rsid'): 39,
+        [{True: 84},
+         {('name', 'qFormat', 'rsid', 'pPr', 'rPr'): 31,
+          ('name', 'qFormat', 'rsid'): 40,
           ('name', 'qFormat', 'pPr', 'rPr'): 9,
           ('name', 'pPr', 'rPr'): 4},
-         {False: 43, True: 39},
-         {6: 40, 2: 3},
-         {True: 82}],
+         {False: 44, True: 40},
+         {6: 41, 2: 3},
+         {True: 84}],
     )
     check(
         "两家各自同形（同一句话的两种写法在这一格里数得出）：`.docm` 与它的 .docx 原型逐键相同、"
@@ -9311,7 +9321,7 @@ def main() -> int:
                 one["ppr_names"] == ["spacing"],
                 [one["wrote_theme"], one["wrote_literal"]] == [True, False]]
                for one in dd.values()]),
-        {(False, False, False, False): 43, (True, True, True, True): 39},
+        {(False, False, False, False): 44, (True, True, True, True): 40},
     )
 
     of = dict((one, had["odt"]["doc_defaults"]) for one, had in files.items()
@@ -9327,13 +9337,13 @@ def main() -> int:
          tally([one["families"] for one in of.values()]),
          tally([one["rows"][0]["family"] if one["rows"] else None for one in of.values()]),
          tally([len(one["rows"]) == one["defaults_total"] for one in of.values()])],
-        [44,
-         {4: 41, 0: 3},
-         {True: 44},
-         {0: 44},
-         {('graphic', 'paragraph', 'table', 'table-row'): 41, (): 3},
-         {'graphic': 41, None: 3},
-         {True: 44}],
+        [45,
+         {4: 42, 0: 3},
+         {True: 45},
+         {0: 45},
+         {('graphic', 'paragraph', 'table', 'table-row'): 42, (): 3},
+         {'graphic': 42, None: 3},
+         {True: 45}],
     )
     check(
         "字体名、字号、语言**各三格**（latin / asian / complex），和 docx 的 `rFonts` 四条与 `w:lang` 三条"
@@ -9349,11 +9359,11 @@ def main() -> int:
          tally([row["props_attrs_total"] for one in of.values() for row in one["rows"][2:]]),
          tally([[row["language"], row["country"]] for row in rows_of(of, "langs_written")
                 if row["language"] == "none"])],
-        [{'latin': 82, 'asian': 81, 'complex': 82},
-         {'latin': 82, 'asian': 82, 'complex': 82},
-         {'latin': 82, 'asian': 82, 'complex': 82},
-         {'graphic': 122, 'paragraph': 123},
-         {1: 82},
+        [{'latin': 84, 'asian': 83, 'complex': 84},
+         {'latin': 84, 'asian': 84, 'complex': 84},
+         {'latin': 84, 'asian': 84, 'complex': 84},
+         {'graphic': 125, 'paragraph': 126},
+         {1: 84},
          {('none', 'none'): 3}],
     )
     check(
@@ -9366,8 +9376,8 @@ def main() -> int:
          len(of["nset.odt"]["hyphenation_names"]),
          of["nset.odt"]["hyphenation_names"][:2],
          [row["props_attrs_total"] for row in of["nset.odt"]["rows"]]],
-        [40,
-         {13: 40, 0: 4},
+        [41,
+         {13: 41, 0: 4},
          ['paragraph'],
          13,
          ['hyphenate', 'hyphenation-compound-push-char-count'],
@@ -9466,13 +9476,13 @@ def main() -> int:
          tally([tuple(sorted(one["caption_styles"])) for one in cx.values()]),
          tally([tuple(sorted(one["caption_styles"])) for one in co.values()]),
          tally([tuple(sorted(one["caption_styles"])) for one in cr.values()])],
-        [82,
-         44,
+        [84,
+         45,
          18,
-         {('available', 'books', 'cache_missing', 'cache_values', 'cached_but_unresolved', 'caption_styles', 'cut', 'declarations', 'family', 'kinds', 'listed', 'notes', 'quoted', 'resolves', 'resolving_but_no_cache', 'rows', 'target_books', 'target_rows'): 144},
-         {('bookmark_marks', 'bookmarks', 'sequences', 'style_defs', 'style_ids', 'style_names'): 144},
-         {('declared', 'paragraphs_using_them', 'rows', 'styles_part'): 82},
-         {('declared', 'paragraphs_using_them', 'rows'): 44},
+         {('available', 'books', 'cache_missing', 'cache_values', 'cached_but_unresolved', 'caption_styles', 'cut', 'declarations', 'family', 'kinds', 'listed', 'notes', 'quoted', 'resolves', 'resolving_but_no_cache', 'rows', 'target_books', 'target_rows'): 147},
+         {('bookmark_marks', 'bookmarks', 'sequences', 'style_defs', 'style_ids', 'style_names'): 147},
+         {('declared', 'paragraphs_using_them', 'rows', 'styles_part'): 84},
+         {('declared', 'paragraphs_using_them', 'rows'): 45},
          {('declared', 'paragraphs_using_them', 'rows'): 18}],
     )
     check(
@@ -9488,13 +9498,13 @@ def main() -> int:
          tally([sum(one["kinds"].values()) == one["target_rows"] for one in cx.values()]),
          tally([one["resolves"]["null"] == one["kinds"].get("SEQ", 0) for one in cx.values()]),
          tally([one["notes"][0] for one in cx.values()])],
-        [{True: 82},
-         {0: 78, 1: 2, 4: 2},
-         {None: 82},
-         {None: 82},
-         {True: 82},
-         {True: 82},
-         {'这一族没有序列声明这一层：SEQ 的 resolves 一律 null': 82}],
+        [{True: 84},
+         {0: 80, 1: 2, 4: 2},
+         {None: 84},
+         {None: 84},
+         {True: 84},
+         {True: 84},
+         {'这一族没有序列声明这一层：SEQ 的 resolves 一律 null': 84}],
     )
     check(
         "题注样式那两本各查各的：72 份的 `<w:style w:styleId=\"Caption\">` 两个名字都对上"
@@ -9513,14 +9523,14 @@ def main() -> int:
                 == one["books"]["style_names"] for one in cx.values()]),
          tally([one["books"]["style_defs"] for one in cx.values()]),
          tally([len(one["books"]["bookmarks"]) <= one["books"]["bookmark_marks"] for one in cx.values()])],
-        [{1: 79, 0: 3},
-         {0: 82},
-         {True: 82},
-         {'Caption|paragraph|styleId,name': 79},
+        [{1: 81, 0: 3},
+         {0: 84},
+         {True: 84},
+         {'Caption|paragraph|styleId,name': 81},
          ['pnum.docx', 'tbox.docx', 'wrap-lo.docx'],
-         {True: 82},
-         {168: 19,
-          164: 39,
+         {True: 84},
+         {168: 20,
+          164: 40,
           169: 9,
           171: 1,
           71: 1,
@@ -9532,7 +9542,7 @@ def main() -> int:
           2: 1,
           172: 1,
           1: 1},
-         {True: 82}],
+         {True: 84}],
     )
     check(
         "ODF 那一族多一本**声明**的账，四格都是数出来的：`elements` 是 `text:sequence-decl` 的枚数"
@@ -9556,18 +9566,18 @@ def main() -> int:
          tally([one["notes"] for one in co.values()]),
          sorted(k for k, v in co.items() if len(v["books"]["sequences"]) == 6),
          sorted(k for k, v in co.items() if v["caption_styles"]["declared"] == 0)],
-        [{True: 44},
-         {0: 42, 3: 1, 1: 1},
-         {5: 39, 6: 2, 0: 3},
-         {True: 44},
-         {('Drawing', 'Figure', 'Illustration', 'Table', 'Text'): 41, (): 3},
-         {(): 44},
-         {0: 44},
-         {(): 44},
-         {(('content.xml', 5),): 39, (('content.xml', 6),): 2, (): 3},
-         {None: 44},
-         {True: 44},
-         {(): 44},
+        [{True: 45},
+         {0: 43, 3: 1, 1: 1},
+         {5: 40, 6: 2, 0: 3},
+         {True: 45},
+         {('Drawing', 'Figure', 'Illustration', 'Table', 'Text'): 42, (): 3},
+         {(): 45},
+         {0: 45},
+         {(): 45},
+         {(('content.xml', 5),): 40, (('content.xml', 6),): 2, (): 3},
+         {None: 45},
+         {True: 45},
+         {(): 45},
          ['fields-mix.odt', 'fields.odt'],
          ['pnum.odt', 'tbox-lo.odt', 'tbox.odt', 'wrap.odt']],
     )
@@ -9579,7 +9589,7 @@ def main() -> int:
                        str(r["paragraphs_using_it"])])
                 for r in one["caption_styles"]["rows"]] for one in co.values()),
          tally(["styles_part" in one["caption_styles"] for one in co.values()])],
-        [{(('None', 'styles.xml', 'name', '0'),): 40, (): 4}, {False: 44}],
+        [{(('None', 'styles.xml', 'name', '0'),): 41, (): 4}, {False: 45}],
     )
     check(
         "RTF 的 18 份全都有题注样式，而它的 `style_id` 是**样式号**（`\\s` 后面那个数），"
@@ -9802,13 +9812,13 @@ def main() -> int:
           sum(1 for one in pb_all.values() if one["listed"] == one["total"])],
          tally([tuple(sorted(one)) for one in pb_all.values()]),
          tally([tuple(sorted(one_row)) for _, one_row in pb_rows])],
-        [82,
-         44,
+        [84,
+         45,
          18,
-         144,
+         147,
          [('docx', 65536), ('odf', 65536), ('rtf', 8192)],
-         [144, 0, 144],
-         {('addr', 'agrees', 'at_natural', 'available', 'cut', 'declared_pixels', 'density', 'detected', 'distinct_parts', 'ext_agrees', 'family', 'listed', 'natural', 'pixels', 'placed', 'read_cap', 'rows', 'stretched', 'total'): 144},
+         [147, 0, 147],
+         {('addr', 'agrees', 'at_natural', 'available', 'cut', 'declared_pixels', 'density', 'detected', 'distinct_parts', 'ext_agrees', 'family', 'listed', 'natural', 'pixels', 'placed', 'read_cap', 'rows', 'stretched', 'total'): 147},
          {('addr', 'agrees', 'aspect_permille', 'at_natural', 'declared_pixels', 'density', 'ext', 'ext_agrees', 'ext_name', 'head_hex', 'how', 'nat_mm100', 'note', 'pixels', 'placed_mm100', 'px_agrees', 'scale_permille', 'sig', 'stretched', 'where', 'word', 'word_name'): 81}],
     )
     check(
@@ -9823,7 +9833,7 @@ def main() -> int:
          for pool in (pb_dx, pb_od, pb_rt)]
         + [[sum(1 for one in pb_all.values() if one["total"])],
            max(one["total"] for one in pb_all.values()), len(pb_rows)],
-        [[82, 41, 34], [44, 27, 22], [18, 13, 13], [39], 9, 81],
+        [[84, 41, 34], [45, 27, 22], [18, 13, 13], [39], 9, 81],
     )
     check(
         "地址那一格四态：`read` 三族 40 / 27 / 13 全都落到了部件，`unresolved`（跳不到）与 "
@@ -10694,7 +10704,7 @@ def main() -> int:
     check(
         "同一问在两层之外：这一本的版式与母版里 `a:lvlNpPr` 才是符号的住处 —— python-pptx 那份"
         "134 条里 61 条**什么都不写**（`(没写)` 61），而 LibreOffice 重写那份 88 条一条不落"
-        "（`silent` 0），且它把母版的 `p:txBody` 整个丢掉（`parts` 一样是 24 件，"
+        "（`silent` 0），且它把母版的 `p:txBody` 整个丢掉（`parts` 一样是 12 件，"
         "`parts_with_lst_style` 12 对 11）—— 两层各交各的密度，不做归属那一跳",
         [dig(bul, "bullet_layers.parts"), dig(bul, "bullet_layers.parts_with_lst_style"),
          dig(bul, "bullet_layers.rows_total"), dig(bul, "bullet_layers.kinds"),
@@ -10702,7 +10712,7 @@ def main() -> int:
          dig(bul, "bullet_layers.levels.lvl1pPr"),
          dig(back, "bullet_layers.rows_total"), dig(back, "bullet_layers.silent"),
          dig(back, "bullet_layers.kinds"), dig(back, "bullet_layers.chars")],
-        [24,
+        [12,
          12,
          134,
          {'(没写)': 61, 'buNone': 64, 'buChar': 9},
@@ -10795,9 +10805,9 @@ def main() -> int:
         [len(py_pages), bl_tally(py_pages, "bullets", "kinds"),
          len(po_pages), bl_tally(po_pages, "bullets", "kinds"),
          bl_tally(po_pages, "bullets", "chars")],
-        [64,
-         {'buNone': 20, 'buChar': 12, 'buAutoNum': 4, '(无 pPr)': 66, '(没写)': 39},
-         35,
+        [68,
+         {'buNone': 22, 'buChar': 12, 'buAutoNum': 4, '(无 pPr)': 74, '(没写)': 45},
+         37,
          {'bullet': 9, 'number': 2},
          {'•': 8, '‣': 1}],
     )
@@ -10814,7 +10824,7 @@ def main() -> int:
              if name2.endswith(".odp")),
          sum(had["odp"]["bullet_layers"]["styles_unused"]
              for name2, had in files.items() if name2.endswith(".odp"))],
-        [2789, 1978, 811, 595, 586],
+        [3018, 2146, 872, 644, 635],
     )
     check(
         "反面凭据：这一格只在 office-slide 交。遗留 `.ppt` 的符号在 `TextHeaderAtom` 的样式里、"
@@ -10825,6 +10835,213 @@ def main() -> int:
          no_theme_key("office-sheet", "book.ods", "bullets"),
          no_theme_key("office-slide", "bullets.odp", "bullets")],
         [False, False, False, True],
+    )
+
+    # ── 3bw) 格子的字离边多远：docx 两个住处、pptx 四枚属性、ODF 一跳在 table-cell 样式上 ──
+    print("=== 3bw) cell_margins：表级 / 格级 / 一跳在样式 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        check("%s 格子内间距那份账与读者一致（表级一块 + 每格一块）" % name,
+              dig(lbin("office-doc", fixture(name)), "structure.cell_margins"),
+              files[name]["ooxml"]["cell_margins"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        check("%s 格子内间距那一跳与读者一致（四长款或一枚短款）" % name,
+              dig(lbin("office-doc", fixture(name)), "structure.cell_margins"),
+              files[name]["odt"]["cell_margins"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.pptx")):
+        check("%s 表格里那四枚属性与读者一致（按 marL/R/T/B 的固定序）" % name,
+              dig(lbin("office-slide", fixture(name)), "cell_margins"),
+              files[name]["ooxml"]["cell_margins"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odp")):
+        check("%s 那一页表的 padding 一跳与读者一致（住在 graphic-properties 上）" % name,
+              dig(lbin("office-slide", fixture(name)), "cell_margins"),
+              files[name]["odp"]["cell_margins"])
+    mar = lbin("office-doc", fixture("margins.docx"))
+    check(
+        "`margins.docx` 四张表四种答案（表级块 2 写 1 空壳 1 不写）：`w:tblCellMar` 里"
+        "`left` 出现 6 次比 `top` 多（有一张只写左右、有一格只写一条 `auto`），"
+        "而**正文里一个方向都没写的表照样有边距** —— `word/styles.xml` 那 100 枚 `tblCellMar`"
+        "就是这件事的凭据，所以这一格分开交，不替文件挑一份样式",
+        [dig(mar, "structure.cell_margins.tables"),
+         dig(mar, "structure.cell_margins.tables_with_mar"),
+         dig(mar, "structure.cell_margins.tables_without_mar"),
+         dig(mar, "structure.cell_margins.tables_shell"),
+         dig(mar, "structure.cell_margins.cells_with_mar"),
+         dig(mar, "structure.cell_margins.dirs"),
+         dig(mar, "structure.cell_margins.types"),
+         dig(mar, "structure.cell_margins.styles_part_mar"),
+         dig(mar, "structure.cell_margins.rows[1]")],
+        [4,
+         2,
+         1,
+         1,
+         4,
+         {'top': 3, 'left': 6, 'bottom': 3, 'right': 5},
+         {'dxa': 16, 'auto': 1},
+         100,
+         {'part': 'word/document.xml',
+          'table': 1,
+          'mar_present': False,
+          'dirs': [],
+          'values': {},
+          'shell': False}],
+    )
+    check(
+        "格级那一本按「哪一格改过」记：第一格写四条（序与表级不同）、第二格只写左右两条且都是零、"
+        "第三格四条约零、第四格只一条 `w:type=\"auto\"`；表级 8 条加格级 9 条合起来 zero 6 / "
+        "nonzero 11，而 12 格里另 8 格一个方向都不改（不交行，交进 `cells_total`）",
+        [[one["table"], one["cell"], one["dirs"], one["shell"]]
+         for one in dig(mar, "structure.cell_margins.cell_rows")],
+        [[0, 0, ['top', 'bottom', 'left', 'right'], False],
+         [0, 1, ['left', 'right'], False],
+         [0, 3, ['top', 'left', 'bottom', 'right'], False],
+         [0, 4, ['left'], False]],
+    )
+    back = lbin("office-doc", fixture("margins-lo.docx"))
+    check(
+        "LibreOffice 重写同一份：四张表被并成一张（`tables` 4 → 1）、方向改名"
+        "（`left/right` → `start/end`，四张票各 12）、11 格各补四条，而 `w:type=\"auto\"` "
+        "那一条被换成 `dxa`（`types` 只剩一个键）—— 表级那四条也换成了第一个格写过的值，"
+        "这一族的对调按文件记，不判谁对",
+        [dig(back, "structure.cell_margins.tables"),
+         dig(back, "structure.cell_margins.cells_with_mar"),
+         dig(back, "structure.cell_margins.dirs"),
+         dig(back, "structure.cell_margins.types"),
+         dig(back, "structure.cell_margins.zero"),
+         dig(back, "structure.cell_margins.nonzero"),
+         dig(back, "structure.cell_margins.rows[0].dirs")],
+        [1,
+         11,
+         {'top': 12, 'start': 12, 'bottom': 12, 'end': 12},
+         {'dxa': 48},
+         6,
+         42,
+         ['top', 'start', 'bottom', 'end']],
+    )
+    mdeck = lbin("office-slide", fixture("margins.pptx"))
+    check(
+        "pptx 这一族只有一处：`a:tcPr` 上四枚属性。python-pptx 只写被设过的那几枚 —— "
+        "六格里两格写满四条、一格只有 `marL`、三格一枚都没有（`cells_silent` 3），"
+        "`attrs_seen` 因此是 3/2/2/2 而不是 6/6/6/6",
+        [dig(mdeck, "cell_margins.cells"), dig(mdeck, "cell_margins.cells_all_four"),
+         dig(mdeck, "cell_margins.cells_partial"), dig(mdeck, "cell_margins.cells_silent"),
+         dig(mdeck, "cell_margins.attrs_seen"), dig(mdeck, "cell_margins.zero"),
+         dig(mdeck, "cell_margins.nonzero"),
+         [[one["cell"], one["written"]] for one in dig(mdeck, "cell_margins.rows")]],
+        [6,
+         2,
+         1,
+         3,
+         {'marL': 3, 'marR': 2, 'marT': 2, 'marB': 2},
+         5,
+         4,
+         [[0, ['marL', 'marR', 'marT', 'marB']],
+          [1, ['marL', 'marR', 'marT', 'marB']],
+          [2, ['marL']],
+          [3, []],
+          [0, []],
+          [1, []]]],
+    )
+    mback = lbin("office-slide", fixture("margins-lo.pptx"))
+    check(
+        "LibreOffice 重写那份 pptx：六格全被补齐（`cells_all_four` 6、`cells_silent` 0），"
+        "而 `marT` 的 `36576` 绕一圈变成 `36360`（EMU 过一遍磅再回来）—— 本仓不换算，"
+        "两个串各按写的交",
+        [dig(mback, "cell_margins.cells_all_four"), dig(mback, "cell_margins.cells_silent"),
+         dig(mback, "cell_margins.attrs_seen"), dig(mback, "cell_margins.zero"),
+         dig(mback, "cell_margins.nonzero"),
+         dig(mback, "cell_margins.rows[0].mar_t"), dig(mdeck, "cell_margins.rows[0].mar_t")],
+        [6, 0, {'marL': 6, 'marR': 6, 'marT': 6, 'marB': 6}, 5, 19, '36360', '36576'],
+    )
+    odt = lbin("office-doc", fixture("margins.odt"))
+    check(
+        "同一问在 ODF 是一跳加两种写法：12 格各点一份 `family=table-cell` 的样式，"
+        "11 份写四枚长款、**全零那一份被写成短款** `fo:padding`（`shorthand` 1 / `longhand` 11），"
+        "数住在 `style:table-cell-properties` 上；cm 是有损换算（113 twips → `0.199cm`）",
+        [dig(odt, "structure.cell_margins.cells"), dig(odt, "structure.cell_margins.cells_named"),
+         dig(odt, "structure.cell_margins.styles_found"), dig(odt, "structure.cell_margins.shorthand"),
+         dig(odt, "structure.cell_margins.longhand"), dig(odt, "structure.cell_margins.holders"),
+         dig(odt, "structure.cell_margins.keys"), dig(odt, "structure.cell_margins.styles_defined"),
+         [dig(odt, "structure.cell_margins.rows[0].top"),
+          dig(odt, "structure.cell_margins.rows[0].left")]],
+        [12,
+         12,
+         12,
+         1,
+         11,
+         {'table-cell-properties': 12},
+         {'padding-left': 11,
+          'padding-right': 11,
+          'padding-top': 11,
+          'padding-bottom': 11,
+          'padding': 1},
+         5,
+         ['0.101cm', '0.3cm']],
+    )
+    odp = lbin("office-slide", fixture("margins.odp"))
+    check(
+        "odp 那一族的格是图形对象：同样四枚 padding 住在 `style:graphic-properties` 上，"
+        "六格里两格**连样式名都不点**（`cells_unnamed` 2）—— 那一格只能交「这一格没说」，"
+        "不按母版页那份缺省补一个数",
+        [dig(odp, "cell_margins.cells"), dig(odp, "cell_margins.cells_named"),
+         dig(odp, "cell_margins.cells_unnamed"), dig(odp, "cell_margins.cells_with_pads"),
+         dig(odp, "cell_margins.holders"), dig(odp, "cell_margins.shorthand"),
+         dig(odp, "cell_margins.zero"), dig(odp, "cell_margins.nonzero"),
+         dig(odp, "cell_margins.rows[0].holder"),
+         dig(odp, "cell_margins.rows[0].top")],
+        [6, 4, 2, 4, {'graphic-properties': 4}, 0, 5, 11, 'graphic-properties', '0.101cm'],
+    )
+    def _mar(name, fam):
+        had = files.get(name) or {}
+        one = had.get(fam)
+        return one["cell_margins"] if isinstance(one, dict) and "cell_margins" in one else None
+
+    word = dict((one, had) for one, _raw in files.items() if one.endswith((".docx", ".docm"))
+                for had in [_mar(one, "ooxml")] if had)
+    od = dict((one, had) for one, _raw in files.items() if one.endswith(".odt")
+              for had in [_mar(one, "odt")] if had)
+    decks = dict((one, had) for one, _raw in files.items() if one.endswith(".pptx")
+                 for had in [_mar(one, "ooxml")] if had)
+    shows = dict((one, had) for one, _raw in files.items() if one.endswith(".odp")
+                 for had in [_mar(one, "odp")] if had)
+    check(
+        "整库摊开：84 份 word 件 50 张表里 24 张写了表级块、277 格里 15 格自己改过；27 份 pptx 的"
+        " 38 格里 15 格一枚属性都不写、21 格写满四条 —— 「没写」这一形只在自产件里出现，"
+        "本机 104 份真 pptx 的 893 枚 `a:tcPr` 每一枚都写满四条",
+        [len(word), sum(one["tables"] for one in word.values()),
+         sum(one["tables_with_mar"] for one in word.values()),
+         sum(one["cells_total"] for one in word.values()),
+         sum(one["cells_with_mar"] for one in word.values()),
+         sum(one["zero"] for one in word.values()),
+         sum(one["nonzero"] for one in word.values()),
+         sum(one["styles_part_mar"] for one in word.values()),
+         len(decks), sum(one["cells"] for one in decks.values()),
+         sum(one["cells_silent"] for one in decks.values()),
+         sum(one["cells_all_four"] for one in decks.values())],
+        [84, 50, 24, 277, 15, 54, 95, 7100, 27, 38, 15, 21],
+    )
+    check(
+        "ODF 那一头整库一本：45 份 .odt 的 144 格全部点得到样式（解开 144、解不开 0），"
+        "143 份写四枚长款而**只有 1 份写短款**；15 份 .odp 一共才 17 格，其中 10 格连样式名都不点",
+        [len(od), sum(one["cells"] for one in od.values()),
+         sum(one["styles_found"] for one in od.values()),
+         sum(one["shorthand"] for one in od.values()),
+         sum(one["longhand"] for one in od.values()),
+         len(shows), sum(one["cells"] for one in shows.values()),
+         sum(one["cells_unnamed"] for one in shows.values()),
+         sum(one["styles_defined"] for one in shows.values())],
+        [45, 144, 144, 1, 143, 15, 17, 10, 12],
+    )
+    check(
+        "反面凭据：这一格只在读了表的三个出口交。遗留 `.ppt` 与 `.xls` 的记录里"
+        "没有「格子内间距」这个东西（BIFF 的 `MULBLANK` / ppt 的 `TextFooterAtom` 都不带），"
+        "RTF 的表只有 `\intbl` 与格分隔，所以三家的整份输出里都找不到 `cell_margins` 这个键",
+        [no_theme_key("office-doc", "notes.rtf", "cell_margins"),
+         no_theme_key("office-doc", "notes.doc", "cell_margins"),
+         no_theme_key("office-sheet", "book.xls", "cell_margins"),
+         no_theme_key("office-slide", "deck.ppt", "cell_margins"),
+         no_theme_key("office-doc", "margins.odt", "cell_margins"),
+         no_theme_key("office-slide", "margins.odp", "cell_margins")],
+        [False, False, False, False, True, True],
     )
 
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")

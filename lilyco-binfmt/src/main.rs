@@ -36,6 +36,7 @@
 mod alternate_content;
 mod biff;
 mod bookmark_pairs;
+mod cell_margins;
 mod cell_merges;
 mod cfb;
 mod comment_threads;
