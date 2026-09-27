@@ -25,6 +25,11 @@ from pathlib import Path as _Path
 
 _sys.path.insert(0, str(_Path(__file__).resolve().parent))
 from lyco_rtf import rtf_info, rtf_markdown, rtf_text  # 独立 RTF 实现，与 lilyco-binfmt/src/rtf.rs 对账
+from lyco_cross_refs import (  # 题注与交叉引用那一份账（行来自上面各家已经交过的域账）
+    docx_cross_refs,
+    odf_cross_refs,
+    rtf_cross_refs,
+)
 from lyco_formats import xlsx_formats  # xlsx 数字格式的第二读者（与 numfmt.rs 对账）
 from lyco_legacy import biff_workbook, doc_pieces, ppt_text  # 遗留格式的第二读者
 from lyco_revisions import docx_revisions, odt_revisions  # 修订那份账的第二读者
@@ -11113,6 +11118,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["layout_compat"] = docx_layout_compat(path)
             # 文档默认值：docDefaults 两层 + Normal 样式那一层，而模板件在第二个部件又写一块
             out["ooxml"]["doc_defaults"] = docx_doc_defaults(path)
+            # 题注与交叉引用：目标只住在指令串里，SEQ 这一族没有声明那一层可查
+            out["ooxml"]["cross_refs"] = docx_cross_refs(path)
             # 域那一份账：两种写法、三种缺法，正文以外那几份部件一起扫
             out["ooxml"]["field_ledger"] = docx_field_ledger(path)
             out["ooxml"]["theme"] = themes
@@ -11182,6 +11189,8 @@ def facts(path: Path) -> dict:
             out["odt"]["layout_compat"] = odf_layout_compat(path)
             # 同一问在 ODF 是 style:default-style 一族一条，且只在 styles.xml
             out["odt"]["doc_defaults"] = odf_doc_defaults(path)
+            # 同一问在 ODF 目标是属性，而且序列声明那一层只有这一族有
+            out["odt"]["cross_refs"] = odf_cross_refs(path)
             # 同一问在 ODF 是元素名本身：没有指令串，种类与格式全在名字与属性上
             out["odt"]["field_ledger"] = odf_field_ledger(path)
             # 这一族没有主题这个概念：交一本零条的账，而不是缺这个键
@@ -11242,6 +11251,8 @@ def facts(path: Path) -> dict:
         out["rtf"]["info"] = rtf_info(data)
         # 域那一份账：行是上面那次解码顺手收的，这里只把种类与开关算出来
         out["rtf"]["field_ledger"] = rtf_field_ledger(out["rtf"])
+        # 题注与交叉引用：指令那一串与 docx 逐字同形，书签名这边已经解过 \u
+        out["rtf"]["cross_refs"] = rtf_cross_refs(out["rtf"])
         # markdown 那一本单列一个键：`para_rows` 是中间账，不混进 `rtf` 那本整份对账
         out["rtf_markdown"] = rtf_markdown(data)
         out["app"] = "word"

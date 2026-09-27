@@ -79,14 +79,14 @@ fn field_switches(had: Option<&str>) -> Vec<String> {
 
 /// 指令里第一个空格前的那个词 —— OOXML 与 RTF 把「哪种域」写在它身上。
 /// 整串先 trim 再切：` PAGE ` 的种类是 PAGE，不是空串（第二读者同一个顺序）
-fn field_kind(had: Option<&str>) -> Option<String> {
+pub(crate) fn field_kind(had: Option<&str>) -> Option<String> {
     let head = had?.trim();
     let head = head.split(' ').next()?.trim();
     (!head.is_empty()).then(|| head.to_string())
 }
 
 /// 计数进一本按文件顺序排的表（值只增，所以不判重）
-fn bump(book: &mut serde_json::Map<String, Value>, key: String) {
+pub(crate) fn bump(book: &mut serde_json::Map<String, Value>, key: String) {
     let next = book.get(&key).and_then(Value::as_u64).unwrap_or(0) + 1;
     book.insert(key, json!(next));
 }
@@ -159,7 +159,7 @@ fn deeper(rows: &[Value], want: &str) -> usize {
 
 /// 「这份 docx 里哪些部件还可能写域」：按**文件名**认，不去查 rels（页脚在哪一份，
 /// rels 说了才算，而这一本只要多扫几份、不要漏扫）
-fn docx_text_part(name: &str) -> bool {
+pub(crate) fn docx_text_part(name: &str) -> bool {
     if !name.starts_with("word/") || !name.ends_with(".xml") {
         return false;
     }
@@ -542,7 +542,7 @@ pub(crate) fn odf(root: &Node, styles: Option<&Node>, limit: usize) -> Value {
 
 /// 那一行自己写的属性里，把前缀去掉找那一个（`text:reference-format` 与
 /// `reference-format` 都算，跟第二读者 `_local_in` 同一把尺子）
-fn attr_local_in(one: &Value, want: &str) -> Option<String> {
+pub(crate) fn attr_local_in(one: &Value, want: &str) -> Option<String> {
     let held = one.get("attrs")?.as_object()?;
     for (key, val) in held {
         let local = key.rsplit_once(':').map_or(key.as_str(), |(_, two)| two);

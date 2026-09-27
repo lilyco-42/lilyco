@@ -9400,6 +9400,299 @@ def main() -> int:
         [False, False, False, False],
     )
 
+    # ── 3bo) 题注与交叉引用：目标那一刀、被点名的三本书、题注样式那一格 ────────────
+    print("=== 3bo) office-doc structure.cross_refs：五种「指向别处」的域一份账，逐行与第二读者对 ===")
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        check("%s 的交叉引用整本与读者一致（目标切法、三本书、resolves 三态）" % name,
+              dig(lbin("office-doc", fixture(name)), "structure.cross_refs"),
+              files[name]["ooxml"]["cross_refs"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.docm")):
+        check("%s 的交叉引用整本与读者一致（宏文档也写这一格，第 72 份不是新形状）" % name,
+              dig(lbin("office-doc", fixture(name)), "structure.cross_refs"),
+              files[name]["ooxml"]["cross_refs"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        check("%s 的交叉引用整本与读者一致（目标是属性不是指令串，声明那一层在场）" % name,
+              dig(lbin("office-doc", fixture(name)), "structure.cross_refs"),
+              files[name]["odt"]["cross_refs"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.rtf")):
+        check("%s 的交叉引用整本与读者一致（目标解自 `\\fldinst` 那一群，样式号只按文件自己写的交）" % name,
+              dig(lbin("office-doc", fixture(name)), "structure.cross_refs"),
+              files[name]["rtf"]["cross_refs"])
+
+    cx = dict((one, had["ooxml"]["cross_refs"]) for one, had in files.items()
+              if one.endswith((".docx", ".docm")))
+    co = dict((one, had["odt"]["cross_refs"]) for one, had in files.items() if one.endswith(".odt"))
+    cr = dict((one, had["rtf"]["cross_refs"]) for one, had in files.items() if one.endswith(".rtf"))
+    check(
+        "同一套格子三族共有：130 份（72 word + 41 份 .odt + 17 份 .rtf）的键集一模一样（18 格），"
+        "`books` 那六本也是同一套 —— 差别只在**哪几本填得出东西**：OOXML 与 RTF 的 `sequences` 恒 null"
+        "（这一族没有序列声明那一层），ODF 的 `style_ids` 恒 null（样式只有名字，没有 `w:styleId` 那一格）。"
+        "`caption_styles` 少的正是 `styles_part` 那一格：**只属于 OOXML** —— ODF 的题注样式住在哪个部件"
+        "另有它的账，不在这儿重复一遍部件名",
+        [len(cx), len(co), len(cr),
+         tally([tuple(sorted(one)) for one in list(cx.values()) + list(co.values()) + list(cr.values())]),
+         tally([tuple(sorted(one["books"])) for one in list(cx.values()) + list(co.values())
+                + list(cr.values())]),
+         tally([tuple(sorted(one["caption_styles"])) for one in cx.values()]),
+         tally([tuple(sorted(one["caption_styles"])) for one in co.values()]),
+         tally([tuple(sorted(one["caption_styles"])) for one in cr.values()])],
+        [72, 41, 17,
+         {("available", "books", "cache_missing", "cache_values", "cached_but_unresolved",
+           "caption_styles", "cut", "declarations", "family", "kinds", "listed", "notes", "quoted",
+           "resolves", "resolving_but_no_cache", "rows", "target_books", "target_rows"): 130},
+         {("bookmark_marks", "bookmarks", "sequences", "style_defs", "style_ids", "style_names"): 130},
+         {("declared", "paragraphs_using_them", "rows", "styles_part"): 72},
+         {("declared", "paragraphs_using_them", "rows"): 41},
+         {("declared", "paragraphs_using_them", "rows"): 17}],
+    )
+    check(
+        "72 份 word 件**每一份都交这一格**，可只有 4 份写着这五种域（`target_rows`：68 份 0 条、"
+        "2 份 1 条、2 份 4 条）——「没有交叉引用」与「这一族没有这一层」是两件事，所以零行也整本交。"
+        "`kinds` 的总和恒等于 `target_rows`；SEQ 那一种在 OOXML **判不出成不成立**（没有声明那本书可查），"
+        "所以 72 份的 `resolves.null` 与 `kinds.SEQ` 全对得上，`declarations` 那一格根本不交，"
+        "`notes` 里恒写着那一句解释",
+        [tally([one["available"] for one in cx.values()]),
+         tally([one["target_rows"] for one in cx.values()]),
+         tally([one["books"]["sequences"] for one in cx.values()]),
+         tally([one["declarations"] for one in cx.values()]),
+         tally([sum(one["kinds"].values()) == one["target_rows"] for one in cx.values()]),
+         tally([one["resolves"]["null"] == one["kinds"].get("SEQ", 0) for one in cx.values()]),
+         tally([one["notes"][0] for one in cx.values()])],
+        [{True: 72}, {0: 68, 1: 2, 4: 2}, {None: 72}, {None: 72}, {True: 72}, {True: 72},
+         {"这一族没有序列声明这一层：SEQ 的 resolves 一律 null": 72}],
+    )
+    check(
+        "题注样式那两本各查各的：70 份的 `<w:style w:styleId=\"Caption\">` 两个名字都对上"
+        "（`w:styleId` 是大写 C、`w:name` 是小写 caption，所以 `matched_on` 交两条），72 份全都"
+        "**声明了没人用**（`paragraphs_using_them` 恒 0 —— 题注段用的是生产者摊出来的直接格式）。"
+        "`pnum.docx`、`tbox.docx` 两份一条题注样式都没有，交 `declared` 0 不是缺格。"
+        "样式那三本账（元素数、`w:styleId` 数、`w:name` 数）72 份恒等，164 与 169 只是两家存量不同；"
+        "`bookmarks` 是**名字**那本、`bookmark_marks` 是**元素**那本，名字数永不超过元素数",
+        [tally([one["caption_styles"]["declared"] for one in cx.values()]),
+         tally([one["caption_styles"]["paragraphs_using_them"] for one in cx.values()]),
+         tally([one["caption_styles"]["styles_part"] for one in cx.values()]),
+         tally(["|".join([str(r["style_id"]), str(r["type"]), ",".join(r["matched_on"])])
+                for one in cx.values() for r in one["caption_styles"]["rows"]]),
+         sorted(k for k, v in cx.items() if v["caption_styles"]["declared"] == 0),
+         tally([one["books"]["style_defs"] == one["books"]["style_ids"]
+                == one["books"]["style_names"] for one in cx.values()]),
+         tally([one["books"]["style_defs"] for one in cx.values()]),
+         tally([len(one["books"]["bookmarks"]) <= one["books"]["bookmark_marks"] for one in cx.values()])],
+        [{1: 70, 0: 2}, {0: 72}, {True: 72}, {"Caption|paragraph|styleId,name": 70},
+         ["pnum.docx", "tbox.docx"], {True: 72},
+         {169: 8, 164: 34, 168: 18, 171: 1, 71: 1, 68: 3, 16: 3, 11: 1, 3: 1, 2: 1, 172: 1},
+         {True: 72}],
+    )
+    check(
+        "ODF 那一族多一本**声明**的账，四格都是数出来的：`elements` 是 `text:sequence-decl` 的枚数"
+        "（37 份 5 枚、2 份 6 枚、2 份一枚不写），它与 `books.sequences` 的长度在 41 份里**恒等**；"
+        "`wrappers` 交的是「哪个部件里写了几枚」（恒在 `content.xml`，与 `elements` 同数）。"
+        "LO 每次存 .odt 都把 Drawing/Figure/Illustration/Table/Text 那五条**模板序列**写进来，"
+        "39 份的 `declared_unused` 就是这五个名字 —— 声明了没人用在这一族是常态而不是缺陷；"
+        "`used_without_decl` 41 份全空，`sequence_ref_elements` 也全 0（认字表里没有 `text:sequence-ref`）",
+        [tally([one["available"] for one in co.values()]),
+         tally([one["target_rows"] for one in co.values()]),
+         tally([one["declarations"]["elements"] for one in co.values()]),
+         tally([one["declarations"]["elements"] == len(one["books"]["sequences"]) for one in co.values()]),
+         tally([one["declarations"]["declared_unused"] for one in co.values()]),
+         tally([one["declarations"]["used_without_decl"] for one in co.values()]),
+         tally([one["declarations"]["sequence_ref_elements"] for one in co.values()]),
+         tally([one["declarations"]["sequence_ref_uses"] for one in co.values()]),
+         tally([tuple((r["part"], r["count"]) for r in one["declarations"]["wrappers"])
+                for one in co.values()]),
+         tally([one["books"]["style_ids"] for one in co.values()]),
+         tally([one["books"]["style_defs"] == one["books"]["style_names"] for one in co.values()]),
+         tally([one["notes"] for one in co.values()]),
+         sorted(k for k, v in co.items() if len(v["books"]["sequences"]) == 6),
+         sorted(k for k, v in co.items() if v["caption_styles"]["declared"] == 0)],
+        [{True: 41}, {0: 39, 3: 1, 1: 1}, {5: 37, 6: 2, 0: 2}, {True: 41},
+         {("Drawing", "Figure", "Illustration", "Table", "Text"): 39, (): 2},
+         {(): 41}, {0: 41}, {(): 41},
+         {(("content.xml", 5),): 37, (("content.xml", 6),): 2, (): 2},
+         {None: 41}, {True: 41}, {(): 41},
+         ["fields-mix.odt", "fields.odt"], ["pnum.odt", "tbox-lo.odt", "tbox.odt"]],
+    )
+    check(
+        "题注样式在 ODF 只有一本可查：`style:name` 那本命中（`matched_on` 一条 `name`），"
+        "`style_id` 交 null 而不是 0 —— 这一族没有 id 那一格。38 份命中、3 份没有；"
+        "`styles_part` 这一格在这一族根本不出现（缺键，不是 false）",
+        [tally([tuple([str(r["style_id"]), r["part"], ",".join(r["matched_on"]),
+                       str(r["paragraphs_using_it"])])
+                for r in one["caption_styles"]["rows"]] for one in co.values()),
+         tally(["styles_part" in one["caption_styles"] for one in co.values()])],
+        [{(("None", "styles.xml", "name", "0"),): 38, (): 3}, {False: 41}],
+    )
+    check(
+        "RTF 的 17 份全都有题注样式，而它的 `style_id` 是**样式号**（`\\s` 后面那个数），"
+        "各家自己写的：54 的 11 份、55 的 3 份、24/109/110 各一份 —— 同一个名字在不同文件里号不同，"
+        "所以号只按文件交、不折成 docx 的 `Caption`。`sequences` 与 `style_ids` 两本恒 null"
+        "（这一族既没有序列声明层，样式表也只有号与名），`notes` 那一句与 OOXML 同义但措辞各自写",
+        [tally([one["target_rows"] for one in cr.values()]),
+         tally([one["books"]["sequences"] for one in cr.values()]),
+         tally([one["books"]["style_ids"] for one in cr.values()]),
+         tally([one["caption_styles"]["declared"] for one in cr.values()]),
+         tally([one["caption_styles"]["paragraphs_using_them"] for one in cr.values()]),
+         tally([r["part"] for one in cr.values() for r in one["caption_styles"]["rows"]]),
+         tally([tuple([r["style_id"], r["type"], ",".join(r["matched_on"])])
+                for one in cr.values() for r in one["caption_styles"]["rows"]]),
+         tally([one["notes"][0] for one in cr.values()]),
+         tally([one["resolves"]["null"] == one["kinds"].get("SEQ", 0) for one in cr.values()]),
+         tally([tuple(sorted({o["part"] for o in one["rows"]})) for one in cr.values() if one["rows"]])],
+        [{0: 15, 4: 1, 1: 1}, {None: 17}, {None: 17}, {1: 17}, {0: 17}, {"stylesheet": 17},
+         {(54, "paragraph", "name"): 11, (55, "paragraph", "name"): 3, (24, "paragraph", "name"): 1,
+          (110, "paragraph", "name"): 1, (109, "paragraph", "name"): 1},
+         {"这一族也没有序列声明这一层：SEQ 的 resolves 一律 null": 17}, {True: 17},
+         {("stream",): 2}],
+    )
+    x_written = dict((k, v) for pool in (cx, co, cr) for k, v in pool.items() if v["target_rows"])
+    check(
+        "整个语料只有 8 份写了这五种域（4 份 word、2 份 .odt、2 份 .rtf），合起来 19 条。"
+        "行按 `target` × `resolves` × `book` 摊开看：`REF`/`PAGEREF` 三族都**判得出成不成立**"
+        "（书签那本有名字可查，全 true），`STYLEREF` 两族都 false（点的是样式名那本，"
+        "而 `标题 1` / `标题 1 (user)` 不在库里），`SEQ` 则是 word 与 RTF 交 null、ODF 交 true ——"
+        "同一个「查不到」在两类账里是两回事：一类没有那本书，一类有书而没那个名字",
+        [len(x_written), sorted(x_written), sum(v["target_rows"] for v in x_written.values()),
+         tally([v["family"] for v in x_written.values()]),
+         tally([tuple([one["kind"], one["target"], one["resolves"], one["book"]])
+                for v in x_written.values() for one in v["rows"]]),
+         tally([tuple(sorted(v["resolves"].items())) for v in x_written.values()]),
+         tally([tuple(sorted(v["target_books"].items())) for v in x_written.values()]),
+         tally([tuple(sorted(v["cache_values"].items())) for v in x_written.values()]),
+         tally([tuple(sorted({o["part"] for o in v["rows"]})) for v in x_written.values()])],
+        [8, ["fields-lo.docx", "fields-mix-lo.docx", "fields-mix.docx", "fields-mix.odt",
+             "fields-mix.rtf", "fields.docx", "fields.odt", "fields.rtf"], 19,
+         {"ooxml": 4, "odf": 2, "rtf": 2},
+         {("SEQ", "表", None, "sequence"): 3, ("SEQ", "图", None, "sequence"): 3,
+          ("REF", "_RefMix1", True, "bookmark"): 3, ("PAGEREF", "_RefMix1", True, "bookmark"): 3,
+          ("STYLEREF", "标题 1 (user)", False, "style"): 2, ("STYLEREF", "标题 1", False, "style"): 1,
+          ("sequence", "图", True, "sequence"): 1, ("sequence", "表", True, "sequence"): 1,
+          ("bookmark-ref", "_RefMix1", True, "bookmark"): 2},
+         {(("false", 0), ("null", 1), ("true", 0)): 3,
+          (("false", 1), ("null", 1), ("true", 2)): 3,
+          (("false", 0), ("null", 0), ("true", 3)): 1,
+          (("false", 0), ("null", 0), ("true", 1)): 1},
+         {(("sequence", 1),): 4, (("bookmark", 2), ("sequence", 1), ("style", 1)): 3,
+          (("bookmark", 2), ("sequence", 1)): 1},
+         {(("1", 1),): 4, (("1", 2), ("错误: 引用源未找到", 1)): 1,
+          (("1", 3), ("标题一：给 STYLEREF 用", 1)): 1, (("1", 3),): 1,
+          (("", 1), ("1", 2), ("错误: 引用源未找到", 1)): 1},
+         {("word/document.xml",): 4, ("content.xml",): 2, ("stream",): 2}],
+    )
+    x_docx = cx["fields-mix.docx"]
+    x_lo = cx["fields-mix-lo.docx"]
+    x_rtf = cr["fields-mix.rtf"]
+    check(
+        "同一段稿子两个手：Word 那份与 LibreOffice 重写那份的 `target_rows` 4、`resolves`、`quoted` "
+        "三格**完全一致**（切目标的刀不认生产者），差别全在缓存值那一列 —— "
+        "Word 那份四行都写了结果（`cache_written` 全 true），LO 那份把 REF 的 `w:result` 留空"
+        "（`cached` null 而 `cache_written` false，SEQ/PAGEREF/STYLEREF 照写）；"
+        "于是「判成立却没缓存值」那一格 Word 0、LO 1，「引用不成立却有缓存」两族都 1 —— "
+        "`cached` 为 null 与 `cached` 为空串也是两回事（RTF 那份 REF 写的是空串）。"
+        "样式存量 164 对 169 是两家的账，书签那本两家都只有 `_RefMix1` 一枚",
+        [x_docx["target_rows"], x_docx["resolves"], x_docx["quoted"], x_docx["cache_missing"],
+         x_docx["resolving_but_no_cache"], x_docx["cached_but_unresolved"],
+         [one["kind"] for one in x_docx["rows"]],
+         [one["target"] for one in x_docx["rows"]],
+         [one["resolves"] for one in x_docx["rows"]],
+         [one["target_written_quoted"] for one in x_docx["rows"]],
+         [one["next_token_is_switch"] for one in x_docx["rows"]],
+         [one["target_unterminated"] for one in x_docx["rows"]],
+         [one["cache_written"] for one in x_docx["rows"]],
+         [one["cached"] for one in x_docx["rows"]],
+         sorted(x_docx["cache_values"]),
+         [x_docx["books"]["style_defs"], x_lo["books"]["style_defs"]],
+         [x_docx["books"]["bookmarks"], x_lo["books"]["bookmarks"]],
+         [x_lo["resolving_but_no_cache"], x_lo["cached_but_unresolved"], x_lo["cache_missing"],
+          [one["cached"] for one in x_lo["rows"]], [one["cache_written"] for one in x_lo["rows"]],
+          sorted(x_lo["cache_values"])]],
+        [4, {"true": 2, "false": 1, "null": 1}, {"true": 1, "false": 3, "null": 0}, 0, 0, 1,
+         ["SEQ", "REF", "PAGEREF", "STYLEREF"], ["图", "_RefMix1", "_RefMix1", "标题 1"],
+         [None, True, True, False], [False, False, False, True],
+         [False, False, False, False], [False, False, False, False],
+         [True, True, True, True], ["1", "1", "1", "标题一：给 STYLEREF 用"],
+         ["1", "标题一：给 STYLEREF 用"], [164, 169], [["_RefMix1"], ["_RefMix1"]],
+         [1, 1, 1, ["1", None, "1", "错误: 引用源未找到"], [True, False, True, True],
+          ["1", "错误: 引用源未找到"]]],
+    )
+    check(
+        "ODF 的目标是**属性**不是指令串，所以那一行没有 `instruction` 可切：`target_written_quoted` 交 null"
+        "（引号这一问在这一族不存在），另交 `target_written` 表示属性在不在场。"
+        "`text:sequence` 那一行的目标就是 `text:name`，同时把 `text:formula`（`ooow:图+1`）、"
+        "`text:ref-name`（`ref图0`）、`text:num-format` 与自己的 `own_name` 都分开交 —— "
+        "「这一枚属于哪个序列」与「它指向哪个序列」是两格；"
+        "两枚 `text:bookmark-ref` 指向同一条 `_RefMix1`，只有 `reference-format` 一条是 `number` 一条是 `page`，"
+        "所以「引用了几次」与「引用了谁」不能只报一个数",
+        [[one[k] for k in ("element", "kind", "target", "resolves", "target_written",
+                           "target_written_quoted", "reference_format", "formula", "ref_name",
+                           "own_name", "num_format", "seq_sub_formula", "cached", "cache_written")]
+         for one in co["fields-mix.odt"]["rows"]],
+        [["text:sequence", "sequence", "图", True, True, None, None, "ooow:图+1", "ref图0",
+          "图", "1", None, "1", True],
+         ["text:bookmark-ref", "bookmark-ref", "_RefMix1", True, True, None, "number", None,
+          "_RefMix1", None, None, None, "1", True],
+         ["text:bookmark-ref", "bookmark-ref", "_RefMix1", True, True, None, "page", None,
+          "_RefMix1", None, None, None, "1", True]],
+    )
+    check(
+        "RTF 的指令串解掉转义就是 docx 那一串，可样式号只按文件自己写的交（55 而不是 `Caption`），"
+        "并且 REF 那行是这一族独有的形状：`\\fldrslt` 在场但**里面没字**，"
+        "于是 `cached` 空串、`cache_written` true —— 「写了空结果」与「没写结果」分开记账，"
+        "这一条同时进了 `resolving_but_no_cache` 为 0（引用成立、缓存也在场）",
+        [x_rtf["rows"][0]["instruction"], x_rtf["rows"][1]["instruction"],
+         x_rtf["rows"][2]["instruction"], x_rtf["rows"][3]["instruction"],
+         x_rtf["rows"][1]["cached"], x_rtf["caption_styles"]["rows"][0]["style_id"],
+         [one["resolves"] for one in x_rtf["rows"]],
+         [one["part"] for one in x_rtf["rows"]],
+         x_rtf["resolving_but_no_cache"], x_rtf["cached_but_unresolved"],
+         [[one[k] for k in ("element", "own_name", "formula", "reference_format",
+                            "num_format", "resolves")]
+          for one in co["fields.odt"]["rows"]]],
+        ["SEQ 图 \\* ARABIC", "REF _RefMix1 \\r \\r \\h", "PAGEREF _RefMix1 \\h",
+         'STYLEREF "标题 1 (user)"', "", 55, [None, True, True, False],
+         ["stream", "stream", "stream", "stream"], 1, 1,
+         [["text:sequence", "表", "ooow:表+1", None, "1", True]]],
+    )
+    check(
+        "`bookmarks` 与 `bookmark_marks` 两本账的差在 ODF 最清楚：`fields.odt` 只有「表锚点」一个名字，"
+        "可它由 `text:bookmark` + `text:bookmark-end` 两枚元素写成，所以 marks 2 而 names 1；"
+        "docx / RTF 那两份同一个名字只有一枚 `w:bookmarkStart`，两格同为 1。"
+        "断链的那两份（`bkmks.docx`、`bkmks.odt`）各 5 枚标记、4 个名字 —— 与书签那一族的账对得上",
+        [[k, cx.get(k, co.get(k, cr.get(k)))["books"]["bookmark_marks"],
+          len(cx.get(k, co.get(k, cr.get(k)))["books"]["bookmarks"]),
+          cx.get(k, co.get(k, cr.get(k)))["books"]["bookmarks"]]
+         for k in ("fields.docx", "fields.odt", "fields.rtf", "bkmks.docx", "bkmks.odt",
+                   "fields-mix.odt")],
+        [["fields.docx", 1, 1, ["表锚点"]], ["fields.odt", 2, 1, ["表锚点"]],
+         ["fields.rtf", 1, 1, ["表锚点"]], ["bkmks.docx", 5, 4, ["_GoBack", "口径", "断了", "跨段"]],
+         ["bkmks.odt", 5, 4, ["_GoBack", "口径", "口径 副本 1", "跨段"]],
+         ["fields-mix.odt", 1, 1, ["_RefMix1"]]],
+    )
+    x_cut = dig(lbin("office-doc", fixture("fields-mix.docx"), "--limit", "1"),
+               "structure.cross_refs")
+    check(
+        "截行不截账：`--limit 1` 只砍 `rows`（`listed` 1、`cut` true），四条计数仍按全部行算 —— "
+        "`target_rows` 4、`kinds` 四种各一枚、`cache_values` 两个值、`books.bookmarks` 那本也照全",
+        [x_cut["target_rows"], x_cut["listed"], x_cut["cut"], len(x_cut["rows"]),
+         x_cut["kinds"], sorted(x_cut["cache_values"]), x_cut["books"]["bookmarks"],
+         x_cut["rows"][0]["kind"], [one["kind"] for one in x_docx["rows"]]],
+        [4, 1, True, 1, {"SEQ": 1, "REF": 1, "PAGEREF": 1, "STYLEREF": 1},
+         ["1", "标题一：给 STYLEREF 用"], ["_RefMix1"], "SEQ",
+         ["SEQ", "REF", "PAGEREF", "STYLEREF"]],
+    )
+    check(
+        "反面凭据：这一格只在 office-doc 交，三族都有出口（RTF 那 17 份也交）。"
+        "遗留 .doc 的交叉引用住在 piece 流里的 field 指令，本机没有第二个读者可核对，"
+        "所以那一家连「零条」都不报；.ods / .odp 的题注样式在 office-doc 没有出口 —— "
+        "12 份 .odp 里 10 份各写 28 条 `presentation` 族样式（名字带 Caption 的那批**是母版样式不是题注**，"
+        "另 2 份零条）；把它们算进这一族只会替文件编一本假账，缺键 = 这一族没这一层",
+        [no_theme_key("office-doc", "fields-mix.rtf", "cross_refs"),
+         no_theme_key("office-doc", "tabs.rtf", "cross_refs"),
+         no_theme_key("office-doc", "notes-en.doc", "cross_refs"),
+         no_theme_key("office-sheet", "book.ods", "cross_refs"),
+         no_theme_key("office-slide", "deck.odp", "cross_refs")],
+        [True, True, False, False, False],
+    )
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:

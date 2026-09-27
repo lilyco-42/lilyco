@@ -2366,6 +2366,58 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 
+135. **这一条引用指的是谁、题注序列数到第几：三族各抄一遍域指令，而「能不能解析」要查三本不同的书**（72 份 OOXML 文字包 / 41 份 .odt / 17 份 .rtf 出口）
+    - 形状：三族共有那 18 格（`structure.cross_refs`）交 `{family, available, target_rows, listed, cut,
+      books{bookmarks, bookmark_marks, style_defs, style_ids, style_names, sequences}, kinds, target_books,
+      resolves{true,false,null}, quoted{true,false,null}, resolving_but_no_cache, cached_but_unresolved,
+      cache_missing, cache_values, caption_styles, declarations, notes, rows}`；`caption_styles` 多的那一格
+      `styles_part` **只属于 OOXML**，`declarations` 那一整块**只属于 ODF**。差别不在键名而在**哪几本填得出东西**：
+      OOXML 与 RTF 的 `books.sequences` 恒 null（这一族没有序列声明那一层），ODF 的 `books.style_ids` 恒 null
+      （样式只有名字，没有 `w:styleId` 那一格）。
+    - 行的来源是**已经交过的那本域账**（`field_ledger`）：这里只把「有目标的那几条」挑出来，不重读文件、
+      不替文件补一条指令。所以「没有交叉引用」与「这一族没有这一层」是两件事，零行也整本交。
+    - 72 份 word 件每一份都交这一格，可只有 4 份写着这五种域（`target_rows`：68 份 0 条、2 份 1 条、2 份 4 条），
+      而 `kinds` 的总和在每一份都恒等于 `target_rows`。SEQ 在 OOXML 判不出成不成立，所以 72 份的
+      `resolves.null` 与 `kinds.SEQ` 全对得上，`notes` 里恒写着那一句解释——把它当成 false 就等于替文件编一条「引用坏了」。
+    - 题注样式两本各查各的：70 份的 `<w:style w:styleId="Caption">` 两个名字都对上（`w:styleId` 大写 C、
+      `w:name` 小写 caption，故 `matched_on` 交两条），`pnum.docx` 与 `tbox.docx` 两条都没有而交 `declared` 0
+      （不是缺格）；72 份的 `paragraphs_using_them` **恒 0**——题注段用的是生产者摊出来的直接格式，
+      声明了没人用在这一族是常态。样式那三本账（元素数 / `w:styleId` 数 / `w:name` 数）72 份恒等，
+      164 与 169 只是 Word 与 LibreOffice 两家存量不同。
+    - ODF 多一本**声明**的账，四格都是数出来的：`elements` 是 `text:sequence-decl` 的枚数（37 份 5 枚、2 份 6 枚、
+      2 份一枚不写），与 `books.sequences` 的长度在 41 份里**恒等**；`wrappers` 说「哪个部件写了几枚」（恒在
+      `content.xml`）。LO 每次存 .odt 都把 Drawing/Figure/Illustration/Table/Text 那五条模板序列写进来，
+      39 份的 `declared_unused` 就是这五个名字。题注样式在 ODF 只有一本可查：38 份命中且 `matched_on` 只一条
+      `name`、`style_id` 交 null 而不是 0。
+    - RTF 的 17 份全有题注样式，而它的 `style_id` 是**样式号**（`\s` 后面那个数），各家自己写的：
+      54 的 11 份、55 的 3 份、24 / 109 / 110 各一份——同一个名字在不同文件里号不同，所以号只按文件交、
+      不折成 docx 的 `Caption`。目标解自 `\fldinst` 那一群，指令串消掉转义就是 docx 那一串。
+    - 整个语料只有 8 份写了这五种域（4 份 word、2 份 .odt、2 份 .rtf），合起来 19 条。按 `target` × `resolves` ×
+      `book` 摊开：`REF` / `PAGEREF` 三族都判得出成不成立（书签那本有名字可查，全 true），`STYLEREF` 两族都 false
+      （点的是样式名那本，而 `标题 1` / `标题 1 (user)` 不在库里），`SEQ` 则是 word 与 RTF 交 null、ODF 交 true——
+      同一个「查不到」在两类账里是两回事：一类没有那本书，一类有书而没那个名字。
+    - 同一段稿子两个手：`fields-mix.docx` 与 LibreOffice 重写那份的 `target_rows` 4、`resolves`、`quoted` 三格
+      **完全一致**（切目标的刀不认生产者），差别全在缓存值那一列——Word 那份四行都写了结果（`cache_written` 全 true），
+      LO 那份把 REF 的 `w:result` 留空（`cached` null 而 `cache_written` false），于是 `resolving_but_no_cache`
+      Word 0 / LO 1。RTF 的 REF 行是这一族独有的形状：`\fldrslt` 在场但里面没字，故 `cached` 空串而
+      `cache_written` true——「写了空结果」与「没写结果」分开记账。
+    - ODF 的目标是**属性**不是指令串，所以那一行没有 `instruction` 可切：`target_written_quoted` 交 null
+      （引号这一问在这一族不存在），另交 `target_written` 说属性在不在场。`text:sequence` 那一行把
+      `text:formula`（这一族写 `ooow:图+1`，对位 word 指令里那句 `\* ARABIC`）、`text:ref-name`、`text:num-format`
+      与自己的 `text:name` 分开交——「这一枚属于哪个序列」与「它指向哪个序列」是两格。
+    - `bookmarks` 与 `bookmark_marks` 两本的差在 ODF 最清楚：`fields.odt` 只有「表锚点」一个名字，可它由
+      `text:bookmark` + `text:bookmark-end` 两枚元素写成，故 marks 2 而 names 1；docx / RTF 同一个名字只有一枚
+      起始标记，两格同为 1。断链那两份（`bkmks.docx`、`bkmks.odt`）各 5 枚标记、4 个名字，与书签那一族的账对得上。
+    - 截行不截账：`--limit 1` 只砍 `rows`（`listed` 1、`cut` true），四条计数仍按整本算——`target_rows` 4、
+      `kinds` 四种各一枚、`cache_values` 两个值、`books.bookmarks` 那本也照全。
+    - 反面凭据：这一格只在 office-doc 交，三族都有出口。遗留 .doc 的交叉引用住在 piece 流里的 field 指令，
+      本机没有第二个读者可核对，所以那一家连「零条」都不报；.ods / .odp 在 office-doc 没有这一格——12 份 .odp 里
+      10 份各写 28 条 `presentation` 族样式（名字带 Caption 的那批**是母版样式不是题注**），另 2 份零条，
+      把它们算进这一族只会替文件编一本假账，缺键 = 这一族没这一层。
+    - 第二读者是 `lyco_cross_refs.py` 的 `docx_cross_refs()` / `odf_cross_refs()` / `rtf_cross_refs()`
+      （三处出口与 Rust 的调用点对称）；probe 的 3bo 把**每一份 .docx / .docm / .odt / .rtf** 的整本逐键与它对
+      （130 份），再钉上面那十几条数，最后钉 .ods / .odp / .doc 这三家这个键**不在**。
+
 134. **这份稿子的默认字与默认段：OOXML 那一块可能写两遍而 Normal 会再抄一遍，ODF 摊成一族一条且三格各一本账**（72 份 OOXML 文字包 / 41 份 .odt 出口，另 26 份 ODF 只量不出口）
     - 形状：OOXML 那一本（`structure.doc_defaults`）交 `{family, available, styles_part, styles_effects_part,
       parts_with_block, blocks_total, block_shapes, children_total, rpr_names, ppr_names, rpr_rows, ppr_rows,
