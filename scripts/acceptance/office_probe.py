@@ -11658,6 +11658,156 @@ def main() -> int:
         [False, False, False, False, True, True, True, True],
     )
 
+    # ── 3ca) 内容控件：一枚 `w:sdt` 说「这里可以填」，是哪一种看 `sdtPr` 写了什么 ──────
+    print("=== 3ca) content_controls：类型元素、三个名、锁与绑定、正文两个口径 ===")
+    for name in sorted(one.name for one in list(FIXTURES.glob("*.docx")) + list(FIXTURES.glob("*.docm"))):
+        check("%s 的内容控件账与读者一致（逐枚一行，序按文档序）" % name,
+              dig(lbin("office-doc", fixture(name), "--limit", "400"),
+                  "structure.content_controls"),
+              files[name]["ooxml"]["content_controls"])
+    check(
+        "`sdt.docx` 十枚手写（含一枚套娃）：类型元素五样、三个名各写各的、锁与绑定与占位都在——共 11 枚、住了 1 个部件、类型词表撞上几枚的分布 {'text': 2, 'richText': 3, 'date': 1, 'dropDownList': 1, '(没有类型元素)': 3, 'docPartObj': 1}、没有类型元素的 3 枚、带 sdtEndPr 的 2 枚、带 dataBinding 的 1 枚、套娃那枚 depth 1 1、第一枚的孩子序 ['alias', 'tag', 'id', 'text', 'placeholder']、下拉那枚的两个候选 ['甲', '乙']、绑定那枚的第四属性 '66666666-7777-8888-9999-000000000000'、目录那一块的 gallery {'Table of Contents': 1}、正文两个口径 11 对 14、表格里那几个格也算 2 格",
+        [dig(lbin("office-doc", fixture('sdt.docx')), 'structure.content_controls.controls'),
+         dig(lbin("office-doc", fixture('sdt.docx')), 'structure.content_controls.types'),
+         dig(lbin("office-doc", fixture('sdt.docx')), 'structure.content_controls.type_none'),
+         dig(lbin("office-doc", fixture('sdt.docx')), 'structure.content_controls.rows[7].depth'),
+         dig(lbin("office-doc", fixture('sdt.docx')), 'structure.content_controls.rows[0].pr_children'),
+         dig(lbin("office-doc", fixture('sdt.docx')), 'structure.content_controls.rows[3].list_values'),
+         dig(lbin("office-doc", fixture('sdt.docx')), 'structure.content_controls.rows[4].data_binding.storeSchemaID'),
+         dig(lbin("office-doc", fixture('sdt.docx')), 'structure.content_controls.rows[5].gallery'),
+         dig(lbin("office-doc", fixture('sdt.docx')), 'structure.content_controls.paras_direct'),
+         dig(lbin("office-doc", fixture('sdt.docx')), 'structure.content_controls.cells')],
+        [11,
+         {'text': 2, 'richText': 3, 'date': 1, 'dropDownList': 1, '(没有类型元素)': 3, 'docPartObj': 1},
+         3,
+         1,
+         ['alias', 'tag', 'id', 'text', 'placeholder'],
+         ['甲', '乙'],
+         '66666666-7777-8888-9999-000000000000',
+         'Table of Contents',
+         11,
+         2],
+    )
+    check(
+        "LibreOffice 重写同一份：空正文那枚整枚不见、`sdtEndPr` 全丢、`richText` 降级成 `text`——共 10 枚、带 sdtEndPr 的 0 枚、类型分布 {'text': 6, 'date': 1, 'dropDownList': 1, 'docPartObj': 1, '(没有类型元素)': 1}、下拉那枚的 alias 被改写成空串（不是没写，所以 `alias_present` 仍 true）''、同一枚的 id 于是没了 None、日期那枚把文件写的 `dateFormat`/`calendarType` 换成它自己算的一格 {'fullDate': '2026-09-27T00:00:00Z'}、绑定那枚的孩子换了序 ['alias', 'tag', 'id', 'lock', 'showingPlcHdr', 'dataBinding', 'text'] 而它自己的四格属性只剩三格（`storeSchemaID` 没了）{'prefixMappings': 'w: http://x', 'xpath': '/w:document[1]/w:body[2]', 'storeItemID': '{11111111-2222-3333-4444-555555555555}'}、那张表**还在整件里**（`structure.tables` 1）却**已经不在这枚控件里**（控件那一层 `tables_total` 0）、段被摊成 `w:r`：两个口径都是 3 而 runs 23、字 69、套娃那枚外层失去了类型元素 None",
+        [dig(lbin("office-doc", fixture('sdt-lo.docx')), 'structure.content_controls.controls'),
+         dig(lbin("office-doc", fixture('sdt-lo.docx')), 'structure.content_controls.endpr_present'),
+         dig(lbin("office-doc", fixture('sdt-lo.docx')), 'structure.content_controls.types'),
+         dig(lbin("office-doc", fixture('sdt-lo.docx')), 'structure.content_controls.rows[3].alias'),
+         dig(lbin("office-doc", fixture('sdt-lo.docx')), 'structure.content_controls.rows[3].id'),
+         dig(lbin("office-doc", fixture('sdt-lo.docx')), 'structure.content_controls.rows[2].date'),
+         dig(lbin("office-doc", fixture('sdt-lo.docx')), 'structure.content_controls.rows[4].pr_children'),
+         dig(lbin("office-doc", fixture('sdt-lo.docx')), 'structure.content_controls.rows[4].data_binding'),
+         dig(lbin("office-doc", fixture('sdt-lo.docx')), 'structure.content_controls.tables_total'),
+         dig(lbin("office-doc", fixture('sdt-lo.docx')), 'structure.tables'),
+         dig(lbin("office-doc", fixture('sdt-lo.docx')), 'structure.content_controls.paras_direct'),
+         dig(lbin("office-doc", fixture('sdt-lo.docx')), 'structure.content_controls.rows[6].type_seen')],
+        [10,
+         0,
+         {'text': 6, 'date': 1, 'dropDownList': 1, 'docPartObj': 1, '(没有类型元素)': 1},
+         '',
+         None,
+         {'fullDate': '2026-09-27T00:00:00Z'},
+         ['alias', 'tag', 'id', 'lock', 'showingPlcHdr', 'dataBinding', 'text'],
+         {'prefixMappings': 'w: http://x', 'xpath': '/w:document[1]/w:body[2]', 'storeItemID': '{11111111-2222-3333-4444-555555555555}'},
+         0,
+         1,
+         3,
+         None],
+    )
+    check(
+        "截行不截账：`--limit 3` 只砍 `rows`（`listed` 3、`cut` true），那十六本合计一个都不动——列了几枚 3、砍没砍 True、合计仍按全部 11 枚、段的两个口径 11 对 14、交出来的第三行 'date'",
+        [dig(lbin("office-doc", fixture('sdt.docx'), '--limit', '3'), 'structure.content_controls.listed'),
+         dig(lbin("office-doc", fixture('sdt.docx'), '--limit', '3'), 'structure.content_controls.cut'),
+         dig(lbin("office-doc", fixture('sdt.docx'), '--limit', '3'), 'structure.content_controls.controls'),
+         dig(lbin("office-doc", fixture('sdt.docx'), '--limit', '3'), 'structure.content_controls.paras_total'),
+         dig(lbin("office-doc", fixture('sdt.docx'), '--limit', '3'), 'structure.content_controls.rows[2].type_seen')],
+        [3,
+         True,
+         11,
+         14,
+         'date'],
+    )
+    check(
+        "模板里那块目录本身就是一枚控件（`w:docPartObj` + gallery），而「有没有目录」那本账另有其一——共 1 枚、类型分布 {'docPartObj': 1}、gallery {'Table of Contents': 1}",
+        [dig(lbin("office-doc", fixture('toc.docx')), 'structure.content_controls.controls'),
+         dig(lbin("office-doc", fixture('toc.docx')), 'structure.content_controls.types'),
+         dig(lbin("office-doc", fixture('toc.docx')), 'structure.content_controls.galleries')],
+        [1,
+         {'docPartObj': 1},
+         {'Table of Contents': 1}],
+    )
+    check(
+        "一份没有控件的件：这一格仍在（`available` true），只是十六本合计都是零 —— 「没有」与「没读」两件事——控件 0 枚、部件 0 个、可用 True",
+        [dig(lbin("office-doc", fixture('notes.docx')), 'structure.content_controls.controls'),
+         dig(lbin("office-doc", fixture('notes.docx')), 'structure.content_controls.parts_with_controls'),
+         dig(lbin("office-doc", fixture('notes.docx')), 'structure.content_controls.available')],
+        [0,
+         0,
+         True],
+    )
+    def _ctl(name):
+        had = files.get(name) or {}
+        one = had.get("ooxml")
+        return one["content_controls"] if isinstance(one, dict) and "content_controls" in one else None
+
+    ctl = dict((one, had) for one, _raw in files.items() if one.endswith((".docx", ".docm"))
+               for had in [_ctl(one)] if had)
+    check(
+        "整库摊开（自产件）：份 docx/docm 90、带控件的份数 6、控件枚数之和 25、部件数之和 6、套娃枚数 2、没写 sdtPr 的枚数 1、没有类型元素的枚数 5、带 sdtEndPr 的枚数 2、带 dataBinding 的枚数 4、正文两个口径 20 对 23、字数之和 180",
+        [len(ctl),
+         sum(1 for one in ctl.values() if one["controls"] > 0),
+         sum(one["controls"] for one in ctl.values()),
+         sum(one["parts_with_controls"] for one in ctl.values()),
+         sum(one["nested"] for one in ctl.values()),
+         sum(one["pr_missing"] for one in ctl.values()),
+         sum(one["type_none"] for one in ctl.values()),
+         sum(one["endpr_present"] for one in ctl.values()),
+         sum(one["data_binding"] for one in ctl.values()),
+         "%d 对 %d" % (sum(one["paras_direct"] for one in ctl.values()), sum(one["paras_total"] for one in ctl.values())),
+         sum(one["chars"] for one in ctl.values())],
+        [90,
+         6,
+         25,
+         6,
+         2,
+         1,
+         5,
+         2,
+         4,
+         '20 对 23',
+         180],
+    )
+    check(
+        "反面凭据：这一格只住 OOXML 的文字那一族。ODF 的标准那一层没有这个名字（转出去那一份 "
+        "`<form:` 零枚），RTF 与遗留 .doc 没有包结构，表与放映那三个出口更没有",
+        [no_theme_key("office-doc", "notes.odt", "content_controls"),
+         no_theme_key("office-doc", "notes.rtf", "content_controls"),
+         no_theme_key("office-doc", "notes.doc", "content_controls"),
+         no_theme_key("office-sheet", "book.xlsx", "content_controls"),
+         no_theme_key("office-slide", "deck.pptx", "content_controls"),
+         no_theme_key("office-doc", "sdt.docx", "content_controls"),
+         no_theme_key("office-doc", "sdt.odt", "content_controls"),
+         no_theme_key("office-doc", "sdt-lo.docx", "content_controls")],
+        [False, False, False, False, False, True, False, True],
+    )
+    with zipfile.ZipFile(fixture("sdt.odt")) as _box:
+        _odt = _box.read("content.xml").decode("utf-8", "replace")
+    check(
+        "但那一句 False 要说准：ODF 标准没有这一层，而 LibreOffice 把它写进了自己的 `loext:` "
+        "扩展命名空间（这一转留着 6 枚 `loext:content-control`、一枚 `loext:lock` 照抄 "
+        "`sdtContentLocked`、控件里的字也还在）—— 所以缺的是**我们的 odt 读者不读 loext**，"
+        "不是「转出去这一层就没了」",
+        [_odt.count("<form:"),
+         _odt.count("<loext:content-control"),
+         _odt.count('loext:lock="sdtContentLocked"'),
+         "绑定来的字" in _odt],
+        [0,
+         6,
+         1,
+         True],
+    )
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:

@@ -41,6 +41,7 @@ mod cell_merges;
 mod cfb;
 mod comment_threads;
 mod comments;
+mod content_controls;
 mod cross_refs;
 mod custom_xml;
 mod doc_defaults;

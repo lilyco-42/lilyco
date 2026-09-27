@@ -5639,6 +5639,142 @@ def odf_vertical_align(parts, limit: int = 400) -> dict:
 def holder_of(mine):
     return (mine or {}).get("holder")
 
+# ── 内容控件：一枚 `w:sdt` 说「这里是可以填的一块」，是哪一种要看它自己写了什么 ──────
+#
+# 只住 OOXML 的文字那一族（Word 的内容控件），所以这一格只有 office-doc 的 docx 支交。
+SDT_TYPES = ("text", "richText", "plainText", "date", "picture", "dropDownList", "comboBox",
+             "gallery", "docPartObj", "formula", "cite", "blockList", "smartTag",
+             "repeatingSection")
+
+
+def sdt_kid(node, want: str):
+    """那一枚直接孩子（没有就 None）—— 只认局部名，与前几族同一口径"""
+    if node is None:
+        return None
+    for kid in node:
+        if xml_local(kid.tag) != "#text" and xml_local(kid.tag) == want:
+            return kid
+    return None
+
+
+def sdt_attrs(node) -> dict:
+    return {} if node is None else {xml_local(key): value for key, value in node.attrib.items()}
+
+
+def sdt_kids(node) -> list:
+    return [] if node is None else [one for one in node if xml_local(one.tag) != "#text"]
+
+
+def sdt_row(one, name: str, index: int, depth: int) -> dict:
+    """一枚 `w:sdt` → 一行：`sdtPr` 写了哪几样 + 正文那一层两个口径的数"""
+    pr = sdt_kid(one, "sdtPr")
+    kids = sdt_kids(pr)
+    written = [xml_local(kid.tag) for kid in kids]
+    hit = [one2 for one2 in written if one2 in SDT_TYPES]
+    row = {"part": name, "index": index, "depth": depth, "pr_present": pr is not None,
+           "pr_children": written, "type_seen": hit[0] if hit else None,
+           "type_count": len(hit)}
+    for key in ("alias", "tag", "id", "lock", "placeholder"):
+        had = sdt_kid(pr, key)
+        row[key] = None if had is None else sdt_attrs(had).get("val")
+        row[key + "_present"] = had is not None
+    row["showing_plc_hdr"] = sdt_kid(pr, "showingPlcHdr") is not None
+    row["data_binding"] = None if sdt_kid(pr, "dataBinding") is None else sdt_attrs(
+        sdt_kid(pr, "dataBinding"))
+    row["date"] = None if sdt_kid(pr, "date") is None else sdt_attrs(sdt_kid(pr, "date"))
+    holder = sdt_kid(pr, "dropDownList") or sdt_kid(pr, "comboBox")
+    items = [one2 for one2 in sdt_kids(holder) if xml_local(one2.tag) == "listItem"]
+    row["list_kind"] = None if holder is None else xml_local(holder.tag)
+    row["list_items"] = len(items)
+    row["list_values"] = [sdt_attrs(one2).get("value") for one2 in items]
+    obj = sdt_kid(pr, "docPartObj")
+    row["doc_part_obj"] = obj is not None
+    row["gallery"] = None if obj is None else sdt_attrs(
+        sdt_kid(obj, "docPartGallery")).get("val")
+    row["endpr_present"] = sdt_kid(one, "sdtEndPr") is not None
+    body = sdt_kid(one, "sdtContent")
+    direct = sdt_kids(body)
+    dn = [xml_local(kid.tag) for kid in direct]
+    row["content_present"] = body is not None
+    row["content_children"] = dn
+    row["paras_direct"] = dn.count("p")
+    row["paras_total"] = sum(1 for kid in ([] if body is None else body.iter())
+                             if xml_local(kid.tag) == "p")
+    row["tables_direct"] = dn.count("tbl")
+    row["tables_total"] = sum(1 for kid in ([] if body is None else body.iter())
+                              if xml_local(kid.tag) == "tbl")
+    row["cells"] = sum(1 for kid in ([] if body is None else body.iter())
+                       if xml_local(kid.tag) == "tc")
+    row["runs"] = sum(1 for kid in ([] if body is None else body.iter())
+                      if xml_local(kid.tag) == "r")
+    row["chars"] = 0 if body is None else sum(
+        len(x.text or "") for x in body.iter() if xml_local(x.tag) == "t")
+    return row
+
+
+def docx_content_controls(path: Path, limit: int = 400) -> dict:
+    """Word 的内容控件账：`sdtPr` 那几样、是哪一种、正文那一层有几段几张表"""
+    with zipfile.ZipFile(path) as box:
+        names = sorted(one.filename for one in box.infolist()
+                       if one.filename.startswith("word/") and one.filename.endswith(".xml")
+                       and not one.filename.endswith(".rels"))
+        docs = []
+        for name in names:
+            root = _mar_root(box.read(name))
+            if root is None:
+                continue
+            if any(xml_local(one.tag) == "sdt" for one in root.iter()):
+                docs.append((name, root))
+    rows = []
+    children = {}
+    types = {}
+    galleries = {}
+    locks = {}
+    totals = {"controls": 0, "nested": 0, "pr_missing": 0, "pr_empty": 0, "type_none": 0, "endpr_present": 0,
+              "content_present": 0, "data_binding": 0, "list_items": 0, "paras_direct": 0,
+              "paras_total": 0, "tables_direct": 0, "tables_total": 0, "cells": 0, "runs": 0,
+              "chars": 0}
+    for name, root in docs:
+        parents = {id(one): parent for parent in root.iter() for one in parent}
+        found = [one for one in root.iter() if xml_local(one.tag) == "sdt"]
+        for one in found:
+            depth = 0
+            cur = parents.get(id(one))
+            while cur is not None:
+                depth += xml_local(cur.tag) == "sdt"
+                cur = parents.get(id(cur))
+            row = sdt_row(one, name, 0, depth)
+            controls_done = totals.get("controls", 0) + 1
+            totals["controls"] = controls_done
+            row["index"] = controls_done - 1
+            totals["nested"] += depth > 0
+            totals["pr_missing"] += not row["pr_present"]
+            totals["pr_empty"] += row["pr_present"] and not row["pr_children"]
+            totals["type_none"] += row["type_seen"] is None
+            totals["endpr_present"] += row["endpr_present"]
+            totals["content_present"] += row["content_present"]
+            totals["data_binding"] += row["data_binding"] is not None
+            totals["list_items"] += row["list_items"]
+            for key in ("paras_direct", "paras_total", "tables_direct", "tables_total",
+                        "cells", "runs", "chars"):
+                totals[key] += row[key]
+            for one2 in row["pr_children"]:
+                children[one2] = children.get(one2, 0) + 1
+            got = row["type_seen"] if row["type_seen"] is not None else "(没有类型元素)"
+            types[got] = types.get(got, 0) + 1
+            if row["gallery"]:
+                galleries[row["gallery"]] = galleries.get(row["gallery"], 0) + 1
+            if row["lock_present"]:
+                key = row["lock"] if row["lock"] is not None else "(没写 val)"
+                locks[key] = locks.get(key, 0) + 1
+            if len(rows) < limit:
+                rows.append(row)
+    out = {"family": "ooxml", "available": True, "parts_with_controls": len(docs)}
+    out.update(totals)
+    out.update({"children": children, "types": types, "galleries": galleries,
+                "locks": locks, "rows": rows, "listed": len(rows),
+                "cut": totals.get("controls", 0) > len(rows)})
+    return out
 
 # ── 这份稿子有多少字：生产者自报的那份与正文实算的那份并排 ──────────────────────
 #
@@ -13652,6 +13788,7 @@ def facts(path: Path) -> dict:
             out["ooxml"]["cell_margins"] = docx_cell_margins(path)
             out["ooxml"]["table_borders"] = docx_table_borders(path)
             out["ooxml"]["vertical_align"] = docx_vertical_align(path)
+            out["ooxml"]["content_controls"] = docx_content_controls(path)
             # 表头重复那份账（行上的一个无值元素）
             out["ooxml"]["table_headers"] = docx_repeat_headers(path)
             # 制表位：定义在段上，而段里的制表字符是另一本账
