@@ -2670,6 +2670,85 @@ def write_stats_pptx(path: Path) -> None:
     ):
         patch_part(path, {"docProps/app.xml": (anchor, replacement)})
 
+def _sdt(alias: str = "", tag: str = "", pid: str = "", props: str = "", content: str = "",
+         endpr: bool = False) -> str:
+    """按 ECMA 手写一枚 `w:sdt`：`sdtPr` 里那枚「类型元素」就是「它是哪一种控件」
+
+    `props` 是调用方给的原文（这一族七种形状各不同，套模板反而看不清），`endpr` 决定
+    要不要写那枚 `w:sdtEndPr`（真件里 Word 自己写的四枚**全都带**它，见 README 事实 147）。
+    """
+    head = ""
+    if alias:
+        head += '<w:alias w:val="%s"/>' % alias
+    if tag:
+        head += '<w:tag w:val="%s"/>' % tag
+    if pid:
+        head += '<w:id w:val="%s"/>' % pid
+    tail = "<w:sdtEndPr/>" if endpr else ""
+    return ('<w:sdt xmlns:w="%s"><w:sdtPr>%s%s</w:sdtPr>%s<w:sdtContent>%s</w:sdtContent>'
+            "</w:sdt>" % (W_NS, head, props, tail, content))
+
+
+def _sdt_para(text: str) -> str:
+    return "<w:p><w:r><w:t>%s</w:t></w:r></w:p>" % text
+
+
+def write_sdt_docx(path: Path) -> None:
+    """内容控件那一份账：一枚 `w:sdt` 里「哪一种控件」是 `w:sdtPr` 的最后一个孩子说的
+
+    python-docx 不写这一族（它的模板只带目录那一块，那块是 `w:docPartObj` + `w:gallery`），
+    所以七种形状全部按 ECMA 手写：纯文本（`w:text`）、富文本（`w:richText`）、日期（`w:date`
+    带两属性）、下拉（`w:dropDownList` 带 `w:listItem`）、绑定 XML（`w:dataBinding` 四属性）
+    加锁（`w:lock`）加占位（`w:showingPlcHdr`）、目录那一块（`w:docPartObj`）带一张表、
+    套娃（`sdtContent` 里再一枚），最后两种「`w:sdtPr` 空着」与「整层没写」。
+    """
+    from docx import Document
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    doc.add_paragraph("这一份是内容控件的样板")
+    body = doc.element.body
+    sect = body.find(qn("w:sectPr"))
+    pieces = [
+        _sdt(alias="纯文本控件", tag="plain1", pid="1001", props='<w:text/><w:placeholder w:val="点我"/>',
+             content=_sdt_para("纯文本里已经填好的字")),
+        _sdt(alias="富文本控件", pid="1002", props="<w:richText/>",
+             content=_sdt_para("第一段") + _sdt_para("第二段")),
+        _sdt(alias="日期控件", pid="1003",
+             props='<w:date w:dateFormat="yyyy年MM月" w:calendarType="chineseLunar"/>',
+             content=_sdt_para("2026-09-27")),
+        _sdt(alias="下拉控件", pid="1004",
+             props=('<w:dropDownList><w:listItem w:value="甲" w:displayText="甲选项"/>'
+                    '<w:listItem w:value="乙" w:displayText="乙选项"/></w:dropDownList>'),
+             content=_sdt_para("甲")),
+        _sdt(alias="绑定控件", tag="bound", pid="1005",
+             props=('<w:dataBinding w:prefixMappings="w: http://x" w:xpath="/w:document[1]/w:body[2]"'
+                    ' w:storeItemID="{11111111-2222-3333-4444-555555555555}"'
+                    ' w:storeSchemaID="66666666-7777-8888-9999-000000000000"/>'
+                    '<w:lock w:val="sdtContentLocked"/><w:showingPlcHdr/>'),
+             content=_sdt_para("绑定来的字")),
+        _sdt(alias="目录那一块", pid="1006",
+             props=('<w:docPartObj><w:docPartGallery w:val="Table of Contents"/>'
+                    '<w:docPartUnique/></w:docPartObj>'), endpr=True,
+             content=('<w:p><w:r><w:t>目录标题</w:t></w:r></w:p>'
+                      '<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr>'
+                      '<w:tblGrid><w:gridCol w:w="100"/><w:gridCol w:w="100"/></w:tblGrid>'
+                      '<w:tr><w:tc><w:tcPr><w:tcW w:w="100" w:type="dxa"/></w:tcPr>'
+                      '<w:p><w:r><w:t>表里第一格</w:t></w:r></w:p></w:tc>'
+                      '<w:tc><w:tcPr><w:tcW w:w="100" w:type="dxa"/></w:tcPr>'
+                      '<w:p><w:r><w:t>表里第二格</w:t></w:r></w:p></w:tc></w:tr></w:tbl>')),
+        _sdt(alias="套娃外层", pid="1007", props="<w:richText/>", endpr=True,
+             content=_sdt_para("外层自己的字")
+                     + _sdt(alias="套娃内层", pid="1008", props="<w:text/>",
+                             content=_sdt_para("内层的字"))),
+        _sdt(pid="1009", content=_sdt_para("sdtPr 里什么都没写")),
+        '<w:sdt xmlns:w="%s"><w:sdtContent>%s</w:sdtContent></w:sdt>' % (W_NS, _sdt_para("整层没写 sdtPr")),
+        _sdt(alias="空正文", pid="1010", props="<w:richText/>"),
+    ]
+    for one in pieces:
+        sect.addprevious(parse_xml(one))
+    doc.save(path)
 
 def _cell_mar(holder, element: str, dirs: list) -> None:
     """往 `w:tblPr` 或 `w:tcPr` 上挂一枚 `w:tblCellMar` / `w:tcMar`（方向按给的序写）
@@ -5492,6 +5571,21 @@ def main() -> int:
         shutil.copyfile(made_stats, OUT / "stats-lo.pptx")
     else:
         print("⚠️  没拿到 stats-lo.pptx（pptx → pptx 那一转）")
+    # 内容控件那一份账：python-docx 打底 + 按 ECMA 手写十枚 sdt，LibreOffice 重写一份、转 odt 一份
+    sdt = OUT / "sdt.docx"
+    write_sdt_docx(sdt)
+    convert(exe, sdt, "odt", SCRATCH)
+    if (SCRATCH / "sdt.odt").exists():
+        shutil.copyfile(SCRATCH / "sdt.odt", OUT / "sdt.odt")
+    else:
+        print("⚠️  没拿到 sdt.odt")
+    convert(exe, sdt, "docx", SCRATCH / "sdt-back")
+    made_sdt = SCRATCH / "sdt-back" / "sdt.docx"
+    if made_sdt.exists():
+        shutil.copyfile(made_sdt, OUT / "sdt-lo.docx")
+    else:
+        print("⚠️  没拿到 sdt-lo.docx")
+
     # 打印区域那三份：openpyxl 写 xlsx，同格式重写一份（引号整层没了）、再转一份 ods
     area = OUT / "print-area.xlsx"
     write_print_area_xlsx(area)
