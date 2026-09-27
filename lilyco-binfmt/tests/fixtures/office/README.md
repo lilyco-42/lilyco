@@ -186,6 +186,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `locked-sheet-lo.xlsx` | LibreOffice（从 `locked-sheet.xlsx`） | 同一家族的另一种拼法：`sheet="true" formatCells="false"`、等于默认的开关省掉，而 **`workbookProtection` 被写成了空的**（结构锁丢了） |
 | `locked-sheet.ods` | LibreOffice（从 `locked-sheet.xlsx`） | ODF 的表保护是 `table:table` 身上的属性：`table:protected="true"` + `table:protection-key` + 摘要算法那条 URI |
 | `locked-second.xlsx` | openpyxl 的 `book.xlsx` + 手注入（锁在**第二张**表） | 与 `locked-sheet.xlsx` 是一组对照，唯一的差别是锁放在第几张表上 |
+| `cell-locks.xlsx` | openpyxl 打底 + `zipfile` 按 ECMA 手写五枚 `protection` | 单元格样式自己那两枚锁定位的形状都摆在一份里：`cellStyleXfs` 一枚**空的** `<protection/>`、`cellXfs` 四枚各一样（`locked="1" hidden="0"` 的另一种拼法、`locked="true" hidden="true"`、`locked=""` 写了名而值是空串、多一枚本层没人写过的 `lockRule="all"`），`dxfs` 那本在场而**一枚都不写** —— 见事实 151 |
+| `cell-locks-lo.xlsx` | LibreOffice（`cell-locks.xlsx` → .xlsx） | 同一份重写一遍把这一层**补齐**：`cellXfs` 八枚全写（原来只有四枚）、拼法全换成 `true` / `false`（`1` 与 `0` 两枚穿过转写就不在）、空元素与 `lockRule` 整个不见 —— 见事实 151 |
 | `locked-sheet.xls` | LibreOffice（从 `locked-sheet.xlsx`） | BIFF8 的表级保护：`0x0012` + `0x0013` + `0x00DD` 三条，写在**被锁那张表自己的子流**里 |
 | `locked-second.xls` | LibreOffice（从 `locked-second.xlsx`） | 对照的另一半：锁挪到第二张，这三条跟着挪窝 —— 「按表记」是这么量出来的，不是按记录名推的 |
 | `notes.doc` | LibreOffice（从 `notes.docx`） | MS-CFB 复合文档 + WordDocument 流 + `1Table` 里的 piece 表 |
@@ -2420,6 +2422,28 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       别的账都是各交各的。
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
+
+151. **单元格样式自己那两枚锁定位：三个容器、两种拼法，而「表锁了」与「格式设了锁」是两件事**
+    （`cell-locks.xlsx` 手写、`cell-locks-lo.xlsx` 是 LibreOffice 重写同一份；普查 = 43 份自产 .xlsx 的聚合，
+    外加真件里已有的 `locked-sheet*.xlsx` 那一对）
+    - `protection` 在 `xl/styles.xml` 里不是容器的孩子，而是 `xf` / `dxf` 的孩子：所以账按
+      `cellStyleXfs` / `cellXfs` / `dxfs` 三本各记一笔（在场与枚数分交），另交「第几个格式带着它」的下标。
+      第一版把它当容器直子读，四十一份全交零枚 —— 结构要量，不能照记忆写。
+    - 整库 43 份 .xlsx 里 20 份写这一层、共 79 枚：真件那 41 份中 18 份写、共 63 枚，全出自 LibreOffice 那一路，
+      openpyxl 那 23 份一枚都不写（另 5 枚与 11 枚来自本仓那两份手写件与它的重写）；写着的每一枚都同时交
+      `locked` 与 `hidden`，真件里值只有
+      `locked="true"` / `hidden="false"` 这一对（LibreOffice 把 ECMA 的默认也逐条写出来）。
+    - 拼法**按层量**：同一族在 `xl/worksheets` 的 `sheetProtection` 写 `1` / `0`，在这一层只写
+      `true` / `false`。合成件因此专写 `locked="1" hidden="0"` 与 `locked=""` 与一枚空元素，
+      让「1/0」「写了名而值空串」「在场而无属性」三形各有凭据；LibreOffice 重写这一份时把
+      `1` 与 `0` 换成 `false`、把空元素整枚丢掉、把那枚认不出的 `lockRule` 也不留。
+    - `dxfs`（条件格式那本）在 6 份件里在场而**一枚都不写** —— 「有这本而零枚」是实测形状，
+      与「这一族没这一层」分别是两句话；后者由反面凭据交：`.ods` / `.xls` / docx / pptx 四家
+      的整份输出里根本没有 `cell_locks` 这个键（ODF 的锁只在 `table:table` 那一层，
+      `.xls` 的位在 BIFF 的 `XF` 记录里，那是 `protection` 那一本按表交的 PROTECT）。
+    - 与 `protection` 那一本（文档级 / 表级锁）分家：`locked-sheet.xlsx` 的表是锁着的而这一层
+      一枚都不写；LibreOffice 重写同一份时补成四枚。表没锁时这些位不生效，所以「这份表能不能改」
+      要两本一起看，任何一本单独交出去都只说对一半。
 
 150. **中文排版那几枚段开关的三处住处，与「裸写 / 空串 / 枚举值」的三种说法**（`cjk-switches.docx` 手写、
     `cjk-switches-lo.docx` 与 `cjk-switches.odt` 是 LibreOffice 重写的同一份、`cjk-odf.odt` 手写 ODF 那一头、

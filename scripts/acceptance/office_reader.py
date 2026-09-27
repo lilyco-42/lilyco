@@ -8047,6 +8047,78 @@ def xlsx_workbook_settings(parts: dict) -> dict:
     }
 
 
+CELL_LOCK_CONTAINERS = ("cellStyleXfs", "cellXfs", "dxfs")
+CELL_LOCK_ATTRS = ("locked", "hidden")
+
+
+def _cell_lock_attrs(node) -> dict:
+    """局部名（前缀剥掉）+ 值按字面，空串与不在场是分开的两件事"""
+    out = {}
+    for key, val in node.attrib.items():
+        out[str(key).rsplit("}", 1)[-1].rsplit(":", 1)[-1]] = val
+    return out
+
+
+def xlsx_cell_locks(parts: dict) -> dict:
+    """单元格样式自己的那两枚锁定位：`protection` 住在哪一个容器、挂在第几个格式上
+
+    与 `protection` 那一本（文档级 / 表级锁）不是一件事：`xl/styles.xml` 的 `protection`
+    说的是「这个格式设了 locked / 隐藏公式」，它只在表被锁住时才生效，所以表没锁的件里
+    这一层照样能写满。两枚属性一律按字面交（真件里只有 `true` / `false` 这一种拼法，
+    而同一族在 `xl/worksheets` 那层写的是 `1` / `0` —— 拼法按各层自己的实测交，不换算）。
+    容器三本各记一笔：`cellStyleXfs`（样式那本）、`cellXfs`（格式那本）、`dxfs`（条件格式那本）；
+    除了枚数还交「第几个孩子带着 protection」的下标，那是「哪一格用的格式有锁定位」的入口。
+    """
+    name = "xl/styles.xml"
+    absent = {"family": "ooxml", "available": False}
+    if name not in parts:
+        return absent
+    root = ET.fromstring(parts[name])
+    if xml_local(root.tag) != "styleSheet":
+        return absent
+    containers = []
+    indices: list = []
+    attrs_written: dict = {}
+    values: dict = {}
+    empty_elements = 0
+    total = 0
+    for one in root:
+        local = xml_local(one.tag)
+        if local not in CELL_LOCK_CONTAINERS:
+            continue
+        kids = list(one)
+        mine = 0
+        for pos, kid in enumerate(kids):
+            # `protection` 是 xf / dxf 的孩子，不是容器的孩子：跳这一层，别把结构猜错
+            for holder in [kid] + list(kid):
+                if xml_local(holder.tag) == "protection":
+                    attrs = _cell_lock_attrs(holder)
+                    mine += 1
+                    total += 1
+                    indices.append([local, pos])
+                    if not attrs:
+                        empty_elements += 1
+                    for key in sorted(attrs):
+                        attrs_written[key] = attrs_written.get(key, 0) + 1
+                        book = values.setdefault(key, {})
+                        book[attrs[key]] = book.get(attrs[key], 0) + 1
+        containers.append({"name": local, "children_total": len(kids),
+                           "protection_elements": mine})
+    return {
+        "family": "ooxml",
+        "available": True,
+        "part": name,
+        "containers": containers,
+        "protection_total": total,
+        "empty_elements": empty_elements,
+        "attrs_written": {key: attrs_written[key] for key in sorted(attrs_written)},
+        "values": {key: {v: values[key][v] for v in sorted(values[key])}
+                   for key in sorted(values)},
+        "on_formats": indices,
+        "unknown_attrs": sorted(key for key in attrs_written if key not in CELL_LOCK_ATTRS),
+    }
+
+
 def xlsx_views(parts: dict) -> dict:
     out: dict = {}
     for name in sorted(parts):
@@ -10193,6 +10265,7 @@ def xlsx_facts(path: Path) -> dict:
         "print_setup": print_setups,
         "views": views,
         "workbook_settings": xlsx_workbook_settings(parts),
+        "cell_locks": xlsx_cell_locks(parts),
         "headers": headers,
         "layouts": layouts,
         "filters": filters,

@@ -8761,31 +8761,31 @@ def main() -> int:
     fmt_shapes = sorted({tuple((x["list"], x["entries"]) for x in one["fmt"])
                          for one in theme_rows})
     check(
-        "整库 233 个主题部件的三条自证：十二格的名字与顺序全对（233/233 canonical、每本 12 格）、"
+        "整库 235 个主题部件的三条自证：十二格的名字与顺序全对（235/235 canonical、每本 12 格）、"
         "fmtScheme 全是四列各三条（数出来的一致，不是照规范抄的）、"
-        "而 dk1 用 sysClr 的那一批与写了 extraClrSchemeLst 的那一批是同一批（87 = 87，一份不差）—— "
+        "而 dk1 用 sysClr 的那一批与写了 extraClrSchemeLst 的那一批是同一批（88 = 88，一份不差）—— "
         "「MS 那一路」在这两个记号上同进同出，所以这一路认得出",
         [len(theme_rows), sum(1 for one in theme_rows if one["unread"]),
          sorted({one["slot_total"] for one in theme_rows}),
          sum(1 for one in theme_rows if one["canonical"]), fmt_shapes,
          len(dk1_sys), len(with_extra), sorted(dk1_sys) == sorted(with_extra)],
-        [233, 0, [12], 233, [(('fillStyleLst', 3), ('lnStyleLst', 3), ('effectStyleLst', 3), ('bgFillStyleLst', 3))], 87, 87, True],
+        [235, 0, [12], 235, [(('fillStyleLst', 3), ('lnStyleLst', 3), ('effectStyleLst', 3), ('bgFillStyleLst', 3))], 88, 88, True],
     )
     check(
-        "一个部件里的三个 @name 各说各的：theme 两种（Office Theme 224 / Office 9）、"
-        "clrScheme 两种（Office 222 / LibreOffice 11，LibreOffice 重写时改的就是这一个）、"
-        "fontScheme 一种（233 个全写 Office），而 fmtScheme 只在那 87 个里点名",
+        "一个部件里的三个 @name 各说各的：theme 两种（Office Theme 226 / Office 9）、"
+        "clrScheme 两种（Office 224 / LibreOffice 11，LibreOffice 重写时改的就是这一个）、"
+        "fontScheme 一种（235 个全写 Office），而 fmtScheme 只在那 88 个里点名",
         [dict(Counter(one["theme_name"] for one in theme_rows)),
          dict(Counter(one["scheme_name"] for one in theme_rows)),
          dict(Counter(one["font_name"] for one in theme_rows)),
          dict(Counter("写了" if one["fmt_name"] is not None else "没写" for one in theme_rows))],
-        [{'Office Theme': 224, 'Office': 9}, {'Office': 222, 'LibreOffice': 11}, {'Office': 233}, {'没写': 146, '写了': 87}]
+        [{'Office Theme': 226, 'Office': 9}, {'Office': 224, 'LibreOffice': 11}, {'Office': 235}, {'没写': 147, '写了': 88}]
     )
     check(
-        "字体那三槽的待遇：latin 466 个角色全写了名字（没有一个空串），"
-        "ea 与 cs 各是 174 写了值、292 写了空串、0 个没这个槽 —— "
+        "字体那三槽的待遇：latin 470 个角色全写了名字（没有一个空串），"
+        "ea 与 cs 各是 174 写了值、296 写了空串、0 个没这个槽 —— "
         "空串与不在场是两件事，这一本分列而不是并成一格；"
-        "按书写系统分的那一批 8686 条，29 或 30 条一套（差一枚 Geor），"
+        "按书写系统分的那一批 8802 条，29 或 30 条一套（差一枚 Geor），"
         "而 script=Hans 那一条整库只有一个答案",
         [len(roles),
          [sum(1 for one in roles if isinstance(one[which], str) and one[which] != "")
@@ -8796,7 +8796,7 @@ def main() -> int:
          sorted(Counter(len(one["faces"]) for one in roles).items()),
          sorted({one["typeface"] for role in roles for one in role["faces"]
                  if one["script"] == "Hans"})],
-        [466, [466, 174, 174], [0, 292, 292], [0, 0, 0], 8686, [(0, 174), (29, 74), (30, 218)], ['宋体']]
+        [470, [470, 174, 174], [0, 296, 296], [0, 0, 0], 8802, [(0, 174), (29, 78), (30, 218)], ['宋体']]
     )
     d = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "400"), "theme")
     dl = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "5"), "theme")
@@ -8896,10 +8896,10 @@ def main() -> int:
     for row in ref_rows:
         via.update(row["totals"]["by_via"])
     check(
-        "169 个 OOXML 包 40657 条手指：三条点法各自数得回来（Word 32943 + DrawingML 7587 + Excel 序号 127），"
-        "走过 2408 个 `.xml` 部件、`parts_unread` 4 个读不开（三件在 `customxml-lo.docx`、一件在 `sdt-lo.docx`，都是 LibreOffice 清空的 0 字节 `customXml/itemN.xml` —— 件在而里面没字，不是解析器不行），其中 233 个是主题部件（与主题那本同一数）、"
-        "726 个部件里手指在场；名字→格的三条来路之和也是 40657 —— 名字本身就是一格 8600、"
-        "Word 那一族的别名 28392、文件自己写的 `a:clrMap` 897、序号 127，剩下 2641 条交 null 而不照着规范替文件补",
+        "171 个 OOXML 包 40695 条手指：三条点法各自数得回来（Word 32943 + DrawingML 7616 + Excel 序号 136），"
+        "走过 2424 个 `.xml` 部件、`parts_unread` 4 个读不开（三件在 `customxml-lo.docx`、一件在 `sdt-lo.docx`，都是 LibreOffice 清空的 0 字节 `customXml/itemN.xml` —— 件在而里面没字，不是解析器不行），其中 235 个是主题部件（与主题那本同一数）、"
+        "731 个部件里手指在场；名字→格的三条来路之和也是 40695 —— 名字本身就是一格 8600、"
+        "Word 那一族的别名 28392、文件自己写的 `a:clrMap` 897、序号 136，剩下 2670 条交 null 而不照着规范替文件补",
         [len(ref_rows), summed["refs"], summed["wml_color"], summed["scheme_clr"],
          summed["theme_index"], summed["parts_scanned"], summed["parts_unread"],
          summed["theme_parts"], summed["parts_with_refs"],
@@ -8908,11 +8908,11 @@ def main() -> int:
           sum(via.values())],
          [summed["alias_names"], summed["alias_conflict"], summed["clr_map_written"],
           summed["skip_multi_value"]]],
-        [169, 40657, 32943, 7587, 127, 2408, 4, 233, 726, [8600, 32057, 38016, 2641], [8600, 28392, 897, 127, 2641, 40657], [396, 0, 97, 0]],
+        [171, 40695, 32943, 7616, 136, 2424, 4, 235, 731, [8600, 32095, 38025, 2670], [8600, 28392, 897, 136, 2670, 40695], [396, 0, 97, 0]],
     )
     check(
-        "解不出那 2641 条不是「读不到」而是文件自己没说，而且数目能拆开对：按名字 "
-        "`phClr` 2576 条（主题占位色，压根不是那十二格之一）+ `dark2` 12 条（整批带 shade，别名表不收）"
+        "解不出那 2670 条不是「读不到」而是文件自己没说，而且数目能拆开对：按名字 "
+        "`phClr` 2605 条（主题占位色，压根不是那十二格之一）+ `dark2` 12 条（整批带 shade，别名表不收）"
         "剩 53 条；`tx1` / `bg1` 一共 950 条，走 `a:clrMap` 解出的 897 条，"
         "两本一减也是 53 —— 两个方向算出同一个数，那 53 条就是落在没写对照的包里的那些",
         [via["(没写)"],
@@ -8928,7 +8928,7 @@ def main() -> int:
                for row in ref_rows)
          - sum(row["totals"]["by_name"].get("wmlColor", {}).get("dark2", 0)
                for row in ref_rows)],
-        [2641, 2576, 12, 950, 897, 53, 53],
+        [2670, 2605, 12, 950, 897, 53, 53],
     )
     doc_rows = ref_groups["*.docx"] + ref_groups["*.docm"]
     check(
@@ -8961,7 +8961,7 @@ def main() -> int:
          sorted({one for row in idx_rows for one in row["totals"]["by_name"]["themeIndex"]}),
          sorted({(one["name"], one["slot"], one["alt_slot"], one["via"])
                  for row in idx_rows for one in row["refs"] if one["kind"] == "themeIndex"})],
-        [41, 127, 8, 119, ['1', '4'], [('1', 'lt1', 'dk1', 'index'), ('4', 'accent1', 'accent1', 'index')]],
+        [43, 136, 8, 128, ['1', '4'], [('1', 'lt1', 'dk1', 'index'), ('4', 'accent1', 'accent1', 'index')]],
     )
     deck_tx = [one for one in files["deck.pptx"]["ooxml"]["color_refs"]["refs"]
                if one["name"] in ("tx1", "bg1")]
@@ -8978,7 +8978,7 @@ def main() -> int:
          sum(one["totals"]["by_via"].get("clrMap", 0) for one in ref_rows),
          len(deck_tx), sorted({(one["slot"], one["via"]) for one in deck_tx}),
          len(chart_tx), sorted({(one["slot"], one["via"], one["part"]) for one in chart_tx})],
-        [33, 136, 97, 897, 62, [('dk1', 'clrMap'), ('lt1', 'clrMap')], 8, [(None, None, 'xl/charts/style1.xml'), (None, None, 'xl/charts/style2.xml')]],
+        [33, 138, 97, 897, 62, [('dk1', 'clrMap'), ('lt1', 'clrMap')], 8, [(None, None, 'xl/charts/style1.xml'), (None, None, 'xl/charts/style2.xml')]],
     )
     crefs = dig(lbin("office-doc", fixture("bkmks.docx"), "--limit", "400"),
                "structure.color_refs")
@@ -12153,6 +12153,98 @@ def main() -> int:
            no_theme_key("office-slide", "deck.pptx", "cjk_typography"),
            no_theme_key("office-doc", "cjk-switches.odt", "cjk_typography")],
           [False, False, False, False, True])
+
+    # ── 3bf) 单元格样式自己那两枚锁定位：三本容器、拼法按层量、写了名而值是空串也算写了 ──
+    print("=== 3bf) cell_locks：xf / dxf 里的 protection，逐本与第二读者对（只在 xlsx 交）===")
+
+    def locks_shape(d):
+        """一份锁定位账摊成一行可钉的数（整本那一条已逐格比过，这里钉的是说法）"""
+        return [d["protection_total"], d["empty_elements"],
+                [[one["name"], one["children_total"], one["protection_elements"]]
+                 for one in d["containers"]],
+                [[k, d["attrs_written"][k]] for k in sorted(d["attrs_written"])],
+                [[k, sorted(d["values"][k].items())] for k in sorted(d["values"])],
+                d["on_formats"], d["unknown_attrs"]]
+
+    lock_rows = []
+    for name in sorted(one.name for one in FIXTURES.glob("*.xlsx")):
+        got = dig(lbin("office-sheet", fixture(name)), "cell_locks")
+        check("%s 的锁定位整本与读者一致（三本容器各记一笔、值按字面、认不出的属性进 unknown）" % name,
+              got, files[name]["ooxml"]["cell_locks"])
+        lock_rows.append(got)
+
+    check("手写那一份把这一层能分开的几件事摆开：五枚里一枚**空的** `<protection/>`、"
+          "`locked` 三种写法各一枚（`1`、空串、`true`），`hidden` 两样（`0` 与 `false` 与 `true`），"
+          "多一枚本层没人写过的 `lockRule`（进 `unknown_attrs` 而不是丢），"
+          "`dxfs` 那本在场而**一枚都不写**，四枚 `cellXfs` 的下标逐条交出来",
+          locks_shape(dig(lbin("office-sheet", fixture("cell-locks.xlsx")), "cell_locks")),
+          [5, 1, [["cellStyleXfs", 3, 1], ["cellXfs", 8, 4], ["dxfs", 1, 0]],
+           [["hidden", 3], ["lockRule", 1], ["locked", 4]],
+           [["hidden", [["0", 1], ["false", 1], ["true", 1]]],
+            ["lockRule", [["all", 1]]],
+            ["locked", [["", 1], ["1", 1], ["true", 2]]]],
+           [["cellStyleXfs", 0], ["cellXfs", 0], ["cellXfs", 1], ["cellXfs", 2], ["cellXfs", 3]],
+           ["lockRule"]])
+    check("LibreOffice 重写同一份把这一层**补齐**：cellXfs 八枚全写（手写只有四枚）、样式那本从三枚变二十二枚而写三枚，"
+          "拼法全换成 true/false（`1` 与 `0` 两枚穿过转写就不在），空的那枚整个不见，"
+          "`lockRule` 也不留 —— 于是 unknown 那一格交空表，是它真的没有，不是没读",
+          locks_shape(dig(lbin("office-sheet", fixture("cell-locks-lo.xlsx")), "cell_locks")),
+          [11, 0, [["cellStyleXfs", 22, 3], ["cellXfs", 8, 8], ["dxfs", 1, 0]],
+           [["hidden", 11], ["locked", 11]],
+           [["hidden", [["false", 10], ["true", 1]]], ["locked", [["false", 1], ["true", 10]]]],
+           [["cellStyleXfs", 0], ["cellStyleXfs", 20], ["cellStyleXfs", 21],
+            ["cellXfs", 0], ["cellXfs", 1], ["cellXfs", 2], ["cellXfs", 3],
+            ["cellXfs", 4], ["cellXfs", 5], ["cellXfs", 6], ["cellXfs", 7]],
+           []])
+    check("真件那一对把「表锁了」与「格式设了锁定位」分开：openpyxl 那份表锁着而这一层**一枚都不写**"
+          "（cellXfs 两枚全空），LibreOffice 重写同一份时补成四枚、全是 locked=true / hidden=false 这一对默认值，"
+          "而 `dxfs` 那本照样零枚 —— 所以「零枚」在这一族是常态，与「这一族没这一层」是两句话",
+          [locks_shape(dig(lbin("office-sheet", fixture("locked-sheet.xlsx")), "cell_locks")),
+           locks_shape(dig(lbin("office-sheet", fixture("locked-sheet-lo.xlsx")), "cell_locks"))],
+          [[0, 0, [["cellStyleXfs", 1, 0], ["cellXfs", 2, 0]], [], [], [], []],
+           [4, 0, [["cellStyleXfs", 20, 1], ["cellXfs", 3, 3], ["dxfs", 2, 0]],
+            [["hidden", 4], ["locked", 4]],
+            [["hidden", [["false", 4]]], ["locked", [["true", 4]]]],
+            [["cellStyleXfs", 0], ["cellXfs", 0], ["cellXfs", 1], ["cellXfs", 2]], []]])
+    lock_written = [one for one in lock_rows if one["protection_total"]]
+    container_names = sorted({c["name"] for row in lock_rows for c in row["containers"]})
+    per_container = dict((k, sum(c["protection_elements"] for row in lock_rows
+                                 for c in row["containers"] if c["name"] == k))
+                         for k in container_names)
+    dxfs_books = sum(1 for row in lock_rows
+                     if any(c["name"] == "dxfs" for c in row["containers"]))
+    spelling_rows = {}
+    for row in lock_rows:
+        for key, book in row["values"].items():
+            for val, n in book.items():
+                if key in ("locked", "hidden"):
+                    spelling_rows.setdefault(val, 0)
+                    spelling_rows[val] += n
+    check("整库摊开（自产件 %d 份 .xlsx）：%d 份写这一层共 %d 枚，按本分是 cellStyleXfs %d / cellXfs %d / dxfs %d；"
+          "值只有两种拼法在场（true %d / false %d），而 1 与 0 与空串那三种只出现在本仓手写的那一份里 —— "
+          "「有这一本」的件数 %d，其中写满每一枚格式的只有 LibreOffice 那一路"
+          % (len(lock_rows), len(lock_written), sum(one["protection_total"] for one in lock_rows),
+             per_container.get("cellStyleXfs", 0), per_container.get("cellXfs", 0),
+             per_container.get("dxfs", 0), spelling_rows.get("true", 0), spelling_rows.get("false", 0),
+             dxfs_books),
+          [len(lock_rows), len(lock_written), sum(one["protection_total"] for one in lock_rows),
+           sum(one["empty_elements"] for one in lock_rows),
+           [[k, per_container[k]] for k in sorted(per_container)],
+           sorted(spelling_rows.items()),
+           sum(len(one["unknown_attrs"]) for one in lock_rows),
+           sorted({one["part"] for one in lock_rows})],
+          [43, 20, 79, 1, [["cellStyleXfs", 22], ["cellXfs", 57], ["dxfs", 0]],
+           [("", 1), ("0", 1), ("1", 1), ("false", 75), ("true", 77)], 1, ["xl/styles.xml"]])
+    check("反面凭据：这一层只住 OOXML 表格那一家。`.ods` 没有格式级的锁定属性（ODF 的锁只在 `table:table` 那一层，"
+          "已由 `protection` 那一本交），`.xls` 的位在 BIFF 的 `XF` 记录里（本机没有第二个读者能核对那些位段），"
+          "而 Word 与演示那两家根本没有 cellXfs 这本 —— 那四份出口的账本里这个键**整个不在场**，而不是交一份零账",
+          [no_theme_key("office-sheet", "book.ods", "cell_locks"),
+           no_theme_key("office-sheet", "book.xls", "cell_locks"),
+           no_theme_key("office-doc", "notes.docx", "cell_locks"),
+           no_theme_key("office-slide", "deck.pptx", "cell_locks"),
+           no_theme_key("office-sheet", "cell-locks.xlsx", "cell_locks")],
+          [False, False, False, False, True])
+
 
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")

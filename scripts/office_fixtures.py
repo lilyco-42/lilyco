@@ -5334,6 +5334,116 @@ def write_fields_mix_docx(path: Path) -> None:
     doc.save(str(path))
 
 
+
+def write_cell_locks_xlsx(path: Path) -> None:
+    r"""一份「单元格样式自己带锁定位」的最小 .xlsx（这一层真件只有一家写，而且只写默认对）
+
+    openpyxl 打底（它自己一枚 `protection` 都不写：实测 23 份出自它的件全空），再按 ECMA
+    手写五枚，把这一层能分开的几件事一次摆开：
+    1. `cellStyleXfs` 第一枚样式里一枚**空的** `<protection/>`（在场而一个属性都没有）；
+    2. `cellXfs` 第一枚写 `locked="1" hidden="0"` —— 本层真件从不这样拼（同族在
+       `sheetProtection` 那层写 1/0，在这一层只见过 true/false），所以拼法要按层量；
+    3. 第二枚写 `locked="true" hidden="true"`（隐藏公式那一枚真开着）；
+    4. 第三枚写 `locked=""`（**写了属性名而值是空串**，与没写这枚、与写 false 是三件事）；
+    5. 第四枚多写一枚本层没人写过的 `lockRule="all"`（认不出的属性进 unknown 而不丢）。
+    `dxfs` 那一本故意不碰：真件 63 枚里它一位都不写，这一层「有这本而零枚」才是实测的形状。
+    """
+    from openpyxl import Workbook
+    from openpyxl.formatting.rule import CellIsRule
+    from openpyxl.styles import Font
+
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "锁定位"
+    for row in range(1, 7):
+        sheet.cell(row=row, column=1, value=row)
+        sheet.cell(row=row, column=2, value="条目%d" % row)
+    # 条件格式是唯一定会写 dxfs 那本的路，留着它好让账里「有这本而一枚不写」有凭据
+    # cellXfs 一本里 openpyxl 只写一枚 xf（每家默认那一条），所以先造够六种格式：
+    # 注入要按枚走，第 0 到第 3 枚必须真在场
+    from openpyxl.styles import NamedStyle
+
+    for row, fmt in enumerate(("0", "0.0", "#,##0", "0.00%", "@", '0"个"'), start=1):
+        sheet.cell(row=row, column=1).number_format = fmt
+        if row % 2:
+            sheet.cell(row=row, column=2).font = Font(italic=True)
+    for name in ("题注样式", "正文样式"):
+        style = NamedStyle(name=name)
+        style.number_format = "0.00"
+        try:
+            book.add_named_style(style)
+        except ValueError:
+            pass
+    sheet.conditional_formatting.add(
+        "A1:A6", CellIsRule(operator="greaterThan", formula=["3"], font=Font(bold=True)))
+    book.save(path)
+
+    with zipfile.ZipFile(path) as box:
+        order = [one.filename for one in box.infolist()]
+        blobs = dict((one, box.read(one)) for one in order)
+    styles = blobs["xl/styles.xml"].decode("utf-8")
+
+    def container_slice(text: str, name: str):
+        start = text.find("<" + name)
+        assert start >= 0, "没有 %s 这本" % name
+        open_end = text.find(">", start)
+        if text[open_end - 1] == "/":                       # <dxfs count="0"/>：空本
+            return None
+        body_start = open_end + 1
+        body_end = text.find("</" + name + ">", body_start)
+        assert body_end > 0, "%s 没有收尾" % name
+        return (body_start, body_end)
+
+    def nth_selfclosing(text: str, span, which: int, tag: str = "xf"):
+        body_start, body_end = span
+        pos, seen = body_start, -1
+        while True:
+            pos = text.find("<" + tag, pos)
+            if pos < 0 or pos >= body_end:
+                return None
+            after = pos + len(tag) + 1          # 指向标签名后面的第一个字符（<xf 之后是空格）
+            if after >= body_end or text[after] not in (" ", ">"):
+                pos = after
+                continue
+            close = text.find("/>", pos)
+            if close < 0 or close >= body_end:
+                return None
+            seen += 1
+            if seen == which:
+                return (pos, close)
+            pos = close + 2
+
+    def inject(text: str, container: str, which: int, attrs: str) -> str:
+        span = container_slice(text, container)
+        assert span is not None, "%s 是空本，插不进去" % container
+        target = nth_selfclosing(text, span, which)
+        assert target is not None, "%s 第 %d 枚找不到" % (container, which)
+        pos, close = target
+        inner = "<protection%s/>" % attrs if attrs else "<protection/>"
+        return text[:pos] + text[pos:close] + ">" + inner + "</xf>" + text[close + 2:]
+
+    def xf_count(text: str, container: str) -> int:
+        span = container_slice(text, container)
+        if span is None:
+            return 0
+        return len(re.findall(r"<xf[ >]", text[span[0]:span[1]]))
+
+    assert xf_count(styles, "cellXfs") >= 4, "cellXfs 只有 %d 枚，注入要四枚" % xf_count(styles, "cellXfs")
+    assert xf_count(styles, "cellStyleXfs") >= 1, "cellStyleXfs 一枚都没有"
+    before = styles
+    styles = inject(styles, "cellStyleXfs", 0, "")
+    styles = inject(styles, "cellXfs", 0, ' locked="1" hidden="0"')
+    styles = inject(styles, "cellXfs", 1, ' locked="true" hidden="true"')
+    styles = inject(styles, "cellXfs", 2, ' locked=""')
+    styles = inject(styles, "cellXfs", 3, ' locked="true" hidden="false" lockRule="all"')
+    assert styles != before, "styles.xml 一字未改"
+    assert styles.count("<protection") == 5, "该写五枚，实写 %d" % styles.count("<protection")
+    blobs["xl/styles.xml"] = styles.encode("utf-8")
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as out:
+        for one in order:
+            out.writestr(one, blobs[one])
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="重跑前先清掉输出目录")
@@ -5917,6 +6027,17 @@ def main() -> int:
         shutil.copyfile(made_ods, OUT / "workbook-settings.ods")
     else:
         print("⚠️  没拿到 workbook-settings.ods（ods 那一转）")
+
+    # 单元格样式那一层的锁定位：openpyxl 打底（它一枚都不写）+ 按 ECMA 手写五枚形状，
+    # LibreOffice 同格式重写一份（它会把这一层补齐成自己的写法）、转一份 ods（ODF 没这一层）
+    cls = OUT / "cell-locks.xlsx"
+    write_cell_locks_xlsx(cls)
+    convert(exe, cls, "xlsx", SCRATCH / "cell-locks-back")
+    made_cls = SCRATCH / "cell-locks-back" / "cell-locks.xlsx"
+    if made_cls.exists():
+        shutil.copyfile(made_cls, OUT / "cell-locks-lo.xlsx")
+    else:
+        print("⚠️  没拿到 cell-locks-lo.xlsx（xlsx → xlsx 那一转）")
 
     # 中文排版那几枚开关：python-docx 打底 + 按 ECMA 手写九枚，LibreOffice 重写一份、转一份 odt；
     # 另有 ODF 那一头的手写一份（三枚近亲 + 一枚规范有而本机无人写的）
