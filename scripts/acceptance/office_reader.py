@@ -5289,6 +5289,176 @@ def _cx_parts(path: Path) -> dict:
         return {one.filename: box.read(one.filename) for one in box.infolist()}
 
 
+# ── 这一行多高：docx 写在行上（`w:trHeight` 的数与规则），ODF 一跳在 table-row 样式里 ──
+# 三种「没有」分得很开：这一行没有 `w:trPr`、有 `trPr` 而没有 `trHeight`、有 `trHeight`
+# 而没写 `@w:hRule`。缺 hRule 不等于「没规则」—— ECMA 的缺省是 atLeast，但那一句是规范
+# 说的而不是文件写的，所以这里只交 `h_rule_written: false`，不替它补一个 "atLeast"。
+def _row_height_styles(parts: dict) -> dict:
+    """ODF 那一面的那张表：`family="table-row"` 的样式，值在 `style:table-row-properties` 上"""
+    styles: dict = {}
+    for name in ("content.xml", "styles.xml"):
+        raw = parts.get(name)
+        if raw is None:
+            continue
+        try:
+            root = ET.fromstring(raw)
+        except ET.ParseError:
+            continue
+        for one in root.iter():
+            if xml_local(one.tag) != "style" or of_local(one, "family") != "table-row":
+                continue
+            key = of_local(one, "name")
+            if key is None or key in styles:
+                continue
+            props = next((kid for kid in one if xml_local(kid.tag) == "table-row-properties"), None)
+            styles[key] = {"part": name, "props": written_attrs(props) if props is not None else {},
+                           "parent": of_local(one, "parent-style-name")}
+    return styles
+
+
+def row_height_docx(path: Path, limit: int = 200) -> dict:
+    """OOXML：一张表一行一条，`@w:val` 是 twips 的串，`@w:hRule` 说它是「至少」还是「正好」"""
+    parts = _cx_parts(path)
+    rows: list = []
+    tables = 0
+    scanned = 0
+    for name in sorted(parts):
+        if not name.endswith(".xml") or not any(name.startswith(one) for one in DOCX_LAYOUT_PARTS):
+            continue
+        try:
+            root = ET.fromstring(parts[name])
+        except ET.ParseError:
+            continue
+        found = False
+        index = -1
+        for tbl in (one for one in root.iter() if xml_local(one.tag) == "tbl"):
+            index += 1
+            tables += 1
+            row_index = -1
+            for tr in tbl:
+                if xml_local(tr.tag) != "tr":
+                    continue
+                row_index += 1
+                found = True
+                pr = next((one for one in tr if xml_local(one.tag) == "trPr"), None)
+                height = None if pr is None else next(
+                    (one for one in pr if xml_local(one.tag) == "trHeight"), None)
+                attrs = written_attrs(height) if height is not None else None
+                rows.append({
+                    "part": name,
+                    "table": index,
+                    "row": row_index,
+                    "has_tr_pr": pr is not None,
+                    "tr_pr_children": [] if pr is None else [xml_local(one.tag) for one in pr],
+                    "height_written": height is not None,
+                    "height_children": [] if height is None else [xml_local(one.tag) for one in height],
+                    "attrs": attrs,
+                    "val": attrs.get("val") if attrs else None,
+                    "h_rule": attrs.get("hRule") if attrs else None,
+                    "h_rule_written": bool(attrs) and "hRule" in attrs,
+                })
+        if found:
+            scanned += 1
+    rules: dict = {}
+    for one in rows:
+        key = one["h_rule"] if one["h_rule"] is not None else (
+            "(没写)" if one["height_written"] else "(没有 trHeight)")
+        rules[key] = rules.get(key, 0) + 1
+    listed = rows[:limit]
+    return {
+        "family": "ooxml",
+        "available": True,
+        "parts_scanned": scanned,
+        "tables": tables,
+        "rows": listed,
+        "rows_total": len(rows),
+        "rows_with_height": sum(1 for one in rows if one["height_written"]),
+        "rows_without_tr_pr": sum(1 for one in rows if not one["has_tr_pr"]),
+        "zero_height": sum(1 for one in rows if one["val"] == "0"),
+        "rules": rules,
+        "listed": len(listed),
+        "cut": len(rows) > limit,
+    }
+
+
+def row_height_odf(path: Path, limit: int = 200) -> dict:
+    """ODF：行只点一个样式名，高与最小高在那一跳的目的地里 —— 一跳是这一族的默认形状"""
+    with zipfile.ZipFile(path) as box:
+        parts = {one.filename: box.read(one.filename) for one in box.infolist()}
+    styles = _row_height_styles(parts)
+    rows: list = []
+    tables = 0
+    for name in ("content.xml", "styles.xml"):
+        raw = parts.get(name)
+        if raw is None:
+            continue
+        try:
+            root = ET.fromstring(raw)
+        except ET.ParseError:
+            continue
+        for tbl in (one for one in root.iter() if xml_local(one.tag) == "table"):
+            tables += 1
+            index = -1
+            # 按文档序数行：表头那一组 `table-header-rows` 在孩子里排在哪就数在哪
+            for one in tbl:
+                group = xml_local(one.tag)
+                if group == "table-row":
+                    holders = [(one, False)]
+                elif group in ("table-header-rows", "table-footer-rows"):
+                    holders = [(kid, True) for kid in one if xml_local(kid.tag) == "table-row"]
+                else:
+                    continue
+                for tr, in_header in holders:
+                    index += 1
+                    style_name = of_local(tr, "style-name")
+                    mine = styles.get(style_name) if style_name else None
+                    props = mine["props"] if mine else {}
+                    rows.append({
+                        "part": name,
+                        "table": tables - 1,
+                        "row": index,
+                        "in_header": in_header,
+                        "style_name": style_name,
+                        "style_found": mine is not None,
+                        "style_part": mine["part"] if mine else None,
+                        "parent_style": mine["parent"] if mine else None,
+                        "row_height": props.get("row-height"),
+                        "min_row_height": props.get("min-row-height"),
+                        "keep_together": props.get("keep-together"),
+                        "written": ("row-height" in props) or ("min-row-height" in props),
+                        "props": props if mine else None,
+                        "props_written": len(props),
+                        "repeated": of_local(tr, "number-rows-repeated"),
+                        "visibility": of_local(tr, "visibility"),
+                    })
+    listed = rows[:limit]
+    return {
+        "family": "odf",
+        "available": True,
+        "tables": tables,
+        "rows": listed,
+        "rows_total": len(rows),
+        "rows_written": sum(1 for one in rows if one["written"]),
+        "rows_unwritten": sum(1 for one in rows if not one["written"]),
+        "styles_unfound": sum(1 for one in rows if not one["style_found"]),
+        "zero_height": sum(1 for one in rows
+                           if one["row_height"] in ("0cm", "0") or one["min_row_height"] in ("0cm", "0")),
+        "repeated_rows": sum(1 for one in rows if one["repeated"] not in (None, "1")),
+        "listed": len(listed),
+        "cut": len(rows) > limit,
+    }
+
+
+def docx_row_heights(path: Path, limit: int = 200) -> dict:
+    """同一问按包形状分家：OOXML 在行上，ODF 在 table-row 样式那一跳里"""
+    with zipfile.ZipFile(path) as box:
+        names = box.namelist()
+    if "content.xml" in names:
+        return row_height_odf(path, limit)
+    return row_height_docx(path, limit)
+
+
+
 def docx_custom_xml(path: Path) -> dict:
     """`customXml/` 那一族部件的账 —— docx / pptx / xlsx 是同一个包形状，三家走同一个函数"""
     return cx_ledger(_cx_parts(path))
@@ -11995,6 +12165,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["custom_xml"] = docx_custom_xml(path)
             # 图是怎么摆的：`wp:inline` 随字走、`wp:anchor` 浮着才有环绕那一支
             out["ooxml"]["picture_layout"] = docx_picture_layout(path)
+            # 这一行多高：`w:trHeight` 的数与那条规则都写在行上
+            out["ooxml"]["row_heights"] = docx_row_heights(path)
             # 表头重复那份账（行上的一个无值元素）
             out["ooxml"]["table_headers"] = docx_repeat_headers(path)
             # 制表位：定义在段上，而段里的制表字符是另一本账
@@ -12116,6 +12288,8 @@ def facts(path: Path) -> dict:
             out["odt"]["picture_bytes"] = pic_odf_ledger(path)
             # 同一问在 odt 是框 + 那份 family=graphic 样式，一跳是默认形状
             out["odt"]["picture_layout"] = docx_picture_layout(path)
+            # 同一问在 ODF 一跳在 `family="table-row"` 的那份样式上
+            out["odt"]["row_heights"] = docx_row_heights(path)
             # 同一问在 ODF 是元素名本身：没有指令串，种类与格式全在名字与属性上
             out["odt"]["field_ledger"] = odf_field_ledger(path)
             # 这一族没有主题这个概念：交一本零条的账，而不是缺这个键

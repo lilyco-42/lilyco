@@ -216,6 +216,9 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
 | `customxml-lo.docx` | LibreOffice（`customxml.docx` → .docx 重写） | 同一件事三种待遇：三枚 `itemN.xml` 全被清空成 0 字节而 props 与那一跳留着、存储从两份变三份、头两份 props 的 `ds:itemID` 撞成同一个号（正文那一条手指说不清指到哪一份），`w:customXml` 整条丢掉而 `w:dataBinding` 照样留着 |
 | `alternate.docx` | python-docx 打底 + `zipfile` 插三块（`write_alternate_docx`） | `mc:AlternateContent` 的三种形状一次摆开：一块配齐（Choice 点 `wps` + Fallback）、一块只有 Choice（点 `w14`，**没有退路**）、一块里两条 Choice 共用一份 Fallback。只有 Choice / 两条 Choice 那两形按 ECMA 的写法**合成**（两个生产者都不这么写，本机真件里 4 块没有一块写两条 Choice）
 | `alternate-lo.docx` | LibreOffice（`alternate.docx` → .docx 重写） | 三块**连字一起丢掉**（`blocks` 3 → 0，五句只写在分支里的字一句不剩）—— 这一族最狠的一条生产者差异 |
+| `row-height.docx` | python-docx（`write_row_height_docx`） | 这一行多高的三种「没有」一次摆开：`w:trPr/w:trHeight` 的 `@w:val` 与 `@w:hRule` 各说一半（`exact` 1361 / `atLeast` 680 / 第四行写 `0` 而把 `@w:hRule` **摘掉**），第三行故意连 `w:trPr` 都不写 —— 三种「没有」是三格：`rows_without_tr_pr` 1、`rules` 里 `(没有 trHeight)` 与 `(没写)` 各 1；缺 hRule 不补 atLeast |
+| `row-height.odt` | LibreOffice（`row-height.docx` → .odt 那一转） | 换一家：行只写 `table:style-name`，`style:row-height` 与 `style:min-row-height` 两个键在那一跳的目的地里（`2.401cm` / `1.199cm` —— docx 那 1361 与 680 twips 经厘米一绕就多了个 1，本仓不换算也不比对）；"什么都不写"那一行的样式里两个键都没有、只剩 `keep-together`（`rows_unwritten` 1 而 `styles_unfound` 0），零那一行是 `min-row-height="0cm"` |
+| `row-height-lo.docx` | LibreOffice（`row-height.odt` → .docx，一趟来回） | 零不翼而飞：`@w:val="0"` 被它写成 `@w:val="1" @w:hRule="atLeast"`（它不承认零高，`1` 是它自己挑的数），而那个空行回来时带着一枚**空壳** `w:trPr`（`has_tr_pr` true 而 `tr_pr_children` 空表）—— `rows_without_tr_pr` 1 → 0、`zero_height` 1 → 0，两处都是「壳在」与「壳里写了什么」两个数 |
 | `wrap.docx` | python-docx 打底 + 按 ECMA **合成**两枚 `wp:anchor`（`write_wrap_docx`） | 图是怎么摆的三种形状一份里摆开：`wp:inline`（随字走，结构上**没有**环绕那一支）+ `wp:anchor` 两枚各写一种环绕（`wrapSquare` / `wrapTopAndBottom`）；浮着才写的那几格也在（`@behindDoc` `@locked` `@allowOverlap` `@relativeHeight` 与四格 `@dist*` EMU），位置分横竖两条（`positionH/@relativeFrom="margin"` 加 `wp:align`，另一枚写 `wp:positionOffset` 那个数）—— 真件稀缺：本机 33 份 docx 的正文 161 枚 `w:drawing` 里只有 1 枚是 anchor |
 | `wrap.odt` | LibreOffice 版式的 ODF（`write_wrap_odt`，三种锚各一枚） | 换一家：框自己只写 `text:anchor-type`（`as-char` / `paragraph` / `page`），环绕、穿透、四个边距全在它点名的那份 `style:family="graphic"` 样式里（`style:wrap="parallel"` / `"through"`、`style:run-through="front"`、`fo:margin-left="0.21cm"`）；「随字」那一枚的样式里**没有** `style:wrap` 这一格 —— 「文件没说」与「说了不环绕」是两句话 |
 | `wrap-lo.docx` | LibreOffice（`wrap.odt` → .docx，一趟来回） | 三份框只剩两张图（按页锚那一张**整张丢掉**，`drawings` 3 → 2），留着的那枚 anchor 把层序号从 `251658240` 换成 `3`（同一意思两种写法，两边都按原样交），环绕方式它自己挑了 `wrapSquare`（ODF 那面写的是 `parallel`），而 `wp:positionV` 的孩子叫 `posOffset` 不是 `positionOffset` —— `offset_written` 只认 ECMA 那个名字，于是 false 而 `children` 仍写着那个名字 |
@@ -2380,6 +2383,33 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
     - 第二读者是 `office_reader.py` 的 `square()` / `md_render()`（与 `csv_render()` 同一份方格）；
       probe 的 3f1 把 14 份表格件的整本 markdown 账与它对，再钉那三副 pipes 的转义与「躲过的竖线不被当分列符」这一条（把 `\|` 收回占位再切列，那一行仍是两格）。
 
+141. **这一行多高：`w:trHeight` 的数与那条规则写在行上，而 ODF 的两个键在一跳之外的 table-row 样式里**（三份件）
+    - 形状：OOXML 一本 `{family, available, parts_scanned, tables, rows, rows_total, rows_with_height,
+      rows_without_tr_pr, zero_height, rules, listed, cut}`，每条行 11 格 `{part, table, row, has_tr_pr,
+      tr_pr_children, height_written, height_children, attrs, val, h_rule, h_rule_written}`；
+      ODF 一本 `{family, available, tables, rows, rows_total, rows_written, rows_unwritten,
+      styles_unfound, zero_height, repeated_rows, listed, cut}`，每条行 16 格（那一跳的目的地、样式在不在、
+      两个键、`keep-together`、整张属性表、`repeated` 与 `visibility`）
+    - 三种「没有」在三格里分着交：这一行**没有** `w:trPr`（`rows_without_tr_pr`）、有 `trPr` 而里面
+      **没写** `trHeight`（`rules` 的 `(没有 trHeight)`）、有 `trHeight` 而**没写** `hRule`
+      （`rules` 的 `(没写)`）。缺 hRule 的缺省是 atLeast 是**规范**说的，不是文件写的 —— 这一本不替文件补
+    - **零是一句说过的话**：`@w:val="0"` 是 Word 里真用的「藏一行」手法，所以 `zero_height` 单独数，
+      不并进「没写高度」那一格；来回一趟它会被写成 `1` + `atLeast`（LibreOffice 不承认零高）
+    - 单位一律按串的串交：`1361` twips 正好 2.4cm，而 ODF 那份写的是 `2.401cm`（厘米一绕多出个 1），
+      `680` 对 `1.199cm` 同理 —— **不换算也不比对**，两边各交各的原文
+    - ODF 那一面**一跳是默认形状**：行只点样式名，值在 `family="table-row"` 的样式的
+      `style:table-row-properties` 上，且 exact 与 atLeast 是**两个键**（`row-height` / `min-row-height`）；
+      样式里两个键都没有与那一跳解不开是两种形状（`rows_unwritten` vs `styles_unfound`）
+    - 表头那一组 `table-header-rows` 只是包着几行，组本身不数一行，而**按文档序**摊进 `row` 的号里
+      （`in_header` 记它来自哪一组）；`number-rows-repeated` 与 `table:visibility` 也各交原串
+    - 截行不截账：`--limit` 只砍 `rows`，`tables` / `rows_total` / `rules` 那几本数按全量算
+    - 边界：这一族只在有 OPC 包与 ODF 的两个分支上交（.rtf 与遗留 .doc 不交这个键，.pptx 的表住在
+      页自己的形状树里，`a:tr/@h` 那一族是另一问）；一张表都没写的件交零条的账而不是缺键。
+      **不判这一行装不装得下它的内容**（那要算字号与行距，不是文件写着的数）
+    - 第二读者是 `office_reader.py` 的 `row_height_docx` / `row_height_odf`（全部 .docx 与 .odt 逐件影子跑过）；
+      probe 的 **3bu** 段逐件对两族的整本账，Rust 那侧是 `office_doc.rs` 的
+      `a_row_can_say_how_tall_it_is`
+
 140. **图是怎么摆的：`wp:inline` 随字走而 `wp:anchor` 浮着才有环绕那一支；ODF 的环绕在一跳之外的 graphic 样式里**（三份件 + 本机真件量分布）
     - 形状：OOXML 一本包账 `{family, available, parts_scanned, drawings, inline, anchor, other_kind,
       anchor_without_wrap, wrap_elements, listed, rows, cut}`，每条行 21 格 `{part, para, kind, attrs,
@@ -2725,31 +2755,31 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       OOXML 支与 ODF 支，与 Rust 的调用点对称）；probe 的 3bm 把**每一份 .docx / .docm / .odt** 的整本逐键与它对，
       再钉上面那几条数（含 `w:val` 一条没写、六种搭配、两条空账），最后钉 RTF 与 .doc 那两族这个键**不在**。
 
-132. **正文里那只手指的账：三种点法、三条来路，而「解到哪一格」与「算出什么色」是两问**（142 个 OOXML 包 / 33487 条指针）
+132. **正文里那只手指的账：三种点法、三条来路，而「解到哪一格」与「算出什么色」是两问**（144 个 OOXML 包 / 34067 条指针）
     - 事实 131 数的是格子里写了什么；这一本数的是正文**怎么指过去**：Word 的 `w:color/@themeColor`、
       DrawingML 的 `a:schemeClr/@val`、Excel 样式上的 `theme="N"`。三条点法各自数得回来
-      （27715 + 5662 + 110 = 33487），走过 1982 个 `.xml` 部件、`parts_unread` 3 个读不开（那三件是 `customxml-lo.docx` 里被 LibreOffice 清空的 0 字节 `customXml/itemN.xml` —— 件在而里面没字，不是解析器不行），
-      其中手指在场的 584 个、主题部件 204 个（与事实 131 同一数，两问共用一份底账）。
-    - 名字到十二格有三条来路，逐条分列而不是合成一个「解出率」：名字本身就是一格（`via = name`）6603、
-      Word 那一族的别名表 23885（这一族只写四个别名：`background1`→lt1、`dark1`→dk1、`text1`→dk1、
-      `text2`→dk2）、文件自己写的 `a:clrMap` 631、Excel 的序号 110，剩下 2258 条交 null。
+      （28266 + 5691 + 110 = 34067），走过 2005 个 `.xml` 部件、`parts_unread` 3 个读不开（那三件是 `customxml-lo.docx` 里被 LibreOffice 清空的 0 字节 `customXml/itemN.xml` —— 件在而里面没字，不是解析器不行），
+      其中手指在场的 589 个、主题部件 206 个（与事实 131 同一数，两问共用一份底账）。
+    - 名字到十二格有三条来路，逐条分列而不是合成一个「解出率」：名字本身就是一格（`via = name`）6702、
+      Word 那一族的别名表 24342（这一族只写四个别名：`background1`→lt1、`dark1`→dk1、`text1`→dk1、
+      `text2`→dk2）、文件自己写的 `a:clrMap` 631、Excel 的序号 110，剩下 2282 条交 null。
     - 三条来路按族拆开各交各的，这也是「同一个名字在两种包里两个答案」的另一半凭据：
-      Word 那 80 个包 29021 条里名字自己是一格 4086、四个别名 23885、解不出 1050；
+      Word 那 82 个包 29601 条里名字自己是一格 4185、四个别名 24342、解不出 1074；
       Excel 那 39 个包 677 条里名字 12、序号 110、解不出 555；幻灯片那 23 个包 3789 条里
-      名字 2505、`a:clrMap` 631、解不出 653。横着加回来才是那五个数：6603 / 23885 / 631 / 110 / 2258。
-    - 那 2258 条不是「读不到」而是文件自己没说，而且两个方向算出同一个数：`phClr` 2202 条
-      （主题占位色，压根不是那十二格之一）+ `dark2` 10 条（5 份件的 `word/styles.xml`，`crep-r.docx` 是头一份：这个名字
+      名字 2505、`a:clrMap` 631、解不出 653。横着加回来才是那五个数：6702 / 24342 / 631 / 110 / 2282。
+    - 那 2282 条不是「读不到」而是文件自己没说，而且两个方向算出同一个数：`phClr` 2223 条
+      （主题占位色，压根不是那十二格之一）+ `dark2` 12 条（5 份件的 `word/styles.xml`，`crep-r.docx` 是头一份：这个名字
       既不在十二格也不在那四个别名里，而它们又都带着 `themeShade`，两条理由同时成立）
-      + `tx1` / `bg1` 那 677 条里落在没写对照的包里的那 46 条（677 − 631 = 46 —— 走对照解出的 631 条按名字是 tx1 616 + bg1 15）。
+      + `tx1` / `bg1` 那 678 条里落在没写对照的包里的那 47 条（678 − 631 = 47 —— 走对照解出的那 631 条仍是 `tx1` 与 `bg1` 两个名字。
     - `a:clrMap` 只有幻灯片这一族写：23 份 pptx 全写（85 份部件写着对照，而主题部件里一份都不写），
-      Word 与 Excel 那 119 个包一个都不写；85 份说的都是同一套十二对（`alias_conflict` 0，`alias_names` 276 = 23 × 12）。于是同名的一指
+      Word 与 Excel 那 121 个包一个都不写；85 份说的都是同一套十二对（`alias_conflict` 0，`alias_names` 276 = 23 × 12）。于是同名的一指
       在两种包里是两个答案：`deck.pptx` 的 62 条 tx1/bg1 由文件自己解到 dk1/lt1，而 `chart-lo.xlsx`
       那 8 条同一名字落在没写对照的包里就交解不出（`slot` null、`via` null，部件是
       `xl/charts/style1.xml` 与 `style2.xml`）—— 不是替文件猜一个补上。
-    - Word 那一路是自己跟自己核对的，所以这一支的「判得住」是硬的：那 29021 条里 28755 条 `w:color`
-      每一条都另写了一遍六位实色当影子（`skip_no_literal` 那 266 条没写影子），无修饰符的
-      24788 条与本包主题那一格逐条对上、`mismatched` **0 条**；带 `themeTint` / `themeShade` 的 3645 条
-      不判（与事实 131 里「tint 与 shade 两支都判不住所以不交色」是同一个决定），点不出格的 322 条不判。四种分列，加上对上的那些正好是那一路的 29021 条，一条也没被揉成一格。
+    - Word 那一路是自己跟自己核对的，所以这一支的「判得住」是硬的：那 29601 条里 29328 条 `w:color`
+      每一条都另写了一遍六位实色当影子（`skip_no_literal` 那 273 条没写影子），无修饰符的
+      25272 条与本包主题那一格逐条对上、`mismatched` **0 条**；带 `themeTint` / `themeShade` 的 3723 条
+      不判（与事实 131 里「tint 与 shade 两支都判不住所以不交色」是同一个决定），点不出格的 333 条不判。四种分列，加上对上的那些正好是那一路的 29021 条，一条也没被揉成一格。
     - 序号那一族两读都交，因为这里真有两个答案：110 条点的是 `1` 与 `4` 两个数字。`1` 那 102 条按规范的
       槽位顺序说 lt1，而 Excel 自己实际用的那张映射表说 dk1（`index_disagree`）；`4` 那 8 条两边说的是
       同一格 accent1（`index_agree`）。谁胜出不是这本的活，把两格并排放着（`slot` 与 `alt_slot`）才是答案。
@@ -2769,8 +2799,8 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       Excel 39 包 677 条（370 个部件，567 + 序号 110）、幻灯片 23 包 3789 条（553 个部件，全是 DrawingML）。
     - 限额这一格只管列几条，不管这份包里的账（与事实 131 同一条规矩）：`bkmks.docx` 用 `--limit 5` 交 5 条，
       而 `total` 与合计那一本仍然是 543 条的账（`parts_scanned` 13、`parts_with_refs` 3、`matched` 466
-      一个都不动）；整库被 400 截住的只有那 38 个 Word 包，`cut` 就是说给你听的。
-    - ODF 那 69 份（43 文字 / 14 表格 / 12 演示）压根没有主题这个概念：交零条而不是缺键——
+      一个都不动）；整库被 400 截住的只有那 39 个 Word 包，`cut` 就是说给你听的。
+    - ODF 那 70 份（44 文字 / 14 表格 / 12 演示）压根没有主题这个概念：交零条而不是缺键——
       键一个不少、十二格每格都空着，而 `parts_scanned` 是 218 / 76 / 68、`parts_unread` 0，
       `total` / `listed` / `cut` 也是 (0, 0, False) 的样子；「这一层不存在」与「我没读」是两件事。
       老的 `.doc` / `.ppt` / `.xls` 与 RTF 目前**不交** `color_refs` 这个键：那一份主题数据坐在 CFB 的

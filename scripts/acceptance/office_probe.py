@@ -8705,33 +8705,33 @@ def main() -> int:
     fmt_shapes = sorted({tuple((x["list"], x["entries"]) for x in one["fmt"])
                          for one in theme_rows})
     check(
-        "整库 204 个主题部件的三条自证：十二格的名字与顺序全对（204/204 canonical、每本 12 格）、"
+        "整库 206 个主题部件的三条自证：十二格的名字与顺序全对（206/206 canonical、每本 12 格）、"
         "fmtScheme 全是四列各三条（数出来的一致，不是照规范抄的）、"
-        "而 dk1 用 sysClr 的那一批与写了 extraClrSchemeLst 的那一批是同一批（73 = 73，一份不差）—— "
+        "而 dk1 用 sysClr 的那一批与写了 extraClrSchemeLst 的那一批是同一批（74 = 74，一份不差）—— "
         "「MS 那一路」在这两个记号上同进同出，所以这一路认得出",
         [len(theme_rows), sum(1 for one in theme_rows if one["unread"]),
          sorted({one["slot_total"] for one in theme_rows}),
          sum(1 for one in theme_rows if one["canonical"]), fmt_shapes,
          len(dk1_sys), len(with_extra), sorted(dk1_sys) == sorted(with_extra)],
-        [204, 0, [12], 204, [(("fillStyleLst", 3), ("lnStyleLst", 3), ("effectStyleLst", 3),
-                             ("bgFillStyleLst", 3))], 72, 72, True],
+        [206, 0, [12], 206, [(("fillStyleLst", 3), ("lnStyleLst", 3), ("effectStyleLst", 3),
+                             ("bgFillStyleLst", 3))], 74, 74, True],
     )
     check(
-        "一个部件里的三个 @name 各说各的：theme 两种（Office Theme 195 / Office 7）、"
-        "clrScheme 两种（Office 194 / LibreOffice 8，LibreOffice 重写时改的就是这一个）、"
-        "fontScheme 一种（204 个全写 Office），而 fmtScheme 只在那 73 个里点名",
+        "一个部件里的三个 @name 各说各的：theme 两种（Office Theme 198 / Office 8）、"
+        "clrScheme 两种（Office 197 / LibreOffice 9，LibreOffice 重写时改的就是这一个）、"
+        "fontScheme 一种（206 个全写 Office），而 fmtScheme 只在那 74 个里点名",
         [dict(Counter(one["theme_name"] for one in theme_rows)),
          dict(Counter(one["scheme_name"] for one in theme_rows)),
          dict(Counter(one["font_name"] for one in theme_rows)),
          dict(Counter("写了" if one["fmt_name"] is not None else "没写" for one in theme_rows))],
-        [{"Office Theme": 196, "Office": 8}, {"Office": 195, "LibreOffice": 9},
-         {"Office": 204}, {"没写": 131, "写了": 73}],
+        [{"Office Theme": 198, "Office": 8}, {"Office": 197, "LibreOffice": 9},
+         {"Office": 206}, {"没写": 132, "写了": 74}],
     )
     check(
-        "字体那三槽的待遇：latin 408 个角色全写了名字（没有一个空串），"
-        "ea 与 cs 各是 168 写了值、240 写了空串、0 个没这个槽 —— "
+        "字体那三槽的待遇：latin 412 个角色全写了名字（没有一个空串），"
+        "ea 与 cs 各是 170 写了值、242 写了空串、0 个没这个槽 —— "
         "空串与不在场是两件事，这一本分列而不是并成一格；"
-        "按书写系统分的那一批 7130 条，29 或 30 条一套（差一枚 Geor），"
+        "按书写系统分的那一批 7190 条，29 或 30 条一套（差一枚 Geor），"
         "而 script=Hans 那一条整库只有一个答案",
         [len(roles),
          [sum(1 for one in roles if isinstance(one[which], str) and one[which] != "")
@@ -8742,8 +8742,8 @@ def main() -> int:
          sorted(Counter(len(one["faces"]) for one in roles).items()),
          sorted({one["typeface"] for role in roles for one in role["faces"]
                  if one["script"] == "Hans"})],
-        [408, [408, 168, 168], [0, 240, 240], [0, 0, 0], 7130,
-         [(0, 168), (29, 70), (30, 170)], ["宋体"]],
+        [412, [412, 170, 170], [0, 242, 242], [0, 0, 0], 7190,
+         [(0, 170), (29, 70), (30, 172)], ["宋体"]],
     )
     d = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "400"), "theme")
     dl = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "5"), "theme")
@@ -8843,10 +8843,10 @@ def main() -> int:
     for row in ref_rows:
         via.update(row["totals"]["by_via"])
     check(
-        "142 个 OOXML 包 33487 条手指：三条点法各自数得回来（Word 27715 + DrawingML 5662 + Excel 序号 110），"
-        "走过 1982 个 `.xml` 部件、`parts_unread` 3 个读不开（那三件是 `customxml-lo.docx` 里被 LibreOffice 清空的 0 字节 `customXml/itemN.xml` —— 件在而里面没字，不是解析器不行），其中 204 个是主题部件（与主题那本同一数）、"
-        "584 个部件里手指在场；名字→格的三条来路之和也是 33487 —— 名字本身就是一格 6603、"
-        "Word 那一族的别名 23885、文件自己写的 `a:clrMap` 631、序号 110，剩下 2258 条交 null 而不照着规范替文件补",
+        "144 个 OOXML 包 34067 条手指：三条点法各自数得回来（Word 28266 + DrawingML 5691 + Excel 序号 110），"
+        "走过 2005 个 `.xml` 部件、`parts_unread` 3 个读不开（那三件是 `customxml-lo.docx` 里被 LibreOffice 清空的 0 字节 `customXml/itemN.xml` —— 件在而里面没字，不是解析器不行），其中 206 个是主题部件（与主题那本同一数）、"
+        "589 个部件里手指在场；名字→格的三条来路之和也是 34067 —— 名字本身就是一格 6702、"
+        "Word 那一族的别名 24342、文件自己写的 `a:clrMap` 631、序号 110，剩下 2282 条交 null 而不照着规范替文件补",
         [len(ref_rows), summed["refs"], summed["wml_color"], summed["scheme_clr"],
          summed["theme_index"], summed["parts_scanned"], summed["parts_unread"],
          summed["theme_parts"], summed["parts_with_refs"],
@@ -8855,16 +8855,16 @@ def main() -> int:
           sum(via.values())],
          [summed["alias_names"], summed["alias_conflict"], summed["clr_map_written"],
           summed["skip_multi_value"]]],
-        [142, 33487, 27715, 5662, 110, 1982, 3, 204, 584,
-         [6603, 26884, 31229, 2258],
-         [6603, 23885, 631, 110, 2258, 33487],
+        [144, 34067, 28266, 5691, 110, 2005, 3, 206, 589,
+         [6702, 27365, 31785, 2282],
+         [6702, 24342, 631, 110, 2282, 34067],
          [276, 0, 85, 0]],
     )
     check(
-        "解不出那 2258 条不是「读不到」而是文件自己没说，而且数目能拆开对：按名字 "
-        "`phClr` 2202 条（主题占位色，压根不是那十二格之一）+ `dark2` 10 条（整批带 shade，别名表不收）"
-        "剩 46 条；`tx1` / `bg1` 一共 677 条，走 `a:clrMap` 解出的 631 条，"
-        "两本一减也是 46 —— 两个方向算出同一个数，那 46 条就是落在没写对照的包里的那些",
+        "解不出那 2282 条不是「读不到」而是文件自己没说，而且数目能拆开对：按名字 "
+        "`phClr` 2223 条（主题占位色，压根不是那十二格之一）+ `dark2` 12 条（整批带 shade，别名表不收）"
+        "剩 47 条；`tx1` / `bg1` 一共 678 条，走 `a:clrMap` 解出的 631 条，"
+        "两本一减也是 47 —— 两个方向算出同一个数，那 47 条就是落在没写对照的包里的那些",
         [via["(没写)"],
          sum(row["totals"]["by_name"].get("schemeClr", {}).get("phClr", 0) for row in ref_rows),
          sum(row["totals"]["by_name"].get("wmlColor", {}).get("dark2", 0) for row in ref_rows),
@@ -8873,15 +8873,15 @@ def main() -> int:
          via["clrMap"],
          sum(row["totals"]["by_name"].get("schemeClr", {}).get(one, 0) for one in ("tx1", "bg1")
              for row in ref_rows) - via["clrMap"],
-         via["(没写)"] - 2202 - 10],
-        [2258, 2202, 10, 677, 631, 46, 46],
+         via["(没写)"] - 2223 - 12],
+        [2282, 2223, 12, 678, 631, 47, 47],
     )
     doc_rows = ref_groups["*.docx"] + ref_groups["*.docm"]
     check(
         "Word 那一路是自己跟自己核对的：每一条 `w:color` 都另写了一遍六位实色当影子，"
-        "无修饰符的 24788 条与本包主题那一格逐条对上、`mismatched` 0 条，"
-        "剩下 3645 条带 `themeTint` / `themeShade`（不算色）、266 条连影子都没写、322 条点不出格 —— "
-        "四种判不住分列，加起来正好是那一路的 29021 条，一条也没被揉成一格",
+        "无修饰符的 25272 条与本包主题那一格逐条对上、`mismatched` 0 条，"
+        "剩下 3723 条带 `themeTint` / `themeShade`（不算色）、273 条连影子都没写、333 条点不出格 —— "
+        "四种判不住分列，加起来正好是那一路的 29601 条，一条也没被揉成一格",
         [len(doc_rows), sum(one["totals"]["wml_color"] for one in doc_rows),
          sum(one["totals"]["matched"] for one in doc_rows),
          sum(one["totals"]["mismatched"] for one in doc_rows),
@@ -8893,7 +8893,7 @@ def main() -> int:
              + one["totals"]["skip_modified"] + one["totals"]["skip_no_literal"]
              + one["totals"]["skip_no_slot"] + one["totals"]["skip_multi_value"]
              for one in doc_rows)],
-        [80, 27715, 24788, 0, 3645, 266, 322, 29021, 29021],
+        [82, 28266, 25272, 0, 3723, 273, 333, 29601, 29601],
     )
     idx_rows = [one for one in ref_rows if one["totals"]["theme_index"]]
     check(
@@ -8915,7 +8915,7 @@ def main() -> int:
     chart_tx = [one for one in files["chart-lo.xlsx"]["ooxml"]["color_refs"]["refs"]
                 if one["name"] in ("tx1", "bg1")]
     check(
-        "`a:clrMap` 只有幻灯片这一族写（23 份 pptx 全写、Word 与 Excel 那 119 个包一个都不写），"
+        "`a:clrMap` 只有幻灯片这一族写（23 份 pptx 全写、Word 与 Excel 那 121 个包一个都不写），"
         "而 85 份对照说的是同一套十二对（`alias_conflict` 0）：于是同名的一指在两种包里两个答案 —— "
         "deck.pptx 里 62 条 tx1/bg1 由文件自己解到 dk1/lt1，chart-lo.xlsx 那 8 条同一名字落在"
         "没写对照的包里就交解不出（slot null、via null），不是猜一个补上",
@@ -8925,7 +8925,7 @@ def main() -> int:
          sum(one["totals"]["by_via"].get("clrMap", 0) for one in ref_rows),
          len(deck_tx), sorted({(one["slot"], one["via"]) for one in deck_tx}),
          len(chart_tx), sorted({(one["slot"], one["via"], one["part"]) for one in chart_tx})],
-        [23, 119, 85, 631, 62, [("dk1", "clrMap"), ("lt1", "clrMap")],
+        [23, 121, 85, 631, 62, [("dk1", "clrMap"), ("lt1", "clrMap")],
          8, [(None, None, "xl/charts/style1.xml"), (None, None, "xl/charts/style2.xml")]],
     )
     crefs = dig(lbin("office-doc", fixture("bkmks.docx"), "--limit", "400"),
@@ -8935,14 +8935,14 @@ def main() -> int:
     check(
         "限额这一格只管列几条，不管这份包里的账：`--limit 5` 交 5 条而 `total` 与合计仍是 543 条的账"
         "（`parts_scanned` 13、`parts_with_refs` 3、`matched` 466 一个都不动）—— "
-        "整库被 400 截住的只有那 38 个 Word 包，`cut` 就是说给你听的",
+        "整库被 400 截住的只有那 39 个 Word 包，`cut` 就是说给你听的",
         [crefs["total"], crefs["listed"], crefs["cut"], crefs5["total"], crefs5["listed"],
          crefs5["cut"], crefs5["totals"]["refs"], crefs5["totals"]["parts_scanned"],
          crefs5["totals"]["parts_with_refs"], crefs5["totals"]["matched"],
          sorted(one["part"] for one in crefs5["refs"])[:2],
          sum(1 for one in ref_rows if one["cut"])],
         [543, 400, True, 543, 5, True, 543, 13, 3, 466,
-         ["word/styles.xml", "word/styles.xml"], 38],
+         ["word/styles.xml", "word/styles.xml"], 39],
     )
     check(
         "第一条就是这样写的：`word/styles.xml` 里 `rPr` 上那枚 `w:color`，名字 accent1 本身就是一格"
@@ -8960,7 +8960,7 @@ def main() -> int:
                     "clr_map_written", "wml_color", "scheme_clr", "theme_index",
                     "resolved", "unresolved", "matched"]
     for pattern, describe, want_packages, want_scanned in (
-        ("*.odt", "文字", 43, 221),
+        ("*.odt", "文字", 44, 226),
         ("*.ods", "表格", 14, 76),
         ("*.odp", "演示", 13, 73),
     ):
@@ -10437,6 +10437,85 @@ def main() -> int:
          dig(lbin("office-doc", fixture("notes.doc")), "structure.picture_layout")],
         [1, 1, {"margin-top": "0cm", "margin-bottom": "0cm", "margin-left": "0.319cm",
                 "margin-right": "0.319cm"}, None, None, None],
+    )
+
+    print("=== 3bu) row_heights：这一行多高 —— docx 在行上，ODF 一跳在 table-row 样式里 ===")
+
+    for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 每行多高（OOXML：trHeight 的数与那条规则）与读者一致" % name,
+              dig(got, "structure.row_heights"), files[name]["ooxml"]["row_heights"])
+    for name in sorted(one.name for one in FIXTURES.glob("*.odt")):
+        got = lbin("office-doc", fixture(name))
+        check("%s 每行多高（ODF：那一跳到 table-row 样式，一跳是默认形状）与读者一致" % name,
+              dig(got, "structure.row_heights"), files[name]["odt"]["row_heights"])
+
+    rows = lbin("office-doc", fixture("row-height.docx"))
+    mine = dig(rows, "structure.row_heights")
+    check(
+        "`row-height.docx` 一张表四行，一次只改一个变量：exact 一个数 / atLeast 一个数 / "
+        "**一个都不写**（这行连 `w:trPr` 都没有）/ 写零并把 `@w:hRule` 摘掉。"
+        "三种「没有」在账上是三格：`rows_without_tr_pr` 1、`rules` 里 `(没有 trHeight)` 1 与 "
+        "`(没写)` 1 —— 缺 hRule 时本仓不替文件补一个 atLeast（那句是规范说的，不是文件写的）",
+        [dig(mine, "parts_scanned"), dig(mine, "tables"), dig(mine, "rows_total"),
+         dig(mine, "rows_with_height"), dig(mine, "rows_without_tr_pr"), dig(mine, "zero_height"),
+         dig(mine, "rules"), dig(mine, "listed"), dig(mine, "cut")],
+        [1, 1, 4, 3, 1, 1,
+         {"exact": 1, "atLeast": 1, "(没有 trHeight)": 1, "(没写)": 1}, 4, False],
+    )
+    check(
+        "一行一条交的是「那枚元素在不在」加「它写了哪几个属性」：`@w:val` 按 twips 的串交"
+        "（`1361` 与 `680` 是 python-docx 由 2.4cm / 1.2cm 换算出来的，本仓不再倒推），"
+        "而第三行那个 `0` 是 Word 里真用的「藏一行」手法 —— 它与「没写高度」不是一回事",
+        [[one["row"], one["has_tr_pr"], one["tr_pr_children"], one["height_written"],
+          one["val"], one["h_rule"], one["h_rule_written"]]
+         for one in dig(mine, "rows")],
+        [[0, True, ["trHeight"], True, "1361", "exact", True],
+         [1, True, ["trHeight"], True, "680", "atLeast", True],
+         [2, False, [], False, None, None, False],
+         [3, True, ["trHeight"], True, "0", None, False]],
+    )
+    back = dig(lbin("office-doc", fixture("row-height-lo.docx")), "structure.row_heights")
+    check(
+        "来回一趟两处改动：那个零高的行被 LibreOffice 写成 `val=\"1\" hRule=\"atLeast\"`"
+        "（它不承认零，`1` 是它自己挑的数），而那个「什么都不写」的行回来时带着**一枚空壳** "
+        "`w:trPr` —— `has_tr_pr` true 而 `tr_pr_children` 空表。`rows_without_tr_pr` 因此 1 → 0，"
+        "`zero_height` 因此 1 → 0",
+        [dig(back, "rows_total"), dig(back, "rows_with_height"), dig(back, "rows_without_tr_pr"),
+         dig(back, "zero_height"), dig(back, "rules"),
+         [dig(back, "rows[3].val"), dig(back, "rows[3].h_rule"), dig(back, "rows[3].h_rule_written")],
+         [dig(back, "rows[2].has_tr_pr"), dig(back, "rows[2].tr_pr_children")]],
+        [4, 3, 0, 0, {"exact": 1, "atLeast": 2, "(没有 trHeight)": 1},
+         ["1", "atLeast", True], [True, []]],
+    )
+    odt = dig(lbin("office-doc", fixture("row-height.odt")), "structure.row_heights")
+    check(
+        "同一问在 ODF 是**行点样式 + 一跳**：四行点四份 `family=\"table-row\"` 的样式，"
+        "`style:row-height` 与 `style:min-row-height` 是**两个键**（exact 走前者、atLeast 走后者），"
+        "第三行那份样式里两个键都没有而只写着 `keep-together`（`rows_unwritten` 1 而 "
+        "`styles_unfound` 0 —— 样式在、这一格不在），第四行写的是 `0cm`（零又是一句说过的话）",
+        [dig(odt, "tables"), dig(odt, "rows_total"), dig(odt, "rows_written"),
+         dig(odt, "rows_unwritten"), dig(odt, "styles_unfound"), dig(odt, "zero_height"),
+         [[one["row"], one["style_name"], one["style_found"], one["row_height"],
+           one["min_row_height"], one["written"], one["props_written"]]
+          for one in dig(odt, "rows")]],
+        [1, 4, 3, 1, 0, 1,
+         [[0, "表格1.1", True, "2.401cm", None, True, 2],
+          [1, "表格1.2", True, None, "1.199cm", True, 2],
+          [2, "表格1.3", True, None, None, False, 1],
+          [3, "表格1.4", True, None, "0cm", True, 2]]],
+    )
+    check(
+        "单位换算是有损的，所以两边都只交文件自己那个串：docx 那 `1361` 与 `680` twips 正好是 "
+        "2.4cm 与 1.2cm，而 ODF 里写的是 `2.401cm` 与 `1.199cm`（本仓不换算也不比对）；"
+        "一张表都没写的件交零条的账（`tables` 0 而 `available` 仍 true），"
+        "而 .pptx / .rtf / 遗留 .doc 这三族**不交这个键**",
+        [dig(lbin("office-doc", fixture("styled-text.odt")), "structure.row_heights.tables"),
+         dig(lbin("office-doc", fixture("notes.docx")), "structure.row_heights.rules"),
+         dig(lbin("office-slide", fixture("deck.pptx")), "row_heights"),
+         dig(lbin("office-doc", fixture("notes.rtf")), "structure.row_heights"),
+         dig(lbin("office-doc", fixture("notes.doc")), "structure.row_heights")],
+        [0, {"(没有 trHeight)": 2}, None, None, None],
     )
 
     failed = [one for one in RESULTS if not one[1]]

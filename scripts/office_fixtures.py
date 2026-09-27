@@ -2522,6 +2522,40 @@ def write_table_header_docx(path: Path) -> None:
     doc.save(path)
 
 
+def write_row_height_docx(path: Path) -> None:
+    """一张表四行，一次只改一个变量：exact 一个数 / atLeast 一个数 / 什么都没写 / 写零
+
+    OOXML 把行高写成 `w:trPr/w:trHeight`，**两个属性**各说一半：`@w:val` 是那个 twips 数，
+    `@w:hRule` 说这个数是「至少」还是「正好」（不写就是默认的 atLeast）。`python-docx` 这一版
+    有开关（`row.height` 与 `row.height_rule`），但 `height_rule = NONE` 会把整枚元素留下而
+    只留 `@w:val` —— 所以第四行按 Word 自己的写法把 `@w:hRule` 摘掉，让「没写规则」与
+    「写了 atLeast」在账上分得开。第三行故意一个都不写。零那一行是 Word 里真用的「藏一行」
+    手法（`@w:val="0"`），它与「这一行没写高度」是两件事。
+    """
+    from docx import Document
+    from docx.enum.table import WD_ROW_HEIGHT_RULE
+    from docx.shared import Cm
+
+    doc = Document()
+    doc.add_paragraph("这一行多高")
+    table = doc.add_table(rows=4, cols=3)
+    for row in range(4):
+        for col in range(3):
+            table.cell(row, col).text = "行%d 列%d" % (row, col)
+    table.rows[0].height = Cm(2.4)
+    table.rows[0].height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+    table.rows[1].height = Cm(1.2)
+    table.rows[1].height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+    table.rows[3].height = Cm(0)
+    table.rows[3].height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+    # 第四行只留 @w:val：把 hRule 摘下来（Word 允许，规则缺省就是 atLeast）
+    properties = table.rows[3]._tr.get_or_add_trPr()
+    for one in list(properties):
+        if one.tag.endswith("}trHeight"):
+            one.attrib.pop("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}hRule", None)
+    doc.save(path)
+
+
 def write_autofit_pptx(path: Path) -> None:
     """一个框三种「字与框谁迁就谁」，再加 PowerPoint 自己算出来的那两个缩放数
 

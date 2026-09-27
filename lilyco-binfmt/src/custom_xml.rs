@@ -112,7 +112,12 @@ fn props_of(bytes: &[u8], part: &str) -> Option<String> {
         Some((head, _)) => head.to_string(),
         None => String::new(),
     };
-    let rels = format!("{}._rels/{}.rels", folder, part.rsplit('/').next()?);
+    let base = part.rsplit('/').next()?;
+    let rels = if folder.is_empty() {
+        format!("_rels/{}.rels", base)
+    } else {
+        format!("{}/_rels/{}.rels", folder, base)
+    };
     let root = member_parse(bytes, rels.as_str())?;
     for one in root.descendants("Relationship") {
         let kind = one.attr_local("Type")?.rsplit('/').next()?;

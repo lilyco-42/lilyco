@@ -83,6 +83,7 @@ mod protect;
 mod read;
 mod regions;
 mod revise;
+mod row_heights;
 mod rtf;
 mod section_starts;
 mod shape_tree;
