@@ -199,11 +199,14 @@ pub(crate) fn docx(bytes: &[u8], limit: usize) -> Value {
             };
             table.insert(sid.to_string(), p_pr_of(one).cloned());
         }
-        for block in styles.descendants("docDefaults") {
-            if let Some(holder) = block.descendants("pPr").into_iter().next() {
-                defaults = attrs_of(Some(holder));
-            }
-            break;
+        // 第一枚 docDefaults 里的那一枚 pPr（写成链式取值，别用「循环一次就 break」）
+        let first_default = styles
+            .descendants("docDefaults")
+            .into_iter()
+            .next()
+            .and_then(|block| block.descendants("pPr").into_iter().next());
+        if let Some(holder) = first_default {
+            defaults = attrs_of(Some(holder));
         }
     }
     let mut defaults_written: BTreeMap<String, u64> = BTreeMap::new();
