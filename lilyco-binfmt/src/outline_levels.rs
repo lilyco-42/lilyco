@@ -73,7 +73,7 @@ fn kids(node: Option<&Node>) -> Vec<&Node> {
     }
 }
 
-fn kid(node: Option<&Node>, want: &str) -> Option<&Node> {
+fn kid<'a>(node: Option<&'a Node>, want: &str) -> Option<&'a Node> {
     kids(node).into_iter().find(|one| one.local() == want)
 }
 
@@ -251,7 +251,7 @@ pub(crate) fn docx(bytes: &[u8], limit: usize) -> Value {
             if !has_style && !has_own {
                 continue;
             }
-            let row = level_row(part.as_str(), paragraphs, one, table);
+            let row = level_row(part.as_str(), paragraphs, one, &table);
             paragraphs += 1;
             with_style += usize::from(!row["style_id"].is_null());
             style_missing += usize::from(

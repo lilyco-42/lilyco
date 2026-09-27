@@ -4925,6 +4925,8 @@ def slide_bullets_layers_pptx(parts, names, limit: int = 400) -> dict:
         "chars": chars,
         "declared": sum(1 for row in rows if row["kind"] in BULLET_KINDS),
         "silent": sum(1 for row in rows if row["kind"] == "(没写)"),
+        "marl_written": sum(1 for row in rows if row["mar_l"] is not None),
+        "indent_written": sum(1 for row in rows if row["indent"] is not None),
         "rows": rows[:limit],
         "rows_total": len(rows),
         "listed": min(len(rows), limit),
