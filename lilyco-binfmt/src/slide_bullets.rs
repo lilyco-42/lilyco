@@ -565,10 +565,7 @@ pub(crate) fn odp_ledger(bytes: &[u8], limit: usize) -> Value {
                 Some(had) => had.to_string(),
                 None => continue,
             };
-            match used
-                .iter_mut()
-                .find(|had: &mut (String, usize)| had.0 == want)
-            {
+            match used.iter_mut().find(|had| had.0 == want) {
                 Some(hit) => hit.1 += 1,
                 None => used.push((want, 1)),
             }
@@ -579,10 +576,7 @@ pub(crate) fn odp_ledger(bytes: &[u8], limit: usize) -> Value {
                     Some(had) => had.to_string(),
                     None => continue,
                 };
-                match used
-                    .iter_mut()
-                    .find(|had: &mut (String, usize)| had.0 == want)
-                {
+                match used.iter_mut().find(|had| had.0 == want) {
                     Some(hit) => hit.1 += 1,
                     None => used.push((want, 1)),
                 }
@@ -591,7 +585,7 @@ pub(crate) fn odp_ledger(bytes: &[u8], limit: usize) -> Value {
     }
     let used_of = |want: &str| -> usize {
         used.iter()
-            .find(|had: &(String, usize)| had.0 == want)
+            .find(|had| had.0 == want)
             .map(|had| had.1)
             .unwrap_or(0)
     };
