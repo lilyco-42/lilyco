@@ -211,47 +211,58 @@ fn ppr_row(ppr: Option<&Node>, at: usize, carrier: &str, shape: Value) -> Value 
     })
 }
 
-/// 前序走一遍：遇到载体就换上下文，遇到 `a:p` 就交一行
+/// 前序走一遍：载体栈的最深那一枚就是这一段的载体，遇到 `a:p` 就交一行
+///
+/// 「编号只发给真的装了字的载体」是这条与第二读者对齐的关键：`p:graphicFrame` 与
+/// 空着的 `a:tc` 都不该占一个号（python 那本是从段往上找到第一枚载体才记账），
+/// 否则 `carriers_found` 会把「走过的载体元素」与「住了字的载体」混成一件事。
 fn walk_paras(
     node: &Node,
-    carrier: &str,
-    shape: Value,
-    seen: &mut Vec<String>,
+    stack: &mut Vec<(String, Option<usize>)>,
     next: &mut usize,
+    names: &mut serde_json::Map<String, Value>,
     out: &mut Vec<Value>,
 ) {
     for one in kids(node) {
         let name = one.local();
         if CARRIERS.contains(&name) {
-            seen.push(name.to_string());
-            let mine = json!(*next);
-            *next += 1;
-            walk_paras(one, name, mine, seen, next, out);
+            stack.push((name.to_string(), None));
+            walk_paras(one, stack, next, names, out);
+            stack.pop();
             continue;
         }
         if name == "p" {
+            let mut carrier = "(没有)".to_string();
+            let mut shape = Value::Null;
+            if let Some(top) = stack.last_mut() {
+                if top.1.is_none() {
+                    top.1 = Some(*next);
+                    *next += 1;
+                    bump(names, top.0.as_str());
+                }
+                carrier = top.0.clone();
+                shape = json!(top.1.unwrap_or(0));
+            }
             out.push(ppr_row(
                 first_child(one, "pPr"),
                 out.len(),
-                carrier,
-                shape.clone(),
+                carrier.as_str(),
+                shape,
             ));
         }
-        walk_paras(one, carrier, shape.clone(), seen, next, out);
+        walk_paras(one, stack, next, names, out);
     }
 }
 
 /// 一页（或任何一份部件）里每段前面画什么：只看这一件自己写没写
 pub(crate) fn pptx_page(root: &Node, limit: usize) -> Value {
     let mut rows: Vec<Value> = Vec::new();
-    let mut seen: Vec<String> = Vec::new();
+    let mut names = serde_json::Map::new();
+    let mut stack: Vec<(String, Option<usize>)> = Vec::new();
     let mut next = 0usize;
-    walk_paras(root, "(没有)", Value::Null, &mut seen, &mut next, &mut rows);
+    walk_paras(root, &mut stack, &mut next, &mut names, &mut rows);
     let total = rows.len();
-    let mut carriers = serde_json::Map::new();
-    for one in seen.iter() {
-        bump(&mut carriers, one);
-    }
+    let found: usize = names.values().filter_map(|one| one.as_u64()).sum::<u64>() as usize;
     json!({
         "family": "ooxml",
         "available": true,
@@ -278,8 +289,8 @@ pub(crate) fn pptx_page(root: &Node, limit: usize) -> Value {
         }).count(),
         "spc_before_written": trues(&rows, "spc_before_written"),
         "spc_after_written": trues(&rows, "spc_after_written"),
-        "carriers_found": seen.len(),
-        "carriers_seen": Value::Object(carriers),
+        "carriers_found": found,
+        "carriers_seen": Value::Object(names),
         "rows": rows.iter().take(limit).cloned().collect::<Vec<Value>>(),
         "listed": total.min(limit),
         "cut": total > limit,

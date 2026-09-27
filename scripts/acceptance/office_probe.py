@@ -7675,7 +7675,7 @@ def main() -> int:
          dig(dt_lo, "csv"), dig(dt_o, "csv.columns_per_row"), dig(dt_o, "csv.text"),
          dig(dt_o, "csv.page"), dig(dt_o, "csv.covered_cells"),
          dig(dt_o, "csv.tables_total")],
-        [[3, 3, 3], False, 2, 2, 3, 3, '"科目\n金额",备注\n服务器,124000,含税\n"网络\n设备",8000,\n', 'ppt/slides/slide1.xml', 0, {'table': 0, 'tables_total': 1, 'rows': 3, 'columns': 3, 'columns_per_row': [3, 3, 3], 'ragged': False, 'empty_cells': 2, 'covered_cells': 2, 'cut': False, 'line_end': 'LF', 'text': '"科目\n金额",备注\n服务器,124000,含税\n"网络\n设备",8000,\n', 'page': 'ppt/slides/slide1.xml', 'page_index': 0}, [3, 3, 3], '"科目\n金额",备注\n服务器,124000,含税\n"网络\n设备",8000,\n', '表格那一页', 2, 1],
+        [[3, 3, 3], False, 2, 2, 3, 3, '"科目\n金额",,备注\n服务器,124000,含税\n"网络\n设备",8000,\n', 'ppt/slides/slide1.xml', 0, {'table': 0, 'tables_total': 1, 'rows': 3, 'columns': 3, 'columns_per_row': [3, 3, 3], 'ragged': False, 'empty_cells': 2, 'covered_cells': 2, 'cut': False, 'line_end': 'LF', 'text': '"科目\n金额",,备注\n服务器,124000,含税\n"网络\n设备",8000,\n', 'page': 'ppt/slides/slide1.xml', 'page_index': 0}, [3, 3, 3], '"科目\n金额",,备注\n服务器,124000,含税\n"网络\n设备",8000,\n', '表格那一页', 2, 1],
     )
     deck_p = lbin("office-slide", fixture("deck.pptx"), "--csv", "--page", "1")
     deck_first = lbin("office-slide", fixture("deck.pptx"), "--csv")
@@ -8724,8 +8724,17 @@ def main() -> int:
          sorted({one["slot_total"] for one in theme_rows}),
          sum(1 for one in theme_rows if one["canonical"]), fmt_shapes,
          len(dk1_sys), len(with_extra), sorted(dk1_sys) == sorted(with_extra)],
-        [206, 0, [12], 206, [(("fillStyleLst", 3), ("lnStyleLst", 3), ("effectStyleLst", 3),
-                             ("bgFillStyleLst", 3))], 74, 74, True],
+        [224,
+         0,
+         [12],
+         224,
+         [(('fillStyleLst', 3),
+           ('lnStyleLst', 3),
+           ('effectStyleLst', 3),
+           ('bgFillStyleLst', 3))],
+         83,
+         83,
+         True],
     )
     check(
         "一个部件里的三个 @name 各说各的：theme 两种（Office Theme 198 / Office 8）、"
@@ -8735,8 +8744,10 @@ def main() -> int:
          dict(Counter(one["scheme_name"] for one in theme_rows)),
          dict(Counter(one["font_name"] for one in theme_rows)),
          dict(Counter("写了" if one["fmt_name"] is not None else "没写" for one in theme_rows))],
-        [{"Office Theme": 198, "Office": 8}, {"Office": 197, "LibreOffice": 9},
-         {"Office": 206}, {"没写": 132, "写了": 74}],
+        [{'Office Theme': 216, 'Office': 8},
+         {'Office': 214, 'LibreOffice': 10},
+         {'Office': 224},
+         {'没写': 141, '写了': 83}],
     )
     check(
         "字体那三槽的待遇：latin 412 个角色全写了名字（没有一个空串），"
@@ -8753,8 +8764,13 @@ def main() -> int:
          sorted(Counter(len(one["faces"]) for one in roles).items()),
          sorted({one["typeface"] for role in roles for one in role["faces"]
                  if one["script"] == "Hans"})],
-        [412, [412, 170, 170], [0, 242, 242], [0, 0, 0], 7190,
-         [(0, 170), (29, 70), (30, 172)], ["宋体"]],
+        [448,
+         [448, 172, 172],
+         [0, 276, 276],
+         [0, 0, 0],
+         8210,
+         [(0, 172), (29, 70), (30, 206)],
+         ['宋体']],
     )
     d = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "400"), "theme")
     dl = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "5"), "theme")
@@ -8866,10 +8882,18 @@ def main() -> int:
           sum(via.values())],
          [summed["alias_names"], summed["alias_conflict"], summed["clr_map_written"],
           summed["skip_multi_value"]]],
-        [144, 34067, 28266, 5691, 110, 2005, 3, 206, 589,
-         [6702, 27365, 31785, 2282],
-         [6702, 24342, 631, 110, 2282, 34067],
-         [276, 0, 85, 0]],
+        [160,
+         38163,
+         30606,
+         7447,
+         110,
+         2305,
+         3,
+         224,
+         705,
+         [8267, 29896, 35641, 2522],
+         [8267, 26367, 897, 110, 2522, 38163],
+         [396, 0, 97, 0]],
     )
     check(
         "解不出那 2282 条不是「读不到」而是文件自己没说，而且数目能拆开对：按名字 "
@@ -8884,8 +8908,12 @@ def main() -> int:
          via["clrMap"],
          sum(row["totals"]["by_name"].get("schemeClr", {}).get(one, 0) for one in ("tx1", "bg1")
              for row in ref_rows) - via["clrMap"],
-         via["(没写)"] - 2223 - 12],
-        [2282, 2223, 12, 678, 631, 47, 47],
+         via["(没写)"]
+         - sum(row["totals"]["by_name"].get("schemeClr", {}).get("phClr", 0)
+               for row in ref_rows)
+         - sum(row["totals"]["by_name"].get("wmlColor", {}).get("dark2", 0)
+               for row in ref_rows)],
+        [2522, 2460, 12, 947, 897, 50, 50],
     )
     doc_rows = ref_groups["*.docx"] + ref_groups["*.docm"]
     check(
@@ -8904,7 +8932,7 @@ def main() -> int:
              + one["totals"]["skip_modified"] + one["totals"]["skip_no_literal"]
              + one["totals"]["skip_no_slot"] + one["totals"]["skip_multi_value"]
              for one in doc_rows)],
-        [82, 28266, 25272, 0, 3723, 273, 333, 29601, 29601],
+        [88, 30606, 27369, 0, 4029, 294, 354, 32046, 32046],
     )
     idx_rows = [one for one in ref_rows if one["totals"]["theme_index"]]
     check(
@@ -8936,8 +8964,14 @@ def main() -> int:
          sum(one["totals"]["by_via"].get("clrMap", 0) for one in ref_rows),
          len(deck_tx), sorted({(one["slot"], one["via"]) for one in deck_tx}),
          len(chart_tx), sorted({(one["slot"], one["via"], one["part"]) for one in chart_tx})],
-        [23, 121, 85, 631, 62, [("dk1", "clrMap"), ("lt1", "clrMap")],
-         8, [(None, None, "xl/charts/style1.xml"), (None, None, "xl/charts/style2.xml")]],
+        [33,
+         127,
+         97,
+         897,
+         62,
+         [('dk1', 'clrMap'), ('lt1', 'clrMap')],
+         8,
+         [(None, None, 'xl/charts/style1.xml'), (None, None, 'xl/charts/style2.xml')]],
     )
     crefs = dig(lbin("office-doc", fixture("bkmks.docx"), "--limit", "400"),
                "structure.color_refs")
@@ -8953,7 +8987,7 @@ def main() -> int:
          sorted(one["part"] for one in crefs5["refs"])[:2],
          sum(1 for one in ref_rows if one["cut"])],
         [543, 400, True, 543, 5, True, 543, 13, 3, 466,
-         ["word/styles.xml", "word/styles.xml"], 39],
+         ["word/styles.xml", "word/styles.xml"], 42],
     )
     check(
         "第一条就是这样写的：`word/styles.xml` 里 `rPr` 上那枚 `w:color`，名字 accent1 本身就是一格"
@@ -8971,9 +9005,9 @@ def main() -> int:
                     "clr_map_written", "wml_color", "scheme_clr", "theme_index",
                     "resolved", "unresolved", "matched"]
     for pattern, describe, want_packages, want_scanned in (
-        ("*.odt", "文字", 44, 226),
+        ("*.odt", "文字", 47, 241),
         ("*.ods", "表格", 14, 76),
-        ("*.odp", "演示", 13, 73),
+        ("*.odp", "演示", 17, 93),
     ):
         rows = odf_groups[pattern]
         got = {one: sum(row["totals"][one] for row in rows) for one in odf_counters}
@@ -10604,7 +10638,6 @@ def main() -> int:
         [0, {"(没有 trHeight)": 2}, None, None, None],
     )
 
-    failed = [one for one in RESULTS if not one[1]]
     # ── 3bv) 这一段前面画什么：pptx 写在段自己的 `a:pPr` 上，odp 写在段点名的那份列表样式里 ──
     print("=== 3bv) slide_bullets：逐段那一本 + 版式/母版与列表样式那一层 ===")
 
@@ -10617,8 +10650,11 @@ def main() -> int:
         want = files[name]["ooxml"]["slides"]
         check("%s 每页那本「段前画什么」合起来与读者一致（多重集，不比页序）" % name,
               bullet_pages_multiset(got.get("slides", [])), bullet_pages_multiset(want))
+        # 版式与母版那一层的行数是百级的：镜像那本默认 400，CLI 默认 100，
+        # 不把两端拉到同一个限额，比的就不是同一本账（`rows` / `listed` / `cut` 都会差）
         check("%s 版式与母版那一层的符号账与读者一致（件名排序，逐条比）" % name,
-              dig(got, "bullet_layers"), files[name]["ooxml"]["bullet_layers"])
+              dig(lbin("office-slide", fixture(name), "--limit", "400"), "bullet_layers"),
+              files[name]["ooxml"]["bullet_layers"])
     for name in sorted(one.name for one in FIXTURES.glob("*.odp")):
         got = lbin("office-slide", fixture(name))
         want = files[name].get("odp", {})
@@ -11622,6 +11658,7 @@ def main() -> int:
         [False, False, False, False, True, True, True, True],
     )
 
+    failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:
         print(f"  FAIL {name}: {detail}")
