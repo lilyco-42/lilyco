@@ -208,3 +208,103 @@ pub(crate) fn ods(bytes: &[u8], limit: usize) -> Value {
         "named": named.into_iter().take(limit).collect::<Vec<Value>>(),
     })
 }
+
+/// ODF 的数据区（`table:database-range`）那一份账：区不住在表上，住在工作簿的
+/// `<table:database-ranges>` 里，归属只能从 `target-range-address` 前面那张表名读出来。
+///
+/// 筛子（`table:filter`）是挂在**区**上的孩子而不是区自己的属性，所以「有几个区」与
+/// 「有几个区在筛」是两个数；语料里 16 份 .ods 只有 2 份写 `<table:database-ranges>`
+/// 这个容器（book.ods 与 locked-sheet.ods，各一条区、都没筛），所以数的是元素而不是容器。
+pub(crate) fn ods_data_ranges(bytes: &[u8], limit: usize) -> Value {
+    let member = match zipread::member(bytes, "content.xml", DEFAULT_MEMBER_CAP) {
+        Ok(one) => one,
+        Err(_) => return json!({"available": false}),
+    };
+    let root = xmlscan::parse_str(&member.as_text());
+    let mut rows: Vec<Value> = Vec::new();
+    let mut conditions_total = 0usize;
+    for one in root.descendants("database-range") {
+        let address = one.attr_local("target-range-address");
+        let sheet = address
+            .as_deref()
+            .and_then(|raw| raw.split('.').next())
+            .map(String::from);
+        let groups: Vec<Value> = one
+            .descendants("filter")
+            .into_iter()
+            .take(limit)
+            .map(|holder| {
+                json!({
+                    // and / or 是这个族自己的组合元素，写在 filter 的直接孩子上
+                    "kinds": holder.children.iter().map(|kid| kid.local().to_string()).collect::<Vec<String>>(),
+                    "written": kept_attrs(&holder),
+                })
+            })
+            .collect();
+        let found = one.descendants("filter-condition");
+        conditions_total += found.len();
+        let conditions: Vec<Value> = found
+            .into_iter()
+            .take(limit)
+            .map(|had| {
+                json!({
+                    "value": had.attr_local("value"),
+                    "operator": had.attr_local("operator"),
+                    "field_number": had.attr_local("field-number"),
+                    "written": kept_attrs(&had),
+                })
+            })
+            .collect();
+        rows.push(json!({
+            "name": one.attr_local("name"),
+            "sheet_from_address": sheet,
+            "target_range_address": address,
+            "display_filter_buttons": one.attr_local("display-filter-buttons"),
+            "has_filter": !groups.is_empty(),
+            "groups": groups,
+            "conditions": conditions,
+            "written": kept_attrs(&one),
+        }));
+    }
+    let total = rows.len();
+    let with_filter = rows
+        .iter()
+        .filter(|one| one["has_filter"].as_bool() == Some(true))
+        .count();
+    let anonymous = rows
+        .iter()
+        .filter(|one| {
+            one["name"]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with("__Anonymous_")
+        })
+        .count();
+    let dollars = rows
+        .iter()
+        .filter(|one| {
+            one["target_range_address"]
+                .as_str()
+                .unwrap_or_default()
+                .contains('$')
+        })
+        .count();
+    let mut names: Vec<String> = rows
+        .iter()
+        .filter_map(|one| one["name"].as_str().map(String::from))
+        .collect();
+    names.sort();
+    names.dedup();
+    json!({
+        "family": "odf",
+        "available": true,
+        "total": total,
+        "with_filter": with_filter,
+        "without_filter": total - with_filter,
+        "anonymous_names": anonymous,
+        "distinct_names": names.len(),
+        "addresses_with_dollars": dollars,
+        "conditions_total": conditions_total,
+        "entries": rows.into_iter().take(limit).collect::<Vec<Value>>(),
+    })
+}

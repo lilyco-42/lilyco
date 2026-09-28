@@ -2522,6 +2522,43 @@ def main() -> int:
         sorted({json.dumps(one) for one in trio.values()}),
         [json.dumps([2, 1])],
     )
+
+    # ── 3a5c) 数据区（ODF 的 table:database-range）：区住在工作簿，筛是区的孩子 ──
+    # 这一族没有 autoFilter 那一级：LO 把 OOXML 的筛子搬进「数据区」，区自己带一个
+    # <table:filter>，所以「有几个区」与「有几个区在筛」必须是两个数；归属也没有指针，
+    # 只能从 target-range-address 前面那张表名读（且这一族的区地址不写 $）。
+    print("=== 3a5c) 数据区：区住在哪、有没有在筛 ===")
+    for name in ("book.ods", "locked-sheet.ods", "groups.ods", "hidden.ods"):
+        got = json.dumps(lbin("office-sheet", fixture(name)).get("data_ranges") or {},
+                         ensure_ascii=False, sort_keys=True)
+        want = json.dumps(files[name]["ods"]["data_ranges"],
+                          ensure_ascii=False, sort_keys=True)
+        check("%s 的数据区整本账（两家逐格）" % name, got, want)
+    tally = []
+    for name in ("book.ods", "locked-sheet.ods", "groups.ods", "hidden.ods", "cell-notes.ods"):
+        mine = lbin("office-sheet", fixture(name)).get("data_ranges") or {}
+        tally.append([mine.get("total"), mine.get("with_filter"), mine.get("conditions_total")])
+    check(
+        "五份 ODF 的「几个区 / 几个在筛 / 几条筛法」（这一批全语料无筛，条件那本只能交 0）",
+        tally,
+        [[1, 0, 0], [1, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]],
+    )
+    only = (lbin("office-sheet", fixture("book.ods")).get("data_ranges") or {}).get("entries", [{}])[0]
+    check(
+        "book.ods 那条区：名字、地址、归属与「区自己没写任何开关」",
+        [only.get("name"), only.get("target_range_address"), only.get("sheet_from_address"),
+         only.get("display_filter_buttons"), only.get("has_filter")],
+        ["预算表", "预算表.A1:预算表.B3", "预算表", None, False],
+    )
+    check(
+        "OOXML 与 .xls 不交这个键（缺键 ≠ 交一本空的账）",
+        [
+            "data_ranges" in lbin("office-sheet", fixture(name))
+            for name in ("book.xlsx", "book.xls")
+        ],
+        [False, False],
+    )
+    print("=== 3a5b 续) ODS 分组里的行也进账（那笔下钻的回归闸门） ===")
     for name in ("groups.ods",):
         rows = lbin("office-sheet", fixture(name)).get("sheets", [])
         check(

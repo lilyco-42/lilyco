@@ -3593,3 +3593,22 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       info1 fCollapsed 那一位，偏移 4 恒 0x0005；`GUTS`(0x0100) 一条都没有），
       加上「位一直都在、问不出写没写」，所以 `level_spoken`、`collapse_spoken`、
       `collapsed_grouped`、`group_elements` 与两个声明值一律交 null。
+
+155. **数据区（`table:database-range`）与筛子：区住在工作簿，筛是区的孩子。**
+    16 份 .ods 里只有 2 份写 `<table:database-ranges>`：`book.ods` 与 `locked-sheet.ods`，
+    各一条区，区自己只有两枚属性（`table:name=预算表`、
+    `table:target-range-address=预算表.A1:预算表.B3`），**没有 `display-filter-buttons`**，
+    也没有任何筛（`with_filter` 0、`conditions_total` 0）。三条要紧的：
+    - 区不写在表上，工作簿里也没有一张指针说「这是哪张表的区」—— 归属只能从地址前面
+      那个表名读（`sheet_from_address`）；而同一份件里 `table:named-*` 的地址是带 `$` 的
+      第三种写法（`$预算表.$A$1`），两族地址不能互推。
+    - 让 LibreOffice 把带 `autoFilter` 的 `size.xlsx` 转成 .ods（本机实测，`size.xlsx` 与
+      `size-lo.xlsx` 两份源件转出来形状一致）：筛整个搬进**区**，成为
+      `<table:filter><table:filter-and><table:filter-condition table:value=甲
+      table:operator="=" table:field-number=0/>`，区自己还多写
+      `table:display-filter-buttons=true`；同一份里另一条区（`table:name=台账`，来自 OOXML
+      的表对象）不带筛 —— 所以「几个区」与「几个区在筛」是两个数，不能并成一个。
+    - 被筛掉的那一行在 ODF 里写 `table:visibility=collapse` —— 与手工分级折叠**同一个词**
+      （这一族没有 `collapsed` 也没有 `filterMode`），于是「为什么看不见」问不出来；
+      语料目前没有带筛的区，条件那一本要等 `size.ods` 进语料才点得到（元素名是
+      `table:filter-condition`，不是 `table:condition`）。

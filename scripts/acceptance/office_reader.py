@@ -1025,6 +1025,71 @@ def ods_print_ranges(path: Path, limit: int = 100) -> dict:
     }
 
 
+def ods_data_ranges(path: Path, limit: int = 100) -> dict:
+    r"""ODF 的数据区（`table:database-range`）与挂在它身上的筛子
+
+    区不住在表上，住在工作簿的 `<table:database-ranges>` 里，所以「这是哪张表的区」只能从
+    `target-range-address` 前面那个表名读（实测 `尺寸.A1:尺寸.C3`，与 named-* 那种带 `$` 的
+    写法不是同一种地址）。筛（`table:filter`）是区的**孩子**而不是区的属性，因此「几个区」
+    与「几个区在筛」是两个数。这批 16 份 .ods 里只有 2 份写那个容器（book.ods 与
+    locked-sheet.ods，各一条区、都没筛）；本账数的是元素，不是那个容器。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        raw = box.read("content.xml")
+    root = ET.fromstring(raw)
+    nsmap = _ns_prefixes(raw)
+    rows = []
+    conditions_total = 0
+    for one in root.iter():
+        if xml_local(one.tag) != "database-range":
+            continue
+        written = _written_attrs(one, nsmap)
+        address = _local_in(written, "target-range-address")
+        groups = []
+        for holder in [deep for deep in one.iter() if xml_local(deep.tag) == "filter"][:limit]:
+            groups.append({
+                "kinds": [xml_local(kid.tag) for kid in holder],
+                "written": _written_attrs(holder, nsmap),
+            })
+        found = [deep for deep in one.iter() if xml_local(deep.tag) == "filter-condition"]
+        conditions_total += len(found)
+        conditions = []
+        for deep in found[:limit]:
+            mine = _written_attrs(deep, nsmap)
+            conditions.append({
+                "value": _local_in(mine, "value"),
+                "operator": _local_in(mine, "operator"),
+                "field_number": _local_in(mine, "field-number"),
+                "written": mine,
+            })
+        rows.append({
+            "name": _local_in(written, "name"),
+            "sheet_from_address": address.split(".")[0] if address else None,
+            "target_range_address": address,
+            "display_filter_buttons": _local_in(written, "display-filter-buttons"),
+            "has_filter": bool(groups),
+            "groups": groups,
+            "conditions": conditions,
+            "written": written,
+        })
+    return {
+        "family": "odf",
+        "available": True,
+        "total": len(rows),
+        "with_filter": sum(1 for one in rows if one["has_filter"]),
+        "without_filter": sum(1 for one in rows if not one["has_filter"]),
+        "anonymous_names": sum(1 for one in rows if (one["name"] or "").startswith("__Anonymous_")),
+        "distinct_names": len(sorted({one["name"] for one in rows})),
+        "addresses_with_dollars": sum(
+            1 for one in rows if "$" in (one["target_range_address"] or "")),
+        "conditions_total": conditions_total,
+        "entries": rows[:limit],
+    }
+
+
 def pptx_placeholder_hops(path: Path, limit: int = 100) -> dict:
     r"""「这框对应版式里哪一条」是**一跳**：页上的 `p:ph/@idx` 对版式里那条 `p:ph/@idx`
 
@@ -14742,6 +14807,7 @@ def facts(path: Path) -> dict:
                 sheets["page_styles"] = odf_page_styles(path)
                 # 打印范围：这一族写在表自己身上，另有一份为与 Excel 来回而留的 named-*
                 sheets["print_ranges"] = ods_print_ranges(path)
+                sheets["data_ranges"] = ods_data_ranges(path)
                 sheets["formula_elems"] = ods_formula_elems(path)
                 sheets["theme"] = themes
                 sheets["color_refs"] = refs
