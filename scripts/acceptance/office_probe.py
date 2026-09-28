@@ -12117,7 +12117,7 @@ def main() -> int:
            back["element_names"], back["empty_elements"],
            back["views"][0]["attrs"]["activeTab"],
            back["views"][0]["attrs"]["windowWidth"],
-           sorted(back["boolean_spellings"].items())],
+           [[k, v] for k, v in sorted(back["boolean_spellings"].items())]],
           [[{"appName": "Calc", "lowestEdited": "5"}],
            {"iterateCount": "200", "refMode": "A1", "iterate": "true",
             "iterateDelta": "0.0005"},
@@ -12363,7 +12363,8 @@ def main() -> int:
                 [[one["name"], one["children_total"], one["protection_elements"]]
                  for one in d["containers"]],
                 [[k, d["attrs_written"][k]] for k in sorted(d["attrs_written"])],
-                [[k, sorted(d["values"][k].items())] for k in sorted(d["values"])],
+                [[k, [[kk, vv] for kk, vv in sorted(d["values"][k].items())]]
+                 for k in sorted(d["values"])],
                 d["on_formats"], d["unknown_attrs"]]
 
     lock_rows = []
