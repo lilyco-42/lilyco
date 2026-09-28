@@ -83,6 +83,9 @@ jobs:
           projectPath: lilyco-tauri
           includeRelease: ${{ startsWith(github.ref, 'refs/tags/v') }}
 
+      # 上一次 macOS 这一步红了：tauri-action 按 target triple 编，bundle 不在
+      # target/release/bundle 而在 target/<triple>/release/bundle —— 两种布局都收，
+      # 并且留着 if-no-files-found: error：真没产物时要它明着红，而不是静默交一个空工件
       - name: 交工件（每次 run 都留一份能直接下载的）
         uses: actions/upload-artifact@v4
         with:
@@ -93,3 +96,7 @@ jobs:
             target/release/bundle/dmg/*
             target/release/bundle/deb/*
             target/release/bundle/appimage/*
+            target/*/release/bundle/msi/*
+            target/*/release/bundle/dmg/*
+            target/*/release/bundle/deb/*
+            target/*/release/bundle/appimage/*
