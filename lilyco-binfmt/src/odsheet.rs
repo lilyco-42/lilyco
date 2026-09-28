@@ -296,7 +296,7 @@ fn note_field(node: &xmlscan::Node, wants: &[&str]) -> Option<String> {
 
 /// 一条轴的分组账（ODF 那一族）。字段名与语义都跟 `office_sheet.rs` 里 OOXML 那本对齐：
 /// 同一个键在两家必须是同一件事，说不出来的那几格交 None（不是 0）
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct GroupTally {
     /// 分组元素自己数（`<table:table-*-group>` 有几层就几条）
     pub group_elements: usize,
