@@ -700,6 +700,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 "covered": one.covered,
                 "hidden_rows": one.hidden_rows,
                 "hidden_cols": one.hidden_cols,
+                "groups": ods_sheet_groups(one),
                 "comments": one.comments.len(),
                 "comment_list": one.comments.iter().cloned().take(limit).collect::<Vec<Value>>(),
                 "links": links,
@@ -1255,8 +1256,38 @@ impl AxisGroups {
             "collapse_spoken": self.collapse_spoken,
             "collapsed_grouped": self.collapsed,
             "max_level": self.max_level,
+            // OOXML 没有「分组元素」这一说（级就写在行/列自己身上），交 null 而不是 0
+            "group_elements": Value::Null,
         })
     }
+}
+
+/// ODF 那一族的分组账，键与 OOXML 那本一一对齐（同一个键两家说同一件事）：
+/// 级数在 ODF 里**不写在行/列自己身上**，而是把它们包进 `<table:table-*-group>`，
+/// 所以 `level_spoken`、`collapse_spoken`、`collapsed_grouped` 与两个 `declared`
+/// 这一族都没有地方说 —— 一律交 null，不拿 OOXML 的语义去补
+fn ods_sheet_groups(one: &crate::odsheet::Sheet) -> Value {
+    fn axis(had: &crate::odsheet::GroupTally) -> Value {
+        json!({
+            "level_spoken": Value::Null,
+            "grouped": had.members,
+            "covered": had.covered,
+            "hidden_grouped": had.hidden,
+            "collapse_spoken": Value::Null,
+            "collapsed_grouped": Value::Null,
+            "max_level": if had.max_level == 0 {
+                Value::Null
+            } else {
+                json!(had.max_level)
+            },
+            "group_elements": had.group_elements,
+        })
+    }
+    json!({
+        "declared": {"rows": Value::Null, "cols": Value::Null},
+        "rows": axis(&one.row_groups),
+        "cols": axis(&one.col_groups),
+    })
 }
 
 /// ODF 的一条轴（列或行）：总账 + 逐条账本。这一族的尺寸**不在元素上** —— 元素只写
@@ -4407,6 +4438,36 @@ mod tests {
         assert_eq!(first["layout"]["columns"]["elements"], 5);
         assert_eq!(first["hidden_rows"], 2, "折叠掉的两行也在那层嵌套里");
         assert_eq!(first["hidden_cols"], 1);
+        // 级别那一份账：ODF 里说不出「元素自己写了几级」「collapsed」「声明级」，
+        // 所以那三格是 null 而不是 0；能说的只有嵌套深度与成员
+        assert_eq!(
+            first["groups"]["rows"],
+            json!({
+                "level_spoken": null, "grouped": 5, "covered": 5, "hidden_grouped": 2,
+                "collapse_spoken": null, "collapsed_grouped": null, "max_level": 2,
+                "group_elements": 2,
+            }),
+            "两层嵌套（外层包 3-6 行、内层包第 7 行）：{first}"
+        );
+        assert_eq!(
+            first["groups"]["cols"],
+            json!({
+                "level_spoken": null, "grouped": 2, "covered": 3, "hidden_grouped": 1,
+                "collapse_spoken": null, "collapsed_grouped": null, "max_level": 2,
+                "group_elements": 2,
+            }),
+            "B-C 一条元素盖两列：{first}"
+        );
+        assert_eq!(
+            first["groups"]["declared"],
+            json!({"rows": null, "cols": null}),
+            "ODF 没有 sheetFormatPr 那个声明值"
+        );
+        assert_eq!(
+            book["sheets"][1]["groups"]["rows"]["max_level"],
+            json!(null)
+        );
+        assert_eq!(book["sheets"][1]["groups"]["rows"]["group_elements"], 0);
         // 同一份内容的 OOXML 两支该报同一本隐藏账（跨格式同形由 probe 那侧再对一遍）
         for name in ["groups.xlsx", "groups-lo.xlsx"] {
             let other = &run(name)["sheets"][0];

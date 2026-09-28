@@ -3578,7 +3578,11 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       它的定义就是「按名字筛直接孩子」；深看要用 `descendants()`），于是被 group 包住的
       第 3-7 行整批看不见 —— 第一张表量到的对比是**行元素 3 条 vs 8 条、隐藏行 0 vs 2**
       （CSV 少 5 行）。现在两家都改成走全部后代，这一条由 probe 里
-      「三种存法报同一个数」那道闸门钉住。
-      级别那一份账（ODF 的嵌套深度、.xls 的位）**还没读**：`.producer/groups.xls` 那边
-      行的级在 `ROW` 正文偏移 12 的低三位（同一条记录那格 bit5 是隐藏，与既有隐藏账同位），
-      列的级在 `COLINFO` 的 grbit 第 8-10 位（bit0 是隐藏），`collapsed` 两家都没地方说。
+      「三种存法报同一个数」那道闸门钉住。级别那一份账也读了：`groups.ods` 第一张表
+      行方向两层嵌套包 5 条成员（展开 5 行、折叠 2 行）、列方向两层嵌套包 2 条元素
+      （展开 3 列、折叠 1 列），最大级 2 —— 与 LibreOffice 那份 xlsx 一字不差；
+      而 openpyxl 那份列方向 grouped 是 3（一列一条）。这一族说不出来的三格
+      （元素自己写的级、collapsed、`sheetFormatPr` 的声明级）交 null，不拿 OOXML 的语义补。
+      **`.xls` 那一族还没读**（`.producer/groups.xls`：行的级在 `ROW` 正文偏移 12 的低三位，
+      同一条记录那格 bit5 是隐藏，与既有隐藏账同位；列的级在 `COLINFO` 的 grbit
+      第 8-10 位，bit0 是隐藏；`collapsed` 没地方写）。

@@ -158,6 +158,11 @@ pub struct Sheet {
     /// 也可以只写在它引的那个自动样式里，两边都得看
     pub hidden_rows: usize,
     pub hidden_cols: usize,
+    /// 分级显示（行/列分组）那一份账。这一族与 OOXML 完全两样：级数不写在行/列自己身上，
+    /// 而是把它们**包进** `<table:table-row-group>` / `<table:table-column-group>`，
+    /// 分组元素自己一个属性都没有 —— 级别＝嵌套深度。见 `count_groups`
+    pub row_groups: GroupTally,
+    pub col_groups: GroupTally,
     /// 逐条列元素的尺寸账
     pub col_sizes: Vec<SizeInfo>,
     /// 逐条行元素的尺寸账
@@ -287,6 +292,66 @@ fn note_field(node: &xmlscan::Node, wants: &[&str]) -> Option<String> {
             .map(|one| one.text().trim().to_string())
             .filter(|had| !had.is_empty())
     })
+}
+
+/// 一条轴的分组账（ODF 那一族）。字段名与语义都跟 `office_sheet.rs` 里 OOXML 那本对齐：
+/// 同一个键在两家必须是同一件事，说不出来的那几格交 None（不是 0）
+#[derive(Clone, Copy, Default)]
+pub struct GroupTally {
+    /// 分组元素自己数（`<table:table-*-group>` 有几层就几条）
+    pub group_elements: usize,
+    /// 落在任意分组里的成员元素条数（按元素，不按跨度）
+    pub members: usize,
+    /// 这些成员展开成几行 / 几列（乘上 `number-*-repeated`）
+    pub covered: usize,
+    /// 其中折叠着的（`visibility="collapse"` 或它引的样式这么写）展开数
+    pub hidden: usize,
+    /// 最深到几级（＝最深的那层嵌套）
+    pub max_level: usize,
+}
+
+/// 数一族的分组：从表元素出发，只往 group 里下钻。
+/// 成员元素自己**不写级别**（这一点与 OOXML 的 `outlineLevel` 正相反），
+/// 所以级别只能由嵌套深度算出来
+fn count_groups(
+    table: &xmlscan::Node,
+    group_tag: &str,
+    member_tag: &str,
+    rep_attr: &str,
+    folded: &dyn Fn(Option<&str>) -> bool,
+) -> GroupTally {
+    let mut out = GroupTally::default();
+    walk_groups(table, group_tag, member_tag, rep_attr, folded, 0, &mut out);
+    out
+}
+
+fn walk_groups(
+    node: &xmlscan::Node,
+    group_tag: &str,
+    member_tag: &str,
+    rep_attr: &str,
+    folded: &dyn Fn(Option<&str>) -> bool,
+    depth: usize,
+    out: &mut GroupTally,
+) {
+    for one in node.children.iter() {
+        if one.local() == group_tag {
+            out.group_elements += 1;
+            walk_groups(one, group_tag, member_tag, rep_attr, folded, depth + 1, out);
+        } else if one.local() == member_tag {
+            if depth == 0 {
+                continue;
+            }
+            out.members += 1;
+            let span = repeated(one, rep_attr);
+            out.covered += span;
+            if attr_of(one, "visibility") == Some("collapse") || folded(attr_of(one, "style-name"))
+            {
+                out.hidden += span;
+            }
+            out.max_level = out.max_level.max(depth);
+        }
+    }
 }
 
 impl Sheet {
@@ -465,6 +530,8 @@ pub fn read(bytes: &[u8]) -> Book {
             merges: Vec::new(),
             hidden_rows: 0,
             hidden_cols: 0,
+            row_groups: GroupTally::default(),
+            col_groups: GroupTally::default(),
             col_sizes: Vec::new(),
             row_sizes: Vec::new(),
             col_tally: SizeTally::default(),
@@ -514,6 +581,21 @@ pub fn read(bytes: &[u8]) -> Book {
                 sheet.col_sizes.push(had);
             }
         }
+        // 分级显示：两族各算一份（分组元素自己不写属性，所以只能靠下钻数）
+        sheet.col_groups = count_groups(
+            table,
+            "table-column-group",
+            "table-column",
+            "number-columns-repeated",
+            &folded_by_style,
+        );
+        sheet.row_groups = count_groups(
+            table,
+            "table-row-group",
+            "table-row",
+            "number-rows-repeated",
+            &folded_by_style,
+        );
         let mut row_at = 0usize;
         let mut used_rows = 0usize;
         let mut walked = 0usize;

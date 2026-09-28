@@ -7984,6 +7984,60 @@ def axis_groups_of(nodes, spans) -> dict:
         "collapse_spoken": collapse_spoken,
         "collapsed_grouped": collapsed,
         "max_level": max_level,
+        # OOXML 没有「分组元素」这一说（级就写在行/列自己身上）
+        "group_elements": None,
+    }
+
+
+def odf_axis_group_tally(table, group_tag: str, member_tag: str, rep_attr: str, folded,
+                         attr, rep) -> dict:
+    """ODF 的一条轴：级数不写在行/列自己身上，而是把它们**包进** <table:table-*-group>，
+    分组元素自己一个属性都没有 —— 级别＝嵌套深度，成员按 number-*-repeated 展开。
+
+    键与 OOXML 那本一一对齐：这一族说不出来的（元素自己写的级、collapsed 开关、
+    sheetFormatPr 的声明级）一律交 None，不拿另一族的语义去补。
+    `attr` / `rep` 由调用方递进来 —— 那两个是 ODF 解析函数里的局部帮手（要躲开
+    LibreOffice 抄的那份 documentfoundation 副本），这里不另写一份。
+    """
+    tally = {
+        "level_spoken": None,
+        "grouped": 0,
+        "covered": 0,
+        "hidden_grouped": 0,
+        "collapse_spoken": None,
+        "collapsed_grouped": None,
+        "max_level": None,
+        "group_elements": 0,
+    }
+
+    def walk(node, depth: int) -> None:
+        for one in node:
+            kind = xml_local(one.tag)
+            if kind == group_tag:
+                tally["group_elements"] += 1
+                walk(one, depth + 1)
+            elif kind == member_tag and depth:
+                span = rep(one, rep_attr)
+                tally["grouped"] += 1
+                tally["covered"] += span
+                if attr(one, "visibility") == "collapse" or folded(attr(one, "style-name")):
+                    tally["hidden_grouped"] += span
+                tally["max_level"] = depth if tally["max_level"] is None else max(
+                    tally["max_level"], depth)
+
+    walk(table, 0)
+    return tally
+
+
+def odf_sheet_groups(table, folded, attr, rep) -> dict:
+    """一张 ODF 表的分组账（两条轴 + 那份没有来源的声明值）"""
+    return {
+        "declared": {"rows": None, "cols": None},
+        "rows": odf_axis_group_tally(
+            table, "table-row-group", "table-row", "number-rows-repeated", folded, attr, rep),
+        "cols": odf_axis_group_tally(
+            table, "table-column-group", "table-column", "number-columns-repeated",
+            folded, attr, rep),
     }
 
 
@@ -11843,6 +11897,9 @@ def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) ->
                 "merges": merge_ledger(merge_rows),
                 "hidden_rows": hidden_rows,
                 "hidden_cols": hidden_cols,
+                # 分级显示：这一族的级不写在行/列自己身上，看它们被包进哪一层 group
+                "groups": odf_sheet_groups(
+                    table, lambda name: bool(folded.get(name or "")), attr, rep),
                 "comments": cell_notes,
                 "links": cell_links,
                 "hyperlink_formulas": link_formulas,

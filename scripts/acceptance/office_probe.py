@@ -2466,6 +2466,39 @@ def main() -> int:
         declared_pair,
         [[None, None], [None, None], [2, 2], [0, 0]],
     )
+    # 级别那一份账：ODF 把级写成嵌套（没有 outlineLevel、没有 collapsed、没有声明值），
+    # OOXML 把级写在行/列自己身上 —— 同一个功能两种存法，实算的那四条数该对上
+    def group_pair(groups: dict) -> list:
+        return [
+            [one.get(key) for key in ("grouped", "covered", "hidden_grouped", "max_level")]
+            for one in [(groups or {}).get("rows") or {}, (groups or {}).get("cols") or {}]
+        ]
+
+    check(
+        "groups.ods 的分组账与读者一致（说不出的那几格交 null）",
+        [json.dumps(one.get("groups") or {}, ensure_ascii=False, sort_keys=True)
+         for one in lbin("office-sheet", fixture("groups.ods")).get("sheets", [])],
+        [json.dumps(one.get("groups") or {}, ensure_ascii=False, sort_keys=True)
+         for one in files["groups.ods"]["ods"]["sheets"]],
+    )
+    shapes = {}
+    for name, dig_path in (("groups.xlsx", "layout.groups"),
+                           ("groups-lo.xlsx", "layout.groups"),
+                           ("groups.ods", "groups")):
+        sheet = lbin("office-sheet", fixture(name)).get("sheets", [{}])[0]
+        node = sheet
+        for part in dig_path.split("."):
+            node = (node or {}).get(part) or {}
+        shapes[name] = group_pair(node)
+    check(
+        "LibreOffice 的 xlsx 与 ods 两份该报同一本分组账（openpyxl 一列一条，grouped 少并一次）",
+        [shapes["groups-lo.xlsx"], shapes["groups.ods"], shapes["groups.xlsx"]],
+        [
+            [[5, 5, 2, 2], [2, 3, 1, 2]],
+            [[5, 5, 2, 2], [2, 3, 1, 2]],
+            [[5, 5, 2, 2], [3, 3, 1, 2]],
+        ],
+    )
     # 跨格式同形：同一份内容在 OOXML（两家）与 ODF 里都该报同一本「藏了几行几列」的账。
     # ODF 那一族的分组是**嵌套的** <table:table-*-group>，两家读者早先都只看直接子元素，
     # 于是分组里的 5 行整批看不见（CSV 少 5 行、隐藏行报 0）—— 这一条就是那次的回归闸门
