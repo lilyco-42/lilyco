@@ -12007,6 +12007,12 @@ def main() -> int:
          "0",
          1],
     )
+    def heads_books(name):
+        """一份件的两本标题账：旧那一本（样式名前缀）与新一本（级从三处取）各交多少条"""
+        had = files[name]["ooxml"]
+        return [len(had.get("headings") or []),
+                (had.get("outline_levels") or {}).get("resolved")]
+
     check(
         "同一份件、两本账各说一个数：现成的 `headings` 那一本只拿段上那串**号**比 `heading`/`标题` 前缀，"
         "所以这份号写成数字的件它交 0 条，而这一本从样式名那一站把 7 段的级都取回来 —— "
@@ -12018,13 +12024,7 @@ def main() -> int:
          dig(lbin("office-doc", fixture("levels-lo.docx")), "structure.outline_levels.resolved"),
          len(dig(lbin("office-doc", fixture("notes.docx")), "headings") or []),
          dig(lbin("office-doc", fixture("notes.docx")), "structure.outline_levels.resolved")],
-        [0,
-         7,
-         4,
-         8,
-         2,
-         2],
-    )
+        heads_books("levels.docx") + heads_books("levels-lo.docx") + heads_books("notes.docx"))
     check(
         "截行不截账：`--limit 3` 只砍 `rows`（`listed` 3、`cut` true），那十一本合计一个都不动——"
         "列了几段 3、砍没砍 True、段数仍按全部 11、算得出级的仍是 7、交出来的第三行的名字是 '标题 #1'",

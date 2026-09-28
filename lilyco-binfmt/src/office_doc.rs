@@ -3424,7 +3424,7 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
             if let Some(style) = crate::office_text::style_of(one) {
                 *styles.entry(style).or_insert(0) += 1;
             }
-            if let Some(level) = crate::office_text::heading_of(one) {
+            if let Some(level) = crate::office_text::heading_of_style(one) {
                 if headings.len() < limit {
                     headings.push(json!({"level": level, "text": text}));
                 }

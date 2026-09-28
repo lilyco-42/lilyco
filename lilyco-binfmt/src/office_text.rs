@@ -852,12 +852,18 @@ pub fn style_of(node: &Node) -> Option<String> {
     paragraph_style(node)
 }
 
-/// 给 office-doc 复用：标题层级（`heading_level` 报的是 JSON，这里要的是 Option<u32>）
-pub fn heading_of(node: &Node) -> Option<u32> {
-    match heading_level(node) {
-        Value::Number(one) => one.as_u64().map(|raw| raw as u32),
-        _ => None,
+/// 给 office-doc 复用：只认样式名前缀（`Heading2` / `标题 2`）的那一本
+///
+/// 段上写了 `w:outlineLvl` 而样式名不是标题的那些，归 `structure.outline_levels` 那一本管：
+/// 两本各说一个数，合成一本就问不出「这一段的级是从哪儿来的」
+pub fn heading_of_style(node: &Node) -> Option<u32> {
+    let style = paragraph_style(node)?;
+    let lower = style.to_lowercase();
+    if !lower.starts_with("heading") && !style.starts_with("标题") {
+        return None;
     }
+    let digits: String = style.chars().filter(|one| one.is_ascii_digit()).collect();
+    Some(digits.parse::<u32>().unwrap_or(1).max(1))
 }
 
 /// 一个段落里的文本：按文档顺序取每一段文字，并把 tab / br 还原成制表与换行
