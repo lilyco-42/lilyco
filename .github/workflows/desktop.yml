@@ -89,8 +89,10 @@ jobs:
       # 于是它拿一张不存在的证书去 import。所以这一步把凭据按原样搬进 $GITHUB_ENV，
       # 而且只在真有证书时才搬；没有时那个变量压根不出现，CLI 就走未签名那条路（CI 照样绿，
       # 但别人下载后会被 Gatekeeper 拦住 —— 这一点在 readme 里明说，不替凭据的存在说谎）。
+      # 判空放在 bash 里，不放在步骤级 if 里：上一版写 `if: ... secrets.X != ''`，
+      # 整个 workflow 直接起不来 —— 那条 run 的标题就是文件名、一个 job 都没有、日志是空的，
+      # 也就是说这份桌面工件从头到尾没被构建过，而红看起来像「文件写坏了」。
       - name: 有 Apple 证书才交给签名那条路
-        if: matrix.label == 'macos' && secrets.APPLE_CERTIFICATE != ''
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
@@ -99,13 +101,19 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         shell: bash
         run: |
-          {
-            echo "APPLE_ID=$APPLE_ID"
-            echo "APPLE_PASSWORD=$APPLE_PASSWORD"
-            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
-            echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
-            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
-          } >> "$GITHUB_ENV"
+          if [ -n "$APPLE_CERTIFICATE" ]; then
+            {
+              echo "APPLE_ID=$APPLE_ID"
+              echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+              echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
+              echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "配了 Apple 证书：走签名（有 APPLE_ID 才公证）"
+          else
+            echo "没配 Apple 证书：这几个变量保持不存在，CLI 走未签名那条路"
+            echo "macOS 那份下载后会被 Gatekeeper 拦住 —— 这是实话，不是构建失败"
+          fi
 
       - name: tauri build + bundle
         uses: tauri-apps/tauri-action@v0
