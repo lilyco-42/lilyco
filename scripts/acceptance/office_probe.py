@@ -9056,8 +9056,8 @@ def main() -> int:
                     "clr_map_written", "wml_color", "scheme_clr", "theme_index",
                     "resolved", "unresolved", "matched"]
     for pattern, describe, want_packages, want_scanned in (
-        ("*.odt", "文字", 49, 251),
-        ("*.ods", "表格", 14, 76),
+        ("*.odt", "文字", 51, 259),
+        ("*.ods", "表格", 15, 81),
         ("*.odp", "演示", 18, 98),
     ):
         rows = odf_groups[pattern]
