@@ -3559,3 +3559,21 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       （`holders_known` 0），那一族连「是不是自引用」都问不出 —— 两回事各自交。
     - `cross_sheet` 恒交 null：OOXML 手里只有部件名（`xl/worksheets/sheet1.xml`），
       没有一张表名可以去对上 `Sheet1!` 那个前缀，判不住就不填 0。
+
+154. **行/列分组（分级显示）两份账：元素自己的 `outlineLevel` 与 `sheetFormatPr` 的声明级。**
+    `groups.xlsx`（openpyxl）与 `groups-lo.xlsx`（LibreOffice 另存同一份）：
+    - 行 3-4 一级、行 5-6 一级且折叠隐藏、行 7 二级；列 B-C 一级、列 D 二级且隐藏。
+    - openpyxl 只给**分了组**的那 5 行 3 列写 `outlineLevel`，既不写 `collapsed`，
+      也不给 `sheetFormatPr` 写 `outlineLevelRow/Col` —— 声明那一格就是空的（null），
+      实算那一格是 2；LibreOffice 每条行都写一句 `outlineLevel="0" collapsed="false"`
+      （所以「说过话」8 条、「分了组」5 条是两个数），声明写 2/2；没分组的第二张表它
+      照样写声明 `0/0` —— 「写了 0」与「没写」在出口上必须分开。
+    - 列范围两家不同：openpyxl 一列一条（3 条盖 3 列），LibreOffice 把 B、C 并成
+      `min="2" max="3"`（2 条盖 3 列）—— 按元素个数数列会少报一列。
+    - **ODF 与 .xls 两族的存法已经量过但还没读**（凭据在 `.producer/groups.ods` 与
+      `.producer/groups.xls`，不进语料）：ODF 里 `grep -c outline content.xml` 是 0，
+      分组写成**嵌套的** `<table:table-row-group>` / `<table:table-column-group>`，
+      元素不带属性，级别＝嵌套深度、成员＝顺序加 `number-*-repeated`，折叠写
+      `table:visibility="collapse"`；.xls 那边行的级在 `ROW` 正文偏移 12 的低三位
+      （同一条记录那格 bit5 是隐藏，与既有隐藏账同位），列的级在 `COLINFO` 的 grbit
+      第 8-10 位（bit0 是隐藏），`collapsed` 两家都没地方说。

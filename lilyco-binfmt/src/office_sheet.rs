@@ -1143,6 +1143,23 @@ fn xlsx_layout(sheet_root: &xmlscan::Node, limit: usize) -> Value {
             with_height += 1;
         }
     }
+    // 分级显示（行/列分组）那一份账。级数写在元素自己的 `outlineLevel` 上，
+    // 而 `sheetFormatPr` 另有自己声明的最大级 —— 一家两个都写、一家只写实数，
+    // 所以两份账各交各的，不拿一边去补另一边。
+    let declared_rows = format
+        .as_ref()
+        .and_then(|one| outline_level(one, "outlineLevelRow"));
+    let declared_cols = format
+        .as_ref()
+        .and_then(|one| outline_level(one, "outlineLevelCol"));
+    let mut row_axis = AxisGroups::default();
+    for one in rows.iter() {
+        row_axis.tally(one, 1);
+    }
+    let mut col_axis = AxisGroups::default();
+    for one in cols.iter() {
+        col_axis.tally(one, col_span(one));
+    }
     let tall: Vec<&xmlscan::Node> = rows
         .into_iter()
         .filter(|one| {
@@ -1167,7 +1184,79 @@ fn xlsx_layout(sheet_root: &xmlscan::Node, limit: usize) -> Value {
             "spoken": spoken,
             "list": row_list,
         },
+        "groups": {
+            "declared": {
+                "rows": declared_rows,
+                "cols": declared_cols,
+            },
+            "rows": row_axis.into_json(),
+            "cols": col_axis.into_json(),
+        },
     })
+}
+
+/// `outlineLevel` 那一类「级数」属性：没写、写了不是数都算「这条元素没说级」；
+/// 写了 0 算说了但没分组（LibreOffice 给每一条没分组的行都写一句 `outlineLevel="0"`，
+/// 所以「说过话」与「分了组」是两个数，不能并成一个）
+fn outline_level(node: &xmlscan::Node, key: &str) -> Option<usize> {
+    node.attr(key)
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
+}
+
+/// 一条轴（行或列）的分组账。列一条元素可以盖好几列（`min`/`max`），所以「几条」与
+/// 「盖住几列」分开加；行每条就是一行，跨度传 1
+#[derive(Default)]
+struct AxisGroups {
+    /// 写了这个属性（含写 0）的元素数
+    spoken: usize,
+    /// 级 >= 1 的元素数
+    grouped: usize,
+    /// 分组元素盖住的列数（行那一轴等于 grouped）
+    covered: usize,
+    /// 分组里同时被隐藏的那几行/列
+    hidden: usize,
+    /// 写了 collapsed 开关（含 false）的元素数
+    collapse_spoken: usize,
+    /// 分组且折叠着的那几条
+    collapsed: usize,
+    /// 实算出来的最大级
+    max_level: Option<usize>,
+}
+
+impl AxisGroups {
+    fn tally(&mut self, node: &xmlscan::Node, span: usize) {
+        if node.attr("collapsed").is_some() {
+            self.collapse_spoken += 1;
+        }
+        let Some(level) = outline_level(node, "outlineLevel") else {
+            return;
+        };
+        self.spoken += 1;
+        if level == 0 {
+            return;
+        }
+        self.grouped += 1;
+        self.covered += span;
+        self.max_level = Some(self.max_level.map_or(level, |had| had.max(level)));
+        if hidden_on(node) {
+            self.hidden += 1;
+        }
+        if flag_on(node, "collapsed") {
+            self.collapsed += 1;
+        }
+    }
+
+    fn into_json(self) -> Value {
+        json!({
+            "level_spoken": self.spoken,
+            "grouped": self.grouped,
+            "covered": self.covered,
+            "hidden_grouped": self.hidden,
+            "collapse_spoken": self.collapse_spoken,
+            "collapsed_grouped": self.collapsed,
+            "max_level": self.max_level,
+        })
+    }
 }
 
 /// ODF 的一条轴（列或行）：总账 + 逐条账本。这一族的尺寸**不在元素上** —— 元素只写
@@ -2377,8 +2466,14 @@ const MAX_GRID_CELLS: usize = 200_000;
 /// `hidden` 这个开关两种写法都有：openpyxl 写 `hidden="1"`，LibreOffice 写
 /// `hidden="true"`（而且没隐藏的行也照样写 `hidden="false"`）
 fn hidden_on(node: &xmlscan::Node) -> bool {
+    flag_on(node, "hidden")
+}
+
+/// 属性上写的布尔开关，认 `"1"` 与 `"true"`（大小写不敏感）。写了别的（含 `"false"`）
+/// 一律按关判 —— 与 `hidden_on` 同一条判据，供 `collapsed` 那类同形状的属性复用
+fn flag_on(node: &xmlscan::Node, key: &str) -> bool {
     matches!(
-        node.attr("hidden")
+        node.attr(key)
             .unwrap_or_default()
             .to_ascii_lowercase()
             .as_str(),
@@ -4223,6 +4318,81 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// 分级显示（行/列分组）那一份账：级在元素自己身上，声明级在 sheetFormatPr 上，
+    /// 而两家写的东西不一样多 —— openpyxl 只写实数、LibreOffice 连没分组的行都逐条说话
+    #[test]
+    fn outlined_rows_and_columns_keep_both_the_declared_and_the_measured_level() {
+        let hand = run("groups.xlsx");
+        let first = &hand["sheets"][0]["layout"]["groups"];
+        assert_eq!(
+            first["declared"],
+            json!({"rows": null, "cols": null}),
+            "openpyxl 不写 sheetFormatPr 的那两个声明级：{first}"
+        );
+        assert_eq!(
+            first["rows"],
+            json!({
+                "level_spoken": 5, "grouped": 5, "covered": 5,
+                "hidden_grouped": 2, "collapse_spoken": 0, "collapsed_grouped": 0,
+                "max_level": 2,
+            }),
+            "行 3-7 五条写了级，其中两条同时隐藏；{first}"
+        );
+        assert_eq!(
+            first["cols"],
+            json!({
+                "level_spoken": 3, "grouped": 3, "covered": 3,
+                "hidden_grouped": 1, "collapse_spoken": 0, "collapsed_grouped": 0,
+                "max_level": 2,
+            }),
+            "openpyxl 一列一条：{first}"
+        );
+        // 第二张表整族缺席：没写过级，max_level 就是 null 而不是 0
+        assert_eq!(
+            hand["sheets"][1]["layout"]["groups"],
+            json!({
+                "declared": {"rows": null, "cols": null},
+                "rows": {
+                    "level_spoken": 0, "grouped": 0, "covered": 0, "hidden_grouped": 0,
+                    "collapse_spoken": 0, "collapsed_grouped": 0, "max_level": null,
+                },
+                "cols": {
+                    "level_spoken": 0, "grouped": 0, "covered": 0, "hidden_grouped": 0,
+                    "collapse_spoken": 0, "collapsed_grouped": 0, "max_level": null,
+                },
+            }),
+            "一份没分组的表：整族缺席要报成 null"
+        );
+
+        // 同一份内容让 LibreOffice 另存：声明值写上了，而且每条行都写 outlineLevel="0"
+        let back = run("groups-lo.xlsx");
+        let again = &back["sheets"][0]["layout"]["groups"];
+        assert_eq!(
+            again["declared"],
+            json!({"rows": 2, "cols": 2}),
+            "sheetFormatPr 自己声明的两条轴各到二级：{again}"
+        );
+        assert_eq!(again["rows"]["level_spoken"], 8, "连没分组的行也说话");
+        assert_eq!(again["rows"]["grouped"], 5, "说的与分了组的是两个数");
+        assert_eq!(again["rows"]["max_level"], 2);
+        assert_eq!(again["rows"]["collapse_spoken"], 8);
+        assert_eq!(
+            again["rows"]["collapsed_grouped"], 0,
+            "八条都写 collapsed，全是 false"
+        );
+        assert_eq!(
+            again["cols"]["grouped"], 2,
+            "LibreOffice 把 B、C 并成一条：{again}"
+        );
+        assert_eq!(again["cols"]["covered"], 3, "两条元素盖三列");
+        // 「写了 0」与「没写」不是一回事：第二张表声明了 0 级，一条都没分组
+        let plain = &back["sheets"][1]["layout"]["groups"];
+        assert_eq!(plain["declared"], json!({"rows": 0, "cols": 0}));
+        assert_eq!(plain["rows"]["level_spoken"], 1);
+        assert_eq!(plain["rows"]["grouped"], 0);
+        assert_eq!(plain["rows"]["max_level"], json!(null));
     }
 
     /// 列宽、行高、筛选与表对象：两家的数互不相等，重写一次就换一套换算

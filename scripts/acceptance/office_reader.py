@@ -7927,6 +7927,66 @@ def xlsx_header_footer_of(root) -> dict:
     }
 
 
+def flag_on_of(node, name: str) -> bool:
+    """属性上写的布尔开关：认 "1" 与 "true"（大小写不敏感），其余一律按关判。
+
+    与 Rust 那本 `flag_on` 同一条判据 —— 也不 strip 空白，两家得走同一步。
+    """
+    return (node.get(name) or "").lower() in ("1", "true")
+
+
+def outline_level_of(node, name: str = "outlineLevel"):
+    """级数：没写、写了不是非负整数都算「这条元素没说级」；写了 0 算说了但没分组。
+
+    LibreOffice 给每一条没分组的行都写一句 `outlineLevel="0"`，所以「说过话」与
+    「分了组」是两个数，不能并成一个。
+    """
+    raw = (node.get(name) or "").strip()
+    return int(raw) if raw.isdigit() else None
+
+
+def col_span_of(node) -> int:
+    """一条 `col` 盖几列：`min`/`max` 两端都含；只写一端或写坏了按一列算"""
+    low, high = node.get("min"), node.get("max")
+    try:
+        low, high = int(low), int(high)
+    except (TypeError, ValueError):
+        return 1
+    return high - low + 1 if high >= low else 1
+
+
+def axis_groups_of(nodes, spans) -> dict:
+    """一条轴（行或列）的分组账。列一条元素可以盖好几列，所以「几条」与「盖住几列」分开加"""
+    spoken = grouped = covered = hidden = 0
+    collapse_spoken = collapsed = 0
+    max_level = None
+    for one, span in zip(nodes, spans):
+        if one.get("collapsed") is not None:
+            collapse_spoken += 1
+        level = outline_level_of(one)
+        if level is None:
+            continue
+        spoken += 1
+        if level == 0:
+            continue
+        grouped += 1
+        covered += span
+        max_level = level if max_level is None else max(max_level, level)
+        if flag_on_of(one, "hidden"):
+            hidden += 1
+        if flag_on_of(one, "collapsed"):
+            collapsed += 1
+    return {
+        "level_spoken": spoken,
+        "grouped": grouped,
+        "covered": covered,
+        "hidden_grouped": hidden,
+        "collapse_spoken": collapse_spoken,
+        "collapsed_grouped": collapsed,
+        "max_level": max_level,
+    }
+
+
 def xlsx_layout_of(root, limit: int = 200) -> dict:
     """这一张表的尺寸账：sheetFormatPr、cols 里每一条 col、带高度的 row
 
@@ -7961,6 +8021,16 @@ def xlsx_layout_of(root, limit: int = 200) -> dict:
                  "with_height": len([one for one in rows if one.get("ht") is not None]),
                  "spoken": len(tall),
                  "list": [written_attrs(one) for one in tall[:limit]]},
+        # 分级显示那一份账：级在元素自己的 outlineLevel 上，而 sheetFormatPr 另有自己
+        # 声明的最大级 —— 一家两个都写、一家只写实数，所以两份各交各的，不拿一边补另一边
+        "groups": {
+            "declared": {
+                "rows": outline_level_of(holder, "outlineLevelRow") if holder is not None else None,
+                "cols": outline_level_of(holder, "outlineLevelCol") if holder is not None else None,
+            },
+            "rows": axis_groups_of(rows, [1] * len(rows)),
+            "cols": axis_groups_of(cols, [col_span_of(one) for one in cols]),
+        },
     }
 
 

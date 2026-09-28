@@ -5444,6 +5444,51 @@ def write_cell_locks_xlsx(path: Path) -> None:
             out.writestr(one, blobs[one])
 
 
+def write_groups_xlsx(path: Path) -> None:
+    """openpyxl：行/列分组（分级显示 / outline）—— 三个形状各占一处。
+
+    2026-09-28 实测：同一份内容再让 LibreOffice 另存 xlsx 与 ods 各一份
+    （`groups-lo.xlsx` / `groups.ods`），三份的形状是这样，两家读者都要照它们判：
+
+    * openpyxl 只在 `<row>` / `<col>` 上写 `outlineLevel` 与 `hidden="1"`；
+      **既不写 `collapsed`，也不给 `<sheetFormatPr>` 写 `outlineLevelRow/Col`**
+      —— 「生产者声明的最大级」这一格是空的，只有实数可数；
+    * LibreOffice 另存的 xlsx 两样都写，而且布尔拼成 `"true"/"false"`（不是 `"1"`），
+      没分组的行也写 `outlineLevel="0" collapsed="false"`；
+      `sheetFormatPr` 的 `outlineLevelRow="2" outlineLevelCol="2"` 与实数一致；
+      连续两列并成一条 `min="2" max="3"`（列数要按跨度数，不能按元素个数）；
+    * ODS 根本没有级这个字：`grep -c outline content.xml` 是 0。分组写成
+      **嵌套的 `<table:table-row-group>` / `<table:table-column-group>`**，
+      元素上不带任何属性，级别 = 嵌套深度，成员 = 元素顺序 + `number-*-repeated`；
+      折叠写成 `table:visibility="collapse"`。
+
+    形状：A 列与 E 列写字；行 3-4 一级、行 5-6 一级且折叠、行 7 二级；
+    列 B-C 一级、列 D 二级且隐藏。第二张表「没分组」是整族缺席的证据。
+    """
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "分组"
+    for row in range(1, 9):
+        ws.cell(row=row, column=1, value="r%d" % row)
+        ws.cell(row=row, column=5, value="e%d" % row)
+    ws.row_dimensions[3].outline_level = 1
+    ws.row_dimensions[4].outline_level = 1
+    ws.row_dimensions[5].outline_level = 1
+    ws.row_dimensions[5].hidden = True
+    ws.row_dimensions[6].outline_level = 1
+    ws.row_dimensions[6].hidden = True
+    ws.row_dimensions[7].outline_level = 2
+    ws.column_dimensions["B"].outline_level = 1
+    ws.column_dimensions["C"].outline_level = 1
+    ws.column_dimensions["D"].outline_level = 2
+    ws.column_dimensions["D"].hidden = True
+    ws2 = wb.create_sheet("没分组")
+    ws2["A1"] = "干净"
+    wb.save(path)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="重跑前先清掉输出目录")
@@ -5471,6 +5516,17 @@ def main() -> int:
     convert(exe, merges, "ods", SCRATCH)
     if (SCRATCH / "merges.ods").exists():
         shutil.copyfile(SCRATCH / "merges.ods", OUT / "merges.ods")
+    # 行/列分组（分级显示）那一份账：openpyxl 写一份，LibreOffice 另存 xlsx 一份。
+    # 同一个功能两种存法：`outlineLevel` 属性 + `sheetFormatPr` 里的声明值。
+    # 顺手让 LibreOffice 也转一份 ods 与 xls —— 那两族各有自己的存法（见上面的函数说明），
+    # 但读者还没读它们，所以只留在 .producer 里当测量凭据，不进语料
+    groups = OUT / "groups.xlsx"
+    write_groups_xlsx(groups)
+    convert(exe, groups, "xlsx", SCRATCH)
+    if (SCRATCH / "groups.xlsx").exists():
+        shutil.copyfile(SCRATCH / "groups.xlsx", OUT / "groups-lo.xlsx")
+    convert(exe, groups, "ods", SCRATCH)
+    convert(exe, groups, "xls", SCRATCH)
     # 表格批注那两跳：openpyxl 写一份（批注部件在 xl/comments/comment1.xml），
     # LibreOffice 转 .ods 一份（批注坐在格子里面），两个生产者两种存法
     write_cell_notes_xlsx(OUT / "cell-notes.xlsx")

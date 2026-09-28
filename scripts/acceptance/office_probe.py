@@ -219,6 +219,8 @@ def main() -> int:
         "view-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "size.xlsx": ("ooxml", "excel", "xlsx"),
         "size-lo.xlsx": ("ooxml", "excel", "xlsx"),
+        "groups.xlsx": ("ooxml", "excel", "xlsx"),
+        "groups-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "para.docx": ("ooxml", "word", "docx"),
         "images.docx": ("ooxml", "word", "docx"),
         "images-lo.docx": ("ooxml", "word", "docx"),
@@ -2420,6 +2422,48 @@ def main() -> int:
         "隐藏行/列：四种写法报出同一个数",
         sorted(set(ledger.values())),
         [(2, 3)],
+    )
+
+    # ── 3a5b) 分级显示（行/列分组）：级写在元素自己身上，声明值另在 sheetFormatPr ──
+    # 两家写的东西不一样多：openpyxl 只给分了组的那几条写 outlineLevel（也就不写声明值），
+    # LibreOffice 连没分组的行都逐条写 outlineLevel="0" collapsed="false" 并把声明级补上；
+    # 同一列范围它并成一条 min/max（两条元素盖三列）。ODF 与 .xls 两族另有用法，见 README。
+    print("=== 3a5b) 分级显示（行/列分组）的声明级与实算级 ===")
+    GROUP_KEYS = ("level_spoken", "grouped", "covered", "hidden_grouped",
+                  "collapse_spoken", "collapsed_grouped", "max_level")
+
+    def group_ledger(groups: dict) -> str:
+        """一张表那一格里的分组账，压成可排序的字符串（max_level 可能是 null，
+        直接与别的表比大小会踩 None 与 int 不能比的那一刀）"""
+        declared = groups.get("declared") or {}
+        return json.dumps([
+            declared.get("rows"),
+            declared.get("cols"),
+            [
+                [one.get(key) for key in GROUP_KEYS]
+                for axis in ("rows", "cols")
+                for one in [groups.get(axis) or {}]
+            ],
+        ], ensure_ascii=False, sort_keys=True)
+
+    for name in ("groups.xlsx", "groups-lo.xlsx"):
+        got = lbin("office-sheet", fixture(name))
+        check(
+            "%s 每张表的分组两本账（声明与实算）" % name,
+            sorted(group_ledger(one.get("layout", {}).get("groups") or {})
+                   for one in got.get("sheets", [])),
+            sorted(group_ledger(one.get("groups") or {})
+                   for one in files[name]["ooxml"]["layouts"].values()),
+        )
+    declared_pair = []
+    for name in ("groups.xlsx", "groups-lo.xlsx"):
+        for one in lbin("office-sheet", fixture(name)).get("sheets", []):
+            declared = (one.get("layout", {}).get("groups") or {}).get("declared") or {}
+            declared_pair.append([declared.get("rows"), declared.get("cols")])
+    check(
+        "分级显示的声明级四格：openpyxl 那两份全空，LibreOffice 写 2/2 与 0/0",
+        declared_pair,
+        [[None, None], [None, None], [2, 2], [0, 0]],
     )
 
     # ── 3a6) 表格批注：两跳才找得到那个部件，两个生产者放在两个地方 ──────────
