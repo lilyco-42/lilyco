@@ -2454,7 +2454,7 @@ def main() -> int:
             "%s 每张表的分组两本账（声明与实算）" % name,
             sorted(group_ledger(one.get("outline") or {})
                    for one in got.get("sheets", [])),
-            sorted(group_ledger(one.get("outline") or {})
+            sorted(group_ledger(one)
                    for one in files[name]["ooxml"]["outlines"].values()),
         )
     declared_pair = []
