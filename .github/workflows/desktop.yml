@@ -68,6 +68,18 @@ jobs:
 
       # 没配 Apple 证书 / notary 凭据时这一段就是未签名未公证：CI 照样成功，
       # 但 macOS 那份在别人机器上会被 Gatekeeper 拦 —— 不说成「可直接安装」
+      #
+      # 两条从上一版日志里读出来的坑，都不是我们这边的代码：
+      # 1) includeRelease 必须是 true。tauri-action 只在 includeRelease 或 includeDebug
+      #    为真时才真的跑 `tauri build`；两个都 false 时它一个文件都不碰，然后打一句
+      #    「No artifacts were found. The action was not configured to upload artifacts」
+      #    并以 success 收工 —— 上一次三条流水线各红了 100 毫秒，就是这个。
+      #    传 true 不等于发版：只有 tagName / releaseId 有值它才碰 release（源码里
+      #    「No releaseId or tagName provided, skipping all uploads...」那条分支），
+      #    分支推送两个都空，所以只是「编 + 打 bundle」，上传工件仍由下面一步自己做。
+      # 2) tauriScript 必须显式给。本仓库前端零 npm 依赖（没有 package.json），而 action
+      #    找不到 @tauri-apps/cli 依赖时会退回 `npm i -g @tauri-apps/cli@v1` —— v1 的 CLI
+      #    读不了 v2 配置。这里直接点明用 v2。
       - name: tauri build + bundle
         uses: tauri-apps/tauri-action@v0
         env:
@@ -81,22 +93,36 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: lilyco-tauri
-          includeRelease: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          # 见上面第 2 条：前端零 npm 依赖，所以 CLI 由 npx 现取，版本与 Cargo 那边的 tauri = "2" 同族
+          tauriScript: npx --yes @tauri-apps/cli@2
+          includeRelease: true
+          # 只有 v* 标签才给 tagName —— 那时才把 bundle 挂到对应 release 上；
+          # 分支推送留空，action 就走「skipping all uploads」那条分支，只编不改发布
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
 
-      # 上一次 macOS 这一步红了：tauri-action 按 target triple 编，bundle 不在
-      # target/release/bundle 而在 target/<triple>/release/bundle —— 两种布局都收，
-      # 并且留着 if-no-files-found: error：真没产物时要它明着红，而不是静默交一个空工件
+      # bundle 到底落在哪由 find 说，不靠猜：workspace 成员可能出在 target/release/bundle，
+      # 也可能出在 target/<triple>/release/bundle，收齐后平铺进 dist/。
+      # 空手而归时明着红（并把 target 下所有 bundle 目录打出来），而不是静默交一个空工件
+      - name: 收工件（bundle 目录在哪由 find 说）
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find . -path ./.git -prune -o -type f -print \
+            | grep -E '/bundle/.*\.(dmg|msi|exe|deb|rpm|AppImage|zsync|sig)$' \
+            > /tmp/bundles.txt || true
+          if [ ! -s /tmp/bundles.txt ]; then
+            echo "::error::tauri build 没产出任何 bundle 文件"
+            find . -path ./.git -prune -o -type d -name bundle -print || true
+            exit 1
+          fi
+          while IFS= read -r f; do cp "$f" dist/; done < /tmp/bundles.txt
+          echo "=== 收到的工件 ==="
+          ls -l dist
+
       - name: 交工件（每次 run 都留一份能直接下载的）
         uses: actions/upload-artifact@v4
         with:
           name: lilyco-office-${{ matrix.label }}
           if-no-files-found: error
-          path: |
-            target/release/bundle/msi/*
-            target/release/bundle/dmg/*
-            target/release/bundle/deb/*
-            target/release/bundle/appimage/*
-            target/*/release/bundle/msi/*
-            target/*/release/bundle/dmg/*
-            target/*/release/bundle/deb/*
-            target/*/release/bundle/appimage/*
+          path: dist

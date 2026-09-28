@@ -478,9 +478,19 @@ Tauri 2 桌面壳，装的是**同一个读者**：应用不自己解析办公�
 
 产物由 GitHub Actions 出（`.github/workflows/desktop.yml`，本机不编）：三个平台各自
 `cargo build --release -p lilyco-binfmt --bin lbin` → 按 target triple 放进
-`lilyco-tauri/binaries/` → `tauri-action` 出 bundle → 每次 run 都上传可直接下载的工件
-（`.msi` / `.dmg` / `.deb` / `.AppImage`），打了 `v*` 标签才顺手挂到 GitHub Release。
-上传那步留着 `if-no-files-found: error`：真没产物时要它明着红。
+`lilyco-tauri/binaries/` → `tauri-action` 出 bundle → 收进 `dist/` 再上传可直接下载的工件
+（工件名 `lilyco-office-<windows|macos|linux>`，里面是 `.msi` / `.dmg` / `.deb` / `.AppImage`），
+打了 `v*` 标签才顺手挂到 GitHub Release。上传那步留着 `if-no-files-found: error`：真没产物时要它明着红。
+
+> **`tauri-action` 的两处反直觉**（第一版三条流水线各红 100 毫秒，就是从这两条读出来的）：
+> `includeRelease` 为假时它**什么都不做**——不编、不打 bundle，只打一句
+> 「No artifacts were found」然后 success 收工，所以「每次 run 都要有工件」就必须一直传
+> `includeRelease: true`（不配 `tagName` 它就不碰 release，见源码里
+> 「No releaseId or tagName provided, skipping all uploads...」那条分支）。
+> 而前端零 npm 依赖（本仓库故意没有 `package.json`）时，它找不到 `@tauri-apps/cli` 会退回
+> `npm i -g @tauri-apps/cli@v1`——v1 的 CLI 读不了 v2 配置，所以 `tauriScript` 要显式写成
+> `npx --yes @tauri-apps/cli@2`。bundle 落在 `target/release/bundle` 还是
+> `target/<triple>/release/bundle` 不由我们猜，收工件那一步用 `find` 量出来再收。
 
 > **签名的实话**：没有配 Apple 证书与 notary 凭据时，macOS 那份就是**未签名未公证**——CI 照样绿，
 > 但别人下载后会被 Gatekeeper 拦住；Windows 的 `.msi` 同理未签名。工件能装不等工件好装，
