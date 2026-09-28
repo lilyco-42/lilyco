@@ -7,7 +7,6 @@
 use serde::Serialize;
 use serde_json::Value;
 use tauri::AppHandle;
-use tauri_plugin_shell::process::CommandOutput;
 use tauri_plugin_shell::ShellExt;
 
 use crate::error::{AppError, Result};
@@ -60,7 +59,10 @@ pub async fn office_run(app: AppHandle, command: String, path: String) -> Result
         )));
     }
     let target = file.to_string_lossy().to_string();
-    let output: CommandOutput = app
+    // 这里刻意不写出返回值的类型名：那个结构在 tauri-plugin-shell 2.x 里改过名
+    // （2.4.0 叫 `process::Output`，更早叫 `process::CommandOutput`），而 CI 上的
+    // 版本是按 Cargo.lock 走的。只用它的三个字段，名字就不参与编译，改不动我们。
+    let output = app
         .shell()
         .sidecar("lbin")
         .map_err(|one| AppError::Sidecar(one.to_string()))?
