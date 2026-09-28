@@ -12092,7 +12092,8 @@ def main() -> int:
            mine["views"][0]["attrs"]["activeTab"],
            mine["counts"]["customWorkbookView"], mine["counts"]["fileVersion"],
            mine["element_names"], mine["empty_elements"],
-           [sorted(one) for one in sorted(mine["boolean_spellings"].items())
+           [[one[0], sorted(one[1])] for one in
+            sorted(mine["boolean_spellings"].items())
             if one[0] in ("backupFile", "autoFilterDateGrouping", "iterate", "minimized")]],
           [2, "manual", "row", "true", "1", "2", 1, 2,
            ["bookViews", "calcPr", "customWorkbookViews", "workbookPr"],
