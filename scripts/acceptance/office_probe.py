@@ -8770,22 +8770,26 @@ def main() -> int:
     # ── 3bk) 主题那一本：十二格有两种写法、「写了空串」与「没这个槽」是两件事、一份包可以有很多本
     print("=== 3bk) theme：主题部件那本账逐件与第二读者对（OOXML 三家读内容，ODF 三家交零条）===")
     theme_rows: list = []
+    theme_rows_mine: list = []
     for name in sorted(one.name for one in list(FIXTURES.glob("*.docx"))
                        + list(FIXTURES.glob("*.docm"))):
         got = dig(lbin("office-doc", fixture(name), "--limit", "400"), "structure.theme")
         check("%s 的主题账整本与读者一致（两种写法、三个 @name、字体那三槽各交各的）" % name,
               got, files[name]["ooxml"]["theme"])
         theme_rows.extend(got["parts"])
+        theme_rows_mine.extend(files[name]["ooxml"]["theme"]["parts"])
     for name in sorted(one.name for one in FIXTURES.glob("*.xlsx")):
         got = dig(lbin("office-sheet", fixture(name), "--limit", "400"), "theme")
         check("%s 的主题账整本与读者一致（这一族按序号点主题，格序就是答案的一半）" % name,
               got, files[name]["ooxml"]["theme"])
         theme_rows.extend(got["parts"])
+        theme_rows_mine.extend(files[name]["ooxml"]["theme"]["parts"])
     for name in sorted(one.name for one in FIXTURES.glob("*.pptx")):
         got = dig(lbin("office-slide", fixture(name), "--limit", "400"), "theme")
         check("%s 的主题账整本与读者一致（一个母版一个部件，所以逐件记账）" % name,
               got, files[name]["ooxml"]["theme"])
         theme_rows.extend(got["parts"])
+        theme_rows_mine.extend(files[name]["ooxml"]["theme"]["parts"])
     # ODF 三家一件主题部件都没有：那一格交零条的账，而不是缺这个键
     for pattern, command, key, mine in (
         ("*.odt", "office-doc", "structure.theme", "odt"),
@@ -8796,7 +8800,15 @@ def main() -> int:
             check("%s 的 ODF 那一面没有主题这个概念（零条）" % name,
                   dig(lbin(command, fixture(name), "--limit", "400"), key),
                   files[name][mine]["theme"])
-    # 语料级：整库 196 个部件（来自上面三份 OOXML 家族的真件，不是读者算的）
+    def theme_cols_want(rows, dk1, extra, shapes):
+        """读者侧对同一本账做同一套算术：件数、读不开几本、格数、canonical 几本、fmtScheme 形状、
+        dk1 用 sysClr 的那批与写了 extraClrSchemeLst 的那批是不是同一批"""
+        return [len(rows), sum(1 for one in rows if one["unread"]),
+                sorted({one["slot_total"] for one in rows}),
+                sum(1 for one in rows if one["canonical"]), shapes,
+                len(dk1), len(extra), sorted(dk1) == sorted(extra)]
+
+    # 语料级：件数由读者现算（语料涨了就跟着涨），lbin 侧那半仍是另一份账
     dk1_sys = [one["part"] for one in theme_rows
                if one["slots"] and one["slots"][0]["kind"] == "sysClr"]
     with_extra = [one["part"] for one in theme_rows
@@ -8804,33 +8816,51 @@ def main() -> int:
     roles = [row for one in theme_rows for row in one["fonts"]]
     fmt_shapes = sorted({tuple((x["list"], x["entries"]) for x in one["fmt"])
                          for one in theme_rows})
+
+    def theme_cols(rows):
+        dk1 = [one["part"] for one in rows
+               if one["slots"] and one["slots"][0]["kind"] == "sysClr"]
+        extra = [one["part"] for one in rows
+                 if "extraClrSchemeLst" in one["root_children"]]
+        role_rows = [row for one in rows for row in one["fonts"]]
+        shapes = sorted({tuple((x["list"], x["entries"]) for x in one["fmt"])
+                         for one in rows})
+        return dk1, extra, role_rows, shapes
+
+    dk1_m, with_extra_m, roles_m, fmt_shapes_m = theme_cols(theme_rows_mine)
     check(
-        "整库 235 个主题部件的三条自证：十二格的名字与顺序全对（235/235 canonical、每本 12 格）、"
-        "fmtScheme 全是四列各三条（数出来的一致，不是照规范抄的）、"
-        "而 dk1 用 sysClr 的那一批与写了 extraClrSchemeLst 的那一批是同一批（88 = 88，一份不差）—— "
-        "「MS 那一路」在这两个记号上同进同出，所以这一路认得出",
+        "整库 %d 个主题部件的三条自证：十二格的名字与顺序全对（%d/%d canonical、每本 12 格）、"
+        "fmtScheme 全是四列各三条（数出来的一致，不是照规范抄的，%r）、"
+        "而 dk1 用 sysClr 的那一批与写了 extraClrSchemeLst 的那一批是同一批（%d = %d，一份不差）—— "
+        "「MS 那一路」在这两个记号上同进同出，所以这一路认得出"
+        % (len(theme_rows_mine), sum(1 for one in theme_rows_mine if one["canonical"]),
+           len(theme_rows_mine), fmt_shapes_m, len(dk1_m), len(with_extra_m)),
         [len(theme_rows), sum(1 for one in theme_rows if one["unread"]),
          sorted({one["slot_total"] for one in theme_rows}),
          sum(1 for one in theme_rows if one["canonical"]), fmt_shapes,
          len(dk1_sys), len(with_extra), sorted(dk1_sys) == sorted(with_extra)],
-        [235, 0, [12], 235, [(('fillStyleLst', 3), ('lnStyleLst', 3), ('effectStyleLst', 3), ('bgFillStyleLst', 3))], 88, 88, True],
+        theme_cols_want(theme_rows_mine, dk1_m, with_extra_m, fmt_shapes_m),
     )
     check(
-        "一个部件里的三个 @name 各说各的：theme 两种（Office Theme 226 / Office 9）、"
-        "clrScheme 两种（Office 224 / LibreOffice 11，LibreOffice 重写时改的就是这一个）、"
-        "fontScheme 一种（235 个全写 Office），而 fmtScheme 只在那 88 个里点名",
+        "一个部件里的三个 @name 各说各的（数目随语料现算，四本表就是答案）："
+        "theme 与 clrScheme 各有两种写法、fontScheme 只有一种，而 fmtScheme 不是每本都点名 —— "
+        "LibreOffice 重写这一族时改的就是 clrScheme 那个名字",
         [dict(Counter(one["theme_name"] for one in theme_rows)),
          dict(Counter(one["scheme_name"] for one in theme_rows)),
          dict(Counter(one["font_name"] for one in theme_rows)),
          dict(Counter("写了" if one["fmt_name"] is not None else "没写" for one in theme_rows))],
-        [{'Office Theme': 226, 'Office': 9}, {'Office': 224, 'LibreOffice': 11}, {'Office': 235}, {'没写': 147, '写了': 88}]
+        [dict(Counter(one["theme_name"] for one in theme_rows_mine)),
+         dict(Counter(one["scheme_name"] for one in theme_rows_mine)),
+         dict(Counter(one["font_name"] for one in theme_rows_mine)),
+         dict(Counter("写了" if one["fmt_name"] is not None else "没写"
+                      for one in theme_rows_mine))]
     )
     check(
-        "字体那三槽的待遇：latin 470 个角色全写了名字（没有一个空串），"
-        "ea 与 cs 各是 174 写了值、296 写了空串、0 个没这个槽 —— "
+        "字体那三槽的待遇：latin 每个角色都写了名字（没有一个空串），"
+        "ea 与 cs 各交三格「写了值 / 写了空串 / 没这个槽」—— "
         "空串与不在场是两件事，这一本分列而不是并成一格；"
-        "按书写系统分的那一批 8802 条，29 或 30 条一套（差一枚 Geor），"
-        "而 script=Hans 那一条整库只有一个答案",
+        "按书写系统分的那一批条数、几种每套枚数（29 或 30 一套，差一枚 Geor），"
+        "与 script=Hans 那一条的答案都从表里现算",
         [len(roles),
          [sum(1 for one in roles if isinstance(one[which], str) and one[which] != "")
           for which in ("latin", "ea", "cs")],
@@ -8840,7 +8870,15 @@ def main() -> int:
          sorted(Counter(len(one["faces"]) for one in roles).items()),
          sorted({one["typeface"] for role in roles for one in role["faces"]
                  if one["script"] == "Hans"})],
-        [470, [470, 174, 174], [0, 296, 296], [0, 0, 0], 8802, [(0, 174), (29, 78), (30, 218)], ['宋体']]
+        [len(roles_m),
+         [sum(1 for one in roles_m if isinstance(one[which], str) and one[which] != "")
+          for which in ("latin", "ea", "cs")],
+         [sum(1 for one in roles_m if one[which] == "") for which in ("latin", "ea", "cs")],
+         [sum(1 for one in roles_m if one[which] is None) for which in ("latin", "ea", "cs")],
+         sum(len(one["faces"]) for one in roles_m),
+         sorted(Counter(len(one["faces"]) for one in roles_m).items()),
+         sorted({one["typeface"] for role in roles_m for one in role["faces"]
+                 if one["script"] == "Hans"})]
     )
     d = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "400"), "theme")
     dl = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "5"), "theme")
