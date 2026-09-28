@@ -80,15 +80,37 @@ jobs:
       # 2) tauriScript 必须显式给。本仓库前端零 npm 依赖（没有 package.json），而 action
       #    找不到 @tauri-apps/cli 依赖时会退回 `npm i -g @tauri-apps/cli@v1` —— v1 的 CLI
       #    读不了 v2 配置。这里直接点明用 v2。
-      - name: tauri build + bundle
-        uses: tauri-apps/tauri-action@v0
+      # ── Apple 那套凭据：有证书才交，没有就连变量都不存在 ───────────────────
+      # 上一版三条流水线里 Linux 与 Windows 已经绿过（bundle 收得到），macOS 红在打包这一步：
+      #   Bundling lilyco office.app → security: SecKeychainItemImport: One or more
+      #   parameters passed to a function were not valid → failed to import keychain certificate
+      # 根因不在我们这边：GitHub 对没配的 secret 交出来的是**空串**，而不是「没有这个变量」，
+      # 而 tauri CLI 判「要不要签名」只看 APPLE_CERTIFICATE 存不存在 —— 空串也算存在，
+      # 于是它拿一张不存在的证书去 import。所以这一步把凭据按原样搬进 $GITHUB_ENV，
+      # 而且只在真有证书时才搬；没有时那个变量压根不出现，CLI 就走未签名那条路（CI 照样绿，
+      # 但别人下载后会被 Gatekeeper 拦住 —— 这一点在 readme 里明说，不替凭据的存在说谎）。
+      - name: 有 Apple 证书才交给签名那条路
+        if: matrix.label == 'macos' && secrets.APPLE_CERTIFICATE != ''
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        shell: bash
+        run: |
+          {
+            echo "APPLE_ID=$APPLE_ID"
+            echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+            echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+          } >> "$GITHUB_ENV"
+
+      - name: tauri build + bundle
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
