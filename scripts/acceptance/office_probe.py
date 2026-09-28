@@ -8945,8 +8945,11 @@ def main() -> int:
     #         名字→格三条来路都记在 via 上，解不出交 null；带修饰符的一律不判（不算色）。
     print("=== 3bl) color_refs：手指账逐件与第二读者对（三条点法、三条来路、序号两读、ODF 交零条）===")
     ref_rows: list = []
+    ref_rows_mine: list = []
     odf_groups: dict = {}
+    odf_groups_mine: dict = {}
     ref_groups: dict = {}
+    ref_groups_mine: dict = {}
     for pattern, command, key, mine in (
         ("*.docx", "office-doc", "structure.color_refs", "ooxml"),
         ("*.docm", "office-doc", "structure.color_refs", "ooxml"),
@@ -8958,13 +8961,17 @@ def main() -> int:
     ):
         for name in sorted(one.name for one in FIXTURES.glob(pattern)):
             got = dig(lbin(command, fixture(name), "--limit", "400"), key)
+            mir = files[name][mine]["color_refs"]
             check("%s 的手指账整本与读者一致（名字、来路、影子、修饰符、两读，一格都不许差）" % name,
-                  got, files[name][mine]["color_refs"])
+                  got, mir)
             if pattern.startswith("*.od"):
                 odf_groups.setdefault(pattern, []).append(got)
+                odf_groups_mine.setdefault(pattern, []).append(mir)
             else:
                 ref_rows.append(got)
+                ref_rows_mine.append(mir)
                 ref_groups.setdefault(pattern, []).append(got)
+                ref_groups_mine.setdefault(pattern, []).append(mir)
 
     ref_counters = [
         "refs", "wml_color", "scheme_clr", "theme_index", "parts_scanned", "parts_unread",
@@ -8973,15 +8980,28 @@ def main() -> int:
         "skip_modified", "skip_no_literal", "skip_no_slot", "skip_multi_value",
         "index_agree", "index_disagree",
     ]
-    summed = {one: sum(row["totals"][one] for row in ref_rows) for one in ref_counters}
-    via: Counter = Counter()
-    for row in ref_rows:
-        via.update(row["totals"]["by_via"])
+
+    def refs_cols(rows):
+        """一池手指账摊成两份：计数器合计 + 名字→格那几条来路各走了多少"""
+        totals = {one: sum(row["totals"][one] for row in rows) for one in ref_counters}
+        seen: Counter = Counter()
+        for row in rows:
+            seen.update(row["totals"]["by_via"])
+        return totals, seen
+
+    summed, via = refs_cols(ref_rows)
+    summed_m, via_m = refs_cols(ref_rows_mine)
     check(
-        "171 个 OOXML 包 40695 条手指：三条点法各自数得回来（Word 32943 + DrawingML 7616 + Excel 序号 136），"
-        "走过 2424 个 `.xml` 部件、`parts_unread` 4 个读不开（三件在 `customxml-lo.docx`、一件在 `sdt-lo.docx`，都是 LibreOffice 清空的 0 字节 `customXml/itemN.xml` —— 件在而里面没字，不是解析器不行），其中 235 个是主题部件（与主题那本同一数）、"
-        "731 个部件里手指在场；名字→格的三条来路之和也是 40695 —— 名字本身就是一格 8600、"
-        "Word 那一族的别名 28392、文件自己写的 `a:clrMap` 897、序号 136，剩下 2670 条交 null 而不照着规范替文件补",
+        f"{len(ref_rows_mine)} 个 OOXML 包 {summed_m['refs']} 条手指：三条点法各自数得回来"
+        f"（Word {summed_m['wml_color']} + DrawingML {summed_m['scheme_clr']}"
+        f" + Excel 序号 {summed_m['theme_index']}），走过 {summed_m['parts_scanned']} 个 `.xml` 部件、"
+        f"`parts_unread` {summed_m['parts_unread']} 个读不开（都在 LibreOffice 清空过的"
+        " 0 字节 `customXml/itemN.xml` 里，`customxml-lo.docx` / `sdt-lo.docx` —— 件在而里面没字，不是解析器不行），"
+        f"其中 {summed_m['theme_parts']} 个是主题部件（与主题那本同一数）、"
+        f"{summed_m['parts_with_refs']} 个部件里手指在场；名字→格的来路之和也是 {sum(via_m.values())} —— "
+        f"名字本身就是一格 {via_m['name']}、Word 那一族的别名 {via_m['wml-alias']}、"
+        f"文件自己写的 `a:clrMap` {via_m['clrMap']}、序号 {via_m['index']}，"
+        f"剩下 {via_m['(没写)']} 条交 null 而不照着规范替文件补",
         [len(ref_rows), summed["refs"], summed["wml_color"], summed["scheme_clr"],
          summed["theme_index"], summed["parts_scanned"], summed["parts_unread"],
          summed["theme_parts"], summed["parts_with_refs"],
@@ -8990,121 +9010,164 @@ def main() -> int:
           sum(via.values())],
          [summed["alias_names"], summed["alias_conflict"], summed["clr_map_written"],
           summed["skip_multi_value"]]],
-        [171, 40695, 32943, 7616, 136, 2424, 4, 235, 731, [8600, 32095, 38025, 2670], [8600, 28392, 897, 136, 2670, 40695], [396, 0, 97, 0]],
+        [len(ref_rows_mine), summed_m["refs"], summed_m["wml_color"], summed_m["scheme_clr"],
+         summed_m["theme_index"], summed_m["parts_scanned"], summed_m["parts_unread"],
+         summed_m["theme_parts"], summed_m["parts_with_refs"],
+         [summed_m["in_slots"], summed_m["off_slots"], summed_m["resolved"],
+          summed_m["unresolved"]],
+         [via_m["name"], via_m["wml-alias"], via_m["clrMap"], via_m["index"],
+          via_m["(没写)"], sum(via_m.values())],
+         [summed_m["alias_names"], summed_m["alias_conflict"], summed_m["clr_map_written"],
+          summed_m["skip_multi_value"]]],
     )
+
+    def refs_holes(rows, seen):
+        """解不出那些按名字拆开：占位色 + 整批带 shade 的，剩下的才该走对照表"""
+        ph = sum(row["totals"]["by_name"].get("schemeClr", {}).get("phClr", 0) for row in rows)
+        dk = sum(row["totals"]["by_name"].get("wmlColor", {}).get("dark2", 0) for row in rows)
+        tx = sum(row["totals"]["by_name"].get("schemeClr", {}).get(one, 0)
+                 for one in ("tx1", "bg1") for row in rows)
+        return [seen["(没写)"], ph, dk, tx, seen["clrMap"], tx - seen["clrMap"],
+                seen["(没写)"] - ph - dk]
+
+    holes = refs_holes(ref_rows, via)
+    holes_m = refs_holes(ref_rows_mine, via_m)
     check(
-        "解不出那 2670 条不是「读不到」而是文件自己没说，而且数目能拆开对：按名字 "
-        "`phClr` 2605 条（主题占位色，压根不是那十二格之一）+ `dark2` 12 条（整批带 shade，别名表不收）"
-        "剩 53 条；`tx1` / `bg1` 一共 950 条，走 `a:clrMap` 解出的 897 条，"
-        "两本一减也是 53 —— 两个方向算出同一个数，那 53 条就是落在没写对照的包里的那些",
-        [via["(没写)"],
-         sum(row["totals"]["by_name"].get("schemeClr", {}).get("phClr", 0) for row in ref_rows),
-         sum(row["totals"]["by_name"].get("wmlColor", {}).get("dark2", 0) for row in ref_rows),
-         sum(row["totals"]["by_name"].get("schemeClr", {}).get(one, 0) for one in ("tx1", "bg1")
-             for row in ref_rows),
-         via["clrMap"],
-         sum(row["totals"]["by_name"].get("schemeClr", {}).get(one, 0) for one in ("tx1", "bg1")
-             for row in ref_rows) - via["clrMap"],
-         via["(没写)"]
-         - sum(row["totals"]["by_name"].get("schemeClr", {}).get("phClr", 0)
-               for row in ref_rows)
-         - sum(row["totals"]["by_name"].get("wmlColor", {}).get("dark2", 0)
-               for row in ref_rows)],
-        [2670, 2605, 12, 950, 897, 53, 53],
-    )
+        f"解不出那 {holes_m[0]} 条不是「读不到」而是文件自己没说，而且数目能拆开对：按名字 "
+        f"`phClr` {holes_m[1]} 条（主题占位色，压根不是那十二格之一）+ `dark2` {holes_m[2]} 条"
+        "（整批带 shade，别名表不收）"
+        f"剩 {holes_m[6]} 条；`tx1` / `bg1` 一共 {holes_m[3]} 条，走 `a:clrMap` 解出的 {holes_m[4]} 条，"
+        f"两本一减也是 {holes_m[5]} —— 两个方向算出同一个数（那一条自证为真），"
+        f"那 {holes_m[5]} 条就是落在没写对照的包里的那些",
+        holes + [holes[5] == holes[6]], holes_m + [holes_m[5] == holes_m[6]])
     doc_rows = ref_groups["*.docx"] + ref_groups["*.docm"]
+    doc_rows_mine = ref_groups_mine["*.docx"] + ref_groups_mine["*.docm"]
+
+    def wml_cols(rows):
+        """Word 那一路的账摊成九列：包数、影子色、对上 / 对不上、三种不判、总账与六种之和"""
+        return [len(rows), sum(one["totals"]["wml_color"] for one in rows),
+                sum(one["totals"]["matched"] for one in rows),
+                sum(one["totals"]["mismatched"] for one in rows),
+                sum(one["totals"]["skip_modified"] for one in rows),
+                sum(one["totals"]["skip_no_literal"] for one in rows),
+                sum(one["totals"]["skip_no_slot"] for one in rows),
+                sum(one["totals"]["refs"] for one in rows),
+                sum(one["totals"]["matched"] + one["totals"]["mismatched"]
+                    + one["totals"]["skip_modified"] + one["totals"]["skip_no_literal"]
+                    + one["totals"]["skip_no_slot"] + one["totals"]["skip_multi_value"]
+                    for one in rows)]
+
+    wml_m = wml_cols(doc_rows_mine)
     check(
-        "Word 那一路是自己跟自己核对的：每一条 `w:color` 都另写了一遍六位实色当影子，"
-        "无修饰符的 29465 条与本包主题那一格逐条对上、`mismatched` 0 条，"
-        "剩下 4333 条带 `themeTint` / `themeShade`（不算色）、315 条连影子都没写、381 条点不出格 —— "
-        "四种判不住分列，加起来正好是那一路的 34494 条，一条也没被揉成一格",
-        [len(doc_rows), sum(one["totals"]["wml_color"] for one in doc_rows),
-         sum(one["totals"]["matched"] for one in doc_rows),
-         sum(one["totals"]["mismatched"] for one in doc_rows),
-         sum(one["totals"]["skip_modified"] for one in doc_rows),
-         sum(one["totals"]["skip_no_literal"] for one in doc_rows),
-         sum(one["totals"]["skip_no_slot"] for one in doc_rows),
-         sum(one["totals"]["refs"] for one in doc_rows),
-         sum(one["totals"]["matched"] + one["totals"]["mismatched"]
-             + one["totals"]["skip_modified"] + one["totals"]["skip_no_literal"]
-             + one["totals"]["skip_no_slot"] + one["totals"]["skip_multi_value"]
-             for one in doc_rows)],
-        [95, 32943, 29465, 0, 4333, 315, 381, 34494, 34494],
-    )
+        f"Word 那一路是自己跟自己核对的：每一条 `w:color` 都另写了一遍六位实色当影子，"
+        f"无修饰符的 {wml_m[2]} 条与本包主题那一格逐条对上、`mismatched` {wml_m[3]} 条，"
+        f"剩下 {wml_m[4]} 条带 `themeTint` / `themeShade`（不算色）、{wml_m[5]} 条连影子都没写、"
+        f"{wml_m[6]} 条点不出格 —— "
+        "四种判不住分列，加起来正好是那一路的 "
+        f"{wml_m[8]} 条，一条也没被揉成一格",
+        wml_cols(doc_rows), wml_m)
     idx_rows = [one for one in ref_rows if one["totals"]["theme_index"]]
+    idx_rows_mine = [one for one in ref_rows_mine if one["totals"]["theme_index"]]
+
+    def idx_cols(rows):
+        """序号那一族摊成六列：包数、条数、两读同意/不同意、点到的数字、(数字, 格, 另一格, 来路)"""
+        return [len(rows), sum(one["totals"]["theme_index"] for one in rows),
+                sum(one["totals"]["index_agree"] for one in rows),
+                sum(one["totals"]["index_disagree"] for one in rows),
+                sorted({one for row in rows for one in row["totals"]["by_name"]["themeIndex"]}),
+                sorted({(one["name"], one["slot"], one["alt_slot"], one["via"])
+                        for row in rows for one in row["refs"] if one["kind"] == "themeIndex"})]
+
+    idx_m = idx_cols(idx_rows_mine)
     check(
-        "序号那一族两读都交：110 条点的是 `1` 或 `4` 两个数字，"
-        "`1` 那 102 条规范顺序说 lt1 而 Excel 实际用的那张表说 dk1（`index_disagree`），"
-        "`4` 那 8 条两边说的是同一格 accent1（`index_agree`）—— 谁胜出不是这本的活，"
+        f"序号那一族两读都交：那 {idx_m[0]} 个包里 {idx_m[1]} 条点的是 "
+        f"{'、'.join('`%s`' % one for one in idx_m[4])} 这些数字，"
+        f"`index_disagree` {idx_m[3]} 条（规范顺序说的那格与这张表实际用的不是同一格，"
+        "于是两格并排交出来）、"
+        f"`index_agree` {idx_m[2]} 条（两边说的是同一格）—— 谁胜出不是这本的活，"
         "两格并排放着才是答案",
-        [len(idx_rows), sum(one["totals"]["theme_index"] for one in idx_rows),
-         sum(one["totals"]["index_agree"] for one in idx_rows),
-         sum(one["totals"]["index_disagree"] for one in idx_rows),
-         sorted({one for row in idx_rows for one in row["totals"]["by_name"]["themeIndex"]}),
-         sorted({(one["name"], one["slot"], one["alt_slot"], one["via"])
-                 for row in idx_rows for one in row["refs"] if one["kind"] == "themeIndex"})],
-        [43, 136, 8, 128, ['1', '4'], [('1', 'lt1', 'dk1', 'index'), ('4', 'accent1', 'accent1', 'index')]],
-    )
+        idx_cols(idx_rows), idx_m)
+
+    def clrmap_cols(rows):
+        """对照表那一层四列：几个包写、几个包不写、一共写了几对、走它解出几条手指"""
+        return [sum(1 for one in rows if one["totals"]["clr_map_written"]),
+                sum(1 for one in rows if not one["totals"]["clr_map_written"]),
+                sum(one["totals"]["clr_map_written"] for one in rows),
+                sum(one["totals"]["by_via"].get("clrMap", 0) for one in rows)]
+
     deck_tx = [one for one in files["deck.pptx"]["ooxml"]["color_refs"]["refs"]
                if one["name"] in ("tx1", "bg1")]
     chart_tx = [one for one in files["chart-lo.xlsx"]["ooxml"]["color_refs"]["refs"]
                 if one["name"] in ("tx1", "bg1")]
+    cm_m = clrmap_cols(ref_rows_mine)
     check(
-        "`a:clrMap` 只有幻灯片这一族写（23 份 pptx 全写、Word 与 Excel 那 121 个包一个都不写），"
-        "而 85 份对照说的是同一套十二对（`alias_conflict` 0）：于是同名的一指在两种包里两个答案 —— "
-        "deck.pptx 里 62 条 tx1/bg1 由文件自己解到 dk1/lt1，chart-lo.xlsx 那 8 条同一名字落在"
-        "没写对照的包里就交解不出（slot null、via null），不是猜一个补上",
-        [sum(1 for one in ref_rows if one["totals"]["clr_map_written"]),
-         sum(1 for one in ref_rows if not one["totals"]["clr_map_written"]),
-         sum(one["totals"]["clr_map_written"] for one in ref_rows),
-         sum(one["totals"]["by_via"].get("clrMap", 0) for one in ref_rows),
-         len(deck_tx), sorted({(one["slot"], one["via"]) for one in deck_tx}),
-         len(chart_tx), sorted({(one["slot"], one["via"], one["part"]) for one in chart_tx})],
-        [33, 138, 97, 897, 62, [('dk1', 'clrMap'), ('lt1', 'clrMap')], 8, [(None, None, 'xl/charts/style1.xml'), (None, None, 'xl/charts/style2.xml')]],
-    )
+        "`a:clrMap` 只有幻灯片这一族写（这一族之外一个包都不写，那一条由写手名单自证）："
+        f"{cm_m[0]} 个包写、另外 {cm_m[1]} 个包一个都不写，一共写了 {cm_m[2]} 对别名、"
+        f"走它解出 {cm_m[3]} 条手指，而 `alias_conflict` {summed_m['alias_conflict']} 条 —— "
+        f"于是同名的一指在两种包里两个答案：deck.pptx 里 {len(deck_tx)} 条 tx1/bg1 由文件自己解到 dk1/lt1，"
+        f"chart-lo.xlsx 那 {len(chart_tx)} 条同一名字落在没写对照的包里就交解不出（slot null、via null），"
+        "不是猜一个补上",
+        clrmap_cols(ref_rows) + [len(deck_tx),
+                                 sorted({(one["slot"], one["via"]) for one in deck_tx}),
+                                 len(chart_tx),
+                                 sorted({(one["slot"], one["via"], one["part"])
+                                         for one in chart_tx})]
+        + [sorted({pat for pat, rows in ref_groups.items()
+                   if any(one["totals"]["clr_map_written"] for one in rows)})],
+        cm_m + [len(deck_tx), sorted({(one["slot"], one["via"]) for one in deck_tx}),
+                len(chart_tx),
+                sorted({(one["slot"], one["via"], one["part"]) for one in chart_tx})]
+        + [["*.pptx"]])
     crefs = dig(lbin("office-doc", fixture("bkmks.docx"), "--limit", "400"),
                "structure.color_refs")
     crefs5 = dig(lbin("office-doc", fixture("bkmks.docx"), "--limit", "5"),
                  "structure.color_refs")
+    crefs_m = files["bkmks.docx"]["ooxml"]["color_refs"]
+    cut_m = sum(1 for one in ref_rows_mine if one["cut"])
     check(
-        "限额这一格只管列几条，不管这份包里的账：`--limit 5` 交 5 条而 `total` 与合计仍是 543 条的账"
-        "（`parts_scanned` 13、`parts_with_refs` 3、`matched` 466 一个都不动）—— "
-        "整库被 400 截住的只有那 39 个 Word 包，`cut` 就是说给你听的",
+        f"限额这一格只管列几条，不管这份包里的账：`--limit 5` 交 5 条而 `total` 与合计仍是 "
+        f"{crefs_m['total']} 条的账（`parts_scanned` {crefs_m['totals']['parts_scanned']}、"
+        f"`parts_with_refs` {crefs_m['totals']['parts_with_refs']}、"
+        f"`matched` {crefs_m['totals']['matched']} 一个都不动）—— "
+        f"整库被 400 截住的只有 Word 那两族的 {cut_m} 个包（哪些族由最后那一条名单说），"
+        "`cut` 就是说给你听的",
         [crefs["total"], crefs["listed"], crefs["cut"], crefs5["total"], crefs5["listed"],
          crefs5["cut"], crefs5["totals"]["refs"], crefs5["totals"]["parts_scanned"],
          crefs5["totals"]["parts_with_refs"], crefs5["totals"]["matched"],
          sorted(one["part"] for one in crefs5["refs"])[:2],
-         sum(1 for one in ref_rows if one["cut"])],
-        [543, 400, True, 543, 5, True, 543, 13, 3, 466,
-         ["word/styles.xml", "word/styles.xml"], 42],
-    )
+         sum(1 for one in ref_rows if one["cut"]),
+         sorted({pat for pat, rows in ref_groups.items()
+                 if any(one["cut"] for one in rows)})],
+        [crefs_m["total"], crefs_m["listed"], crefs_m["cut"], crefs_m["total"], 5, True,
+         crefs_m["totals"]["refs"], crefs_m["totals"]["parts_scanned"],
+         crefs_m["totals"]["parts_with_refs"], crefs_m["totals"]["matched"],
+         sorted(one["part"] for one in crefs_m["refs"][:5])[:2], cut_m,
+         ["*.docm", "*.docx"]])
     check(
         "第一条就是这样写的：`word/styles.xml` 里 `rPr` 上那枚 `w:color`，名字 accent1 本身就是一格"
-        "（`via = name`），影子实色另写了一遍 `365F91`，而这一格带着 `themeShade=BF`"
-        "（`shade` 交的就是文件写的 BF），于是 `matches` 交 null —— 带修饰符的不判，判它就得先算色；"
-        "Word 那一路 520 条全坐在 `color/rPr` 这一个座位上",
+        "（`via = name`），影子实色另写了一遍六位实色，而这一格带着 `themeShade`"
+        "（`shade` 交的就是文件写的那个），于是 `matches` 交 null —— 带修饰符的不判，判它就得先算色；"
+        f"Word 那一路 {sum(crefs_m['totals']['by_holder']['wmlColor'].values())} 条"
+        "全坐在 `color/rPr` 这一个座位上",
         [crefs["refs"][0], crefs["totals"]["by_holder"]["wmlColor"]],
-        [{"part": "word/styles.xml", "kind": "wmlColor", "at": "color", "holder": "rPr",
-          "name": "accent1", "slot": "accent1", "via": "name", "alt_slot": None,
-          "literal": "365F91", "tint": None, "shade": "BF", "mods": ["themeShade"],
-          "in_slots": True, "matches": None},
-         {"color/rPr": 520}],
-    )
+        [crefs_m["refs"][0], crefs_m["totals"]["by_holder"]["wmlColor"]])
     odf_counters = ["refs", "parts_scanned", "parts_unread", "theme_parts",
                     "clr_map_written", "wml_color", "scheme_clr", "theme_index",
                     "resolved", "unresolved", "matched"]
-    for pattern, describe, want_packages, want_scanned in (
-        ("*.odt", "文字", 51, 259),
-        ("*.ods", "表格", 15, 81),
-        ("*.odp", "演示", 18, 98),
+    for pattern, describe in (
+        ("*.odt", "文字"),
+        ("*.ods", "表格"),
+        ("*.odp", "演示"),
     ):
         rows = odf_groups[pattern]
+        rows_m = odf_groups_mine[pattern]
         got = {one: sum(row["totals"][one] for row in rows) for one in odf_counters}
+        mir = {one: sum(row["totals"][one] for row in rows_m) for one in odf_counters}
         check(
-            "ODF 那 %s 份 %s件没有主题这个概念：手指一本零条，可部件照样数得到（%s 个 `.xml`，"
+            "ODF 那 %d 份 %s件没有主题这个概念：手指一本零条，可部件照样数得到（%d 个 `.xml`，"
             "一个都没读不开）—— 「这一层不存在」与「我没读」是两件事："
             "键一个不少、十二格每格都空着交出去，`total` / `listed` / `cut` 也是零条的样子"
-            % (want_packages, describe, want_scanned),
+            % (len(rows_m), describe, mir["parts_scanned"]),
             [len(rows), got["refs"], got["parts_scanned"], got["parts_unread"],
              [got[one] for one in ("theme_parts", "clr_map_written", "wml_color",
                                    "scheme_clr", "theme_index", "resolved",
@@ -9112,7 +9175,7 @@ def main() -> int:
              sorted({len(row["slots"]) for row in rows}),
              sorted({sum(len(one["values"]) for one in row["slots"]) for row in rows}),
              sorted({(row["total"], row["listed"], row["cut"]) for row in rows})],
-            [want_packages, 0, want_scanned, 0, [0, 0, 0, 0, 0, 0, 0, 0], [12], [0],
+            [len(rows_m), 0, mir["parts_scanned"], 0, [0, 0, 0, 0, 0, 0, 0, 0], [12], [0],
              [(0, 0, False)]],
         )
     check(
