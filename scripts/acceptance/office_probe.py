@@ -7968,15 +7968,55 @@ def main() -> int:
     )
     # ── 3aq) 公式那枚 <f> 自己写了什么：共享组的跟随格在文件里没有公式正文 ──────────
     print("=== 3aq) 公式元素自己：共享组、空正文带缓存值、两个生产者三种写法 ===")
+    deps_x: list = []
+    deps_x_mine: list = []
+    deps_o: list = []
+    deps_o_mine: list = []
     for name in sorted(one.name for one in FIXTURES.glob("*.xlsx")):
         got = lbin("office-sheet", fixture(name))
+        mir = files[name]["ooxml"]["formula_elems"]
         check("%s 公式元素那份账与读者一致（属性分布、共享组、空正文带缓存）" % name,
-              got.get("formula_elems"), files[name]["ooxml"]["formula_elems"])
+              got.get("formula_elems"), mir)
+        deps_x.append((got.get("formula_elems") or {}).get("cell_deps"))
+        deps_x_mine.append(mir["cell_deps"])
     for name in sorted(one.name for one in FIXTURES.glob("*.ods")):
         got = lbin("office-sheet", fixture(name))
+        mir = files[name]["ods"]["formula_elems"]
         check("%s 公式那份账与读者一致（格子身上的属性，每条都带正文）" % name,
               dig(got, "formula_elems"),
-              files[name]["ods"]["formula_elems"])
+              mir)
+        deps_o.append(dig(got, "formula_elems.cell_deps"))
+        deps_o_mine.append(mir["cell_deps"])
+
+    DEP_KEYS = ["rows", "rows_with_refs", "rows_literal_only", "holders_known",
+                "refs_total", "distinct_refs", "ranges_total", "absolute_total",
+                "qualified_total", "brackets_other", "self_refs", "total", "listed", "cut"]
+
+    def deps_cols(pool):
+        """一池引用账摊平：件数、十四本计数器之和、两条自证（两类行合成全部行、引用数与去重数）"""
+        return ([len(pool)] + [sum(one[k] for one in pool) for k in DEP_KEYS]
+                + [sum(one["rows_with_refs"] + one["rows_literal_only"] for one in pool)
+                   == sum(one["rows"] for one in pool),
+                   sum(1 for one in pool if one["rows_with_refs"]),
+                   sum(one["refs_total"] for one in pool)
+                   == sum(one["distinct_refs"] for one in pool)])
+
+    dx_m = deps_cols(deps_x_mine)
+    check(
+        f"OOXML 那 {dx_m[0]} 本公式的引用账（`cell_deps`）与读者现场对：{dx_m[1]} 行带公式，"
+        f"{dx_m[2]} 行写得出格子引用、{dx_m[3]} 行只有字面，两类加起来正好是全部那一 {dx_m[1]} 行；"
+        f"引用 {dx_m[5]} 条、按件内部去重也是 {dx_m[6]} 条（这一批里没有两枚公式点同一格），"
+        f"区间 {dx_m[7]} 个、带 `$` 的绝对地址 {dx_m[8]} 个、跨表那种 `Sheet1!B2` {dx_m[9]} 个，"
+        f"而 {dx_m[4]} 行全知道自己坐在哪一格（`holders_known`）",
+        deps_cols(deps_x), dx_m)
+    do_m = deps_cols(deps_o_mine)
+    check(
+        f"ODF 那 {do_m[0]} 本走另一套拼法：{do_m[1]} 行带公式、{do_m[2]} 行写得出引用、"
+        f"{do_m[3]} 行纯字面，引用 {do_m[5]} 条（去重 {do_m[6]}）、区间 {do_m[7]} 个、绝对 {do_m[8]} 个，"
+        f"而带表名那一层（`[.B2:.B3]` 那种两头都点的写法）{do_m[9]} 个 —— "
+        f"`holders_known` 却是 {do_m[4]}：这一族的行**没有格子地址可交**（列可以整个不写、"
+        "行可以用 `number-rows-repeated` 顶好几行），不是没读出来",
+        deps_cols(deps_o), do_m)
     sh = lbin("office-sheet", fixture("shared.xlsx"))
     check(
         "`shared.xlsx` 一列八格一个共享组：16 枚 `<f>` 里 **8 枚带属性**（`t` / `ref` / `si` 三种，"
