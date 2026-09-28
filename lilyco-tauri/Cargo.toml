@@ -1,0 +1,27 @@
+[package]
+name = "lilyco-tauri"
+version.workspace = true
+edition = "2021"
+description = "lilyco 办公文件桌面端（Tauri 2）：选一份 docx / xlsx / pptx / odt / pdf，把 lbin 那份结构账显示出来"
+# 桌面端是产物不是库：不进 crates.io，也就不参与发布闸门
+publish = false
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+
+[lib]
+name = "lilyco_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "lilyco-office"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

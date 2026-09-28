@@ -1,0 +1,95 @@
+name: Desktop (Tauri)
+
+# 桌面端只在相关文件变化时跑：它要编三个平台，比那批 office 对账便宜不了多少。
+# 产物一律由 CI 交（本机不编）：每次 run 都上传 .msi / .dmg / .AppImage 作为 run 工件，
+# 打了 v* 标签时才顺手挂到 GitHub Release 上。
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "lilyco-tauri/**"
+      - "lilyco-binfmt/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/desktop.yml"
+  pull_request:
+    paths:
+      - "lilyco-tauri/**"
+      - ".github/workflows/desktop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    name: bundle (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows
+          - os: macos-latest
+            label: macos
+          - os: ubuntu-22.04
+            label: linux
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 系统依赖（Linux 上的 webkit2gtk 那一套）
+        if: matrix.label == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            patchelf libssl-dev libxdo-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # sidecar 得先有：桌面端不自己再造一个读者，它跑的就是 CI 上那本对账认的 lbin
+      - name: 编 lbin（随包带出来的 sidecar）
+        run: cargo build --release -p lilyco-binfmt --bin lbin
+
+      - name: 把 lbin 放到 tauri 认的位置（带 target triple 后缀）
+        shell: bash
+        run: |
+          set -euo pipefail
+          TRIPLE=$(rustc -vV | sed -n 's|host: ||p')
+          EXT=""
+          if [ "$RUNNER_OS" = "Windows" ]; then EXT=".exe"; fi
+          mkdir -p lilyco-tauri/binaries
+          cp "target/release/lbin${EXT}" "lilyco-tauri/binaries/lbin-${TRIPLE}${EXT}"
+          ls -l lilyco-tauri/binaries
+
+      # 没配 Apple 证书 / notary 凭据时这一段就是未签名未公证：CI 照样成功，
+      # 但 macOS 那份在别人机器上会被 Gatekeeper 拦 —— 不说成「可直接安装」
+      - name: tauri build + bundle
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: lilyco-tauri
+          includeRelease: ${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: 交工件（每次 run 都留一份能直接下载的）
+        uses: actions/upload-artifact@v4
+        with:
+          name: lilyco-office-${{ matrix.label }}
+          if-no-files-found: error
+          path: |
+            target/release/bundle/msi/*
+            target/release/bundle/dmg/*
+            target/release/bundle/deb/*
+            target/release/bundle/appimage/*

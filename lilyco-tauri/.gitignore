@@ -1,0 +1,4 @@
+# sidecar 是 CI 现编现放的（本机不许编译，所以本地永远没有这一份）
+binaries/
+# tauri-build 生成的能力 schema
+gen/

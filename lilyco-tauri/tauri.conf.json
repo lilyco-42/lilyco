@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "lilyco office",
+  "version": "0.3.0",
+  "identifier": "app.lilyco.office",
+  "build": {
+    "frontendDist": "frontend"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "lilyco office — 看一份办公文件里到底写了什么",
+        "width": 1180,
+        "height": 780,
+        "minWidth": 520,
+        "minHeight": 420,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self'; img-src 'self' data:; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "办公文件结构查看器",
+    "longDescription": "读 docx / docm / odt / rtf / xlsx / ods / xls / pptx / odp / pdf 的结构账：包自证、正文、表、页、字体、样式、链接、批注、公式、保护。",
+    "externalBin": ["binaries/lbin"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ]
+  }
+}

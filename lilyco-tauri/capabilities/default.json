@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "主窗口：选一份文件，跑打包进来的 lbin sidecar 读它",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [{ "name": "binaries/lbin", "sidecar": true }]
+    }
+  ]
+}

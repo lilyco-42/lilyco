@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>lilyco office</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="head">
+        <h1>lilyco office</h1>
+        <p class="lede">
+          选一份办公文件，看它里面到底写了什么 —— 结构与说法都按文件自己写的交，不替文件补。
+        </p>
+      </header>
+
+      <section class="card" aria-labelledby="pick-h">
+        <h2 id="pick-h">一、要看的文件</h2>
+        <div class="row">
+          <button type="button" id="pick" class="btn">挑一份文件…</button>
+          <span id="picked" class="path" role="status" aria-live="polite">还没选</span>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="cmd-h">
+        <h2 id="cmd-h">二、问它什么</h2>
+        <div id="commands" class="cmds" role="group" aria-label="可问的问题"></div>
+        <p id="hint" class="hint" role="status" aria-live="polite"></p>
+        <div class="row">
+          <button type="button" id="run" class="btn primary" disabled>读</button>
+          <span id="state" class="state"></span>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="out-h">
+        <h2 id="out-h">三、读出来的</h2>
+        <div id="empty" class="empty">挑一份文件、选一个问题，然后按「读」。</div>
+        <table id="book" class="book" hidden>
+          <caption class="sr-only">这份账的键与值，按 lbin 交回来的顺序</caption>
+          <thead>
+            <tr>
+              <th scope="col">键</th>
+              <th scope="col">值（按文件写的原样）</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <details id="rawbox" hidden>
+          <summary>原始 JSON（要贴给别人看时用这一份）</summary>
+          <pre id="raw"></pre>
+        </details>
+      </section>
+
+      <footer class="foot">
+        <p>
+          读的是随包带出来的 <code>lbin</code>：同一批账在 CI 上与第二读者逐格对过，桌面端不再造一遍读者。
+        </p>
+      </footer>
+    </main>
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
