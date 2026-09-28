@@ -484,7 +484,12 @@ pub fn read(bytes: &[u8]) -> Book {
         }
         // 列：LibreOffice 把一片连续的同款列压成一个带 repeated 的元素，
         // 隐藏的三列就写成一条 visibility="collapse" + repeated="3"
-        for column in table.all("table-column") {
+        //
+        // 走 descendants 而不是 all：分过组的 .ods 里，列与行被
+        // `<table:table-column-group>` / `<table:table-row-group>` 包着（实测
+        // `.producer/groups.ods`），只看直接子元素会**整批看不见**分组里的行与列 ——
+        // 那一族的级别不写在属性上，就靠这层嵌套表达
+        for column in table.descendants("table-column") {
             let span = repeated(column, "number-columns-repeated");
             let seen = attr_of(column, "visibility");
             let hidden = seen == Some("collapse") || folded_by_style(attr_of(column, "style-name"));
@@ -512,7 +517,7 @@ pub fn read(bytes: &[u8]) -> Book {
         let mut row_at = 0usize;
         let mut used_rows = 0usize;
         let mut walked = 0usize;
-        for row in table.all("table-row") {
+        for row in table.descendants("table-row") {
             let row_repeat = repeated(row, "number-rows-repeated");
             let seen = attr_of(row, "visibility");
             if seen == Some("collapse") || folded_by_style(attr_of(row, "style-name")) {

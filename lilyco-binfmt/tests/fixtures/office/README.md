@@ -3570,10 +3570,15 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       照样写声明 `0/0` —— 「写了 0」与「没写」在出口上必须分开。
     - 列范围两家不同：openpyxl 一列一条（3 条盖 3 列），LibreOffice 把 B、C 并成
       `min="2" max="3"`（2 条盖 3 列）—— 按元素个数数列会少报一列。
-    - **ODF 与 .xls 两族的存法已经量过但还没读**（凭据在 `.producer/groups.ods` 与
-      `.producer/groups.xls`，不进语料）：ODF 里 `grep -c outline content.xml` 是 0，
+    - **ODF 与 .xls 两族的存法已经量过**：ODF 里 `grep -c outline content.xml` 是 0，
       分组写成**嵌套的** `<table:table-row-group>` / `<table:table-column-group>`，
       元素不带属性，级别＝嵌套深度、成员＝顺序加 `number-*-repeated`，折叠写
-      `table:visibility="collapse"`；.xls 那边行的级在 `ROW` 正文偏移 12 的低三位
-      （同一条记录那格 bit5 是隐藏，与既有隐藏账同位），列的级在 `COLINFO` 的 grbit
-      第 8-10 位（bit0 是隐藏），`collapsed` 两家都没地方说。
+      `table:visibility="collapse"`。`groups.ods` 进语料的直接后果是揪出一处两家共有的
+      盲区：两边的 ODS 遍历原先都只取 `table` 的**直接子元素**（Rust 那侧是 `all()`，
+      它的定义就是「按名字筛直接孩子」；深看要用 `descendants()`），于是被 group 包住的
+      第 3-7 行整批看不见 —— 第一张表量到的对比是**行元素 3 条 vs 8 条、隐藏行 0 vs 2**
+      （CSV 少 5 行）。现在两家都改成走全部后代，这一条由 probe 里
+      「三种存法报同一个数」那道闸门钉住。
+      级别那一份账（ODF 的嵌套深度、.xls 的位）**还没读**：`.producer/groups.xls` 那边
+      行的级在 `ROW` 正文偏移 12 的低三位（同一条记录那格 bit5 是隐藏，与既有隐藏账同位），
+      列的级在 `COLINFO` 的 grbit 第 8-10 位（bit0 是隐藏），`collapsed` 两家都没地方说。

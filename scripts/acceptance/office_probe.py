@@ -221,6 +221,7 @@ def main() -> int:
         "size-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "groups.xlsx": ("ooxml", "excel", "xlsx"),
         "groups-lo.xlsx": ("ooxml", "excel", "xlsx"),
+        "groups.ods": ("opendocument", "excel", "ods"),
         "para.docx": ("ooxml", "word", "docx"),
         "images.docx": ("ooxml", "word", "docx"),
         "images-lo.docx": ("ooxml", "word", "docx"),
@@ -2465,6 +2466,43 @@ def main() -> int:
         declared_pair,
         [[None, None], [None, None], [2, 2], [0, 0]],
     )
+    # 跨格式同形：同一份内容在 OOXML（两家）与 ODF 里都该报同一本「藏了几行几列」的账。
+    # ODF 那一族的分组是**嵌套的** <table:table-*-group>，两家读者早先都只看直接子元素，
+    # 于是分组里的 5 行整批看不见（CSV 少 5 行、隐藏行报 0）—— 这一条就是那次的回归闸门
+    trio = {}
+    for name in ("groups.xlsx", "groups-lo.xlsx", "groups.ods"):
+        only = lbin("office-sheet", fixture(name)).get("sheets", [{}])[0]
+        trio[name] = [only.get("hidden_rows"), only.get("hidden_cols")]
+    check(
+        "分组那份件的三种存法：藏了几行几列报同一个数",
+        sorted({json.dumps(one) for one in trio.values()}),
+        [json.dumps([2, 1])],
+    )
+    for name in ("groups.ods",):
+        rows = lbin("office-sheet", fixture(name)).get("sheets", [])
+        check(
+            "%s 分组里的行也进账（两条轴的元素数与展开数）" % name,
+            [
+                [
+                    one.get("layout", {}).get("rows", {}).get("elements"),
+                    one.get("layout", {}).get("rows", {}).get("spans"),
+                    one.get("layout", {}).get("columns", {}).get("elements"),
+                    one.get("hidden_rows"),
+                    one.get("hidden_cols"),
+                ]
+                for one in rows
+            ],
+            [
+                [
+                    one["layout"]["rows"]["elements"],
+                    one["layout"]["rows"]["spans"],
+                    one["layout"]["columns"]["elements"],
+                    one["hidden_rows"],
+                    one["hidden_cols"],
+                ]
+                for one in files[name]["ods"]["sheets"]
+            ],
+        )
 
     # ── 3a6) 表格批注：两跳才找得到那个部件，两个生产者放在两个地方 ──────────
     print("=== 3a6) 表格批注（openpyxl / LibreOffice / ODF 三种写法） ===")

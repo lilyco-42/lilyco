@@ -11723,8 +11723,11 @@ def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) ->
         cell_links: list = []
         link_formulas = 0
         # 一次收集，两份账共用（尺寸账与隐藏账必须走同一批元素）
-        col_elems = [one for one in table if xml_local(one.tag) == "table-column"]
-        row_elems = [one for one in table if xml_local(one.tag) == "table-row"]
+        # 走 iter()（全部后代）而不是直接子元素：分过组的 .ods 把行列包在
+        # <table:table-row-group> / <table:table-column-group> 里，只看直接子元素
+        # 会把分组里的行整批看不见（实测 .producer/groups.ods 第 3-7 行都在 group 里）
+        col_elems = [one for one in table.iter() if xml_local(one.tag) == "table-column"]
+        row_elems = [one for one in table.iter() if xml_local(one.tag) == "table-row"]
         for column in col_elems:
             if attr(column, "visibility") == "collapse" or folded.get(
                 attr(column, "style-name") or ""

@@ -5526,6 +5526,8 @@ def main() -> int:
     if (SCRATCH / "groups.xlsx").exists():
         shutil.copyfile(SCRATCH / "groups.xlsx", OUT / "groups-lo.xlsx")
     convert(exe, groups, "ods", SCRATCH)
+    if (SCRATCH / "groups.ods").exists():
+        shutil.copyfile(SCRATCH / "groups.ods", OUT / "groups.ods")
     convert(exe, groups, "xls", SCRATCH)
     # 表格批注那两跳：openpyxl 写一份（批注部件在 xl/comments/comment1.xml），
     # LibreOffice 转 .ods 一份（批注坐在格子里面），两个生产者两种存法

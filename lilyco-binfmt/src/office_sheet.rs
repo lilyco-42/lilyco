@@ -4395,6 +4395,29 @@ mod tests {
         assert_eq!(plain["rows"]["max_level"], json!(null));
     }
 
+    /// ODF 那一族的分组是嵌套元素，不是属性：只看直接子元素会把分组里的行整批看不见
+    #[test]
+    fn grouped_odf_rows_are_seen_by_the_table_walk() {
+        let book = run("groups.ods");
+        let first = &book["sheets"][0];
+        assert_eq!(
+            first["layout"]["rows"]["elements"], 8,
+            "第 3-7 行住在 <table:table-row-group> 里，只数直接孩子会报 3：{first}"
+        );
+        assert_eq!(first["layout"]["columns"]["elements"], 5);
+        assert_eq!(first["hidden_rows"], 2, "折叠掉的两行也在那层嵌套里");
+        assert_eq!(first["hidden_cols"], 1);
+        // 同一份内容的 OOXML 两支该报同一本隐藏账（跨格式同形由 probe 那侧再对一遍）
+        for name in ["groups.xlsx", "groups-lo.xlsx"] {
+            let other = &run(name)["sheets"][0];
+            assert_eq!(
+                [other["hidden_rows"].as_u64(), other["hidden_cols"].as_u64()],
+                [first["hidden_rows"].as_u64(), first["hidden_cols"].as_u64()],
+                "{name} 与 groups.ods 该报同一个数"
+            );
+        }
+    }
+
     /// 列宽、行高、筛选与表对象：两家的数互不相等，重写一次就换一套换算
     #[test]
     fn sizes_filters_and_table_objects_come_from_the_sheet_itself() {
