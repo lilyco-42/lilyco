@@ -7234,6 +7234,88 @@ def _f_attr_map(node) -> dict:
     return out
 
 
+LITERALS = re.compile(r'"[^"]*"')
+# 一格 = 1~3 个字母 + 1~7 位数字，$ 可插在字母前后；区间是两格中间一个冒号。
+# 后面紧跟 ( 的不算（LOG10( 的 LOG1 会撞进这个形状），前面是字母数字 $ ! : 的不算。
+OOXML_REF = re.compile(
+    r"(?<![A-Za-z0-9_$!:])(\$?[A-Z]{1,3}\$?[0-9]{1,7})(?::(\$?[A-Z]{1,3}\$?[0-9]{1,7}))?(?![A-Za-z0-9_(])")
+# ODF 把引用穿在方括号里：[.B2]、[.B2:.B3]、[.Sheet1.A1:.A2]
+ODF_BRACKET = re.compile(r"\[([^\[\]]*)\]")
+# 方括号里长这样才算一格引用：可选开头的 `.`、零或多段 `表名.` 前缀、一格、可选 `:另一格`
+# （冒号后面**也可能再带一个点**：ODF 写的是 `[.B2:.B3]`，两段各点一次）
+ODF_BODY = re.compile(r"^\.?(?:[A-Za-z_][A-Za-z0-9_.$]*\.)*\$?[A-Z]{1,3}\$?[0-9]{1,7}"
+                      r"(?::\.?\$?[A-Z]{1,3}\$?[0-9]{1,7})?$")
+
+
+def cell_deps_of(rows: list, limit: int) -> dict:
+    """「这一格引用了哪些格子」——只从公式文本数，两种拼法各按各的：OOXML 写 `B2`、`$A$1`，
+    ODF 把引用穿在方括号里（`[.B2]`、`[.B2:.B4]`、`[.Sheet1.A1:.A2]`）。
+
+    三处先挡住，否则数出来的是不存在的格子：
+      1. 字符串字面量整段先剔掉 —— `HYPERLINK("https://example.com/formula","…")` 里那些片段
+         都不是引用（这一族的公式里真有这样的行）；
+      2. 后面紧跟 `(` 的不算 —— `LOG10(` 的 `LOG1` 会撞进「1~3 字母 + 数字」的形状；
+      3. ODF 那一族只认方括号里、且里面确实长得像格子地址的那些；方括号里是别的（`#REF`、
+         结构化引用、命名区域）就不算进引用，另外数成一格 `brackets_other`。
+    引用一律**照文件写的原样交**：不展开区间、不去 `$`、不补表名，一个区间算一条引用。
+    「跨表」这一问在这里判不住：OOXML 手里只有部件名（`xl/worksheets/sheet1.xml`），
+    没有表名可以去对 `Sheet1!` 那个前缀，所以 `cross_sheet` 交 null 而不是 0。
+    """
+    out_rows = []
+    other_brackets = 0
+    for one in rows:
+        text = one.get("text") or ""
+        if not text:
+            continue
+        holder = one.get("cell")
+        refs = []
+        if text.startswith("of:=") or "[." in text:
+            for body in ODF_BRACKET.findall(text):
+                if ODF_BODY.match(body):
+                    refs.append("[" + body + "]")
+                else:
+                    other_brackets += 1
+        else:
+            for head, tail in OOXML_REF.findall(LITERALS.sub("", text)):
+                refs.append("%s:%s" % (head, tail) if tail else head)
+        out_rows.append({
+            "sheet": one.get("sheet"),
+            "cell": holder,
+            "formula": text,
+            "refs": refs,
+            "ranges": sum(1 for raw in refs if ":" in raw),
+            "absolute": sum(1 for raw in refs if "$" in raw),
+            "qualified": sum(1 for raw in refs if "!" in raw or raw.count(".") > 1),
+            "self_ref": any(raw.replace("$", "").replace("[.", "").split(":")[0].upper()
+                            == str(holder or "").upper() and holder for raw in refs),
+        })
+    seen = []
+    for one in out_rows:
+        for raw in one["refs"]:
+            if raw not in seen:
+                seen.append(raw)
+    listed = out_rows[:limit]
+    return {
+        "available": True,
+        "rows": len(out_rows),
+        "rows_with_refs": len([one for one in out_rows if one["refs"]]),
+        "rows_literal_only": len([one for one in out_rows if not one["refs"]]),
+        "holders_known": len([one for one in out_rows if one["cell"]]),
+        "refs_total": sum(len(one["refs"]) for one in out_rows),
+        "distinct_refs": len(seen),
+        "ranges_total": sum(one["ranges"] for one in out_rows),
+        "absolute_total": sum(one["absolute"] for one in out_rows),
+        "qualified_total": sum(one["qualified"] for one in out_rows),
+        "brackets_other": other_brackets,
+        "self_refs": sum(1 for one in out_rows if one["self_ref"]),
+        "cross_sheet": None,
+        "total": len(out_rows),
+        "listed": len(listed),
+        "cut": len(listed) < len(out_rows),
+        "rows_list": listed,
+    }
+
+
 def xlsx_formula_elems(path: Path, limit: int = 400) -> dict:
     r"""公式那枚 `<f>` 自己写了什么 —— 共享公式的跟随格在文件里**没有公式正文**
 
@@ -7303,6 +7385,7 @@ def xlsx_formula_elems(path: Path, limit: int = 400) -> dict:
         "si_written": len([one for one in rows if one["si"] is not None]),
         "ref_written_elems": len([one for one in rows if one["ref_written"] is not None]),
         "cached_elems": len([one for one in rows if one["cached_written"]]),
+        "cell_deps": cell_deps_of(rows, limit),
         "cells": rows[:limit],
     }
 
@@ -7386,6 +7469,7 @@ def ods_formula_elems(path: Path, limit: int = 400) -> dict:
                                         if not one["text_written"] and one["cached_written"]]),
         # 共享组那一层在 ODF 没有位置：不是 0（数过了没有），而是这个键整个不交
         "cached_elems": len([one for one in rows if one["cached_written"]]),
+        "cell_deps": cell_deps_of(rows, limit),
         "cells": rows[:limit],
     }
 

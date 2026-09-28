@@ -142,6 +142,7 @@ pub(crate) fn xlsx(bytes: &[u8], limit: usize) -> Value {
             }));
         }
     }
+    let deps = cell_deps(&rows, limit);
     let written = rows
         .iter()
         .filter(|one| one["text_written"] == json!(true))
@@ -172,7 +173,242 @@ pub(crate) fn xlsx(bytes: &[u8], limit: usize) -> Value {
         "si_written": rows.iter().filter(|one| !one["si"].is_null()).count(),
         "ref_written_elems": rows.iter().filter(|one| !one["ref_written"].is_null()).count(),
         "cached_elems": rows.iter().filter(|one| one["cached_written"] == json!(true)).count(),
+        "cell_deps": deps,
         "cells": rows.into_iter().take(limit).collect::<Vec<Value>>(),
+    })
+}
+
+/// 一格地址的形状：1~3 个大写字母 + 1~7 位数字，`$` 可以插在字母前后
+fn cell_len(chars: &[char], at: usize) -> Option<usize> {
+    let mut i = at;
+    if chars.get(i) == Some(&'$') {
+        i += 1;
+    }
+    let letters_start = i;
+    while i < chars.len() && chars[i].is_ascii_uppercase() && i - letters_start < 3 {
+        i += 1;
+    }
+    if i == letters_start {
+        return None;
+    }
+    if chars.get(i) == Some(&'$') {
+        i += 1;
+    }
+    let digits_start = i;
+    while i < chars.len() && chars[i].is_ascii_digit() && i - digits_start < 7 {
+        i += 1;
+    }
+    if i == digits_start {
+        return None;
+    }
+    // 后面紧跟 `(` 的是函数名（`LOG10(` 的 `LOG1` 会撞进这个形状）；
+    // 后面还是字母或数字的，说明这个 token 比一格地址长，也不算
+    match chars.get(i) {
+        Some(next) if next.is_ascii_alphanumeric() || *next == '_' || *next == '(' => None,
+        _ => Some(i - at),
+    }
+}
+
+fn bad_before(prev: Option<char>) -> bool {
+    match prev {
+        None => false,
+        Some(one) => one.is_ascii_alphanumeric() || matches!(one, '_' | '$' | '!' | ':' | '.'),
+    }
+}
+
+/// OOXML 那一族的引用：`B2`、`$A$1`、`Sheet1!B2`，区间 `B2:B3`
+fn ooxml_refs(text: &str) -> Vec<String> {
+    // 字符串字面量整段先剔掉：`HYPERLINK("https://example.com/x")` 里的片段不是引用。
+    // 剔的时候用空格占位，保持每个字符的下标不变
+    let mut clean: Vec<char> = text.chars().collect();
+    let mut open = false;
+    for slot in clean.iter_mut() {
+        if *slot == '"' {
+            open = !open;
+            *slot = ' ';
+        } else if open {
+            *slot = ' ';
+        }
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut at = 0usize;
+    while at < clean.len() {
+        if bad_before(if at == 0 { None } else { Some(clean[at - 1]) }) {
+            at += 1;
+            continue;
+        }
+        let Some(head) = cell_len(&clean, at) else {
+            at += 1;
+            continue;
+        };
+        let mut end = at + head;
+        // 区间：冒号后面那一段也可以带 `$`（`$B$2:$B$9`）
+        if clean.get(end) == Some(&':') {
+            if let Some(tail) = cell_len(&clean, end + 1) {
+                end += 1 + tail;
+            }
+        }
+        out.push(clean[at..end].iter().collect());
+        at = end;
+    }
+    out
+}
+
+/// 方括号里确实长得像一格才算引用：`[.B2]`、`[.B2:.B3]`、`[.Sheet1.A1:.A2]`
+fn odf_ref_body(body: &str) -> bool {
+    let chars: Vec<char> = body.chars().collect();
+    let mut at = 0usize;
+    if chars.first() == Some(&'.') {
+        at = 1;
+    }
+    loop {
+        // 一段「表名.」前缀：以字母或下划线开头、以点收尾
+        let start = at;
+        if chars.get(at) == Some(&'.') {
+            at += 1;
+        }
+        let name_start = at;
+        while at < chars.len()
+            && (chars[at].is_ascii_alphanumeric() || matches!(chars[at], '_' | '$' | '.'))
+        {
+            at += 1;
+        }
+        if at < chars.len() && chars[at] == '.' {
+            if at > name_start {
+                at += 1;
+                continue;
+            }
+        }
+        at = start;
+        break;
+    }
+    let Some(head) = cell_len(&chars, at) else {
+        return false;
+    };
+    let mut end = at + head;
+    if chars.get(end) == Some(&':') {
+        let mut next = end + 1;
+        if chars.get(next) == Some(&'.') {
+            next += 1;
+        }
+        match cell_len(&chars, next) {
+            Some(tail) => end = next + tail,
+            None => return false,
+        }
+    }
+    end == chars.len()
+}
+
+/// ODF 那一族的引用穿在方括号里；括号里是别的（`#REF`、结构化引用、命名区域）另数一格
+fn odf_refs(text: &str) -> (Vec<String>, usize) {
+    let mut out: Vec<String> = Vec::new();
+    let mut other = 0usize;
+    let chars: Vec<char> = text.chars().collect();
+    let mut at = 0usize;
+    while at < chars.len() {
+        if chars[at] != '[' {
+            at += 1;
+            continue;
+        }
+        let mut end = at + 1;
+        while end < chars.len() && chars[end] != ']' && chars[end] != '[' {
+            end += 1;
+        }
+        if end >= chars.len() || chars[end] != ']' {
+            at += 1;
+            continue;
+        }
+        let body: String = chars[at + 1..end].iter().collect();
+        if odf_ref_body(&body) {
+            out.push(format!("[{}]", body));
+        } else {
+            other += 1;
+        }
+        at = end + 1;
+    }
+    (out, other)
+}
+
+/// 「这一格引用了哪些格子」——两族共用一份算术，拼法各按各的
+///
+/// 不展开区间、不去 `$`、不补表名：交的是文件写的那个 token 原样。「跨表」在这里判不住
+/// （OOXML 手里只有部件名，没有表名可对 `Sheet1!` 那个前缀），所以那一格交 null。
+fn cell_deps(rows: &[Value], limit: usize) -> Value {
+    let mut listed: Vec<Value> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    let mut other_brackets = 0usize;
+    let (mut rows_n, mut with_refs, mut literal_only) = (0usize, 0usize, 0usize);
+    let (mut holders, mut refs_n, mut ranges_n, mut absolute_n) = (0usize, 0usize, 0usize, 0usize);
+    let (mut qualified_n, mut self_refs) = (0usize, 0usize);
+    for one in rows {
+        let text = one["text"].as_str().unwrap_or("");
+        if text.is_empty() {
+            continue;
+        }
+        let holder = one["cell"].as_str().unwrap_or("");
+        let refs: Vec<String> = if text.starts_with("of:=") || text.contains("[.") {
+            let (found, other) = odf_refs(text);
+            other_brackets += other;
+            found
+        } else {
+            ooxml_refs(text)
+        };
+        rows_n += 1;
+        with_refs += usize::from(!refs.is_empty());
+        literal_only += usize::from(refs.is_empty());
+        holders += usize::from(!holder.is_empty());
+        refs_n += refs.len();
+        let ranges = refs.iter().filter(|raw| raw.contains(':')).count();
+        let absolute = refs.iter().filter(|raw| raw.contains('$')).count();
+        let qualified = refs
+            .iter()
+            .filter(|raw| raw.contains('!') || raw.matches('.').count() > 1)
+            .count();
+        ranges_n += ranges;
+        absolute_n += absolute;
+        qualified_n += qualified;
+        let want = holder.to_ascii_uppercase();
+        let hits_self = !holder.is_empty()
+            && refs.iter().any(|raw| {
+                let cleaned = raw.replace('$', "").replace("[.", "");
+                let head = cleaned.split(':').next().unwrap_or("");
+                head.to_ascii_uppercase() == want
+            });
+        self_refs += usize::from(hits_self);
+        for raw in &refs {
+            if !seen.contains(raw) {
+                seen.push(raw.clone());
+            }
+        }
+        listed.push(json!({
+            "sheet": one["sheet"],
+            "cell": one["cell"],
+            "formula": text,
+            "refs": refs,
+            "ranges": ranges,
+            "absolute": absolute,
+            "qualified": qualified,
+            "self_ref": hits_self,
+        }));
+    }
+    json!({
+        "available": true,
+        "rows": rows_n,
+        "rows_with_refs": with_refs,
+        "rows_literal_only": literal_only,
+        "holders_known": holders,
+        "refs_total": refs_n,
+        "distinct_refs": seen.len(),
+        "ranges_total": ranges_n,
+        "absolute_total": absolute_n,
+        "qualified_total": qualified_n,
+        "brackets_other": other_brackets,
+        "self_refs": self_refs,
+        "cross_sheet": null,
+        "total": rows_n,
+        "listed": listed.len().min(limit),
+        "cut": rows_n > limit,
+        "rows_list": listed.into_iter().take(limit).collect::<Vec<Value>>(),
     })
 }
 
@@ -242,6 +478,7 @@ pub(crate) fn ods(bytes: &[u8], limit: usize) -> Value {
             "paragraphs": count_children(cell, "p"),
         }));
     }
+    let deps = cell_deps(&rows, limit);
     let written = rows
         .iter()
         .filter(|one| one["text_written"] == json!(true))
@@ -266,6 +503,7 @@ pub(crate) fn ods(bytes: &[u8], limit: usize) -> Value {
             one["text_written"] == json!(false) && one["cached_written"] == json!(true)
         }).count(),
         "cached_elems": rows.iter().filter(|one| one["cached_written"] == json!(true)).count(),
+        "cell_deps": deps,
         "cells": rows.into_iter().take(limit).collect::<Vec<Value>>(),
     })
 }

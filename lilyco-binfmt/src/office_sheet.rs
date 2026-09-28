@@ -4535,6 +4535,23 @@ mod tests {
         assert_eq!(mine["family"], "ooxml");
         assert_eq!(mine["sheets_seen"], 1);
         assert_eq!(mine["formula_elems"], 16);
+        let deps = &mine["cell_deps"];
+        assert_eq!(deps["rows"], 9, "十六枚 <f> 里只有九枚写了正文");
+        assert_eq!(deps["refs_total"], 9);
+        assert_eq!(deps["distinct_refs"], 9);
+        assert_eq!(deps["holders_known"], 9);
+        assert_eq!(deps["self_refs"], 0, "本库没有一份公式引用自己所在那格");
+        assert_eq!(
+            deps["cross_sheet"],
+            Value::Null,
+            "手里只有部件名，对不上 Sheet1! 那个前缀"
+        );
+        assert_eq!(
+            deps["rows_list"][0]["refs"],
+            json!(["A1"]),
+            "{:?}",
+            deps["rows_list"][0]
+        );
         assert_eq!(mine["with_attrs"], 8, "只有共享组那八枚带属性");
         // attrs_seen 是**文件里属性写的顺序**，不是字典序
         assert_eq!(mine["attrs_seen"], json!(["t", "ref", "si"]));
@@ -4607,6 +4624,20 @@ mod tests {
             json!(["formula", "value-type", "value"])
         );
         assert_eq!(side["formula_prefixes"], json!({"of": 16}));
+        let od = &side["cell_deps"];
+        assert_eq!(od["rows"], 16, "ODF 每一条公式都带正文");
+        assert_eq!(od["holders_known"], 0, "这一族不写格子地址");
+        assert_eq!(od["refs_total"], 16);
+        assert_eq!(
+            od["qualified_total"], 8,
+            "八条点的是 `[.表一.A1]` 那种带表名的写法"
+        );
+        assert_eq!(
+            od["rows_list"][0]["refs"],
+            json!(["[.A1]"]),
+            "{:?}",
+            od["rows_list"][0]
+        );
         assert_eq!(
             side["attr_values"],
             json!({
