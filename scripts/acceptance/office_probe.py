@@ -12078,10 +12078,15 @@ def main() -> int:
     )
 
     print("=== 3dc) workbook_settings：这一本工作簿自己的设置（谁存的、算不算、停在哪一张）===")
+    ws_rows: list = []
+    ws_rows_mine: list = []
     for name in sorted(one.name for one in FIXTURES.glob("*.xlsx")):
+        got = dig(lbin("office-sheet", fixture(name)), "workbook_settings")
+        mir = files[name]["ooxml"]["workbook_settings"]
         check("%s 工作簿那一层的账整本与读者一致（在场、写了哪几格、值原样）" % name,
-              dig(lbin("office-sheet", fixture(name)), "workbook_settings"),
-              files[name]["ooxml"]["workbook_settings"])
+              got, mir)
+        ws_rows.append(got)
+        ws_rows_mine.append(mir)
     mine = dig(lbin("office-sheet", fixture("workbook-settings.xlsx"), "--limit", "400"),
                "workbook_settings")
     check("手写那一份把这一层的四种说法一次摆开：两枚 fileVersion、manual 模式、"
@@ -12145,45 +12150,47 @@ def main() -> int:
            no_theme_key("office-sheet", "workbook-settings.xlsx", "workbook_settings"),
            no_theme_key("office-sheet", "workbook-settings-lo.xlsx", "workbook_settings")],
           [False, False, False, False, False, True, True])
-    decks = dict((one, had["ooxml"]["workbook_settings"]) for one in files
-                 if one.endswith(".xlsx") and "workbook_settings" in had.get("ooxml", {}))
-    print("=== 3dc 汇总：语料 %d 份 xlsx 的工作簿层 ===" % len(decks))
+
+    def ws_cols(rows):
+        """工作簿那一层的语料账（十格）：份数、fileVersion 两份、calcPr / iterate 两格、空壳
+        workbookPr、共享视图、workbookView、date1904 —— 缺这一层的包不进气泡（份数会自己少）"""
+        rows = [one for one in rows if one]
+        return [len(rows),
+                sum(1 for one in rows if one["counts"]["fileVersion"]),
+                sum(one["counts"]["fileVersion"] for one in rows),
+                sum(1 for one in rows if "calcPr" in one["element_names"]),
+                sum(1 for one in rows if "iterate" in one["elements"].get("calcPr", {})),
+                sum(1 for one in rows
+                    if one["elements"].get("calcPr", {}).get("iterate") == "true"),
+                sum(1 for one in rows if "workbookPr" in one["empty_elements"]),
+                sum(1 for one in rows if one["counts"]["customWorkbookView"]),
+                sum(1 for one in rows if one["counts"]["workbookView"] >= 1),
+                sum(1 for one in rows if "date1904" in one["elements"].get("workbookPr", {}))]
+
+    def ws_sets(rows):
+        """同一层里两件事的取值集合：fileVersion 写了几枚，`refMode` 用了哪几种写法（没写交 `-`）"""
+        rows = [one for one in rows if one]
+        return (sorted({str(one["counts"]["fileVersion"]) for one in rows})
+                + sorted({one["elements"].get("calcPr", {}).get("refMode", "-") for one in rows}))
+
+    ws_m = ws_cols(ws_rows_mine)
+    print("=== 3dc 汇总：语料 %d 份 xlsx 的工作簿层 ===" % ws_m[0])
     check("整库摊开（自产件）：" + "、".join([
-        "份数 %d" % len(decks),
-        "带 fileVersion %d" % sum(1 for one in decks.values() if one["counts"]["fileVersion"]),
-        "fileVersion 枚数之和 %d" % sum(one["counts"]["fileVersion"] for one in decks.values()),
-        "写了 calcPr %d" % sum(1 for one in decks.values() if "calcPr" in one["element_names"]),
-        "写了 iterate %d" % sum(1 for one in decks.values()
-                                if "iterate" in one["elements"].get("calcPr", {})),
-        "其中 true %d" % sum(1 for one in decks.values()
-                             if one["elements"].get("calcPr", {}).get("iterate") == "true"),
-        "空壳 workbookPr 的份数 %d" % sum(1 for one in decks.values()
-                                       if "workbookPr" in one["empty_elements"]),
-        "带共享视图 %d" % sum(1 for one in decks.values() if one["counts"]["customWorkbookView"]),
-        "写了 workbookView %d" % sum(1 for one in decks.values()
-                                     if one["counts"]["workbookView"] >= 1),
-        "workbookPr 写了 date1904 %d" % sum(1 for one in decks.values()
-                                          if "date1904" in one["elements"].get("workbookPr", {})),
-    ]),
-        [len(decks),
-         sum(1 for one in decks.values() if one["counts"]["fileVersion"]),
-         sum(one["counts"]["fileVersion"] for one in decks.values()),
-         sum(1 for one in decks.values() if "calcPr" in one["element_names"]),
-         sum(1 for one in decks.values() if "iterate" in one["elements"].get("calcPr", {})),
-         sum(1 for one in decks.values()
-             if one["elements"].get("calcPr", {}).get("iterate") == "true"),
-         sum(1 for one in decks.values() if "workbookPr" in one["empty_elements"]),
-         sum(1 for one in decks.values() if one["counts"]["customWorkbookView"]),
-         sum(1 for one in decks.values() if one["counts"]["workbookView"] >= 1),
-         sum(1 for one in decks.values()
-             if "date1904" in one["elements"].get("workbookPr", {}))],
-        [41, 19, 20, 41, 19, 2, 21, 1, 41, 19],
-    )
+        "份数 %d" % ws_m[0],
+        "带 fileVersion %d" % ws_m[1],
+        "fileVersion 枚数之和 %d" % ws_m[2],
+        "写了 calcPr %d" % ws_m[3],
+        "写了 iterate %d" % ws_m[4],
+        "其中 true %d" % ws_m[5],
+        "空壳 workbookPr 的份数 %d" % ws_m[6],
+        "带共享视图 %d" % ws_m[7],
+        "写了 workbookView %d" % ws_m[8],
+        "workbookPr 写了 date1904 %d" % ws_m[9],
+    ]), ws_cols(ws_rows), ws_m)
     check("同一层里「两种拼法」与「同一格两个意思」都在语料里数得出来："
-          "fileVersion 的枚数只有 0 / 1 / 2 三种，`refMode` 只出现 `-`（没写）、`A1` 与 `row` 两种",
-        sorted({str(one["counts"]["fileVersion"]) for one in decks.values()})
-        + sorted({one["elements"].get("calcPr", {}).get("refMode", "-") for one in decks.values()}),
-        ["0", "1", "2", "-", "A1", "row"])
+          "fileVersion 的枚数集合（只可能是 0 / 1 / 2 那三种）与 `refMode` 的写法集合"
+          "（没写的那一份交 `-`，另两种是 `A1` 与 `row` —— 同一格两个意思，两边都按原样交）",
+          ws_sets(ws_rows), ws_sets(ws_rows_mine))
 
     # ── 3de) 中文排版那九枚段开关：三处住处、裸写与空串是两句话、字侧那枚另交一本 ──
     print("=== 3de) cjk_typography：段上九枚（docx/docm）与 ODF 那四枚近亲 ===")
