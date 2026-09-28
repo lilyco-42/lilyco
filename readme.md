@@ -464,6 +464,28 @@ SSE (`started` / `tick` / `log` / `telemetry` / `done` / `error`) → progress b
 > `FlashWindowEx` 让任务栏那一格闪起来；页面上同时挂一条「系统选择框已弹出，可能被压在后面，看任务栏」的提示，
 > 请求一结束就撤。实测：弹着的时候 `tasklist /V` 的窗口标题正是 `选择文件`，且页面其他请求仍然 200。
 
+### lilyco-tauri (桌面端)
+
+Tauri 2 桌面壳，装的是**同一个读者**：应用不自己解析办公文件，它把随包带出来的 `lbin` 当 sidecar 跑，
+拿它的 JSON 原样铺开。理由很直白——`lbin` 那批账在 CI 上与一份标准库实现逐格对过（297 份件、
+11482 项检查），桌面端再造一个读者等于多一处会各自漂移的说法，两边还都自称「按文件写的交」。
+
+命令层只有两个：`office_commands` 交「能问什么」的协议（十个问题，名字在 Rust 侧白名单，
+测的就是它们与 `lbin` 源码里的字符串一字不差），`office_run` 收 `命令 + 路径`、验过是文件之后
+跑 `lbin <命令> --path <文件> --json`。退出码与 stderr 原样进错误信息，不折成「读取失败」四个字。
+权限面收成三样：`core:default`、`dialog:allow-open`、`shell:allow-execute` 且只允许那一个 sidecar。
+页面 CSP 收到 `'self'`，不引任何外部脚本，也不用 npm 构建（走 `withGlobalTauri` 的全局 API）。
+
+产物由 GitHub Actions 出（`.github/workflows/desktop.yml`，本机不编）：三个平台各自
+`cargo build --release -p lilyco-binfmt --bin lbin` → 按 target triple 放进
+`lilyco-tauri/binaries/` → `tauri-action` 出 bundle → 每次 run 都上传可直接下载的工件
+（`.msi` / `.dmg` / `.deb` / `.AppImage`），打了 `v*` 标签才顺手挂到 GitHub Release。
+上传那步留着 `if-no-files-found: error`：真没产物时要它明着红。
+
+> **签名的实话**：没有配 Apple 证书与 notary 凭据时，macOS 那份就是**未签名未公证**——CI 照样绿，
+> 但别人下载后会被 Gatekeeper 拦住；Windows 的 `.msi` 同理未签名。工件能装不等工件好装，
+> 这一段不替凭据的存在说谎。
+
 ### lilyco (facade)
 
 **一个依赖搞定四端**。用户代码只依赖这一个 crate，后端按环境自动选择。
