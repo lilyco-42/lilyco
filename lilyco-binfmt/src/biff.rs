@@ -92,6 +92,18 @@ pub struct Sheet {
     pub hidden_rows: Vec<u64>,
     /// 同上，列。COLINFO 写的是首末都含的一段，这里已经展开
     pub hidden_cols: Vec<u64>,
+    /// 分级显示（行/列分组）那一份账。键与 OOXML / ODF 两本对齐，这一族说不出来的
+    /// （元素自己「写没写」级、`collapsed` 开关、声明值）在出口里交 null，这里就不存：
+    /// 位一直都在，写了 0 与没写不是一件事可问。
+    /// 行：`ROW` 正文偏移 12 那个字的低三位＝级、bit5＝隐藏（与上面 `hidden_rows` 同一位）
+    pub group_rows: usize,
+    pub group_rows_hidden: usize,
+    pub group_rows_max: u64,
+    /// 列：`COLINFO` 的 grbit（偏移 8）第 8-10 位＝级、bit0＝隐藏，首末都含所以按跨度展开
+    pub group_cols: usize,
+    pub group_cols_covered: u64,
+    pub group_cols_hidden: u64,
+    pub group_cols_max: u64,
     /// 这一张表的批注：字与「哪个格子、谁写的」在这条流里是两类记录，按出现顺序配
     pub comments: Vec<Comment>,
     /// 那两类记录各几条。配的条数只能到两者中小的那个，所以这两个数要一起交出去
@@ -460,6 +472,13 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
                     protection: BTreeMap::new(),
                     hidden_rows: Vec::new(),
                     hidden_cols: Vec::new(),
+                    group_rows: 0,
+                    group_rows_hidden: 0,
+                    group_rows_max: 0,
+                    group_cols: 0,
+                    group_cols_covered: 0,
+                    group_cols_hidden: 0,
+                    group_cols_max: 0,
                     comments: Vec::new(),
                     note_text_records: 0,
                     note_cell_records: 0,
@@ -661,28 +680,58 @@ pub fn read(cfb: &Cfb, bytes: &[u8]) -> Result<Book, String> {
             // 两个位置都查，是因为手上只有 LibreOffice 写的 .xls，按偏移 8 判那条路没件走过
             ROW => {
                 let Some(name) = belongs else { continue };
-                if (le16(8)(body).unwrap_or(0) | le16(12)(body).unwrap_or(0)) & 0x20 == 0 {
+                // 偏移 12 那个字里两位各是各的：低三位＝分级显示的级，bit5＝整行隐藏。
+                // 位的位值是量出来的（fixture README 第 30 条与第 154 条），不是背的
+                let flags = le16(12)(body).unwrap_or(0);
+                let level = flags & 0x07;
+                let hidden = (le16(8)(body).unwrap_or(0) | flags) & 0x20 != 0;
+                let rw = le16(0)(body);
+                let Some(one) = sheets.iter_mut().rev().find(|had| had.name == name) else {
                     continue;
+                };
+                if hidden {
+                    if let Some(rw) = rw {
+                        one.hidden_rows.push(u64::from(rw));
+                    }
                 }
-                let Some(rw) = le16(0)(body) else { continue };
-                if let Some(one) = sheets.iter_mut().rev().find(|had| had.name == name) {
-                    one.hidden_rows.push(u64::from(rw));
+                if level > 0 {
+                    one.group_rows += 1;
+                    if hidden {
+                        one.group_rows_hidden += 1;
+                    }
+                    one.group_rows_max = one.group_rows_max.max(u64::from(level));
                 }
             }
             // 隐藏整列：grbit 的第 0 位，首末两端都含，所以按段展开
             COLINFO | COLINFO_OLD => {
                 let Some(name) = belongs else { continue };
-                if le16(8)(body).unwrap_or(0) & 0x01 == 0 {
-                    continue;
-                }
+                let grbit = le16(8)(body).unwrap_or(0);
+                let hidden = grbit & 0x01 != 0;
+                // 级在同一个字的第 8-10 位（量的：LO 把 B-C 写成 0x0100、D 写成 0x0201）
+                let level = (grbit >> 8) & 0x07;
                 let (Some(first), Some(last)) = (le16(0)(body), le16(2)(body)) else {
                     continue;
                 };
                 let Some(one) = sheets.iter_mut().rev().find(|had| had.name == name) else {
                     continue;
                 };
-                for column in u64::from(first)..=u64::from(last) {
-                    one.hidden_cols.push(column);
+                if hidden {
+                    for column in u64::from(first)..=u64::from(last) {
+                        one.hidden_cols.push(column);
+                    }
+                }
+                if level > 0 {
+                    let span = if last >= first {
+                        u64::from(last) - u64::from(first) + 1
+                    } else {
+                        1
+                    };
+                    one.group_cols += 1;
+                    one.group_cols_covered += span;
+                    if hidden {
+                        one.group_cols_hidden += span;
+                    }
+                    one.group_cols_max = one.group_cols_max.max(u64::from(level));
                 }
             }
             NOTE_TEXT => {

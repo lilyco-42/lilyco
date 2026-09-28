@@ -3583,6 +3583,11 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       （展开 3 列、折叠 1 列），最大级 2 —— 与 LibreOffice 那份 xlsx 一字不差；
       而 openpyxl 那份列方向 grouped 是 3（一列一条）。这一族说不出来的三格
       （元素自己写的级、collapsed、`sheetFormatPr` 的声明级）交 null，不拿 OOXML 的语义补。
-      **`.xls` 那一族还没读**（`.producer/groups.xls`：行的级在 `ROW` 正文偏移 12 的低三位，
-      同一条记录那格 bit5 是隐藏，与既有隐藏账同位；列的级在 `COLINFO` 的 grbit
-      第 8-10 位，bit0 是隐藏；`collapsed` 没地方写）。
+      **`.xls` 那一族也读了**（`groups.xls`，同一份内容让 LibreOffice 另存）：级不在属性里
+      也不在嵌套里，而在两个字的位上 —— 行是 `ROW` 正文偏移 12 那个字的**低三位**
+      （同一格的 bit5 就是既有隐藏行账用的那一位），列是 `COLINFO` 的 grbit（偏移 8）
+      **第 8-10 位**（bit0 是这段列隐藏）。量到的数与 LibreOffice 那两份 xlsx/ods 一字不差：
+      行 [[5,5,2,2]]、列 [[2,3,1,2]]。`collapsed` 这一族没地方说（LO 从不写 MS-XLS 说的
+      info1 fCollapsed 那一位，偏移 4 恒 0x0005；`GUTS`(0x0100) 一条都没有），
+      加上「位一直都在、问不出写没写」，所以 `level_spoken`、`collapse_spoken`、
+      `collapsed_grouped`、`group_elements` 与两个声明值一律交 null。

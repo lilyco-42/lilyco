@@ -908,6 +908,40 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
                 // 与 xlsx / ods 那两支同一个形状（位置在 biff 的单测里逐条断言）
                 "hidden_rows": one.hidden_rows.len(),
                 "hidden_cols": one.hidden_cols.len(),
+                // 分级显示：.xls 把级写成记录里的位（行在偏移 12 低三位、列在 grbit 第 8-10 位）。
+                // 「元素自己写没写级」与「collapsed」这一族都没有地方说 —— 位是一直都在的，
+                // 写了 0 与没写问不出来，所以那三格与声明值一样交 null
+                "groups": json!({
+                    "declared": {"rows": Value::Null, "cols": Value::Null},
+                    "rows": {
+                        "level_spoken": Value::Null,
+                        "grouped": one.group_rows,
+                        "covered": one.group_rows,
+                        "hidden_grouped": one.group_rows_hidden,
+                        "collapse_spoken": Value::Null,
+                        "collapsed_grouped": Value::Null,
+                        "max_level": if one.group_rows_max == 0 {
+                            Value::Null
+                        } else {
+                            json!(one.group_rows_max)
+                        },
+                        "group_elements": Value::Null,
+                    },
+                    "cols": {
+                        "level_spoken": Value::Null,
+                        "grouped": one.group_cols,
+                        "covered": one.group_cols_covered,
+                        "hidden_grouped": one.group_cols_hidden,
+                        "collapse_spoken": Value::Null,
+                        "collapsed_grouped": Value::Null,
+                        "max_level": if one.group_cols_max == 0 {
+                            Value::Null
+                        } else {
+                            json!(one.group_cols_max)
+                        },
+                        "group_elements": Value::Null,
+                    },
+                }),
                 "comments": one.comments.len(),
                 "comment_list": one.comments.iter().take(limit).map(|had| json!({
                     "ref": had.reference,
@@ -4477,6 +4511,47 @@ mod tests {
                 "{name} 与 groups.ods 该报同一个数"
             );
         }
+    }
+
+    /// .xls 那一份分组账：级不在属性里也不在嵌套里，写在记录的两个字里 ——
+    /// 行的级是正文偏移 12 那个字的低三位（同一格的 bit5 是整行隐藏），
+    /// 列的级是 COLINFO 的 grbit 第 8-10 位（bit0 是这段列隐藏）
+    #[test]
+    fn the_xls_group_ledger_reads_the_same_four_numbers_out_of_two_bit_fields() {
+        let book = run("groups.xls");
+        let first = &book["sheets"][0];
+        assert_eq!(
+            first["groups"]["rows"],
+            json!({
+                "level_spoken": null, "grouped": 5, "covered": 5, "hidden_grouped": 2,
+                "collapse_spoken": null, "collapsed_grouped": null, "max_level": 2,
+                "group_elements": null,
+            }),
+            "一条 ROW 记录就是一行，所以 grouped 与 covered 同数：{first}"
+        );
+        assert_eq!(
+            first["groups"]["cols"],
+            json!({
+                "level_spoken": null, "grouped": 2, "covered": 3, "hidden_grouped": 1,
+                "collapse_spoken": null, "collapsed_grouped": null, "max_level": 2,
+                "group_elements": null,
+            }),
+            "B-C 一条 COLINFO（首末都含，展开成两列）、D 一条：{first}"
+        );
+        // 这一族问不出「这条元素写没写级」（位一直都在）、LO 也从不写 collapsed 那一位、
+        // 更不写 GUTS —— 三格都是 null，不是 0
+        assert_eq!(
+            first["groups"]["declared"],
+            json!({"rows": null, "cols": null}),
+            "{first}"
+        );
+        assert_eq!(first["hidden_rows"], 2, "加级别那三位不该动隐藏那本账");
+        assert_eq!(first["hidden_cols"], 1);
+        assert_eq!(
+            book["sheets"][1]["groups"]["rows"]["max_level"],
+            json!(null)
+        );
+        assert_eq!(book["sheets"][1]["groups"]["rows"]["grouped"], 0);
     }
 
     /// 列宽、行高、筛选与表对象：两家的数互不相等，重写一次就换一套换算

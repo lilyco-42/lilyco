@@ -353,6 +353,28 @@ def _biff_owner(sheets: list, name):
     return None
 
 
+def xls_group_axis(entries) -> dict:
+    """.xls 一条轴的分组账：entries 是 [grouped, covered, hidden_grouped, max_level]
+
+    这一族说不出来的东西一律 None，不拿另一族的语义去补：级写在**位**上（行的低三位、
+    列的第 8-10 位），位是一直都在的，所以「这条元素写没写级」问不出来；`collapsed`
+    那一位 LibreOffice 从来没置过（量的：偏移 4 那个字恒 0x0005）；声明最大级的
+    `GUTS` 记录它也不写（整份一条都没有）。「没分组」与「分了 0 级」在这一族是同一件事，
+    所以 max_level 为 0 时也交 None。
+    """
+    entries = entries or [0, 0, 0, 0]
+    return {
+        "level_spoken": None,
+        "grouped": entries[0],
+        "covered": entries[1],
+        "hidden_grouped": entries[2],
+        "collapse_spoken": None,
+        "collapsed_grouped": None,
+        "max_level": entries[3] or None,
+        "group_elements": None,
+    }
+
+
 def biff_workbook(cfb_bytes: dict) -> dict:
     """把 Workbook 流的记录表读成：工作表清单、共享字符串、带值的单元格（按表归位）"""
     raw = cfb_bytes.get("Workbook") or cfb_bytes.get("Book")
@@ -380,6 +402,10 @@ def biff_workbook(cfb_bytes: dict) -> dict:
     # 隐藏行与隐藏列：BIFF 不写开关，写在 ROW 与 COLINFO 的字段位上
     hidden_rows: dict = {}
     hidden_cols: dict = {}
+    # 分级显示（行/列分组）：与上面两本同源同位，只是读的是同一个字里的另外几位。
+    # 每条攒成 [grouped, covered, hidden_grouped, max_level] 四个数
+    group_rows: dict = {}
+    group_cols: dict = {}
     # 批注那三条记录分两处住：字在表子流里跟着格子走，格子与作者在子流末尾
     note_texts: dict = {}
     note_cells: dict = {}
@@ -445,15 +471,38 @@ def biff_workbook(cfb_bytes: dict) -> dict:
             # 两个位置都查是因为手上只有 LibreOffice 写的 .xls：按偏移 8 那一位判的那条路
             # 在这台机器上没有任何件走过，宁可两处都看。
             if belongs is not None and len(body) >= 14:
-                if ((_u16(body, 8) or 0) | (_u16(body, 12) or 0)) & 0x20:
+                flags = _u16(body, 12) or 0
+                hidden = ((_u16(body, 8) or 0) | flags) & 0x20
+                if hidden:
                     hidden_rows.setdefault(belongs, []).append(_u16(body, 0) or 0)
+                # 同一个字的低三位＝分级显示的级（README 第 154 条量的）
+                level = flags & 0x07
+                if level:
+                    had = group_rows.setdefault(belongs, [0, 0, 0, 0])
+                    had[0] += 1
+                    had[1] += 1  # 行没有跨度：一条 ROW 记录就是一行
+                    if hidden:
+                        had[2] += 1
+                    had[3] = max(had[3], level)
         elif op in (0x07D0, 0x007D):  # COLINFO：BIFF8 写 0x07D0，LibreOffice 写 0x007D
             # 正文：colFirst(2) colLast(2) 宽度(2) 默认 XF(2) grbit(2) 保留(2)
-            # grbit 的 0x01 位 = 这段列隐藏；范围是首末都含的，少展开一格就少报一列
-            if len(body) >= 10 and (_u16(body, 8) or 0) & 0x01:
+            # grbit 的 0x01 位 = 这段列隐藏；范围是首末都含的，少展开一格就少报一列；
+            # 第 8-10 位 = 分级显示的级（LO 把 B-C 写成 0x0100、D 写成 0x0201）
+            if len(body) >= 10:
+                grbit = _u16(body, 8) or 0
                 first = _u16(body, 0) or 0
                 last = _u16(body, 2) or 0
-                hidden_cols.setdefault(belongs, []).extend(range(first, last + 1))
+                if grbit & 0x01:
+                    hidden_cols.setdefault(belongs, []).extend(range(first, last + 1))
+                level = (grbit >> 8) & 0x07
+                if level:
+                    had = group_cols.setdefault(belongs, [0, 0, 0, 0])
+                    span = last - first + 1 if last >= first else 1
+                    had[0] += 1
+                    had[1] += span
+                    if grbit & 0x01:
+                        had[2] += span
+                    had[3] = max(had[3], level)
         elif op == 0x00FD:  # LABELSST
             r, col, xf, sst_index = struct.unpack_from("<HHHI", body, 0)
             value = strings[sst_index] if sst_index < len(strings) else None
@@ -728,6 +777,15 @@ def biff_workbook(cfb_bytes: dict) -> dict:
             name: {
                 "rows": sorted(set(hidden_rows.get(name) or [])),
                 "cols": sorted(set(hidden_cols.get(name) or [])),
+            }
+            for name in {one["name"] for one in sheets}
+        },
+        # 分级显示那一份账，键与 OOXML / ODF 两本一字不差地对齐（同一个键在四族里同一件事）
+        "groups": {
+            name: {
+                "declared": {"rows": None, "cols": None},
+                "rows": xls_group_axis(group_rows.get(name)),
+                "cols": xls_group_axis(group_cols.get(name)),
             }
             for name in {one["name"] for one in sheets}
         },

@@ -222,6 +222,7 @@ def main() -> int:
         "groups.xlsx": ("ooxml", "excel", "xlsx"),
         "groups-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "groups.ods": ("opendocument", "excel", "ods"),
+        "groups.xls": ("compound", "excel", "xls"),
         "para.docx": ("ooxml", "word", "docx"),
         "images.docx": ("ooxml", "word", "docx"),
         "images-lo.docx": ("ooxml", "word", "docx"),
@@ -2484,30 +2485,40 @@ def main() -> int:
     shapes = {}
     for name, dig_path in (("groups.xlsx", "layout.groups"),
                            ("groups-lo.xlsx", "layout.groups"),
-                           ("groups.ods", "groups")):
+                           ("groups.ods", "groups"),
+                           ("groups.xls", "groups")):
         sheet = lbin("office-sheet", fixture(name)).get("sheets", [{}])[0]
         node = sheet
         for part in dig_path.split("."):
             node = (node or {}).get(part) or {}
         shapes[name] = group_pair(node)
     check(
-        "LibreOffice 的 xlsx 与 ods 两份该报同一本分组账（openpyxl 一列一条，grouped 少并一次）",
-        [shapes["groups-lo.xlsx"], shapes["groups.ods"], shapes["groups.xlsx"]],
+        "分级显示四族同形：LibreOffice 的 xlsx / ods / xls 三份一份账，openpyxl 只有列的"
+        " grouped 不同（它一列一条，LO 把 B-C 并成一条）",
+        [shapes["groups-lo.xlsx"], shapes["groups.ods"], shapes["groups.xls"],
+         shapes["groups.xlsx"]],
         [
+            [[5, 5, 2, 2], [2, 3, 1, 2]],
             [[5, 5, 2, 2], [2, 3, 1, 2]],
             [[5, 5, 2, 2], [2, 3, 1, 2]],
             [[5, 5, 2, 2], [3, 3, 1, 2]],
         ],
     )
+    check(
+        "groups.xls 的分组账与读者一致（级写在位上，问不出「写没写」的那几格交 null）",
+        {str(one.get("name")): one.get("groups")
+         for one in lbin("office-sheet", fixture("groups.xls")).get("sheets", [])},
+        files["groups.xls"]["biff"]["groups"],
+    )
     # 跨格式同形：同一份内容在 OOXML（两家）与 ODF 里都该报同一本「藏了几行几列」的账。
     # ODF 那一族的分组是**嵌套的** <table:table-*-group>，两家读者早先都只看直接子元素，
     # 于是分组里的 5 行整批看不见（CSV 少 5 行、隐藏行报 0）—— 这一条就是那次的回归闸门
     trio = {}
-    for name in ("groups.xlsx", "groups-lo.xlsx", "groups.ods"):
+    for name in ("groups.xlsx", "groups-lo.xlsx", "groups.ods", "groups.xls"):
         only = lbin("office-sheet", fixture(name)).get("sheets", [{}])[0]
         trio[name] = [only.get("hidden_rows"), only.get("hidden_cols")]
     check(
-        "分组那份件的三种存法：藏了几行几列报同一个数",
+        "分组那份件的四种存法：藏了几行几列报同一个数",
         sorted({json.dumps(one) for one in trio.values()}),
         [json.dumps([2, 1])],
     )

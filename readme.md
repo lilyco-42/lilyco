@@ -467,7 +467,7 @@ SSE (`started` / `tick` / `log` / `telemetry` / `done` / `error`) → progress b
 ### lilyco-tauri (桌面端)
 
 Tauri 2 桌面壳，装的是**同一个读者**：应用不自己解析办公文件，它把随包带出来的 `lbin` 当 sidecar 跑，
-拿它的 JSON 原样铺开。理由很直白——`lbin` 那批账在 CI 上与一份标准库实现逐格对过（语料 299 份件，
+拿它的 JSON 原样铺开。理由很直白——`lbin` 那批账在 CI 上与一份标准库实现逐格对过（语料 300 份件，
 每次 run 都整本重跑一遍），桌面端再造一个读者等于多一处会各自漂移的说法，两边还都自称「按文件写的交」。
 
 命令层只有两个：`office_commands` 交「能问什么」的协议（十个问题，名字在 Rust 侧白名单，
@@ -495,6 +495,18 @@ Tauri 2 桌面壳，装的是**同一个读者**：应用不自己解析办公�
 > **签名的实话**：没有配 Apple 证书与 notary 凭据时，macOS 那份就是**未签名未公证**——CI 照样绿，
 > 但别人下载后会被 Gatekeeper 拦住；Windows 的 `.msi` 同理未签名。工件能装不等工件好装，
 > 这一段不替凭据的存在说谎。
+
+**第一次三平台同绿的实物**（run 36454410386，`5831609`；每次推分支都会在 Actions 那次 run 的
+Artifacts 里留一份同名的，点开就能下载）：
+
+| 工件（zip 里） | 大小 | 备注 |
+|---|---|---|
+| `lilyco office_0.3.0_x64_en-US.msi` | 7,426,048 B | 用只读方式翻了 MSI 的 File 表：`lbin.exe` 在里面（sidecar 真的随包） |
+| `lilyco office_0.3.0_x64-setup.exe` | 5,076,792 B | NSIS，正文压过所以字符串搜不到 lbin，不代表没带 |
+| `lilyco office_0.3.0_aarch64.dmg` | 7,233,904 B | Apple Silicon；未签名未公证 |
+| `lilyco office_0.3.0_amd64.deb` | 8,052,986 B | `data.tar` 是 zst 压缩，同上 |
+| `lilyco office-0.3.0-1.x86_64.rpm` | 8,053,569 B | |
+| `lilyco office_0.3.0_amd64.AppImage` | 85,850,616 B | 自带头与库路径，最大的一份 |
 
 ### lilyco (facade)
 
