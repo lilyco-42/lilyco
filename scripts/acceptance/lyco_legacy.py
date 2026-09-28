@@ -781,7 +781,7 @@ def biff_workbook(cfb_bytes: dict) -> dict:
             for name in {one["name"] for one in sheets}
         },
         # 分级显示那一份账，键与 OOXML / ODF 两本一字不差地对齐（同一个键在四族里同一件事）
-        "groups": {
+        "outline": {
             name: {
                 "declared": {"rows": None, "cols": None},
                 "rows": xls_group_axis(group_rows.get(name)),

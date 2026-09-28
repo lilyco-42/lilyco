@@ -2452,15 +2452,15 @@ def main() -> int:
         got = lbin("office-sheet", fixture(name))
         check(
             "%s 每张表的分组两本账（声明与实算）" % name,
-            sorted(group_ledger(one.get("layout", {}).get("groups") or {})
+            sorted(group_ledger(one.get("outline") or {})
                    for one in got.get("sheets", [])),
-            sorted(group_ledger(one.get("groups") or {})
-                   for one in files[name]["ooxml"]["layouts"].values()),
+            sorted(group_ledger(one.get("outline") or {})
+                   for one in files[name]["ooxml"]["outlines"].values()),
         )
     declared_pair = []
     for name in ("groups.xlsx", "groups-lo.xlsx"):
         for one in lbin("office-sheet", fixture(name)).get("sheets", []):
-            declared = (one.get("layout", {}).get("groups") or {}).get("declared") or {}
+            declared = (one.get("outline") or {}).get("declared") or {}
             declared_pair.append([declared.get("rows"), declared.get("cols")])
     check(
         "分级显示的声明级四格：openpyxl 那两份全空，LibreOffice 写 2/2 与 0/0",
@@ -2477,16 +2477,16 @@ def main() -> int:
 
     check(
         "groups.ods 的分组账与读者一致（说不出的那几格交 null）",
-        [json.dumps(one.get("groups") or {}, ensure_ascii=False, sort_keys=True)
+        [json.dumps(one.get("outline") or {}, ensure_ascii=False, sort_keys=True)
          for one in lbin("office-sheet", fixture("groups.ods")).get("sheets", [])],
-        [json.dumps(one.get("groups") or {}, ensure_ascii=False, sort_keys=True)
+        [json.dumps(one.get("outline") or {}, ensure_ascii=False, sort_keys=True)
          for one in files["groups.ods"]["ods"]["sheets"]],
     )
     shapes = {}
-    for name, dig_path in (("groups.xlsx", "layout.groups"),
-                           ("groups-lo.xlsx", "layout.groups"),
-                           ("groups.ods", "groups"),
-                           ("groups.xls", "groups")):
+    for name, dig_path in (("groups.xlsx", "outline"),
+                           ("groups-lo.xlsx", "outline"),
+                           ("groups.ods", "outline"),
+                           ("groups.xls", "outline")):
         sheet = lbin("office-sheet", fixture(name)).get("sheets", [{}])[0]
         node = sheet
         for part in dig_path.split("."):
@@ -2506,9 +2506,9 @@ def main() -> int:
     )
     check(
         "groups.xls 的分组账与读者一致（级写在位上，问不出「写没写」的那几格交 null）",
-        {str(one.get("name")): one.get("groups")
+        {str(one.get("name")): one.get("outline")
          for one in lbin("office-sheet", fixture("groups.xls")).get("sheets", [])},
-        files["groups.xls"]["biff"]["groups"],
+        files["groups.xls"]["biff"]["outline"],
     )
     # 跨格式同形：同一份内容在 OOXML（两家）与 ODF 里都该报同一本「藏了几行几列」的账。
     # ODF 那一族的分组是**嵌套的** <table:table-*-group>，两家读者早先都只看直接子元素，

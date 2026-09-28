@@ -8075,16 +8075,25 @@ def xlsx_layout_of(root, limit: int = 200) -> dict:
                  "with_height": len([one for one in rows if one.get("ht") is not None]),
                  "spoken": len(tall),
                  "list": [written_attrs(one) for one in tall[:limit]]},
-        # 分级显示那一份账：级在元素自己的 outlineLevel 上，而 sheetFormatPr 另有自己
-        # 声明的最大级 —— 一家两个都写、一家只写实数，所以两份各交各的，不拿一边补另一边
-        "groups": {
-            "declared": {
-                "rows": outline_level_of(holder, "outlineLevelRow") if holder is not None else None,
-                "cols": outline_level_of(holder, "outlineLevelCol") if holder is not None else None,
-            },
-            "rows": axis_groups_of(rows, [1] * len(rows)),
-            "cols": axis_groups_of(cols, [col_span_of(one) for one in cols]),
+    }
+
+
+def xlsx_outline_of(root) -> dict:
+    """这一张表的分级显示（行/列分组）账，与尺寸账分家：ODF 与 .xls 那一族没有 layout 这一层
+
+    级在元素自己的 `outlineLevel` 上，而 `sheetFormatPr` 另有自己声明的最大级 ——
+    一家两个都写、一家只写实数，所以两份各交各的，不拿一边补另一边。
+    """
+    holder = first_descendant(root, "sheetFormatPr")
+    rows = [one for one in root.iter() if xml_local(one.tag) == "row"]
+    cols = [one for one in root.iter() if xml_local(one.tag) == "col"]
+    return {
+        "declared": {
+            "rows": outline_level_of(holder, "outlineLevelRow") if holder is not None else None,
+            "cols": outline_level_of(holder, "outlineLevelCol") if holder is not None else None,
         },
+        "rows": axis_groups_of(rows, [1] * len(rows)),
+        "cols": axis_groups_of(cols, [col_span_of(one) for one in cols]),
     }
 
 
@@ -10376,6 +10385,7 @@ def xlsx_facts(path: Path) -> dict:
     merge_lists: dict = {}
     dims: dict[str, str] = {}
     layouts: dict = {}
+    outlines: dict = {}
     filters: dict = {}
     sheet_tables: dict = {}
     for name in sorted(parts):
@@ -10384,6 +10394,7 @@ def xlsx_facts(path: Path) -> dict:
         root = ET.fromstring(parts[name])
         local = name.rsplit("/", 1)[-1][: -len(".xml")]
         layouts[local] = xlsx_layout_of(root)
+        outlines[local] = xlsx_outline_of(root)
         filters[local] = xlsx_filter_of(root)
         sheet_tables[local] = xlsx_tables_of(parts, name)
         for one in root.iter():
@@ -10508,6 +10519,7 @@ def xlsx_facts(path: Path) -> dict:
         "cell_locks": xlsx_cell_locks(parts),
         "headers": headers,
         "layouts": layouts,
+        "outlines": outlines,
         "filters": filters,
         "sheet_tables": sheet_tables,
         "charts": chart_lists,
@@ -11898,7 +11910,7 @@ def ods_facts(path: Path, limit: int = 200, require_spreadsheet: bool = True) ->
                 "hidden_rows": hidden_rows,
                 "hidden_cols": hidden_cols,
                 # 分级显示：这一族的级不写在行/列自己身上，看它们被包进哪一层 group
-                "groups": odf_sheet_groups(
+                "outline": odf_sheet_groups(
                     table, lambda name: bool(folded.get(name or "")), attr, rep),
                 "comments": cell_notes,
                 "links": cell_links,

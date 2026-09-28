@@ -3561,6 +3561,8 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       没有一张表名可以去对上 `Sheet1!` 那个前缀，判不住就不填 0。
 
 154. **行/列分组（分级显示）两份账：元素自己的 `outlineLevel` 与 `sheetFormatPr` 的声明级。**
+    四族出口那一格的键都叫 `outline`，住在每张表自己身上（`sheets[*].outline`）而不是
+    `layout` 里 —— ODF 与 .xls 两族没有尺寸账那一层，塞进 `layout` 会让三条出口各走各的路。
     `groups.xlsx`（openpyxl）与 `groups-lo.xlsx`（LibreOffice 另存同一份）：
     - 行 3-4 一级、行 5-6 一级且折叠隐藏、行 7 二级；列 B-C 一级、列 D 二级且隐藏。
     - openpyxl 只给**分了组**的那 5 行 3 列写 `outlineLevel`，既不写 `collapsed`，
