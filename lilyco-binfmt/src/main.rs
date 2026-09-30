@@ -51,6 +51,7 @@ mod entries;
 mod equations;
 mod field_ledger;
 mod formula_elems;
+mod grid_tab;
 mod identify;
 mod keep_switches;
 mod languages;

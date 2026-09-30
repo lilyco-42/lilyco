@@ -3680,3 +3680,23 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       在这族里永远是两个数，这里按写的原样交，不展开。
     - `.xls` 的分页符在 BIFF 的 0x001B / 0x001A 记录里，那些 16 位行号数组本机没有第二个读者能核对，
       所以该族不交这个键（`book.xls` 读到 null，而不是读到 0）。语料 304→307 份。
+
+**159. 页面网格与默认制表位：文档级一条 + 每条节一本（`grid_tab`，无需新件）**
+
+    这一本不用新凭据 —— 仓库里 94 份 .docx 全都写着这两处，而两种生产者恰好各写各的半边。
+    量到的四件事：
+    - 文档级：`word/settings.xml` 里 `<w:defaultTabStop w:val="720"/>`。94 份**每份都写**，
+      值只有两种：`720`（python-docx 模板那条）与 `1134`（`pnum.docx` 那一份自己改过）。
+      交的是文件写的字符串，不换算成厘米或字符宽。
+    - 节级：每条 `w:sectPr` 里一条 `w:docGrid`。python-docx 只写 `w:linePitch="360"`；
+      LibreOffice 重写同一份时补齐成 `w:type="default" w:linePitch="360" w:charSpace="0"` 三条。
+      所以 `kind` / `line_pitch` / `char_space` 三格各按各的写与不写交：
+      「没写 `w:type`」与「写了 `default`」是两个答案（全库 54 条前者、48 条后者），
+      而 `charSpace="0"` 与「没写 charSpace」也是两句话。
+    - 节上也能写一条 `defaultTabStop` 覆盖文档级那一条：这批件里**一条都没有**，
+      那一格交 null，不拿文档级的值补。
+    - 两头各有得失：python-docx 在节上留三枚 rsid（`rsidR` / `rsidRPr` / `rsidSect`），
+      LibreOffice 重写后一枚都不留 —— 所以 `written`（原样属性表）与 `written_names`
+      （按名字排序的集合，问的是「写了哪几条」而不是「按什么顺序」）两格并存。
+    - `.odt` 这一族一个都没写 `style:default-tab-stop`，RTF 与 `.doc` 没有这一层，
+      所以 `grid_tab` 在那三族的出口里**整个不在场**（读到 null，不是读到 0）。

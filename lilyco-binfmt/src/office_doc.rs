@@ -3595,6 +3595,8 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
                 "layout_compat": crate::layout_compat::docx(bytes, limit),
                 // 默认值：`<w:docDefaults>` 在两个部件里各写一份，空元素与缺元素是两件事
                 "doc_defaults": crate::doc_defaults::docx(bytes, limit),
+                // 页面网格与默认制表位：文档级一条，每条节各一本（两家写法不同）
+                "grid_tab": crate::grid_tab::docx(bytes, limit),
                 // 同一问在 OOXML 是**另外两份部件**：靠批注体内那段的段号连，两跳各数断口
                 "comment_threads": crate::comment_threads::docx(bytes, limit),
                 // 这一节从哪儿开始（另起一页 / 连续 / 奇偶页）：默认值可是不写的
@@ -11952,6 +11954,85 @@ mod tests {
                 .get("structure")
                 .and_then(|one| one.get("cjk_typography"));
             assert!(hit.is_none(), "{} 不该有 cjk_typography 这一格", skip);
+        }
+    }
+    /// 页面网格与默认制表位：文档级一条在 settings，每条节一本在 sectPr。
+    /// 期望值来自 `office_reader.py:docx_grid_tab` 对同样几份件的读数。
+    #[test]
+    fn grid_and_default_tab_stop_keep_written_and_absent_apart() {
+        let hand = run("alternate.docx");
+        let led = &hand["structure"]["grid_tab"];
+        assert_eq!(led["family"], json!("ooxml"));
+        assert_eq!(led["settings_written"], json!(true));
+        assert_eq!(led["default_tab_stop"], json!("720"));
+        assert_eq!(led["sections_total"], json!(1));
+        assert_eq!(led["with_grid"], json!(1));
+        assert_eq!(
+            led["grid_kinds"],
+            json!({"(没写 w:type)": 1}),
+            "python-docx 那一份不写 w:type：那一格是 null 而不是 default"
+        );
+        assert_eq!(led["distinct_line_pitches"], json!(["360"]));
+        let grid = &led["sections"][0]["grid"];
+        assert_eq!(grid["written"], json!({"linePitch": "360"}));
+        assert_eq!(grid["kind"], Value::Null);
+        assert_eq!(grid["char_space"], Value::Null);
+        assert_eq!(grid["written_names"], json!(["linePitch"]));
+        assert_eq!(
+            led["sections"][0]["written"]
+                .as_object()
+                .expect("是对象")
+                .len(),
+            3,
+            "节上留着三枚 rsid"
+        );
+
+        let rew = run("alternate-lo.docx");
+        let again = &rew["structure"]["grid_tab"];
+        assert_eq!(again["default_tab_stop"], json!("720"));
+        assert_eq!(again["grid_kinds"], json!({"default": 1}));
+        let grid = &again["sections"][0]["grid"];
+        assert_eq!(
+            grid["kind"],
+            json!("default"),
+            "LibreOffice 重写时把 w:type 与 w:charSpace 两条补齐"
+        );
+        assert_eq!(grid["char_space"], json!("0"));
+        assert_eq!(
+            grid["written_names"],
+            json!(["charSpace", "linePitch", "type"]),
+            "这一格按名字排序：问的是集合，不是顺序"
+        );
+        assert_eq!(
+            again["sections"][0]["written"]
+                .as_object()
+                .expect("是对象")
+                .len(),
+            0,
+            "LibreOffice 重写后节上一枚 rsid 都不留"
+        );
+
+        let pnum = run("pnum.docx");
+        let other = &pnum["structure"]["grid_tab"];
+        assert_eq!(other["default_tab_stop"], json!("1134"));
+        assert_eq!(other["with_grid"], json!(0), "这一条节没写 docGrid");
+        assert_eq!(other["sections_total"], json!(1));
+        assert_eq!(other["sections"][0]["grid"]["present"], json!(false));
+
+        let many = run("sections.docx");
+        assert_eq!(many["structure"]["grid_tab"]["sections_total"], json!(2));
+        assert_eq!(many["structure"]["grid_tab"]["with_grid"], json!(2));
+        assert_eq!(
+            many["structure"]["grid_tab"]["sections_with_own_tab_stop"],
+            json!(0),
+            "这批件里没有一条节自己覆盖默认制表位"
+        );
+
+        for name in ["notes.odt", "tabs.rtf", "notes-en.doc"] {
+            assert!(
+                run(name)["structure"]["grid_tab"].is_null(),
+                "{name} 这一族不交这个键"
+            );
         }
     }
 }

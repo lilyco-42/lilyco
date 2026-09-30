@@ -1042,6 +1042,77 @@ def ods_print_breaks(path: Path, limit: int = 200) -> dict:
     }
 
 
+def docx_grid_tab(path: Path, limit: int = 200) -> dict:
+    r"""OOXML 的页面网格与默认制表位：`word/settings.xml` 一条 + 每条 `w:sectPr` 各一本
+
+    与 `grid_tab.rs:docx` 同一条口径：三条 `w:docGrid` 属性各交各的（`charSpace="0"` 与没写
+    是两句话），节自己那条 `w:defaultTabStop` 没写就交 null，不拿文档级那一条补。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "word/document.xml" not in have:
+            return {"available": False}
+        doc = ET.fromstring(box.read("word/document.xml"))
+        settings = (ET.fromstring(box.read("word/settings.xml"))
+                    if "word/settings.xml" in have else None)
+    book = None
+    if settings is not None:
+        # ElementTree 的根就是那个元素本身（lbin 那边是伪根），所以两种都要认
+        holder = settings if xml_local(settings.tag) == "settings" else _first_kid(settings, "settings")
+        one = _first_kid(holder, "defaultTabStop") if holder is not None else None
+        if one is not None:
+            book = local_attr(one, "val")
+    sections = []
+    kinds: dict = {}
+    pitches: list = []
+    with_grid = 0
+    sections_tab = 0
+    for one in doc.iter():
+        if xml_local(one.tag) != "sectPr":
+            continue
+        grid = _first_kid(one, "docGrid")
+        written = written_attrs(grid) if grid is not None else None
+        names = sorted(written) if isinstance(written, dict) else []
+        key = (written or {}).get("type") if isinstance(written, dict) else None
+        key = key if isinstance(key, str) else "(没写 w:type)"
+        kinds[key] = kinds.get(key, 0) + 1
+        if grid is not None:
+            with_grid += 1
+            raw = local_attr(grid, "linePitch")
+            if isinstance(raw, str):
+                pitches.append(raw)
+        own_holder = _first_kid(one, "defaultTabStop")
+        own = local_attr(own_holder, "val") if own_holder is not None else None
+        if own is not None:
+            sections_tab += 1
+        sections.append({
+            "index": len(sections),
+            "grid": {
+                "present": grid is not None,
+                "written": written,
+                "kind": (written or {}).get("type") if isinstance(written, dict) else None,
+                "line_pitch": (written or {}).get("linePitch") if isinstance(written, dict) else None,
+                "char_space": (written or {}).get("charSpace") if isinstance(written, dict) else None,
+                "written_names": names,
+            },
+            "default_tab_stop": own,
+            "written": written_attrs(one),
+        })
+    distinct = sorted(set(pitches))
+    return {
+        "family": "ooxml",
+        "available": True,
+        "settings_written": book is not None,
+        "default_tab_stop": book,
+        "sections_total": len(sections),
+        "with_grid": with_grid,
+        "sections_with_own_tab_stop": sections_tab,
+        "grid_kinds": kinds,
+        "distinct_line_pitches": distinct,
+        "sections": sections[:limit],
+    }
+
+
 def xlsx_print_ranges(path: Path, limit: int = 100) -> dict:
     r"""「打哪几行几列、每页重复哪一行」在 OOXML 里**不在表上**：那是 workbook.xml 的两条保留名
 
@@ -15303,6 +15374,7 @@ def facts(path: Path) -> dict:
             out["ooxml"]["layout_compat"] = docx_layout_compat(path)
             # 文档默认值：docDefaults 两层 + Normal 样式那一层，而模板件在第二个部件又写一块
             out["ooxml"]["doc_defaults"] = docx_doc_defaults(path)
+            out["ooxml"]["grid_tab"] = docx_grid_tab(path)
             # 题注与交叉引用：目标只住在指令串里，SEQ 这一族没有声明那一层可查
             out["ooxml"]["cross_refs"] = docx_cross_refs(path)
             out["ooxml"]["picture_bytes"] = pic_docx_ledger(path)

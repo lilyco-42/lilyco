@@ -12877,6 +12877,75 @@ def main() -> int:
            no_theme_key("office-sheet", "breaks.xlsx", "print_breaks")],
           [False, False, False, True])
 
+    grid_tab_docs = {}
+    for one in sorted(files):
+        if not one.endswith(".docx"):
+            continue
+        mine = files[one].get("ooxml", {}).get("grid_tab")
+        if mine and mine.get("available"):
+            grid_tab_docs[one] = mine
+    print("=== 3bh) 页面网格与默认制表位（grid_tab）：文档级一条 + 每条节一本 ===")
+    for name in ("alternate.docx", "alternate-lo.docx", "notes.docx", "sections.docx",
+                 "pnum.docx", "paper-a4.docx", "cjk.docx"):
+        got = json.dumps(dig(lbin("office-doc", fixture(name)), "structure.grid_tab") or {},
+                         ensure_ascii=False, sort_keys=True)
+        want = json.dumps(files[name]["ooxml"]["grid_tab"], ensure_ascii=False, sort_keys=True)
+        check("%s 的网格与默认制表位整本账（两家逐格）" % name, got, want)
+    heads = []
+    for name in ("alternate.docx", "alternate-lo.docx", "pnum.docx"):
+        mine = dig(lbin("office-doc", fixture(name)), "structure.grid_tab") or {}
+        heads.append([mine.get("settings_written"), mine.get("default_tab_stop"),
+                      mine.get("sections_total"), mine.get("with_grid"),
+                      mine.get("sections_with_own_tab_stop"), mine.get("grid_kinds"),
+                      mine.get("distinct_line_pitches")])
+    check("三份件一次量出四种说法：python-docx 那一份的 docGrid 只写 linePitch，"
+          "LibreOffice 重写同一份时把 type 与 charSpace 两条补齐；pnum.docx 的文档级默认制表位"
+          "是 1134 而不是 720，而它那一条节压根没写 docGrid —— 「没写网格」与「网格走该族默认」"
+          "是两句话；这批件里没有一条节自己覆盖 defaultTabStop",
+          heads,
+          [[True, "720", 1, 1, 0, {"(没写 w:type)": 1}, ["360"]],
+           [True, "720", 1, 1, 0, {"default": 1}, ["360"]],
+           [True, "1134", 1, 0, 0, {"(没写 w:type)": 1}, []]])
+    grids = []
+    for name in ("alternate.docx", "alternate-lo.docx"):
+        mine = dig(lbin("office-doc", fixture(name)), "structure.grid_tab") or {}
+        rows = mine.get("sections") or []
+        grid = rows[0].get("grid") if rows else {}
+        grids.append([grid.get("present"), grid.get("written"), grid.get("kind"),
+                      grid.get("line_pitch"), grid.get("char_space"),
+                      grid.get("written_names"), sorted((rows[0].get("written") or {}))])
+    check("同一份内容两头各有得失：python-docx 在节上留了三枚 rsid（rsidR / rsidRPr / rsidSect），"
+          "LibreOffice 重写后一枚都不留，反过来把网格属性补齐 —— 所以 written 与 written_names "
+          "都按文件自己写的顺序交，不折成一个布尔",
+          grids,
+          [[True, {"linePitch": "360"}, None, "360", None, ["linePitch"],
+            ["rsidR", "rsidRPr", "rsidSect"]],
+           [True, {"charSpace": "0", "linePitch": "360", "type": "default"}, "default",
+            "360", "0", ["charSpace", "linePitch", "type"], []]])
+    tally = [
+        len(grid_tab_docs),
+        sum(1 for one in grid_tab_docs if grid_tab_docs[one]["settings_written"]),
+        sorted({grid_tab_docs[one]["default_tab_stop"] for one in grid_tab_docs}),
+        sum(grid_tab_docs[one]["sections_total"] for one in grid_tab_docs),
+        sum(grid_tab_docs[one]["with_grid"] for one in grid_tab_docs),
+        sum(grid_tab_docs[one]["sections_with_own_tab_stop"] for one in grid_tab_docs),
+        sorted({k for one in grid_tab_docs for k in grid_tab_docs[one]["grid_kinds"]}),
+    ]
+    check("整库摊开：每份 .docx 都写了文档级默认制表位（值只有 1134 与 720 两种），"
+          "节上覆盖一条的为零；「有几条节」与「几条节写了网格」两个数分开交，"
+          "网格 type 只出现「没写」与 default 两种",
+          tally,
+          [94, 94, ["1134", "720"], 102, 98, 0,
+           ["(没写 w:type)", "default"]])
+    check("反面凭据：这一层只住 OOXML 文字那一家 —— 这批 .odt 一个都没写 style:default-tab-stop，"
+          "RTF 与 .doc 根本没有这一层，所以三份出口的账本里 grid_tab 这个键整个不在场，"
+          "而不是交一份零账",
+          [no_theme_key("office-doc", "notes.odt", "grid_tab"),
+           no_theme_key("office-doc", "tabs.rtf", "grid_tab"),
+           no_theme_key("office-doc", "notes-en.doc", "grid_tab"),
+           no_theme_key("office-doc", "alternate.docx", "grid_tab")],
+          [False, False, False, True])
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:
