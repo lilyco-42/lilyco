@@ -12207,6 +12207,36 @@ def odt_revision_ledger(path: Path) -> dict | None:
         return odt_revisions(ET.fromstring(box.read("content.xml")))
 
 
+def extend_docx_protection(led, root):
+    r"""文档级那三个元素各自在不在，与 `w:documentProtection` 写了哪几枚属性名
+
+    与 `protect::docx_document` 同一条口径：摘要与盐只报在不在（那是校验值），
+    `@edit` 没写就交 null —— 本机 810 份真件里带这一枚的 4 份**只写了 enforcement**。
+    """
+    if not isinstance(led, dict) or not led.get("element") or root is None:
+        return led
+    hits = [one for one in root.iter() if xml_local(one.tag) == "documentProtection"]
+    if not hits:
+        return led
+    one = hits[0]
+    names = sorted({xml_local(key) for key in one.attrib})
+    hash_raw = local_attr(one, "hash")
+    salt_raw = local_attr(one, "salt")
+    count = lambda want: sum(1 for x in root.iter() if xml_local(x.tag) == want)  # noqa: E731
+    led = dict(led)
+    led["hash_present"] = bool(hash_raw)
+    led["salt_present"] = bool(salt_raw)
+    led["crypt_provider"] = local_attr(one, "cryptProviderType")
+    led["crypt_class"] = local_attr(one, "cryptAlgorithmClass")
+    led["crypt_sid"] = local_attr(one, "cryptAlgorithmSid")
+    led["enforcement_written"] = local_attr(one, "enforcement")
+    led["written_names"] = names
+    led["elements"] = {"documentProtection": count("documentProtection"),
+                      "writeProtection": count("writeProtection"),
+                      "readOnlyRecommended": count("readOnlyRecommended")}
+    return led
+
+
 def protection_for(path: Path) -> dict | None:
     """保护这份账的第二读者（Rust 那边是 `lilyco-binfmt/src/protect.rs`）
 
@@ -12219,7 +12249,8 @@ def protection_for(path: Path) -> dict | None:
             return ET.fromstring(box.read(part)) if part in names else None
 
         if "word/document.xml" in names:
-            return docx_protection(read("word/settings.xml"))
+            holder = read("word/settings.xml")
+            return extend_docx_protection(docx_protection(holder), holder)
         if "xl/workbook.xml" in names:
             workbook = read("xl/workbook.xml")
             rels = {}

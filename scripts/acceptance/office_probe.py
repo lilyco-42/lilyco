@@ -13119,6 +13119,46 @@ def main() -> int:
            sorted({one["formats_total"] for one in cf_ledger})],
           [20, 1, 3, 4, 2, 0, 480, 480, 2, [0, 3]])
 
+    print("=== 3c1) 这份文档还能动吗：文档级那三个元素各自在不在，写了哪几枚属性名 ===")
+    for name in ("protected.docx", "protected-lo.docx", "notes.docx"):
+        got = lbin("office-doc", fixture(name)).get("protection") or {}
+        check("的文档级保护整本账（两家逐格）" + " " + name,
+              {k: got.get(k) for k in ("element", "protected", "edit", "enforcement",
+                                        "enforcement_written", "written_names", "elements",
+                                        "crypt_provider", "crypt_class", "crypt_sid",
+                                        "hash_present", "salt_present", "algorithm",
+                                        "spin_count", "password")},
+              {k: files[name]["protection"].get(k) for k in ("element", "protected", "edit",
+                                                             "enforcement", "enforcement_written",
+                                                             "written_names", "elements",
+                                                             "crypt_provider", "crypt_class",
+                                                             "crypt_sid", "hash_present",
+                                                             "salt_present", "algorithm",
+                                                             "spin_count", "password")})
+    check("两家说的是同一句话：自产那两份写满十枚属性（edit=readOnly、enforcement=1、rsaAES/hash/"
+          "typeAny/sid 14、spin 100000，摘要与盐只报在不在），而没写保护的 notes.docx 交的是"
+          "「元素不在」的一份账而不是缺键；ODF 那一族走的是 settings.xml 的 config-item 那一本"
+          "（ProtectForm / ProtectBookmarks / ProtectFields / LoadReadonly / RedlineProtectionKey），"
+          "两种存法各按各的交，不折成一个",
+          [[one.get("element"), one.get("edit"), one.get("enforcement_written"),
+            one.get("written_names"), one.get("elements"), one.get("crypt_provider"),
+            one.get("hash_present"), one.get("salt_present")]
+           for one in (lbin("office-doc", fixture("protected.docx")).get("protection") or {},
+                       lbin("office-doc", fixture("protected-lo.docx")).get("protection") or {},
+                       lbin("office-doc", fixture("notes.docx")).get("protection") or {}}],
+          [[True, 'readOnly', '1', ['cryptAlgorithmClass', 'cryptAlgorithmSid', 'cryptAlgorithmType', 'cryptProviderType', 'cryptSpinCount', 'edit', 'enforcement', 'hash', 'salt'], {'documentProtection': 1, 'writeProtection': 0, 'readOnlyRecommended': 0}, 'rsaAES', True, True], [True, 'readOnly', '1', ['cryptAlgorithmClass', 'cryptAlgorithmSid', 'cryptAlgorithmType', 'cryptProviderType', 'cryptSpinCount', 'edit', 'enforcement', 'hash', 'salt'], {'documentProtection': 1, 'writeProtection': 0, 'readOnlyRecommended': 0}, 'rsaAES', True, True], [False, None, None, None, None, None, None, None]]
+    check("反面凭据：`w:writeProtection`（Word 的「打开密码 / 编辑限制」另一种写法）与 "
+          "`x:fileSharing`（表格的「建议只读」）在本仓 94 份 .docx 与 810 份真件里**一个都没有** —— "
+          "所以这一支只交计数为 0 的那一格，不写读法；本机也没有会写它们的生产者",
+          [sum(1 for one in sorted(files) if one.endswith(".docx")),
+           sum((files[one].get("protection") or {}).get("elements", {}).get("writeProtection", 0)
+               for one in sorted(files) if one.endswith(".docx")),
+           sum((files[one].get("protection") or {}).get("elements", {}).get("readOnlyRecommended", 0)
+               for one in sorted(files) if one.endswith(".docx")),
+           sum(1 for one in sorted(files) if one.endswith(".docx")
+               and (files[one].get("protection") or {}).get("element"))],
+          [94, 0, 0, 2])
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:

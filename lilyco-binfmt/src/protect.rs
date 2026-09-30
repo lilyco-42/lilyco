@@ -152,6 +152,23 @@ pub fn docx_document(settings: Option<&Node>) -> Value {
         return json!({"element": false, "protected": false});
     };
     let enforced = on_off(attr_of(one, "enforcement")).unwrap_or(true);
+    // 这一族「还能动吗」有三处可以说话，而真件里只听到第一句：本机 810 份 OOXML 件里带
+    // `documentProtection` 的那 4 份**只写了 `w:enforcement`** —— 没有 `@edit`、没有 crypt 那一串。
+    // 所以 `edit` 交 null（那不是「未限制」），`written_names` 把写了的按写的交回来，
+    // 那才是这句话的真实形状。
+    let mut names: Vec<String> = one
+        .attrs
+        .iter()
+        .map(|pair| {
+            pair.0
+                .rsplit(':')
+                .next()
+                .unwrap_or(pair.0.as_str())
+                .to_string()
+        })
+        .collect();
+    names.sort();
+    names.dedup();
     json!({
         "element": true,
         "protected": enforced,
@@ -162,6 +179,21 @@ pub fn docx_document(settings: Option<&Node>) -> Value {
         "password": attr_of(one, "hash").is_some_and(|one| !one.is_empty()),
         "algorithm": attr_of(one, "cryptAlgorithmType"),
         "spin_count": attr_of(one, "cryptSpinCount"),
+        // 摘要与盐只报在不在：那是校验值，不是能还原的东西（与上面同一条口径）
+        "hash_present": attr_of(one, "hash").is_some_and(|one| !one.is_empty()),
+        "salt_present": attr_of(one, "salt").is_some_and(|one| !one.is_empty()),
+        "crypt_provider": attr_of(one, "cryptProviderType"),
+        "crypt_class": attr_of(one, "cryptAlgorithmClass"),
+        "crypt_sid": attr_of(one, "cryptAlgorithmSid"),
+        "enforcement_written": attr_of(one, "enforcement"),
+        "written_names": names,
+        // 同族另两处：Word 的「编辑限制」与「建议只读」。本仓与那 810 份真件都没写过，
+        // 计数照给（0 是「看过了没有」，缺键才是「没看」）
+        "elements": {
+            "documentProtection": root.descendants("documentProtection").len(),
+            "writeProtection": root.descendants("writeProtection").len(),
+            "readOnlyRecommended": root.descendants("readOnlyRecommended").len(),
+        },
     })
 }
 
@@ -253,6 +285,20 @@ mod tests {
         assert_eq!(two["element"], json!(true), "元素在，只是没开着");
         assert_eq!(two["protected"], json!(false));
         assert_eq!(two["edit"], json!("trackedChanges"));
+        // 新增那几格：写了哪几枚属性名、原样的 enforcement、crypt 那几枚在不在
+        assert_eq!(two["written_names"], json!(["edit", "enforcement"]));
+        assert_eq!(two["enforcement_written"], json!("0"));
+        assert_eq!(
+            two["crypt_provider"],
+            Value::Null,
+            "这一份一个 crypt 属性都没写"
+        );
+        assert_eq!(two["hash_present"], json!(false));
+        assert_eq!(
+            two["elements"],
+            json!({"documentProtection": 1, "writeProtection": 0, "readOnlyRecommended": 0}),
+            "0 是「看过了没有」，不是没看"
+        );
 
         assert_eq!(docx_document(None)["element"], json!(false));
         let plain = parse("<w:settings/>");

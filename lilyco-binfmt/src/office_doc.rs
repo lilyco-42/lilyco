@@ -5427,6 +5427,37 @@ mod tests {
             assert_eq!(one["algorithm"], json!("typeAny"), "{name}");
             assert_eq!(one["spin_count"], json!("100000"), "{name}");
         }
+        // 文档级那一本新加的三格：元素计数、写了哪几枚属性名、crypt 那几枚
+        let held = run("protected.docx");
+        let pro = &held["protection"];
+        assert_eq!(pro["element"], json!(true));
+        assert_eq!(pro["protected"], json!(true));
+        assert_eq!(pro["edit"], json!("readOnly"));
+        assert_eq!(pro["enforcement_written"], json!("1"));
+        assert_eq!(pro["crypt_provider"], json!("rsaAES"));
+        assert_eq!(pro["crypt_class"], json!("hash"));
+        assert_eq!(pro["crypt_sid"], json!("14"));
+        assert_eq!(pro["hash_present"], json!(true));
+        assert_eq!(pro["salt_present"], json!(true));
+        assert_eq!(
+            pro["written_names"],
+            json!([
+                "cryptAlgorithmClass",
+                "cryptAlgorithmSid",
+                "cryptAlgorithmType",
+                "cryptProviderType",
+                "cryptSpinCount",
+                "edit",
+                "enforcement",
+                "hash",
+                "salt"
+            ])
+        );
+        assert_eq!(
+            pro["elements"],
+            json!({"documentProtection": 1, "writeProtection": 0, "readOnlyRecommended": 0})
+        );
+        assert_eq!(pro["elements"]["writeProtection"], json!(0));
         assert_eq!(run("notes.docx")["protection"]["element"], json!(false));
     }
 
