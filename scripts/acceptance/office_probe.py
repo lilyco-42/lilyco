@@ -2702,11 +2702,13 @@ def main() -> int:
           "OOXML 的 location 写 I4:O17 并把 firstHeaderRow / firstDataRow / firstDataCol 三个数分开交 —— "
           "差的那两行是这一族自己的排法，不换算",
           [[same["entries"][0]["location"]["ref"],
-            sorted(same["entries"][0]["location"].keys()),
-            sorted(same["entries"][1]["location"].keys())],
-           ["I4:O17",
+            sorted(same["entries"][0]["location"].keys())],
+           [same["entries"][1]["location"]["ref"],
+            sorted(same["entries"][1]["location"].keys())]],
+          [["I4:O17",
             ["colPageCount", "firstDataCol", "firstDataRow", "firstHeaderRow", "ref",
-             "rowPageCount"],
+             "rowPageCount"]],
+           ["U3:V9",
             ["firstDataCol", "firstDataRow", "firstHeaderRow", "ref"]]])
     whole = [
         sum(1 for one in files if files[one].get("ooxml", {}).get("pivots", {}).get("total", 0)),
