@@ -5835,10 +5835,19 @@ mod tests {
         assert_eq!(map["base_cell_address"], json!("规则.B2"));
         assert_eq!(map["then_found"], json!(true));
         assert_eq!(
-            map["then"]["written"]["fo:color"],
-            json!("#9c0006"),
-            "OOXML 那条 dxf 的 FF9C0006 穿过转格式活在这条具名样式上"
+            map["then"]["part"],
+            json!("content.xml"),
+            "then 那条具名样式住在 content.xml（不是 styles.xml）"
         );
+        // 记着这本账目前的边界：`written` 只交那条样式**自己**写的属性，
+        // 而 `fo:color="#9c0006"` 住在它的 `style:text-properties` 孩子上 —— 没 transcription
+        assert_eq!(
+            map["then"]["written"]["style:display-name"],
+            json!("ConditionalStyle_1"),
+            "{:?}",
+            map["then"]
+        );
+        assert_eq!(map["then"]["written"].get("fo:color"), None);
         // 没条件的表也照交这本账，只是零条；OOXML 与 .xls 干脆不交这个键
         let plain = &run("book.ods")["conditional_styles"];
         assert_eq!(plain["styles_with_conditions"], json!(0), "{plain}");
