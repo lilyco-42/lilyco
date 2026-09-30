@@ -100,6 +100,7 @@ mod section_starts;
 mod shape_tree;
 mod slide_bullets;
 mod slide_stats;
+mod slide_table_styles;
 mod symbols;
 mod tab_stops;
 mod table_borders;

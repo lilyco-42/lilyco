@@ -3805,3 +3805,20 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       而浓度指针的大小写从 `3F` / `7F` 变 `3f` / `7f`。分支的种类与枚数两边一致 —— 都是写法，不圆场。
     - 反面凭据：这一层只住在 OOXML 文字那一家。本仓 51 份 .odt、18 份 .rtf、3 份 .doc 都不交这本账
       （读者侧与 lbin 侧都是缺键，不是空账）。
+
+**165. 演示稿那张表的样式指针：`a:tblPr` 的空壳与那本一条声明都没有的清单**
+
+    页上那张表的「表头算不算一行、隔行要不要底纹、长相指点给哪个表格样式」写在 `a:tbl/a:tblPr`：
+    六枚开关（`firstRow` / `lastRow` / `firstCol` / `lastCol` / `bandRow` / `bandCol`）加一枚
+    `a:tableStyleId` 子元素。包级另有 `ppt/tableStyles.xml`，根是 `a:tblStyleLst`，
+    **它只写一枚 `@def`，一条 `a:tableStyle` 声明都没有**（本仓 17 份带这份部件的 .pptx 与
+    本机 102 份第三方件全是这样）。
+    - 三种状态要分开数：本仓 33 份 .pptx 共 18 张表，`a:tblPr` 18/18 在场，其中 **9 枚是自闭合空壳**
+      （零属性零子元素）、9 枚写满 `firstRow="1" bandRow="1"` 与那枚指针；第三方那 32 张表则**全部**
+      是空壳，零开关、零指针。「没写这一层」与「写了但里面是空的」在两格里各自说话。
+    - 指针指不到包里的东西：`a:tableStyleId` 与 `a:tblStyleLst/@def` 都是同一个
+      `{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}`，而清单声明条数为 0 —— 所以 `style_ids_declared`
+      与 `style_ids_resolved` 都交 0，另用 `style_ids_same_as_default` 说「它等于包默认」这件真事。
+      样式长相住在应用自己的画廊里，不在包里；本机也没有会写 `ppt/tableStyles/` 那种定义目录的生产者
+      （LibreOffice 重写的那份连 `ppt/tableStyles.xml` 都不留，见 `deck-lo.pptx`）。
+    - 开关的值按写的字符串交（`"1"` 与 `"0"`），不折成布尔 —— 两家生产者连写不写都不一样。

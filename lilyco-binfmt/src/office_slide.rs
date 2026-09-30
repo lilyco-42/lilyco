@@ -421,6 +421,8 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
             // 上面那份是名字清单，这一本才是内容：一个母版一个主题部件，所以逐件记账
             "theme": crate::theme_ledger::themes(bytes, limit),
             "fmt_styles": crate::fmt_styles::parts(bytes, limit),
+            // 页上那张表的样式指针：a:tblPr 的开关与那本一条声明都没有的包级清单
+            "table_style_refs": crate::slide_table_styles::pptx(bytes, limit),
             // 而页面上那一指靠的是母版自己写的 `a:clrMap`：对照不在场就交解不出，不替文件补
             "color_refs": crate::theme_refs::refs(bytes, limit),
             "custom_slide_shows": root.descendants("custShow").len(),
@@ -1852,6 +1854,72 @@ mod tests {
     use super::*;
     use lilyco::prelude::Context;
     use std::sync::mpsc;
+
+    /// 页上那张表的样式指针：a:tblPr 的空壳与开关、那本一条声明都没有的包级清单
+    #[test]
+    fn table_style_refs_reports_shells_and_unreachable_pointers() {
+        let written = run("borders.pptx");
+        let led = &written["table_style_refs"];
+        assert_eq!(led["available"], json!(true));
+        assert_eq!(led["list_part"], json!(true));
+        assert_eq!(led["list_root"], json!("tblStyleLst"));
+        assert_eq!(
+            led["list_def"],
+            json!("{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}")
+        );
+        // 清单只写了 @def，一条 a:tableStyle 都没声明 —— 所以指针在包里解不到
+        assert_eq!(led["list_entries_total"], json!(0));
+        assert_eq!(led["style_ids_declared"], json!(0));
+        assert_eq!(led["style_ids_resolved"], json!(0));
+        assert_eq!(led["tables_total"], json!(2));
+        assert_eq!(led["pr_present"], json!(2));
+        assert_eq!(led["pr_empty_shell"], json!(0));
+        assert_eq!(led["pr_missing"], json!(0));
+        assert_eq!(led["with_switches"], json!(2));
+        assert_eq!(led["with_style_id"], json!(2));
+        assert_eq!(led["switch_names"], json!({"bandRow": 2, "firstRow": 2}));
+        assert_eq!(
+            led["switch_values"],
+            json!({"bandRow=1": 2, "firstRow=1": 2})
+        );
+        assert_eq!(led["child_names"], json!({"tableStyleId": 2}));
+        assert_eq!(
+            led["style_id_refs"],
+            json!({"{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}": 2})
+        );
+        assert_eq!(led["style_ids_same_as_default"], json!(2));
+        assert_eq!(led["notes_tables"], json!(0));
+        assert_eq!(led["listed"], json!(2));
+        assert_eq!(led["cut"], json!(false));
+        let first = &led["entries"][0];
+        assert_eq!(first["part"], json!("ppt/slides/slide1.xml"));
+        assert_eq!(first["written"], json!({"bandRow": "1", "firstRow": "1"}));
+        assert_eq!(first["children"], json!(["tableStyleId"]));
+        assert_eq!(first["empty_shell"], json!(false));
+        assert_eq!(first["style_declared"], json!(false));
+        assert_eq!(first["same_as_package_default"], json!(true));
+        // LibreOffice 重写同一份内容：没有那份部件，而 a:tblPr 只剩一枚自闭合空壳
+        let back = run("deck-lo.pptx");
+        let rewrote = &back["table_style_refs"];
+        assert_eq!(rewrote["list_part"], json!(false));
+        assert_eq!(rewrote["list_root"], json!(null));
+        assert_eq!(rewrote["list_def"], json!(null));
+        assert_eq!(rewrote["tables_total"], json!(1));
+        assert_eq!(rewrote["pr_present"], json!(1));
+        assert_eq!(rewrote["pr_empty_shell"], json!(1));
+        assert_eq!(rewrote["with_switches"], json!(0));
+        assert_eq!(rewrote["with_style_id"], json!(0));
+        assert_eq!(rewrote["switch_names"], json!({}));
+        assert_eq!(rewrote["child_names"], json!({}));
+        assert_eq!(rewrote["style_id_refs"], json!({}));
+        assert_eq!(rewrote["style_ids_same_as_default"], json!(0));
+        let one = &rewrote["entries"][0];
+        assert_eq!(one["part"], json!("ppt/slides/slide2.xml"));
+        assert_eq!(one["written"], json!({}));
+        assert_eq!(one["children"], json!([]));
+        assert_eq!(one["empty_shell"], json!(true));
+        assert_eq!(one["style_id"], json!(null));
+    }
 
     fn run(name: &str) -> Value {
         let app = OfficeSlide {
