@@ -3725,3 +3725,23 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
     - `.ods` / `.odt` / `.odp` / RTF / `.doc` / `.xls` 里 `fmt_styles` 这个键**整个不在场**
       （ODF 的样式表住在自己的 `styles.xml`，遗留那几家的主题在 CFB 的 `theme` 流里、
       RTF 是 `{\*\themedata}` 那一段 base64，本机都没有第二个读者能核对）。
+
+**161. ODF 条件格式还有第三种存法：`table:conditional-format`，而 `apply-style-name` 有两本名表**
+
+    仓库里 20 份 .ods 只有 `rules.ods`（LibreOffice 从带 8 枚 `cfRule` 的 `rules-lo.xlsx` 转出来的那份）
+    写了这一族的新写法，共 3 条。量到的四件事（用直接读 zip 的第三方脚本数过，不是两份读者自证）：
+    - 区间写在 `@target-range-address` **一枚属性**里，而一条可以塞好几段：第二条是
+      `规则.A2:规则.A6 规则.B2:规则.B4`（空格分隔）。所以账里同时交原样串与分词后的段数，
+      全库 3 条规则共 4 段 —— 只数「几条规则」会把那两段区间读成一段。
+    - 里面挂的孩子有三种词汇，各按各的交：`table:condition` 两枚、`table:icon-set` 一枚
+      （`@icon-set-type="3Arrows"`，带三枚 `table:formatting-entry`）、`table:color-scale` 一枚
+      （带三枚 `table:color-scale-entry`）。
+    - 条件式本身也有两种写法并存：比较式 `>100` 与 `formula-is([.$B2]>200)`，都带
+      `@base-cell-address`，按写的字符串交。
+    - **`@apply-style-name` 有两本名表**：在那 480 条老 `style:map`（每份 .ods 24 条，条件写
+      `value()>0` / `=0` / `<0` / `>=0`）上，它点的是 `number:*-style` 的名字（`N116P0` 那一类 =
+      数字格式的正负三段，480/480 全在这一本里解到）；而在用户写的条件格式上，它点的才是
+      `style:style`（同一件里 `cell-content()>100` 那两条指的 `ConditionalStyle_5f_1` 就在这一本）。
+      只建样式名表会把 480 条全报成「点不到」，那是读法错而不是文件缺。反过来，新写法的这 2 枚
+      condition 点的 `ConditionalStyle_1` / `ConditionalStyle_2` **两本都解不到**（转格式时老 map
+      换了名，这一本没换）—— 交 null，不替它猜「应该是指那条」。

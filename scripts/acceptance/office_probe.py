@@ -13075,6 +13075,50 @@ def main() -> int:
            no_theme_key("office-doc", "notes.docx", "fmt_styles")],
           [False, False, False, False, False, False, True, True, True])
 
+    print("=== 3c0) ODF 条件格式的第三种存法：`table:conditional-format`（多段区间、三种孩子、两本名表）===")
+    cf_want = {'rules.ods': [3, 1, 4, {'condition': 2, 'icon-set': 1, 'color-scale': 1}, 2, 0, 60, 24], 'book.ods': [0, 0, 0, {}, 0, 0, 60, 24], 'groups.ods': [0, 0, 0, {}, 0, 0, 60, 24], 'hidden.ods': [0, 0, 0, {}, 0, 0, 60, 24]}
+    cf_files = [one for one in sorted(files)
+                if one.endswith(".ods") and files[one].get("ods", {}).get("conditional_styles")]
+    for name in ("rules.ods", "book.ods", "groups.ods", "hidden.ods"):
+        got = dig(lbin("office-sheet", fixture(name)), "conditional_styles") or {}
+        check("四份 .ods 的新写法那一本（条数·区间段数·孩子词汇·两本名表的落点）" + " " + name,
+              [got.get(one) for one in ("formats_total", "formats_with_multiple_ranges",
+                                        "ranges_total", "format_kinds", "format_entries",
+                                        "format_entries_resolved", "number_style_names",
+                                        "number_maps_resolved")],
+              cf_want[name])
+    cf = dig(lbin("office-sheet", fixture("rules.ods")), "conditional_styles") or {}
+    check("这一本的逐格形状：三条规则的区间都写在 @target-range-address 一枚属性里，第二条一段里塞了两段"
+          "（空格分隔），所以原样串与分词后的段数并存；孩子三种词汇各按各的 —— condition 两枚"
+          "（'>100' 与 'formula-is([.$B2]>200)'，都带 base-cell-address）、icon-set 一枚带三枚 "
+          "formatting-entry、color-scale 一枚带三枚 color-scale-entry；两枚 condition 点的 "
+          "ConditionalStyle_1 / ConditionalStyle_2 两本名表都解不到（同一件里老 map 用的是 "
+          "ConditionalStyle_5f_1 那个名字），解不到就交 null，不替它猜一条「应该是指那个」",
+          [[one.get("part"), one.get("target_range_address"), one.get("ranges"),
+            [[x.get("element"), [y.get("element") for y in x.get("children") or []]]
+             for x in one.get("inner") or []],
+            [[e.get("apply_style_name"), e.get("resolved_as"), e.get("value"),
+              e.get("base_cell_address") is not None] for e in one.get("entries") or []]]
+           for one in cf.get("formats") or []],
+          [['content.xml', '规则.B2:规则.B6', ['规则.B2:规则.B6'], [['condition', []], ['icon-set', ['formatting-entry', 'formatting-entry', 'formatting-entry']]], [['ConditionalStyle_1', None, '>100', True]]], ['content.xml', '规则.A2:规则.A6 规则.B2:规则.B4', ['规则.A2:规则.A6', '规则.B2:规则.B4'], [['color-scale', ['color-scale-entry', 'color-scale-entry', 'color-scale-entry']]], []], ['content.xml', '规则.A2:规则.A6', ['规则.A2:规则.A6'], [['condition', []]], [['ConditionalStyle_2', None, 'formula-is([.$B2]>200)', True]]]])
+    cf_ledger = [files[one]["ods"]["conditional_styles"] for one in cf_files]
+    check("整库摊开（20 份 .ods 都有这一本账）：写了新写法的只有 1 份、条数共 3、"
+          "区间段共 4、里面 condition 共 2 枚而两本名表都解不到的也是 2 枚；"
+          "老写法那一叠 480 条 map 里有 480 条点在 number:*-style 那本名表里"
+          "（每份 60 个数字格式名，正负零三段是格式码自己的事，与条件格式无关），"
+          "而点在 table-cell 样式名表上的用户规则只有 2 条 —— 名表只建一本就会把前者全报成「点不到」",
+          [len(cf_ledger),
+           sum(1 for one in cf_ledger if one["formats_total"]),
+           sum(one["formats_total"] for one in cf_ledger),
+           sum(one["ranges_total"] for one in cf_ledger),
+           sum(one["format_entries"] for one in cf_ledger),
+           sum(one["format_entries_resolved"] for one in cf_ledger),
+           sum(one["number_format_maps"] for one in cf_ledger),
+           sum(one["number_maps_resolved"] for one in cf_ledger),
+           sum(one["maps_total"] for one in cf_ledger),
+           sorted({one["formats_total"] for one in cf_ledger})],
+          [20, 1, 3, 4, 2, 0, 480, 480, 2, [0, 3]])
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:

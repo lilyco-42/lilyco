@@ -1930,6 +1930,81 @@ def ods_conditional_styles(path: Path, limit: int = 100) -> dict:
     targets = sorted({one["apply_style_name"] for row in built
                       for one in row["maps"] if one["apply_style_name"]})
     resolved = sum(1 for row in built for one in row["maps"] if one["then_found"])
+    # 第二本名表：老 map 的 apply-style-name 点的其实是 number:*-style（N116P0 那一类）
+    number_names = sorted({local_in(_written_attrs(one, nsmap), "name")
+                           for _, root, nsmap in parts for one in root.iter()
+                           if xml_local(one.tag) in ("number-style", "date-style", "time-style",
+                                                     "currency-style", "text-style")
+                           and local_in(_written_attrs(one, nsmap), "name")})
+
+    def resolves_as(want):
+        if want is None:
+            return None
+        if want in named:
+            return "style"
+        if want in number_names:
+            return "number-style"
+        return None
+
+    number_maps_resolved = 0
+    for _, root, nsmap in parts:
+        for one in root.iter():
+            if xml_local(one.tag) != "map":
+                continue
+            written = _written_attrs(one, nsmap)
+            if (local_in(written, "condition") or "").startswith("cell-content"):
+                continue
+            if resolves_as(local_in(written, "apply-style-name")) is not None:
+                number_maps_resolved += 1
+    # 新写法那一本：元素名整个是另一个（table:conditional-format），本仓只有一份转出来的件写了
+    formats = []
+    kinds: dict = {}
+    multi = 0
+    ranges_total = 0
+    entries_resolved = 0
+    for part_name, root, nsmap in parts:
+        for one in root.iter():
+            if xml_local(one.tag) != "conditional-format":
+                continue
+            written = _written_attrs(one, nsmap)
+            raw = local_in(written, "target-range-address")
+            ranges = [x for x in (raw or "").split(" ") if x]
+            if len(ranges) > 1:
+                multi += 1
+            ranges_total += len(ranges)
+            kids = list(one)
+            entries = []
+            inner = []
+            for kid in kids:
+                kinds[xml_local(kid.tag)] = kinds.get(xml_local(kid.tag), 0) + 1
+                kid_written = _written_attrs(kid, nsmap)
+                if xml_local(kid.tag) == "condition":
+                    mine = resolves_as(local_in(kid_written, "apply-style-name"))
+                    if mine is not None:
+                        entries_resolved += 1
+                    entries.append({
+                        "apply_style_name": local_in(kid_written, "apply-style-name"),
+                        "resolved_as": mine,
+                        "value": local_in(kid_written, "value"),
+                        "base_cell_address": local_in(kid_written, "base-cell-address"),
+                        "written": kid_written,
+                    })
+                inner.append({
+                    "element": xml_local(kid.tag),
+                    "written": kid_written,
+                    "children": [{"element": xml_local(deep.tag),
+                                  "written": _written_attrs(deep, nsmap)}
+                                 for deep in kid],
+                })
+            formats.append({
+                "part": part_name,
+                "written": written,
+                "target_range_address": raw,
+                "ranges": ranges,
+                "ranges_total": len(ranges),
+                "entries": entries,
+                "inner": inner,
+            })
     return {
         "family": "odf",
         "available": True,
@@ -1942,6 +2017,15 @@ def ods_conditional_styles(path: Path, limit: int = 100) -> dict:
         "distinct_apply_styles": len(targets),
         "then_resolved": resolved,
         "then_unresolved": maps_total - resolved,
+        "formats_total": len(formats),
+        "formats_with_multiple_ranges": multi,
+        "ranges_total": ranges_total,
+        "format_kinds": kinds,
+        "format_entries": sum(len(one["entries"]) for one in formats),
+        "format_entries_resolved": entries_resolved,
+        "number_style_names": len(number_names),
+        "number_maps_resolved": number_maps_resolved,
+        "formats": formats[:limit],
         "entries": built[:limit],
     }
 

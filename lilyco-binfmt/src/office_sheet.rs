@@ -6022,6 +6022,61 @@ mod tests {
         );
     }
 
+    /// ODF 条件格式的第三种存法：`table:conditional-format` 的区间、三种孩子与两本名表。
+    /// 期望值来自 `office_reader.py:ods_conditional_styles` 对同样几份件的读数。
+    #[test]
+    fn odf_conditional_formats_report_ranges_children_and_two_name_tables() {
+        let book = run("rules.ods");
+        let led = &book["conditional_styles"];
+        assert_eq!(led["family"], json!("odf"));
+        assert_eq!(led["spelling"], json!("style:map"));
+        assert_eq!(
+            led["conditional_elements"],
+            json!(0),
+            "整本 style:conditional 一个也没有"
+        );
+        assert_eq!(led["formats_total"], json!(3));
+        assert_eq!(led["formats_with_multiple_ranges"], json!(1));
+        assert_eq!(led["ranges_total"], json!(4));
+        assert_eq!(
+            led["format_kinds"],
+            json!({"condition": 2, "icon-set": 1, "color-scale": 1})
+        );
+        assert_eq!(led["format_entries"], json!(2));
+        assert_eq!(led["format_entries_resolved"], json!(0));
+        assert_eq!(led["number_style_names"], json!(60));
+        assert_eq!(
+            led["number_maps_resolved"],
+            json!(24),
+            "24 条老 map 点在数字格式那本名表"
+        );
+        let rows = led["formats"].as_array().expect("是数组");
+        assert_eq!(rows[0]["target_range_address"], json!("规则.B2:规则.B6"));
+        assert_eq!(rows[0]["ranges_total"], json!(1));
+        assert_eq!(rows[0]["inner"][1]["element"], json!("icon-set"));
+        assert_eq!(
+            rows[0]["inner"][1]["children"].as_array().map(Vec::len),
+            Some(3)
+        );
+        assert_eq!(rows[0]["entries"][0]["value"], json!(">100"));
+        assert_eq!(rows[0]["entries"][0]["resolved_as"], Value::Null);
+        assert_eq!(
+            rows[1]["ranges"],
+            json!(["规则.A2:规则.A6", "规则.B2:规则.B4"])
+        );
+        assert_eq!(rows[1]["ranges_total"], json!(2));
+        assert_eq!(rows[1]["entries"].as_array().map(Vec::len), Some(0));
+        assert_eq!(
+            rows[2]["entries"][0]["value"],
+            json!("formula-is([.$B2]>200)"),
+            "条件式按写的交：比较式与 formula-is 两种并存"
+        );
+        assert_eq!(
+            run("book.ods")["conditional_styles"]["formats_total"],
+            json!(0)
+        );
+    }
+
     /// 主题里那三本样式表：三本列表在 `fmtScheme` 底下，而真正的阴影在 `a:effectLst` 里层。
     /// 期望值来自 `office_reader.py:fmt_styles` 对同样几份件的读数。
     #[test]
