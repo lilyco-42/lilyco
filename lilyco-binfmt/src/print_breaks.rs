@@ -112,8 +112,8 @@ pub(crate) fn xlsx(bytes: &[u8], limit: usize) -> Value {
             continue;
         };
         let root = xmlscan::parse_str(&member.as_text());
-        let rows = brk_rows(root.descendants("rowBreaks").first(), limit);
-        let cols = brk_rows(root.descendants("colBreaks").first(), limit);
+        let rows = brk_rows(root.descendants("rowBreaks").first().copied(), limit);
+        let cols = brk_rows(root.descendants("colBreaks").first().copied(), limit);
         if root.descendants("rowBreaks").first().is_some() {
             with_rows += 1;
         }
@@ -132,8 +132,14 @@ pub(crate) fn xlsx(bytes: &[u8], limit: usize) -> Value {
             local,
             json!({
                 "part": path,
-                "rows": axis_ledger(rows, root.descendants("rowBreaks").first().map(local_attrs)),
-                "columns": axis_ledger(cols, root.descendants("colBreaks").first().map(local_attrs)),
+                "rows": axis_ledger(
+                    rows,
+                    root.descendants("rowBreaks").first().copied().map(local_attrs),
+                ),
+                "columns": axis_ledger(
+                    cols,
+                    root.descendants("colBreaks").first().copied().map(local_attrs),
+                ),
             }),
         );
     }
@@ -172,7 +178,7 @@ fn spoken_rows(
                 Value::Null
             }
         };
-        if had.as_deref() == Some("page") {
+        if had.map(String::as_str) == Some("page") {
             on_page += 1;
         }
         let written = kept_attrs(one);
