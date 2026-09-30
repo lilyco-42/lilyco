@@ -60,6 +60,7 @@ mod markdown;
 mod note_settings;
 mod numfmt;
 mod odfchart;
+mod ods_conditional;
 mod odsheet;
 mod odstyle;
 mod office_doc;

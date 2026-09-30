@@ -1090,6 +1090,123 @@ def ods_data_ranges(path: Path, limit: int = 100) -> dict:
     }
 
 
+def ods_conditional_styles(path: Path, limit: int = 100) -> dict:
+    r"""ODF 的条件格式：它写在**单元格样式身上**，一条 `<style:map>` 就是那枚条件
+
+    量的凭据是 LibreOffice 把带 8 枚 `cfRule` 的 `rules-lo.xlsx` 转成 .ods 那一份：
+    整本 `<style:conditional>` 一个都没有（按看到的交 0，不是「没读」），条件在
+    content.xml 的自动样式 `ce2` / `ce3` 里，写成
+    `<style:map style:condition="cell-content()&gt;100" style:apply-style-name="ConditionalStyle_5f_1"
+    style:base-cell-address="规则.B2"/>`；「满足之后长什么样」在那条具名 table-cell 样式上
+    （OOXML 那条 dxf 的 `FF9C0006` 穿过转格式落成它的 `fo:color="#9c0006"`）。
+    同名不同义要分开：`styles.xml` 里那 24 枚 `<style:map style:condition="value()&gt;=0">` 住在
+    `number:number-style` 里，是数字格式的正负分支（格式码 `[>=0]` 那一层），与条件格式无关 ——
+    所以判定同时看父样式的 `style:family` 与条件串的前缀，两本账各数各的。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        parts = []
+        for name in ("content.xml", "styles.xml"):
+            if name not in have:
+                continue
+            raw = box.read(name)
+            parts.append((name, ET.fromstring(raw), _ns_prefixes(raw)))
+    if not parts:
+        return {"available": False}
+
+    def local_in(attrs, key):
+        return _local_in(attrs, key)
+
+    named = {}
+    for name, root, nsmap in parts:
+        for one in root.iter():
+            if xml_local(one.tag) != "style":
+                continue
+            written = _written_attrs(one, nsmap)
+            if local_in(written, "family") != "table-cell":
+                continue
+            mine = local_in(written, "name")
+            if mine is None or mine in named:
+                continue
+            named[mine] = {"part": name,
+                           "display_name": local_in(written, "display-name"),
+                           "parent_style_name": local_in(written, "parent-style-name"),
+                           "written": written}
+    rows = []
+    conditional_elements = 0
+    number_format_maps = 0
+    for name, root, nsmap in parts:
+        for one in root.iter():
+            if xml_local(one.tag) == "conditional":
+                conditional_elements += 1
+        by_style = {}
+        for one in root.iter():
+            if xml_local(one.tag) == "style":
+                written = _written_attrs(one, nsmap)
+                if local_in(written, "family") == "table-cell":
+                    by_style[one] = (written, one)
+            if xml_local(one.tag) != "map":
+                continue
+            written = _written_attrs(one, nsmap)
+            condition = local_in(written, "condition") or ""
+            if not condition.startswith("cell-content"):
+                number_format_maps += 1
+                continue
+            holder = None
+            for style, pair in by_style.items():
+                if any(deep is one for deep in style.iter()):
+                    holder = pair
+                    break
+            if holder is None:
+                continue
+            style_written, style = holder
+            rows.append((style, style_written, one, written, name))
+    built = []
+    seen_styles = []
+    for style, style_written, one, map_written, part in rows:
+        if style in seen_styles:
+            target = built[seen_styles.index(style)]
+        else:
+            seen_styles.append(style)
+            target = {"part": part,
+                      "style": local_in(style_written, "name"),
+                      "display_name": local_in(style_written, "display-name"),
+                      "parent_style_name": local_in(style_written, "parent-style-name"),
+                      "data_style_name": local_in(style_written, "data-style-name"),
+                      "written": style_written,
+                      "maps": []}
+            built.append(target)
+        want = local_in(map_written, "apply-style-name")
+        had = named.get(want) if want else None
+        target["maps"].append({
+            "condition": local_in(map_written, "condition"),
+            "apply_style_name": want,
+            "base_cell_address": local_in(map_written, "base-cell-address"),
+            "written": map_written,
+            "then": had,
+            "then_found": had is not None,
+        })
+    maps_total = sum(len(one["maps"]) for one in built)
+    conditions = sorted({one["condition"] for row in built for one in row["maps"] if one["condition"]})
+    targets = sorted({one["apply_style_name"] for row in built
+                      for one in row["maps"] if one["apply_style_name"]})
+    resolved = sum(1 for row in built for one in row["maps"] if one["then_found"])
+    return {
+        "family": "odf",
+        "available": True,
+        "spelling": "style:map",
+        "conditional_elements": conditional_elements,
+        "styles_with_conditions": len(built),
+        "maps_total": maps_total,
+        "number_format_maps": number_format_maps,
+        "distinct_conditions": len(conditions),
+        "distinct_apply_styles": len(targets),
+        "then_resolved": resolved,
+        "then_unresolved": maps_total - resolved,
+        "entries": built[:limit],
+    }
+
+
 def pptx_placeholder_hops(path: Path, limit: int = 100) -> dict:
     r"""「这框对应版式里哪一条」是**一跳**：页上的 `p:ph/@idx` 对版式里那条 `p:ph/@idx`
 
@@ -14808,6 +14925,7 @@ def facts(path: Path) -> dict:
                 # 打印范围：这一族写在表自己身上，另有一份为与 Excel 来回而留的 named-*
                 sheets["print_ranges"] = ods_print_ranges(path)
                 sheets["data_ranges"] = ods_data_ranges(path)
+                sheets["conditional_styles"] = ods_conditional_styles(path)
                 sheets["formula_elems"] = ods_formula_elems(path)
                 sheets["theme"] = themes
                 sheets["color_refs"] = refs

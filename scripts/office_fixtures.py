@@ -5536,6 +5536,14 @@ def main() -> int:
     convert(exe, OUT / "size.xlsx", "ods", SCRATCH)
     if (SCRATCH / "size.ods").exists():
         shutil.copyfile(SCRATCH / "size.ods", OUT / "size.ods")
+    # ODF 的条件格式（`rules.ods`）：LibreOffice 把带 cfRule 的 `rules-lo.xlsx` 转成 .ods。
+    # 转出来的形状与 OOXML 那本不同：条件写成单元格样式身上的 `<style:map style:condition=
+    # "cell-content()&gt;100" …>`，「then」落在一条具名 table-cell 样式里（dxf 的颜色穿过转格式
+    # 落成 `fo:color="#9c0006"`），而整本 `<style:conditional>` 一个也没有；8 枚 cfRule 只剩 2 枚
+    # 条件 —— 见 README 事实 156。
+    convert(exe, OUT / "rules-lo.xlsx", "ods", SCRATCH)
+    if (SCRATCH / "rules-lo.ods").exists():
+        shutil.copyfile(SCRATCH / "rules-lo.ods", OUT / "rules.ods")
     convert(exe, groups, "xls", SCRATCH)
     if (SCRATCH / "groups.xls").exists():
         shutil.copyfile(SCRATCH / "groups.xls", OUT / "groups.xls")

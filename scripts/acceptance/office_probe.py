@@ -223,6 +223,7 @@ def main() -> int:
         "groups-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "groups.ods": ("opendocument", "excel", "ods"),
         "size.ods": ("opendocument", "excel", "ods"),
+        "rules.ods": ("opendocument", "excel", "ods"),
         "groups.xls": ("compound", "excel", "xls"),
         "para.docx": ("ooxml", "word", "docx"),
         "images.docx": ("ooxml", "word", "docx"),
@@ -2573,6 +2574,61 @@ def main() -> int:
         ],
         [False, False],
     )
+
+    # ── 3a5d) ODF 的条件格式：写在单元格样式身上的 style:map，不叫 style:conditional ──
+    # LibreOffice 把带 8 枚 cfRule 的 rules-lo.xlsx 转成 .ods 之后，整本 <style:conditional>
+    # 一个也没有（这是量出来的 0，不是没读）；条件落在 content.xml 的自动样式 ce2/ce3 上，
+    # 用 `cell-content()`，「then」那一副长相在一条具名 table-cell 样式里。
+    # 同名不同义必须分家：每份 .ods 的 styles.xml 里都躺着 24 枚 `value()>=0` 的 style:map，
+    # 那是数字格式的正负分支（格式码 [>=0] 那一层），与条件格式无关。
+    print("=== 3a5d) ODF 的条件格式（style:map + cell-content()）===")
+    for name in ("rules.ods", "book.ods", "formats.ods", "size.ods", "hidden.ods"):
+        got = json.dumps(lbin("office-sheet", fixture(name)).get("conditional_styles") or {},
+                         ensure_ascii=False, sort_keys=True)
+        want = json.dumps(files[name]["ods"]["conditional_styles"],
+                          ensure_ascii=False, sort_keys=True)
+        check("%s 的条件格式整本账（两家逐格）" % name, got, want)
+    shaped = []
+    for name in ("rules.ods", "book.ods", "formats.ods", "size.ods"):
+        mine = lbin("office-sheet", fixture(name)).get("conditional_styles") or {}
+        shaped.append([mine.get("styles_with_conditions"), mine.get("maps_total"),
+                       mine.get("number_format_maps"), mine.get("conditional_elements"),
+                       mine.get("then_resolved"), mine.get("then_unresolved")])
+    check(
+        "四份 ODF 的「几条带条件的样式 / 几枚条件 / 几枚数字分支 / 几个 style:conditional / then 指得过去几枚」"
+        "—— 只有 rules.ods 有条件；24 枚数字分支每份都有，两本账不并成一堆",
+        shaped,
+        [[2, 2, 24, 0, 2, 0], [0, 0, 24, 0, 0, 0], [0, 0, 24, 0, 0, 0], [0, 0, 24, 0, 0, 0]],
+    )
+    rows = (lbin("office-sheet", fixture("rules.ods")).get("conditional_styles") or {}).get("entries", [])
+    check(
+        "rules.ods 的两条样式逐格：条件串按写的交、then 指到 ConditionalStyle_5f_1，"
+        "而那条样式自己带的 `fo:color=#9c0006` 正是 OOXML 那条 dxf 写的 FF9C0006 穿过转格式的样子",
+        [[one.get("part"), one.get("style"), one.get("parent_style_name"), one.get("data_style_name"),
+          [m.get("condition") for m in one.get("maps") or []],
+          [m.get("apply_style_name") for m in one.get("maps") or []],
+          [m.get("base_cell_address") for m in one.get("maps") or []],
+          [m.get("then_found") for m in one.get("maps") or []],
+          [sorted((m.get("then") or {}).get("written") or {}) for m in one.get("maps") or []]]
+         for one in rows],
+        [["content.xml", "ce2", "Default", "N0", ["cell-content()>100"],
+          ["ConditionalStyle_5f_1"], ["规则.B2"], [True],
+          ["style:display-name", "style:family", "style:name", "style:parent-style-name"]],
+         ["content.xml", "ce3", "Default", "N0", ["cell-content()>100"],
+          ["ConditionalStyle_5f_1"], ["规则.B2"], [True],
+          ["style:display-name", "style:family", "style:name", "style:parent-style-name"]],
+         ])
+    check(
+        "跨格式同问两个答案：同一份内容 OOXML 第一张表写 3 个区间共 4 枚规则，"
+        "转成 .ods 只剩 2 枚条件（只留下 `cell-content()` 说得出来的那几条）"
+        "—— 两个数各按各的文件交，不替它补回去",
+        [len(dig(lbin("office-sheet", fixture("rules-lo.xlsx")), "sheets[0].rules.conditional") or []),
+         sum(len(block.get("rule_list") or [])
+             for block in dig(lbin("office-sheet", fixture("rules-lo.xlsx")),
+                              "sheets[0].rules.conditional") or []),
+         (lbin("office-sheet", fixture("rules.ods")).get("conditional_styles") or {}).get("maps_total")],
+        [3, 4, 2],
+    )
     print("=== 3a5b 续) ODS 分组里的行也进账（那笔下钻的回归闸门） ===")
     for name in ("groups.ods",):
         rows = lbin("office-sheet", fixture(name)).get("sheets", [])
@@ -3834,7 +3890,7 @@ def main() -> int:
         [2, 16384, 2],
     )
     check(
-        "十七份 .ods 的三十六张表每张都盖住 16384 列 —— 早先那条「`print-area.ods` 的 `什么都没给` "
+        "十八份 .ods 的三十八张表每张都盖住 16384 列 —— 早先那条「`print-area.ods` 的 `什么都没给` "
         "只到 16383」的**例外是读出来的，不是写出来的**：那一张实际写四条列元素（1+1+1+16381），"
         "其中一条住在 `<table:table-column-group>` 里，只看直接孩子的旧读者数到三条就少一列；"
         "下钻修好之后两家都是 4 条 / 16384 列。补齐到整 16384 仍是生产者的写法而不是族的恒等式",

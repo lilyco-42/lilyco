@@ -3614,3 +3614,21 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       条件那一本现在有样本了（元素名是 `table:filter-condition`，不是 `table:condition`）：
       `size.ods` 交 `total=2 / with_filter=1 / conditions_total=1`，两条区都写
       `table:display-filter-buttons=true`，而 book.ods 那条区干脆没写这枚（null 不是 false）。
+
+156. **ODF 的条件格式不写在表上、也不叫 `style:conditional`，而是单元格样式身上的一条 `style:map`。**
+    `rules.ods` 就是 LibreOffice 把带 cfRule 的 `rules-lo.xlsx` 转成的 .ods（配方在
+    `scripts/office_fixtures.py`）。量到的四件事：
+    - 整本 `<style:conditional>` **一个也没有**（18 份 .ods 全是 0）—— 这是读到的 0，不是没读；
+      谁要是按子串 `conditional` 普查，就会把「LO 不写条件格式」当成结论，那是假阴性。
+    - 条件落在 **content.xml 的自动样式**上：`ce2` / `ce3` 两条 `family="table-cell"` 的样式各挂
+      `<style:map style:condition="cell-content()&gt;100" style:apply-style-name="ConditionalStyle_5f_1"
+      style:base-cell-address="规则.B2"/>`。「这是给哪个格子写的」在 `base-cell-address` 里，
+      而 OOXML 那一族是区间（`sqref`）在规则身上 —— 同一个功能两族各写各的半边。
+    - 「满足之后长什么样」不在同一条元素里，而是指到一条具名 table-cell 样式
+      `ConditionalStyle_5f_1`（`display-name="ConditionalStyle_1"`、`parent-style-name="Default"`），
+      它的 `fo:color="#9c0006"` 就是 OOXML 那条 dxf 写的 `FF9C0006` —— **dxf 的颜色穿过转格式活下来了**。
+    - **同名两义要分家**：`styles.xml` 里那 24 枚 `<style:map style:condition="value()&gt;=0">`
+      住在 `number:number-style` 里，是数字格式的正负分支（格式码 `[>=0]` 那一层），每份 .ods 都是 24 枚，
+      与条件格式无关。判定同时看父样式的 `style:family` 与条件串的前缀，两本账各数各的
+      （`number_format_maps` 与 `maps_total`）。跨格式同问也是两个答案：OOXML 第一张表 3 个区间共 4 枚规则，
+      .ods 只剩 2 枚条件 —— 只留 `cell-content()` 说得出来的那几条，不替它补回去。
