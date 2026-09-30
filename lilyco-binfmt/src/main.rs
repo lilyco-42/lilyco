@@ -56,6 +56,7 @@ mod grid_tab;
 mod identify;
 mod keep_switches;
 mod languages;
+mod latent_styles;
 mod layout_compat;
 mod line_spacing;
 mod markdown;

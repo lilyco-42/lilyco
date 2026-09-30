@@ -13159,6 +13159,39 @@ def main() -> int:
                and (files[one].get("protection") or {}).get("element"))],
           [94, 0, 0, 2])
 
+    print("=== 3c2) 样式表顶上那份内建样式清单（latent_styles）：自报的 count 与实写的条数是两个数 ===")
+    latent_pin = {'bkmks.docx': [True, True, {'defLockedState': '0', 'defUIPriority': '99', 'defSemiHidden': '1', 'defUnhideWhenUsed': '1', 'defQFormat': '0', 'count': '276'}, '276', 137, False, 137, {'name': 137, 'qFormat': 25, 'semiHidden': 114, 'uiPriority': 135, 'unhideWhenUsed': 116}], 'bkmks-lo.docx': [True, True, {'defLockedState': '0', 'defUIPriority': '99', 'defSemiHidden': '1', 'defUnhideWhenUsed': '1', 'defQFormat': '0', 'count': '276'}, '276', 137, False, 137, {'name': 137, 'qFormat': 25, 'semiHidden': 114, 'uiPriority': 135, 'unhideWhenUsed': 116}], 'alternate.docx': [True, True, {'defLockedState': '0', 'defUIPriority': '99', 'defSemiHidden': '1', 'defUnhideWhenUsed': '1', 'defQFormat': '0', 'count': '276'}, '276', 137, False, 137, {'name': 137, 'qFormat': 25, 'semiHidden': 114, 'uiPriority': 135, 'unhideWhenUsed': 116}], 'cjk-odf-lo.docx': [False, True, {}, None, 0, False, 0, {}]}
+    for name in ("bkmks.docx", "bkmks-lo.docx", "alternate.docx", "cjk-odf-lo.docx"):
+        got = dig(lbin("office-doc", fixture(name)), "structure.latent_styles") or {}
+        check("那份内建样式清单整本账（两家逐格） " + name,
+              [got.get(key) for key in ("block", "part", "written", "declared_count",
+                                        "exceptions_total", "declared_matches_written",
+                                        "distinct_names", "attrs_written")],
+              latent_pin[name])
+    lt = dig(lbin("office-doc", fixture("bkmks.docx")), "structure.latent_styles") or {}
+    check("Word 那份内建清单的默认头与逐条覆写：头写 defUIPriority=99 / defSemiHidden=1 / "
+          "defUnhideWhenUsed=1 / count=276，而 `w:lsdException` **实写 137 条** —— 276 是 Word 那份"
+          "清单的总数、137 是这份文件真覆写的条数，两个都交、不互相圆场；逐条写的属性名也数成一本"
+          "（name / aliases / next / sortOrder / uiPriority / semiHidden / unhideWhenUsed / locked / "
+          "qFormat 各几条按文件的原样），前两条样本原样给出",
+          [lt.get("written"), lt.get("attrs_written"),
+           [one.get("written") for one in (lt.get("sample") or [])[:2]]],
+          [{'defLockedState': '0', 'defUIPriority': '99', 'defSemiHidden': '1', 'defUnhideWhenUsed': '1', 'defQFormat': '0', 'count': '276'}, {'name': 137, 'qFormat': 25, 'semiHidden': 114, 'uiPriority': 135, 'unhideWhenUsed': 116}, [{'name': 'Normal', 'semiHidden': '0', 'uiPriority': '0', 'unhideWhenUsed': '0', 'qFormat': '1'}, {'name': 'heading 1', 'semiHidden': '0', 'uiPriority': '9', 'unhideWhenUsed': '0', 'qFormat': '1'}]])
+    latent_ledger = [files[one]["ooxml"]["latent_styles"] for one in sorted(files)
+                     if one.endswith(".docx") and files[one].get("ooxml", {}).get("latent_styles")]
+    check("整库摊开（94 份 .docx）：带这一块 80 份、有 styles.xml 却不写这块 14 份、"
+          "实写条数合计 10960；自报 count 与实写对得上的只有 0 份，"
+          "而自报值全库只有这几种 —— 「清单有多少条」与「这份文件覆写了多少条」是两句话",
+          [len(latent_ledger),
+           sum(1 for one in latent_ledger if one["block"]),
+           sum(1 for one in latent_ledger if not one["block"]),
+           sum(one["exceptions_total"] for one in latent_ledger),
+           sum(1 for one in latent_ledger if one["declared_matches_written"]),
+           sorted({str(one["declared_count"]) for one in latent_ledger}),
+           sorted({one["exceptions_total"] for one in latent_ledger if one["block"]})[:6],
+           sorted({tuple(sorted(one["written"])) for one in latent_ledger})],
+          [94, 80, 14, 10960, 0, ['276', 'None'], [137], [(), ('count', 'defLockedState', 'defQFormat', 'defSemiHidden', 'defUIPriority', 'defUnhideWhenUsed')]])
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:

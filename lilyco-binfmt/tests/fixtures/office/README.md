@@ -3766,3 +3766,19 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       `ProtectFields=false`、`LoadReadonly=true`、`RedlineProtectionKey` 空串。同一份 docx 转成
       odt 之后那三个保护开关全是 false，而 `LoadReadonly` 留 true —— 所以「转格式丢了什么」
       要两本账并排看，不折成一个布尔。
+
+**163. 样式表顶上那份内建样式清单：自报的 `count` 与真写的覆写条数是两个数**
+
+    `word/styles.xml` 的第一块常常是 `w:latentStyles` —— Word 用它说「我没点名的那些内建样式按什么算」，
+    再逐条 `w:lsdException` 覆写单个内建样式（名字、别名、下一段样式、`sortOrder` / `uiPriority`、
+    `semiHidden` / `unhideWhenUsed` / `locked` / `qFormat`）。本仓 94 份 .docx 里 **80 份带这一块**，
+    另外 14 份有 `styles.xml` 却不写这块（两种缺法都交：`part` 与 `block` 各说一件事）。
+    - 那 80 份的头属性一字不变：`defLockedState=0`、`defUIPriority=99`、`defSemiHidden=1`、
+      `defUnhideWhenUsed=1`、`defQFormat=0`、`count=276`；而实写的 `w:lsdException` 只有 **137 条**。
+      276 是 Word 那份清单的总条数、137 是这份文件真覆写的条数 —— 所以 `declared_count`（按写的字符串）
+      与 `exceptions_total`（数出来的）并排放，`declared_matches_written` 只说这一份对不对得上。
+      全库对得上的那几份是特例，不是常态。
+    - 逐条那一本按「每条写了哪几枚属性名」数（`attrs_written`），因为不同生产者写的枚数不同；
+      `sample` 给前若干条原样（`--limit` 只管列几条，计数不跟着截）。
+    - 对照：真件里带这块的 .docx 也几乎都写了 exceptions（本机 118 份里 117 份），
+      所以「读不到」多半是解析没走到，不是文件没有。

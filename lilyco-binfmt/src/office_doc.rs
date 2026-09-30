@@ -3558,6 +3558,8 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
                 // 主题那一本：十二格颜色有两种写法、字体槽「写了空串」与「没这个槽」是两件事
                 "theme": crate::theme_ledger::themes(bytes, limit),
                 "fmt_styles": crate::fmt_styles::parts(bytes, limit),
+                // 样式表顶上那份内建样式清单：自报的 count 与实际写出的条数是两个数
+                "latent_styles": crate::latent_styles::docx(bytes, limit),
                 // 反过来那一本：正文里那些手指点到哪一格，Word 那一路的影子实色自己跟自己核对
                 "color_refs": crate::theme_refs::refs(bytes, limit),
                 // 分节的页眉页脚：每节六格，自己写的与真正沿用的分开交
@@ -5458,6 +5460,27 @@ mod tests {
             json!({"documentProtection": 1, "writeProtection": 0, "readOnlyRecommended": 0})
         );
         assert_eq!(pro["elements"]["writeProtection"], json!(0));
+        // 样式表顶上那份内建清单：自报 count 276 与实写 137 条是两句话
+        let held = run("bkmks.docx");
+        let ledger = &held["structure"]["latent_styles"];
+        assert_eq!(ledger["part"], json!(true));
+        assert_eq!(ledger["block"], json!(true));
+        assert_eq!(ledger["declared_count"], json!("276"));
+        assert_eq!(ledger["exceptions_total"], json!(137));
+        assert_eq!(ledger["declared_matches_written"], json!(false));
+        assert_eq!(ledger["written"]["defUIPriority"], json!("99"));
+        assert!(ledger["attrs_written"]["name"].as_u64().unwrap_or(0) > 100);
+        assert_eq!(ledger["sample"].as_array().map(Vec::len), Some(137));
+        assert!(
+            ledger["distinct_names"].as_u64().unwrap_or(0) > 100,
+            "内建样式名远不止 100 个"
+        );
+        let none = run("notes.docx");
+        assert_eq!(none["structure"]["latent_styles"]["block"], json!(false));
+        assert_eq!(
+            none["structure"]["latent_styles"]["exceptions_total"],
+            json!(0)
+        );
         assert_eq!(run("notes.docx")["protection"]["element"], json!(false));
     }
 

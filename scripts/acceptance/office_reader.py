@@ -1185,6 +1185,59 @@ def _fmt_line(index: int, holder) -> dict:
             "children": _style_children(holder)}
 
 
+def _latent_empty(part: bool) -> dict:
+    """没写这一块时的账：键全给、条数全 0（与 Rust 的 `latent_styles::empty` 同一份形状）"""
+    return {"family": "ooxml", "available": part, "part": part, "block": False,
+            "written": {}, "declared_count": None, "exceptions_total": 0,
+            "declared_matches_written": False, "distinct_names": 0,
+            "attrs_written": {}, "sample": []}
+
+
+def latent_styles_docx(path: Path, limit: int = 200) -> dict:
+    r"""`word/styles.xml` 顶上那份 `w:latentStyles`（内建样式清单）到底写了什么
+
+    与 `latent_styles.rs` 同一条口径：那六个 `def*` 是「没点名的内建样式按什么算」的默认值，
+    每条 `w:lsdException` 是一个内建样式的覆写。**自报的 `w:count` 与实写条数是两个数**：
+    本仓 80 份带这块的 .docx 一律写 `count=276`，而 `lsdException` 只写了 137 条 ——
+    两个都交，`declared_matches_written` 只说这一份对不对得上，不替文件圆场。
+    """
+    with zipfile.ZipFile(path) as box:
+        if "word/styles.xml" not in box.namelist():
+            return _latent_empty(False)
+        root = ET.fromstring(box.read("word/styles.xml"))
+    block = None
+    for one in root.iter():
+        if xml_local(one.tag) == "latentStyles":
+            block = one
+            break
+    if block is None:
+        return _latent_empty(True)
+    rows = [one for one in block.iter() if xml_local(one.tag) == "lsdException"]
+    attrs: dict = {}
+    names: list = []
+    for one in rows:
+        for key in one.attrib:
+            mine = xml_local(key)
+            attrs[mine] = attrs.get(mine, 0) + 1
+        named = local_attr(one, "name")
+        if named is not None:
+            names.append(named)
+    declared = local_attr(block, "count")
+    return {
+        "family": "ooxml",
+        "available": True,
+        "part": True,
+        "block": True,
+        "written": written_attrs(block),
+        "declared_count": declared,
+        "exceptions_total": len(rows),
+        "declared_matches_written": declared is not None and declared == str(len(rows)),
+        "distinct_names": len(sorted(set(names))),
+        "attrs_written": dict(sorted(attrs.items())),
+        "sample": [{"written": written_attrs(one)} for one in rows[:limit]],
+    }
+
+
 def fmt_styles(path: Path, limit: int = 200) -> dict:
     r"""主题里那三本样式表（填充 / 效果 / 线条）到底写了什么
 
@@ -15662,6 +15715,7 @@ def facts(path: Path) -> dict:
             # 文档默认值：docDefaults 两层 + Normal 样式那一层，而模板件在第二个部件又写一块
             out["ooxml"]["doc_defaults"] = docx_doc_defaults(path)
             out["ooxml"]["grid_tab"] = docx_grid_tab(path)
+            out["ooxml"]["latent_styles"] = latent_styles_docx(path)
             # 题注与交叉引用：目标只住在指令串里，SEQ 这一族没有声明那一层可查
             out["ooxml"]["cross_refs"] = docx_cross_refs(path)
             out["ooxml"]["picture_bytes"] = pic_docx_ledger(path)
