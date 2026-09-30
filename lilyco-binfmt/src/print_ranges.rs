@@ -213,8 +213,10 @@ pub(crate) fn ods(bytes: &[u8], limit: usize) -> Value {
 /// `<table:database-ranges>` 里，归属只能从 `target-range-address` 前面那张表名读出来。
 ///
 /// 筛子（`table:filter`）是挂在**区**上的孩子而不是区自己的属性，所以「有几个区」与
-/// 「有几个区在筛」是两个数；语料里 16 份 .ods 只有 2 份写 `<table:database-ranges>`
-/// 这个容器（book.ods 与 locked-sheet.ods，各一条区、都没筛），所以数的是元素而不是容器。
+/// 「有几个区在筛」是两个数。语料里 17 份 .ods 有 3 份写 `<table:database-ranges>`：
+/// book.ods 与 locked-sheet.ods 各一条区、都没筛，`size.ods`（LibreOffice 把带 autoFilter 的
+/// xlsx 转成 ods）两条区里恰有一条带一条 `filter-condition` —— 所以数的是元素而不是容器，
+/// 而「有区」与「在筛」两本账各有各的样本。
 pub(crate) fn ods_data_ranges(bytes: &[u8], limit: usize) -> Value {
     let member = match zipread::member(bytes, "content.xml", DEFAULT_MEMBER_CAP) {
         Ok(one) => one,

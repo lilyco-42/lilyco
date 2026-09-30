@@ -467,7 +467,7 @@ SSE (`started` / `tick` / `log` / `telemetry` / `done` / `error`) → progress b
 ### lilyco-tauri (桌面端)
 
 Tauri 2 桌面壳，装的是**同一个读者**：应用不自己解析办公文件，它把随包带出来的 `lbin` 当 sidecar 跑，
-拿它的 JSON 原样铺开。理由很直白——`lbin` 那批账在 CI 上与一份标准库实现逐格对过（语料 300 份件，
+拿它的 JSON 原样铺开。理由很直白——`lbin` 那批账在 CI 上与一份标准库实现逐格对过（语料 301 份件，
 每次 run 都整本重跑一遍），桌面端再造一个读者等于多一处会各自漂移的说法，两边还都自称「按文件写的交」。
 
 命令层只有两个：`office_commands` 交「能问什么」的协议（十个问题，名字在 Rust 侧白名单，

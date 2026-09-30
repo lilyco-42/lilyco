@@ -222,6 +222,7 @@ def main() -> int:
         "groups.xlsx": ("ooxml", "excel", "xlsx"),
         "groups-lo.xlsx": ("ooxml", "excel", "xlsx"),
         "groups.ods": ("opendocument", "excel", "ods"),
+        "size.ods": ("opendocument", "excel", "ods"),
         "groups.xls": ("compound", "excel", "xls"),
         "para.docx": ("ooxml", "word", "docx"),
         "images.docx": ("ooxml", "word", "docx"),
@@ -2528,21 +2529,35 @@ def main() -> int:
     # <table:filter>，所以「有几个区」与「有几个区在筛」必须是两个数；归属也没有指针，
     # 只能从 target-range-address 前面那张表名读（且这一族的区地址不写 $）。
     print("=== 3a5c) 数据区：区住在哪、有没有在筛 ===")
-    for name in ("book.ods", "locked-sheet.ods", "groups.ods", "hidden.ods"):
+    for name in ("book.ods", "locked-sheet.ods", "groups.ods", "hidden.ods", "size.ods"):
         got = json.dumps(lbin("office-sheet", fixture(name)).get("data_ranges") or {},
                          ensure_ascii=False, sort_keys=True)
         want = json.dumps(files[name]["ods"]["data_ranges"],
                           ensure_ascii=False, sort_keys=True)
         check("%s 的数据区整本账（两家逐格）" % name, got, want)
     tally = []
-    for name in ("book.ods", "locked-sheet.ods", "groups.ods", "hidden.ods", "cell-notes.ods"):
+    for name in ("book.ods", "locked-sheet.ods", "groups.ods", "hidden.ods", "cell-notes.ods",
+                 "size.ods"):
         mine = lbin("office-sheet", fixture(name)).get("data_ranges") or {}
         tally.append([mine.get("total"), mine.get("with_filter"), mine.get("conditions_total")])
     check(
-        "五份 ODF 的「几个区 / 几个在筛 / 几条筛法」（这一批全语料无筛，条件那本只能交 0）",
+        "六份 ODF 的「几个区 / 几个在筛 / 几条筛法」—— 只有 `size.ods`（LibreOffice 把带 "
+        "autoFilter 的 xlsx 转成 ods）在筛：它把 OOXML 那一张筛子整个搬进一条数据区",
         tally,
-        [[1, 0, 0], [1, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]],
+        [[1, 0, 0], [1, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [2, 1, 1]],
     )
+    sized = (lbin("office-sheet", fixture("size.ods")).get("data_ranges") or {}).get("entries", [])
+    check(
+        "size.ods 的两条区逐格：`台账`（来自 OOXML 的表对象）不带筛，`__Anonymous_Sheet_DB__0` "
+        "带一条 filter-and / 一条条件（值、号、字段号全按写的交），两条都写 display-filter-buttons",
+        [[one.get("name"), one.get("target_range_address"), one.get("sheet_from_address"),
+          one.get("display_filter_buttons"), one.get("has_filter"),
+          [grp.get("kinds") for grp in one.get("groups") or []],
+          [[cnd.get("value"), cnd.get("operator"), cnd.get("field_number")]
+           for cnd in one.get("conditions") or []]] for one in sized],
+        [["台账", "尺寸.A1:尺寸.B3", "尺寸", "true", False, [], []],
+         ["__Anonymous_Sheet_DB__0", "尺寸.A1:尺寸.C3", "尺寸", "true", True,
+          [["filter-and"]], [["甲", "=", "0"]]]])
     only = (lbin("office-sheet", fixture("book.ods")).get("data_ranges") or {}).get("entries", [{}])[0]
     check(
         "book.ods 那条区：名字、地址、归属与「区自己没写任何开关」",
@@ -3819,7 +3834,7 @@ def main() -> int:
         [2, 16384, 2],
     )
     check(
-        "十六份 .ods 的三十四张表每张都盖住 16384 列 —— 早先那条「`print-area.ods` 的 `什么都没给` "
+        "十七份 .ods 的三十六张表每张都盖住 16384 列 —— 早先那条「`print-area.ods` 的 `什么都没给` "
         "只到 16383」的**例外是读出来的，不是写出来的**：那一张实际写四条列元素（1+1+1+16381），"
         "其中一条住在 `<table:table-column-group>` 里，只看直接孩子的旧读者数到三条就少一列；"
         "下钻修好之后两家都是 4 条 / 16384 列。补齐到整 16384 仍是生产者的写法而不是族的恒等式",

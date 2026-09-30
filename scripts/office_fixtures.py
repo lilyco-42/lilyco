@@ -5528,6 +5528,14 @@ def main() -> int:
     convert(exe, groups, "ods", SCRATCH)
     if (SCRATCH / "groups.ods").exists():
         shutil.copyfile(SCRATCH / "groups.ods", OUT / "groups.ods")
+    # ODF 的数据区与筛子（`size.ods`）：让 LibreOffice 把带 autoFilter 的 `size.xlsx` 转成 .ods。
+    # 这一族的筛不写在表上，而是搬进一条 workbook 级的 `<table:database-range>`，条件挂在区身上
+    # （`table:filter` / `filter-and` / `filter-condition`，值、号、字段号各一枚）；同一份里另一条区
+    # `台账`（来自 OOXML 的表对象）不带筛。`size.xlsx` 与 `size-lo.xlsx` 两份源件转出来形状一致，
+    # 语料取前者那一份（见 README 事实 155）。
+    convert(exe, OUT / "size.xlsx", "ods", SCRATCH)
+    if (SCRATCH / "size.ods").exists():
+        shutil.copyfile(SCRATCH / "size.ods", OUT / "size.ods")
     convert(exe, groups, "xls", SCRATCH)
     if (SCRATCH / "groups.xls").exists():
         shutil.copyfile(SCRATCH / "groups.xls", OUT / "groups.xls")
