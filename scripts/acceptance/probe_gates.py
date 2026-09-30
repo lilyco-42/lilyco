@@ -94,6 +94,25 @@ def main() -> int:
                                      f'{name} 在它第一次绑定（第 {first} 行）之前被调用 —— '
                                      '嵌套 def 是 main 的局部名，把它提到模块级'))
         total += len(nested)
+    # 4) 钉的形状：got 那一侧写 `sorted(某字典.items())`（交的是元组）而钉的那一格是**列表的列表**，
+    #    这一项永远不相等 —— 机械重钉时把 repr 换成 JSON 就会踩这一条（CI 上要等 60 分钟才看得见）。
+    for node in ast.walk(whole):
+        if not (isinstance(node, ast.Call) and getattr(node.func, "id", "") == "check"):
+            continue
+        args = [one for one in node.args if isinstance(one, ast.List)]
+        if len(args) != 2:
+            continue
+        got_list, want_list = args
+        for mine, pinned in zip(got_list.elts, want_list.elts):
+            got_items = (isinstance(mine, ast.Call) and getattr(mine.func, "id", "") == "sorted"
+                         and any(isinstance(part, ast.Attribute) and part.attr == "items"
+                                 for part in ast.walk(mine)))
+            pin_is_lists = (isinstance(pinned, ast.List) and pinned.elts
+                            and all(isinstance(one, ast.List) for one in pinned.elts))
+            if got_items and pin_is_lists:
+                problems.append((PROBE.name, mine.lineno,
+                                 "got 交 sorted(...items()) 的元组而钉的那一格是列表 —— "
+                                 "两边形状永远不同，改成 [[k, v] for k, v in sorted(...)]"))
     if problems:
         for where, lineno, why in problems:
             print(f"FAIL {where}:{lineno} {why}")

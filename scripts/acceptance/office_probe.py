@@ -12781,7 +12781,7 @@ def main() -> int:
           [len(lock_rows), len(lock_written), sum(one["protection_total"] for one in lock_rows),
            sum(one["empty_elements"] for one in lock_rows),
            [[k, per_container[k]] for k in sorted(per_container)],
-           sorted(spelling_rows.items()),
+           [[k, spelling_rows[k]] for k in sorted(spelling_rows)],
            sum(len(one["unknown_attrs"]) for one in lock_rows),
            sorted({one["part"] for one in lock_rows})],
           [48, 23, 140, 1, [["cellStyleXfs", 25], ["cellXfs", 115], ["dxfs", 0]],
