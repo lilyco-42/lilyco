@@ -1399,6 +1399,110 @@ def _tsb_ledger(rows: list, table_styles: int, style_attrs: dict, limit: int) ->
             "entries": rows[:limit]}
 
 
+def _tsr_empty() -> dict:
+    """没有幻灯片部件时的账：键全给、条数全 0（与 Rust 的 `slide_table_styles::empty` 同一份形状）"""
+    return {"family": "ooxml", "available": False, "list_part": False, "list_root": None,
+            "list_def": None, "list_entries_total": 0, "tables_total": 0, "pr_present": 0,
+            "pr_empty_shell": 0, "pr_missing": 0, "with_switches": 0, "with_style_id": 0,
+            "switch_names": {}, "switch_values": {}, "child_names": {}, "style_id_refs": {},
+            "style_ids_declared": 0, "style_ids_resolved": 0, "style_ids_same_as_default": 0,
+            "notes_tables": 0, "unread_parts": 0, "listed": 0, "cut": False, "entries": []}
+
+
+def pptx_table_style_refs(path: Path, limit: int = 200) -> dict:
+    r"""页上那张表的样式指针：`a:tblPr` 的开关与那本一条声明都没有的包级清单
+
+    与 `slide_table_styles.rs` 同一条口径：三格分着数（`pr_present` / `pr_empty_shell` /
+    `pr_missing`），开关的值按写的字符串交、不折成布尔；`a:tableStyleId` 取自己那一段文本。
+    包级 `ppt/tableStyles.xml` 的根只写一枚 `@def`，而**一条 `a:tableStyle` 声明都没有**
+    （本仓与本机第三方件皆然），所以那个指针在包里恒为解不到 —— 交 0 而不是判它没样式。
+    """
+    with zipfile.ZipFile(path) as box:
+        names = sorted(one for one in box.namelist()
+                       if (one.startswith("ppt/slides/slide") or one.startswith("ppt/notesSlides/"))
+                       and one.endswith(".xml"))
+        if not names:
+            return _tsr_empty()
+        declared: list = []
+        list_root = None
+        list_def = None
+        has_list = "ppt/tableStyles.xml" in box.namelist()
+        if has_list:
+            lr = ET.fromstring(box.read("ppt/tableStyles.xml"))
+            list_root = xml_local(lr.tag)
+            list_def = local_attr(lr, "def")
+            for one in lr.iter():
+                if xml_local(one.tag) == "tableStyle":
+                    sid = local_attr(one, "styleId")
+                    if sid is not None:
+                        declared.append(sid)
+        rows: list = []
+        led = _tsr_empty()
+        led.update({"available": True, "list_part": has_list, "list_root": list_root,
+                    "list_def": list_def, "list_entries_total": len(declared),
+                    "style_ids_declared": len(declared)})
+        for name in names:
+            try:
+                root = ET.fromstring(box.read(name))
+            except Exception:  # noqa: BLE001 —— 部件在包里读不出树：交一行 unread
+                led["unread_parts"] += 1
+                continue
+            for table in root.iter():
+                if xml_local(table.tag) != "tbl":
+                    continue
+                led["tables_total"] += 1
+                if name.startswith("ppt/notesSlides/"):
+                    led["notes_tables"] += 1
+                holder = None
+                for kid in list(table):
+                    if xml_local(kid.tag) == "tblPr":
+                        holder = kid
+                        break
+                if holder is None:
+                    led["pr_missing"] += 1
+                    continue
+                led["pr_present"] += 1
+                written = written_attrs(holder)
+                kids = [xml_local(kid.tag) for kid in holder]
+                for mine in kids:
+                    led["child_names"][mine] = led["child_names"].get(mine, 0) + 1
+                shell = not written and not kids
+                if shell:
+                    led["pr_empty_shell"] += 1
+                for key, value in written.items():
+                    led["switch_names"][key] = led["switch_names"].get(key, 0) + 1
+                    spot = "%s=%s" % (key, value)
+                    led["switch_values"][spot] = led["switch_values"].get(spot, 0) + 1
+                if written:
+                    led["with_switches"] += 1
+                style_id = None
+                for kid in holder:
+                    if xml_local(kid.tag) == "tableStyleId" and style_id is None:
+                        raw = (kid.text or "").strip()
+                        if raw:
+                            style_id = raw
+                hit = False
+                is_default = False
+                if style_id is not None:
+                    led["with_style_id"] += 1
+                    led["style_id_refs"][style_id] = led["style_id_refs"].get(style_id, 0) + 1
+                    hit = style_id in declared
+                    if hit:
+                        led["style_ids_resolved"] += 1
+                    is_default = style_id == list_def
+                    if is_default:
+                        led["style_ids_same_as_default"] += 1
+                rows.append({"part": name, "written": written, "switches": written,
+                             "children": kids, "empty_shell": shell, "style_id": style_id,
+                             "style_declared": hit, "same_as_package_default": is_default})
+    for key in ("switch_names", "switch_values", "child_names", "style_id_refs"):
+        led[key] = dict(sorted(led[key].items()))
+    led["listed"] = min(len(rows), limit)
+    led["cut"] = len(rows) > led["listed"]
+    led["entries"] = rows[:limit]
+    return led
+
+
 def fmt_styles(path: Path, limit: int = 200) -> dict:
     r"""主题里那三本样式表（填充 / 效果 / 线条）到底写了什么
 
@@ -15913,6 +16017,8 @@ def facts(path: Path) -> dict:
         elif "ppt/presentation.xml" in parts:
             out["app"] = "powerpoint"
             out["ooxml"] = pptx_facts(path)
+            # 页上那张表的样式指针：a:tblPr 的开关与那本空的包级清单
+            out["ooxml"]["table_style_refs"] = pptx_table_style_refs(path)
             out["ooxml"]["alternate_content"] = docx_alternate(path)
             # 包里那几份自定义 XML 存储：件、那一跳到 itemProps、正文有没有一条手指着它
             out["ooxml"]["custom_xml"] = docx_custom_xml(path)
