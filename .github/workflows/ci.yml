@@ -185,6 +185,26 @@ jobs:
           path: target/aarch64-linux-android/release/lffmpeg
           if-no-files-found: error
 
+      # 办公文件那一套（docx/xlsx/pptx/odt/…）的读取器：crate 里 `android` 这个 feature
+      # 本来就是为这条路留的（flate2 走纯 Rust 后端，Termux 那条链上没有 C 工具链）。
+      # headless 单文件，scp 到板上或 termux 里直接跑 lbin office-*。
+      - name: "Build lbin (android headless: office reader)"
+        run: |
+          NDK_BIN="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android24-clang"
+          cargo build --release -p lilyco-binfmt --bin lbin \
+            --no-default-features --features android \
+            --target aarch64-linux-android
+
+      - name: Upload lbin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lbin-android-arm64
+          path: target/aarch64-linux-android/release/lbin
+          if-no-files-found: error
+
   # P3 伴飞计算机（Radxa Cubie A7A / Allwinner A733 等 aarch64 Linux 板）：
   # headless 构建（CLI + MCP + PLC），aarch64-unknown-linux-musl 静态单文件，
   # scp 到板上即可跑（与 cache-node 的 musl 静态单文件先例同一路数）。
