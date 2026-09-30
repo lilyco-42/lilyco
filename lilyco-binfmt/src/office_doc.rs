@@ -3557,6 +3557,7 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
                 ),
                 // 主题那一本：十二格颜色有两种写法、字体槽「写了空串」与「没这个槽」是两件事
                 "theme": crate::theme_ledger::themes(bytes, limit),
+                "fmt_styles": crate::fmt_styles::parts(bytes, limit),
                 // 反过来那一本：正文里那些手指点到哪一格，Word 那一路的影子实色自己跟自己核对
                 "color_refs": crate::theme_refs::refs(bytes, limit),
                 // 分节的页眉页脚：每节六格，自己写的与真正沿用的分开交

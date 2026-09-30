@@ -3700,3 +3700,28 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       （按名字排序的集合，问的是「写了哪几条」而不是「按什么顺序」）两格并存。
     - `.odt` 这一族一个都没写 `style:default-tab-stop`，RTF 与 `.doc` 没有这一层，
       所以 `grid_tab` 在那三族的出口里**整个不在场**（读到 null，不是读到 0）。
+
+**160. 主题里那三本样式表：三本列表在 `fmtScheme` 底下，而真正的效果在 `a:effectLst` 里层**
+
+    这一本也不用新凭据 —— 仓库里 175 份 OOXML 件（docx / xlsx / pptx 三家）带着 239 份主题部件。
+    量到的形状（由直接读 zip 的第三方脚本数出，不是两份读者自证）：
+    - `fillStyleLst` 每主题三条：一条 `solidFill` + 两条 `gradFill`。两条渐变**全走 `a:lin`**
+      （`ang="16200000" scaled="0"` 一个字都不差，304 枚里 126 枚额外带 `a:tileRect`），
+      而本仓**一条 `a:path` 都没有** —— 所以 `path` / `path_shape` 常态是 null，
+      那是「没走这条」而不是「没有渐变」。停止点 `a:gs/@pos` 只有 `0` / `35000` / `80000` /
+      `100000` 四种（万分之一，按写的字符串交），颜色 804 枚全是 `schemeClr val="phClr"`。
+    - `effectStyleLst` 每主题三条，而 `a:effectStyle` 的直接孩子只有 `a:effectLst`（openpyxl /
+      python-pptx 那份的第 3 条额外带 `a:scene3d` + `a:sp3d` 两枚壳，本仓 87 份件有）。
+      **问「这条样式有没有阴影」要再跳一跳**：里层只有 `a:outerShdw` 一枚（239 份部件共 267 枚），
+      写的是 `blurRad` / `dist` / `dir` / `rotWithShape` 四枚（`algn` 一次都没写），它的孩子是
+      `srgbClr val="000000"`。`a:innerShdw` / `a:glow` 三家一个也没写。
+    - `lnStyleLst` 每主题三条 `a:ln`，`w` / `cap` / `cmpd` / `algn` 四枚每次写满；里面的孩子是
+      三种组合：`solidFill`+`prstDash`（267）、`prstDash`+`miter`（261）、只有 `prstDash`（189）。
+      子元素只报名与自己写的属性，里面那层填充色不替它猜默认值。
+    - LibreOffice 重写不是无损的：仓库里 73 对「手写 vs 重打」中，渐变整本丢掉的 14 对
+      （三条填充全成 `schemeClr` 单色）、里层阴影丢掉的 **71 对**、两家都写着阴影的 **0 对** ——
+      而 `effect_styles` 每次还是 3 条，所以「效果样式还在」与「效果样式里还有东西」是两件事，
+      里层交空数组而不是少一条样式。
+    - `.ods` / `.odt` / `.odp` / RTF / `.doc` / `.xls` 里 `fmt_styles` 这个键**整个不在场**
+      （ODF 的样式表住在自己的 `styles.xml`，遗留那几家的主题在 CFB 的 `theme` 流里、
+      RTF 是 `{\*\themedata}` 那一段 base64，本机都没有第二个读者能核对）。

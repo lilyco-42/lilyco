@@ -12948,6 +12948,128 @@ def main() -> int:
            no_theme_key("office-doc", "alternate.docx", "grid_tab")],
           [False, False, False, True])
 
+    print("=== 3bi) 主题那三本样式表（fmt_styles）：渐变停在哪、effectLst 里那枚阴影、线条带了什么 ===")
+    for name, command, key in (("chart.xlsx", "office-sheet", "fmt_styles"),
+                               ("chart-lo.xlsx", "office-sheet", "fmt_styles"),
+                               ("book.xlsx", "office-sheet", "fmt_styles"),
+                               ("formats.xlsx", "office-sheet", "fmt_styles"),
+                               ("deck.pptx", "office-slide", "fmt_styles"),
+                               ("deck-lo.pptx", "office-slide", "fmt_styles"),
+                               ("deck-hidden-lo.pptx", "office-slide", "fmt_styles"),
+                               ("notes.docx", "office-doc", "structure.fmt_styles"),
+                               ("bkmks.docx", "office-doc", "structure.fmt_styles"),
+                               ("bkmks-lo.docx", "office-doc", "structure.fmt_styles")):
+        mine = dig(lbin(command, fixture(name)), key)
+        check("%s 的主题三本样式表整本账（两家逐格）" % name, mine,
+              files[name]["ooxml"]["fmt_styles"])
+    fmt_hand = dig(lbin("office-sheet", fixture("chart.xlsx")), "fmt_styles") or {}
+    fmt_back = dig(lbin("office-sheet", fixture("chart-lo.xlsx")), "fmt_styles") or {}
+    check("同一份工作簿经 LibreOffice 重写，主题不是无损的：三条填充从「一条单色 + 两条渐变」"
+          "变成三条单色（停止点整本没了）、三条效果的 effectLst 里那枚 outerShdw 全被丢掉"
+          "（里层交空账 —— 样式还是三条，只是每条什么都没写）、线条的子元素从 solidFill+prstDash "
+          "换成 prstDash+miter，连 scene3d / sp3d 那两枚壳也不再写",
+          [[fmt_hand.get(k) for k in ("fill_kinds", "distinct_stop_positions",
+                              "shadow_kinds", "styles_with_shadow", "effect_kinds")],
+           [fmt_back.get(k) for k in ("fill_kinds", "distinct_stop_positions",
+                               "shadow_kinds", "styles_with_shadow", "effect_kinds")]],
+          [[{'schemeClr': 1, 'gsLst': 2}, ['0', '100000', '35000', '80000'], {'outerShdw': 3}, 3, {'effectLst': 3, 'scene3d': 1, 'sp3d': 1}],
+           [{'schemeClr': 3}, [], {}, 0, {'effectLst': 3}]])
+    fmt_detail = []
+    for one in ("chart.xlsx", "chart-lo.xlsx", "deck.pptx", "deck-lo.pptx"):
+        command = "office-slide" if one.endswith(".pptx") else "office-sheet"
+        book = dig(lbin(command, fixture(one)), "fmt_styles") or {}
+        first = (book.get("parts") or [{}])[0]
+        fmt_detail.append([
+            [[had.get("element"), had.get("kind"), had.get("stop_total"),
+              sorted(had.get("lin") or []), had.get("path_shape"),
+              [[x.get("pos"), x.get("color_kind")] for x in had.get("stops") or []]]
+             for had in first.get("fills") or []],
+            [[had.get("element"), [x.get("element") for x in had.get("children") or []],
+              had.get("inner_total"),
+              [[x.get("element"), sorted(x.get("written") or {}),
+                [y.get("element") for y in x.get("children") or []]]
+               for x in had.get("inner_effects") or []]]
+             for had in first.get("effects") or []],
+            [[had.get("element"), had.get("kind"), sorted(had.get("written") or {}),
+              [x.get("element") for x in had.get("children") or []]]
+             for had in first.get("lines") or []],
+        ])
+    check("逐格那份投影也各家一本账：openpyxl 那两份主题的两条渐变全是 gsLst+lin（ang / scaled 两枚，"
+          "本仓没有一条走 a:path，所以 path_shape 常态是 None 而不是「没渐变」），停止点颜色写 phClr；"
+          "效果那本里层只有 outerShdw 一枚，写 blurRad / dist / dir / rotWithShape 四枚（algn 一次没写），"
+          "它的孩子是 srgbClr 000000；LibreOffice 重写那两份的三本列表元素名一个没少，"
+          "少的是里面的内容",
+          fmt_detail,
+          [[[['solidFill', 'schemeClr', 0, [], None, []], ['gradFill', 'gsLst', 3, ['ang', 'scaled'], None, [['0', 'schemeClr'], ['35000', 'schemeClr'], ['100000', 'schemeClr']]], ['gradFill', 'gsLst', 3, ['ang', 'scaled'], None, [['0', 'schemeClr'], ['80000', 'schemeClr'], ['100000', 'schemeClr']]]], [['effectStyle', ['effectLst'], 1, [['outerShdw', ['blurRad', 'dir', 'dist', 'rotWithShape'], ['srgbClr']]]], ['effectStyle', ['effectLst'], 1, [['outerShdw', ['blurRad', 'dir', 'dist', 'rotWithShape'], ['srgbClr']]]], ['effectStyle', ['effectLst', 'scene3d', 'sp3d'], 1, [['outerShdw', ['blurRad', 'dir', 'dist', 'rotWithShape'], ['srgbClr']]]]], [['ln', 'solidFill', ['algn', 'cap', 'cmpd', 'w'], ['solidFill', 'prstDash']], ['ln', 'solidFill', ['algn', 'cap', 'cmpd', 'w'], ['solidFill', 'prstDash']], ['ln', 'solidFill', ['algn', 'cap', 'cmpd', 'w'], ['solidFill', 'prstDash']]]],
+           [[['solidFill', 'schemeClr', 0, [], None, []], ['solidFill', 'schemeClr', 0, [], None, []], ['solidFill', 'schemeClr', 0, [], None, []]], [['effectStyle', ['effectLst'], 0, []], ['effectStyle', ['effectLst'], 0, []], ['effectStyle', ['effectLst'], 0, []]], [['ln', 'prstDash', ['algn', 'cap', 'cmpd', 'w'], ['prstDash', 'miter']], ['ln', 'prstDash', ['algn', 'cap', 'cmpd', 'w'], ['prstDash', 'miter']], ['ln', 'prstDash', ['algn', 'cap', 'cmpd', 'w'], ['prstDash', 'miter']]]],
+           [[['solidFill', 'schemeClr', 0, [], None, []], ['gradFill', 'gsLst', 3, ['ang', 'scaled'], None, [['0', 'schemeClr'], ['35000', 'schemeClr'], ['100000', 'schemeClr']]], ['gradFill', 'gsLst', 2, ['ang', 'scaled'], None, [['0', 'schemeClr'], ['100000', 'schemeClr']]]], [['effectStyle', ['effectLst'], 1, [['outerShdw', ['blurRad', 'dir', 'dist', 'rotWithShape'], ['srgbClr']]]], ['effectStyle', ['effectLst'], 1, [['outerShdw', ['blurRad', 'dir', 'dist', 'rotWithShape'], ['srgbClr']]]], ['effectStyle', ['effectLst', 'scene3d', 'sp3d'], 1, [['outerShdw', ['blurRad', 'dir', 'dist', 'rotWithShape'], ['srgbClr']]]]], [['ln', 'solidFill', ['algn', 'cap', 'cmpd', 'w'], ['solidFill', 'prstDash']], ['ln', 'solidFill', ['algn', 'cap', 'cmpd', 'w'], ['solidFill', 'prstDash']], ['ln', 'solidFill', ['algn', 'cap', 'cmpd', 'w'], ['solidFill', 'prstDash']]]],
+           [[['solidFill', 'schemeClr', 0, [], None, []], ['solidFill', 'schemeClr', 0, [], None, []], ['solidFill', 'schemeClr', 0, [], None, []]], [['effectStyle', ['effectLst'], 0, []], ['effectStyle', ['effectLst'], 0, []], ['effectStyle', ['effectLst'], 0, []]], [['ln', 'prstDash', ['algn', 'cap', 'cmpd', 'w'], ['prstDash', 'miter']], ['ln', 'prstDash', ['algn', 'cap', 'cmpd', 'w'], ['prstDash', 'miter']], ['ln', 'prstDash', ['algn', 'cap', 'cmpd', 'w'], ['prstDash', 'miter']]]]])
+    fmt_ledger = {}
+    for one in sorted(files):
+        if not one.endswith((".docx", ".xlsx", ".pptx")):
+            continue
+        mine = files[one].get("ooxml", {}).get("fmt_styles")
+        if mine and mine.get("available"):
+            fmt_ledger[one] = mine
+    fmt_merged = {}
+    for one in fmt_ledger.values():
+        for key, value in (one["shadow_kinds"] or {}).items():
+            fmt_merged[key] = fmt_merged.get(key, 0) + value
+    fmt_tally = [
+        len(fmt_ledger),
+        sum(one["parts_total"] for one in fmt_ledger.values()),
+        sum(one["fill_styles"] for one in fmt_ledger.values()),
+        sum(one["effect_styles"] for one in fmt_ledger.values()),
+        sum(one["line_styles"] for one in fmt_ledger.values()),
+        sum(one["styles_with_shadow"] for one in fmt_ledger.values()),
+        sorted(fmt_merged.items()),
+        sorted({h for one in fmt_ledger.values() for h in one["distinct_stop_positions"]}),
+        sum(1 for one in fmt_ledger.values() if one["distinct_stop_positions"]),
+        sum(1 for one in fmt_ledger.values() if not one["shadow_kinds"]),
+        sum(1 for one in fmt_ledger.values() if one["unread"]),
+        sorted({one["parts_total"] for one in fmt_ledger.values()}),
+    ]
+    check("整库摊开（OOXML 三家）：175 份件有主题可问、主题部件共 239 份，三本列表各 717 条；"
+          "带渐变的 150 份、里层一个效果都没写的 88 份、读不出的 0 份；"
+          "停止点全库只有这四种万分之一值，一份包最多 12 本主题",
+          fmt_tally, [175, 239, 717, 717, 717, 267, [('outerShdw', 267)], ['0', '100000', '35000', '80000'], 150, 88, 0, [1, 2, 11, 12]])
+    fmt_pairs = []
+    for one in sorted(fmt_ledger):
+        if "-lo." not in one:
+            continue
+        base = one.replace("-lo.", ".")
+        if base in fmt_ledger:
+            fmt_pairs.append((base, one))
+    fmt_lost_grad = [one for base, one in fmt_pairs
+                     if fmt_ledger[base]["distinct_stop_positions"]
+                     and not fmt_ledger[one]["distinct_stop_positions"]]
+    fmt_lost_shadow = [one for base, one in fmt_pairs
+                       if fmt_ledger[base]["styles_with_shadow"]
+                       and not fmt_ledger[one]["styles_with_shadow"]]
+    fmt_kept_shadow = [one for base, one in fmt_pairs
+                       if fmt_ledger[base]["styles_with_shadow"]
+                       and fmt_ledger[one]["styles_with_shadow"]]
+    check("重写配对的账：73 对（手写 vs LibreOffice 重打）里渐变整本丢掉的 14 对、"
+          "阴影丢掉的 71 对、两家都写着阴影的 0 对 —— 这一本的重写不是无损的，"
+          "而且「效果样式还在」与「效果样式里还有东西」是两件事",
+          [len(fmt_pairs), len(fmt_lost_grad), len(fmt_lost_shadow),
+           len(fmt_kept_shadow), sorted(fmt_lost_grad)[:3]],
+          [73, 14, 71, 0, ['cell-notes-lo.xlsx', 'chart-lo.xlsx', 'deck-chart-lo.pptx']])
+    check("反面凭据：这一本只住 OOXML —— .ods / .odt / odp / RTF / .doc / .xls 里 "
+          "fmt_styles 这个键整个不在场（ODF 的样式表住在自己的 styles.xml 里，"
+          "遗留那几家的主题在 CFB 的 theme 流里，本机没有第二个读者能核对）；"
+          "而 OOXML 三家的出口各交一份",
+          [no_theme_key("office-sheet", "book.ods", "fmt_styles"),
+           no_theme_key("office-doc", "notes.odt", "fmt_styles"),
+           no_theme_key("office-slide", "deck.odp", "fmt_styles"),
+           no_theme_key("office-doc", "tabs.rtf", "fmt_styles"),
+           no_theme_key("office-doc", "notes-en.doc", "fmt_styles"),
+           no_theme_key("office-sheet", "book.xls", "fmt_styles"),
+           no_theme_key("office-sheet", "book.xlsx", "fmt_styles"),
+           no_theme_key("office-slide", "deck.pptx", "fmt_styles"),
+           no_theme_key("office-doc", "notes.docx", "fmt_styles")],
+          [False, False, False, False, False, False, True, True, True])
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:

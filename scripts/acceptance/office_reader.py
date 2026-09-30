@@ -1113,6 +1113,178 @@ def docx_grid_tab(path: Path, limit: int = 200) -> dict:
     }
 
 
+def _is_theme_part(name: str) -> bool:
+    r"""主题部件的名字：`theme1.xml` / `theme11.xml` / `theme.xml` 都算（`.xml` 后缀必须有）"""
+    tail = name.rsplit("/", 1)[-1]
+    if not tail.endswith(".xml"):
+        return False
+    body = tail[:-len(".xml")]
+    return body.startswith("theme") and (body[len("theme"):] == "" or body[len("theme"):].isdigit())
+
+
+def _style_children(holder) -> list:
+    return [{"element": xml_local(one.tag), "written": written_attrs(one)}
+            for one in list(holder)]
+
+
+def _fmt_fill(index: int, holder) -> dict:
+    r"""一条 fillStyleLst 的条目：本体写了什么、渐变停在哪、走 lin 还是 path
+
+    `gsLst` / `lin` / `path` 都是这个样式**自己的**孩子（不是彼此的），所以三跳都从 holder 走。
+    """
+    stops = []
+    grad = _first_kid(holder, "gsLst")
+    if grad is not None:
+        for one in grad:
+            if xml_local(one.tag) != "gs":
+                continue
+            color = list(one)
+            stops.append({
+                "pos": local_attr(one, "pos"),
+                "written": written_attrs(one),
+                "color_kind": xml_local(color[0].tag) if color else None,
+                "color_written": written_attrs(color[0]) if color else None,
+            })
+    path_holder = _first_kid(holder, "path")
+    lin_holder = _first_kid(holder, "lin")
+    kids = list(holder)
+    return {
+        "index": index,
+        "element": xml_local(holder.tag),
+        "written": written_attrs(holder),
+        "kind": xml_local(kids[0].tag) if kids else None,
+        "stops": stops,
+        "stop_total": len(stops),
+        "lin": written_attrs(lin_holder) if lin_holder is not None else None,
+        "path": written_attrs(path_holder) if path_holder is not None else None,
+        "path_shape": local_attr(path_holder, "path") if path_holder is not None else None,
+        "children": _style_children(holder),
+    }
+
+
+def _fmt_effect(index: int, holder) -> dict:
+    r"""`a:effectStyle` 的孩子只有 effectLst（外加 scene3d / sp3d 两类 3D 壳），
+    真正的效果（阴影那枚 outerShdw）在 effectLst **里面** —— 只数到 effectLst 就等于没答。
+    """
+    book = _first_kid(holder, "effectLst")
+    inner = [{"element": xml_local(one.tag), "written": written_attrs(one),
+              "children": _style_children(one)}
+             for one in (list(book) if book is not None else [])]
+    return {"index": index, "element": xml_local(holder.tag),
+            "written": written_attrs(holder),
+            "children": _style_children(holder),
+            "inner_effects": inner,
+            "inner_total": len(inner)}
+
+
+def _fmt_line(index: int, holder) -> dict:
+    kids = list(holder)
+    return {"index": index, "element": xml_local(holder.tag),
+            "written": written_attrs(holder),
+            "kind": xml_local(kids[0].tag) if kids else None,
+            "children": _style_children(holder)}
+
+
+def fmt_styles(path: Path, limit: int = 200) -> dict:
+    r"""主题里那三本样式表（填充 / 效果 / 线条）到底写了什么
+
+    与 `fmt_styles.rs` 同一条口径：`fmtScheme` 的三个列表只数条数不够用 —— 渐变停在哪些
+    pos、走 `lin` 还是 `path`、阴影是哪一枚元素与它的参数，都得按文件写的交。
+    """
+    with zipfile.ZipFile(path) as box:
+        names = sorted(one.filename for one in box.infolist() if _is_theme_part(one.filename))
+        rows = []
+        unread = 0
+        fills_all = effects_all = lines_all = 0
+        for name in names:
+            try:
+                root = ET.fromstring(box.read(name))
+            except ET.ParseError:
+                # 部件在包里（所以 parts_total 数着它），但这一份读不出树：交一行 unread 而不是补一份空账
+                unread += 1
+                rows.append({"part": name, "unread": True})
+                continue
+            elements = _first_kid(root, "themeElements")
+            # 三本列表在 fmtScheme 底下：少这一跳就是三本空账（空账也是账，不算读不出）
+            scheme = _first_kid(elements, "fmtScheme") if elements is not None else None
+            holder = _first_kid(scheme, "fillStyleLst") if scheme is not None else None
+            fills = [_fmt_fill(index, one) for index, one in enumerate(
+                list(holder) if holder is not None else [])]
+            holder = _first_kid(scheme, "effectStyleLst") if scheme is not None else None
+            effects = [_fmt_effect(index, one) for index, one in enumerate(
+                list(holder) if holder is not None else [])]
+            holder = _first_kid(scheme, "lnStyleLst") if scheme is not None else None
+            lines = [_fmt_line(index, one) for index, one in enumerate(
+                list(holder) if holder is not None else [])]
+            fills_all += len(fills)
+            effects_all += len(effects)
+            lines_all += len(lines)
+            positions = sorted({stop["pos"] for one in fills for stop in one["stops"]
+                                if isinstance(stop["pos"], str)})
+            fill_kinds: dict = {}
+            for one in fills:
+                key = one["kind"] or ""
+                fill_kinds[key] = fill_kinds.get(key, 0) + 1
+            effect_kinds: dict = {}
+            for one in effects:
+                for had in one["children"]:
+                    key = had["element"]
+                    effect_kinds[key] = effect_kinds.get(key, 0) + 1
+            # 里层那几枚才是「这条样式有没有阴影」的答案
+            shadow_kinds: dict = {}
+            with_shadow = 0
+            for one in effects:
+                if one["inner_effects"]:
+                    with_shadow += 1
+                for had in one["inner_effects"]:
+                    shadow_kinds[had["element"]] = shadow_kinds.get(had["element"], 0) + 1
+            path_kinds: dict = {}
+            for one in fills:
+                if isinstance(one["path_shape"], str):
+                    path_kinds[one["path_shape"]] = path_kinds.get(one["path_shape"], 0) + 1
+            rows.append({
+                "part": name,
+                "unread": False,
+                "fills": fills,
+                "effects": effects,
+                "lines": lines,
+                "stop_positions": positions,
+                "fill_kinds": fill_kinds,
+                "effect_kinds": effect_kinds,
+                "shadow_kinds": shadow_kinds,
+                "styles_with_shadow": with_shadow,
+                "path_shapes": path_kinds,
+            })
+    all_positions = sorted({one for row in rows for one in row.get("stop_positions", [])})
+    merged_fill: dict = {}
+    merged_effect: dict = {}
+    merged_shadow: dict = {}
+    merged_path: dict = {}
+    shadow_styles = 0
+    for row in rows:
+        for book, into in (("fill_kinds", merged_fill), ("effect_kinds", merged_effect),
+                           ("shadow_kinds", merged_shadow), ("path_shapes", merged_path)):
+            for key, value in row.get(book, {}).items():
+                into[key] = into.get(key, 0) + value
+        shadow_styles += row.get("styles_with_shadow", 0)
+    return {
+        "family": "ooxml",
+        "available": bool(names),
+        "parts_total": len(names),
+        "unread": unread,
+        "fill_styles": fills_all,
+        "effect_styles": effects_all,
+        "line_styles": lines_all,
+        "distinct_stop_positions": all_positions,
+        "fill_kinds": merged_fill,
+        "effect_kinds": merged_effect,
+        "shadow_kinds": merged_shadow,
+        "styles_with_shadow": shadow_styles,
+        "path_shapes": merged_path,
+        "parts": rows[:limit],
+    }
+
+
 def xlsx_print_ranges(path: Path, limit: int = 100) -> dict:
     r"""「打哪几行几列、每页重复哪一行」在 OOXML 里**不在表上**：那是 workbook.xml 的两条保留名
 
@@ -15381,6 +15553,7 @@ def facts(path: Path) -> dict:
             # 域那一份账：两种写法、三种缺法，正文以外那几份部件一起扫
             out["ooxml"]["field_ledger"] = docx_field_ledger(path)
             out["ooxml"]["theme"] = themes
+            out["ooxml"]["fmt_styles"] = fmt_styles(path)
             out["ooxml"]["color_refs"] = refs
             out["revisions"] = docx_revision_ledger(path)
             out["protection"] = protection_for(path)
@@ -15403,6 +15576,7 @@ def facts(path: Path) -> dict:
             out["ooxml"]["formula_elems"] = xlsx_formula_elems(path)
             # 这一族的格子按**序号**点主题，所以那十二格的顺序本身就是答案的一半
             out["ooxml"]["theme"] = themes
+            out["ooxml"]["fmt_styles"] = fmt_styles(path)
             out["ooxml"]["color_refs"] = refs
         elif "ppt/presentation.xml" in parts:
             out["app"] = "powerpoint"
@@ -15424,6 +15598,7 @@ def facts(path: Path) -> dict:
             out["ooxml"]["markdown"] = pptx_deck_markdown(path)
             # 一个母版一个主题部件：那份名字清单之外，这一本才读部件里写了什么
             out["ooxml"]["theme"] = themes
+            out["ooxml"]["fmt_styles"] = fmt_styles(path)
             out["ooxml"]["color_refs"] = refs
         elif "content.xml" in parts:
             out["app"] = "opendocument"

@@ -592,6 +592,7 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             // 主题那一份账：这一族的格子是**按序号**点主题的（`theme="4"`），
             // 所以那十二格的顺序就是答案的一半，另一半点它的人另有出处
             "theme": crate::theme_ledger::themes(bytes, limit),
+            "fmt_styles": crate::fmt_styles::parts(bytes, limit),
             // 另一半就在这本里：序号的两读、`tint` 是属性而不是孩子，都逐条交
             "color_refs": crate::theme_refs::refs(bytes, limit),
             "external_links": external,
@@ -6018,6 +6019,80 @@ mod tests {
         assert!(
             run("book.xls")["print_breaks"].is_null(),
             "BIFF 里的那两个记录本机没有第二个读者"
+        );
+    }
+
+    /// 主题里那三本样式表：三本列表在 `fmtScheme` 底下，而真正的阴影在 `a:effectLst` 里层。
+    /// 期望值来自 `office_reader.py:fmt_styles` 对同样几份件的读数。
+    #[test]
+    fn theme_style_lists_report_stops_shadows_and_line_children() {
+        let hand = run("chart.xlsx");
+        let led = &hand["fmt_styles"];
+        assert_eq!(led["family"], json!("ooxml"));
+        assert_eq!(led["available"], json!(true));
+        assert_eq!(led["parts_total"], json!(1));
+        assert_eq!(led["fill_styles"], json!(3));
+        assert_eq!(led["effect_styles"], json!(3));
+        assert_eq!(led["line_styles"], json!(3));
+        assert_eq!(led["unread"], json!(0));
+        assert_eq!(
+            led["distinct_stop_positions"],
+            json!(["0", "100000", "35000", "80000"])
+        );
+        assert_eq!(led["fill_kinds"], json!({"gsLst": 2, "schemeClr": 1}));
+        assert_eq!(led["path_shapes"], json!({}));
+        let first = &led["parts"][0];
+        assert_eq!(first["fills"][0]["element"], json!("solidFill"));
+        assert_eq!(first["fills"][1]["element"], json!("gradFill"));
+        assert_eq!(first["fills"][1]["stop_total"], json!(3));
+        assert_eq!(
+            first["fills"][1]["path"],
+            Value::Null,
+            "本仓没有一条渐变走 a:path"
+        );
+        assert_eq!(
+            first["fills"][1]["stops"][0]["pos"],
+            json!("0"),
+            "停止点按写的字符串交，不折成小数"
+        );
+        assert_eq!(
+            first["effects"][2]["children"][0]["element"],
+            json!("effectLst")
+        );
+        assert_eq!(
+            first["effects"][2]["inner_effects"][0]["element"],
+            json!("outerShdw")
+        );
+        assert_eq!(
+            first["effects"][2]["inner_effects"][0]["written"]["blurRad"],
+            json!("40000")
+        );
+        assert_eq!(
+            first["effects"][2]["inner_effects"][0]["children"][0]["element"],
+            json!("srgbClr")
+        );
+        assert_eq!(first["effects"][2]["inner_total"], json!(1));
+        assert_eq!(led["shadow_kinds"], json!({"outerShdw": 3}));
+        assert_eq!(led["styles_with_shadow"], json!(3));
+
+        let back = run("chart-lo.xlsx");
+        assert_eq!(
+            back["fmt_styles"]["fill_kinds"],
+            json!({"schemeClr": 3}),
+            "重写那份三条填充全成单色"
+        );
+        assert_eq!(back["fmt_styles"]["distinct_stop_positions"], json!([]));
+        assert_eq!(back["fmt_styles"]["shadow_kinds"], json!({}));
+        assert_eq!(back["fmt_styles"]["styles_with_shadow"], json!(0));
+        assert_eq!(
+            back["fmt_styles"]["effect_styles"],
+            json!(3),
+            "效果样式还是三条 —— 丢的是里面那枚，不是整本"
+        );
+
+        assert!(
+            run("book.ods")["fmt_styles"].is_null(),
+            "ODF 没有主题这个概念：这个键在该族不在场"
         );
     }
 }

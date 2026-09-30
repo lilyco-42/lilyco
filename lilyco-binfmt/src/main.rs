@@ -50,6 +50,7 @@ mod doc_defaults;
 mod entries;
 mod equations;
 mod field_ledger;
+mod fmt_styles;
 mod formula_elems;
 mod grid_tab;
 mod identify;

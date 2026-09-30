@@ -1,7 +1,8 @@
-"""把两条静态闸门做实：
+"""把三条静态闸门做实：
 1) probe 里每一处 fixture("名字") 都必须是真的件名 —— 拼错的名字在 CI 里是 KeyError，
    会把整条 cross-check（60 分钟以上）连坐掉；
-2) check() 的调用形状（3 或 4 个参数）。
+2) check() 的调用形状（3 或 4 个参数）；
+3) main() 里的嵌套 def 不能在其定义行之前被调用（同一类连坐，报的是 UnboundLocalError）。
 """
 import ast
 import io
@@ -66,6 +67,33 @@ def main() -> int:
                                 and one.value not in have):
                             problems.append((path.name, one.lineno,
                                              f'字面量件名 "{one.value[:40]}" 不在语料里'))
+    # 3) main() 里的嵌套 def 本质是一次赋值：在它定义那行**之前**调用它就是 UnboundLocalError，
+    #    而这会把整条 cross-check（60 分钟以上）连坐掉 —— CI 上真被这一条炸过一次。
+    probe_src = io.open(PROBE, encoding='utf-8').read()
+    whole = ast.parse(probe_src)
+    target = next((one for one in ast.walk(whole)
+                   if isinstance(one, ast.FunctionDef) and one.name == 'main'), None)
+    if target is not None:
+        nested = {}
+        for one in ast.walk(target):
+            if isinstance(one, (ast.FunctionDef, ast.AsyncFunctionDef)) and one is not target:
+                nested.setdefault(one.name, one.lineno)
+        # 一个名字只要在它之前有一次赋值（4504 那种 `shape = list(...)`），用到就不算未绑
+        bound: dict = {}
+        for one in ast.walk(target):
+            if isinstance(one, ast.Name) and isinstance(one.ctx, ast.Store):
+                bound.setdefault(one.id, []).append(one.lineno)
+            elif isinstance(one, ast.arg):
+                bound.setdefault(one.arg, []).append(one.lineno)
+        for name, def_line in nested.items():
+            first = min(bound.get(name, []) + [def_line])
+            for one in ast.walk(target):
+                if isinstance(one, ast.Name) and isinstance(one.ctx, ast.Load) \
+                        and one.id == name and one.lineno < first:
+                    problems.append((PROBE.name, one.lineno,
+                                     f'{name} 在它第一次绑定（第 {first} 行）之前被调用 —— '
+                                     '嵌套 def 是 main 的局部名，把它提到模块级'))
+        total += len(nested)
     if problems:
         for where, lineno, why in problems:
             print(f"FAIL {where}:{lineno} {why}")

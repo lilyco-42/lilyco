@@ -420,6 +420,7 @@ fn run_office_slide(app: &OfficeSlide, ctx: &Context) -> Result<Value, AppError>
             "themes": doc.entries.iter().map(|one| one.name.clone()).filter(|one| one.starts_with("ppt/theme/")).collect::<Vec<String>>(),
             // 上面那份是名字清单，这一本才是内容：一个母版一个主题部件，所以逐件记账
             "theme": crate::theme_ledger::themes(bytes, limit),
+            "fmt_styles": crate::fmt_styles::parts(bytes, limit),
             // 而页面上那一指靠的是母版自己写的 `a:clrMap`：对照不在场就交解不出，不替文件补
             "color_refs": crate::theme_refs::refs(bytes, limit),
             "custom_slide_shows": root.descendants("custShow").len(),
