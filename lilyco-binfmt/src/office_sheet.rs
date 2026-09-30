@@ -582,6 +582,8 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             "print_ranges": crate::print_ranges::xlsx(&root, limit),
             // 数据透视表在这一族摊成四类部件，归属走那张表自己的关系表，缓存走 cacheId 那一跳
             "pivots": crate::pivots::xlsx(bytes, limit),
+            // 手动分页符：这一族写在表部件的两个容器里，声明·实数·不同号是三个数
+            "print_breaks": crate::print_breaks::xlsx(bytes, limit),
             // 公式那枚 <f> 自己写了什么：共享组的跟随格在文件里没有正文
             "formula_elems": crate::formula_elems::xlsx(bytes, limit),
             // 包里那几份自定义 XML 存储（真件里 0 份表格件带，键照样交，空账也是账）
@@ -774,6 +776,8 @@ fn run_office_sheet(app: &OfficeSheet, ctx: &Context) -> Result<Value, AppError>
             "conditional_styles": crate::ods_conditional::ods(bytes, limit),
             // 同一问在这一族全收在 content.xml 的一棵 data-pilot-tables 里：没有缓存部件，也没有指针
             "pivots": crate::pivots::ods(bytes, limit),
+            // 同一问在这一族是行/列的自动样式上的一条属性，要跳一跳才知道
+            "print_breaks": crate::print_breaks::ods(bytes, limit),
             // 同一问在这一族是格子身上的一个属性，每条都带正文（没有共享组那一层）
             "formula_elems": crate::formula_elems::ods(bytes, limit),
             // 这一族没有主题这个概念：交一本零条的账，而不是缺这个键
@@ -5956,6 +5960,64 @@ mod tests {
         assert!(
             run("book.xls")["pivots"].is_null(),
             "BIFF 里的那些记录本机没有第二个读者"
+        );
+    }
+
+    /// 手动分页符那一份账：OOXML 写在表部件的两个容器里，ODF 写在行列的自动样式上。
+    /// 期望值来自 `office_reader.py` 对同样三份件的读数。
+    #[test]
+    fn manual_page_breaks_keep_declared_found_and_distinct_apart() {
+        let hand = run("breaks.xlsx");
+        let led = &hand["print_breaks"];
+        assert_eq!(led["family"], json!("ooxml"));
+        assert_eq!(led["sheets_with_ledger"], json!(2));
+        assert_eq!(led["with_rows"], json!(1), "第二张表两条轴都没写容器");
+        assert_eq!(led["row_break_total"], json!(3));
+        let one = &led["entries"]["sheet1"]["rows"];
+        assert_eq!(one["declared"], json!("3"));
+        assert_eq!(one["found"], json!(3));
+        assert_eq!(one["distinct_ids"], json!(2), "同一道 id=9 文件里写了两遍");
+        assert_eq!(one["whole"], json!(true));
+        assert_eq!(one["man_values"], json!({"1": 3}));
+
+        let back = run("breaks-lo.xlsx");
+        let again = &back["print_breaks"]["entries"]["sheet1"];
+        assert_eq!(
+            again["rows"]["found"],
+            json!(2),
+            "LibreOffice 重写时把重复的那道去掉了：转格式不是无损的"
+        );
+        assert_eq!(again["rows"]["man_values"], json!({"true": 2}));
+        assert_eq!(
+            again["columns"]["breaks"][0]["written"]["max"],
+            json!("65535")
+        );
+        assert_eq!(again["rows"]["breaks"][0]["written"]["man"], json!("true"));
+        assert_eq!(
+            back["print_breaks"]["entries"]["sheet2"]["rows"]["present"],
+            json!(false)
+        );
+
+        let book = run("breaks.ods");
+        let odf = &book["print_breaks"];
+        assert_eq!(odf["family"], json!("odf"));
+        assert_eq!(odf["tables_total"], json!(2));
+        assert_eq!(odf["rows_on_page"], json!(2));
+        assert_eq!(odf["columns_on_page"], json!(1));
+        let first = &odf["tables"][0];
+        assert_eq!(first["sheet"], json!("甲表"));
+        assert_eq!(first["rows"]["elements_with_style"], json!(24));
+        assert_eq!(first["rows"]["style_missing"], json!(0));
+        assert_eq!(first["rows"]["on_page"], json!(2), "其余 22 行明写 auto");
+
+        assert_eq!(
+            run("book.xlsx")["print_breaks"]["row_break_total"],
+            json!(0)
+        );
+        assert_eq!(run("book.ods")["print_breaks"]["rows_on_page"], json!(0));
+        assert!(
+            run("book.xls")["print_breaks"].is_null(),
+            "BIFF 里的那两个记录本机没有第二个读者"
         );
     }
 }

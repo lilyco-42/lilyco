@@ -882,6 +882,166 @@ def odf_page_styles(path: Path, limit: int = 100) -> dict:
     return out
 
 
+def xlsx_break_axis(holder, limit: int = 200) -> dict:
+    r"""一条轴的分页符：容器在不在、声明的两值、实数几条、几个不同号
+
+    与 `print_breaks.rs:axis_ledger` 同一条口径：`count` 没写时 `whole` 交 null 而不是 false；
+    `man` 没写的条目在 `man_values` 里占空串那一格（那是文件没写，不是写了 false）；
+    先按 limit 截，再数 `found`（两家同一个截法）。
+    """
+    if holder is None:
+        return {"present": False, "written": None, "declared": None, "declared_manual": None,
+                "found": 0, "distinct_ids": None, "whole": None, "man_values": {}, "breaks": []}
+    written = written_attrs(holder)
+    rows = [{"id": written_attrs(kid).get("id"), "written": written_attrs(kid)}
+            for kid in holder if xml_local(kid.tag) == "brk"]
+    rows = rows[:limit]
+    ids = [one["id"] for one in rows if isinstance(one["id"], str)]
+    declared = written.get("count")
+    try:
+        whole = int(declared) == len(rows)
+    except (TypeError, ValueError):
+        whole = None
+    man: dict = {}
+    for one in rows:
+        key = one["written"].get("man")
+        key = key if isinstance(key, str) else ""
+        man[key] = man.get(key, 0) + 1
+    return {
+        "present": True,
+        "written": written,
+        "declared": declared,
+        "declared_manual": written.get("manualBreakCount"),
+        "found": len(rows),
+        "distinct_ids": len(sorted(set(ids))),
+        "whole": whole,
+        "man_values": man,
+        "breaks": rows,
+    }
+
+
+def xlsx_print_breaks(path: Path, limit: int = 200) -> dict:
+    r"""OOXML 那一族：每张工作表部件一本，按部件自己的名字归账（不按簿里的顺序猜）"""
+    with zipfile.ZipFile(path) as box:
+        names = sorted(one.filename for one in box.infolist()
+                       if one.filename.startswith("xl/worksheets/")
+                       and one.filename.endswith(".xml")
+                       and "/_rels/" not in one.filename)
+        entries = {}
+        with_rows = with_cols = row_total = col_total = 0
+        for name in names:
+            root = ET.fromstring(box.read(name))
+            rows_holder = _first_any(root, "rowBreaks")
+            cols_holder = _first_any(root, "colBreaks")
+            rows = xlsx_break_axis(rows_holder, limit)
+            cols = xlsx_break_axis(cols_holder, limit)
+            if rows_holder is not None:
+                with_rows += 1
+            if cols_holder is not None:
+                with_cols += 1
+            row_total += rows["found"]
+            col_total += cols["found"]
+            entries[name.rsplit("/", 1)[-1][:-len(".xml")]] = {
+                "part": name, "rows": rows, "columns": cols,
+            }
+    return {
+        "family": "ooxml",
+        "available": True,
+        "sheets_with_ledger": len(entries),
+        "with_rows": with_rows,
+        "with_columns": with_cols,
+        "row_break_total": row_total,
+        "column_break_total": col_total,
+        "entries": entries,
+    }
+
+
+def _ods_break_styles(root, want: str) -> dict:
+    r"""样式名 → 那条 `fo:break-before` 写的值：只收说了话的样式（没说 = 不在表里）"""
+    out = {}
+    for style in root.iter():
+        if xml_local(style.tag) != "style":
+            continue
+        name = local_attr(style, "name")
+        if name is None:
+            continue
+        for one in style.iter():
+            if xml_local(one.tag) != want:
+                continue
+            raw = local_attr(one, "break-before")
+            if raw is not None and name not in out:
+                out[name] = raw
+    return out
+
+
+def _ods_break_axis(table, styles: dict, nsmap: dict, want: str, repeated_attr: str,
+                    limit: int) -> dict:
+    r"""这一族里说了话的行/列：断页在它们各自的自动样式上，一跳不到的记 style_missing"""
+    rows = []
+    on_page = 0
+    missing = 0
+    for one in table.iter():
+        if xml_local(one.tag) != want:
+            continue
+        name = local_attr(one, "style-name")
+        if name is None:
+            continue
+        had = styles.get(name)
+        if had is None:
+            missing += 1
+            value = None
+        else:
+            value = had
+        if had == "page":
+            on_page += 1
+        rows.append({
+            "name": local_attr(one, "name"),
+            "style_name": name,
+            "break_before": value,
+            "repeated": local_attr(one, repeated_attr),
+            "written": _written_attrs(one, nsmap),
+        })
+    return {
+        "elements_with_style": len(rows),
+        "resolved": len(rows) - missing,
+        "style_missing": missing,
+        "on_page": on_page,
+        "list": rows[:limit],
+    }
+
+
+def ods_print_breaks(path: Path, limit: int = 200) -> dict:
+    r"""ODF 那一族：断页写在行/列的自动样式上，`auto` 与「整条属性没写」是两件事"""
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        raw = box.read("content.xml")
+    root = ET.fromstring(raw)
+    nsmap = _ns_prefixes(raw)
+    row_styles = _ods_break_styles(root, "table-row-properties")
+    col_styles = _ods_break_styles(root, "table-column-properties")
+    tables = []
+    for table in root.iter():
+        if xml_local(table.tag) != "table":
+            continue
+        tables.append({
+            "sheet": local_attr(table, "name"),
+            "rows": _ods_break_axis(table, row_styles, nsmap, "table-row",
+                                    "number-rows-repeated", limit),
+            "columns": _ods_break_axis(table, col_styles, nsmap, "table-column",
+                                       "number-columns-repeated", limit),
+        })
+    return {
+        "family": "odf",
+        "available": True,
+        "tables_total": len(tables),
+        "rows_on_page": sum(one["rows"]["on_page"] for one in tables),
+        "columns_on_page": sum(one["columns"]["on_page"] for one in tables),
+        "tables": tables[:limit],
+    }
+
+
 def xlsx_print_ranges(path: Path, limit: int = 100) -> dict:
     r"""「打哪几行几列、每页重复哪一行」在 OOXML 里**不在表上**：那是 workbook.xml 的两条保留名
 
@@ -15167,6 +15327,7 @@ def facts(path: Path) -> dict:
             # 打印区域与重复标题行：不在表上，在 workbook.xml 那两条保留名上
             out["ooxml"]["print_ranges"] = xlsx_print_ranges(path)
             out["ooxml"]["pivots"] = xlsx_pivots(path)
+            out["ooxml"]["print_breaks"] = xlsx_print_breaks(path)
             out["ooxml"]["formula_elems"] = xlsx_formula_elems(path)
             # 这一族的格子按**序号**点主题，所以那十二格的顺序本身就是答案的一半
             out["ooxml"]["theme"] = themes
@@ -15264,6 +15425,7 @@ def facts(path: Path) -> dict:
                 sheets["data_ranges"] = ods_data_ranges(path)
                 sheets["conditional_styles"] = ods_conditional_styles(path)
                 sheets["pivots"] = ods_pivots(path)
+                sheets["print_breaks"] = ods_print_breaks(path)
                 sheets["formula_elems"] = ods_formula_elems(path)
                 sheets["theme"] = themes
                 sheets["color_refs"] = refs

@@ -3618,7 +3618,7 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
 156. **ODF 的条件格式不写在表上、也不叫 `style:conditional`，而是单元格样式身上的一条 `style:map`。**
     `rules.ods` 就是 LibreOffice 把带 cfRule 的 `rules-lo.xlsx` 转成的 .ods（配方在
     `scripts/office_fixtures.py`）。量到的四件事：
-    - 整本 `<style:conditional>` **一个也没有**（19 份 .ods 全是 0）—— 这是读到的 0，不是没读；
+    - 整本 `<style:conditional>` **一个也没有**（20 份 .ods 全是 0）—— 这是读到的 0，不是没读；
       谁要是按子串 `conditional` 普查，就会把「LO 不写条件格式」当成结论，那是假阴性。
     - 条件落在 **content.xml 的自动样式**上：`ce2` / `ce3` 两条 `family="table-cell"` 的样式各挂
       `<style:map style:condition="cell-content()&gt;100" style:apply-style-name="ConditionalStyle_5f_1"
@@ -3657,3 +3657,26 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       写 I4:O17 并把 `firstHeaderRow` / `firstDataRow` / `firstDataCol` 分开交 —— 差的行数是
       这一族自己的排法，不换算。`.xls` 的透视表在 BIFF 记录流里，本机没有第二个读者能核对，
       所以 `pivots` 这个键在该族**整个不在场**（`book.xls` 读到 null，不是读到 0）。
+
+**158. 手动分页符：OOXML 写在表部件的两个容器里，ODF 写在行列的自动样式上（`print_breaks`，
+`breaks.xlsx` / `breaks-lo.xlsx` / `breaks.ods`）**
+
+    生产者：openpyxl 往一张 24 行的表上写三道行分页符（**故意**把 `id=9` 写两遍）与一道列分页符，
+    第二张表什么都不写；再由 LibreOffice 把同一份分别重存成 `.xlsx` 与 `.ods`。量到的五件事：
+    - OOXML 的两个容器各自自报两个数：`@count` 与 `@manualBreakCount`。这一份 `count="3"` 而文件里
+      确实三条 —— 但只有**两个不同的 id**。「声明几条」「实数几条」「几个不同的号」在这本账里是
+      三个键（`declared` / `found` / `distinct_ids`），不替文件去重。
+    - 没写容器与写了容器但一条都没有是两件事：第二张表两族的容器都不在场，所以 `present=false`
+      而 `found` 是 0，`distinct_ids` 交 null（无从可数）。
+    - LibreOffice 重写同一份**不无损**：行那本剩 2 条（重复的那道被去掉）、`man` 从 `1` 换成 `true`、
+      属性顺序从 `id min max man` 换成 `id man max min`，而列那段的 `max` 从 `16383` 换成 `65535`
+      —— 那正是两族各自的最大列数写法，两家各按各的文件交。
+    - ODF 根本没有「分页符」元素：断页写在行与列**自己的自动样式**上
+      （`<style:table-row-properties fo:break-before="page"/>` 与列那一份同名属性），所以要跳一跳。
+      第一张表 24 行全都说了话（`resolved` 24、`style_missing` 0）而只有 2 行是 `page`（同一枚
+      `ro2` 用了两次），其余 22 行明写 `auto` —— `auto` 与「整条属性没写」是两件事，值本身留着。
+    - 同族另一条常被忽略的形状：列那本只有 3 条元素，第三条带着 `number-columns-repeated="16382"`
+      —— 一条元素顶 16382 列（LibreOffice 把每张表补到 16384 列），所以「几条元素」「盖几列」
+      在这族里永远是两个数，这里按写的原样交，不展开。
+    - `.xls` 的分页符在 BIFF 的 0x001B / 0x001A 记录里，那些 16 位行号数组本机没有第二个读者能核对，
+      所以该族不交这个键（`book.xls` 读到 null，而不是读到 0）。语料 304→307 份。

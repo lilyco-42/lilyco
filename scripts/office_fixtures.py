@@ -5491,6 +5491,29 @@ def write_groups_xlsx(path: Path) -> None:
 
 
 
+def write_breaks_xlsx(path: Path) -> None:
+    """手动分页符那一份：三道行分页符（**故意**把同一道 id=9 写两遍）与一道列分页符
+
+    第二张表两条轴什么都不写 —— 「没写容器」与「写了容器但零条」是两句话，这份件要把两句都交给读者。
+    数字与文字都不含真实内容。
+    """
+    from openpyxl.worksheet.pagebreak import Break
+    box = Workbook()
+    sheet = box.active
+    sheet.title = "甲表"
+    for row in range(1, 25):
+        sheet.cell(row=row, column=1, value=row)
+        sheet.cell(row=row, column=2, value=row * 2)
+    for ident in (4, 9, 9):
+        sheet.row_breaks.append(Break(id=ident))
+    sheet.col_breaks.append(Break(id=1))
+    second = box.create_sheet("乙表")
+    second.cell(row=1, column=1, value="没有分页符的一张表")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    box.save(path)
+
+
+
 def write_pivot_seed(path: Path) -> None:
     """合成一张纯数据的表（区域 / 品类 / 月份 / 数量 / 金额，36 行 + 表头），给透视表当数据源
 
@@ -7120,6 +7143,20 @@ def main() -> int:
         shutil.copyfile(made_pivot_ods, OUT / "pilot.ods")
         shutil.copyfile(made_pivot_xlsx, OUT / "pilot.xlsx")
         print("  pilot.ods / pilot.xlsx 由 LibreOffice 挂上两枚数据透视表后存出")
+
+    # 手动分页符那三份：openpyxl 写一份（故意重复一道），LibreOffice 把同一份重存两种
+    write_breaks_xlsx(SCRATCH / "breaks-seed.xlsx")
+    shutil.copyfile(SCRATCH / "breaks-seed.xlsx", OUT / "breaks.xlsx")
+    try:
+        made_breaks = convert(exe, SCRATCH / "breaks-seed.xlsx", "xlsx",
+                              SCRATCH / "breaks-asxlsx")
+        shutil.copyfile(made_breaks / "breaks-seed.xlsx", OUT / "breaks-lo.xlsx")
+        made_breaks_ods = convert(exe, SCRATCH / "breaks-seed.xlsx", "ods",
+                                  SCRATCH / "breaks-asods")
+        shutil.copyfile(made_breaks_ods / "breaks-seed.ods", OUT / "breaks.ods")
+        print("  breaks-lo.xlsx / breaks.ods 由 LibreOffice 重存同一份分页符")
+    except subprocess.CalledProcessError as bad:
+        print(f"  分页符那两份没做出来：{bad}")
 
     print("fixture 清单（每个文件的生产者见函数注释）：")
     for one in sorted(OUT.iterdir()):

@@ -167,6 +167,9 @@ def main() -> int:
         "notes.docx": ("ooxml", "word", "docx"),
         "pilot.xlsx": ("ooxml", "excel", "xlsx"),
         "pilot.ods": ("opendocument", "excel", "ods"),
+        "breaks.xlsx": ("ooxml", "excel", "xlsx"),
+        "breaks-lo.xlsx": ("ooxml", "excel", "xlsx"),
+        "breaks.ods": ("opendocument", "excel", "ods"),
         "notes-hf.docx": ("ooxml", "word", "docx"),
         "notes-foot.docx": ("ooxml", "word", "docx"),
         "notes-end.docx": ("ooxml", "word", "docx"),
@@ -12774,8 +12777,8 @@ def main() -> int:
            sorted(spelling_rows.items()),
            sum(len(one["unknown_attrs"]) for one in lock_rows),
            sorted({one["part"] for one in lock_rows})],
-          [46, 22, 138, 1, [["cellStyleXfs", 24], ["cellXfs", 114], ["dxfs", 0]],
-           [("", 1), ("0", 1), ("1", 1), ("false", 134), ("true", 136)], 1, ["xl/styles.xml"]])
+          [48, 23, 140, 1, [["cellStyleXfs", 25], ["cellXfs", 115], ["dxfs", 0]],
+           [["", 1], ["0", 1], ["1", 1], ["false", 136], ["true", 138]], 1, ["xl/styles.xml"]])
     check("反面凭据：这一层只住 OOXML 表格那一家。`.ods` 没有格式级的锁定属性（ODF 的锁只在 `table:table` 那一层，"
           "已由 `protection` 那一本交），`.xls` 的位在 BIFF 的 `XF` 记录里（本机没有第二个读者能核对那些位段），"
           "而 Word 与演示那两家根本没有 cellXfs 这本 —— 那四份出口的账本里这个键**整个不在场**，而不是交一份零账",
@@ -12786,6 +12789,93 @@ def main() -> int:
            no_theme_key("office-sheet", "cell-locks.xlsx", "cell_locks")],
           [False, False, False, False, True])
 
+
+    print("=== 3bg) 手动分页符（表格那一族）：OOXML 两个容器与 ODF 的那一跳 ===")
+    for name, where in (("breaks.xlsx", "ooxml"), ("breaks-lo.xlsx", "ooxml"),
+                        ("breaks.ods", "ods"), ("book.xlsx", "ooxml"), ("book.ods", "ods"),
+                        ("groups.ods", "ods"), ("pilot.xlsx", "ooxml")):
+        got = json.dumps(lbin("office-sheet", fixture(name)).get("print_breaks") or {},
+                         ensure_ascii=False, sort_keys=True)
+        want = json.dumps(files[name][where]["print_breaks"],
+                          ensure_ascii=False, sort_keys=True)
+        check("%s 的分页符整本账（两家逐格）" % name, got, want)
+    hand = lbin("office-sheet", fixture("breaks.xlsx")).get("print_breaks") or {}
+    back = lbin("office-sheet", fixture("breaks-lo.xlsx")).get("print_breaks") or {}
+    check("手写那一份把「声明」「实数」「不同的号」三个数摆开：rowBreaks 自报 3 条而文件里真有三条，"
+          "但只有两个不同的 id（同一道 9 写了两遍）—— 这本账逐条交原样，不替文件去重；"
+          "第二张表两条轴都没写容器，所以 present=false 而 found 是 0",
+          [[hand["sheets_with_ledger"], hand["with_rows"], hand["with_columns"],
+            hand["row_break_total"], hand["column_break_total"]],
+           [hand["entries"]["sheet1"]["rows"]["declared"],
+            hand["entries"]["sheet1"]["rows"]["found"],
+            hand["entries"]["sheet1"]["rows"]["distinct_ids"],
+            hand["entries"]["sheet1"]["rows"]["whole"],
+            hand["entries"]["sheet1"]["rows"]["man_values"],
+            [one["written"]["max"] for one in hand["entries"]["sheet1"]["rows"]["breaks"]],
+            hand["entries"]["sheet1"]["columns"]["declared"],
+            hand["entries"]["sheet1"]["columns"]["found"]],
+           [back["entries"]["sheet1"]["rows"]["found"],
+            back["entries"]["sheet1"]["rows"]["distinct_ids"],
+            back["entries"]["sheet1"]["rows"]["man_values"],
+            back["entries"]["sheet1"]["columns"]["breaks"][0]["written"]["max"],
+            sorted(back["entries"]["sheet1"]["rows"]["breaks"][0]["written"].keys()),
+            back["entries"]["sheet2"]["rows"]["present"],
+            back["entries"]["sheet2"]["rows"]["found"]]],
+          [[2, 1, 1, 3, 1],
+           ["3", 3, 2, True, {"1": 3}, ["16383", "16383", "16383"], "1", 1],
+           [2, 2, {"true": 2}, "65535", ["id", "man", "max", "min"], False, 0]])
+    check("LibreOffice 重写同一份不无损：行那本从三条剩两条（重复的那道没了）、拼法从 1 换成 true，"
+          "列那段的 max 从 16383 换成 65535，属性顺序也换了（id man max min）—— 两本账各按各的文件交",
+          [[hand["entries"]["sheet1"]["rows"]["written"],
+            back["entries"]["sheet1"]["rows"]["written"]],
+           [hand["entries"]["sheet1"]["columns"]["written"],
+            back["entries"]["sheet1"]["columns"]["written"]]],
+          [[{"count": "3", "manualBreakCount": "3"},
+            {"count": "2", "manualBreakCount": "2"}],
+           [{"count": "1", "manualBreakCount": "1"},
+            {"count": "1", "manualBreakCount": "1"}]])
+    odf = lbin("office-sheet", fixture("breaks.ods")).get("print_breaks") or {}
+    check("ODF 那一族没有「分页符」这种元素：断页在行列自己的自动样式上，一跳才知道 —— "
+          "第一张表 24 行都说了话（resolved 24、style_missing 0）而只有 2 行落在 page 上，"
+          "其余明写 auto；`auto` 与「整条属性没写」是两件事，所以值本身留着",
+          [[odf["family"], odf["tables_total"], odf["rows_on_page"], odf["columns_on_page"]],
+           [odf["tables"][0]["sheet"], odf["tables"][0]["rows"]["elements_with_style"],
+            odf["tables"][0]["rows"]["resolved"], odf["tables"][0]["rows"]["style_missing"],
+            odf["tables"][0]["rows"]["on_page"],
+            [[one["style_name"], one["break_before"]] for one in odf["tables"][0]["rows"]["list"]
+             if one["break_before"] == "page"],
+            [[one["style_name"], one["break_before"], one["repeated"]]
+             for one in odf["tables"][0]["columns"]["list"]],
+            odf["tables"][0]["columns"]["on_page"],
+            odf["tables"][1]["rows"]["on_page"]]],
+          [["odf", 2, 2, 1],
+           ["甲表", 24, 24, 0, 2, [["ro2", "page"], ["ro2", "page"]],
+            [["co1", "auto", None], ["co2", "page", None],
+             ["co1", "auto", "16382"]], 1, 0]])
+    whole = [
+        sum(1 for one in files
+            if (files[one].get("ooxml", {}).get("print_breaks", {}).get("row_break_total", 0)
+                or files[one].get("ooxml", {}).get("print_breaks", {})
+                .get("column_break_total", 0))),
+        sum(1 for one in files
+            if files[one].get("ods", {}).get("print_breaks", {}).get("rows_on_page", 0)
+            or files[one].get("ods", {}).get("print_breaks", {}).get("columns_on_page", 0)),
+        sum(files[one].get("ooxml", {}).get("print_breaks", {}).get("row_break_total", 0)
+            for one in files),
+        sum(files[one].get("ods", {}).get("print_breaks", {}).get("rows_on_page", 0)
+            for one in files),
+    ]
+    check("整库摊开：写过分页符的只有这一对 xlsx（手写 4 条 + 重写 3 条）与一份 .ods，"
+          "其余件的账本是空的而不是缺键",
+          whole, [2, 1, 5, 2])
+    check("反面凭据：`.xls` 的分页符在 BIFF 的 0x001B / 0x001A 记录里，那些 16 位行号数组本机没有"
+          "第二个读者能核对，所以这个键在该族整个不在场（读到 null 而不是读到 0）；"
+          "Word 与演示两家也没有这个概念",
+          [no_theme_key("office-sheet", "book.xls", "print_breaks"),
+           no_theme_key("office-doc", "notes.docx", "print_breaks"),
+           no_theme_key("office-slide", "deck.pptx", "print_breaks"),
+           no_theme_key("office-sheet", "breaks.xlsx", "print_breaks")],
+          [False, False, False, True])
 
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
