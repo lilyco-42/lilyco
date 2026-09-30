@@ -12888,7 +12888,7 @@ def main() -> int:
             grid_tab_docs[one] = mine
     print("=== 3bh) 页面网格与默认制表位（grid_tab）：文档级一条 + 每条节一本 ===")
     for name in ("alternate.docx", "alternate-lo.docx", "notes.docx", "sections.docx",
-                 "pnum.docx", "paper-a4.docx", "cjk.docx"):
+                 "pnum.docx", "paper-a4.docx", "cjk-switches.docx"):
         got = json.dumps(dig(lbin("office-doc", fixture(name)), "structure.grid_tab") or {},
                          ensure_ascii=False, sort_keys=True)
         want = json.dumps(files[name]["ooxml"]["grid_tab"], ensure_ascii=False, sort_keys=True)
