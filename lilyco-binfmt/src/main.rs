@@ -81,6 +81,7 @@ mod para_borders;
 mod pdf;
 mod picture_bytes;
 mod picture_layout;
+mod pivots;
 mod placeholders;
 mod ppt;
 mod print_ranges;

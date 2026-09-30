@@ -3618,7 +3618,7 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
 156. **ODF 的条件格式不写在表上、也不叫 `style:conditional`，而是单元格样式身上的一条 `style:map`。**
     `rules.ods` 就是 LibreOffice 把带 cfRule 的 `rules-lo.xlsx` 转成的 .ods（配方在
     `scripts/office_fixtures.py`）。量到的四件事：
-    - 整本 `<style:conditional>` **一个也没有**（18 份 .ods 全是 0）—— 这是读到的 0，不是没读；
+    - 整本 `<style:conditional>` **一个也没有**（19 份 .ods 全是 0）—— 这是读到的 0，不是没读；
       谁要是按子串 `conditional` 普查，就会把「LO 不写条件格式」当成结论，那是假阴性。
     - 条件落在 **content.xml 的自动样式**上：`ce2` / `ce3` 两条 `family="table-cell"` 的样式各挂
       `<style:map style:condition="cell-content()&gt;100" style:apply-style-name="ConditionalStyle_5f_1"
@@ -3632,3 +3632,28 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       与条件格式无关。判定同时看父样式的 `style:family` 与条件串的前缀，两本账各数各的
       （`number_format_maps` 与 `maps_total`）。跨格式同问也是两个答案：OOXML 第一张表 3 个区间共 4 枚规则，
       .ods 只剩 2 枚条件 —— 只留 `cell-content()` 说得出来的那几条，不替它补回去。
+
+**157. 数据透视表：OOXML 摊成四类部件，ODF 收成一棵树（`pivots`，`pilot.xlsx` / `pilot.ods`）**
+
+    同一份合成数据（区域 / 品类 / 月份 / 数量 / 金额，36 行）先由 openpyxl 写成种子表，
+    再让 **LibreOffice 自己挂两枚数据透视表**：`--convert-to` 不做这件事，得走 pyuno socket 桥
+    （LO 自带的 `program/python.exe`，见 `scripts/office_fixtures.py:add_pivot_tables`）。
+    Pilot1 摆成区域在行、品类在列、月份在页、数量求和 + 金额平均、「Data」假字段也在行；
+    Pilot2 只留区域在行 + 数量求和。同一份内容存成 `.ods` 与 `.xlsx` 各一份。量到的五件事：
+    - OOXML 一枚表摊在**四个地方**：表本体 `xl/pivotTables/pivotTable1.xml`、缓存定义
+      `xl/pivotCache/pivotCacheDefinition1.xml`、缓存正文 `pivotCacheRecords1.xml`，
+      外加 `xl/workbook.xml` 里那条 `<pivotCache cacheId="1" r:id="rId5"/>`。两枚表共用一条缓存
+      （所以 `caches_written` 是 1 而不是 2）：「几枚表」与「几份缓存」是两个数。
+    - **表上不说自己属于哪张工作表**：归属在那张表自己的关系表里（两条 `pivotTable` 类型的关系）；
+      表上那条关系只指缓存定义部件，跳到缓存靠 `cacheId` 对上工作簿那一条。
+    - **表上也没有字段名**：`pivotField` 只写 `axis` 与下标，名字要回头查缓存的 `cacheField` 名单；
+      轴上的 `<field x="-2"/>` 那个负数是这一族表示「Data」假字段的方式（页轴用的又是另一个元素
+      与另一个属性名：`<pageField fld="2">`）。
+    - ODF 全收在 `content.xml` 的一棵 `<table:data-pilot-tables>` 里：字段名直接写在
+      `table:source-field-name`，没有缓存部件可跳。而 LibreOffice 这两枚表**没写**
+      `table:source-range-address` —— 数据源在哪也没落进文件，那一格交 null，
+      不拿 OOXML 那一份补过去；写着的只有落点 `销售.I1:销售.O17` 与五枚按钮地址。
+    - 同一枚表两族各报各的落点：ODF 从 I1 起（页轴那几格算在里面），OOXML 的 `location/@ref`
+      写 I4:O17 并把 `firstHeaderRow` / `firstDataRow` / `firstDataCol` 分开交 —— 差的行数是
+      这一族自己的排法，不换算。`.xls` 的透视表在 BIFF 记录流里，本机没有第二个读者能核对，
+      所以 `pivots` 这个键在该族**整个不在场**（`book.xls` 读到 null，不是读到 0）。

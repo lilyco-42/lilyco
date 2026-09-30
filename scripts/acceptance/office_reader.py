@@ -1025,6 +1025,342 @@ def ods_print_ranges(path: Path, limit: int = 100) -> dict:
     }
 
 
+def _rel_target(base_dir: str, target: str) -> str:
+    r"""关系表里的 `Target` 落成部件名：`../pivotTables/x.xml` 从关系表所在目录的**上一层**算起
+
+    与 `pivots.rs:resolve` 同一条规矩，`/xl/...` 那种以斜杠开头的从包根算起。
+    """
+    if target.startswith("/"):
+        return target[1:]
+    parts = [one for one in base_dir.split("/") if one and one != "."]
+    for bit in target.split("/"):
+        if bit in ("", "."):
+            continue
+        if bit == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(bit)
+    return "/".join(parts)
+
+
+def _rels_of(part: str) -> str:
+    r"""部件自己的关系表在哪：`xl/worksheets/sheet1.xml` → `xl/worksheets/_rels/sheet1.xml.rels`"""
+    if "/" in part:
+        dir_, file_ = part.rsplit("/", 1)
+        return f"{dir_}/_rels/{file_}.rels"
+    return f"_rels/{part}.rels"
+
+
+def _pivot_tally(values: list) -> dict:
+    out: dict = {}
+    for one in values:
+        out[one] = out.get(one, 0) + 1
+    return out
+
+
+def _rel_targets(box, names: set, part: str, tail: str) -> list:
+    r"""某份关系表里某一类关系的目标，按文件里的先后交部件名（只认 pivot 那三类）"""
+    holder = _rels_of(part)
+    if holder not in names:
+        return []
+    root = ET.fromstring(box.read(holder))
+    dir_ = part.rsplit("/", 1)[0] if "/" in part else ""
+    out = []
+    for one in root.iter():
+        if xml_local(one.tag) != "Relationship":
+            continue
+        type_ = one.get("Type") or ""
+        if not type_.endswith(tail) or "pivot" not in type_:
+            continue
+        out.append(_rel_target(dir_, one.get("Target") or ""))
+    return out
+
+
+def _pivot_axis(node) -> str:
+    r"""OOXML 的 axis 词落进共用的五个区名；没写 axis 又不带 dataField 才算 hidden"""
+    axis = local_attr(node, "axis") or ""
+    if axis == "axisRow":
+        return "row"
+    if axis == "axisCol":
+        return "column"
+    if axis == "axisPage":
+        return "page"
+    return "data" if local_attr(node, "dataField") is not None else "hidden"
+
+
+def xlsx_pivot_cache(box, names: set, part: str) -> dict:
+    r"""缓存定义那一跳：数据源、字段名单、记录部件，各按文件写的原样"""
+    if part not in names:
+        return {"part": part, "present": False}
+    root = ET.fromstring(box.read(part))
+    found = [one for one in root.iter() if xml_local(one.tag) == "pivotCacheDefinition"]
+    if not found:
+        return {"part": part, "present": True, "written": None}
+    def_ = found[0]
+    source = _first_kid(def_, "cacheSource")
+    holder = _first_kid(def_, "cacheFields")
+    fields = []
+    if holder is not None:
+        for kid in holder:
+            if xml_local(kid.tag) != "cacheField":
+                continue
+            mine = written_attrs(kid)
+            shared = _first_kid(kid, "sharedItems")
+            fields.append({
+                "name": mine.get("name"),
+                "written": mine,
+                "shared_written": written_attrs(shared) if shared is not None else None,
+                "shared_item_kinds": (_pivot_tally([xml_local(deep.tag) for deep in shared])
+                                      if shared is not None else None),
+            })
+    records_parts = _rel_targets(box, names, part, "pivotCacheRecords")
+    records_part = records_parts[0] if records_parts else None
+    records_declared = None
+    records_rows = None
+    if records_part in names:
+        records_root = ET.fromstring(box.read(records_part))
+        rows_holder = [one for one in records_root.iter()
+                       if xml_local(one.tag) == "pivotCacheRecords"]
+        if rows_holder:
+            records_declared = local_attr(rows_holder[0], "count")
+            records_rows = sum(1 for kid in rows_holder[0] if xml_local(kid.tag) == "r")
+    return {
+        "part": part,
+        "present": True,
+        "written": written_attrs(def_),
+        "source_type": local_attr(source, "type") if source is not None else None,
+        "worksheet_source": (written_attrs(_first_kid(source, "worksheetSource"))
+                             if source is not None
+                             and _first_kid(source, "worksheetSource") is not None else None),
+        "declared_field_total": local_attr(holder, "count") if holder is not None else None,
+        "fields": fields,
+        "field_names": [one["name"] if isinstance(one["name"], str) else "" for one in fields],
+        "records_part": records_part,
+        "records_declared": records_declared,
+        "records_rows": records_rows,
+    }
+
+
+def xlsx_pivots(path: Path, limit: int = 200) -> dict:
+    r"""OOXML 的数据透视表：四类部件拼回「哪张表上挂着哪一枚」
+
+    表归属**不在表自己身上**，在那张表的关系表里；`cacheId` 对的是 `xl/workbook.xml` 里
+    `<pivotCaches>` 那一条，不是表自己的关系（那一条只指缓存定义部件）。
+    """
+    with zipfile.ZipFile(path) as box:
+        names = set(one.filename for one in box.infolist())
+        if "xl/workbook.xml" not in names:
+            return {"available": False}
+        book = ET.fromstring(box.read("xl/workbook.xml"))
+        by_id: dict = {}
+        if "xl/_rels/workbook.xml.rels" in names:
+            rels = ET.fromstring(box.read("xl/_rels/workbook.xml.rels"))
+            for one in rels.iter():
+                if xml_local(one.tag) == "Relationship":
+                    by_id[one.get("Id")] = _rel_target("xl", one.get("Target") or "")
+        sheets = []
+        index = 0
+        for one in book.iter():
+            if xml_local(one.tag) != "sheet":
+                continue
+            part = by_id.get(local_attr(one, "id") or "")
+            sheets.append((one.get("name") or "",
+                           part if part else f"xl/worksheets/sheet{index + 1}.xml"))
+            index += 1
+        caches = []
+        for one in book.iter():
+            if xml_local(one.tag) != "pivotCache":
+                continue
+            rid = local_attr(one, "id") or ""
+            if rid in by_id:
+                caches.append((local_attr(one, "cacheId") or "", by_id[rid]))
+        owner = {}
+        for name, part in sheets:
+            for target in _rel_targets(box, names, part, "pivotTable"):
+                owner[target] = (name, part)
+        paths = sorted(one for one in names
+                       if one.startswith("xl/pivotTables/") and one.endswith(".xml")
+                       and "_rels" not in one)
+        rows = []
+        placements = []
+        got_names = []
+        owners = []
+        for part in paths:
+            root = ET.fromstring(box.read(part))
+            found = [one for one in root.iter() if xml_local(one.tag) == "pivotTableDefinition"]
+            if not found:
+                continue
+            def_ = found[0]
+            written = written_attrs(def_)
+            name = written.get("name")
+            if isinstance(name, str):
+                got_names.append(name)
+            cache_id = local_attr(def_, "cacheId")
+            cache_part = None
+            for one_id, where in caches:
+                if one_id == cache_id:
+                    cache_part = where
+                    break
+            cache = (xlsx_pivot_cache(box, names, cache_part) if cache_part else None)
+            field_names = cache["field_names"] if cache else []
+            fields = []
+            mine = []
+            holder = _first_kid(def_, "pivotFields")
+            if holder is not None:
+                for position, kid in enumerate([one for one in holder
+                                                if xml_local(one.tag) == "pivotField"]):
+                    placement = _pivot_axis(kid)
+                    mine.append(placement)
+                    placements.append(placement)
+                    items = _first_kid(kid, "items")
+                    fields.append({
+                        "index": position,
+                        "name": (field_names[position] if position < len(field_names) else None),
+                        "placement": placement,
+                        "written": written_attrs(kid),
+                        "item_total": local_attr(items, "count") if items is not None else None,
+                    })
+            measures = []
+            data_holder = _first_kid(def_, "dataFields")
+            if data_holder is not None:
+                for kid in data_holder:
+                    if xml_local(kid.tag) != "dataField":
+                        continue
+                    had = written_attrs(kid)
+                    measures.append({"name": had.get("name"), "written": had})
+            sheet_name, sheet_part = owner.get(part, ("", ""))
+            if sheet_name:
+                owners.append(sheet_name)
+            location = _first_kid(def_, "location")
+            rows.append({
+                "part": part,
+                "sheet": sheet_name if sheet_name else None,
+                "sheet_part": sheet_part if sheet_part else None,
+                "name": name,
+                "written": written,
+                "cache_id": cache_id,
+                "location": written_attrs(location) if location is not None else None,
+                "declared_field_total": (local_attr(holder, "count") if holder is not None else None),
+                "fields": fields,
+                "axes_counts": _pivot_tally(mine),
+                "axis_field_indexes": {
+                    "row": _axis_numbers(_first_kid(def_, "rowFields"), "field", "x"),
+                    "column": _axis_numbers(_first_kid(def_, "colFields"), "field", "x"),
+                    "page": _axis_numbers(_first_kid(def_, "pageFields"), "pageField", "fld"),
+                },
+                "measures": measures,
+                "cache": cache,
+            })
+    return {
+        "family": "ooxml",
+        "available": True,
+        "total": len(rows),
+        "with_location": sum(1 for one in rows if one["location"] is not None),
+        "distinct_names": len(sorted(set(got_names))),
+        "sheets_owning": len(sorted(set(owners))),
+        "caches_written": len(caches),
+        "axes_counts": _pivot_tally(placements),
+        "entries": rows[:limit],
+    }
+
+
+def _axis_numbers(holder, want: str, attr: str) -> list:
+    r"""一条轴上的字段序号按原样解出来：解不出的那条丢掉（与 `pivots.rs` 同一条口径）"""
+    out = []
+    if holder is None:
+        return out
+    for kid in holder:
+        if xml_local(kid.tag) != want:
+            continue
+        try:
+            out.append(int(kid.get(attr)))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def ods_pivots(path: Path, limit: int = 200) -> dict:
+    r"""ODF 的数据透视表：全收在 `content.xml` 那一棵 `<table:data-pilot-tables>` 里
+
+    字段名直接写在 `table:source-field-name` 上（这一族没有缓存部件可跳）；而 LibreOffice
+    这一份**没写** `table:source-range-address`，数据源在哪没落进文件 —— 如实交 null。
+    归属只能从落点那条地址的前半截拿。
+    """
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return {"available": False}
+        raw = box.read("content.xml")
+    root = ET.fromstring(raw)
+    nsmap = _ns_prefixes(raw)
+    rows = []
+    placements = []
+    got_names = []
+    owners = []
+    with_source = 0
+    for one in root.iter():
+        if xml_local(one.tag) != "data-pilot-table":
+            continue
+        written = _written_attrs(one, nsmap)
+        name = _local_in(written, "name")
+        if isinstance(name, str):
+            got_names.append(name)
+        target = _local_in(written, "target-range-address")
+        source = _local_in(written, "source-range-address")
+        if source is not None:
+            with_source += 1
+        owner = None
+        if target:
+            owner = target.split(".")[0].split(":")[0]
+        if owner:
+            owners.append(owner)
+        buttons = (_local_in(written, "buttons") or "").split()
+        fields = []
+        mine = []
+        layout = None
+        for position, kid in enumerate([deep for deep in list(one)
+                                        if xml_local(deep.tag) == "data-pilot-field"]):
+            had = _written_attrs(kid, nsmap)
+            placement = _local_in(had, "orientation") or "hidden"
+            mine.append(placement)
+            placements.append(placement)
+            is_layout = _local_in(had, "is-data-layout-field") == "true"
+            if is_layout:
+                layout = placement
+            fields.append({
+                "index": position,
+                "name": _local_in(had, "source-field-name"),
+                "placement": placement,
+                "data_layout_field": is_layout,
+                "written": had,
+            })
+        rows.append({
+            "part": "content.xml",
+            "sheet": owner if owner else None,
+            "name": name,
+            "written": written,
+            "target_range_address": target,
+            "source_range_address": source,
+            "buttons": buttons,
+            "fields": fields,
+            "axes_counts": _pivot_tally(mine),
+            "data_layout_placement": layout,
+            "measures": [{"name": had["name"], "written": had["written"]} for had in fields
+                         if had["placement"] == "data"],
+        })
+    return {
+        "family": "odf",
+        "available": True,
+        "total": len(rows),
+        "with_source_range": with_source,
+        "distinct_names": len(sorted(set(got_names))),
+        "sheets_owning": len(sorted(set(owners))),
+        "axes_counts": _pivot_tally(placements),
+        "entries": rows[:limit],
+    }
+
+
 def ods_data_ranges(path: Path, limit: int = 100) -> dict:
     r"""ODF 的数据区（`table:database-range`）与挂在它身上的筛子
 
@@ -14830,6 +15166,7 @@ def facts(path: Path) -> dict:
             out["comments"] = xlsx_comments(path)
             # 打印区域与重复标题行：不在表上，在 workbook.xml 那两条保留名上
             out["ooxml"]["print_ranges"] = xlsx_print_ranges(path)
+            out["ooxml"]["pivots"] = xlsx_pivots(path)
             out["ooxml"]["formula_elems"] = xlsx_formula_elems(path)
             # 这一族的格子按**序号**点主题，所以那十二格的顺序本身就是答案的一半
             out["ooxml"]["theme"] = themes
@@ -14926,6 +15263,7 @@ def facts(path: Path) -> dict:
                 sheets["print_ranges"] = ods_print_ranges(path)
                 sheets["data_ranges"] = ods_data_ranges(path)
                 sheets["conditional_styles"] = ods_conditional_styles(path)
+                sheets["pivots"] = ods_pivots(path)
                 sheets["formula_elems"] = ods_formula_elems(path)
                 sheets["theme"] = themes
                 sheets["color_refs"] = refs

@@ -165,6 +165,8 @@ def main() -> int:
     # ── 识别：每条命令都得把文件认成同一个东西 ──────────────────────
     expect = {
         "notes.docx": ("ooxml", "word", "docx"),
+        "pilot.xlsx": ("ooxml", "excel", "xlsx"),
+        "pilot.ods": ("opendocument", "excel", "ods"),
         "notes-hf.docx": ("ooxml", "word", "docx"),
         "notes-foot.docx": ("ooxml", "word", "docx"),
         "notes-end.docx": ("ooxml", "word", "docx"),
@@ -2613,10 +2615,10 @@ def main() -> int:
          for one in rows],
         [["content.xml", "ce2", "Default", "N0", ["cell-content()>100"],
           ["ConditionalStyle_5f_1"], ["规则.B2"], [True],
-          ["style:display-name", "style:family", "style:name", "style:parent-style-name"]],
+          [["style:display-name", "style:family", "style:name", "style:parent-style-name"]]],
          ["content.xml", "ce3", "Default", "N0", ["cell-content()>100"],
           ["ConditionalStyle_5f_1"], ["规则.B2"], [True],
-          ["style:display-name", "style:family", "style:name", "style:parent-style-name"]],
+          [["style:display-name", "style:family", "style:name", "style:parent-style-name"]]],
          ])
     check(
         "跨格式同问两个答案：同一份内容 OOXML 第一张表写 3 个区间共 4 枚规则，"
@@ -2629,6 +2631,101 @@ def main() -> int:
          (lbin("office-sheet", fixture("rules.ods")).get("conditional_styles") or {}).get("maps_total")],
         [3, 4, 2],
     )
+    print("=== 3a5e) 数据透视表（pivot）：OOXML 四类部件与 ODF 那一棵 data-pilot-tables ===")
+    for name, where in (("pilot.xlsx", "ooxml"), ("pilot.ods", "ods"), ("book.xlsx", "ooxml"),
+                        ("book.ods", "ods"), ("groups.ods", "ods"), ("size.ods", "ods"),
+                        ("rules.ods", "ods"), ("locked-sheet.xlsx", "ooxml"),
+                        ("cell-locks.xlsx", "ooxml")):
+        got = json.dumps(lbin("office-sheet", fixture(name)).get("pivots") or {},
+                         ensure_ascii=False, sort_keys=True)
+        want = json.dumps(files[name][where]["pivots"], ensure_ascii=False, sort_keys=True)
+        check("%s 的透视表整本账（两家逐格）" % name, got, want)
+    odf = lbin("office-sheet", fixture("pilot.ods")).get("pivots") or {}
+    check("ODF 两枚表逐格：落点、按钮、字段摆位按文件写的交，而 LibreOffice 这一份**没写** "
+          "table:source-range-address —— 那一格交 null，不拿 OOXML 那一份补；归属只从落点地址的前半截读",
+          [[odf["total"], odf["with_source_range"], odf["distinct_names"], odf["sheets_owning"],
+            odf["axes_counts"]],
+           [[one["part"], one["sheet"], one["name"], one["target_range_address"],
+             one["source_range_address"], one["buttons"], one["axes_counts"],
+             one["data_layout_placement"], [[f["name"], f["placement"]] for f in one["fields"]]]
+            for one in odf["entries"]]],
+          [[2, 0, 2, 1, {"row": 3, "column": 1, "page": 1, "data": 3, "hidden": 4}],
+           [["content.xml", "销售", "Pilot1", "销售.I1:销售.O17", None,
+             ["销售.I1", "销售.I2", "销售.I5", "销售.J5", "销售.K4"],
+             {"row": 2, "column": 1, "page": 1, "data": 2}, "row",
+             [["区域", "row"], ["品类", "column"], ["月份", "page"], ["数量", "data"],
+              ["金额", "data"], ["", "row"]]],
+            ["content.xml", "销售", "Pilot2", "销售.U1:销售.V9", None,
+             ["销售.U1", "销售.U3"], {"row": 1, "hidden": 4, "data": 1}, "hidden",
+             [["区域", "row"], ["品类", "hidden"], ["月份", "hidden"], ["数量", "data"],
+              ["金额", "hidden"], ["", "hidden"]]]]])
+    box = lbin("office-sheet", fixture("pilot.xlsx")).get("pivots") or {}
+    check("OOXML 两枚表逐格：表在 pivotTables 部件、归属在那张表的关系表、跳缓存走 cacheId；"
+          "字段名不在表上（只有轴与下标），要回头查缓存那五名 —— `x=-2` 是那枚「Data」假字段占的行轴",
+          [[box["total"], box["with_location"], box["distinct_names"], box["sheets_owning"],
+            box["caches_written"], box["axes_counts"]],
+           [[one["part"], one["sheet"], one["sheet_part"], one["name"], one["cache_id"],
+             one["location"]["ref"], one["declared_field_total"], one["axes_counts"],
+             one["axis_field_indexes"], [[f["name"], f["placement"]] for f in one["fields"]],
+             [m["name"] for m in one["measures"]],
+             [one["cache"]["records_declared"], one["cache"]["records_rows"],
+              one["cache"]["source_type"], one["cache"]["worksheet_source"]["ref"],
+              one["cache"]["worksheet_source"]["sheet"],
+              [[f["name"], f["shared_item_kinds"]] for f in one["cache"]["fields"]]]]
+            for one in box["entries"]]],
+          [[2, 2, 2, 1, 1, {"row": 2, "column": 1, "page": 1, "data": 3, "hidden": 3}],
+           [["xl/pivotTables/pivotTable1.xml", "销售", "xl/worksheets/sheet1.xml", "Pilot1", "1",
+             "I4:O17", "5", {"row": 1, "column": 1, "page": 1, "data": 2},
+             {"row": [0, -2], "column": [1], "page": [2]},
+             [["区域", "row"], ["品类", "column"], ["月份", "page"], ["数量", "data"],
+              ["金额", "data"]],
+             ["求和 - 数量", "平均值 - 金额"],
+             ["36", 36, "worksheet", "A1:E38", "销售",
+              [["区域", {"s": 4, "m": 1}], ["品类", {"s": 3, "m": 1}],
+               ["月份", {"s": 3, "m": 1}], ["数量", {"n": 28, "m": 1}],
+               ["金额", {"n": 36, "m": 1}]]]],
+            ["xl/pivotTables/pivotTable2.xml", "销售", "xl/worksheets/sheet1.xml", "Pilot2", "1",
+             "U3:V9", "5", {"row": 1, "hidden": 3, "data": 1},
+             {"row": [0], "column": [], "page": []},
+             [["区域", "row"], ["品类", "hidden"], ["月份", "hidden"], ["数量", "data"],
+              ["金额", "hidden"]],
+             ["求和 - 数量"],
+             ["36", 36, "worksheet", "A1:E38", "销售",
+              [["区域", {"s": 4, "m": 1}], ["品类", {"s": 3, "m": 1}],
+               ["月份", {"s": 3, "m": 1}], ["数量", {"n": 28, "m": 1}],
+               ["金额", {"n": 36, "m": 1}]]]]]])
+    same = lbin("office-sheet", fixture("pilot.xlsx")).get("pivots") or {}
+    check("同一份内容两族各说各的落点：ODF 写落点从 I1 起（页轴那几格算在落点里），"
+          "OOXML 的 location 写 I4:O17 并把 firstHeaderRow / firstDataRow / firstDataCol 三个数分开交 —— "
+          "差的那两行是这一族自己的排法，不换算",
+          [[same["entries"][0]["location"]["ref"],
+            sorted(same["entries"][0]["location"].keys()),
+            sorted(same["entries"][1]["location"].keys())],
+           ["I4:O17",
+            ["colPageCount", "firstDataCol", "firstDataRow", "firstHeaderRow", "ref",
+             "rowPageCount"],
+            ["firstDataCol", "firstDataRow", "firstHeaderRow", "ref"]]])
+    whole = [
+        sum(1 for one in files if files[one].get("ooxml", {}).get("pivots", {}).get("total", 0)),
+        sum(1 for one in files if files[one].get("ods", {}).get("pivots", {}).get("total", 0)),
+        sum(files[one].get("ooxml", {}).get("pivots", {}).get("total", 0) for one in files),
+        sum(files[one].get("ods", {}).get("pivots", {}).get("total", 0) for one in files),
+        sum(files[one].get("ooxml", {}).get("pivots", {}).get("caches_written", 0) for one in files),
+    ]
+    check("整库摊开：带透视表的只有这一对同内容件（一份 .xlsx 两枚表 + 一份 .ods 两枚表），"
+          "缓存部件全库只有一条 —— 其余件的账本是空的而不是缺键",
+          whole, [1, 1, 2, 2, 1])
+    check("反面凭据两问：`.xls` 的透视表在 BIFF 的记录流里而本机没有第二个读者能核对，"
+          "Word 与演示两家根本没有这个概念 —— 三份出口里 `pivots` 这个键整个不在场；"
+          "而两族之间不互相借键：ODF 那本没有 `cache`，OOXML 那本没有 `buttons`",
+          [no_theme_key("office-sheet", "book.xls", "pivots"),
+           no_theme_key("office-doc", "notes.docx", "pivots"),
+           no_theme_key("office-slide", "deck.pptx", "pivots"),
+           ("cache" in (odf["entries"][0] or {})),
+           ("buttons" in (same["entries"][0] or {})),
+           ("source_range_address" in same["entries"][0])],
+          [False, False, False, False, False, False])
+
     print("=== 3a5b 续) ODS 分组里的行也进账（那笔下钻的回归闸门） ===")
     for name in ("groups.ods",):
         rows = lbin("office-sheet", fixture(name)).get("sheets", [])
@@ -12677,8 +12774,8 @@ def main() -> int:
            sorted(spelling_rows.items()),
            sum(len(one["unknown_attrs"]) for one in lock_rows),
            sorted({one["part"] for one in lock_rows})],
-          [45, 21, 82, 1, [["cellStyleXfs", 23], ["cellXfs", 59], ["dxfs", 0]],
-           [("", 1), ("0", 1), ("1", 1), ("false", 78), ("true", 80)], 1, ["xl/styles.xml"]])
+          [46, 22, 138, 1, [["cellStyleXfs", 24], ["cellXfs", 114], ["dxfs", 0]],
+           [("", 1), ("0", 1), ("1", 1), ("false", 134), ("true", 136)], 1, ["xl/styles.xml"]])
     check("反面凭据：这一层只住 OOXML 表格那一家。`.ods` 没有格式级的锁定属性（ODF 的锁只在 `table:table` 那一层，"
           "已由 `protection` 那一本交），`.xls` 的位在 BIFF 的 `XF` 记录里（本机没有第二个读者能核对那些位段），"
           "而 Word 与演示那两家根本没有 cellXfs 这本 —— 那四份出口的账本里这个键**整个不在场**，而不是交一份零账",

@@ -5489,6 +5489,143 @@ def write_groups_xlsx(path: Path) -> None:
     wb.save(path)
 
 
+
+
+def write_pivot_seed(path: Path) -> None:
+    """合成一张纯数据的表（区域 / 品类 / 月份 / 数量 / 金额，36 行 + 表头），给透视表当数据源
+
+    数字按行号算出来，不含任何真实内容；`数量` 是整数而 `金额` 带小数，
+    这样求和与平均两枚数据字段各自量到的类别清单不一样（28 项与 36 项）。
+    """
+    areas = ["华东", "华南", "华北", "西部"]
+    kinds = ["甲", "乙", "丙"]
+    months = ["1月", "2月", "3月"]
+    box = Workbook()
+    sheet = box.active
+    sheet.title = "销售"
+    sheet.append(["区域", "品类", "月份", "数量", "金额"])
+    row = 0
+    for area_index, area in enumerate(areas):
+        for kind_index, kind in enumerate(kinds):
+            for month_index, month in enumerate(months):
+                row += 1
+                sheet.append([area, kind, month,
+                              10 * (row % 7 + 1) + area_index,
+                              round(3.5 * (row % 5 + 1) + kind_index + 0.25 * month_index, 2)])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    box.save(path)
+
+
+PIVOT_DRIVER = r"""
+import sys
+import time
+
+import uno
+
+seed, dst_ods, dst_xlsx = sys.argv[1:4]
+
+
+def url(path):
+    return "file:///" + path.replace("\\", "/")
+
+
+local = uno.getComponentContext()
+resolver = local.ServiceManager.createInstanceWithContext(
+    "com.sun.star.bridge.UnoUrlResolver", local)
+ctx = None
+deadline = time.time() + 90
+while ctx is None and time.time() < deadline:
+    try:
+        ctx = resolver.resolve(
+            "uno:socket,host=127.0.0.1,port=2020;urp;StarOffice.ComponentContext")
+    except Exception:
+        time.sleep(1.0)
+if ctx is None:
+    sys.exit("桥起不来")
+desk = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+ORIENT = "com.sun.star.sheet.DataPilotFieldOrientation"
+ROW = uno.Enum(ORIENT, "ROW")
+COLUMN = uno.Enum(ORIENT, "COLUMN")
+PAGE = uno.Enum(ORIENT, "PAGE")
+DATA = uno.Enum(ORIENT, "DATA")
+SUM = uno.Enum("com.sun.star.sheet.GeneralFunction", "SUM")
+AVG = uno.Enum("com.sun.star.sheet.GeneralFunction", "AVERAGE")
+
+
+def prop(name, value):
+    one = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+    one.Name = name
+    one.Value = value
+    return one
+
+
+def add_table(sheet, tag, layout, column):
+    tables = sheet.DataPilotTables
+    descriptor = tables.createDataPilotDescriptor()
+    src = uno.createUnoStruct("com.sun.star.table.CellRangeAddress")
+    src.Sheet, src.StartColumn, src.StartRow, src.EndColumn, src.EndRow = 0, 0, 0, 4, 37
+    descriptor.SourceRange = src
+    fields = descriptor.DataPilotFields
+    for index in range(len(fields)):
+        one = fields[index]
+        if one.Name in layout:
+            one.Orientation = layout[one.Name][0]
+            if layout[one.Name][1] is not None:
+                one.Function = layout[one.Name][1]
+    dest = uno.createUnoStruct("com.sun.star.table.CellAddress")
+    dest.Sheet, dest.Column, dest.Row = 0, column, 0
+    tables.insertNewByName(tag, dest, descriptor)
+
+
+doc = desk.loadComponentFromURL(url(seed), "_blank", 0, ())
+sheet = doc.Sheets.getByIndex(0)
+add_table(sheet, "Pilot1", {"区域": (ROW, None), "品类": (COLUMN, None),
+                            "月份": (PAGE, None), "数量": (DATA, SUM),
+                            "金额": (DATA, AVG), "Data": (ROW, None)}, 8)
+add_table(sheet, "Pilot2", {"区域": (ROW, None), "数量": (DATA, SUM)}, 20)
+doc.storeToURL(url(dst_ods), (prop("FilterName", "calc8"),))
+doc.storeToURL(url(dst_xlsx), (prop("FilterName", "Calc MS Excel 2007 XML"),))
+doc.close(False)
+"""
+
+
+def add_pivot_tables(exe: str, seed: Path, dst_ods: Path, dst_xlsx: Path,
+                     profile: Path) -> bool:
+    r"""让 LibreOffice **自己挂两枚数据透视表**，同一份内容各存一份 .ods 与 .xlsx
+
+    `--convert-to` 造不出透视表，得走 UNO：先用 `-env:UserInstallation` 起一个 headless
+    LibreOffice 开 socket 桥，再用 LibreOffice 自带的那份 python（`program/python.exe`，
+    只有那里有 pyuno）跑 `PIVOT_DRIVER`。桥只连本机 127.0.0.1，profile 是临时的那一份。
+    踩过的三条，都在这里：`DataPilotFields` 那根属性只读、但拿到的序列是活的（改条目就直接生效）；
+    结构体与枚举要在桥起来之后用 `uno.createUnoStruct` / `uno.Enum` 取；
+    新建走 `insertNewByName(名字, 落点, 描述对象)` 三个参数，少一个 LO 只回一句
+    "Failed to create pivot table"。
+    """
+    env = "-env:UserInstallation=" + profile.resolve().as_uri()
+    bridge_python = Path(exe).parent / "python.exe"
+    if not bridge_python.exists():
+        print("⚠️  没有 LibreOffice 自带的 python（pyuno）：跳过 pilot.ods / pilot.xlsx")
+        return False
+    profile.parent.mkdir(parents=True, exist_ok=True)
+    driver = profile.parent / "pivot_driver.py"
+    driver.write_text(PIVOT_DRIVER.lstrip(), encoding="utf-8")
+    server = subprocess.Popen(
+        [exe, env, "--headless", "--norestore", "--invisible",
+         "--accept=socket,host=127.0.0.1,port=2020;urp;"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        time.sleep(18)
+        subprocess.run([str(bridge_python), str(driver), str(seed.resolve()),
+                        str(dst_ods.resolve()), str(dst_xlsx.resolve())],
+                       capture_output=True, timeout=300, check=False)
+    except (subprocess.SubprocessError, OSError) as bad:
+        print(f"⚠️  pyuno 桥没跑通：{bad}")
+        return False
+    finally:
+        server.terminate()
+    return dst_ods.exists() and dst_xlsx.exists()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="重跑前先清掉输出目录")
@@ -6971,6 +7108,18 @@ def main() -> int:
             #    在 notes.pdf 上挂一套分层字段，另存一份（详见函数说明）
             write_forms_hier_pdf(source, OUT / "forms-hier.pdf")
             print("  forms-hier.pdf 由 pikepdf 挂上三层字段：这一份不是编辑器导的")
+
+    # 数据透视表那一对：种子由 openpyxl 写，两枚透视表由 LibreOffice 自己挂
+    # （转格式造不出这个东西，见 `add_pivot_tables`）
+    seed_pivot = SCRATCH / "pivot-seed.xlsx"
+    write_pivot_seed(seed_pivot)
+    made_pivot_ods = SCRATCH / "pivot-out" / "pilot.ods"
+    made_pivot_xlsx = SCRATCH / "pivot-out" / "pilot.xlsx"
+    if add_pivot_tables(exe, seed_pivot, made_pivot_ods, made_pivot_xlsx,
+                        SCRATCH / "pivot-profile"):
+        shutil.copyfile(made_pivot_ods, OUT / "pilot.ods")
+        shutil.copyfile(made_pivot_xlsx, OUT / "pilot.xlsx")
+        print("  pilot.ods / pilot.xlsx 由 LibreOffice 挂上两枚数据透视表后存出")
 
     print("fixture 清单（每个文件的生产者见函数注释）：")
     for one in sorted(OUT.iterdir()):
