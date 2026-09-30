@@ -3560,6 +3560,8 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
                 "fmt_styles": crate::fmt_styles::parts(bytes, limit),
                 // 样式表顶上那份内建样式清单：自报的 count 与实际写出的条数是两个数
                 "latent_styles": crate::latent_styles::docx(bytes, limit),
+                // 表格样式身上那批条件分支：隔行底纹与表头加粗写在样式上，不在表上
+                "table_style_branches": crate::table_style_branches::docx(bytes, limit),
                 // 反过来那一本：正文里那些手指点到哪一格，Word 那一路的影子实色自己跟自己核对
                 "color_refs": crate::theme_refs::refs(bytes, limit),
                 // 分节的页眉页脚：每节六格，自己写的与真正沿用的分开交
@@ -5482,6 +5484,49 @@ mod tests {
             json!(0)
         );
         assert_eq!(run("notes.docx")["protection"]["element"], json!(false));
+        // 表格样式身上那批条件分支：认得的种数、写了分支的种数、空壳的 w:tblPr 是三句话
+        let branches = &held["structure"]["table_style_branches"];
+        assert_eq!(branches["part"], json!(true));
+        assert_eq!(branches["table_styles_total"], json!(100));
+        assert_eq!(branches["styles_with_branches"], json!(98));
+        assert_eq!(branches["branches_total"], json!(649));
+        assert_eq!(branches["distinct_types"], json!(10));
+        // 本机 810 份真件与自产件里 `w:if` 一枚都没有：条件全靠 w:type 说话
+        assert_eq!(branches["if_written"], json!(0));
+        assert_eq!(branches["box_names"]["tblPr"], json!(546));
+        assert_eq!(branches["empty_box_names"]["tblPr"], json!(546));
+        assert_eq!(branches["nonempty_box_names"]["tblPr"], json!(null));
+        assert_eq!(branches["shading_branches"], json!(420));
+        assert_eq!(branches["theme_fill_tints"]["3F"], json!(77));
+        assert_eq!(branches["border_vals"]["nil"], json!(1169));
+        let first = &branches["entries"][0];
+        assert_eq!(first["style_id"], json!("LightShading"));
+        assert_eq!(first["name"], json!("Light Shading"));
+        assert_eq!(first["branches_total"], json!(6));
+        assert_eq!(first["branches"][0]["type"], json!("firstRow"));
+        assert_eq!(first["branches"][0]["boxes"]["tblPr"]["empty"], json!(true));
+        assert_eq!(
+            first["branches"][0]["boxes"]["rPr"]["children"],
+            json!(["b", "bCs"])
+        );
+        // LibreOffice 重写同一份：每枚分支都补上空壳 w:tblPr（546 → 649），另留 7 枚空壳 w:rPr，
+        // `w:iCs` 整个不见了，而 themeFillTint 的大小写从 3F 变 3f —— 按文件的原样交
+        let back = run("bkmks-lo.docx");
+        let lo = &back["structure"]["table_style_branches"];
+        assert_eq!(lo["branches_total"], json!(649));
+        assert_eq!(lo["box_names"]["tblPr"], json!(649));
+        assert_eq!(lo["empty_box_names"]["rPr"], json!(7));
+        assert_eq!(lo["nonempty_box_names"]["rPr"], json!(362));
+        assert_eq!(lo["run_prop_names"]["iCs"], json!(null));
+        assert_eq!(lo["theme_fill_tints"]["3f"], json!(77));
+        assert_eq!(lo["theme_fill_tints"]["3F"], json!(null));
+        // 从 ODF 转回来的那一份：部件在，可是一种表格样式都没有 —— 交 0 而不是缺键
+        let turned = run("cjk-odf-lo.docx");
+        let bare = &turned["structure"]["table_style_branches"];
+        assert_eq!(bare["part"], json!(true));
+        assert_eq!(bare["table_styles_total"], json!(0));
+        assert_eq!(bare["branches_total"], json!(0));
+        assert_eq!(bare["branch_types"], json!({}));
     }
 
     /// ODF 那一侧：文档级保护在 `settings.xml` 的 config-item 上，而 docx 的编辑限制

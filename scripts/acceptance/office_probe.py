@@ -13192,6 +13192,139 @@ def main() -> int:
            sorted({tuple(sorted(one["written"])) for one in latent_ledger})],
           [94, 80, 14, 10960, 0, ['276', 'None'], [137], [(), ('count', 'defLockedState', 'defQFormat', 'defSemiHidden', 'defUIPriority', 'defUnhideWhenUsed')]])
 
+    print("=== 3c3) 表格样式身上那批条件分支（tblStylePr）：隔行底纹写在样式上，不在表上 ===")
+    tsb_keys = ("part", "table_styles_total", "styles_with_branches", "branches_total",
+            "distinct_types", "branch_types", "if_written", "box_names",
+            "empty_box_names", "nonempty_box_names", "shading_branches", "shading_vals",
+            "theme_fill_names", "theme_fill_tints", "border_edges", "border_vals",
+            "border_theme_colors", "run_prop_names", "para_prop_names",
+            "style_attrs_written")
+    tsb_pin = {'bkmks.docx': [True, 100, 98, 649, 10, {'band1Horz': 98, 'band1Vert': 98, 'band2Horz': 14, 'firstCol': 98, 'firstRow': 98, 'lastCol': 98, 'lastRow': 98, 'neCell': 13, 'nwCell': 27, 'swCell': 7}, 0, {'pPr': 70, 'rPr': 369, 'tblPr': 546, 'tcPr': 546}, {'tblPr': 546}, {'pPr': 70, 'rPr': 369, 'tcPr': 546}, 420, {'clear': 420}, {'accent1': 45, 'accent2': 48, 'accent3': 46, 'accent4': 46, 'accent5': 46, 'accent6': 46, 'background1': 91, 'text1': 52}, {'19': 7, '33': 14, '3F': 77, '66': 21, '7F': 63}, {'bottom': 315, 'insideH': 301, 'insideV': 315, 'left': 322, 'right': 322, 'top': 336}, {'double': 28, 'nil': 1169, 'single': 714}, {'accent1': 65, 'accent2': 68, 'accent3': 66, 'accent4': 66, 'accent5': 66, 'accent6': 66, 'background1': 203, 'text1': 79}, {'b': 301, 'bCs': 301, 'color': 180, 'i': 28, 'iCs': 28, 'rFonts': 35, 'sz': 7, 'szCs': 7}, {'spacing': 70}, {'default': 1, 'styleId': 100, 'type': 100}], 'bkmks-lo.docx': [True, 100, 98, 649, 10, {'band1Horz': 98, 'band1Vert': 98, 'band2Horz': 14, 'firstCol': 98, 'firstRow': 98, 'lastCol': 98, 'lastRow': 98, 'neCell': 13, 'nwCell': 27, 'swCell': 7}, 0, {'pPr': 70, 'rPr': 369, 'tblPr': 649, 'tcPr': 546}, {'rPr': 7, 'tblPr': 649}, {'pPr': 70, 'rPr': 362, 'tcPr': 546}, 420, {'clear': 420}, {'accent1': 45, 'accent2': 48, 'accent3': 46, 'accent4': 46, 'accent5': 46, 'accent6': 46, 'background1': 91, 'text1': 52}, {'19': 7, '33': 14, '3f': 77, '66': 21, '7f': 63}, {'bottom': 315, 'insideH': 301, 'insideV': 315, 'left': 322, 'right': 322, 'top': 336}, {'double': 28, 'nil': 1169, 'single': 714}, {'accent1': 65, 'accent2': 68, 'accent3': 66, 'accent4': 66, 'accent5': 66, 'accent6': 66, 'background1': 203, 'text1': 79}, {'b': 301, 'bCs': 301, 'color': 173, 'i': 28, 'rFonts': 35, 'sz': 7, 'szCs': 7}, {'spacing': 70}, {'default': 1, 'styleId': 100, 'type': 100}], 'cjk-odf-lo.docx': [True, 0, 0, 0, 0, {}, 0, {}, {}, {}, 0, {}, {}, {}, {}, {}, {}, {}, {}, {}]}
+    for name in ("bkmks.docx", "bkmks-lo.docx", "cjk-odf-lo.docx"):
+        got = dig(lbin("office-doc", fixture(name)), "structure.table_style_branches") or {}
+        check("表格样式条件分支整本账（两家逐格） " + name,
+              [got.get(key) for key in tsb_keys], tsb_pin[name])
+    hand = tsb_pin["bkmks.docx"]
+    rewrote = tsb_pin["bkmks-lo.docx"]
+    check("同一份内容两家写法差在三处，都按原样交：LibreOffice 重写后 `w:tblPr` 从 %d 枚变 %d 枚"
+          "（每枚分支都补上空壳，所以空壳计数跟着变满），另留 %d 枚**空壳 `w:rPr`**（原来那 %d 枚"
+          "有内容的 rPr 只剩 %d 枚）；`w:iCs` 那 %d 枚整个不见了（`run_prop_names` 里读不到 iCs，"
+          "而 color 少 %d 枚）；底纹的浓度指针大小写从 3F / 7F 变 3f / 7f —— 分支的种类与枚数"
+          "两种写法完全一致（认得 %d 种、写了 %d 种、共 %d 枚，if_written 两边都是 %d）"
+          % (hand[7]["tblPr"], rewrote[7]["tblPr"], rewrote[8].get("rPr", 0),
+             hand[9]["rPr"], rewrote[9]["rPr"], hand[17].get("iCs", 0),
+             hand[17]["color"] - rewrote[17]["color"], hand[1], hand[2], hand[3],
+             hand[6]),
+          [[hand[7]["tblPr"], rewrote[7]["tblPr"]],
+           [hand[8], rewrote[8]],
+           [hand[9], rewrote[9]],
+           [hand[13], rewrote[13]],
+           ["iCs" in hand[17], "iCs" in rewrote[17],
+            hand[17]["color"] - rewrote[17]["color"]],
+           [hand[1], hand[2], hand[3], hand[4], rewrote[4], hand[6], rewrote[6]]],
+          [[546, 649],
+           [{'tblPr': 546}, {'rPr': 7, 'tblPr': 649}],
+           [{'pPr': 70, 'rPr': 369, 'tcPr': 546}, {'pPr': 70, 'rPr': 362, 'tcPr': 546}],
+           [{'19': 7, '33': 14, '3F': 77, '66': 21, '7F': 63},
+            {'19': 7, '33': 14, '3f': 77, '66': 21, '7f': 63}],
+           [True, False, 7],
+           [100, 98, 649, 10, 10, 0, 0]])
+    tsb = dig(lbin("office-doc", fixture("table-style.docx"), "--limit", "400"),
+              "structure.table_style_branches") or {}
+    picked = [one for one in (tsb.get("entries") or [])
+              if one.get("style_id") == "LightShading"]
+    row = picked[0] if picked else {}
+    check("LightShading 这 6 枚分支各说了什么（第一份逐格）：样式 id、给人看的名字、样式自己写的属性、"
+          "枚数，都是原样 —— 「隔行底纹到底是什么」的答案在这里是 `band1Vert` / `band1Horz` 各写了一枚 "
+          "`w:shd`：实色 C0C0C0 与主题指针 text1 + 浓度 3F 两处一起写，四条边全写 nil（即把格内竖线抹掉）",
+          [[row.get("style_id"), row.get("name"), row.get("written"), row.get("branches_total")],
+           [[one.get("type"), sorted(one.get("boxes") or {}),
+             (one.get("shading") or {}).get("fill"),
+             (one.get("shading") or {}).get("themeFill"),
+             (one.get("shading") or {}).get("themeFillTint"),
+             sorted(two.get("edge") for two in (one.get("borders") or [])),
+             sorted(two.get("written", {}).get("val") for two in (one.get("borders") or [])
+                    if two.get("written", {}).get("val")),
+             [two.get("name") for two in (one.get("run_props") or [])],
+             [two.get("name") for two in (one.get("para_props") or [])]]
+            for one in (row.get("branches") or [])]],
+          [['LightShading', 'Light Shading', {'type': 'table', 'styleId': 'LightShading'}, 6],
+           [['firstRow', ['pPr', 'rPr', 'tblPr', 'tcPr'], None, None, None,
+             ['bottom', 'insideH', 'insideV', 'left', 'right', 'top'],
+             ['nil', 'nil', 'nil', 'nil', 'single', 'single'], ['b', 'bCs'], ['spacing']],
+            ['lastRow', ['pPr', 'rPr', 'tblPr', 'tcPr'], None, None, None,
+             ['bottom', 'insideH', 'insideV', 'left', 'right', 'top'],
+             ['nil', 'nil', 'nil', 'nil', 'single', 'single'], ['b', 'bCs'], ['spacing']],
+            ['firstCol', ['rPr'], None, None, None, [], [], ['b', 'bCs'], []],
+            ['lastCol', ['rPr'], None, None, None, [], [], ['b', 'bCs'], []],
+            ['band1Vert', ['tblPr', 'tcPr'], 'C0C0C0', 'text1', '3F',
+             ['insideH', 'insideV', 'left', 'right'], ['nil', 'nil', 'nil', 'nil'], [], []],
+            ['band1Horz', ['tblPr', 'tcPr'], 'C0C0C0', 'text1', '3F',
+             ['insideH', 'insideV', 'left', 'right'], ['nil', 'nil', 'nil', 'nil'], [], []]]])
+    tsb_ledger = [files[one]["ooxml"]["table_style_branches"] for one in sorted(files)
+                  if one.endswith(".docx") and (files[one].get("ooxml") or {}).get(
+                      "table_style_branches")]
+    check("整库摊开（94 份 .docx）：有 styles.xml 的 94 份里 80 份写了这批分支、14 份一种表格样式都没有；"
+          "分支合计 51920 枚，`w:if` 写了的 **0 枚**（本机另测的 33 份第三方 .docx 的 12332 枚里也是一枚没有），"
+          "底纹 33600 枚而 `w:shd` 的 `val` 只有 clear 这一种拼法；`w:tblPr` 盒子 47388 枚**全是空壳**"
+          "（有内容的 0 枚），另有 245 枚空壳 `w:rPr`；十种 type 的分布、浓度的两种大小写、"
+          "八种字体属性都各数一本 —— 「这套画廊有多宽」与「这份文档改了哪几枚」不是同一个数",
+          [len(tsb_ledger),
+           sum(1 for one in tsb_ledger if one["part"]),
+           sum(1 for one in tsb_ledger if one["table_styles_total"]),
+           sum(1 for one in tsb_ledger if one["styles_with_branches"]),
+           sum(one["branches_total"] for one in tsb_ledger),
+           sum(one["if_written"] for one in tsb_ledger),
+           sum(one["shading_branches"] for one in tsb_ledger),
+           sum(one["box_names"].get("tblPr", 0) for one in tsb_ledger),
+           sum(one["empty_box_names"].get("tblPr", 0) for one in tsb_ledger),
+           sum(one["nonempty_box_names"].get("tblPr", 0) for one in tsb_ledger),
+           sum(one["empty_box_names"].get("rPr", 0) for one in tsb_ledger),
+           sum(1 for one in tsb_ledger if one["part"] and not one["table_styles_total"]),
+           sorted({k for one in tsb_ledger for k in one["shading_vals"]}),
+           sorted({k for one in tsb_ledger for k in one["box_names"]}),
+           sorted({k for one in tsb_ledger for k in one["border_edges"]}),
+           sorted({str(one["table_styles_total"]) for one in tsb_ledger})],
+          [94, 94, 80, 80, 51920, 0, 33600, 47388, 47388, 0, 245, 14, ['clear'],
+           ['pPr', 'rPr', 'tblPr', 'tcPr'],
+           ['bottom', 'insideH', 'insideV', 'left', 'right', 'top'], ['0', '100']])
+    check("全库那三本分布：十种 type 的枚数（六种满 7840 与四种零星）、浓度指针的取值（大写三种来自"
+          "自产件、小写两种来自 LibreOffice 那一路，同一份内容的两种拼法都在账上）、"
+          "与字体属性的种类（`iCs` 只在没被 LibreOffice 重写过的那些里）",
+          [dict((k, sum(one["branch_types"].get(k, 0) for one in tsb_ledger))
+               for k in sorted({k for one in tsb_ledger for k in one["branch_types"]})),
+           dict((k, sum(one["theme_fill_tints"].get(k, 0) for one in tsb_ledger))
+                for k in sorted({k for one in tsb_ledger for k in one["theme_fill_tints"]})),
+           dict((k, sum(one["run_prop_names"].get(k, 0) for one in tsb_ledger))
+                for k in sorted({k for one in tsb_ledger for k in one["run_prop_names"]}))],
+          [{'band1Horz': 7840, 'band1Vert': 7840, 'band2Horz': 1120, 'firstCol': 7840,
+            'firstRow': 7840, 'lastCol': 7840, 'lastRow': 7840, 'neCell': 1040,
+            'nwCell': 2160, 'swCell': 560},
+           {'19': 560, '33': 1120, '3F': 3388, '3f': 2772, '66': 1680, '7F': 2772, '7f': 2268},
+           {'b': 24080, 'bCs': 24080, 'color': 14148, 'i': 2240, 'iCs': 1232,
+            'rFonts': 2800, 'sz': 560, 'szCs': 560}])
+    few = dig(lbin("office-doc", fixture("bkmks.docx"), "--limit", "3"),
+              "structure.table_style_branches") or {}
+    check("截断这一格是真截：entries 只列 3 条样式，而 branches_total 与八本簿仍是整份的账"
+          "（限额只管列多少条，不管这份文件里有几枚分支）",
+          [len(few.get("entries") or []), few.get("branches_total"), few.get("if_written"),
+           few.get("box_names", {}).get("tblPr")],
+          [3, 649, 0, 546])
+    picks = [next(one for one in sorted(files) if one.endswith("." + tail))
+             for tail in ("odt", "rtf", "doc")]
+    check("反面凭据：这一层只住在 OOXML 文字那一家。本仓 51 份 .odt、18 份 .rtf、3 份 .doc 都不交这本账"
+          "（读者侧没有这个键、lbin 侧 structure 里也没有 —— 缺键而不是空账）；ODF 的表格样式没有"
+          "「按条件覆写」这一层，`.doc` 与 `.rtf` 把表样式写在别处",
+          [sum(1 for one in sorted(files) if one.endswith(".odt")
+               and not (files[one].get("ooxml") or {}).get("table_style_branches")),
+           sum(1 for one in sorted(files) if one.endswith(".rtf")
+               and not (files[one].get("ooxml") or {}).get("table_style_branches")),
+           sum(1 for one in sorted(files) if one.endswith(".doc")
+               and not (files[one].get("ooxml") or {}).get("table_style_branches")),
+           [dig(lbin("office-doc", fixture(one)), "structure.table_style_branches") is None
+            for one in picks]],
+          [51, 18, 3, [True, True, True]])
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:

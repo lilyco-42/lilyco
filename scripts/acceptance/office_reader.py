@@ -1238,6 +1238,167 @@ def latent_styles_docx(path: Path, limit: int = 200) -> dict:
     }
 
 
+def _tsb_empty(part: bool) -> dict:
+    """没写这批分支时的账：键全给、条数全 0（与 Rust 的 `table_style_branches::empty` 同一份形状）"""
+    return {"family": "ooxml", "available": part, "part": part,
+            "table_styles_total": 0, "styles_with_branches": 0, "branches_total": 0,
+            "distinct_types": 0, "branch_types": {}, "if_written": 0, "if_values": {},
+            "box_names": {}, "empty_box_names": {}, "nonempty_box_names": {},
+            "shading_branches": 0, "shading_vals": {}, "shading_fills": {},
+            "theme_fill_names": {}, "theme_fill_tints": {},
+            "border_edges": {}, "border_vals": {}, "border_theme_colors": {},
+            "run_prop_names": {}, "para_prop_names": {}, "style_attrs_written": {},
+            "entries": []}
+
+
+def table_style_branches_docx(path: Path, limit: int = 200) -> dict:
+    r"""表格样式身上那批「条件分支」（`w:tblStylePr`）各改了什么
+
+    与 `table_style_branches.rs` 同一条口径：一张表套的样式（`table_styles` 那一本）只是名字，
+    「表头加粗、隔行底纹、四个角不一样」写在样式自己身上的分支里。每枚分支按文件的原样交：
+    `w:type` 是哪一种、有没有 `w:if`、下面挂了哪几本盒子（`w:pPr` / `w:rPr` / `w:tblPr` /
+    `w:tcPr`）、每本盒子是空壳还是有内容、底纹写了哪枚色、边框写了哪几条边与 `val`。
+    **按写的交，不换算**：`themeFill` 与 `themeFillTint` 原样交，解到实色是主题那本账的事。
+    """
+    with zipfile.ZipFile(path) as box:
+        if "word/styles.xml" not in box.namelist():
+            return _tsb_empty(False)
+        root = ET.fromstring(box.read("word/styles.xml"))
+    styles = [one for one in root.iter()
+              if xml_local(one.tag) == "style" and local_attr(one, "type") == "table"]
+    if not styles:
+        return _tsb_empty(True)
+    tally: dict = {}
+    rows: list = []
+    for style in styles:
+        for key in style.attrib:
+            mine = xml_local(key)
+            tally.setdefault("style_attrs_written", {})
+            tally["style_attrs_written"][mine] = tally["style_attrs_written"].get(mine, 0) + 1
+        branches = [one for one in style.iter() if xml_local(one.tag) == "tblStylePr"]
+        if not branches:
+            continue
+        named = None
+        for kid in style:
+            if xml_local(kid.tag) == "name":
+                named = local_attr(kid, "val")
+                break
+        detail = []
+        for one in branches:
+            boxes = {}
+            for kid in one:
+                mine = xml_local(kid.tag)
+                if mine in boxes:
+                    continue
+                kids = [xml_local(g.tag) for g in kid]
+                boxes[mine] = {"present": True,
+                               "empty": not kids and not written_attrs(kid),
+                               "written": written_attrs(kid),
+                               "children": kids}
+            holder = {}
+            for kid in one:
+                holder.setdefault(xml_local(kid.tag), kid)
+            shading = None
+            edges: list = []
+            if "tcPr" in holder:
+                for kid in holder["tcPr"]:
+                    if xml_local(kid.tag) == "shd":
+                        shading = written_attrs(kid)
+                    elif xml_local(kid.tag) == "tcBorders":
+                        for edge in kid:
+                            edges.append({"edge": xml_local(edge.tag),
+                                          "written": written_attrs(edge)})
+            runs = [{"name": xml_local(kid.tag), "written": written_attrs(kid)}
+                    for kid in holder.get("rPr", [])]
+            paras = [{"name": xml_local(kid.tag), "written": written_attrs(kid)}
+                     for kid in holder.get("pPr", [])]
+            detail.append({"type": local_attr(one, "type"),
+                           "if": local_attr(one, "if"),
+                           "written": written_attrs(one),
+                           "boxes": boxes, "shading": shading,
+                           "borders": edges, "run_props": runs,
+                           "para_props": paras})
+        rows.append({"style_id": local_attr(style, "styleId"),
+                     "name": named,
+                     "written": written_attrs(style),
+                     "branches_total": len(detail),
+                     "branches": detail})
+    return _tsb_ledger(rows, len(styles), tally, limit)
+
+
+def _tsb_ledger(rows: list, table_styles: int, style_attrs: dict, limit: int) -> dict:
+    """把逐条分支摊成整本账（与 Rust 的同一条：计数与样本都从这些行来）"""
+    branches = [one for row in rows for one in row["branches"]]
+    types: dict = {}
+    ifs: dict = {}
+    boxes: dict = {}
+    empty_boxes: dict = {}
+    nonempty_boxes: dict = {}
+    shading_branches = 0
+    shd_vals: dict = {}
+    fills: dict = {}
+    theme_fills: dict = {}
+    tints: dict = {}
+    edges: dict = {}
+    edge_vals: dict = {}
+    edge_themes: dict = {}
+    run_props: dict = {}
+    para_props: dict = {}
+    if_written = 0
+    for one in branches:
+        mine = one["type"] if one["type"] is not None else "<无 type>"
+        types[mine] = types.get(mine, 0) + 1
+        if one["if"] is not None:
+            if_written += 1
+            ifs[one["if"]] = ifs.get(one["if"], 0) + 1
+        for name, box in one["boxes"].items():
+            boxes[name] = boxes.get(name, 0) + 1
+            bucket = empty_boxes if box["empty"] else nonempty_boxes
+            bucket[name] = bucket.get(name, 0) + 1
+        if one["shading"] is not None:
+            shading_branches += 1
+            had = one["shading"]
+            for key, book in (("val", shd_vals), ("fill", fills),
+                              ("themeFill", theme_fills), ("themeFillTint", tints)):
+                value = had.get(key)
+                if value is not None:
+                    book[value] = book.get(value, 0) + 1
+        for edge in one["borders"]:
+            edges[edge["edge"]] = edges.get(edge["edge"], 0) + 1
+            if edge["written"].get("val") is not None:
+                edge_vals[edge["written"]["val"]] = edge_vals.get(edge["written"]["val"], 0) + 1
+            if edge["written"].get("themeColor") is not None:
+                edge_themes[edge["written"]["themeColor"]] = \
+                    edge_themes.get(edge["written"]["themeColor"], 0) + 1
+        for prop in one["run_props"]:
+            run_props[prop["name"]] = run_props.get(prop["name"], 0) + 1
+        for prop in one["para_props"]:
+            para_props[prop["name"]] = para_props.get(prop["name"], 0) + 1
+    return {"family": "ooxml", "available": True, "part": True,
+            "table_styles_total": table_styles,
+            "styles_with_branches": len(rows),
+            "branches_total": len(branches),
+            "distinct_types": len(types),
+            "branch_types": dict(sorted(types.items())),
+            "if_written": if_written,
+            "if_values": dict(sorted(ifs.items())),
+            "box_names": dict(sorted(boxes.items())),
+            "empty_box_names": dict(sorted(empty_boxes.items())),
+            "nonempty_box_names": dict(sorted(nonempty_boxes.items())),
+            "shading_branches": shading_branches,
+            "shading_vals": dict(sorted(shd_vals.items())),
+            "shading_fills": dict(sorted(fills.items())),
+            "theme_fill_names": dict(sorted(theme_fills.items())),
+            "theme_fill_tints": dict(sorted(tints.items())),
+            "border_edges": dict(sorted(edges.items())),
+            "border_vals": dict(sorted(edge_vals.items())),
+            "border_theme_colors": dict(sorted(edge_themes.items())),
+            "run_prop_names": dict(sorted(run_props.items())),
+            "para_prop_names": dict(sorted(para_props.items())),
+            "style_attrs_written": dict(sorted(style_attrs.get("style_attrs_written", {}).items())),
+            "entries": rows[:limit]}
+
+
 def fmt_styles(path: Path, limit: int = 200) -> dict:
     r"""主题里那三本样式表（填充 / 效果 / 线条）到底写了什么
 
@@ -15716,6 +15877,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["doc_defaults"] = docx_doc_defaults(path)
             out["ooxml"]["grid_tab"] = docx_grid_tab(path)
             out["ooxml"]["latent_styles"] = latent_styles_docx(path)
+            # 表格样式身上那批条件分支：隔行底纹与表头加粗写在样式上，不在表上
+            out["ooxml"]["table_style_branches"] = table_style_branches_docx(path)
             # 题注与交叉引用：目标只住在指令串里，SEQ 这一族没有声明那一层可查
             out["ooxml"]["cross_refs"] = docx_cross_refs(path)
             out["ooxml"]["picture_bytes"] = pic_docx_ledger(path)
