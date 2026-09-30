@@ -5836,8 +5836,8 @@ mod tests {
         assert_eq!(map["then_found"], json!(true));
         assert_eq!(
             map["then"]["part"],
-            json!("content.xml"),
-            "then 那条具名样式住在 content.xml（不是 styles.xml）"
+            json!("styles.xml"),
+            "条件住在 content.xml 的自动样式上，而「then」那条具名样式在 styles.xml"
         );
         // 记着这本账目前的边界：`written` 只交那条样式**自己**写的属性，
         // 而 `fo:color="#9c0006"` 住在它的 `style:text-properties` 孩子上 —— 没 transcription
