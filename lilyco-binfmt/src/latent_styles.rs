@@ -14,7 +14,7 @@
 //! 每条覆写「写了哪几枚属性」也要逐条数：python-docx 那一路只写 `name` 与 `hidden` 一类的话，
 //! LibreOffice 重写那一路写什么，都按文件的原样进来（`attrs_written` 是按属性名数的本账）。
 
-use crate::office_doc::kept_attrs;
+use crate::office_doc::local_attrs;
 use crate::xmlscan;
 use crate::zipread::{self, DEFAULT_MEMBER_CAP};
 use serde_json::{json, Value};
@@ -69,7 +69,7 @@ pub(crate) fn docx(bytes: &[u8], limit: usize) -> Value {
         "part": true,
         "block": true,
         // 那六个 def* 是「没点名的那些内建样式按什么算」，原样交
-        "written": kept_attrs(block),
+        "written": local_attrs(block),
         "declared_count": declared,
         "exceptions_total": rows.len(),
         "declared_matches_written": declared
@@ -80,7 +80,7 @@ pub(crate) fn docx(bytes: &[u8], limit: usize) -> Value {
         "sample": rows
             .iter()
             .take(limit)
-            .map(|one| json!({"written": kept_attrs(one)}))
+            .map(|one| json!({"written": local_attrs(one)}))
             .collect::<Vec<Value>>(),
     })
 }
