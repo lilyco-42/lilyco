@@ -3819,15 +3819,24 @@ def main() -> int:
         [2, 16384, 2],
     )
     check(
-        "九份 .ods 里 17 张表补到 16384 列，只有一张例外：`print-area.ods` 的 `什么都没给` "
-        "（只给了重复**列**的那一张）写了 3 条列元素，补齐就到 **16383** —— 「补到整 16384」"
-        "不是这一族的恒等式，是生产者的写法，所以两个数都按看到的交",
+        "十六份 .ods 的三十四张表每张都盖住 16384 列 —— 早先那条「`print-area.ods` 的 `什么都没给` "
+        "只到 16383」的**例外是读出来的，不是写出来的**：那一张实际写四条列元素（1+1+1+16381），"
+        "其中一条住在 `<table:table-column-group>` 里，只看直接孩子的旧读者数到三条就少一列；"
+        "下钻修好之后两家都是 4 条 / 16384 列。补齐到整 16384 仍是生产者的写法而不是族的恒等式",
         sorted(
             {dig(one, "layout.columns.spans")
              for name in sorted(item.name for item in FIXTURES.glob("*.ods"))
              for one in lbin("office-sheet", fixture(name)).get("sheets", [])}
         ),
-        [16383, 16384],
+        [16384],
+    )
+    gave = lbin("office-sheet", fixture("print-area.ods"))
+    check(
+        "`什么都没给` 那一张：4 条列元素（三条 repeated=1、一条 16381），盖住 16384 列",
+        [dig(gave, "sheets[3].layout.columns.elements"),
+         dig(gave, "sheets[3].layout.columns.spans"),
+         [dig(gave, "sheets[3].layout.columns.list[%d].repeated" % i) for i in range(4)]],
+        [4, 16384, [1, 1, 1, 16381]],
     )
     check(
         "一条列元素顶几列写在 repeated 里：2 + 16382，两个数各自交",
@@ -9603,7 +9612,7 @@ def main() -> int:
     check(
         "95 份 word 件（94 份 .docx + 1 份 .docm）**全有这一层**，50 份只在 `word/styles.xml` 写一块、"
         "45 份在 `word/stylesWithEffects.xml` 又写了一遍（所以 `blocks_total` 是 1 或 2，没有一份是 3）；"
-        "每一块的孩子恒 `rPrDefault + pPrDefault` 两条（没有一份是 1 或 3），而这一格在 43 份 .xlsx 与"
+        "每一块的孩子恒 `rPrDefault + pPrDefault` 两条（没有一份是 1 或 3），而这一格在 45 份 .xlsx 与"
         "33 份 .pptx 里一份都没有 —— 所以账本交「几块、各在哪个部件、每块说了什么」，"
         "只在 office-doc 这一族交",
         [len(dd), tally([one["blocks_total"] for one in dd.values()]),
@@ -12597,8 +12606,8 @@ def main() -> int:
            sorted(spelling_rows.items()),
            sum(len(one["unknown_attrs"]) for one in lock_rows),
            sorted({one["part"] for one in lock_rows})],
-          [43, 20, 79, 1, [["cellStyleXfs", 22], ["cellXfs", 57], ["dxfs", 0]],
-           [("", 1), ("0", 1), ("1", 1), ("false", 75), ("true", 77)], 1, ["xl/styles.xml"]])
+          [45, 21, 82, 1, [["cellStyleXfs", 23], ["cellXfs", 59], ["dxfs", 0]],
+           [("", 1), ("0", 1), ("1", 1), ("false", 78), ("true", 80)], 1, ["xl/styles.xml"]])
     check("反面凭据：这一层只住 OOXML 表格那一家。`.ods` 没有格式级的锁定属性（ODF 的锁只在 `table:table` 那一层，"
           "已由 `protection` 那一本交），`.xls` 的位在 BIFF 的 `XF` 记录里（本机没有第二个读者能核对那些位段），"
           "而 Word 与演示那两家根本没有 cellXfs 这本 —— 那四份出口的账本里这个键**整个不在场**，而不是交一份零账",

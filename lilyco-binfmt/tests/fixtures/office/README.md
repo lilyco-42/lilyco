@@ -2447,13 +2447,13 @@ openpyxl 装在 `D:/app/scoop/apps/python/current/python.exe` 那套解释器里
       LibreOffice 三家都不写它 —— 没有可复现生产者就不开那一格，也不拿单级缓存冒充两级。
 
 151. **单元格样式自己那两枚锁定位：三个容器、两种拼法，而「表锁了」与「格式设了锁」是两件事**
-    （`cell-locks.xlsx` 手写、`cell-locks-lo.xlsx` 是 LibreOffice 重写同一份；普查 = 43 份自产 .xlsx 的聚合，
+    （`cell-locks.xlsx` 手写、`cell-locks-lo.xlsx` 是 LibreOffice 重写同一份；普查 = 45 份自产 .xlsx 的聚合，
     外加真件里已有的 `locked-sheet*.xlsx` 那一对）
     - `protection` 在 `xl/styles.xml` 里不是容器的孩子，而是 `xf` / `dxf` 的孩子：所以账按
       `cellStyleXfs` / `cellXfs` / `dxfs` 三本各记一笔（在场与枚数分交），另交「第几个格式带着它」的下标。
       第一版把它当容器直子读，四十一份全交零枚 —— 结构要量，不能照记忆写。
-    - 整库 43 份 .xlsx 里 20 份写这一层、共 79 枚：真件那 41 份中 18 份写、共 63 枚，全出自 LibreOffice 那一路，
-      openpyxl 那 23 份一枚都不写（另 5 枚与 11 枚来自本仓那两份手写件与它的重写）；写着的每一枚都同时交
+    - 整库 45 份 .xlsx 里 21 份写这一层、共 82 枚：真件那 43 份中 19 份写、共 66 枚，全出自 LibreOffice 那一路，
+      openpyxl 那 24 份一枚都不写（另 5 枚与 11 枚来自本仓那两份手写件与它的重写）；写着的每一枚都同时交
       `locked` 与 `hidden`，真件里值只有
       `locked="true"` / `hidden="false"` 这一对（LibreOffice 把 ECMA 的默认也逐条写出来）。
     - 拼法**按层量**：同一族在 `xl/worksheets` 的 `sheetProtection` 写 `1` / `0`，在这一层只写
