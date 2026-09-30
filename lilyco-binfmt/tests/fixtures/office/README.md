@@ -3745,3 +3745,24 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       只建样式名表会把 480 条全报成「点不到」，那是读法错而不是文件缺。反过来，新写法的这 2 枚
       condition 点的 `ConditionalStyle_1` / `ConditionalStyle_2` **两本都解不到**（转格式时老 map
       换了名，这一本没换）—— 交 null，不替它猜「应该是指那条」。
+
+**162. 「这份文档还能动吗」在一族里有三处可说，而真件只说了半句**
+
+    `office-doc` 的 `protection` 这一本以前只报「开了没开、限制类型是什么」，看不出**这一枚到底写了
+    几行字**。补完之后量到的三件事（用直接读 zip 的第三方脚本数过 810 份真件，真件不进仓库）：
+    - 自产的 `protected.docx` 与 LibreOffice 重写的 `protected-lo.docx` 在 `word/settings.xml` 的
+      `w:documentProtection` 上写满九枚属性名：`cryptAlgorithmClass` / `cryptAlgorithmSid` /
+      `cryptAlgorithmType` / `cryptProviderType` / `cryptSpinCount` / `edit` / `enforcement` /
+      `hash` / `salt`（两家一字不差，重写把这一枚整枚照搬）。
+    - **真件不是这个形状**：本机 810 份 OOXML 件里带这一枚的只有 4 份，而那 4 份**只写了
+      `w:enforcement`** —— 没有 `@edit`、没有 crypt 那一串。所以 `edit` 交 null（那不等于
+      「不限制类型」），`written_names` 把写了的按写的交回来；`enforcement_written` 留原样串，
+      因为这一族说「开」有 `1` / `true` / 空串三种写法，而「没写」是第四种。
+    - 同族另两处 —— `w:writeProtection`（Word 的编辑限制与打开密码）与 `w:readOnlyRecommended`
+      （建议只读）—— 在自产件与那 810 份真件里**一个都没有**，本机也没有会写它们的生产者；
+      这一支只交 `elements` 里那两个 0（0 是「看过了没有」，缺键才是「没看」），不写读法。
+    - ODF 那一族完全不写 `documentProtection`：文档级的开关在 `settings.xml` 的 config-item 上，
+      `protected.odt` 写的是五枚 —— `ProtectForm=false`、`ProtectBookmarks=false`、
+      `ProtectFields=false`、`LoadReadonly=true`、`RedlineProtectionKey` 空串。同一份 docx 转成
+      odt 之后那三个保护开关全是 false，而 `LoadReadonly` 留 true —— 所以「转格式丢了什么」
+      要两本账并排看，不折成一个布尔。
