@@ -13145,8 +13145,8 @@ def main() -> int:
             one.get("hash_present"), one.get("salt_present")]
            for one in (lbin("office-doc", fixture("protected.docx")).get("protection") or {},
                        lbin("office-doc", fixture("protected-lo.docx")).get("protection") or {},
-                       lbin("office-doc", fixture("notes.docx")).get("protection") or {}}],
-          [[True, 'readOnly', '1', ['cryptAlgorithmClass', 'cryptAlgorithmSid', 'cryptAlgorithmType', 'cryptProviderType', 'cryptSpinCount', 'edit', 'enforcement', 'hash', 'salt'], {'documentProtection': 1, 'writeProtection': 0, 'readOnlyRecommended': 0}, 'rsaAES', True, True], [True, 'readOnly', '1', ['cryptAlgorithmClass', 'cryptAlgorithmSid', 'cryptAlgorithmType', 'cryptProviderType', 'cryptSpinCount', 'edit', 'enforcement', 'hash', 'salt'], {'documentProtection': 1, 'writeProtection': 0, 'readOnlyRecommended': 0}, 'rsaAES', True, True], [False, None, None, None, None, None, None, None]]
+                       lbin("office-doc", fixture("notes.docx")).get("protection") or {})],
+          [[True, 'readOnly', '1', ['cryptAlgorithmClass', 'cryptAlgorithmSid', 'cryptAlgorithmType', 'cryptProviderType', 'cryptSpinCount', 'edit', 'enforcement', 'hash', 'salt'], {'documentProtection': 1, 'writeProtection': 0, 'readOnlyRecommended': 0}, 'rsaAES', True, True], [True, 'readOnly', '1', ['cryptAlgorithmClass', 'cryptAlgorithmSid', 'cryptAlgorithmType', 'cryptProviderType', 'cryptSpinCount', 'edit', 'enforcement', 'hash', 'salt'], {'documentProtection': 1, 'writeProtection': 0, 'readOnlyRecommended': 0}, 'rsaAES', True, True], [False, None, None, None, None, None, None, None]])
     check("反面凭据：`w:writeProtection`（Word 的「打开密码 / 编辑限制」另一种写法）与 "
           "`x:fileSharing`（表格的「建议只读」）在本仓 94 份 .docx 与 810 份真件里**一个都没有** —— "
           "所以这一支只交计数为 0 的那一格，不写读法；本机也没有会写它们的生产者",
