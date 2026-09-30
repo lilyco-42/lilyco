@@ -197,7 +197,7 @@ fn conditional_formats(
                 .children
                 .iter()
                 .map(|had| {
-                    kinds.entry(had.local().to_string()).or_insert(0) += 1;
+                    *kinds.entry(had.local().to_string()).or_insert(0) += 1;
                     json!({
                         "element": had.local(),
                         "written": kept_attrs(had),
