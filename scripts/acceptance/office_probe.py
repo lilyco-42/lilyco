@@ -146,6 +146,24 @@ def fixture(name: str) -> Path:
     return path
 
 
+def no_theme_key(command: str, name: str, key: str = "theme") -> bool:
+    r"""整份输出里找 `key` 这个键（遗留那三家还没读，缺键要说得出口）
+
+    放在模块级而不是 main() 里：多条 lane 都要用它，而嵌套 def 是 main 的局部名赋值 ——
+    在定义那行之前调用它就是 UnboundLocalError（CI 上被这条炸掉过一整个 cross-check）。
+    """
+    stack = [lbin(command, fixture(name))]
+    while stack:
+        one = stack.pop()
+        if isinstance(one, dict):
+            if key in one:
+                return True
+            stack.extend(one.values())
+        elif isinstance(one, list):
+            stack.extend(one)
+    return False
+
+
 def main() -> int:
     assert BIN.exists(), f"二进制不在：{BIN}（CI 里应先 cargo build -p lilyco-binfmt）"
     files = {}
@@ -9302,19 +9320,6 @@ def main() -> int:
          d["parts"][0]["fonts"][0]["ea"], d["parts"][0]["fonts"][0]["kids"]],
         [60, 2, "", 0, 24, 0, "DejaVu Sans", ["latin", "ea", "cs"]],
     )
-
-    def no_theme_key(command: str, name: str, key: str = "theme") -> bool:
-        """整份输出里找 `key` 这个键（遗留那三家还没读，缺键要说得出口）"""
-        stack = [lbin(command, fixture(name))]
-        while stack:
-            one = stack.pop()
-            if isinstance(one, dict):
-                if key in one:
-                    return True
-                stack.extend(one.values())
-            elif isinstance(one, list):
-                stack.extend(one)
-        return False
 
     check(
         "遗留那三家（.doc / .ppt / .xls）与 RTF 现在还没有这一本：那一份主题数据住在 CFB 的 "
