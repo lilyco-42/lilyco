@@ -70,6 +70,10 @@ jobs:
       # 办公文件这一摊的证据制度：同一批字节，两套独立实现必须给出同样的答案。
       # 编译只在这里发生（本机不跑 cargo build），fixture 是提交进来的真实生产者文件，
       # 第二读者只用 Python 标准库，不装任何第三方包。
+      # 这条闸门只读源码：一条 check() 少给一个参数会让 60 分钟的 cross-check 在最后才炸
+      - name: Gate probe shape (check arity + scripts parse)
+        run: python3 scripts/acceptance/probe_gates.py
+
       - name: Build lbin (for the office two-reader cross-check)
         run: cargo build -p lilyco-binfmt
 
