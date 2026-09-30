@@ -75,11 +75,11 @@ fn named_cell_styles(parts: &[(&str, xmlscan::Node)]) -> Value {
             let Some(name) = style.attr_local("name") else {
                 continue;
             };
-            if out.contains_key(&name) {
+            if out.contains_key(name) {
                 continue;
             }
             out.insert(
-                name,
+                name.to_string(),
                 json!({
                     "part": part,
                     "display_name": style.attr_local("display-name"),
