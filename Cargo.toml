@@ -24,6 +24,7 @@ members = [
     "lilyco-bitnet",
     "lilyco-dev",
     "lilyco",
+    "lilyco-lpxls",
 ]
 resolver = "2"
 
