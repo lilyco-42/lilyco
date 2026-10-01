@@ -285,7 +285,7 @@ pub(crate) fn docx(bytes: &[u8], limit: usize) -> Value {
         "distinct_children": distinct.len(),
         "child_names": counts,
         "repeated_children": repeated,
-        "order": names.iter().take(limit).cloned().collect::<Vec<String>>(),
+        "order": names.iter().cloned().collect::<Vec<String>>(),
         "switches": switches,
         "zoom": {
             "present": zoom.is_some(),

@@ -52,6 +52,10 @@ def lbin(command: str, fixture: Path, *extra: str) -> dict:
     try:
         return json.loads(proc.stdout)
     except Exception as why:  # noqa: BLE001
+        # 交回哨兵而不是抛：有些 lane 故意喂坏件。但把**整条命令**打到日志里，
+        # 这样「某本账整本 null」能一眼看出是参数没传对（如 `--limit 2` 当成一枚参数）
+        print("!! lbin 没交回可解析的 JSON：rc=%s argv=%s\n   stderr=%s" % (
+            proc.returncode, argv, proc.stderr[:300]), flush=True)
         return {"__parse_error__": f"{why}: {proc.stdout[:200]} / {proc.stderr[:200]}"}
 
 
@@ -9124,7 +9128,7 @@ def main() -> int:
            for one in PDF_NAMES
            if ledgers[one].get("present") is not True],
           [(False, None)] * (len(PDF_NAMES) - 3))
-    cut = lbin("office-pdf", fixture("labels.pdf"), "--limit 2")
+    cut = lbin("office-pdf", fixture("labels.pdf"), "--limit", "2")
     check("--limit 2 只截列出的行，不截计数",
           [len((cut.get("page_labels") or {}).get("labels") or []),
            len((cut.get("page_labels") or {}).get("ranges") or []),
