@@ -453,8 +453,21 @@ fn first_ref(one: &[u8]) -> Option<u64> {
     None
 }
 
+/// 引用指向那个对象的字典部分；对象读不到就交回空字节（不替文件猜一本字典）
+fn refer_dict(doc: &Pdf, id: u64) -> Vec<u8> {
+    match doc.object(id) {
+        Some(one) => head(&one.dict).to_vec(),
+        None => Vec::new(),
+    }
+}
+
 fn bump(book: &mut BTreeMap<String, u64>, key: &str) {
     *book.entry(key.to_string()).or_insert(0) += 1;
+}
+
+/// 行号与节点号：`serde_json::Value` 没有 `as_usize`，按无符号取再转
+fn index_of(one: &Value, key: &str) -> usize {
+    one.get(key).and_then(Value::as_u64).unwrap_or(0) as usize
 }
 
 fn empty(page_count: usize, catalogs: usize, keys_total: u64) -> Value {
@@ -529,10 +542,7 @@ pub(crate) fn labels(doc: &Pdf, limit: usize) -> Value {
             }
             match first_ref(&body) {
                 Some(target) => {
-                    let held = doc
-                        .object(target)
-                        .map(|one| head(&one.dict).to_vec())
-                        .unwrap_or_default();
+                    let held = refer_dict(doc, target);
                     chosen = Some(("reference".to_string(), held, Some(target)));
                 }
                 None => chosen = Some(("other".to_string(), Vec::new(), None)),
@@ -639,10 +649,7 @@ pub(crate) fn labels(doc: &Pdf, limit: usize) -> Value {
                         match first_ref(body) {
                             Some(id) => {
                                 bump(&mut value_forms, "reference");
-                                let held = doc
-                                    .object(id)
-                                    .map(|one| head(&one.dict).to_vec())
-                                    .unwrap_or_default();
+                                let held = refer_dict(doc, id);
                                 let pairs = if held.get(..2) == Some(&b"<<"[..]) {
                                     Some(held)
                                 } else {
@@ -769,8 +776,8 @@ pub(crate) fn labels(doc: &Pdf, limit: usize) -> Value {
             continue;
         };
         let one = &rows[at];
-        let node = one.get("node").and_then(Value::as_usize).unwrap_or(0);
-        let index = one.get("index").and_then(Value::as_usize).unwrap_or(0);
+        let node = index_of(one, "node");
+        let index = index_of(one, "index");
         let start = one.get("start").and_then(Value::as_i64).unwrap_or(0);
         let st = one.get("st").and_then(Value::as_i64).unwrap_or(1);
         let base = one.get("pg_num").and_then(Value::as_i64).unwrap_or(start);
@@ -785,8 +792,8 @@ pub(crate) fn labels(doc: &Pdf, limit: usize) -> Value {
         holder.push(Some((node, index)));
     }
     for row in &mut rows {
-        let node = row.get("node").and_then(Value::as_usize).unwrap_or(0);
-        let index = row.get("index").and_then(Value::as_usize).unwrap_or(0);
+        let node = index_of(&*row, "node");
+        let index = index_of(&*row, "index");
         let hits = holder
             .iter()
             .filter(|one| **one == Some((node, index)))
@@ -795,7 +802,10 @@ pub(crate) fn labels(doc: &Pdf, limit: usize) -> Value {
             done.insert("covers".to_string(), json!(hits));
         }
     }
-    let nums_length = nodes.first().map(|one| one.items.len()).unwrap_or(0);
+    let nums_length = match nodes.first() {
+        Some(one) => one.items.len(),
+        None => 0,
+    };
     json!({
         "present": true,
         "catalogs_total": catalogs.len(),
