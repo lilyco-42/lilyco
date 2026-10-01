@@ -1399,6 +1399,92 @@ def _tsb_ledger(rows: list, table_styles: int, style_attrs: dict, limit: int) ->
             "entries": rows[:limit]}
 
 
+MAIN_STYLES = "word/styles.xml"
+STYLES_COUNTED = ("latentStyles", "docDefaults", "rPrDefault", "pPrDefault", "lsdException",
+                  "basedOn", "link", "next", "aliases", "uiPriority", "semiHidden", "qFormat",
+                  "tblPr", "tblStylePr", "name", "tab")
+
+
+def _styles_one_part(raw: bytes, name: str) -> dict:
+    r"""一份样式部件的账：字节数、按 `w:type` 的样式条数、那几本元素的计数、根元素自己写的属性
+
+    与 `styles_parts.rs` 同一条口径：只数看到的（`counts` 里没写的那几种整个键缺席，
+    与「写了 0 条」是两句话），根元素的属性按局部名交。
+    """
+    root = ET.fromstring(raw)
+    kinds: dict = {}
+    total = 0
+    for one in root.iter():
+        if xml_local(one.tag) != "style":
+            continue
+        total += 1
+        kind = local_attr(one, "type") or "<无 type>"
+        kinds[kind] = kinds.get(kind, 0) + 1
+    counts: dict = {}
+    for want in STYLES_COUNTED:
+        found = sum(1 for one in root.iter() if isinstance(one.tag, str) and xml_local(one.tag) == want)
+        if found:
+            counts[want] = found
+    return {"part": name, "present": True, "bytes": len(raw), "styles_total": total,
+            "styles_by_kind": dict(sorted(kinds.items())), "counts": dict(sorted(counts.items())),
+            "written": written_attrs(root)}
+
+
+def _styles_missing() -> dict:
+    """包里一份样式部件都没有时的账（与 Rust 的 `styles_parts::missing` 同一份形状）"""
+    return {"family": "ooxml", "available": False, "main_part": False, "alt_parts": [],
+            "listed_parts": 0, "cut": False, "unread_parts": [], "rels": [],
+            "differs_from_main": None, "styles_delta": None, "bytes_delta": None,
+            "main": None, "alt": None, "entries": []}
+
+
+def styles_parts_docx(path: Path, limit: int = 200) -> dict:
+    r"""一份 .docx 里到底有几份样式表，以及它们一不一样
+
+    Word 那一路除了 `word/styles.xml` 还写一份 `word/stylesWithEffects.xml`（本仓 95 份里 45 份有），
+    两份各有各的关系；而**带第二份的那些，没有一份是逐字节相同的**。方向与直觉相反：
+    第二份样式**条数更少**（`alternate.docx` 164 对 160）而**字节更多**（349458 对 438131），
+    `basedOn` / `link` / `tab` / `uiPriority` 各本的计数一起变 —— 所以「哪份更完整」不是一句话。
+    """
+    with zipfile.ZipFile(path) as box:
+        names = sorted(one for one in box.namelist()
+                       if one.startswith("word/styles") and one.endswith(".xml"))
+        if not names:
+            return _styles_missing()
+        rows: list = []
+        raws: dict = {}
+        unread: list = []
+        for name in names:
+            raw = box.read(name)
+            try:
+                rows.append(_styles_one_part(raw, name))
+                raws[name] = raw
+            except ET.ParseError:
+                unread.append(name)
+        rels: list = []
+        if "word/_rels/document.xml.rels" in box.namelist():
+            rx = ET.fromstring(box.read("word/_rels/document.xml.rels"))
+            for one in rx:
+                kind = (one.get("Type") or "").rsplit("/", 1)[-1]
+                if "styles" in kind.lower():
+                    rels.append({"type": kind, "target": one.get("Target")})
+    rels.sort(key=lambda one: ((one["type"] or ""), (one["target"] or "")))
+    main = next((one for one in rows if one["part"] == MAIN_STYLES), None)
+    alt = next((one for one in rows if one["part"] != MAIN_STYLES), None)
+    differs = styles_delta = bytes_delta = None
+    if main and alt and MAIN_STYLES in raws and alt["part"] in raws:
+        # 比字节而不是比长度：等长而不同样的两份也得判为不同
+        differs = raws[MAIN_STYLES] != raws[alt["part"]]
+        styles_delta = alt["styles_total"] - main["styles_total"]
+        bytes_delta = alt["bytes"] - main["bytes"]
+    listed = min(len(rows), limit)
+    return {"family": "ooxml", "available": True, "main_part": main is not None,
+            "alt_parts": [one["part"] for one in rows if one["part"] != MAIN_STYLES],
+            "listed_parts": listed, "cut": len(rows) > listed, "unread_parts": unread,
+            "rels": rels, "differs_from_main": differs, "styles_delta": styles_delta,
+            "bytes_delta": bytes_delta, "main": main, "alt": alt, "entries": rows[:limit]}
+
+
 def _tsr_empty() -> dict:
     """没有幻灯片部件时的账：键全给、条数全 0（与 Rust 的 `slide_table_styles::empty` 同一份形状）"""
     return {"family": "ooxml", "available": False, "list_part": False, "list_root": None,
@@ -15983,6 +16069,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["latent_styles"] = latent_styles_docx(path)
             # 表格样式身上那批条件分支：隔行底纹与表头加粗写在样式上，不在表上
             out["ooxml"]["table_style_branches"] = table_style_branches_docx(path)
+            # 包里有几份样式表：Word 那一路的第二份与主那份逐字节都不相同
+            out["ooxml"]["styles_parts"] = styles_parts_docx(path)
             # 题注与交叉引用：目标只住在指令串里，SEQ 这一族没有声明那一层可查
             out["ooxml"]["cross_refs"] = docx_cross_refs(path)
             out["ooxml"]["picture_bytes"] = pic_docx_ledger(path)

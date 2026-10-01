@@ -13413,6 +13413,69 @@ def main() -> int:
            [lbin("office-slide", fixture(one)).get("table_style_refs") is None for one in picks]],
           [18, 3, 51, [True, True, True]])
 
+    print("=== 3c5) 包里有几份样式表：Word 那一路的第二份，与主那份逐字节都不相同 ===")
+    sp_keys = ('available', 'main_part', 'alt_parts', 'listed_parts', 'cut', 'unread_parts', 'rels', 'differs_from_main', 'styles_delta', 'bytes_delta')
+    sp_pin = {'alternate.docx': [True, True, ['word/stylesWithEffects.xml'], 2, False, [], [{'type': 'styles', 'target': 'styles.xml'}, {'type': 'stylesWithEffects', 'target': 'stylesWithEffects.xml'}], True, -4, 88673], 'bkmks-lo.docx': [True, True, [], 1, False, [], [{'type': 'styles', 'target': 'styles.xml'}], None, None, None], 'notes.docx': [True, True, ['word/stylesWithEffects.xml'], 2, False, [], [{'type': 'styles', 'target': 'styles.xml'}, {'type': 'stylesWithEffects', 'target': 'stylesWithEffects.xml'}], True, -4, 88673], 'cjk-odf-lo.docx': [True, True, [], 1, False, [], [{'type': 'styles', 'target': 'styles.xml'}], None, None, None]}
+    for name in ("alternate.docx", "bkmks-lo.docx", "notes.docx", "cjk-odf-lo.docx"):
+        got = dig(lbin("office-doc", fixture(name)), "structure.styles_parts") or {}
+        check("样式部件整本账（两家逐格） " + name,
+              [got.get(key) for key in sp_keys], sp_pin[name])
+    sp = dig(lbin("office-doc", fixture("alternate.docx")), "structure.styles_parts") or {}
+    picks = [sp["main"]["counts"].get(k) for k in ("basedOn", "link", "name", "tab", "uiPriority",
+                                                   "latentStyles", "lsdException", "tblStylePr")]
+    alt_picks = [sp["alt"]["counts"].get(k) for k in ("basedOn", "link", "name", "tab",
+                                                      "uiPriority", "latentStyles",
+                                                      "lsdException", "tblStylePr")]
+    check("第二份不是超集而是「条数更少、字节更多」：主那份 164 条 / 349458 字、第二份 160 条 / "
+          "438131 字（差 −4 条、+88673 字）；逐本元素的计数一起动（basedOn 158→154、link 38→34、"
+          "name 164→160、tab 11→7、uiPriority 163→159，而 latentStyles / lsdException / "
+          "tblStylePr 三本一模一样）；连根元素自己写的那句也不同：主那份 mc:Ignorable 只声明 "
+          "w14、第二份多声明一个 wp14 —— 两份各有各的关系，谁也不替代谁",
+          [[sp["main"]["part"], sp["main"]["bytes"], sp["main"]["styles_total"],
+            sp["main"]["styles_by_kind"], sp["main"]["written"], picks],
+           [sp["alt"]["part"], sp["alt"]["bytes"], sp["alt"]["styles_total"],
+            sp["alt"]["styles_by_kind"], sp["alt"]["written"], alt_picks]],
+          [['word/styles.xml', 349458, 164, {'character': 27, 'numbering': 1, 'paragraph': 36, 'table': 100}, {'Ignorable': 'w14'}, [158, 38, 164, 11, 163, 1, 137, 649]], ['word/stylesWithEffects.xml', 438131, 160, {'character': 25, 'numbering': 1, 'paragraph': 34, 'table': 100}, {'Ignorable': 'w14 wp14'}, [154, 34, 160, 7, 159, 1, 137, 649]]])
+    sp_ledger = [files[one]["ooxml"]["styles_parts"] for one in sorted(files)
+                 if one.lower().endswith((".docx", ".dotx", ".docm"))
+                 and (files[one].get("ooxml") or {}).get("styles_parts")]
+    check("整库摊开（95 份带样式表的文字件）：95 份都有 word/styles.xml、45 份还带第二份；"
+          "带第二份的 45 份里逐字节相同的 **0 份**（differs 全 true），45 份都是「条数更少」"
+          "（styles_delta 一律 −4）且 45 份都「字节更多」；只有一份的那 50 份 differs 交 null —— "
+          "「两份不一样」与「只有一份」是两句话，都不拿 false 冒充看过；rels 也分得清："
+          "50 份只有一条 styles、45 份两条；主那份字节合计 28498070 对第二份 19715895、"
+          "条数 13936 对 7200",
+          [len(sp_ledger), sum(1 for one in sp_ledger if one["main_part"]),
+           sum(1 for one in sp_ledger if one["alt_parts"]),
+           sum(1 for one in sp_ledger if one["differs_from_main"] is True),
+           sum(1 for one in sp_ledger if one["differs_from_main"] is False),
+           sum(1 for one in sp_ledger if one["differs_from_main"] is None),
+           sum(1 for one in sp_ledger
+               if one["styles_delta"] is not None and one["styles_delta"] < 0),
+           sum(1 for one in sp_ledger
+               if one["bytes_delta"] is not None and one["bytes_delta"] > 0),
+           sum(1 for one in sp_ledger if len(one["rels"]) == 2),
+           sum((one["main"] or {}).get("bytes", 0) for one in sp_ledger),
+           sum((one["alt"] or {}).get("bytes", 0) for one in sp_ledger),
+           sum((one["main"] or {}).get("styles_total", 0) for one in sp_ledger),
+           sum((one["alt"] or {}).get("styles_total", 0) for one in sp_ledger),
+           sorted({tuple(one["alt_parts"]) for one in sp_ledger})],
+          [95, 95, 45, 45, 0, 50, 45, 45, 45, 28498070, 19715895, 13936, 7200,
+           [(), ("word/stylesWithEffects.xml",)]])
+    check("反面凭据与适用范围：这一层只住在 OOXML 文字那一家（.odt / .rtf / .doc 都不交这本账），"
+          "而 LibreOffice 自己写的那一路（bkmks-lo.docx）只写一份、rels 里也只有 styles 一条 —— "
+          "「第二份在不在」是生产者习惯；也别忘了本仓其它样式类账本（latent_styles / "
+          "table_style_branches / doc_defaults）只读 word/styles.xml 那一份",
+          [sum(1 for one in sorted(files) if one.endswith(".odt")
+               and dig(lbin("office-doc", fixture(one)), "structure.styles_parts") is None),
+           sum(1 for one in sorted(files) if one.endswith(".rtf")
+               and dig(lbin("office-doc", fixture(one)), "structure.styles_parts") is None),
+           sum(1 for one in sorted(files) if one.endswith(".doc")
+               and (files[one].get("ooxml") or {}).get("styles_parts") is None),
+           [bool((files[one].get("ooxml") or {}).get("styles_parts", {}).get("alt_parts"))
+            for one in ("bkmks-lo.docx", "alternate.docx")]],
+          [51, 18, 3, [False, True]])
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:

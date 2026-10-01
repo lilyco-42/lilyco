@@ -3822,3 +3822,24 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       样式长相住在应用自己的画廊里，不在包里；本机也没有会写 `ppt/tableStyles/` 那种定义目录的生产者
       （LibreOffice 重写的那份连 `ppt/tableStyles.xml` 都不留，见 `deck-lo.pptx`）。
     - 开关的值按写的字符串交（`"1"` 与 `"0"`），不折成布尔 —— 两家生产者连写不写都不一样。
+
+
+**166. 一份 .docx 里可以有两份样式表：`stylesWithEffects.xml` 不是超集，是另一份**
+
+    `word/styles.xml` 是现在那份样式表，Word 那一路还会再写一份 `word/stylesWithEffects.xml`
+    （给旧读者看的），并在 `word/_rels/document.xml.rels` 里**各给一条关系**
+    （`Type=.../styles → styles.xml`、`Type=.../stylesWithEffects → stylesWithEffects.xml`）。
+    本仓 95 份带样式表的文字件里 **45 份有第二份、50 份没有**；带第二份的 45 份里
+    **逐字节相同的是 0 份**，而 LibreOffice 自己写的那一路（`bkmks-lo.docx`）只写一份、
+    rels 里也只有 `styles` 一条 —— 「第二份在不在」是生产者习惯，不是文档内容差别。
+    - **方向与直觉相反**：第二份的样式**条数更少**（`alternate.docx` 主那份 164 条、第二份 160 条，
+      全库 45 份一律 −4 条）而**字节更多**（349,458 对 438,131）。逐本元素计数一起动：
+      `basedOn` 158→154、`link` 38→34、`name` 164→160、`tab` 11→7、`uiPriority` 163→159，
+      而 `latentStyles` / `lsdException` / `tblStylePr` 三本**一模一样**（1 / 137 / 649）。
+    - 连根元素自己写的那句都不同：主那份 `mc:Ignorable="w14"`，第二份 `mc:Ignorable="w14 wp14"`。
+      这是「哪一份声明了哪个命名空间可以忽略」的话，两份各自声明。
+    - 这一本同时是本仓其它样式类出口的**适用范围声明**：`latent_styles` / `table_style_branches` /
+      `doc_defaults` / 字符样式那一本**只读 `word/styles.xml`**。在那 45 份件上，那些数说的是
+      主那一份，不是「第二份里同样的东西」—— 需要两份都用时按 `entries` 里的部件名分别取。
+    - `differs_from_main` 只在真有第二份时交 true / false，**只有一份的 50 份交 null**；
+      别把「没有第二份」读成「有两份且相同」。

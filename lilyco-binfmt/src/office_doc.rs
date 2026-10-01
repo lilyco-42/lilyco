@@ -3562,6 +3562,8 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
                 "latent_styles": crate::latent_styles::docx(bytes, limit),
                 // 表格样式身上那批条件分支：隔行底纹与表头加粗写在样式上，不在表上
                 "table_style_branches": crate::table_style_branches::docx(bytes, limit),
+                // 包里有几份样式表：Word 那一路还会带一份 stylesWithEffects，两份不一样
+                "styles_parts": crate::styles_parts::docx(bytes, limit),
                 // 反过来那一本：正文里那些手指点到哪一格，Word 那一路的影子实色自己跟自己核对
                 "color_refs": crate::theme_refs::refs(bytes, limit),
                 // 分节的页眉页脚：每节六格，自己写的与真正沿用的分开交
@@ -5540,6 +5542,48 @@ mod tests {
         assert_eq!(bare["table_styles_total"], json!(0));
         assert_eq!(bare["branches_total"], json!(0));
         assert_eq!(bare["branch_types"], json!({}));
+        // 包里有几份样式表：Word 那一路带第二份，而两份逐字节不同、条数还更少
+        let parts = &held["structure"]["styles_parts"];
+        assert_eq!(parts["available"], json!(true));
+        assert_eq!(parts["main_part"], json!(true));
+        assert_eq!(parts["listed_parts"], json!(1));
+        assert_eq!(parts["cut"], json!(false));
+        assert_eq!(parts["differs_from_main"], json!(null));
+        assert_eq!(parts["styles_delta"], json!(null));
+        assert_eq!(parts["alt_parts"].as_array().map(Vec::len), Some(0));
+        assert_eq!(parts["rels"].as_array().map(Vec::len), Some(1));
+        assert_eq!(parts["rels"][0]["type"], json!("styles"));
+        assert_eq!(parts["main"]["part"], json!("word/styles.xml"));
+        assert_eq!(parts["main"]["styles_total"], json!(169));
+        assert_eq!(
+            parts["main"]["styles_by_kind"],
+            json!({"character": 28, "numbering": 1, "paragraph": 40, "table": 100})
+        );
+        assert_eq!(parts["main"]["counts"]["tblStylePr"], json!(649));
+        assert_eq!(parts["main"]["counts"]["basedOn"], json!(162));
+        let two = run("alternate.docx");
+        let both = &two["structure"]["styles_parts"];
+        assert_eq!(both["alt_parts"], json!(["word/stylesWithEffects.xml"]));
+        assert_eq!(both["listed_parts"], json!(2));
+        assert_eq!(both["differs_from_main"], json!(true));
+        // 方向与直觉相反：第二份样式条数更少（164 对 160）而字节更多（+88673）
+        assert_eq!(both["styles_delta"], json!(-4));
+        assert_eq!(both["bytes_delta"], json!(88673));
+        assert_eq!(both["main"]["bytes"], json!(349458));
+        assert_eq!(both["alt"]["bytes"], json!(438131));
+        assert_eq!(both["main"]["styles_total"], json!(164));
+        assert_eq!(both["alt"]["styles_total"], json!(160));
+        assert_eq!(both["main"]["counts"]["basedOn"], json!(158));
+        assert_eq!(both["alt"]["counts"]["basedOn"], json!(154));
+        assert_eq!(both["main"]["counts"]["tab"], json!(11));
+        assert_eq!(both["alt"]["counts"]["tab"], json!(7));
+        // 根元素自己写的那句也不同：主那份只声明 w14，第二份多声明一个 wp14
+        assert_eq!(both["main"]["written"], json!({"Ignorable": "w14"}));
+        assert_eq!(both["alt"]["written"], json!({"Ignorable": "w14 wp14"}));
+        assert_eq!(
+            both["rels"][1],
+            json!({"type": "stylesWithEffects", "target": "stylesWithEffects.xml"})
+        );
     }
 
     /// ODF 那一侧：文档级保护在 `settings.xml` 的 config-item 上，而 docx 的编辑限制
