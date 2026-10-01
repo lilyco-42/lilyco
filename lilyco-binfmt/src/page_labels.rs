@@ -154,7 +154,7 @@ fn value_token(body: &[u8], at: usize) -> (Vec<u8>, usize) {
     }
     let after = skip(body, j);
     if digits > 0
-        && body.get(after..after + 1) == Some(&b'R')
+        && body.get(after) == Some(&b'R')
         && matches!(
             body.get(after + 1),
             None | Some(&0x20) | Some(&b'\t') | Some(&b'\r') | Some(&b'\n')

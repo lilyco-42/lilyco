@@ -1338,7 +1338,7 @@ mod tests {
                     one["st"].as_i64(),
                     one["prefix"].as_str().map(String::from),
                     one["pg_num"].as_i64(),
-                    one["covers"].as_usize().unwrap_or(0),
+                    one["covers"].as_u64().unwrap_or(0) as usize,
                 )
             })
             .collect();
