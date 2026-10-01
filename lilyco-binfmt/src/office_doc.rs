@@ -5478,10 +5478,22 @@ mod tests {
             ledger["distinct_names"].as_u64().unwrap_or(0) > 100,
             "内建样式名远不止 100 个"
         );
+        // notes.docx 用的是同一份 Word 模板，那块内建清单照样在（条数照旧被 limit 截列）
         let none = run("notes.docx");
-        assert_eq!(none["structure"]["latent_styles"]["block"], json!(false));
+        assert_eq!(none["structure"]["latent_styles"]["block"], json!(true));
         assert_eq!(
             none["structure"]["latent_styles"]["exceptions_total"],
+            json!(137)
+        );
+        // 真正「有 styles.xml 却不写那块」的是从 ODF 转回来的那一份：交一份全 0 的账，不是缺键
+        let from_odf = run("cjk-odf-lo.docx");
+        assert_eq!(from_odf["structure"]["latent_styles"]["part"], json!(true));
+        assert_eq!(
+            from_odf["structure"]["latent_styles"]["block"],
+            json!(false)
+        );
+        assert_eq!(
+            from_odf["structure"]["latent_styles"]["exceptions_total"],
             json!(0)
         );
         assert_eq!(run("notes.docx")["protection"]["element"], json!(false));
