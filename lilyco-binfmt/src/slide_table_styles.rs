@@ -84,13 +84,14 @@ pub(crate) fn pptx(bytes: &[u8], limit: usize) -> Value {
         return empty();
     }
     names.sort();
-    let list = match zipread::member(bytes, "ppt/tableStyles.xml", DEFAULT_MEMBER_CAP).ok() {
+    let list_doc = match zipread::member(bytes, "ppt/tableStyles.xml", DEFAULT_MEMBER_CAP).ok() {
         Some(member) => Some(xmlscan::parse_str(&member.as_text())),
         None => None,
     };
-    let declared = declared_ids(list.as_ref());
+    // `parse_str` 交的是 `#doc` 那个伪根，真正的 `a:tblStyleLst` 是它的第一个子元素
+    let list = list_doc.as_ref().and_then(|one| one.children.first());
+    let declared = declared_ids(list);
     let package_default = list
-        .as_ref()
         .and_then(|root| root.attr_local("def"))
         .map(String::from);
     let mut switch_names: BTreeMap<String, u64> = BTreeMap::new();
@@ -199,8 +200,8 @@ pub(crate) fn pptx(bytes: &[u8], limit: usize) -> Value {
         "family": "ooxml",
         "available": true,
         // 包级那本清单：根元素名与它自己写的 @def，声明条数按看到的交
-        "list_part": list.is_some(),
-        "list_root": list.as_ref().map(|root| root.local().to_string()),
+        "list_part": list_doc.is_some(),
+        "list_root": list.map(|root| root.local().to_string()),
         "list_def": package_default,
         "list_entries_total": declared.len(),
         "tables_total": tables_total,

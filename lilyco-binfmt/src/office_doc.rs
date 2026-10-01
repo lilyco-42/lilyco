@@ -5472,7 +5472,8 @@ mod tests {
         assert_eq!(ledger["declared_matches_written"], json!(false));
         assert_eq!(ledger["written"]["defUIPriority"], json!("99"));
         assert!(ledger["attrs_written"]["name"].as_u64().unwrap_or(0) > 100);
-        assert_eq!(ledger["sample"].as_array().map(Vec::len), Some(137));
+        // `--limit` 只管列几条：sample 被截到 100，而 exceptions_total 仍是整份的 137
+        assert_eq!(ledger["sample"].as_array().map(Vec::len), Some(100));
         assert!(
             ledger["distinct_names"].as_u64().unwrap_or(0) > 100,
             "内建样式名远不止 100 个"
