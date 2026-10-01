@@ -533,6 +533,7 @@ def pdf_facts(data: bytes) -> dict:
         "version": version,
         "header_bytes": data[:8].hex(),
         "font_embedding": font_embedding_of(by_id),
+        "page_labels": page_labels_of(by_id, catalogs, len(page_order(by_id))),
         "binary_comment": re.search(rb"%\xe2\xe3\xcf\xdc", data[:32]) is not None,
         "objects": {
             "plain": len(plain),
@@ -710,6 +711,562 @@ def one_str(body: bytes, key: bytes) -> str | None:
     """这个键的第一个字符串值，按 PDF 字符串那三件事解（与 Rust 的 one_string 同一条）；值是一个数组时这里交 None（几段值在 value_parts 上）"""
     got = strings_of(body, key)
     return decode_pdf_text(got[0]) if got else None
+
+
+SPACES = (b" ", b"\t", b"\r", b"\n", b"\x00", b"\x0c")
+LABEL_STYLES = ("D", "R", "r", "A", "a", "H", "h")
+
+
+def head_span(body: bytes) -> bytes:
+    """对象正文开头那个换行与空格不算内容：取字典与数组之前先去掉（qpdf 写出的对象正文
+    就是 `
+<< … >>`，按前两个字节判形状会把真字典读成「不像字典」）"""
+    return body[skip_spaces(body, 0) :]
+
+
+def _dict_span(body: bytes, at: int) -> bytes | None:
+    """`at` 指着 `<<` 时取整个字典（含定界符）；括号不配对交 None，不猜"""
+    if body[at:at + 2] != b"<<":
+        return None
+    depth = 0
+    i = at
+    while i < len(body):
+        if body[i:i + 2] == b"<<":
+            depth += 1
+            i += 2
+        elif body[i:i + 2] == b">>":
+            depth -= 1
+            i += 2
+            if depth == 0:
+                return body[at:i]
+        else:
+            i += 1
+    return None
+
+
+def _array_span(body: bytes, at: int) -> bytes | None:
+    """`at` 指着 `[` 时取整个数组（含定界符）：串里的 `]` 不算，嵌套 `[` 要配对"""
+    if body[at:at + 1] != b"[":
+        return None
+    depth = 0
+    i = at
+    while i < len(body):
+        ch = body[i:i + 1]
+        if ch == b"(":
+            _raw, i = literal(body, i + 1)
+            continue
+        if ch == b"[":
+            depth += 1
+        elif ch == b"]":
+            depth -= 1
+            if depth == 0:
+                return body[at:i + 1]
+        i += 1
+    return None
+
+
+def _array_items(raw: bytes) -> list:
+    """数组里的元素按写出的顺序切出来（`raw` 含首尾方括号）"""
+    out: list[bytes] = []
+    i = 1
+    stop = len(raw) - 1
+    while i < stop:
+        while i < stop and raw[i:i + 1] in SPACES:
+            i += 1
+        if i >= stop:
+            break
+        if raw[i:i + 2] == b"<<":
+            span = _dict_span(raw, i)
+            if span is None:
+                break
+            out.append(span)
+            i += len(span)
+            continue
+        if raw[i:i + 1] == b"(":
+            _raw, nxt = literal(raw, i + 1)
+            out.append(raw[i:nxt])
+            i = nxt
+            continue
+        if raw[i:i + 1] == b"<":
+            j = raw.find(b">", i + 1)
+            if j < 0:
+                break
+            out.append(raw[i:j + 1])
+            i = j + 1
+            continue
+        j = i
+        while j < stop and raw[j:j + 1] not in SPACES and raw[j:j + 1] not in (
+            b"[", b"]", b"(", b"/", b"<", b">"
+        ):
+            j += 1
+        one = raw[i:j]
+        # 间接引用是三枚记号占一格：`12 0 R` 是数组里的**一个**元素，不是三个
+        hit = re.match(rb"\s+\d+\s+R\b", raw[j:stop])
+        if hit and re.match(rb"[-+]?\d+$", one):
+            j += hit.end()
+            one = raw[i:j]
+        out.append(one)
+        i = j
+    return out
+
+
+def _value_token(body: bytes, at: int) -> tuple[bytes, int]:
+    """从 `at` 起取**一个**值的原始字节，交回 (值, 下一个位置)：字典、数组、串都整段跳"""
+    if body[at:at + 2] == b"<<":
+        span = _dict_span(body, at)
+        if span is None:
+            return b"", at + 2
+        return span, at + len(span)
+    if body[at:at + 1] == b"[":
+        span = _array_span(body, at)
+        if span is None:
+            return b"", at + 1
+        return span, at + len(span)
+    if body[at:at + 1] == b"(":
+        _raw, nxt = literal(body, at + 1)
+        return body[at:nxt], nxt
+    if body[at:at + 1] == b"<":
+        j = body.find(b">", at + 1)
+        if j < 0:
+            return b"", at + 1
+        return body[at:j + 1], j + 1
+    j = at
+    if body[j:j + 1] == b"/":
+        while j < len(body) and re.match(rb"[A-Za-z0-9._+\-]", body[j + 1:j + 2]):
+            j += 1
+        return body[at:j + 1], j + 1
+    while j < len(body) and body[j:j + 1] not in SPACES and body[j:j + 1] not in (
+        b"[", b"]", b"(", b"/", b"<", b">"
+    ):
+        j += 1
+    one = body[at:j]
+    # 间接引用是三枚记号占一个值：`/PageLabels 4 0 R` 里那个值是 `4 0 R`，不是 `4`
+    hit = re.match(rb"\s+\d+\s+R\b", body[j:])
+    if hit and re.match(rb"[-+]?\d+$", one):
+        j += hit.end()
+        one = body[at:j]
+    return one, j
+
+
+def dict_pairs(body: bytes) -> list:
+    """字典**自己那一层**的 (键名, 值的原始字节)，按写出的顺序。
+
+    键与值是交替出现的，所以认键必须连着把值整段跳过去：`<</S /r>>` 里的 `/r` 是一个
+    名字值，把它当键就凭空多出一枚不存在的键（这一版第一稿就是这么错的）。嵌套字典、
+    数组与串里的斜杠同理，都靠「跳值」而不是靠数深度。
+    """
+    out: list = []
+    i = 0
+    stop = len(body)
+    while i < stop:
+        ch = body[i : i + 1]
+        if body[i : i + 2] in (b"<<", b">>"):
+            i += 2
+            continue
+        if ch in SPACES or ch != b"/":
+            i += 1
+            continue
+        j = i + 1
+        while j < stop and re.match(rb"[A-Za-z0-9._+\-]", body[j : j + 1]):
+            j += 1
+        name = body[i + 1 : j].decode("latin-1")
+        raw, nxt = _value_token(body, skip_spaces(body, j))
+        out.append((name, raw))
+        i = nxt
+    return out
+
+
+def value_form(raw: bytes | None) -> tuple[str | None, str | None]:
+    """一个值的形状与原文：name / string / hexstring / number / dict / array / other / empty。
+    交回 (None, None) 只有一种意思：**这个键整个没写** —— 那与「写了个空值」是两件事"""
+    if raw is None:
+        return None, None
+    if raw == b"":
+        return "empty", None
+    if raw[:1] == b"/":
+        return "name", raw[1:].decode("latin-1")
+    if raw[:1] == b"(":
+        inner, _nxt = literal(raw, 1)
+        return "string", decode_pdf_text(inner)
+    if raw[:2] == b"<<":
+        return "dict", raw.decode("latin-1", "replace")
+    if raw[:1] == b"[":
+        return "array", raw.decode("latin-1", "replace")
+    if raw[:1] == b"<":
+        inner = raw[1:-1] if raw[-1:] == b">" else raw[1:]
+        try:
+            return "hexstring", decode_pdf_text(
+                bytes.fromhex(inner.decode("ascii").replace(" ", ""))
+            )
+        except Exception:  # noqa: BLE001 - 十六进制写歪了只交形状，不替文件编一个值
+            return "hexstring", ""
+    if re.match(rb"[-+]?\d+$", raw):
+        return "number", raw.decode("ascii")
+    return "other", raw.decode("latin-1", "replace")
+
+
+def pick(pairs: list, name: str) -> bytes | None:
+    """字典那一层里这个键的值：写了两遍取写在前面的那个；整个没这个键交 None"""
+    for one, raw in pairs:
+        if one == name:
+            return raw
+    return None
+
+
+def _roman(value: int, upper: bool) -> str:
+    """罗马数字：规范里这一族的取值本来就是正整数，非正数交回空串（不算一个号）"""
+    if value <= 0 or value > 3999:
+        return ""
+    table = ((1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"),
+             (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"))
+    out = []
+    rest = value
+    for amount, glyph in table:
+        while rest >= amount:
+            out.append(glyph)
+            rest -= amount
+    done = "".join(out)
+    return done if upper else done.lower()
+
+
+def _letters(value: int, upper: bool) -> str:
+    """字母编号：A..Z 之后是 AA..ZZ（26 进制但没有零位）"""
+    if value <= 0:
+        return ""
+    rest = value
+    out: list[str] = []
+    while rest > 0:
+        rest, rem = divmod(rest - 1, 26)
+        out.append(chr(ord("A") + rem))
+    done = "".join(reversed(out))
+    return done if upper else done.lower()
+
+
+def _hex(value: int, upper: bool) -> str:
+    """十六进制的页号：规范里 H 与 h 就是大写与小写两种写法"""
+    if value <= 0:
+        return ""
+    done = format(value, "X")
+    return done if upper else done.lower()
+
+
+def label_of_range(st: int, style: str | None, prefix: str) -> str | None:
+    """一页的标签：前缀 + 按样式排出来的号。样式认不出来时交回 None，不编一个号"""
+    if style is None:
+        return prefix
+    if style == "D":
+        return prefix + str(st)
+    if style == "H":
+        return prefix + _hex(st, True)
+    if style == "h":
+        return prefix + _hex(st, False)
+    if style == "R":
+        return prefix + _roman(st, True)
+    if style == "r":
+        return prefix + _roman(st, False)
+    if style == "A":
+        return prefix + _letters(st, True)
+    if style == "a":
+        return prefix + _letters(st, False)
+    return None
+
+
+def number_tree_nodes(by_id: dict, span: bytes) -> list:
+    """数字树的节点表，按「先父后子、兄弟按写出的顺序」摊平。
+
+    规范允许数树两种存法：一层里直接写 /Nums，或者写 /Kids 把区间分给几只孩子，
+    每只孩子自己用 /Limits 说它盖住哪一段。孩子本身可以是内联字典，也可以是间接引用，
+    所以两种都认。走到第八层就停 —— 文件自己转圈时这里不至于挂住。
+    """
+    out: list = []
+    queue = [(span, 0, None)]
+    guard = 0
+    while queue and guard < 64:
+        guard += 1
+        one, depth, limits = queue.pop(0)
+        pairs = dict_pairs(one)
+        nums_raw = pick(pairs, "Nums")
+        items = _array_items(nums_raw) if (nums_raw or b"")[:1] == b"[" else []
+        out.append({
+            "depth": depth,
+            "limits": limits,
+            "items": items,
+            "keys": [name for name, _raw in pairs],
+            "nums": nums_raw is not None,
+        })
+        if depth >= 8:
+            continue
+        kids = pick(pairs, "Kids")
+        if (kids or b"")[:1] != b"[":
+            continue
+        for el in _array_items(kids):
+            got = None
+            if el[:2] == b"<<":
+                got = el
+            else:
+                hit = re.match(rb"(\d+)\s+\d+\s+R$", el)
+                if hit is not None:
+                    held = by_id.get(int(hit.group(1)))
+                    if held is not None:
+                        got = head_span(dict_head(held))
+            if got is None or head_span(got)[:2] != b"<<":
+                continue
+            lim = pick(dict_pairs(got), "Limits")
+            bounds = ([int(one) for one in re.findall(rb"[-+]?\d+", lim)]
+                      if (lim or b"")[:1] == b"[" else None)
+            queue.append((got, depth + 1, bounds))
+    return out
+
+
+def page_labels_of(by_id: dict, catalogs: list, page_count: int, limit: int = 400) -> dict:
+    """目录（/Type /Catalog）里那一棵 `/PageLabels` 数字树，一份账。
+
+    这一层管「第几张纸显示成几号」，与页树自己的序号是两件事：区间是
+    `[ 起点 字典 起点 字典 … ]` 的摊平数组，字典里 /S 是样式（规范里七种：D R r A a H h，可选）、
+    /St 是这一段的起始号（不写就是 1）、/P 是前缀、/PgNum 说这一段的号是从**哪一页**起算的
+    （可以与区间键号不相等，那正是把键号当基准与照规范算两种结果分开的那一格）。
+    形状的三种待遇都分开交，谁也不替谁：
+      * 值写成内联字典与写成间接引用是两件事（`written_via`，数组里的元素同理，走 `value_forms`）；
+      * /S 写成名字 `/D` 与写成串 `(D)` 是两件事（`style_forms`），读者不替文件改写法；
+      * 一段都没盖住的页、样式认不出的页都交回 null，而不是编一个号。
+    数树走 /Kids 时每只孩子的 /Limits 原样交回，并把它的区间与父节点的区间按写的顺序摊平；
+    数组末尾多一个没有值的键（长度是奇数）照样数出来（`odd_nodes`）。
+    """
+    label_key_total = 0
+    chosen = None
+    for _num, body in catalogs:
+        for name, raw in dict_pairs(body):
+            if name != "PageLabels":
+                continue
+            label_key_total += 1
+            if chosen is not None:
+                continue
+            if raw[:2] == b"<<":
+                chosen = ("inline", raw, None)
+            elif raw[:2] == b"()":
+                chosen = ("string", raw, None)
+            elif raw[:1] == b"<":
+                chosen = ("hexstring", raw, None)
+            else:
+                hit = re.match(rb"(\d+)\s+\d+\s+R$", raw)
+                if hit is None:
+                    chosen = ("other", b"", None)
+                    continue
+                target = int(hit.group(1))
+                held = by_id.get(target)
+                chosen = ("reference", head_span(dict_head(held)) if held is not None else b"", target)
+    empty = {
+        "present": False,
+        "catalogs_total": len(catalogs),
+        "label_keys_total": label_key_total,
+        "written_via": None,
+        "target_object": None,
+        "tree_shape": None,
+        "keys_written": {},
+        "nodes_total": 0,
+        "odd_nodes": 0,
+        "nums_present": False,
+        "nums_length": 0,
+        "nums_length_total": 0,
+        "pairs_total": 0,
+        "range_starts": [],
+        "keys_ascending": True,
+        "styles_written": {},
+        "style_forms": {},
+        "value_forms": {},
+        "st_missing": 0,
+        "prefixes_found": 0,
+        "ranges_without_style": 0,
+        "unknown_styles": [],
+        "beyond_pages": [],
+        "uncovered_pages": 0,
+        "labels_null": 0,
+        "page_count": page_count,
+        "node_keys": [],
+        "nodes_limits": [],
+        "ranges": [],
+        "labels": None,
+        "listed": 0,
+        "cut": 0,
+        "ranges_listed": 0,
+        "ranges_cut": 0,
+    }
+    if chosen is None:
+        return empty
+    via, text, target = chosen
+    text = head_span(text)
+    root_is_dict = text[:2] == b"<<"
+    nodes = number_tree_nodes(by_id, text) if root_is_dict else []
+    root = dict_pairs(text) if root_is_dict else []
+    has_nums = any(name == "Nums" for name, _raw in root)
+    has_kids = any(name == "Kids" for name, _raw in root)
+    if has_nums and has_kids:
+        shape = "both"
+    elif has_nums:
+        shape = "nums"
+    elif has_kids:
+        shape = "kids"
+    else:
+        shape = "empty"
+    keys_written: dict[str, int] = {}
+    for name, _raw in root:
+        keys_written[name] = keys_written.get(name, 0) + 1
+    rows: list[dict] = []
+    starts: list = []
+    styles_written: dict[str, int] = {}
+    style_forms: dict[str, int] = {}
+    value_forms: dict[str, int] = {}
+    unknown: list[str] = []
+    st_missing = 0
+    prefixes_found = 0
+    without_style = 0
+    odd_nodes = 0
+    nums_length_total = 0
+    pairs_total = 0
+    for node_index, node in enumerate(nodes):
+        items = node["items"]
+        nums_length_total += len(items)
+        pairs_total += len(items) // 2
+        if len(items) % 2 == 1:
+            odd_nodes += 1
+        for index in range(0, len(items), 2):
+            key_raw = items[index]
+            hit = re.match(rb"([-+]?\d+)$", key_raw)
+            start = int(hit.group(1)) if hit else None
+            starts.append(start)
+            row = {
+                "node": node_index,
+                "depth": node["depth"],
+                "limits": node["limits"],
+                "index": index // 2,
+                "start": start,
+                "start_written": key_raw.decode("latin-1"),
+                "value_form": None,
+                "value_target": None,
+                "dict": False,
+                "keys": [],
+                "style": None,
+                "style_form": None,
+                "st_written": None,
+                "st": None,
+                "prefix": None,
+                "prefix_form": None,
+                "pg_num_written": None,
+                "pg_num_form": None,
+                "pg_num": None,
+                "covers": 0,
+            }
+            if index + 1 >= len(items):
+                row["value_form"] = "missing"
+                value_forms["missing"] = value_forms.get("missing", 0) + 1
+                rows.append(row)
+                continue
+            el = items[index + 1]
+            pairs = None
+            if el[:2] == b"<<":
+                row["value_form"] = "dict"
+                pairs = dict_pairs(el)
+            else:
+                ref = re.match(rb"(\d+)\s+\d+\s+R$", el)
+                if ref is not None:
+                    row["value_form"] = "reference"
+                    row["value_target"] = int(ref.group(1))
+                    held = by_id.get(int(ref.group(1)))
+                    held_head = head_span(dict_head(held)) if held is not None else b""
+                    if held_head[:2] == b"<<":
+                        pairs = dict_pairs(held_head)
+                else:
+                    row["value_form"] = value_form(el)[0]
+            value_forms[row["value_form"]] = value_forms.get(row["value_form"], 0) + 1
+            row["dict"] = pairs is not None
+            row["keys"] = [name for name, _raw in (pairs or [])]
+            form, style = value_form(pick(pairs, "S")) if pairs is not None else (None, None)
+            st_form, st_raw = value_form(pick(pairs, "St")) if pairs is not None else (None, None)
+            p_form, prefix = value_form(pick(pairs, "P")) if pairs is not None else (None, None)
+            pg_form, pg_raw = value_form(pick(pairs, "PgNum")) if pairs is not None else (None, None)
+            row["style"] = style
+            row["style_form"] = form
+            row["st_written"] = st_raw
+            row["prefix"] = prefix
+            row["prefix_form"] = p_form
+            row["pg_num_written"] = pg_raw
+            row["pg_num_form"] = pg_form
+            row["pg_num"] = int(pg_raw) if pg_form == "number" else None
+            if pairs is not None:
+                if form is None:
+                    without_style += 1
+                    style_forms["missing"] = style_forms.get("missing", 0) + 1
+                    styles_written[""] = styles_written.get("", 0) + 1
+                else:
+                    style_forms[form] = style_forms.get(form, 0) + 1
+                    styles_written[style or ""] = styles_written.get(style or "", 0) + 1
+                    if style not in LABEL_STYLES:
+                        unknown.append(style or "")
+                if st_form is None:
+                    st_missing += 1
+                row["st"] = int(st_raw) if st_form == "number" else None
+                if prefix is not None:
+                    prefixes_found += 1
+            rows.append(row)
+    real = [one["start"] for one in rows if one["dict"] and isinstance(one["start"], int)]
+    ascending = all(real[i] < real[i + 1] for i in range(len(real) - 1))
+    beyond = [one["start"] for one in rows
+              if one["dict"] and isinstance(one["start"], int) and one["start"] >= page_count]
+    # 逐页算标签：一段盖住从它的起点到「下一段起点之前」，写在后面的段覆盖前面的
+    labels: list = []
+    holder_of_page: list = []
+    for page in range(page_count):
+        holder = None
+        for one in rows:
+            if one["dict"] and isinstance(one["start"], int) and one["start"] <= page:
+                holder = one
+        if holder is None:
+            labels.append(None)
+            holder_of_page.append(None)
+            continue
+        base = holder["start"] if holder["pg_num"] is None else holder["pg_num"]
+        number = (holder["st"] if holder["st"] is not None else 1) + (page - base)
+        labels.append(label_of_range(number, holder["style"], holder["prefix"] or ""))
+        holder_of_page.append((holder["node"], holder["index"]))
+    for one in rows:
+        one["covers"] = sum(1 for hit in holder_of_page
+                            if hit == (one["node"], one["index"]))
+    return {
+        "present": True,
+        "catalogs_total": len(catalogs),
+        "label_keys_total": label_key_total,
+        "written_via": via,
+        "target_object": target,
+        "tree_shape": shape,
+        "keys_written": keys_written,
+        "nodes_total": len(nodes),
+        "odd_nodes": odd_nodes,
+        "nums_present": has_nums,
+        "nums_length": len(nodes[0]["items"]) if nodes else 0,
+        "nums_length_total": nums_length_total,
+        "pairs_total": pairs_total,
+        "range_starts": starts,
+        "keys_ascending": ascending,
+        "styles_written": styles_written,
+        "style_forms": style_forms,
+        "value_forms": value_forms,
+        "st_missing": st_missing,
+        "prefixes_found": prefixes_found,
+        "ranges_without_style": without_style,
+        "unknown_styles": unknown,
+        "beyond_pages": beyond,
+        "uncovered_pages": sum(1 for one in holder_of_page if one is None),
+        "labels_null": sum(1 for one in labels if one is None),
+        "page_count": page_count,
+        "node_keys": [one["keys"] for one in nodes],
+        "nodes_limits": [one["limits"] for one in nodes],
+        "ranges": rows[:limit],
+        "ranges_listed": min(len(rows), limit),
+        "ranges_cut": max(0, len(rows) - limit),
+        "labels": labels[:limit],
+        "listed": min(len(labels), limit),
+        "cut": max(0, len(labels) - limit),
+    }
 
 
 def form_of(by_id: dict[int, bytes]) -> tuple[dict, list]:

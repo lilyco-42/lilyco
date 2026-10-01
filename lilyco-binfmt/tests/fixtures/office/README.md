@@ -3843,3 +3843,40 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
       主那一份，不是「第二份里同样的东西」—— 需要两份都用时按 `entries` 里的部件名分别取。
     - `differs_from_main` 只在真有第二份时交 true / false，**只有一份的 50 份交 null**；
       别把「没有第二份」读成「有两份且相同」。
+
+**167. 页码标签 `/PageLabels`：第几张纸显示成几号，与页树自己的序号是两件事**（`labels-base.pdf` + `labels.pdf` + `labels-jagged.pdf` + `labels-kids.pdf`，出口 `office-pdf` 的 `page_labels`）
+
+- **这一族本机没有生产者**，两轮实测：LibreOffice 的 PDF 导出不写 `/PageLabels` ——
+  一次是普通六页件，一次故意在 docx 的分节上写 `w:pgNumType w:fmt="upperRoman" w:start="5"`
+  （Word 让「纸的序号」与「显示的页码」分开的唯一写法；`office-doc` 的 `page_numbering` 那份账
+  读的就是它），导出的 PDF 目录里仍然只有 `/Lang` `/MarkInfo` `/Metadata` `/PageMode`
+  `/Pages` `/StructTreeRoot` `/Type` 七个键。所以这四份里三份带标签的件与 `forms-hier.pdf`
+  同一待遇：**由 pikepdf（内嵌 qpdf）写出，不是任何编辑器导的**；`labels-base.pdf` 是 LibreOffice
+  导的六页基件，专门当「多页但不带标签」的反面凭据（此前 8 份 PDF 全是 1-2 页，两页的件里
+  任何一棵区间树都只有一种走法）。
+- pikepdf 那一路有个写法坑，值得单独进 ledger：`pikepdf.Dictionary(S="r")` 写出的是
+  **串** `/S (r)`，不是名字 `/S /r`（`Name("r")` 直接 ValueError，必须 `Name("/r")`）。
+  PDF 里这是两种对象，多数读者认不出串那一路 —— 所以 `style_forms` 把「名字 / 串 / 整个没写」
+  分开数，读者不替文件把串改成名字。
+- 规范里区间是 `[ 起点 字典 起点 字典 … ]` 的摊平数组：`/S` 七种取值 `D R r A a H h`（**可选**，
+  不写就只显示前缀不编号）、`/St` 起始号（不写就是 1）、`/P` 前缀、`/PgNum` 说这一段的号
+  从**哪一页**起算（14.8.4 表 161；**没有 `/PgStart` 这一枚键**，那是想出来的名字）。
+  `/PgNum` 可以与区间键号不相等，`labels.pdf` 就写了键 4 而 `/PgNum 3 /St 101` ——
+  这一格把「照规范算」与「把键号当基准」分开：第 5 张纸是 **102**。
+- 第三读者 **pypdf 6.19 逐页核对过，三处与规范不同**（都留在账里，不是我们的读数）：
+  它一个字节都不读 `/PgNum`（同一页它给 101）；它的样式表只有 `D R r A a`，`/H` 那一页它
+  报 `Ignoring unknown page label numbering style '/H'` 然后退回物理号（我们给 `第II`，
+  前缀是 `FE FF` 开头的 UTF-16BE 中国字）；`/S` 写成串时它把**整棵树**退回 `1..6`
+  （我们只把认不出的那两页交 null，前三页照段算）。规范里的 `H`/`h`（十六进制）它也不认。
+- 数树第二种存法在 `labels-kids.pdf`：顶层只有 `/Kids`，两只孩子各写自己的 `/Limits`，
+  其中一只的标签字典是**数组里的间接引用**（`value_forms` 因此分 `dict` 与 `reference` 两本）。
+  先数原始字节会夸大存在性：同一份件里 `/Nums [` 出现两次、`/Kids [` 出现一次，另外那些来自
+  页树与提示表 —— 所以必须先取目录里 `/PageLabels` 的**值**当一本字典，再在它**内部**找。
+- 读数的三条规矩：对象正文开头那个换行不算内容（qpdf 写出的对象就是 `\n<< … >>`，
+  按前两个字节判形状会把真字典读成「不像字典」）；认键必须连着把值整段跳过去
+  （`<</S /r>>` 里的 `/r` 是一个名字值，当键就凭空多出一枚不存在的键）；
+  间接引用 `4 0 R` 是字典的一个值、数组的一个元素，不是三枚独立的东西。
+- `uncovered_pages`（一段都没盖住的页）与 `labels_null`（样式认不出、算不出号的页）
+  是**两个数**，谁也不替谁：`labels-jagged.pdf` 是 uncovered 0 而 labels_null 2。
+  数组末尾多一个没有值的键（长度是奇数）记进 `odd_nodes`，那一个键自己仍交回一行
+  （`value_form` 为 `missing`），不静悄悄丢掉。

@@ -9044,6 +9044,96 @@ def main() -> int:
         [0, 0, 0, 0, 0],
     )
 
+    # ── 6c) PDF 的页码标签：目录里那棵 /PageLabels 数字树 ───────────────
+    # 「第几张纸显示成几号」与页树的序号是两件事；这一族本机没有生产者（LibreOffice
+    # 连 docx 分节里的 w:pgNumType 都不搬进 PDF），凭据由 pikepdf 写，第三读者 pypdf 6.19
+    # 逐页核对过：它不读 /PgNum、样式表里没有 H/h、/S 写成串时整棵树退回物理页号。
+    print("=== 6c) office-pdf 的页码标签：/PageLabels 两份读者逐段对 ===")
+    PL_KEYS = ("present", "catalogs_total", "label_keys_total", "written_via", "target_object",
+               "tree_shape", "keys_written", "nodes_total", "odd_nodes", "nums_present",
+               "nums_length", "nums_length_total", "pairs_total", "range_starts",
+               "keys_ascending", "styles_written", "style_forms", "value_forms", "st_missing",
+               "prefixes_found", "ranges_without_style", "unknown_styles", "beyond_pages",
+               "page_count", "uncovered_pages", "labels_null", "node_keys", "nodes_limits",
+               "ranges_listed", "ranges_cut", "listed", "cut")
+    PL_ROW = ("node", "depth", "limits", "index", "start", "start_written", "value_form",
+              "value_target", "dict", "keys", "style", "style_form", "st", "st_written",
+              "prefix", "prefix_form", "pg_num", "pg_num_written", "pg_num_form", "covers")
+    for name in ("labels.pdf", "labels-jagged.pdf", "labels-kids.pdf"):
+        got = lbin("office-pdf", fixture(name))
+        want = files[name]["pdf"]["page_labels"]
+        for key in PL_KEYS:
+            check("%s 页码标签 %s" % (name, key), dig(got, "page_labels." + key), want[key])
+        check("%s 页码标签逐页号" % name, dig(got, "page_labels.labels"), want["labels"])
+        check(
+            "%s 页码标签逐段" % name,
+            [[one.get(key) for key in PL_ROW]
+             for one in (got.get("page_labels") or {}).get("ranges", [])],
+            [[one[key] for key in PL_ROW] for one in want["ranges"]],
+        )
+    plain = lbin("office-pdf", fixture("labels.pdf"))
+    rows = (plain.get("page_labels") or {}).get("ranges") or []
+    # /PgNum 3 而键号 4：照规范算第 5 张纸是 102，把键号当基准的读者给 101
+    check("labels.pdf 那一段的键号、/PgNum 与 /St 各是多少",
+          [(rows[2].get("start"), rows[2].get("pg_num"), rows[2].get("st"))],
+          [(4, 3, 101)])
+    check("标签字典里写过的键按写的顺序交回（规范里是 /PgNum，没有 /PgStart 这一枚）",
+          [row.get("keys") for row in rows],
+          [["S"], ["P", "S", "St"], ["PgNum", "S", "St"], ["P"]])
+    PDF_NAMES = tuple(sorted(one.name for one in FIXTURES.glob("*.pdf")))
+    ledgers = {one: (lbin("office-pdf", fixture(one)).get("page_labels") or {})
+               for one in PDF_NAMES}
+    check("整库 %d 份 PDF 里带页码标签的就这三份" % len(PDF_NAMES),
+          [one for one in PDF_NAMES if ledgers[one].get("present") is True],
+          ["labels-jagged.pdf", "labels-kids.pdf", "labels.pdf"])
+    check(
+        "页码标签整库摊开：份数/带标签/区间/页/节点/奇数数组/缺 /St/前缀/无样式/"
+        "认不出的样式/起点超出页数/没盖住的页/算不出的号/写过的键/目录数",
+        [len(PDF_NAMES),
+         sum(1 for one in PDF_NAMES if ledgers[one].get("present") is True),
+         sum(ledgers[one].get("pairs_total", 0) for one in PDF_NAMES),
+         sum(ledgers[one].get("page_count", 0) for one in PDF_NAMES),
+         sum(ledgers[one].get("nodes_total", 0) for one in PDF_NAMES),
+         sum(ledgers[one].get("odd_nodes", 0) for one in PDF_NAMES),
+         sum(ledgers[one].get("st_missing", 0) for one in PDF_NAMES),
+         sum(ledgers[one].get("prefixes_found", 0) for one in PDF_NAMES),
+         sum(ledgers[one].get("ranges_without_style", 0) for one in PDF_NAMES),
+         sum(len(ledgers[one].get("unknown_styles") or []) for one in PDF_NAMES),
+         sum(len(ledgers[one].get("beyond_pages") or []) for one in PDF_NAMES),
+         sum(ledgers[one].get("uncovered_pages", 0) for one in PDF_NAMES),
+         sum(ledgers[one].get("labels_null", 0) for one in PDF_NAMES),
+         sum(ledgers[one].get("label_keys_total", 0) for one in PDF_NAMES),
+         sum(ledgers[one].get("catalogs_total", 0) for one in PDF_NAMES)],
+        [12, 3, 11, 39, 5, 1, 5, 3, 1, 1, 1, 0, 2, 3, 12],
+    )
+    check("样式与形状两本账整库摊开：写出过哪几种 /S、按名字还是串、值是字典还是引用",
+          [
+            {key: sum((ledgers[one].get("styles_written") or {}).get(key, 0) for one in PDF_NAMES)
+             for key in ("", "A", "D", "H", "R", "Z", "a", "r")},
+            {key: sum((ledgers[one].get("style_forms") or {}).get(key, 0) for one in PDF_NAMES)
+             for key in ("missing", "name", "string")},
+            {key: sum((ledgers[one].get("value_forms") or {}).get(key, 0) for one in PDF_NAMES)
+             for key in ("dict", "missing", "reference")},
+        ],
+        [{"": 1, "A": 1, "D": 4, "H": 1, "R": 1, "Z": 1, "a": 1, "r": 1},
+         {"missing": 1, "name": 9, "string": 1},
+         {"dict": 10, "missing": 1, "reference": 1}],
+    )
+    check("没有这一层的 %d 份：present false，labels 是 null 而不是空表" % (len(PDF_NAMES) - 3),
+          [(ledgers[one].get("present"), ledgers[one].get("labels"))
+           for one in PDF_NAMES
+           if ledgers[one].get("present") is not True],
+          [(False, None)] * (len(PDF_NAMES) - 3))
+    cut = lbin("office-pdf", fixture("labels.pdf"), "--limit 2")
+    check("--limit 2 只截列出的行，不截计数",
+          [len((cut.get("page_labels") or {}).get("labels") or []),
+           len((cut.get("page_labels") or {}).get("ranges") or []),
+           (cut.get("page_labels") or {}).get("pairs_total"),
+           (cut.get("page_labels") or {}).get("page_count"),
+           (cut.get("page_labels") or {}).get("labels"),
+           (cut.get("page_labels") or {}).get("range_starts")],
+          [2, 2, 4, 6, ["i", "ii"], [0, 2, 4, 5]])
+
     # ── 6b) PDF 的正文：两套读者逐页对字 ───────────────────────────
     # 这一层的价值全在「顺序对」上：字都认得、顺序排错，输出看着像读通了其实没有
     for name in ("notes.pdf", "deck.pdf", "objstm.pdf", "locked.pdf", "risk.pdf",

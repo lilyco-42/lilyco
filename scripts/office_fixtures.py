@@ -4332,6 +4332,105 @@ def write_risk_pdf(path: Path) -> None:
     path.write_bytes(bytes(out))
 
 
+MARK_LABEL_PAGE = "label seed page"
+
+
+def write_labels_seed_docx(path: Path) -> None:
+    """六页的种子 docx：先要有一份真多页的 PDF，才谈得上「第几页落在哪一段区间」。
+
+    现成的 PDF fixture 全部只有 1-2 页（`notes.pdf` 两页），两页的件里任何一棵区间树
+    都只有一种走法，量不出读者会不会在区间边界上算错。这里只要 python-docx 的分页符
+    （`w:br w:type="page"`）；页面文字用 ASCII —— LO 给中文做子集化会顺带塞进一串
+    ToUnicode，与这一份账要问的事无关。
+    """
+    import docx
+    from docx.enum.text import WD_BREAK
+
+    doc = docx.Document()
+    for i in range(1, 7):
+        one = doc.add_paragraph(f"{MARK_LABEL_PAGE} {i}")
+        if i < 6:
+            one.add_run().add_break(WD_BREAK.PAGE)
+    doc.save(path)
+
+
+def write_labels_pdfs(source: Path, clean: Path, jagged: Path, kids: Path) -> None:
+    """在 LO 导的那份六页件上挂 `/PageLabels`，三种形状各一份。
+
+    这一族本机没有生产者：**LibreOffice 的 PDF 导出从不写这一层**。量过两轮，一次是
+    普通六页件，一次故意在 docx 的分节上写 `w:pgNumType w:fmt="upperRoman" w:start="5"`
+    逼它（Word 让「纸的序号」与「显示的页码」分开的唯一写法），导出的 PDF 目录里仍然
+    只有 /Lang /MarkInfo /Metadata /PageMode /Pages /StructTreeRoot /Type 七个键。
+    所以这两份与 `forms-hier.pdf` 同一待遇：由 pikepdf（内嵌 qpdf）写出，README 说清
+    「不是编辑器导的」。
+
+    `clean` 是规范形状：值是目录里的**内联**字典，四段区间把 /S 的写法摊全 ——
+    `/r`（小写罗马，不写 /St，默认 1）、`/R` + `/St 4` + `/P (Ch-)`、`/D` + `/St 101`
+    再加一枚 **`/PgNum 3`**（这一格把「照规范算」与「把键号当基准」分开：键号是 4 而
+    /PgNum 说这一段从序号 3 那页起编 101，所以第 5 张纸是 102 而不是 101），最后一段
+    只有 `/P` 没有 `/S`（规范里 /S 可选，那一段就没有页码、只有前缀）。
+    `jagged` 摊三种不对劲：值挂成**间接引用**、`/S` 写成串 `(D)` 而不是名字 `/D`
+    （PDF 里这是两种对象，读者不能替文件改写法）、一段起点落在页数之外、数组末尾多
+    一个没有值的键，外加一段认不出的样式名 `/Z`。
+    `kids` 摊数树的第二种存法：顶层只有 `/Kids`，两只孩子各写自己的 `/Limits`，
+    其中一只的标签字典是**数组里的间接引用**（不是内联字典），前缀用 `FE FF` 开头的
+    UTF-16BE 中国字，样式用规范里有而 pypdf 不认的 `/H`（大写十六进制）。
+    """
+    import pikepdf
+
+    with pikepdf.open(source) as box:
+        nums = pikepdf.Array()
+        nums.append(0)
+        nums.append(pikepdf.Dictionary(S=pikepdf.Name("/r")))
+        nums.append(2)
+        nums.append(pikepdf.Dictionary(S=pikepdf.Name("/R"), St=4, P=pikepdf.String("Ch-")))
+        nums.append(4)
+        # /PgNum 3 与键号 4 不相等：这一段说「从序号 3 那页起编 101」，所以第 5 张纸是 102
+        nums.append(pikepdf.Dictionary(S=pikepdf.Name("/D"), St=101, PgNum=3))
+        nums.append(5)
+        nums.append(pikepdf.Dictionary(P=pikepdf.String("only-")))
+        box.Root.PageLabels = pikepdf.Dictionary(Nums=nums)
+        box.save(clean)
+
+    with pikepdf.open(source) as box:
+        odd = pikepdf.Array()
+        odd.append(0)
+        odd.append(pikepdf.Dictionary(S=pikepdf.Name("/D")))
+        odd.append(3)
+        odd.append(pikepdf.Dictionary(S=pikepdf.String("D"), St=2))
+        odd.append(4)
+        odd.append(pikepdf.Dictionary(S=pikepdf.Name("/Z")))
+        odd.append(9)
+        odd.append(pikepdf.Dictionary(S=pikepdf.Name("/a"), St=1))
+        odd.append(11)  # 末尾多一个键，没有值：数组长度是奇数
+        box.Root.PageLabels = box.make_indirect(pikepdf.Dictionary(Nums=odd))
+        box.save(jagged)
+
+    with pikepdf.open(source) as box:
+        new = box.make_indirect
+
+        def text(value: str):
+            # PDF 文本串没有 BOM 就按 PDFDocEncoding 读，两个字节的中国字会变成两个拉丁字母
+            return pikepdf.String(bytes([0xFE, 0xFF]) + value.encode("utf-16-be"))
+
+        # 第二只孩子的第一段：标签字典整个写成间接引用，藏在数组里
+        hexed = new(pikepdf.Dictionary(S=pikepdf.Name("/H"), P=text("第"), St=2))
+        kid_a = new(
+            pikepdf.Dictionary(
+                Limits=pikepdf.Array([0, 2]),
+                Nums=pikepdf.Array([0, pikepdf.Dictionary(S=pikepdf.Name("/D"), St=101)]),
+            )
+        )
+        kid_b = new(
+            pikepdf.Dictionary(
+                Limits=pikepdf.Array([3, 5]),
+                Nums=pikepdf.Array([3, hexed, 4, pikepdf.Dictionary(S=pikepdf.Name("/A"))]),
+            )
+        )
+        box.Root.PageLabels = pikepdf.Dictionary(Kids=pikepdf.Array([kid_a, kid_b]))
+        box.save(kids)
+
+
 def write_forms_hier_pdf(source: Path, path: Path) -> None:
     """在 LibreOffice 导的 `notes.pdf` 上挂一套**分层**表单，另存为 `forms-hier.pdf`。
 
@@ -7131,6 +7230,23 @@ def main() -> int:
             #    在 notes.pdf 上挂一套分层字段，另存一份（详见函数说明）
             write_forms_hier_pdf(source, OUT / "forms-hier.pdf")
             print("  forms-hier.pdf 由 pikepdf 挂上三层字段：这一份不是编辑器导的")
+            # 页码标签那三份：六页种子由 LibreOffice 导，区间树由 pikepdf 挂
+            # （这一族本机没有生产者 —— LO 的 PDF 导出连 docx 分节里的 w:pgNumType 都不理）
+            seed_pages = SCRATCH / "labels-seed.docx"
+            write_labels_seed_docx(seed_pages)
+            convert(exe, seed_pages, "pdf", SCRATCH)
+            base = SCRATCH / "labels-seed.pdf"
+            if base.exists():
+                shutil.copyfile(base, OUT / "labels-base.pdf")
+                write_labels_pdfs(
+                    OUT / "labels-base.pdf",
+                    OUT / "labels.pdf",
+                    OUT / "labels-jagged.pdf",
+                    OUT / "labels-kids.pdf",
+                )
+                print("  labels-base.pdf 是 LO 导的六页件；labels / labels-jagged / labels-kids 的 /PageLabels 由 pikepdf 写")
+            else:
+                print("⚠️  没拿到 labels-seed.pdf（LibreOffice 的六页导出）")
 
     # 数据透视表那一对：种子由 openpyxl 写，两枚透视表由 LibreOffice 自己挂
     # （转格式造不出这个东西，见 `add_pivot_tables`）

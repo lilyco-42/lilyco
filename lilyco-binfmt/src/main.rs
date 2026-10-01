@@ -78,6 +78,7 @@ mod office_text;
 mod opack;
 mod outline_levels;
 mod page_background;
+mod page_labels;
 mod page_numbering;
 mod paper;
 mod para_borders;
