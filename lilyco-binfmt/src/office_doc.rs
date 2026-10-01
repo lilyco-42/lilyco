@@ -5542,10 +5542,19 @@ mod tests {
         assert_eq!(bare["table_styles_total"], json!(0));
         assert_eq!(bare["branches_total"], json!(0));
         assert_eq!(bare["branch_types"], json!({}));
-        // 包里有几份样式表：Word 那一路带第二份，而两份逐字节不同、条数还更少
-        let parts = &held["structure"]["styles_parts"];
-        assert_eq!(parts["available"], json!(true));
-        assert_eq!(parts["main_part"], json!(true));
+        // 包里有几份样式表：Word 那一路带第二份，而两份逐字节不同、条数还更少。
+        // held 是 bkmks.docx —— 它**也带第二份**（列出的部件是 2），单份那一路要用 LibreOffice 写的那一份
+        let both_held = &held["structure"]["styles_parts"];
+        assert_eq!(both_held["available"], json!(true));
+        assert_eq!(both_held["main_part"], json!(true));
+        assert_eq!(both_held["listed_parts"], json!(2));
+        assert_eq!(both_held["differs_from_main"], json!(true));
+        assert_eq!(both_held["styles_delta"], json!(-4));
+        assert_eq!(both_held["bytes_delta"], json!(88673));
+        assert_eq!(both_held["main"]["styles_total"], json!(164));
+        assert_eq!(both_held["alt"]["styles_total"], json!(160));
+        let single = run("bkmks-lo.docx");
+        let parts = &single["structure"]["styles_parts"];
         assert_eq!(parts["listed_parts"], json!(1));
         assert_eq!(parts["cut"], json!(false));
         assert_eq!(parts["differs_from_main"], json!(null));
@@ -5561,6 +5570,7 @@ mod tests {
         );
         assert_eq!(parts["main"]["counts"]["tblStylePr"], json!(649));
         assert_eq!(parts["main"]["counts"]["basedOn"], json!(162));
+        assert_eq!(parts["main"]["written"], json!({"Ignorable": "w14"}));
         let two = run("alternate.docx");
         let both = &two["structure"]["styles_parts"];
         assert_eq!(both["alt_parts"], json!(["word/stylesWithEffects.xml"]));
