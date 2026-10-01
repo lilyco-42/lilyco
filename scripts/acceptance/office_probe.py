@@ -13325,6 +13325,94 @@ def main() -> int:
             for one in picks]],
           [51, 18, 3, [True, True, True]])
 
+    print("=== 3c4) 页上那张表的样式指针（table_style_refs）：空壳、两枚开关，与那本一条声明都没有的清单 ===")
+    tsr_keys = ('available', 'list_part', 'list_root', 'list_def', 'list_entries_total',
+                'tables_total', 'pr_present', 'pr_empty_shell', 'pr_missing', 'with_switches',
+                'with_style_id', 'switch_names', 'switch_values', 'child_names', 'style_id_refs',
+                'style_ids_declared', 'style_ids_resolved', 'style_ids_same_as_default',
+                'notes_tables', 'unread_parts', 'listed', 'cut')
+    tsr_pin = {'borders.pptx': [True, True, 'tblStyleLst', '{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}', 0, 2, 2, 0, 0, 2, 2, {'bandRow': 2, 'firstRow': 2}, {'bandRow=1': 2, 'firstRow=1': 2}, {'tableStyleId': 2}, {'{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}': 2}, 0, 0, 2, 0, 0, 2, False], 'borders-lo.pptx': [True, False, None, None, 0, 2, 2, 2, 0, 0, 0, {}, {}, {}, {}, 0, 0, 0, 0, 0, 2, False], 'deck-lo.pptx': [True, False, None, None, 0, 1, 1, 1, 0, 0, 0, {}, {}, {}, {}, 0, 0, 0, 0, 0, 1, False], 'margins.pptx': [True, True, 'tblStyleLst', '{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}', 0, 2, 2, 0, 0, 2, 2, {'bandRow': 2, 'firstRow': 2}, {'bandRow=1': 2, 'firstRow=1': 2}, {'tableStyleId': 2}, {'{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}': 2}, 0, 0, 2, 0, 0, 2, False]}
+    for name in ("borders.pptx", "borders-lo.pptx", "deck-lo.pptx", "margins.pptx"):
+        got = lbin("office-slide", fixture(name)).get("table_style_refs") or {}
+        check("表样式指针整本账（两家逐格） " + name,
+              [got.get(key) for key in tsr_keys], tsr_pin[name])
+    hand = tsr_pin["borders.pptx"]
+    rewrote = tsr_pin["borders-lo.pptx"]
+    check("同一份内容两家写法差在整层：LibreOffice 重写后两张表的 `a:tblPr` **都只剩自闭合空壳**"
+          "（%d 枚在场、%d 枚空壳、开关与指针各 %d 枚），而 `ppt/tableStyles.xml` 那份部件**整个不留**"
+          "（`list_part` 从 %s 变 %s、根名与 @def 都交 null）—— 原样那份是 2 张表都写 "
+          "`firstRow=1` `bandRow=1` 与同一个 GUID，所以「表头加粗与隔行底纹」这一转整个丢了，"
+          "两家的表张数反倒一模一样（%d 对 %d）"
+          % (rewrote[6], rewrote[7], rewrote[9], hand[1], rewrote[1], hand[5], rewrote[5]),
+          [[hand[5], rewrote[5]], [hand[6], rewrote[6]], [hand[7], rewrote[7]],
+           [hand[9], rewrote[9]], [hand[10], rewrote[10]],
+           [hand[1], rewrote[1], hand[2], rewrote[2]],
+           [hand[12], rewrote[12], hand[14], rewrote[14]]],
+          [[2, 2], [2, 2], [0, 2], [2, 0], [2, 0],
+           [True, False, 'tblStyleLst', None],
+           [{'bandRow=1': 2, 'firstRow=1': 2}, {},
+            {'{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}': 2}, {}]])
+    tsr = lbin("office-slide", fixture("borders.pptx")).get("table_style_refs") or {}
+    check("指针指不到包里的东西，但要说清它指的是包默认：清单声明 %d 条，所以 %d 个指针里"
+          "解到的是 %d 个，而 %d 个**等于 `a:tblStyleLst/@def` 那枚** —— 样式长相住在应用自己的画廊里"
+          "（本机没有会写 `ppt/tableStyles/` 那种定义目录的生产者）；逐行那格把「写了哪几枚开关、"
+          "带了哪些子元素、指针原样、等于不等于包默认」四件事一起交",
+          [tsr.get("list_entries_total"), tsr.get("with_style_id"), tsr.get("style_ids_resolved"),
+           tsr.get("style_ids_same_as_default"),
+           [[one.get("part"), one.get("written"), one.get("children"), one.get("empty_shell"),
+             one.get("style_declared"), one.get("same_as_package_default")]
+            for one in (tsr.get("entries") or [])]],
+          [0, 2, 0, 2,
+           [['ppt/slides/slide1.xml', {'firstRow': '1', 'bandRow': '1'}, ['tableStyleId'],
+             False, False, True],
+            ['ppt/slides/slide2.xml', {'firstRow': '1', 'bandRow': '1'}, ['tableStyleId'],
+             False, False, True]]])
+    few = lbin("office-slide", fixture("borders.pptx"), "--limit", "1").get("table_style_refs") or {}
+    check("截断这一格是真截：entries 只列 1 行、listed 1、cut true，"
+          "而 tables_total 与两本开关簿仍是整份的账（限额只管列几行，不管这份文件里有几张表）",
+          [len(few.get("entries") or []), few.get("listed"), few.get("cut"),
+           few.get("tables_total"), few.get("switch_values", {}).get("bandRow=1")],
+          [1, 1, True, 2, 2])
+    tsr_ledger = [files[one]["ooxml"]["table_style_refs"] for one in sorted(files)
+                  if one.endswith(".pptx") and (files[one].get("ooxml") or {}).get("table_style_refs")]
+    check("整库摊开（33 份 .pptx，全部有幻灯片部件）：18 张表，`a:tblPr` 18/18 在场、**9 枚是自闭合空壳**、"
+          "缺这一层的 0 枚；写了开关的 9 枚、带指针的 9 枚，而包里声明的样式条数合计 0 → 解到的 0 个、"
+          "等于 @def 的 9 个；notesSlides 里那几张 = 0（本仓的表都在页上）；"
+          "带 `ppt/tableStyles.xml` 的 17 份、不带的 16 份 —— 「这份稿子有没有那本清单」与"
+          "「那张表带不带样式指针」是两句话",
+          [len([one for one in sorted(files) if one.endswith(".pptx")]), len(tsr_ledger),
+           sum(one["tables_total"] for one in tsr_ledger),
+           sum(one["pr_present"] for one in tsr_ledger),
+           sum(one["pr_empty_shell"] for one in tsr_ledger),
+           sum(one["pr_missing"] for one in tsr_ledger),
+           sum(one["with_switches"] for one in tsr_ledger),
+           sum(one["with_style_id"] for one in tsr_ledger),
+           sum(one["style_ids_resolved"] for one in tsr_ledger),
+           sum(one["style_ids_same_as_default"] for one in tsr_ledger),
+           sum(one["notes_tables"] for one in tsr_ledger),
+           sum(1 for one in tsr_ledger if one["list_part"]),
+           sum(one["list_entries_total"] for one in tsr_ledger),
+           sum(1 for one in tsr_ledger if not one["list_part"]),
+           dict((k, sum(one["switch_values"].get(k, 0) for one in tsr_ledger))
+                for k in sorted({k for one in tsr_ledger for k in one["switch_values"]})),
+           sorted({k for one in tsr_ledger for k in one["child_names"]}),
+           sorted({str(one["list_root"]) for one in tsr_ledger})],
+          [33, 33, 18, 18, 9, 0, 9, 9, 0, 9, 0, 17, 0, 16,
+           {'bandRow=1': 9, 'firstRow=1': 9}, ['tableStyleId'], ['None', 'tblStyleLst']])
+    picks = [next(one for one in sorted(files) if one.endswith("." + tail))
+             for tail in ("odp", "ppt", "odt")]
+    check("反面凭据：这一层只住在 OOXML 演示稿那一家。本仓 18 份 .odp、3 份 .ppt、51 份 .odt 都不交这本账"
+          "（读者侧没有这个键、lbin 的输出里也没有 —— 缺键而不是空账）；ODF 的表样式没有"
+          "「按条件覆写 + 一个包外画廊指针」这一层，`.ppt` 的表样式住在别的记录里",
+          [sum(1 for one in sorted(files) if one.endswith(".odp")
+               and not (files[one].get("ooxml") or {}).get("table_style_refs")),
+           sum(1 for one in sorted(files) if one.endswith(".ppt")
+               and not (files[one].get("ooxml") or {}).get("table_style_refs")),
+           sum(1 for one in sorted(files) if one.endswith(".odt")
+               and not (files[one].get("ooxml") or {}).get("table_style_refs")),
+           [lbin("office-slide", fixture(one)).get("table_style_refs") is None for one in picks]],
+          [18, 3, 51, [True, True, True]])
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:
