@@ -3880,3 +3880,46 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
   是**两个数**，谁也不替谁：`labels-jagged.pdf` 是 uncovered 0 而 labels_null 2。
   数组末尾多一个没有值的键（长度是奇数）记进 `odd_nodes`，那一个键自己仍交回一行
   （`value_form` 为 `missing`），不静悄悄丢掉。
+
+**168. `word/settings.xml` 上那本「这份文档自己的偏好」：22 枚键各写没写，两种方言一件件摆开**
+
+- 出口 `office-doc` 的 `structure.doc_settings`（T0 只读），只管 `w:settings` 的**直接孩子**，
+  一层，不下钻。`compat` / `documentProtection` / `footnotePr` / `endnotePr` / `defaultTabStop`
+  这五枚各有自己的账本（`layout_compat` / `protect` / `note_settings` / `grid_tab`），这里只报
+  「这一层有没有它」，两边不并账。
+- 同一份内容在两位生产者手里是两本账（`notes.docx` 对 `bkmks-lo.docx`，逐格实测）：
+  直接孩子 **16 枚 对 6 枚**；根上 `@mc:Ignorable="w14"` **在 对 整个不见**；zoom 写成
+  `@w:val="bestFit"` **对** `@w:percent="100"`；`proofState` / `mathPr`（11 枚孩子）/
+  `clrSchemeMapping`（12 格）/ `shapeDefaults`（2 枚）/ `docId` / `defaultImageDpi` / `rsids`（10 条）
+  LibreOffice 一个都不写；它反过来补上 `autoHyphenation` 与 `hyphenationZone` 两枚。
+- **空串与「没写这枚属性」是两件事**：`w:themeFontLang` 在 LO 那一路多写一枚 `@w:bidi=""`。
+  整批 95 份的分布是 两枚 45 份 / 三枚 40 份 / 压根不写 10 份，所以 `keys_written` 与
+  `written` 并排交，不折成一个布尔。
+- 整批摊开（94 份 .docx 加那一份 .docm，件件都交了这本账）：直接孩子合计 **1020** 枚、
+  `word/settings.xml` 未压字节数合计 153014；45 份带 `@mc:Ignorable`；zoom 两种写法 45 对 50、
+  `both_spellings` 恒为 0；`evenAndOddHeaders` 整批只有 `sections.docx` 一枚；文档级默认制表位
+  4 份是 `1134`（`cjk-odf-lo` / `pnum` / `tbox` / `wrap-lo`）而其余 91 份是 `720`；
+  `w:docVars` 整批 **0** 条；`unknown_children` 与 `repeated_children` 全批为空。
+- 五枚整批一件都没写：`hdrShapeDefaults`、`embedSystemFonts`、`hideSpellingErrors`、
+  `trackRevisions`、`updateFields`。同一层在本机 33 份带 settings.xml 的真件里量得到：
+  4 / 4 / 4 / 1 / 1 份各写过 —— 所以这里缺的是**凭据而不是这一层**，字段照交 `present: false`，
+  `false` 是「这里没有」，不是「没去看」。
+- 一枚局部名可以住在两个命名空间里：真件 33 份有 **12 份把 `docId` 写了两遍**，一枚挂
+  word/2010（w14）、一枚挂 word/2012（w15）。两个读者都按局部名认，所以这类事实在
+  `children_total` 对 `distinct_children` 的差与 `repeated_children` 里现形；本仓 95 份里
+  一份都没有，这一半还留着等生产者。
+- 真件里本仓**没认的键名有 12 种**（`bordersDoNotSurroundHeader` / `bordersDoNotSurroundFooter`
+  各 16 份、`displayHorizontalDrawingGridEvery` 与 `displayVerticalDrawingGridEvery` 与
+  `drawingGridVerticalSpacing` 各 13 份、`doNotIncludeSubdocsInStats` 9 份、`AlternateContent` 3 份、
+  `noPunctuationKerning` 3 份、`chartTrackingRefBased` 2 份、`drawingGridHorizontalSpacing` 2 份、
+  `doNotTrackMoves` 与 `stylePaneFormatFilter` 各 1 份）—— 一律进 `unknown_children`，
+  而不是报成「这一层没有别的东西」。
+- `--limit` 只截 `entries` 那一本：`notes.docx` 上 `--limit 2` 得 `listed` 2、`cut` 14，
+  而 `children_total` 仍是 16、`order` 仍交 16 个名字、`unknown_children` 不跟着截 ——
+  「看了几条」与「文件里有几条」是两个数。
+- 反面凭据：这一层只住在 OOXML 文字那一家，`.odt` / `.rtf` / `.doc` 三种出口的账本里
+  `doc_settings` 这个键整个不在场，而不是交一份零账。
+- 两条读法记在这里，因为它们各烧掉过一次：`xmlscan::parse_str` 交的是 `#doc` **伪根**，
+  `w:settings` 是它的第一个孩子，**根上那枚 `@mc:Ignorable` 也在这一层**（在伪根上找属性会
+  永远找到空）；元素与属性的名字都带着前缀，所以要按局部名认 —— 上面那 12 份把 `docId`
+  写两遍的真件，正是「按 `w:docId` 找就只剩一枚」那种读法会漏掉的形状。

@@ -13566,6 +13566,101 @@ def main() -> int:
             for one in ("bkmks-lo.docx", "alternate.docx")]],
           [51, 18, 3, [False, True]])
 
+    ds_docs = {}
+    for one in sorted(files):
+        if not one.lower().endswith((".docx", ".dotx", ".docm")):
+            continue
+        mine = (files[one].get("ooxml") or {}).get("doc_settings")
+        if mine and mine.get("available"):
+            ds_docs[one] = mine
+    print("=== 3c6) 这份文档自己的偏好（doc_settings）：settings.xml 那一层 22 枚键各写没写 ===")
+    for name in ("notes.docx", "notes.docm", "bkmks-lo.docx", "sections.docx",
+                 "cjk-odf-lo.docx", "pnum.docx", "tbox.docx", "wrap-lo.docx"):
+        got = json.dumps(dig(lbin("office-doc", fixture(name)), "structure.doc_settings") or {},
+                         ensure_ascii=False, sort_keys=True)
+        want = json.dumps(files[name]["ooxml"]["doc_settings"],
+                          ensure_ascii=False, sort_keys=True)
+        check("%s 的 settings.xml 整本账（两家逐格）" % name, got, want)
+    dialect = []
+    for name in ("notes.docx", "bkmks-lo.docx"):
+        mine = dig(lbin("office-doc", fixture(name)), "structure.doc_settings") or {}
+        dialect.append([
+            mine.get("children_total"), mine.get("part_bytes"), mine.get("root_written"),
+            (mine.get("zoom") or {}).get("val_written"),
+            (mine.get("zoom") or {}).get("percent_written"),
+            (mine.get("theme_font_lang") or {}).get("keys_written"),
+            (mine.get("math_pr") or {}).get("children_total"),
+            (mine.get("shape_defaults") or {}).get("children_total"),
+            (mine.get("clr_scheme_mapping") or {}).get("slots_written"),
+            (mine.get("covered_elsewhere") or {}).get("compat_children"),
+            (mine.get("covered_elsewhere") or {}).get("rsids"),
+            len(mine.get("switches") or {})])
+    check("两条生产者方言一次量出：python-docx 那一路 16 枚直接孩子、根上带着 "
+          "@mc:Ignorable=\"w14\"、zoom 只写 @w:val=\"bestFit\"、proofState 在、数学默认 11 枚孩子、"
+          "shapeDefaults 2 枚、色彩映射 12 格、w:compat 5 枚孩子、rsids 10 条（switches 收了 9 枚）；"
+          "LibreOffice 重写同一份时只剩 6 枚孩子、根上那句 Ignorable 整个不见、zoom 换成 "
+          "@w:percent=\"100\"、proofState / mathPr / shapeDefaults / clrSchemeMapping / docId / rsids "
+          "全丢，themeFontLang 反而多写一枚 @w:bidi=\"\"（空串与「没写这枚属性」是两件事），"
+          "并补上 autoHyphenation 与 hyphenationZone（switches 只有 3 枚）",
+          dialect,
+          [[16, 2535, {"Ignorable": "w14"}, "bestFit", None, 2, 11, 2, 12, 5, 10, 9],
+           [6, 805, {}, None, "100", 3, 0, 0, 0, 4, 0, 3]])
+    few = dig(lbin("office-doc", fixture("notes.docx"), "--limit", "2"),
+              "structure.doc_settings") or {}
+    check("--limit 2 只截 entries 那一本（listed 2、cut 14），children_total 与 order、"
+          "unknown_children、各枚键的在场判断都不跟着截 —— 「看了几条」与「文件里有几条」分开交",
+          [few.get("listed"), few.get("cut"), few.get("children_total"),
+           len(few.get("entries") or []),
+           [one.get("name") for one in (few.get("entries") or [])],
+           len(few.get("order") or []), len(few.get("unknown_children") or []),
+           (few.get("zoom") or {}).get("val_written")],
+          [2, 14, 16, 2, ["zoom", "proofState"], 16, 0, "bestFit"])
+    tally = [
+        len(ds_docs),
+        sum(one["children_total"] for one in ds_docs.values()),
+        sum(one["part_bytes"] for one in ds_docs.values()),
+        sum(1 for one in ds_docs.values() if one["root_written"]),
+        sum(1 for one in ds_docs.values() if one["zoom"]["val_written"]),
+        sum(1 for one in ds_docs.values() if one["zoom"]["percent_written"]),
+        sum(1 for one in ds_docs.values() if one["zoom"]["both_spellings"]),
+        sum(1 for one in ds_docs.values() if one["proof_state"]["present"]),
+        sum(1 for one in ds_docs.values() if one["theme_font_lang"]["present"]),
+        sum(1 for one in ds_docs.values() if one["theme_font_lang"]["keys_written"] == 3),
+        sum(1 for one in ds_docs.values() if one["math_pr"]["present"]),
+        sum(1 for one in ds_docs.values() if one["auto_hyphenation"]["present"]),
+        sum(1 for one in ds_docs.values() if one["even_and_odd_headers"]["present"]),
+        sum(1 for one in ds_docs.values() if one["covered_elsewhere"]["compat"]),
+        sum(1 for one in ds_docs.values() if one["covered_elsewhere"]["rsids"]),
+        sum(1 for one in ds_docs.values()
+            if one["covered_elsewhere"]["default_tab_stop"] == "1134"),
+        sum(one["doc_vars"]["total"] for one in ds_docs.values()),
+        sum(1 for one in ds_docs.values() if one["unknown_children"]),
+        sum(1 for one in ds_docs.values() if one["repeated_children"]),
+    ]
+    check("整库摊开（95 份 OOXML 文字件，含那一份 .docm）：件件都交了这本账，直接孩子合计 1020 枚；"
+          "45 份带 @mc:Ignorable、zoom 两样写法 45 对 50 且「两样都写」为零；proofState / mathPr / "
+          "clrSchemeMapping / docId / shapeDefaults 这一族 45 份齐全，themeFontLang 85 份写、"
+          "其中 40 份多写 @w:bidi；autoHyphenation 与 hyphenationZone 各 50 份；"
+          "evenAndOddHeaders 整批只有 sections.docx 一枚；默认制表位 4 份是 1134；"
+          "文档变量整批 0 条；unknown_children 与 repeated_children 全批为空",
+          tally,
+          [95, 1020, 153014, 45, 45, 50, 0, 45, 85, 40, 45, 50, 1, 95, 45, 4, 0, 0, 0])
+    never = ["hdr_shape_defaults", "update_fields", "track_revisions", "hide_spelling_errors",
+             "embed_system_fonts"]
+    check("这一批件里一件都没写的五枚（在场数全为零）不是「没有这一层」而是本机两位生产者都不写："
+          "同一层在真件里量得到 —— 本机 33 份带 settings.xml 的真件里 hdrShapeDefaults 4 份、"
+          "embedSystemFonts 4 份、hideSpellingErrors 4 份、trackRevisions 1 份、updateFields 1 份，"
+          "而缺的正是这两枚开关的凭据，所以字段照交 present: false，不拿 null 冒充没看",
+          [sum(1 for one in ds_docs.values() if one[key]["present"]) for key in never],
+          [0, 0, 0, 0, 0])
+    check("反面凭据：这一层只住在 OOXML 文字那一家 —— .odt / .rtf / .doc 三种出口的账本里 "
+          "doc_settings 这个键整个不在场，而不是交一份零账",
+          [no_theme_key("office-doc", "notes.odt", "doc_settings"),
+           no_theme_key("office-doc", "tabs.rtf", "doc_settings"),
+           no_theme_key("office-doc", "notes-en.doc", "doc_settings"),
+           no_theme_key("office-doc", "notes.docx", "doc_settings")],
+          [False, False, False, True])
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:

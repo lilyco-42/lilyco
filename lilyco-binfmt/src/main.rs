@@ -47,6 +47,7 @@ mod content_controls;
 mod cross_refs;
 mod custom_xml;
 mod doc_defaults;
+mod doc_settings;
 mod entries;
 mod equations;
 mod field_ledger;

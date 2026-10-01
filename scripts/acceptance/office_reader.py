@@ -1238,6 +1238,213 @@ def latent_styles_docx(path: Path, limit: int = 200) -> dict:
     }
 
 
+def _ds_child_row(one, index: int) -> dict:
+    """一份直接孩子：写出的顺序、局部名、自己的属性与几个孩子"""
+    return {
+        "index": index,
+        "name": xml_local(one.tag),
+        "written": written_attrs(one),
+        "children_total": len(list(one)),
+    }
+
+
+def _ds_flag(block) -> dict:
+    """一枚「写了就算数」的开关：值原样交，没写值就是在场"""
+    if block is None:
+        return {"present": False, "val_written": None}
+    return {"present": True, "val_written": local_attr(block, "val")}
+
+
+def doc_settings_docx(path: Path, limit: int = 100) -> dict:
+    r"""`word/settings.xml` 上那些「视图与偏好」的键，一份账
+
+    与 `doc_settings.rs` 同一条口径。这一本只管**直接孩子**（一层，不下钻），因为
+    同一枚局部名可以住在两个命名空间里：本机 33 份真件里有 12 份把 `docId` 写了两遍，
+    一枚挂 word/2010、一枚挂 word/2012 —— 两个读者都按局部名认，所以这类事实在
+    `repeated_children` 与 `children_total` 对 `distinct_children` 的差里现形，
+    而不是被悄悄并成一枚。认识了 22 枚，剩下的（真件里还有 12 种没认的键名）一律
+    进 `unknown_children`，不假报成「这一层没有别的东西」。
+    """
+    known = {
+        "zoom", "proofState", "themeFontLang", "clrSchemeMapping", "decimalSymbol",
+        "listSeparator", "docVars", "docId", "defaultImageDpi", "shapeDefaults",
+        "hdrShapeDefaults", "updateFields", "trackRevisions", "evenAndOddHeaders",
+        "hideSpellingErrors", "embedSystemFonts", "savePreviewPicture",
+        "doNotAutoCompressPictures", "autoHyphenation", "hyphenationZone",
+        "characterSpacingControl", "mathPr",
+    }
+    elsewhere = {"compat", "documentProtection", "footnotePr", "endnotePr",
+                 "defaultTabStop", "rsids", "rsid", "rsidRoot", "writingMode"}
+    empty = {
+        "family": "ooxml", "available": False, "part": False, "part_bytes": 0,
+        "root_written": {}, "children_total": 0, "distinct_children": 0,
+        "child_names": {}, "repeated_children": {}, "order": [], "switches": {},
+        "zoom": {"present": False, "written": {}, "percent_written": None,
+                 "val_written": None, "both_spellings": False},
+        "proof_state": {"present": False, "spelling": None, "grammar": None, "written": {}},
+        "theme_font_lang": {"present": False, "written": {}, "keys_written": 0},
+        "clr_scheme_mapping": {"present": False, "written": {}, "slots_written": 0},
+        "decimal_symbol": {"present": False, "val": None},
+        "list_separator": {"present": False, "val": None},
+        "doc_vars": {"total": 0, "names": [], "written": {}, "empty_values": 0},
+        "doc_id": {"present": False, "val_written": None},
+        "default_image_dpi": {"present": False, "val_written": None},
+        "shape_defaults": {"present": False, "children_total": 0, "child_names": {}},
+        "hdr_shape_defaults": {"present": False, "children_total": 0},
+        "update_fields": {"present": False, "val_written": None},
+        "track_revisions": {"present": False, "val_written": None},
+        "even_and_odd_headers": {"present": False},
+        "hide_spelling_errors": {"present": False},
+        "embed_system_fonts": {"present": False},
+        "save_preview_picture": {"present": False},
+        "do_not_auto_compress_pictures": {"present": False},
+        "auto_hyphenation": {"present": False, "val_written": None},
+        "hyphenation_zone": {"present": False, "val_written": None},
+        "character_spacing": {"present": False, "val_written": None},
+        "math_pr": {"present": False, "children_total": 0, "child_names": {}},
+        "covered_elsewhere": {"compat": False, "compat_children": 0,
+                              "default_tab_stop": None, "document_protection": False,
+                              "footnote_pr": False, "endnote_pr": False, "rsids": 0},
+        "unknown_children": [], "listed": 0, "cut": 0, "entries": [],
+    }
+    with zipfile.ZipFile(path) as box:
+        if "word/settings.xml" not in box.namelist():
+            return empty
+        raw = box.read("word/settings.xml")
+    root = ET.fromstring(raw)
+    kids = list(root)
+    names = [xml_local(one.tag) for one in kids]
+    counts: dict = {}
+    for one in names:
+        counts[one] = counts.get(one, 0) + 1
+    repeated = {key: value for key, value in sorted(counts.items()) if value > 1}
+    switches: dict = {}
+    for one in kids:
+        mine = xml_local(one.tag)
+        if list(one):
+            continue
+        got = local_attr(one, "val")
+        if len(one.attrib) == 0:
+            switches[mine] = "on"
+        elif got is not None and len(one.attrib) == 1:
+            switches[mine] = got
+    zoom = next((one for one in kids if xml_local(one.tag) == "zoom"), None)
+    proof = next((one for one in kids if xml_local(one.tag) == "proofState"), None)
+    tfl = next((one for one in kids if xml_local(one.tag) == "themeFontLang"), None)
+    clr = next((one for one in kids if xml_local(one.tag) == "clrSchemeMapping"), None)
+    dec = next((one for one in kids if xml_local(one.tag) == "decimalSymbol"), None)
+    sep = next((one for one in kids if xml_local(one.tag) == "listSeparator"), None)
+    dv_root = next((one for one in kids if xml_local(one.tag) == "docVars"), None)
+    dv_rows = list(dv_root) if dv_root is not None else []
+    sd = next((one for one in kids if xml_local(one.tag) == "shapeDefaults"), None)
+    hsd = next((one for one in kids if xml_local(one.tag) == "hdrShapeDefaults"), None)
+    compat = next((one for one in kids if xml_local(one.tag) == "compat"), None)
+    rsids = next((one for one in kids if xml_local(one.tag) == "rsids"), None)
+    tab = next((one for one in kids if xml_local(one.tag) == "defaultTabStop"), None)
+    math = next((one for one in kids if xml_local(one.tag) == "mathPr"), None)
+    vals = {}
+    for one in dv_rows:
+        key = local_attr(one, "name")
+        if key is not None:
+            vals[key] = local_attr(one, "val")
+    unknown = sorted({one for one in names if one not in known and one not in elsewhere})
+    return {
+        "family": "ooxml", "available": True, "part": True, "part_bytes": len(raw),
+        "root_written": written_attrs(root),
+        "children_total": len(kids), "distinct_children": len(sorted(set(names))),
+        "child_names": dict(sorted(counts.items())), "repeated_children": repeated,
+        "order": names[:limit], "switches": dict(sorted(switches.items())),
+        "zoom": {
+            "present": zoom is not None,
+            "written": written_attrs(zoom) if zoom is not None else {},
+            "percent_written": local_attr(zoom, "percent") if zoom is not None else None,
+            "val_written": local_attr(zoom, "val") if zoom is not None else None,
+            "both_spellings": bool(zoom is not None and local_attr(zoom, "percent") is not None
+                                   and local_attr(zoom, "val") is not None),
+        },
+        "proof_state": {
+            "present": proof is not None,
+            "spelling": local_attr(proof, "spelling") if proof is not None else None,
+            "grammar": local_attr(proof, "grammar") if proof is not None else None,
+            "written": written_attrs(proof) if proof is not None else {},
+        },
+        "theme_font_lang": {
+            "present": tfl is not None,
+            "written": written_attrs(tfl) if tfl is not None else {},
+            "keys_written": len(tfl.attrib) if tfl is not None else 0,
+        },
+        "clr_scheme_mapping": {
+            "present": clr is not None,
+            "written": written_attrs(clr) if clr is not None else {},
+            "slots_written": len(clr.attrib) if clr is not None else 0,
+        },
+        "decimal_symbol": {"present": dec is not None,
+                           "val": local_attr(dec, "val") if dec is not None else None},
+        "list_separator": {"present": sep is not None,
+                           "val": local_attr(sep, "val") if sep is not None else None},
+        "doc_vars": {
+            "total": len(dv_rows),
+            "names": [local_attr(one, "name") for one in dv_rows],
+            "written": dict(sorted(vals.items())),
+            "empty_values": sum(1 for one in dv_rows if local_attr(one, "val") == ""),
+        },
+        "doc_id": _ds_flag(next((one for one in kids if xml_local(one.tag) == "docId"), None)),
+        "default_image_dpi": _ds_flag(
+            next((one for one in kids if xml_local(one.tag) == "defaultImageDpi"), None)
+        ),
+        "shape_defaults": {
+            "present": sd is not None,
+            "children_total": len(list(sd)) if sd is not None else 0,
+            "child_names": dict(sorted(
+                {xml_local(one.tag): 1 for one in (sd if sd is not None else [])}.items()
+            )),
+        },
+        "hdr_shape_defaults": {"present": hsd is not None,
+                               "children_total": len(list(hsd)) if hsd is not None else 0},
+        "update_fields": _ds_flag(
+            next((one for one in kids if xml_local(one.tag) == "updateFields"), None)
+        ),
+        "track_revisions": _ds_flag(
+            next((one for one in kids if xml_local(one.tag) == "trackRevisions"), None)
+        ),
+        "even_and_odd_headers": {"present": any(one == "evenAndOddHeaders" for one in names)},
+        "hide_spelling_errors": {"present": any(one == "hideSpellingErrors" for one in names)},
+        "embed_system_fonts": {"present": any(one == "embedSystemFonts" for one in names)},
+        "save_preview_picture": {"present": any(one == "savePreviewPicture" for one in names)},
+        "do_not_auto_compress_pictures": {
+            "present": any(one == "doNotAutoCompressPictures" for one in names)
+        },
+        "auto_hyphenation": _ds_flag(
+            next((one for one in kids if xml_local(one.tag) == "autoHyphenation"), None)
+        ),
+        "hyphenation_zone": _ds_flag(
+            next((one for one in kids if xml_local(one.tag) == "hyphenationZone"), None)
+        ),
+        "character_spacing": _ds_flag(
+            next((one for one in kids if xml_local(one.tag) == "characterSpacingControl"), None)
+        ),
+        "math_pr": {
+            "present": math is not None,
+            "children_total": len(list(math)) if math is not None else 0,
+            "child_names": dict(sorted(
+                {xml_local(one.tag): 1 for one in (math if math is not None else [])}.items()
+            )),
+        },
+        "covered_elsewhere": {
+            "compat": compat is not None,
+            "compat_children": len(list(compat)) if compat is not None else 0,
+            "default_tab_stop": local_attr(tab, "val") if tab is not None else None,
+            "document_protection": any(one == "documentProtection" for one in names),
+            "footnote_pr": any(one == "footnotePr" for one in names),
+            "endnote_pr": any(one == "endnotePr" for one in names),
+            "rsids": len(list(rsids)) if rsids is not None else 0,
+        },
+        "unknown_children": unknown,
+        "listed": min(len(kids), limit), "cut": max(0, len(kids) - limit),
+        "entries": [_ds_child_row(one, index) for index, one in enumerate(kids)][:limit],
+    }
+
+
 def _tsb_empty(part: bool) -> dict:
     """没写这批分支时的账：键全给、条数全 0（与 Rust 的 `table_style_branches::empty` 同一份形状）"""
     return {"family": "ooxml", "available": part, "part": part,
@@ -16071,6 +16278,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["table_style_branches"] = table_style_branches_docx(path)
             # 包里有几份样式表：Word 那一路的第二份与主那份逐字节都不相同
             out["ooxml"]["styles_parts"] = styles_parts_docx(path)
+            # settings.xml 上那层视图与偏好：zoom 两种拼法、校对状态、语言三属性、文档变量
+            out["ooxml"]["doc_settings"] = doc_settings_docx(path)
             # 题注与交叉引用：目标只住在指令串里，SEQ 这一族没有声明那一层可查
             out["ooxml"]["cross_refs"] = docx_cross_refs(path)
             out["ooxml"]["picture_bytes"] = pic_docx_ledger(path)
