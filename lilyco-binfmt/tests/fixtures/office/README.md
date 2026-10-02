@@ -3957,3 +3957,32 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
   `rpr_written` 345、`by_place` 仍说整份件（与 `doc_settings` 那本同一条口径）。
 - 归类之外的角落：整批只有 2 份出现本账没归类的住处（`revisions.docx` 与 `revisions-lo.docx`
   各一枚，那枚 `w:rPr` 挂在带 `w:rPrChange` 的地方），交回 `place: "other"` 而不是硬塞进六处之一。
+
+**170. 这一页要用的那套三元组：`a:latin` / `a:ea` / `a:cs` 各点了谁 —— 指针与真名字是两件事**
+
+- 只认 OOXML 演示那一家：`font_sets` 记 `ppt/slideMasters/`、`ppt/slideLayouts/`、`ppt/slides/`
+  三处部件里那 9325 枚 `a:defRPr` / `a:rPr` / `a:endParaRPr`（本机 33 份 pptx 摊开），其中
+  **4862 枚至少写了这三枚之一**；一枚都没写的 4463 枚不进 rows，但仍在 `carriers_total` 里。
+- 三枚的在场组合整批只有两种：`latin` 与 `latin-ea-cs`。**没有一处**只写 `a:ea` 或 `a:cs`
+  而不写 `a:latin`（`missing_ea` 与 `missing_cs` 同为 4539，正是「只写拉丁」那 4539 行）。
+- `@typeface` 原样交，分头数三种活法：`named` 4539 对 `pointer` 969，写空串的 **0**。
+  把 `+mj-lt` 折成「有字体」就丢掉了「这份稿子自己没点名」那句话，所以 `how` 一格与
+  `faces` 一格里各交一份；在场但没写这枚属性的，`how` 交 `absent`，而计数归进 `blank`。
+- 两家 dialect 摆开：`borders.pptx`（python-pptx 那一路）**只有母版**写这一套，19 行、
+  三枚齐全、57 枚 typeface **全是主题指针**，一个真名字都没有 —— 而且分工看得见：
+  标题那一格（`titleStyle` / `lvl1pPr`）点 major 三连 `+mj-lt` / `+mj-ea` / `+mj-cs`，
+  其余 18 格点 minor `+mn-lt` / `+mn-ea` / `+mn-cs`。LibreOffice 重写同一份稿子把它整个摊平：
+  `borders-lo.pptx` 302 行全**只写 `a:latin` 一枚**、302 枚全是真字体名，`a:ea` 与 `a:cs`
+  一枚都不写，住处也从母版搬到版式（287）与正文页（15）。`deck-lo.pptx` 交 315 行，
+  住处摊在 `layout` 10、`master` 287、`slide` 18 三处 —— 同一份稿子在两位手里，
+  「点没点名主题方案」与「三套脚本齐不齐」是两个答案。
+- `--limit` 只截 `rows`：`deck-lo.pptx` 上 `--limit 2` 得 `listed` 2、`cut` 313，而
+  `with_triple` 315、`by_part`、`named` 与 `missing_*` 仍说整份件。
+- 反面凭据：`.odp` / `.odt` / `.ppt` 三种出口的账本里 `font_sets` 这个键**整个不在场** ——
+  ODF 的字体是 `style:font-face` 与 `fo:font-name*`（含 `-complex`）那一套，不是三枚一组；
+  主题里 `majorFont` / `minorFont` 那一份归 `theme_ledger`，两本不并账。
+- 一条闸门记在这里，因为它差点变成假不合：`office-slide` 出口的默认 `--limit` 是 **100**，
+  而第二读者这一本默认交满 **400** 行，所以 lane 里必须显式 `--limit 400` 才比得了整本账
+  （`bullet_layers` 同一手法）。另两条老坑照用：部件按名字定序再走（跟 zip 存储序走会让
+  `parts_seen` 与 rows 的顺序换），`xmlscan::parse_str` 交的是 `#doc` 伪根，真正的根
+  （`p:sldMaster` / `p:sldLayout` / `p:sld`）是它的第一个孩子。

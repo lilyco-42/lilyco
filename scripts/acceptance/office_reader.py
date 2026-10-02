@@ -1429,6 +1429,156 @@ def script_pairs_docx(path: Path, limit: int = 100) -> dict:
     }
 
 
+def _sf_face(node, want: str) -> dict:
+    """a:latin / a:ea / a:cs 这一枚：在不在、typeface 原样交（空串与没这枚是两件事）"""
+    for kid in node:
+        if xml_local(kid.tag) != want:
+            continue
+        return {"present": True, "typeface": local_attr(kid, "typeface")}
+    return {"present": False, "typeface": None}
+
+
+def _sf_how(got) -> str:
+    """一枚 typeface 的活法：没写这枚 / 写了空串 / 回指主题方案 / 点了真名字"""
+    if got is None:
+        return "absent"
+    if got == "":
+        return "blank"
+    if got.startswith("+"):
+        return "pointer"
+    return "named"
+
+
+def _sf_climb(node, dad) -> tuple:
+    """往上找几层：这一枚挂在 a:lvlNpPr 的第几级上、又是 txStyles 里哪一格"""
+    level = ""
+    role = ""
+    here = dad.get(node)
+    depth = 0
+    while here is not None and depth < 6:
+        name = xml_local(here.tag)
+        if not level and name.startswith("lvl") and name.endswith("pPr"):
+            level = name
+        if not role and name in ("titleStyle", "bodyStyle", "otherStyle"):
+            role = name
+        here = dad.get(here)
+        depth += 1
+    return (level, role)
+
+
+SF_TAGS = ("latin", "ea", "cs")
+SF_PREFIXES = ("ppt/slideMasters/", "ppt/slideLayouts/", "ppt/slides/")
+
+
+def slide_font_sets_pptx(parts, names, limit: int = 400) -> dict:
+    r"""这一页要用的那套三元组：`a:latin` / `a:ea` / `a:cs` 各点了什么字体
+
+    与 `slide_font_sets.rs` 同一条口径。只看写了这三枚之一的 `a:defRPr` / `a:rPr` /
+    `a:endParaRPr`；住处按祖先认 —— 母版（`ppt/slideMasters/`）、版式（`ppt/slideLayouts/`）、
+    正文页（`ppt/slides/`），层由 `a:lvlNpPr` 那一格给，样式角色由 `titleStyle` /
+    `bodyStyle` / `otherStyle` 给。主题里 majorFont / minorFont 那一份**不归这本**，
+    `theme_ledger` 已经在那边交过（两本分工写进 README）。部件按名字定序再走，
+    因为 `parts_seen` 与 rows 的顺序要跟着文件的名走，不能跟 zip 的存储序走。
+
+    `typeface` 有两种活法：点一个真字体名，或回指主题方案（`+mj-lt` / `+mn-ea` 这类），
+    所以原样交、并分头数 named / pointer / blank —— 把 `+mj-lt` 折成「有字体」就丢掉了
+    「这份稿子自己没点名」那句话。三枚的在场组合另记一本（`by_state`）。
+    """
+    empty = {
+        "family": "ooxml",
+        "available": False,
+        "parts_seen": [],
+        "carriers_total": 0,
+        "with_triple": 0,
+        "by_part": {},
+        "by_state": {},
+        "named": 0,
+        "pointer": 0,
+        "blank": 0,
+        "missing_ea": 0,
+        "missing_cs": 0,
+        "listed": 0,
+        "cut": 0,
+        "rows": [],
+    }
+    picked = {}
+    for want in sorted(one for one in names if one.startswith(SF_PREFIXES) and one.endswith(".xml")):
+        raw = parts.get(want)
+        if raw is None:
+            continue
+        picked[want] = raw.encode("utf-8") if isinstance(raw, str) else raw
+    if not picked:
+        return empty
+    rows = []
+    by_part = {}
+    by_state = {}
+    named = pointer = blank = missing_ea = missing_cs = 0
+    carriers = 0
+    for part, raw in picked.items():
+        head = ("master" if "slideMasters/" in part
+                else "layout" if "slideLayouts/" in part else "slide")
+        root = ET.fromstring(raw)
+        dad = {}
+        for par in root.iter():
+            for kid in par:
+                dad[kid] = par
+        for node in root.iter():
+            if xml_local(node.tag) not in ("defRPr", "rPr", "endParaRPr"):
+                continue
+            carriers += 1
+            faces = {one: _sf_face(node, one) for one in SF_TAGS}
+            if not any(one["present"] for one in faces.values()):
+                continue
+            level, role = _sf_climb(node, dad)
+            written = [one for one in SF_TAGS if faces[one]["present"]]
+            how = {one: _sf_how(faces[one]["typeface"]) for one in SF_TAGS}
+            for one in written:
+                if how[one] == "named":
+                    named += 1
+                elif how[one] == "pointer":
+                    pointer += 1
+                else:
+                    blank += 1
+            if not faces["ea"]["present"]:
+                missing_ea += 1
+            if not faces["cs"]["present"]:
+                missing_cs += 1
+            key = "-".join(written)
+            by_state[key] = by_state.get(key, 0) + 1
+            by_part[head] = by_part.get(head, 0) + 1
+            rows.append({
+                "index": len(rows),
+                "part": part,
+                "kind": head,
+                "carrier": xml_local(node.tag),
+                "level": level,
+                "style_role": role,
+                "written": written,
+                "state": key,
+                "how": how,
+                "faces": faces,
+                "attrs": {key2.rsplit("}", 1)[-1]: value for key2, value in node.attrib.items()
+                          if "xmlns" not in key2},
+            })
+    return {
+        "family": "ooxml",
+        "available": True,
+        "parts_seen": list(picked),
+        "carriers_total": carriers,
+        "with_triple": len(rows),
+        "by_part": dict(sorted(by_part.items())),
+        "by_state": dict(sorted(by_state.items())),
+        "named": named,
+        "pointer": pointer,
+        "blank": blank,
+        "missing_ea": missing_ea,
+        "missing_cs": missing_cs,
+        "listed": min(len(rows), limit),
+        "cut": max(0, len(rows) - limit),
+        "rows": rows[:limit],
+    }
+
+
 def _ds_child_row(one, index: int) -> dict:
     """一份直接孩子：写出的顺序、局部名、自己的属性与几个孩子"""
     return {
@@ -12729,6 +12879,8 @@ def pptx_facts(path: Path) -> dict:
         "backgrounds": pptx_background_ledger(parts, names),
         # 页上没写符号的那些段，符号在版式与母版那一层（`a:lvlNpPr`）
         "bullet_layers": slide_bullets_layers_pptx(parts, names),
+        # 这一页的三元组字体：a:latin / a:ea / a:cs 各点了谁（主题那一份归 theme_ledger）
+        "font_sets": slide_font_sets_pptx(parts, names),
         "slide_size": size,
         "slide_size_type": size_type,
         "masters": sorted(one for one in names if one.startswith("ppt/slideMasters/slideMaster")),

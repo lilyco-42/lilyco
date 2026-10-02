@@ -102,6 +102,7 @@ mod rtf;
 mod section_starts;
 mod shape_tree;
 mod slide_bullets;
+mod slide_font_sets;
 mod slide_stats;
 mod slide_table_styles;
 mod styles_parts;

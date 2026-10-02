@@ -11413,6 +11413,112 @@ def main() -> int:
         [False, False, False, True],
     )
 
+    def sf_rows(book, take=2):
+        return [[one.get("index"), one.get("kind"), one.get("carrier"), one.get("level"),
+                 one.get("style_role"), one.get("state"),
+                 (one.get("how") or {}).get("latin"), (one.get("how") or {}).get("ea"),
+                 (one.get("how") or {}).get("cs"),
+                 (one.get("faces") or {}).get("latin", {}).get("typeface"),
+                 (one.get("faces") or {}).get("ea", {}).get("typeface"),
+                 (one.get("faces") or {}).get("cs", {}).get("typeface")]
+                for one in (book.get("rows") or [])[:take]]
+
+    def sf_states(book):
+        tally = {}
+        for one in book.get("rows") or []:
+            key = one.get("state")
+            tally[key] = tally.get(key, 0) + 1
+        return dict(sorted(tally.items()))
+
+    def sf_want_rows(book, take=2):
+        return [[one["index"], one["kind"], one["carrier"], one["level"], one["style_role"],
+                 one["state"], one["how"]["latin"], one["how"]["ea"], one["how"]["cs"],
+                 one["faces"]["latin"]["typeface"], one["faces"]["ea"]["typeface"],
+                 one["faces"]["cs"]["typeface"]] for one in (book.get("rows") or [])[:take]]
+
+    SF_SC = ("carriers_total", "with_triple", "named", "pointer", "blank",
+             "missing_ea", "missing_cs", "listed", "cut")
+    sf_pin = {
+        "borders.pptx": [[279, 19, 0, 57, 0, 0, 0, 19, 0], {"master": 19},
+                         {"latin-ea-cs": 19}],
+        "borders-lo.pptx": [[302, 302, 302, 0, 0, 302, 302, 302, 0],
+                            {"layout": 287, "slide": 15}, {"latin": 302}],
+        "deck.pptx": [[279, 19, 0, 57, 0, 0, 0, 19, 0], {"master": 19}, {"latin-ea-cs": 19}],
+        "deck-lo.pptx": [[324, 315, 315, 0, 0, 315, 315, 315, 0],
+                         {"layout": 10, "master": 287, "slide": 18}, {"latin": 315}],
+    }
+    print("=== 3c8) 这一页的三元组字体（font_sets）：a:latin / a:ea / a:cs 各点了谁 ===")
+    # 镜像这一本默认交满 400 行，出口默认只有 100 —— 不比 `--limit 400` 就会拿
+    # 截过的 rows 去对整本账，listed / cut 与逐行都对不上（bullet_layers 同一手法）
+    for name in sorted(sf_pin):
+        mine = dig(lbin("office-slide", fixture(name), "--limit", "400"), "font_sets") or {}
+        want = files[name]["ooxml"]["font_sets"]
+        check("%s 的三元组整本账（九格计数）" % name, [mine.get(key) for key in SF_SC],
+              sf_pin[name][0])
+        check("%s 的住处与在场组合" % name, [mine.get("by_part"), sf_states(mine)],
+              [sf_pin[name][1], sf_pin[name][2]])
+        check("%s 的头两行逐格" % name, sf_rows(mine), sf_want_rows(want))
+        check("%s 的全部行两家一致" % name, mine.get("rows"), want.get("rows"))
+        check("%s 的部件清单两家一致" % name, mine.get("parts_seen"), want.get("parts_seen"))
+    first = dig(lbin("office-slide", fixture("borders.pptx")), "font_sets") or {}
+    check("python-pptx 那一路只在母版里写这一套，三枚齐全、值全是主题指针："
+          "标题那一格点 major 三连（`+mj-lt` / `+mj-ea` / `+mj-cs`），其余 18 格点 minor"
+          "（`+mn-lt` / `+mn-ea` / `+mn-cs`）—— 一个真字体名都没点",
+          [first["rows"][0]["kind"], first["rows"][0]["level"], first["rows"][0]["style_role"],
+           first["rows"][0]["state"], first["rows"][0]["how"],
+           first["rows"][0]["faces"], first["rows"][1]["style_role"],
+           first["rows"][1]["faces"], first["named"], first["pointer"]],
+          ["master", "lvl1pPr", "titleStyle", "latin-ea-cs",
+           {"latin": "pointer", "ea": "pointer", "cs": "pointer"},
+           {"latin": {"present": True, "typeface": "+mj-lt"},
+            "ea": {"present": True, "typeface": "+mj-ea"},
+            "cs": {"present": True, "typeface": "+mj-cs"}},
+           "bodyStyle",
+           {"latin": {"present": True, "typeface": "+mn-lt"},
+            "ea": {"present": True, "typeface": "+mn-ea"},
+            "cs": {"present": True, "typeface": "+mn-cs"}},
+           0, 57])
+    twin = dig(lbin("office-slide", fixture("borders-lo.pptx")), "font_sets") or {}
+    check("LibreOffice 重写同一份稿子时把它整个摊平：302 行全只写 a:latin 一枚、"
+          "值全是真名字，a:ea 与 a:cs 一枚都不写，住处也从母版搬到版式与正文页"
+          "（layout 287、slide 15）—— 「这份稿子自己点没点名主题」与「三套脚本齐不齐」"
+          "在两位手里是两个答案",
+          [twin["with_triple"], twin["named"], twin["pointer"], twin["missing_ea"],
+           twin["missing_cs"], twin["by_part"], twin["rows"][0]["kind"],
+           twin["rows"][0]["faces"]["ea"]["present"]],
+          [302, 302, 0, 302, 302, {"layout": 287, "slide": 15}, "layout", False])
+    few = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "2"), "font_sets") or {}
+    check("--limit 2 只截 rows 那一本（listed 2、cut 313），with_triple 与 by_part、"
+          "named / pointer / missing_* 仍说整份件",
+          [few.get("listed"), few.get("cut"), few.get("with_triple"),
+           len(few.get("rows") or []), few.get("by_part"), few.get("named")],
+          [2, 313, 315, 2, {"layout": 10, "master": 287, "slide": 18}, 315])
+    sf_all = {one: files[one]["ooxml"]["font_sets"] for one in sorted(files)
+              if one.endswith(".pptx") and (files[one].get("ooxml") or {}).get("font_sets")}
+    check("整库摊开（33 份 pptx）：9325 枚 a:defRPr / a:rPr / a:endParaRPr 里 4862 枚至少写了"
+          "这三枚之一；typeface 合计 named 4539 对 pointer 969、写空串 0；三枚在场组合只有两种"
+          "（latin 与 latin-ea-cs），missing_ea 与 missing_cs 同为 4539 —— 全批没有一处"
+          "「只写复杂脚本而不写拉丁」；33 份全都至少交一行",
+          [len(sf_all), sum(one["carriers_total"] for one in sf_all.values()),
+           sum(one["with_triple"] for one in sf_all.values()),
+           sum(one["named"] for one in sf_all.values()),
+           sum(one["pointer"] for one in sf_all.values()),
+           sum(one["blank"] for one in sf_all.values()),
+           sum(one["missing_ea"] for one in sf_all.values()),
+           sum(one["missing_cs"] for one in sf_all.values()),
+           sorted({key for one in sf_all.values() for key in one["by_state"]}),
+           sum(1 for one in sf_all.values() if one["with_triple"])],
+          [33, 9325, 4862, 4539, 969, 0, 4539, 4539, ["latin", "latin-ea-cs"], 33])
+    check("反面凭据：这一本只住在 OOXML 演示那一家 —— odp / odt / .ppt 三种出口的账本里 "
+          "font_sets 这个键整个不在场（ODF 的字体是 style:font-face 与 fo:font-name* 那一套，"
+          "不是三枚一组的 a:latin / a:ea / a:cs），主题里 majorFont / minorFont 那一份"
+          "归 theme_ledger，两本不并账",
+          [no_theme_key("office-slide", "deck.odp", "font_sets"),
+           no_theme_key("office-doc", "notes.odt", "font_sets"),
+           no_theme_key("office-slide", "deck.ppt", "font_sets"),
+           no_theme_key("office-slide", "borders.pptx", "font_sets")],
+          [False, False, False, True])
+
     # ── 3bw) 格子的字离边多远：docx 两个住处、pptx 四枚属性、ODF 一跳在 table-cell 样式上 ──
     print("=== 3bw) cell_margins：表级 / 格级 / 一跳在样式 ===")
     for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
