@@ -2,18 +2,23 @@
 
 > crate `lilyco-aic` / bin `laic`。面向游戏 mod 开发：Alice in Cradle（PixelLiner 引擎）的
 > 角色表 / 贴图 / 立绘换装容器，四端（CLI / TUI / Web / MCP）同 registry。
-> 回答四类问题：**有哪些姿势**、**某姿势每帧每层的变换与组层树**（mod 抄姿势的全部字段）、
-> **哪个角色的表里有某个姿势**、**贴图长什么样**（解码出 PNG）。
+> 回答七类问题：**有哪些姿势**、**某姿势每帧每层的变换与组层树**（mod 抄姿势的全部字段）、
+> **哪个角色的表里有某个姿势**、**贴图长什么样**（解码出 PNG）、**每个 sprite 长什么样**
+> （按 UV 裁切，以姿势层名命名）、**某姿势画出来什么样**（合成 PNG / GIF / 精灵表）、
+> **改完怎么写回去**（pxls 写回 UnityFS）。
 
-## 命令（全 T0 只读）
+## 命令（8 条：7 条 T0 只读 + `repack` T1 需确认）
 
 | 命令 | 作用 |
 |---|---|
 | `poses` | 列出角色表全部姿势；`--pose` glob 过滤；`--full` 附带每帧图层明细 + **组层树**（`tree`）；文件级附 **矢量图数据**（`vectors`） |
 | `frame` | 导出指定姿势的帧 × 图层变换 + 每帧**组层树**：`name / kind / group / alpha / x / y / zmx / zmy / rot_r / blend_variable / img / img_size / tree` |
 | `find-pose` | 跨整棵目录的所有表搜姿势名（glob、含别名匹配），报告「谁有这个姿势」 |
-| `tex` | 列出 `*.texture_0.dat` 包内全部 Texture2D（尺寸/格式/存储方式）；`--out DIR` 解码出 PNG（RGBA32 直读，DXT1/BC1、DXT5/BC3 走 `texture2ddecoder`），内联与 `.resS` 资源流双路 |
+| `tex` | 列出 `*.texture_0.dat` 包内全部 Texture2D（尺寸/格式/存储方式）；`--out DIR` 解码出 PNG（Unity `TextureFormat` 全表：12=DXT5/BC3、25=BC7、28/29=Crunch 等，块格式走 `texture2ddecoder`），内联与 `.resS` 资源流双路；每项附 `format_size_ok`（`m_CompleteImageSize` 与格式表交叉验证，认错格式立刻现形） |
 | `mpcc` | 解析 `mobpcc/*.mpcc.bytes` 头部：容器 `name` / `chr_name` / 调色板标志 / 剩余载荷 |
+| `sprites` | 按图集 UV 裁切导出每个 sprite 的 PNG（T0）：外部贴图按 asset 名后缀 `_<i>` 配对（`noel_t` 的对象表是倒的，按顺序取会把主图/部件图对调），文件名取姿势层名；PARTS 图集（UV 为 0）继承前一图集的 UV 表 |
+| `render` | 把姿势帧合成为 PNG / GIF / 精灵表（T0）：变换语义照抄 `PxlMeshDrawer.makeMesh → RotaGraph`（中心定位、zmx/zmy 缩放、`-rotR` 旋转、alpha/100 混合、Point 点采样，`rotR==0` 的奇偶 +0.5 修正也复刻） |
+| `repack` | **T1**：把改过的 pxls 写回（`--rename OLD=NEW`、`--set-alpha LAYER=0..100`）：裸 pxls 直写；UnityFS 则就地替换 TextAsset 正文并修 TypelessData 长度前缀、SerializedFile 头 `file_size`、对象表（`byte_size` 重算对齐、后续 `byte_start` 平移）与 blocks info/节点表；默认 dry-run，写后自检（重读→重解析→重序列化逐字节比对） |
 
 `poses` / `frame` 的 `root` 三种都吃：单个 `.pxls` 文件、UnityFS 包裹的 `.pxls.dat`（自动解包）、
 或整棵目录（递归找 `*.pxls.dat` / `*.pxls` / `*.pxls.bytes`，自动跳过 `*.texture_0.dat`）。
@@ -22,12 +27,19 @@
 
 - **128/128 张 pxls 表**全部解析零错误（Enemies 29 / EvImg 40 / MapChars 17 / MapChips 18 /
   PxlNoel 12 / PxlCane 6 / Pxl 4 / Fis 1 / mgm_bun 1）。
-- **125 张 texture_0.dat**：UnityFS → v22 SerializedFile → Texture2D（typetree 驱动解析），
-  DXT1/RGBA32 解码出 PNG（noel 4096×4096 主贴图 + 法线贴图实测通过）。
+- **125 张 texture_0.dat / 133 张 Texture2D**：UnityFS → v22 SerializedFile → Texture2D
+  （typetree 驱动解析），122 张解码出 PNG（DXT5/BC3 71 张、BC7 39 张、RGB565/RGBA32/RGB24，
+  含 noel 4096×4096 主贴图 + 法线贴图）。11 张事件图是 DXT5Crunched（`decode_unity_crunch`
+  直解，`astc-decode` 依赖已删）。
+- **8 张双图集表**（`noel` 系列等）的主包各装 2 张 Texture2D：图集 `i` 按 asset 名后缀
+  `_<i>` 取图，`noel_t` 的对象表是倒的（`texture_1` 在前），有专门的回归测试钉住。
 - **组层树**：`fineLinks` 语义重建（组层 k8 认领文件序前方 N 条目，嵌套组消耗子树足迹），
   138 层的 `mapchip_grazia` 帧实测 138↔138 全对。
 - **矢量**：`%IMGV_SECTION%` 逐条解析（多边形顶点，z bit0 = 新子路径）。
 - **5 张 mobpcc**：头部全解（NOEL__darknoel 等）。
+- **pxls 写回**：`parse → serialize` 全表逐字节回环；UnityFS 写回修 4 处
+  （TypelessData 长度前缀 / 头 `file_size` / 对象表 / blocks info+节点表），
+  正文只加 10 字节时填充 1→3 的对齐坑有回归测试覆盖。
 
 ## 典型用法
 
@@ -41,8 +53,17 @@ laic frame --root .../Enemies/honeycomb.pxls.dat --pose gun --index 0 --json
 # noel 表全部 183 个姿势的清单（--full 再加每帧图层 + 组层树）
 laic poses --root .../PxlNoel/noel.pxls.dat --json
 
-# 导出 noel 的主贴图（DXT1, resS 资源流）与法线贴图（RGBA32 内联）为 PNG
+# 导出 noel 的主贴图（DXT5, resS 资源流）与法线贴图（RGBA32 内联）为 PNG
 laic tex --root .../PxlNoel/noel.pxls.bytes.texture_0.dat --out D:/tmp/tex --json
+
+# 按 UV 裁出 noel 全部 sprite（以姿势层名命名）
+laic sprites .../PxlNoel/noel.pxls.dat --out D:/tmp/sp --json
+
+# 渲染 noel 的 big 系姿势（含 GIF + 精灵表）
+laic render .../PxlNoel/noel.pxls.dat --pose 'big*' --out D:/tmp/r --anim --sheet --json
+
+# 把姿势改名写回（默认 dry-run，只报计划）
+laic repack .../PxlNoel/noel.pxls.dat --out D:/tmp/out --rename old=new --json
 
 # 立绘换装容器清单（darknoel 等）
 laic mpcc --root .../StreamingAssets/mobpcc --json
@@ -107,8 +128,7 @@ CLI 注意：默认 pretty 模式**只打印 <500 字节的结果**，大结果�
 ## 已知限制
 
 - MPCC 深层 ACC 调色板（换装 parts 表）只报剩余字节数，未逐条解析。
-- 贴图解码支持 RGBA32 / RGBA4444 / RGB565 / DXT1(BC1) / DXT5(BC3) / BC7 / ASTC-4x4（astc-decode）；
-  全游戏 133 张贴图 122 张可导出 PNG。剩余 11 张 ASTC 的 resS 数据量（cis≈100KB）与标准
-  ASTC 4x4 块流需求不符（4096² 应为 MB 级），疑为裁剪变体，保持清单可用不强解。
-- 只读。姿势写回（把 honeycomb 的 gun 移植进 noel 表）是二期：SerializedFile 对象表 +
-  typetree 驱动解析已就位（`read_object` 直接可读 TextAsset 的 m_Script），差对象字节级写回。
+- IMGV 矢量的实际绘制消费还没做（`render` 只画 UV sprite；pixelliner4j 同样忽略该段）。
+- `render` 里 PARTS 图集的层默认用图集 0 的像素合成（部件变体不参与），撕破/换装差分的
+  精确预览待补。
+- 11 张 DXT5Crunched 事件图走 `decode_unity_crunch` 直解；`tex` 仍对未知格式只列清单不强解。
