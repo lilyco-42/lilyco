@@ -1,5 +1,5 @@
 //! laic — Alice in Cradle 全格式域：
-//! 姿势提取 / 帧图层结构数据提取 / 跨表姿势搜索。
+//! 姿势提取 / 帧图层结构数据提取 / 跨表姿势搜索 / 贴图导出 / 立绘合成 / 把改过的表写回去。
 //!
 //! **「一域一二进制 × 四端」**：同一份 `Registry`，CLI 生成子命令、TUI 生成选择页、
 //! Web 用 `?cmd=` 切换、MCP 一次 `tools/list` 全返回。
@@ -8,20 +8,32 @@
 //! laic poses D:/gal/.../StreamingAssets --pose gun --full   # CLI：全结构导出
 //! laic frame .../Enemies/honeycomb.pxls.dat --pose gun      # 抄小兵 gun 的图层变换
 //! laic find-pose .../StreamingAssets --name gun             # 谁的表里有 gun？
+//! laic tex .../PxlNoel --out tmp/tex                        # Texture2D 全解码（BC7/ASTC 也吃）
+//! laic sprites .../PxlNoel/noel.pxls.dat --out tmp/sp       # 按 UV 裁 sprite（按层名命名）
+//! laic render .../PxlNoel/noel.pxls.dat --pose 'big*' --out tmp/r --anim --sheet
+//! laic repack .../PxlNoel/noel.pxls.dat --out tmp/out --rename old=new --apply
 //! laic --gui     # Web 控制台
 //! laic --tui     # TUI 命令选择页
 //! laic --mcp     # MCP：agent 直接调
 //! laic --schema  # 注册表清单
 //! ```
 //!
-//! 全部命令 T0 只读；解析器规格逆向自 PixelLiner 反编译源码（见 pxls.rs 头注释）。
+//! 安全分级：
+//! - `poses` / `frame` / `find-pose` / `tex` / `mpcc` / `sprites` / `render` = **T0 只读**
+//! - `repack` = **T1 需确认**，默认 dry-run；自动化面（MCP）默认拒绝，必须人类在环
+//!
+//! 解析器规格逆向自 PixelLiner 反编译源码（见 pxlslib.rs 头注释）。
 
+mod atlas;
 mod findpose;
 mod frame;
 mod mpcc;
 mod poses;
 mod pxlslib;
+mod render;
+mod repack;
 mod serialized;
+mod sprites;
 mod tex;
 mod unityfs;
 mod util;
@@ -39,6 +51,9 @@ pub fn build_registry_with_policy(policy: Arc<dyn SafetyPolicy>) -> Registry {
         RegisteredCommand::from_app::<findpose::FindPose>(),
         RegisteredCommand::from_app::<tex::Tex>(),
         RegisteredCommand::from_app::<mpcc::Mpcc>(),
+        RegisteredCommand::from_app::<sprites::Sprites>(),
+        RegisteredCommand::from_app::<render::Render>(),
+        RegisteredCommand::from_app::<repack::Repack>(),
     ];
     for c in cmds {
         let name = c.name.clone();
@@ -84,22 +99,39 @@ mod tests {
     fn registry_lists_the_commands_this_domain_answers() {
         let mut got = names();
         got.sort();
-        let mut want = vec!["poses", "frame", "find-pose", "tex", "mpcc"];
+        let mut want = vec![
+            "poses",
+            "frame",
+            "find-pose",
+            "tex",
+            "mpcc",
+            "sprites",
+            "render",
+            "repack",
+        ];
         want.sort_unstable();
         assert_eq!(got, want.into_iter().map(str::to_string).collect::<Vec<_>>());
     }
 
-    /// 全域只读：每条命令都必须 T0
+    /// 安全分级：只有 repack 高于 T0（写回），其余全部只读
     #[test]
-    fn every_command_is_read_only() {
+    fn only_repack_is_elevated() {
         let reg = build_registry();
         for c in reg.visible() {
-            assert_eq!(
-                c.schema.safety,
-                SafetyTier::ReadOnly,
-                "`{}` 分级变了：本域只做提取，写回功能加进来时要改这里",
-                c.schema.name
-            );
+            if c.schema.name == "repack" {
+                assert_eq!(
+                    c.schema.safety,
+                    SafetyTier::Confirm,
+                    "repack 是写回，必须 T1（默认 dry-run + 自动化面拒绝）"
+                );
+            } else {
+                assert_eq!(
+                    c.schema.safety,
+                    SafetyTier::ReadOnly,
+                    "`{}` 分级变了：本域只读命令必须是 T0",
+                    c.schema.name
+                );
+            }
         }
     }
 
@@ -164,5 +196,35 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// 写回命令必须被自动化面拦下（MCP = DenyElevated），而 CLI 面允许走到确认环节
+    #[test]
+    fn repack_is_denied_on_mcp_but_reachable_on_cli() {
+        use lilyco::__core::safety::{GateDecision, GateRequest};
+        let args = serde_json::json!({ "root": ".", "out": "o", "apply": true });
+        let mut tier = None;
+        for (policy, surface) in [
+            (policy_for(lilyco::Backend::Mcp), "mcp"),
+            (policy_for(lilyco::Backend::Cli), "cli"),
+        ] {
+            let mut reg = Registry::new().with_policy(policy);
+            reg.register(RegisteredCommand::from_app::<repack::Repack>()).unwrap();
+            let c = reg.get("repack").unwrap();
+            let t = c.schema.safety;
+            assert_eq!(t, SafetyTier::Confirm, "repack 必须 T1");
+            tier = Some(t);
+            let decision = reg.policy().check(GateRequest {
+                command: "repack",
+                tier: t,
+                args: &args,
+            });
+            if surface == "mcp" {
+                assert_ne!(decision, GateDecision::Allow, "MCP 自动化面不能放行写回");
+            } else {
+                assert_eq!(decision, GateDecision::Allow, "CLI 面应放行到确认环节（dry-run 兜底）");
+            }
+        }
+        assert!(tier.is_some());
     }
 }
