@@ -3923,3 +3923,37 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
   `w:settings` 是它的第一个孩子，**根上那枚 `@mc:Ignorable` 也在这一层**（在伪根上找属性会
   永远找到空）；元素与属性的名字都带着前缀，所以要按局部名认 —— 上面那 12 份把 `docId`
   写两遍的真件，正是「按 `w:docId` 找就只剩一枚」那种读法会漏掉的形状。
+
+**169. 拉丁与复杂脚本那四对：`sz`/`szCs`、`b`/`bCs`、`i`/`iCs`、`u`/`uCs` —— 「写了什么」与「是什么意思」是两格**
+
+- 出口 `office-doc` 的 `structure.script_pairs`（T0 只读），第二读者
+  `office_reader.script_pairs_docx`。八枚都住在 `w:rPr` 的**直接孩子**里，按局部名认。
+- 一枚 `w:rPr` 的住处由**父与祖**定，一共有六处，本仓都真有件：正文 run（`w:r`）、段落标记
+  （`w:pPr/w:rPr`）、样式自己的（`w:style/w:rPr`）、样式的段落标记
+  （`w:style/w:pPr/w:rPr`）、文档默认（`w:docDefaults/w:rPrDefault/w:rPr`），以及表格样式
+  条件分支（`w:tblStylePr/w:rPr`）—— 最后一位才是大头：95 份里 **81 份**写在这里，每份 308 枚，
+  而正文 run 只有 10 份写。
+- 意思与字面分两格交：`w:b` 在场而不带 `@w:val`，规范读作 **on**，于是 `latin` 是 `"on"` 而
+  `latin_written` 是 `null`；`0` / `false` 是 off，`1` / `true` / `on` 是 on；`sz` 那一族是
+  数字，**不参与真假三态**（`latin` 记 `value`，值原样交，单位仍是半点）。因此
+  「拉丁没写值（on）对复杂脚本写 `w:val="true"`（也是 on）」这种同义不同写法有单独一枚布尔，
+  不会被字面比对误报成不合。
+- 三格整批为零，且是量出来的不是没实现：95 份 OOXML 文字件共 40587 枚 rPr、其中 28396 枚
+  至少写了这八枚之一；两边都在场 30757 处（`sz` 2315、`b` 25699、`i` 2743、`u` 0），
+  只写拉丁一侧 1234 处（`i` 占 1022），而**只写复杂脚本一侧 0 处、字面不合 0 处、
+  同义不同写法 0 处**。这两位生产者（python-docx 那一路与 LibreOffice 重写）要么两边写同一个值，
+  要么干脆不写复杂脚本那一枚。
+- `u` 那一对最见偏向：`u.both` 全批 0，而 `u.only_latin` 有 186 处 —— 下划线只给拉丁写，
+  `w:uCs` 这两位都不碰。
+- 不跟着跳：一枚 run 可以通过 `w:rStyle` 借一条字符样式，那边的 `szCs` 与本 run 的 `szCs`
+  是两句话，`run_formats` / `styled_text` 那两本已经在问，这本书不并账。
+- `stylesWithEffects.xml` 不读：本仓样式类账本一律只读主那份（事实 166）。同名的第二份里
+  这些键同样成堆（`szCs` 1125、`iCs` 1260、`bCs` 315），要读那份得单开一个口径，别偷偷并进来。
+- ODF 那一头的对应写法是 `fo:font-size-complex` / `fo:font-weight-complex` /
+  `fo:font-style-complex` / `style:font-name-complex`，但本仓所有 odt / ods / odp **一份都没写**
+  （直接读部件字节数出来的 0 份），所以这一族不交 `script_pairs` 这个键 —— 缺键是「这一族没读」，
+  而不是交一份零账；等有生产者写了再开分支。
+- `--limit` 只截 `rows`：`notes.docx` 上 `--limit 2` 得 `listed` 2、`cut` 343，而 `rpr_seen` 466、
+  `rpr_written` 345、`by_place` 仍说整份件（与 `doc_settings` 那本同一条口径）。
+- 归类之外的角落：整批只有 2 份出现本账没归类的住处（`revisions.docx` 与 `revisions-lo.docx`
+  各一枚，那枚 `w:rPr` 挂在带 `w:rPrChange` 的地方），交回 `place: "other"` 而不是硬塞进六处之一。

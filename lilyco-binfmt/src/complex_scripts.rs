@@ -179,7 +179,7 @@ fn walk(
         *seen += 1;
         let blocks = blocks_of(node);
         if !blocks.is_empty() {
-            let (place, owner) = place_of(par, par_owner, gpar, gpar_owner);
+            let (place, owner) = place_of(par, par_owner.clone(), gpar, gpar_owner.clone());
             let mut pairs: Vec<(String, Value)> = Vec::new();
             for (latin, complex_tag) in SP_PAIRS {
                 pairs.push((latin.to_string(), pair(latin, complex_tag, &blocks)));
@@ -206,17 +206,18 @@ fn book(
 ) {
     let mut places: BTreeMap<String, u64> = BTreeMap::new();
     let mut tally: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+    // 内层那七枚键必须是 String：外层是 BTreeMap<String, …>，from([("…", 0)]) 会推成 &str
     for (latin, _complex) in SP_PAIRS {
         tally.insert(
             latin.to_string(),
             BTreeMap::from([
-                ("latin_written", 0u64),
-                ("complex_written", 0u64),
-                ("both", 0),
-                ("only_latin", 0),
-                ("only_complex", 0),
-                ("differ", 0),
-                ("same_meaning_diff_spelling", 0),
+                ("latin_written".to_string(), 0u64),
+                ("complex_written".to_string(), 0),
+                ("both".to_string(), 0),
+                ("only_latin".to_string(), 0),
+                ("only_complex".to_string(), 0),
+                ("differ".to_string(), 0),
+                ("same_meaning_diff_spelling".to_string(), 0),
             ]),
         );
     }
