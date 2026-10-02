@@ -1,4 +1,4 @@
-//! lpxls 域内共享工具：目标文件收集 + 极简 glob（* / ?，不区分大小写）。
+//! laic 域内共享工具：目标文件收集 + 极简 glob（* / ?，不区分大小写）。
 
 use std::path::{Path, PathBuf};
 
