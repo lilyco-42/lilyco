@@ -66,8 +66,8 @@ Export every sprite of PixelLiner .pxls character tables as an individual PNG by
 | root | path | 是 | — | A .pxls file, or a directory scanned recursively for pxls tables |
 | out | path | 是 | — | Directory to write the cropped sprite PNG files into |
 | pose | text | 否 |  | Only export sprites used by poses whose title matches this glob |
-| atlas | flag | 否 | — | Also write the whole decoded atlas as \<table\>.atlas_\<i\>.png |
-| embedded | flag | 否 | — | Also write PNGs embedded in the %IMGS_SECTION% |
+| atlas | flag | 否 | false | Also write the whole decoded atlas as \<table\>.atlas_\<i\>.png |
+| embedded | flag | 否 | false | Also write PNGs embedded in the %IMGS_SECTION% |
 | limit | number | 否 | 0 | Cap the number of tables processed (0 = unlimited) |
 
 ## `laic render`
@@ -82,8 +82,8 @@ Composite PixelLiner pose frames into PNG images (and optionally an animated GIF
 | dir | number | 否 | 99 | Only render direction N (0..=7; omit for all) |
 | frame | number | 否 | 99 | Only render frame index N within each direction (omit for all) |
 | scale | number | 否 | 1 | Integer upscale factor for the output image |
-| anim | flag | 否 | — | Also write one animated GIF per direction |
-| sheet | flag | 否 | — | Also write a sprite sheet per pose (rows = directions, columns = frames) |
+| anim | flag | 否 | false | Also write one animated GIF per direction |
+| sheet | flag | 否 | false | Also write a sprite sheet per pose (rows = directions, columns = frames) |
 | texture | text | 否 |  | Explicit texture file for atlas 0 (overrides auto pairing) |
 | limit | number | 否 | 0 | Cap the number of tables processed (0 = unlimited) |
 
