@@ -3566,6 +3566,8 @@ fn run_office_doc(app: &OfficeDoc, ctx: &Context) -> Result<Value, AppError> {
                 "styles_parts": crate::styles_parts::docx(bytes, limit),
                 // settings.xml 那层视图与偏好：zoom 两种拼法、校对状态、语言三属性、文档变量
                 "doc_settings": crate::doc_settings::docx(bytes, limit),
+                // 拉丁与复杂脚本那四对：sz/szCs、b/bCs、i/iCs、u/uCs 各写了什么
+                "script_pairs": crate::complex_scripts::docx(bytes, limit),
                 // 反过来那一本：正文里那些手指点到哪一格，Word 那一路的影子实色自己跟自己核对
                 "color_refs": crate::theme_refs::refs(bytes, limit),
                 // 分节的页眉页脚：每节六格，自己写的与真正沿用的分开交

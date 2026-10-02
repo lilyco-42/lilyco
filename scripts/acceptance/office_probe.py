@@ -13665,6 +13665,128 @@ def main() -> int:
            no_theme_key("office-doc", "notes.docx", "doc_settings")],
           [False, False, False, True])
 
+    sp_docs = {}
+    for one in sorted(files):
+        if not one.lower().endswith((".docx", ".dotx", ".docm")):
+            continue
+        mine = (files[one].get("ooxml") or {}).get("script_pairs")
+        if mine and mine.get("available"):
+            sp_docs[one] = mine
+
+    def sp_hist(book):
+        hist = {}
+        for row in book.get("rows") or []:
+            for key in ("sz", "b", "i", "u"):
+                state = (row.get("pairs") or {}).get(key, {}).get("state")
+                hist["%s.%s" % (key, state)] = hist.get("%s.%s" % (key, state), 0) + 1
+        return dict(sorted(hist.items()))
+
+    def sp_proj(book, take=3):
+        return [[row.get("index"), row.get("place"), row.get("owner")]
+                + [(row.get("pairs") or {}).get(key, {}).get("state")
+                   for key in ("sz", "b", "i", "u")]
+                for row in (book.get("rows") or [])[:take]]
+
+    print("=== 3c7) 拉丁与复杂脚本那四对（script_pairs）：sz/szCs、b/bCs、i/iCs、u/uCs 各写了什么 ===")
+    SP_SC = ("family", "available", "parts_seen", "rpr_seen", "rpr_written", "listed", "cut")
+    sp_pin = {
+        "styled-text.docx": [["ooxml", True, ["word/document.xml", "word/styles.xml"], 478, 354, 100, 254],
+                             {"doc_default": 1, "run": 9, "style": 36, "table_style_branch": 308},
+                             {"b.both": 69, "b.neither": 27, "b.only_latin": 4, "i.both": 17,
+                              "i.neither": 79, "i.only_latin": 4, "sz.both": 18, "sz.neither": 81,
+                              "sz.only_latin": 1, "u.neither": 97, "u.only_latin": 3},
+                             [[0, "run", None, "neither", "only_latin", "neither", "neither"],
+                              [1, "run", None, "neither", "neither", "only_latin", "neither"],
+                              [2, "run", None, "neither", "neither", "neither", "only_latin"]]],
+        "styled-text-lo.docx": [["ooxml", True, ["word/document.xml", "word/styles.xml"], 538, 357, 100, 257],
+                                {"doc_default": 1, "run": 9, "style": 39, "table_style_branch": 308},
+                                {"b.both": 66, "b.neither": 30, "b.only_latin": 4, "i.both": 17,
+                                 "i.neither": 79, "i.only_latin": 4, "sz.both": 21, "sz.neither": 78,
+                                 "sz.only_latin": 1, "u.neither": 97, "u.only_latin": 3},
+                                [[0, "run", None, "neither", "only_latin", "neither", "neither"],
+                                 [1, "run", None, "neither", "neither", "only_latin", "neither"],
+                                 [2, "run", None, "neither", "neither", "neither", "only_latin"]]],
+        "table-style-lo.docx": [["ooxml", True, ["word/document.xml", "word/styles.xml"], 553, 372, 100, 272],
+                                {"doc_default": 1, "paragraph_mark": 8, "run": 16, "style": 39,
+                                 "table_style_branch": 308},
+                                {"b.both": 66, "b.neither": 34, "i.both": 17, "i.neither": 83,
+                                 "sz.both": 45, "sz.neither": 55, "u.neither": 98, "u.only_latin": 2},
+                                [[0, "paragraph_mark", None, "both", "both", "neither", "neither"],
+                                 [1, "run", None, "both", "both", "neither", "neither"],
+                                 [2, "run", None, "both", "both", "neither", "neither"]]],
+        "notes.docx": [["ooxml", True, ["word/document.xml", "word/styles.xml"], 466, 345, 100, 245],
+                       {"doc_default": 1, "style": 36, "table_style_branch": 308},
+                       {"b.both": 78, "b.neither": 22, "i.both": 17, "i.neither": 83, "sz.both": 18,
+                        "sz.neither": 82, "u.neither": 98, "u.only_latin": 2},
+                       [[0, "doc_default", None, "both", "neither", "neither", "neither"],
+                        [1, "style", "Heading1", "both", "both", "neither", "neither"],
+                        [2, "style", "Heading2", "both", "both", "neither", "neither"]]],
+    }
+    for name in sorted(sp_pin):
+        got = lbin("office-doc", fixture(name))
+        mine = dig(got, "structure.script_pairs") or {}
+        want = files[name]["ooxml"]["script_pairs"]
+        check("%s 的四对整本账（ scalar 七格）" % name, [mine.get(key) for key in SP_SC],
+              sp_pin[name][0])
+        check("%s 的住处分布（一枚 rPr 挂在谁身上）" % name, mine.get("by_place"), sp_pin[name][1])
+        check("%s 的四对状态合计（逐行摊开）" % name, sp_hist(mine), sp_pin[name][2])
+        check("%s 的前三行（住处、样式归属与四对状态）" % name, sp_proj(mine), sp_pin[name][3])
+        check("%s 的行逐格两家一致" % name, mine.get("rows"), want["rows"])
+        check("%s 的 by_pair 两家一致" % name, mine.get("by_pair"), want["by_pair"])
+
+    sp = dig(lbin("office-doc", fixture("notes.docx")), "structure.script_pairs") or {}
+    check("sz 那一对按数字算、不参与真假三态，而 b 那一枚「在场没写值」读作 on：文档默认写 "
+          "sz 22 与 szCs 22（两边都是原样串、意思都是 value），它压根没写 b（absent）；"
+          "Heading1 样式两边都写 28，并且写 w:b 而不带 @w:val —— 意思是 on、写出来的值是 null，"
+          "这两个字段谁也不替谁",
+          [sp["rows"][0]["pairs"]["sz"]["latin_written"], sp["rows"][0]["pairs"]["sz"]["complex_written"],
+           sp["rows"][0]["pairs"]["sz"]["state"], sp["rows"][0]["pairs"]["b"]["latin"],
+           sp["rows"][1]["owner"], sp["rows"][1]["pairs"]["sz"]["latin_written"],
+           sp["rows"][1]["pairs"]["b"]["latin"], sp["rows"][1]["pairs"]["b"]["latin_written"]],
+          ["22", "22", "both", "absent", "Heading1", "28", "on", None])
+    few = dig(lbin("office-doc", fixture("notes.docx"), "--limit", "2"),
+              "structure.script_pairs") or {}
+    check("--limit 2 只截 rows 那一本（listed 2、cut 343），rpr_seen 与 rpr_written 与 by_place "
+          "仍说整份件 —— 与 doc_settings 那本同一条口径",
+          [few.get("listed"), few.get("cut"), few.get("rpr_seen"), few.get("rpr_written"),
+           len(few.get("rows") or []), few.get("by_place")],
+          [2, 343, 466, 345, 2, {"doc_default": 1, "style": 36, "table_style_branch": 308}])
+    agg = [
+        len(sp_docs),
+        sum(one["rpr_seen"] for one in sp_docs.values()),
+        sum(one["rpr_written"] for one in sp_docs.values()),
+        sum(one["listed"] for one in sp_docs.values()),
+        sum(one["cut"] for one in sp_docs.values()),
+        sum((one["by_pair"].get(key) or {}).get("both", 0) for one in sp_docs.values() for key in ("sz", "b", "i", "u")),
+        sum((one["by_pair"].get(key) or {}).get("only_latin", 0) for one in sp_docs.values() for key in ("sz", "b", "i", "u")),
+        sum((one["by_pair"].get(key) or {}).get("only_complex", 0) for one in sp_docs.values() for key in ("sz", "b", "i", "u")),
+        sum((one["by_pair"].get(key) or {}).get("differ", 0) for one in sp_docs.values() for key in ("sz", "b", "i", "u")),
+        sum((one["by_pair"].get(key) or {}).get("same_meaning_diff_spelling", 0)
+            for one in sp_docs.values() for key in ("sz", "b", "i", "u")),
+        sum(1 for one in sp_docs.values() if "table_style_branch" in one["by_place"]),
+        sum(1 for one in sp_docs.values() if "run" in one["by_place"]),
+        sum(1 for one in sp_docs.values() if one["by_place"].get("other")),
+    ]
+    check("整库摊开（95 份 OOXML 文字件）：见到 40587 枚 rPr，其中 28396 枚至少写了这八枚之一；"
+          "两边都在场的按四对合计 30757 处（sz 2315、b 25699、i 2743、u 0），只写拉丁一侧 "
+          "1234 处（i 就占 1022），**只写复杂脚本一侧 0 处**，字面不合 0 处，同义不同写法 0 处 —— "
+          "这两位生产者要么两边一起写同样的值，要么干脆不写复杂脚本那一枚；"
+          "81 份在表格样式条件分支里写这些键（那位每份贡献 308 枚），只有 10 份在正文 run 上写；"
+          "四对里 sz 每份都有（95），b 与 u 各 87 份、i 有 91 份；"
+          "本账没归类的住处只有 2 份出现（revisions.docx 与 revisions-lo.docx）",
+          agg,
+          [95, 40587, 28396, 8368, 20028, 30757, 1234, 0, 0, 0, 81, 10, 2])
+    check("反面凭据：这一层只住在 OOXML 文字那一家 —— .odt / .rtf / .doc 三种出口的账本里 "
+          "script_pairs 这个键整个不在场；ODF 那一头对应的是 fo:font-size-complex 这一族属性，"
+          "而本仓所有 odt / ods / odp 一份都没写（直接读部件字节数出来的 0 份），所以不替它开分支",
+          [no_theme_key("office-doc", "notes.odt", "script_pairs"),
+           no_theme_key("office-doc", "tabs.rtf", "script_pairs"),
+           no_theme_key("office-doc", "notes-en.doc", "script_pairs"),
+           no_theme_key("office-doc", "styled-text.docx", "script_pairs"),
+           sum(1 for one in sorted(files) if one.endswith((".odt", ".ods", ".odp"))
+               and b"font-size-complex" in fixture(one).read_bytes())],
+          [False, False, False, True, 0])
+
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
     for name, _, detail in failed:

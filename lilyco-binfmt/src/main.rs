@@ -43,6 +43,7 @@ mod cfb;
 mod cjk_typography;
 mod comment_threads;
 mod comments;
+mod complex_scripts;
 mod content_controls;
 mod cross_refs;
 mod custom_xml;

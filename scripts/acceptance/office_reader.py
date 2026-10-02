@@ -1238,6 +1238,197 @@ def latent_styles_docx(path: Path, limit: int = 200) -> dict:
     }
 
 
+SP_PAIRS = (("sz", "szCs"), ("b", "bCs"), ("i", "iCs"), ("u", "uCs"))
+SP_NAMES = ("sz", "szCs", "b", "bCs", "i", "iCs", "u", "uCs")
+
+
+def _sp_meaning(tag: str, block) -> tuple:
+    """一枚开关/数值按**意思**算什么：返回 (意思, 写出来的值)
+
+    元素不在场是 `absent`；在场而没写 `@w:val` 是 on（规范里就是这么读的）；`@w:val`
+    写 0/false 是 off，写 1/true/on 是 on，其余（含 sz 那种数字）原样交回、意思记 `value`。
+    """
+    if block is None:
+        return ("absent", None)
+    got = local_attr(block, "val")
+    if got is None:
+        return ("on", None)
+    low = got.strip().lower()
+    if tag != "sz":
+        if low in ("0", "false"):
+            return ("off", got)
+        if low in ("1", "true", "on"):
+            return ("on", got)
+    return ("value", got)
+
+
+def _sp_pair(tag_latin: str, tag_complex: str, blocks: dict) -> dict:
+    """一对：拉丁那一枚与复杂脚本那一枚各写了什么，再算三种不合的形态
+
+    两边都在场才谈 `differ`（按字面）；`same_meaning_diff_spelling` 是「意思一样、字面
+    不一样」那一类（拉丁没写 @w:val 就是 on，复杂脚本写了 w:val="true" 也是 on）——
+    这类如果只按字面比会误报，是这本账存在的理由之一。
+    """
+    one = _sp_meaning(tag_latin, blocks.get(tag_latin))
+    two = _sp_meaning(tag_complex, blocks.get(tag_complex))
+    written = one[0] != "absent"
+    other = two[0] != "absent"
+    if written and other:
+        state = "both"
+    elif written:
+        state = "only_latin"
+    elif other:
+        state = "only_complex"
+    else:
+        state = "neither"
+    return {
+        "latin": one[0],
+        "latin_written": one[1],
+        "complex": two[0],
+        "complex_written": two[1],
+        "state": state,
+        "differ": state == "both" and one[1] != two[1],
+        "same_meaning_diff_spelling": state == "both" and one[0] == two[0] and one[1] != two[1],
+    }
+
+
+def _sp_blocks(node) -> dict:
+    """一个 rPr 里那八枚的直接孩子（按局部名认，只认自己这一层，不下钻）"""
+    out = {}
+    for kid in node:
+        name = xml_local(kid.tag)
+        if name in SP_NAMES and name not in out:
+            out[name] = kid
+    return out
+
+
+def _sp_add_row(rows: list, tally: dict, places: dict, place: str, owner, node) -> None:
+    """把一枚写了这八枚之一的 rPr 记进行账，它贡献的计数一起加"""
+    blocks = _sp_blocks(node)
+    if not blocks:
+        return
+    row = {
+        "index": len(rows),
+        "place": place,
+        "owner": owner,
+        "pairs": {latin: _sp_pair(latin, complex_tag, blocks)
+                  for latin, complex_tag in SP_PAIRS},
+        "names": [xml_local(one.tag) for one in node],
+    }
+    rows.append(row)
+    places[place] = places.get(place, 0) + 1
+    for latin, _complex in SP_PAIRS:
+        one = row["pairs"][latin]
+        book = tally[latin]
+        if one["latin"] != "absent":
+            book["latin_written"] += 1
+        if one["complex"] != "absent":
+            book["complex_written"] += 1
+        if one["state"] != "neither":
+            book[one["state"]] += 1
+        if one["differ"]:
+            book["differ"] += 1
+        if one["same_meaning_diff_spelling"]:
+            book["same_meaning_diff_spelling"] += 1
+
+
+def _sp_parents(root) -> dict:
+    """孩子 → 父亲的映射：place 要看这枚 rPr 挂在谁身上"""
+    out = {}
+    for par in root.iter():
+        for kid in par:
+            out[kid] = par
+    return out
+
+
+def _sp_place(par, gpar) -> tuple:
+    """按父与祖定住处：正文的 run、段落标记、样式自己的、样式的段落标记、文档默认"""
+    pname = xml_local(par.tag) if par is not None else ""
+    gname = xml_local(gpar.tag) if gpar is not None else ""
+    if pname == "rPrDefault":
+        return ("doc_default", None)
+    if pname == "tblStylePr":
+        return ("table_style_branch", local_attr(par, "type"))
+    if pname == "pPr":
+        if gname == "style":
+            return ("style_paragraph_mark", local_attr(gpar, "styleId"))
+        return ("paragraph_mark", None)
+    if pname == "style":
+        return ("style", local_attr(par, "styleId"))
+    if pname == "r":
+        return ("run", None)
+    return ("other", pname or None)
+
+
+def script_pairs_docx(path: Path, limit: int = 100) -> dict:
+    r"""这一段文字给拉丁与给复杂脚本各写了什么：`sz`/`szCs` 那四对，一份账
+
+    与 `complex_scripts.rs` 同一条口径。住处按父/祖定：正文 run 自己的 `w:rPr`、段落标记
+    `w:pPr/w:rPr`、`word/styles.xml` 里每条样式自己的 `w:rPr`、样式的段落标记
+    `w:style/w:pPr/w:rPr`，以及 `w:docDefaults/w:rPrDefault/w:rPr` 那一枚。只认自己这一层的
+    孩子（按局部名）；`w:rStyle` 指向的那条样式**不跟着跳** —— 那是 run_formats 那本在问的
+    话，两本不合账。`stylesWithEffects.xml` 不读（本仓其它样式类账本一律只读主那份，
+    见事实 166）。八枚一个都没写的 rPr 不进 rows，因为那一枚压根没问这句话。
+    """
+    empty = {
+        "family": "ooxml",
+        "available": False,
+        "parts_seen": [],
+        "rpr_seen": 0,
+        "rpr_written": 0,
+        "by_place": {},
+        "by_pair": {},
+        "listed": 0,
+        "cut": 0,
+        "rows": [],
+    }
+    tally = {
+        latin: {"latin_written": 0, "complex_written": 0, "both": 0, "only_latin": 0,
+                "only_complex": 0, "differ": 0, "same_meaning_diff_spelling": 0}
+        for latin, _complex in SP_PAIRS
+    }
+    rows: list = []
+    places: dict = {}
+    seen = 0
+    picked = {}
+    try:
+        with zipfile.ZipFile(path) as box:
+            names = box.namelist()
+            for want in ("word/document.xml", "word/styles.xml"):
+                if want in names:
+                    picked[want] = box.read(want)
+    except (OSError, zipfile.BadZipFile):
+        return empty
+    if not picked:
+        return empty
+    for part in ("word/document.xml", "word/styles.xml"):
+        if part not in picked:
+            continue
+        root = ET.fromstring(picked[part])
+        dad = _sp_parents(root)
+        for node in root.iter():
+            if xml_local(node.tag) != "rPr":
+                continue
+            seen += 1
+            par = dad.get(node)
+            place, owner = _sp_place(par, dad.get(par) if par is not None else None)
+            _sp_add_row(rows, tally, places, place, owner, node)
+    total = len(rows)
+    return {
+        "family": "ooxml",
+        "available": True,
+        "parts_seen": [one for one in ("word/document.xml", "word/styles.xml") if one in picked],
+        "rpr_seen": seen,
+        "rpr_written": total,
+        "by_place": dict(sorted(places.items())),
+        "by_pair": {key: value for key, value in sorted(tally.items())
+                    if value["latin_written"] or value["complex_written"]},
+        "listed": min(total, limit),
+        "cut": max(0, total - limit),
+        "rows": rows[:limit],
+    }
+
+
 def _ds_child_row(one, index: int) -> dict:
     """一份直接孩子：写出的顺序、局部名、自己的属性与几个孩子"""
     return {
@@ -16280,6 +16471,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["styles_parts"] = styles_parts_docx(path)
             # settings.xml 上那层视图与偏好：zoom 两种拼法、校对状态、语言三属性、文档变量
             out["ooxml"]["doc_settings"] = doc_settings_docx(path)
+            # 拉丁与复杂脚本那四对：sz/szCs、b/bCs、i/iCs、u/uCs 各写了什么
+            out["ooxml"]["script_pairs"] = script_pairs_docx(path)
             # 题注与交叉引用：目标只住在指令串里，SEQ 这一族没有声明那一层可查
             out["ooxml"]["cross_refs"] = docx_cross_refs(path)
             out["ooxml"]["picture_bytes"] = pic_docx_ledger(path)
