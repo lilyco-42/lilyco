@@ -294,8 +294,8 @@ fn decode_texture(
                 return Err(format!("RGB565 data short: {}/{}", src.len(), need));
             }
             let mut out = Vec::with_capacity(w as usize * h as usize * 4);
-            for px in src[..need].chunks_exact(2) {
-                let v = u16::from_le_bytes([px[0], px[1]]);
+            for i in 0..(need / 2) {
+                let v = u16::from_le_bytes([src[i * 2], src[i * 2 + 1]]);
                 let r = ((v >> 11) & 0x1F) as u8;
                 let g = ((v >> 5) & 0x3F) as u8;
                 let b = (v & 0x1F) as u8;
@@ -315,8 +315,8 @@ fn decode_texture(
                 return Err(format!("RGBA4444 data short: {}/{}", src.len(), need));
             }
             let mut out = Vec::with_capacity(w as usize * h as usize * 4);
-            for px in src[..need].chunks_exact(2) {
-                let v = u16::from_le_bytes([px[0], px[1]]);
+            for i in 0..(need / 2) {
+                let v = u16::from_le_bytes([src[i * 2], src[i * 2 + 1]]);
                 let r = ((v >> 12) & 0xF) as u8;
                 let g = ((v >> 8) & 0xF) as u8;
                 let b = ((v >> 4) & 0xF) as u8;
