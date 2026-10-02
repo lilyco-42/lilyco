@@ -98,6 +98,12 @@ pub struct SerializedFile {
     pub objects: Vec<SfObject>,
     /// type_id → typetree（None = stripped/无树）
     pub type_trees: Vec<Option<Vec<TtNode>>>,
+    /// 对象数据区起始（header 的 data_offset）
+    pub data_offset: usize,
+    /// header 里 file_size u64 字段在文件中的绝对位置（写回时修补）
+    pub file_size_at: usize,
+    /// 对象表每项的字段位置：(byte_start u64 的绝对偏移, byte_size u32 的绝对偏移)
+    pub obj_table_at: Vec<(usize, usize)>,
 }
 
 const META_ALIGN: u32 = 0x4000;
@@ -185,10 +191,13 @@ impl SerializedFile {
         // 对象表
         let object_count = r.u32()? as usize;
         let mut objects = Vec::with_capacity(object_count);
+        let mut obj_table_at = Vec::with_capacity(object_count);
         for _ in 0..object_count {
             r.align4();
             let path_id = r.i64()?;
+            let bs_at = r.pos;
             let byte_start = r.u64()? as usize + data_offset;
+            let bz_at = r.pos;
             let byte_size = r.u32()? as usize;
             let type_id = r.u32()?;
             let class_name = type_trees
@@ -204,6 +213,7 @@ impl SerializedFile {
                 type_id,
                 class_name,
             });
+            obj_table_at.push((bs_at, bz_at));
         }
 
         Ok(SerializedFile {
@@ -211,6 +221,9 @@ impl SerializedFile {
             target_platform,
             objects,
             type_trees,
+            data_offset,
+            file_size_at: 24, // v22：file_size u64 在 @24..32（大端）
+            obj_table_at,
         })
     }
 
@@ -218,6 +231,26 @@ impl SerializedFile {
     #[allow(dead_code)] // 测试 + 二期姿势写回（定位 TextAsset）使用
     pub fn find_by_class(&self, name: &str) -> Option<&SfObject> {
         self.objects.iter().find(|o| o.class_name == name)
+    }
+
+    /// 只读对象开头的 `m_Name`（Unity 的每个对象都以 `u32 长度 + utf8 名字` 开头）。
+    ///
+    /// 走 typetree 也能拿到，但那要求整条数据流已经解出来；元数据前缀就够读名字，
+    /// 所以这里刻意不碰 typetree —— 只想按 asset 名挑对象时不必解 80 MB 的贴图流。
+    pub fn peek_name(&self, o: &SfObject, d: &[u8]) -> Option<String> {
+        let s = d.get(o.byte_start..)?;
+        if s.len() < 4 {
+            return None;
+        }
+        let n = u32::from_le_bytes(s[..4].try_into().unwrap()) as usize;
+        if n == 0 || n > 1024 || 4 + n > s.len() {
+            return None;
+        }
+        let name = String::from_utf8_lossy(&s[4..4 + n]).into_owned();
+        if name.chars().any(|c| c.is_control()) {
+            return None; // 前缀被截断时容易读出垃圾，别当成名字
+        }
+        Some(name)
     }
 
     /// typetree 驱动解析对象字节 → 顶层字段表
