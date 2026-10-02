@@ -868,6 +868,74 @@ lbin --mcp                                            # MCP 服务器：tools/li
 - 认不出签名、或该族的表还没实现，就 `mapped: false` + 原因，不编区间
 - 完整用法：见 [`docs/binfmt.md`](docs/binfmt.md)
 
+### Alice in Cradle 全格式逆向 (`lilyco-aic`)
+
+`laic` —— PixelLiner 引擎游戏资源（角色表 / 贴图 / 立绘换装容器）的完全逆向 + 写回：
+**8 条命令，7 条 T0 只读，`repack` 一条 T1**（默认 dry-run，只报计划不写盘；MCP 自动化面默认拒绝，人类在环才放行）：
+
+```bash
+laic find-pose D:/gal/.../StreamingAssets --name "gun*" --json     # 谁的表里有 gun 姿势？
+laic poses   .../PxlNoel/noel.pxls.dat --json                       # 全部姿势清单（--full 加每帧图层 + 组层树 + 矢量）
+laic frame   .../Enemies/honeycomb.pxls.dat --pose gun --index 0    # 抄姿势要的全部字段：name/kind/group/alpha/x/y/zmx/zmy/rot_r/img/img_size/tree
+laic tex     .../PxlNoel --out D:/tmp/tex --json                    # 贴图清单 + 解码出 PNG（每项带 format_size_ok 自证）
+laic mpcc    .../StreamingAssets/mobpcc --json                      # 立绘换装容器头部：name/chr_name/调色板标志
+laic sprites .../PxlNoel/noel.pxls.dat --out D:/tmp/sp               # 按 UV 裁出每个 sprite，以姿势层名命名
+laic render  .../PxlNoel/noel.pxls.dat --pose 'big*' --out D:/tmp/r --anim --sheet   # 合成 PNG / 每方向 GIF / 精灵表
+laic repack  .../PxlNoel/noel.pxls.dat --out D:/tmp/out --rename old=new --json      # 改名写回（先看计划，加 --apply 才写）
+laic --mcp                                                              # MCP：tools/list 一次返回八条
+```
+
+#### 安装
+
+```bash
+# ① 源码安装（今天唯一可用的方式，要 Rust stable 工具链；
+#    laic 分支合进 main 之前，先 git checkout laic）
+git clone https://github.com/lilyco-42/lilyco && cd lilyco
+cargo install --path lilyco-aic
+
+# ② cargo binstall（一半就绪：Cargo.toml 的 [package.metadata.binstall] 与 CI 发版
+#    产物命名已对齐；还差 scripts/publish.sh 发 crates.io + 打 tag 出 Release，
+#    之后一条命令即装，不用编译）
+cargo binstall lilyco-aic
+
+# ③ 只要二进制：cargo build --release -p lilyco-aic，拿 ./target/release/laic
+#    安卓 Termux：--no-default-features --features android（纯 Rust，CLI+MCP）
+```
+
+#### 怎么用（三条管线，数据源都是游戏 `AliceInCradle_Data/StreamingAssets` 目录）
+
+```bash
+# 看：先定位姿势，再决定抄什么
+laic find-pose .../StreamingAssets --name "gun*" --json
+laic frame .../Enemies/honeycomb.pxls.dat --pose gun --json > gun.json   # 全方向全帧的图层变换
+
+# 出：裁 sprite 做 mod 素材，渲染预览确认长相对
+laic sprites .../PxlNoel/noel.pxls.dat --out ./sp --pose 'big*'
+laic render  .../PxlNoel/noel.pxls.dat --pose 'big*' --out ./r --anim --sheet
+
+# 写：先看计划，确认无误再落盘（MCP 面直接拒绝，只能人敲）
+laic repack .../PxlNoel/noel.pxls.dat --out ./out --rename gun=gun_new --json
+laic repack .../PxlNoel/noel.pxls.dat --out ./out --rename gun=gun_new --apply
+```
+
+- 输出默认 pretty 模式**只打印 <500 字节的结果**，大结果一律加 `--json`
+- `laic --schema` 看机器契约（`capabilities.json` 与之一字不差）；
+  `--tui` 进选择页、`--gui` 进 Web 控制台、`--mcp` 起 MCP 服务器，四端同一 registry
+
+- 读侧全覆盖（游戏 StreamingAssets 实测）：**128/128 张 pxls 表**零错误解析；
+  **125 个 texture 包 / 133 张 Texture2D**，122 张解码出 PNG（DXT5/BC3、DXT1/BC1、BC7、
+  Crunch 走 `texture2ddecoder`，其余内建解包，Unity 像素底行在前统一翻成顶左原点）
+- 格式认错立刻现形：Unity `TextureFormat` 全表内建（12=DXT5/BC3，不是 DXT1），
+  每项用 `m_CompleteImageSize` 与格式表交叉验证（`format_size_ok`），块格式还有先验长度守卫
+- 图集按 asset 名后缀 `_<i>` 配对，**不按对象表顺序**：`noel_t` 的对象表是倒的
+  （`texture_1` 排在 `texture_0` 前面），按顺序取会把主图/部件图对调——有像素级回归测试钉住
+- 写侧（`repack`，改姿势名 / 图层 alpha）：裸 pxls 直写；UnityFS 包则就地替换 TextAsset 正文，
+  并修 TypelessData 长度前缀、SerializedFile 头 `file_size`、对象表（`byte_size` 重算 4 字节对齐、
+  后续对象平移）与 blocks info/节点表；写后自检（重读→重解析→重序列化逐字节比对），不过就报错
+- 做不到的部分照实说：`.cmd` 事件脚本是另一子系统（未覆盖）；IMGV 矢量只解析不参与绘制；
+  PARTS 图集的层默认用主图集像素合成；MPCC 深层调色板只报剩余字节数
+- 完整用法与逆向笔记：见 [`docs/laic.md`](docs/laic.md)
+
 ### Transcode (TUI demo)
 
 ```rust
