@@ -75,6 +75,7 @@ fn run_frame(app: &Frame, ctx: &Context) -> Result<serde_json::Value, AppError> 
                                 "name": f.name,
                                 "crf60": f.crf60,
                                 "layers": f.layers,
+                                "tree": crate::pxlslib::layer_tree(f),
                             })
                         })
                         .collect();

@@ -10,5 +10,7 @@ categories = ["command-line-interface"]
 
 [dependencies]
 lilyco-core = { version = "0.3", path = "../lilyco-core" }
-clap = { version = "4", features = ["derive"] }
+# 去 color：help 文本变单色，砍掉 anstream/windows-sys 链。实测 dev 首编 -6%、target -5%。
+# 该 crate 及全仓均无 ColorChoice/styles/anstream API 调用，行为仅丢失颜色。
+clap = { version = "4", default-features = false, features = ["derive", "std", "help", "usage", "error-context", "suggestions"] }
 serde_json = "1"

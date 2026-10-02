@@ -92,6 +92,14 @@ fn run_poses(app: &Poses, ctx: &Context) -> Result<serde_json::Value, AppError> 
             if app.full {
                 pj["frames"] = serde_json::to_value(&pose.seqs)
                     .map_err(|e| AppError::InvalidArg(format!("serialize: {e}")))?;
+                // 组层树：每帧附 tree（PxlGroupContainer.fineLinks 语义重建）
+                if let Some(fr) = pj["frames"].as_array_mut() {
+                    for (si, s) in pose.seqs.iter().enumerate() {
+                        for (fi, frame) in s.frames.iter().enumerate() {
+                            fr[si]["frames"][fi]["tree"] = crate::pxlslib::layer_tree(frame);
+                        }
+                    }
+                }
             }
             poses_json.push(pj);
         }
@@ -102,6 +110,7 @@ fn run_poses(app: &Poses, ctx: &Context) -> Result<serde_json::Value, AppError> 
                 "sections": p.sections,
                 "image_count": p.image_count,
                 "pose_count": p.poses.len(),
+                "vectors": p.vectors,
                 "warnings": p.warnings,
                 "poses": poses_json,
             }));

@@ -1,15 +1,15 @@
 [package]
-name = "lilyco-lpxls"
+name = "lilyco-aic"
 version.workspace = true
 edition = "2021"
-description = "lpxls — PixelLiner（Alice in Cradle）.pxls 角色资源域：姿势/图层/结构数据提取，四端 (CLI / TUI / Web / MCP) + AI 可调"
+description = "laic — Alice in Cradle 全格式域：pxls 姿势/贴图/MPCC 立绘，游戏资源完全逆向，四端 (CLI / TUI / Web / MCP) + AI 可调"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/lilyco-42/lilyco"
 keywords = ["cli", "mcp", "pixelliner", "game", "gamedev"]
 categories = ["command-line-interface", "development-tools"]
 
 [[bin]]
-name = "lpxls"
+name = "laic"
 path = "src/main.rs"
 
 [dependencies]
@@ -22,6 +22,8 @@ serde_json = "1"
 lz4_flex = "0.11"
 # UnityFS LZMA 数据块（Unity 的 LZMA1 无 size 头，补全 alone 头后用 lzma-rs 解）
 lzma-rs = "0.3"
+texture2ddecoder = "0.1.2"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 
 [features]
 default = ["full"]

@@ -1,14 +1,22 @@
-//! UnityFS bundle 解包 —— 目标只有一个：从 `*.pxls.dat`（UnityFS 包着 TextAsset）
-//! 里拿到原始 pxls 字节。
+//! UnityFS bundle 解包。
 //!
-//! 做法：解 header → 解 blocks info（LZ4/LZ4HC，纯 Rust lz4_flex）→ 顺序解压数据块
-//! 拼成裸数据 → 在裸数据里按 pxls 签名（0x7741A8FF "PXLS"）定位并交给 pxls::parse。
+//! 两层用法：
+//! 1. `extract_pxls`：从 `*.pxls.dat`（UnityFS 包着 TextAsset）里按 pxls 签名定位并交给
+//!    pxls::parse —— pxls 格式自封闭，签名定位足够可靠。
+//! 2. `inflate_bundle_ex`：完整解包，返回裸数据 + 节点表（offset/size/path），
+//!    供 serialized.rs 切出内层 SerializedFile 与 `archive:/*.resS` 资源流。
 //!
-//! v1 限制：LZMA 压缩块暂不支持（本作 StreamingAssets 的 pxls 包是 LZ4/LZ4HC）；
-//! 不解析 SerializedFile 对象表 —— pxls 格式自封闭，签名定位 + 分节行走足够可靠，
-//! 后续做「写回」时再补对象表精确切片。
+//! LZMA 压缩块已支持（Unity LZMA1 前 5 字节头 + 块表精确 unc 补全 alone 头）。
 
-use crate::pxls::{Be, SIGNATURE};
+use crate::pxlslib::{Be, SIGNATURE};
+
+/// UnityFS 包内的一个文件节点（通常是内层 SerializedFile 或 .resS 资源流）
+#[derive(Debug, Clone)]
+pub struct BundleNode {
+    pub path: String,
+    pub offset: usize,
+    pub size: usize,
+}
 
 const FLAG_COMPRESSION_MASK: u32 = 0x3F;
 const FLAG_BLOCKS_INFO_AT_END: u32 = 0x80;
@@ -27,7 +35,7 @@ pub fn extract_pxls(d: &[u8]) -> Result<(&'static str, Vec<u8>), String> {
     if d.starts_with(b"UnityFS\0") {
         let raw = inflate_bundle(d).map_err(|e| format!("UnityFS inflate: {e}"))?;
         for (i, off) in find_signatures(&raw).into_iter().enumerate() {
-            match crate::pxls::parse(&raw[off..]) {
+            match crate::pxlslib::parse(&raw[off..]) {
                 Ok(p) if !p.poses.is_empty() || p.image_count > 0 => {
                     return Ok(("UnityFS", raw[off..].to_vec()))
                 }
@@ -57,8 +65,10 @@ fn find_signatures(d: &[u8]) -> Vec<usize> {
     out
 }
 
-/// UnityFS → 解压后的裸数据（通常里面是一份 SerializedFile）
-pub fn inflate_bundle(d: &[u8]) -> Result<Vec<u8>, String> {
+/// UnityFS → 解压后的裸数据 + 节点表。
+/// 节点表（blocks info 尾部）：offset u64 + size u64 + flags u32 + path(null 结尾)，
+/// offset 相对解压后数据区起点 —— 用于切出内层 SerializedFile / .resS 资源流。
+pub fn inflate_bundle_ex(d: &[u8]) -> Result<(Vec<u8>, Vec<BundleNode>), String> {
     let mut r = Be::new(d);
     let sig = r.take(8).map_err(|e| format!("header: {e}"))?;
     if sig != b"UnityFS\0" {
@@ -112,24 +122,17 @@ pub fn inflate_bundle(d: &[u8]) -> Result<Vec<u8>, String> {
         blocks.push((unc, comp, (bflags as u32) & FLAG_COMPRESSION_MASK));
     }
     let nnodes = b.u32().map_err(|e| format!("nnodes: {e}"))?;
-    // node 表各版本字段宽度不同（u32/u64 混用），而我们不消费它（靠签名定位）——尽力而为
+    let mut nodes = Vec::with_capacity(nnodes as usize);
     for _ in 0..nnodes {
-        let _off = match b.u32() {
-            Ok(v) => v as usize,
-            Err(_) => break,
-        };
-        let _sz = match b.u32() {
-            Ok(v) => v as usize,
-            Err(_) => break,
-        };
-        let _nflags = match b.u32() {
-            Ok(v) => v,
-            Err(_) => break,
-        };
-        let _name = match cstring(&mut b) {
-            Ok(n) => n,
-            Err(_) => break,
-        };
+        let off = u64::from_be_bytes(
+            b.take(8).map_err(|e| format!("node.offset: {e}"))?.try_into().unwrap(),
+        );
+        let sz = u64::from_be_bytes(
+            b.take(8).map_err(|e| format!("node.size: {e}"))?.try_into().unwrap(),
+        );
+        let _nflags = b.u32().map_err(|e| format!("node.flags: {e}"))?;
+        let path = cstring(&mut b).map_err(|e| format!("node.path: {e}"))?;
+        nodes.push(BundleNode { path, offset: off as usize, size: sz as usize });
     }
 
     // 数据块：!at_end 时在 blocks info 之后；at_end 时回到 start。
@@ -151,7 +154,12 @@ pub fn inflate_bundle(d: &[u8]) -> Result<Vec<u8>, String> {
         out.extend(decompress(src, *unc, *comp_id).map_err(|e| format!("block {i}: {e}"))?);
         data_off += comp;
     }
-    Ok(out)
+    Ok((out, nodes))
+}
+
+/// UnityFS → 解压后的裸数据（通常里面是一份 SerializedFile）
+pub fn inflate_bundle(d: &[u8]) -> Result<Vec<u8>, String> {
+    inflate_bundle_ex(d).map(|(data, _)| data)
 }
 
 fn decompress(src: &[u8], unc: usize, comp_id: u32) -> Result<Vec<u8>, String> {

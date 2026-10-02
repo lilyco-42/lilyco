@@ -2,6 +2,101 @@
   {
     "aliases": [],
     "hidden": false,
+    "name": "find-pose",
+    "schema": {
+      "about": "Search ALL PixelLiner .pxls character tables under `root` (file or directory, scanned recursively) for poses whose title matches `name` (glob, case-insensitive) and report which files contain them — e.g. find which enemy table has a `gun` pose that the player table lacks. Returns { root, files_searched, files_parsed, count, matches: [{ file, poses: [{ title, dirs: [{ dir, frames }], frames_total, aliases }] }] } sorted by file path, plus per-file parse `errors`. Read-only (safety T0).",
+      "args": [
+        {
+          "about": "A .pxls file, or a directory scanned recursively for pxls tables",
+          "default": null,
+          "kind": {
+            "must_exist": true,
+            "type": "path"
+          },
+          "name": "root",
+          "required": true
+        },
+        {
+          "about": "Pose title glob, e.g. 'gun', '*stand*'",
+          "default": "",
+          "kind": {
+            "type": "text"
+          },
+          "name": "name",
+          "required": false
+        },
+        {
+          "about": "Cap the number of files processed (0 = unlimited)",
+          "default": 0,
+          "kind": {
+            "max": null,
+            "min": null,
+            "type": "number"
+          },
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "name": "find-pose",
+      "safety": "read_only",
+      "subcommands": []
+    }
+  },
+  {
+    "aliases": [],
+    "hidden": false,
+    "name": "tex",
+    "schema": {
+      "about": "List Texture2D assets inside all `*.texture_0.dat` UnityFS bundles under `root` (file or directory, scanned recursively), or decode them to PNG files with `--out`. Each texture reports name, size, format (4=RGBA32, 12=DXT1/BC1, 13=DXT5/BC3), storage (inline / .resS stream) and bundle path. PNG export decodes RGBA32 directly and BC1/BC3 via texture2ddecoder, writing `<name>.png` into `--out`. Read-only (safety T0).",
+      "args": [
+        {
+          "about": "A .texture_0.dat file, or a directory scanned recursively for texture bundles",
+          "default": null,
+          "kind": {
+            "must_exist": true,
+            "type": "path"
+          },
+          "name": "root",
+          "required": true
+        },
+        {
+          "about": "Texture2D name glob filter, e.g. 'noel*'",
+          "default": "",
+          "kind": {
+            "type": "text"
+          },
+          "name": "name",
+          "required": false
+        },
+        {
+          "about": "Directory to write decoded PNG files into (optional)",
+          "default": "",
+          "kind": {
+            "type": "text"
+          },
+          "name": "out",
+          "required": false
+        },
+        {
+          "about": "Cap the number of bundles processed (0 = unlimited)",
+          "default": 0,
+          "kind": {
+            "max": null,
+            "min": null,
+            "type": "number"
+          },
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "name": "tex",
+      "safety": "read_only",
+      "subcommands": []
+    }
+  },
+  {
+    "aliases": [],
+    "hidden": false,
     "name": "frame",
     "schema": {
       "about": "Dump every frame and layer transform of poses matching `pose` (glob on title, case-insensitive) from PixelLiner .pxls tables. This is the character-structure data a mod needs: per layer { name, kind, group, alpha, x, y (units), zmx, zmy, rot_r (radians), blend_variable, img (image key EDI<hex>_<id2>), img_size (px, when the image is found in an atlas) }. `root` is a pxls file or a directory; `index` restricts to one frame index per direction sequence. Returns { root, matches: [{ file, pose, dirs: [{ dir, frames: [{ index, name, crf60, layers: [...] }] }] }] }. Read-only (safety T0).",
@@ -97,12 +192,12 @@
   {
     "aliases": [],
     "hidden": false,
-    "name": "find-pose",
+    "name": "mpcc",
     "schema": {
-      "about": "Search ALL PixelLiner .pxls character tables under `root` (file or directory, scanned recursively) for poses whose title matches `name` (glob, case-insensitive) and report which files contain them — e.g. find which enemy table has a `gun` pose that the player table lacks. Returns { root, files_searched, files_parsed, count, matches: [{ file, poses: [{ title, dirs: [{ dir, frames }], frames_total, aliases }] }] } sorted by file path, plus per-file parse `errors`. Read-only (safety T0).",
+      "about": "Parse the header of `*.mpcc.bytes` MobPCCContainer files (mobpcc/ skin & recolor containers) under `root` (file or directory, scanned recursively): reports container `name`, character `chr_name`, palette presence flag and remaining payload size. Deep ACC palette parsing (per-parts recolor table) is planned — this command is the inventory step. Read-only (safety T0).",
       "args": [
         {
-          "about": "A .pxls file, or a directory scanned recursively for pxls tables",
+          "about": "A .mpcc.bytes file, or a directory scanned recursively for MPCC containers",
           "default": null,
           "kind": {
             "must_exist": true,
@@ -112,7 +207,7 @@
           "required": true
         },
         {
-          "about": "Pose title glob, e.g. 'gun', '*stand*'",
+          "about": "Container name glob filter, e.g. 'NOEL*'",
           "default": "",
           "kind": {
             "type": "text"
@@ -132,7 +227,7 @@
           "required": false
         }
       ],
-      "name": "find-pose",
+      "name": "mpcc",
       "safety": "read_only",
       "subcommands": []
     }

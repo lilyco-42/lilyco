@@ -81,6 +81,10 @@ impl<'a> Be<'a> {
         let b = self.take(4)?;
         Ok(u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
     }
+    pub fn f32v(&mut self) -> Result<f32, String> {
+        let b = self.take(4)?;
+        Ok(f32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+    }
     pub fn f64v(&mut self) -> Result<f64, String> {
         let b = self.take(8)?;
         Ok(f64::from_be_bytes([
@@ -129,8 +133,10 @@ pub struct Layer {
     pub blend_variable: u16,
     /// 关联图 key（PxlImage.getIdString 格式 "EDI{id:x}_{id2}"），图集里查不到时为 unknown
     pub img: String,
-    /// 图集命中后的像素尺寸（宽, 高）
+    /// 图集/嵌入图命中后的像素尺寸（宽, 高）
     pub img_size: Option<(u32, u32)>,
+    /// 组层专用：preserve_contain_layers（它认领前方 N 个层作为子层）
+    pub group_n: Option<u32>,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -154,6 +160,16 @@ pub struct Seq {
     pub shift_y: i16,
     pub loop_to: i16,
     pub frames: Vec<Frame>,
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct VectorData {
+    /// 所属图 key
+    pub img: String,
+    /// PxlVectorData.type：0=LUSTER 2=VECTOR 8=LUSTER_HAS_VECTOR（蒙版）
+    pub kind: i32,
+    /// 多边形顶点：(x, y, z)，z 的 bit0=1 表示新子路径起点（碰撞体 path 分隔）
+    pub points: Vec<(f32, f32, f32)>,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -184,6 +200,8 @@ pub struct Pxls {
     pub image_count: u32,
     pub pose_count: u32,
     pub poses: Vec<Pose>,
+    /// IMGV 矢量数据（多边形/碰撞轮廓）
+    pub vectors: Vec<VectorData>,
     /// 解析警告（图节里未消费的字节等诊断信息）
     pub warnings: Vec<String>,
     /// 图集命中表：(id, id2 bits) → (宽, 高)
@@ -234,14 +252,7 @@ pub fn parse(d: &[u8]) -> Result<Pxls, String> {
         match name.as_str() {
             SECTION_IMGS => parse_imgs(payload, &mut out)?,
             SECTION_PACK => parse_pack(payload, &mut out)?,
-            SECTION_IMGV => {
-                // PxlVectorData 不解析（矢量角色表），只记条目数
-                let mut v = Be::new(payload);
-                if let Ok(n) = v.u32() {
-                    out.image_count += n;
-                }
-                out.warnings.push("IMGV section left unparsed (vector data)".into());
-            }
+            SECTION_IMGV => parse_imgv(payload, &mut out)?,
             SECTION_POSE => parse_poses(payload, &mut out)?,
             SECTION_PTCL => {} // PxlPartsInfo 颜色表，姿势提取用不到
             _ => unreachable!(),
@@ -251,7 +262,45 @@ pub fn parse(d: &[u8]) -> Result<Pxls, String> {
     Ok(out)
 }
 
-/// 图节（嵌入 PNG 的 PxlImage）：type(=raw-22)<0 视为异常停止并记录
+/// 矢量节（PxlVectorData.progressVectorDataReading）：
+/// 首 u32 条目数，之后逐条 `u32 id + f64 id2 + type + skip + u32 npts + npts×(f32,f32,f32)`
+fn parse_imgv(d: &[u8], out: &mut Pxls) -> Result<(), String> {
+    let mut r = Be::new(d);
+    let count = r.u32()?;
+    while r.remaining() >= 14 {
+        let id = r.u32()?;
+        let id2 = r.f64v()?;
+        let kind = r.i8v()?;
+        let _skip = r.u8()?;
+        let npts = r.u32()? as usize;
+        let mut points = Vec::with_capacity(npts);
+        for _ in 0..npts {
+            let x = r.f32v()?;
+            let y = r.f32v()?;
+            let z = r.f32v()?;
+            points.push((x, y, z));
+        }
+        out.vectors.push(VectorData {
+            img: format!("EDI{:x}_{id2}", id),
+            kind,
+            points,
+        });
+    }
+    out.image_count += count;
+    Ok(())
+}
+
+/// PNG IHDR：跳过 8B 签名 + 4B 长度 + 4B "IHDR" 后是宽、高（各 u32 大端）
+fn png_dims(png: &[u8]) -> Option<(u32, u32)> {
+    if png.len() < 24 || &png[12..16] != b"IHDR" {
+        return None;
+    }
+    let w = u32::from_be_bytes([png[16], png[17], png[18], png[19]]);
+    let h = u32::from_be_bytes([png[20], png[21], png[22], png[23]]);
+    Some((w, h))
+}
+/// 图节（嵌入 PNG 的 PxlImage）：type(=raw-22)<0 视为异常停止并记录；
+/// type 0/8 携带嵌入 I/P 两张 PNG，尺寸直接从 IHDR 读
 fn parse_imgs(d: &[u8], out: &mut Pxls) -> Result<(), String> {
     let mut r = Be::new(d);
     let count = r.u32()?;
@@ -267,14 +316,15 @@ fn parse_imgs(d: &[u8], out: &mut Pxls) -> Result<(), String> {
         let id2 = r.f64v()?;
         let ty = t - 22;
         if ty == 0 || ty == 8 {
-            let l1 = r.u32()? as usize;
-            r.skip(l1)?; // 嵌入 I png
-            let l2 = r.u32()? as usize;
-            r.skip(l2)?; // 嵌入 P png
-        }
-        // 仅嵌入图有尺寸信息吗？—— 嵌入 png 需解 PNG 头，v1 不做；尺寸以图集为准
-        if ty == 0 || ty == 8 {
-            let _ = (id, id2);
+            for _png in 0..2 {
+                let l = r.u32()? as usize;
+                if l >= 24 {
+                    if let Some(dim) = png_dims(&r.d[r.p..r.p + l]) {
+                        out.img_sizes.insert((id, id2.to_bits()), dim);
+                    }
+                }
+                r.skip(l)?; // 嵌入 I png / P png（同 key，尺寸取先到者）
+            }
         }
     }
     out.image_count += count;
@@ -459,11 +509,12 @@ fn parse_layer(r: &mut Be, index: usize) -> Result<Layer, String> {
         blend_variable: 0,
         img: format!("EDI{:x}_{id2}", id),
         img_size: None,
+        group_n: None,
     };
 
     if kind == TYPE_GROUP {
         lay.group = true;
-        let _preserve_contain_layers = r.u32()?; // PxlGroupContainer.readFromBytes
+        lay.group_n = Some(r.u32()?); // PxlGroupContainer.readFromBytes: preserve_contain_layers
         return Ok(lay);
     }
 
@@ -502,4 +553,55 @@ pub fn parse_img_key(s: &str) -> Option<(u32, u64)> {
     let id = u32::from_str_radix(hex, 16).ok()?;
     let id2: f64 = dec.parse().ok()?;
     Some((id, id2.to_bits()))
+}
+
+// ─────────────────────────────────────────────────────────────
+// 组层树重建（PxlGroupContainer.fineLinks 语义）
+// ─────────────────────────────────────────────────────────────
+
+/// 重建一帧的组层树。规则（照 fineLinks 反推）：type==8 的组层带 preserve_contain_layers=N，
+/// 认领**文件序里它前方**的 N 个条目作为子层；嵌套组条目消耗其整个子树足迹。
+/// 返回嵌套 JSON 数组（文件序）；每个组节点带 `children`。
+pub fn layer_tree(frame: &Frame) -> serde_json::Value {
+    let mut out = Vec::new();
+    let mut j = frame.layers.len();
+    while j > 0 {
+        let (node, used) = build_subtree(&frame.layers, j);
+        out.push(node);
+        j -= used;
+    }
+    out.reverse();
+    serde_json::Value::Array(out)
+}
+
+/// 从 `end-1`（含）向前构建一个顶层条目；返回 (节点, 消耗的条目数)
+fn build_subtree(layers: &[Layer], end: usize) -> (serde_json::Value, usize) {
+    let idx = end - 1;
+    let lay = &layers[idx];
+    if let Some(n) = lay.group_n {
+        let mut children = Vec::new();
+        let mut j = end - 1;
+        let mut consumed = 1usize;
+        for _ in 0..n {
+            if j == 0 {
+                out_warn(idx, n, &children);
+                break;
+            }
+            let (node, used) = build_subtree(layers, j);
+            children.push(node);
+            j -= used;
+            consumed += used;
+        }
+        children.reverse(); // 文件序呈现（游戏内部子层表是倒序收的）
+        let mut obj = serde_json::to_value(lay).unwrap_or(serde_json::json!({"index": idx}));
+        obj["children"] = serde_json::Value::Array(children);
+        (obj, consumed)
+    } else {
+        (serde_json::to_value(lay).unwrap_or(serde_json::json!({"index": idx})), 1)
+    }
+}
+
+fn out_warn(idx: usize, n: u32, _children: &[serde_json::Value]) {
+    // N 大于剩余层数：文件截断/手改痕迹，树照现状收（静默；上层可用 flat list 对账）
+    let _ = (idx, n);
 }

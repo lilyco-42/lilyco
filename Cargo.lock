@@ -3471,6 +3471,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "lilyco-aic"
+version = "0.3.0"
+dependencies = [
+ "image",
+ "lilyco",
+ "lz4_flex",
+ "lzma-rs",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "texture2ddecoder",
+]
+
+[[package]]
 name = "lilyco-binfmt"
 version = "0.3.0"
 dependencies = [
@@ -3604,18 +3618,6 @@ version = "0.3.0"
 dependencies = [
  "lilyco",
  "md5",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "lilyco-lpxls"
-version = "0.3.0"
-dependencies = [
- "lilyco",
- "lz4_flex",
- "lzma-rs",
  "serde",
  "serde_json",
  "tempfile",
@@ -7100,6 +7102,15 @@ dependencies = [
  "titlecase",
  "unicode-segmentation",
  "vector-types",
+]
+
+[[package]]
+name = "texture2ddecoder"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "427ae8ec7f2f0fdd3146b77cfa44bea880caf066f7e55398a8467afe2645c832"
+dependencies = [
+ "paste",
 ]
 
 [[package]]

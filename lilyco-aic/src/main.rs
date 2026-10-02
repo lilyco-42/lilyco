@@ -1,25 +1,28 @@
-//! lpxls — PixelLiner（Alice in Cradle）角色资源域：
+//! laic — Alice in Cradle 全格式域：
 //! 姿势提取 / 帧图层结构数据提取 / 跨表姿势搜索。
 //!
 //! **「一域一二进制 × 四端」**：同一份 `Registry`，CLI 生成子命令、TUI 生成选择页、
 //! Web 用 `?cmd=` 切换、MCP 一次 `tools/list` 全返回。
 //!
 //! ```bash
-//! lpxls poses D:/gal/.../StreamingAssets --pose gun --full   # CLI：全结构导出
-//! lpxls frame .../Enemies/honeycomb.pxls.dat --pose gun      # 抄小兵 gun 的图层变换
-//! lpxls find-pose .../StreamingAssets --name gun             # 谁的表里有 gun？
-//! lpxls --gui     # Web 控制台
-//! lpxls --tui     # TUI 命令选择页
-//! lpxls --mcp     # MCP：agent 直接调
-//! lpxls --schema  # 注册表清单
+//! laic poses D:/gal/.../StreamingAssets --pose gun --full   # CLI：全结构导出
+//! laic frame .../Enemies/honeycomb.pxls.dat --pose gun      # 抄小兵 gun 的图层变换
+//! laic find-pose .../StreamingAssets --name gun             # 谁的表里有 gun？
+//! laic --gui     # Web 控制台
+//! laic --tui     # TUI 命令选择页
+//! laic --mcp     # MCP：agent 直接调
+//! laic --schema  # 注册表清单
 //! ```
 //!
 //! 全部命令 T0 只读；解析器规格逆向自 PixelLiner 反编译源码（见 pxls.rs 头注释）。
 
 mod findpose;
 mod frame;
+mod mpcc;
 mod poses;
-mod pxls;
+mod pxlslib;
+mod serialized;
+mod tex;
 mod unityfs;
 mod util;
 
@@ -34,6 +37,8 @@ pub fn build_registry_with_policy(policy: Arc<dyn SafetyPolicy>) -> Registry {
         RegisteredCommand::from_app::<poses::Poses>(),
         RegisteredCommand::from_app::<frame::Frame>(),
         RegisteredCommand::from_app::<findpose::FindPose>(),
+        RegisteredCommand::from_app::<tex::Tex>(),
+        RegisteredCommand::from_app::<mpcc::Mpcc>(),
     ];
     for c in cmds {
         let name = c.name.clone();
@@ -55,7 +60,7 @@ pub fn policy_for(backend: lilyco::Backend) -> Arc<dyn SafetyPolicy> {
 fn main() {
     let backend = lilyco::detect_registry_backend();
     let reg = build_registry_with_policy(policy_for(backend));
-    lilyco::run_registry_with("lpxls", reg, backend);
+    lilyco::run_registry_with("laic", reg, backend);
 }
 
 #[cfg(test)]
@@ -79,7 +84,7 @@ mod tests {
     fn registry_lists_the_commands_this_domain_answers() {
         let mut got = names();
         got.sort();
-        let mut want = vec!["poses", "frame", "find-pose"];
+        let mut want = vec!["poses", "frame", "find-pose", "tex", "mpcc"];
         want.sort_unstable();
         assert_eq!(got, want.into_iter().map(str::to_string).collect::<Vec<_>>());
     }
