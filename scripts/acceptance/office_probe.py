@@ -11667,6 +11667,67 @@ def main() -> int:
            sorted(one for one in all_d if not all_d[one]["with_effects"])],
           [False, False, False, False, ['cjk-odf-lo.docx', 'pnum.docx', 'tbox.docx', 'wrap-lo.docx']])
 
+    # 这一本的数全部由第二读者现量（.scratch/gap/ll_measure3.json），不手抄
+    LL_BOOK = ['family', 'available', 'elements_total', 'with_child', 'with_numbers', 'not_under_holder', 'nothing_without_numbers', 'levels', 'parts_seen', 'listed', 'cut', 'min_label_widths']
+    LL_TALLY = ['by_part', 'by_holder', 'by_mode', 'by_followed', 'tab_stops', 'indents', 'margins']
+    ll_book_pin = {'bkmks.odt': ['odf', True, 110, 110, 100, 0, 10, ['1', '10', '2', '3', '4', '5', '6', '7', '8', '9'], ['styles.xml'], 100, 10, []], 'borders.odt': ['odf', True, 110, 110, 100, 0, 10, ['1', '10', '2', '3', '4', '5', '6', '7', '8', '9'], ['styles.xml'], 100, 10, []], 'crep.odt': ['odf', True, 90, 90, 71, 0, 19, ['1', '10', '2', '3', '4', '5', '6', '7', '8', '9'], ['styles.xml'], 90, 0, []], 'pnum.odt': ['odf', True, 0, 0, 0, 0, 0, [], [], 0, 0, []]}
+    ll_tally_pin = {'bkmks.odt': [{'styles.xml': 110}, {'list-level-style-bullet': 4, 'list-level-style-number': 96, 'outline-level-style': 10}, {'label-alignment': 110}, {'listtab': 100, 'nothing': 10}, ['0.635cm', '1.27cm', '1.905cm', '2.54cm', '3.175cm', '3.81cm', '4.445cm', '5.08cm', '5.715cm', '6.35cm', '6.985cm'], ['-0.635cm'], ['0.635cm', '1.27cm', '1.905cm', '2.54cm', '3.175cm', '3.81cm', '4.445cm', '5.08cm', '5.715cm', '6.35cm', '6.985cm']], 'borders.odt': [{'styles.xml': 110}, {'list-level-style-bullet': 4, 'list-level-style-number': 96, 'outline-level-style': 10}, {'label-alignment': 110}, {'listtab': 100, 'nothing': 10}, ['0.635cm', '1.27cm', '1.905cm', '2.54cm', '3.175cm', '3.81cm', '4.445cm', '5.08cm', '5.715cm', '6.35cm', '6.985cm'], ['-0.635cm'], ['0.635cm', '1.27cm', '1.905cm', '2.54cm', '3.175cm', '3.81cm', '4.445cm', '5.08cm', '5.715cm', '6.35cm', '6.985cm']], 'crep.odt': [{'styles.xml': 90}, {'list-level-style-bullet': 3, 'list-level-style-number': 77, 'outline-level-style': 10}, {'label-alignment': 90}, {'listtab': 71, 'nothing': 19}, ['0.635cm', '1.27cm', '1.905cm', '2.54cm', '3.175cm', '3.81cm', '4.445cm', '5.08cm', '5.715cm', '6.35cm', '6.985cm'], ['-0.635cm'], ['0.635cm', '1.27cm', '1.905cm', '2.54cm', '3.175cm', '3.81cm', '4.445cm', '5.08cm', '5.715cm', '6.35cm', '6.985cm']], 'pnum.odt': [{}, {}, {}, {}, [], [], []]}
+    print("=== 3d2) ODF 列表标签摆在哪（list_labels）：位置模式住在父、数值住在子 ===")
+    for name in sorted(ll_book_pin):
+        mine = dig(lbin("office-doc", fixture(name)), "structure.list_labels") or {}
+        want = files[name]["odt"]["list_labels"]
+        check("%s 的标签摆位整本账（十二格）" % name, [mine.get(key) for key in LL_BOOK],
+              ll_book_pin[name])
+        check("%s 的宿主、模式、后缀与三档长度" % name,
+              [mine.get(key) for key in LL_TALLY], ll_tally_pin[name])
+        check("%s 的每一级两家逐格一致" % name, mine.get("entries"),
+              want.get("entries"))
+    lab = dig(lbin("office-doc", fixture("bkmks.odt")), "structure.list_labels") or {}
+    check('值全住在孩子那一层：父元素 list-level-style-number 只说一种模式（label-alignment），制表位、正文缩进与 margin 三枚都在 list-level-label-alignment 上 —— 只数父元素那一层，一个数都量不到',
+          [lab["entries"][0]["list_style"], lab["entries"][0]["holder"],
+           lab["entries"][0]["level"], lab["entries"][0]["props_written"],
+           lab["entries"][0]["child"], lab["entries"][0]["child_written"],
+           lab["entries"][0]["label"]],
+          ['No_20_List', 'list-level-style-number', '1', ['list-level-position-and-space-mode'], True, ['label-followed-by', 'list-tab-stop-position', 'margin-left', 'text-indent'], {'label-followed-by': 'listtab', 'list-tab-stop-position': '1.27cm', 'text-indent': '-0.635cm', 'margin-left': '1.27cm'}])
+    check('后缀写 nothing 的那 515 处一枚数都不写（`with_numbers` 4255 与 listtab 那 4255 精确互补）；整库 4770 处里按宿主走的一条没漏（not_under_holder 合计 0），而漏掉 outline-level-style 那一族正好就是 470 处 nothing 的来源',
+          [lab["with_numbers"], lab["with_child"], lab["not_under_holder"],
+           lab["nothing_without_numbers"], lab["by_followed"], lab["by_holder"],
+           lab["by_mode"], lab["levels"]],
+          [100, 110, 0, 10, {'listtab': 100, 'nothing': 10}, {'list-level-style-bullet': 4, 'list-level-style-number': 96, 'outline-level-style': 10}, {'label-alignment': 110}, ['1', '10', '2', '3', '4', '5', '6', '7', '8', '9']])
+    thin = dig(lbin("office-doc", fixture("bkmks.odt"), "--limit", "2"),
+                 "structure.list_labels") or {}
+    check('--limit 2 只截 entries（listed 2、cut 108），elements_total 110、with_child 110、by_followed / tab_stops / levels 仍说整份件；这份件 10 级编号排到 10 档',
+          [thin.get("listed"), thin.get("cut"), thin.get("elements_total"),
+           thin.get("with_child"), thin.get("by_followed"), thin.get("levels"),
+           len(thin.get("entries") or [])],
+          [2, 108, 110, 110, {'listtab': 100, 'nothing': 10}, ['1', '10', '2', '3', '4', '5', '6', '7', '8', '9'], 2])
+    alls = {one: files[one]["odt"]["list_labels"] for one in sorted(files)
+            if one.endswith(".odt") and files[one]["odt"].get("list_labels")}
+    check("整库摊开（51 份 odt 全交这本账、47 份至少有一级）：4770 处 list-level-properties 全在 label-alignment 这一种模式下（by_mode 只有一种值），4770 处带孩子元素；后缀两分 [('listtab', 4255), ('nothing', 515)]；三档长度合起来 tab-stop 11 种、缩进只有 ['-0.635cm']、margin 11 种；另一种模式该写的 min-label-width 全库一件没写（min_label_widths 空清单），四份最小件这一族完全没写（['cjk-odf.odt', 'pnum.odt', 'tbox.odt', 'wrap.odt']）",
+          [len(alls), sum(1 for one in alls.values() if one["elements_total"]),
+           sum(one["elements_total"] for one in alls.values()),
+           sum(one["with_child"] for one in alls.values()),
+           sum(one["with_numbers"] for one in alls.values()),
+           sum(one["nothing_without_numbers"] for one in alls.values()),
+           sum(one["not_under_holder"] for one in alls.values()),
+           {key: sum(one["by_followed"].get(key, 0) for one in alls.values())
+            for key in ("listtab", "nothing")},
+           sorted({q for one in alls.values() for q in one["tab_stops"]}),
+           sorted({q for one in alls.values() for q in one["indents"]}),
+           sorted({q for one in alls.values() for q in one["margins"]}),
+           sorted({key for one in alls.values() for key in one["by_mode"]}),
+           sorted({q for one in alls.values() for q in one["min_label_widths"]}),
+           sorted(one for one in alls if not alls[one]["elements_total"])],
+          [51, 47, 4770, 4770, 4255, 515, 0, {'listtab': 4255, 'nothing': 515}, ['0.635cm', '1.27cm', '1.905cm', '2.54cm', '3.175cm', '3.81cm', '4.445cm', '5.08cm', '5.715cm', '6.35cm', '6.985cm'], ['-0.635cm'], ['0.635cm', '1.27cm', '1.905cm', '2.54cm', '3.175cm', '3.81cm', '4.445cm', '5.08cm', '5.715cm', '6.35cm', '6.985cm'], ['label-alignment'], [], ['cjk-odf.odt', 'pnum.odt', 'tbox.odt', 'wrap.odt']])
+    check("反面凭据：这一本只住在 ODF 那一家 —— docx / rtf / doc 的账本里 list_labels "
+          "这个键整个不在场；OOXML 的同一问写在 w:lvl 的 w:numFmt / w:suff 与段缩进上，"
+          "那是 numbering 与 para_formats 那两本管的",
+          [no_theme_key("office-doc", "notes.docx", "list_labels"),
+           no_theme_key("office-doc", "notes.rtf", "list_labels"),
+           no_theme_key("office-doc", "notes.doc", "list_labels"),
+           no_theme_key("office-doc", "notes.odt", "list_labels")],
+          [False, False, False, True])
+
     # ── 3bw) 格子的字离边多远：docx 两个住处、pptx 四枚属性、ODF 一跳在 table-cell 样式上 ──
     print("=== 3bw) cell_margins：表级 / 格级 / 一跳在样式 ===")
     for name in sorted(one.name for one in FIXTURES.glob("*.docx")):

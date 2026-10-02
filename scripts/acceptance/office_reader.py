@@ -5944,6 +5944,144 @@ def odf_char_effects(path: Path, limit: int = 100) -> dict:
     }
 
 
+LL_PROPS_ATTRS = ("list-level-position-and-space-mode", "min-label-width",
+                  "min-label-distance", "space-before", "space-after")
+LL_CHILD_ATTRS = ("label-followed-by", "list-tab-stop-position", "margin-left",
+                  "text-indent", "margin-right", "space-before", "space-after")
+
+
+def odf_list_labels(path: Path, limit: int = 100) -> dict:
+    r"""这一级列表的标签摆在哪、后面跟什么：`style:list-level-properties` 与它的孩子
+
+    与 `list_labels.rs` 同一条口径。父元素只说一种模式（本仓 47/51 份写的都是
+    `label-alignment`），**值全住在孩子** `style:list-level-label-alignment` 上：
+    `text:label-followed-by`（`listtab` / `nothing`）、`text:list-tab-stop-position`、
+    `fo:margin-left`、`fo:text-indent`。写 `nothing` 的那些一处数都不写 —— 「标签后面
+    什么也不跟」与「跟一个制表位并把正文缩进来」是两种排版，所以两格各交各的。
+    另一种模式（`label-placement`，值在父元素上的 `style:min-label-width` 一族）本仓
+    一份都没写，那几格交空清单而不是缺键。
+
+    走法：宿主有两种 —— `style:list-style` 直接套 `list-level-style-number` / `-bullet` /
+    `-image`，而 `style:outline-style`（大纲那一族，10 级各一条）套 `outline-level-style`；
+    `@text:level` 在这一枚上，`list-level-properties` 又是它的孩子。另交整棵树里这类元素
+    的条数与 `not_under_holder`：只认前一种宿主会漏掉 470 处，那 470 处正是写
+    `label-followed-by="nothing"` 又不带任何数的那一族。
+    """
+    empty = {"family": "odf", "available": False, "elements_total": 0, "with_child": 0,
+             "with_numbers": 0, "not_under_holder": 0, "nothing_without_numbers": 0,
+             "by_part": {}, "by_holder": {}, "by_mode": {}, "by_followed": {},
+             "levels": [],
+             "tab_stops": [], "indents": [], "margins": [], "min_label_widths": [],
+             "parts_seen": [], "listed": 0, "cut": 0, "entries": []}
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return empty
+        roots = [("content.xml", ET.fromstring(box.read("content.xml")))]
+        if "styles.xml" in have:
+            roots.append(("styles.xml", ET.fromstring(box.read("styles.xml"))))
+
+    def table(node, allow) -> dict:
+        out = {}
+        for key, value in node.attrib.items():
+            tail = key.rsplit("}", 1)[-1]
+            if key == "xmlns" or key.startswith("xmlns:"):
+                continue
+            if tail in allow:
+                out[tail] = value
+        return out
+
+    def attrs(node) -> dict:
+        return {key.rsplit("}", 1)[-1]: value for key, value in node.attrib.items()}
+
+    LEVELS = ("list-level-style-number", "list-level-style-bullet", "list-level-style-image",
+              "outline-level-style")
+    rows = []
+    total = 0
+    for part, root in roots:
+        for one in root.iter():
+            if xml_local(one.tag) == "list-level-properties":
+                total += 1
+        # 宿主是 `style:list-style`（列表样式自己），不是 `style:style`：
+        # 那一族的名字是 @style:name，而 family 这一层根本不写 —— 认错宿主就是 0 行
+        for kind in ("list-style", "outline-style"):
+            for style in root.iter():
+                if xml_local(style.tag) != kind:
+                    continue
+                name = None
+                for key, value in style.attrib.items():
+                    if key.rsplit("}", 1)[-1] == "name":
+                        name = value
+                for level in style:
+                    if xml_local(level.tag) not in LEVELS:
+                        continue
+                    lab = attrs(level).get("level")
+                    for props in level:
+                        if xml_local(props.tag) != "list-level-properties":
+                            continue
+                        mine = table(props, LL_PROPS_ATTRS)
+                        kid = None
+                        for inner in props:
+                            if xml_local(inner.tag) == "list-level-label-alignment":
+                                kid = inner
+                            elif xml_local(inner.tag) == "list-level-properties":
+                                # 同层再套一层的写法本仓没量到，认出来就别当没有
+                                mine.update(table(inner, LL_PROPS_ATTRS))
+                        theirs = table(kid, LL_CHILD_ATTRS) if kid is not None else {}
+                        rows.append({
+                            "index": len(rows),
+                            "part": part,
+                            "list_style": name,
+                            "holder": xml_local(level.tag),
+                            "level": lab,
+                            "props_written": sorted(mine),
+                            "props": mine,
+                            "child": kid is not None,
+                            "child_written": sorted(theirs),
+                            "label": theirs,
+                        })
+    seen_parts = sorted({one["part"] for one in rows})
+
+    def pick(key, table_key):
+        out = {one[table_key].get(key) for one in rows if key in one[table_key]}
+        return sorted(one for one in out if one is not None)
+
+    return {
+        "family": "odf",
+        "available": True,
+        "elements_total": total,
+        "with_child": sum(1 for one in rows if one["child"]),
+        "with_numbers": sum(1 for one in rows if "list-tab-stop-position" in one["label"]
+                            and "margin-left" in one["label"] and "text-indent" in one["label"]),
+        "not_under_holder": max(0, total - len(rows)),
+        # 「后面什么也不跟」的那些，制表位与两个缩进数一枚都不写
+        "nothing_without_numbers": sum(1 for one in rows
+                                       if one["label"].get("label-followed-by") == "nothing"
+                                       and not ({"list-tab-stop-position", "margin-left",
+                                                 "text-indent"} & set(one["label"]))),
+        "levels": sorted({one["level"] for one in rows if one["level"] is not None}),
+        "by_part": {k: sum(1 for one in rows if one["part"] == k) for k in seen_parts},
+        "by_holder": {k: sum(1 for one in rows if one["holder"] == k)
+                      for k in sorted({one["holder"] for one in rows})},
+        "by_mode": {k: sum(1 for one in rows if one["props"].get(
+                        "list-level-position-and-space-mode") == k)
+                    for k in sorted({one["props"]["list-level-position-and-space-mode"]
+                                     for one in rows
+                                     if "list-level-position-and-space-mode" in one["props"]})},
+        "by_followed": {k: sum(1 for one in rows if one["label"].get("label-followed-by") == k)
+                        for k in sorted({one["label"]["label-followed-by"] for one in rows
+                                         if "label-followed-by" in one["label"]})},
+        "tab_stops": pick("list-tab-stop-position", "label"),
+        "indents": pick("text-indent", "label"),
+        "margins": pick("margin-left", "label"),
+        "min_label_widths": pick("min-label-width", "props"),
+        "parts_seen": seen_parts,
+        "listed": min(len(rows), limit),
+        "cut": max(0, len(rows) - limit),
+        "entries": rows[:limit],
+    }
+
+
 def docx_note_settings(path: Path, limit: int = 100) -> dict:
     r"""注的编号设置在 OOXML 写在**两处**：`w:settings.xml` 的 `w:footnotePr` / `w:endnotePr`，
     以及每一条 `w:sectPr` 里的同名元素。两处内容可以不一样。
@@ -17097,6 +17235,10 @@ def facts(path: Path) -> dict:
             out["odt"]["font_scripts"] = odf_font_scripts(path)
             # 同一问在 ODF 是属性，且三套脚本各写一遍
             out["odt"]["char_effects"] = odf_char_effects(path)
+            # 同一问在 ODF 还有第三层：这一级标签摆在哪、后面跟什么
+            out["odt"]["list_labels"] = odf_list_labels(path)
+            # 同一问在 ODF 还有第三层：这一级标签摆在哪、后面跟什么
+            out["odt"]["list_labels"] = odf_list_labels(path)
             # 同一问在 ODF 是一类注一份 configuration
             out["odt"]["note_settings"] = odf_note_settings(path)
             # 同一问在 ODF 是摊平的一堆具名项，四条名字里点了 Word 的只在 odt 出现

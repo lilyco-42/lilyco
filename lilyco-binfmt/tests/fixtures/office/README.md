@@ -4075,3 +4075,33 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
   而 docx 里有 4 份这一族一个字不写（`cjk-odf-lo.docx` / `pnum.docx` / `tbox.docx` /
   `wrap-lo.docx`），odt 里 4 份（`cjk-odf.odt` / `pnum.odt` / `tbox.odt` / `wrap.odt`）——
   键在场而条目为空，与「这一族没读」是两件事。
+
+**173. 这一级列表的标签摆在哪：位置模式写在父、数值写在子，`nothing` 的那一族一个数都不写**
+
+- 认的是 `style:list-level-properties` 与它的孩子 `style:list-level-label-alignment`。
+  整库 **4770 处**里，父元素只说一句话：`text:list-level-position-and-space-mode`，
+  值 4770 处**全是** `label-alignment`；制表位、正文缩进与 margin 三枚**全住在孩子**那一层
+  （`text:list-tab-stop-position` 4255、`fo:margin-left` 4255、`fo:text-indent` 4255，
+  缩进清一色 `-0.635cm` 这一枚负值，margin 与制表位同值成对：0.635cm … 6.985cm 十档）。
+  只扫父元素那一层，一个数都量不到 —— 这本账第一次跑出来是 0 行，就是这么来的。
+- 后缀只有两种值：`listtab` **4255** 与 `nothing` **515**，而
+  `with_numbers`（三枚数都写齐的）恰好等于 `listtab` 那一支 —— 精确互补：
+  写 `nothing` 的 515 处**一枚数都不写**。所以 `props` 与 `label` 两张表各交各的，
+  不折成「有没有缩进」一个布尔。
+- 宿主有两种：`style:list-style`（列表样式自己，名字在 `@style:name`）套
+  `list-level-style-number` 4129 与 `list-level-style-bullet` 171；
+  `style:outline-style`（大纲那一族）套 `outline-level-style` **470**。
+  只认前一种就漏 470 处，而那 470 处正是 `nothing` 的来源 —— 这本账另交
+  `elements_total` 与 `not_under_holder`，漏没漏由文件自己说（本库 `not_under_holder` **0**）。
+- 另一种模式该写的那几枚（`style:min-label-width` / `min-label-distance` /
+  `space-before` / `space-after`）本仓**一份都没写** → `min_label_widths` 是空清单而不是缺键。
+  `list-level-style-image` 这一档宿主同样零处：本仓没有以图片当编号的生产者。
+- 级别这一格交 `@text:level` 写的字符串，不换算成数字也不补洞：整库见到 `1`…`10`
+  十档（字典序排成 `1, 10, 2, …`，那是文件的写法不是排序失误）。
+- `--limit` 只截 `entries`：`bkmks.odt` 交 110 级，出口默认 `--limit 100` 就是
+  `listed` 100 / `cut` 10；显式 `--limit 2` 得 `listed` 2、`cut` 108，而
+  `elements_total` 110、`with_child` 110、`by_followed` / `tab_stops` / `levels` 仍说整份件。
+- 四份最小件（`cjk-odf.odt` / `pnum.odt` / `tbox.odt` / `wrap.odt`，zipfile 手写的）
+  这一族一个字不写：键在场而 `entries` 为空。`.docx` / `.rtf` / `.doc` 三个出口里
+  `list_labels` 这个键整个不在场 —— OOXML 的同一问写在 `w:lvl` 的 `w:numFmt` / `w:suff`
+  与段的 `w:ind` 上（`numbering` 与 `para_formats` 那两本已交），三本不并账。

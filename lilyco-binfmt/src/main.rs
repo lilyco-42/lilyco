@@ -62,6 +62,7 @@ mod languages;
 mod latent_styles;
 mod layout_compat;
 mod line_spacing;
+mod list_labels;
 mod markdown;
 mod note_settings;
 mod numfmt;
