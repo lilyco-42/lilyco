@@ -4105,3 +4105,38 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
   这一族一个字不写：键在场而 `entries` 为空。`.docx` / `.rtf` / `.doc` 三个出口里
   `list_labels` 这个键整个不在场 —— OOXML 的同一问写在 `w:lvl` 的 `w:numFmt` / `w:suff`
   与段的 `w:ind` 上（`numbering` 与 `para_formats` 那两本已交），三本不并账。
+
+**174. 排印开关那三十来枚：三种宿主各一张认字表，布尔的两种拼法不折成一个真假**
+
+- 认的宿主是 `a:pPr` / `a:defPPr` / `a:lvl1-9pPr`（段）、`a:rPr` / `a:defRPr` /
+  `a:endParaRPr`（字符）、`a:bodyPr`（框）三种，属性面各自一张表：段这一张 12 枚
+  （`eaLnBrk` / `hangingPunct` / `latinLnBrk` / `rtl` / `fontAlign` / `tcAp` /
+  `defTabSz` / `marL` / `marR` / `indent` / `algn` / `lvl`），字符那一张 18 枚
+  （`kern` / `capSpacing` / `spc` / `balancedDblByte` / `eaConformance` / `noProof` /
+  `HideSpc` / `dirty` / `err` / `smtClean` / `lang` / `altLang` / `b` / `i` / `u` /
+  `strike` / `sz` / `baseline`），框那一张 8 枚（`wrap` / `keepText` / `fromColumn` /
+  `rtlCol` / `anchor` / `anchorCtr` / `numCol` / `spcCol`）。
+- 值一律按写的字符串交。OOXML 的 ST_OnOff 认 `0` / `1`，也认 `false` / `true`，
+  真件里是**混着写**的：本机 104 份 pptx 量到 `b` 一枚写过 1（2481 处）、0（259 处）、
+  false（108 处）、true（44 处）四种，`i` 写过 0 / false / 1 三种，`rtlCol` 写 0（4597 处）
+  与 false（121 处），`anchorCtr` 写 0（124 处）与 false（120 处）——
+  折成布尔就把「这份稿子用什么拼法写的」那句话丢了，所以 `onoff` 单独记每一枚的拼法条数。
+- 两个生产者的分工（自产 33 份 pptx 全量）：四枚中文排印开关 `eaLnBrk=1` /
+  `hangingPunct=1` / `latinLnBrk=0` / `rtl=0` 合计各 494 处，**只出现在没被 LibreOffice
+  重写过的那 17 份**里，住处是 `ppt/presentation.xml` 的 `defaultTextStyle` 与各母版的
+  `a:lvlNpPr` —— 那是模板带着走的默认值；15 份 `-lo` 件里这四枚连同 `kern` / `smtClean` /
+  `rtlCol` 一起进了 `attrs_never`，一枚都不再写，`b` 的拼法换成以 0 为主、
+  `u` 与 `strike` 写成 `none` / `noStrike` 这种枚举词。`kern` 在这批里只有一种值 1200，
+  `defTabSz` 全库只有一种值 457200（半英寸）。
+- `not_under_carrier` 与 `collisions` 是这本账自己的对账，而且它**本来就不是 0**：
+  整库 17477 枚写了认得属性的元素里有 1246 枚不住在这三种宿主上，逐枚点名交在
+  `collisions` —— `p:ph/@sz` 743 处（占位符类型号，不是字号）、`a:tab/@algn` 452 处
+  （制表位对齐，不是段落对齐）、`a:tcPr/@anchor` / `@marL` / `@marR`（格子的竖直对齐与
+  边距，归 `vertical_align`、`cell_margins` 那两本）、`a:lnL` / `lnT` / `lnB` / `lnR` /
+  `lnTlToBr` 的 `@algn`（线对齐）。三族宿主各一张认字表，合成一张按名字收的表就把
+  占位符类型号当字号交了出去。`eqs.pptx` 那一份是最小的对照：这一族完全没写过第三种宿主，
+  `not_under_carrier` 与 `collisions` 同时为 0。
+- `--limit` 只截 rows（`listed` / `cut` 交回窗口），`carriers_total` / `with_switch` /
+  `elements_anywhere` / 三族住处 / 值词汇 / 拼法条数仍说整份件。`deck.odp` 与 `deck.ppt`
+  不交这个键 —— ODF 的排印开关住在 `style:para-properties` 与 `fo:` / `style:` 那套属性名上，
+  `.ppt` 是二进制记录，两边都不是 `a:pPr` / `a:rPr` / `a:bodyPr` 的属性面。

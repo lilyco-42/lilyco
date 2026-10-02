@@ -1579,6 +1579,206 @@ def slide_font_sets_pptx(parts, names, limit: int = 400) -> dict:
     }
 
 
+TS_PAR = ("eaLnBrk", "hangingPunct", "latinLnBrk", "rtl", "fontAlign", "tcAp",
+          "defTabSz", "marL", "marR", "indent", "algn", "lvl")
+TS_CHR = ("kern", "capSpacing", "spc", "balancedDblByte", "eaConformance", "noProof",
+          "HideSpc", "dirty", "err", "smtClean", "lang", "altLang", "b", "i", "u",
+          "strike", "sz", "baseline")
+TS_FRAME = ("wrap", "keepText", "fromColumn", "rtlCol", "anchor", "anchorCtr",
+            "numCol", "spcCol")
+TS_PAR_CARRIERS = ("pPr", "defPPr") + tuple("lvl%dpPr" % d for d in range(1, 10))
+TS_CHR_CARRIERS = ("rPr", "defRPr", "endParaRPr")
+TS_FRAME_CARRIERS = ("bodyPr",)
+# 三种宿各自的属性面：同一枚名字不会跨组（`u` 只在 rPr 那族、`wrap` 只在 bodyPr）
+TS_GROUP = {}
+for _one in TS_PAR_CARRIERS:
+    TS_GROUP[_one] = "paragraph"
+for _one in TS_CHR_CARRIERS:
+    TS_GROUP[_one] = "character"
+for _one in TS_FRAME_CARRIERS:
+    TS_GROUP[_one] = "frame"
+TS_ATTRS = {"paragraph": TS_PAR, "character": TS_CHR, "frame": TS_FRAME}
+TS_DECLARED = sorted(set(TS_PAR) | set(TS_CHR) | set(TS_FRAME))
+# 布尔那一族（ST_OnOff）：`0`/`1` 与 `false`/`true` 两种拼法在真件里是混着写的
+TS_BOOL = ("eaLnBrk", "hangingPunct", "latinLnBrk", "rtl", "tcAp", "fontAlign",
+           "balancedDblByte", "eaConformance", "noProof", "HideSpc", "dirty", "err",
+           "smtClean", "b", "i", "u", "strike", "keepText", "fromColumn", "rtlCol",
+           "anchorCtr")
+TS_PREFIXES = ("ppt/slides/", "ppt/slideLayouts/", "ppt/slideMasters/",
+               "ppt/notesSlides/", "ppt/notesMasters/")
+
+
+def ts_kind(part: str) -> str:
+    """部件名给住处：母版 / 版式 / 正文页 / 母版页 / 备注页 / 演示稿本体"""
+    if "slideMasters/" in part:
+        return "master"
+    if "slideLayouts/" in part:
+        return "layout"
+    if "slides/" in part:
+        return "slide"
+    if "notesMasters/" in part:
+        return "notes_master"
+    if "notesSlides/" in part:
+        return "notes_slide"
+    return "presentation"
+
+
+def ts_local_attrs(node) -> dict:
+    """元素自己写着的属性，局部名对值原样（xmlns 声明不算属性，与 Rust 同一口径）"""
+    out = {}
+    for key, value in node.attrib.items():
+        name = key.rsplit("}", 1)[-1]
+        if name != "xmlns" and not name.startswith("xmlns:"):
+            out[name] = value
+    return out
+
+
+def ts_switch(node, group: str) -> tuple:
+    """这一枚宿主上写了的那几枚：按认字表的顺序交，不按元素上的书写顺序"""
+    had = ts_local_attrs(node)
+    written = [one for one in TS_ATTRS[group] if one in had]
+    return written, {one: had[one] for one in written}
+
+
+def slide_typo_switches_pptx(parts, names, limit: int = 100) -> dict:
+    r"""pptx 的排印开关：段、字符、框三种宿主上那三十来枚属性，按写的字符串原样交
+
+    与 `typo_switches.rs` 同一条口径。三族宿主各有各的属性面 ——
+    段（`a:pPr` / `a:defPPr` / `a:lvlNpPr`）管换行与标点（`eaLnBrk` / `hangingPunct` /
+    `latinLnBrk` / `rtl`）、默认制表位 `defTabSz` 与 `marL` / `marR` / `indent` / `algn` /
+    `lvl`；字符（`a:rPr` / `a:defRPr` / `a:endParaRPr`）管字偶距 `kern`、
+    大字距 `capSpacing`、字距 `spc`、全角半角那两枚 `balancedDblByte` / `eaConformance`
+    与拼写检查那三枚 `dirty` / `err` / `smtClean`；框（`a:bodyPr`）管折行 `wrap` 与
+    `rtlCol` / `anchor` / `anchorCtr`。主题那一份（`majorFont` / `minorFont`）归
+    `theme_ledger`，三枚字体指针归 `font_sets`，`wrap` 在 autofit 那本也露过一次面 ——
+    各本分工写进 README，这本管的是**开关的拼法与在场**。
+
+    值一律按写的字符串交，不折成布尔：OOXML 的 ST_OnOff 允许 `0`/`1` 与 `false`/`true`
+    两种拼法，本机 104 份真件里 `b` 一枚就同时写过 1、0、false、true 四种
+    （2481 / 259 / 108 / 44 条），`rtlCol` 同时写 0 与 false（4597 / 121 条）——
+    折成布尔就把「这份稿子用什么拼法写的」那句话丢了。`onoff` 单独记这一族布尔属性
+    各自的拼法条数，`values` 记全部认得的属性的值词汇。
+
+    `not_under_carrier` 是这条走法自己的对账：整棵树里写了任一枚认得属性、
+    但不挂在这三种宿主名上的元素条数。它**本来就不是 0**，而且不是漏了宿主 ——
+    那些名字在同名不同物的元素上另有其义，逐枚点名交在 `collisions`（元素名/属性名 → 条数）：
+    本机量到过 `p:ph` 的 `sz`（占位符类型号，不是字号）、`a:tab` 的 `algn`
+    （制表位对齐，不是段落对齐）、`a:tcPr` 的 `anchor` / `marL` / `marR`
+    （格子的竖直对齐与边距，归 vertical_align、cell_margins 那两本）、
+    还有 `a:lnL` / `a:lnT` 那几枚线对齐。三族宿主的属性面因此是**各自一份认字表**，
+    不能合成一张表按名字收 —— 收了就把占位符类型号当字号交出去。
+    部件按名字定序再走（`parts_seen` 与 rows 要跟着名走，不能跟 zip 的存储序走）。
+    `collisions` 的键按元素名/属性名定序，`--limit` 只截 rows，每一份计数仍说整份件。
+    """
+    empty = {
+        "family": "ooxml",
+        "available": False,
+        "parts_seen": [],
+        "carriers_total": 0,
+        "with_switch": 0,
+        "by_group": {},
+        "by_carrier": {},
+        "by_kind": {},
+        "elements_anywhere": 0,
+        "not_under_carrier": 0,
+        "collisions": {},
+        "attrs_written": [],
+        "attrs_never": list(TS_DECLARED),
+        "values": {},
+        "onoff": {},
+        "listed": 0,
+        "cut": 0,
+        "rows": [],
+    }
+    picked = {}
+    for want in sorted(one for one in names
+                       if one.endswith(".xml")
+                       and (one == "ppt/presentation.xml"
+                            or any(one.startswith(pre) for pre in TS_PREFIXES))):
+        raw = parts.get(want)
+        if raw is None:
+            continue
+        picked[want] = raw.encode("utf-8") if isinstance(raw, str) else raw
+    if not picked:
+        return empty
+    rows = []
+    by_group = {}
+    by_carrier = {}
+    by_kind = {}
+    values = {}
+    onoff = {}
+    carriers = 0
+    anywhere = 0
+    collisions = {}
+    for part, raw in picked.items():
+        kind = ts_kind(part)
+        root = ET.fromstring(raw)
+        dad = {}
+        for par in root.iter():
+            for kid in par:
+                dad[kid] = par
+        for node in root.iter():
+            name = xml_local(node.tag)
+            had_local = ts_local_attrs(node)
+            if any(one in TS_DECLARED for one in had_local):
+                anywhere += 1
+            group = TS_GROUP.get(name)
+            if group is None:
+                for one in sorted(had_local):
+                    if one in TS_DECLARED:
+                        key = name + "/" + one
+                        collisions[key] = collisions.get(key, 0) + 1
+                continue
+            carriers += 1
+            written, vals = ts_switch(node, group)
+            if not written:
+                continue
+            for one in written:
+                got = vals[one]
+                bucket = values.setdefault(one, [])
+                if got not in bucket:
+                    bucket.append(got)
+                if one in TS_BOOL:
+                    row = onoff.setdefault(one, {})
+                    row[got] = row.get(got, 0) + 1
+            by_group[group] = by_group.get(group, 0) + 1
+            by_carrier[name] = by_carrier.get(name, 0) + 1
+            by_kind[kind] = by_kind.get(kind, 0) + 1
+            rows.append({
+                "index": len(rows),
+                "part": part,
+                "kind": kind,
+                "group": group,
+                "carrier": name,
+                "parent": xml_local(dad[node].tag) if node in dad else "",
+                "written": written,
+                "attrs": vals,
+            })
+    written_names = sorted(values)
+    for key in values:
+        values[key] = sorted(values[key])
+    return {
+        "family": "ooxml",
+        "available": True,
+        "parts_seen": sorted(picked),
+        "carriers_total": carriers,
+        "with_switch": len(rows),
+        "by_group": dict(sorted(by_group.items())),
+        "by_carrier": dict(sorted(by_carrier.items())),
+        "by_kind": dict(sorted(by_kind.items())),
+        "elements_anywhere": anywhere,
+        "not_under_carrier": anywhere - len(rows),
+        "collisions": dict(sorted(collisions.items())),
+        "attrs_written": written_names,
+        "attrs_never": [one for one in TS_DECLARED if one not in values],
+        "values": values,
+        "onoff": {k: dict(sorted(v.items())) for k, v in sorted(onoff.items())},
+        "listed": min(len(rows), limit),
+        "cut": max(0, len(rows) - limit),
+        "rows": rows[:limit],
+    }
+
+
 def _ds_child_row(one, index: int) -> dict:
     """一份直接孩子：写出的顺序、局部名、自己的属性与几个孩子"""
     return {
@@ -13400,6 +13600,8 @@ def pptx_facts(path: Path) -> dict:
         "bullet_layers": slide_bullets_layers_pptx(parts, names),
         # 这一页的三元组字体：a:latin / a:ea / a:cs 各点了谁（主题那一份归 theme_ledger）
         "font_sets": slide_font_sets_pptx(parts, names),
+        # 段 / 字符 / 框三种宿主上的排印开关：布尔两种拼法按写的字符串交
+        "typo_switches": slide_typo_switches_pptx(parts, names),
         "slide_size": size,
         "slide_size_type": size_type,
         "masters": sorted(one for one in names if one.startswith("ppt/slideMasters/slideMaster")),

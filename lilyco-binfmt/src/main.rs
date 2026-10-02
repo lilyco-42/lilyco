@@ -120,6 +120,7 @@ mod text_boxes;
 mod text_direction;
 mod theme_ledger;
 mod theme_refs;
+mod typo_switches;
 mod vertical_align;
 mod word;
 mod workbook_settings;

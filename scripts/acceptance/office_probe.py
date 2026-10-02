@@ -11729,6 +11729,74 @@ def main() -> int:
           [False, False, False, True])
 
     # ── 3bw) 格子的字离边多远：docx 两个住处、pptx 四枚属性、ODF 一跳在 table-cell 样式上 ──
+    # 这一本的钉值、标签里的数与整库合计都由第二读者现量（.scratch/gap/ts_measure.py），不手抄
+    TS_SC = ("carriers_total", "with_switch", "elements_anywhere", "not_under_carrier",
+           "listed", "cut", "attrs_written", "attrs_never", "collisions")
+    TS_TALLY = ("by_group", "by_carrier", "by_kind", "values", "onoff")
+    ts_pin = {
+        'borders.pptx': [[555, 437, 488, 51, 100, 337, ['algn', 'anchor', 'b', 'defTabSz', 'eaLnBrk', 'hangingPunct', 'indent', 'kern', 'lang', 'latinLnBrk', 'lvl', 'marL', 'rtl', 'rtlCol', 'smtClean', 'sz'], ['HideSpc', 'altLang', 'anchorCtr', 'balancedDblByte', 'baseline', 'capSpacing', 'dirty', 'eaConformance', 'err', 'fontAlign', 'fromColumn', 'i', 'keepText', 'marR', 'noProof', 'numCol', 'spc', 'spcCol', 'strike', 'tcAp', 'u', 'wrap'], {'lnB/algn': 2, 'lnL/algn': 2, 'lnR/algn': 1, 'lnT/algn': 2, 'lnTlToBr/algn': 1, 'ph/sz': 43}], [{'character': 279, 'frame': 11, 'paragraph': 147}, {'bodyPr': 11, 'defRPr': 135, 'endParaRPr': 58, 'lvl1pPr': 17, 'lvl2pPr': 10, 'lvl3pPr': 10, 'lvl4pPr': 10, 'lvl5pPr': 10, 'lvl6pPr': 10, 'lvl7pPr': 10, 'lvl8pPr': 10, 'lvl9pPr': 10, 'pPr': 50, 'rPr': 86}, {'layout': 350, 'master': 68, 'presentation': 19}, {'lang': ['en-US'], 'eaLnBrk': ['1'], 'hangingPunct': ['1'], 'latinLnBrk': ['0'], 'rtl': ['0'], 'defTabSz': ['457200'], 'marL': ['0', '1143000', '1371600', '1600200', '1828800', '2057400', '2286000', '2514600', '2743200', '2971800', '3200400', '342900', '3429000', '3657600', '3886200', '457200', '742950', '914400'], 'algn': ['ctr', 'l', 'r'], 'kern': ['1200'], 'sz': ['1000', '1200', '1400', '1600', '1800', '2000', '2400', '2800', '3200', '4000', '4400', '900'], 'smtClean': ['0'], 'indent': ['-228600', '-285750', '-342900', '0'], 'lvl': ['0', '1', '2', '3', '4'], 'anchor': ['b', 'ctr', 't'], 'b': ['1'], 'rtlCol': ['0']}, {'b': {'1': 21}, 'eaLnBrk': {'1': 28}, 'hangingPunct': {'1': 28}, 'latinLnBrk': {'0': 28}, 'rtl': {'0': 28}, 'rtlCol': {'0': 5}, 'smtClean': {'0': 86}}]],
+        'borders-lo.pptx': [[567, 567, 603, 36, 100, 467, ['algn', 'anchor', 'b', 'defTabSz', 'indent', 'lang', 'lvl', 'marL', 'strike', 'sz', 'u'], ['HideSpc', 'altLang', 'anchorCtr', 'balancedDblByte', 'baseline', 'capSpacing', 'dirty', 'eaConformance', 'eaLnBrk', 'err', 'fontAlign', 'fromColumn', 'hangingPunct', 'i', 'keepText', 'kern', 'latinLnBrk', 'marR', 'noProof', 'numCol', 'rtl', 'rtlCol', 'smtClean', 'spc', 'spcCol', 'tcAp', 'wrap'], {'tab/algn': 30, 'tcPr/anchor': 6, 'tcPr/marL': 6, 'tcPr/marR': 6}], [{'character': 302, 'frame': 66, 'paragraph': 199}, {'bodyPr': 66, 'defRPr': 95, 'endParaRPr': 104, 'lvl1pPr': 57, 'lvl2pPr': 9, 'lvl3pPr': 9, 'lvl4pPr': 9, 'lvl5pPr': 9, 'lvl6pPr': 1, 'lvl7pPr': 1, 'pPr': 104, 'rPr': 103}, {'layout': 536, 'slide': 31}, {'anchor': ['b', 'ctr', 't'], 'defTabSz': ['457200'], 'indent': ['-216000', '-228600', '-285840', '-288000', '-324000', '-343080', '0'], 'algn': ['ctr', 'l', 'r'], 'lang': ['en-US', 'zh-CN'], 'b': ['0', '1'], 'u': ['none'], 'strike': ['noStrike'], 'sz': ['1200', '1400', '1600', '1800', '2000', '2400', '2800', '3200', '4000', '4400'], 'lvl': ['1', '2', '3', '4', '5', '6'], 'marL': ['1143000', '1296000', '1600200', '1728000', '2057400', '2160000', '2592000', '3024000', '343080', '743040', '864000']}, {'b': {'0': 289, '1': 13}, 'strike': {'noStrike': 302}, 'u': {'none': 302}}]],
+        'eqs.pptx': [[80, 71, 71, 0, 71, 0, ['algn', 'anchor', 'b', 'indent', 'lang', 'lvl', 'marL', 'strike', 'sz', 'u'], ['HideSpc', 'altLang', 'anchorCtr', 'balancedDblByte', 'baseline', 'capSpacing', 'defTabSz', 'dirty', 'eaConformance', 'eaLnBrk', 'err', 'fontAlign', 'fromColumn', 'hangingPunct', 'i', 'keepText', 'kern', 'latinLnBrk', 'marR', 'noProof', 'numCol', 'rtl', 'rtlCol', 'smtClean', 'spc', 'spcCol', 'tcAp', 'wrap'], {}], [{'character': 39, 'frame': 8, 'paragraph': 24}, {'bodyPr': 8, 'defRPr': 11, 'endParaRPr': 14, 'lvl1pPr': 5, 'lvl2pPr': 1, 'lvl3pPr': 1, 'lvl4pPr': 1, 'lvl5pPr': 1, 'lvl6pPr': 1, 'lvl7pPr': 1, 'pPr': 13, 'rPr': 14}, {'layout': 8, 'master': 60, 'slide': 3}, {'anchor': ['ctr', 't'], 'indent': ['-216000', '-288000', '-324000', '0'], 'algn': ['ctr', 'l', 'r'], 'lang': ['en-US', 'zh-CN'], 'b': ['0'], 'u': ['none'], 'strike': ['noStrike'], 'sz': ['1400', '1800', '2000', '2400', '2800', '3200', '4400'], 'lvl': ['1', '2', '3', '4', '5', '6'], 'marL': ['1296000', '1728000', '2160000', '2592000', '3024000', '432000', '864000']}, {'b': {'0': 37}, 'strike': {'noStrike': 37}, 'u': {'none': 37}}]],
+        'deck-tables-lo.pptx': [[636, 610, 649, 39, 100, 510, ['algn', 'anchor', 'anchorCtr', 'b', 'defTabSz', 'indent', 'lang', 'lvl', 'marL', 'strike', 'sz', 'u'], ['HideSpc', 'altLang', 'balancedDblByte', 'baseline', 'capSpacing', 'dirty', 'eaConformance', 'eaLnBrk', 'err', 'fontAlign', 'fromColumn', 'hangingPunct', 'i', 'keepText', 'kern', 'latinLnBrk', 'marR', 'noProof', 'numCol', 'rtl', 'rtlCol', 'smtClean', 'spc', 'spcCol', 'tcAp', 'wrap'], {'tab/algn': 30, 'tcPr/anchor': 9, 'tcPr/marL': 9, 'tcPr/marR': 9}], [{'character': 325, 'frame': 76, 'paragraph': 209}, {'bodyPr': 76, 'defRPr': 95, 'endParaRPr': 116, 'lvl1pPr': 57, 'lvl2pPr': 9, 'lvl3pPr': 9, 'lvl4pPr': 9, 'lvl5pPr': 9, 'lvl6pPr': 1, 'lvl7pPr': 1, 'pPr': 114, 'rPr': 114}, {'layout': 32, 'master': 536, 'slide': 42}, {'anchor': ['b', 'ctr', 't'], 'defTabSz': ['457200'], 'indent': ['-216000', '-228600', '-285840', '-288000', '-324000', '-343080', '0'], 'algn': ['ctr', 'l', 'r'], 'lang': ['en-US', 'zh-CN'], 'b': ['0', '1'], 'u': ['none'], 'strike': ['noStrike'], 'sz': ['1200', '1400', '1600', '1800', '2000', '2400', '2800', '3200', '4000', '4400'], 'lvl': ['1', '2', '3', '4', '5', '6'], 'marL': ['1143000', '1296000', '1600200', '1728000', '2057400', '2160000', '2592000', '3024000', '343080', '743040', '864000'], 'anchorCtr': ['1']}, {'anchorCtr': {'1': 2}, 'b': {'0': 304, '1': 13}, 'strike': {'noStrike': 317}, 'u': {'none': 317}}]],
+    }
+    ts_all = {one: files[one]["ooxml"]["typo_switches"] for one in sorted(files)
+              if one.endswith(".pptx") and (files[one].get("ooxml") or {}).get("typo_switches")}
+    print("=== 3d3) 排印开关（typo_switches）：段 / 字符 / 框三种宿主，布尔两种拼法 ===")
+    for name in sorted(ts_pin):
+        mine = dig(lbin("office-slide", fixture(name)), "typo_switches") or {}
+        want = files[name]["ooxml"]["typo_switches"]
+        check("%s 的开关整本账（六格计数、两份认得的清单、同名不同物那本）" % name,
+              [mine.get(key) for key in TS_SC], ts_pin[name][0])
+        check("%s 的三族住处、值词汇与布尔拼法条数两家一致" % name,
+              [mine.get(key) for key in TS_TALLY], ts_pin[name][1])
+        check("%s 的全部行两家一致" % name, mine.get("rows"), want.get("rows"))
+        check("%s 的部件清单两家一致" % name, mine.get("parts_seen"), want.get("parts_seen"))
+    first = dig(lbin("office-slide", fixture("borders.pptx")), "typo_switches") or {}
+    check("python-pptx 那一路（17 份件写全四枚中文排印开关）：eaLnBrk / hangingPunct / latinLnBrk / rtl 全库各 494 处、值恒为 1 / 1 / 0 / 0，住处从演示稿本体的 defaultTextStyle 起头；kern 只写 ['1200'] 这一种、defTabSz 只有 ['457200']；布尔那一族在这批里全用 0/1 拼法（b 只见过 ['0', '1']）",
+          [first["attrs_written"], first["onoff"], first["values"].get("kern"),
+           first["values"].get("defTabSz"), first["by_kind"], first["rows"][1]],
+          [['algn', 'anchor', 'b', 'defTabSz', 'eaLnBrk', 'hangingPunct', 'indent', 'kern', 'lang', 'latinLnBrk', 'lvl', 'marL', 'rtl', 'rtlCol', 'smtClean', 'sz'], {'b': {'1': 21}, 'eaLnBrk': {'1': 28}, 'hangingPunct': {'1': 28}, 'latinLnBrk': {'0': 28}, 'rtl': {'0': 28}, 'rtlCol': {'0': 5}, 'smtClean': {'0': 86}}, ['1200'], ['457200'], {'layout': 350, 'master': 68, 'presentation': 19}, {'index': 1, 'part': 'ppt/presentation.xml', 'kind': 'presentation', 'group': 'paragraph', 'carrier': 'lvl1pPr', 'parent': 'defaultTextStyle', 'written': ['eaLnBrk', 'hangingPunct', 'latinLnBrk', 'rtl', 'defTabSz', 'marL', 'algn'], 'attrs': {'eaLnBrk': '1', 'hangingPunct': '1', 'latinLnBrk': '0', 'rtl': '0', 'defTabSz': '457200', 'marL': '0', 'algn': 'l'}}])
+    twin = dig(lbin("office-slide", fixture("borders-lo.pptx")), "typo_switches") or {}
+    check("LibreOffice 重写同一份：15 个 -lo 件的 attrs_never 里都躺着那四枚开关与 kern / smtClean / rtlCol —— 一枚都不再写；with_switch 567 == carriers_total 567（每一枚宿主都至少写着一枚认得的开关），b 的拼法换成以 0 为主，u / strike 写成 none / noStrike 这种枚举词",
+          [twin["attrs_never"], twin["attrs_written"], twin["by_group"], twin["onoff"],
+           twin["with_switch"], twin["carriers_total"], twin["values"].get("u")],
+          [['HideSpc', 'altLang', 'anchorCtr', 'balancedDblByte', 'baseline', 'capSpacing', 'dirty', 'eaConformance', 'eaLnBrk', 'err', 'fontAlign', 'fromColumn', 'hangingPunct', 'i', 'keepText', 'kern', 'latinLnBrk', 'marR', 'noProof', 'numCol', 'rtl', 'rtlCol', 'smtClean', 'spc', 'spcCol', 'tcAp', 'wrap'], ['algn', 'anchor', 'b', 'defTabSz', 'indent', 'lang', 'lvl', 'marL', 'strike', 'sz', 'u'], {'character': 302, 'frame': 66, 'paragraph': 199}, {'b': {'0': 289, '1': 13}, 'strike': {'noStrike': 302}, 'u': {'none': 302}}, 567, 567, ['none']])
+    clean = dig(lbin("office-slide", fixture("eqs.pptx")), "typo_switches") or {}
+    check("最小的一份（71 行）：not_under_carrier 与 collisions 同时为 0 —— 这本对账不是摆设，宿主走法在这份件上一个都没漏；listed 71、cut 0 说明这一本没被 --limit 截过",
+          [clean["with_switch"], clean["carriers_total"], clean["not_under_carrier"],
+           clean["collisions"], clean["listed"], clean["cut"], len(clean["rows"])],
+          [71, 80, 0, {}, 71, 0, 71])
+    cells = dig(lbin("office-slide", fixture("deck-tables-lo.pptx")), "typo_switches") or {}
+    check("表格里那一格把同名不同物写满一屏：['tab/algn', 'tcPr/anchor', 'tcPr/marL', 'tcPr/marR'] —— 格子的 anchor / marL / marR 归 vertical_align 与 cell_margins 那两本、制表位的 algn 归 tab_stops、占位符的 sz 归 placeholders；三族宿主各自一份认字表，合成一张按名字收的表就把占位符类型号当字号交了",
+          [cells["collisions"], cells["not_under_carrier"], cells["by_group"]["paragraph"],
+           cells["attrs_written"]],
+          [{'tab/algn': 30, 'tcPr/anchor': 9, 'tcPr/marL': 9, 'tcPr/marR': 9}, 39, 209, ['algn', 'anchor', 'anchorCtr', 'b', 'defTabSz', 'indent', 'lang', 'lvl', 'marL', 'strike', 'sz', 'u']])
+    few = dig(lbin("office-slide", fixture("deck-lo.pptx"), "--limit", "2"), "typo_switches") or {}
+    check("--limit 2 只截 rows 那一本（listed 2、cut 646），carriers_total / with_switch / 三族住处 / 值词汇 / 拼法条数仍说整份件（elements_anywhere 682）",
+          [few.get("listed"), few.get("cut"), few.get("with_switch"), len(few.get("rows") or []),
+           few.get("by_kind"), few.get("elements_anywhere"), few.get("onoff")],
+          [2, 646, 648, 2, {'layout': 39, 'master': 536, 'notes_master': 30, 'notes_slide': 10, 'slide': 33}, 682, {'anchorCtr': {'1': 2}, 'b': {'0': 322, '1': 13}, 'strike': {'noStrike': 335}, 'u': {'none': 335}}])
+    check("整库摊开（33 份 pptx 全交这本账）：18294 枚三种宿主里 16231 枚至少写着一枚认得的开关；整棵树里写了认得属性的元素 17477 枚，其中 1246 枚不住在这三种宿主上 —— 逐枚点名交在 collisions，合计只有 11 种键（ph/sz 743、tab/algn 452 是两家都写的大头）；四枚中文开关合计 1976 处；defTabSz 全库只有 ['457200'] 这一种值；可数拼法的属性名合计 10 枚",
+          [len(ts_all), sum(one["carriers_total"] for one in ts_all.values()),
+           sum(one["with_switch"] for one in ts_all.values()),
+           sum(one["elements_anywhere"] for one in ts_all.values()),
+           sum(one["not_under_carrier"] for one in ts_all.values()),
+           sorted({key for one in ts_all.values() for key in one["collisions"]}),
+           sum(one["collisions"].get("ph/sz", 0) for one in ts_all.values()),
+           sum(one["collisions"].get("tab/algn", 0) for one in ts_all.values()),
+           sum(sum(one["onoff"].get(k, {}).values()) for one in ts_all.values()
+               for k in ("eaLnBrk", "hangingPunct", "latinLnBrk", "rtl")),
+           sorted({v for one in ts_all.values() for v in one["values"].get("defTabSz", [])}),
+           sorted({k for one in ts_all.values() for k in one["onoff"]}),
+           sum(1 for one in ts_all.values() if one["attrs_written"])],
+          [33, 18294, 16231, 17477, 1246, ['lnB/algn', 'lnL/algn', 'lnR/algn', 'lnT/algn', 'lnTlToBr/algn', 'ph/sz', 'tab/algn', 'tcPr/anchor', 'tcPr/anchorCtr', 'tcPr/marL', 'tcPr/marR'], 743, 452, 1976, ['457200'], ['anchorCtr', 'b', 'eaLnBrk', 'hangingPunct', 'latinLnBrk', 'rtl', 'rtlCol', 'smtClean', 'strike', 'u'], 33])
+    check("反面凭据：这一本只住在 OOXML 演示那一家 —— odp / odt / .ppt 三种出口的账本里 typo_switches 这个键整个不在场（ODF 的排印开关在 style:para-properties 与 fo:/style: 那一套属性名上，.ppt 是二进制记录），而 pptx 这一份键在场",
+          [no_theme_key("office-slide", "deck.odp", "typo_switches"),
+           no_theme_key("office-doc", "notes.odt", "typo_switches"),
+           no_theme_key("office-slide", "deck.ppt", "typo_switches"),
+           no_theme_key("office-slide", "borders.pptx", "typo_switches")],
+          [False, False, False, True])
+
     print("=== 3bw) cell_margins：表级 / 格级 / 一跳在样式 ===")
     for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
         check("%s 格子内间距那份账与读者一致（表级一块 + 每格一块）" % name,
