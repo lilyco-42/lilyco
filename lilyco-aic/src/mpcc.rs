@@ -9,7 +9,7 @@
 //! ...         深层调色板（ACC parts 换装表 —— 二期工程，本命令只报剩余字节数）
 //! ```
 //!
-//! MPCC 是 mobpcc/*.mpcc.bytes 的换装/配色容器， serves 立绘自定义（darknoel 等）。
+//! MPCC 是 mobpcc/*.mpcc.bytes 的换装/配色容器，管立绘自定义（darknoel 等）。
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
