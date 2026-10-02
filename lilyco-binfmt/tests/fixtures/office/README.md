@@ -4032,3 +4032,46 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
   `a:latin` / `a:ea` / `a:cs` 三枚**子元素**（`font_sets` 那本，事实 170），
   word 用 `w:rFonts` 的 `@ascii` / `@eastAsia` / `@cs` 三枚属性（`fonts` 与
   `script_pairs` 那两本）。三本各交各的，不并账。
+
+**172. 字符效果那几枚：OOXML 写在 `w:rPr` 的孩子上，ODF 写在 `style:text-properties` 的属性上**
+
+- 这本只管「大小写、字距、描边、跟随窗口色」这一层，`w:vertAlign`（上标下标）、`w:highlight`
+  与 `w:position` **不进这本** —— 那三枚 `run_formats` 早就在交了，重复一遍只会让两本账
+  各说一次同一个数。ODF 那侧的 `fo:text-position` 是 `w:vertAlign` 的另一家写法，所以留在这本。
+- OOXML 认 11 枚 `w:rPr` 的孩子：`caps` / `smallCaps` / `allCaps` / `kern` / `spacing` / `em` /
+  `scale` / `shadow` / `outlined` / `rtl` / `noProof`。整库 94 份 docx 全交这本账、**90 份至少写一条**；
+  扫过 **61098** 枚 `w:rPr`，其中 **1081 枚**写了这一族。按元素数 `spacing` 780、`kern` 427、
+  `smallCaps` 390、`rtl` 2、`noProof` 2；`caps` / `allCaps` / `em` / `scale` / `shadow` /
+  `outlined` 六枚**一份都没写** —— 键照交 `0`，那 5 枚（`w:em` 的强调记号等）还等一个生产者。
+- 开关有三种活法，一格说不完：`<w:smallCaps/>` 在场而没写 `@w:val` 是「开」，
+  `<w:kern w:val="0"/>` 是「关」，`<w:spacing w:val="5"/>` 是「写了个值」。所以
+  `states` 与 `vals` 两格各交各的，`by_state` 三态合计 on 393 / off 160 / value 1048，
+  值词汇 `kern` 只有 `"0"` `"2"` `"28"`、`spacing` 只有 `"5"` `"15"`，一律按写的字符串交、不换算
+  （`w:kern` 的单位是 1/20 pt、`w:spacing` 是 twips，那是读的人的事）。
+- 一枚开关全都「没写值」时，`values` 里那一格交**空清单**而不是缺键：本仓 390 处 `smallCaps`
+  一处 `@w:val` 都没写，所以 `values["smallCaps"]` 恒为 `[]` —— 「说了开」与「说了个值」是两件事。
+- 去处这一格按「父亲>祖父」的局部名交：整库最多的是 `style>styles`（样式定义自己的字符）与
+  `rPrDefault>docDefaults`（文档默认），正文里是 `r>p`（一串字）与 `pPr>p`（段落标记）——
+  同一枚 `w:kern` 挂在这四处是四句不同的话，所以 `owner` 另交「这条挂在哪个 styleId 上」，
+  从父亲往上找到第一枚 `w:style` 为止（找不到交 null，不拿段落样式名顶替）。
+- ODF 认八枚基础属性：`text-transform` / `font-variant` / `letter-spacing` / `letter-kerning` /
+  `text-outline` / `text-shadow` / `text-position` / `use-window-font-color`，每枚都收
+  `-asian` / `-complex` 两种孪生写法。整库 51 份 odt 全交、**47 份至少写一条**，共 **431 处**；
+  按基础属性数 `letter-spacing` 264、`letter-kerning` 199、`font-variant` 132、
+  `use-window-font-color` 110、`text-position` 11，`text-transform` / `text-outline` /
+  `text-shadow` 三枚 base 在 odt 里**一处没写**（它们只在本仓的 odp 里量到过）。
+  按槽位：拉丁 716、亚洲 **0**、复杂 **0** —— 这一族的孪生写法本仓的生产者一件没写，
+  那两格交 0 而不是不交。
+- 值按写的形状交，不折单位也不折布尔：`style:letter-spacing` 是自带单位的长度
+  （`0.009cm` / `0.026cm`，另有字面 `normal`），`style:letter-kerning` 是 `true` / `false`，
+  `style:text-position` 是一整串 `super 58%`（两个数一枚属性），
+  `style:font-variant` 是 `small-caps` / `normal`。同一问在两家形状不同：docx 的
+  `w:smallCaps` 是一枚元素，ODF 是 `style:font-variant="small-caps"` 一枚属性，两本不并账。
+- `--limit` 只截 `entries`：`table-style-lo.docx` 上 `--limit 2` 得 `listed` 2、`cut` 32，
+  而 `rpr_seen` 559、`with_effects` 34、`by_element` / `values` 仍说整份件；
+  `crep.odt` 同一条口径（`listed` 2、`cut` 10、`elements_written` 12、`by_base` 整本）。
+- 反面凭据：`.rtf` / `.doc` 两个出口与 office-slide / office-sheet 的账本里 `char_effects`
+  这个键**整个不在场**（RTF 的字符效果是组头里的控制字，`.doc` 住在表流，两支读者都不走那里）；
+  而 docx 里有 4 份这一族一个字不写（`cjk-odf-lo.docx` / `pnum.docx` / `tbox.docx` /
+  `wrap-lo.docx`），odt 里 4 份（`cjk-odf.odt` / `pnum.odt` / `tbox.odt` / `wrap.odt`）——
+  键在场而条目为空，与「这一族没读」是两件事。

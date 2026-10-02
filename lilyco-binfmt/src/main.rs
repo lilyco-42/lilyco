@@ -40,6 +40,7 @@ mod cell_locks;
 mod cell_margins;
 mod cell_merges;
 mod cfb;
+mod char_effects;
 mod cjk_typography;
 mod comment_threads;
 mod comments;

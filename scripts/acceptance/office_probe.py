@@ -11580,6 +11580,93 @@ def main() -> int:
            no_theme_key("office-doc", "notes.odt", "font_scripts")],
           [False, False, False, True])
 
+    # 两半的钉值与标签里的数都由第二读者现量（.scratch/gap/ce_measure2.json）
+    CE_DOCX_BOOK = ['family', 'available', 'rpr_seen', 'with_effects', 'listed', 'cut', 'parts_seen']
+    CE_ODF_BOOK = ['family', 'available', 'elements_written', 'with_effects', 'not_under_holder', 'listed', 'cut', 'parts_seen']
+    CE_DOCX_TALLY = ['by_part', 'by_place', 'by_element', 'by_state', 'values']
+    CE_ODF_TALLY = ['by_part', 'by_holder', 'by_family', 'by_base', 'by_slot', 'values']
+    ce_docx_pin = {'table-style-lo.docx': ['ooxml', True, 559, 34, 34, 0, ['word/document.xml', 'word/styles.xml']], 'levels-lo.docx': ['ooxml', True, 550, 17, 17, 0, ['word/styles.xml']], 'notes.docx': ['ooxml', True, 935, 14, 14, 0, ['word/styles.xml', 'word/stylesWithEffects.xml']], 'pnum.docx': ['ooxml', True, 8, 0, 0, 0, []]}
+    ce_docx_tally = {'table-style-lo.docx': [{'word/document.xml': 24, 'word/styles.xml': 10}, {'pPr>p': 8, 'r>p': 16, 'style>styles': 10}, {'kern': 29, 'smallCaps': 3, 'spacing': 6}, {'off': 27, 'on': 3, 'value': 8}, {'kern': ['0', '2'], 'smallCaps': [], 'spacing': ['15', '5']}], 'levels-lo.docx': [{'word/styles.xml': 17}, {'style>styles': 17}, {'kern': 12, 'smallCaps': 3, 'spacing': 6}, {'off': 10, 'on': 3, 'value': 8}, {'kern': ['0', '2'], 'smallCaps': [], 'spacing': ['15', '5']}], 'notes.docx': [{'word/styles.xml': 7, 'word/stylesWithEffects.xml': 7}, {'style>styles': 14}, {'kern': 4, 'smallCaps': 6, 'spacing': 12}, {'on': 6, 'value': 16}, {'kern': ['28'], 'smallCaps': [], 'spacing': ['15', '5']}], 'pnum.docx': [{}, {}, {}, {}, {}]}
+    ce_odf_pin = {'crep.odt': ['odf', True, 12, 12, 0, 12, 0, ['styles.xml']], 'bkmks.odt': ['odf', True, 9, 9, 0, 9, 0, ['styles.xml']], 'pnum.odt': ['odf', True, 0, 0, 0, 0, 0, []]}
+    ce_odf_tally = {'crep.odt': [{'styles.xml': 12}, {'default-style': 2, 'style': 10}, {'graphic': 1, 'paragraph': 6, 'text': 5}, {'font-variant': 3, 'letter-kerning': 7, 'letter-spacing': 6, 'use-window-font-color': 5}, {'latin': 21, 'asian': 0, 'complex': 0}, {'font-variant': {'latin': ['small-caps']}, 'letter-kerning': {'latin': ['false', 'true']}, 'letter-spacing': {'latin': ['0.009cm', '0.026cm']}, 'use-window-font-color': {'latin': ['true']}}], 'bkmks.odt': [{'styles.xml': 9}, {'default-style': 2, 'style': 7}, {'graphic': 1, 'paragraph': 3, 'text': 5}, {'font-variant': 3, 'letter-kerning': 4, 'letter-spacing': 6, 'use-window-font-color': 2}, {'latin': 15, 'asian': 0, 'complex': 0}, {'font-variant': {'latin': ['small-caps']}, 'letter-kerning': {'latin': ['false', 'true']}, 'letter-spacing': {'latin': ['0.009cm', '0.026cm']}, 'use-window-font-color': {'latin': ['true']}}], 'pnum.odt': [{}, {}, {}, {}, {'latin': 0, 'asian': 0, 'complex': 0}, {}]}
+    print("=== 3d0) 字符效果那几枚（char_effects）：OOXML 的孩子元素 vs ODF 的属性 ===")
+    for name in sorted(ce_docx_pin):
+        mine = dig(lbin("office-doc", fixture(name)), "structure.char_effects") or {}
+        want = files[name]["ooxml"]["char_effects"]
+        check("%s 的 OOXML 那半整本账" % name, [mine.get(key) for key in CE_DOCX_BOOK],
+              ce_docx_pin[name])
+        check("%s 的 OOXML 那半：部件、去处、元素、三态与值词汇" % name,
+              [mine.get(key) for key in CE_DOCX_TALLY], ce_docx_tally[name])
+        check("%s 的 OOXML 那半逐格两家一致" % name, mine.get("entries"),
+              want.get("entries"))
+    for name in sorted(ce_odf_pin):
+        mine = dig(lbin("office-doc", fixture(name)), "structure.char_effects") or {}
+        want = files[name]["odt"]["char_effects"]
+        check("%s 的 ODF 那半整本账" % name, [mine.get(key) for key in CE_ODF_BOOK],
+              ce_odf_pin[name])
+        check("%s 的 ODF 那半：部件、宿主、家族、基础属性、槽位与值词汇" % name,
+              [mine.get(key) for key in CE_ODF_TALLY], ce_odf_tally[name])
+        check("%s 的 ODF 那半逐格两家一致" % name, mine.get("entries"),
+              want.get("entries"))
+    head_d = dig(lbin("office-doc", fixture("table-style-lo.docx")),
+                 "structure.char_effects") or {}
+    check('OOXML 的开关有三种活法，一格说不完：table-style-lo.docx 那份里 `<w:smallCaps/>` 在场而没写 @w:val 是「开」（on 3 处），`<w:kern w:val="0"/>` 是「关」（off 27 处），`<w:spacing w:val="5"/>` 是「写了个值」（value 8 处）—— states 与 vals 两格各交各的，数字一律按写的字符串交，不换算',
+          [head_d["entries"][0]["place"], head_d["entries"][0]["written"],
+           head_d["entries"][0]["states"], head_d["entries"][0]["vals"],
+           head_d["entries"][0]["owner"]],
+          ['pPr>p', ['kern'], {'kern': 'off'}, {'kern': '0'}, None])
+    check("ODF 那一头一枚属性说一件事：crep.odt 一份交 12 处，`style:letter-spacing` 写的是自带单位的长度（['0.009cm', '0.026cm']），`style:letter-kerning` 写 true / false，`style:use-window-font-color` 写 true —— 三套脚本的槽位这一族只量到拉丁那一槽（by_slot 拉丁 21、亚洲 0、复杂 0）",
+          [dig(lbin("office-doc", fixture("crep.odt")), "structure.char_effects.entries[0].holder"),
+           dig(lbin("office-doc", fixture("crep.odt")), "structure.char_effects.entries[0].style_name"),
+           dig(lbin("office-doc", fixture("crep.odt")), "structure.char_effects.entries[0].written"),
+           dig(lbin("office-doc", fixture("crep.odt")), "structure.char_effects.entries[0].vals"),
+           dig(lbin("office-doc", fixture("crep.odt")), "structure.char_effects.entries[0].slots")],
+          ['style', 'Standard', ['letter-kerning', 'use-window-font-color'], {'use-window-font-color': 'true', 'letter-kerning': 'false'}, ['latin']])
+    thin_d = dig(lbin("office-doc", fixture("table-style-lo.docx"), "--limit", "2"),
+                   "structure.char_effects") or {}
+    check('--limit 2 只截 OOXML 那半的 entries（listed 2、cut 32、交回 2 条），而 rpr_seen 559、with_effects 34 与 by_part / by_element / values 仍说整份件',
+          [thin_d.get("listed"), thin_d.get("cut"), len(thin_d.get("entries") or []),
+           thin_d.get("rpr_seen"), thin_d.get("with_effects"),
+           thin_d.get("by_element"), thin_d.get("values")],
+          [2, 32, 2, 559, 34, {'kern': 29, 'smallCaps': 3, 'spacing': 6}, {'kern': ['0', '2'], 'smallCaps': [], 'spacing': ['15', '5']}])
+    thin_o = dig(lbin("office-doc", fixture("crep.odt"), "--limit", "2"),
+                   "structure.char_effects") or {}
+    check('--limit 2 同样只截 ODF 那半的 entries（listed 2、cut 10），elements_written 12 与 by_* 仍说整份件',
+          [thin_o.get("listed"), thin_o.get("cut"), len(thin_o.get("entries") or []),
+           thin_o.get("elements_written"), thin_o.get("not_under_holder"),
+           thin_o.get("by_base")],
+          [2, 10, 2, 12, 0, {'font-variant': 3, 'letter-kerning': 7, 'letter-spacing': 6, 'use-window-font-color': 5}])
+    all_d = {one: files[one]["ooxml"]["char_effects"] for one in sorted(files)
+             if one.endswith(".docx") and files[one]["ooxml"].get("char_effects")}
+    all_o = {one: files[one]["odt"]["char_effects"] for one in sorted(files)
+             if one.endswith(".odt") and files[one]["odt"].get("char_effects")}
+    check("整库摊开 OOXML 那半：94 份 docx 全交这本账，其中 90 份至少写一条；扫过 61098 枚 w:rPr，1081 枚写了这一族的孩子元素；按元素数 [('spacing', 780), ('kern', 427), ('smallCaps', 390), ('noProof', 2), ('rtl', 2)]；三态合计 [('off', 160), ('on', 393), ('value', 1048)]；值词汇 kern=['0', '2', '28']、spacing=['15', '5']、smallCaps=[]（一枚开关写没写值，两格各说各的）",
+          [len(all_d), sum(1 for one in all_d.values() if one["with_effects"]),
+           sum(one["rpr_seen"] for one in all_d.values()),
+           sum(one["with_effects"] for one in all_d.values()),
+           sorted({key for one in all_d.values() for key in one["by_element"]}),
+           {key: sum(one["by_state"].get(key, 0) for one in all_d.values())
+            for key in ("on", "off", "value")},
+           sorted({had for one in all_d.values() for had in one["values"].get("kern", [])}),
+           sorted({had for one in all_d.values() for had in one["values"].get("spacing", [])}),
+           sorted({had for one in all_d.values() for had in one["values"].get("smallCaps", [])})],
+          [94, 90, 61098, 1081, ['kern', 'noProof', 'rtl', 'smallCaps', 'spacing'], {'on': 393, 'off': 160, 'value': 1048}, ['0', '2', '28'], ['15', '5'], []])
+    check("整库摊开 ODF 那半：51 份 odt 全交这本账、47 份至少写一条，共 431 处写了这八枚的任一槽位；按宿主走的一条没漏（not_under_holder 合计 0）；按基础属性数 [('letter-spacing', 264), ('letter-kerning', 199), ('font-variant', 132), ('use-window-font-color', 110), ('text-position', 11)]；按槽位 [('asian', 0), ('complex', 0), ('latin', 716)] —— 孪生写法（-asian / -complex）整库一件都没写，这一格交 0 而不是不交",
+          [len(all_o), sum(1 for one in all_o.values() if one["with_effects"]),
+           sum(one["elements_written"] for one in all_o.values()),
+           sum(one["not_under_holder"] for one in all_o.values()),
+           sorted({key for one in all_o.values() for key in one["by_base"]}),
+           {key: sum(one["by_slot"].get(key, 0) for one in all_o.values())
+            for key in ("latin", "asian", "complex")}],
+          [51, 47, 431, 0, ['font-variant', 'letter-kerning', 'letter-spacing', 'text-position', 'use-window-font-color'], {'latin': 716, 'asian': 0, 'complex': 0}])
+    check("反面凭据：这一本只住在 OOXML 文字与 ODF 文字那两支 —— .rtf / .doc 两个出口与 office-slide / office-sheet 的账本里 char_effects 这个键整个不在场；而 docx 里有 4 份这一族一个字不写（['cjk-odf-lo.docx', 'pnum.docx', 'tbox.docx', 'wrap-lo.docx']），键在场而 entries 为空，与「这一族没读」是两件事",
+          [no_theme_key("office-doc", "notes.rtf", "char_effects"),
+           no_theme_key("office-doc", "notes.doc", "char_effects"),
+           no_theme_key("office-slide", "deck.odp", "char_effects"),
+           no_theme_key("office-sheet", "book.xlsx", "char_effects"),
+           sorted(one for one in all_d if not all_d[one]["with_effects"])],
+          [False, False, False, False, ['cjk-odf-lo.docx', 'pnum.docx', 'tbox.docx', 'wrap-lo.docx']])
+
     # ── 3bw) 格子的字离边多远：docx 两个住处、pptx 四枚属性、ODF 一跳在 table-cell 样式上 ──
     print("=== 3bw) cell_margins：表级 / 格级 / 一跳在样式 ===")
     for name in sorted(one.name for one in FIXTURES.glob("*.docx")):

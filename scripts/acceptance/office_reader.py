@@ -5729,6 +5729,221 @@ def _fs_any_names(roots) -> list:
     return out
 
 
+CE_ELEM_DOCX = ("caps", "smallCaps", "allCaps", "kern", "spacing", "em", "scale",
+                "shadow", "outlined", "rtl", "noProof")
+CE_ON = ("1", "true", "on")
+CE_OFF = ("0", "false", "off", "none")
+CE_ATTR_BASE = ("text-transform", "font-variant", "letter-spacing", "letter-kerning",
+                "text-outline", "text-shadow", "text-position", "use-window-font-color")
+CE_SUFFIXES = ("", "-asian", "-complex")
+CE_ATTRS = {one + suf for one in CE_ATTR_BASE for suf in CE_SUFFIXES}
+
+
+def _ce_state(got) -> str:
+    """一枚开关的读法：在场而没写 @w:val 就是「开」，写了按写的读"""
+    if got is None:
+        return "on"
+    low = got.strip().lower()
+    if low in CE_ON:
+        return "on"
+    if low in CE_OFF:
+        return "off"
+    return "value"
+
+
+def docx_char_effects(path: Path, limit: int = 100) -> dict:
+    r"""字符效果那几枚在 OOXML 是 `w:rPr` 的**子元素**：smallCaps / kern / spacing / rtl …
+
+    与 `char_effects.rs` 同一条口径。只看 `w:rPr` 的直接孩子，`w:vertAlign` 与 `w:highlight`
+    **不进这本**（`run_formats` 早就在交了，重复一遍只会让两本账各说一次同一个数）。
+    部件按名字走：`word/` 下所有 `.xml`（跳过 `_rels/`）—— `word/numbering.xml` 的
+    `w:lvl/w:rPr` 也算一处，因为那确实是「这一级列表的字符说过的话」。
+    """
+    empty = {"family": "ooxml", "available": False, "rpr_seen": 0, "with_effects": 0,
+             "by_part": {}, "by_place": {}, "by_element": {}, "by_state": {},
+             "values": {}, "parts_seen": [], "listed": 0, "cut": 0, "entries": []}
+    with zipfile.ZipFile(path) as box:
+        names = sorted(one.filename for one in box.infolist()
+                       if one.filename.startswith("word/") and one.filename.endswith(".xml")
+                       and "/_rels/" not in one.filename)
+        if not names:
+            return empty
+        roots = [(one, ET.fromstring(box.read(one))) for one in names]
+    rows = []
+    seen = 0
+    for part, root in roots:
+        dad = {}
+        for par in root.iter():
+            for kid in par:
+                dad[kid] = par
+        for node in root.iter():
+            if xml_local(node.tag) != "rPr":
+                continue
+            seen += 1
+            got = {}
+            for kid in node:
+                name = xml_local(kid.tag)
+                if name in CE_ELEM_DOCX:
+                    mine = {key.rsplit("}", 1)[-1]: value for key, value in kid.attrib.items()}
+                    got[name] = mine.get("val")
+            if not got:
+                continue
+            par = dad.get(node)
+            gp = dad.get(par) if par is not None else None
+            place = "%s>%s" % (xml_local(par.tag) if par is not None else "?",
+                               xml_local(gp.tag) if gp is not None else "?")
+            owner = None
+            up = par
+            while up is not None and owner is None:
+                if xml_local(up.tag) == "style":
+                    owner = {key.rsplit("}", 1)[-1]: value
+                             for key, value in up.attrib.items()}.get("styleId")
+                up = dad.get(up)
+            rows.append({
+                "index": len(rows),
+                "part": part,
+                "place": place,
+                "owner": owner,
+                "written": sorted(got),
+                "states": {key: _ce_state(got[key]) for key in sorted(got)},
+                "vals": {key: got[key] for key in sorted(got)},
+            })
+    # values 只收写了值的字符串：没写 @w:val 的那种「在场不说值」已经在 states 里说了
+    values = {key: sorted({one["vals"][key] for one in rows
+                          if isinstance(one["vals"].get(key), str)})
+              for key in sorted({key for one in rows for key in one["vals"]})}
+    return {
+        "family": "ooxml",
+        "available": True,
+        "rpr_seen": seen,
+        "with_effects": len(rows),
+        "by_part": {k: sum(1 for one in rows if one["part"] == k)
+                    for k in sorted({one["part"] for one in rows})},
+        "by_place": {k: sum(1 for one in rows if one["place"] == k)
+                     for k in sorted({one["place"] for one in rows})},
+        "by_element": {k: sum(1 for one in rows if k in one["vals"])
+                       for k in sorted({key for one in rows for key in one["vals"]})},
+        "by_state": {k: sum(1 for one in rows for key, value in one["states"].items()
+                            if value == k)
+                     for k in sorted({value for one in rows for value in one["states"].values()})},
+        "values": values,
+        "parts_seen": sorted({one["part"] for one in rows}),
+        "listed": min(len(rows), limit),
+        "cut": max(0, len(rows) - limit),
+        "entries": rows[:limit],
+    }
+
+
+def odf_char_effects(path: Path, limit: int = 100) -> dict:
+    r"""同一问在 ODF 是 `style:text-properties` 的**属性**，而且三套脚本各写一遍
+
+    与 `char_effects.rs` 同一条口径。认的基础属性八枚（大小写转换 / 字族变体 / 字间距 /
+    字距调整 / 描边 / 阴影 / 上下标位置 / 跟随窗口字色），每枚都收 `base`、`base-asian`、
+    `base-complex` 三种写法 —— 与 `font_scripts` 那本同一条命名空间的分工（这几枚的
+    `-asian` / `-complex` 变体全在 `style:` 里）。走法也与那本一致：先 `content.xml`
+    再 `styles.xml`，每份先 `style` 后 `default-style`，另交 `not_under_holder` 对账。
+    """
+    empty = {"family": "odf", "available": False, "elements_written": 0,
+             "with_effects": 0, "not_under_holder": 0,
+             "by_part": {}, "by_holder": {}, "by_family": {}, "by_base": {}, "by_slot": {},
+             "values": {}, "parts_seen": [], "listed": 0, "cut": 0, "entries": []}
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return empty
+        roots = [("content.xml", ET.fromstring(box.read("content.xml")))]
+        if "styles.xml" in have:
+            roots.append(("styles.xml", ET.fromstring(box.read("styles.xml"))))
+
+    def picked(node) -> dict:
+        out = {}
+        for key, value in node.attrib.items():
+            tail = key.rsplit("}", 1)[-1]
+            if key == "xmlns" or key.startswith("xmlns:"):
+                continue
+            if tail in CE_ATTRS:
+                out[tail] = value
+        return out
+
+    def slot_of(name: str) -> str:
+        if name.endswith("-asian"):
+            return "asian"
+        if name.endswith("-complex"):
+            return "complex"
+        return "latin"
+
+    def base_of(name: str) -> str:
+        for suf in ("-asian", "-complex"):
+            if name.endswith(suf):
+                return name[: -len(suf)]
+        return name
+
+    rows = []
+    written_anywhere = 0
+    for part, root in roots:
+        for one in root.iter():
+            if xml_local(one.tag) != "text-properties":
+                continue
+            if picked(one):
+                written_anywhere += 1
+        for kind in ("style", "default-style"):
+            for holder in root.iter():
+                if xml_local(holder.tag) != kind:
+                    continue
+                name = family = None
+                for key, value in holder.attrib.items():
+                    tail = key.rsplit("}", 1)[-1]
+                    if tail == "name":
+                        name = value
+                    elif tail == "family":
+                        family = value
+                for kid in holder:
+                    if xml_local(kid.tag) != "text-properties":
+                        continue
+                    had = picked(kid)
+                    if not had:
+                        continue
+                    rows.append({
+                        "index": len(rows),
+                        "part": part,
+                        "holder": kind,
+                        "style_name": name,
+                        "family": family,
+                        "slots": sorted({slot_of(one) for one in had}),
+                        "bases": sorted({base_of(one) for one in had}),
+                        "written": sorted(had),
+                        "vals": had,
+                    })
+    values = {}
+    for one in rows:
+        for key, value in one["vals"].items():
+            values.setdefault(base_of(key), {}).setdefault(slot_of(key), set()).add(value)
+    values = {base: {slot: sorted(seen) for slot, seen in slots.items()}
+              for base, slots in sorted(values.items())}
+    return {
+        "family": "odf",
+        "available": True,
+        "elements_written": written_anywhere,
+        "with_effects": len(rows),
+        "not_under_holder": max(0, written_anywhere - len(rows)),
+        "by_part": {k: sum(1 for one in rows if one["part"] == k)
+                    for k in sorted({one["part"] for one in rows})},
+        "by_holder": {k: sum(1 for one in rows if one["holder"] == k)
+                      for k in sorted({one["holder"] for one in rows})},
+        "by_family": {k: sum(1 for one in rows if (one["family"] or "none") == k)
+                      for k in sorted({(one["family"] or "none") for one in rows})},
+        "by_base": {k: sum(1 for one in rows for had in one["written"] if base_of(had) == k)
+                    for k in sorted({base_of(had) for one in rows for had in one["written"]})},
+        "by_slot": {k: sum(1 for one in rows for had in one["written"] if slot_of(had) == k)
+                    for k in ("latin", "asian", "complex")},
+        "values": values,
+        "parts_seen": sorted({one["part"] for one in rows}),
+        "listed": min(len(rows), limit),
+        "cut": max(0, len(rows) - limit),
+        "entries": rows[:limit],
+    }
+
+
 def docx_note_settings(path: Path, limit: int = 100) -> dict:
     r"""注的编号设置在 OOXML 写在**两处**：`w:settings.xml` 的 `w:footnotePr` / `w:endnotePr`，
     以及每一条 `w:sectPr` 里的同名元素。两处内容可以不一样。
@@ -16791,6 +17006,8 @@ def facts(path: Path) -> dict:
             out["ooxml"]["doc_settings"] = doc_settings_docx(path)
             # 拉丁与复杂脚本那四对：sz/szCs、b/bCs、i/iCs、u/uCs 各写了什么
             out["ooxml"]["script_pairs"] = script_pairs_docx(path)
+            # 同一问在 OOXML 是 w:rPr 的子元素
+            out["ooxml"]["char_effects"] = docx_char_effects(path)
             # 题注与交叉引用：目标只住在指令串里，SEQ 这一族没有声明那一层可查
             out["ooxml"]["cross_refs"] = docx_cross_refs(path)
             out["ooxml"]["picture_bytes"] = pic_docx_ledger(path)
@@ -16878,6 +17095,8 @@ def facts(path: Path) -> dict:
             out["odt"]["languages"] = odf_languages(path)
             # 同一问在 ODF 是三套脚本各一枚名字，挨着字号/语言一起写
             out["odt"]["font_scripts"] = odf_font_scripts(path)
+            # 同一问在 ODF 是属性，且三套脚本各写一遍
+            out["odt"]["char_effects"] = odf_char_effects(path)
             # 同一问在 ODF 是一类注一份 configuration
             out["odt"]["note_settings"] = odf_note_settings(path)
             # 同一问在 ODF 是摊平的一堆具名项，四条名字里点了 Word 的只在 odt 出现
