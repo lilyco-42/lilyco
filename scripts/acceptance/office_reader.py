@@ -5563,6 +5563,172 @@ def odf_languages(path: Path, limit: int = 100) -> dict:
     }
 
 
+FS_BASE_ATTRS = ("font-name", "font-family", "font-family-generic", "font-pitch",
+                 "font-size", "font-style", "font-weight", "font-charset",
+                 "language", "country")
+FS_SUFFIXES = ("", "-asian", "-complex")
+FS_ATTRS = {one + suf for one in FS_BASE_ATTRS for suf in FS_SUFFIXES}
+FS_NAMES = {"latin": "font-name", "asian": "font-name-asian", "complex": "font-name-complex"}
+
+
+def odf_font_scripts(path: Path, limit: int = 100) -> dict:
+    r"""ODF 那一本「三种脚本各点了谁」：`style:font-name` / `-asian` / `-complex` 同层那 30 枚
+
+    与 `font_scripts.rs` 同一条口径，宿主是字符属性 `style:text-properties`。三条 name 之外
+    还收同层的字号 / 字体族 / generic / pitch / 宽高样式 / 语言 / 国别 / charset 十枚的
+    三种脚本写法 —— 因为 `style:font-name-asian` 从不单独说话：它旁边总是站着
+    `style:font-size-asian` 与 `style:language-asian`，只看 name 会把「这一套」读成一枚孤字。
+
+    按**局部名**认（与 odt 那几本同一口径）：这 30 枚在本仓 47 份 odt 里每枚局部名只落在
+    一个命名空间里，所以不用先把 `fo:` 与 `style:` 解出来。命名空间的分工记在 README：
+    拉丁那一套横跨两个命名空间（`fo:font-family` / `fo:font-size` / `fo:font-style` /
+    `fo:font-weight` / `fo:language` / `fo:country` 而 `style:font-name` /
+    `style:font-family-generic` / `style:font-pitch` / `style:font-charset`），
+    而 `-asian` / `-complex` 那两套**全在 `style:`** 里。
+
+    住处按 `style:style`（含 content.xml 的直接格式）与 `style:default-style` 两种宿主走，
+    与 `odf_languages` 同一趟走法；`not_under_holder` 交「量到但没能归到宿主身上」的条数，
+    这样走法漏没漏是文件自己说的，不用信注释。
+    """
+    empty = {
+        "family": "odf",
+        "available": False,
+        "elements_written": 0,
+        "names_written": 0,
+        "with_name": 0,
+        "not_under_holder": 0,
+        "by_part": {},
+        "by_holder": {},
+        "by_family": {},
+        "by_combo": {},
+        "name_counts": {"latin": 0, "asian": 0, "complex": 0},
+        "font_names": {"latin": [], "asian": [], "complex": []},
+        "faces_declared": 0,
+        "names_unresolved": [],
+        "parts_seen": [],
+        "listed": 0,
+        "cut": 0,
+        "entries": [],
+    }
+    with zipfile.ZipFile(path) as box:
+        have = set(one.filename for one in box.infolist())
+        if "content.xml" not in have:
+            return empty
+        roots = [("content.xml", ET.fromstring(box.read("content.xml")))]
+        if "styles.xml" in have:
+            roots.append(("styles.xml", ET.fromstring(box.read("styles.xml"))))
+
+    def picked(node) -> dict:
+        out = {}
+        for key, value in node.attrib.items():
+            tail = key.rsplit("}", 1)[-1]
+            if key == "xmlns" or key.startswith("xmlns:"):
+                continue
+            if tail in FS_ATTRS:
+                out[tail] = value
+        return out
+
+    entries = []
+    written_anywhere = 0
+    faces = []
+    for part, root in roots:
+        for one in root.iter():
+            if xml_local(one.tag) == "font-face":
+                got = {key.rsplit("}", 1)[-1]: value
+                       for key, value in one.attrib.items()}
+                faces.append(got.get("name"))
+        for one in root.iter():
+            if xml_local(one.tag) != "text-properties":
+                continue
+            if any(key.rsplit("}", 1)[-1] in FS_ATTRS for key in one.attrib):
+                written_anywhere += 1
+        for kind in ("style", "default-style"):
+            for holder in root.iter():
+                if xml_local(holder.tag) != kind:
+                    continue
+                name = None
+                family = None
+                for key, value in holder.attrib.items():
+                    tail = key.rsplit("}", 1)[-1]
+                    if tail == "name":
+                        name = value
+                    elif tail == "family":
+                        family = value
+                for kid in holder:
+                    if xml_local(kid.tag) != "text-properties":
+                        continue
+                    had = picked(kid)
+                    if not any(one in had for one in FS_NAMES.values()):
+                        continue
+                    combo = "+".join(one for one in ("latin", "asian", "complex")
+                                     if had.get(FS_NAMES[one]) is not None)
+                    entries.append({
+                        "index": len(entries),
+                        "part": part,
+                        "holder": kind,
+                        "style_name": name,
+                        "family": family,
+                        "scripts": [one for one in ("latin", "asian", "complex")
+                                    if had.get(FS_NAMES[one]) is not None],
+                        "names": {one: {"present": FS_NAMES[one] in had,
+                                        "value": had.get(FS_NAMES[one])}
+                                  for one in ("latin", "asian", "complex")},
+                        "combo": combo,
+                        "written": sorted(had),
+                        "attrs": had,
+                    })
+
+    known = set(one for one in faces if one is not None)
+    pointed = {one["names"][key]["value"] for one in entries
+               for key in ("latin", "asian", "complex")
+               if one["names"][key]["value"] is not None}
+
+    def fam(one) -> str:
+        return one["family"] if one["family"] is not None else "none"
+
+    names_written = len(_fs_any_names(roots))
+    return {
+        "family": "odf",
+        "available": True,
+        "elements_written": written_anywhere,
+        "names_written": names_written,
+        "with_name": len(entries),
+        "not_under_holder": max(0, names_written - len(entries)),
+        "by_part": {k: sum(1 for one in entries if one["part"] == k)
+                    for k in sorted({one["part"] for one in entries})},
+        "by_holder": {k: sum(1 for one in entries if one["holder"] == k)
+                      for k in sorted({one["holder"] for one in entries})},
+        "by_family": {k: sum(1 for one in entries if fam(one) == k)
+                      for k in sorted({fam(one) for one in entries})},
+        "by_combo": {k: sum(1 for one in entries if one["combo"] == k)
+                     for k in sorted({one["combo"] for one in entries})},
+        "name_counts": {one: sum(1 for had in entries if had["names"][one]["present"])
+                        for one in ("latin", "asian", "complex")},
+        "font_names": {one: sorted({had["names"][one]["value"] for had in entries
+                                    if had["names"][one]["present"]
+                                    and had["names"][one]["value"] is not None})
+                       for one in ("latin", "asian", "complex")},
+        "faces_declared": len(faces),
+        "names_unresolved": sorted(one for one in pointed if one not in known),
+        "parts_seen": sorted({one["part"] for one in entries}),
+        "listed": min(len(entries), limit),
+        "cut": max(0, len(entries) - limit),
+        "entries": entries[:limit],
+    }
+
+
+def _fs_any_names(roots) -> list:
+    """三枚 name 在多少个 `style:text-properties` 上写过（不看宿主）—— 与按宿主走的那本对账用"""
+    out = []
+    for _part, root in roots:
+        for one in root.iter():
+            if xml_local(one.tag) != "text-properties":
+                continue
+            if any(key.rsplit("}", 1)[-1] in FS_NAMES.values() for key in one.attrib):
+                out.append(one)
+    return out
+
+
 def docx_note_settings(path: Path, limit: int = 100) -> dict:
     r"""注的编号设置在 OOXML 写在**两处**：`w:settings.xml` 的 `w:footnotePr` / `w:endnotePr`，
     以及每一条 `w:sectPr` 里的同名元素。两处内容可以不一样。
@@ -16710,6 +16876,8 @@ def facts(path: Path) -> dict:
             out["odt"]["page_numbering"] = odf_page_numbering(path)
             # 同一问在 ODF 拆成 language + country（外加 script）
             out["odt"]["languages"] = odf_languages(path)
+            # 同一问在 ODF 是三套脚本各一枚名字，挨着字号/语言一起写
+            out["odt"]["font_scripts"] = odf_font_scripts(path)
             # 同一问在 ODF 是一类注一份 configuration
             out["odt"]["note_settings"] = odf_note_settings(path)
             # 同一问在 ODF 是摊平的一堆具名项，四条名字里点了 Word 的只在 odt 出现

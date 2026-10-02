@@ -99,6 +99,7 @@ mod regions;
 mod revise;
 mod row_heights;
 mod rtf;
+mod script_fonts;
 mod section_starts;
 mod shape_tree;
 mod slide_bullets;

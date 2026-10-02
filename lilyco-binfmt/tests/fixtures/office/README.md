@@ -3986,3 +3986,49 @@ PDF 那一族另有一份只依赖标准库的读者：`scripts/acceptance/lyco_
   （`bullet_layers` 同一手法）。另两条老坑照用：部件按名字定序再走（跟 zip 存储序走会让
   `parts_seen` 与 rows 的顺序换），`xmlscan::parse_str` 交的是 `#doc` 伪根，真正的根
   （`p:sldMaster` / `p:sldLayout` / `p:sld`）是它的第一个孩子。
+
+**171. 这一族字按三种脚本各点了谁：ODF 把拉丁 / 亚洲 / 复杂写成同一枚元素上的三套属性**
+
+- 宿主是一枚 `style:text-properties`，它可以挂在 `style:style`（具名样式，也包括
+  `content.xml` 里 `automatic-styles` 的那批直接格式）与 `style:default-style` 两种宿主上。
+  本机 51 份 odt 全交这本账，其中 **47 份至少写一条**；`not_under_holder` 合计 **0** ——
+  这一本的走法与 `languages` 那本同一条（先 `content.xml` 再 `styles.xml`，
+  每份部件先 `style` 后 `default-style`），对账的那一格说没有漏。
+- 三套脚本各一枚名字：`style:font-name`（拉丁）、`-asian`、`-complex`。整库 **2213 处**
+  `style:text-properties` 写了这一族 30 枚属性之一，其中 **1445 处**至少点了一枚名字，
+  另有 **768 处**写了字号一类的属性却一枚名字都不点 —— 「说了多大」与「说了用谁」是两格。
+  三套同时点名的 **1127 处**，只点拉丁的 **241 处**，只点复杂的 **57 处**，
+  只点亚洲的 **1 处**，拉丁+复杂 **16 处**，拉丁+亚洲 **3 处**。
+- 同层不止名字：`font-size` / `font-family` / `font-family-generic` / `font-pitch` /
+  `font-style` / `font-weight` / `language` / `country` / `font-charset` 各写三套，一共 30 枚。
+  只看 name 会把「这一套」读成一枚孤字 —— 例：`bkmks.odt` 的 `Heading` 那一格一次写了
+  **15 枚**这一族的属性：三枚名字，加上字体族、generic、pitch、字号各三套。
+- 命名空间的分工是量出来的：**拉丁那一套横跨两个命名空间** —— `fo:` 有 `font-family` /
+  `font-size` / `font-style` / `font-weight` / `language` / `country`，`style:` 有 `font-name` /
+  `font-family-generic` / `font-pitch` / `font-charset`；而 `-asian` 与 `-complex` 那两套
+  **全部在 `style:`** 里。本仓这 30 枚局部名每枚只落在一个命名空间，所以两本读者都按
+  **局部名**收（与 odt 那几本同一口径），不把前缀解成命名空间。
+  顺带纠正一处旧说法：`script_pairs` 那本说「ODF 一份都没写 `fo:font-size-complex`」是
+  字面真的 —— 本仓没有 `fo:` 前缀的那种写法，但同一问写在 `style:font-size-asian` /
+  `-complex` 上，那些数是 **956 处**与 **909 处**，这一本把它们交出来。
+- 名字按写的交，不折、不并、不补：整库三种脚本各点过的名字是
+  拉丁 **6 种**（Calibri / Cambria / Cambria1 / Courier / Liberation Sans / Liberation Serif）、
+  亚洲 **5 种**（含全角的 ＭＳ ゴシック 与 ＭＳ 明朝、以及 Noto Sans SC / Noto Serif SC / Segoe UI）、
+  复杂 **6 种**（含一枚只叫 `F` 的、`Lucida Sans` 与 `Lucida Sans1`、`Symbol`、`宋体`、`Tahoma`）。
+  同一份件里 `Cambria` 与 `Cambria1` 两枚家族名并存、两条样式各点其一 ——
+  **后缀为什么出现文件没说**，所以这里只交写法，不替生产者猜理由。
+- 与包里自己声明的 `style:font-face` 名单对账：整库声明 **1004 枚**，点到的名字
+  **全都在这份名单里**（`names_unresolved` 全空）。这一格只回答「本包认不认这个名字」，
+  不回答这台机器装没装该字体 —— 那是另一问，本仓不判。
+- 直接格式那一层（`content.xml` 的自动样式）整库只有 **fonts.odt 一份**量到，3 条；
+  其余各家把这一族全写在 `styles.xml`。另有 4 份（`cjk-odf.odt` / `pnum.odt` /
+  `tbox.odt` / `wrap.odt`，都是 zipfile 手写的最小件）这一族一个字都不写 ——
+  键在场而 `entries` 为空，与「这一族没读」是两件事。
+- `--limit` 只截 `entries`：`crep.odt` 上 `--limit 2` 得 `listed` 2、`cut` 33，而
+  `elements_written` 51、`names_written` 35、`by_*` / `font_names` / `faces_declared`
+  仍说整份件。
+- 反面凭据：这一本只住在 ODF 那一家 —— `.docx` / `.rtf` / `.doc` 三种出口的账本里
+  `font_scripts` 这个键整个不在场。同一个问句在 OOXML 有两种写法：pptx 用
+  `a:latin` / `a:ea` / `a:cs` 三枚**子元素**（`font_sets` 那本，事实 170），
+  word 用 `w:rFonts` 的 `@ascii` / `@eastAsia` / `@cs` 三枚属性（`fonts` 与
+  `script_pairs` 那两本）。三本各交各的，不并账。

@@ -11519,6 +11519,67 @@ def main() -> int:
            no_theme_key("office-slide", "borders.pptx", "font_sets")],
           [False, False, False, True])
 
+    # 这一本的钉值与标签里的数都由第二读者现量（.scratch/gap/fs_measure.json），不手抄
+    FS_BOOK = ["elements_written", "names_written", "with_name", "not_under_holder", "faces_declared", "listed", "cut", "font_names", "names_unresolved", "parts_seen"]
+    FS_TALLY = ["by_part", "by_holder", "by_family", "by_combo", "name_counts"]
+    fs_book_pin = {"bkmks.odt": [49, 32, 32, 0, 22, 32, 0, {"latin": ["Calibri", "Cambria", "Cambria1", "Courier", "Liberation Sans"], "asian": ["Noto Sans SC", "ＭＳ ゴシック", "ＭＳ 明朝"], "complex": ["F", "Lucida Sans", "Lucida Sans1"]}, [], ["styles.xml"]], "crep.odt": [51, 35, 35, 0, 24, 35, 0, {"latin": ["Calibri", "Cambria", "Cambria1", "Courier", "Liberation Sans"], "asian": ["Noto Sans SC", "ＭＳ ゴシック", "ＭＳ 明朝"], "complex": ["Lucida Sans", "Lucida Sans1", "Symbol", "宋体"]}, [], ["styles.xml"]], "fonts.odt": [53, 35, 35, 0, 22, 35, 0, {"latin": ["Calibri", "Cambria", "Cambria1", "Courier", "Liberation Sans"], "asian": ["Noto Sans SC", "ＭＳ ゴシック", "ＭＳ 明朝"], "complex": ["F", "Lucida Sans", "Lucida Sans1"]}, [], ["content.xml", "styles.xml"]], "pnum.odt": [0, 0, 0, 0, 0, 0, 0, {"latin": [], "asian": [], "complex": []}, [], []]}
+    fs_tally_pin = {"bkmks.odt": [{"styles.xml": 32}, {"default-style": 2, "style": 30}, {"graphic": 1, "paragraph": 15, "text": 16}, {"complex": 1, "latin": 6, "latin+asian+complex": 25}, {"latin": 31, "asian": 25, "complex": 26}], "crep.odt": [{"styles.xml": 35}, {"default-style": 2, "style": 33}, {"graphic": 1, "paragraph": 19, "text": 15}, {"complex": 2, "latin": 1, "latin+asian+complex": 29, "latin+complex": 3}, {"latin": 33, "asian": 29, "complex": 34}], "fonts.odt": [{"content.xml": 3, "styles.xml": 32}, {"default-style": 2, "style": 33}, {"graphic": 1, "paragraph": 15, "text": 19}, {"asian": 1, "complex": 1, "latin": 8, "latin+asian+complex": 25}, {"latin": 33, "asian": 26, "complex": 26}], "pnum.odt": [{}, {}, {}, {}, {"latin": 0, "asian": 0, "complex": 0}]}
+    print("=== 3c9) ODF 那一本三种脚本各点了谁（font_scripts）：style:font-name / -asian / -complex ===")
+    for name in sorted(fs_book_pin):
+        mine = dig(lbin("office-doc", fixture(name)), "structure.font_scripts") or {}
+        want = files[name]["odt"]["font_scripts"]
+        check("%s 的三套脚本整本账（十格）" % name, [mine.get(key) for key in FS_BOOK],
+              fs_book_pin[name])
+        check("%s 的住处、家族、在场组合与三格计数" % name,
+              [mine.get(key) for key in FS_TALLY], fs_tally_pin[name])
+        check("%s 的每一家条目两家逐格一致（含 attrs 与三枚 name 的 present/value）" % name,
+              mine.get("entries"), want.get("entries"))
+    head = dig(lbin("office-doc", fixture("bkmks.odt")), "structure.font_scripts") or {}
+    check("一条段落样式可以同时点三套脚本：Heading 那一格拉丁点 Liberation Sans、亚洲点 Noto Sans SC、复杂脚本点 Lucida Sans1，同层还站着 15 枚这一族的属性（字体族、generic、pitch、字号各两套写法，拉丁那一路的字号写在 fo:font-size、另两路写在 style:font-size-asian / -complex）",
+          [head["entries"][0]["style_name"], head["entries"][0]["family"],
+           head["entries"][0]["holder"], head["entries"][0]["combo"],
+           head["entries"][0]["scripts"], head["entries"][0]["names"],
+           head["entries"][0]["written"], head["entries"][0]["attrs"]],
+          ["Heading", "paragraph", "style", "latin+asian+complex", ["latin", "asian", "complex"], {"latin": {"present": True, "value": "Liberation Sans"}, "asian": {"present": True, "value": "Noto Sans SC"}, "complex": {"present": True, "value": "Lucida Sans1"}}, ["font-family", "font-family-asian", "font-family-complex", "font-family-generic", "font-family-generic-asian", "font-family-generic-complex", "font-name", "font-name-asian", "font-name-complex", "font-pitch", "font-pitch-asian", "font-pitch-complex", "font-size", "font-size-asian", "font-size-complex"], {"font-name": "Liberation Sans", "font-family": "'Liberation Sans'", "font-family-generic": "swiss", "font-pitch": "variable", "font-size": "14pt", "font-name-asian": "Noto Sans SC", "font-family-asian": "'Noto Sans SC'", "font-family-generic-asian": "system", "font-pitch-asian": "variable", "font-size-asian": "14pt", "font-name-complex": "Lucida Sans1", "font-family-complex": "'Lucida Sans'", "font-family-generic-complex": "system", "font-pitch-complex": "variable", "font-size-complex": "14pt"}])
+    thin = dig(lbin("office-doc", fixture("crep.odt"), "--limit", "2"),
+                  "structure.font_scripts") or {}
+    check("--limit 2 只截 entries 那一本（listed 2、cut 33、交回 2 条），而 elements_written 51、names_written 35、with_name 35 与 by_* / font_names / faces_declared 仍说整份件",
+          [thin.get("listed"), thin.get("cut"), len(thin.get("entries") or []),
+           thin.get("elements_written"), thin.get("names_written"),
+           thin.get("with_name"), thin.get("faces_declared"), thin.get("not_under_holder")],
+          [2, 33, 2, 51, 35, 35, 24, 0])
+    odts = {one: files[one]["odt"]["font_scripts"] for one in sorted(files)
+            if one.endswith(".odt") and files[one]["odt"].get("font_scripts")}
+    check("整库摊开（51 份 odt 全交这本账，其中 47 份至少写一条）：2213 处 style:text-properties 写了这一族 30 枚之一，其中 1445 处至少点了一枚 name；按宿主走的一条没漏（not_under_holder 合计 0）；在场组合只有 6 种 ['asian', 'complex', 'latin', 'latin+asian', 'latin+asian+complex', 'latin+complex']；name_counts 拉丁 1387 / 亚洲 1131 / 复杂 1200；包里声明的 style:font-face 合计 1004 枚，点到的名字全都解得到（names_unresolved 全空）",
+          [len(odts), sum(1 for one in odts.values() if one["with_name"]),
+           sum(one["elements_written"] for one in odts.values()),
+           sum(one["names_written"] for one in odts.values()),
+           sum(one["not_under_holder"] for one in odts.values()),
+           sorted({key for one in odts.values() for key in one["by_combo"]}),
+           {key: sum(one["name_counts"][key] for one in odts.values())
+            for key in ("latin", "asian", "complex")},
+           sum(one["faces_declared"] for one in odts.values()),
+           sorted({had for one in odts.values() for had in one["names_unresolved"]})],
+          [51, 47, 2213, 1445, 0, ["asian", "complex", "latin", "latin+asian", "latin+asian+complex", "latin+complex"], {"latin": 1387, "asian": 1131, "complex": 1200}, 1004, []])
+    check("三套脚本各点过的名字是三份名单（拉丁 6 种、亚洲 5 种、复杂 6 种）：全角的 ＭＳ 明朝 与 一枚只叫 F 的复杂脚本家族都按写的交；Cambria 与 Cambria1 两枚并存也只按写的交（后缀哪来那份件没说），不去折回同一种写法",
+          [sorted({had for one in odts.values() for had in one["font_names"]["latin"]}),
+           sorted({had for one in odts.values() for had in one["font_names"]["asian"]}),
+           sorted({had for one in odts.values() for had in one["font_names"]["complex"]})],
+          [["Calibri", "Cambria", "Cambria1", "Courier", "Liberation Sans", "Liberation Serif"], ["Noto Sans SC", "Noto Serif SC", "Segoe UI", "ＭＳ ゴシック", "ＭＳ 明朝"], ["F", "Lucida Sans", "Lucida Sans1", "Symbol", "Tahoma", "宋体"]])
+    check("直接格式那一层只有 [\"fonts.odt\", \"table-style.odt\"] 一份量到（content.xml 的自动样式 3 条），其余各家把这一族全写在 styles.xml；另有 0 份写了字号一类的属性却一枚 name 都不点（[]），4 份这一族一个字不写（['cjk-odf.odt', 'pnum.odt', 'tbox.odt', 'wrap.odt']）—— 键在场而条目为空，与「这一族没读」是两件事",
+          [sorted(one for one in odts if odts[one]["by_part"].get("content.xml")),
+           odts["fonts.odt"]["by_part"],
+           sorted(one for one in odts if odts[one]["elements_written"]
+                  and not odts[one]["with_name"]),
+           sorted(one for one in odts if not odts[one]["with_name"])],
+          [["fonts.odt", "table-style.odt"], {"content.xml": 3, "styles.xml": 32}, [], ["cjk-odf.odt", "pnum.odt", "tbox.odt", "wrap.odt"]])
+    check("反面凭据：这一本只住在 ODF 那一家 —— docx / rtf / doc 三种出口的账本里 font_scripts 这个键整个不在场（OOXML 的同一问由 a:latin / a:ea / a:cs 三枚子元素答，那是 pptx 那一本 font_sets；而 word 那一族是 w:rFonts 的 @ascii / @eastAsia / @cs 三种写法各交各的）",
+          [no_theme_key("office-doc", "notes.docx", "font_scripts"),
+           no_theme_key("office-doc", "notes.rtf", "font_scripts"),
+           no_theme_key("office-doc", "notes.doc", "font_scripts"),
+           no_theme_key("office-doc", "notes.odt", "font_scripts")],
+          [False, False, False, True])
+
     # ── 3bw) 格子的字离边多远：docx 两个住处、pptx 四枚属性、ODF 一跳在 table-cell 样式上 ──
     print("=== 3bw) cell_margins：表级 / 格级 / 一跳在样式 ===")
     for name in sorted(one.name for one in FIXTURES.glob("*.docx")):
