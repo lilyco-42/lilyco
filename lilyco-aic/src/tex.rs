@@ -211,6 +211,7 @@ fn run_tex(app: &Tex, ctx: &Context) -> Result<serde_json::Value, AppError> {
 fn format_name(fmt: u32) -> &'static str {
     match fmt {
         1 => "Alpha8",
+        3 => "RGBA4444",
         4 => "RGBA32",
         5 => "BGRA32",
         7 => "RGB565",
@@ -221,6 +222,8 @@ fn format_name(fmt: u32) -> &'static str {
         15 => "R16",
         16 => "DXT1-Crunched",
         17 => "DXT5-Crunched",
+        25 => "BC7",
+        29 => "ASTC-4x4",
         _ => "unknown",
     }
 }
@@ -277,8 +280,71 @@ fn decode_texture(
                 .map_err(|e| format!("bc3: {e}"))?;
             Ok(bgra_to_rgba(&out))
         }
+        25 => {
+            // BC7（高清 UI/立绘分片，本作 39 张）
+            let mut out = vec![0u32; w as usize * h as usize];
+            texture2ddecoder::decode_bc7(src, w as usize, h as usize, &mut out)
+                .map_err(|e| format!("bc7: {e}"))?;
+            Ok(bgra_to_rgba(&out))
+        }
+        7 => {
+            // RGB565：u16 → 5-6-5 展开
+            let need = w as usize * h as usize * 2;
+            if src.len() < need {
+                return Err(format!("RGB565 data short: {}/{}", src.len(), need));
+            }
+            let mut out = Vec::with_capacity(w as usize * h as usize * 4);
+            for px in src[..need].chunks_exact(2) {
+                let v = u16::from_le_bytes([px[0], px[1]]);
+                let r = ((v >> 11) & 0x1F) as u8;
+                let g = ((v >> 5) & 0x3F) as u8;
+                let b = (v & 0x1F) as u8;
+                out.extend_from_slice(&[
+                    ((r as u32 * 527 + 23) >> 6) as u8,
+                    ((g as u32 * 259 + 33) >> 6) as u8,
+                    ((b as u32 * 527 + 23) >> 6) as u8,
+                    255,
+                ]);
+            }
+            Ok(out)
+        }
+        3 => {
+            // RGBA4444：u16 → 4-4-4-4 展开
+            let need = w as usize * h as usize * 2;
+            if src.len() < need {
+                return Err(format!("RGBA4444 data short: {}/{}", src.len(), need));
+            }
+            let mut out = Vec::with_capacity(w as usize * h as usize * 4);
+            for px in src[..need].chunks_exact(2) {
+                let v = u16::from_le_bytes([px[0], px[1]]);
+                let r = ((v >> 12) & 0xF) as u8;
+                let g = ((v >> 8) & 0xF) as u8;
+                let b = ((v >> 4) & 0xF) as u8;
+                let a = (v & 0xF) as u8;
+                // 4bit → 8bit 位复制展开（0xF→0xFF）
+                out.extend_from_slice(&[r * 17, g * 17, b * 17, a * 17]);
+            }
+            Ok(out)
+        }
+        29 => {
+            // ASTC 4x4（本作 11 张，astc-decode 纯 Rust 解码）
+            let mut out = vec![0u8; w as usize * h as usize * 4];
+            let mut idx = 0usize;
+            astc_decode::astc_decode(
+                std::io::Cursor::new(src),
+                w,
+                h,
+                astc_decode::Footprint::new(4, 4),
+                |_x, _y, color| {
+                    out[idx..idx + 4].copy_from_slice(&color);
+                    idx += 4;
+                },
+            )
+            .map_err(|e| format!("astc4x4: {e}"))?;
+            Ok(out)
+        }
         other => Err(format!(
-            "format {other} ({}) not supported for PNG export (list-only)",
+            "format {other} ({}) not supported for PNG export (list-only; ASTC needs a decoder crate)",
             format_name(other)
         )),
     }

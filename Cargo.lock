@@ -137,6 +137,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "astc-decode"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d6058e6202e20b7fa445692ec4b77ca8eb02508091fcd479ea753d9f60e376b"
+
+[[package]]
 name = "async-stream"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3474,6 +3480,7 @@ dependencies = [
 name = "lilyco-aic"
 version = "0.3.0"
 dependencies = [
+ "astc-decode",
  "image",
  "lilyco",
  "lz4_flex",

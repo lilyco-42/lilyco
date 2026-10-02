@@ -107,6 +107,8 @@ CLI 注意：默认 pretty 模式**只打印 <500 字节的结果**，大结果�
 ## 已知限制
 
 - MPCC 深层 ACC 调色板（换装 parts 表）只报剩余字节数，未逐条解析。
-- 贴图解码支持 RGBA32 / DXT1 / DXT5；Crunched（16/17）等格式只列清单不解码。
+- 贴图解码支持 RGBA32 / RGBA4444 / RGB565 / DXT1(BC1) / DXT5(BC3) / BC7 / ASTC-4x4（astc-decode）；
+  全游戏 133 张贴图 122 张可导出 PNG。剩余 11 张 ASTC 的 resS 数据量（cis≈100KB）与标准
+  ASTC 4x4 块流需求不符（4096² 应为 MB 级），疑为裁剪变体，保持清单可用不强解。
 - 只读。姿势写回（把 honeycomb 的 gun 移植进 noel 表）是二期：SerializedFile 对象表 +
   typetree 驱动解析已就位（`read_object` 直接可读 TextAsset 的 m_Script），差对象字节级写回。
