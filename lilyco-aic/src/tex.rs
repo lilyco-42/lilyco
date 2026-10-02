@@ -7,11 +7,12 @@
 //!
 //! 姿势贴图调色的数据底座——pxls 层的 img id ↔ 贴图块映射要靠它落地。
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use lilyco::prelude::*;
 
+use crate::atlas::{decode_texture, format_name, write_png};
 use crate::serialized::SerializedFile;
 use crate::unityfs;
 use crate::util::collect_tex_targets;
@@ -21,7 +22,7 @@ use crate::util::collect_tex_targets;
 #[app(
     name = "tex",
     run = "run_tex",
-    about = "List Texture2D assets inside all `*.texture_0.dat` UnityFS bundles under `root` (file or directory, scanned recursively), or decode them to PNG files with `--out`. Each texture reports name, size, format (4=RGBA32, 12=DXT1/BC1, 13=DXT5/BC3), storage (inline / .resS stream) and bundle path. PNG export decodes RGBA32 directly and BC1/BC3 via texture2ddecoder, writing `<name>.png` into `--out`. Read-only (safety T0)."
+    about = "List Texture2D assets inside all `*.texture_0.dat` UnityFS bundles under `root` (file or directory, scanned recursively), or decode them to PNG files with `--out`. Each texture reports name, size, format (Unity `TextureFormat` numbering: 1=Alpha8, 2=ARGB4444, 3=RGB24, 4=RGBA32, 5=ARGB32, 7=RGB565, 9=R16, 10=DXT1/BC1, 12=DXT5/BC3, 13=RGBA4444, 14=BGRA32, 25=BC7, 26=BC4, 27=BC5, 28=DXT1Crunched, 29=DXT5Crunched, 48-51=ASTC 4x4/5x5/6x6/8x8), storage (inline / .resS stream) and bundle path. PNG export decodes every listed format (block formats via texture2ddecoder, the rest with built-in unpackers) and flips the row order (Unity stores Texture2D pixels bottom-up), writing `<name>.png` into `--out`. Read-only (safety T0)."
 )]
 pub struct Tex {
     /// 搜索根目录（或单文件）
@@ -138,6 +139,18 @@ fn run_tex(app: &Tex, ctx: &Context) -> Result<serde_json::Value, AppError> {
             };
             let inline = fields.get("image data").and_then(|v| v.as_bytes()).unwrap_or(&[]);
             let storage = if stream_size > 0 { "resS" } else { "inline" };
+            // 按格式算出的未压缩体积：`m_CompleteImageSize` 应当正好等于基础层
+            // （带 mip 链时 `m_StreamData.size` 会等于「含 mip」的那一项）
+            let expect_base = crate::atlas::image_byte_size(fmt, w, h);
+            let expect_mips = crate::atlas::image_mip_byte_size(fmt, w, h);
+            let ci_size = cis as usize;
+            // `m_CompleteImageSize` 要么是基础层、要么含整条 mip 链；两者都不是说明格式认错了
+            let size_basis = match (expect_base, expect_mips) {
+                (Some(b), _) if b == ci_size => "base",
+                (_, Some(m)) if m == ci_size => "mips",
+                (None, _) => "unknown-format",
+                _ => "mismatch",
+            };
 
             let mut entry = serde_json::json!({
                 "name": name,
@@ -148,6 +161,10 @@ fn run_tex(app: &Tex, ctx: &Context) -> Result<serde_json::Value, AppError> {
                 "complete_image_size": cis,
                 "storage": storage,
                 "path_id": o.path_id,
+                "expected_image_size": expect_base,
+                "expected_image_size_with_mips": expect_mips,
+                "size_basis": size_basis,
+                "format_size_ok": size_basis != "mismatch",
             });
             if storage == "resS" {
                 entry["resS"] = serde_json::json!({
@@ -208,26 +225,6 @@ fn run_tex(app: &Tex, ctx: &Context) -> Result<serde_json::Value, AppError> {
     Ok(result)
 }
 
-fn format_name(fmt: u32) -> &'static str {
-    match fmt {
-        1 => "Alpha8",
-        3 => "RGBA4444",
-        4 => "RGBA32",
-        5 => "BGRA32",
-        7 => "RGB565",
-        10 => "RGBA4444",
-        12 => "DXT1/BC1",
-        13 => "DXT5/BC3",
-        14 => "RGBA1010102",
-        15 => "R16",
-        16 => "DXT1-Crunched",
-        17 => "DXT5-Crunched",
-        25 => "BC7",
-        29 => "ASTC-4x4",
-        _ => "unknown",
-    }
-}
-
 fn sanitize_name(name: &str) -> String {
     let s: String = name
         .chars()
@@ -235,135 +232,4 @@ fn sanitize_name(name: &str) -> String {
         .collect();
     // 防路径穿越
     s.trim_start_matches(['.', '/']).to_string()
-}
-
-/// 按格式解码 → RGBA8
-fn decode_texture(
-    fmt: u32,
-    w: u32,
-    h: u32,
-    inline: &[u8],
-    res_s: Option<&[u8]>,
-    stream_off: usize,
-    stream_size: usize,
-) -> Result<Vec<u8>, String> {
-    let src: &[u8] = if stream_size > 0 {
-        let rs = res_s.ok_or_else(|| {
-            format!(".resS stream referenced but not found in bundle (need {stream_size}B @ {stream_off})")
-        })?;
-        rs.get(stream_off..stream_off + stream_size)
-            .ok_or_else(|| format!("resS range {stream_off}+{stream_size} out of stream {}", rs.len()))?
-    } else {
-        inline
-    };
-
-    match fmt {
-        4 => {
-            // RGBA32
-            let need = w as usize * h as usize * 4;
-            if src.len() < need {
-                return Err(format!("RGBA32 data short: {}/{}", src.len(), need));
-            }
-            Ok(src[..need].to_vec())
-        }
-        12 => {
-            // DXT1 / BC1：texture2ddecoder 输出 BGRA u32（color() = LE [b,g,r,a]）
-            let mut out = vec![0u32; w as usize * h as usize];
-            texture2ddecoder::decode_bc1(src, w as usize, h as usize, &mut out)
-                .map_err(|e| format!("bc1: {e}"))?;
-            Ok(bgra_to_rgba(&out))
-        }
-        13 => {
-            // DXT5 / BC3
-            let mut out = vec![0u32; w as usize * h as usize];
-            texture2ddecoder::decode_bc3(src, w as usize, h as usize, &mut out)
-                .map_err(|e| format!("bc3: {e}"))?;
-            Ok(bgra_to_rgba(&out))
-        }
-        25 => {
-            // BC7（高清 UI/立绘分片，本作 39 张）
-            let mut out = vec![0u32; w as usize * h as usize];
-            texture2ddecoder::decode_bc7(src, w as usize, h as usize, &mut out)
-                .map_err(|e| format!("bc7: {e}"))?;
-            Ok(bgra_to_rgba(&out))
-        }
-        7 => {
-            // RGB565：u16 → 5-6-5 展开
-            let need = w as usize * h as usize * 2;
-            if src.len() < need {
-                return Err(format!("RGB565 data short: {}/{}", src.len(), need));
-            }
-            let mut out = Vec::with_capacity(w as usize * h as usize * 4);
-            for i in 0..(need / 2) {
-                let v = u16::from_le_bytes([src[i * 2], src[i * 2 + 1]]);
-                let r = ((v >> 11) & 0x1F) as u8;
-                let g = ((v >> 5) & 0x3F) as u8;
-                let b = (v & 0x1F) as u8;
-                out.extend_from_slice(&[
-                    ((r as u32 * 527 + 23) >> 6) as u8,
-                    ((g as u32 * 259 + 33) >> 6) as u8,
-                    ((b as u32 * 527 + 23) >> 6) as u8,
-                    255,
-                ]);
-            }
-            Ok(out)
-        }
-        3 => {
-            // RGBA4444：u16 → 4-4-4-4 展开
-            let need = w as usize * h as usize * 2;
-            if src.len() < need {
-                return Err(format!("RGBA4444 data short: {}/{}", src.len(), need));
-            }
-            let mut out = Vec::with_capacity(w as usize * h as usize * 4);
-            for i in 0..(need / 2) {
-                let v = u16::from_le_bytes([src[i * 2], src[i * 2 + 1]]);
-                let r = ((v >> 12) & 0xF) as u8;
-                let g = ((v >> 8) & 0xF) as u8;
-                let b = ((v >> 4) & 0xF) as u8;
-                let a = (v & 0xF) as u8;
-                // 4bit → 8bit 位复制展开（0xF→0xFF）
-                out.extend_from_slice(&[r * 17, g * 17, b * 17, a * 17]);
-            }
-            Ok(out)
-        }
-        29 => {
-            // ASTC 4x4（本作 11 张，astc-decode 纯 Rust 解码）
-            let mut out = vec![0u8; w as usize * h as usize * 4];
-            let mut idx = 0usize;
-            astc_decode::astc_decode(
-                std::io::Cursor::new(src),
-                w,
-                h,
-                astc_decode::Footprint::new(4, 4),
-                |_x, _y, color| {
-                    out[idx..idx + 4].copy_from_slice(&color);
-                    idx += 4;
-                },
-            )
-            .map_err(|e| format!("astc4x4: {e}"))?;
-            Ok(out)
-        }
-        other => Err(format!(
-            "format {other} ({}) not supported for PNG export (list-only; ASTC needs a decoder crate)",
-            format_name(other)
-        )),
-    }
-}
-
-fn bgra_to_rgba(px: &[u32]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(px.len() * 4);
-    for &p in px {
-        let r = (p & 0xFF) as u8;
-        let g = ((p >> 8) & 0xFF) as u8;
-        let b = ((p >> 16) & 0xFF) as u8;
-        let a = ((p >> 24) & 0xFF) as u8;
-        out.extend_from_slice(&[r, g, b, a]);
-    }
-    out
-}
-
-fn write_png(path: &Path, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
-    let img = image::RgbaImage::from_raw(w, h, rgba.to_vec())
-        .ok_or_else(|| "rgba buffer size mismatch".to_string())?;
-    img.save(path).map_err(|e| format!("save {}: {e}", path.display()))
 }
