@@ -189,6 +189,9 @@ pub(crate) fn odf(content: &Node, styles: Option<&Node>, limit: usize) -> Value 
     let mut by_family: BTreeMap<String, u64> = BTreeMap::new();
     let mut by_combo: BTreeMap<String, u64> = BTreeMap::new();
     let mut name_counts: BTreeMap<String, u64> = BTreeMap::new();
+    for script in FS_SCRIPTS.iter() {
+        name_counts.insert((*script).to_string(), 0);
+    }
     let mut parts_seen: Vec<String> = Vec::new();
     for one in entries.iter() {
         let part = one["part"].as_str().unwrap_or_default();

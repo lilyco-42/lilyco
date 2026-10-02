@@ -75,7 +75,7 @@ fn bump(book: &mut BTreeMap<String, u64>, key: &str) {
 }
 
 /// 一张表里某枚属性的字符串值（没写就 None）
-fn text_of(map: &serde_json::Map<String, Value>, key: &str) -> Option<&str> {
+fn text_of<'a>(map: &'a serde_json::Map<String, Value>, key: &str) -> Option<&'a str> {
     map.get(key).and_then(Value::as_str)
 }
 
