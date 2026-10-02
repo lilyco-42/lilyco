@@ -4426,6 +4426,7 @@ mod tests {
         assert_eq!(book["values"]["lang"], json!(["en-US"]));
         assert_eq!(book["parts_seen"][0], json!("ppt/presentation.xml"));
         assert_eq!(book["parts_seen"].as_array().map(Vec::len), Some(15));
+        let row = &book["rows"][1];
         assert_eq!(row["part"], json!("ppt/presentation.xml"));
         assert_eq!(row["kind"], json!("presentation"));
         assert_eq!(row["group"], json!("paragraph"));
