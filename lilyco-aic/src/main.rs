@@ -11,7 +11,9 @@
 //! laic tex .../PxlNoel --out tmp/tex                        # Texture2D 全解码（BC7/ASTC 也吃）
 //! laic sprites .../PxlNoel/noel.pxls.dat --out tmp/sp       # 按 UV 裁 sprite（按层名命名）
 //! laic render .../PxlNoel/noel.pxls.dat --pose 'big*' --out tmp/r --anim --sheet
+//! laic animate .../PxlNoel/noel.pxls.dat --pose stand --dir 0 --ticks 40   # 播放头推进
 //! laic repack .../PxlNoel/noel.pxls.dat --out tmp/out --rename old=new --apply
+//! laic pack .../PxlNoel/noel.pxls.dat --out tmp/pxl --apply               # 重排图集 → .pxl
 //! laic --gui     # Web 控制台
 //! laic --tui     # TUI 命令选择页
 //! laic --mcp     # MCP：agent 直接调
@@ -19,16 +21,18 @@
 //! ```
 //!
 //! 安全分级：
-//! - `poses` / `frame` / `find-pose` / `tex` / `mpcc` / `sprites` / `render` = **T0 只读**
-//! - `repack` = **T1 需确认**，默认 dry-run；自动化面（MCP）默认拒绝，必须人类在环
+//! - `poses` / `frame` / `find-pose` / `tex` / `mpcc` / `sprites` / `render` / `animate` = **T0 只读**
+//! - `repack` / `pack` = **T1 需确认**，默认 dry-run；自动化面（MCP）默认拒绝，必须人类在环
 //!
 //! 解析器规格逆向自 PixelLiner 反编译源码（见 pxlslib.rs 头注释）。
 
+mod animate;
 mod atlas;
 mod findpose;
 mod frame;
 mod mpcc;
 mod poses;
+mod pack;
 mod pxlslib;
 mod render;
 mod repack;
@@ -53,7 +57,9 @@ pub fn build_registry_with_policy(policy: Arc<dyn SafetyPolicy>) -> Registry {
         RegisteredCommand::from_app::<mpcc::Mpcc>(),
         RegisteredCommand::from_app::<sprites::Sprites>(),
         RegisteredCommand::from_app::<render::Render>(),
+        RegisteredCommand::from_app::<animate::Animate>(),
         RegisteredCommand::from_app::<repack::Repack>(),
+        RegisteredCommand::from_app::<pack::Pack>(),
     ];
     for c in cmds {
         let name = c.name.clone();
@@ -107,22 +113,24 @@ mod tests {
             "mpcc",
             "sprites",
             "render",
+            "animate",
             "repack",
+            "pack",
         ];
         want.sort_unstable();
         assert_eq!(got, want.into_iter().map(str::to_string).collect::<Vec<_>>());
     }
 
-    /// 安全分级：只有 repack 高于 T0（写回），其余全部只读
+    /// 安全分级：只有 repack / pack 高于 T0（写回），其余全部只读
     #[test]
     fn only_repack_is_elevated() {
         let reg = build_registry();
         for c in reg.visible() {
-            if c.schema.name == "repack" {
+            if c.schema.name == "repack" || c.schema.name == "pack" {
                 assert_eq!(
                     c.schema.safety,
                     SafetyTier::Confirm,
-                    "repack 是写回，必须 T1（默认 dry-run + 自动化面拒绝）"
+                    "写回类命令必须 T1（默认 dry-run + 自动化面拒绝）"
                 );
             } else {
                 assert_eq!(

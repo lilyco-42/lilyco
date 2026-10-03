@@ -1,2 +1,5 @@
 **/target/
 .env
+
+# laic 端到端验证的临时产物（pxl/sprite/render 输出，单个可达 12 MB）
+tmp/

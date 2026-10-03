@@ -75,12 +75,12 @@ pub struct Render {
     limit: u64,
 }
 
-/// 已解码图集 + UV 索引
-struct AtlasSet {
+/// 已解码图集 + UV 索引（`animate` 也用它逐帧取图，故 crate 内可见）
+pub(crate) struct AtlasSet {
     /// atlas index → 解码后的整图
-    images: Vec<Option<Img>>,
+    pub(crate) images: Vec<Option<Img>>,
     /// img key → (atlas index, 裁切矩形)
-    uv: BTreeMap<String, (usize, [u32; 4])>,
+    pub(crate) uv: BTreeMap<String, (usize, [u32; 4])>,
 }
 
 fn run_render(app: &Render, ctx: &Context) -> Result<serde_json::Value, AppError> {
@@ -120,7 +120,7 @@ fn run_render(app: &Render, ctx: &Context) -> Result<serde_json::Value, AppError
         let table = table_name(path);
 
         // 必须配对贴图才能画
-        let mut set = match build_atlas_set(&p, path, app) {
+        let mut set = match build_atlas_set(&p, path, &app.texture, &app.pose) {
             Ok(s) => s,
             Err(e) => {
                 errors.push(serde_json::json!({ "file": file_str, "error": e }));
@@ -221,7 +221,12 @@ fn run_render(app: &Render, ctx: &Context) -> Result<serde_json::Value, AppError
 ///
 /// 同一 img key 可能出现在多个图集里（PARTS 图集继承前一个图集的 UV 表 ⇒ 同一套 rect、
 /// 另一张贴图）。这里**取第一个**：图集 0 是正常图，后面的部件变体默认不参与合成。
-fn build_atlas_set(p: &Pxls, path: &Path, app: &Render) -> Result<AtlasSet, String> {
+pub(crate) fn build_atlas_set(
+    p: &Pxls,
+    path: &Path,
+    texture: &str,
+    pose_glob: &str,
+) -> Result<AtlasSet, String> {
     if p.atlas.is_empty() {
         return Err("no %PACK_SECTION% (nothing to crop)".into());
     }
@@ -245,7 +250,7 @@ fn build_atlas_set(p: &Pxls, path: &Path, app: &Render) -> Result<AtlasSet, Stri
     let mut wanted: Vec<usize> = p
         .poses
         .iter()
-        .filter(|po| glob_match(&app.pose, &po.title))
+        .filter(|po| glob_match(pose_glob, &po.title))
         .flat_map(|po| po.seqs.iter())
         .flat_map(|s| s.frames.iter())
         .flat_map(|f| f.layers.iter())
@@ -260,8 +265,8 @@ fn build_atlas_set(p: &Pxls, path: &Path, app: &Render) -> Result<AtlasSet, Stri
     for ai in wanted {
         let at = &p.atlas[ai];
         let img = if let Some((ew, eh)) = at.external_wh {
-            let src = if ai == 0 && !app.texture.is_empty() {
-                crate::atlas::TextureSource::File { path: PathBuf::from(&app.texture) }
+            let src = if ai == 0 && !texture.is_empty() {
+                crate::atlas::TextureSource::File { path: PathBuf::from(texture) }
             } else {
                 sources.get(ai).and_then(|s| s.clone()).ok_or_else(|| {
                     format!("external atlas {ai} claims {ew}x{eh} but no texture is available for it")
@@ -279,7 +284,7 @@ fn build_atlas_set(p: &Pxls, path: &Path, app: &Render) -> Result<AtlasSet, Stri
 }
 
 /// 合成一帧。`cw`/`ch` 是画布像素尺寸（已含 scale），`pw`/`ph` 是 pose 的逻辑宽高。
-fn render_frame(
+pub(crate) fn render_frame(
     set: &mut AtlasSet,
     frame: &Frame,
     cw: u32,

@@ -395,6 +395,16 @@ pub fn write_png(path: &Path, w: u32, h: u32, rgba: &[u8]) -> Result<(), String>
     img.save(path).map_err(|e| format!("save {}: {e}", path.display()))
 }
 
+/// 把 RGBA 像素编码成 PNG **字节**（不落盘）。重建内嵌图集时要把它塞进 PACK 节。
+pub fn encode_png(w: u32, h: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
+    let img = image::RgbaImage::from_raw(w, h, rgba.to_vec())
+        .ok_or_else(|| "rgba buffer size mismatch".to_string())?;
+    let mut buf = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+        .map_err(|e| format!("encode png: {e}"))?;
+    Ok(buf)
+}
+
 /// 解码任意 PNG 字节（内嵌图、旧版外部贴图）
 pub fn read_png(bytes: &[u8], what: &str) -> Result<Img, String> {
     let im = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)

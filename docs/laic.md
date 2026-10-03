@@ -7,7 +7,7 @@
 > （按 UV 裁切，以姿势层名命名）、**某姿势画出来什么样**（合成 PNG / GIF / 精灵表）、
 > **改完怎么写回去**（pxls 写回 UnityFS）。
 
-## 命令（8 条：7 条 T0 只读 + `repack` T1 需确认）
+## 命令（10 条：8 条 T0 只读 + `repack` / `pack` T1 需确认）
 
 | 命令 | 作用 |
 |---|---|
@@ -18,6 +18,8 @@
 | `mpcc` | 解析 `mobpcc/*.mpcc.bytes` 头部：容器 `name` / `chr_name` / 调色板标志 / 剩余载荷 |
 | `sprites` | 按图集 UV 裁切导出每个 sprite 的 PNG（T0）：外部贴图按 asset 名后缀 `_<i>` 配对（`noel_t` 的对象表是倒的，按顺序取会把主图/部件图对调），文件名取姿势层名；PARTS 图集（UV 为 0）继承前一图集的 UV 表 |
 | `render` | 把姿势帧合成为 PNG / GIF / 精灵表（T0）：变换语义照抄 `PxlMeshDrawer.makeMesh → RotaGraph`（中心定位、zmx/zmy 缩放、`-rotR` 旋转、alpha/100 混合、Point 点采样，`rotR==0` 的奇偶 +0.5 修正也复刻） |
+| `animate` | **播放头状态机**（T0，对应 pixelliner4j 的 `FrameAnimator`）：`--ticks N` 推进 1/60 s 刻度，`--frame NAME` / `--index N` 直接定位，报 `position / stepped / looped_count / ticks_per_loop`；加 `--out` 可把落点那一帧渲出来。越界的 `loopTo` **夹到 0**（Java 原版会下标越界崩）并报 `loop_to_clamped` |
+| `pack` | **T1**：图集重排并导出自带贴图的 `.pxl`（对应 pixelliner4j `writePackSection` + `Algorithm.packRectangles`，`PxlsKiller` 靠它产出 `.pxl`）。闭环的最后一块：`sprites` 裁 → 改 PNG → `pack --replace` 装回去。默认 dry-run，写后逐像素自检 |
 | `repack` | **T1**：把改过的 pxls 写回（`--rename OLD=NEW`、`--set-alpha LAYER=0..100`）：裸 pxls 直写；UnityFS 则就地替换 TextAsset 正文并修 TypelessData 长度前缀、SerializedFile 头 `file_size`、对象表（`byte_size` 重算对齐、后续 `byte_start` 平移）与 blocks info/节点表；默认 dry-run，写后自检（重读→重解析→重序列化逐字节比对） |
 
 `poses` / `frame` 的 `root` 三种都吃：单个 `.pxls` 文件、UnityFS 包裹的 `.pxls.dat`（自动解包）、
@@ -65,6 +67,12 @@ laic sprites .../PxlNoel/noel.pxls.dat --out D:/tmp/sp --json
 # 渲染 noel 的 big 系姿势（含 GIF + 精灵表）
 laic render .../PxlNoel/noel.pxls.dat --pose 'big*' --out D:/tmp/r --anim --sheet --json
 
+# 播放头推进 40 个 tick（1/60 s）后落在哪一帧
+laic animate .../PxlNoel/noel.pxls.dat --pose stand --dir 0 --ticks 40 --json
+
+# 改完 sprite 再装回图集，产出自带贴图的 .pxl（默认 dry-run，--apply 才写）
+laic pack .../PxlNoel/noel.pxls.dat --out D:/tmp/pxl --replace D:/tmp/sp_edits --apply --json
+
 # 把姿势改名写回（默认 dry-run，只报计划）
 laic repack .../PxlNoel/noel.pxls.dat --out D:/tmp/out --rename old=new --json
 
@@ -73,6 +81,59 @@ laic mpcc --root .../StreamingAssets/mobpcc --json
 ```
 
 CLI 注意：默认 pretty 模式**只打印 <500 字节的结果**，大结果必须带 `--json`。
+
+## 图集重排与替换（`pack`，T1）
+
+闭环：`sprites` 按 UV 裁出每个 sprite → 改 PNG → `pack --replace` 重排回图集 → 产出自带
+贴图的 `.pxl`（游戏可直接读，不用再外挂 `texture_0.dat`）。
+
+### 装箱：别用 pixelliner4j 那个算法当默认
+
+边长从起始值（默认取原图集尺寸向上取到 2 的幂）起翻倍直到放下全部，再把画布**裁到实际
+用量**。两种布局，`shelf` 是默认：
+
+| 算法 | 需要的边长 | 实际用量 | 占用率 |
+|---|---|---|---|
+| `guillotine`（pixelliner4j `Algorithm.packRectangles` 逐字移植） | 8192 | 8192×4462 | **20.4%** |
+| `shelf`（默认，按高降序逐行） | 4096 | 4089×2090 | **91.9%** |
+| skyline bottom-left（仅测过，未实现） | 4096 | 4096×2126 | 90.2% |
+
+数据在 `noel` 图集 0（1505 个 sprite，内容 7.46 M px，含 margin 预留 7.86 M px）上实测。
+游戏本体那张是 4096×4096 / 44% —— PixelLiner 的正式打包器远强于 pixelliner4j 的
+`Algorithm`（后者只是重排用的凑数实现，二叉节点树把 `right` 子节点高度钉死成第一个图块
+的高度，横向一路铺到底才换行）。`--packer guillotine` 保留仅作对照/复现。
+
+### 替换图怎么对上 sprite（🔴 踩过的坑）
+
+`noel` 里有 **617 个** key 的层名都叫 `Layer`（导出为 `Layer.EDI*.png`），所以**只按层名
+匹配是错的**：一张 `Layer.png` 会被贴到完全不相干的 sprite 上，尺寸一变还会把继承 UV 的
+PARTS 图集整个撑错位（实测 26×36 被撑成 60×153）。现在复刻 `sprites` 的去重命名
+（`claim_stem`：同名层只有第一个能拿裸名，后面的都带 key），按下序查找，且**一张图只能被
+一个 key 认领**：
+
+1. `sprites` 导出的名字（`Layer.EDIba8e8_x.png` / `Layer.a1.png` / `EDIxxx.png`）
+2. `<层名>.<key>[.a<i>]`
+3. `<key>[.a<i>]`
+4. `<层名>[.a<i>]`（兜底，同一次运行只兑现一次）
+
+目录里没被认领的 PNG 原样报在 `unmatched_replacements` —— 名字写错时不能静默丢。
+`--pose` 只用于复现 `sprites --pose` 的命名，不影响裁切范围。
+
+### 改尺寸 vs 双图集
+
+同尺寸重着色零风险：rect 不变，PARTS 图集继续用它自己的图。**改尺寸**时 PARTS 图集共用
+同一张 UV 表，rect 必须与来源逐块一致，于是：没给 `.a<i>.png` 就跟着换成同一张
+（`carried_from_source_atlas`）；给了但尺寸不符就裁/补到 rect（`fitted_to_inherited_rect`）。
+
+### 实测
+
+| 项 | 结果 |
+|---|---|
+| `pack`（无替换） | shelf 边长 4096，画布裁到 4089×2090，3010 sprite 逐像素自检通过，27 s |
+| 重排后 `render` `stand d0 f2 @2x` | 与原表渲染 **md5 逐字节相同**（`3705d8aa…`） |
+| `pack --replace` 同尺寸重着色 | atlas 0 `replaced 1` / atlas 1 `replaced 0`（PARTS 保住自己的图），自检通过；渲染差异恰好是 120×306（=60×153 @2x）且**全部变红，其余零变化** |
+| `pack --replace` 改尺寸（30×80） | atlas 1 `carried 1 / fitted 1`，自检通过，无报错 |
+| `animate` | `stand d0`：`frame_count 12 / loop_to 0 / ticks_per_loop 120`；`--ticks 130` → `position 1, looped 1`（正确回绕）；落点帧渲染与 `render` 同帧 md5 一致 |
 
 ## 解析器规格（自研，逆向自 PixelLiner 反编译 + UnityPy 交叉验证）
 
@@ -157,6 +218,30 @@ CLI 注意：默认 pretty 模式**只打印 <500 字节的结果**，大结果�
 
 `byte 占位 + string name + string chr_name + byte 调色板标志 + SkltPalette 深层载荷`
 （string = u16 长度 + utf-8，pxls 同族；深层 ACC 调色板是二期）。
+
+## 对标：laic 是 pixelliner4j + AICPxlsUnpacker 的超集
+
+`/lyco` 调研阶段读完两个对照项目全部源码（`/tmp/lyco-cmp/`，共 1863 行 Java + 5710 B Python）
+后的结论。**功能覆盖逐项 ≥**，且 laic 独占 Unity 侧解码与写回。
+
+| 能力 | pixelliner4j (Java) | AICPxlsUnpacker (Py) | laic |
+|---|---|---|---|
+| 解析 pxls 六节 | ✓ 结构化 | ✗ 字节模式硬找 `%PACK_SECTION%`…`0000000200`，28 B 一块、3 字节 BE 坐标 | ✓ 结构化 + 128 表逐字节回环回归 |
+| 贴图来源 | ✗ 要外部 PNG，试 5 种命名（`Texture_%s.pxls.texture_%d.png` …） | ✗ 要现成的 `texture_0.png` | ✓ **UnityFS + SerializedFile v22 + Texture2D 全解码**（DXT5/BC7/Crunch/BC4/5/ASTC/RGBA32/RGB565/RGB24/ARGB4444/BGRA32），125 包 133 张实测零错 |
+| 按 UV 裁 sprite | ✓ `getImageByKey`（内存） | ✓ 落盘但坐标靠硬找 | ✓ `sprites` 落盘，名字取**姿势层名** |
+| 合成一帧 | ✓ Java2D，只在其 GUI 里画 | ✗ | ✓ `render` 落盘 PNG/GIF/精灵表，复刻 `PxlMeshDrawer → RotaGraph` |
+| 播放头状态机 | ✓ `FrameAnimator` | ✗ | ✓ `animate`（越界 `loopTo` 夹 0，原版会崩） |
+| 图集重排 → `.pxl` | ✓ `writePackSection`（`PxlsKiller` 用它批量转档） | ✗ | ✓ `pack`，见上节 |
+| 写回 UnityFS | ✗ | ✗ | ✓ `repack`（修 4 处 + UnityPy 复核） |
+| 跨表搜姿势 / MPCC / 矢量 / 粒子 | ✗ | ✗ | ✓ `find-pose` / `mpcc` / IMGV / PTCL |
+| 双图集（NORMAL + PARTS） | ✗ 压成一张 | ✗ | ✓ 继承语义保留 |
+| 保留 IMGS / IMGV / PTCL | ✗ 只写 PACK+POSE | ✗ | ✓ 全节保留 |
+| margin 留白 / UV w/h | ✗ / 重算 | ✗ | ✓ 保留，渲染尺寸零漂移 |
+| 四端（CLI/TUI/Web/MCP） | ✗ | ✗ | ✓ 同 registry；写类命令 T1（默认 dry-run，自动化面拒绝） |
+
+**laic 刻意不搬的**：pixelliner4j 的两个 Swing GUI（`PixelPreviewer` 动画预览器 /
+`PxlsKiller` 批量转档器）—— 前者只是 EDT 定时器里 `animator.step()` + `renderTo`，
+laic 的四端是 CLI/TUI/Web/MCP，GUI 由 Web 端承担，输出靠 `render` 落盘。
 
 ## 已知限制
 

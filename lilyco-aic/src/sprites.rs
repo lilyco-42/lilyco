@@ -267,7 +267,7 @@ fn run_sprites(app: &Sprites, ctx: &Context) -> Result<serde_json::Value, AppErr
 }
 
 /// `noel.pxls.dat` → `noel`；`boss_nusi.pxls.bytes` → `boss_nusi`
-fn table_name(path: &Path) -> String {
+pub(crate) fn table_name(path: &Path) -> String {
     let n = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -281,7 +281,8 @@ fn table_name(path: &Path) -> String {
 }
 
 /// img key → 层名（同 key 多解时取第一个非空名）
-fn layer_names(p: &Pxls, pose_glob: &str) -> BTreeMap<String, String> {
+/// 图层名表：img key → 层名（`pack` 找替换图时也用它，故 crate 内可见）
+pub(crate) fn layer_names(p: &Pxls, pose_glob: &str) -> BTreeMap<String, String> {
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     for pose in &p.poses {
         if !pose_glob.is_empty() && !crate::util::glob_match(pose_glob, &pose.title) {
@@ -302,7 +303,10 @@ fn layer_names(p: &Pxls, pose_glob: &str) -> BTreeMap<String, String> {
 }
 
 /// 同名去重：首次用层名，重名时追加 img key，再冲突再加序号
-fn unique_path(dir: &Path, base: &str, key: &str, used: &mut BTreeMap<String, usize>) -> PathBuf {
+///
+/// 返回**文件名主干**（不含目录与 `.png`）。`pack --replace` 要按导出时的名字
+/// 反查替换图，必须复用同一套去重规则，否则 `Layer.png` 会被同名层抢走。
+pub(crate) fn claim_stem(base: &str, key: &str, used: &mut BTreeMap<String, usize>) -> String {
     let base = sanitize(base);
     let key = sanitize(key);
     let mut name = if used.contains_key(&base) {
@@ -316,10 +320,47 @@ fn unique_path(dir: &Path, base: &str, key: &str, used: &mut BTreeMap<String, us
         i += 1;
     }
     used.insert(name.clone(), 1);
-    dir.join(format!("{name}.png"))
+    name
 }
 
-fn sanitize(name: &str) -> String {
+pub(crate) fn unique_path(dir: &Path, base: &str, key: &str, used: &mut BTreeMap<String, usize>) -> PathBuf {
+    dir.join(format!("{}.png", claim_stem(base, key, used)))
+}
+
+/// 复刻 `sprites` 的导出名：`[图集号][uv 序号]` → 文件名主干。
+///
+/// 索引与 `p.effective_uvs(ai)` **逐位对齐**；被 `sprites` 跳过的 uv（姿势过滤 / 零尺寸）
+/// 留 `None`。`pack --replace` 靠它把替换图对回唯一的那个 key。
+pub(crate) fn sprite_stems(
+    p: &Pxls,
+    names: &BTreeMap<String, String>,
+    pose_glob: &str,
+) -> Vec<Vec<Option<String>>> {
+    let mut used: BTreeMap<String, usize> = BTreeMap::new();
+    let mut out = Vec::with_capacity(p.atlas.len());
+    for (ai, at) in p.atlas.iter().enumerate() {
+        let m = at.margin as u32;
+        let mut row: Vec<Option<String>> = Vec::new();
+        for uv in p.effective_uvs(ai) {
+            // 与 sprites 的两处 continue 保持一致，否则名字会错位
+            if !pose_glob.is_empty() && !names.contains_key(&uv.img) {
+                row.push(None);
+                continue;
+            }
+            if uv.w.saturating_sub(m * 2) == 0 || uv.h.saturating_sub(m * 2) == 0 {
+                row.push(None);
+                continue;
+            }
+            let base = names.get(&uv.img).cloned().unwrap_or_else(|| uv.img.clone());
+            let base = if ai > 0 { format!("{base}.a{ai}") } else { base };
+            row.push(Some(claim_stem(&base, &uv.img, &mut used)));
+        }
+        out.push(row);
+    }
+    out
+}
+
+pub(crate) fn sanitize(name: &str) -> String {
     let s: String = name
         .chars()
         .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
