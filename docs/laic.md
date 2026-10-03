@@ -17,8 +17,8 @@
 | `tex` | 列出 `*.texture_0.dat` 包内全部 Texture2D（尺寸/格式/存储方式）；`--out DIR` 解码出 PNG（Unity `TextureFormat` 全表：12=DXT5/BC3、25=BC7、28/29=Crunch 等，块格式走 `texture2ddecoder`），内联与 `.resS` 资源流双路；每项附 `format_size_ok`（`m_CompleteImageSize` 与格式表交叉验证，认错格式立刻现形） |
 | `mpcc` | 解析 `mobpcc/*.mpcc.bytes` 头部：容器 `name` / `chr_name` / 调色板标志 / 剩余载荷 |
 | `sprites` | 按图集 UV 裁切导出每个 sprite 的 PNG（T0）：外部贴图按 asset 名后缀 `_<i>` 配对（`noel_t` 的对象表是倒的，按顺序取会把主图/部件图对调），文件名取姿势层名；PARTS 图集（UV 为 0）继承前一图集的 UV 表 |
-| `render` | 把姿势帧合成为 PNG / GIF / 精灵表（T0）：变换语义照抄 `PxlMeshDrawer.makeMesh → RotaGraph`（中心定位、zmx/zmy 缩放、`-rotR` 旋转、alpha/100 混合、Point 点采样，`rotR==0` 的奇偶 +0.5 修正也复刻） |
-| `animate` | **播放头状态机**（T0，对应 pixelliner4j 的 `FrameAnimator`）：`--ticks N` 推进 1/60 s 刻度，`--frame NAME` / `--index N` 直接定位，报 `position / stepped / looped_count / ticks_per_loop`；加 `--out` 可把落点那一帧渲出来。越界的 `loopTo` **夹到 0**（Java 原版会下标越界崩）并报 `loop_to_clamped` |
+| `render` | 把姿势帧合成为 PNG / GIF / 精灵表（T0）：变换语义照抄 `PxlMeshDrawer.makeMesh → RotaGraph`（中心定位、zmx/zmy 缩放、`-rotR` 旋转、alpha/100 混合、Point 点采样，`rotR==0` 的奇偶 +0.5 修正也复刻）；`--parts` 改用 PARTS 图集（texture_1）合成，撕破/换装变体的精确预览 |
+| `animate` | **播放头状态机**（T0，对应 pixelliner4j 的 `FrameAnimator`）：`--ticks N` 推进 1/60 s 刻度，`--frame NAME` / `--index N` 直接定位，报 `position / stepped / looped_count / ticks_per_loop`；加 `--out` 可把落点那一帧渲出来（`--parts` 同 render）。越界的 `loopTo` **夹到 0**（Java 原版会下标越界崩）并报 `loop_to_clamped` |
 | `pack` | **T1**：图集重排并导出自带贴图的 `.pxl`（对应 pixelliner4j `writePackSection` + `Algorithm.packRectangles`，`PxlsKiller` 靠它产出 `.pxl`）。闭环的最后一块：`sprites` 裁 → 改 PNG → `pack --replace` 装回去。默认 dry-run，写后逐像素自检 |
 | `repack` | **T1**：把改过的 pxls 写回（`--rename OLD=NEW`、`--set-alpha LAYER=0..100`）：裸 pxls 直写；UnityFS 则就地替换 TextAsset 正文并修 TypelessData 长度前缀、SerializedFile 头 `file_size`、对象表（`byte_size` 重算对齐、后续 `byte_start` 平移）与 blocks info/节点表；默认 dry-run，写后自检（重读→重解析→重序列化逐字节比对） |
 
@@ -134,6 +134,7 @@ PARTS 图集整个撑错位（实测 26×36 被撑成 60×153）。现在复刻 
 | `pack --replace` 同尺寸重着色 | atlas 0 `replaced 1` / atlas 1 `replaced 0`（PARTS 保住自己的图），自检通过；渲染差异恰好是 120×306（=60×153 @2x）且**全部变红，其余零变化** |
 | `pack --replace` 改尺寸（30×80） | atlas 1 `carried 1 / fitted 1`，自检通过，无报错 |
 | `animate` | `stand d0`：`frame_count 12 / loop_to 0 / ticks_per_loop 120`；`--ticks 130` → `position 1, looped 1`（正确回绕）；落点帧渲染与 `render` 同帧 md5 一致 |
+| `render --parts` | noel `stand d0 f2 @2x`：几何与默认渲染完全一致（同 pose 同 silhouette），opaque 像素 100% 换成 texture_1 的部件版平色贴图 —— 撕破/换装差分可见 |
 
 ## 解析器规格（自研，逆向自 PixelLiner 反编译 + UnityPy 交叉验证）
 
@@ -247,6 +248,4 @@ laic 的四端是 CLI/TUI/Web/MCP，GUI 由 Web 端承担，输出靠 `render` �
 
 - MPCC 深层 ACC 调色板（换装 parts 表）只报剩余字节数，未逐条解析。
 - IMGV 矢量的实际绘制消费还没做（`render` 只画 UV sprite；pixelliner4j 同样忽略该段）。
-- `render` 里 PARTS 图集的层默认用图集 0 的像素合成（部件变体不参与），撕破/换装差分的
-  精确预览待补。
 - 11 张 DXT5Crunched 事件图走 `decode_unity_crunch` 直解；`tex` 仍对未知格式只列清单不强解。

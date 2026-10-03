@@ -70,6 +70,10 @@ pub struct Render {
     #[arg(about = "Explicit texture file for atlas 0 (overrides auto pairing)", default = "")]
     texture: String,
 
+    /// 用 PARTS 图集（texture_1）的像素合成 —— 撕破 / 换装变体的精确预览
+    #[arg(about = "Composite from the PARTS atlas (texture_1) instead of the primary one — the torn/clothing-overlay variant. Tables without a second atlas are unaffected", default = false)]
+    parts: bool,
+
     /// 最多处理的文件数（0 = 不限）
     #[arg(about = "Cap the number of tables processed (0 = unlimited)", default = 0)]
     limit: u64,
@@ -120,7 +124,7 @@ fn run_render(app: &Render, ctx: &Context) -> Result<serde_json::Value, AppError
         let table = table_name(path);
 
         // 必须配对贴图才能画
-        let mut set = match build_atlas_set(&p, path, &app.texture, &app.pose) {
+        let mut set = match build_atlas_set(&p, path, &app.texture, &app.pose, app.parts) {
             Ok(s) => s,
             Err(e) => {
                 errors.push(serde_json::json!({ "file": file_str, "error": e }));
@@ -226,6 +230,7 @@ pub(crate) fn build_atlas_set(
     path: &Path,
     texture: &str,
     pose_glob: &str,
+    parts: bool,
 ) -> Result<AtlasSet, String> {
     if p.atlas.is_empty() {
         return Err("no %PACK_SECTION% (nothing to crop)".into());
@@ -236,12 +241,18 @@ pub(crate) fn build_atlas_set(
 
     for (ai, at) in p.atlas.iter().enumerate() {
         let m = at.margin as u32;
+        // 继承 UV 的 PARTS 图集与来源共用同一套 rect，只有像素不同
+        let is_parts = p.uv_inherited_from(ai).is_some();
         for uv in p.effective_uvs(ai) {
             let (w, h) = (uv.w.saturating_sub(m * 2), uv.h.saturating_sub(m * 2));
             if w > 0 && h > 0 {
-                set.uv
-                    .entry(uv.img.clone())
-                    .or_insert((ai, [uv.x + m, uv.y + m, w, h]));
+                let slot = (ai, [uv.x + m, uv.y + m, w, h]);
+                // 默认「先到先得」＝ 主图集；`parts` 时让 PARTS 图集覆盖同 key
+                if parts && is_parts {
+                    set.uv.insert(uv.img.clone(), slot);
+                } else {
+                    set.uv.entry(uv.img.clone()).or_insert(slot);
+                }
             }
         }
     }
@@ -517,6 +528,7 @@ mod tests {
             anim: false,
             sheet: false,
             texture: String::new(),
+            parts: false,
             limit: 0,
         };
         let (tx, _rx) = std::sync::mpsc::channel();

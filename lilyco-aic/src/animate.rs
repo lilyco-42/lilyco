@@ -81,6 +81,10 @@ pub struct Animate {
     #[arg(about = "Explicit texture file for atlas 0 (overrides auto pairing)", default = "")]
     texture: String,
 
+    /// 用 PARTS 图集（texture_1）的像素渲染落点帧
+    #[arg(about = "Render the landed frame from the PARTS atlas (texture_1) instead of the primary one", default = false)]
+    parts: bool,
+
     /// 最多处理的文件数（0 = 不限）
     #[arg(about = "Cap the number of tables processed (0 = unlimited)", default = 0)]
     limit: u64,
@@ -271,7 +275,7 @@ fn run_animate(app: &Animate, ctx: &Context) -> Result<serde_json::Value, AppErr
                 if let Some(dir) = &render_dir {
                     if let Some(f) = anim.current() {
                         if set.is_none() {
-                            match build_atlas_set(&p, path, &app.texture, "*") {
+                            match build_atlas_set(&p, path, &app.texture, "*", app.parts) {
                                 Ok(s) => set = Some(s),
                                 Err(e) => errors.push(serde_json::json!({
                                     "file": file_str, "error": e,
