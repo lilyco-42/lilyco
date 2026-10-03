@@ -38,8 +38,11 @@
 - **矢量**：`%IMGV_SECTION%` 逐条解析（多边形顶点，z bit0 = 新子路径）。
 - **5 张 mobpcc**：头部全解（NOEL__darknoel 等）。
 - **pxls 写回**：`parse → serialize` 全表逐字节回环；UnityFS 写回修 4 处
-  （TypelessData 长度前缀 / 头 `file_size` / 对象表 / blocks info+节点表），
-  正文只加 10 字节时填充 1→3 的对齐坑有回归测试覆盖。
+  （TypelessData 长度前缀 / 头 `file_size` / 对象表 / blocks info+节点表）。
+  🔴 目标对象的 `byte_size` 必须**重算** `align4(长度字段 + 正文)`，不能 `+= 正文差` ——
+  填充可增可减（368227→368228 的 1 字节填充，正文 +9 后变 0），写错 Unity 就读不回去。
+  写回结果经 UnityPy 复核：两个对象都能干净读出，不再报
+  `Expected to read N, but only read N+2`。
 
 ## 典型用法
 
@@ -119,6 +122,36 @@ CLI 注意：默认 pretty 模式**只打印 <500 字节的结果**，大结果�
   **TypelessData 没有 Array 包装**（容器 + size + data **3 节点**）——UnityPy 的展示树里有 Array
   是重建产物，照抄会雪崩；
 - 复合类型（GLTextureSettings / StreamingInfo…）递归子字段；数组元素复合时循环解析。
+
+### Texture2D 解码（atlas.rs）
+
+🔴 **Unity `TextureFormat` 编号必须查权威表**，猜错一个就是全库噪点。本作实际用到的：
+
+| 编号 | 格式 | 本作张数 |
+|---|---|---|
+| 3 | RGB24 | 1 |
+| 4 | RGBA32 | 5 |
+| 7 | RGB565 | 6 |
+| **12** | **DXT5 / BC3** | **71** |
+| 25 | BC7 | 39 |
+| **29** | **DXT5Crunched** | **11** |
+
+两个曾经踩过的坑：**12 是 DXT5 不是 DXT1**（DXT1 才是 10）；**29 是 DXT5Crunched 不是 ASTC**
+（ASTC 是 48..=55）。早期版本整表错位，结果 71 张主力图集全解成斜纹噪点。
+
+另外三条：
+
+- **行序必须翻转**：Unity 的 `Texture2D` 像素自底向上存（OpenGL 约定），导出 PNG 前要
+  `flip_rows`（UnityPy `get_image_from_texture2d(flip=True)` 同）。漏这一步画面上下颠倒。
+- **Crunched 体积不可预测**：28/29 的 `m_StreamData.size` 远小于 `w×h`（512×1024 只有 ~100 KB），
+  是变长压缩流，只能 `texture2ddecoder::decode_unity_crunch` 直解。
+- **体积照妖镜**：`m_CompleteImageSize` 必须等于 `image_byte_size()`（基础层）或
+  `image_mip_byte_size()`（含 mip 链，每层宽高减半到 1×1、按块大小 `div_ceil` 取整）。
+  133 张真值零例外；对不上就是格式认错了。`laic tex` 用 `size_basis`
+  （`base` / `mips` / `compressed` / `mismatch`）把这个判断直接暴露出来。
+
+解码结果与 UnityPy 1.25.3 逐字节一致（DXT5 / BC7 / DXT5Crunched / RGBA32 / RGB565 / RGB24
+各档抽样验证过）。
 
 ### MPCC（MobPCCContainer.readFromBytesFromFile）
 

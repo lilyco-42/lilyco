@@ -965,9 +965,10 @@ mod tests {
                 .unwrap();
             let (ord, name) =
                 pick_texture(&sf, &data, i).unwrap_or_else(|| panic!("{table}: 图集 {i} 选不到图"));
+            // 本作 asset 名形如 `noel.pxls.bytes.texture_0` —— 分隔符是 `.` 不是 `_`
             assert!(
-                name.ends_with(&format!("_texture_{i}")),
-                "{table}: 图集 {i} 应选到 `*_texture_{i}`，实得 `{name}`"
+                name.ends_with(&format!("texture_{i}")),
+                "{table}: 图集 {i} 应选到 `*.texture_{i}`，实得 `{name}`"
             );
             let want = read_unity_bundle_ordinal(&bundle, ord, table).unwrap();
             assert_eq!((got.w, got.h), (want.w, want.h), "{table}: 图集 {i} 尺寸不对");

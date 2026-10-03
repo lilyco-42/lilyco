@@ -117,6 +117,9 @@ fn run_sprites(app: &Sprites, ctx: &Context) -> Result<serde_json::Value, AppErr
                     Some(src) => match src.read() {
                         Ok(im) => {
                             meta["source"] = serde_json::json!(src.describe());
+                            // 取的是包里哪个 asset —— 对象表顺序可能与名字编号不一致
+                            // （`noel_t` 的 `texture_1` 就排在 `texture_0` 前面），排查时很有用
+                            meta["asset"] = serde_json::json!(src.asset_name());
                             meta["width"] = serde_json::json!(im.w);
                             meta["height"] = serde_json::json!(im.h);
                             meta["decoded"] = serde_json::json!(true);

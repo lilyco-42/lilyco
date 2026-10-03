@@ -144,10 +144,12 @@ fn run_tex(app: &Tex, ctx: &Context) -> Result<serde_json::Value, AppError> {
             let expect_base = crate::atlas::image_byte_size(fmt, w, h);
             let expect_mips = crate::atlas::image_mip_byte_size(fmt, w, h);
             let ci_size = cis as usize;
-            // `m_CompleteImageSize` 要么是基础层、要么含整条 mip 链；两者都不是说明格式认错了
+            // `m_CompleteImageSize` 要么是基础层、要么含整条 mip 链；两者都不是说明格式认错了。
+            // Crunched（28/29）是变长压缩流，算不出确定体积 —— 单列一类，别和「认不出格式」混为一谈。
             let size_basis = match (expect_base, expect_mips) {
                 (Some(b), _) if b == ci_size => "base",
                 (_, Some(m)) if m == ci_size => "mips",
+                (None, _) if matches!(fmt, 28 | 29) => "compressed",
                 (None, _) => "unknown-format",
                 _ => "mismatch",
             };
