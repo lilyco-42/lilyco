@@ -7,6 +7,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/lilyco-42/lilyco"
 keywords = ["cli", "mcp", "pixelliner", "game", "gamedev"]
 categories = ["command-line-interface", "development-tools"]
+readme = "README.md"
 
 [[bin]]
 name = "laic"
