@@ -26,10 +26,11 @@ use lilyco::prelude::*;
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
 
 /// brush.exe 常见安装位置（scoop / cargo）
-const BRUSH_CANDIDATES: &[&str] = &[
-    "D:\\app\\scoop\\apps\\rustup\\current\\.cargo\\bin\\brush.exe",
-    "D:\\app\\scoop\\shims\\brush.exe",
-];
+/// brush 候选路径。
+/// 只放**可移植**的位置：装在本仓库作者机器上的绝对路径对别人毫无意义，
+/// 反而会让这个 crate 在别的机器上莫名其妙地优先挑一个不存在的 shell。
+/// 个人安装位置交给 `BRUSH_PATH` 环境变量或 PATH。
+const BRUSH_CANDIDATES: &[&str] = &["/usr/local/bin/brush", "/usr/bin/brush"];
 
 /// Git Bash 回退路径（brush 缺失时用真 bash）
 const GIT_BASH_CANDIDATES: &[&str] = &[
@@ -199,11 +200,32 @@ fn read_with_cap(mut reader: impl Read) -> (String, bool) {
 
 // ── shell 解析 ────────────────────────────────────────────
 
+/// 路径指向的是不是 brush（而不是 bash / sh / 别的 shell）。
+/// brush 独有 `--no-config`，拼错参数会直接让命令以非 0 退出。
+fn shell_name_is_brush(path: &str) -> bool {
+    Path::new(path)
+        .file_stem()
+        .map(|s| {
+            s.to_string_lossy()
+                .to_ascii_lowercase()
+                .starts_with("brush")
+        })
+        .unwrap_or(false)
+}
+
 /// 解析要用的 shell：BRUSH_PATH > brush 候选路径 > PATH brush > Git Bash > PATH bash
 fn resolve_shell() -> Result<(String, &'static str), AppError> {
     if let Ok(p) = std::env::var("BRUSH_PATH") {
         if !p.is_empty() && Path::new(&p).exists() {
-            return Ok((p, "brush"));
+            // 种类必须按**文件名**判定，不能跟着「从哪条分支来的」走。
+            // 否则 BRUSH_PATH 指向真 bash 时，kind 仍是 "brush"，命令会被拼成
+            // `bash --no-config -c ...` —— Git Bash 不认这个开关，直接退出 2。
+            let kind = if shell_name_is_brush(&p) {
+                "brush"
+            } else {
+                "bash"
+            };
+            return Ok((p, kind));
         }
     }
     for c in BRUSH_CANDIDATES {
@@ -329,6 +351,33 @@ mod tests {
 
     fn shell_available() -> bool {
         resolve_shell().is_ok()
+    }
+
+    /// BRUSH_PATH 覆盖路径时，shell 种类必须按**文件名**判定。
+    /// 曾经无论指向什么一律返回 "brush"，于是 BRUSH_PATH=Git Bash 时命令被拼成
+    /// `bash --no-config -c ...`，Git Bash 不认 --no-config，6 个测试全红。
+    #[test]
+    fn brush_path_override_still_classifies_the_shell_kind() {
+        assert!(shell_name_is_brush("D:/app/scoop/shims/brush.exe"));
+        assert!(shell_name_is_brush("/usr/bin/brush"));
+        assert!(!shell_name_is_brush("C:/Program Files/Git/bin/bash.exe"));
+        assert!(!shell_name_is_brush(
+            "/data/data/com.termux/files/usr/bin/bash"
+        ));
+    }
+
+    /// 候选列表里不许出现个人机器的绝对路径 —— 别人 clone 下来会莫名挑错 shell。
+    #[test]
+    fn shell_candidates_are_portable() {
+        for c in BRUSH_CANDIDATES {
+            assert!(c.starts_with('/'), "候选必须是 POSIX 绝对路径，实际: {c}");
+        }
+        for c in GIT_BASH_CANDIDATES {
+            assert!(
+                c.starts_with(r"C:\Program Files\Git"),
+                "Git Bash 候选路径不对: {c}"
+            );
+        }
     }
 
     #[test]
