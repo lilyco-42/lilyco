@@ -4355,7 +4355,7 @@ mod tests {
             book["by_group"],
             json!({"character": 279, "frame": 11, "paragraph": 147})
         );
-        assert_eq_(
+        assert_eq!(
             book["by_carrier"],
             json!({"bodyPr": 11, "defRPr": 135, "endParaRPr": 58, "lvl1pPr": 17, "lvl2pPr": 10, "lvl3pPr": 10, "lvl4pPr": 10, "lvl5pPr": 10, "lvl6pPr": 10, "lvl7pPr": 10, "lvl8pPr": 10, "lvl9pPr": 10, "pPr": 50, "rPr": 86}),
         );
@@ -4363,11 +4363,11 @@ mod tests {
             book["by_kind"],
             json!({"layout": 350, "master": 68, "presentation": 19})
         );
-        assert_eq_(
+        assert_eq!(
             book["collisions"],
             json!({"lnB/algn": 2, "lnL/algn": 2, "lnR/algn": 1, "lnT/algn": 2, "lnTlToBr/algn": 1, "ph/sz": 43}),
         );
-        assert_eq_(
+        assert_eq!(
             book["attrs_written"],
             json!([
                 "algn",
@@ -4388,7 +4388,7 @@ mod tests {
                 "sz"
             ]),
         );
-        assert_eq_(
+        assert_eq!(
             book["attrs_never"],
             json!([
                 "HideSpc",
@@ -4415,7 +4415,7 @@ mod tests {
                 "wrap"
             ]),
         );
-        assert_eq_(
+        assert_eq!(
             book["onoff"],
             json!({"b": {"1": 21}, "eaLnBrk": {"1": 28}, "hangingPunct": {"1": 28}, "latinLnBrk": {"0": 28}, "rtl": {"0": 28}, "rtlCol": {"0": 5}, "smtClean": {"0": 86}}),
         );
@@ -4432,7 +4432,7 @@ mod tests {
         assert_eq!(row["group"], json!("paragraph"));
         assert_eq!(row["carrier"], json!("lvl1pPr"));
         assert_eq!(row["parent"], json!("defaultTextStyle"));
-        assert_eq_(
+        assert_eq!(
             row["written"],
             json!([
                 "eaLnBrk",
@@ -4444,7 +4444,7 @@ mod tests {
                 "algn"
             ]),
         );
-        assert_eq_(
+        assert_eq!(
             row["attrs"],
             json!({"eaLnBrk": "1", "hangingPunct": "1", "latinLnBrk": "0", "rtl": "0", "defTabSz": "457200", "marL": "0", "algn": "l"}),
         );
@@ -4456,14 +4456,14 @@ mod tests {
         assert_eq!(book["with_switch"], json!(567));
         assert_eq!(book["elements_anywhere"], json!(603));
         assert_eq!(book["not_under_carrier"], json!(36));
-        assert_eq_(
+        assert_eq!(
             book["attrs_written"],
             json!([
                 "algn", "anchor", "b", "defTabSz", "indent", "lang", "lvl", "marL", "strike", "sz",
                 "u"
             ]),
         );
-        assert_eq_(
+        assert_eq!(
             book["attrs_never"],
             json!([
                 "HideSpc",
@@ -4495,7 +4495,7 @@ mod tests {
                 "wrap"
             ]),
         );
-        assert_eq_(
+        assert_eq!(
             book["onoff"],
             json!({"b": {"0": 289, "1": 13}, "strike": {"noStrike": 302}, "u": {"none": 302}}),
         );
@@ -4503,7 +4503,7 @@ mod tests {
             book["by_group"],
             json!({"character": 302, "frame": 66, "paragraph": 199})
         );
-        assert_eq_(
+        assert_eq!(
             book["collisions"],
             json!({"tab/algn": 30, "tcPr/anchor": 6, "tcPr/marL": 6, "tcPr/marR": 6}),
         );
@@ -4527,7 +4527,7 @@ mod tests {
         assert_eq!(book["with_switch"], json!(648));
         assert_eq!(book["listed"], json!(100));
         assert_eq!(book["cut"], json!(548));
-        assert_eq_(
+        assert_eq!(
             book["by_kind"],
             json!({"layout": 39, "master": 536, "notes_master": 30, "notes_slide": 10, "slide": 33}),
         );

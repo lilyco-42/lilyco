@@ -2066,8 +2066,12 @@ mod tests {
     #[test]
     fn an_omitted_char_budget_falls_back_to_the_default() {
         let app = OfficeText {
+            // 分两段 join，与下面 run() 的构造方式一致：Path::join 不会规范化
+            // 已有分隔符，".join(\"a/b\").join(name)" 与 ".join(\"a\").join(\"b/name\")"
+            // 在 Windows 上会产出两种 path 字符串（同一个文件），断言就会假红。
             path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/fixtures/office/notes.docx"),
+                .join("tests/fixtures/office")
+                .join("notes.docx"),
             max_chars: 0,
             keep_empty: false,
             max_bytes: 0,

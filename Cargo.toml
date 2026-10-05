@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "lilyco-core",
+    "lilyco-aic",
     "lilyco-cli",
     "lilyco-tui",
     "lilyco-gui",

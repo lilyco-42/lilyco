@@ -1,0 +1,45 @@
+[package]
+name = "lilyco-aic"
+version.workspace = true
+edition = "2021"
+description = "laic — Alice in Cradle 全格式域：pxls 姿势/贴图/MPCC 立绘，游戏资源完全逆向，四端 (CLI / TUI / Web / MCP) + AI 可调"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+keywords = ["cli", "mcp", "pixelliner", "game", "gamedev"]
+categories = ["command-line-interface", "development-tools"]
+readme = "README.md"
+
+[[bin]]
+name = "laic"
+path = "src/main.rs"
+
+[dependencies]
+# 可选：android 构建用 headless（--no-default-features --features android，
+# 只剩 CLI + MCP，纯 Rust 可在 aarch64-linux-android 编译）
+lilyco = { version = "0.3", path = "../lilyco", optional = true, default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# UnityFS 块解压（LZ4 / LZ4HC block 格式，纯 Rust）
+lz4_flex = "0.11"
+# UnityFS LZMA 数据块（Unity 的 LZMA1 无 size 头，补全 alone 头后用 lzma-rs 解）
+lzma-rs = "0.3"
+texture2ddecoder = "0.1.2"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+gif = "0.14.2"
+
+[features]
+default = ["full"]
+# 全功能（CLI + TUI + Web + MCP）
+full = ["dep:lilyco", "lilyco/full"]
+# Android/Termux：headless（CLI + MCP）
+android = ["dep:lilyco"]
+
+[dev-dependencies]
+tempfile = "3"
+
+# ── cargo binstall ────────────────────────────────────────
+# 资产命名 `{ name }-{ target }{ binary-ext }`（完整 target triple）；
+# pkg-fmt = "bin"：下载的单文件即二进制
+[package.metadata.binstall]
+pkg-url = "https://github.com/lilyco-42/lilyco/releases/download/v{ version }/{ name }-{ target }{ binary-ext }"
+pkg-fmt = "bin"

@@ -1,0 +1,23 @@
+# 开发期默认配置 —— 只影响本机/CI 构建，不改变任何库语义。
+#
+# 为什么需要这一段：
+#   Windows + MSVC 下，即使 [profile.dev] debug = false，rustc 仍会给 link.exe
+#   传 /DEBUG，于是每个 build 都产出一份巨大的 PDB。
+#   实测（cargo build -p lilyco-core，N=3 取最小）：
+#       默认      cold 8105 ms   target/ 129,899,588 B (124 MB)
+#       本配置    cold 7584 ms   target/  61,163,173 B ( 58 MB)
+#   → target/ 直接砍掉 68 MB / 53%，代码零改动。
+#
+# 代价：PDB 没了，断点调试（VS Code / WinDbg 里按行下断点）会失效。
+#   需要调试时把这两行注释掉即可，随时可逆。
+#
+# 注意：debug-assertions 与 overflow-checks 保持默认（开启），
+#       所以「开发期该抓的 bug 一个都不会漏」——只是没有调试符号。
+
+[build]
+rustflags = [
+    "-C", "debuginfo=0",
+    "-C", "link-args=/DEBUG:NONE",
+]
+
+# 增量编译保持开启（默认），这是日常改一行重编的主要提速来源。

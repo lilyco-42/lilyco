@@ -62,10 +62,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy (apps, all targets)
-        run: cargo clippy -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt -p lilyco-dev --all-targets
+        run: cargo clippy -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt -p lilyco-aic -p lilyco-dev --all-targets
 
       - name: Run tests (apps)
-        run: cargo test -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt -p lilyco-dev
+        run: cargo test -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt -p lilyco-aic -p lilyco-dev
 
       # 办公文件这一摊的证据制度：同一批字节，两套独立实现必须给出同样的答案。
       # 编译只在这里发生（本机不跑 cargo build），fixture 是提交进来的真实生产者文件，
@@ -124,6 +124,16 @@ jobs:
           if-no-files-found: error
 
   # Android（Termux）：headless 构建（CLI + MCP，纯 Rust）
+      - name: Build laic (release)
+        run: cargo build --release -p lilyco-aic
+
+      - name: Upload laic artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: laic-windows
+          path: target/release/laic.exe
+          if-no-files-found: error
+
   # crossterm 的 cfg(unix) 不含 android，TUI/Web 后端在 android 目标上关闭
   android:
     name: build android (aarch64)
@@ -191,6 +201,23 @@ jobs:
 
       # 办公文件那一套（docx/xlsx/pptx/odt/…）的读取器：crate 里 `android` 这个 feature
       # 本来就是为这条路留的（flate2 走纯 Rust 后端，Termux 那条链上没有 C 工具链）。
+      - name: "Build laic (android headless: CLI+MCP)"
+        run: |
+          NDK_BIN="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android24-clang"
+          cargo build --release -p lilyco-aic \
+            --no-default-features --features android \
+            --target aarch64-linux-android
+
+      - name: Upload laic artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: laic-android-arm64
+          path: target/aarch64-linux-android/release/laic
+          if-no-files-found: error
+
       # headless 单文件，scp 到板上或 termux 里直接跑 lbin office-*。
       - name: "Build lbin (android headless: office reader)"
         run: |
@@ -282,6 +309,14 @@ jobs:
           name: lffmpeg-android-arm64
           path: release/lffmpeg-android-arm64
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: laic-windows
+          path: release/laic-windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: laic-android-arm64
+          path: release/laic-android-arm64
       - name: Stage release files (platform-suffixed names)
         run: |
           mkdir -p staging
@@ -292,6 +327,9 @@ jobs:
           # lffmpeg 用完整 target triple 命名，供 cargo binstall 匹配 { target }
           cp release/lffmpeg-windows/lffmpeg.exe staging/lffmpeg-x86_64-pc-windows-msvc.exe
           cp release/lffmpeg-android-arm64/lffmpeg staging/lffmpeg-aarch64-linux-android
+          # laic 同理：包名 lilyco-aic + triple，与 [package.metadata.binstall] 的 pkg-url 对齐
+          cp release/laic-windows/laic.exe staging/lilyco-aic-x86_64-pc-windows-msvc.exe
+          cp release/laic-android-arm64/laic staging/lilyco-aic-aarch64-linux-android
 
       - name: Create GitHub Release
         env:
