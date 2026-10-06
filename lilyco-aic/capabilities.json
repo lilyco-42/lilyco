@@ -2,49 +2,6 @@
   {
     "aliases": [],
     "hidden": false,
-    "name": "find-pose",
-    "schema": {
-      "about": "Search ALL PixelLiner .pxls character tables under `root` (file or directory, scanned recursively) for poses whose title matches `name` (glob, case-insensitive) and report which files contain them — e.g. find which enemy table has a `gun` pose that the player table lacks. Returns { root, files_searched, files_parsed, count, matches: [{ file, poses: [{ title, dirs: [{ dir, frames }], frames_total, aliases }] }] } sorted by file path, plus per-file parse `errors`. Read-only (safety T0).",
-      "args": [
-        {
-          "about": "A .pxls file, or a directory scanned recursively for pxls tables",
-          "default": null,
-          "kind": {
-            "must_exist": true,
-            "type": "path"
-          },
-          "name": "root",
-          "required": true
-        },
-        {
-          "about": "Pose title glob, e.g. 'gun', '*stand*'",
-          "default": "",
-          "kind": {
-            "type": "text"
-          },
-          "name": "name",
-          "required": false
-        },
-        {
-          "about": "Cap the number of files processed (0 = unlimited)",
-          "default": 0,
-          "kind": {
-            "max": null,
-            "min": null,
-            "type": "number"
-          },
-          "name": "limit",
-          "required": false
-        }
-      ],
-      "name": "find-pose",
-      "safety": "read_only",
-      "subcommands": []
-    }
-  },
-  {
-    "aliases": [],
-    "hidden": false,
     "name": "tex",
     "schema": {
       "about": "List Texture2D assets inside all `*.texture_0.dat` UnityFS bundles under `root` (file or directory, scanned recursively), or decode them to PNG files with `--out`. Each texture reports name, size, format (Unity `TextureFormat` numbering: 1=Alpha8, 2=ARGB4444, 3=RGB24, 4=RGBA32, 5=ARGB32, 7=RGB565, 9=R16, 10=DXT1/BC1, 12=DXT5/BC3, 13=RGBA4444, 14=BGRA32, 25=BC7, 26=BC4, 27=BC5, 28=DXT1Crunched, 29=DXT5Crunched, 48-51=ASTC 4x4/5x5/6x6/8x8), storage (inline / .resS stream) and bundle path. PNG export decodes every listed format (block formats via texture2ddecoder, the rest with built-in unpackers) and flips the row order (Unity stores Texture2D pixels bottom-up), writing `<name>.png` into `--out`. Read-only (safety T0).",
@@ -90,215 +47,6 @@
         }
       ],
       "name": "tex",
-      "safety": "read_only",
-      "subcommands": []
-    }
-  },
-  {
-    "aliases": [],
-    "hidden": false,
-    "name": "frame",
-    "schema": {
-      "about": "Dump every frame and layer transform of poses matching `pose` (glob on title, case-insensitive) from PixelLiner .pxls tables. This is the character-structure data a mod needs: per layer { name, kind, group, alpha, x, y (units), zmx, zmy, rot_r (radians), blend_variable, img (image key EDI<hex>_<id2>), img_size (px, when the image is found in an atlas) }. `root` is a pxls file or a directory; `index` restricts to one frame index per direction sequence. Returns { root, matches: [{ file, pose, dirs: [{ dir, frames: [{ index, name, crf60, layers: [...] }] }] }] }. Read-only (safety T0).",
-      "args": [
-        {
-          "about": "A .pxls file, or a directory scanned recursively for pxls tables",
-          "default": null,
-          "kind": {
-            "must_exist": true,
-            "type": "path"
-          },
-          "name": "root",
-          "required": true
-        },
-        {
-          "about": "Pose title glob, e.g. 'gun', 'gun2stand'",
-          "default": null,
-          "kind": {
-            "type": "text"
-          },
-          "name": "pose",
-          "required": true
-        },
-        {
-          "about": "Only frame N within each direction sequence (0-based; omit for all)",
-          "default": null,
-          "kind": {
-            "max": null,
-            "min": null,
-            "type": "number"
-          },
-          "name": "index",
-          "required": false
-        }
-      ],
-      "name": "frame",
-      "safety": "read_only",
-      "subcommands": []
-    }
-  },
-  {
-    "aliases": [],
-    "hidden": false,
-    "name": "poses",
-    "schema": {
-      "about": "List poses defined in PixelLiner .pxls character tables (raw files or UnityFS-wrapped .pxls.dat, e.g. Alice in Cradle StreamingAssets). `root` may be a single file or a directory scanned recursively for *.pxls.dat / *.pxls / *.pxls.bytes. Returns { root, files_searched, files_parsed, poses: [{ file, title, width, height, auto_flip, aliases, dirs: [{ dir, frames, loop_to }], frames_total }] } sorted by file path; `pose` filters by pose title with a glob (`*`/`?`, case-insensitive); `full` additionally embeds every frame's layer table (name, type, group, alpha, x, y, zmx, zmy, rot_r, img, img_size) — this is the full character-structure dump. Read-only (safety T0).",
-      "args": [
-        {
-          "about": "A .pxls file, or a directory scanned recursively for pxls tables",
-          "default": null,
-          "kind": {
-            "must_exist": true,
-            "type": "path"
-          },
-          "name": "root",
-          "required": true
-        },
-        {
-          "about": "Glob filter on pose TITLE, e.g. 'gun*' (omit for all poses)",
-          "default": null,
-          "kind": {
-            "type": "text"
-          },
-          "name": "pose",
-          "required": false
-        },
-        {
-          "about": "Also embed every frame's layer transform table (name/type/x/y/zmx/zmy/rot_r/img)",
-          "default": null,
-          "kind": {
-            "type": "flag"
-          },
-          "name": "full",
-          "required": false
-        },
-        {
-          "about": "Cap the number of files processed (0 = unlimited)",
-          "default": 0,
-          "kind": {
-            "max": null,
-            "min": null,
-            "type": "number"
-          },
-          "name": "limit",
-          "required": false
-        }
-      ],
-      "name": "poses",
-      "safety": "read_only",
-      "subcommands": []
-    }
-  },
-  {
-    "aliases": [],
-    "hidden": false,
-    "name": "mpcc",
-    "schema": {
-      "about": "Parse the header of `*.mpcc.bytes` MobPCCContainer files (mobpcc/ skin & recolor containers) under `root` (file or directory, scanned recursively): reports container `name`, character `chr_name`, palette presence flag and remaining payload size. Deep ACC palette parsing (per-parts recolor table) is planned — this command is the inventory step. Read-only (safety T0).",
-      "args": [
-        {
-          "about": "A .mpcc.bytes file, or a directory scanned recursively for MPCC containers",
-          "default": null,
-          "kind": {
-            "must_exist": true,
-            "type": "path"
-          },
-          "name": "root",
-          "required": true
-        },
-        {
-          "about": "Container name glob filter, e.g. 'NOEL*'",
-          "default": "",
-          "kind": {
-            "type": "text"
-          },
-          "name": "name",
-          "required": false
-        },
-        {
-          "about": "Cap the number of files processed (0 = unlimited)",
-          "default": 0,
-          "kind": {
-            "max": null,
-            "min": null,
-            "type": "number"
-          },
-          "name": "limit",
-          "required": false
-        }
-      ],
-      "name": "mpcc",
-      "safety": "read_only",
-      "subcommands": []
-    }
-  },
-  {
-    "aliases": [],
-    "hidden": false,
-    "name": "sprites",
-    "schema": {
-      "about": "Export every sprite of PixelLiner .pxls character tables as an individual PNG by cropping the packed atlas with the `%PACK_SECTION%` UV table (the data a sprite/mod pipeline needs). For each table under `root` (file or directory, scanned recursively) it pairs every atlas entry with its pixels the way the game does: atlas index i takes the Texture2D whose asset name ends with `_i` inside `<stem>.pxls.bytes.texture_0.dat` (the game packs both `texture_0` and the parts `texture_1` in that one bundle — matched by name, never by object order), falling back to a separate `<stem>.pxls.bytes.texture_<i>` file or an embedded PNG. Decoding covers DXT5/BC3, DXT1/BC1, BC7, BC4/BC5, DXT1/5Crunched, RGBA32, RGB24, RGB565, ARGB4444, RGBA4444, BGRA32 and ASTC. Output is `<out>/<table>/<layer-name>.png`. Sprites are named after the POSE LAYER that uses the image (falling back to the raw EDI<hex>_<id2> key when no layer references it); sprites taken from a secondary atlas get an `.a<i>` suffix. A PARTS atlas whose UV count is 0 inherits the previous atlas's UV table (same rects, different texture — the torn/clothing-overlay variant), exactly like `PxlsImgAtlas.readFromBytes` does. `margin` from the atlas entry is honoured (`x+margin, y+margin, w-2m, h-2m`) and the crop uses PNG top-left origin (no Y flip). Flags: `atlas` also dumps the whole decoded atlas, `embedded` also writes PNGs embedded in the `%IMGS_SECTION%`. Read-only (safety T0).",
-      "args": [
-        {
-          "about": "A .pxls file, or a directory scanned recursively for pxls tables",
-          "default": null,
-          "kind": {
-            "must_exist": true,
-            "type": "path"
-          },
-          "name": "root",
-          "required": true
-        },
-        {
-          "about": "Directory to write the cropped sprite PNG files into",
-          "default": null,
-          "kind": {
-            "must_exist": false,
-            "type": "path"
-          },
-          "name": "out",
-          "required": true
-        },
-        {
-          "about": "Only export sprites used by poses whose title matches this glob",
-          "default": "",
-          "kind": {
-            "type": "text"
-          },
-          "name": "pose",
-          "required": false
-        },
-        {
-          "about": "Also write the whole decoded atlas as <table>.atlas_<i>.png",
-          "default": false,
-          "kind": {
-            "type": "flag"
-          },
-          "name": "atlas",
-          "required": false
-        },
-        {
-          "about": "Also write PNGs embedded in the %IMGS_SECTION%",
-          "default": false,
-          "kind": {
-            "type": "flag"
-          },
-          "name": "embedded",
-          "required": false
-        },
-        {
-          "about": "Cap the number of tables processed (0 = unlimited)",
-          "default": 0,
-          "kind": {
-            "max": null,
-            "min": null,
-            "type": "number"
-          },
-          "name": "limit",
-          "required": false
-        }
-      ],
-      "name": "sprites",
       "safety": "read_only",
       "subcommands": []
     }
@@ -400,6 +148,15 @@
           "required": false
         },
         {
+          "about": "Composite from the PARTS atlas (texture_1) instead of the primary one — the torn/clothing-overlay variant. Tables without a second atlas are unaffected",
+          "default": false,
+          "kind": {
+            "type": "flag"
+          },
+          "name": "parts",
+          "required": false
+        },
+        {
           "about": "Cap the number of tables processed (0 = unlimited)",
           "default": 0,
           "kind": {
@@ -412,6 +169,215 @@
         }
       ],
       "name": "render",
+      "safety": "read_only",
+      "subcommands": []
+    }
+  },
+  {
+    "aliases": [],
+    "hidden": false,
+    "name": "sprites",
+    "schema": {
+      "about": "Export every sprite of PixelLiner .pxls character tables as an individual PNG by cropping the packed atlas with the `%PACK_SECTION%` UV table (the data a sprite/mod pipeline needs). For each table under `root` (file or directory, scanned recursively) it pairs every atlas entry with its pixels the way the game does: atlas index i takes the Texture2D whose asset name ends with `_i` inside `<stem>.pxls.bytes.texture_0.dat` (the game packs both `texture_0` and the parts `texture_1` in that one bundle — matched by name, never by object order), falling back to a separate `<stem>.pxls.bytes.texture_<i>` file or an embedded PNG. Decoding covers DXT5/BC3, DXT1/BC1, BC7, BC4/BC5, DXT1/5Crunched, RGBA32, RGB24, RGB565, ARGB4444, RGBA4444, BGRA32 and ASTC. Output is `<out>/<table>/<layer-name>.png`. Sprites are named after the POSE LAYER that uses the image (falling back to the raw EDI<hex>_<id2> key when no layer references it); sprites taken from a secondary atlas get an `.a<i>` suffix. A PARTS atlas whose UV count is 0 inherits the previous atlas's UV table (same rects, different texture — the torn/clothing-overlay variant), exactly like `PxlsImgAtlas.readFromBytes` does. `margin` from the atlas entry is honoured (`x+margin, y+margin, w-2m, h-2m`) and the crop uses PNG top-left origin (no Y flip). Flags: `atlas` also dumps the whole decoded atlas, `embedded` also writes PNGs embedded in the `%IMGS_SECTION%`. Read-only (safety T0).",
+      "args": [
+        {
+          "about": "A .pxls file, or a directory scanned recursively for pxls tables",
+          "default": null,
+          "kind": {
+            "must_exist": true,
+            "type": "path"
+          },
+          "name": "root",
+          "required": true
+        },
+        {
+          "about": "Directory to write the cropped sprite PNG files into",
+          "default": null,
+          "kind": {
+            "must_exist": false,
+            "type": "path"
+          },
+          "name": "out",
+          "required": true
+        },
+        {
+          "about": "Only export sprites used by poses whose title matches this glob",
+          "default": "",
+          "kind": {
+            "type": "text"
+          },
+          "name": "pose",
+          "required": false
+        },
+        {
+          "about": "Also write the whole decoded atlas as <table>.atlas_<i>.png",
+          "default": false,
+          "kind": {
+            "type": "flag"
+          },
+          "name": "atlas",
+          "required": false
+        },
+        {
+          "about": "Also write PNGs embedded in the %IMGS_SECTION%",
+          "default": false,
+          "kind": {
+            "type": "flag"
+          },
+          "name": "embedded",
+          "required": false
+        },
+        {
+          "about": "Cap the number of tables processed (0 = unlimited)",
+          "default": 0,
+          "kind": {
+            "max": null,
+            "min": null,
+            "type": "number"
+          },
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "name": "sprites",
+      "safety": "read_only",
+      "subcommands": []
+    }
+  },
+  {
+    "aliases": [],
+    "hidden": false,
+    "name": "mpcc",
+    "schema": {
+      "about": "Parse `*.mpcc.bytes` MobPCCContainer files (mobpcc/ portrait skin & recolor containers) under `root` (file or directory, scanned recursively). This is the data behind Alice in Cradle's outfit/colour customisation: the container names a character and holds a per-PARTS list of colour operations that the game applies on the GPU. Reported per container: `name`, `chr_name`, and every parts entry with its ops — `hsv` (h raw + degrees, s/v raw + percent, flags) and `tone_curve` (channel count and per-channel point counts; pass `full` to also emit the 0..255 key-point lists). Every file is re-serialised and compared byte-for-byte against the input (`roundtrip_ok`), so `true` proves the parse is complete — including the two places where the game reads-and-discards bytes (op type 0, and parts entries whose op count is 0); `dropped` reports how many were discarded. Read-only (safety T0).",
+      "args": [
+        {
+          "about": "A .mpcc.bytes file, or a directory scanned recursively for MPCC containers",
+          "default": null,
+          "kind": {
+            "must_exist": true,
+            "type": "path"
+          },
+          "name": "root",
+          "required": true
+        },
+        {
+          "about": "Container name glob filter, e.g. 'NOEL*'",
+          "default": "",
+          "kind": {
+            "type": "text"
+          },
+          "name": "name",
+          "required": false
+        },
+        {
+          "about": "Also emit the tone-curve key-point lists (each channel can hold up to 255 points)",
+          "default": false,
+          "kind": {
+            "type": "flag"
+          },
+          "name": "full",
+          "required": false
+        },
+        {
+          "about": "Cap the number of files processed (0 = unlimited)",
+          "default": 0,
+          "kind": {
+            "max": null,
+            "min": null,
+            "type": "number"
+          },
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "name": "mpcc",
+      "safety": "read_only",
+      "subcommands": []
+    }
+  },
+  {
+    "aliases": [],
+    "hidden": false,
+    "name": "find-pose",
+    "schema": {
+      "about": "Search ALL PixelLiner .pxls character tables under `root` (file or directory, scanned recursively) for poses whose title matches `name` (glob, case-insensitive) and report which files contain them — e.g. find which enemy table has a `gun` pose that the player table lacks. Returns { root, files_searched, files_parsed, count, matches: [{ file, poses: [{ title, dirs: [{ dir, frames }], frames_total, aliases }] }] } sorted by file path, plus per-file parse `errors`. Read-only (safety T0).",
+      "args": [
+        {
+          "about": "A .pxls file, or a directory scanned recursively for pxls tables",
+          "default": null,
+          "kind": {
+            "must_exist": true,
+            "type": "path"
+          },
+          "name": "root",
+          "required": true
+        },
+        {
+          "about": "Pose title glob, e.g. 'gun', '*stand*'",
+          "default": "",
+          "kind": {
+            "type": "text"
+          },
+          "name": "name",
+          "required": false
+        },
+        {
+          "about": "Cap the number of files processed (0 = unlimited)",
+          "default": 0,
+          "kind": {
+            "max": null,
+            "min": null,
+            "type": "number"
+          },
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "name": "find-pose",
+      "safety": "read_only",
+      "subcommands": []
+    }
+  },
+  {
+    "aliases": [],
+    "hidden": false,
+    "name": "frame",
+    "schema": {
+      "about": "Dump every frame and layer transform of poses matching `pose` (glob on title, case-insensitive) from PixelLiner .pxls tables. This is the character-structure data a mod needs: per layer { name, kind, group, alpha, x, y (units), zmx, zmy, rot_r (radians), blend_variable, img (image key EDI<hex>_<id2>), img_size (px, when the image is found in an atlas) }. `root` is a pxls file or a directory; `index` restricts to one frame index per direction sequence. Returns { root, matches: [{ file, pose, dirs: [{ dir, frames: [{ index, name, crf60, layers: [...] }] }] }] }. Read-only (safety T0).",
+      "args": [
+        {
+          "about": "A .pxls file, or a directory scanned recursively for pxls tables",
+          "default": null,
+          "kind": {
+            "must_exist": true,
+            "type": "path"
+          },
+          "name": "root",
+          "required": true
+        },
+        {
+          "about": "Pose title glob, e.g. 'gun', 'gun2stand'",
+          "default": null,
+          "kind": {
+            "type": "text"
+          },
+          "name": "pose",
+          "required": true
+        },
+        {
+          "about": "Only frame N within each direction sequence (0-based; omit for all)",
+          "default": null,
+          "kind": {
+            "max": null,
+            "min": null,
+            "type": "number"
+          },
+          "name": "index",
+          "required": false
+        }
+      ],
+      "name": "frame",
       "safety": "read_only",
       "subcommands": []
     }
@@ -516,6 +482,301 @@
         }
       ],
       "name": "repack",
+      "safety": "confirm",
+      "subcommands": []
+    }
+  },
+  {
+    "aliases": [],
+    "hidden": false,
+    "name": "poses",
+    "schema": {
+      "about": "List poses defined in PixelLiner .pxls character tables (raw files or UnityFS-wrapped .pxls.dat, e.g. Alice in Cradle StreamingAssets). `root` may be a single file or a directory scanned recursively for *.pxls.dat / *.pxls / *.pxls.bytes. Returns { root, files_searched, files_parsed, poses: [{ file, title, width, height, auto_flip, aliases, dirs: [{ dir, frames, loop_to }], frames_total }] } sorted by file path; `pose` filters by pose title with a glob (`*`/`?`, case-insensitive); `full` additionally embeds every frame's layer table (name, type, group, alpha, x, y, zmx, zmy, rot_r, img, img_size) — this is the full character-structure dump. Read-only (safety T0).",
+      "args": [
+        {
+          "about": "A .pxls file, or a directory scanned recursively for pxls tables",
+          "default": null,
+          "kind": {
+            "must_exist": true,
+            "type": "path"
+          },
+          "name": "root",
+          "required": true
+        },
+        {
+          "about": "Glob filter on pose TITLE, e.g. 'gun*' (omit for all poses)",
+          "default": null,
+          "kind": {
+            "type": "text"
+          },
+          "name": "pose",
+          "required": false
+        },
+        {
+          "about": "Also embed every frame's layer transform table (name/type/x/y/zmx/zmy/rot_r/img)",
+          "default": null,
+          "kind": {
+            "type": "flag"
+          },
+          "name": "full",
+          "required": false
+        },
+        {
+          "about": "Cap the number of files processed (0 = unlimited)",
+          "default": 0,
+          "kind": {
+            "max": null,
+            "min": null,
+            "type": "number"
+          },
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "name": "poses",
+      "safety": "read_only",
+      "subcommands": []
+    }
+  },
+  {
+    "aliases": [],
+    "hidden": false,
+    "name": "animate",
+    "schema": {
+      "about": "Drive a PixelLiner pose sequence as a steppable animation state machine — the runtime half that `render` does not expose. Mirrors pixelliner4j's FrameAnimator exactly: each frame lasts `crf60` ticks of 1/60 s, `step` accumulates ticks and advances when the budget is spent, `stepFrame` jumps a whole frame, `changeFrame(name)` seeks by frame name (case-insensitive), and running past the end wraps to `loop_to` and increments `looped_count`. Answers the modding question \"how many ticks is one loop of this animation, and which frame does it return to\". Select the sequence with `pose` (title glob) + `dir` (0..=7); seek with `frame` (name) or `index`; then advance with `ticks` (tick-accurate) and/or `frames` (whole frames). `out` renders the frame the playhead landed on. Read-only (safety T0).",
+      "args": [
+        {
+          "about": "A .pxls file, or a directory scanned recursively for pxls tables",
+          "default": null,
+          "kind": {
+            "must_exist": true,
+            "type": "path"
+          },
+          "name": "root",
+          "required": true
+        },
+        {
+          "about": "Pose title glob filter (case-insensitive)",
+          "default": "*",
+          "kind": {
+            "type": "text"
+          },
+          "name": "pose",
+          "required": false
+        },
+        {
+          "about": "Only direction N (0..=7; omit for all)",
+          "default": 99,
+          "kind": {
+            "max": null,
+            "min": null,
+            "type": "number"
+          },
+          "name": "dir",
+          "required": false
+        },
+        {
+          "about": "Seek to frame index N before advancing (0-based)",
+          "default": 99,
+          "kind": {
+            "max": null,
+            "min": null,
+            "type": "number"
+          },
+          "name": "index",
+          "required": false
+        },
+        {
+          "about": "Seek to the frame named N (case-insensitive; takes precedence over index)",
+          "default": "",
+          "kind": {
+            "type": "text"
+          },
+          "name": "frame",
+          "required": false
+        },
+        {
+          "about": "Advance N ticks of 1/60 s (accumulates against each frame's crf60)",
+          "default": 0,
+          "kind": {
+            "max": null,
+            "min": null,
+            "type": "number"
+          },
+          "name": "ticks",
+          "required": false
+        },
+        {
+          "about": "Additionally jump N whole frames (ignores crf60)",
+          "default": 0,
+          "kind": {
+            "max": null,
+            "min": null,
+            "type": "number"
+          },
+          "name": "frames",
+          "required": false
+        },
+        {
+          "about": "Directory to render the frame the playhead landed on into (empty = no render)",
+          "default": "",
+          "kind": {
+            "type": "text"
+          },
+          "name": "out",
+          "required": false
+        },
+        {
+          "about": "Integer upscale factor when rendering",
+          "default": 1,
+          "kind": {
+            "max": null,
+            "min": null,
+            "type": "number"
+          },
+          "name": "scale",
+          "required": false
+        },
+        {
+          "about": "Explicit texture file for atlas 0 (overrides auto pairing)",
+          "default": "",
+          "kind": {
+            "type": "text"
+          },
+          "name": "texture",
+          "required": false
+        },
+        {
+          "about": "Render the landed frame from the PARTS atlas (texture_1) instead of the primary one",
+          "default": false,
+          "kind": {
+            "type": "flag"
+          },
+          "name": "parts",
+          "required": false
+        },
+        {
+          "about": "Cap the number of tables processed (0 = unlimited)",
+          "default": 0,
+          "kind": {
+            "max": null,
+            "min": null,
+            "type": "number"
+          },
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "name": "animate",
+      "safety": "read_only",
+      "subcommands": []
+    }
+  },
+  {
+    "aliases": [],
+    "hidden": false,
+    "name": "pack",
+    "schema": {
+      "about": "Re-pack a PixelLiner atlas: crop every sprite out of the current atlas (optionally substituting edited PNGs from `replace`), lay them out again (default `shelf` = rows filled height-descending, ~92% occupancy; `--packer guillotine` reproduces pixelliner4j's naive node-tree packer, which measured only 20% on noel and needs twice the atlas side), trim the canvas to what is actually used, and write a self-contained `.pxl` with the new atlas embedded as PNG. This is the missing half of the edit loop — `sprites` cuts, you edit, `pack` puts it back. Unlike pixelliner4j's equivalent it KEEPS the IMGS/IMGV/PTCL sections, keeps dual atlases (the PARTS atlas reuses the same rects and keeps its empty UV list so the inheritance rule still fires), keeps each UV's w/h so rendered sizes never drift, and reserves `margin` pixels around every sprite so neighbours cannot bleed. Layer keys are untouched, so every pose/frame keeps working unchanged. `replace` is a directory of PNGs named exactly as `sprites` writes them: `<layer-name>.png` for the FIRST sprite with that layer name, `<layer-name>.<img-key>.png` when the name is shared (617 keys are called `Layer` in noel, so a bare `Layer.png` matches only one of them), or `<img-key>.png`; non-primary atlases add `.a<atlas>`. Files that match nothing are reported in `unmatched_replacements` — never dropped silently. If a replacement changes a sprite's SIZE, the PARTS atlas that shares the UV table follows it (reported as carried/fitted) so both stay geometrically identical. Writes `<out>/<table>.pxl`; `atlas` also dumps `<out>/<table>.atlas_<i>.png`. DRY RUN BY DEFAULT — pass `apply: true` to write (safety tier T1: the automated/MCP surface denies it). Every written file is re-read, re-parsed and its sprites compared pixel-by-pixel against what went in. Suggest running `sprites` first so the replacement PNGs carry the exact export names.",
+      "args": [
+        {
+          "about": "A .pxls file, or a directory scanned recursively for pxls tables",
+          "default": null,
+          "kind": {
+            "must_exist": true,
+            "type": "path"
+          },
+          "name": "root",
+          "required": true
+        },
+        {
+          "about": "Directory to write the .pxl files into",
+          "default": null,
+          "kind": {
+            "must_exist": false,
+            "type": "path"
+          },
+          "name": "out",
+          "required": true
+        },
+        {
+          "about": "Directory of replacement PNGs (named as `sprites` writes them)",
+          "default": "",
+          "kind": {
+            "type": "text"
+          },
+          "name": "replace",
+          "required": false
+        },
+        {
+          "about": "Pose title glob, only to reproduce the exact file names `sprites --pose` produced",
+          "default": "",
+          "kind": {
+            "type": "text"
+          },
+          "name": "pose",
+          "required": false
+        },
+        {
+          "about": "Starting atlas side in px (0 = derive from the original atlas)",
+          "default": 0,
+          "kind": {
+            "max": null,
+            "min": null,
+            "type": "number"
+          },
+          "name": "size",
+          "required": false
+        },
+        {
+          "about": "Packing algorithm: shelf (default) | guillotine (pixelliner4j's, for comparison)",
+          "default": "shelf",
+          "kind": {
+            "type": "text"
+          },
+          "name": "packer",
+          "required": false
+        },
+        {
+          "about": "Also dump the re-packed atlas PNG for inspection",
+          "default": false,
+          "kind": {
+            "type": "flag"
+          },
+          "name": "atlas",
+          "required": false
+        },
+        {
+          "about": "Actually write the files. Without this flag the command is a dry run",
+          "default": null,
+          "kind": {
+            "type": "flag"
+          },
+          "name": "apply",
+          "required": false
+        },
+        {
+          "about": "Allow overwriting an existing output file (default: skip it)",
+          "default": null,
+          "kind": {
+            "type": "flag"
+          },
+          "name": "overwrite",
+          "required": false
+        },
+        {
+          "about": "Cap the number of tables processed (0 = unlimited)",
+          "default": 0,
+          "kind": {
+            "max": null,
+            "min": null,
+            "type": "number"
+          },
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "name": "pack",
       "safety": "confirm",
       "subcommands": []
     }

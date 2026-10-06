@@ -217,7 +217,7 @@ pub fn write_docs(
     name = "doc",
     run = "run_doc",
     safety = "t1",
-    about = "Generate the capability table of a four-surface app: discovers binaries via `cargo metadata --no-deps`, runs the app's root --schema (registry-style apps from the domain template) and writes capabilities.json (verbatim schema manifest, the machine contract for agents) plus CAPABILITIES.md (rendered table: command x safety tier x args) into the project directory. --json instead prints the raw manifest to stdout without writing files. External process invocation plus file writes (safety T1); returns { bin, capabilities_json, capabilities_md } or { mode: stdout, bin }."
+    about = "Generate the capability table of a four-surface app: discovers binaries via `cargo metadata --no-deps`, runs the app's root --schema (registry-style apps from the domain template) and writes capabilities.json (verbatim schema manifest, the machine contract for agents) plus CAPABILITIES.md (rendered table: command x safety tier x args) into the project directory. --stdout instead prints the raw manifest to stdout without writing files. External process invocation plus file writes (safety T1); returns { bin, capabilities_json, capabilities_md } or { mode: stdout, bin }."
 )]
 pub struct Doc {
     /// 项目目录（缺省 = 当前目录）
@@ -229,8 +229,13 @@ pub struct Doc {
     /// 输出目录（缺省 = project）
     pub out_dir: Option<PathBuf>,
 
-    /// 只把 manifest 原样打到 stdout，不写文件
-    pub json: bool,
+    /// 只把 manifest 原样打到 stdout，不写文件。
+    ///
+    /// 🔴 不能叫 `json`：CLI 层给**每条命令**都自动附加了内置 `--json`
+    /// （`lilyco-cli/src/command.rs::add_builtin_flags`），字段同名会让 clap 起不来：
+    /// `Argument names must be unique, but 'json' is in use by more than one argument`。
+    /// 内置那个是「输出格式：单个 JSON」，这个是「不写盘」，两件事。
+    pub stdout: bool,
 }
 
 fn run_doc(app: &Doc, ctx: &Context) -> Result<Value, AppError> {
@@ -261,7 +266,7 @@ fn run_doc(app: &Doc, ctx: &Context) -> Result<Value, AppError> {
     ctx.tick(1, Some(3), &format!("capturing schema of {bin}"));
     let manifest = capture_schema(&project, &bin).map_err(AppError::Runtime)?;
     ctx.tick(2, Some(3), "writing capability table");
-    if app.json {
+    if app.stdout {
         println!("{manifest}");
         let result = json!({ "mode": "stdout", "bin": bin });
         ctx.done(result.clone(), start.elapsed().as_millis() as u64);
