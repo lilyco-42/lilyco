@@ -1,15 +1,28 @@
 [package]
 name = "lilyco-srt"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
-description = "Auto-subtitle videos: faster-whisper ASR + ffmpeg burn-in. One struct, four ends (CLI/TUI/Web/MCP)."
+description = "Lilyco auto-subtitle: faster-whisper ASR + ffmpeg burn-in, four interfaces + AI-callable"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lilyco-42/lilyco"
+keywords = ["subtitle", "whisper", "asr", "video", "ffmpeg"]
+categories = ["command-line-interface", "multimedia"]
 
 [[bin]]
 name = "lsrt"
 path = "src/main.rs"
 
 [dependencies]
-lilyco = { path = "../lilyco" }
+lilyco = { version = "0.3", path = "../lilyco", optional = true, default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-clap = { version = "4", features = ["derive"] }
+
+[features]
+default = ["full"]
+full = ["dep:lilyco", "lilyco/full"]
+android = ["dep:lilyco"]
+
+# cargo binstall: `cargo binstall lilyco-srt`
+[package.metadata.binstall]
+pkg-url = "https://github.com/lilyco-42/lilyco/releases/download/v{ version }/{ name }-{ target }{ binary-ext }"
+pkg-fmt = "bin"
