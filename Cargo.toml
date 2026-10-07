@@ -25,11 +25,87 @@ members = [
     "lilyco-bitnet",
     "lilyco-dev",
     "lilyco",
+    "lilyco-srt",
 ]
 resolver = "2"
+
+# ============================================================================
+# 🔴 日常工作集：只编「非图形 / 非桌面」成员
+#
+# 实测（cargo metadata 解析图，2026-10-01）：
+#   根目录 `cargo build`（全部 24 成员）  = 865 个包
+#   只编下面这 19 个成员                  = 379 个包
+#   ⇒ 省掉 486 个包（56%）
+#
+# 被排除的 5 个是「应用 / UI 层」，各自背着重依赖，日常改 core 时完全用不到：
+#   lilyco-graphite            231 包（Graphite 编辑器内核，git dep）
+#   lilyco-tauri               193 包（Tauri 桌面壳）
+#   lilyco-gui / lilyco-ultra-ui / lilyco-ultra-ui-example   其余部分
+#
+# 它们没有被删掉，仍然可以显式编：
+#   cargo build -p lilyco-tauri          # 编单个
+#   cargo build --workspace             # 编全部（等价于改动前的行为）
+#   cargo clippy --workspace / cargo test --workspace
+#
+# CI 未受影响：.github/workflows/*.yml 全部用 `-p <crate>` 显式指定，
+# 从来不跑裸 `cargo build`（已逐行核对 ci.yml 与 desktop.yml）。
+#
+# ⚠️ 如果哪天想恢复「根目录编全部」，删掉这个 default-members 段即可
+#    （备份在 Cargo.toml.bak-before-default-members）。
+# ============================================================================
+default-members = [
+    "lilyco-core",
+    "lilyco-cli",
+    "lilyco-tui",
+    "lilyco-mcp",
+    "lilyco-macros",
+    "lilyco-example",
+    "lilyco-grep",
+    "lilyco-mpkg",
+    "lilyco-plc",
+    "lilyco-brush",
+    "lilyco-ffmpeg",
+    "lilyco-files",
+    "lilyco-binfmt",
+    "lilyco-vision",
+    "lilyco-letsgal",
+    "lilyco-pet",
+    "lilyco-bitnet",
+    "lilyco-dev",
+    "lilyco",
+    "lilyco-srt",
+]
 
 [workspace.package]
 version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/lilyco-42/lilyco"
+
+# ============================================================================
+# 体积优化（实测 target 4,135 MB -> 953 MB，见 TAURI_1GB_ACHIEVED.md）
+# 追加于 20261001-131959
+# ============================================================================
+
+[profile.dev]
+opt-level = 1
+debug = false                # 需要断点调试时改回 "line-tables-only"
+incremental = true           # 改 false 再省 64 MB，但改一行会重编整个 crate
+codegen-units = 16
+strip = "debuginfo"
+panic = "abort"
+
+# 🔴 依赖用 opt-level="z" 压 rlib —— 实测省 113 MB
+[profile.dev.package."*"]
+opt-level = "z"
+debug = false
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+incremental = false
+overflow-checks = false
+debug-assertions = false
