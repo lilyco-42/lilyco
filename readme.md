@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/lilyco-42/lilyco/HEAD/docs/logo.png" alt="lilyco" width="200">
-</p>
-
 <div align="center">
   <img src="docs/banner.svg" width="720" alt="banner">
 </div>
