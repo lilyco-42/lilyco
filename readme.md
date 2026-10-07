@@ -88,12 +88,19 @@ cargo binstall lilyco-ffmpeg   # or lilyco-srt, lilyco-brush, ...
 
 ## Documentation
 
+- [Why Lilyco](docs/WHY.md) — the problem and design motivation
+- [Quick Start](docs/QUICKSTART.md) — full worked example (imgpress)
 - [Architecture](docs/ARCHITECTURE.md) — how the four ends dispatch
-- [Type → Widget mapping](docs/DOMAIN-GUIDE.md)
-- [Companion board (Radxa A7A)](docs/COMPANION.md)
-- [Ecosystem roadmap](docs/ECOSYSTEM_ROADMAP.md)
-- [Codegraph for AI agents](docs/CODEGRAPH.md)
-- [Integration guide](docs/INTEGRATION.md)
+- [Architecture detail](docs/ARCH-DETAIL.md) — design principles + ASCII diagram
+- [Crate Reference](docs/CRATE-REFERENCE.md) — core traits, types, macros, per-crate API
+- [Type → Widget mapping](docs/TYPE-WIDGET.md)
+- [AI Integration](docs/AI-INTEGRATION.md) — MCP, JSON Schema, progress protocol
+- [Examples](docs/EXAMPLES.md) — more apps built on lilyco
+- [DSH Integration](docs/DSH.md)
+- [Testing](docs/TESTING.md)
+- [Installation](docs/INSTALL.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Research & references](docs/RESEARCH.md)
 
 ---
 
