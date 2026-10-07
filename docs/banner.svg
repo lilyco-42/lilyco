@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200" font-family="system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif">
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200" font-family="system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#101828"/><stop offset="1" stop-color="#172554"/>
@@ -8,8 +8,6 @@
     </linearGradient>
   </defs>
   <rect width="600" height="200" fill="url(#bg)"/>
-  <text x="440" y="86" font-size="72" font-weight="700" fill="#1e3a8a" opacity="0.5" font-family="Consolas,monospace">{ }</text>
-  <text x="492" y="160" font-size="46" font-weight="700" fill="#1e40af" opacity="0.55" font-family="Consolas,monospace">=&gt;</text>
   <rect x="0" y="0" width="6" height="200" fill="url(#ac)"/>
   <rect x="36" y="46" height="34" rx="17" width="130" fill="rgba(37,99,235,.18)" stroke="#2563eb"/>
   <text x="101" y="69" font-size="15" fill="#93c5fd" text-anchor="middle">Rust · ★6 旗舰</text>
