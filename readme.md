@@ -1205,3 +1205,64 @@ lilyco-core = { git = "https://github.com/lilyco-42/lilyco" }
 
 MIT OR Apache-2.0, at your option.
 
+
+## 理论依据与相关研究
+
+lilyco 的 "Token 2 Anything" 愿景建立在以下学术研究和工业实践基础之上：
+
+### 1. Agent-Native Computer Use（Agent 原生计算机使用）
+
+**核心论文：CLI-Anything: Towards Agent-Native Computer Use**
+- 作者：香港大学 HKUDS 实验室
+- arXiv: 2606.03854 (2026)
+- 核心观点：提出 agent-native 计算机使用设计范式——不强迫 AI agent 导航视觉界面（GUI），而是创建与 agent 能力对齐的结构化命令行接口。一行命令即可将任意 GUI 软件转化为 AI agent 可操控的工具。
+- 与 lilyco 的关系：lilyco 从代码层面实现这一理念，通过 Rust derive 宏自动生成 CLI/TUI/Web/MCP 四端，让软件天生 AI-callable。
+
+### 2. Model Context Protocol (MCP) 与工具标准化
+
+**核心论文：Model Context Protocol (MCP): Landscape, Security Threats and Future Directions**
+- arXiv: 2503.23278 (2025)
+- 核心观点：MCP 是一个新兴的开放标准，定义了 AI 模型与外部工具/资源之间的统一、双向通信和动态发现协议。
+
+**实践论文：MCPToolBench++: A Large Scale AI Agent Model Context Protocol MCP Tool Use Benchmark**
+- arXiv: 2508.07575 (2025)
+- 核心观点：大规模评估 LLM 和 AI Agent 的 MCP 工具使用能力。
+
+### 3. LLM Agent 工具使用与自主性
+
+**综述论文：From LLM Reasoning to Autonomous AI Agents**
+- arXiv: 2504.19678 (2025)
+- 核心观点：全面综述从 LLM 推理到自主 AI agent 的发展路径。
+
+**实践论文：LLM Agents Making Agent Tools (ToolMaker)**
+- arXiv: 2502.11705 (2025)
+- 核心观点：让 LLM agent 能够动态创建专用工具。
+
+### 4. 终端使用 Agent 评估
+
+**基准论文：TUA-Bench: A Benchmark for General-Purpose Terminal-Use Agents**
+- arXiv: 2606.28480 (2026)
+- 核心观点：评估通用终端使用 agent（TUA）的基准。
+
+## 愿景实现路径
+
+```
+让软件天生可被 AI 调用（AI-callable by default）
+        ↓
+通过 MCP 标准协议暴露工具能力
+        ↓
+AI agent 发现 → 规划 → 调用 → 完成任何任务
+        ↓
+人类不再需要亲自操作计算机
+```
+
+lilyco 通过 Rust derive 宏实现"一个 struct 派生四端"：CLI、TUI、Web、MCP，结合采样桥实现工具与 LLM 的双向智能交互。
+
+## 参考文献
+
+1. CLI-Anything: Towards Agent-Native Computer Use. arXiv:2606.03854, 2026.
+2. Model Context Protocol (MCP): Landscape, Security Threats and Future Directions. arXiv:2503.23278, 2025.
+3. MCPToolBench++: A Large Scale AI Agent Model Context Protocol MCP Tool Use Benchmark. arXiv:2508.07575, 2025.
+4. From LLM Reasoning to Autonomous AI Agents. arXiv:2504.19678, 2025.
+5. LLM Agents Making Agent Tools (ToolMaker). arXiv:2502.11705, 2025.
+6. TUA-Bench: A Benchmark for General-Purpose Terminal-Use Agents. arXiv:2606.28480, 2026.
