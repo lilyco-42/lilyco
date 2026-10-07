@@ -1266,3 +1266,61 @@ lilyco 通过 Rust derive 宏实现"一个 struct 派生四端"：CLI、TUI、We
 4. From LLM Reasoning to Autonomous AI Agents. arXiv:2504.19678, 2025.
 5. LLM Agents Making Agent Tools (ToolMaker). arXiv:2502.11705, 2025.
 6. TUA-Bench: A Benchmark for General-Purpose Terminal-Use Agents. arXiv:2606.28480, 2026.
+
+---
+
+## 相关项目与生态
+
+### 核心相关项目
+
+| 项目 | 链接 | 与 lilyco 的关系 |
+|---|---|---|
+| CLI-Anything | https://github.com/HKUDS/CLI-Anything | 理念互补：lilyco 从代码层面实现 agent-native，CLI-Anything 提供将现有软件转化为 agent 工具的流程 |
+| MCP Rust SDK | https://github.com/modelcontextprotocol/rust-sdk | lilyco MCP 端可直接使用官方 Rust SDK 作为协议基础 |
+| MCP 官方服务器 | https://github.com/modelcontextprotocol/servers | MCP 参考实现与社区服务器集合，提供最佳实践参考 |
+| awesome-ratatui | https://github.com/ratatui/awesome-ratatui | lilyco TUI 端可基于 ratatui 框架 |
+| Awesome-Agent-Papers | https://github.com/luo-junyu/awesome-agent-papers | LLM agent 论文集合，作为生态资源链接 |
+| Awesome-AI-Agents | https://github.com/Jenqyang/Awesome-AI-Agents | 自主 AI agent 集合，展示多接口 agent 生态 |
+
+### Agent 生态消费者（验证 lilyco 生成工具的兼容性）
+
+| 项目 | Stars（约） | 用途 |
+|---|---|---|
+| OpenCode | ~200k | 开源终端 agent，消费 MCP 工具 |
+| Claude Code | ~142k | Anthropic 官方 agent，MCP 兼容 |
+| OpenAI Codex | ~109k | OpenAI 官方 agent |
+| Gemini CLI | ~107k | Google 官方 agent |
+| OpenHands | ~89k | 开源 agent 环境 |
+| CrewAI | ~52k | 多 agent 编排框架 |
+| OpenAI Agents SDK | ~27k | 官方 agent SDK |
+
+---
+
+## 前沿研究方向
+
+### 1. 复杂工具链评估（ComplexMCP）
+
+**ComplexMCP: Evaluation of LLM Agents in Dynamic, Interdependent, and Large-Scale Tool Sandbox** (arXiv:2605.10787, 2026)
+
+- 当前 LLM agent 擅长调用孤立 API，但在商业软件自动化"最后一公里"表现不佳。
+- 真实场景中工具是原子化、相互依赖、易受环境噪声影响的。
+- ComplexMCP 提供 300+ 工具、7 个有状态沙箱，系统评估 agent 在动态工具链中的能力。
+- **对 lilyco 的启示**：MCP 实现需考虑工具依赖与状态管理，可作为未来评测基准。
+
+### 2. LLM 作为认知控制器
+
+**Agentic Artificial Intelligence: Architectures, Taxonomies, and Evaluation of LLM Agents** (arXiv:2601.12560, 2026)
+
+- AI 从纯文本生成转向 Agentic AI：自主实体，能感知、推理、规划、行动。
+- LLM 作为认知控制器，结合记忆、工具使用与环境反馈。
+- **对 lilyco 的启示**：lilyco 为认知控制器提供标准化工具接口层，通过 MCP 让 LLM 动态发现与调用工具。
+
+### 3. Context Engineering for AI Agents
+
+**Context Engineering for AI Agents in Open-Source Software** (SMU, 2026)
+
+- 首次系统研究 AI context 文件在 GitHub 仓库中的采用、结构与维护。
+- **对 lilyco 的启示**：通过结构化 context（MCP schema、CLI 帮助文档）提升 agent 理解能力。
+
+---
+
