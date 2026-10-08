@@ -29,6 +29,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # P1 出图：ubuntu CI 无独显，装 Mesa 软件 GPU 栈（lavapipe Vulkan / llvmpipe GL）
+      # 让 graphite-export-png 的 GPU 探测能通过并真实执行；装不上也不影响 SVG 主路径
+      - name: Install Mesa software GPU (PNG export best-effort)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1-mesa-dri mesa-vulkan-drivers
+
       - name: Install stable toolchain (fmt + clippy)
         run: |
           rustup toolchain install stable --profile minimal --component rustfmt,clippy
