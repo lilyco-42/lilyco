@@ -15,7 +15,7 @@ from studio.app import create_app
 from studio.paths import child
 from studio.jobs import Jobs
 from studio.adapters import SpineAdapter
-from fixture import fixture
+from fixture import fixture, spine_fixture
 
 
 class LocalStudioTests(unittest.TestCase):
@@ -122,7 +122,7 @@ class LocalStudioTests(unittest.TestCase):
         job = self.run_job(session, 'inspect')
         self.assertEqual(self.client.get(f"/api/jobs/{job['id']}/files/other.txt").status_code, 404)
 
-    def test_spine_missing_runtime_and_atlas_escape(self):
+    def test_spine_runtime_capability_and_atlas_escape(self):
         import tempfile
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -131,7 +131,26 @@ class LocalStudioTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 SpineAdapter().atlas(root, root/'model.json')
         capabilities = self.client.get('/api/capabilities').json()
-        self.assertFalse(capabilities['tools']['spine']['available'], 'do not bundle licensed runtime')
+        self.assertEqual(capabilities['tools']['spine']['available'], bool(os.environ.get('LAIN42_LYCO_SPINE_RENDER')))
+
+    @unittest.skipUnless(os.environ.get('LAIN42_LYCO_SPINE_RENDER'), 'AIC-only source CI; licensed full-package CI must run Spine')
+    def test_real_spine_animation_and_export(self):
+        response = self.client.post('/api/workspaces', files=[('files', (name, data)) for name, data in spine_fixture().items()])
+        self.assertEqual(response.status_code, 200, response.text)
+        session = response.json()['id']
+        inspect = self.run_job(session, 'inspect', tool='spine', entry='demo.json')
+        self.assertEqual(inspect['state'], 'done', inspect)
+        self.assertEqual(inspect['result']['motions'][0]['title'], 'wave')
+        job = self.run_job(session, 'render', tool='spine', entry='demo.json')
+        self.assertEqual(job['state'], 'done', job)
+        image = Image.open(io.BytesIO(self.client.get(f"/api/jobs/{job['id']}/files/animation.gif").content))
+        self.assertEqual(image.size, (512, 512))
+        self.assertGreaterEqual(image.n_frames, 2)
+        image.seek(0); first = image.convert('RGBA')
+        self.assertGreater(sum(1 for p in first.getdata() if p[3]), 0)
+        image.seek(image.n_frames // 2)
+        self.assertNotEqual(first.tobytes(), image.convert('RGBA').tobytes())
+        self.assertEqual(self.client.delete('/api/workspaces/' + session).status_code, 200)
 
     def test_cancellation_and_single_process(self):
         # Cancellation uses an actual child process, not a status-only mock.

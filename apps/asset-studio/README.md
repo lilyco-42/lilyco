@@ -19,9 +19,12 @@
 - AIC：角色列表、姿势列表、PNG / GIF / 精灵表、部件 PNG、配套 Unity Texture2D 解码。
 - 不修改原文件，不自动写回游戏，不携带游戏本体或角色素材，不是通用 Unity 编辑器。
 - Spine：已接好 `lyco-spine-render` 的动画列表和 GIF 播放 / 导出适配器，目标 **3.8**。
-  **默认包不包含该播放器**；有权使用运行时的用户可把自己的二进制放进 PATH，或由操作者设置
-  `LAIN42_LYCO_SPINE_RENDER`。缺少运行时时入口清楚说明，不冒充完整可售的 Spine 播放器。
-  运行时许可见 [Spine Runtimes License](https://esotericsoftware.com/spine-runtimes-license)。
+  商城的授权完整包集成该播放器：选择 `.json` / `.skel`、同目录 `.atlas` 和图集 PNG，
+  读取动作列表、选动作、播放并下载 GIF。仅支持 3.8，不承诺 4.x 或所有游戏导出格式。
+  源码仓库默认 CI 仍只打 AIC 包；授权完整包由产品维护者的独立 GitHub Actions 构建，
+  清单记录两个引擎来源版本，且运行完整包再次验证两者。没有引擎时不会显示虚假成功。
+  完整包含 `SPINE-RUNTIME-LICENSE.html` 与依赖声明；Spine Runtime 不是 MIT，
+  见 [Spine Runtimes License](https://esotericsoftware.com/spine-runtimes-license)。
 - 目前 Windows、Linux ZIP；未提供 macOS 签名包或手机安装包。
 
 ## 开发与验证
@@ -36,4 +39,5 @@ Playwright 桌面/手机尺寸预览 → PyInstaller 完整包 → 完整包再�
 样例为 CI 自制色块角色，不能拿历史游戏资源截图冒充本版实测。
 
 源码沿用仓库 MIT 许可；收费对象可为完整打包、加速交付与支持。开源源码仍可免费获取。
-售卖工具不代表可以转售第三方游戏或 Spine 运行时。
+使用本产品不授予素材版权，不携带 Spine Editor 或激活码。修改、集成和再分发涉及 Runtime 的产品，
+须遵守随包的 Spine 许可，不可把 Runtime 当作 MIT 独立组件转售。

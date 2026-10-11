@@ -1,5 +1,6 @@
 """Original tiny colour-block character, no third-party game resources."""
 import struct
+import json
 import zlib
 from pathlib import Path
 
@@ -39,8 +40,28 @@ def fixture():
     return bytes.fromhex('7741a8ff') + b'PXLS' + b'%PACK_SECTION%' + extract(pack) + b'%POSE_SECTION%' + extract(pose)
 
 
+def spine_fixture():
+    """Own colour block, Spine 3.8 JSON/atlas; no Editor or game assets."""
+    skeleton = {
+        'skeleton': {'spine': '3.8.99', 'width': 8, 'height': 8},
+        'bones': [{'name': 'root'}, {'name': 'body', 'parent': 'root'}],
+        'slots': [{'name': 'body', 'bone': 'body', 'attachment': 'body'}],
+        'skins': [{'name': 'default', 'attachments': {'body': {'body': {
+            'type': 'region', 'path': 'body', 'width': 8, 'height': 8}}}}],
+        'animations': {'wave': {'bones': {'body': {'rotate': [
+            {'time': 0, 'angle': -30}, {'time': 1, 'angle': 30},
+            {'time': 2, 'angle': -30}]}}}}
+    }
+    atlas = ('demo.png\nsize: 8,8\nformat: RGBA8888\nfilter: Nearest,Nearest\n'
+             'repeat: none\nbody\n  rotate: false\n  xy: 0,0\n  size: 8,8\n'
+             '  orig: 8,8\n  offset: 0,0\n  index: -1\n')
+    return {'demo.json': json.dumps(skeleton).encode(), 'demo.atlas': atlas.encode(), 'demo.png': png()}
+
+
 if __name__ == '__main__':
     import sys
     path = Path(sys.argv[1])
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(fixture())
+    for name, data in spine_fixture().items():
+        (path.parent / name).write_bytes(data)

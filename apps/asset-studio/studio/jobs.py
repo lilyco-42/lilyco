@@ -36,13 +36,13 @@ class Jobs:
         job = {'id': identifier, 'session': session, 'state': 'queued',
                'files': [], 'error': None, 'result': None, 'out': out}
         self.items[identifier] = job
-        job['task'] = asyncio.create_task(self.run(job, command, adapter))
+        job['task'] = asyncio.create_task(self.run(job, command, adapter, request))
         return self.public(job)
 
     def public(self, job):
         return {k: v for k, v in job.items() if k not in {'task', 'out', 'process'}}
 
-    async def run(self, job, command, adapter):
+    async def run(self, job, command, adapter, request):
         process = None
         readers = []
         try:
@@ -59,6 +59,8 @@ class Jobs:
             if process.returncode != 0:
                 raise ValueError(stderr.strip()[-1000:] or '引擎无法读取这些文件，请核对格式和配套贴图')
             job['result'] = adapter.result(stdout)
+            if hasattr(adapter, 'validate_output'):
+                adapter.validate_output(job['out'], request, job['result'])
             report = job['out'] / 'result.json'
             report.write_text(json.dumps(job['result'], ensure_ascii=False, indent=2), encoding='utf-8')
             paths = sorted(p for p in job['out'].rglob('*') if p.is_file())

@@ -16,6 +16,30 @@ tree = subprocess.check_output(['cargo','tree','--locked','-p','lilyco-aic','--n
 selected = set(re.findall(r'^([\w-]+) v([\w.+-]+)', tree, re.M))
 metadata = json.loads(subprocess.check_output(['cargo','metadata','--locked','--format-version','1'],cwd=root,text=True,encoding='utf-8'))
 notices = []
+spine_root = os.environ.get('SPINE_SOURCE_ROOT')
+if spine_root:
+    spine_root = Path(spine_root).resolve()
+    spine_tree = subprocess.check_output(['cargo','tree','--locked','-p','lyco-spine-render','--prefix','none','--format','{p}'],cwd=spine_root,text=True,encoding='utf-8')
+    spine_selected = set(re.findall(r'^([\w-]+) v([\w.+-]+)',spine_tree,re.M))
+    spine_metadata = json.loads(subprocess.check_output(['cargo','metadata','--locked','--format-version','1'],cwd=spine_root,text=True,encoding='utf-8'))
+    for package in spine_metadata['packages']:
+        if (package['name'],package['version']) not in spine_selected:
+            continue
+        directory = Path(package['manifest_path']).parent
+        texts = {}
+        for parent in [directory, directory.parent, directory.parent.parent]:
+            for p in parent.iterdir():
+                if p.is_file() and p.name.upper().startswith(('LICENSE','LICENCE','COPYING','NOTICE')) and p.stat().st_size < 256*1024:
+                    texts[str(p.relative_to(parent))] = p.read_text(encoding='utf-8',errors='replace')
+        notices.append({'ecosystem':'Spine product dependency','name':package['name'],'version':package['version'],'license':package.get('license'),'source':package.get('source'),'notices':texts})
+    # Runtime is not MIT: include the current agreement and pinned upstream notice.
+    url='https://esotericsoftware.com/spine-runtimes-license'
+    with urllib.request.urlopen(url,timeout=30) as response:
+        agreement=response.read(256*1024+1).decode('utf-8')
+    if 'Spine Runtimes License Agreement' not in agreement or len(agreement)>256*1024:
+        raise RuntimeError('Spine runtime agreement could not be included')
+    Path('SPINE-RUNTIME-LICENSE.html').write_text(agreement,encoding='utf-8')
+    notices.append({'ecosystem':'Spine Runtimes','name':'Spine Runtime 3.8','license':'Spine Runtimes License Agreement (not MIT)','source':url,'notices':{'current-agreement':agreement}})
 # Frozen apps also contain CPython and its OpenSSL shared libraries, outside pip metadata.
 python_version = '.'.join(str(v) for v in sys.version_info[:3])
 openssl_version = ssl.OPENSSL_VERSION.split()[1]

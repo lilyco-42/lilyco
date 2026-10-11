@@ -100,7 +100,7 @@ class SpineAdapter:
     def command(self, root, out, request):
         exe = executable('lyco-spine-render')
         if not exe:
-            raise ValueError('播放需要你有权使用的 Spine 3.8 引擎。本安装包不包含该运行时')
+            raise ValueError('Spine 引擎缺失，请下载包含 Spine 3.8 播放器的素材工坊完整包')
         source = child(root, request.entry)
         if not source.is_file() or source.suffix.lower() not in {'.skel', '.json'}:
             raise ValueError('请选择 Spine .json 或 .skel 骨架文件')
@@ -109,6 +109,8 @@ class SpineAdapter:
             return [exe, 'rig', str(atlas), str(source)]
         if request.action != 'render':
             raise ValueError('Spine 支持读取动画列表和播放导出')
+        if request.motion == '*':
+            raise ValueError('请先读取动画列表，再选择一个 Spine 动作')
         return [exe, 'animate', str(atlas), str(source), str(out / 'animation.gif'),
                 '--animation', request.motion, '--frames', '24', '--fps', '12', '--size', '512x512']
 
@@ -120,6 +122,14 @@ class SpineAdapter:
                 if len(fields) == 2:
                     motions.append({'title': fields[0], 'seconds': fields[1]})
         return {'motions': motions, 'message': text[:4000]}
+
+    def validate_output(self, out, request, result):
+        if request.action == 'inspect' and not result['motions']:
+            raise ValueError('骨架中没有可播放的动画，请核对 Spine 3.8 文件')
+        if request.action == 'render':
+            gif = out / 'animation.gif'
+            if not gif.is_file() or gif.stat().st_size < 20 or gif.read_bytes()[:6] not in {b'GIF87a', b'GIF89a'}:
+                raise ValueError('引擎没有生成有效动画，请核对动作和配套图集')
 
 
 ADAPTERS = {'aic': LaicAdapter(), 'spine': SpineAdapter()}

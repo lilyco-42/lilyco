@@ -23,7 +23,7 @@ function selectTool(next) {
   $('spineTab').classList.toggle('active', tool === 'spine');
   $('toolTitle').textContent = tool === 'aic' ? 'AIC 角色预览与导出' : 'Spine 动画播放与导出';
   $('toolHelp').textContent = tool === 'aic' ? '选择 .pxls 角色表和同目录的配套贴图。也可以选择包含它们的文件夹。' : '选择 .json / .skel、同名 .atlas 和配套 PNG。首版播放适配 Spine 3.8 引擎。';
-  $('engineNotice').textContent = tool === 'spine' && !capabilities.spine?.available ? 'Spine 播放需要你有权使用的运行时。此完整包只附带 AIC 引擎，不包含官方 Spine 运行时。' : '';
+  $('engineNotice').textContent = tool === 'spine' && !capabilities.spine?.available ? '当前安装不包含官方 Spine 运行时。请下载带 Spine 3.8 播放器的素材工坊完整包。' : tool === 'spine' ? 'Spine 3.8 播放器已就绪。先读取动画列表，再选择动作预览。' : '';
   $('entry').replaceChildren();
   for (const name of workspace?.entries[tool] || []) $('entry').add(new Option(name, name));
   $('entry').disabled = !$('entry').options.length;
