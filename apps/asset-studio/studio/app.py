@@ -46,7 +46,7 @@ def create_app():
         host = request.headers.get('host', '')
         try:
             parsed = urlsplit('http://' + host)
-            valid = parsed.hostname in {'127.0.0.1', 'localhost', '::1'} and parsed.username is None
+            valid = parsed.hostname in {'127.0.0.1', 'localhost', '::1'} and parsed.username is None and not parsed.path
             origin = request.headers.get('origin')
             if origin:
                 valid = valid and origin in {'http://' + host, 'https://' + host}
@@ -58,7 +58,7 @@ def create_app():
             length = int(request.headers.get('content-length', '0'))
             if length > MAX_UPLOAD + 1024 * 1024:
                 return JSONResponse({'detail': '一次最多选择 512 MB 文件'}, status_code=413)
-        except ValueError:
+        except (ValueError, TypeError):
             return JSONResponse({'detail': '无效请求'}, status_code=400)
         response = await call_next(request)
         response.headers.update({'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',

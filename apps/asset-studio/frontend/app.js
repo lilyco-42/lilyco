@@ -28,6 +28,7 @@ function selectTool(next) {
   $('entry').disabled = !$('entry').options.length;
   $('motion').replaceChildren(new Option(tool === 'aic' ? '全部动作' : '先读取动画列表', '*'));
   busy(false);
+  if (!$('entry').options.length) for (const id of ['render', 'inspect', 'sprites', 'textures']) $(id).disabled = true;
 }
 async function upload(list) {
   if (uploading || activeJob) return;

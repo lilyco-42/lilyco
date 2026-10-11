@@ -3,7 +3,7 @@ on:
   pull_request:
     paths: ['apps/asset-studio/**', 'lilyco-aic/**', '.github/workflows/asset-studio.yml']
   push:
-    branches: [main, feat/asset-studio-fastapi]
+    branches: [main]
     paths: ['apps/asset-studio/**', 'lilyco-aic/**', '.github/workflows/asset-studio.yml']
   workflow_dispatch:
 permissions:
@@ -61,6 +61,9 @@ jobs:
       - name: Package complete double-click app
         working-directory: apps/asset-studio
         run: python -m PyInstaller --noconfirm --name Lain42-Asset-Studio --add-data "frontend:frontend" --add-data "bin:bin" --collect-submodules uvicorn launcher.py
+      - name: Collect dependency attribution
+        working-directory: apps/asset-studio
+        run: python tests/notices.py
       - name: Verify complete package with bundled engine
         working-directory: apps/asset-studio
         run: python tests/bundle_smoke.py dist/Lain42-Asset-Studio/Lain42-Asset-Studio${{ runner.os == 'Windows' && '.exe' || '' }}
@@ -68,7 +71,7 @@ jobs:
         working-directory: apps/asset-studio
         shell: bash
         run: |
-          cp ../../LICENSE README.md dist/Lain42-Asset-Studio/
+          cp ../../LICENSE README.md THIRD-PARTY-NOTICES.json dist/Lain42-Asset-Studio/
           python - <<'PY'
           import hashlib,json,os,pathlib,zipfile
           root=pathlib.Path('dist/Lain42-Asset-Studio')

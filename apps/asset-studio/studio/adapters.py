@@ -60,6 +60,10 @@ class LaicAdapter:
         errors = data.get('errors', [])
         if errors and not any(data.get(k, 0) for k in ('files_parsed', 'frames_written', 'sprites_written', 'textures_decoded')):
             raise ValueError(str(errors[0].get('error', errors[0]))[:1000])
+        if data.get('files_parsed') == 0:
+            raise ValueError('没有读取到角色表，请核对文件格式')
+        if 'frames_written' in data and data['frames_written'] == 0:
+            raise ValueError('当前动作或朝向没有帧，请选择动画列表中的动作或换一个朝向')
         return data
 
 
