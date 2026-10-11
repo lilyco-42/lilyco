@@ -26,8 +26,14 @@ fn walk(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) -> Result<(), String> 
     for ent in rd.flatten() {
         let p = ent.path();
         if p.is_dir() {
-            let name = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-            if matches!(name.as_str(), ".git" | "target" | "node_modules" | "__pycache__") {
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            if matches!(
+                name.as_str(),
+                ".git" | "target" | "node_modules" | "__pycache__"
+            ) {
                 continue;
             }
             walk(&p, depth + 1, out)?;
@@ -39,7 +45,10 @@ fn walk(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) -> Result<(), String> 
 }
 
 fn is_pxls_candidate(p: &Path) -> bool {
-    let name = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let name = p
+        .file_name()
+        .map(|n| n.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
     if name.ends_with(".texture_0.dat") {
         return false; // 外部贴图分片，不是姿势表
     }
@@ -68,13 +77,22 @@ fn walk_tex(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) -> Result<(), Stri
     for ent in rd.flatten() {
         let p = ent.path();
         if p.is_dir() {
-            let name = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-            if matches!(name.as_str(), ".git" | "target" | "node_modules" | "__pycache__") {
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            if matches!(
+                name.as_str(),
+                ".git" | "target" | "node_modules" | "__pycache__"
+            ) {
                 continue;
             }
             walk_tex(&p, depth + 1, out)?;
         } else {
-            let name = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
             if name.ends_with(".texture_0.dat") {
                 out.push(p);
             }

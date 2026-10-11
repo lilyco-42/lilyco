@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::serialized::{SfObject, SerializedFile};
+use crate::serialized::{SerializedFile, SfObject};
 use crate::unityfs;
 
 /// 一张已解码的 RGBA8 图（行序 = 顶左原点，与 PNG 一致）
@@ -28,18 +28,17 @@ pub struct Img {
 impl Img {
     pub fn new(w: u32, h: u32, rgba: Vec<u8>) -> Result<Img, String> {
         if rgba.len() != (w as usize) * (h as usize) * 4 {
-            return Err(format!(
-                "rgba size {} != {}x{}x4",
-                rgba.len(),
-                w,
-                h
-            ));
+            return Err(format!("rgba size {} != {}x{}x4", rgba.len(), w, h));
         }
         Ok(Img { w, h, rgba })
     }
 
     pub fn blank(w: u32, h: u32) -> Img {
-        Img { w, h, rgba: vec![0u8; (w as usize) * (h as usize) * 4] }
+        Img {
+            w,
+            h,
+            rgba: vec![0u8; (w as usize) * (h as usize) * 4],
+        }
     }
 
     /// 顶左原点裁切（超界部分用透明补齐）
@@ -104,7 +103,12 @@ pub fn decode_texture(
             format!(".resS stream referenced but not found in bundle (need {stream_size}B @ {stream_off})")
         })?;
         rs.get(stream_off..stream_off + stream_size)
-            .ok_or_else(|| format!("resS range {stream_off}+{stream_size} out of stream {}", rs.len()))?
+            .ok_or_else(|| {
+                format!(
+                    "resS range {stream_off}+{stream_size} out of stream {}",
+                    rs.len()
+                )
+            })?
     } else {
         inline
     };
@@ -132,7 +136,10 @@ pub fn decode_texture(
         1 => {
             // Alpha8：1 B/px，只有 alpha
             need(1, "Alpha8")?;
-            src[..npix].iter().flat_map(|&a| [255u8, 255, 255, a]).collect()
+            src[..npix]
+                .iter()
+                .flat_map(|&a| [255u8, 255, 255, a])
+                .collect()
         }
         2 => {
             // ARGB4444：u16 LE，A(15..12) R(11..8) G(7..4) B(3..0)
@@ -225,7 +232,13 @@ pub fn decode_texture(
         27 => bc_decode(src, w, h, texture2ddecoder::decode_bc5, "bc5")?,
         // DXT1Crunched / DXT5Crunched（本作 11 张事件图）：Unity 的 Crunch 容器，
         // 解码器自己认内部格式（Dxt1 → bc1、Dxt5 → bc3、Etc1 → etc1 …）
-        28 | 29 => bc_decode(src, w, h, texture2ddecoder::decode_unity_crunch, "unity-crunch")?,
+        28 | 29 => bc_decode(
+            src,
+            w,
+            h,
+            texture2ddecoder::decode_unity_crunch,
+            "unity-crunch",
+        )?,
         // ASTC（48..=51 = RGB 4x4/5x5/6x6/8x8，52..=55 = RGBA 同款）
         48..=55 => {
             let (bw, bh) = match fmt {
@@ -338,17 +351,17 @@ fn bgra_to_rgba(px: &[u32]) -> Vec<u8> {
 /// 每层像素 → 字节：`(块宽, 块高, 每块字节)`。非块压缩格式就是 1×1 的「块」。
 fn level_layout(fmt: u32) -> Option<(u32, u32, usize)> {
     Some(match fmt {
-        1 => (1, 1, 1),             // Alpha8
+        1 => (1, 1, 1),              // Alpha8
         2 | 7 | 9 | 13 => (1, 1, 2), // ARGB4444 / RGB565 / R16 / RGBA4444
-        3 => (1, 1, 3),             // RGB24
-        4 | 5 | 14 => (1, 1, 4),    // RGBA32 / ARGB32 / BGRA32
-        10 | 26 => (4, 4, 8),       // DXT1 / BC4
-        12 | 25 | 27 => (4, 4, 16), // DXT5 / BC7 / BC5
-        48 => (4, 4, 16),           // ASTC 4x4
-        49 => (5, 5, 16),           // ASTC 5x5
-        50 => (6, 6, 16),           // ASTC 6x6
-        51 => (8, 8, 16),           // ASTC 8x8
-        _ => return None,           // 含 28/29：Crunch 是压缩容器，体积不可预测
+        3 => (1, 1, 3),              // RGB24
+        4 | 5 | 14 => (1, 1, 4),     // RGBA32 / ARGB32 / BGRA32
+        10 | 26 => (4, 4, 8),        // DXT1 / BC4
+        12 | 25 | 27 => (4, 4, 16),  // DXT5 / BC7 / BC5
+        48 => (4, 4, 16),            // ASTC 4x4
+        49 => (5, 5, 16),            // ASTC 5x5
+        50 => (6, 6, 16),            // ASTC 6x6
+        51 => (8, 8, 16),            // ASTC 8x8
+        _ => return None,            // 含 28/29：Crunch 是压缩容器，体积不可预测
     })
 }
 
@@ -392,7 +405,8 @@ pub fn write_png(path: &Path, w: u32, h: u32, rgba: &[u8]) -> Result<(), String>
     }
     let img = image::RgbaImage::from_raw(w, h, rgba.to_vec())
         .ok_or_else(|| "rgba buffer size mismatch".to_string())?;
-    img.save(path).map_err(|e| format!("save {}: {e}", path.display()))
+    img.save(path)
+        .map_err(|e| format!("save {}: {e}", path.display()))
 }
 
 /// 把 RGBA 像素编码成 PNG **字节**（不落盘）。重建内嵌图集时要把它塞进 PACK 节。
@@ -411,7 +425,11 @@ pub fn read_png(bytes: &[u8], what: &str) -> Result<Img, String> {
         .map_err(|e| format!("{what}: not a decodable PNG: {e}"))?;
     let rgba = im.to_rgba8();
     let (w, h) = (rgba.width(), rgba.height());
-    Ok(Img { w, h, rgba: rgba.into_raw() })
+    Ok(Img {
+        w,
+        h,
+        rgba: rgba.into_raw(),
+    })
 }
 
 /// 在对象表里挑出「图集序号 `index`」对应的 Texture2D：返回 `(对象序号, asset 名)`。
@@ -422,7 +440,11 @@ pub fn read_png(bytes: &[u8], what: &str) -> Result<Img, String> {
 /// `noel_t.pxls.bytes.texture_0.dat` 里 `texture_1` 就排在 `texture_0` 之前，
 /// 按顺序取会把主图和部件图对调。名字都对不上时才退回顺序。
 pub fn pick_texture(sf: &SerializedFile, data: &[u8], index: usize) -> Option<(usize, String)> {
-    let texs: Vec<&SfObject> = sf.objects.iter().filter(|o| o.class_name == "Texture2D").collect();
+    let texs: Vec<&SfObject> = sf
+        .objects
+        .iter()
+        .filter(|o| o.class_name == "Texture2D")
+        .collect();
     let suffix = format!("_{index}");
     if let Some(pos) = texs
         .iter()
@@ -474,10 +496,15 @@ fn decode_texture_object(
         .iter()
         .find(|n| n.path.ends_with(".resS"))
         .and_then(|n| data.get(n.offset..n.offset + n.size));
-    let fields = sf.read_object(o, data).map_err(|e| format!("{what}: read Texture2D {e}"))?;
+    let fields = sf
+        .read_object(o, data)
+        .map_err(|e| format!("{what}: read Texture2D {e}"))?;
     let w = fields.get("m_Width").and_then(|v| v.as_int()).unwrap_or(0) as u32;
     let h = fields.get("m_Height").and_then(|v| v.as_int()).unwrap_or(0) as u32;
-    let fmt = fields.get("m_TextureFormat").and_then(|v| v.as_int()).unwrap_or(0) as u32;
+    let fmt = fields
+        .get("m_TextureFormat")
+        .and_then(|v| v.as_int())
+        .unwrap_or(0) as u32;
     let (stream_off, stream_size) = match fields.get("m_StreamData").and_then(|v| v.as_obj()) {
         Some(sd) => (
             sd.get("offset").and_then(|v| v.as_int()).unwrap_or(0) as usize,
@@ -485,15 +512,20 @@ fn decode_texture_object(
         ),
         None => (0, 0),
     };
-    let inline = fields.get("image data").and_then(|v| v.as_bytes()).unwrap_or(&[]);
-    let rgba = decode_texture(fmt, w, h, inline, res_s, stream_off, stream_size).map_err(|e| {
-        format!("{what}: texture \"{tex_name}\" {w}x{h} fmt {fmt}: {e}")
-    })?;
+    let inline = fields
+        .get("image data")
+        .and_then(|v| v.as_bytes())
+        .unwrap_or(&[]);
+    let rgba = decode_texture(fmt, w, h, inline, res_s, stream_off, stream_size)
+        .map_err(|e| format!("{what}: texture \"{tex_name}\" {w}x{h} fmt {fmt}: {e}"))?;
     Img::new(w, h, rgba)
 }
 
 fn bundle_texture_count_of(sf: &SerializedFile) -> usize {
-    sf.objects.iter().filter(|o| o.class_name == "Texture2D").count()
+    sf.objects
+        .iter()
+        .filter(|o| o.class_name == "Texture2D")
+        .count()
 }
 
 /// 主包里「图集序号 → (Texture2D 对象序号, asset 名)」的映射。
@@ -529,7 +561,11 @@ pub fn read_unity_bundle_first_texture(bytes: &[u8], what: &str) -> Result<Img, 
 #[derive(Debug, Clone)]
 pub enum TextureSource {
     /// 打包在 `<path>` 里、asset 名为 `name` 的 Texture2D（对象序号 `index`）
-    InBundle { path: PathBuf, index: usize, name: String },
+    InBundle {
+        path: PathBuf,
+        index: usize,
+        name: String,
+    },
     /// 独立文件
     File { path: PathBuf },
 }
@@ -555,8 +591,8 @@ impl TextureSource {
     pub fn read(&self) -> Result<Img, String> {
         match self {
             TextureSource::InBundle { path, index, .. } => {
-                let bytes = std::fs::read(path)
-                    .map_err(|e| format!("read {}: {e}", path.display()))?;
+                let bytes =
+                    std::fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
                 // `index` 是 resolve 时按 asset 名选定的**对象序号**，直接读它 ——
                 // 不要再按图集序号重选（`noel_t` 的对象表是倒的，重选会把主图/部件图对调）。
                 read_unity_bundle_ordinal(&bytes, *index, &path.display().to_string())
@@ -584,7 +620,11 @@ pub fn resolve_atlas_textures(pxls_path: &Path, count: usize) -> Vec<Option<Text
                     in_bundle[0] = Some((0, String::new()));
                 }
                 return (0..count)
-                    .map(|i| in_bundle[i].is_some().then(|| TextureSource::File { path: bp.clone() }))
+                    .map(|i| {
+                        in_bundle[i]
+                            .is_some()
+                            .then(|| TextureSource::File { path: bp.clone() })
+                    })
                     .collect();
             }
             Err(_) => {}
@@ -593,7 +633,9 @@ pub fn resolve_atlas_textures(pxls_path: &Path, count: usize) -> Vec<Option<Text
 
     (0..count)
         .map(|i| {
-            if let Some((path, (index, name))) = primary.clone().zip(in_bundle.get(i).cloned().flatten()) {
+            if let Some((path, (index, name))) =
+                primary.clone().zip(in_bundle.get(i).cloned().flatten())
+            {
                 return Some(TextureSource::InBundle { path, index, name });
             }
             if i > 0 {
@@ -631,7 +673,10 @@ pub fn find_paired_texture(pxls_path: &Path, index: u32) -> Option<PathBuf> {
     let mut cands: Vec<(u8, PathBuf)> = Vec::new();
     for ent in std::fs::read_dir(dir).ok()?.flatten() {
         let p = ent.path();
-        let n = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let n = p
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         if !n.starts_with(&stem) || !n.contains(&suffix) {
             continue;
         }
@@ -715,7 +760,11 @@ mod tests {
         // 1×2 RGB24：输入第 0 行是图像**底部**（红），第 1 行是顶部（蓝）
         let src = [255u8, 0, 0, 0, 0, 255];
         let px = decode_texture(3, 1, 2, &src, None, 0, 0).unwrap();
-        assert_eq!(&px[0..4], &[0, 0, 255, 255], "翻转后第 0 行应是原顶部（输入的最后一行）");
+        assert_eq!(
+            &px[0..4],
+            &[0, 0, 255, 255],
+            "翻转后第 0 行应是原顶部（输入的最后一行）"
+        );
         assert_eq!(&px[4..8], &[255, 0, 0, 255]);
     }
 
@@ -728,26 +777,43 @@ mod tests {
         let mut mismatched: Vec<String> = Vec::new();
         let mut stack = vec![root.clone()];
         while let Some(dir) = stack.pop() {
-            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                continue;
+            };
             for ent in rd.flatten() {
                 let p = ent.path();
                 if p.is_dir() {
                     stack.push(p);
                     continue;
                 }
-                if !p.file_name().map(|n| n.to_string_lossy().ends_with(".texture_0.dat")).unwrap_or(false) {
+                if !p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().ends_with(".texture_0.dat"))
+                    .unwrap_or(false)
+                {
                     continue;
                 }
-                let Ok(bytes) = std::fs::read(&p) else { continue };
+                let Ok(bytes) = std::fs::read(&p) else {
+                    continue;
+                };
                 // 只解元数据 + 开头几个小对象（流式 Texture2D 对象本身很小）
-                let Ok(prefix) = unityfs::inflate_prefix(&bytes, 512 * 1024) else { continue };
-                let Ok(sf) = SerializedFile::parse(&prefix) else { continue };
+                let Ok(prefix) = unityfs::inflate_prefix(&bytes, 512 * 1024) else {
+                    continue;
+                };
+                let Ok(sf) = SerializedFile::parse(&prefix) else {
+                    continue;
+                };
                 for o in sf.objects.iter().filter(|o| o.class_name == "Texture2D") {
                     // 内联大贴图的对象数据不在前缀里 —— 直接跳过
-                    let Ok(f) = sf.read_object(o, &prefix) else { continue };
+                    let Ok(f) = sf.read_object(o, &prefix) else {
+                        continue;
+                    };
                     let w = f.get("m_Width").and_then(|v| v.as_int()).unwrap_or(0) as u32;
                     let h = f.get("m_Height").and_then(|v| v.as_int()).unwrap_or(0) as u32;
-                    let fmt = f.get("m_TextureFormat").and_then(|v| v.as_int()).unwrap_or(0) as u32;
+                    let fmt = f
+                        .get("m_TextureFormat")
+                        .and_then(|v| v.as_int())
+                        .unwrap_or(0) as u32;
                     let size = f
                         .get("m_StreamData")
                         .and_then(|v| v.as_obj())
@@ -757,7 +823,9 @@ mod tests {
                     if size == 0 || w == 0 || h == 0 {
                         continue;
                     }
-                    let Some(base) = image_byte_size(fmt, w, h) else { continue };
+                    let Some(base) = image_byte_size(fmt, w, h) else {
+                        continue;
+                    };
                     let mips = image_mip_byte_size(fmt, w, h);
                     if size != base && Some(size) != mips {
                         mismatched.push(format!(
@@ -803,7 +871,9 @@ mod tests {
     #[test]
     fn external_atlas_texture_resolution_contract() {
         let root = std::path::PathBuf::from(STREAM);
-        let Ok(targets) = crate::util::collect_targets(&root) else { return };
+        let Ok(targets) = crate::util::collect_targets(&root) else {
+            return;
+        };
         if targets.is_empty() {
             return;
         }
@@ -813,10 +883,18 @@ mod tests {
         let mut textureless: Vec<String> = Vec::new();
 
         for path in &targets {
-            let Ok(p) = crate::util::load_pxls(path) else { continue };
+            let Ok(p) = crate::util::load_pxls(path) else {
+                continue;
+            };
             let table = path
                 .file_name()
-                .map(|n| n.to_string_lossy().split(".pxls").next().unwrap_or("").to_string())
+                .map(|n| {
+                    n.to_string_lossy()
+                        .split(".pxls")
+                        .next()
+                        .unwrap_or("")
+                        .to_string()
+                })
                 .unwrap_or_default();
             // 第 0 个图集的来源就是「主包文件存在与否」——纯文件系统判断，不必进包。
             if find_paired_texture(path, 0).is_none() {
@@ -896,21 +974,40 @@ mod tests {
     #[test]
     fn noel_normal_and_parts_atlases_share_uvs_but_not_pixels() {
         let path = std::path::Path::new(STREAM).join("PxlNoel/noel.pxls.dat");
-        let Ok(p) = crate::util::load_pxls(&path) else { return };
+        let Ok(p) = crate::util::load_pxls(&path) else {
+            return;
+        };
         assert_eq!(p.atlas.len(), 2, "noel 有 2 个 PACK 条目");
-        assert_eq!(crate::pxlslib::atlas_img_type(&p.atlas[0]), crate::pxlslib::IMG_TYPE_NORMAL);
-        assert_eq!(crate::pxlslib::atlas_img_type(&p.atlas[1]), crate::pxlslib::IMG_TYPE_PARTS);
+        assert_eq!(
+            crate::pxlslib::atlas_img_type(&p.atlas[0]),
+            crate::pxlslib::IMG_TYPE_NORMAL
+        );
+        assert_eq!(
+            crate::pxlslib::atlas_img_type(&p.atlas[1]),
+            crate::pxlslib::IMG_TYPE_PARTS
+        );
         assert!(!p.atlas[0].uvs.is_empty(), "atlas 0 自带 UV");
         assert!(p.atlas[1].uvs.is_empty(), "atlas 1 的 UV 数为 0");
-        assert!(p.uv_inherited_from(1).is_some(), "atlas 1 继承 atlas 0 的 UV");
+        assert!(
+            p.uv_inherited_from(1).is_some(),
+            "atlas 1 继承 atlas 0 的 UV"
+        );
         assert_eq!(p.effective_uvs(0), p.effective_uvs(1), "两者有效 UV 表相同");
         assert_eq!(p.effective_uvs(1).len(), p.atlas[0].uvs.len());
 
         let sources = resolve_atlas_textures(&path, p.atlas.len());
         match (&sources[0], &sources[1]) {
             (
-                Some(TextureSource::InBundle { path: a, index: 0, name: na }),
-                Some(TextureSource::InBundle { path: b, index: 1, name: nb }),
+                Some(TextureSource::InBundle {
+                    path: a,
+                    index: 0,
+                    name: na,
+                }),
+                Some(TextureSource::InBundle {
+                    path: b,
+                    index: 1,
+                    name: nb,
+                }),
             ) => {
                 assert_eq!(a, b, "两张贴图打包在同一个 bundle 里");
                 assert!(na.ends_with("texture_0"), "atlas 0 取主图，实得 {na}");
@@ -927,7 +1024,9 @@ mod tests {
     #[test]
     fn noel_t_picks_textures_by_asset_name_not_by_object_order() {
         let path = std::path::Path::new(STREAM).join("PxlNoel/noel_t.pxls.dat");
-        let Ok(p) = crate::util::load_pxls(&path) else { return };
+        let Ok(p) = crate::util::load_pxls(&path) else {
+            return;
+        };
         assert_eq!(p.atlas.len(), 2, "noel_t 有 2 个 PACK 条目");
 
         let sources = resolve_atlas_textures(&path, p.atlas.len());
@@ -981,7 +1080,11 @@ mod tests {
                 "{table}: 图集 {i} 应选到 `*.texture_{i}`，实得 `{name}`"
             );
             let want = read_unity_bundle_ordinal(&bundle, ord, table).unwrap();
-            assert_eq!((got.w, got.h), (want.w, want.h), "{table}: 图集 {i} 尺寸不对");
+            assert_eq!(
+                (got.w, got.h),
+                (want.w, want.h),
+                "{table}: 图集 {i} 尺寸不对"
+            );
             assert_eq!(
                 got.rgba, want.rgba,
                 "{table}: 图集 {i} 读到的像素必须来自 `{name}`，而不是对象表第 {i} 个"
@@ -989,4 +1092,3 @@ mod tests {
         }
     }
 }
-

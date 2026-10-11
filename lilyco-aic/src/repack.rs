@@ -51,15 +51,24 @@ use crate::util::{collect_targets, glob_match};
 )]
 pub struct Repack {
     /// pxls 文件或目录
-    #[arg(about = "A .pxls file, or a directory scanned recursively for pxls tables", must_exist = true)]
+    #[arg(
+        about = "A .pxls file, or a directory scanned recursively for pxls tables",
+        must_exist = true
+    )]
     root: PathBuf,
 
     /// 输出目录
-    #[arg(about = "Directory to write the repacked files into", must_exist = false)]
+    #[arg(
+        about = "Directory to write the repacked files into",
+        must_exist = false
+    )]
     out: PathBuf,
 
     /// 只允许编辑标题匹配该 glob 的姿势
-    #[arg(about = "Only poses whose title matches this glob may be edited", default = "*")]
+    #[arg(
+        about = "Only poses whose title matches this glob may be edited",
+        default = "*"
+    )]
     pose: String,
 
     /// 重命名姿势标题：OLD=NEW（可重复，或用 `;` 分隔多条）
@@ -71,7 +80,10 @@ pub struct Repack {
     set_alpha: Vec<String>,
 
     /// 重打包时的压缩方式
-    #[arg(about = "Compression for the rewritten bundle: none | lz4 | original", default = "original")]
+    #[arg(
+        about = "Compression for the rewritten bundle: none | lz4 | original",
+        default = "original"
+    )]
     compress: String,
 
     /// 真正写盘（默认只预览）
@@ -83,7 +95,10 @@ pub struct Repack {
     overwrite: bool,
 
     /// 最多处理的文件数（0 = 不限）
-    #[arg(about = "Cap the number of tables processed (0 = unlimited)", default = 0)]
+    #[arg(
+        about = "Cap the number of tables processed (0 = unlimited)",
+        default = 0
+    )]
     limit: u64,
 }
 
@@ -152,7 +167,8 @@ fn run_repack(app: &Repack, ctx: &Context) -> Result<serde_json::Value, AppError
         let mut p = match pxlslib::parse(&body) {
             Ok(p) => p,
             Err(e) => {
-                errors.push(serde_json::json!({ "file": file_str, "error": format!("parse: {e}") }));
+                errors
+                    .push(serde_json::json!({ "file": file_str, "error": format!("parse: {e}") }));
                 continue;
             }
         };
@@ -174,7 +190,9 @@ fn run_repack(app: &Repack, ctx: &Context) -> Result<serde_json::Value, AppError
         match self_check(&patch.bytes, &new_body) {
             Ok(()) => {}
             Err(e) => {
-                errors.push(serde_json::json!({ "file": file_str, "error": format!("self-check: {e}") }));
+                errors.push(
+                    serde_json::json!({ "file": file_str, "error": format!("self-check: {e}") }),
+                );
                 continue;
             }
         }
@@ -183,7 +201,10 @@ fn run_repack(app: &Repack, ctx: &Context) -> Result<serde_json::Value, AppError
             changed += 1;
         }
 
-        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         let out_path = app.out.join(&name);
         let existed = out_path.exists();
         let mut entry = serde_json::json!({
@@ -218,7 +239,8 @@ fn run_repack(app: &Repack, ctx: &Context) -> Result<serde_json::Value, AppError
         }
         if let Some(parent) = out_path.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {
-                errors.push(serde_json::json!({ "file": file_str, "error": format!("mkdir: {e}") }));
+                errors
+                    .push(serde_json::json!({ "file": file_str, "error": format!("mkdir: {e}") }));
                 continue;
             }
         }
@@ -228,7 +250,8 @@ fn run_repack(app: &Repack, ctx: &Context) -> Result<serde_json::Value, AppError
                 entry["written"] = serde_json::json!(true);
             }
             Err(e) => {
-                errors.push(serde_json::json!({ "file": file_str, "error": format!("write: {e}") }));
+                errors
+                    .push(serde_json::json!({ "file": file_str, "error": format!("write: {e}") }));
                 continue;
             }
         }
@@ -446,15 +469,19 @@ fn write_back(orig: &[u8], new_body: &[u8], comp: RepackComp) -> Result<Patch, S
         };
         nodes_new.push(
             nd.get(no..no + ns)
-                .ok_or_else(|| {
-                    format!("node {i} range {no}+{ns} out of new data ({})", nd.len())
-                })?
+                .ok_or_else(|| format!("node {i} range {no}+{ns} out of new data ({})", nd.len()))?
                 .to_vec(),
         );
     }
 
     let bytes = unityfs::repack(orig, &nodes_new, comp)?;
-    Ok(Patch { bytes, container: "UnityFS", object: Some(obj_pid), delta, body_delta })
+    Ok(Patch {
+        bytes,
+        container: "UnityFS",
+        object: Some(obj_pid),
+        delta,
+        body_delta,
+    })
 }
 
 /// 向上取整到 4 字节（SerializedFile 对象尾部与对象起点都是 4 字节对齐）
@@ -491,7 +518,10 @@ mod tests {
 
     fn edits(rename: &[(&str, &str)], alpha: &[(&str, i32)]) -> Edits {
         Edits {
-            rename: rename.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect(),
+            rename: rename
+                .iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect(),
             alpha: alpha.iter().map(|(a, b)| (a.to_string(), *b)).collect(),
         }
     }
@@ -499,7 +529,9 @@ mod tests {
     /// 不改任何东西也要能原样写回：正文逐字节相同，且新容器仍可解析
     #[test]
     fn identity_repack_keeps_the_pxls_body_byte_identical() {
-        let Ok(orig) = std::fs::read(noel()) else { return };
+        let Ok(orig) = std::fs::read(noel()) else {
+            return;
+        };
         let (_src, body) = unityfs::extract_pxls(&orig).unwrap();
         let patch = write_back(&orig, &body, RepackComp::Original).unwrap();
         assert_eq!(patch.container, "UnityFS");
@@ -515,7 +547,9 @@ mod tests {
     /// 改名会改变正文长度：SerializedFile 头 / 对象表 / 节点表必须一起跟着走
     #[test]
     fn rename_resizes_the_whole_chain_and_stays_parsable() {
-        let Ok(orig) = std::fs::read(noel()) else { return };
+        let Ok(orig) = std::fs::read(noel()) else {
+            return;
+        };
         let (_src, body) = unityfs::extract_pxls(&orig).unwrap();
         let mut p = pxlslib::parse(&body).unwrap();
         let target = p.poses[0].title.clone();
@@ -539,7 +573,11 @@ mod tests {
         // 不等长时容器里所有东西也得对得上：SerializedFile 头 file_size == 节点大小 == 数据总长
         let (data2, info2) = unityfs::inflate_with_info(&patch.bytes).unwrap();
         let sf2 = SerializedFile::parse(&data2).unwrap();
-        let fs = u64::from_be_bytes(data2[sf2.file_size_at..sf2.file_size_at + 8].try_into().unwrap());
+        let fs = u64::from_be_bytes(
+            data2[sf2.file_size_at..sf2.file_size_at + 8]
+                .try_into()
+                .unwrap(),
+        );
         assert_eq!(fs as usize, info2.nodes[0].size);
         assert_eq!(info2.nodes[0].size, data2.len());
     }
@@ -548,14 +586,24 @@ mod tests {
     /// 只写 `byte_size += delta` 会让 UnityPy 报 "Expected to read N, but only read N+2"。
     #[test]
     fn text_asset_object_size_is_realigned_after_every_resize() {
-        let Ok(orig) = std::fs::read(noel()) else { return };
+        let Ok(orig) = std::fs::read(noel()) else {
+            return;
+        };
         let (_src, body) = unityfs::extract_pxls(&orig).unwrap();
         let base_title = pxlslib::parse(&body).unwrap().poses[0].title.clone();
 
         let (odata, _oinfo) = unityfs::inflate_with_info(&orig).unwrap();
         let osf = SerializedFile::parse(&odata).unwrap();
-        let ota = osf.objects.iter().find(|o| o.class_name == "TextAsset").unwrap();
-        let onext = osf.objects.iter().find(|o| o.byte_start > ota.byte_start).unwrap();
+        let ota = osf
+            .objects
+            .iter()
+            .find(|o| o.class_name == "TextAsset")
+            .unwrap();
+        let onext = osf
+            .objects
+            .iter()
+            .find(|o| o.byte_start > ota.byte_start)
+            .unwrap();
         // 本作对象之间本来就有 4 字节间隙（TextAsset 结束 370836 → AssetBundle 起点 370840），
         // 所以不该断言「紧邻」，而要断言「间隙不变、后续对象整段平移 delta」
         let gap = onext.byte_start - (ota.byte_start + ota.byte_size);
@@ -577,7 +625,10 @@ mod tests {
                 "extra={extra}: pxls_delta 必须是正文长度差"
             );
             let skew = patch.delta - patch.body_delta;
-            assert!((-3..=3).contains(&skew), "extra={extra}: 填充差必须落在 ±3，实际 {skew}");
+            assert!(
+                (-3..=3).contains(&skew),
+                "extra={extra}: 填充差必须落在 ±3，实际 {skew}"
+            );
 
             let (data2, _info2) = unityfs::inflate_with_info(&patch.bytes).unwrap();
             let sf2 = SerializedFile::parse(&data2).unwrap();
@@ -598,13 +649,21 @@ mod tests {
             );
             assert_eq!(o.byte_size % 4, 0, "extra={extra}: 对象大小必须 4 字节对齐");
             // 后续对象整段平移 delta，间隙不变
-            let next = sf2.objects.iter().find(|x| x.byte_start > o.byte_start).unwrap();
+            let next = sf2
+                .objects
+                .iter()
+                .find(|x| x.byte_start > o.byte_start)
+                .unwrap();
             assert_eq!(
                 next.byte_start,
                 (onext.byte_start as i64 + patch.delta) as usize,
                 "extra={extra}: 后续对象应整段平移 delta"
             );
-            assert_eq!(next.byte_start - (o.byte_start + o.byte_size), gap, "extra={extra}: 间隙不变");
+            assert_eq!(
+                next.byte_start - (o.byte_start + o.byte_size),
+                gap,
+                "extra={extra}: 间隙不变"
+            );
             self_check(&patch.bytes, &new_body).unwrap();
         }
     }
@@ -613,12 +672,22 @@ mod tests {
     /// 正文 +9 时填充从 1 掉到 0 → `object_delta = 8` 而 `body_delta = 9`。
     #[test]
     fn pxls_delta_is_the_body_delta_not_the_aligned_object_delta() {
-        let Ok(orig) = std::fs::read(noel()) else { return };
+        let Ok(orig) = std::fs::read(noel()) else {
+            return;
+        };
         let (_s, body) = unityfs::extract_pxls(&orig).unwrap();
         let base_title = pxlslib::parse(&body).unwrap().poses[0].title.clone();
         let new_title = format!("{base_title}{}", "X".repeat(9));
         let mut p = pxlslib::parse(&body).unwrap();
-        assert_eq!(apply_edits(&mut p, &edits(&[(&base_title, new_title.as_str())], &[]), "*").0, 1);
+        assert_eq!(
+            apply_edits(
+                &mut p,
+                &edits(&[(&base_title, new_title.as_str())], &[]),
+                "*"
+            )
+            .0,
+            1
+        );
         let new_body = p.serialize();
         let patch = write_back(&orig, &new_body, RepackComp::Original).unwrap();
 
@@ -630,10 +699,11 @@ mod tests {
         assert_eq!(patch.body_delta, 9, "标题加了 9 个字符");
     }
 
-
     #[test]
     fn identity_repack_leaves_the_serialized_file_byte_identical() {
-        let Ok(orig) = std::fs::read(noel()) else { return };
+        let Ok(orig) = std::fs::read(noel()) else {
+            return;
+        };
         let (data, info) = unityfs::inflate_with_info(&orig).unwrap();
         let (_s, body) = unityfs::extract_pxls(&orig).unwrap();
         let patch = write_back(&orig, &body, RepackComp::Original).unwrap();
@@ -645,7 +715,9 @@ mod tests {
     /// 改 alpha 不长不短，正文长度不变但内容变
     #[test]
     fn set_alpha_changes_content_without_resizing() {
-        let Ok(orig) = std::fs::read(noel()) else { return };
+        let Ok(orig) = std::fs::read(noel()) else {
+            return;
+        };
         let (_src, body) = unityfs::extract_pxls(&orig).unwrap();
         let mut p = pxlslib::parse(&body).unwrap();
         let layer = p.poses[0].seqs[0].frames[0].layers[0].name.clone();
@@ -668,7 +740,9 @@ mod tests {
     /// （这是曾经的 bug —— 正文收边没收好，会把后面 189 字节整段复制一份。）
     #[test]
     fn write_back_never_duplicates_the_following_objects() {
-        let Ok(orig) = std::fs::read(noel()) else { return };
+        let Ok(orig) = std::fs::read(noel()) else {
+            return;
+        };
         let (_src, body) = unityfs::extract_pxls(&orig).unwrap();
         let mut p = pxlslib::parse(&body).unwrap();
         let target = p.poses[0].title.clone();
@@ -680,11 +754,23 @@ mod tests {
 
         let before = object_map(&orig);
         let after = object_map(&patch.bytes);
-        assert_eq!(before.len(), after.len(), "对象数不能变：{before:?} vs {after:?}");
+        assert_eq!(
+            before.len(),
+            after.len(),
+            "对象数不能变：{before:?} vs {after:?}"
+        );
         for (b, a) in before.iter().zip(after.iter()) {
-            assert_eq!((&b.0, b.1), (&a.0, a.1), "对象 class / path_id / 顺序必须原样保留");
+            assert_eq!(
+                (&b.0, b.1),
+                (&a.0, a.1),
+                "对象 class / path_id / 顺序必须原样保留"
+            );
             if b.0 == "TextAsset" {
-                assert_eq!(a.2 as i64 - b.2 as i64, patch.delta, "只有 TextAsset 该长胖");
+                assert_eq!(
+                    a.2 as i64 - b.2 as i64,
+                    patch.delta,
+                    "只有 TextAsset 该长胖"
+                );
             } else {
                 assert_eq!(b.2, a.2, "非目标对象（{}）的 byte_size 不能动", b.0);
             }
@@ -706,7 +792,9 @@ mod tests {
     #[test]
     fn raw_container_passes_the_body_through() {
         let (_s, body) = {
-            let Ok(orig) = std::fs::read(noel()) else { return };
+            let Ok(orig) = std::fs::read(noel()) else {
+                return;
+            };
             unityfs::extract_pxls(&orig).unwrap()
         };
         let patch = write_back(&body, &body, RepackComp::None).unwrap();
@@ -728,7 +816,9 @@ mod tests {
 
     #[test]
     fn pose_glob_limits_which_poses_are_edited() {
-        let Ok(orig) = std::fs::read(noel()) else { return };
+        let Ok(orig) = std::fs::read(noel()) else {
+            return;
+        };
         let (_src, body) = unityfs::extract_pxls(&orig).unwrap();
         let mut p = pxlslib::parse(&body).unwrap();
         let other = p
@@ -761,4 +851,3 @@ mod tests {
         assert!(matches!(err, AppError::InvalidArg(_)));
     }
 }
-

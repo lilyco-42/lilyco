@@ -26,27 +26,45 @@ use crate::util::{collect_targets, load_pxls};
 )]
 pub struct Sprites {
     /// pxls 文件或目录
-    #[arg(about = "A .pxls file, or a directory scanned recursively for pxls tables", must_exist = true)]
+    #[arg(
+        about = "A .pxls file, or a directory scanned recursively for pxls tables",
+        must_exist = true
+    )]
     root: PathBuf,
 
     /// 导出目录（必填）
-    #[arg(about = "Directory to write the cropped sprite PNG files into", must_exist = false)]
+    #[arg(
+        about = "Directory to write the cropped sprite PNG files into",
+        must_exist = false
+    )]
     out: PathBuf,
 
     /// 姿势标题 glob 过滤（只裁该姿势用到的 sprite）
-    #[arg(about = "Only export sprites used by poses whose title matches this glob", default = "")]
+    #[arg(
+        about = "Only export sprites used by poses whose title matches this glob",
+        default = ""
+    )]
     pose: String,
 
     /// 额外导出整张解码后的图集
-    #[arg(about = "Also write the whole decoded atlas as <table>.atlas_<i>.png", default = false)]
+    #[arg(
+        about = "Also write the whole decoded atlas as <table>.atlas_<i>.png",
+        default = false
+    )]
     atlas: bool,
 
     /// 额外导出 IMGS 节内嵌的 PNG
-    #[arg(about = "Also write PNGs embedded in the %IMGS_SECTION%", default = false)]
+    #[arg(
+        about = "Also write PNGs embedded in the %IMGS_SECTION%",
+        default = false
+    )]
     embedded: bool,
 
     /// 最多处理的文件数（0 = 不限）
-    #[arg(about = "Cap the number of tables processed (0 = unlimited)", default = 0)]
+    #[arg(
+        about = "Cap the number of tables processed (0 = unlimited)",
+        default = 0
+    )]
     limit: u64,
 }
 
@@ -114,25 +132,27 @@ fn run_sprites(app: &Sprites, ctx: &Context) -> Result<serde_json::Value, AppErr
             });
             let img: Img = if let Some((ew, eh)) = at.external_wh {
                 match sources.get(ai).and_then(|s| s.clone()) {
-                    Some(src) => match src.read() {
-                        Ok(im) => {
-                            meta["source"] = serde_json::json!(src.describe());
-                            // 取的是包里哪个 asset —— 对象表顺序可能与名字编号不一致
-                            // （`noel_t` 的 `texture_1` 就排在 `texture_0` 前面），排查时很有用
-                            meta["asset"] = serde_json::json!(src.asset_name());
-                            meta["width"] = serde_json::json!(im.w);
-                            meta["height"] = serde_json::json!(im.h);
-                            meta["decoded"] = serde_json::json!(true);
-                            atlas_used.push(meta);
-                            im
+                    Some(src) => {
+                        match src.read() {
+                            Ok(im) => {
+                                meta["source"] = serde_json::json!(src.describe());
+                                // 取的是包里哪个 asset —— 对象表顺序可能与名字编号不一致
+                                // （`noel_t` 的 `texture_1` 就排在 `texture_0` 前面），排查时很有用
+                                meta["asset"] = serde_json::json!(src.asset_name());
+                                meta["width"] = serde_json::json!(im.w);
+                                meta["height"] = serde_json::json!(im.h);
+                                meta["decoded"] = serde_json::json!(true);
+                                atlas_used.push(meta);
+                                im
+                            }
+                            Err(e) => {
+                                meta["error"] = serde_json::json!(e.clone());
+                                atlas_used.push(meta);
+                                errors.push(serde_json::json!({ "file": file_str, "atlas": ai, "error": e }));
+                                continue;
+                            }
                         }
-                        Err(e) => {
-                            meta["error"] = serde_json::json!(e.clone());
-                            atlas_used.push(meta);
-                            errors.push(serde_json::json!({ "file": file_str, "atlas": ai, "error": e }));
-                            continue;
-                        }
-                    },
+                    }
                     None => {
                         let note = format!(
                             "external atlas {ai} claims {ew}x{eh} but this dump has no texture for it \
@@ -162,7 +182,8 @@ fn run_sprites(app: &Sprites, ctx: &Context) -> Result<serde_json::Value, AppErr
                     Err(e) => {
                         meta["error"] = serde_json::json!(e.clone());
                         atlas_used.push(meta);
-                        errors.push(serde_json::json!({ "file": file_str, "atlas": ai, "error": e }));
+                        errors
+                            .push(serde_json::json!({ "file": file_str, "atlas": ai, "error": e }));
                         continue;
                     }
                 }
@@ -188,10 +209,17 @@ fn run_sprites(app: &Sprites, ctx: &Context) -> Result<serde_json::Value, AppErr
                 if w == 0 || h == 0 {
                     continue;
                 }
-                let base = names.get(&uv.img).cloned().unwrap_or_else(|| uv.img.clone());
+                let base = names
+                    .get(&uv.img)
+                    .cloned()
+                    .unwrap_or_else(|| uv.img.clone());
                 let crop = img.crop(uv.x + m, uv.y + m, w, h);
                 // 继承 UV 的部件图集：命名带上 atlas 序号，免得和主图集的同名 sprite 打架
-                let base = if ai > 0 { format!("{base}.a{ai}") } else { base };
+                let base = if ai > 0 {
+                    format!("{base}.a{ai}")
+                } else {
+                    base
+                };
                 let out_path = unique_path(&out_dir, &base, &uv.img, &mut used);
                 match write_png(&out_path, crop.w, crop.h, &crop.rgba) {
                     Ok(()) => {
@@ -219,8 +247,12 @@ fn run_sprites(app: &Sprites, ctx: &Context) -> Result<serde_json::Value, AppErr
                     if png.is_empty() {
                         continue;
                     }
-                    let base = format!("{IMGS_PREFIX}.{}", names.get(&e.img).cloned().unwrap_or_else(|| e.img.clone()));
-                    let out_path = unique_path(&out_dir, &format!("{base}.{slot}"), &e.img, &mut used);
+                    let base = format!(
+                        "{IMGS_PREFIX}.{}",
+                        names.get(&e.img).cloned().unwrap_or_else(|| e.img.clone())
+                    );
+                    let out_path =
+                        unique_path(&out_dir, &format!("{base}.{slot}"), &e.img, &mut used);
                     match read_png(png, "embedded image") {
                         Ok(im) => match write_png(&out_path, im.w, im.h, &im.rgba) {
                             Ok(()) => {
@@ -231,11 +263,13 @@ fn run_sprites(app: &Sprites, ctx: &Context) -> Result<serde_json::Value, AppErr
                                     "width": im.w, "height": im.h,
                                 }));
                             }
-                            Err(er) => errors
-                                .push(serde_json::json!({ "file": file_str, "error": er })),
+                            Err(er) => {
+                                errors.push(serde_json::json!({ "file": file_str, "error": er }))
+                            }
                         },
-                        Err(er) => errors
-                            .push(serde_json::json!({ "file": file_str, "error": er })),
+                        Err(er) => {
+                            errors.push(serde_json::json!({ "file": file_str, "error": er }))
+                        }
                     }
                 }
             }
@@ -323,7 +357,12 @@ pub(crate) fn claim_stem(base: &str, key: &str, used: &mut BTreeMap<String, usiz
     name
 }
 
-pub(crate) fn unique_path(dir: &Path, base: &str, key: &str, used: &mut BTreeMap<String, usize>) -> PathBuf {
+pub(crate) fn unique_path(
+    dir: &Path,
+    base: &str,
+    key: &str,
+    used: &mut BTreeMap<String, usize>,
+) -> PathBuf {
     dir.join(format!("{}.png", claim_stem(base, key, used)))
 }
 
@@ -351,8 +390,15 @@ pub(crate) fn sprite_stems(
                 row.push(None);
                 continue;
             }
-            let base = names.get(&uv.img).cloned().unwrap_or_else(|| uv.img.clone());
-            let base = if ai > 0 { format!("{base}.a{ai}") } else { base };
+            let base = names
+                .get(&uv.img)
+                .cloned()
+                .unwrap_or_else(|| uv.img.clone());
+            let base = if ai > 0 {
+                format!("{base}.a{ai}")
+            } else {
+                base
+            };
             row.push(Some(claim_stem(&base, &uv.img, &mut used)));
         }
         out.push(row);
@@ -363,10 +409,20 @@ pub(crate) fn sprite_stems(
 pub(crate) fn sanitize(name: &str) -> String {
     let s: String = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let s = s.trim_start_matches(['.', '/']).to_string();
-    if s.is_empty() { "unnamed".to_string() } else { s }
+    if s.is_empty() {
+        "unnamed".to_string()
+    } else {
+        s
+    }
 }
 
 #[cfg(test)]
@@ -376,7 +432,10 @@ mod tests {
     #[test]
     fn table_name_strips_pxls_suffix() {
         assert_eq!(table_name(Path::new("a/b/noel.pxls.dat")), "noel");
-        assert_eq!(table_name(Path::new("a/b/boss_nusi.pxls.bytes")), "boss_nusi");
+        assert_eq!(
+            table_name(Path::new("a/b/boss_nusi.pxls.bytes")),
+            "boss_nusi"
+        );
         assert_eq!(table_name(Path::new("a/b/x.pxls")), "x");
     }
 
@@ -393,7 +452,10 @@ mod tests {
         ] {
             let s = sanitize(raw);
             assert!(!s.is_empty(), "{raw} → 空名");
-            assert!(!s.contains('/') && !s.contains('\\'), "{raw} → {s} 仍带分隔符");
+            assert!(
+                !s.contains('/') && !s.contains('\\'),
+                "{raw} → {s} 仍带分隔符"
+            );
             assert!(!s.starts_with('.'), "{raw} → {s} 以点开头");
             assert!(!s.contains(':'), "{raw} → {s} 带盘符冒号");
         }

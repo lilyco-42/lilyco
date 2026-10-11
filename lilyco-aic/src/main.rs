@@ -31,8 +31,8 @@ mod atlas;
 mod findpose;
 mod frame;
 mod mpcc;
-mod poses;
 mod pack;
+mod poses;
 mod pxlslib;
 mod render;
 mod repack;
@@ -118,7 +118,10 @@ mod tests {
             "pack",
         ];
         want.sort_unstable();
-        assert_eq!(got, want.into_iter().map(str::to_string).collect::<Vec<_>>());
+        assert_eq!(
+            got,
+            want.into_iter().map(str::to_string).collect::<Vec<_>>()
+        );
     }
 
     /// 安全分级：只有 repack / pack 高于 T0（写回），其余全部只读
@@ -217,7 +220,8 @@ mod tests {
             (policy_for(lilyco::Backend::Cli), "cli"),
         ] {
             let mut reg = Registry::new().with_policy(policy);
-            reg.register(RegisteredCommand::from_app::<repack::Repack>()).unwrap();
+            reg.register(RegisteredCommand::from_app::<repack::Repack>())
+                .unwrap();
             let c = reg.get("repack").unwrap();
             let t = c.schema.safety;
             assert_eq!(t, SafetyTier::Confirm, "repack 必须 T1");
@@ -230,7 +234,11 @@ mod tests {
             if surface == "mcp" {
                 assert_ne!(decision, GateDecision::Allow, "MCP 自动化面不能放行写回");
             } else {
-                assert_eq!(decision, GateDecision::Allow, "CLI 面应放行到确认环节（dry-run 兜底）");
+                assert_eq!(
+                    decision,
+                    GateDecision::Allow,
+                    "CLI 面应放行到确认环节（dry-run 兜底）"
+                );
             }
         }
         assert!(tier.is_some());

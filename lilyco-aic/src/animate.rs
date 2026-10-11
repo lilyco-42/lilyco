@@ -42,7 +42,10 @@ use crate::util::{collect_targets, glob_match};
 )]
 pub struct Animate {
     /// pxls 文件或目录
-    #[arg(about = "A .pxls file, or a directory scanned recursively for pxls tables", must_exist = true)]
+    #[arg(
+        about = "A .pxls file, or a directory scanned recursively for pxls tables",
+        must_exist = true
+    )]
     root: PathBuf,
 
     /// 姿势标题 glob（不区分大小写）
@@ -54,23 +57,38 @@ pub struct Animate {
     dir: u32,
 
     /// 起始帧序号（每个方向内 0 起）
-    #[arg(about = "Seek to frame index N before advancing (0-based)", default = 99)]
+    #[arg(
+        about = "Seek to frame index N before advancing (0-based)",
+        default = 99
+    )]
     index: u32,
 
     /// 按帧名定位（不区分大小写；优先于 index）
-    #[arg(about = "Seek to the frame named N (case-insensitive; takes precedence over index)", default = "")]
+    #[arg(
+        about = "Seek to the frame named N (case-insensitive; takes precedence over index)",
+        default = ""
+    )]
     frame: String,
 
     /// 推进 N 个 tick（1/60 秒；按 crf60 累加）
-    #[arg(about = "Advance N ticks of 1/60 s (accumulates against each frame's crf60)", default = 0)]
+    #[arg(
+        about = "Advance N ticks of 1/60 s (accumulates against each frame's crf60)",
+        default = 0
+    )]
     ticks: u64,
 
     /// 额外推进 N 个整帧（忽略 crf60）
-    #[arg(about = "Additionally jump N whole frames (ignores crf60)", default = 0)]
+    #[arg(
+        about = "Additionally jump N whole frames (ignores crf60)",
+        default = 0
+    )]
     frames: u64,
 
     /// 渲染播放头所在的那一帧到该目录（空 = 不渲染）
-    #[arg(about = "Directory to render the frame the playhead landed on into (empty = no render)", default = "")]
+    #[arg(
+        about = "Directory to render the frame the playhead landed on into (empty = no render)",
+        default = ""
+    )]
     out: String,
 
     /// 渲染时的整数倍放大
@@ -78,15 +96,24 @@ pub struct Animate {
     scale: u32,
 
     /// 显式指定 atlas 0 的贴图文件
-    #[arg(about = "Explicit texture file for atlas 0 (overrides auto pairing)", default = "")]
+    #[arg(
+        about = "Explicit texture file for atlas 0 (overrides auto pairing)",
+        default = ""
+    )]
     texture: String,
 
     /// 用 PARTS 图集（texture_1）的像素渲染落点帧
-    #[arg(about = "Render the landed frame from the PARTS atlas (texture_1) instead of the primary one", default = false)]
+    #[arg(
+        about = "Render the landed frame from the PARTS atlas (texture_1) instead of the primary one",
+        default = false
+    )]
     parts: bool,
 
     /// 最多处理的文件数（0 = 不限）
-    #[arg(about = "Cap the number of tables processed (0 = unlimited)", default = 0)]
+    #[arg(
+        about = "Cap the number of tables processed (0 = unlimited)",
+        default = 0
+    )]
     limit: u64,
 }
 
@@ -102,7 +129,13 @@ struct Animator<'a> {
 
 impl<'a> Animator<'a> {
     fn new(seq: &'a Seq) -> Self {
-        Animator { seq, position: 0, stepped: 0, looped: 0, clamped: false }
+        Animator {
+            seq,
+            position: 0,
+            stepped: 0,
+            looped: 0,
+            clamped: false,
+        }
     }
 
     fn frame_count(&self) -> usize {
@@ -177,7 +210,11 @@ impl<'a> Animator<'a> {
 /// 一循环的总 tick 数：`loop_to..end` 各帧 crf60 之和
 fn ticks_per_loop(seq: &Seq) -> i64 {
     let n = seq.frames.len();
-    let from = if seq.loop_to < 0 || seq.loop_to as usize >= n { 0 } else { seq.loop_to as usize };
+    let from = if seq.loop_to < 0 || seq.loop_to as usize >= n {
+        0
+    } else {
+        seq.loop_to as usize
+    };
     seq.frames[from..].iter().map(|f| f.crf60 as i64).sum()
 }
 
@@ -187,9 +224,14 @@ fn run_animate(app: &Animate, ctx: &Context) -> Result<serde_json::Value, AppErr
     if app.limit > 0 {
         targets.truncate(app.limit as usize);
     }
-    let render_dir: Option<PathBuf> = if app.out.is_empty() { None } else { Some(PathBuf::from(&app.out)) };
+    let render_dir: Option<PathBuf> = if app.out.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(&app.out))
+    };
     if let Some(d) = &render_dir {
-        std::fs::create_dir_all(d).map_err(|e| AppError::InvalidArg(format!("--out mkdir: {e}")))?;
+        std::fs::create_dir_all(d)
+            .map_err(|e| AppError::InvalidArg(format!("--out mkdir: {e}")))?;
     }
 
     ctx.emit(Progress::Started {
@@ -297,15 +339,18 @@ fn run_animate(app: &Animate, ctx: &Context) -> Result<serde_json::Value, AppErr
                                 );
                                 let fp = dir.join(&name);
                                 match render_frame(s, f, cw, ch, sc, pose.width, pose.height) {
-                                    Ok(canvas) => match crate::atlas::write_png(&fp, cw, ch, &canvas.rgba) {
-                                        Ok(()) => {
-                                            rendered += 1;
-                                            entry["rendered"] = serde_json::json!(fp.display().to_string());
+                                    Ok(canvas) => {
+                                        match crate::atlas::write_png(&fp, cw, ch, &canvas.rgba) {
+                                            Ok(()) => {
+                                                rendered += 1;
+                                                entry["rendered"] =
+                                                    serde_json::json!(fp.display().to_string());
+                                            }
+                                            Err(e) => errors.push(serde_json::json!({
+                                                "file": file_str, "error": e,
+                                            })),
                                         }
-                                        Err(e) => errors.push(serde_json::json!({
-                                            "file": file_str, "error": e,
-                                        })),
-                                    },
+                                    }
                                     Err(e) => errors.push(serde_json::json!({
                                         "file": file_str, "pose": pose.title, "error": e,
                                     })),
@@ -411,15 +456,27 @@ mod tests {
         let mut a = Animator::new(&s);
         assert_eq!((a.position, a.stepped), (0, 0));
         a.step();
-        assert_eq!((a.position, a.stepped), (0, 1), "crf60=2 的帧要走满 2 tick 才换帧");
+        assert_eq!(
+            (a.position, a.stepped),
+            (0, 1),
+            "crf60=2 的帧要走满 2 tick 才换帧"
+        );
         a.step();
-        assert_eq!((a.position, a.stepped), (1, 0), "第 2 个 tick 用满，换帧且计数归零");
+        assert_eq!(
+            (a.position, a.stepped),
+            (1, 0),
+            "第 2 个 tick 用满，换帧且计数归零"
+        );
         a.step();
         assert_eq!((a.position, a.stepped), (1, 1), "crf60=3 的帧要走满 3 tick");
         a.step();
         assert_eq!((a.position, a.stepped), (1, 2));
         a.step();
-        assert_eq!((a.position, a.stepped), (0, 0), "走满 3 tick 后回卷到 loop_to=0，计数也归零");
+        assert_eq!(
+            (a.position, a.stepped),
+            (0, 0),
+            "走满 3 tick 后回卷到 loop_to=0，计数也归零"
+        );
         assert_eq!(a.looped, 1);
     }
 

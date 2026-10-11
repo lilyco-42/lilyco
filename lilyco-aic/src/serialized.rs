@@ -121,7 +121,9 @@ impl SerializedFile {
             return Err("big-endian SerializedFile not supported".into());
         }
         if version < 22 {
-            return Err(format!("SerializedFile version {version} < 22 not supported"));
+            return Err(format!(
+                "SerializedFile version {version} < 22 not supported"
+            ));
         }
         // v22 真头（BE）：metadata_size u32 + file_size u64 + data_offset u64 + unknown u64
         // d[17..21] metadata_size；d[21..29] file_size；d[29..37]? —— 不对，v22 布局是
@@ -165,7 +167,14 @@ impl SerializedFile {
                     let _index = r.i32()?;
                     let meta_flag = r.u32()?;
                     r.skip(8)?; // refHash (v>=19)
-                    raws.push((level, type_flags, type_str_off, name_str_off, byte_size, meta_flag));
+                    raws.push((
+                        level,
+                        type_flags,
+                        type_str_off,
+                        name_str_off,
+                        byte_size,
+                        meta_flag,
+                    ));
                 }
                 let sb = r.take(sb_size)?;
                 let nodes: Vec<TtNode> = raws
@@ -254,11 +263,7 @@ impl SerializedFile {
     }
 
     /// typetree 驱动解析对象字节 → 顶层字段表
-    pub fn read_object(
-        &self,
-        o: &SfObject,
-        d: &[u8],
-    ) -> Result<BTreeMap<String, TyVal>, String> {
+    pub fn read_object(&self, o: &SfObject, d: &[u8]) -> Result<BTreeMap<String, TyVal>, String> {
         let nodes = self
             .type_trees
             .get(o.type_id as usize)
@@ -427,11 +432,7 @@ impl<'a> Le<'a> {
     }
     fn need(&self, n: usize) -> Result<(), String> {
         if self.pos + n > self.d.len() {
-            return Err(format!(
-                "eof: need {n} at {} of {}",
-                self.pos,
-                self.d.len()
-            ));
+            return Err(format!("eof: need {n} at {} of {}", self.pos, self.d.len()));
         }
         Ok(())
     }
@@ -566,7 +567,11 @@ pub fn drive(
                 if n.meta_flag & META_ALIGN != 0 {
                     rd.align4();
                 }
-                if nodes.get(i + 1).map(|a| a.meta_flag & META_ALIGN != 0).unwrap_or(false) {
+                if nodes
+                    .get(i + 1)
+                    .map(|a| a.meta_flag & META_ALIGN != 0)
+                    .unwrap_or(false)
+                {
                     rd.align4();
                 }
                 out.insert(
@@ -579,7 +584,9 @@ pub fn drive(
                 let count = rd.u32()? as usize;
                 // 元素类型节点 = i+3（i 容器, i+1 Array, i+2 size, i+3 data）
                 let elem = nodes.get(i + 3).map(|n| n.type_name.as_str()).unwrap_or("");
-                let val = if n.type_name == "TypelessData" || matches!(elem, "char" | "UInt8" | "SInt8" | "byte") {
+                let val = if n.type_name == "TypelessData"
+                    || matches!(elem, "char" | "UInt8" | "SInt8" | "byte")
+                {
                     let b = rd.take(count)?;
                     TyVal::Bytes(b.to_vec())
                 } else if nodes.get(i + 3).map(is_scalar).unwrap_or(false) {
@@ -630,8 +637,16 @@ pub fn drive(
 fn is_scalar(n: &TtNode) -> bool {
     matches!(
         n.type_name.as_str(),
-        "SInt32" | "int" | "signed int" | "UInt32" | "unsigned int" | "SInt64" | "UInt64"
-            | "bool" | "float" | "FileSize"
+        "SInt32"
+            | "int"
+            | "signed int"
+            | "UInt32"
+            | "unsigned int"
+            | "SInt64"
+            | "UInt64"
+            | "bool"
+            | "float"
+            | "FileSize"
     )
 }
 
@@ -667,9 +682,17 @@ mod tests {
         }
         eprintln!();
         let sf = SerializedFile::parse(&data).unwrap();
-        eprintln!("unity_version={:?} platform={} objects={}", sf.unity_version, sf.target_platform, sf.objects.len());
+        eprintln!(
+            "unity_version={:?} platform={} objects={}",
+            sf.unity_version,
+            sf.target_platform,
+            sf.objects.len()
+        );
         for o in &sf.objects {
-            eprintln!("obj path_id={} class={} size={}", o.path_id, o.class_name, o.byte_size);
+            eprintln!(
+                "obj path_id={} class={} size={}",
+                o.path_id, o.class_name, o.byte_size
+            );
         }
         let tex = sf.find_by_class("Texture2D").expect("Texture2D not found");
         let f = sf.read_object(tex, &data).unwrap();
@@ -678,7 +701,12 @@ mod tests {
         assert_eq!(f.get("m_TextureFormat").unwrap().as_int(), Some(12));
         let sd = f.get("m_StreamData").unwrap().as_obj().unwrap();
         assert_eq!(sd.get("size").unwrap().as_int(), Some(16777216));
-        assert!(sd.get("path").unwrap().as_str().unwrap().starts_with("archive:/"));
+        assert!(sd
+            .get("path")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .starts_with("archive:/"));
         // resS 节点存在
         assert!(nodes.iter().any(|n| n.path.ends_with(".resS")));
     }

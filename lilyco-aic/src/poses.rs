@@ -19,7 +19,10 @@ use crate::util::{collect_targets, glob_match, load_pxls};
 )]
 pub struct Poses {
     /// pxls 文件或目录
-    #[arg(about = "A .pxls file, or a directory scanned recursively for pxls tables", must_exist = true)]
+    #[arg(
+        about = "A .pxls file, or a directory scanned recursively for pxls tables",
+        must_exist = true
+    )]
     root: PathBuf,
 
     /// 按姿势标题过滤（glob，不区分大小写）
@@ -27,11 +30,16 @@ pub struct Poses {
     pose: Option<String>,
 
     /// 附带每帧图层变换明细（完整人物结构数据）
-    #[arg(about = "Also embed every frame's layer transform table (name/type/x/y/zmx/zmy/rot_r/img)")]
+    #[arg(
+        about = "Also embed every frame's layer transform table (name/type/x/y/zmx/zmy/rot_r/img)"
+    )]
     full: bool,
 
     /// 最多处理的文件数（0 = 不限）
-    #[arg(about = "Cap the number of files processed (0 = unlimited)", default = 0)]
+    #[arg(
+        about = "Cap the number of files processed (0 = unlimited)",
+        default = 0
+    )]
     limit: u64,
 }
 

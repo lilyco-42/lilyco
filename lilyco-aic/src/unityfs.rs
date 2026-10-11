@@ -136,7 +136,8 @@ fn bound_payload(raw: &[u8], off: usize) -> Vec<u8> {
         let mut b = [0u8; 4];
         b.copy_from_slice(&raw[off - 4..off]);
         let len = u32::from_le_bytes(b) as usize;
-        if len > 0 && off + len <= raw.len() && crate::pxlslib::parse(&raw[off..off + len]).is_ok() {
+        if len > 0 && off + len <= raw.len() && crate::pxlslib::parse(&raw[off..off + len]).is_ok()
+        {
             return raw[off..off + len].to_vec();
         }
     }
@@ -183,7 +184,12 @@ pub fn analyze(d: &[u8]) -> Result<BundleInfo, String> {
     let unity_version = cstring(&mut r)?;
     let unity_revision = cstring(&mut r)?;
     let _bundle_size = if version >= 7 {
-        u64::from_be_bytes(r.take(8).map_err(|e| format!("size: {e}"))?.try_into().unwrap()) as usize
+        u64::from_be_bytes(
+            r.take(8)
+                .map_err(|e| format!("size: {e}"))?
+                .try_into()
+                .unwrap(),
+        ) as usize
     } else {
         r.u32().map_err(|e| format!("size: {e}"))? as usize
     };
@@ -211,7 +217,8 @@ pub fn analyze(d: &[u8]) -> Result<BundleInfo, String> {
     }
     let info_raw_slice: &[u8] = &d[info_pos..info_pos + ci_size];
     if flags & FLAG_BLOCKS_INFO_AT_END == 0 {
-        r.take(ci_size).map_err(|e| format!("skip blocks info: {e}"))?;
+        r.take(ci_size)
+            .map_err(|e| format!("skip blocks info: {e}"))?;
     }
     let info = decompress(info_raw_slice, ui_size, flags & FLAG_COMPRESSION_MASK)
         .map_err(|e| format!("blocks info decompress: {e}"))?;
@@ -231,14 +238,25 @@ pub fn analyze(d: &[u8]) -> Result<BundleInfo, String> {
     let mut nodes = Vec::with_capacity(nnodes as usize);
     for _ in 0..nnodes {
         let off = u64::from_be_bytes(
-            b.take(8).map_err(|e| format!("node.offset: {e}"))?.try_into().unwrap(),
+            b.take(8)
+                .map_err(|e| format!("node.offset: {e}"))?
+                .try_into()
+                .unwrap(),
         );
         let sz = u64::from_be_bytes(
-            b.take(8).map_err(|e| format!("node.size: {e}"))?.try_into().unwrap(),
+            b.take(8)
+                .map_err(|e| format!("node.size: {e}"))?
+                .try_into()
+                .unwrap(),
         );
         let nflags = b.u32().map_err(|e| format!("node.flags: {e}"))?;
         let path = cstring(&mut b).map_err(|e| format!("node.path: {e}"))?;
-        nodes.push(BundleNode { path, offset: off as usize, size: sz as usize, flags: nflags });
+        nodes.push(BundleNode {
+            path,
+            offset: off as usize,
+            size: sz as usize,
+            flags: nflags,
+        });
     }
 
     // 数据块：!at_end 时在 blocks info 之后；at_end 时回到 start。
@@ -321,7 +339,9 @@ pub fn inflate_prefix(d: &[u8], need: usize) -> Result<Vec<u8>, String> {
         let remaining = need - out.len();
         if remaining < *unc {
             // 原块比我们要的多：LZMA 可早停，成则直接收工
-            if let Some(part) = decompress_lzma_prefix(src, *unc, *comp_id, remaining + PREFIX_SLACK) {
+            if let Some(part) =
+                decompress_lzma_prefix(src, *unc, *comp_id, remaining + PREFIX_SLACK)
+            {
                 out.extend_from_slice(&part);
                 break;
             }
@@ -364,7 +384,10 @@ fn decompress_lzma_prefix(src: &[u8], unc: usize, comp_id: u32, need: usize) -> 
     input.extend_from_slice(&src[..5]);
     input.extend_from_slice(&(unc as u64).to_le_bytes());
     input.extend_from_slice(&src[5..]);
-    let mut sink = Cutoff { buf: Vec::with_capacity(need), need };
+    let mut sink = Cutoff {
+        buf: Vec::with_capacity(need),
+        need,
+    };
     let _ = lzma_rs::lzma_decompress(&mut std::io::Cursor::new(&input), &mut sink);
     if sink.buf.len() >= need {
         Some(sink.buf)
@@ -491,8 +514,8 @@ fn decompress(src: &[u8], unc: usize, comp_id: u32) -> Result<Vec<u8>, String> {
         }
         COMP_LZ4 | COMP_LZ4HC => {
             let mut dst = vec![0u8; unc];
-            let n = lz4_flex::block::decompress_into(src, &mut dst)
-                .map_err(|e| format!("lz4: {e}"))?;
+            let n =
+                lz4_flex::block::decompress_into(src, &mut dst).map_err(|e| format!("lz4: {e}"))?;
             dst.truncate(n);
             Ok(dst)
         }
@@ -541,7 +564,9 @@ mod tests {
         let mut out = Vec::new();
         let mut stack = vec![std::path::PathBuf::from(STREAM)];
         while let Some(dir) = stack.pop() {
-            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                continue;
+            };
             for e in rd.flatten() {
                 let p = e.path();
                 if p.is_dir() {
@@ -564,7 +589,9 @@ mod tests {
     #[test]
     fn pxls_body_is_bounded_by_its_length_prefix() {
         let path = std::path::Path::new(STREAM).join("PxlNoel/noel.pxls.dat");
-        let Ok(orig) = std::fs::read(&path) else { return };
+        let Ok(orig) = std::fs::read(&path) else {
+            return;
+        };
         let (data, _info) = inflate_with_info(&orig).unwrap();
         let sig = find_pxls_offset(&data).expect("pxls signature");
         let len = u32::from_le_bytes(data[sig - 4..sig].try_into().unwrap()) as usize;
@@ -595,7 +622,10 @@ mod tests {
         }
         let mut n = 0;
         for f in &files {
-            if f.file_name().map(|n| n.to_string_lossy().contains("texture_")).unwrap_or(false) {
+            if f.file_name()
+                .map(|n| n.to_string_lossy().contains("texture_"))
+                .unwrap_or(false)
+            {
                 continue;
             }
             let d = std::fs::read(f).unwrap();
@@ -623,7 +653,10 @@ mod tests {
         }
         let mut n = 0;
         for f in &files {
-            if f.file_name().map(|n| n.to_string_lossy().contains("texture_")).unwrap_or(false) {
+            if f.file_name()
+                .map(|n| n.to_string_lossy().contains("texture_"))
+                .unwrap_or(false)
+            {
                 continue;
             }
             let d = std::fs::read(f).unwrap();
@@ -632,8 +665,13 @@ mod tests {
             }
             let (data, info) = inflate_with_info(&d).unwrap();
             for comp in [RepackComp::None, RepackComp::Lz4, RepackComp::Original] {
-                let slices: Vec<Vec<u8>> = info.node_slices(&data).into_iter().map(|s| s.to_vec()).collect();
-                let out = repack(&d, &slices, comp).unwrap_or_else(|e| panic!("{}: {e}", f.display()));
+                let slices: Vec<Vec<u8>> = info
+                    .node_slices(&data)
+                    .into_iter()
+                    .map(|s| s.to_vec())
+                    .collect();
+                let out =
+                    repack(&d, &slices, comp).unwrap_or_else(|e| panic!("{}: {e}", f.display()));
                 let (data2, info2) = inflate_with_info(&out)
                     .unwrap_or_else(|e| panic!("{} ({comp:?}): re-inflate {e}", f.display()));
                 assert_eq!(data2.len(), data.len(), "{} ({comp:?})", f.display());

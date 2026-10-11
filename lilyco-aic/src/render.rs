@@ -35,11 +35,17 @@ use crate::util::{collect_targets, glob_match, load_pxls};
 )]
 pub struct Render {
     /// pxls 文件或目录
-    #[arg(about = "A .pxls file, or a directory scanned recursively for pxls tables", must_exist = true)]
+    #[arg(
+        about = "A .pxls file, or a directory scanned recursively for pxls tables",
+        must_exist = true
+    )]
     root: PathBuf,
 
     /// 输出目录
-    #[arg(about = "Directory to write the rendered PNG/GIF/sheet files into", must_exist = false)]
+    #[arg(
+        about = "Directory to write the rendered PNG/GIF/sheet files into",
+        must_exist = false
+    )]
     out: PathBuf,
 
     /// 姿势标题 glob（不区分大小写）
@@ -51,7 +57,10 @@ pub struct Render {
     dir: u32,
 
     /// 只渲染指定帧序号（每个方向内 0 起）
-    #[arg(about = "Only render frame index N within each direction (omit for all)", default = 99)]
+    #[arg(
+        about = "Only render frame index N within each direction (omit for all)",
+        default = 99
+    )]
     frame: u32,
 
     /// 整数倍放大输出
@@ -63,19 +72,31 @@ pub struct Render {
     anim: bool,
 
     /// 每个姿势额外输出一张精灵表
-    #[arg(about = "Also write a sprite sheet per pose (rows = directions, columns = frames)", default = false)]
+    #[arg(
+        about = "Also write a sprite sheet per pose (rows = directions, columns = frames)",
+        default = false
+    )]
     sheet: bool,
 
     /// 显式指定 atlas 0 的贴图文件
-    #[arg(about = "Explicit texture file for atlas 0 (overrides auto pairing)", default = "")]
+    #[arg(
+        about = "Explicit texture file for atlas 0 (overrides auto pairing)",
+        default = ""
+    )]
     texture: String,
 
     /// 用 PARTS 图集（texture_1）的像素合成 —— 撕破 / 换装变体的精确预览
-    #[arg(about = "Composite from the PARTS atlas (texture_1) instead of the primary one — the torn/clothing-overlay variant. Tables without a second atlas are unaffected", default = false)]
+    #[arg(
+        about = "Composite from the PARTS atlas (texture_1) instead of the primary one — the torn/clothing-overlay variant. Tables without a second atlas are unaffected",
+        default = false
+    )]
     parts: bool,
 
     /// 最多处理的文件数（0 = 不限）
-    #[arg(about = "Cap the number of tables processed (0 = unlimited)", default = 0)]
+    #[arg(
+        about = "Cap the number of tables processed (0 = unlimited)",
+        default = 0
+    )]
     limit: u64,
 }
 
@@ -189,7 +210,12 @@ fn run_render(app: &Render, ctx: &Context) -> Result<serde_json::Value, AppError
             }
 
             if app.sheet && !sheet_frames.is_empty() {
-                match write_sheet(&app.out.join(format!("{table}.{pose_tag}.sheet.png")), &sheet_frames, cw, ch) {
+                match write_sheet(
+                    &app.out.join(format!("{table}.{pose_tag}.sheet.png")),
+                    &sheet_frames,
+                    cw,
+                    ch,
+                ) {
                     Ok(()) => sheets_written += 1,
                     Err(e) => errors.push(serde_json::json!({ "file": file_str, "error": e })),
                 }
@@ -237,7 +263,10 @@ pub(crate) fn build_atlas_set(
     }
     // 贴图来源一次解析完：第 i 个图集 ↔ `<stem>.pxls.bytes.texture_0.dat` 里的第 i 张 Texture2D
     let sources = crate::atlas::resolve_atlas_textures(path, p.atlas.len());
-    let mut set = AtlasSet { images: vec![None; p.atlas.len()], uv: BTreeMap::new() };
+    let mut set = AtlasSet {
+        images: vec![None; p.atlas.len()],
+        uv: BTreeMap::new(),
+    };
 
     for (ai, at) in p.atlas.iter().enumerate() {
         let m = at.margin as u32;
@@ -277,10 +306,14 @@ pub(crate) fn build_atlas_set(
         let at = &p.atlas[ai];
         let img = if let Some((ew, eh)) = at.external_wh {
             let src = if ai == 0 && !texture.is_empty() {
-                crate::atlas::TextureSource::File { path: PathBuf::from(texture) }
+                crate::atlas::TextureSource::File {
+                    path: PathBuf::from(texture),
+                }
             } else {
                 sources.get(ai).and_then(|s| s.clone()).ok_or_else(|| {
-                    format!("external atlas {ai} claims {ew}x{eh} but no texture is available for it")
+                    format!(
+                        "external atlas {ai} claims {ew}x{eh} but no texture is available for it"
+                    )
                 })?
             };
             src.read()?
@@ -313,8 +346,12 @@ pub(crate) fn render_frame(
         if l.group || l.alpha <= 0 {
             continue;
         }
-        let Some((ai, rect)) = set.uv.get(&l.img).copied() else { continue };
-        let Some(atlas) = set.images.get(ai).and_then(|o| o.as_ref()) else { continue };
+        let Some((ai, rect)) = set.uv.get(&l.img).copied() else {
+            continue;
+        };
+        let Some(atlas) = set.images.get(ai).and_then(|o| o.as_ref()) else {
+            continue;
+        };
 
         let (sw, sh, sx0, sy0) = (rect[2], rect[3], rect[0], rect[1]);
         let sprite = atlas.crop(sx0, sy0, sw, sh);
@@ -434,10 +471,12 @@ fn write_gif(path: &Path, frames: &[(u16, Img)]) -> Result<(), String> {
         std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
     }
     let f0 = &frames[0].1;
-    let file = std::fs::File::create(path).map_err(|e| format!("create {}: {e}", path.display()))?;
+    let file =
+        std::fs::File::create(path).map_err(|e| format!("create {}: {e}", path.display()))?;
     let mut enc = gif::Encoder::new(std::io::BufWriter::new(file), f0.w as u16, f0.h as u16, &[])
         .map_err(|e| format!("gif encoder: {e}"))?;
-    enc.set_repeat(gif::Repeat::Infinite).map_err(|e| format!("gif repeat: {e}"))?;
+    enc.set_repeat(gif::Repeat::Infinite)
+        .map_err(|e| format!("gif repeat: {e}"))?;
     for (crf60, img) in frames {
         if img.w != f0.w || img.h != f0.h {
             continue;
@@ -492,10 +531,20 @@ fn table_name(path: &Path) -> String {
 fn sanitize(name: &str) -> String {
     let s: String = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let s = s.trim_start_matches(['.', '/']).to_string();
-    if s.is_empty() { "unnamed".to_string() } else { s }
+    if s.is_empty() {
+        "unnamed".to_string()
+    } else {
+        s
+    }
 }
 
 #[cfg(test)]

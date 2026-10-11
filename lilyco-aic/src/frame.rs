@@ -18,7 +18,10 @@ use crate::util::{collect_targets, glob_match, load_pxls};
 )]
 pub struct Frame {
     /// pxls 文件或目录
-    #[arg(about = "A .pxls file, or a directory scanned recursively for pxls tables", must_exist = true)]
+    #[arg(
+        about = "A .pxls file, or a directory scanned recursively for pxls tables",
+        must_exist = true
+    )]
     root: PathBuf,
 
     /// 姿势标题（glob，不区分大小写），如 gun
