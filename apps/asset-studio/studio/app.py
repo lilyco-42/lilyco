@@ -83,7 +83,7 @@ def create_app():
     @app.post('/api/workspaces')
     async def upload(files: list[UploadFile] = File(...), paths: str = Form('[]')):
         if not 1 <= len(files) <= MAX_FILES:
-            raise HTTPException(413, '请一次选择 1–2000 个文件')
+            raise HTTPException(413, '请一次选择 1–1000 个文件')
         try:
             names = json.loads(paths)
         except json.JSONDecodeError as error:

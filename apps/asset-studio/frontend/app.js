@@ -35,7 +35,7 @@ async function upload(list) {
   if (uploading || activeJob) return;
   const files = [...list].filter(f => extensions.test(f.name));
   if (!files.length) return status('没有找到角色文件或配套贴图');
-  if (files.length > 2000 || files.some(f => f.size > 128 * 1024 * 1024) || files.reduce((n, f) => n + f.size, 0) > 512 * 1024 * 1024) return status('请选择不超过 2000 个文件，单文件最多 128 MB，总计最多 512 MB');
+  if (files.length > 1000 || files.some(f => f.size > 128 * 1024 * 1024) || files.reduce((n, f) => n + f.size, 0) > 512 * 1024 * 1024) return status('请选择不超过 1000 个文件，单文件最多 128 MB，总计最多 512 MB');
   uploading = true; busy(true); status('正在加载到本机工作区…');
   const form = new FormData();
   const paths = files.map(f => f.webkitRelativePath || f.name);

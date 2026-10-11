@@ -7,7 +7,7 @@ from pathlib import Path, PurePosixPath
 MAX_UPLOAD = 512 * 1024 * 1024
 MAX_FILE = 128 * 1024 * 1024
 MAX_OUTPUT = 256 * 1024 * 1024
-MAX_FILES = 2000
+MAX_FILES = 1000
 
 
 def child(root: Path, name: str) -> Path:

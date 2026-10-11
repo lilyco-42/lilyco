@@ -95,6 +95,14 @@ class LocalStudioTests(unittest.TestCase):
         self.assertEqual(job['state'], 'failed', job)
         self.assertFalse(job['files'])
 
+    def test_real_engine_handles_chinese_folder_names(self):
+        response = self.client.post('/api/workspaces', files={'files':('demo.pxls',fixture())},
+                                    data={'paths':'["素材/角色/demo.pxls"]'})
+        self.assertEqual(200,response.status_code,response.text)
+        job = self.run_job(response.json()['id'],'render',entry='素材/角色/demo.pxls')
+        self.assertEqual(job['state'],'done',job)
+        self.assertEqual(job['result']['frames_written'],2)
+
     def test_host_origin_cookie_isolation_and_paths(self):
         stranger = TestClient(self.app, base_url='http://127.0.0.1:8043')
         self.assertEqual(stranger.get('/api/capabilities').status_code, 403)
