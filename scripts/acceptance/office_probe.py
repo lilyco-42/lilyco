@@ -11640,7 +11640,15 @@ def main() -> int:
              if one.endswith(".docx") and files[one]["ooxml"].get("char_effects")}
     all_o = {one: files[one]["odt"]["char_effects"] for one in sorted(files)
              if one.endswith(".odt") and files[one]["odt"].get("char_effects")}
-    check("整库摊开 OOXML 那半：94 份 docx 全交这本账，其中 90 份至少写一条；扫过 61098 枚 w:rPr，1081 枚写了这一族的孩子元素；按元素数 [('spacing', 780), ('kern', 427), ('smallCaps', 390), ('noProof', 2), ('rtl', 2)]；三态合计 [('off', 160), ('on', 393), ('value', 1048)]；值词汇 kern=['0', '2', '28']、spacing=['15', '5']、smallCaps=[]（一枚开关写没写值，两格各说各的）",
+    # 这一条**不经过 lbin**：`got` 是第二读者现量（files[...]["ooxml"]["char_effects"]），
+    # `want` 是钉值 —— 所以它考的是「读者有没有跑偏」，不是「Rust 与 Python 一不一致」。
+    # 钉值 61154 的来历（issue #24 曾把这条的失败归因成「Rust 多扫 56 枚」，那是错的：
+    # 日志里 `lbin=` 只是 record() 对 got 的固定标签，与二进制无关）：
+    #   · 写下这枚数的提交 3a69f0d 那一版读者，现量就是 61154（不是 61098）
+    #   · 当前 HEAD 那一版读者，现量仍是 61154，parts_seen 三份件、with_effects 1081 都没动
+    #   · 语料 94 份 docx 自 3a69f0d 起没换过（fixtures 目录其后只动过 README）
+    # ⇒ 61098 从落笔那天起就是错的（笔误），不是「读者后来变了」的陈旧快照。
+    check("整库摊开 OOXML 那半：94 份 docx 全交这本账，其中 90 份至少写一条；扫过 61154 枚 w:rPr，1081 枚写了这一族的孩子元素；按元素数 [('spacing', 780), ('kern', 427), ('smallCaps', 390), ('noProof', 2), ('rtl', 2)]；三态合计 [('off', 160), ('on', 393), ('value', 1048)]；值词汇 kern=['0', '2', '28']、spacing=['15', '5']、smallCaps=[]（一枚开关写没写值，两格各说各的）",
           [len(all_d), sum(1 for one in all_d.values() if one["with_effects"]),
            sum(one["rpr_seen"] for one in all_d.values()),
            sum(one["with_effects"] for one in all_d.values()),
@@ -11650,7 +11658,7 @@ def main() -> int:
            sorted({had for one in all_d.values() for had in one["values"].get("kern", [])}),
            sorted({had for one in all_d.values() for had in one["values"].get("spacing", [])}),
            sorted({had for one in all_d.values() for had in one["values"].get("smallCaps", [])})],
-          [94, 90, 61098, 1081, ['kern', 'noProof', 'rtl', 'smallCaps', 'spacing'], {'on': 393, 'off': 160, 'value': 1048}, ['0', '2', '28'], ['15', '5'], []])
+          [94, 90, 61154, 1081, ['kern', 'noProof', 'rtl', 'smallCaps', 'spacing'], {'on': 393, 'off': 160, 'value': 1048}, ['0', '2', '28'], ['15', '5'], []])
     check("整库摊开 ODF 那半：51 份 odt 全交这本账、47 份至少写一条，共 431 处写了这八枚的任一槽位；按宿主走的一条没漏（not_under_holder 合计 0）；按基础属性数 [('letter-spacing', 264), ('letter-kerning', 199), ('font-variant', 132), ('use-window-font-color', 110), ('text-position', 11)]；按槽位 [('asian', 0), ('complex', 0), ('latin', 716)] —— 孪生写法（-asian / -complex）整库一件都没写，这一格交 0 而不是不交",
           [len(all_o), sum(1 for one in all_o.values() if one["with_effects"]),
            sum(one["elements_written"] for one in all_o.values()),
