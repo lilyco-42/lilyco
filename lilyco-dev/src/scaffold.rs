@@ -7,12 +7,22 @@
 //!
 //! 发布注意：`include_str!` 引用了包目录之外的文件，crates.io 打包不含
 //! `scripts/` —— 发布 lilyco-dev 前需把模板挪进包内（当前仓库优先，未发布）。
+//!
+//! ⚠️ 模板清单**故意**叫 `Cargo.toml.tmpl`，不要改回 `Cargo.toml`。
+//! cargo 解析 git 依赖时会**递归读取检出目录里的每一个 `Cargo.toml`**
+//! （`cargo/src/sources/path.rs::read_packages`，源码注释原话：
+//! "git source try to find and read all manifests from the repository
+//! but since it's not possible to exclude folders from this search"），
+//! 而 `[workspace] exclude` 对这条遍历**无效**。清单里 `name = "@CRATE@"`
+//! 不是合法包名，于是每个把 lilyco 当 git 依赖的人都会看到一行红字
+//! `error: invalid character '@' in package name`（不致命，但足够吓人）。
+//! 换成非 `Cargo.toml` 的文件名，cargo 就不会去读它。
 
 use lilyco::prelude::*;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
-pub const TEMPLATE_CARGO_TOML: &str = include_str!("../../scripts/domain-template/Cargo.toml");
+pub const TEMPLATE_CARGO_TOML: &str = include_str!("../../scripts/domain-template/Cargo.toml.tmpl");
 pub const TEMPLATE_MAIN_RS: &str = include_str!("../../scripts/domain-template/src/main.rs");
 pub const TEMPLATE_SHOW_RS: &str = include_str!("../../scripts/domain-template/src/show.rs");
 
