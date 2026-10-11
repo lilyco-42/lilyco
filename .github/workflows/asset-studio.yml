@@ -115,6 +115,12 @@ jobs:
         run: |
           python packaging/windows-installer.py
           python tests/installer_smoke.py
+      - name: Preserve failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asset-studio-failure-${{ runner.os }}-${{ github.sha }}
+          path: apps/asset-studio/evidence/
       - uses: actions/upload-artifact@v4
         with:
           name: lain42-asset-studio-${{ runner.os }}-${{ github.sha }}

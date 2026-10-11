@@ -36,9 +36,17 @@ try {
   await page.locator('#status').filter({hasText:'处理完成'}).waitFor({timeout:30000});
   await page.waitForFunction(()=>document.querySelector('#gallery img')?.naturalWidth>0);
   // The WebView uses the same HttpOnly cookie; API output is a real downloadable ZIP.
-  const exportZip=await page.request.get(new URL(await page.locator('#download').getAttribute('href'),receipt.url).href);
-  assert(exportZip.ok());
-  assert((await exportZip.body()).subarray(0,2).equals(Buffer.from('PK')));
+  // CDP-attached WebView2 contexts don't expose their native cookie store to
+  // Playwright's separate APIRequestContext. Read through the actual page so
+  // its own HttpOnly cookie is sent, just as when the user clicks download.
+  const exported=await page.evaluate(async()=>{
+    const response=await fetch(document.querySelector('#download').getAttribute('href'));
+    const bytes=new Uint8Array(await response.arrayBuffer());
+    return {status:response.status,zip:bytes[0]===80&&bytes[1]===75,size:bytes.length};
+  });
+  assert.equal(exported.status,200,JSON.stringify(exported));
+  assert(exported.zip && exported.size>100);
+  await page.evaluate(()=>scrollTo(0,0));
   await page.screenshot({path:'evidence/windows-native.png',fullPage:true});
   const nativeTitle=await page.title();
   await fs.access(receipt.workspace_root);
@@ -56,4 +64,5 @@ try {
   if(child.exitCode===null) child.kill();
   if(browser) await browser.close().catch(()=>{});
   await fs.writeFile('evidence/windows-native.log',output);
+  if(child.exitCode!==0) console.error(output);
 }
