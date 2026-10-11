@@ -131,10 +131,44 @@ BitNet b1.58-2B 是三值权重（{-1,0,+1}）模型，CPU 上 ~0.5s/token（NEO
 ## 6. bitnet-rs 依赖形态
 
 `lilyco-bitnet` 依赖 lib 形态的 bitnet-rs（`Model::load / generate`），
-对应 bitnet-rs PR「最小 API 补丁 — 推理层提升进 lib」。合并前以分支引用过渡：
+对应 bitnet-rs PR「最小 API 补丁 — 推理层提升进 lib」（**#1，已合并进 main**）：
 
 ```toml
-bitnet-rs = { git = "https://github.com/lilyco-42/bitnet-rs", branch = "feat/model-api" }
+bitnet-rs = { git = "https://github.com/lilyco-42/bitnet-rs", rev = "6e12ab9e8ad4c99a88cd0ffec9f0d08b1d507f31" }
 ```
 
-合并后改为锁 rev。
+按组织惯例**锁 rev**（不用分支引用，避免上游推进时内核被静默换掉）。
+
+## 7. 推理内核归属（唯一结论，2026-10-11）
+
+生态里出现过「BitNet 有三份实现，需要定以谁为准」的说法。核实后的归属如下 ——
+**不是三选一，是三者各司其职，其中只有一个是 lilyco 自有内核**：
+
+| # | 位置 | 角色 | 归属 |
+|---|---|---|---|
+| 1 | `lilyco/lilyco-bitnet/` | **桥**：`BitNetBridge` 实现 `HostBridge::sample` | 本仓（lilyco-42） |
+| 2 | `lilyco-42/bitnet-rs` | **推理内核**：`Model::load / generate` | lilyco-42 自研（port 自 bitnet.cpp） |
+| 3 | `lilyco-42/lyco_chat/src/core/bitnet.rs` | **TinyGPT 自用内核**：三值量化 + 256 项 LUT matmul | 第三方（Kevin Thomas，MIT），服务 TinyGPT |
+
+**结论**
+
+- **`lilyco-bitnet`（桥）的推理内核唯一指向 `bitnet-rs`。** 硬证据在 `src/lib.rs`：
+
+  ```rust
+  Loaded(Box<bitnet_rs::model::Model>)                 // lib.rs:114
+  bitnet_rs::model::Model::load(&self.model_path)      // lib.rs:145
+  ```
+
+  以及 `Cargo.toml` 的 `bitnet-rs = { git = "…/bitnet-rs", rev = "6e12ab9e…" }`（见 §6）。
+
+- **`lyco_chat/src/core/bitnet.rs` 不是 lilyco 的第二套内核。** 文件头署名
+  `Copyright (c) 2025 Kevin Thomas`（MIT），自述
+  *"Ports the bitnet.cpp i2_s scheme … for TinyGPT"*，服务于 `lyco_chat` 自己的
+  TinyGPT 模型。它与 `lilyco-bitnet` 之间**没有任何调用关系**（互不依赖）。
+
+- 因此不存在「两套 lilyco 内核需要对齐」的重复问题：**lilyco 自有内核只有
+  `bitnet-rs` 一个**；`lyco_chat` 那份是它自己（教学向 TinyGPT）的第三方实现，
+  各自独立演进，**无需对齐接口**。
+
+> 若将来要统一（例如让 TinyGPT 复用 bitnet-rs 的 I2_S 解析），那是一次**独立重构**，
+> 不属于「桥接层归属」问题，需单独立项、单独验收。
