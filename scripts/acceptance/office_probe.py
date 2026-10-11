@@ -45,18 +45,41 @@ def record(name: str, ok: bool, detail: str = "") -> None:
     print("  %s %-52s %s" % ("PASS" if ok else "FAIL", name, detail[:120]))
 
 
+# lbin 结果缓存：同一份语料同一条命令在 12051 条 check 里会被反复索取
+# （`toc.docx` 的 `office-doc` 出现 4 次、`notes.rtf` 出现 5 次…），每次都是一次
+# 完整子进程 + 文档解析 —— 这是本步最大的开销。lbin 是纯函数（读文件 → JSON，
+# 全程无副作用，也没有任何 lane 会改 fixture 文件），缓存语义等价。
+# 缓存的只是 **stdout 原文**，每次 json.loads 出新对象 —— 免得某条 lane 就地改动
+# 返回值污染后面的 lane。
+_LBIN_CACHE: dict = {}
+_LBIN_STATS = {"hit": 0, "miss": 0}
+
+
 def lbin(command: str, fixture: Path, *extra: str) -> dict:
     """跑一条命令，返回解析后的 JSON（解析不了就把原文留在失败信息里）"""
-    argv = [str(BIN), command, "--path", str(fixture), "--json", *extra]
-    proc = subprocess.run(argv, capture_output=True, text=True, timeout=120, encoding="utf-8", errors="replace")
+    key = (command, str(fixture), *extra)
+    text = _LBIN_CACHE.get(key)
+    if text is not None:
+        _LBIN_STATS["hit"] += 1
+    else:
+        _LBIN_STATS["miss"] += 1
+        argv = [str(BIN), command, "--path", str(fixture), "--json", *extra]
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=120,
+                              encoding="utf-8", errors="replace")
+        text = proc.stdout
+        _LBIN_CACHE[key] = text
+        if proc.returncode != 0:
+            # 有些 lane 故意喂坏件。把**整条命令**打到日志里，
+            # 这样「某本账整本 null」能一眼看出是参数没传对（如 `--limit 2` 当成一枚参数）
+            print("!! lbin 非零退出：rc=%s argv=%s\n   stderr=%s" % (
+                proc.returncode, argv, proc.stderr[:300]), flush=True)
     try:
-        return json.loads(proc.stdout)
+        return json.loads(text)
     except Exception as why:  # noqa: BLE001
-        # 交回哨兵而不是抛：有些 lane 故意喂坏件。但把**整条命令**打到日志里，
-        # 这样「某本账整本 null」能一眼看出是参数没传对（如 `--limit 2` 当成一枚参数）
-        print("!! lbin 没交回可解析的 JSON：rc=%s argv=%s\n   stderr=%s" % (
-            proc.returncode, argv, proc.stderr[:300]), flush=True)
-        return {"__parse_error__": f"{why}: {proc.stdout[:200]} / {proc.stderr[:200]}"}
+        # 交回哨兵而不是抛：有些 lane 故意喂坏件
+        print("!! lbin 没交回可解析的 JSON：argv=%s\n   stdout=%s" % (
+            [str(BIN), command, "--path", str(fixture), "--json", *extra], text[:200]), flush=True)
+        return {"__parse_error__": f"{why}: {text[:200]}"}
 
 
 def dig(payload: dict, dotted: str):
@@ -14180,6 +14203,7 @@ def main() -> int:
 
     failed = [one for one in RESULTS if not one[1]]
     print(f"=== 合计 {len(RESULTS)} 项，失败 {len(failed)} 项 ===")
+    print(f"=== lbin 缓存：唯一 {len(_LBIN_CACHE)} 条命令，命中 {_LBIN_STATS['hit']} 次 / 实跑 {_LBIN_STATS['miss']} 次 ===")
     for name, _, detail in failed:
         print(f"  FAIL {name}: {detail}")
     return 1 if failed else 0
