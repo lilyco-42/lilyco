@@ -8,11 +8,32 @@
 //!
 //! 与官方 test_utils 的两处关键差异（spike 结论的一部分）：
 //! 1. `Editor::new_local_executor` 是 `pub(crate) + #[cfg(test)]`，外部不可用；
-//!    这里走 `Editor::new`，节点图执行挂到全局 `NODE_RUNTIME`（本 spike 不驱动渲染，
-//!    文档结构操作不依赖图求值）
+//!    这里走 `Editor::new`，节点图执行挂到全局 `NODE_RUNTIME`。
+//!    ⚠️ 早期这里写着「本 spike 不驱动渲染，文档结构操作不依赖图求值」——
+//!    **这句话对导出功能是错的，并且正是 P1 出图丢填充的病根**，见下。
 //! 2. `dispatcher.message_handlers` 的各 handler 字段是 `pub(crate)`，外部拿不到
 //!    `active_document()` 等内部状态；因此断言只能经由 FrontendMessage 与
 //!    序列化产物（`SaveDocument` → `FrontendMessage::TriggerSaveDocument`）
+//!
+//! # 延迟消息（`DeferMessage::AfterGraphRun`）在 headless 下**不会执行**
+//!
+//! `ShapeTool::finish` 把 `TransformSet` / `FillColorSet` / `StrokeSet` 三个操作
+//! 全部塞进 `defered_responses`，以 `DeferMessage::AfterGraphRun { messages }` 发出。
+//! 但 `defer_message_handler.rs` 里它**只是入队**，要等图求值完成回调送来
+//! `DeferMessage::TriggerGraphRun { execution_id, .. }` 才真正放行：
+//!
+//! ```text
+//! AfterGraphRun { messages } => after_graph_run.extend(messages.map(|m| (current_graph_submission_id, m)))
+//! TriggerGraphRun { execution_id, .. } => drain(after_graph_run 中 id <= execution_id 的部分)
+//! ```
+//!
+//! headless 下 [`GraphiteHost::send`] 每条消息只调一次 `Editor::handle_message`，
+//! **没有任何东西把异步图求值的完成事件泵回消息队列** ⇒ 那批延迟消息永不执行。
+//! 后果：填充与描边静默丢失（只有不依赖工具状态的 `TransformSet` 在别处另有即时路径，
+//! 所以看起来"部分生效"）。
+//!
+//! 对策见 [`GraphiteHost::draw_rectangle`]：画完之后**显式**补一次填充，
+//! 走 `set_fill_for_selected_layers` 这条即时链路，不经过任何延迟队列。
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -21,12 +42,16 @@ use glam::DVec2;
 use graph_craft::application_io::resource::HashMapResourceStorage;
 use graph_craft::application_io::PlatformApplicationIo;
 use graphene_std::raster::color::Color;
+use graphene_std::vector::style::FillChoice;
 use graphite_editor::application::{Editor, Environment, Host, Platform};
 use graphite_editor::messages::input_mapper::utility_types::keyboard::ModifierKeys;
 use graphite_editor::messages::input_mapper::utility_types::pointer::{
     EditorPointerState, MouseKeys,
 };
 use graphite_editor::messages::prelude::*;
+use graphite_editor::messages::tool::tool_messages::shape_tool::{
+    ShapeOptionsUpdate, ShapeToolMessage,
+};
 
 /// 单次 save 轮询的最长等待（SaveDocument 的序列化在 MessageFuture 上异步执行）
 const SAVE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -38,6 +63,13 @@ const SAVE_TIMEOUT: Duration = Duration::from_secs(5);
 /// 多工具/多测试请共享 [`shared_host`]。
 pub struct GraphiteHost {
     editor: Editor,
+    /// 最近一次 [`Self::set_fill_color`] 设下的填充色。
+    ///
+    /// [`Self::draw_rectangle`] 画完后要**显式**把这个颜色写进新图层 —— 原因见模块头
+    /// 「延迟消息在 headless 下不会执行」。之所以要自己存一份：内核的全局工具数据
+    /// （`DocumentToolData.working_colors`）外部读不到，`dispatcher.message_handlers`
+    /// 的字段都是 `pub(crate)`。
+    fill_color: Option<Color>,
 }
 
 impl Default for GraphiteHost {
@@ -65,7 +97,10 @@ impl GraphiteHost {
             PlatformApplicationIo::default(),
             wake,
         );
-        let mut host = Self { editor };
+        let mut host = Self {
+            editor,
+            fill_color: None,
+        };
         host.send(PortfolioMessage::Init);
         host
     }
@@ -95,7 +130,11 @@ impl GraphiteHost {
     }
 
     /// 设置填充工作色（secondary working color）——默认路由下决定后续绘制形状的填充。
+    ///
+    /// 同时记进 `self.fill_color`：[`Self::draw_rectangle`] 画完后要拿它**显式**写进
+    /// 新图层（延迟消息在 headless 下不会执行，见模块头）。
     pub fn set_fill_color(&mut self, color: Color) -> Vec<FrontendMessage> {
+        self.fill_color = Some(color);
         self.send(ToolMessage::SelectWorkingColor {
             color,
             primary: false,
@@ -104,7 +143,21 @@ impl GraphiteHost {
 
     /// 用矩形工具画一个矩形：模拟 "移动 → 按下 → 拖动 → 抬起" 的指针消息序列，
     /// 与官方 `test_utils::drag_tool(ToolType::Rectangle, …)` 完全一致。
-    /// 落笔后新图层自动处于选中态，可直接接 `set_fill`。
+    /// 落笔后新图层自动处于选中态（`graph_modification_utils::new_custom` 内部发
+    /// `NodeGraphMessage::SelectedNodesSet`），可直接接 `set_fill`。
+    ///
+    /// 画完后若已设过填充色，会**显式**再写一次。原因：`ShapeTool::finish` 里那条
+    /// `apply_fill` 走的是 `DeferMessage::AfterGraphRun`，而该延迟批次在 headless 下
+    /// **永不执行**（完整推导见模块头长注释），填充与描边会静默丢失。
+    /// 这里改走 `ShapeOptionsUpdate::FillColor`：
+    /// `apply_fill_color_pick` → `apply_fill_only_color_pick` →（有可绘制选中集时）
+    /// `graph_modification_utils::set_fill_for_selected_layers`
+    /// → 直接 `GraphOperationMessage::FillColorSet`，**即时**，不经过任何延迟队列。
+    /// （`FillColorSet` 在图层链能容纳 Fill 时会**新建**该节点，不只是改已存在的。）
+    ///
+    /// 用 `FillColor(Solid(color))` 而不是 `FillEnabled(true)` 的原因：后者走
+    /// `fill.fill_choice.clone().unwrap_or_else(...)`，若 `fill_choice` 恰为
+    /// `Some(FillChoice::None)` 就会写进"无填充"；前者把颜色显式钉死，与既有状态无关。
     pub fn draw_rectangle(&mut self, x: f64, y: f64, w: f64, h: f64) -> Vec<FrontendMessage> {
         self.send(ToolMessage::ActivateToolShapeRectangle);
         let mut responses = Vec::new();
@@ -115,6 +168,14 @@ impl GraphiteHost {
         // 结构变化等前端更新被缓冲到下一帧（FRONTEND_UPDATE_MESSAGES），
         // IncrementFrameCounter 是官方 flush 时机，headless 下手动补一帧
         responses.extend(self.send(AnimationMessage::IncrementFrameCounter));
+        // 显式补填充：走到这里图层已建好且处于选中态
+        if let Some(color) = self.fill_color {
+            responses.extend(
+                self.send(ToolMessage::Shape(ShapeToolMessage::UpdateOptions {
+                    options: ShapeOptionsUpdate::FillColor(FillChoice::Solid(color)),
+                })),
+            );
+        }
         responses
     }
 
