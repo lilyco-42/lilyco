@@ -47,6 +47,8 @@ try {
   assert.equal(exported.status,200,JSON.stringify(exported));
   assert(exported.zip && exported.size>100);
   await page.evaluate(()=>scrollTo(0,0));
+  const layout=await page.evaluate(()=>({width:innerWidth,height:innerHeight,previewTop:document.querySelector('#gallery').getBoundingClientRect().top}));
+  assert(layout.previewTop<layout.height,'native desktop preview must be visible without scrolling: '+JSON.stringify(layout));
   await page.screenshot({path:'evidence/windows-native.png',fullPage:true});
   const nativeTitle=await page.title();
   await fs.access(receipt.workspace_root);
@@ -58,7 +60,7 @@ try {
   assert.equal(child.exitCode,0,'normal window close must exit cleanly: '+output);
   await assert.rejects(fs.access(receipt.workspace_root),'temporary workspace must be removed on window close');
   await assert.rejects(fetch(receipt.url),'loopback service must stop on window close');
-  await fs.writeFile('evidence/windows-native.json',JSON.stringify({commit:process.env.APP_COMMIT||process.env.GITHUB_SHA,native_webview2:true,title:nativeTitle,real_aic_render:true,real_export_zip:true,normal_close:true,workspace_removed:true,port_closed:true},null,2));
+  await fs.writeFile('evidence/windows-native.json',JSON.stringify({commit:process.env.APP_COMMIT||process.env.GITHUB_SHA,native_webview2:true,title:nativeTitle,layout,real_aic_render:true,real_export_zip:true,normal_close:true,workspace_removed:true,port_closed:true},null,2));
 } finally {
   if(child.exitCode===null) child.kill();
   if(browser) await browser.close().catch(()=>{});
