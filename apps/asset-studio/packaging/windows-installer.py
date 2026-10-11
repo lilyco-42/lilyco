@@ -69,7 +69,7 @@ Section "Uninstall"
   RMDir "$SMPROGRAMS\\Lain42 素材工坊"
   DeleteRegKey HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Lain42AssetStudio"
 SectionEnd
-''', encoding='utf-8')
+''', encoding='utf-8-sig')
 compiler = shutil.which('makensis') or r'C:\Program Files (x86)\NSIS\makensis.exe'
 subprocess.run([compiler, str(script.resolve())], check=True)
 digest = hashlib.sha256(target.read_bytes()).hexdigest()
