@@ -7,6 +7,16 @@ on:
   pull_request:
   workflow_dispatch:
 
+# 同一 ref 只保留最新一次运行：连续推 main（例如连合几个 PR）或快速补推 PR 时，
+# 取消陈旧的 in-progress run，别让它们白占 runner。
+# 背景（2026-10-11）：连续合并 3 个 PR 触发 3 个完整 run，每个约 1 小时，白跑约 2 小时。
+# 用 github.workflow 做前缀，避免与 desktop.yml 的同名 ref 撞组。
+# 但 tag 运行永不取消 —— 下面的 release job 会 `gh release create`，
+# 中途被砍可能留下半发布的 release。tag 有自己的 ref，天然与 main 分属不同组。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 env:
   CARGO_TERM_COLOR: always
 

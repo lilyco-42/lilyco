@@ -19,6 +19,12 @@ on:
       - ".github/workflows/desktop.yml"
   workflow_dispatch:
 
+# 同上：同一 ref 只留最新一次运行。桌面端要编三个平台，陈旧的 run 更该早点让位。
+# tag 运行不取消 —— 它会把 .msi / .dmg / .AppImage 挂到 GitHub Release 上。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 permissions:
   contents: write
 
