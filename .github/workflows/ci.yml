@@ -75,6 +75,12 @@ jobs:
           rustup toolchain install stable --profile minimal --component rustfmt,clippy
           rustup default stable
 
+      # Retain all existing gates; reuse compilation between UI changes/main.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: apps-correctness
+          cache-on-failure: true
+
       - name: Check formatting (workspace)
         run: cargo fmt --all -- --check
 

@@ -1,0 +1,93 @@
+name: Asset Studio
+on:
+  pull_request:
+    paths: ['apps/asset-studio/**', 'lilyco-aic/**', '.github/workflows/asset-studio.yml']
+  push:
+    branches: [main]
+    paths: ['apps/asset-studio/**', 'lilyco-aic/**', '.github/workflows/asset-studio.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: asset-studio-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: asset-studio-headless
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build and test original AIC engine (headless)
+        run: |
+          cargo test -p lilyco-aic --no-default-features --features android
+          cargo build --release -p lilyco-aic --no-default-features --features android
+      - name: Install app and verification dependencies
+        run: python -m pip install -r apps/asset-studio/requirements.txt httpx==0.28.1 pillow==11.3.0 pyinstaller==6.16.0
+      - name: Bundle the trusted engine
+        shell: bash
+        run: |
+          mkdir -p apps/asset-studio/bin
+          EXT=""; if [ "$RUNNER_OS" = "Windows" ]; then EXT=".exe"; fi
+          cp "target/release/laic${EXT}" "apps/asset-studio/bin/laic${EXT}"
+      - name: Real API, export, cancellation and local boundary tests
+        working-directory: apps/asset-studio
+        run: python -m unittest discover -s tests -v
+        env:
+          LAIN42_LAIC: ${{ github.workspace }}/apps/asset-studio/bin/laic${{ runner.os == 'Windows' && '.exe' || '' }}
+      - name: Desktop and phone-size browser acceptance
+        if: runner.os == 'Linux'
+        working-directory: apps/asset-studio
+        shell: bash
+        run: |
+          python tests/fixture.py tests/demo.pxls
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+          python -m uvicorn 'studio.app:create_app' --factory --host 127.0.0.1 --port 8043 > /tmp/asset-studio-ui.log 2>&1 &
+          PID=$!
+          trap 'kill "$PID" || true' EXIT
+          for i in $(seq 1 40); do curl -fsS http://127.0.0.1:8043/ >/dev/null && break || sleep .25; done
+          node tests/ui.mjs
+      - name: Package complete double-click app
+        working-directory: apps/asset-studio
+        run: python -m PyInstaller --noconfirm --name Lain42-Asset-Studio --add-data "frontend:frontend" --add-data "bin:bin" --collect-submodules uvicorn launcher.py
+      - name: Collect dependency attribution
+        working-directory: apps/asset-studio
+        run: python tests/notices.py
+      - name: Verify complete package with bundled engine
+        working-directory: apps/asset-studio
+        run: python tests/bundle_smoke.py dist/Lain42-Asset-Studio/Lain42-Asset-Studio${{ runner.os == 'Windows' && '.exe' || '' }}
+      - name: Add license, instructions and SHA manifest; archive
+        working-directory: apps/asset-studio
+        shell: bash
+        run: |
+          cp ../../LICENSE README.md THIRD-PARTY-NOTICES.json dist/Lain42-Asset-Studio/
+          python - <<'PY'
+          import hashlib,json,os,pathlib,zipfile
+          root=pathlib.Path('dist/Lain42-Asset-Studio')
+          manifest={'commit':os.environ['GITHUB_SHA'],'runner':os.environ['RUNNER_OS'],'contains_spine_runtime':False,'files':{str(p.relative_to(root).as_posix()):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*') if p.is_file()}}
+          (root/'manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
+          target=pathlib.Path('dist')/('lain42-asset-studio-'+os.environ['RUNNER_OS'].lower()+'.zip')
+          with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as archive:
+              for p in root.rglob('*'):
+                  if p.is_file(): archive.write(p,p.relative_to(root.parent).as_posix())
+          target.with_suffix('.zip.sha256').write_text(hashlib.sha256(target.read_bytes()).hexdigest()+'\n',encoding='ascii')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lain42-asset-studio-${{ runner.os }}-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            apps/asset-studio/dist/*.zip
+            apps/asset-studio/dist/*.sha256
+            apps/asset-studio/evidence/*

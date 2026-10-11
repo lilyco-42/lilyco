@@ -21,6 +21,16 @@ flowchart TD
 
 ## 1. Workspace 依赖（严格单向，禁止反向）
 
+### 应用扩展：素材工坊
+
+`apps/asset-studio/` 是独立的本机 FastAPI + Web 前端，调用已编译 `laic`，不复制解析器或 core 执行器。
+入口 `launcher.py:11`；路由装配 `studio/app.py:35`；固定 CLI 适配器 `studio/adapters.py:29`；
+子进程任务与取消 `studio/jobs.py:26`；受限工作区路径 `studio/paths.py:14`。
+只在 loopback 提供服务，以 Host/Origin/随机会话 Cookie 保护文件与 API。
+不接受 shell 命令或可执行路径。Spine 播放适配器可连接用户自行提供的运行时，完整包不分发官方 Spine 运行时。
+验证和完整包构建由 `.github/workflows/asset-studio.yml` 执行；包含自制 PXLS 的真实原生引擎往返和打包后冒烟。
+
+
 | crate | 版本 | 依赖 | 职责一句话 |
 |---|---|---|---|
 | `lilyco-core` | 0.3.0 | serde/thiserror | 领域模型 + 执行语义 + 校验，零 UI 依赖 |
