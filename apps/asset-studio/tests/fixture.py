@@ -43,7 +43,7 @@ def fixture():
 def spine_fixture():
     """Own colour block, Spine 3.8 JSON/atlas; no Editor or game assets."""
     skeleton = {
-        'skeleton': {'spine': '3.8.99', 'width': 8, 'height': 8},
+        'skeleton': {'hash': 'lain42-original-colour-block', 'spine': '3.8.99', 'width': 8, 'height': 8},
         'bones': [{'name': 'root'}, {'name': 'body', 'parent': 'root'}],
         'slots': [{'name': 'body', 'bone': 'body', 'attachment': 'body'}],
         'skins': [{'name': 'default', 'attachments': {'body': {'body': {

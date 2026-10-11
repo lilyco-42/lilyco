@@ -104,6 +104,18 @@ class SpineAdapter:
         source = child(root, request.entry)
         if not source.is_file() or source.suffix.lower() not in {'.skel', '.json'}:
             raise ValueError('请选择 Spine .json 或 .skel 骨架文件')
+        if source.suffix.lower() == '.json':
+            try:
+                data = json.loads(source.read_text(encoding='utf-8-sig'))
+                header = data['skeleton']
+                if not isinstance(header.get('hash'), str) or not isinstance(header.get('spine'), str):
+                    raise ValueError('骨架导出头不完整')
+                if not header['spine'].startswith('3.8.'):
+                    raise ValueError('本播放器只支持 Spine 3.8，请使用对应版本导出的骨架')
+                if not isinstance(data.get('bones'), list) or not data['bones']:
+                    raise ValueError('骨架中没有骨骼数据')
+            except (KeyError, TypeError, AttributeError, UnicodeError, json.JSONDecodeError) as error:
+                raise ValueError('这不是完整的 Spine 3.8 骨架 JSON，请选择原始导出文件') from error
         atlas = self.atlas(root, source)
         if request.action == 'inspect':
             return [exe, 'rig', str(atlas), str(source)]

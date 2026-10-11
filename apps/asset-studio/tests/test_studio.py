@@ -152,6 +152,23 @@ class LocalStudioTests(unittest.TestCase):
         self.assertNotEqual(first.tobytes(), image.convert('RGBA').tobytes())
         self.assertEqual(self.client.delete('/api/workspaces/' + session).status_code, 200)
 
+    @unittest.skipUnless(os.environ.get('LAIN42_LYCO_SPINE_RENDER'), 'Licensed integrated package gate')
+    def test_invalid_spine_header_is_rejected_before_legacy_runtime(self):
+        import json
+        for version, remove_hash in [('4.2.0', False), ('3.8.99', True)]:
+            files = spine_fixture()
+            data = json.loads(files['demo.json'])
+            data['skeleton']['spine'] = version
+            if remove_hash:
+                del data['skeleton']['hash']
+            files['demo.json'] = json.dumps(data).encode()
+            response = self.client.post('/api/workspaces', files=[('files', (name, content)) for name, content in files.items()])
+            session = response.json()['id']
+            result = self.client.post('/api/jobs', json={'session':session,'tool':'spine','action':'inspect','entry':'demo.json'})
+            self.assertEqual(400, result.status_code, result.text)
+            self.assertFalse(self.app.state.jobs.busy())
+            self.client.delete('/api/workspaces/' + session)
+
     def test_cancellation_and_single_process(self):
         # Cancellation uses an actual child process, not a status-only mock.
         async def scenario():
