@@ -19,7 +19,10 @@ use crate::util::{collect_targets, glob_match, load_pxls};
 )]
 pub struct FindPose {
     /// 搜索根目录（或单文件）
-    #[arg(about = "A .pxls file, or a directory scanned recursively for pxls tables", must_exist = true)]
+    #[arg(
+        about = "A .pxls file, or a directory scanned recursively for pxls tables",
+        must_exist = true
+    )]
     root: PathBuf,
 
     /// 姿势标题（glob，不区分大小写），如 gun
@@ -27,7 +30,10 @@ pub struct FindPose {
     name: String,
 
     /// 最多处理的文件数（0 = 不限）
-    #[arg(about = "Cap the number of files processed (0 = unlimited)", default = 0)]
+    #[arg(
+        about = "Cap the number of files processed (0 = unlimited)",
+        default = 0
+    )]
     limit: u64,
 }
 

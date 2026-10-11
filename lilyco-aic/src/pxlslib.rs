@@ -421,7 +421,9 @@ impl Pxls {
         if depth > 16 {
             return &[]; // 理论上不会发生；防环
         }
-        let Some(at) = self.atlas.get(index) else { return &[] };
+        let Some(at) = self.atlas.get(index) else {
+            return &[];
+        };
         if !at.uvs.is_empty() {
             return &at.uvs;
         }
@@ -471,7 +473,10 @@ pub fn parse(d: &[u8]) -> Result<Pxls, String> {
         }
         let len = r.u32()? as usize;
         if r.remaining() < len {
-            return Err(format!("section {name} truncated: want {len}, have {}", r.remaining()));
+            return Err(format!(
+                "section {name} truncated: want {len}, have {}",
+                r.remaining()
+            ));
         }
         let payload = r.take(len)?;
         out.sections.push(name.to_string());
@@ -546,7 +551,12 @@ fn parse_ptcl(d: &[u8], out: &mut Pxls) {
                     locked = r.u8()? & 1 > 0;
                 }
             }
-            v.push(PartInfo { topcolor, name, memo, locked });
+            v.push(PartInfo {
+                topcolor,
+                name,
+                memo,
+                locked,
+            });
         }
         Ok(v)
     })();
@@ -584,8 +594,10 @@ fn parse_imgs(d: &[u8], out: &mut Pxls) -> Result<(), String> {
     for _ in 0..count {
         let t = r.i8v()?;
         if t < 22 {
-            out.warnings
-                .push(format!("IMGS entry byte {t} < 22 at pos {}, stop", r.pos() - 1));
+            out.warnings.push(format!(
+                "IMGS entry byte {t} < 22 at pos {}, stop",
+                r.pos() - 1
+            ));
             break;
         }
         let flags = r.u8()?;
@@ -633,8 +645,10 @@ fn parse_pack(d: &[u8], out: &mut Pxls) -> Result<(), String> {
     for _ in 0..count {
         let t = r.i8v()?;
         if t < 22 {
-            out.warnings
-                .push(format!("PACK entry byte {t} < 22 at pos {}, stop", r.pos() - 1));
+            out.warnings.push(format!(
+                "PACK entry byte {t} < 22 at pos {}, stop",
+                r.pos() - 1
+            ));
             break;
         }
         let flags = r.u8()?;
@@ -650,9 +664,18 @@ fn parse_pack(d: &[u8], out: &mut Pxls) -> Result<(), String> {
             let w = r.u32()?;
             let h = r.u32()?;
             if w > m * 2 && h > m * 2 {
-                out.img_sizes.insert((id, id2.to_bits()), (w - m * 2, h - m * 2));
+                out.img_sizes
+                    .insert((id, id2.to_bits()), (w - m * 2, h - m * 2));
             }
-            uvs.push(AtlasUv { id, id2, x, y, w, h, img: img_key(id, id2) });
+            uvs.push(AtlasUv {
+                id,
+                id2,
+                x,
+                y,
+                w,
+                h,
+                img: img_key(id, id2),
+            });
         }
         let (external_wh, embedded_png) = if flags & 1 == 1 {
             let w = r.u32()?;
@@ -773,7 +796,11 @@ fn parse_frame(r: &mut Be) -> Result<Frame, String> {
     let ver = s.i8v()?; // 帧版本号（传给 PxlLayer 的 vers，当前层格式未分支使用）
     let crf60 = s.i16()?;
     let name = s.string()?;
-    let trailer = if s.remaining() != 0 { Some(s.u8()?) } else { None };
+    let trailer = if s.remaining() != 0 {
+        Some(s.u8()?)
+    } else {
+        None
+    };
 
     let nlayers = r.i16()?;
     let mut layers = Vec::with_capacity(nlayers.max(0) as usize);
@@ -1087,7 +1114,10 @@ fn build_subtree(layers: &[Layer], end: usize) -> (serde_json::Value, usize) {
         obj["children"] = serde_json::Value::Array(children);
         (obj, consumed)
     } else {
-        (serde_json::to_value(lay).unwrap_or(serde_json::json!({"index": idx})), 1)
+        (
+            serde_json::to_value(lay).unwrap_or(serde_json::json!({"index": idx})),
+            1,
+        )
     }
 }
 
@@ -1095,20 +1125,26 @@ fn build_subtree(layers: &[Layer], end: usize) -> (serde_json::Value, usize) {
 mod tests {
     use super::*;
 
-    const STREAM: &str = "D:/gal/aic-winlator/game-clean/AliceInCradle/AliceInCradle_Data/StreamingAssets";
+    const STREAM: &str =
+        "D:/gal/aic-winlator/game-clean/AliceInCradle/AliceInCradle_Data/StreamingAssets";
 
     fn collect_pxls(root: &str) -> Vec<std::path::PathBuf> {
         let mut out = Vec::new();
         let mut stack = vec![std::path::PathBuf::from(root)];
         while let Some(dir) = stack.pop() {
-            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                continue;
+            };
             for e in rd.flatten() {
                 let p = e.path();
                 if p.is_dir() {
                     stack.push(p);
                     continue;
                 }
-                let n = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+                let n = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
                 if n.ends_with(".pxls.dat") || n.ends_with(".pxls.bytes") || n.ends_with(".pxls") {
                     out.push(p);
                 }
@@ -1128,13 +1164,22 @@ mod tests {
         let mut n = 0;
         for f in &files {
             let raw = std::fs::read(f).unwrap();
-            let Ok((_src, body)) = crate::unityfs::extract_pxls(&raw) else { continue };
+            let Ok((_src, body)) = crate::unityfs::extract_pxls(&raw) else {
+                continue;
+            };
             let p = match parse(&body) {
                 Ok(p) => p,
                 Err(e) => panic!("{}: parse {e}", f.display()),
             };
             let back = p.serialize();
-            assert_eq!(back.len(), body.len(), "{}: length {} != {}", f.display(), back.len(), body.len());
+            assert_eq!(
+                back.len(),
+                body.len(),
+                "{}: length {} != {}",
+                f.display(),
+                back.len(),
+                body.len()
+            );
             if let Some(i) = back.iter().zip(body.iter()).position(|(a, b)| a != b) {
                 panic!(
                     "{}: byte mismatch at {i} (want {:02x} got {:02x})",
@@ -1189,7 +1234,7 @@ mod tests {
         sq.u16(0);
         poses.extract(&sq.d);
         poses.u16(1); // nframes（在帧之前）
-        // frame 1
+                      // frame 1
         let mut fr = BeW::new();
         fr.u8(1);
         fr.i16(1);

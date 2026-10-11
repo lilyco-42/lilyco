@@ -98,7 +98,10 @@ const MAX_SIDE: u32 = 16384;
 )]
 pub struct Pack {
     /// pxls 文件或目录
-    #[arg(about = "A .pxls file, or a directory scanned recursively for pxls tables", must_exist = true)]
+    #[arg(
+        about = "A .pxls file, or a directory scanned recursively for pxls tables",
+        must_exist = true
+    )]
     root: PathBuf,
 
     /// 输出目录
@@ -106,23 +109,38 @@ pub struct Pack {
     out: PathBuf,
 
     /// 替换图目录（PNG，命名同 `sprites` 的输出）
-    #[arg(about = "Directory of replacement PNGs (named as `sprites` writes them)", default = "")]
+    #[arg(
+        about = "Directory of replacement PNGs (named as `sprites` writes them)",
+        default = ""
+    )]
     replace: String,
 
     /// 姿势标题 glob（只用于对齐 `sprites --pose` 的命名，不影响裁切范围）
-    #[arg(about = "Pose title glob, only to reproduce the exact file names `sprites --pose` produced", default = "")]
+    #[arg(
+        about = "Pose title glob, only to reproduce the exact file names `sprites --pose` produced",
+        default = ""
+    )]
     pose: String,
 
     /// 起始图集边长（0 = 取原图集尺寸向上取到 2 的幂）
-    #[arg(about = "Starting atlas side in px (0 = derive from the original atlas)", default = 0)]
+    #[arg(
+        about = "Starting atlas side in px (0 = derive from the original atlas)",
+        default = 0
+    )]
     size: u32,
 
     /// 装箱算法：shelf（默认，按高降序逐行）| guillotine（pixelliner4j 原版，仅对照用）
-    #[arg(about = "Packing algorithm: shelf (default) | guillotine (pixelliner4j's, for comparison)", default = "shelf")]
+    #[arg(
+        about = "Packing algorithm: shelf (default) | guillotine (pixelliner4j's, for comparison)",
+        default = "shelf"
+    )]
     packer: String,
 
     /// 额外导出重排后的图集 PNG
-    #[arg(about = "Also dump the re-packed atlas PNG for inspection", default = false)]
+    #[arg(
+        about = "Also dump the re-packed atlas PNG for inspection",
+        default = false
+    )]
     atlas: bool,
 
     /// 真正写盘（默认只预览）
@@ -134,7 +152,10 @@ pub struct Pack {
     overwrite: bool,
 
     /// 最多处理的文件数（0 = 不限）
-    #[arg(about = "Cap the number of tables processed (0 = unlimited)", default = 0)]
+    #[arg(
+        about = "Cap the number of tables processed (0 = unlimited)",
+        default = 0
+    )]
     limit: u64,
 }
 
@@ -203,8 +224,13 @@ fn index_pngs(dir: &Path) -> Result<BTreeMap<String, PathBuf>, String> {
         if !p.is_file() {
             continue;
         }
-        let name = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-        let Some(stem) = name.strip_suffix(".png") else { continue };
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let Some(stem) = name.strip_suffix(".png") else {
+            continue;
+        };
         out.insert(sanitize(stem), p);
     }
     Ok(out)
@@ -226,7 +252,11 @@ fn find_replacement(
     claimed: &mut BTreeSet<String>,
 ) -> Option<PathBuf> {
     let name = names.get(key).cloned().unwrap_or_else(|| key.to_string());
-    let suffix = if ai > 0 { format!(".a{ai}") } else { String::new() };
+    let suffix = if ai > 0 {
+        format!(".a{ai}")
+    } else {
+        String::new()
+    };
     let mut cands: Vec<String> = Vec::new();
     if let Some(s) = stem {
         cands.push(sanitize(s));
@@ -273,7 +303,15 @@ struct Node {
 
 impl Node {
     fn new(x: u32, y: u32, w: u32, h: u32) -> Self {
-        Node { x, y, w, h, used: false, right: None, down: None }
+        Node {
+            x,
+            y,
+            w,
+            h,
+            used: false,
+            right: None,
+            down: None,
+        }
     }
 
     /// Java 版是 `right` 优先、失败再 `down` 的深搜。递归深度 ≤ 节点数（只有插入成功
@@ -378,7 +416,9 @@ fn parse_packer(s: &str) -> Result<Packer, String> {
     match s.trim().to_ascii_lowercase().as_str() {
         "shelf" | "" => Ok(Packer::Shelf),
         "guillotine" | "noel" | "pixelliner4j" => Ok(Packer::Guillotine),
-        other => Err(format!("unknown packer `{other}` (want `shelf` or `guillotine`)")),
+        other => Err(format!(
+            "unknown packer `{other}` (want `shelf` or `guillotine`)"
+        )),
     }
 }
 
@@ -443,7 +483,9 @@ fn decode_atlas_image(
     } else if let Some(png) = &at.embedded_png {
         read_png(png, &format!("{file_str}: embedded atlas {ai}"))
     } else {
-        Err(format!("{file_str}: atlas {ai} has neither an external texture nor an embedded PNG"))
+        Err(format!(
+            "{file_str}: atlas {ai} has neither an external texture nor an embedded PNG"
+        ))
     }
 }
 
@@ -493,8 +535,12 @@ fn pack_one(
                 uv.h.saturating_sub(margin * 2),
             );
             let mut replaced = false;
-            let stem = stems.get(ai).and_then(|r| r.get(ui)).and_then(|o| o.as_ref());
-            let rp = replace.and_then(|ix| find_replacement(ix, &names, &uv.img, ai, stem, &mut claimed));
+            let stem = stems
+                .get(ai)
+                .and_then(|r| r.get(ui))
+                .and_then(|o| o.as_ref());
+            let rp = replace
+                .and_then(|ix| find_replacement(ix, &names, &uv.img, ai, stem, &mut claimed));
             if let Some(rp) = &rp {
                 let bytes = std::fs::read(rp)
                     .map_err(|e| format!("read replacement {}: {e}", rp.display()))?;
@@ -657,7 +703,10 @@ fn pack_one(
 
     if app.apply {
         if out_path.exists() && !app.overwrite {
-            return Err(format!("{} exists (use overwrite to replace it)", out_path.display()));
+            return Err(format!(
+                "{} exists (use overwrite to replace it)",
+                out_path.display()
+            ));
         }
         std::fs::write(&out_path, &bytes)
             .map_err(|e| format!("write {}: {e}", out_path.display()))?;
@@ -707,7 +756,9 @@ fn verify(path: &Path, expected: &BTreeMap<(usize, String), Img>) -> Result<(), 
         let img = read_png(png, &format!("re-read atlas {ai}"))?;
         let m = at.margin as u32;
         for uv in p.effective_uvs(ai) {
-            let Some(want) = expected.get(&(ai, uv.img.clone())) else { continue };
+            let Some(want) = expected.get(&(ai, uv.img.clone())) else {
+                continue;
+            };
             let got = img.crop(
                 uv.x + m,
                 uv.y + m,
@@ -787,7 +838,12 @@ mod tests {
     fn packing_doubles_the_side_until_everything_fits() {
         // 4 块 102×102 排不进 128 → 需要 256
         for p in [Packer::Shelf, Packer::Guillotine] {
-            let mut slots = vec![slot(102, 102), slot(102, 102), slot(102, 102), slot(102, 102)];
+            let mut slots = vec![
+                slot(102, 102),
+                slot(102, 102),
+                slot(102, 102),
+                slot(102, 102),
+            ];
             let (side, steps) = pack_grow(&mut slots, 128, p).unwrap();
             assert_eq!(side, 256, "{p:?}: 放不下 128 必须翻倍");
             assert_eq!(steps, 1);
@@ -883,7 +939,10 @@ mod tests {
             Some(PathBuf::from("hair.a1.png"))
         );
         let mut c = BTreeSet::new();
-        assert_eq!(find_replacement(&ix, &names, "EDI9_9", 0, None, &mut c), None);
+        assert_eq!(
+            find_replacement(&ix, &names, "EDI9_9", 0, None, &mut c),
+            None
+        );
     }
 
     /// noel 里有几十个 key 的层名都叫 `Layer` —— 裸层名只能兑现一次，
@@ -903,7 +962,14 @@ mod tests {
         );
         // 后来的只能走 `<层名>.<key>`，共用一张图会被拒绝
         assert_eq!(
-            find_replacement(&ix, &names, "EDIbbb", 0, Some(&"Layer.EDIbbb".into()), &mut c),
+            find_replacement(
+                &ix,
+                &names,
+                "EDIbbb",
+                0,
+                Some(&"Layer.EDIbbb".into()),
+                &mut c
+            ),
             None
         );
     }
@@ -918,7 +984,14 @@ mod tests {
         names.insert("EDIccc".to_string(), "Layer".to_string());
         let mut c = BTreeSet::new();
         assert_eq!(
-            find_replacement(&ix, &names, "EDIccc", 0, Some(&"Layer.EDIccc".into()), &mut c),
+            find_replacement(
+                &ix,
+                &names,
+                "EDIccc",
+                0,
+                Some(&"Layer.EDIccc".into()),
+                &mut c
+            ),
             Some(PathBuf::from("mine.png"))
         );
     }
@@ -928,9 +1001,33 @@ mod tests {
     fn sprite_stems_mirror_the_sprites_export_names() {
         let mut p = Pxls::default();
         let uvs = vec![
-            AtlasUv { id: 0, id2: 0.0, x: 0, y: 0, w: 4, h: 4, img: "EDIaaa".into() },
-            AtlasUv { id: 1, id2: 0.0, x: 4, y: 0, w: 4, h: 4, img: "EDIbbb".into() },
-            AtlasUv { id: 2, id2: 0.0, x: 8, y: 0, w: 4, h: 4, img: "EDIccc".into() },
+            AtlasUv {
+                id: 0,
+                id2: 0.0,
+                x: 0,
+                y: 0,
+                w: 4,
+                h: 4,
+                img: "EDIaaa".into(),
+            },
+            AtlasUv {
+                id: 1,
+                id2: 0.0,
+                x: 4,
+                y: 0,
+                w: 4,
+                h: 4,
+                img: "EDIbbb".into(),
+            },
+            AtlasUv {
+                id: 2,
+                id2: 0.0,
+                x: 8,
+                y: 0,
+                w: 4,
+                h: 4,
+                img: "EDIccc".into(),
+            },
         ];
         p.atlas.push(PackAtlas {
             raw_type: 22, // NORMAL
@@ -954,11 +1051,19 @@ mod tests {
         let stems = sprite_stems(&p, &names, "");
         assert_eq!(
             stems[0],
-            vec![Some("Layer".into()), Some("Layer.EDIbbb".into()), Some("EDIccc".into())]
+            vec![
+                Some("Layer".into()),
+                Some("Layer.EDIbbb".into()),
+                Some("EDIccc".into())
+            ]
         );
         assert_eq!(
             stems[1],
-            vec![Some("Layer.a1".into()), Some("Layer.a1.EDIbbb".into()), Some("EDIccc.a1".into())]
+            vec![
+                Some("Layer.a1".into()),
+                Some("Layer.a1.EDIbbb".into()),
+                Some("EDIccc.a1".into())
+            ]
         );
     }
 }

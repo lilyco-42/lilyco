@@ -43,11 +43,17 @@ struct Srt {
     output: Option<PathBuf>,
 
     /// 字幕模式：hard=烧进画面, soft=封装字幕流
-    #[arg(about = "Subtitle mode: hard (burn-in) or soft (mux)", default = "hard")]
+    #[arg(
+        about = "Subtitle mode: hard (burn-in) or soft (mux)",
+        default = "hard"
+    )]
     mode: SubMode,
 
     /// faster-whisper 模型大小
-    #[arg(about = "Whisper model: tiny/base/small/medium/large-v3", default = "small")]
+    #[arg(
+        about = "Whisper model: tiny/base/small/medium/large-v3",
+        default = "small"
+    )]
     model: String,
 
     /// 语言
@@ -95,20 +101,34 @@ fn run_srt(app: &Srt, ctx: &Context) -> Result<serde_json::Value, AppError> {
     ctx.tick(1, Some(4), "提取音频...");
     let audio_tmp = std::env::temp_dir().join(format!("lsrt_{}.wav", std::process::id()));
     run_ffmpeg(&[
-        "-y", "-i", &path_str(&app.input),
-        "-vn", "-ac", "1", "-ar", "16000",
+        "-y",
+        "-i",
+        &path_str(&app.input),
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
         &path_str(&audio_tmp),
     ])?;
 
     // 2. faster-whisper 转录
-    ctx.tick(2, Some(4), &format!("whisper {} ({})...", app.model, app.language));
+    ctx.tick(
+        2,
+        Some(4),
+        &format!("whisper {} ({})...", app.model, app.language),
+    );
     let n = run_whisper(&audio_tmp, &srt_path, &app.model, &app.language, ctx)?;
 
     // 3. 硬字幕: SRT -> ASS + 烧画面; 软字幕: 直接封装
-    ctx.tick(3, Some(4), match app.mode {
-        SubMode::Hard => "烧硬字幕...",
-        SubMode::Soft => "封装软字幕...",
-    });
+    ctx.tick(
+        3,
+        Some(4),
+        match app.mode {
+            SubMode::Hard => "烧硬字幕...",
+            SubMode::Soft => "封装软字幕...",
+        },
+    );
 
     match app.mode {
         SubMode::Hard => {
@@ -123,20 +143,36 @@ fn run_srt(app: &Srt, ctx: &Context) -> Result<serde_json::Value, AppError> {
             vf = vf.replace('\\', "/");
             run_ffmpeg(&[
                 if app.overwrite { "-y" } else { "-n" },
-                "-i", &path_str(&app.input),
-                "-vf", &vf,
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-                "-c:a", "copy", "-movflags", "+faststart",
+                "-i",
+                &path_str(&app.input),
+                "-vf",
+                &vf,
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "20",
+                "-c:a",
+                "copy",
+                "-movflags",
+                "+faststart",
                 &path_str(&output),
             ])?;
         }
         SubMode::Soft => {
             run_ffmpeg(&[
                 if app.overwrite { "-y" } else { "-n" },
-                "-i", &path_str(&app.input),
-                "-i", &path_str(&srt_path),
-                "-c", "copy", "-c:s", "mov_text",
-                "-movflags", "+faststart",
+                "-i",
+                &path_str(&app.input),
+                "-i",
+                &path_str(&srt_path),
+                "-c",
+                "copy",
+                "-c:s",
+                "mov_text",
+                "-movflags",
+                "+faststart",
                 &path_str(&output),
             ])?;
         }
@@ -169,7 +205,11 @@ fn run_ffmpeg(args: &[String]) -> Result<(), AppError> {
         .map_err(|e| AppError::Runtime(format!("spawn ffmpeg: {e}")))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
-        let last = stderr.lines().rev().find(|l| !l.is_empty()).unwrap_or("unknown");
+        let last = stderr
+            .lines()
+            .rev()
+            .find(|l| !l.is_empty())
+            .unwrap_or("unknown");
         return Err(AppError::Runtime(format!("ffmpeg: {last}")));
     }
     Ok(())
@@ -183,7 +223,8 @@ fn run_whisper(
     ctx: &Context,
 ) -> Result<usize, AppError> {
     // 调 Python faster-whisper，输出 SRT
-    let script = format!(r#"
+    let script = format!(
+        r#"
 import sys
 from faster_whisper import WhisperModel
 m = WhisperModel("{model}", device="cpu", compute_type="int8")
@@ -237,7 +278,8 @@ fn srt_to_ass(srt: &Path, ass: &Path, font: &str, fontsize: u32) -> Result<(), A
          [Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     );
     let mut body = String::new();
-    let content = std::fs::read_to_string(srt).map_err(|e| AppError::Runtime(format!("read srt: {e}")))?;
+    let content =
+        std::fs::read_to_string(srt).map_err(|e| AppError::Runtime(format!("read srt: {e}")))?;
     let mut lines = content.lines();
     while let Some(line) = lines.next() {
         let line = line.trim();
@@ -257,10 +299,16 @@ fn srt_to_ass(srt: &Path, ass: &Path, font: &str, fontsize: u32) -> Result<(), A
                 }
             };
             let txt = lines.next().unwrap_or("").trim();
-            body += &format!("Dialogue: 0,{},{},Default,,0,0,0,,{}\n", conv(st), conv(et), txt);
+            body += &format!(
+                "Dialogue: 0,{},{},Default,,0,0,0,,{}\n",
+                conv(st),
+                conv(et),
+                txt
+            );
         }
     }
-    std::fs::write(ass, header + &body).map_err(|e| AppError::Runtime(format!("write ass: {e}")))?;
+    std::fs::write(ass, header + &body)
+        .map_err(|e| AppError::Runtime(format!("write ass: {e}")))?;
     Ok(())
 }
 
