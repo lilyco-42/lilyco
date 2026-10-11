@@ -25,7 +25,9 @@ if [ -e "$DST" ]; then
 fi
 
 mkdir -p "$DST/src"
-cp "$SRC/Cargo.toml" "$DST/Cargo.toml"
+# 模板清单叫 Cargo.toml.tmpl —— 见同目录 README：cargo 会递归读检出目录里
+# 每一个 Cargo.toml，占位符 @CRATE@ 不是合法包名，会让每个 git 依赖方报红。
+cp "$SRC/Cargo.toml.tmpl" "$DST/Cargo.toml"
 for f in "$SRC"/src/*.rs; do
   cp "$f" "$DST/src/"
 done
