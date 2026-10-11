@@ -197,7 +197,7 @@ fn run_srt(app: &Srt, ctx: &Context) -> Result<serde_json::Value, AppError> {
     Ok(result)
 }
 
-fn run_ffmpeg(args: &[String]) -> Result<(), AppError> {
+fn run_ffmpeg(args: &[&str]) -> Result<(), AppError> {
     let out = Command::new("ffmpeg")
         .args(args)
         .stderr(Stdio::piped())
@@ -293,7 +293,7 @@ fn srt_to_ass(srt: &Path, ass: &Path, font: &str, fontsize: u32) -> Result<(), A
                     let h = (secs as u64) / 3600;
                     let m = ((secs as u64) % 3600) / 60;
                     let s = secs % 60.0;
-                    format!("{h}:{m:02d}:{s:05.2f}")
+                    format!("{h}:{m:02}:{s:05.2}")
                 } else {
                     "0:00:00.00".into()
                 }
