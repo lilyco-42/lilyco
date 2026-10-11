@@ -89,6 +89,12 @@ class LocalStudioTests(unittest.TestCase):
             self.assertGreater(image.width, 0)
             self.assertGreater(sum(1 for p in image.getdata() if p[3]), 0)
 
+    def test_empty_real_texture_export_is_not_a_success(self):
+        session = self.upload().json()['id']
+        job = self.run_job(session, 'textures')
+        self.assertEqual(job['state'], 'failed', job)
+        self.assertFalse(job['files'])
+
     def test_host_origin_cookie_isolation_and_paths(self):
         stranger = TestClient(self.app, base_url='http://127.0.0.1:8043')
         self.assertEqual(stranger.get('/api/capabilities').status_code, 403)

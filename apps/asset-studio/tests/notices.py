@@ -5,6 +5,9 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
+import ssl
+import urllib.request
 
 if os.environ.get('GITHUB_ACTIONS') != 'true':
     raise SystemExit('Dependency notices are generated with the build in GitHub Actions only')
@@ -13,6 +16,18 @@ tree = subprocess.check_output(['cargo','tree','--locked','-p','lilyco-aic','--n
 selected = set(re.findall(r'^([\w-]+) v([\w.+-]+)', tree, re.M))
 metadata = json.loads(subprocess.check_output(['cargo','metadata','--locked','--format-version','1'],cwd=root,text=True,encoding='utf-8'))
 notices = []
+# Frozen apps also contain CPython and its OpenSSL shared libraries, outside pip metadata.
+python_version = '.'.join(str(v) for v in sys.version_info[:3])
+openssl_version = ssl.OPENSSL_VERSION.split()[1]
+for name, version, url in [
+    ('CPython', python_version, f'https://raw.githubusercontent.com/python/cpython/v{python_version}/LICENSE'),
+    ('OpenSSL', openssl_version, f'https://raw.githubusercontent.com/openssl/openssl/openssl-{openssl_version}/LICENSE.txt'),
+]:
+    with urllib.request.urlopen(url,timeout=30) as response:
+        text = response.read(256*1024+1).decode('utf-8')
+    if len(text) < 100 or len(text) > 256*1024:
+        raise RuntimeError('Invalid bundled runtime notice')
+    notices.append({'ecosystem':'Bundled native runtime','name':name,'version':version,'source':url,'notices':{'LICENSE':text}})
 for package in metadata['packages']:
     if (package['name'],package['version']) not in selected:
         continue
