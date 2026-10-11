@@ -51,9 +51,8 @@ try {
   const nativeTitle=await page.title();
   await fs.access(receipt.workspace_root);
   // Close via the normal window message. Do not terminate(): cleanup is part of acceptance.
-  const close=spawnSync('powershell',['-NoProfile','-NonInteractive','-Command',
-    'Add-Type -TypeDefinition \'using System; using System.Runtime.InteropServices; public class StudioWindow { [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string c,string t); [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l); }\'; $h=[StudioWindow]::FindWindow($null,"Lain42 素材工坊"); if ($h -eq [IntPtr]::Zero) {exit 2}; if (-not [StudioWindow]::PostMessage($h,0x0010,[IntPtr]::Zero,[IntPtr]::Zero)) {exit 3}'
-  ],{encoding:'utf8'});
+  const close=spawnSync('powershell',['-NoProfile','-NonInteractive','-File',
+    'tests/close-native-window.ps1','-Binary',binary],{encoding:'utf8'});
   assert.equal(close.status,0,close.stderr);
   for(let i=0;i<100 && child.exitCode===null;i++) await new Promise(r=>setTimeout(r,200));
   assert.equal(child.exitCode,0,'normal window close must exit cleanly: '+output);
