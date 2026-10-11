@@ -9,9 +9,9 @@ import subprocess
 if os.environ.get('GITHUB_ACTIONS') != 'true':
     raise SystemExit('Dependency notices are generated with the build in GitHub Actions only')
 root = Path(__file__).parents[3]
-tree = subprocess.check_output(['cargo','tree','--locked','-p','lilyco-aic','--no-default-features','--features','android','--prefix','none','--format','{p}'],cwd=root,text=True)
+tree = subprocess.check_output(['cargo','tree','--locked','-p','lilyco-aic','--no-default-features','--features','android','--prefix','none','--format','{p}'],cwd=root,text=True,encoding='utf-8')
 selected = set(re.findall(r'^([\w-]+) v([\w.+-]+)', tree, re.M))
-metadata = json.loads(subprocess.check_output(['cargo','metadata','--locked','--format-version','1'],cwd=root,text=True))
+metadata = json.loads(subprocess.check_output(['cargo','metadata','--locked','--format-version','1'],cwd=root,text=True,encoding='utf-8'))
 notices = []
 for package in metadata['packages']:
     if (package['name'],package['version']) not in selected:

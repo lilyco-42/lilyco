@@ -77,6 +77,18 @@ class LocalStudioTests(unittest.TestCase):
         self.assertTrue(job['error'])
         self.assertFalse(job['files'])
 
+    def test_real_sprite_export_retains_transparent_pixels(self):
+        session = self.upload().json()['id']
+        job = self.run_job(session, 'sprites')
+        self.assertEqual(job['state'], 'done', job)
+        payload = self.client.get(f"/api/jobs/{job['id']}/files/export.zip").content
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            names = [n for n in archive.namelist() if n.endswith('.png')]
+            self.assertTrue(names, 'real sprite export must contain images')
+            image = Image.open(io.BytesIO(archive.read(names[0]))).convert('RGBA')
+            self.assertGreater(image.width, 0)
+            self.assertGreater(sum(1 for p in image.getdata() if p[3]), 0)
+
     def test_host_origin_cookie_isolation_and_paths(self):
         stranger = TestClient(self.app, base_url='http://127.0.0.1:8043')
         self.assertEqual(stranger.get('/api/capabilities').status_code, 403)
