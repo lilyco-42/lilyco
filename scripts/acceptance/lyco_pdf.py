@@ -713,7 +713,14 @@ def one_str(body: bytes, key: bytes) -> str | None:
     return decode_pdf_text(got[0]) if got else None
 
 
-SPACES = (b" ", b"\t", b"\r", b"\n", b"\x00", b"\x0c")
+# 这里原先还站着第二枚 `SPACES = (b" ", b"\t", …)`（元组）。它与第 106 行那枚**同名**，
+# 模块级后绑定把前者整个盖掉，于是所有 `raw[i] in SPACES` 这种**用 int 做成员测试**的地方
+# 静默失效 —— `int in (b" ", b"\t", …)` 恒为 False，「跳掉键后面的空白」这一步永远不执行。
+# 后果不是报错而是读错：键与值之间写空格的写法（`/V (1)`、`/V <feff674e>`、`/Opt [ … ]`）
+# 全被当成「值不是串也不是数组」，`value_shape` 一律退成 other、`options` 一律交空。
+# forms-hier.pdf（pikepdf 写的，字典单行、键值之间带空格）就是这么错的；而 risk.pdf 的
+# `/V(x)` 中间没有空格，所以一直是对的 —— 同一条 bug 只在一半语料上现形。
+# 空白只有第 106 行那一枚字节串：它对 int 与切片两种成员测试都成立，不要再定义第二枚。
 LABEL_STYLES = ("D", "R", "r", "A", "a", "H", "h")
 
 
