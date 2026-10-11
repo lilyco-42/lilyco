@@ -7,6 +7,9 @@ for (const [label,width,height] of [['desktop',1440,1000],['mobile',390,844]]) {
   const page = await browser.newPage({viewport:{width,height}});
   const errors=[]; page.on('pageerror',e=>errors.push(e.message));
   await page.goto('http://127.0.0.1:8043/');
+  await page.getByRole('button',{name:'切换浅色外观'}).click();
+  assert.equal(await page.locator('html').evaluate(el=>el.classList.contains('dark')),false);
+  await page.getByRole('button',{name:'切换深色外观'}).click();
   await page.locator('#files').setInputFiles('tests/demo.pxls');
   await page.locator('#inspect').click();
   await page.locator('#status').filter({hasText:'已读取 1 个动作'}).waitFor();
@@ -18,6 +21,8 @@ for (const [label,width,height] of [['desktop',1440,1000],['mobile',390,844]]) {
   assert(await image.evaluate(img=>img.complete && img.naturalWidth>0));
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   assert((await page.locator('#gallery').boundingBox()).height<=680, 'preview must not expand the entire page');
+  const download=await page.request.get('http://127.0.0.1:8043'+await page.locator('#download').getAttribute('href'));
+  assert(download.ok()); assert((await download.body()).subarray(0,2).equals(Buffer.from('PK')));
   await page.screenshot({path:`evidence/${label}.png`,fullPage:true});
   await page.locator('#spineTab').click();
   if (process.env.LAIN42_LYCO_SPINE_RENDER) {

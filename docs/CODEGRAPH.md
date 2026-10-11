@@ -23,12 +23,17 @@ flowchart TD
 
 ### 应用扩展：素材工坊
 
-`apps/asset-studio/` 是独立的本机 FastAPI + Web 前端，调用已编译 `laic`，不复制解析器或 core 执行器。
-入口 `launcher.py:11`；路由装配 `studio/app.py:35`；固定 CLI 适配器 `studio/adapters.py:29`；
+`apps/asset-studio/` 是独立的本机 FastAPI + React/shadcn 前端，调用已编译 `laic`，不复制解析器或 core 执行器。
+入口 `launcher.py:17`（Windows WebView2 / Linux 浏览器）；路由装配 `studio/app.py:35`；固定 CLI 适配器 `studio/adapters.py:29`；
 子进程任务与取消 `studio/jobs.py:26`；受限工作区路径 `studio/paths.py:14`。
 只在 loopback 提供服务，以 Host/Origin/随机会话 Cookie 保护文件与 API。
-不接受 shell 命令或可执行路径。Spine 播放适配器可连接用户自行提供的运行时，完整包不分发官方 Spine 运行时。
-验证和完整包构建由 `.github/workflows/asset-studio.yml` 执行；包含自制 PXLS 的真实原生引擎往返和打包后冒烟。
+不接受 shell 命令或可执行路径，不向 WebView 脚本暴露 Python API。Spine 播放适配器只连接可信引擎；
+公共 CI 构建 AIC 包，维护者独立授权流程构建 AIC + Spine 3.8 产品包，携带单独 Runtime 许可，不能把它当 MIT 分发。
+前端入口 `ui/src/studio-entry.tsx`，界面 `asset-studio-workspace.tsx`，工作区和任务状态 `use-asset-workspace.ts`；
+原始 shadcn 组件只读，语义色与明暗主题在 `studio-theme.css`，约束见 `DESIGN.md`。
+验证和完整包构建仅由 GitHub Actions 执行；包含自制 PXLS 的真实原生引擎往返、桌面/手机布局、
+打包后真实 WebView2、关闭清理、安装/卸载验收。`packaging/build-app.py` 是统一冻结配方，
+`packaging/windows-installer.py` 仅删除明确列出的应用文件，禁止递归卸载用户目录。
 
 
 | crate | 版本 | 依赖 | 职责一句话 |

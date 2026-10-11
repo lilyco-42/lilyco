@@ -28,6 +28,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build the actual shadcn workspace
+        working-directory: apps/asset-studio/ui
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
       - name: Build and test original AIC engine (headless)
         run: |
           cargo test -p lilyco-aic --no-default-features --features android
@@ -60,7 +68,7 @@ jobs:
           node tests/ui.mjs
       - name: Package complete double-click app
         working-directory: apps/asset-studio
-        run: python -m PyInstaller --noconfirm --name Lain42-Asset-Studio --add-data "frontend:frontend" --add-data "bin:bin" --collect-submodules uvicorn launcher.py
+        run: python packaging/build-app.py
       - name: Collect dependency attribution
         working-directory: apps/asset-studio
         run: python tests/notices.py
@@ -72,6 +80,7 @@ jobs:
         shell: bash
         run: |
           cp ../../LICENSE README.md THIRD-PARTY-NOTICES.json dist/Lain42-Asset-Studio/
+          cp ui/package-lock.json dist/Lain42-Asset-Studio/UI-package-lock.json
           python - <<'PY'
           import hashlib,json,os,pathlib,zipfile
           root=pathlib.Path('dist/Lain42-Asset-Studio')
@@ -83,6 +92,29 @@ jobs:
                   if p.is_file(): archive.write(p,p.relative_to(root.parent).as_posix())
           target.with_suffix('.zip.sha256').write_text(hashlib.sha256(target.read_bytes()).hexdigest()+'\n',encoding='ascii')
           PY
+      - name: Prepare Windows native acceptance and installer tools
+        if: runner.os == 'Windows'
+        working-directory: apps/asset-studio
+        shell: pwsh
+        run: |
+          npm install --no-save playwright@1.56.1
+          python tests/fixture.py tests/demo.pxls
+          choco install nsis -y --no-progress
+          Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile webview2-bootstrap.exe
+          $signature = Get-AuthenticodeSignature webview2-bootstrap.exe
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft Corporation') { throw 'Invalid WebView2 bootstrap signature' }
+          $setup = Start-Process ./webview2-bootstrap.exe -ArgumentList '/silent','/install' -Wait -PassThru -WindowStyle Hidden
+          if ($setup.ExitCode -notin 0,3010) { throw "WebView2 install failed: $($setup.ExitCode)" }
+      - name: Verify real packaged WebView2, export and normal close
+        if: runner.os == 'Windows'
+        working-directory: apps/asset-studio
+        run: node tests/desktop_smoke.mjs dist/Lain42-Asset-Studio/Lain42-Asset-Studio.exe
+      - name: Build and exercise the Windows installation EXE
+        if: runner.os == 'Windows'
+        working-directory: apps/asset-studio
+        run: |
+          python packaging/windows-installer.py
+          python tests/installer_smoke.py
       - uses: actions/upload-artifact@v4
         with:
           name: lain42-asset-studio-${{ runner.os }}-${{ github.sha }}
@@ -90,4 +122,6 @@ jobs:
           path: |
             apps/asset-studio/dist/*.zip
             apps/asset-studio/dist/*.sha256
+            apps/asset-studio/dist/*-setup.exe
+            apps/asset-studio/ui/package-lock.json
             apps/asset-studio/evidence/*
