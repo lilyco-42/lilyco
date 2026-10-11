@@ -1,5 +1,6 @@
 """CI-only attribution collector for the shipped Rust/Python dependencies."""
 import importlib.metadata
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -70,5 +71,26 @@ for distribution in importlib.metadata.distributions():
                 texts[str(file)] = p.read_text(encoding='utf-8',errors='replace')
     notices.append({'ecosystem':'Python (includes CI packaging dependencies)','name':distribution.metadata['Name'],'version':distribution.version,'license':distribution.metadata.get('License-Expression') or distribution.metadata.get('License'),'notices':texts})
 target = Path('THIRD-PARTY-NOTICES.json')
+ui = Path('ui')
+# Preserve the exact official shadcn sources; visual customization lives in wrappers.
+sources = json.loads((ui/'src/shadcn-sources.json').read_text(encoding='utf-8'))
+for item in sources:
+    source = ui/'src/components/ui'/item['file']
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == item['sha256'], item['file']
+notices.append({'ecosystem':'Frontend component source','name':'shadcn/ui','source':'https://github.com/shadcn-ui/ui',
+                'license':'MIT','notices':{'LICENSE':(ui/'src/components/ui/LICENSE.md').read_text(encoding='utf-8')}})
+npm = 'npm.cmd' if os.name == 'nt' else 'npm'
+paths = subprocess.check_output([npm,'ls','--omit=dev','--all','--parseable'],cwd=ui,text=True,encoding='utf-8')
+for line in paths.splitlines():
+    directory = Path(line)
+    if directory.resolve() == ui.resolve():
+        continue
+    package = json.loads((directory/'package.json').read_text(encoding='utf-8'))
+    texts = {}
+    for file in directory.iterdir():
+        if file.is_file() and file.name.upper().startswith(('LICENSE','LICENCE','COPYING','NOTICE')) and file.stat().st_size < 256*1024:
+            texts[file.name] = file.read_text(encoding='utf-8',errors='replace')
+    notices.append({'ecosystem':'Bundled frontend JavaScript','name':package['name'],'version':package['version'],
+                    'license':package.get('license'),'notices':texts})
 target.write_text(json.dumps(notices,ensure_ascii=False,indent=2),encoding='utf-8')
 print(f'Collected attribution for {len(notices)} dependencies')

@@ -3,3 +3,8 @@
 
 # laic 端到端验证的临时产物（pxl/sprite/render 输出，单个可达 12 MB）
 tmp/
+apps/asset-studio/ui/node_modules/
+apps/asset-studio/build/
+apps/asset-studio/dist/
+apps/asset-studio/evidence/
+**/__pycache__/
