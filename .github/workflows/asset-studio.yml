@@ -34,7 +34,7 @@ jobs:
       - name: Build the actual shadcn workspace
         working-directory: apps/asset-studio/ui
         run: |
-          npm install --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npm run build
       - name: Build and test original AIC engine (headless)
         run: |
