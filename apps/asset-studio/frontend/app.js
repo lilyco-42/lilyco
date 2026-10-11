@@ -12,6 +12,7 @@ function status(text) { $('status').textContent = text; }
 function busy(value) {
   for (const id of ['render', 'inspect', 'sprites', 'textures', 'delete']) $(id).disabled = value || !workspace;
   for (const id of ['files', 'folder', 'aicTab', 'spineTab']) $(id).disabled = value;
+  if (!$('entry').value || !capabilities[tool]?.available) for (const id of ['render', 'inspect', 'sprites', 'textures']) $(id).disabled = true;
   $('sprites').hidden = $('textures').hidden = tool !== 'aic';
   if (tool === 'spine' && !capabilities.spine?.available) $('render').disabled = $('inspect').disabled = true;
   $('cancel').hidden = !activeJob;

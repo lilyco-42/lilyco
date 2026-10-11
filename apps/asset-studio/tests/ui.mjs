@@ -17,6 +17,7 @@ for (const [label,width,height] of [['desktop',1440,1000],['mobile',390,844]]) {
   await page.waitForFunction(()=>document.querySelector('#gallery img')?.naturalWidth>0);
   assert(await image.evaluate(img=>img.complete && img.naturalWidth>0));
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  assert((await page.locator('#gallery').boundingBox()).height<=680, 'preview must not expand the entire page');
   await page.screenshot({path:`evidence/${label}.png`,fullPage:true});
   await page.locator('#spineTab').click();
   await page.locator('#engineNotice').filter({hasText:'不包含官方 Spine'}).waitFor();

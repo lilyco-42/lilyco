@@ -35,7 +35,7 @@ def main():
 
     threading.Thread(target=open_when_ready, daemon=True).start()
     print('Lain42 素材工坊 · 所有处理都在本机', flush=True)
-    print('关闭这个窗口可退出并清理临时文件。', flush=True)
+    print('保存结果后，请在界面删除工作区；关闭这个窗口可退出。', flush=True)
     print(url, flush=True)
     server.run(sockets=[sock])
 
