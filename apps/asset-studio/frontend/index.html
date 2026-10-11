@@ -1,0 +1,15 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lain42 素材工坊</title><link rel="stylesheet" href="/assets/style.css"></head><body>
+<header><a class="brand" href="/">Lain42 <span>素材工坊</span></a><span class="badge">本机处理 · 文件不上传云端</span></header>
+<main><section class="hero"><small>ASSET STUDIO / 早期预览版</small><h1>把素材，变成看得见的创作。</h1><p>选择角色文件，预览动画，导出透明图。命令行的能力，现在点一下就能用。</p></section>
+<div class="workspace"><aside><div class="tabs" role="group" aria-label="选择工具"><button id="aicTab" class="active">AIC 素材工具</button><button id="spineTab">Spine 播放器</button></div>
+<h2 id="toolTitle">AIC 角色预览与导出</h2><p id="toolHelp">选择 .pxls 角色表和同目录的配套贴图。也可以选择包含它们的文件夹。</p>
+<div class="dropzone" id="dropzone"><strong>从文件开始</strong><p>拖入文件，或点击下方按钮</p><label class="button primary">选择文件<input id="files" type="file" multiple accept=".pxls,.dat,.bytes,.png,.atlas,.json,.skel,.resS"></label><label class="button">选择文件夹<input id="folder" type="file" multiple webkitdirectory></label><small>最多 2000 个文件，共 512 MB；单文件不超过 128 MB。</small></div>
+<p id="selection" role="status">还没有选择素材</p>
+<label for="entry">角色文件</label><select id="entry" disabled><option>先选择素材</option></select>
+<button id="inspect" disabled>读取动画列表</button>
+<label for="motion">动作 / 姿势</label><select id="motion"><option value="*">全部动作</option></select>
+<div class="fields"><div><label for="direction">朝向（AIC）</label><select id="direction"><option value="0">方向 0</option><option value="1">方向 1</option><option value="2">方向 2</option><option value="3">方向 3</option><option value="4">方向 4</option><option value="5">方向 5</option><option value="6">方向 6</option><option value="7">方向 7</option></select></div><div><label for="scale">放大倍数（AIC）</label><select id="scale"><option value="1">原始尺寸</option><option value="2">2 倍</option><option value="4">4 倍</option></select></div></div>
+<button id="render" class="primary" disabled>预览并导出动画</button><div class="actions"><button id="sprites" disabled>导出部件 PNG</button><button id="textures" disabled>导出 Unity 贴图</button></div>
+<p id="engineNotice" class="notice"></p><small>工具不包含游戏资源，也不授予素材版权。请使用你有权处理的文件。Unity 导出首版仅支持 AIC 配套 texture_0.dat。</small>
+</aside><section class="canvas"><div class="canvas-head"><div><small>PREVIEW</small><h2>你的素材工作台</h2></div><button id="delete" disabled>删除当前工作区</button></div><div class="statusbar"><p id="status" aria-live="polite">等待选择素材</p><button id="cancel" hidden>取消处理</button></div><div id="empty" class="empty"><div class="mark">✦</div><h3>在这里看到结果</h3><p>透明 PNG、动画 GIF、精灵表和处理报告。<br>关闭程序后临时文件会清理，请先保存需要的结果。</p></div><div id="gallery" class="gallery"></div><div id="outputs" class="output-list"></div><a id="download" class="button primary" hidden>下载全部结果 ZIP</a><details id="report" hidden><summary>查看处理报告</summary><pre id="reportText"></pre></details></section></div>
+<footer>一套本地界面，复用你的 CLI。首发 Windows 与 Linux。<a href="https://lain42.top/shop/" target="_blank" rel="noopener noreferrer">返回 Lain42 商城 ↗</a></footer></main><script src="/assets/app.js"></script></body></html>

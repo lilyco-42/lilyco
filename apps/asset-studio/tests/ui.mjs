@@ -1,0 +1,30 @@
+import { chromium } from 'playwright';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+const browser = await chromium.launch();
+await fs.mkdir('evidence', {recursive:true});
+for (const [label,width,height] of [['desktop',1440,1000],['mobile',390,844]]) {
+  const page = await browser.newPage({viewport:{width,height}});
+  const errors=[]; page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('http://127.0.0.1:8043/');
+  await page.locator('#files').setInputFiles('tests/demo.pxls');
+  await page.locator('#inspect').click();
+  await page.locator('#status').filter({hasText:'已读取 1 个动作'}).waitFor();
+  await page.locator('#render').click();
+  await page.locator('#status').filter({hasText:'处理完成'}).waitFor({timeout:30000});
+  const image = page.locator('#gallery img').first();
+  await image.waitFor();
+  await page.waitForFunction(()=>document.querySelector('#gallery img')?.naturalWidth>0);
+  assert(await image.evaluate(img=>img.complete && img.naturalWidth>0));
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await page.screenshot({path:`evidence/${label}.png`,fullPage:true});
+  await page.locator('#spineTab').click();
+  await page.locator('#engineNotice').filter({hasText:'不包含官方 Spine'}).waitFor();
+  assert(await page.locator('#render').isDisabled());
+  await page.locator('#delete').click();
+  await page.locator('#status').filter({hasText:'工作区已清理'}).waitFor();
+  assert.equal(await page.locator('#gallery img').count(),0);
+  assert.deepEqual(errors,[]);
+  await page.close();
+}
+await browser.close();
