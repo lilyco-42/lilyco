@@ -1,5 +1,6 @@
 """Double click: a loopback-only FastAPI app in the default browser."""
 import socket
+import sys
 import threading
 import webbrowser
 
@@ -8,6 +9,10 @@ from studio.app import create_app
 
 
 def main():
+    # Windows redirected consoles may default to cp1252; keep the startup URL readable.
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors='replace')
     # Keep the bound socket: no free-port race between probing and listening.
     sock = socket.socket()
     sock.bind(('127.0.0.1', 0))

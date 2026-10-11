@@ -3,8 +3,10 @@ import http.cookiejar
 import json
 import os
 import re
+import queue
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -18,13 +20,27 @@ env['BROWSER'] = 'true'
 process = subprocess.Popen([str(binary)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
 try:
     # Frozen console output must be unbuffered by launcher for deterministic startup.
+    lines = queue.Queue()
+    def reader():
+        for raw in process.stdout:
+            lines.put(raw.decode('utf-8',errors='replace'))
+        lines.put(None)
+    threading.Thread(target=reader,daemon=True).start()
     url = None
-    for _ in range(4):
-        line = process.stdout.readline().decode('utf-8',errors='replace')
+    output = []
+    deadline = time.monotonic()+20
+    while time.monotonic()<deadline:
+        try:
+            line = lines.get(timeout=.5)
+        except queue.Empty:
+            continue
+        if line is None:
+            break
+        output.append(line)
         match = re.search(r'http://127\.0\.0\.1:\d+/', line)
         if match:
             url = match.group(); break
-    assert url, 'bundle did not emit loopback URL'
+    assert url, 'bundle did not emit loopback URL: '+''.join(output)[-3000:]
     client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()), urllib.request.ProxyHandler({}))
     for _ in range(50):
         try:
