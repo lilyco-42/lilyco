@@ -15,9 +15,17 @@
 #       所以「开发期该抓的 bug 一个都不会漏」——只是没有调试符号。
 
 [build]
-rustflags = [
-    "-C", "debuginfo=0",
-    "-C", "link-args=/DEBUG:NONE",
-]
+rustflags = ["-C", "debuginfo=0"]
+
+# ⚠️ /DEBUG:NONE 是 MSVC link.exe 的开关，**只能对 Windows 目标生效**。
+# 放在 [build] 里会无条件传给所有目标：Linux 的 GNU ld 与 Android 的 clang
+# 把它当成一个输入文件名，于是链接期报
+#     ld: cannot find /DEBUG:NONE: No such file or directory
+#     error: linking with `cc` failed
+# 2026-10-07 起 framework (ubuntu-latest) / build android / companion 三个 job
+# 全红，根因就是这一行（laic 合并把它一起带进主干；开发机是 Windows，所以当时没暴露）。
+# [target.'cfg(windows)'] 只在编 Windows 目标时生效 —— 本机省 PDB 的效果不变。
+[target.'cfg(windows)']
+rustflags = ["-C", "link-args=/DEBUG:NONE"]
 
 # 增量编译保持开启（默认），这是日常改一行重编的主要提速来源。
