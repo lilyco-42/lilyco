@@ -76,6 +76,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: vision-studio
+          cache-on-failure: true
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -110,6 +111,7 @@ jobs:
           mkdir -p bin evidence
           EXT=""; if [ "$RUNNER_OS" = "Windows" ]; then EXT=".exe"; fi
           cp "../../target/release/lvision${EXT}" "bin/lvision${EXT}"
+          "bin/lvision${EXT}" --list > evidence/original-registry.json
           node --input-type=module -e 'import {chromium} from "playwright"; import fs from "node:fs"; fs.appendFileSync(process.env.GITHUB_ENV,"CHROME_PATH="+chromium.executablePath()+"\n")'
       - name: Actual eight MCP tools and HTTP boundaries
         working-directory: apps/vision-studio

@@ -1,6 +1,6 @@
 # Lain42 图片工坊
 
-把原有 `lvision` 八个视觉工具做成本机桌面工作台。FastAPI 管理临时文件与任务，React 19 + shadcn Base Vega 负责界面，Windows WebView2 负责窗口。原 Rust 引擎通过 MCP stdio 执行，算法与参数语义仍由 Lilyco schema / core executor 管理。
+把原有 `lvision` 八个视觉工具做成本机桌面工作台。FastAPI 管理临时文件与任务，React 19 + shadcn Base Vega 负责界面，Windows WebView2 负责窗口。原 Rust 引擎通过 MCP stdio 执行，算法与参数语义仍由 Lilyco schema / core executor 管理。连接器先查询 tools/list：原工具名为 ImageInfo / Crop / Resize / DominantColors / PixelDiff / ExtractForeground / Trace / HtmlScreenshot，参数采用 kebab-case；界面名不替换原接口。
 
 ## 使用
 

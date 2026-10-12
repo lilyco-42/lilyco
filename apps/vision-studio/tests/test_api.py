@@ -185,5 +185,17 @@ class VisionApi(unittest.TestCase):
                     finally:
                         if not task.done():
                             task.cancel()
-                            await asyncio.gather(task, return_exceptions=True)
+                        await asyncio.gather(task, return_exceptions=True)
         asyncio.run(run())
+
+    def test_schema_names_are_discovered_without_domain_revalidation(self):
+        from studio.mcp import resolve_tool
+        schema = [{'name': 'PixelDiff', 'inputSchema': {'properties': {
+            'original': {}, 'rebuilt': {}, 'out-heatmap': {}}}}]
+        name, arguments = resolve_tool(schema, 'pixel-diff', {'original': 'owned-a', 'rebuilt': 'owned-b', 'out_heatmap': 'owned-out'})
+        self.assertEqual(name, 'PixelDiff')
+        self.assertEqual(arguments, {'original': 'owned-a', 'rebuilt': 'owned-b', 'out-heatmap': 'owned-out'})
+        with self.assertRaises(ValueError):
+            resolve_tool(schema + [{'name': 'pixel_diff', 'inputSchema': schema[0]['inputSchema']}], 'pixel-diff', {})
+        with self.assertRaises(ValueError):
+            resolve_tool(schema, 'pixel-diff', {'shell': 'forbidden'})

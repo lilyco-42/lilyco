@@ -5,6 +5,7 @@ export function useVisionWorkspace() {
   const [original, setOriginal] = useState<File | null>(null);
   const [rebuilt, setRebuilt] = useState<File | null>(null);
   const [preview, setPreview] = useState('');
+  const previewRef = useRef('');
   const [session, setSession] = useState<string | null>(null);
   const sessionRef = useRef<string | null>(null);
   const [job, setJob] = useState<VisionJob | null>(null);
@@ -12,23 +13,23 @@ export function useVisionWorkspace() {
   const [error, setError] = useState('');
   const [capabilities, setCapabilities] = useState<{engine: boolean; html_browser: boolean} | null>(null);
   const generation = useRef(0);
-  useEffect(() => { visionRequest<typeof capabilities>('capabilities').then(setCapabilities).catch(e => setError(String(e.message))); }, []);
   useEffect(() => {
-    if (!original || !original.type.startsWith('image/')) { setPreview(''); return; }
-    const url = URL.createObjectURL(original);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [original]);
+    let active = true;
+    visionRequest<typeof capabilities>('capabilities').then(value => {if (active) setCapabilities(value);}).catch(e => {if (active) setError(String(e.message));});
+    return () => { active = false; };
+  }, []);
+  useEffect(() => () => {if (previewRef.current) URL.revokeObjectURL(previewRef.current);}, []);
+  const pollingId = job && ['queued', 'running'].includes(job.state) ? job.id : null;
   useEffect(() => {
-    if (!job || !['queued', 'running'].includes(job.state)) return;
+    if (!pollingId) return;
     let active = true;
     const poll = async () => {
-      try { const value = await visionRequest<VisionJob>(`jobs/${job.id}`); if (active) setJob(value); }
+      try { const value = await visionRequest<VisionJob>(`jobs/${pollingId}`); if (active) setJob(value); }
       catch (e) { if (active) { setError((e as Error).message); setJob(null); } }
     };
     const timer = setInterval(poll, 350);
     return () => { active = false; clearInterval(timer); };
-  }, [job?.id, job?.state]);
+  }, [pollingId]);
   const busy = pending || !!job && ['queued', 'running'].includes(job.state);
 
   async function discard() {
@@ -39,13 +40,25 @@ export function useVisionWorkspace() {
   async function select(file: File | null, second = false) {
     if (busy) return;
     setPending(true); setError('');
-    try { await discard(); second ? setRebuilt(file) : (setOriginal(file), setRebuilt(null)); }
+    try {
+      await discard();
+      if (second) setRebuilt(file);
+      else {
+        if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+        previewRef.current = file?.type.startsWith('image/') ? URL.createObjectURL(file) : '';
+        setPreview(previewRef.current); setOriginal(file); setRebuilt(null);
+      }
+    }
     catch (e) { setError((e as Error).message); }
     finally { setPending(false); }
   }
   async function clear() {
     setPending(true); setError('');
-    try { await discard(); setOriginal(null); setRebuilt(null); }
+    try {
+      await discard();
+      if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+      previewRef.current = ''; setPreview(''); setOriginal(null); setRebuilt(null);
+    }
     catch (e) { setError((e as Error).message); }
     finally { setPending(false); }
   }

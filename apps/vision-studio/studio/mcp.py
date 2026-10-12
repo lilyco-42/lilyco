@@ -31,17 +31,36 @@ async def call(binary, tool, arguments, progress):
                 'protocolVersion': '2024-11-05', 'capabilities': {},
                 'clientInfo': {'name': 'vision-studio', 'version': '0.1.0'}}},
             {'jsonrpc': '2.0', 'method': 'notifications/initialized'},
-            {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {
-                'name': tool, 'arguments': arguments, '_meta': {'progressToken': 'local-job'}}},
+            {'jsonrpc': '2.0', 'id': 0, 'method': 'tools/list', 'params': {}},
         ]
         for message in messages:
             process.stdin.write((json.dumps(message, ensure_ascii=False) + '\n').encode())
         await process.stdin.drain()
-        # The Rust server joins its in-flight executor threads after EOF.
-        process.stdin.close()
         result = None
         size = 0
         async with asyncio.timeout(120):
+            # Ask the original server for canonical names/field spelling. Its
+            # App derive currently uses PascalCase tools and kebab-case fields.
+            # No copied schema or second domain validator lives in this wrapper.
+            while line := await process.stdout.readline():
+                size += len(line)
+                if size > MAX_LOG:
+                    raise ValueError('引擎工具清单过大')
+                listing = json.loads(line)
+                if listing.get('id') != 0:
+                    continue
+                if 'error' in listing:
+                    raise ValueError('无法读取引擎工具清单')
+                canonical, wire_args = resolve_tool(listing['result']['tools'], tool, arguments)
+                request = {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {
+                    'name': canonical, 'arguments': wire_args, '_meta': {'progressToken': 'local-job'}}}
+                process.stdin.write((json.dumps(request, ensure_ascii=False) + '\n').encode())
+                await process.stdin.drain()
+                # EOF joins the original Rust in-flight executor threads.
+                process.stdin.close()
+                break
+            else:
+                raise ValueError('引擎未返回工具清单')
             while line := await process.stdout.readline():
                 size += len(line)
                 if size > MAX_LOG:
@@ -83,3 +102,22 @@ async def call(binary, tool, arguments, progress):
         if not reader.done():
             reader.cancel()
         await asyncio.gather(reader, return_exceptions=True)
+
+
+def resolve_tool(tools, requested, arguments):
+    def normalized(name):
+        return name.replace('-', '').replace('_', '').lower()
+
+    exact = [item for item in tools if item['name'] == requested]
+    matches = exact or [item for item in tools if normalized(item['name']) == normalized(requested)]
+    if len(matches) != 1:
+        raise ValueError('工具版本不匹配，请下载完整的同版本桌面包')
+    schema = matches[0]
+    properties = schema['inputSchema']['properties']
+    result = {}
+    for key, value in arguments.items():
+        canonical = key if key in properties else key.replace('_', '-')
+        if canonical not in properties or canonical in result:
+            raise ValueError('工具参数版本不匹配，请下载完整的同版本桌面包')
+        result[canonical] = value
+    return schema['name'], result
