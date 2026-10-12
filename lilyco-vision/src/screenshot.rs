@@ -112,6 +112,65 @@ pub(crate) fn no_browser_error() -> AppError {
         "no browser found for html screenshot: checked CHROME_PATH, then {extra}"
     ))
 }
+
+/// A screenshot uses a disposable profile, never the user's signed-in browser.
+pub(crate) fn screenshot_file_url(path: &Path) -> String {
+    let raw = path.to_string_lossy().replace('\\', "/");
+    let raw = raw.strip_prefix("//?/").unwrap_or(&raw);
+    let normalized = if let Some(unc) = raw.strip_prefix("UNC/") {
+        format!("//{unc}")
+    } else {
+        raw.to_string()
+    };
+    let prefix = if normalized.starts_with("//") {
+        "file:"
+    } else if normalized.starts_with('/') {
+        "file://"
+    } else {
+        "file:///"
+    };
+    let encoded: String = normalized
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b":/-._~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect();
+    format!("{prefix}{encoded}")
+}
+
+/// Explicit isolated browser process arguments.
+pub(crate) fn screenshot_command(
+    browser: &str,
+    file_url: &str,
+    out: &Path,
+    width: u16,
+    height: u16,
+    profile: &Path,
+) -> Command {
+    let mut cmd = Command::new(browser);
+    cmd.arg("--headless=new")
+        .arg("--disable-gpu")
+        .arg("--hide-scrollbars")
+        .arg("--no-first-run")
+        .arg("--no-default-browser-check")
+        .arg(format!("--user-data-dir={}", profile.display()))
+        .arg(format!("--screenshot={}", out.display()))
+        .arg(format!("--window-size={width},{height}"))
+        .arg(file_url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // Match Chromium automation's process-ownership flags: an elevated Windows
+    // host otherwise hands the browser to Explorer, outside its owning Job.
+    #[cfg(windows)]
+    cmd.arg("--disable-features=AutoDeElevate")
+        .arg("--edge-skip-compat-layer-relaunch");
+    cmd
+}
 /// 业务逻辑：校验扩展名 → 找浏览器 → 无头截图（30s 超时 kill）→ 校验产物
 pub(crate) fn run_html_screenshot(
     app: &HtmlScreenshot,
@@ -142,7 +201,7 @@ pub(crate) fn run_html_screenshot(
 
     // 3. 组装 file:// URL（绝对路径 + 正斜杠）
     let abs = std::fs::canonicalize(&app.source)?;
-    let file_url = format!("file:///{}", abs.display().to_string().replace('\\', "/"));
+    let file_url = screenshot_file_url(&abs);
 
     let width = if app.width == 0 { 1280 } else { app.width };
     let height = if app.height == 0 { 800 } else { app.height };
@@ -152,16 +211,16 @@ pub(crate) fn run_html_screenshot(
         .map(PathBuf::from)
         .unwrap_or_else(|| default_output(&app.source, ".png"));
 
-    let mut cmd = Command::new(&browser);
-    cmd.arg("--headless=new")
-        .arg("--disable-gpu")
-        .arg("--hide-scrollbars")
-        .arg(format!("--screenshot={}", out.display()))
-        .arg(format!("--window-size={width},{height}"))
-        .arg(&file_url)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    // Keep the isolated profile next to the owned output: a host cancelling
+    // the process can clean it even when SIGKILL prevents Rust destructors.
+    let profile_parent = out
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let profile = tempfile::Builder::new()
+        .prefix(".lvision-profile-")
+        .tempdir_in(profile_parent)?;
+    let mut cmd = screenshot_command(&browser, &file_url, &out, width, height, profile.path());
     let mut child = cmd
         .spawn()
         .map_err(|e| AppError::Runtime(format!("spawn {browser}: {e}")))?;

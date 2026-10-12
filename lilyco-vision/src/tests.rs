@@ -693,3 +693,44 @@ fn html_shot_default_naming() {
         "应落在输入同目录: {with_dir:?}"
     );
 }
+
+#[test]
+fn html_screenshot_uses_explicit_private_profile() {
+    let profile = tempfile::tempdir().unwrap();
+    let command = crate::screenshot::screenshot_command(
+        "browser",
+        "file:///own-page.html",
+        Path::new("output.png"),
+        640,
+        480,
+        profile.path(),
+    );
+    let args: Vec<_> = command
+        .get_args()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    assert!(args.contains(&format!("--user-data-dir={}", profile.path().display())));
+    assert!(args.contains(&"--screenshot=output.png".to_string()));
+    assert!(!args.iter().any(|a| a.starts_with("--profile-directory")));
+    assert!(args.contains(&"file:///own-page.html".to_string()));
+    assert!(!args.contains(&"--no-sandbox".to_string()));
+    #[cfg(windows)]
+    assert!(args.contains(&"--disable-features=AutoDeElevate".to_string()));
+}
+
+#[test]
+fn html_screenshot_file_url_normalizes_windows_and_escapes_paths() {
+    use crate::screenshot::screenshot_file_url;
+    assert_eq!(
+        screenshot_file_url(Path::new(r"\\?\C:\Users\owner\page #1.html")),
+        "file:///C:/Users/owner/page%20%231.html"
+    );
+    assert_eq!(
+        screenshot_file_url(Path::new(r"\\?\UNC\host\share\page.html")),
+        "file://host/share/page.html"
+    );
+    assert_eq!(
+        screenshot_file_url(Path::new("/tmp/page?.html")),
+        "file:///tmp/page%3F.html"
+    );
+}

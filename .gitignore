@@ -8,3 +8,12 @@ apps/asset-studio/build/
 apps/asset-studio/dist/
 apps/asset-studio/evidence/
 **/__pycache__/
+apps/vision-studio/ui/node_modules/
+apps/vision-studio/frontend/
+apps/vision-studio/bin/
+apps/vision-studio/dist/
+apps/vision-studio/build/
+apps/vision-studio/evidence/
+apps/vision-studio/*.spec
+apps/vision-studio/THIRD-PARTY-NOTICES.json
+apps/vision-studio/tests/*.png
