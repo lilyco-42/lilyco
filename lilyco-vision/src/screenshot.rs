@@ -112,6 +112,31 @@ pub(crate) fn no_browser_error() -> AppError {
         "no browser found for html screenshot: checked CHROME_PATH, then {extra}"
     ))
 }
+
+/// A screenshot uses a disposable profile, never the user's signed-in browser.
+pub(crate) fn screenshot_command(
+    browser: &str,
+    file_url: &str,
+    out: &Path,
+    width: u16,
+    height: u16,
+    profile: &Path,
+) -> Command {
+    let mut cmd = Command::new(browser);
+    cmd.arg("--headless=new")
+        .arg("--disable-gpu")
+        .arg("--hide-scrollbars")
+        .arg("--no-first-run")
+        .arg("--no-default-browser-check")
+        .arg(format!("--user-data-dir={}", profile.display()))
+        .arg(format!("--screenshot={}", out.display()))
+        .arg(format!("--window-size={width},{height}"))
+        .arg(file_url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    cmd
+}
 /// 业务逻辑：校验扩展名 → 找浏览器 → 无头截图（30s 超时 kill）→ 校验产物
 pub(crate) fn run_html_screenshot(
     app: &HtmlScreenshot,
@@ -152,16 +177,8 @@ pub(crate) fn run_html_screenshot(
         .map(PathBuf::from)
         .unwrap_or_else(|| default_output(&app.source, ".png"));
 
-    let mut cmd = Command::new(&browser);
-    cmd.arg("--headless=new")
-        .arg("--disable-gpu")
-        .arg("--hide-scrollbars")
-        .arg(format!("--screenshot={}", out.display()))
-        .arg(format!("--window-size={width},{height}"))
-        .arg(&file_url)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    let profile = tempfile::tempdir()?;
+    let mut cmd = screenshot_command(&browser, &file_url, &out, width, height, profile.path());
     let mut child = cmd
         .spawn()
         .map_err(|e| AppError::Runtime(format!("spawn {browser}: {e}")))?;

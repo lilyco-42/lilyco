@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-vision"
-version.workspace = true
+version = "0.3.1"
 edition = "2021"
 description = "Vision toolkit (image-info / crop / resize / dominant-colors / pixel-diff / foreground / trace / screenshot) as Lilyco apps — CLI / TUI / Web / MCP, AI-callable by default"
 license = "MIT OR Apache-2.0"
@@ -20,6 +20,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 # 溯源 trace：vtracer 是上游 DSH Vision Toolkit 的 Python 包装所依赖的同一引擎；
 # 按需求锁定 1.0.0-alpha.3（pipeline 版 API：Config::build() → Pipeline::to_svg）
 vtracer = "1.0.0-alpha.3"
+tempfile = "3"
 
 [features]
 default = ["full"]
@@ -27,6 +28,3 @@ default = ["full"]
 full = ["dep:lilyco", "lilyco/full"]
 # Android/Termux：headless（CLI + MCP）
 android = ["dep:lilyco"]
-
-[dev-dependencies]
-tempfile = "3"

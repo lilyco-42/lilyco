@@ -1,0 +1,26 @@
+[
+  {
+    "name": "button",
+    "url": "https://ui.shadcn.com/r/styles/base-vega/button.json",
+    "file": "button.tsx",
+    "sha256": "fe8220afc0ec9b62c7a520f4e6eb0b56b3b9e951eb963183c29d274395ee476c"
+  },
+  {
+    "name": "card",
+    "url": "https://ui.shadcn.com/r/styles/base-vega/card.json",
+    "file": "card.tsx",
+    "sha256": "2e8df508c4b3455f7fb4e799491e54c336081c0d0083c029f7814ff56540b024"
+  },
+  {
+    "name": "badge",
+    "url": "https://ui.shadcn.com/r/styles/base-vega/badge.json",
+    "file": "badge.tsx",
+    "sha256": "d9fb280e266119c4b62a4c518e63152de27b094c68d3e5f8929d05bfb0c1bc6c"
+  },
+  {
+    "name": "separator",
+    "url": "https://ui.shadcn.com/r/styles/base-vega/separator.json",
+    "file": "separator.tsx",
+    "sha256": "9a80ff8c110e0c55489509f4f82ebcc929c0174b59544047147b7134f86a54e7"
+  }
+]

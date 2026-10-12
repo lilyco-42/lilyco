@@ -1,0 +1,154 @@
+name: Vision Studio Desktop
+on:
+  pull_request:
+    paths: ['apps/vision-studio/**', 'lilyco-vision/**', 'Cargo.lock', '.gitattributes', '.github/workflows/vision-studio.yml']
+  push:
+    branches: [main]
+    paths: ['apps/vision-studio/**', 'lilyco-vision/**', 'Cargo.lock', '.gitattributes', '.github/workflows/vision-studio.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: vision-studio-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  workspace-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Existing desktop and software GPU prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev libxdo-dev libegl1 libgl1-mesa-dri mesa-vulkan-drivers
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vision-workspace-contract
+          cache-on-failure: true
+      - name: Real existing Tauri sidecar
+        shell: bash
+        run: |
+          cargo build --locked -p lilyco-binfmt --bin lbin
+          TRIPLE=$(rustc -vV | sed -n 's|host: ||p')
+          mkdir -p lilyco-tauri/binaries
+          cp target/debug/lbin "lilyco-tauri/binaries/lbin-${TRIPLE}"
+      - name: AGENTS workspace gates
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --workspace --all-targets
+          cargo test --locked --workspace
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vision-studio
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build actual shadcn UI
+        working-directory: apps/vision-studio/ui
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Original Rust correctness and headless binary
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked -p lilyco-vision --no-default-features --features android --all-targets
+          cargo test --locked -p lilyco-vision --no-default-features --features android
+          cargo build --release --locked -p lilyco-vision --no-default-features --features android
+      - name: Install verification dependencies
+        working-directory: apps/vision-studio
+        run: |
+          python -m pip install -r requirements.txt httpx==0.28.1 pyinstaller==6.16.0
+          npm install --no-save --package-lock=false playwright@1.56.1
+          npx playwright install chromium
+      - name: Linux browser dependencies
+        if: runner.os == 'Linux'
+        working-directory: apps/vision-studio
+        run: npx playwright install-deps chromium
+      - name: Include original binary and browser location
+        working-directory: apps/vision-studio
+        shell: bash
+        run: |
+          mkdir -p bin evidence
+          EXT=""; if [ "$RUNNER_OS" = "Windows" ]; then EXT=".exe"; fi
+          cp "../../target/release/lvision${EXT}" "bin/lvision${EXT}"
+          node --input-type=module -e 'import {chromium} from "playwright"; import fs from "node:fs"; fs.appendFileSync(process.env.GITHUB_ENV,"CHROME_PATH="+chromium.executablePath()+"\n")'
+      - name: Actual eight MCP tools and HTTP boundaries
+        working-directory: apps/vision-studio
+        run: |
+          python tests/fixture.py
+          python -m unittest discover -s tests -v
+      - name: Responsive browser interactions
+        if: runner.os == 'Linux'
+        working-directory: apps/vision-studio
+        shell: bash
+        run: |
+          python -m uvicorn studio.app:create_app --factory --host 127.0.0.1 --port 8043 > /tmp/vision-ui.log 2>&1 &
+          PID=$!
+          trap 'kill "$PID" || true' EXIT
+          for i in $(seq 1 40); do curl -fsS http://127.0.0.1:8043/ >/dev/null && break || sleep .25; done
+          node tests/ui.mjs
+      - name: Freeze desktop app and collect original dependency licenses
+        working-directory: apps/vision-studio
+        run: |
+          python packaging/build-app.py
+          python tests/notices.py
+      - name: Real frozen app and bundled MCP processing
+        working-directory: apps/vision-studio
+        run: python tests/bundle_smoke.py dist/Lain42-Vision-Studio/Lain42-Vision-Studio${{ runner.os == 'Windows' && '.exe' || '' }}
+      - name: Manifest and portable ZIP
+        working-directory: apps/vision-studio
+        run: python packaging/archive.py
+      - name: Windows native runtime and installer tools
+        if: runner.os == 'Windows'
+        working-directory: apps/vision-studio
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile webview2-bootstrap.exe
+          $signature = Get-AuthenticodeSignature webview2-bootstrap.exe
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft Corporation') { throw 'Invalid WebView2 bootstrap signature' }
+          $setup = Start-Process ./webview2-bootstrap.exe -ArgumentList '/silent','/install' -Wait -PassThru -WindowStyle Hidden
+          if ($setup.ExitCode -notin 0,3010) { throw "WebView2 install failed: $($setup.ExitCode)" }
+      - name: Actual WebView2 window and normal cleanup
+        if: runner.os == 'Windows'
+        working-directory: apps/vision-studio
+        run: node tests/desktop_smoke.mjs dist/Lain42-Vision-Studio/Lain42-Vision-Studio.exe
+      - name: Install EXE, real installed processing and safe uninstall
+        if: runner.os == 'Windows'
+        working-directory: apps/vision-studio
+        run: |
+          python packaging/windows-installer.py
+          python tests/installer_smoke.py
+      - name: Preserve evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vision-evidence-${{ runner.os }}-${{ github.sha }}
+          path: apps/vision-studio/evidence/
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lain42-vision-studio-${{ runner.os }}-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            apps/vision-studio/dist/*.zip
+            apps/vision-studio/dist/*.sha256
+            apps/vision-studio/dist/*-setup.exe

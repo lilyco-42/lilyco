@@ -693,3 +693,24 @@ fn html_shot_default_naming() {
         "应落在输入同目录: {with_dir:?}"
     );
 }
+
+#[test]
+fn html_screenshot_uses_explicit_private_profile() {
+    let profile = tempfile::tempdir().unwrap();
+    let command = crate::screenshot::screenshot_command(
+        "browser",
+        "file:///own-page.html",
+        Path::new("output.png"),
+        640,
+        480,
+        profile.path(),
+    );
+    let args: Vec<_> = command
+        .get_args()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    assert!(args.contains(&format!("--user-data-dir={}", profile.path().display())));
+    assert!(args.contains(&"--screenshot=output.png".to_string()));
+    assert!(!args.iter().any(|a| a.starts_with("--profile-directory")));
+    assert_eq!(args.last().unwrap(), "file:///own-page.html");
+}
