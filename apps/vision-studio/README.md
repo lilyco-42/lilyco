@@ -29,4 +29,6 @@ Windows 安装 EXE / 便携 ZIP 和 Linux ZIP 只由 GitHub Actions 构建。正
 
 原 repo 许可保留；`SHARED-SOURCE-LICENSE` 保留共用壳的原始 MIT 声明，shadcn 源组件独立保留 MIT。正式包携带依赖完整许可文本、Cargo / npm 锁文件和 SHA-256 manifest。不附带 Chrome / Edge，不读取其他产品授权，不包含 AI 服务额度。可以销售整理交付和支持，收入须以真实订单为证，不承诺销量。
 
+Windows WebView2 SDK 组件固定为 1.0.3856.49，五个程序集/Loader 与官方 NuGet 包逐字节 SHA 对应；独立 BSD 许可全文放在 `MICROSOFT-WEBVIEW2-LICENSE.txt`，不能只用 pywebview 的许可代替。WebView2 Evergreen Runtime 由用户系统或 Microsoft 安装器提供，程序包没有打包 Edge 浏览器；缺少 Runtime 时仍可用默认浏览器的本机工作台。
+
 开发者的运行、构建、测试均在 `.github/workflows/vision-studio.yml`。不得在本机执行编译、冻结或产品测试。

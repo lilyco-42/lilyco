@@ -1,6 +1,7 @@
 """CI-only attribution collector for the shipped Rust/Python dependencies."""
 import importlib.metadata
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import subprocess
 import sys
 import ssl
 import urllib.request
+import zipfile
 
 if os.environ.get('GITHUB_ACTIONS') != 'true':
     raise SystemExit('Dependency notices are generated with the build in GitHub Actions only')
@@ -29,6 +31,31 @@ for name, version, url in [
     if len(text) < 100 or len(text) > 256*1024:
         raise RuntimeError('Invalid bundled runtime notice')
     notices.append({'ecosystem':'Bundled native runtime','name':name,'version':version,'source':url,'notices':{'LICENSE':text}})
+# pywebview's own BSD notice does not replace the SDK's independent notice.
+if os.name == 'nt':
+    pin = json.loads(Path('packaging/webview2-sdk.json').read_text(encoding='utf-8'))
+    with urllib.request.urlopen(pin['source'], timeout=30) as response:
+        package = response.read(40 * 1024 * 1024 + 1)
+    assert len(package) <= 40 * 1024 * 1024
+    assert hashlib.sha256(package).hexdigest() == pin['package_sha256']
+    distribution = importlib.metadata.distribution('pywebview')
+    bundled = Path('dist/Lain42-Vision-Studio/_internal/webview/lib')
+    with zipfile.ZipFile(io.BytesIO(package)) as sdk:
+        license_bytes = sdk.read(pin['license_path'])
+        assert hashlib.sha256(license_bytes).hexdigest() == pin['license_sha256']
+        assert Path('MICROSOFT-WEBVIEW2-LICENSE.txt').read_bytes() == license_bytes
+        for file in pin['files']:
+            assert hashlib.sha256(sdk.read(file['sdk_path'])).hexdigest() == file['sha256']
+            installed = distribution.locate_file('webview/lib/' + file['app_path'])
+            assert hashlib.sha256(installed.read_bytes()).hexdigest() == file['sha256'], file['app_path']
+            assert hashlib.sha256((bundled / file['app_path']).read_bytes()).hexdigest() == file['sha256'], file['app_path']
+    notices.append({'ecosystem': 'Bundled native SDK', 'name': pin['name'],
+                    'version': pin['version'], 'license': 'BSD-3-Clause', 'source': pin['source'],
+                    'verified_files': pin['files'], 'notices': {'LICENSE.txt': license_bytes.decode('utf-8')}})
+    Path('evidence/webview2-sdk.json').write_text(json.dumps({
+        'commit': os.environ['GITHUB_SHA'], 'version': pin['version'],
+        'package_sha256': pin['package_sha256'], 'license_sha256': pin['license_sha256'],
+        'five_bundled_files_match_official_sdk': True}), encoding='utf-8')
 for package in metadata['packages']:
     if (package['name'],package['version']) not in selected:
         continue

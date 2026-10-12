@@ -52,6 +52,7 @@ UI 使用 `ui/src/vision-workspace.tsx` / `use-vision-workspace.ts` / `vision-to
 `.github/workflows/vision-studio.yml` 是唯一构建/测试入口：原八工具的真实像素、透明度、SVG 和 HTML 截图、
 HTTP 边界、320–1440 响应式、冻结程序、原生 WebView2、正常关闭、安装与安全卸载。
 包携带完整依赖许可、锁文件、原始输出和逐文件 SHA；当前分支未过门前不称为已发布。
+Windows 包在 `tests/notices.py` 对 `packaging/webview2-sdk.json` 固定的官方 NuGet SDK、独立 BSD 文本及五个实际冻结 DLL 做字节核对；`packaging/archive.py` 携带 SDK 许可和来源清单，不能把 pywebview 源许可当成这些 SDK 程序集的许可。
 
 
 | crate | 版本 | 依赖 | 职责一句话 |

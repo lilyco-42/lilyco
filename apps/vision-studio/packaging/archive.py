@@ -11,6 +11,9 @@ if os.environ.get('GITHUB_ACTIONS') != 'true':
 root=Path('dist/Lain42-Vision-Studio')
 for source in [Path('../../LICENSE'),Path('README.md'),Path('SHARED-SOURCE-LICENSE'),Path('THIRD-PARTY-NOTICES.json')]:
     shutil.copyfile(source,root/source.name)
+if os.name == 'nt':
+    shutil.copyfile('MICROSOFT-WEBVIEW2-LICENSE.txt',root/'MICROSOFT-WEBVIEW2-LICENSE.txt')
+    shutil.copyfile('packaging/webview2-sdk.json',root/'webview2-sdk.json')
 shutil.copyfile('../../Cargo.lock',root/'engine-Cargo.lock')
 shutil.copyfile('ui/package-lock.json',root/'UI-package-lock.json')
 manifest={'commit':os.environ['GITHUB_SHA'],'runner':os.environ['RUNNER_OS'],'engine':'lilyco-vision/lvision --mcp',
