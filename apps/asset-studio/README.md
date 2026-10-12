@@ -47,3 +47,9 @@ NSIS 安装 EXE → 真安装 / 引擎执行 / 卸载不删除用户文件。
 源码沿用仓库 MIT 许可；收费对象可为完整打包、加速交付与支持。开源源码仍可免费获取。
 使用本产品不授予素材版权，不携带 Spine Editor 或激活码。修改、集成和再分发涉及 Runtime 的产品，
 须遵守随包的 Spine 许可，不可把 Runtime 当作 MIT 独立组件转售。
+
+桌面封装 0.1.1 保留 Windows 所带 Microsoft.Web.WebView2 SDK 1.0.3856.49 的独立完整 BSD-3-Clause 许可。
+`MICROSOFT-WEBVIEW2-LICENSE.txt` 与 `packaging/webview2-sdk.json` 分别记录官方许可原始字节和包／五个 SDK 文件 SHA256。
+Actions 同时验证官方 NuGet 包、安装依赖和最终冻结文件；不能用 pywebview 自身的许可替代 SDK 的许可。
+SDK 与 Microsoft WebView2 Runtime 为不同组件；本包不附 Runtime，仍需官方运行时。
+官方 SDK：https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.3856.49 。

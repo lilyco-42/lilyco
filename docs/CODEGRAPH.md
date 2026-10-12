@@ -34,6 +34,9 @@ flowchart TD
 验证和完整包构建仅由 GitHub Actions 执行；包含自制 PXLS 的真实原生引擎往返、桌面/手机布局、
 打包后真实 WebView2、关闭清理、安装/卸载验收。`packaging/build-app.py` 是统一冻结配方，
 `packaging/windows-installer.py` 仅删除明确列出的应用文件，禁止递归卸载用户目录。
+Windows SDK 署名由 `apps/asset-studio/tests/notices.py` 对固定官方 NuGet 包、完整许可及五个真实冻结 DLL 做字节核对。
+`packaging/webview2-sdk.json` 固定官方来源和摘要；公共包与授权组合包都必须携带独立 SDK 许可，
+不能用 pywebview 或 Spine 的许可替代。公共 Asset Studio workflow 也运行完整 workspace fmt/clippy/test 门。
 
 ### 应用扩展：图片工坊（Vision Studio）
 
