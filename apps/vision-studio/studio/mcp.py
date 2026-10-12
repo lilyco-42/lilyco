@@ -91,27 +91,29 @@ async def call(binary, tool, arguments, progress):
             raise ValueError(stderr[-1000:] or '引擎没有返回结果')
         return result
     finally:
-        if sys.platform == 'win32':
-            if containment:
-                await containment.stop()
-            elif process.returncode is None:
-                killer = await asyncio.create_subprocess_exec(
-                    'taskkill', '/PID', str(process.pid), '/T', '/F',
-                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-                    creationflags=subprocess.CREATE_NO_WINDOW)
-                await killer.wait()
-        else:
-            import os
-            import signal
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-        await process.wait()
-        if not reader.done():
-            reader.cancel()
-        await asyncio.gather(reader, return_exceptions=True)
-        await profiles.close()
+        try:
+            if sys.platform == 'win32':
+                if containment:
+                    await containment.stop()
+                elif process.returncode is None:
+                    killer = await asyncio.create_subprocess_exec(
+                        'taskkill', '/PID', str(process.pid), '/T', '/F',
+                        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                        creationflags=subprocess.CREATE_NO_WINDOW)
+                    await killer.wait()
+            else:
+                import os
+                import signal
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            await process.wait()
+        finally:
+            if not reader.done():
+                reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
+            await profiles.close()
 
 
 def resolve_tool(tools, requested, arguments):
