@@ -12,7 +12,27 @@ concurrency:
   group: vision-studio-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  locked-dependencies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve changed workspace metadata only, never build with a drifting lock
+        run: |
+          cargo metadata --format-version 1 > /tmp/vision-metadata.json
+          git diff -- Cargo.lock > vision-lock.patch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vision-locked-dependencies-${{ github.sha }}
+          path: |
+            Cargo.lock
+            vision-lock.patch
+          if-no-files-found: error
+      - name: Enforce reviewed lock
+        run: git diff --exit-code -- Cargo.lock
   workspace-contract:
+    needs: locked-dependencies
     runs-on: ubuntu-latest
     timeout-minutes: 100
     steps:
@@ -41,6 +61,7 @@ jobs:
           cargo clippy --locked --workspace --all-targets
           cargo test --locked --workspace
   build:
+    needs: locked-dependencies
     strategy:
       fail-fast: false
       matrix:
