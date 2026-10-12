@@ -13,6 +13,11 @@ try{
     await page.goto('http://127.0.0.1:8043/');
     await page.locator('#original').setInputFiles('tests/original.png');
     await page.locator('#cropStage').waitFor();
+    if(width>=1024){
+      const before=await page.locator('#cropStage').evaluate(e=>e.getBoundingClientRect().height);
+      await page.getByRole('button',{name:'放大原图',exact:true}).click();
+      assert((await page.locator('#cropStage').evaluate(e=>e.getBoundingClientRect().height))>before,'expanded crop should provide more selection space');
+    }
     const drag=await page.locator('#cropStage').evaluate(svg=>{
       const matrix=svg.getScreenCTM();
       const a=new DOMPoint(24.25,20.25).matrixTransform(matrix),b=new DOMPoint(72.25,60.25).matrixTransform(matrix);
@@ -21,6 +26,7 @@ try{
     await page.mouse.move(drag.a.x,drag.a.y);await page.mouse.down();
     await page.mouse.move(drag.b.x,drag.b.y,{steps:5});await page.mouse.up();
     assert.equal(await page.locator('#param-region').inputValue(),'24,20,72,60');
+    if(width>=1024){await page.getByRole('button',{name:'收起原图',exact:true}).click();await page.evaluate(()=>scrollTo(0,0));}
     await page.locator('#render').click();
     await page.locator('#status').filter({hasText:'处理完成'}).waitFor({timeout:30000});
     await page.waitForFunction(()=>document.querySelector('#gallery img')?.naturalWidth===48);
