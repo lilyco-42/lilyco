@@ -3635,13 +3635,18 @@ dependencies = [
 name = "lilyco-graphite"
 version = "0.3.0"
 dependencies = [
+ "futures",
  "glam",
  "graph-craft",
  "graphene-std",
  "graphite-editor",
+ "image",
+ "interpreted-executor",
  "lilyco",
  "mmap-io",
+ "preprocessor",
  "serde_json",
+ "wgpu",
 ]
 
 [[package]]
@@ -3726,6 +3731,15 @@ name = "lilyco-plc"
 version = "0.3.0"
 dependencies = [
  "lilyco",
+ "serde_json",
+]
+
+[[package]]
+name = "lilyco-srt"
+version = "0.3.0"
+dependencies = [
+ "lilyco",
+ "serde",
  "serde_json",
 ]
 

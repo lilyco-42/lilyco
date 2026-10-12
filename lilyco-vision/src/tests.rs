@@ -714,3 +714,20 @@ fn html_screenshot_uses_explicit_private_profile() {
     assert!(!args.iter().any(|a| a.starts_with("--profile-directory")));
     assert_eq!(args.last().unwrap(), "file:///own-page.html");
 }
+
+#[test]
+fn html_screenshot_file_url_normalizes_windows_and_escapes_paths() {
+    use crate::screenshot::screenshot_file_url;
+    assert_eq!(
+        screenshot_file_url(Path::new(r"\\?\C:\Users\owner\page #1.html")),
+        "file:///C:/Users/owner/page%20%231.html"
+    );
+    assert_eq!(
+        screenshot_file_url(Path::new(r"\\?\UNC\host\share\page.html")),
+        "file://host/share/page.html"
+    );
+    assert_eq!(
+        screenshot_file_url(Path::new("/tmp/page?.html")),
+        "file:///tmp/page%3F.html"
+    );
+}

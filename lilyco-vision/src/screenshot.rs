@@ -114,6 +114,35 @@ pub(crate) fn no_browser_error() -> AppError {
 }
 
 /// A screenshot uses a disposable profile, never the user's signed-in browser.
+pub(crate) fn screenshot_file_url(path: &Path) -> String {
+    let raw = path.to_string_lossy().replace('\\', "/");
+    let raw = raw.strip_prefix("//?/").unwrap_or(&raw);
+    let normalized = if let Some(unc) = raw.strip_prefix("UNC/") {
+        format!("//{unc}")
+    } else {
+        raw.to_string()
+    };
+    let prefix = if normalized.starts_with("//") {
+        "file:"
+    } else if normalized.starts_with('/') {
+        "file://"
+    } else {
+        "file:///"
+    };
+    let encoded: String = normalized
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b":/-._~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect();
+    format!("{prefix}{encoded}")
+}
+
+/// Explicit isolated browser process arguments.
 pub(crate) fn screenshot_command(
     browser: &str,
     file_url: &str,
@@ -167,7 +196,7 @@ pub(crate) fn run_html_screenshot(
 
     // 3. 组装 file:// URL（绝对路径 + 正斜杠）
     let abs = std::fs::canonicalize(&app.source)?;
-    let file_url = format!("file:///{}", abs.display().to_string().replace('\\', "/"));
+    let file_url = screenshot_file_url(&abs);
 
     let width = if app.width == 0 { 1280 } else { app.width };
     let height = if app.height == 0 { 800 } else { app.height };
