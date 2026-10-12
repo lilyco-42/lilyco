@@ -32,3 +32,7 @@ Windows 安装 EXE / 便携 ZIP 和 Linux ZIP 只由 GitHub Actions 构建。正
 Windows WebView2 SDK 组件固定为 1.0.3856.49，五个程序集/Loader 与官方 NuGet 包逐字节 SHA 对应；独立 BSD 许可全文放在 `MICROSOFT-WEBVIEW2-LICENSE.txt`，不能只用 pywebview 的许可代替。WebView2 Evergreen Runtime 由用户系统或 Microsoft 安装器提供，程序包没有打包 Edge 浏览器；缺少 Runtime 时仍可用默认浏览器的本机工作台。
 
 开发者的运行、构建、测试均在 `.github/workflows/vision-studio.yml`。不得在本机执行编译、冻结或产品测试。
+
+0.1.1 修补 Windows 截图取消后的临时 profile 清理：先停止当前引擎进程树，再有限等待文件句柄释放。
+只删除本次在输出目录内新建的 profile；不会删除预先存在的 profile 或沿链接删除其他目录。
+持续锁定仍报告失败，不伪装取消成功。该版本需当前 Actions 完整通过后才正式发布。

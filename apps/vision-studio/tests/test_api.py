@@ -182,15 +182,24 @@ class VisionApi(unittest.TestCase):
                         'width': 640, 'height': 480}, lambda p: started.set()))
                     try:
                         await asyncio.wait_for(started.wait(), timeout=20)
-                        await asyncio.sleep(.5)
+                        async def profile_ready():
+                            while not any(p.is_dir() for p in Path(directory).glob('.lvision-profile-*/Default')):
+                                if task.done():
+                                    task.result()
+                                    raise AssertionError('Browser exited before creating its real profile')
+                                await asyncio.sleep(.05)
+                        await asyncio.wait_for(profile_ready(), timeout=15)
                         if task.done():
                             task.result()  # Surface the actual browser startup error.
                         self.assertFalse(task.done(), 'Real long-running engine must still be running')
                         task.cancel()
-                        await asyncio.gather(task, return_exceptions=True)
+                        result = await asyncio.gather(task, return_exceptions=True)
+                        self.assertIsInstance(result[0], asyncio.CancelledError,
+                                              'Cleanup failures must not be swallowed as cancellation')
                         self.assertEqual(len(processes), 1)
                         self.assertIsNotNone(processes[0].returncode)
                         self.assertFalse((Path(directory) / 'output.png').exists())
+                        self.assertEqual(list(Path(directory).glob('.lvision-profile-*')), [])
                     finally:
                         if not task.done():
                             task.cancel()
