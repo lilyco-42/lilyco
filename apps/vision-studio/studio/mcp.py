@@ -4,10 +4,13 @@ import json
 import subprocess
 import sys
 
+from .profile_cleanup import ScreenshotProfiles
+
 MAX_LOG = 8 * 1024 * 1024
 
 
 async def call(binary, tool, arguments, progress):
+    profiles = ScreenshotProfiles(tool, arguments)
     process = await asyncio.create_subprocess_exec(
         str(binary), '--mcp', stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
@@ -33,7 +36,7 @@ async def call(binary, tool, arguments, progress):
         messages = [
             {'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {
                 'protocolVersion': '2024-11-05', 'capabilities': {},
-                'clientInfo': {'name': 'vision-studio', 'version': '0.1.0'}}},
+                'clientInfo': {'name': 'vision-studio', 'version': '0.1.1'}}},
             {'jsonrpc': '2.0', 'method': 'notifications/initialized'},
             {'jsonrpc': '2.0', 'id': 0, 'method': 'tools/list', 'params': {}},
         ]
@@ -88,26 +91,29 @@ async def call(binary, tool, arguments, progress):
             raise ValueError(stderr[-1000:] or '引擎没有返回结果')
         return result
     finally:
-        if sys.platform == 'win32':
-            if containment:
-                await containment.stop()
-            elif process.returncode is None:
-                killer = await asyncio.create_subprocess_exec(
-                    'taskkill', '/PID', str(process.pid), '/T', '/F',
-                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-                    creationflags=subprocess.CREATE_NO_WINDOW)
-                await killer.wait()
-        else:
-            import os
-            import signal
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-        await process.wait()
-        if not reader.done():
-            reader.cancel()
-        await asyncio.gather(reader, return_exceptions=True)
+        try:
+            if sys.platform == 'win32':
+                if containment:
+                    await containment.stop()
+                elif process.returncode is None:
+                    killer = await asyncio.create_subprocess_exec(
+                        'taskkill', '/PID', str(process.pid), '/T', '/F',
+                        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                        creationflags=subprocess.CREATE_NO_WINDOW)
+                    await killer.wait()
+            else:
+                import os
+                import signal
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            await process.wait()
+        finally:
+            if not reader.done():
+                reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
+            await profiles.close()
 
 
 def resolve_tool(tools, requested, arguments):

@@ -37,11 +37,6 @@ class Jobs:
             job['state'] = 'running'
             result = await mcp.call(binary, job['tool'], arguments,
                                     lambda p: job.update(progress=p))
-            # A browser helper can hold its profile until the containment job
-            # closes, after Rust's TempDir destructor has already attempted cleanup.
-            for profile in job['out'].glob('.lvision-profile-*'):
-                if profile.is_dir() and not profile.is_symlink():
-                    shutil.rmtree(profile)
             if not isinstance(result, dict) or result.get('ok') is False:
                 raise ValueError('引擎未完成处理')
             job['result'] = result
@@ -84,7 +79,8 @@ class Jobs:
         if job['state'] in {'queued', 'running'}:
             job['task'].cancel()
             await asyncio.gather(job['task'], return_exceptions=True)
-            job['state'] = 'cancelled'
+            if job['state'] != 'failed':
+                job['state'] = 'cancelled'
             # A queued coroutine may be cancelled before its finally block runs.
             shutil.rmtree(job['out'], ignore_errors=True)
         return self.public(job)
