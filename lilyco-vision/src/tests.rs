@@ -712,7 +712,10 @@ fn html_screenshot_uses_explicit_private_profile() {
     assert!(args.contains(&format!("--user-data-dir={}", profile.path().display())));
     assert!(args.contains(&"--screenshot=output.png".to_string()));
     assert!(!args.iter().any(|a| a.starts_with("--profile-directory")));
-    assert_eq!(args.last().unwrap(), "file:///own-page.html");
+    assert!(args.contains(&"file:///own-page.html".to_string()));
+    assert!(!args.contains(&"--no-sandbox".to_string()));
+    #[cfg(windows)]
+    assert!(args.contains(&"--disable-features=AutoDeElevate".to_string()));
 }
 
 #[test]

@@ -44,8 +44,9 @@ Host / Origin / 按端口随机 HttpOnly Cookie 隔离应用窗口，文件保�
 先从原 MCP tools/list 发现实际工具与参数拼写；Windows 用 `studio/windows_process_job.py` 的 nested Job 包住这次引擎及其后代，关闭前等待 ActiveProcesses=0；Unix 用独立进程组，不按浏览器名称全局杀进程。
 `studio/jobs.py:13` 仅管理 HTTP 任务生命周期和真实导出，不重写 Rust core 的线程/进度执行宿主。
 UI 使用 `ui/src/vision-workspace.tsx` / `use-vision-workspace.ts` / `vision-tools.ts`，原 shadcn 源组件保持只读。
+`ui/src/vision-crop-preview.tsx` 把指针框选映射到原图像素坐标，保留键盘参数输入；图片信息直接显示格式、尺寸与文件大小。
 八工具来自 `lilyco-vision/src/main.rs:44` 注册表；截图 URL `screenshot.rs:117` 归一化 Windows 扩展路径并转义，
-截图命令 `screenshot.rs:146` / `run_html_screenshot:170` 使用临时 profile，
+截图命令 `screenshot.rs:146` / `run_html_screenshot:175` 使用临时 profile，
 不会复用个人浏览器 Cookie。背景提取是确定性边界洪水填充，不宣传为 AI 抠图；HTML 需已安装 Chrome / Edge。
 截图 profile 位于输出所在目录，宿主在取消或失败后移除输出目录；硬杀进程时仍能清理遗留 profile。
 `.github/workflows/vision-studio.yml` 是唯一构建/测试入口：原八工具的真实像素、透明度、SVG 和 HTML 截图、

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 if(process.env.GITHUB_ACTIONS!=='true') throw Error('Browser acceptance only in Actions');
 await fs.mkdir('evidence',{recursive:true});
-const browser=await chromium.launch({headless:true,chromiumSandbox:true});
+const browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_PATH,chromiumSandbox:true});
 const layouts=[];
 try{
   for(const width of [1440,768,390,320]){
@@ -11,7 +11,15 @@ try{
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
     await page.goto('http://127.0.0.1:8043/');
     await page.locator('#original').setInputFiles('tests/original.png');
-    await page.locator('#param-region').fill('24,20,72,60');
+    await page.locator('#cropStage').waitFor();
+    const drag=await page.locator('#cropStage').evaluate(svg=>{
+      const matrix=svg.getScreenCTM();
+      const a=new DOMPoint(24.25,20.25).matrixTransform(matrix),b=new DOMPoint(72.25,60.25).matrixTransform(matrix);
+      return {a:{x:a.x,y:a.y},b:{x:b.x,y:b.y}};
+    });
+    await page.mouse.move(drag.a.x,drag.a.y);await page.mouse.down();
+    await page.mouse.move(drag.b.x,drag.b.y,{steps:5});await page.mouse.up();
+    assert.equal(await page.locator('#param-region').inputValue(),'24,20,72,60');
     await page.locator('#render').click();
     await page.locator('#status').filter({hasText:'处理完成'}).waitFor({timeout:30000});
     await page.waitForFunction(()=>document.querySelector('#gallery img')?.naturalWidth===48);
@@ -44,7 +52,7 @@ try{
     await page.screenshot({path:`evidence/vision-dark-${width}.png`,fullPage:true});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     assert.deepEqual(errors,[]);
-    layouts.push({width,real_crop_pixels:true,colors:true,real_svg:true,comparison:true,html_screenshot:true,clear:true,pageErrors:errors});
+    layouts.push({width,pointer_crop:true,real_crop_pixels:true,colors:true,real_svg:true,comparison:true,html_screenshot:true,clear:true,pageErrors:errors});
     await page.close();
   }
   await fs.writeFile('evidence/browser.json',JSON.stringify({commit:process.env.GITHUB_SHA,layouts},null,2));

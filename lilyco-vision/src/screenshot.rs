@@ -164,6 +164,11 @@ pub(crate) fn screenshot_command(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    // Match Chromium automation's process-ownership flags: an elevated Windows
+    // host otherwise hands the browser to Explorer, outside its owning Job.
+    #[cfg(windows)]
+    cmd.arg("--disable-features=AutoDeElevate")
+        .arg("--edge-skip-compat-layer-relaunch");
     cmd
 }
 /// 业务逻辑：校验扩展名 → 找浏览器 → 无头截图（30s 超时 kill）→ 校验产物
