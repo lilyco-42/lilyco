@@ -52,6 +52,8 @@ class VisionApi(unittest.TestCase):
             if job['state'] not in {'queued', 'running'}:
                 break
             time.sleep(.1)
+        Path('evidence').mkdir(exist_ok=True)
+        Path(f'evidence/tool-{tool}.json').write_text(json.dumps(job), encoding='utf-8')
         self.assertEqual(job['state'], 'done' if success else 'failed', job)
         return job
 
@@ -77,7 +79,12 @@ class VisionApi(unittest.TestCase):
         results['resize'] = resized
         colors = self.run_tool(session, 'dominant-colors', {'top': 5, 'tolerance': 8})
         self.assertIn('#FF0000', [x['hex'].upper() for x in colors['result']['colors']])
-        self.assertIn('#FFFFFF', [x['hex'].upper() for x in colors['result']['colors']])
+        # Original engine downsamples with Lanczos before clustering. A border
+        # cluster can be near-white instead of exactly #FFFFFF; tolerance=8.
+        white = colors['result']['colors'][0]
+        channels = [int(white['hex'][i:i + 2], 16) for i in (1, 3, 5)]
+        self.assertTrue(all(abs(255 - channel) <= 8 for channel in channels), white)
+        self.assertGreater(white['percent'], 60, white)
         results['dominant-colors'] = colors
         difference = self.run_tool(session, 'pixel-diff', {'grid': 4, 'top': 3})
         self.assertGreater(difference['result']['mean_diff'], 0)
@@ -176,6 +183,8 @@ class VisionApi(unittest.TestCase):
                     try:
                         await asyncio.wait_for(started.wait(), timeout=20)
                         await asyncio.sleep(.5)
+                        if task.done():
+                            task.result()  # Surface the actual browser startup error.
                         self.assertFalse(task.done(), 'Real long-running engine must still be running')
                         task.cancel()
                         await asyncio.gather(task, return_exceptions=True)
