@@ -212,7 +212,9 @@ pub(crate) fn run_html_screenshot(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let profile = tempfile::tempdir_in(profile_parent)?;
+    let profile = tempfile::Builder::new()
+        .prefix(".lvision-profile-")
+        .tempdir_in(profile_parent)?;
     let mut cmd = screenshot_command(&browser, &file_url, &out, width, height, profile.path());
     let mut child = cmd
         .spawn()

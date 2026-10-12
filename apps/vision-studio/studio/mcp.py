@@ -25,7 +25,11 @@ async def call(binary, tool, arguments, progress):
         return tail.decode('utf-8', errors='replace')
 
     reader = asyncio.create_task(stderr_read())
+    containment = None
     try:
+        if sys.platform == 'win32':
+            from .windows_process_job import WindowsProcessJob
+            containment = WindowsProcessJob(process.pid)
         messages = [
             {'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {
                 'protocolVersion': '2024-11-05', 'capabilities': {},
@@ -84,21 +88,23 @@ async def call(binary, tool, arguments, progress):
             raise ValueError(stderr[-1000:] or '引擎没有返回结果')
         return result
     finally:
-        if process.returncode is None:
-            if sys.platform == 'win32':
+        if sys.platform == 'win32':
+            if containment:
+                await containment.stop()
+            elif process.returncode is None:
                 killer = await asyncio.create_subprocess_exec(
                     'taskkill', '/PID', str(process.pid), '/T', '/F',
                     stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
                     creationflags=subprocess.CREATE_NO_WINDOW)
                 await killer.wait()
-            else:
-                import os
-                import signal
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            await process.wait()
+        else:
+            import os
+            import signal
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        await process.wait()
         if not reader.done():
             reader.cancel()
         await asyncio.gather(reader, return_exceptions=True)

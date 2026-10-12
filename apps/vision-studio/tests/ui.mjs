@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 if(process.env.GITHUB_ACTIONS!=='true') throw Error('Browser acceptance only in Actions');
 await fs.mkdir('evidence',{recursive:true});
-const browser=await chromium.launch({headless:true});
+const browser=await chromium.launch({headless:true,chromiumSandbox:true});
 const layouts=[];
 try{
   for(const width of [1440,768,390,320]){

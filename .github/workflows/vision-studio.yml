@@ -113,6 +113,20 @@ jobs:
           cp "../../target/release/lvision${EXT}" "bin/lvision${EXT}"
           "bin/lvision${EXT}" --list > evidence/original-registry.json
           node --input-type=module -e 'import {chromium} from "playwright"; import fs from "node:fs"; fs.appendFileSync(process.env.GITHUB_ENV,"CHROME_PATH="+chromium.executablePath()+"\n")'
+      - name: Allow the exact CI Chromium binary to use its namespace sandbox
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if command -v apparmor_parser >/dev/null && [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo tee /etc/apparmor.d/vision-ci-chrome >/dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile vision-ci-chrome "$CHROME_PATH" flags=(unconfined) {
+            userns,
+          }
+          EOF
+            sudo apparmor_parser -r /etc/apparmor.d/vision-ci-chrome
+          fi
       - name: Actual eight MCP tools and HTTP boundaries
         working-directory: apps/vision-studio
         run: |
