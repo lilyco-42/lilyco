@@ -6,8 +6,9 @@ await fs.mkdir('evidence',{recursive:true});
 const browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_PATH,chromiumSandbox:true});
 const layouts=[];
 try{
-  for(const width of [1440,768,390,320]){
-    const page=await browser.newPage({viewport:{width,height:980},deviceScaleFactor:1});
+  for(const width of [1440,1028,768,390,320]){
+    const height=width===1028?749:980;
+    const page=await browser.newPage({viewport:{width,height},deviceScaleFactor:1});
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
     await page.goto('http://127.0.0.1:8043/');
     await page.locator('#original').setInputFiles('tests/original.png');
@@ -24,6 +25,7 @@ try{
     await page.locator('#status').filter({hasText:'处理完成'}).waitFor({timeout:30000});
     await page.waitForFunction(()=>document.querySelector('#gallery img')?.naturalWidth===48);
     assert.equal(await page.locator('#gallery img').evaluate(e=>e.naturalHeight),40);
+    if(width===1028) assert(await page.locator('#gallery img').evaluate(e=>e.getBoundingClientRect().bottom<=innerHeight),'native CSS viewport should show the whole cropped preview');
     const zip=await page.evaluate(async()=>{const r=await fetch(document.querySelector('#downloadZip').href);const b=new Uint8Array(await r.arrayBuffer());return{status:r.status,magic:Array.from(b.slice(0,2))};});
     assert.equal(zip.status,200);assert.deepEqual(zip.magic,[80,75]);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);

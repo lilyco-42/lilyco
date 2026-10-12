@@ -32,7 +32,7 @@ export function VisionCropPreview({src, region, disabled, onRegion}: Props) {
   }
   return <div className="studio-checker rounded-lg border p-3">
     <img id="originalPreview" className="sr-only" src={src} alt="" onLoad={e => setSize([e.currentTarget.naturalWidth, e.currentTarget.naturalHeight])}/>
-    {size && <svg id="cropStage" role="img" aria-label="拖动选择裁剪区域，也可填写像素坐标" width={size[0]} height={size[1]} viewBox={`0 0 ${size[0]} ${size[1]}`} className="max-h-64 h-auto w-full touch-none select-none cursor-crosshair" onPointerDown={begin} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
+    {size && <svg id="cropStage" role="img" aria-label="拖动选择裁剪区域，也可填写像素坐标" width={size[0]} height={size[1]} viewBox={`0 0 ${size[0]} ${size[1]}`} className="max-h-40 xl:max-h-64 h-auto w-full touch-none select-none cursor-crosshair" onPointerDown={begin} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
       <image href={src} width={size[0]} height={size[1]}/>
       {rectangle && <rect x={Math.min(rectangle[0], rectangle[2])} y={Math.min(rectangle[1], rectangle[3])} width={Math.abs(rectangle[2] - rectangle[0])} height={Math.abs(rectangle[3] - rectangle[1])} className="fill-primary/15 stroke-primary" strokeWidth="2" vectorEffect="non-scaling-stroke"/>}
     </svg>}

@@ -46,8 +46,9 @@ try {
   assert.equal(exported.status,200,JSON.stringify(exported));
   assert(exported.zip && exported.size>100);
   await page.evaluate(()=>scrollTo(0,0));
-  const layout=await page.evaluate(()=>({width:innerWidth,height:innerHeight,previewTop:document.querySelector('#gallery').getBoundingClientRect().top}));
+  const layout=await page.evaluate(()=>({width:innerWidth,height:innerHeight,previewTop:document.querySelector('#gallery').getBoundingClientRect().top,previewBottom:document.querySelector('#gallery img').getBoundingClientRect().bottom}));
   assert(layout.previewTop<layout.height,'native desktop preview must be visible without scrolling: '+JSON.stringify(layout));
+  assert(layout.previewBottom<=layout.height,'native cropped image must fit without scrolling: '+JSON.stringify(layout));
   await page.screenshot({path:'evidence/windows-native.png',fullPage:true});
   const nativeTitle=await page.title();
   await fs.access(receipt.workspace_root);
