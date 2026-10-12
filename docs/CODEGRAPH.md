@@ -41,11 +41,12 @@ flowchart TD
 Host / Origin / 按端口随机 HttpOnly Cookie 隔离应用窗口，文件保存在临时工作区；`studio/paths.py:13` 限制下载路径。
 `studio/adapters.py:44` 固定工具与文件路径、像素资源上限，禁止任意命令/输出路径；参数领域语义仍由原 Rust `CommandSchema::validate_args` 校验。
 `studio/mcp.py:10` 通过标准 JSONL stdio 调用已编译 `lvision --mcp`，接收进度、120 秒超时、取消清理子进程树。
-`studio/jobs.py:12` 仅管理 HTTP 任务生命周期和真实导出，不重写 Rust core 的线程/进度执行宿主。
+`studio/jobs.py:13` 仅管理 HTTP 任务生命周期和真实导出，不重写 Rust core 的线程/进度执行宿主。
 UI 使用 `ui/src/vision-workspace.tsx` / `use-vision-workspace.ts` / `vision-tools.ts`，原 shadcn 源组件保持只读。
 八工具来自 `lilyco-vision/src/main.rs:44` 注册表；截图 URL `screenshot.rs:117` 归一化 Windows 扩展路径并转义，
 截图命令 `screenshot.rs:146` / `run_html_screenshot:170` 使用临时 profile，
 不会复用个人浏览器 Cookie。背景提取是确定性边界洪水填充，不宣传为 AI 抠图；HTML 需已安装 Chrome / Edge。
+截图 profile 位于输出所在目录，宿主在取消或失败后移除输出目录；硬杀进程时仍能清理遗留 profile。
 `.github/workflows/vision-studio.yml` 是唯一构建/测试入口：原八工具的真实像素、透明度、SVG 和 HTML 截图、
 HTTP 边界、320–1440 响应式、冻结程序、原生 WebView2、正常关闭、安装与安全卸载。
 包携带完整依赖许可、锁文件、原始输出和逐文件 SHA；当前分支未过门前不称为已发布。

@@ -206,7 +206,13 @@ pub(crate) fn run_html_screenshot(
         .map(PathBuf::from)
         .unwrap_or_else(|| default_output(&app.source, ".png"));
 
-    let profile = tempfile::tempdir()?;
+    // Keep the isolated profile next to the owned output: a host cancelling
+    // the process can clean it even when SIGKILL prevents Rust destructors.
+    let profile_parent = out
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let profile = tempfile::tempdir_in(profile_parent)?;
     let mut cmd = screenshot_command(&browser, &file_url, &out, width, height, profile.path());
     let mut child = cmd
         .spawn()

@@ -145,7 +145,7 @@ class VisionApi(unittest.TestCase):
                 job = jobs.start('cancel-job', 'cancel-ci', root, 'crop', {'region': '0,0,64,64'})
                 await jobs.cancel(job['id'])
                 self.assertEqual(jobs.items[job['id']]['state'], 'cancelled')
-                self.assertFalse((root / 'output' / 'cancel-job' / 'export.zip').exists())
+                self.assertFalse((root / 'output' / 'cancel-job').exists())
             finally:
                 await jobs.close()
                 workspaces.close()

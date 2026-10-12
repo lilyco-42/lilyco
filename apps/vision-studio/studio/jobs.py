@@ -1,6 +1,7 @@
 """Task lifecycle around the original MCP transport and its real output files."""
 import asyncio
 import json
+import shutil
 import zipfile
 
 from PIL import Image
@@ -69,6 +70,9 @@ class Jobs:
             job.update(state='failed', error='处理超过 2 分钟，请缩小文件后重试')
         except Exception as error:
             job.update(state='failed', error=str(error)[:1000])
+        finally:
+            if job['state'] in {'failed', 'cancelled'}:
+                shutil.rmtree(job['out'], ignore_errors=True)
 
     async def cancel(self, identifier):
         job = self.items[identifier]
@@ -76,6 +80,8 @@ class Jobs:
             job['task'].cancel()
             await asyncio.gather(job['task'], return_exceptions=True)
             job['state'] = 'cancelled'
+            # A queued coroutine may be cancelled before its finally block runs.
+            shutil.rmtree(job['out'], ignore_errors=True)
         return self.public(job)
 
     async def delete_session(self, session):
