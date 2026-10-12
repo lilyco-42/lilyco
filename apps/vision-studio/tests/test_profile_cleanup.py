@@ -17,7 +17,7 @@ class ProfileCleanupTests(unittest.TestCase):
     def test_transient_lock_retries_only_new_owned_profile(self):
         async def run():
             with tempfile.TemporaryDirectory() as directory:
-                parent = Path(directory)
+                parent = Path(directory).resolve()
                 prior = parent / '.lvision-profile-existing'
                 prior.mkdir()
                 (prior / 'keep.txt').write_text('pre-existing')
@@ -45,7 +45,7 @@ class ProfileCleanupTests(unittest.TestCase):
     def test_persistent_lock_is_reported(self):
         async def run():
             with tempfile.TemporaryDirectory() as directory:
-                parent = Path(directory)
+                parent = Path(directory).resolve()
                 owner = ScreenshotProfiles('HtmlScreenshot', {'out': str(parent / 'out.png')})
                 fresh = parent / '.lvision-profile-new'
                 fresh.mkdir()
@@ -68,7 +68,7 @@ class ProfileCleanupTests(unittest.TestCase):
                 finally:
                     raise ValueError('清理未完成')
             with tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
+                root = Path(directory).resolve()
                 (root / 'output').mkdir()
                 jobs = Jobs()
                 with (patch('studio.jobs.adapters.executable', return_value=Path('not-executed')),
