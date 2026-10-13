@@ -36,12 +36,18 @@ class LocalStudioTests(unittest.TestCase):
                                    'action': action, 'entry': 'demo.pxls', 'motion': 'wave', **options})
         self.assertEqual(response.status_code, 200, response.text)
         identifier = response.json()['id']
-        for _ in range(100):
-            job = self.client.get('/api/jobs/' + identifier).json()
+        # 24-frame Spine rendering can exceed five seconds on shared Windows CI.
+        # A finite wall-clock budget still detects hangs; all result assertions stay.
+        deadline = time.monotonic() + 30
+        job = None
+        while time.monotonic() < deadline:
+            poll = self.client.get('/api/jobs/' + identifier)
+            self.assertEqual(poll.status_code, 200, poll.text)
+            job = poll.json()
             if job['state'] in {'done', 'failed', 'cancelled'}:
                 return job
             time.sleep(.05)
-        self.fail('real engine did not terminate')
+        self.fail(f'real engine did not terminate within 30 seconds: {job}')
 
     def test_real_engine_inspect_render_export_and_delete(self):
         self.assertTrue(os.environ.get('LAIN42_LAIC'), 'CI must supply the real built engine')
