@@ -1,10 +1,10 @@
 name: Vision Studio Desktop
 on:
   pull_request:
-    paths: ['apps/vision-studio/**', 'lilyco-vision/**', 'Cargo.lock', '.gitattributes', '.github/workflows/vision-studio.yml']
+    paths: ['apps/vision-studio/**', 'apps/desktop-common/**', 'lilyco-vision/**', 'Cargo.lock', '.gitattributes', '.github/workflows/vision-studio.yml']
   push:
     branches: [main]
-    paths: ['apps/vision-studio/**', 'lilyco-vision/**', 'Cargo.lock', '.gitattributes', '.github/workflows/vision-studio.yml']
+    paths: ['apps/vision-studio/**', 'apps/desktop-common/**', 'lilyco-vision/**', 'Cargo.lock', '.gitattributes', '.github/workflows/vision-studio.yml']
   workflow_dispatch:
 permissions:
   contents: read

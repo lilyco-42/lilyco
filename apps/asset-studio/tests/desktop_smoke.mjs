@@ -25,6 +25,11 @@ try {
     try {receipt=JSON.parse(await fs.readFile(receiptFile,'utf8')); browser=await chromium.connectOverCDP(`http://127.0.0.1:${port}`); break;} catch {await new Promise(r=>setTimeout(r,500));}
   }
   assert(browser && receipt,'native WebView2 did not expose CI debugging endpoint: '+output);
+  for(let i=0;i<100;i++) {
+    try {receipt=JSON.parse(await fs.readFile(receiptFile,'utf8'));if(receipt.native_icon_applied===true)break;} catch {}
+    await new Promise(r=>setTimeout(r,100));
+  }
+  assert.equal(receipt.native_icon_applied,true,'actual native window must use the packaged Lyco icon');
   const page=browser.contexts()[0].pages()[0];
   assert(page,'actual native page missing');
   await page.waitForURL(receipt.url);
@@ -60,7 +65,7 @@ try {
   assert.equal(child.exitCode,0,'normal window close must exit cleanly: '+output);
   await assert.rejects(fs.access(receipt.workspace_root),'temporary workspace must be removed on window close');
   await assert.rejects(fetch(receipt.url),'loopback service must stop on window close');
-  await fs.writeFile('evidence/windows-native.json',JSON.stringify({commit:process.env.APP_COMMIT||process.env.GITHUB_SHA,native_webview2:true,title:nativeTitle,layout,real_aic_render:true,real_export_zip:true,normal_close:true,workspace_removed:true,port_closed:true},null,2));
+  await fs.writeFile('evidence/windows-native.json',JSON.stringify({commit:process.env.APP_COMMIT||process.env.GITHUB_SHA,native_webview2:true,native_icon_applied:true,title:nativeTitle,layout,real_aic_render:true,real_export_zip:true,normal_close:true,workspace_removed:true,port_closed:true},null,2));
 } finally {
   if(child.exitCode===null) child.kill();
   if(browser) await browser.close().catch(()=>{});

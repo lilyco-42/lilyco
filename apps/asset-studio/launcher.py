@@ -67,6 +67,18 @@ def main():
         window = webview.create_window('Lain42 素材工坊', url, width=1280, height=900,
                                       min_size=(800, 600), text_select=True,
                                       background_color='#171719')
+        def apply_window_icon():
+            from System.Drawing import Icon
+            icon_file = Path(__file__).parent / 'resources/app.ico'
+            window._lain42_icon = Icon(str(icon_file))
+            window.native.Icon = window._lain42_icon
+            window.native.ShowIcon = True
+            if native_smoke:
+                startup_file = Path(os.environ['LAIN42_DESKTOP_RECEIPT'])
+                startup = json.loads(startup_file.read_text(encoding='utf-8'))
+                startup['native_icon_applied'] = window.native.Icon is not None
+                startup_file.write_text(json.dumps(startup), encoding='utf-8')
+        window.events.shown += apply_window_icon
         window.events.closed += lambda: setattr(server, 'should_exit', True)
         if not ci:
             import ctypes

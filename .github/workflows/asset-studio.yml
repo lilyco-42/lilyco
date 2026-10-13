@@ -1,10 +1,10 @@
 name: Asset Studio
 on:
   pull_request:
-    paths: ['apps/asset-studio/**', 'lilyco-aic/**', '.github/workflows/asset-studio.yml']
+    paths: ['apps/asset-studio/**', 'apps/desktop-common/**', 'lilyco-aic/**', '.github/workflows/asset-studio.yml']
   push:
     branches: [main]
-    paths: ['apps/asset-studio/**', 'lilyco-aic/**', '.github/workflows/asset-studio.yml']
+    paths: ['apps/asset-studio/**', 'apps/desktop-common/**', 'lilyco-aic/**', '.github/workflows/asset-studio.yml']
   workflow_dispatch:
 permissions:
   contents: read
