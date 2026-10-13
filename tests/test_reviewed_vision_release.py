@@ -4,6 +4,8 @@ import io
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
+import urllib.error
 import zipfile
 
 spec = importlib.util.spec_from_file_location('reviewed_release', Path(__file__).parents[1] / 'scripts/reviewed_vision_release.py')
@@ -13,6 +15,47 @@ COMMIT = 'a' * 40
 
 
 class ReleasePolicyTests(unittest.TestCase):
+    def test_existing_draft_uses_authenticated_list_and_stable_id(self):
+        tag = 'own-test-tag'
+        asset = {'name': 'own.txt', 'size': 4, 'digest': 'sha256:' + module.sha(b'own\n')}
+        draft = {'id': 42, 'tag_name': tag, 'draft': True, 'target_commitish': COMMIT, 'assets': [asset]}
+        seen = []
+
+        def fake_github(path):
+            seen.append(path)
+            if path == 'releases/tags/' + tag:
+                raise urllib.error.HTTPError('https://api.github.com/test', 404, 'Not Found', {}, None)
+            if path == 'releases?per_page=100&page=1':
+                return [draft]
+            if path == 'releases/42':
+                return draft
+            self.fail('Unexpected request ' + path)
+
+        with patch.object(module, 'github', side_effect=fake_github), patch.object(module, 'tag_commit', side_effect=[None, COMMIT]), \
+                patch.object(module.subprocess, 'run') as execute:
+            module.publish({'tag': tag, 'source_commit': COMMIT, 'assets': [asset]}, Path('unused-test-path'))
+        self.assertEqual([(['gh', 'release', 'edit', tag, '-R', module.REPO, '--draft=false', '--latest=false'],)],
+                         [call.args for call in execute.call_args_list])
+        self.assertIn('releases/42', seen)
+
+    def test_draft_lookup_is_paginated_and_duplicates_are_rejected(self):
+        missing = urllib.error.HTTPError('https://api.github.com/test', 404, 'Not Found', {}, None)
+        unrelated = [{'tag_name': 'other-' + str(i)} for i in range(100)]
+        intended = {'id': 7, 'tag_name': 'wanted', 'draft': True}
+        with patch.object(module, 'github', side_effect=[missing, unrelated, [intended]]):
+            self.assertEqual(intended, module.release_by_tag('wanted'))
+        with patch.object(module, 'github', side_effect=[missing, [intended, {**intended, 'id': 8}]]):
+            with self.assertRaises(ValueError):
+                module.release_by_tag('wanted')
+
+    def test_wrong_draft_target_cannot_upload_or_publish(self):
+        draft = {'id': 42, 'draft': True, 'target_commitish': 'b' * 40, 'assets': []}
+        with patch.object(module, 'release_by_tag', return_value=draft), patch.object(module, 'tag_commit', return_value=None), \
+                patch.object(module, 'github', return_value=draft), patch.object(module.subprocess, 'run') as execute:
+            with self.assertRaises(ValueError):
+                module.publish({'tag': 'wanted', 'source_commit': COMMIT, 'assets': []}, Path('unused-test-path'))
+            execute.assert_not_called()
+
     def test_failed_or_candidate_run_cannot_be_used(self):
         valid = {'head_sha': COMMIT, 'head_branch': 'main', 'event': 'push', 'name': 'Vision Studio Desktop',
                  'status': 'completed', 'conclusion': 'success', 'head_repository': {'full_name': module.REPO}}

@@ -212,14 +212,29 @@ def tag_commit(tag):
     return item['sha']
 
 
-def publish(review, destination):
-    tag, commit = review['tag'], review['source_commit']
+def release_by_tag(tag):
+    """The public tag endpoint omits drafts; authenticated release lists include them."""
     try:
-        release = github('releases/tags/' + tag)
+        return github('releases/tags/' + tag)
     except urllib.error.HTTPError as error:
         if error.code != 404:
             raise
-        release = None
+    matches = []
+    page = 1
+    while True:
+        releases = github('releases?per_page=100&page=' + str(page))
+        matches.extend(item for item in releases if item['tag_name'] == tag)
+        if len(releases) < 100:
+            break
+        page += 1
+    if len(matches) > 1:
+        raise ValueError('Ambiguous release tag; never modify an arbitrary draft')
+    return matches[0] if matches else None
+
+
+def publish(review, destination):
+    tag, commit = review['tag'], review['source_commit']
+    release = release_by_tag(tag)
     if release and not release['draft']:
         if tag_commit(tag) != commit:
             raise ValueError('Published tag differs from the reviewed source')
@@ -236,20 +251,24 @@ def publish(review, destination):
             '\n\n源码：' + commit + '\n正式构建：https://github.com/' + REPO + '/actions/runs/' + str(review['source_run']) + '\n', encoding='utf-8')
         subprocess.run(['gh', 'release', 'create', tag, '-R', REPO, '--target', commit, '--draft',
                         '--title', 'Lain42 图片工坊 0.1.1', '--notes-file', str(body)], check=True)
+        release = release_by_tag(tag)
+    if release is None or not release['draft']:
+        raise ValueError('Expected the one intended draft before uploading')
+    release_path = 'releases/' + str(release['id'])
     existing_tag = tag_commit(tag)
     if existing_tag is not None and existing_tag != commit:
         raise ValueError('Existing tag differs; never move someone else\'s tag')
-    if github('releases/tags/' + tag)['target_commitish'] != commit:
+    if github(release_path)['target_commitish'] != commit:
         raise ValueError('Draft release target differs')
     for asset in review['assets']:
-        existing = github('releases/tags/' + tag)['assets']
+        existing = github(release_path)['assets']
         found = next((a for a in existing if a['name'] == asset['name']), None)
         if found:
             if found['size'] != asset['size'] or found['digest'] != asset['digest']:
                 raise ValueError('Draft asset differs; do not clobber it')
         else:
             subprocess.run(['gh', 'release', 'upload', tag, str(destination / asset['name']), '-R', REPO], check=True)
-    actual = github('releases/tags/' + tag)
+    actual = github(release_path)
     if sorted([{'name': a['name'], 'size': a['size'], 'digest': a['digest']} for a in actual['assets']],
               key=lambda item: item['name']) != review['assets']:
         raise ValueError('All six GitHub assets must match before publication')

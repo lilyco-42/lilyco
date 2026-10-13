@@ -48,6 +48,8 @@ Windows SDK 署名由 `apps/asset-studio/tests/notices.py` 对固定官方 NuGet
 官方 SDK 五 DLL／完整许可、八个原工具、冻结／原生／安装卸载和各尺寸真实交互证据。
 PR 与 push 仅审查，不发布；显式 main dispatch 且发布器主线与完整 workspace 门通过才创建六资产 draft，
 GitHub 资产摘要与大小全部匹配后公开，已公开的不同文件永不覆盖。不通过本机下载／编译规避门禁。
+未公开 draft 通过认证后的分页列表定位唯一 tag，再按固定 release ID 核验目标与资产；
+不依赖仅查询已公开发行的 tag 端点，不在失败后重复创建同名草稿。
 
 `apps/vision-studio/launcher.py:17` 提供本机 WebView2 / 浏览器入口；`studio/app.py:26` 是 loopback HTTP 组合根，
 Host / Origin / 按端口随机 HttpOnly Cookie 隔离应用窗口，文件保存在临时工作区；`studio/paths.py:13` 限制下载路径。
