@@ -252,4 +252,4 @@ apps/desktop-common/desktop_icons.py:11 prepare_icon：仅在 Actions 从固定�
 
 原生窗口用 pywebview.start(icon=...) 的官方路径；启动回调 record_window_icon 将实际 WinForms Icon 保存为原始 ICO 字节并与包内 ICO 比对，验收必须收到 native_icon_applied=true。没有依赖跨线程写 UI 的 shown 回调。
 
-素材工坊真实引擎测试 pps/asset-studio/tests/test_studio.py:35 的 un_job 用 monotonic 30秒有界轮询并检查HTTP200；shared Windows runner 的24帧512×512 Spine渲染可能超过旧5秒。原始帧差异、GIF透明像素、导出与失败状态断言均保留；生产jobs的120秒限时和取消行为不变。
+素材工坊真实引擎测试 `apps/asset-studio/tests/test_studio.py:35` 的 `run_job` 用 monotonic 30秒有界轮询并检查HTTP200；shared Windows runner 的24帧512×512 Spine渲染可能超过旧5秒。原始帧差异、GIF透明像素、导出与失败状态断言均保留；生产jobs的120秒限时和取消行为不变。
