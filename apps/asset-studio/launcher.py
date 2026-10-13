@@ -75,18 +75,29 @@ def main():
             from System.IO import MemoryStream
             startup_file = Path(os.environ['LAIN42_DESKTOP_RECEIPT'])
             startup = json.loads(startup_file.read_text(encoding='utf-8'))
-            try:
-                stream = MemoryStream()
+            expected = icon_file.read_bytes()
+            startup['native_icon_applied'] = False
+            # pywebview starts func's thread before constructing the native
+            # Form. Read back the actual icon until construction has completed.
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
                 try:
-                    window.native.Icon.Save(stream)
-                    actual = bytes(stream.ToArray())
-                finally:
-                    stream.Dispose()
-                startup['native_icon_applied'] = actual == icon_file.read_bytes()
-                startup['native_icon_sha256'] = hashlib.sha256(actual).hexdigest()
-            except Exception as error:
-                startup['native_icon_applied'] = False
-                startup['native_icon_error'] = type(error).__name__
+                    if window.native is None or window.native.Icon is None:
+                        time.sleep(0.05)
+                        continue
+                    stream = MemoryStream()
+                    try:
+                        window.native.Icon.Save(stream)
+                        actual = bytes(stream.ToArray())
+                    finally:
+                        stream.Dispose()
+                    startup['native_icon_sha256'] = hashlib.sha256(actual).hexdigest()
+                    if actual == expected:
+                        startup['native_icon_applied'] = True
+                        break
+                except Exception as error:
+                    startup['native_icon_error'] = type(error).__name__
+                time.sleep(0.05)
             startup_file.write_text(json.dumps(startup), encoding='utf-8')
 
         window.events.closed += lambda: setattr(server, 'should_exit', True)

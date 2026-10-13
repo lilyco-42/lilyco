@@ -25,7 +25,7 @@ try {
     try {receipt=JSON.parse(await fs.readFile(receiptFile,'utf8')); browser=await chromium.connectOverCDP(`http://127.0.0.1:${port}`); break;} catch {await new Promise(r=>setTimeout(r,500));}
   }
   assert(browser && receipt,'native WebView2 did not expose CI debugging endpoint: '+output);
-  for(let i=0;i<100;i++) {
+  for(let i=0;i<200;i++) {
     try {receipt=JSON.parse(await fs.readFile(receiptFile,'utf8'));if(receipt.native_icon_applied===true)break;} catch {}
     await new Promise(r=>setTimeout(r,100));
   }
