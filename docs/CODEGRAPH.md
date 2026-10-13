@@ -42,6 +42,13 @@ Windows SDK 署名由 `apps/asset-studio/tests/notices.py` 对固定官方 NuGet
 
 ### 应用扩展：图片工坊（Vision Studio）
 
+已构建包的独立字节审查与发行由 `scripts/reviewed_vision_release.py:103`（`inspect`）和
+`.github/workflows/reviewed-vision-release.yml` 执行。
+只接受已成功的正式 main 产品 workflow；核对全部 source gates、外层 artifact 摘要、ZIP 全文件清单与摘要、
+官方 SDK 五 DLL／完整许可、八个原工具、冻结／原生／安装卸载和各尺寸真实交互证据。
+PR 与 push 仅审查，不发布；显式 main dispatch 且发布器主线与完整 workspace 门通过才创建六资产 draft，
+GitHub 资产摘要与大小全部匹配后公开，已公开的不同文件永不覆盖。不通过本机下载／编译规避门禁。
+
 `apps/vision-studio/launcher.py:17` 提供本机 WebView2 / 浏览器入口；`studio/app.py:26` 是 loopback HTTP 组合根，
 Host / Origin / 按端口随机 HttpOnly Cookie 隔离应用窗口，文件保存在临时工作区；`studio/paths.py:13` 限制下载路径。
 `studio/adapters.py:44` 固定工具与文件路径、像素资源上限，禁止任意命令/输出路径；参数领域语义仍由原 Rust `CommandSchema::validate_args` 校验。
