@@ -1,0 +1,109 @@
+name: Reviewed Vision Release
+on:
+  pull_request:
+    paths: ['scripts/reviewed_vision_release.py', 'tests/test_reviewed_vision_release.py', '.github/workflows/reviewed-vision-release.yml']
+  push:
+    branches: [main]
+    paths: ['scripts/reviewed_vision_release.py', 'tests/test_reviewed_vision_release.py', '.github/workflows/reviewed-vision-release.yml']
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Successful formal product source SHA
+        default: a308ad03671a2b8d415b85ff2d7e2e7bfc42796b
+        required: true
+        type: string
+      source_run:
+        description: Successful formal Vision Studio Desktop run ID
+        default: '38339785304'
+        required: true
+        type: string
+      publish:
+        description: Publish after byte review and complete main CI gates
+        default: false
+        type: boolean
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: reviewed-vision-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_COMMIT: ${{ inputs.commit || 'a308ad03671a2b8d415b85ff2d7e2e7bfc42796b' }}
+      SOURCE_RUN: ${{ inputs.source_run || '38339785304' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Rejection-policy regressions
+        run: python -m unittest discover -s tests -p test_reviewed_vision_release.py -v
+      - name: Read exact existing official archives and installed behavior receipts, never rebuild
+        run: python scripts/reviewed_vision_release.py --commit "$SOURCE_COMMIT" --run "$SOURCE_RUN"
+      - name: Keep the actual byte review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-vision-release-${{ github.sha }}
+          path: reviewed-release/review.json
+          if-no-files-found: warn
+  workspace-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Existing desktop and software GPU prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev libxdo-dev libegl1 libgl1-mesa-dri mesa-vulkan-drivers
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vision-workspace-contract
+          cache-on-failure: true
+      - name: Existing Tauri sidecar and mandatory complete workspace gates
+        shell: bash
+        run: |
+          cargo build --locked -p lilyco-binfmt --bin lbin
+          TRIPLE=$(rustc -vV | sed -n 's|host: ||p')
+          mkdir -p lilyco-tauri/binaries
+          cp target/debug/lbin "lilyco-tauri/binaries/lbin-${TRIPLE}"
+          cargo fmt --all -- --check
+          cargo clippy --locked --workspace --all-targets
+          cargo test --locked --workspace
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    needs: [inspect, workspace-contract]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_COMMIT: ${{ inputs.commit }}
+      SOURCE_RUN: ${{ inputs.source_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Complete six-asset draft, verify GitHub sizes and hashes, then publish
+        run: python scripts/reviewed_vision_release.py --commit "$SOURCE_COMMIT" --run "$SOURCE_RUN" --publish
+      - name: Keep publication receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: published-vision-release-${{ github.sha }}
+          path: reviewed-release/review.json
+          if-no-files-found: warn
