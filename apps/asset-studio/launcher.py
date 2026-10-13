@@ -67,18 +67,28 @@ def main():
         window = webview.create_window('Lain42 素材工坊', url, width=1280, height=900,
                                       min_size=(800, 600), text_select=True,
                                       background_color='#171719')
-        def apply_window_icon():
-            from System.Drawing import Icon
-            icon_file = Path(__file__).parent / 'resources/app.ico'
-            window._lain42_icon = Icon(str(icon_file))
-            window.native.Icon = window._lain42_icon
-            window.native.ShowIcon = True
-            if native_smoke:
-                startup_file = Path(os.environ['LAIN42_DESKTOP_RECEIPT'])
-                startup = json.loads(startup_file.read_text(encoding='utf-8'))
-                startup['native_icon_applied'] = window.native.Icon is not None
-                startup_file.write_text(json.dumps(startup), encoding='utf-8')
-        window.events.shown += apply_window_icon
+        icon_file = Path(__file__).parent / 'resources/app.ico'
+        def record_window_icon():
+            if not native_smoke:
+                return
+            import hashlib
+            from System.IO import MemoryStream
+            startup_file = Path(os.environ['LAIN42_DESKTOP_RECEIPT'])
+            startup = json.loads(startup_file.read_text(encoding='utf-8'))
+            try:
+                stream = MemoryStream()
+                try:
+                    window.native.Icon.Save(stream)
+                    actual = bytes(stream.ToArray())
+                finally:
+                    stream.Dispose()
+                startup['native_icon_applied'] = actual == icon_file.read_bytes()
+                startup['native_icon_sha256'] = hashlib.sha256(actual).hexdigest()
+            except Exception as error:
+                startup['native_icon_applied'] = False
+                startup['native_icon_error'] = type(error).__name__
+            startup_file.write_text(json.dumps(startup), encoding='utf-8')
+
         window.events.closed += lambda: setattr(server, 'should_exit', True)
         if not ci:
             import ctypes
@@ -86,7 +96,7 @@ def main():
             if console:
                 ctypes.windll.user32.ShowWindow(console, 0)
         # Explicit renderer: never silently switch to the obsolete IE engine.
-        webview.start(gui='edgechromium', private_mode=True)
+        webview.start(record_window_icon, gui='edgechromium', private_mode=True, icon=str(icon_file))
     except Exception:
         if ci:
             raise

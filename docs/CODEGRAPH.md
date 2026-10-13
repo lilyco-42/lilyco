@@ -249,3 +249,5 @@ cargo run -p lilyco-dev -- doc --project lilyco-letsgal              # 元 CLI�
 ### 桌面软件图标链路
 
 apps/desktop-common/desktop_icons.py:11 prepare_icon：仅在 Actions 从固定哈希原创 PNG 生成透明 16/24/32/48/64/128/256 ICO 与 PNG；:55 verify_embedded_icon 逐帧核对 EXE/NSIS 的实际 PE 资源。asset-studio 与 vision-studio 的 packaging/build-app.py 传 --icon 并打包 resources，windows-installer.py 配置安装/卸载图标并写独立收据。两个 tests/test_desktop_icons.py 验证透明尺寸、哈希拒绝与仅CI约束；ui/index.html 使用 /assets/app-icon.png，资源随实际 UI 构建保留。
+
+原生窗口用 pywebview.start(icon=...) 的官方路径；启动回调 record_window_icon 将实际 WinForms Icon 保存为原始 ICO 字节并与包内 ICO 比对，验收必须收到 native_icon_applied=true。没有依赖跨线程写 UI 的 shown 回调。
