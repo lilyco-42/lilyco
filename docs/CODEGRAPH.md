@@ -32,7 +32,9 @@ flowchart TD
 前端入口 `ui/src/studio-entry.tsx`，界面 `asset-studio-workspace.tsx`，工作区和任务状态 `use-asset-workspace.ts`；
 原始 shadcn 组件只读，语义色与明暗主题在 `studio-theme.css`，约束见 `DESIGN.md`。
 验证和完整包构建仅由 GitHub Actions 执行；包含自制 PXLS 的真实原生引擎往返、桌面/手机布局、
-打包后真实 WebView2、关闭清理、安装/卸载验收。`packaging/build-app.py` 是统一冻结配方，
+打包后真实 WebView2、关闭清理、安装/卸载验收。NSIS 卸载验收显式复制原卸载器到测试目录，
+以官方 `_?=$INSTDIR` 参数等待真正的卸载进程结束并核对退出码，再验证全部包文件、开始菜单及用户文件保留，
+不把启动卸载器的父进程退出误判为全部清理结束。`packaging/build-app.py` 是统一冻结配方，
 `packaging/windows-installer.py` 仅删除明确列出的应用文件，禁止递归卸载用户目录。
 Windows SDK 署名由 `apps/asset-studio/tests/notices.py` 对固定官方 NuGet 包、完整许可及五个真实冻结 DLL 做字节核对。
 `packaging/webview2-sdk.json` 固定官方来源和摘要；公共包与授权组合包都必须携带独立 SDK 许可，
