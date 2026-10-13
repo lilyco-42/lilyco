@@ -5,11 +5,16 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 if os.environ.get('GITHUB_ACTIONS') != 'true' or os.name != 'nt':
     raise SystemExit('Windows installers are built only in GitHub Actions')
 root = Path('dist/Lain42-Asset-Studio').resolve()
 assert (root / 'manifest.json').is_file()
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'desktop-common'))
+from desktop_icons import verify_embedded_icon
+icon = root / '_internal/resources/app.ico'
+assert icon.is_file()
 files = sorted(p for p in root.rglob('*') if p.is_file())
 assert len(files) < 10000
 
@@ -37,6 +42,8 @@ OutFile "''' + quote(target) + '''"
 InstallDir "$LOCALAPPDATA\\Programs\\Lain42-Asset-Studio"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
+!define MUI_ICON "''' + quote(icon) + '''"
+!define MUI_UNICON "''' + quote(icon) + '''"
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
@@ -53,9 +60,10 @@ Section "素材工坊"
   File /r "''' + quote(root) + '''\\*"
   WriteUninstaller "$INSTDIR\\Uninstall.exe"
   CreateDirectory "$SMPROGRAMS\\Lain42 素材工坊"
-  CreateShortCut "$SMPROGRAMS\\Lain42 素材工坊\\素材工坊.lnk" "$INSTDIR\\Lain42-Asset-Studio.exe"
-  CreateShortCut "$SMPROGRAMS\\Lain42 素材工坊\\卸载.lnk" "$INSTDIR\\Uninstall.exe"
+  CreateShortCut "$SMPROGRAMS\\Lain42 素材工坊\\素材工坊.lnk" "$INSTDIR\\Lain42-Asset-Studio.exe" "" "$INSTDIR\\_internal\\resources\\app.ico" 0
+  CreateShortCut "$SMPROGRAMS\\Lain42 素材工坊\\卸载.lnk" "$INSTDIR\\Uninstall.exe" "" "$INSTDIR\\_internal\\resources\\app.ico" 0
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Lain42AssetStudio" "DisplayName" "Lain42 素材工坊"
+  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Lain42AssetStudio" "DisplayIcon" "$INSTDIR\\Lain42-Asset-Studio.exe,0"
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Lain42AssetStudio" "UninstallString" '$\\"$INSTDIR\\Uninstall.exe$\\"'
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Lain42AssetStudio" "InstallLocation" "$INSTDIR"
   WriteRegDWORD HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Lain42AssetStudio" "NoModify" 1
@@ -72,6 +80,8 @@ SectionEnd
 ''', encoding='utf-8-sig')
 compiler = shutil.which('makensis') or r'C:\Program Files (x86)\NSIS\makensis.exe'
 subprocess.run([compiler, str(script.resolve())], check=True)
+icon_evidence = verify_embedded_icon(target, icon)
+Path('evidence/installer-icon.json').write_text(json.dumps(icon_evidence, indent=2), encoding='utf-8')
 digest = hashlib.sha256(target.read_bytes()).hexdigest()
 target.with_suffix('.exe.sha256').write_text(digest + '\n', encoding='ascii')
 Path('evidence').mkdir(exist_ok=True)

@@ -1,0 +1,25 @@
+{
+  "created_at": "2026-10-14",
+  "generator": "OpenAI built-in imagegen",
+  "sha256": "668059834636febc2df2fa467d5009c922bd3b973ef61370a3be9e7cf66198e1",
+  "purpose": "Lyco IP-derived application icon for the owner's Lain42 creative desktop tools",
+  "style_repo": "lilyco-42/lyco-ip",
+  "style_commit": "82f35f190129498f73ef7199075c3a1723adfe2d",
+  "style_documents": [
+    "docs/02-palette.md",
+    "docs/03-visual-spec.md",
+    "docs/05-art-rules.md",
+    "docs/07-recognition-anchors.md"
+  ],
+  "attribution": "Lyco © lilyco-42",
+  "license_file": "ICON-LICENSE.md",
+  "manual_visual_review": {
+    "single_white_x_on_viewers_left": true,
+    "short_black_bob": true,
+    "crimson_underhair": true,
+    "calm_half_lowered_grey_eyes": true,
+    "no_smile_text_frame_or_badges": true
+  },
+  "generation_prompt": "Use case: logo-brand / identity-preserve. Create ONE production software application icon of the original character Lyco, following lilyco-42/lyco-ip docs at 82f35f190129498f73ef7199075c3a1723adfe2d. Attached images are identity/style REFERENCES ONLY, not backgrounds or artwork to paste. The textual rules take precedence on orientation: exactly ONE matte warm-white X-shaped hairpin on the CHARACTER'S RIGHT bangs (VIEWER'S LEFT), about 0.35 head-width, mildly tilted 15 degrees. Single centered front-view head and upper torso, compact tasteful anime/chibi simplification suitable for 16–256 pixel app icons, with a generous transparent margin; keep face small enough that charcoal hair and coat dominate. Short jaw-length black bob, heavy asymmetric bangs, calm half-lowered soft cool-grey eyes, eyelids cover the upper quarter of iris, tiny inward white eye glint, relaxed closed mouth with absolutely NO smile, no anger. Short fitted charcoal black double-breasted high-collar coat, sparse small silver buttons, tiny restrained deep crimson lining visible only below/inside hair tips and collar. Black above, red below/inside. Clean crisp contours and simple comfortable soft cel shading, elegant restrained character drawing, no shiny 3D sculpture. Palette ONLY near-black #121016 #1E1B24 #2A2630 and coat #18181E #262630 #0F0F14; deep red #8E1B24 #C02832 #6E0D14 #B62833, warm pale skin #F3DCD1 #E2C2B6, grey eyes #8E8A96 #33303A, matte white #F6F4F2, tiny silver #C8CCD0. Aim dominant near-black about 70 percent, crimson 15–20 percent, pale accents minimal. Transparent background with real alpha. No weapon needed in this deliberately cropped head-and-shoulders icon. No square tile, border, scene, shadow underneath, glowing red aura or painted red decorations. ABSOLUTELY NO text, letters, numbers, captions, labels, watermark, signature, border, frame, grid lines, colour swatches, background scenery, floor shadow, badges, medals, epaulettes or emblems of any kind. No new hues: no blue, purple, green, gold, neon or pure-red. One icon only, not a sheet. Preserve identity from the refs, obey the exact written X hairpin side, and make the black silhouette, crimson underhair and single white X readable when shrunk.",
+  "correction_prompt": "Edit this newly generated Lyco app icon to fix two precise brand-rule errors. Keep the exact same original character, calm half-lowered grey eyes, relaxed closed mouth with no smile, face shape, short black bob, fitted black upper torso, clean anime illustration, composition and genuine transparent background. CRITICAL: remove the white X hairpin currently at the VIEWER'S RIGHT of the portrait, and place exactly one matte white X hairpin on the VIEWER'S LEFT bangs (Lyco's own RIGHT), about 0.35 head-width, mild 15-degree tilt. There must be NO hairpin remaining on the viewer's right and NO second hairpin. This is mandatory from lyco-ip docs even though the older reference sheet shows the other side. Also deepen the red underhair to restrained dark crimson #8E1B24 and #C02832 with darker #6E0D14 shadows; retain red only below/inside the black hair and very thin coat piping #B62833. No pure bright red, no red aura or glow. Keep dominant near-black palette #121016 #1E1B24 #2A2630 #18181E, warm pale face, grey eyes. Preserve all other details and transparency. ABSOLUTELY NO text, letters, numbers, captions, labels, watermark, signature, border, frame, grid lines, colour swatches, background scenery, floor shadow, badges, medals, epaulettes or emblems of any kind."
+}
