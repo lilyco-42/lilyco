@@ -39,6 +39,9 @@ def check_source():
         raise ValueError('Office must carry the complete unchanged Lyco notice')
     if digest(ROOT / 'frontend/app-icon.png') != SOURCE_SHA:
         raise ValueError('WebView favicon is not the reviewed Lyco image')
+    nsis = json.loads((ROOT / 'tauri.conf.json').read_text(encoding='utf-8'))['bundle']['windows']['nsis']
+    if nsis.get('installerIcon') != 'icons/icon.ico' or nsis.get('uninstallerIcon') != 'icons/icon.ico':
+        raise ValueError('Actual NSIS install/uninstall must use the reviewed multi-size icon')
     return source
 
 

@@ -44,6 +44,12 @@
       "resources/icon-source.png",
       "resources/icon-source.json",
       "resources/ICON-LICENSE.md"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      }
+    }
   }
 }

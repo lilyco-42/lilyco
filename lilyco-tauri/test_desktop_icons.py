@@ -1,5 +1,6 @@
 """Mutation checks for original artwork and notices, executed only by Actions."""
 import importlib.util
+import json
 import os
 from pathlib import Path
 import shutil
@@ -21,6 +22,7 @@ class ArtworkPolicy(unittest.TestCase):
         shutil.copytree(OFFICE / 'resources', self.root / 'resources')
         (self.root / 'frontend').mkdir()
         shutil.copyfile(OFFICE / 'frontend/app-icon.png', self.root / 'frontend/app-icon.png')
+        shutil.copyfile(OFFICE / 'tauri.conf.json', self.root / 'tauri.conf.json')
         self.original_root = icons.ROOT
         icons.ROOT = self.root
 
@@ -52,6 +54,14 @@ class ArtworkPolicy(unittest.TestCase):
                                 env=environment, capture_output=True, text=True, timeout=10)
         self.assertNotEqual(output.returncode, 0)
         self.assertIn('only run in GitHub Actions', output.stderr)
+
+    def test_installer_cannot_silently_use_the_default_nsis_icon(self):
+        path = self.root / 'tauri.conf.json'
+        config = json.loads(path.read_text(encoding='utf-8'))
+        config['bundle']['windows']['nsis']['installerIcon'] = None
+        path.write_text(json.dumps(config), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'Actual NSIS'):
+            icons.check_source()
 
 
 if __name__ == '__main__':
