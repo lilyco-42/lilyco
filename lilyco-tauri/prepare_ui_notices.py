@@ -28,7 +28,7 @@ for line in paths.splitlines():
     package = json.loads((directory / 'package.json').read_text(encoding='utf-8'))
     texts = {}
     for file in directory.iterdir():
-        if file.is_file() and file.name.upper().startswith(('LICENSE', 'LICENCE', 'COPYING', 'NOTICE')):
+        if file.is_file() and file.name.upper().startswith(('LICENSE', 'LICENCE', 'COPYING', 'NOTICE', 'OFL')):
             if file.stat().st_size > 256 * 1024:
                 raise ValueError('Unexpected oversized dependency notice')
             texts[file.name] = file.read_text(encoding='utf-8', errors='strict')

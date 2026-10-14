@@ -291,3 +291,7 @@ ffb 的 Linux 原生门曾在 POST /session 前后真实断开，尚未进入文
 563 的 Windows 真实窗口图标像素和 WM_CLOSE 已通过，后续 NSIS PE 图标核对发现安装器仍使用默认图标，故完整门仍 FAIL。`tauri.conf.json` 明确将 `bundle.windows.nsis.installerIcon/uninstallerIcon` 指向相同七尺寸 ICO，原始 EXE/NSIS PE 多帧核对保持不变；源码回归删除 installerIcon 时必须拒绝，不能把“应用 EXE 有图标”冒充“安装器有图标”。Linux/macOS 563 包载荷已通过，不替代修复后的 Windows 当前产物。
 
 baab 的完整 workspace/CI/Vision、Mac 包与 Linux 真 UI 四格式/历史/尺寸门已通过；Windows 实际 SDK provenance 已读取，但署名归集错误依赖不存在的 `.cargo-checksum.json`。collector 改用 Cargo.lock checksum 封存真实 registry/cache `.crate`，完整 license 与实际 WebView2 静态库都须与其原始 tar 成员逐字节一致，再对照官方 NuGet SDK。不存在 vendor checksum 文件不能跳过锁定源码校验；增加改 archive 字节/错成员/超限回归。该修复仍须新 head 全 Actions 门，不能拿 baab 的 Linux 或 3c 的图标门替代 Windows 完整安装/界面验收。
+
+真实 baab Linux 1180/320 窗口截图发现中文缺字方块，DOM 字符正确与无溢出断言不能证明字形可读。Office UI 增加自托管 @fontsource-variable/noto-sans-sc 5.3.1（官方 npm integrity 固定、无传递依赖），将其放在字体栈首项，OFL完整文本归入包内frontend署名；不依赖用户额外安装字体或远端字体网络。原生门须实际 document.fonts.load 返回非空 loaded font faces，并保存每种真实文件读取后的窗口截图以及各尺寸截图。字体载荷/真实渲染仍待 Actions 与图像审查，没有在本机 npm install/build/字体转换或运行产品。
+
+128 的实际 Windows driver 返回 DevToolsActivePort 不存在：按固定 tauri-driver 2.1.0 的 server.rs:54，Windows capabilities 显式传 webviewOptions={}，避免 Edge 按普通浏览器启动参数处理应用；不重试会改变状态的 POST/session。Linux 已真正进入 PDF 读取，但完整 CLI/UI JSON 比对失败；保留原断言并新增真实两份 JSON、同一 CLI 二次读取诊断，尚未判定是解析/传输精度还是重复读取差异，不能排序/舍入数据来消除失败。

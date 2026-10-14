@@ -72,8 +72,13 @@ def run(application_override=None, engine_override=None, label='packaged'):
                     return False
             wait(listening, 30)
             # Same official capabilities as tauri-apps/webdriver-example.
+            options = {'application': str(application.resolve())}
+            if sys.platform == 'win32':
+                # The pinned driver only forwards Edge's WebView2-specific
+                # launch options when this object is present (server.rs:54).
+                options['webviewOptions'] = {}
             opened = request('/session', 'POST', {'capabilities': {'alwaysMatch': {
-                'tauri:options': {'application': str(application.resolve())},
+                'tauri:options': options,
             }}})
             session = opened['sessionId']
             prefix = '/session/' + session
@@ -88,6 +93,13 @@ def run(application_override=None, engine_override=None, label='packaged'):
             wait(lambda: js('return document.querySelector("h1")?.textContent === "lilyco office"'))
             # No browser mock: this namespace comes from the production Tauri runtime.
             assert js('return typeof window.__TAURI__?.core?.invoke === "function"')
+            fonts = async_js('''
+const done = arguments[arguments.length - 1];
+document.fonts.load('400 16px "Noto Sans SC Variable"', '文档表格幻灯片读取文件')
+  .then(faces => done(faces.map(face => ({family:face.family, status:face.status}))),
+        error => done({error:String(error)}));
+''')
+            assert isinstance(fonts, list) and fonts and all(face['status'] == 'loaded' for face in fonts), fonts
             wait(lambda: js('return document.querySelectorAll("nav button").length === 10'))
             assert not js('return document.querySelector("[role=alert]")?.textContent')
 
@@ -145,9 +157,22 @@ if (!button || button.disabled) return false; button.click(); return true;''', t
                 click('读取文件')
                 wait(lambda: js('return !!document.querySelector("[data-testid=office-result]")'))
                 assert not js('return document.querySelector("[role=alert]")?.textContent')
+                (EVIDENCE / f'native-readable-{extension}.png').write_bytes(base64.b64decode(request(prefix + '/screenshot')))
                 click('原始 JSON')
                 rendered = js('return document.querySelector("[data-testid=office-result] pre")?.textContent')
+                # Preserve the two real values on mismatch. Do not round,
+                # sort arrays, omit fields, or substitute mocked results.
+                (EVIDENCE / f'original-cli-{extension}.json').write_bytes(expected.stdout)
+                (EVIDENCE / f'actual-ui-{extension}.json').write_text(rendered, encoding='utf-8')
+                if json.loads(rendered) != parsed:
+                    repeat = subprocess.run([str(engine), command, '--path', str(fixture), '--json'],
+                                            check=True, capture_output=True, timeout=60)
+                    (EVIDENCE / f'repeated-cli-{extension}.json').write_bytes(repeat.stdout)
+                    print(json.dumps({'mismatched_format': extension,
+                                      'cli_repeat_equal': json.loads(repeat.stdout) == parsed,
+                                      'expected': parsed, 'actual': json.loads(rendered)}, ensure_ascii=False), file=sys.stderr)
                 assert json.loads(rendered) == parsed, extension + ' native UI changed the original CLI result'
+                (EVIDENCE / f'native-result-{extension}.png').write_bytes(base64.b64decode(request(prefix + '/screenshot')))
                 assert fixture.read_bytes() == original, 'Reader modified the source document'
                 receipts.append({'format': extension, 'fixture': fixture.name,
                                  'input_sha256': hashlib.sha256(original).hexdigest(),
@@ -180,6 +205,7 @@ if (!button || button.disabled) return false; button.click(); return true;''', t
             report = {'platform': sys.platform, 'application_sha256': hashlib.sha256(application.read_bytes()).hexdigest(),
                       'actual_tauri_namespace': True, 'actual_runtime_event_to_rust_sidecar_to_ui': receipts,
                       'actual_windows_file_dialog': native_dialog,
+                      'self_hosted_chinese_font_loaded': fonts,
                       'failed_read_clears_previous_result': True, 'history_can_be_cleared': True,
                       'native_layouts': layouts}
             (EVIDENCE / ('native-workbench-' + sys.platform + '.json')).write_text(

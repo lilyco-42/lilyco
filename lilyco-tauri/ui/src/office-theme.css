@@ -14,6 +14,6 @@
 :root { color-scheme: light; --background: oklch(.98 .003 150); --foreground: oklch(.22 .008 150); --card: oklch(1 0 0); --sidebar: oklch(.97 .004 150); --primary: oklch(.36 .05 155); --primary-foreground: oklch(.98 .003 150); --secondary: oklch(.93 .009 150); --muted: oklch(.95 .005 150); --muted-foreground: oklch(.49 .015 150); --accent: oklch(.92 .02 155); --border: oklch(.88 .006 150); --destructive: oklch(.55 .2 25); --checker: oklch(.91 .004 150); }
 .dark { color-scheme: dark; --background: oklch(.17 .005 155); --foreground: oklch(.93 .003 155); --card: oklch(.205 .006 155); --sidebar: oklch(.19 .006 155); --primary: oklch(.79 .09 155); --primary-foreground: oklch(.2 .02 155); --secondary: oklch(.28 .015 155); --muted: oklch(.24 .005 155); --muted-foreground: oklch(.69 .013 155); --accent: oklch(.29 .025 155); --border: oklch(.31 .009 155); --destructive: oklch(.75 .13 25); --checker: oklch(.245 .004 155); }
 * { border-color: var(--border); }
-body { margin: 0; font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
+body { margin: 0; font-family: "Noto Sans SC Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
