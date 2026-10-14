@@ -26,15 +26,17 @@ public static class OfficeFileDialog {
     [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW")] public static extern IntPtr Send(IntPtr window, uint message, IntPtr w, IntPtr l, uint flags, uint timeout, out IntPtr result);
     public static IntPtr Find(uint pid) {
         IntPtr found = IntPtr.Zero;
+        int matches = 0;
         EnumWindows((window, unused) => {
             uint owner; GetWindowThreadProcessId(window, out owner);
             if (owner != pid) return true;
             var name = new StringBuilder(512); var type = new StringBuilder(128);
             GetWindowText(window, name, name.Capacity); GetClassName(window, type, type.Capacity);
             if (type.ToString() != "#32770" || name.ToString() != "选择要读取的办公文件") return true;
-            if (found != IntPtr.Zero) throw new InvalidOperationException("Ambiguous native Office file dialog");
+            matches++;
             found = window; return true;
         }, IntPtr.Zero);
+        if (matches > 1) throw new InvalidOperationException("Ambiguous native Office file dialog");
         return found;
     }
     public static IntPtr Filename(IntPtr dialog) {
