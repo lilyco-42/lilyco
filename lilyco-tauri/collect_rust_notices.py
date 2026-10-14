@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tarfile
+import tomllib
 import urllib.request
 import urllib.parse
 import zipfile
@@ -129,6 +131,47 @@ def original_sdk_member(sdk, path, limit):
     return data
 
 
+def verify_crate_archive(data, checksum):
+    if not re.fullmatch(r'[a-f0-9]{64}', checksum) or sha(data) != checksum:
+        raise ValueError('Cached crate archive differs from the exact Cargo.lock checksum')
+
+
+def sealed_crate(package):
+    folder = Path(package['manifest_path']).parent
+    lock = tomllib.loads((WORKSPACE / 'Cargo.lock').read_text(encoding='utf-8'))
+    matches = [p for p in lock['package'] if p['name'] == package['name']
+               and p['version'] == package['version'] and p.get('source') == package['source']]
+    if len(matches) != 1:
+        raise ValueError('Actual registry dependency has no unique Cargo.lock seal')
+    checksum = matches[0]['checksum']
+    registry = folder.parents[2]
+    archive = registry / 'cache' / folder.parent.name / f"{package['name']}-{package['version']}.crate"
+    if not archive.resolve().is_relative_to(registry.resolve()) or not 0 < archive.stat().st_size <= 128 * 1024 * 1024:
+        raise ValueError('Actual Cargo registry archive is missing, outside its cache or oversized')
+    data = archive.read_bytes()
+    verify_crate_archive(data, checksum)
+    return data, checksum
+
+
+def original_crate_member(archive, path, limit):
+    with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as crate:
+        members = []
+        count = 0
+        for item in crate:
+            count += 1
+            if count > 20000:
+                raise ValueError('Cached crate has too many archive entries')
+            if item.name == path:
+                members.append(item)
+        if len(members) != 1 or not members[0].isfile() or not 0 < members[0].size <= limit:
+            raise ValueError('Original crate member is missing, duplicated or oversized: ' + path)
+        with crate.extractfile(members[0]) as stream:
+            data = stream.read(limit + 1)
+        if len(data) != members[0].size or len(data) > limit:
+            raise ValueError('Original crate member size is inconsistent')
+        return data
+
+
 def selected_packages():
     rust = subprocess.check_output(['rustc', '-vV'], text=True, encoding='utf-8')
     host = re.search(r'^host: (.+)$', rust, re.M).group(1)
@@ -164,12 +207,17 @@ def collect_packages(packages):
                     texts['workspace/' + path.name] = read_notice(WORKSPACE, path)
         if not texts:
             missing.append({'name': package['name'], 'version': package['version'], 'license': package.get('license')})
-        checksum = folder / '.cargo-checksum.json'
-        cargo_checksum = json.loads(checksum.read_text(encoding='utf-8')) if checksum.exists() else None
+        archive_checksum = None
+        if (package.get('source') or '').startswith('registry+'):
+            archive, archive_checksum = sealed_crate(package)
+            for path, notice in texts.items():
+                original = original_crate_member(archive, f"{package['name']}-{package['version']}/{path}", 512 * 1024)
+                if original != base64.b64decode(notice['original_base64']):
+                    raise ValueError('Extracted dependency notice differs from the locked original crate')
         notices.append({'name': package['name'], 'version': package['version'],
                         'license': package.get('license'), 'source': package.get('source'),
                         'repository': package.get('repository'),
-                        'cargo_archive_sha256': cargo_checksum.get('package') if cargo_checksum else None,
+                        'cargo_archive_sha256': archive_checksum,
                         'notices': texts})
     return notices, missing
 
@@ -204,8 +252,11 @@ def collect_webview_sdk(packages, host):
         raise ValueError('Windows SDK static-library audit requires a known MSVC target')
     actual = folder / arch / 'WebView2LoaderStatic.lib'
     actual_bytes = actual.read_bytes()
-    file_checksums = json.loads((folder / '.cargo-checksum.json').read_text(encoding='utf-8'))['files']
-    if sha(actual_bytes) != file_checksums.get(f'{arch}/WebView2LoaderStatic.lib'):
+    # .cargo-checksum.json is a vendor-directory artifact, not a guaranteed file
+    # in Cargo's registry cache. Audit the original .crate against Cargo.lock.
+    crate_archive, crate_checksum = sealed_crate(package)
+    crate_path = f"{package['name']}-{package['version']}/{arch}/WebView2LoaderStatic.lib"
+    if original_crate_member(crate_archive, crate_path, 32 * 1024 * 1024) != actual_bytes:
         raise ValueError('Actual Cargo SDK library differs from its sealed package')
     with zipfile.ZipFile(io.BytesIO(archive)) as sdk:
         path = f'build/native/{arch}/WebView2LoaderStatic.lib'
@@ -218,6 +269,7 @@ def collect_webview_sdk(packages, host):
     return {'applicable': True, 'bindings_version': package['version'], 'packaged_source_commit': commit,
             'sdk_version': version, 'sdk_source': url, 'sdk_catalog_source': catalog_url,
             'sdk_archive_sha256': sha(archive), 'sdk_archive_sha512': catalog['packageHash'],
+            'bindings_crate_archive_sha256': crate_checksum,
             'actual_static_library_sha256': sha(actual_bytes), 'actual_library_matches_official_sdk': True,
             'complete_sdk_license_sha256': sha(license_bytes)}
 

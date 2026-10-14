@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 import warnings
@@ -74,6 +75,25 @@ class ProvenancePolicy(unittest.TestCase):
                     'https://raw.githubusercontent.com:444/file']:
             with self.assertRaisesRegex(ValueError, 'origin'):
                 notices.provenance_url(url)
+
+    def test_cargo_lock_seals_actual_original_member_without_vendor_metadata(self):
+        buffer = io.BytesIO()
+        payload = b'original static library fixture'
+        path = 'bindings-1.0/x64/WebView2LoaderStatic.lib'
+        with tarfile.open(fileobj=buffer, mode='w:gz') as archive:
+            member = tarfile.TarInfo(path)
+            member.size = len(payload)
+            archive.addfile(member, io.BytesIO(payload))
+        data = buffer.getvalue()
+        checksum = hashlib.sha256(data).hexdigest()
+        notices.verify_crate_archive(data, checksum)
+        self.assertEqual(notices.original_crate_member(data, path, 1024), payload)
+        with self.assertRaisesRegex(ValueError, 'Cargo.lock'):
+            notices.verify_crate_archive(data + b'changed', checksum)
+        with self.assertRaisesRegex(ValueError, 'missing'):
+            notices.original_crate_member(data, path + '.changed', 1024)
+        with self.assertRaisesRegex(ValueError, 'oversized'):
+            notices.original_crate_member(data, path, 4)
 
     def test_actual_collector_cannot_run_outside_actions(self):
         environment = dict(os.environ)

@@ -289,3 +289,5 @@ ffb 的 Linux 原生门曾在 POST /session 前后真实断开，尚未进入文
 
 官方 dialog 插件的初始化脚本只覆盖 alert/confirm，不导出 `window.__TAURI__.dialog`；新 bridge 与静态 fallback 使用其官方 guest API 的相同 `plugin:dialog|open` 命令（保留 dialog:allow-open），无新增服务器/解析器/依赖。Windows native-file-dialog.ps1 只在 Actions 操作精确产品进程、指定标题的真实系统 chooser：填入独立 DOCX fixture 并点击 Open，第二次真实 Cancel 保留当前选中项。第一次 docx 读取必须消费 chooser 返回值而非测试注入路径；其他格式仍走实际窗口事件。此新门尚待 CI，不能以函数存在冒充系统对话框可用。
 563 的 Windows 真实窗口图标像素和 WM_CLOSE 已通过，后续 NSIS PE 图标核对发现安装器仍使用默认图标，故完整门仍 FAIL。`tauri.conf.json` 明确将 `bundle.windows.nsis.installerIcon/uninstallerIcon` 指向相同七尺寸 ICO，原始 EXE/NSIS PE 多帧核对保持不变；源码回归删除 installerIcon 时必须拒绝，不能把“应用 EXE 有图标”冒充“安装器有图标”。Linux/macOS 563 包载荷已通过，不替代修复后的 Windows 当前产物。
+
+baab 的完整 workspace/CI/Vision、Mac 包与 Linux 真 UI 四格式/历史/尺寸门已通过；Windows 实际 SDK provenance 已读取，但署名归集错误依赖不存在的 `.cargo-checksum.json`。collector 改用 Cargo.lock checksum 封存真实 registry/cache `.crate`，完整 license 与实际 WebView2 静态库都须与其原始 tar 成员逐字节一致，再对照官方 NuGet SDK。不存在 vendor checksum 文件不能跳过锁定源码校验；增加改 archive 字节/错成员/超限回归。该修复仍须新 head 全 Actions 门，不能拿 baab 的 Linux 或 3c 的图标门替代 Windows 完整安装/界面验收。
