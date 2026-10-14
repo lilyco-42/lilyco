@@ -264,3 +264,10 @@ Desktop workflow仅把 `v[0-9]*` 框架版本标签传给Tauri release上传。
 已上传的文件保留，防止破坏他人下载；Source/GUI/icon/install验收另行核实。
 
 Desktop 的 workflow 同时复用 Asset Studio 已验证的完整 `workspace-contract`：真实 `lbin` sidecar、`cargo fmt --all -- --check`、`cargo clippy --locked --workspace --all-targets` 与 `cargo test --locked --workspace`；不以仅覆盖部分 crate 的通用 CI 代替 AGENTS 全 workspace 门。
+
+### Office 0.3.1 · 原始 Lyco 图标及包内验证
+
+`lilyco-tauri/desktop_icons.py` 是 Actions 专用资源配方：原始 PNG 与完整角色许可固定摘要；官方 Tauri CLI 2.12.1 生成 ICNS，共享 `apps/desktop-common/desktop_icons.py` 生成已审查的七尺寸 ICO。前端 favicon/标题图使用同一原图并署名，独立角色许可由 bundle.resources 装入；软件代码许可不变。Office crate/lock/config 版本单独升至 0.3.1，其他 crate 版本不改。
+Desktop 的 workspace-contract 与三平台 bundle 在编译前都准备图标；Windows 实际 EXE/NSIS PE 原始图像帧、macOS .app ICNS、Debian PNG 载荷逐字节验证，再保存 icon-build/icon-package-evidence。MSI 目前仅证实生成，并非实际安装/卸载验收；这一步不证明整个 Office 高级 UI 和销售交付已经完成。不使用编译前“文件存在”冒充包内验证，不本机执行转换/测试/构建。
+
+Office 图标包暂只保存 Actions 产物，不在 tauri-action 构建阶段公开上传（平台资源检查发生在其后）。后续仍须真实原生界面、安装/卸载与许可审查，再经独立审核发行；不能先公开再验证。

@@ -34,6 +34,17 @@ jobs:
     timeout-minutes: 100
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare reviewed Lyco desktop icons in Actions
+        run: |
+          python -m pip install pillow==11.3.0 pefile==2024.8.26
+          python lilyco-tauri/test_desktop_icons.py
+          python lilyco-tauri/desktop_icons.py prepare
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -74,6 +85,17 @@ jobs:
             label: linux
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare reviewed Lyco desktop icons in Actions
+        run: |
+          python -m pip install pillow==11.3.0 pefile==2024.8.26
+          python lilyco-tauri/test_desktop_icons.py
+          python lilyco-tauri/desktop_icons.py prepare
 
       - name: 系统依赖（Linux 上的 webkit2gtk 那一套）
         if: matrix.label == 'linux'
@@ -151,16 +173,6 @@ jobs:
             echo "macOS 那份下载后会被 Gatekeeper 拦住 —— 这是实话，不是构建失败"
           fi
 
-      - name: Select only the framework version release tag
-        id: version-tag
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v[0-9]* ]]; then
-            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: tauri build + bundle
         uses: tauri-apps/tauri-action@v0
         env:
@@ -170,12 +182,13 @@ jobs:
         with:
           projectPath: lilyco-tauri
           # 见上面第 2 条：前端零 npm 依赖，所以 CLI 由 npx 现取，版本与 Cargo 那边的 tauri = "2" 同族
-          tauriScript: npx --yes @tauri-apps/cli@2
+          tauriScript: npx --yes @tauri-apps/cli@2.12.1
           includeRelease: true
-          # 只有数字版本 v[0-9]* 标签才给 tagName —— 那时才把 bundle 挂到对应 release 上；
-          # 分支推送留空，action 就走「skipping all uploads」那条分支，只编不改发布
-          tagName: ${{ steps.version-tag.outputs.tag }}
+          # Build only. The three platform receipts are checked below, after this
+          # action returns. Do not publish unverified Office binaries here.
 
+      - name: Inspect actual packaged icon payloads
+        run: python lilyco-tauri/desktop_icons.py verify --platform ${{ matrix.label }}
       # bundle 到底落在哪由 find 说，不靠猜：workspace 成员可能出在 target/release/bundle，
       # 也可能出在 target/<triple>/release/bundle，收齐后平铺进 dist/。
       # 空手而归时明着红（并把 target 下所有 bundle 目录打出来），而不是静默交一个空工件
@@ -193,6 +206,7 @@ jobs:
             exit 1
           fi
           while IFS= read -r f; do cp "$f" dist/; done < /tmp/bundles.txt
+          cp lilyco-tauri/resources/icon-build.json lilyco-tauri/resources/icon-package-evidence.json dist/
           echo "=== 收到的工件 ==="
           ls -l dist
 
