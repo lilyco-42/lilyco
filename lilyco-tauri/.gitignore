@@ -2,3 +2,11 @@
 binaries/
 # tauri-build 生成的能力 schema
 gen/
+
+# Lyco icon derivatives and verification bytes are produced only by Actions.
+resources/app.ico
+resources/app-icon.png
+resources/icon-build.json
+resources/icon-package-evidence.json
+resources/native-window-icon.png
+icon-deb-inspection/

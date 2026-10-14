@@ -274,3 +274,5 @@ pre {
     width: 40%;
   }
 }
+
+.brand-icon { vertical-align: middle; object-fit: contain; margin-inline-end: 8px; }
