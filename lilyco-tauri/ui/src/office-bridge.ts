@@ -3,7 +3,6 @@ export interface OfficeCommand { name: string; hint: string }
 interface DragEvent { payload: { type: "enter" | "over" | "drop" | "leave"; paths?: string[] } }
 interface OfficeBridge {
   core: { invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> };
-  dialog: { open(options: { multiple: boolean; title: string; filters: { name: string; extensions: string[] }[] }): Promise<string | string[] | null> };
   window: { getCurrentWindow(): { onDragDropEvent(callback: (event: DragEvent) => void): Promise<() => void> } };
 }
 declare global { interface Window { __TAURI__?: OfficeBridge } }
@@ -14,13 +13,15 @@ export function officeBridge(): OfficeBridge {
 }
 
 export function chooseOfficeFile() {
-  return officeBridge().dialog.open({
+  // Dialog's plugin initializes alert/confirm, not a __TAURI__.dialog export.
+  // This is the same IPC command used by the official plugin-dialog guest API.
+  return officeBridge().core.invoke<string | string[] | null>("plugin:dialog|open", { options: {
     multiple: false, title: "选择要读取的办公文件",
     filters: [
       { name: "办公文件", extensions: ["docx", "docm", "dotx", "doc", "odt", "rtf", "xlsx", "xlsm", "xls", "ods", "csv", "pptx", "ppt", "odp", "pdf"] },
       { name: "全部文件", extensions: ["*"] },
     ],
-  });
+  } });
 }
 
 export function recommendedCommand(path: string): string {

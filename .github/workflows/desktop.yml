@@ -63,6 +63,8 @@ jobs:
         with:
           key: vision-workspace-contract
           cache-on-failure: true
+      - name: Validate original Rust and SDK attribution policy
+        run: python lilyco-tauri/tests/test_rust_notices.py
       - name: Real existing Tauri sidecar
         shell: bash
         run: |
@@ -122,6 +124,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Collect actual locked Rust and native SDK original notices
+        run: |
+          python lilyco-tauri/tests/test_rust_notices.py
+          python lilyco-tauri/collect_rust_notices.py
 
       # sidecar 得先有：桌面端不自己再造一个读者，它跑的就是 CI 上那本对账认的 lbin
       - name: 编 lbin（随包带出来的 sidecar）
@@ -241,6 +248,8 @@ jobs:
           fi
           while IFS= read -r f; do cp "$f" dist/; done < /tmp/bundles.txt
           cp lilyco-tauri/resources/icon-build.json lilyco-tauri/resources/icon-package-evidence.json dist/
+          cp lilyco-tauri/resources/FRONTEND-LICENSES.json lilyco-tauri/resources/RUST-LICENSES.json dist/
+          if [ "$RUNNER_OS" = "Windows" ]; then cp lilyco-tauri/resources/MICROSOFT-WEBVIEW2-SDK-LICENSE.txt dist/; fi
           if [ "$RUNNER_OS" = "Windows" ]; then cp lilyco-tauri/resources/native-window-icon.png dist/; fi
           if [ -d lilyco-tauri/tests/evidence ]; then cp -r lilyco-tauri/tests/evidence dist/native-workbench; fi
           echo "=== 收到的工件 ==="
@@ -252,3 +261,15 @@ jobs:
           name: lilyco-office-${{ matrix.label }}
           if-no-files-found: error
           path: dist
+
+      - name: Preserve actual native failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: office-native-failure-${{ matrix.label }}
+          if-no-files-found: ignore
+          path: |
+            lilyco-tauri/tests/evidence/
+            lilyco-tauri/resources/icon-package-evidence.json
+            lilyco-tauri/resources/native-window-icon.png
+            lilyco-tauri/resources/RUST-LICENSES.json

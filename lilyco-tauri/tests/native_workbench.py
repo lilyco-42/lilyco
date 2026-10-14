@@ -2,6 +2,7 @@
 import base64
 import argparse
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import urllib.error
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE = ROOT.parent
@@ -17,12 +19,16 @@ EVIDENCE = ROOT / 'tests/evidence'
 PORT = 4447
 
 
-def request(path, method='GET', value=None):
+def request(path, method='GET', value=None, timeout=120):
     body = None if value is None else json.dumps(value).encode('utf-8')
     req = urllib.request.Request(f'http://127.0.0.1:{PORT}{path}', data=body,
                                  method=method, headers={'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=120) as response:
-        payload = json.load(response)
+    # Native driver traffic stays on loopback even if CI defines an HTTP proxy.
+    try:
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=timeout) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as error:
+        raise RuntimeError('Native driver HTTP error: ' + error.read(16384).decode('utf-8', errors='replace')) from error
     result = payload.get('value')
     if isinstance(result, dict) and 'error' in result:
         raise RuntimeError(json.dumps(result, ensure_ascii=False))
@@ -55,14 +61,19 @@ def run(application_override=None, engine_override=None, label='packaged'):
                 if process.poll() is not None:
                     raise RuntimeError('tauri-driver exited before opening its port')
                 try:
-                    with socket.create_connection(('127.0.0.1', PORT), timeout=1):
-                        return True
-                except OSError:
+                    # The intermediary can listen before its real native driver.
+                    # Wait for both listeners and a successful native /status;
+                    # never retry the mutating POST /session after disconnection.
+                    for port in [PORT, 4448]:
+                        with socket.create_connection(('127.0.0.1', port), timeout=1):
+                            pass
+                    return request('/status', timeout=2).get('ready') is True
+                except (OSError, urllib.error.URLError, http.client.RemoteDisconnected):
                     return False
             wait(listening, 30)
             # Same official capabilities as tauri-apps/webdriver-example.
             opened = request('/session', 'POST', {'capabilities': {'alwaysMatch': {
-                'browserName': 'wry', 'tauri:options': {'application': str(application.resolve())},
+                'tauri:options': {'application': str(application.resolve())},
             }}})
             session = opened['sessionId']
             prefix = '/session/' + session
@@ -95,6 +106,27 @@ window.__TAURI__.event.emitTo('main', 'tauri://drag-drop',
 if (!button || button.disabled) return false; button.click(); return true;''', text), text
 
             fixtures = WORKSPACE / 'lilyco-binfmt/tests/fixtures/office'
+            native_dialog = None
+            if sys.platform == 'win32':
+                dialog_fixture = sorted(fixtures.glob('*.docx'))[0]
+                for mode, button in [('select', '选择文件'), ('cancel', '更换文件')]:
+                    operator = subprocess.Popen([
+                        'pwsh', '-NoProfile', '-File', str(ROOT / 'tests/native-file-dialog.ps1'),
+                        '-Application', str(application.resolve()), '-Mode', mode,
+                        '-Fixture', str(dialog_fixture.resolve()),
+                    ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
+                    try:
+                        click(button)
+                        output, _ = operator.communicate(timeout=45)
+                        (EVIDENCE / f'native-dialog-{mode}.log').write_text(output, encoding='utf-8')
+                        assert operator.returncode == 0, output
+                        wait(lambda: js('return document.querySelector("[data-testid=selected-file]")?.textContent') == dialog_fixture.name)
+                        assert not js('return document.querySelector("[role=alert]")?.textContent')
+                    finally:
+                        if operator.poll() is None:
+                            operator.kill()
+                            operator.wait()
+                native_dialog = {'actual_os_file_selected': True, 'actual_os_cancel_preserves_selection': True}
             receipts = []
             for extension, command in [('docx', 'office-doc'), ('xlsx', 'office-sheet'),
                                         ('pptx', 'office-slide'), ('pdf', 'office-pdf')]:
@@ -106,7 +138,10 @@ if (!button || button.disabled) return false; button.click(); return true;''', t
                 expected = subprocess.run([str(engine), command, '--path', str(fixture), '--json'],
                                           check=True, capture_output=True, timeout=60)
                 parsed = json.loads(expected.stdout)
-                drop(fixture)
+                # First Windows read consumes the actual OS chooser selection;
+                # the remaining formats exercise the native event route.
+                if not (sys.platform == 'win32' and extension == 'docx'):
+                    drop(fixture)
                 click('读取文件')
                 wait(lambda: js('return !!document.querySelector("[data-testid=office-result]")'))
                 assert not js('return document.querySelector("[role=alert]")?.textContent')
@@ -144,11 +179,17 @@ if (!button || button.disabled) return false; button.click(); return true;''', t
             # A real native driver screenshot, not a rendered mock image.
             report = {'platform': sys.platform, 'application_sha256': hashlib.sha256(application.read_bytes()).hexdigest(),
                       'actual_tauri_namespace': True, 'actual_runtime_event_to_rust_sidecar_to_ui': receipts,
+                      'actual_windows_file_dialog': native_dialog,
                       'failed_read_clears_previous_result': True, 'history_can_be_cleared': True,
                       'native_layouts': layouts}
             (EVIDENCE / ('native-workbench-' + sys.platform + '.json')).write_text(
                 json.dumps(report, indent=2) + '\n', encoding='utf-8')
             print(json.dumps(report))
+        except Exception:
+            log.flush()
+            print('Actual driver diagnostics:\n' + (EVIDENCE / 'webdriver.log').read_text(
+                encoding='utf-8', errors='replace')[-16384:], file=sys.stderr)
+            raise
         finally:
             try:
                 if session:

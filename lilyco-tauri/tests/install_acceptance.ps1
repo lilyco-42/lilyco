@@ -17,7 +17,7 @@ foreach ($pair in @(@($binary,(Join-Path $workspace 'target/release/lilyco-offic
     if (-not (Test-Path -LiteralPath $pair[0])) { throw "Installed binary missing: $($pair[0])" }
     if ((Get-FileHash -LiteralPath $pair[0] -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $pair[1] -Algorithm SHA256).Hash) { throw 'Installer changed the reviewed real binary' }
 }
-foreach ($name in @('ICON-LICENSE.md','icon-source.png','icon-source.json','FRONTEND-LICENSES.json')) {
+foreach ($name in @('ICON-LICENSE.md','icon-source.png','icon-source.json','FRONTEND-LICENSES.json','RUST-LICENSES.json','MICROSOFT-WEBVIEW2-SDK-LICENSE.txt')) {
     $copies = @(Get-ChildItem -LiteralPath $installation -Recurse -File -Filter $name)
     if ($copies.Count -ne 1) { throw "Installed original/notice missing or duplicate: $name" }
     $original = Join-Path $workspace "lilyco-tauri/resources/$name"
@@ -74,6 +74,7 @@ $report = [ordered]@{
     actual_nsis_install = $true
     installed_original_app_and_sidecar_bytes = $true
     installed_full_icon_and_frontend_notices = $true
+    installed_original_rust_and_sdk_notices = $true
     start_menu_target_and_icon = $true
     actual_installed_native_ui_to_sidecar = $true
     waited_for_actual_uninstaller = $true

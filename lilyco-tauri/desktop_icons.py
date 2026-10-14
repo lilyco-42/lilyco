@@ -73,7 +73,8 @@ def prepare():
 
 
 def verify_bundle_notices(base):
-    for name in ['icon-source.png', 'icon-source.json', 'ICON-LICENSE.md']:
+    for name in ['icon-source.png', 'icon-source.json', 'ICON-LICENSE.md',
+                 'FRONTEND-LICENSES.json', 'RUST-LICENSES.json']:
         copies = list(Path(base).rglob(name))
         if len(copies) != 1:
             raise ValueError('Bundle must contain one original resource: ' + name)

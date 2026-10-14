@@ -2,7 +2,7 @@
 // 页面自己不解释任何字段：说法由 lbin 与 CI 上那本对账负责，这里只负责看得见。
 
 const { invoke } = window.__TAURI__.core;
-const { open } = window.__TAURI__.dialog;
+const open = options => invoke("plugin:dialog|open", { options });
 
 const pickBtn = document.getElementById("pick");
 const picked = document.getElementById("picked");
