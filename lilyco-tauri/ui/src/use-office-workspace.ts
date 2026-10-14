@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { chooseOfficeFile, fileName, officeBridge, recommendedCommand, type OfficeCommand, type OfficeValue } from "./office-bridge";
+import { chooseOfficeFile, fileName, officeBridge, recommendedCommand, type OfficeCommand, type OfficeOutput } from "./office-bridge";
 
-interface OfficeResult { file: string; command: string; value: OfficeValue; elapsed: number }
+interface OfficeResult extends OfficeOutput { file: string; command: string; elapsed: number }
 export function useOfficeWorkspace() {
   const [commands, setCommands] = useState<OfficeCommand[]>([]);
   const [file, setFile] = useState<string | null>(null);
@@ -55,8 +55,9 @@ export function useOfficeWorkspace() {
     locked.current = true; setBusy(true); setError(""); setResult(null);
     const started = performance.now();
     try {
-      const value = await officeBridge().core.invoke<OfficeValue>("office_run", { command: request.command, path: request.file });
-      setResult({ ...request, value, elapsed: performance.now() - started });
+      const output = await officeBridge().core.invoke<OfficeOutput>("office_run", { command: request.command, path: request.file });
+      if (typeof output.json !== "string") throw new Error("工具返回的原始 JSON 缺失，请重新安装当前版本。");
+      setResult({ ...request, ...output, elapsed: performance.now() - started });
     } catch (failure) { setError(`未能读取 ${fileName(request.file)}：${String(failure)}`); }
     finally { locked.current = false; setBusy(false); }
   }

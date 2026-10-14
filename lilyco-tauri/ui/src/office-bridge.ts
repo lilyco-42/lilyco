@@ -1,4 +1,5 @@
 export type OfficeValue = null | boolean | number | string | OfficeValue[] | { [key: string]: OfficeValue };
+export interface OfficeOutput { value: OfficeValue; json: string }
 export interface OfficeCommand { name: string; hint: string }
 interface DragEvent { payload: { type: "enter" | "over" | "drop" | "leave"; paths?: string[] } }
 interface OfficeBridge {

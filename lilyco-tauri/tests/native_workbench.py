@@ -58,6 +58,23 @@ def verify_debug_endpoint(value, port):
     return value
 
 
+def compare_cli_content(expected, actual, extension):
+    """Compare independent real invocations, retaining their measured timings."""
+    if extension != 'pdf':
+        assert actual == expected, extension + ' native UI changed the original CLI result'
+        return None
+    # office_pdf.rs measures each invocation independently. Only this documented
+    # top-level duration may differ; every document field must still match.
+    assert isinstance(expected, dict) and isinstance(actual, dict)
+    timings = {'independent_cli_elapsed_ms': expected.get('elapsed_ms'),
+               'ui_invocation_elapsed_ms': actual.get('elapsed_ms')}
+    assert all(type(value) is int and value >= 0 for value in timings.values()), timings
+    expected_content = {key: value for key, value in expected.items() if key != 'elapsed_ms'}
+    actual_content = {key: value for key, value in actual.items() if key != 'elapsed_ms'}
+    assert actual_content == expected_content, 'pdf native UI changed document content'
+    return timings
+
+
 def run(application_override=None, engine_override=None, label='packaged'):
     global EVIDENCE
     EVIDENCE = EVIDENCE / label
@@ -119,7 +136,15 @@ def run(application_override=None, engine_override=None, label='packaged'):
                             return verify_debug_endpoint(json.load(response), debug_port)
                     except (OSError, urllib.error.URLError, http.client.RemoteDisconnected):
                         return False
-                version = wait(webview_ready, 60)
+                try:
+                    version = wait(webview_ready, 60)
+                finally:
+                    diagnostics = subprocess.run([
+                        'pwsh', '-NoProfile', '-File', str(ROOT / 'tests/native-process-diagnostics.ps1'),
+                        '-ApplicationPid', str(application_process.pid),
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=20)
+                    (EVIDENCE / 'owned-native-processes.json').write_text(diagnostics.stdout, encoding='utf-8')
+                    (EVIDENCE / 'owned-native-processes.stderr.log').write_text(diagnostics.stderr, encoding='utf-8')
                 native_launch = {'mode': 'microsoft-webview2-attach', 'process_id': application_process.pid,
                                  'isolated_profile': str(profile), 'loopback_port': debug_port,
                                  'actual_runtime': version, 'no_product_config_override': True}
@@ -210,19 +235,22 @@ if (!button || button.disabled) return false; button.click(); return true;''', t
                 # sort arrays, omit fields, or substitute mocked results.
                 (EVIDENCE / f'original-cli-{extension}.json').write_bytes(expected.stdout)
                 (EVIDENCE / f'actual-ui-{extension}.json').write_text(rendered, encoding='utf-8')
-                if json.loads(rendered) != parsed:
+                try:
+                    timings = compare_cli_content(parsed, json.loads(rendered), extension)
+                except AssertionError:
                     repeat = subprocess.run([str(engine), command, '--path', str(fixture), '--json'],
                                             check=True, capture_output=True, timeout=60)
                     (EVIDENCE / f'repeated-cli-{extension}.json').write_bytes(repeat.stdout)
                     print(json.dumps({'mismatched_format': extension,
                                       'cli_repeat_equal': json.loads(repeat.stdout) == parsed,
                                       'expected': parsed, 'actual': json.loads(rendered)}, ensure_ascii=False), file=sys.stderr)
-                assert json.loads(rendered) == parsed, extension + ' native UI changed the original CLI result'
+                    raise
                 (EVIDENCE / f'native-result-{extension}.png').write_bytes(base64.b64decode(request(prefix + '/screenshot')))
                 assert fixture.read_bytes() == original, 'Reader modified the source document'
                 receipts.append({'format': extension, 'fixture': fixture.name,
                                  'input_sha256': hashlib.sha256(original).hexdigest(),
-                                 'original_cli_equals_actual_ui': True, 'original_file_unchanged': True})
+                                 'original_cli_document_content_equals_actual_ui': True,
+                                 'per_invocation_timings': timings, 'original_file_unchanged': True})
 
             # A failed next file must remove the previous successful result.
             missing = fixtures / 'not-a-real-office-file.docx'

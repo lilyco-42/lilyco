@@ -24,7 +24,7 @@ export function OfficeWorkspace() {
 
   async function copyJson() {
     if (!work.result) return;
-    try { await navigator.clipboard.writeText(JSON.stringify(work.result.value, null, 2)); setCopy("已复制完整 JSON"); }
+    try { await navigator.clipboard.writeText(work.result.json); setCopy("已复制完整 JSON"); }
     catch { setCopy("无法自动复制，请打开原始 JSON 后选中内容复制。"); }
   }
 
@@ -63,7 +63,7 @@ export function OfficeWorkspace() {
           {!work.result ? <div className="flex min-h-64 flex-col items-center justify-center gap-4 p-6 text-center"><span className="rounded-full bg-muted p-4 text-muted-foreground">{work.busy ? <LoaderCircle className="size-7 animate-spin" /> : <FileSearch className="size-7" />}</span><div><p className="text-base font-medium">{work.busy ? "正在读取文件" : "你的下一份文件，清楚可见"}</p><p className="mt-2 max-w-sm text-sm leading-7 text-muted-foreground">{work.busy ? "完成后会在这里显示真实读取结果。" : "从左侧选择想查看的内容，再点击读取文件。"}</p></div></div> : <div className="min-w-0 p-4 sm:p-6">
             <p className="mb-4 break-all text-xs text-muted-foreground">{fileName(work.result.file)} · {commandLabels[work.result.command] || work.result.command}</p>
             <div className="mb-5 flex gap-1" role="group" aria-label="结果显示方式"><Button variant={tab === "readable" ? "secondary" : "ghost"} className="min-h-10" aria-pressed={tab === "readable"} onClick={() => setTab("readable")}>可读视图</Button><Button variant={tab === "json" ? "secondary" : "ghost"} className="min-h-10" aria-pressed={tab === "json"} onClick={() => setTab("json")}>原始 JSON</Button></div>
-            <div data-testid="office-result" className="min-w-0">{tab === "readable" ? <OfficeResultView value={work.result.value} /> : <pre className="max-h-[70vh] overflow-auto rounded-lg bg-muted p-4 text-xs leading-6 whitespace-pre-wrap break-all">{JSON.stringify(work.result.value, null, 2)}</pre>}</div>
+            <div data-testid="office-result" className="min-w-0">{tab === "readable" ? <OfficeResultView value={work.result.value} /> : <pre className="max-h-[70vh] overflow-auto rounded-lg bg-muted p-4 text-xs leading-6 whitespace-pre-wrap break-all">{work.result.json}</pre>}</div>
           </div>}
           {copy && <p role="status" className="flex items-center gap-2 border-t border-border px-6 py-3 text-sm text-muted-foreground"><Check className="size-4" />{copy}</p>}
         </section>

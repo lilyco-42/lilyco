@@ -33,7 +33,8 @@ function cell(value) {
   return JSON.stringify(value, null, 1);
 }
 
-function renderBook(json) {
+function renderBook(output) {
+  const json = output.value;
   body.textContent = "";
   const entries =
     json && typeof json === "object" && !Array.isArray(json)
@@ -52,7 +53,7 @@ function renderBook(json) {
   empty.hidden = true;
   table.hidden = false;
   rawbox.hidden = false;
-  raw.textContent = JSON.stringify(json, null, 2);
+  raw.textContent = output.json;
 }
 
 async function loadCommands() {
