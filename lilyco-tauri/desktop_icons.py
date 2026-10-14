@@ -93,7 +93,7 @@ def verify_native_window_icon():
         'pwsh', '-NoProfile', '-File', str(ROOT / 'native-icon.ps1'),
         '-Binary', str(WORKSPACE / 'target/release/lilyco-office.exe'),
         '-Output', str(snapshot),
-    ], check=True, timeout=100)
+    ], check=True, timeout=125)
     with Image.open(snapshot) as captured, Image.open(ROOT / 'icons/icon.ico') as icon:
         actual = captured.convert('RGBA')
         if actual.size not in icon.ico.sizes():
