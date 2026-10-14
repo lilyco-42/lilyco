@@ -2,11 +2,11 @@ name: Desktop (Tauri)
 
 # 桌面端只在相关文件变化时跑：它要编三个平台，比那批 office 对账便宜不了多少。
 # 产物一律由 CI 交（本机不编）：每次 run 都上传 .msi / .dmg / .AppImage 作为 run 工件，
-# 打了 v* 标签时才顺手挂到 GitHub Release 上。
+# 打了数字版本 v[0-9]* 标签时才顺手挂到 GitHub Release 上。
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ["v[0-9]*"]
     paths:
       - "lilyco-tauri/**"
       - "lilyco-binfmt/**"
@@ -29,7 +29,37 @@ permissions:
   contents: write
 
 jobs:
+  workspace-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Existing desktop and software GPU prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev libxdo-dev libegl1 libgl1-mesa-dri mesa-vulkan-drivers
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vision-workspace-contract
+          cache-on-failure: true
+      - name: Real existing Tauri sidecar
+        shell: bash
+        run: |
+          cargo build --locked -p lilyco-binfmt --bin lbin
+          TRIPLE=$(rustc -vV | sed -n 's|host: ||p')
+          mkdir -p lilyco-tauri/binaries
+          cp target/debug/lbin "lilyco-tauri/binaries/lbin-${TRIPLE}"
+      - name: AGENTS workspace gates
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --workspace --all-targets
+          cargo test --locked --workspace
+
   desktop:
+    needs: workspace-contract
     name: bundle (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -121,6 +151,16 @@ jobs:
             echo "macOS 那份下载后会被 Gatekeeper 拦住 —— 这是实话，不是构建失败"
           fi
 
+      - name: Select only the framework version release tag
+        id: version-tag
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v[0-9]* ]]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: tauri build + bundle
         uses: tauri-apps/tauri-action@v0
         env:
@@ -132,9 +172,9 @@ jobs:
           # 见上面第 2 条：前端零 npm 依赖，所以 CLI 由 npx 现取，版本与 Cargo 那边的 tauri = "2" 同族
           tauriScript: npx --yes @tauri-apps/cli@2
           includeRelease: true
-          # 只有 v* 标签才给 tagName —— 那时才把 bundle 挂到对应 release 上；
+          # 只有数字版本 v[0-9]* 标签才给 tagName —— 那时才把 bundle 挂到对应 release 上；
           # 分支推送留空，action 就走「skipping all uploads」那条分支，只编不改发布
-          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          tagName: ${{ steps.version-tag.outputs.tag }}
 
       # bundle 到底落在哪由 find 说，不靠猜：workspace 成员可能出在 target/release/bundle，
       # 也可能出在 target/<triple>/release/bundle，收齐后平铺进 dist/。
