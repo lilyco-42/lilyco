@@ -262,3 +262,5 @@ apps/desktop-common/desktop_icons.py:11 prepare_icon：仅在 Actions 从固定�
 Desktop workflow仅把 `v[0-9]*` 框架版本标签传给Tauri release上传。
 `vision-studio-*` 虽然以v开头，但不属于框架版本，不能再把office bundle挂进Vision Release。
 已上传的文件保留，防止破坏他人下载；Source/GUI/icon/install验收另行核实。
+
+Desktop 的 workflow 同时复用 Asset Studio 已验证的完整 `workspace-contract`：真实 `lbin` sidecar、`cargo fmt --all -- --check`、`cargo clippy --locked --workspace --all-targets` 与 `cargo test --locked --workspace`；不以仅覆盖部分 crate 的通用 CI 代替 AGENTS 全 workspace 门。
