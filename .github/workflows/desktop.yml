@@ -6,7 +6,7 @@ name: Desktop (Tauri)
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ["v[0-9]*"]
     paths:
       - "lilyco-tauri/**"
       - "lilyco-binfmt/**"
@@ -121,6 +121,16 @@ jobs:
             echo "macOS 那份下载后会被 Gatekeeper 拦住 —— 这是实话，不是构建失败"
           fi
 
+      - name: Select only the framework version release tag
+        id: version-tag
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v[0-9]* ]]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: tauri build + bundle
         uses: tauri-apps/tauri-action@v0
         env:
@@ -134,7 +144,7 @@ jobs:
           includeRelease: true
           # 只有 v* 标签才给 tagName —— 那时才把 bundle 挂到对应 release 上；
           # 分支推送留空，action 就走「skipping all uploads」那条分支，只编不改发布
-          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          tagName: ${{ steps.version-tag.outputs.tag }}
 
       # bundle 到底落在哪由 find 说，不靠猜：workspace 成员可能出在 target/release/bundle，
       # 也可能出在 target/<triple>/release/bundle，收齐后平铺进 dist/。

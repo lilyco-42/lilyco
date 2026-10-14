@@ -253,3 +253,12 @@ apps/desktop-common/desktop_icons.py:11 prepare_icon：仅在 Actions 从固定�
 原生窗口用 pywebview.start(icon=...) 的官方路径；启动回调 record_window_icon 将实际 WinForms Icon 保存为原始 ICO 字节并与包内 ICO 比对，验收必须收到 native_icon_applied=true。没有依赖跨线程写 UI 的 shown 回调。
 
 素材工坊真实引擎测试 `apps/asset-studio/tests/test_studio.py:35` 的 `run_job` 用 monotonic 30秒有界轮询并检查HTTP200；shared Windows runner 的24帧512×512 Spine渲染可能超过旧5秒。原始帧差异、GIF透明像素、导出与失败状态断言均保留；生产jobs的120秒限时和取消行为不变。
+
+### 发行边界：现有 office Tauri 桌面端
+
+`lilyco-tauri/src/lib.rs` 注册 `commands::office_commands` 和 `office_run`；
+`tauri.conf.json` 明确使用原生 `binaries/lbin` sidecar，不是截图或空网页。
+办公字段仍由相同 lilyco-binfmt 原CLI读取；安装文件存在不等于全部GUI验收完成。
+Desktop workflow仅把 `v[0-9]*` 框架版本标签传给Tauri release上传。
+`vision-studio-*` 虽然以v开头，但不属于框架版本，不能再把office bundle挂进Vision Release。
+已上传的文件保留，防止破坏他人下载；Source/GUI/icon/install验收另行核实。
