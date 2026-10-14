@@ -271,3 +271,5 @@ Desktop 的 workflow 同时复用 Asset Studio 已验证的完整 `workspace-con
 Desktop 的 workspace-contract 与三平台 bundle 在编译前都准备图标；Windows 实际 EXE/NSIS PE 原始图像帧、macOS .app ICNS、Debian PNG 载荷逐字节验证，再保存 icon-build/icon-package-evidence。MSI 目前仅证实生成，并非实际安装/卸载验收；这一步不证明整个 Office 高级 UI 和销售交付已经完成。不使用编译前“文件存在”冒充包内验证，不本机执行转换/测试/构建。
 
 Office 图标包暂只保存 Actions 产物，不在 tauri-action 构建阶段公开上传（平台资源检查发生在其后）。后续仍须真实原生界面、安装/卸载与许可审查，再经独立审核发行；不能先公开再验证。
+
+Office Windows图标门还调用 native-icon.ps1 启动实际冻结程序，按进程归属读取 WM_GETICON / 窗口类 HICON，只回读不设置图标。比较 ICO/同尺寸 PNG 的实际不透明像素与 alpha 轮廓，有限允许 GDI 单级舍入；WM_CLOSE 必须真正退出，保存截图摘要。完整 GUI 与安装器验收仍独立待做。

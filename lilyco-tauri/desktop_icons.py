@@ -85,6 +85,42 @@ def verify_bundle_notices(base):
             raise ValueError('Packaged original resource changed: ' + name)
     return True
 
+
+def verify_native_window_icon():
+    from PIL import Image
+    snapshot = ROOT / 'resources/native-window-icon.png'
+    subprocess.run([
+        'pwsh', '-NoProfile', '-File', str(ROOT / 'native-icon.ps1'),
+        '-Binary', str(WORKSPACE / 'target/release/lilyco-office.exe'),
+        '-Output', str(snapshot),
+    ], check=True, timeout=100)
+    with Image.open(snapshot) as captured, Image.open(ROOT / 'icons/icon.ico') as icon:
+        actual = captured.convert('RGBA')
+        if actual.size not in icon.ico.sizes():
+            raise ValueError('Native window returned an unexpected icon size')
+        expected = icon.ico.getimage(actual.size).convert('RGBA')
+        comparisons = [expected]
+        # Tauri may select its PNG rather than the ICO for a window icon.
+        for name in ['32x32.png', '128x128.png', '128x128@2x.png', 'icon.png']:
+            with Image.open(ROOT / 'icons' / name) as png:
+                if png.size == actual.size:
+                    comparisons.append(png.convert('RGBA'))
+        if actual.getchannel('A').getextrema() != (0, 255):
+            raise ValueError('Native icon lost the original alpha silhouette')
+        for expected in comparisons:
+            pixels = [(e, a) for e, a in zip(expected.getdata(), actual.getdata()) if e[3] == 255]
+            if len(pixels) < 50 or any(a[3] != 255 for _, a in pixels):
+                continue
+            errors = [abs(e[c] - a[c]) for e, a in pixels for c in range(3)]
+            # Allow only single-level raster rounding on opaque pixels, never a
+            # substituted default logo. Alpha edge pixels are premultiplied by GDI.
+            if max(errors) <= 4 and sum(errors) / len(errors) <= 1:
+                return {'native_icon_matches_reviewed_pixels': True,
+                        'normal_native_close': True, 'size': list(actual.size),
+                        'opaque_pixels_compared': len(pixels),
+                        'snapshot_sha256': digest(snapshot)}
+    raise ValueError('Actual native window icon is not the reviewed Lyco image')
+
 def verify(platform):
     check_source()
     receipt = json.loads((ROOT / 'resources/icon-build.json').read_text(encoding='utf-8'))
@@ -100,6 +136,7 @@ def verify(platform):
     if platform == 'windows':
         binary = WORKSPACE / 'target/release/lilyco-office.exe'
         report['application'] = helper().verify_embedded_icon(binary, ROOT / 'icons/icon.ico')
+        report['native_window'] = verify_native_window_icon()
         installers = list((WORKSPACE / 'target').glob('**/bundle/nsis/*-setup.exe'))
         if len(installers) != 1:
             raise ValueError('Expected exactly one real NSIS installer')

@@ -207,6 +207,7 @@ jobs:
           fi
           while IFS= read -r f; do cp "$f" dist/; done < /tmp/bundles.txt
           cp lilyco-tauri/resources/icon-build.json lilyco-tauri/resources/icon-package-evidence.json dist/
+          if [ "$RUNNER_OS" = "Windows" ]; then cp lilyco-tauri/resources/native-window-icon.png dist/; fi
           echo "=== 收到的工件 ==="
           ls -l dist
 
