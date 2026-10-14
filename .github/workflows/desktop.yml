@@ -128,6 +128,7 @@ jobs:
       - name: Collect actual locked Rust and native SDK original notices
         run: |
           python lilyco-tauri/tests/test_rust_notices.py
+          python lilyco-tauri/tests/test_native_endpoint.py
           python lilyco-tauri/collect_rust_notices.py
 
       # sidecar 得先有：桌面端不自己再造一个读者，它跑的就是 CI 上那本对账认的 lbin

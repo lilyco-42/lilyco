@@ -9,9 +9,11 @@ from pathlib import Path
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 import urllib.error
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE = ROOT.parent
@@ -45,6 +47,17 @@ def wait(check, seconds=60):
     raise TimeoutError('Actual native workbench did not reach the expected state')
 
 
+def verify_debug_endpoint(value, port):
+    """Only attach to the CI-owned loopback WebView, never a remote browser."""
+    endpoint = urlparse(value.get('webSocketDebuggerUrl', ''))
+    if (endpoint.scheme != 'ws' or endpoint.hostname not in {'127.0.0.1', 'localhost'}
+            or endpoint.port != port or endpoint.username or endpoint.password
+            or not endpoint.path.startswith('/devtools/browser/')
+            or not isinstance(value.get('Browser'), str) or not value['Browser']):
+        raise ValueError('Unexpected native WebView debugging endpoint')
+    return value
+
+
 def run(application_override=None, engine_override=None, label='packaged'):
     global EVIDENCE
     EVIDENCE = EVIDENCE / label
@@ -53,9 +66,17 @@ def run(application_override=None, engine_override=None, label='packaged'):
     application = Path(application_override) if application_override else WORKSPACE / ('target/release/lilyco-office' + suffix)
     engine = Path(engine_override) if engine_override else WORKSPACE / ('target/release/lbin' + suffix)
     with (EVIDENCE / 'webdriver.log').open('w', encoding='utf-8') as log:
-        process = subprocess.Popen(['tauri-driver', '--port', str(PORT), '--native-port', '4448'],
+        # Windows uses Microsoft's documented attach mode with the same frozen
+        # application and current Evergreen runtime. No old runtime, alternate
+        # runner, test-only application feature, mock IPC, or app config change.
+        driver_command = (['msedgedriver.exe', '--port=' + str(PORT), '--verbose'] if sys.platform == 'win32'
+                          else ['tauri-driver', '--port', str(PORT), '--native-port', '4448'])
+        process = subprocess.Popen(driver_command,
                                    stdout=log, stderr=subprocess.STDOUT)
         session = None
+        application_process = None
+        application_log = None
+        native_launch = None
         try:
             def listening():
                 if process.poll() is not None:
@@ -64,7 +85,7 @@ def run(application_override=None, engine_override=None, label='packaged'):
                     # The intermediary can listen before its real native driver.
                     # Wait for both listeners and a successful native /status;
                     # never retry the mutating POST /session after disconnection.
-                    for port in [PORT, 4448]:
+                    for port in ([PORT] if sys.platform == 'win32' else [PORT, 4448]):
                         with socket.create_connection(('127.0.0.1', port), timeout=1):
                             pass
                     return request('/status', timeout=2).get('ready') is True
@@ -72,14 +93,39 @@ def run(application_override=None, engine_override=None, label='packaged'):
                     return False
             wait(listening, 30)
             # Same official capabilities as tauri-apps/webdriver-example.
-            options = {'application': str(application.resolve())}
+            capabilities = {'tauri:options': {'application': str(application.resolve())}}
             if sys.platform == 'win32':
-                # The pinned driver only forwards Edge's WebView2-specific
-                # launch options when this object is present (server.rs:54).
-                options['webviewOptions'] = {}
-            opened = request('/session', 'POST', {'capabilities': {'alwaysMatch': {
-                'tauri:options': options,
-            }}})
+                runner_temp = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
+                profile = Path(tempfile.mkdtemp(prefix='office-webview-' + label + '-', dir=runner_temp)).resolve()
+                if not profile.is_relative_to(runner_temp):
+                    raise ValueError('Native test profile escaped the runner temp directory')
+                with socket.socket() as reservation:
+                    reservation.bind(('127.0.0.1', 0))
+                    debug_port = reservation.getsockname()[1]
+                environment = os.environ.copy()
+                environment['WEBVIEW2_USER_DATA_FOLDER'] = str(profile)
+                environment['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = (
+                    f'--remote-debugging-port={debug_port} --remote-debugging-address=127.0.0.1')
+                application_log = (EVIDENCE / 'application.log').open('w', encoding='utf-8')
+                application_process = subprocess.Popen([str(application.resolve())], env=environment,
+                    stdout=application_log, stderr=subprocess.STDOUT)
+
+                def webview_ready():
+                    if application_process.poll() is not None:
+                        raise RuntimeError('Actual Office process exited before its WebView became ready')
+                    try:
+                        url = f'http://127.0.0.1:{debug_port}/json/version'
+                        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url, timeout=2) as response:
+                            return verify_debug_endpoint(json.load(response), debug_port)
+                    except (OSError, urllib.error.URLError, http.client.RemoteDisconnected):
+                        return False
+                version = wait(webview_ready, 60)
+                native_launch = {'mode': 'microsoft-webview2-attach', 'process_id': application_process.pid,
+                                 'isolated_profile': str(profile), 'loopback_port': debug_port,
+                                 'actual_runtime': version, 'no_product_config_override': True}
+                capabilities = {'browserName': 'webview2', 'ms:edgeChromium': True,
+                                'ms:edgeOptions': {'debuggerAddress': f'127.0.0.1:{debug_port}'}}
+            opened = request('/session', 'POST', {'capabilities': {'alwaysMatch': capabilities}})
             session = opened['sessionId']
             prefix = '/session/' + session
             request(prefix + '/timeouts', 'POST', {'script': 90000, 'pageLoad': 120000, 'implicit': 0})
@@ -205,6 +251,7 @@ if (!button || button.disabled) return false; button.click(); return true;''', t
             report = {'platform': sys.platform, 'application_sha256': hashlib.sha256(application.read_bytes()).hexdigest(),
                       'actual_tauri_namespace': True, 'actual_runtime_event_to_rust_sidecar_to_ui': receipts,
                       'actual_windows_file_dialog': native_dialog,
+                      'actual_windows_launch': native_launch,
                       'self_hosted_chinese_font_loaded': fonts,
                       'failed_read_clears_previous_result': True, 'history_can_be_cleared': True,
                       'native_layouts': layouts}
@@ -215,6 +262,10 @@ if (!button || button.disabled) return false; button.click(); return true;''', t
             log.flush()
             print('Actual driver diagnostics:\n' + (EVIDENCE / 'webdriver.log').read_text(
                 encoding='utf-8', errors='replace')[-16384:], file=sys.stderr)
+            if application_log:
+                application_log.flush()
+                print('Actual application diagnostics:\n' + (EVIDENCE / 'application.log').read_text(
+                    encoding='utf-8', errors='replace')[-16384:], file=sys.stderr)
             raise
         finally:
             try:
@@ -227,6 +278,15 @@ if (!button || button.disabled) return false; button.click(); return true;''', t
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait()
+                if application_process and application_process.poll() is None:
+                    application_process.terminate()
+                    try:
+                        application_process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        application_process.kill()
+                        application_process.wait()
+                if application_log:
+                    application_log.close()
 
 
 if __name__ == '__main__':
