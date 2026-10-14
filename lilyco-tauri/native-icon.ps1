@@ -57,9 +57,20 @@ try {
     [void][OfficeWindowIcon]::GetWindowThreadProcessId($window,[ref]$owner)
     if ($owner -ne $process.Id) { throw 'Icon inspection must target the launched product process' }
     $iconHandle = [IntPtr]::Zero
-    [void][OfficeWindowIcon]::SendMessageTimeout($window,0x007F,[IntPtr]1,[IntPtr]::Zero,2,2000,[ref]$iconHandle)
-    if ($iconHandle -eq [IntPtr]::Zero) { $iconHandle = [OfficeWindowIcon]::GetClassLongPtr($window,-14) }
-    if ($iconHandle -eq [IntPtr]::Zero) { throw 'Actual native Office window has no icon' }
+    $iconDeadline = [DateTime]::UtcNow.AddSeconds(15)
+    while ([DateTime]::UtcNow -lt $iconDeadline -and $iconHandle -eq [IntPtr]::Zero) {
+        # Windows may set only the per-window small icon, and it may be assigned
+        # after HWND creation. Read BIG, SMALL and SMALL2 before class fallbacks.
+        foreach ($kind in @(1,0,2)) {
+            [void][OfficeWindowIcon]::SendMessageTimeout($window,0x007F,[IntPtr]$kind,[IntPtr]::Zero,2,1000,[ref]$iconHandle)
+            if ($iconHandle -ne [IntPtr]::Zero) { break }
+        }
+        foreach ($index in @(-14,-34)) {
+            if ($iconHandle -eq [IntPtr]::Zero) { $iconHandle = [OfficeWindowIcon]::GetClassLongPtr($window,$index) }
+        }
+        if ($iconHandle -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 100 }
+    }
+    if ($iconHandle -eq [IntPtr]::Zero) { throw 'Actual native Office window has no big or small icon after initialization' }
     # Read the OS-owned icon; this test never sets a window icon.
     $icon = [Drawing.Icon]::FromHandle($iconHandle).Clone()
     try {
