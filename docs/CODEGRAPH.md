@@ -303,3 +303,5 @@ baab 的完整 workspace/CI/Vision、Mac 包与 Linux 真 UI 四格式/历史/�
 40b 的真实 Linux PDF 仅独立调用 elapsed_ms=2 与 UI 调用=3 不同，源 office_pdf.rs 使用 start.elapsed() 测量，不能把独立运行耗时当文档字段错误。commands::OfficeOutput/from_stdout 保留同一次原 CLI 的完整 UTF-8 JSON 字符串及结构化 value；原始 JSON 与复制功能直接使用 json 字符串，不由 JS 重编码大整数/小数或空白。Rust 回归核验大整数、原始小数词法、中文、空白、耗时和非法输入；原 CLI/parser/白名单不变。native compare_cli_content 仅允许 PDF 顶层 elapsed_ms 的合法独立测量差，所有其它字段完整严格相等，原两次输出仍留证，新增负值/布尔/缺字段/新增字段/文档变化拒绝测试，不能宣称两次 JSON 全字节相同。
 
 40b Windows attach 仍在实际 /json/version readiness 超时，chooser/安装验收未进入。native-process-diagnostics.ps1 仅在 Actions 读取本次启动 PID 及后代的命令行、当前 WebView2 注册版本和实际 driver 版本，20秒有界，失败前保存独立诊断；不枚举输出其他用户命令/环境/凭据、不按名称杀进程、不换旧运行时让门绿。此修复与上游许可原文补齐仍须新 exact-head Actions，Office 不公开销售。
+
+40b Vision Windows原生窗口正常，但Chocolatey NSIS feed返回503，旧pwsh未检查退出码而继续调用不存在makensis，安装未进入。vision-studio.yml显式固定当前观察NSIS3.13.0，最多三次仅安装依赖尝试，验证真实compiler位置/版本后输出GITHUB_PATH；任何安装/编译失败即时终止，不能以缺文件后的后续命令掩盖原始失败。此修改待新Actions，不将旧Vision通过/公开包视为当前候选通过。
