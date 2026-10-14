@@ -17,6 +17,26 @@ import zipfile
 ROOT = Path(__file__).resolve().parent
 WORKSPACE = ROOT.parent
 NOTICE_PREFIXES = ('LICENSE', 'LICENCE', 'COPYING', 'NOTICE', 'COPYRIGHT')
+UPSTREAM_NOTICES = {
+    ('alloc-stdlib', '0.3.0'): {
+        'repository': 'https://github.com/dropbox/rust-alloc-no-stdlib',
+        'commit': '0a81fd6928ea3b33c8cd484aa4575d50ffb98012', 'package_path': 'alloc-stdlib',
+        'url': 'https://raw.githubusercontent.com/dropbox/rust-alloc-no-stdlib/0a81fd6928ea3b33c8cd484aa4575d50ffb98012/LICENSE',
+        'sha256': 'c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae',
+    },
+    ('dlopen2', '0.8.2'): {
+        'repository': 'https://github.com/OpenByteDev/dlopen2',
+        'commit': 'cc80e4a0a90d499b677fdf7743699b4b3a43a989', 'package_path': 'dlopen2',
+        'url': 'https://raw.githubusercontent.com/OpenByteDev/dlopen2/cc80e4a0a90d499b677fdf7743699b4b3a43a989/LICENSE',
+        'sha256': '39fa265207450e77c62e90c5594a06c085b655d8374c7ced4bf7894b6bd95dd2',
+    },
+    ('dlopen2_derive', '0.4.3'): {
+        'repository': 'https://github.com/OpenByteDev/dlopen2',
+        'commit': 'cc80e4a0a90d499b677fdf7743699b4b3a43a989', 'package_path': 'dlopen2-derive',
+        'url': 'https://raw.githubusercontent.com/OpenByteDev/dlopen2/cc80e4a0a90d499b677fdf7743699b4b3a43a989/LICENSE',
+        'sha256': '39fa265207450e77c62e90c5594a06c085b655d8374c7ced4bf7894b6bd95dd2',
+    },
+}
 
 
 def sha(data):
@@ -172,6 +192,25 @@ def original_crate_member(archive, path, limit):
         return data
 
 
+def collect_upstream_notice(package, archive):
+    policy = UPSTREAM_NOTICES.get((package['name'], package['version']))
+    if policy is None:
+        return {}
+    if package.get('repository', '').rstrip('/') != policy['repository']:
+        raise ValueError('Dependency repository differs from the reviewed original notice')
+    prefix = f"{package['name']}-{package['version']}/"
+    vcs = json.loads(original_crate_member(archive, prefix + '.cargo_vcs_info.json', 16384))
+    if (vcs.get('git', {}).get('sha1') != policy['commit'] or vcs['git'].get('dirty')
+            or vcs.get('path_in_vcs') != policy['package_path']):
+        raise ValueError('Locked dependency VCS differs from the reviewed original notice')
+    original = fetch(policy['url'], 512 * 1024)
+    if not original or sha(original) != policy['sha256']:
+        raise ValueError('Upstream original notice bytes differ from the reviewed source')
+    return {'LICENSE': {'source': policy['url'], 'source_commit': policy['commit'],
+                        'sha256': sha(original), 'original_base64': base64.b64encode(original).decode('ascii'),
+                        'text': original.decode('utf-8', errors='replace')}}
+
+
 def selected_packages():
     rust = subprocess.check_output(['rustc', '-vV'], text=True, encoding='utf-8')
     host = re.search(r'^host: (.+)$', rust, re.M).group(1)
@@ -205,20 +244,23 @@ def collect_packages(packages):
             for path in WORKSPACE.iterdir():
                 if path.is_file() and path.name.upper().startswith(NOTICE_PREFIXES):
                     texts['workspace/' + path.name] = read_notice(WORKSPACE, path)
-        if not texts:
-            missing.append({'name': package['name'], 'version': package['version'], 'license': package.get('license')})
         archive_checksum = None
+        upstream = {}
         if (package.get('source') or '').startswith('registry+'):
             archive, archive_checksum = sealed_crate(package)
             for path, notice in texts.items():
                 original = original_crate_member(archive, f"{package['name']}-{package['version']}/{path}", 512 * 1024)
                 if original != base64.b64decode(notice['original_base64']):
                     raise ValueError('Extracted dependency notice differs from the locked original crate')
+            if not texts:
+                upstream = collect_upstream_notice(package, archive)
+        if not texts and not upstream:
+            missing.append({'name': package['name'], 'version': package['version'], 'license': package.get('license')})
         notices.append({'name': package['name'], 'version': package['version'],
                         'license': package.get('license'), 'source': package.get('source'),
                         'repository': package.get('repository'),
                         'cargo_archive_sha256': archive_checksum,
-                        'notices': texts})
+                        'notices': texts, 'upstream_original_notices': upstream})
     return notices, missing
 
 

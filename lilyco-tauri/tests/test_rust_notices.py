@@ -3,6 +3,7 @@ import base64
 import hashlib
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -10,6 +11,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 import warnings
 import zipfile
 
@@ -102,6 +104,33 @@ class ProvenancePolicy(unittest.TestCase):
                                 env=environment, capture_output=True, text=True, timeout=10)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('only runs in GitHub Actions', result.stderr)
+
+    def test_upstream_notice_requires_exact_locked_vcs_and_original_bytes(self):
+        package = {'name': 'example', 'version': '1.0', 'repository': 'https://github.com/example/library'}
+        original = b'Complete original copyright and permission notice'
+        policy = {'repository': package['repository'], 'commit': 'a' * 40, 'package_path': 'example',
+                  'url': 'https://raw.githubusercontent.com/example/library/' + 'a' * 40 + '/LICENSE',
+                  'sha256': hashlib.sha256(original).hexdigest()}
+        vcs = {'git': {'sha1': policy['commit']}, 'path_in_vcs': policy['package_path']}
+        def archive(info):
+            data = json.dumps(info).encode()
+            output = io.BytesIO()
+            with tarfile.open(fileobj=output, mode='w:gz') as tar:
+                member = tarfile.TarInfo('example-1.0/.cargo_vcs_info.json');member.size = len(data)
+                tar.addfile(member, io.BytesIO(data))
+            return output.getvalue()
+        with patch.dict(notices.UPSTREAM_NOTICES, {('example', '1.0'): policy}), patch.object(notices, 'fetch', return_value=original):
+            result = notices.collect_upstream_notice(package, archive(vcs))
+            self.assertEqual(base64.b64decode(result['LICENSE']['original_base64']), original)
+            for info in [{**vcs, 'git': {'sha1': 'b' * 40}},
+                         {**vcs, 'git': {'sha1': 'a' * 40, 'dirty': True}},
+                         {**vcs, 'path_in_vcs': 'another-package'}]:
+                with self.assertRaisesRegex(ValueError, 'VCS'):
+                    notices.collect_upstream_notice(package, archive(info))
+            with self.assertRaisesRegex(ValueError, 'repository'):
+                notices.collect_upstream_notice({**package, 'repository': 'https://github.com/other/library'}, archive(vcs))
+            with patch.object(notices, 'fetch', return_value=original + b'changed'), self.assertRaisesRegex(ValueError, 'bytes'):
+                notices.collect_upstream_notice(package, archive(vcs))
 
 
 if __name__ == '__main__':
