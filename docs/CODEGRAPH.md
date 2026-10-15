@@ -21,6 +21,19 @@ flowchart TD
 
 ## 1. Workspace 依赖（严格单向，禁止反向）
 
+### 应用扩展：视频工坊（开发中）
+
+`apps/media-studio/` 以 React/shadcn + FastAPI/WebView 复用原 `lilyco-ffmpeg/src/main.rs::run_ffmpeg`，
+不另写编码器或 core 执行器。四个预设（压缩、转格式、缩放、片段）由 `studio/adapters.py::arguments` 映射到同一原命令；
+实际 MCP 工具名及字段来自原 `tools/list`，资源和宿主路径限制在 UI 边界，领域参数仍交原 schema 校验。
+`studio/app.py::create_app` 限 loopback、Host/Origin、独立 HttpOnly Cookie；上传先由受限 ffprobe 读取真实容器/尺寸/时长，
+拒绝伪装播放列表；每次输入仅写临时工作区，不接受命令/输入/输出路径。
+`studio/jobs.py::Jobs` 管理原 MCP 调用、进度、512 MB 输出限额、取消及产物清理；Unix 进程组、Windows nested Job 仅清理本次引擎后代。
+前端 `ui/src/media-workspace.tsx` 与 `use-media-workspace.ts` 处理原件、成果、设置、主题与断线重查；清除/换参数必须丢弃旧成果。
+原 shadcn 源只读，Noto Sans SC 字体自托管，Lyco 源图和独立 IP 许可保留。
+`.github/workflows/media-studio.yml` 是构建/测试入口：完整 workspace 门禁、原 lffmpeg、四个真实转码/解码流程、取消、
+HTTP隔离、320–1440宽度键盘/视频帧预览及删除回归。当前 EXE/MSI、Windows 原生/安装和完整运行时许可载荷尚未交付，不能当已发行产品。
+
 ### 应用扩展：素材工坊
 
 `apps/asset-studio/` 是独立的本机 FastAPI + React/shadcn 前端，调用已编译 `laic`，不复制解析器或 core 执行器。
