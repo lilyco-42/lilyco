@@ -274,6 +274,41 @@ Office 图标包暂只保存 Actions 产物，不在 tauri-action 构建阶段�
 
 Office Windows图标门还调用 native-icon.ps1 启动实际冻结程序，按进程归属读取 WM_GETICON / 窗口类 HICON，只回读不设置图标。比较 ICO/同尺寸 PNG 的实际不透明像素与 alpha 轮廓，有限允许 GDI 单级舍入；WM_CLOSE 必须真正退出，保存截图摘要。完整 GUI 与安装器验收仍独立待做。
 
+### Office 0.3.2 · shadcn 工作台及真实原生验收
+
+`lilyco-tauri/ui/src/office-bridge.ts` 使用官方 `window.__TAURI__`、真实 dialog 与本窗口 drag-drop；修复原 static app.js 的 `window.__TAURI` 拼写。`use-office-workspace.ts` 只调用 `office_commands/office_run`，原 Rust 白名单/lbin 处理器不改，当前读取锁止文件/参数切换，新文件、失败或新命令清除旧结果。最近路径仅在窗口内存最多八条，可逐条/全部忘记；只有主题进入 localStorage。
+`office-workspace.tsx` 组合原始 shadcn primitives；`office-result-view.tsx` 以 40 项分批展示原 JSON，完整原文可复制/查看，不把结构查看器宣传成 Office 编辑器或像素渲染器。UI依赖复用已有 Asset Studio 锁图，不手改官方组件；来源/hash和MIT原文保留。DESIGN/.design-context记录品牌与原界面审查。
+Desktop Actions 先 npm ci/类型检查/Vite静态构建到原 frontend，再保存完整 runtime依赖许可至 resources/FRONTEND-LICENSES.json；组件摘要必须相同，缺完整license报失败。UI只在Actions生成，保留普通workspace的可编译静态来源，没有本机编译/运行。
+`tests/native_workbench.py` 用官方 tauri-driver 2.1.0 连接真实冻结程序，不mock窗口IPC或原CLI；本窗口native事件选真实producer fixture，实际Rust适配器调用原二进制，文档/表格/幻灯片/PDF各类UI文档字段与原CLI输出相同（PDF每次调用的elapsed_ms单独记录且必须是非负整数），且原件字节不变。缺失文件的真实失败不得保留上一个结果；最近记录可真正清除。320/520/768/1180/1440原生窗口截图及溢出证据保存。Windows driver由官方文档所用 msedgedriver-tool 固定源码8c4b34f匹配当前WebView2安装；Linux在Xvfb下用对应WebKitGTK driver。
+`tests/install_acceptance.ps1` 只在Actions RUNNER_TEMP已校验的新目录安装真正NSIS；原EXE/sidecar/图标与frontend完整notice byte一致，真实菜单shortcut/注册表存在，再从安装目录执行同一native UI/CLI流程。复制原卸载器并用官方 `_?=` 等待真实清理，不靠父进程退出；已安装payload/shortcut/注册表须删除，而用户在安装目录添加的文档原件必须保留。尚未过门前全部为待验收代码，MSI与macOS安装/完整分发仍未据此宣称完成。
 Windows HWND 出现不代表图标初始化完成，native-icon.ps1 在有限15秒内读取实际BIG/SMALL/SMALL2和class大小图标；仍以原生像素/alpha及正常关闭证明，不设置图标、不用从EXE提取图片冒充窗口图标。966的实际Windows测试曾在只读取BIG/class-big时报无图标，Linux/macOS已通过，须用修复后的新head重新验收。Python宿主的125秒总预算覆盖窗口60秒、图标15秒、关闭30秒及PowerShell初始化；三个阶段仍分别有限截止。
 
+Windows 原生验收通过 `tests/windows_native_process.py::launch_non_elevated` 启动相同的冻结／已安装 EXE。
+微软说明提升权限的 WebView2 宿主会忽略环境中的浏览器参数；这与 13e79b0 的隔离 profile 已生效而调试参数未生效的现象一致，仍需当前 CI 权限与真实 WebView2 证据验证。
+启动器先测父进程真实 token；管理员 CI 使用自己的 restricted LUA token、移除特权并设 medium integrity，启动后再核对实际子进程不是 elevated。
+不修改产品配置／注册表策略、不换旧 runtime、不向发布包植入调试开关；`native-launch-security.json` 只保存权限属性，不保存环境或凭据。
+`tests/test_windows_native_process.py` 仅在 Actions 的 Windows job 运行真实进程，检查 Unicode 环境与引用参数、普通权限及按本次进程 handle 取消；原生选择器、四格式原 CLI 往返、安装／卸载和界面截图门全部保留。当前方案尚未取得新 CI 通过证据，不能称 Windows 已修复。
+依据：[WebView2 flags](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/webview-features-flags)、[CreateRestrictedToken](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-createrestrictedtoken)、[CreateProcessAsUserW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessasuserw)。
+
+`lilyco-tauri/collect_rust_notices.py` 只在 Actions 从锁定的目标平台 `cargo tree/metadata` 收集实际 Office 与 lbin 的正常依赖闭包、完整许可原字节和 crate archive 摘要；没有完整文本的项如实列出。Windows 从实际 `webview2-com-sys` Cargo VCS 来源定位 SDK 版本，再按微软 NuGet service index/registration/catalog 的 SHA512 与大小核对官方包，并比对实际 MSVC 静态库原字节。拒绝跨来源重定向、重复 ZIP 条目及超限解压，完整 SDK 许可与 RUST-LICENSES 随 resources 打包。`tests/test_rust_notices.py` 的改字节/错误算法/重复条目/空文本/越界来源回归只在 CI 运行。Mac/Deb bundle 以及 Windows 安装目录核对新增 notice 原字节；审查报告保持 `redistribution_audit_complete=false`，收集元数据不能替代标准库、实际 native 载荷、source obligations 与完整发行审核。
+
+ffb 的 Linux 原生门曾在 POST /session 前后真实断开，尚未进入文件读取验收；不能把 Mac 包或 Linux PE/PNG 载荷门代替 GUI 通过。native_workbench.py 依官方示例仅发送 tauri:options，不强设不兼容的 wry browserName，先等 intermediary/native 两个 listener 和真正 /status ready；只轮询只读状态，不重放 POST /session。失败时输出有界真实 webdriver 日志并保留 Actions 诊断工件，完整四种文件/原件/失败清理/历史/尺寸断言仍保留。
+
+官方 dialog 插件的初始化脚本只覆盖 alert/confirm，不导出 `window.__TAURI__.dialog`；新 bridge 与静态 fallback 使用其官方 guest API 的相同 `plugin:dialog|open` 命令（保留 dialog:allow-open），无新增服务器/解析器/依赖。Windows native-file-dialog.ps1 只在 Actions 操作精确产品进程、指定标题的真实系统 chooser：填入独立 DOCX fixture 并点击 Open，第二次真实 Cancel 保留当前选中项。第一次 docx 读取必须消费 chooser 返回值而非测试注入路径；其他格式仍走实际窗口事件。此新门尚待 CI，不能以函数存在冒充系统对话框可用。
 563 的 Windows 真实窗口图标像素和 WM_CLOSE 已通过，后续 NSIS PE 图标核对发现安装器仍使用默认图标，故完整门仍 FAIL。`tauri.conf.json` 明确将 `bundle.windows.nsis.installerIcon/uninstallerIcon` 指向相同七尺寸 ICO，原始 EXE/NSIS PE 多帧核对保持不变；源码回归删除 installerIcon 时必须拒绝，不能把“应用 EXE 有图标”冒充“安装器有图标”。Linux/macOS 563 包载荷已通过，不替代修复后的 Windows 当前产物。
+
+baab 的完整 workspace/CI/Vision、Mac 包与 Linux 真 UI 四格式/历史/尺寸门已通过；Windows 实际 SDK provenance 已读取，但署名归集错误依赖不存在的 `.cargo-checksum.json`。collector 改用 Cargo.lock checksum 封存真实 registry/cache `.crate`，完整 license 与实际 WebView2 静态库都须与其原始 tar 成员逐字节一致，再对照官方 NuGet SDK。不存在 vendor checksum 文件不能跳过锁定源码校验；增加改 archive 字节/错成员/超限回归。该修复仍须新 head 全 Actions 门，不能拿 baab 的 Linux 或 3c 的图标门替代 Windows 完整安装/界面验收。
+
+真实 baab Linux 1180/320 窗口截图发现中文缺字方块，DOM 字符正确与无溢出断言不能证明字形可读。Office UI 增加自托管 @fontsource-variable/noto-sans-sc 5.3.1（官方 npm integrity 固定、无传递依赖），将其放在字体栈首项，OFL完整文本归入包内frontend署名；不依赖用户额外安装字体或远端字体网络。原生门须实际 document.fonts.load 返回非空 loaded font faces，并保存每种真实文件读取后的窗口截图以及各尺寸截图。字体载荷/真实渲染仍待 Actions 与图像审查，没有在本机 npm install/build/字体转换或运行产品。
+
+128 的实际 Windows driver 返回 DevToolsActivePort 不存在：按固定 tauri-driver 2.1.0 的 server.rs:54，Windows capabilities 显式传 webviewOptions={}，避免 Edge 按普通浏览器启动参数处理应用；不重试会改变状态的 POST/session。Linux 已真正进入 PDF 读取，但完整 CLI/UI JSON 比对失败；保留原断言并新增真实两份 JSON、同一 CLI 二次读取诊断，尚未判定是解析/传输精度还是重复读取差异，不能排序/舍入数据来消除失败。
+
+204 的实际 Linux 真实字体/四格式/完整JSON/历史/尺寸门已通过，Windows加空webviewOptions仍POST/session失败。Microsoft官方WebView2指南支持先启动应用再通过DebuggerAddress附加，runner-images#14738也记录同类Evergreen启动问题（该issue不是本产品根因已证实的证明）。Windows验收现直接启动相同冻结/安装Office EXE，仅给该CI进程设新的RUNNER_TEMP隔离profile和随机loopback调试端口，等真实/json/version后用相同当前版本msedgedriver标准WebView2 attach能力；Linux保留原tauri-driver。原生chooser、完整CLI↔UI、原件不变、历史、尺寸、NSIS安装/卸载全部保留；不更换旧runtime/windows runner、不修改生产配置或引入test-only app feature。endpoint拒绝外网、错端口、带credentials和非browser目标，tests/test_native_endpoint.py只在Actions验证。此方式尚待新currentCI，不能因写好附加流程宣称Windows修复。
+
+分发署名三项缺失已定位：alloc-stdlib0.3.0与dlopen2/derive实际锁定crate没有LICENSE，但其.cargo_vcs_info定位的相同Git提交的上游根LICENSE存在。collect_upstream_notice按已审查的仓库、包路径、GitSHA与全文SHA取原始BSD/MIT许可，另列upstream_original_notices，不能把上游文字冒充crate内文件；拒绝不同仓库/dirty源码/错commit/错package path/改字节。MPL selectors与Unix sigchld缺全文、Rust标准库及native实际载荷/源码义务仍如实未完成，redistribution_audit_complete不改成true。新回归和所有原生门仅Actions，准备代码尚待实际验证。
+
+40b 的真实 Linux PDF 仅独立调用 elapsed_ms=2 与 UI 调用=3 不同，源 office_pdf.rs 使用 start.elapsed() 测量，不能把独立运行耗时当文档字段错误。commands::OfficeOutput/from_stdout 保留同一次原 CLI 的完整 UTF-8 JSON 字符串及结构化 value；原始 JSON 与复制功能直接使用 json 字符串，不由 JS 重编码大整数/小数或空白。Rust 回归核验大整数、原始小数词法、中文、空白、耗时和非法输入；原 CLI/parser/白名单不变。native compare_cli_content 仅允许 PDF 顶层 elapsed_ms 的合法独立测量差，所有其它字段完整严格相等，原两次输出仍留证，新增负值/布尔/缺字段/新增字段/文档变化拒绝测试，不能宣称两次 JSON 全字节相同。
+
+40b Windows attach 仍在实际 /json/version readiness 超时，chooser/安装验收未进入。native-process-diagnostics.ps1 仅在 Actions 读取本次启动 PID 及后代的命令行、当前 WebView2 注册版本和实际 driver 版本，20秒有界，失败前保存独立诊断；不枚举输出其他用户命令/环境/凭据、不按名称杀进程、不换旧运行时让门绿。此修复与上游许可原文补齐仍须新 exact-head Actions，Office 不公开销售。
+
+40b Vision Windows原生窗口正常，但Chocolatey NSIS feed返回503，旧pwsh未检查退出码而继续调用不存在makensis，安装未进入。vision-studio.yml显式固定当前观察NSIS3.13.0，最多三次仅安装依赖尝试，验证真实compiler位置/版本后输出GITHUB_PATH；任何安装/编译失败即时终止，不能以缺文件后的后续命令掩盖原始失败。此修改待新Actions，不将旧Vision通过/公开包视为当前候选通过。

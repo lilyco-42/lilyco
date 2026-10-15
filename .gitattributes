@@ -11,3 +11,6 @@ apps/vision-studio/ui/src/shadcn-sources.json text eol=lf
 apps/vision-studio/MICROSOFT-WEBVIEW2-LICENSE.txt -text
 
 apps/asset-studio/MICROSOFT-WEBVIEW2-LICENSE.txt -text
+
+lilyco-tauri/ui/src/components/ui/*.tsx text eol=lf
+lilyco-tauri/ui/src/shadcn-sources.json text eol=lf
