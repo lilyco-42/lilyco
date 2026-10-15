@@ -14,6 +14,7 @@ import time
 import urllib.request
 import urllib.error
 from urllib.parse import urlparse
+from windows_native_process import launch_non_elevated
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE = ROOT.parent
@@ -124,8 +125,10 @@ def run(application_override=None, engine_override=None, label='packaged'):
                 environment['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = (
                     f'--remote-debugging-port={debug_port} --remote-debugging-address=127.0.0.1')
                 application_log = (EVIDENCE / 'application.log').open('w', encoding='utf-8')
-                application_process = subprocess.Popen([str(application.resolve())], env=environment,
-                    stdout=application_log, stderr=subprocess.STDOUT)
+                application_process, launch_security = launch_non_elevated(
+                    [str(application.resolve())], environment, application_log)
+                (EVIDENCE / 'native-launch-security.json').write_text(
+                    json.dumps(launch_security, indent=2) + '\n', encoding='utf-8')
 
                 def webview_ready():
                     if application_process.poll() is not None:
@@ -147,7 +150,8 @@ def run(application_override=None, engine_override=None, label='packaged'):
                     (EVIDENCE / 'owned-native-processes.stderr.log').write_text(diagnostics.stderr, encoding='utf-8')
                 native_launch = {'mode': 'microsoft-webview2-attach', 'process_id': application_process.pid,
                                  'isolated_profile': str(profile), 'loopback_port': debug_port,
-                                 'actual_runtime': version, 'no_product_config_override': True}
+                                 'actual_runtime': version, 'no_product_config_override': True,
+                                 'actual_security_context': launch_security}
                 capabilities = {'browserName': 'webview2', 'ms:edgeChromium': True,
                                 'ms:edgeOptions': {'debuggerAddress': f'127.0.0.1:{debug_port}'}}
             opened = request('/session', 'POST', {'capabilities': {'alwaysMatch': capabilities}})
@@ -315,6 +319,8 @@ if (!button || button.disabled) return false; button.click(); return true;''', t
                         application_process.wait()
                 if application_log:
                     application_log.close()
+                if application_process and hasattr(application_process, 'close'):
+                    application_process.close()
 
 
 if __name__ == '__main__':

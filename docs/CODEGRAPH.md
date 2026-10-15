@@ -283,6 +283,13 @@ Desktop Actions 先 npm ci/类型检查/Vite静态构建到原 frontend，再保
 `tests/install_acceptance.ps1` 只在Actions RUNNER_TEMP已校验的新目录安装真正NSIS；原EXE/sidecar/图标与frontend完整notice byte一致，真实菜单shortcut/注册表存在，再从安装目录执行同一native UI/CLI流程。复制原卸载器并用官方 `_?=` 等待真实清理，不靠父进程退出；已安装payload/shortcut/注册表须删除，而用户在安装目录添加的文档原件必须保留。尚未过门前全部为待验收代码，MSI与macOS安装/完整分发仍未据此宣称完成。
 Windows HWND 出现不代表图标初始化完成，native-icon.ps1 在有限15秒内读取实际BIG/SMALL/SMALL2和class大小图标；仍以原生像素/alpha及正常关闭证明，不设置图标、不用从EXE提取图片冒充窗口图标。966的实际Windows测试曾在只读取BIG/class-big时报无图标，Linux/macOS已通过，须用修复后的新head重新验收。Python宿主的125秒总预算覆盖窗口60秒、图标15秒、关闭30秒及PowerShell初始化；三个阶段仍分别有限截止。
 
+Windows 原生验收通过 `tests/windows_native_process.py::launch_non_elevated` 启动相同的冻结／已安装 EXE。
+微软说明提升权限的 WebView2 宿主会忽略环境中的浏览器参数；这与 13e79b0 的隔离 profile 已生效而调试参数未生效的现象一致，仍需当前 CI 权限与真实 WebView2 证据验证。
+启动器先测父进程真实 token；管理员 CI 使用自己的 restricted LUA token、移除特权并设 medium integrity，启动后再核对实际子进程不是 elevated。
+不修改产品配置／注册表策略、不换旧 runtime、不向发布包植入调试开关；`native-launch-security.json` 只保存权限属性，不保存环境或凭据。
+`tests/test_windows_native_process.py` 仅在 Actions 的 Windows job 运行真实进程，检查 Unicode 环境与引用参数、普通权限及按本次进程 handle 取消；原生选择器、四格式原 CLI 往返、安装／卸载和界面截图门全部保留。当前方案尚未取得新 CI 通过证据，不能称 Windows 已修复。
+依据：[WebView2 flags](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/webview-features-flags)、[CreateRestrictedToken](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-createrestrictedtoken)、[CreateProcessAsUserW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessasuserw)。
+
 `lilyco-tauri/collect_rust_notices.py` 只在 Actions 从锁定的目标平台 `cargo tree/metadata` 收集实际 Office 与 lbin 的正常依赖闭包、完整许可原字节和 crate archive 摘要；没有完整文本的项如实列出。Windows 从实际 `webview2-com-sys` Cargo VCS 来源定位 SDK 版本，再按微软 NuGet service index/registration/catalog 的 SHA512 与大小核对官方包，并比对实际 MSVC 静态库原字节。拒绝跨来源重定向、重复 ZIP 条目及超限解压，完整 SDK 许可与 RUST-LICENSES 随 resources 打包。`tests/test_rust_notices.py` 的改字节/错误算法/重复条目/空文本/越界来源回归只在 CI 运行。Mac/Deb bundle 以及 Windows 安装目录核对新增 notice 原字节；审查报告保持 `redistribution_audit_complete=false`，收集元数据不能替代标准库、实际 native 载荷、source obligations 与完整发行审核。
 
 ffb 的 Linux 原生门曾在 POST /session 前后真实断开，尚未进入文件读取验收；不能把 Mac 包或 Linux PE/PNG 载荷门代替 GUI 通过。native_workbench.py 依官方示例仅发送 tauri:options，不强设不兼容的 wry browserName，先等 intermediary/native 两个 listener 和真正 /status ready；只轮询只读状态，不重放 POST /session。失败时输出有界真实 webdriver 日志并保留 Actions 诊断工件，完整四种文件/原件/失败清理/历史/尺寸断言仍保留。

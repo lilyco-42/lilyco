@@ -131,6 +131,10 @@ jobs:
           python lilyco-tauri/tests/test_native_endpoint.py
           python lilyco-tauri/collect_rust_notices.py
 
+      - name: Verify ordinary Windows process permissions and owned-process cleanup
+        if: matrix.label == 'windows'
+        run: python lilyco-tauri/tests/test_windows_native_process.py
+
       # sidecar 得先有：桌面端不自己再造一个读者，它跑的就是 CI 上那本对账认的 lbin
       - name: 编 lbin（随包带出来的 sidecar）
         run: cargo build --release -p lilyco-binfmt --bin lbin
