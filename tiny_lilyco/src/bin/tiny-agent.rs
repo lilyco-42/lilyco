@@ -229,7 +229,8 @@ fn build_registry(root: &Path, wasm: &[(String, String)]) -> &'static Registry {
     let _ = reg.register(glob);
     #[cfg(feature = "wasm-tools")]
     for (name, path) in wasm {
-        match tiny_lilyco::agent::wasm_tool::WasmTool::load(name.as_str(), Path::new(path)) {
+        let label: &'static str = Box::leak(name.clone().into_boxed_str());
+        match tiny_lilyco::agent::wasm_tool::WasmTool::load(label, Path::new(path)) {
             Ok(tool) => {
                 let leaked: &'static dyn Tool = Box::leak(Box::new(tool));
                 let _ = reg.register(leaked);
