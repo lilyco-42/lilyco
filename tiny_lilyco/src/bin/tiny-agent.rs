@@ -58,7 +58,9 @@ impl Host for StdHost {
             let rel = args.split('|').next().unwrap_or("").trim();
             if !rel.is_empty() {
                 self.seq += 1;
-                self.store.capture(rel, self.seq)?;
+                self.store
+                    .capture(rel, self.seq)
+                    .map_err(ToolError::HostFailure)?;
                 captured = Some((self.seq, rel.to_string()));
             }
         }
