@@ -18,7 +18,7 @@ use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy};
 use tao::window::WindowBuilder;
-use tiny_lilyco::agent::llm::{Llm, ScriptedLlm};
+use tiny_lilyco::agent::llm::{Decision, Llm, ScriptedLlm, Step};
 use tiny_lilyco::agent::registry::Registry;
 use tiny_lilyco::agent::runtime::{drive, Budget, Host, Outcome};
 use tiny_lilyco::agent::tool::{ObsBuf, ObsKind, Tool, ToolError};
@@ -234,6 +234,23 @@ fn escape(text: &str) -> String {
     out
 }
 
+
+/// Keeps the model's final sentence so it can be shown as the answer.
+struct Recorder {
+    inner: Box<dyn Llm>,
+    answer: Option<String>,
+}
+
+impl Llm for Recorder {
+    fn plan(&mut self, ctx: Decision<'_>) -> Step {
+        let step = self.inner.plan(ctx);
+        if let Step::Say(text) = &step {
+            self.answer = Some(text.to_string());
+        }
+        step
+    }
+}
+
 /// Run one goal and return the trace lines.
 fn execute(
     goal: &str,
@@ -247,13 +264,18 @@ fn execute(
         lines: Arc::clone(ui),
         taken: vec![format!("我在 {} 里处理这件事：{}", workspace.display(), goal)],
     };
-    let (mut llm, provider) = choose_llm(registry, goal);
-    if provider.starts_with("model") {
-        host.taken.push(format!("用 {provider} 来思考"));
-    }
-    let outcome = drive(goal, &mut *llm, registry, &mut host, Budget::new(8, 3));
+    let (llm, provider) = choose_llm(registry, goal);
+    let mut brain = Recorder {
+        inner: llm,
+        answer: None,
+    };
+    let outcome = drive(goal, &mut brain, registry, &mut host, Budget::new(8, 3));
     let mut lines = host.taken;
+    if let Some(answer) = brain.answer {
+        lines.insert(1, answer);
+    }
     lines.push(summary(&outcome));
+    let _ = provider;
     lines
 }
 
@@ -271,6 +293,65 @@ fn summary(outcome: &Outcome) -> String {
 /// cc-switch when configured, otherwise a deterministic two-step plan.
 
 /// Read a `lang|pattern` written between backticks in the goal.
+
+/// Seed a provider from the config Claude Code / cc-switch materialises.
+///
+/// The key lives in the user's file, never in this binary. Two normalisations
+/// are applied because gateways and model ids drift:
+///   * a bare host (`https://host`) becomes `https://host/v1`;
+///   * a `[1M]`-style context suffix is stripped from the model id.
+fn provider_from_claude() -> Option<(String, String, String)> {
+    let home = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).ok()?;
+    let path = std::path::Path::new(&home).join(".claude").join("settings.json");
+    let raw = std::fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let env = value.get("env")?;
+    let base = env.get("ANTHROPIC_BASE_URL")?.as_str()?.trim();
+    let token = env.get("ANTHROPIC_AUTH_TOKEN")?.as_str()?.trim();
+    let model = env
+        .get("ANTHROPIC_MODEL")
+        .or_else(|| env.get("ANTHROPIC_DEFAULT_SONNET_MODEL"))
+        .and_then(serde_json::Value::as_str)?
+        .trim();
+    if base.is_empty() || token.is_empty() || model.is_empty() {
+        return None;
+    }
+    Some((
+        normalise_base(base),
+        token.to_string(),
+        live_model(model),
+    ))
+}
+
+fn normalise_base(base: &str) -> String {
+    let trimmed = base.trim_end_matches('/');
+    let after_scheme = trimmed.split("://").nth(1).unwrap_or("");
+    if after_scheme.contains('/') {
+        return trimmed.to_string();
+    }
+    format!("{trimmed}/v1")
+}
+
+/// Map retired model ids to their replacement.
+///
+/// NVIDIA retired `deepseek-v4-flash` on 2026-08-07 (HTTP 410); the successor
+/// keeps the API shape. Kept as data so the next retirement is a one-line edit.
+fn live_model(model: &str) -> String {
+    let stripped = match model.find('[') {
+        Some(at) => &model[..at],
+        None => model,
+    };
+    let retired = [
+        ("deepseek-ai/deepseek-v4-flash", "deepseek-ai/deepseek-v4.1-flash"),
+    ];
+    for (old, new) in retired {
+        if stripped == old {
+            return new.to_string();
+        }
+    }
+    stripped.to_string()
+}
+
 fn quoted_pattern(goal: &str) -> Option<(String, String)> {
     let start = goal.find('`')?;
     let rest = &goal[start + 1..];
@@ -327,15 +408,35 @@ fn choose_llm(registry: &'static Registry, goal: &str) -> (Box<dyn Llm>, String)
         }
     }
     let _ = registry;
-    let mut plan = ScriptedLlm::new();
-    match quoted_pattern(goal) {
-        Some((lang, pat)) => {
-            let _ = plan.push("ast_grep", &format!("{lang}|{pat}"));
-        }
-        None => {
-            let _ = plan.push("list_dir", "");
-        }
+    // Nothing configured: a keyless OpenAI-compatible gateway is the difference
+    // between an assistant and a directory lister. A backtick pattern still wins,
+    // because structural search needs no model at all.
+    if let Some((lang, pat)) = quoted_pattern(goal) {
+        let mut plan = ScriptedLlm::new();
+        let _ = plan.push("ast_grep", &format!("{lang}|{pat}"));
+        return (Box::new(plan), "本地搜索（不联网）".to_string());
     }
+    #[cfg(feature = "llm-http")]
+    {
+        use tiny_lilyco::agent::llm_http::{Config, HttpLlm};
+        if let Some((base_url, api_key, model)) = provider_from_claude() {
+            let config = Config {
+                base_url,
+                api_key,
+                model: model.clone(),
+            };
+            return (Box::new(HttpLlm::new(config, registry)), model);
+        }
+        let config = Config {
+            base_url: "https://text.pollinations.ai/openai".to_string(),
+            api_key: "none".to_string(),
+            model: "openai".to_string(),
+        };
+        return (Box::new(HttpLlm::new(config, registry)), "免费模型".to_string());
+    }
+    #[allow(unreachable_code)]
+    let mut plan = ScriptedLlm::new();
+    let _ = plan.push("list_dir", "");
     (Box::new(plan), "本地模式（不联网）".to_string())
 }
 

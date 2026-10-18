@@ -179,7 +179,14 @@ impl Config {
 
     /// `POST <base>/chat/completions`.
     pub fn endpoint(&self) -> String {
-        ::std::format!("{}/chat/completions", self.base_url.trim_end_matches('/'))
+        let base = self.base_url.trim_end_matches('/');
+        // Some providers (and free OpenAI-compatible gateways) publish the full
+        // path instead of a `/v1` prefix; honour it instead of appending twice.
+        let complete = base.ends_with("/chat/completions") || base.ends_with("/openai");
+        if complete {
+            return base.to_string();
+        }
+        ::std::format!("{base}/chat/completions")
     }
 }
 
@@ -300,6 +307,16 @@ mod tests {
         assert_eq!(normalize_args(r#"{"path":"a.rs"}"#), "a.rs");
         assert_eq!(normalize_args(r#"{"args":"plain"}"#), "plain");
         assert_eq!(normalize_args("plain"), "plain");
+    }
+
+    #[test]
+    fn full_paths_are_not_appended() {
+        let cfg = Config {
+            base_url: "https://text.pollinations.ai/openai".into(),
+            api_key: "none".into(),
+            model: "openai".into(),
+        };
+        assert_eq!(cfg.endpoint(), "https://text.pollinations.ai/openai");
     }
 
     #[test]
