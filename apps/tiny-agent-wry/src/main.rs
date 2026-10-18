@@ -315,7 +315,6 @@ fn choose_llm(registry: &'static Registry) -> (Box<dyn Llm>, String) {
     let _ = registry;
     let mut plan = ScriptedLlm::new();
     let _ = plan.push("list_dir", "");
-    let _ = plan.push("read_file", "README.md");
     (Box::new(plan), "本地模式（不联网）".to_string())
 }
 
@@ -577,6 +576,7 @@ fn script() -> String {
     js.push_str(" var box=document.getElementById('answer'); box.innerHTML='';");
     js.push_str(" lines.forEach(function(t){ var p=document.createElement('p'); p.className='line';");
     js.push_str(" p.textContent=String(t).replace(/^\\s+/,''); box.appendChild(p); });");
+    js.push_str(" document.querySelector('.body').scrollTop = 0;");
     js.push_str(" var b=document.getElementById('go'); b.textContent='开始'; b.disabled=false; };");
     js.push_str("window.__applyProviders = function(){};");
     js.push_str("if(window.__SELFTEST){ setTimeout(function(){");
