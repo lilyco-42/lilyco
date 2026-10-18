@@ -245,10 +245,12 @@ fn execute(
         registry,
         apply: false,
         lines: Arc::clone(ui),
-        taken: vec![format!("goal · {goal}"), format!("workspace · {}", workspace.display())],
+        taken: vec![format!("我在 {} 里处理这件事：{}", workspace.display(), goal)],
     };
     let (mut llm, provider) = choose_llm(registry);
-    host.taken.push(format!("provider · {provider}"));
+    if provider.starts_with("model") {
+        host.taken.push(format!("用 {provider} 来思考"));
+    }
     let outcome = drive(goal, &mut *llm, registry, &mut host, Budget::new(8, 3));
     let mut lines = host.taken;
     lines.push(summary(&outcome));
@@ -256,10 +258,14 @@ fn execute(
 }
 
 fn summary(outcome: &Outcome) -> String {
-    format!(
-        "— {} calls · {} failures · {} checkpoints · rolled_back={} · {}",
-        outcome.calls, outcome.failures, outcome.checkpoints, outcome.rolled_back, outcome.phase
-    )
+    if outcome.failures == 0 {
+        format!("做完了（{} 步）。", outcome.calls)
+    } else {
+        format!(
+            "做完了，但有 {} 步没成功（共 {} 步）。",
+            outcome.failures, outcome.calls
+        )
+    }
 }
 
 /// cc-switch when configured, otherwise a deterministic two-step plan.
@@ -334,15 +340,19 @@ impl Host for UiHost {
     fn call(&mut self, tool: &str, args: &str, out: &mut ObsBuf) -> Result<ObsKind, ToolError> {
         let handle = self.registry.find(tool).ok_or(ToolError::UnknownTool)?;
         if handle.spec().mutating && !self.apply {
-            self.taken.push(format!("{tool}({args}) → refused (dry run)"));
+            self.taken.push("改文件这件事我暂时不敢做：还没接上自动备份。".to_string());
             return Err(ToolError::NotPermitted("dry run"));
         }
         let kind = handle.call(args, out)?;
-        self.taken.push(format!("{tool}({args}) → {}", kind.label()));
-        for line in out.as_str().lines().take(12) {
-            self.taken.push(format!("   {line}"));
+        let head = match tool {
+            "list_dir" => "这个文件夹里有：".to_string(),
+            "read_file" => format!("{args} 的内容："),
+            _ => format!("{tool} 做完了"),
+        };
+        self.taken.push(head);
+        for line in out.as_str().lines().take(40) {
+            self.taken.push(format!("  {line}"));
         }
-        self.taken.push(String::new());
         let _ = &self.lines;
         Ok(kind)
     }

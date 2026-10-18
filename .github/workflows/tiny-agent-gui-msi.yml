@@ -8,7 +8,7 @@ on:
       tag:
         description: 'Release tag to publish the MSI under'
         required: false
-        default: 'tiny-agent-gui-v0.5.1'
+        default: 'tiny-agent-gui-v0.5.2'
   push:
     paths:
       - 'apps/tiny-agent-wry/**'
@@ -53,14 +53,14 @@ jobs:
         run: |
           $wix = "C:\Program Files (x86)\WiX Toolset v3.14\bin"
           & "$wix\candle.exe" -arch x64 -out wix\main.wixobj wix\main.wxs
-          & "$wix\light.exe" -out tiny-agent-gui-0.5.1-x64.msi wix\main.wixobj
-          Get-Item tiny-agent-gui-0.5.1-x64.msi | Select-Object Name, Length
+          & "$wix\light.exe" -out tiny-agent-gui-0.5.2-x64.msi wix\main.wixobj
+          Get-Item tiny-agent-gui-0.5.2-x64.msi | Select-Object Name, Length
 
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
         with:
           name: tiny-agent-gui-msi
-          path: apps/tiny-agent-wry/tiny-agent-gui-0.5.1-x64.msi
+          path: apps/tiny-agent-wry/tiny-agent-gui-0.5.2-x64.msi
           if-no-files-found: error
 
       - name: Publish release asset
@@ -68,15 +68,16 @@ jobs:
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.tag || 'tiny-agent-gui-v0.5.1' }}
+          TAG: ${{ inputs.tag || 'tiny-agent-gui-v0.5.2' }}
         run: |
-          $asset = "apps/tiny-agent-wry/tiny-agent-gui-0.5.1-x64.msi"
+          $asset = "apps/tiny-agent-wry/tiny-agent-gui-0.5.2-x64.msi"
           gh release view $env:TAG 2>$null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $env:TAG $asset --title "Tiny Agent GUI 0.5.1" --notes "GUI build (tao + wry), Windows x64 MSI."
+            gh release create $env:TAG $asset --title "Tiny Agent GUI 0.5.2" --notes "GUI build (tao + wry), Windows x64 MSI."
           } else {
             gh release upload $env:TAG $asset --clobber
           }
+
 
 
 
