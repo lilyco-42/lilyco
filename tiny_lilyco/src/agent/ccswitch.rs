@@ -10,7 +10,7 @@
 //! * `~/.cc-switch/settings.json` → `currentProviderClaude` (for reporting)
 
 use ::std::path::{Path, PathBuf};
-use ::std::string::String;
+use ::std::string::{String, ToString};
 
 use serde_json::Value;
 
