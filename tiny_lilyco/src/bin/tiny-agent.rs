@@ -114,7 +114,8 @@ fn run() -> Result<bool, String> {
         );
     }
 
-    let registry = build_registry(&root);
+    let wasm_specs = collect_wasm(&argv);
+    let registry = build_registry(&root, &wasm_specs);
     let goal = flag(&argv, "--goal").unwrap_or_else(|| "run the requested tools".to_string());
     let mut llm: Box<dyn Llm> = match provider.as_deref() {
         Some("ccswitch" | "claude" | "anthropic") => build_anthropic(&argv, registry)?,
@@ -175,7 +176,7 @@ fn flag(argv: &[String], name: &str) -> Option<String> {
     argv.get(at + 1).cloned()
 }
 
-fn collect_calls(argv: &[String]) -> Vec<(&'static str, String)> {
+fn collect_calls(argv: &[String]) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let mut i = 0;
     while i + 1 < argv.len() {
@@ -187,24 +188,32 @@ fn collect_calls(argv: &[String]) -> Vec<(&'static str, String)> {
             Some((t, a)) => (t, a.to_string()),
             None => (argv[i + 1].as_str(), String::new()),
         };
-        let known = match tool {
-            "read_file" => Some("read_file"),
-            "list_dir" => Some("list_dir"),
-            "edit_file" => Some("edit_file"),
-            "run_command" => Some("run_command"),
-            "grep" => Some("grep"),
-            "glob" => Some("glob"),
-            _ => None,
-        };
-        if let Some(name) = known {
-            out.push((name, args));
-        }
+        // Any name is accepted: wasm plugins choose their own tool name.
+        out.push((tool.to_string(), args));
         i += 2;
     }
     out
 }
 
-fn build_registry(root: &Path) -> &'static Registry {
+
+/// Collect `--wasm-tool name=path` pairs.
+fn collect_wasm(argv: &[String]) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + 1 < argv.len() {
+        if argv[i] == "--wasm-tool" {
+            if let Some((name, path)) = argv[i + 1].split_once('=') {
+                out.push((name.to_string(), path.to_string()));
+            }
+            i += 2;
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
+fn build_registry(root: &Path, wasm: &[(String, String)]) -> &'static Registry {
     let read: &'static dyn Tool = Box::leak(Box::new(ReadFile::new(root)));
     let list: &'static dyn Tool = Box::leak(Box::new(ListDir::new(root)));
     let edit: &'static dyn Tool = Box::leak(Box::new(EditFile::new(root)));
@@ -218,6 +227,18 @@ fn build_registry(root: &Path) -> &'static Registry {
     let _ = reg.register(run);
     let _ = reg.register(grep);
     let _ = reg.register(glob);
+    #[cfg(feature = "wasm-tools")]
+    for (name, path) in wasm {
+        match tiny_lilyco::agent::wasm_tool::WasmTool::load(name.as_str(), Path::new(path)) {
+            Ok(tool) => {
+                let leaked: &'static dyn Tool = Box::leak(Box::new(tool));
+                let _ = reg.register(leaked);
+                println!("wasm   : {name} ({path})");
+            }
+            Err(err) => println!("wasm   : {name} failed to load · {err}"),
+        }
+    }
+    let _ = wasm;
     reg
 }
 

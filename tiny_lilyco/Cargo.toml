@@ -17,6 +17,7 @@ alloc = ["serde/alloc"]
 std = []
 llm-http = ["std", "dep:ureq", "dep:serde_json"]
 llm-anthropic = ["std", "dep:ureq", "dep:serde_json"]
+wasm-tools = ["std", "dep:extism"]
 wtx-net = ["dep:wtx"]
 
 [dependencies]
@@ -40,3 +41,6 @@ optional = true
 version = "1"
 optional = true
 
+[dependencies.extism]
+version = "1"
+optional = true
