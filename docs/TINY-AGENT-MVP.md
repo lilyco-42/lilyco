@@ -148,7 +148,7 @@ export TINY_AGENT_API_KEY=sk-...
 export TINY_AGENT_MODEL=anthropic/claude-3.5-sonnet   # 或 nvidia/llama-3.1-70b 等
 
 tiny-agent . --provider openrouter --goal "读完 Cargo.toml，把版本号改成 0.2.0"
-tiny-agent . --provider nim --base-url http://127.0.0.1:8788/v1 --apply
+tiny-agent . --provider nim --apply
 ```
 
 约定：
@@ -158,6 +158,30 @@ tiny-agent . --provider nim --base-url http://127.0.0.1:8788/v1 --apply
 * 模型返回的 `{"path":..,"old":..,"new":..}` 也会被 `normalize_args` 拍平成同一格式。
 * 请求构建与响应解析都是纯函数（`build_request` / `parse_step` / `normalize_args`），
   CI 用本地 stub 服务器验证整条 HTTP 链路，不联网。
+
+---
+
+## 5.32 cc-switch（本机代理）
+
+cc-switch 存的是 **Anthropic 协议**配置，不是 OpenAI：
+
+| 位置 | 内容 |
+| :--- | :--- |
+| `~/.cc-switch/cc-switch.db` | SQLite，`providers.settings_config` 里是各 provider 的 `env` |
+| `~/.claude/settings.json` | cc-switch **物化**出的当前生效配置（base / token / model） |
+| `proxy_config` 表 | 本地代理地址，实测 `127.0.0.1:15721` |
+
+我们读后者：`ccswitch::load()` —— 读 `~/.claude/settings.json` 的 `env` 块。
+**为什么不直接读 db**：SQLite 需要引擎，而 cc-switch 已把当前 provider 原样写进
+settings.json，那是 Claude Code 自己读的文件；要枚举全部 provider 才需要 db。
+
+```bash
+tiny-agent . --provider ccswitch --probe        # 先探活
+tiny-agent . --provider ccswitch --goal "..."   # 通过后再跑
+```
+
+`--probe` 打印 `provider / endpoint / model / key(打码)` 和真实错误，用来区分
+"key 失效" 和 "地址写错"。
 
 ---
 
@@ -196,4 +220,5 @@ tiny-agent . --provider nim --base-url http://127.0.0.1:8788/v1 --apply
 | `edit_file_refuses_ambiguous_anchor` | 多处匹配时拒改并报错 |
 | `edit_file_replaces_exactly_once` | 唯一匹配时精确替换 |
 | `read_file_rejects_traversal` | `../secrets` 被拒 |
+
 
