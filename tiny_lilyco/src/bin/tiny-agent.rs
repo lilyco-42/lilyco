@@ -214,13 +214,13 @@ fn collect_wasm(argv: &[String]) -> Vec<(String, String)> {
 }
 
 fn build_registry(root: &Path, wasm: &[(String, String)]) -> &'static Registry {
-    let read: &'static dyn Tool = Box::leak(Box::new(ReadFile::new(root)));
-    let list: &'static dyn Tool = Box::leak(Box::new(ListDir::new(root)));
-    let edit: &'static dyn Tool = Box::leak(Box::new(EditFile::new(root)));
-    let run: &'static dyn Tool = Box::leak(Box::new(RunCommand::new(root)));
-    let grep: &'static dyn Tool = Box::leak(Box::new(Grep::new(root)));
-    let glob: &'static dyn Tool = Box::leak(Box::new(Glob::new(root)));
-    let ast: &'static dyn Tool = Box::leak(Box::new(AstGrep::new(root, AstGrep::locate())));
+    let read: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(ReadFile::new(root)));
+    let list: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(ListDir::new(root)));
+    let edit: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(EditFile::new(root)));
+    let run: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(RunCommand::new(root)));
+    let grep: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(Grep::new(root)));
+    let glob: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(Glob::new(root)));
+    let ast: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(AstGrep::new(root, AstGrep::locate())));
     let reg: &'static mut Registry = Box::leak(Box::new(Registry::new()));
     let _ = reg.register(read);
     let _ = reg.register(list);
@@ -234,7 +234,7 @@ fn build_registry(root: &Path, wasm: &[(String, String)]) -> &'static Registry {
         let label: &'static str = Box::leak(name.clone().into_boxed_str());
         match tiny_lilyco::agent::wasm_tool::WasmTool::load(label, Path::new(path)) {
             Ok(tool) => {
-                let leaked: &'static dyn Tool = Box::leak(Box::new(tool));
+                let leaked: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(tool));
                 let _ = reg.register(leaked);
                 println!("wasm   : {name} ({path})");
             }

@@ -498,10 +498,10 @@ impl Host for UiHost {
 }
 
 fn build_registry(root: &Path) -> &'static Registry {
-    let read: &'static dyn Tool = Box::leak(Box::new(ReadFile::new(root)));
-    let list: &'static dyn Tool = Box::leak(Box::new(ListDir::new(root)));
-    let edit: &'static dyn Tool = Box::leak(Box::new(EditFile::new(root)));
-    let ast: &'static dyn Tool = Box::leak(Box::new(AstGrep::new(root, AstGrep::locate())));
+    let read: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(ReadFile::new(root)));
+    let list: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(ListDir::new(root)));
+    let edit: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(EditFile::new(root)));
+    let ast: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(AstGrep::new(root, AstGrep::locate())));
     let reg: &'static mut Registry = Box::leak(Box::new(Registry::new()));
     let _ = reg.register(read);
     let _ = reg.register(list);
