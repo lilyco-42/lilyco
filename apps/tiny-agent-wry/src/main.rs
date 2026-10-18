@@ -339,6 +339,15 @@ fn script() -> String {
     js.push_str("  document.documentElement.dataset.theme = b.dataset.set;");
     js.push_str("  post('theme:' + b.dataset.set);");
     js.push_str(" }); });");
+    js.push_str("post('count:' + document.querySelectorAll('[data-set]').length);");
+    js.push_str("setTimeout(function () {");
+    js.push_str(" var b = document.querySelector('[data-set=\"neutral-light\"]');");
+    js.push_str(" if (!b) { post('selftest:no-button'); return; }");
+    js.push_str(" b.click();");
+    js.push_str(" var bg = getComputedStyle(document.documentElement)");
+    js.push_str(".getPropertyValue('--background').trim();");
+    js.push_str(" post('selftest:bg=' + bg + ' theme=' + document.documentElement.dataset.theme);");
+    js.push_str("}, 3000);");
     js.push_str("</script>");
     js
 }
