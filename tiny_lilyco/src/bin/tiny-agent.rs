@@ -12,7 +12,7 @@
 //! tiny-agent <root> --call list_dir: --call read_file:note.txt [--apply]
 //! ```
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use tiny_lilyco::adapters::vcs_guard::{self, Backend, Op};
@@ -143,10 +143,10 @@ fn collect_calls(argv: &[String]) -> Vec<(&'static str, String)> {
     out
 }
 
-fn build_registry(root: &PathBuf) -> &'static Registry {
-    let read: &'static dyn Tool = Box::leak(Box::new(ReadFile::new(root.clone())));
-    let list: &'static dyn Tool = Box::leak(Box::new(ListDir::new(root.clone())));
-    let edit: &'static dyn Tool = Box::leak(Box::new(EditFile::new(root.clone())));
+fn build_registry(root: &Path) -> &'static Registry {
+    let read: &'static dyn Tool = Box::leak(Box::new(ReadFile::new(root)));
+    let list: &'static dyn Tool = Box::leak(Box::new(ListDir::new(root)));
+    let edit: &'static dyn Tool = Box::leak(Box::new(EditFile::new(root)));
     let reg: &'static mut Registry = Box::leak(Box::new(Registry::new()));
     let _ = reg.register(read);
     let _ = reg.register(list);
