@@ -7,6 +7,7 @@
 //! The layout mirrors the workspace, so a restore needs no index.
 
 use std::path::{Path, PathBuf};
+use std::string::ToString;
 
 /// Snapshot area name, kept out of the way but easy to find and delete.
 pub const SNAP_DIR: &str = ".tiny-agent";

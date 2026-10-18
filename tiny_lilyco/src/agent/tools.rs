@@ -5,7 +5,7 @@
 //! enough to prove the loop does real work.
 
 use ::std::path::{Path, PathBuf};
-use ::std::string::String;
+use ::std::string::{String, ToString};
 
 use crate::adapters::fs_engine::{
     count_lines, plan_replace, render_numbered, sanitize_rel, split_at, Window,
