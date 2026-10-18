@@ -20,8 +20,25 @@ use tiny_lilyco::ui::{RowBody, Theme, TraceRow};
 use wry::{WebContext, WebViewBuilder};
 
 fn main() {
+    declare_dpi_awareness();
     if let Err(err) = run() {
         report(&format!("Tiny Agent failed to start: {err}"));
+    }
+}
+
+/// Without this the process is DPI-unaware: `tao` creates a 1100x720 *physical*
+/// window while WebView2 renders at the monitor scale (125%), so the page is
+/// magnified by 1.25 and its right/bottom edges get clipped.
+fn declare_dpi_awareness() {
+    // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 == -4
+    const PER_MONITOR_V2: isize = -4;
+    #[link(name = "user32")]
+    extern "system" {
+        fn SetProcessDpiAwarenessContext(value: isize) -> i32;
+    }
+    // Fails harmlessly when a manifest already declared awareness.
+    unsafe {
+        SetProcessDpiAwarenessContext(PER_MONITOR_V2);
     }
 }
 
