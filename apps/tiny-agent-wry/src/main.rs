@@ -88,18 +88,55 @@ fn run() -> wry::Result<()> {
 ///   loop starts is dropped.
 fn fit_to_webview_scale(window: &tao::window::Window) -> String {
     let scale = monitor_scale(window);
-    let before = window.inner_size();
+    let (cw, ch) = client_size(window);
     let want_w = (1100.0 * scale).round() as u32;
     let want_h = (720.0 * scale).round() as u32;
-    if before.width >= want_w {
-        return format!("dpi x{scale} kept {}x{}", before.width, before.height);
+    if cw >= want_w && ch >= want_h {
+        return format!("dpi x{scale} ok {cw}x{ch}");
     }
     resize_physical(window, want_w, want_h);
-    let after = window.inner_size();
-    format!(
-        "dpi x{scale} resized {}x{} -> {}x{}",
-        before.width, before.height, after.width, after.height
-    )
+    let (aw, ah) = client_size(window);
+    format!("dpi x{scale} {cw}x{ch} -> {aw}x{ah}")
+}
+
+/// Real client-area size straight from Win32.
+///
+/// `tao`'s `inner_size()` reports the size already multiplied by the scale
+/// factor here, so it cannot be used to detect whether the window is too small.
+#[cfg(windows)]
+fn client_size(window: &tao::window::Window) -> (u32, u32) {
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetClientRect(hwnd: isize, rect: *mut RECT) -> i32;
+    }
+    #[repr(C)]
+    struct RECT {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+    use tao::platform::windows::WindowExtWindows;
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    let hwnd = window.hwnd() as isize;
+    let ok = unsafe { GetClientRect(hwnd, &mut rect) };
+    if ok == 0 {
+        return (0, 0);
+    }
+    let w = (rect.right - rect.left).max(0) as u32;
+    let h = (rect.bottom - rect.top).max(0) as u32;
+    (w, h)
+}
+
+#[cfg(not(windows))]
+fn client_size(window: &tao::window::Window) -> (u32, u32) {
+    let s = window.inner_size();
+    (s.width, s.height)
 }
 
 #[cfg(windows)]
