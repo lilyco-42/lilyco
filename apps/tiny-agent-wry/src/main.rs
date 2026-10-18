@@ -247,7 +247,7 @@ fn execute(
         lines: Arc::clone(ui),
         taken: vec![format!("我在 {} 里处理这件事：{}", workspace.display(), goal)],
     };
-    let (mut llm, provider) = choose_llm(registry);
+    let (mut llm, provider) = choose_llm(registry, goal);
     if provider.starts_with("model") {
         host.taken.push(format!("用 {provider} 来思考"));
     }
@@ -283,7 +283,7 @@ fn quoted_pattern(goal: &str) -> Option<(String, String)> {
     Some((lang.trim().to_string(), pattern.trim().to_string()))
 }
 
-fn choose_llm(registry: &'static Registry) -> (Box<dyn Llm>, String) {
+fn choose_llm(registry: &'static Registry, goal: &str) -> (Box<dyn Llm>, String) {
     // Priority: what the user saved in the gear panel, then an explicit
     // environment override, then cc-switch, then the offline plan.
     let settings = load_settings();
@@ -603,7 +603,7 @@ fn script() -> String {
     js.push_str(" var b=document.getElementById('go'); b.textContent='开始'; b.disabled=false; };");
     js.push_str("window.__applyProviders = function(){};");
     js.push_str("if(window.__SELFTEST){ setTimeout(function(){");
-    js.push_str(" document.getElementById('prompt').value='\u641c\u4ee3\u7801 `rust|pub fn $NAME`'; go(); }, 1200); }");
+    js.push_str(" document.getElementById('prompt').value='搜代码 `rust|pub fn $NAME`'; go(); }, 1200); }");
     js.push_str("</script>");
     js
 }
