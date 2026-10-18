@@ -122,73 +122,7 @@ fn split_args(args: &str) -> Result<(&str, &str, &str), ToolError> {
     Ok((path.trim(), old, new))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(::std::format!("tiny_lilyco_{tag}"));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    #[test]
-    fn read_file_numbers_lines() {
-        let dir = scratch("read");
-        std::fs::write(dir.join("a.txt"), "alpha\nbeta\n").unwrap();
-        let mut out = ObsBuf::new();
-        let kind = ReadFile::new(&dir).call("a.txt", &mut out).unwrap();
-        assert_eq!(kind, ObsKind::Text);
-        assert!(out.as_str().contains("1| alpha"));
-        assert!(out.as_str().contains("2| beta"));
-    }
-
-    #[test]
-    fn read_file_rejects_traversal() {
-        let dir = scratch("escape");
-        let mut out = ObsBuf::new();
-        assert_eq!(
-            ReadFile::new(&dir).call("../secrets", &mut out),
-            Err(ToolError::NotPermitted("path traversal is not allowed"))
-        );
-    }
-
-    #[test]
-    fn edit_file_replaces_exactly_once() {
-        let dir = scratch("edit");
-        std::fs::write(dir.join("b.txt"), "let a = 1;\n").unwrap();
-        let mut out = ObsBuf::new();
-        let kind = EditFile::new(&dir)
-            .call("b.txt|a = 1|a = 2", &mut out)
-            .unwrap();
-        assert_eq!(kind, ObsKind::Diff);
-        assert_eq!(
-            std::fs::read_to_string(dir.join("b.txt")).unwrap(),
-            "let a = 2;\n"
-        );
-    }
-
-    #[test]
-    fn edit_file_refuses_ambiguous_anchor() {
-        let dir = scratch("amb");
-        std::fs::write(dir.join("c.txt"), "x x\n").unwrap();
-        let mut out = ObsBuf::new();
-        assert_eq!(
-            EditFile::new(&dir).call("c.txt|x|y", &mut out),
-            Err(ToolError::InvalidArgument("needle is ambiguous"))
-        );
-    }
-
-    #[test]
-    fn list_dir_shows_entries() {
-        let dir = scratch("list");
-        std::fs::write(dir.join("keep.txt"), "x").unwrap();
-        let mut out = ObsBuf::new();
-        assert_eq!(ListDir::new(&dir).call("", &mut out).unwrap(), ObsKind::Text);
-        assert!(out.as_str().contains("keep.txt"));
-    }
-}
 
 /// Commands the agent may run. Anything else is refused by name.
 pub const ALLOWED_COMMANDS: &[&str] = &[
@@ -365,5 +299,73 @@ fn collect(root: &Path, depth: usize, visit: &mut impl FnMut(&Path, &str) -> boo
         if !visit(&path, &text) {
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(::std::format!("tiny_lilyco_{tag}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn read_file_numbers_lines() {
+        let dir = scratch("read");
+        std::fs::write(dir.join("a.txt"), "alpha\nbeta\n").unwrap();
+        let mut out = ObsBuf::new();
+        let kind = ReadFile::new(&dir).call("a.txt", &mut out).unwrap();
+        assert_eq!(kind, ObsKind::Text);
+        assert!(out.as_str().contains("1| alpha"));
+        assert!(out.as_str().contains("2| beta"));
+    }
+
+    #[test]
+    fn read_file_rejects_traversal() {
+        let dir = scratch("escape");
+        let mut out = ObsBuf::new();
+        assert_eq!(
+            ReadFile::new(&dir).call("../secrets", &mut out),
+            Err(ToolError::NotPermitted("path traversal is not allowed"))
+        );
+    }
+
+    #[test]
+    fn edit_file_replaces_exactly_once() {
+        let dir = scratch("edit");
+        std::fs::write(dir.join("b.txt"), "let a = 1;\n").unwrap();
+        let mut out = ObsBuf::new();
+        let kind = EditFile::new(&dir)
+            .call("b.txt|a = 1|a = 2", &mut out)
+            .unwrap();
+        assert_eq!(kind, ObsKind::Diff);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("b.txt")).unwrap(),
+            "let a = 2;\n"
+        );
+    }
+
+    #[test]
+    fn edit_file_refuses_ambiguous_anchor() {
+        let dir = scratch("amb");
+        std::fs::write(dir.join("c.txt"), "x x\n").unwrap();
+        let mut out = ObsBuf::new();
+        assert_eq!(
+            EditFile::new(&dir).call("c.txt|x|y", &mut out),
+            Err(ToolError::InvalidArgument("needle is ambiguous"))
+        );
+    }
+
+    #[test]
+    fn list_dir_shows_entries() {
+        let dir = scratch("list");
+        std::fs::write(dir.join("keep.txt"), "x").unwrap();
+        let mut out = ObsBuf::new();
+        assert_eq!(ListDir::new(&dir).call("", &mut out).unwrap(), ObsKind::Text);
+        assert!(out.as_str().contains("keep.txt"));
     }
 }
