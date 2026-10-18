@@ -73,7 +73,7 @@ pub fn sanitize_rel(path: &str) -> Result<&str, &'static str> {
     if path.contains('\0') || path.contains(':') {
         return Err("illegal character in path");
     }
-    let mut segs = path.split(|c| c == '/' || c == '\\');
+    let mut segs = path.split(['/', '\\']);
     let escape = segs.any(|s| s == ".." || s == "~");
     if escape {
         return Err("path traversal is not allowed");

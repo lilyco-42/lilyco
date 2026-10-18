@@ -80,7 +80,7 @@ pub fn emit_css<const N: usize>(out: &mut heapless::String<N>) -> Result<(), &'s
         ("motion-slow", MOTION_SLOW),
     ];
     for (name, value) in vars {
-        ::core::write!(out, "  --{}: {}px;\n", name, value).map_err(|_| "buffer full")?;
+        ::core::writeln!(out, "  --{}: {}px;", name, value).map_err(|_| "buffer full")?;
     }
     Ok(())
 }
@@ -104,10 +104,8 @@ mod tests {
 
     #[test]
     fn radii_are_monotonic_and_ordered() {
-        assert!(RADIUS_SM < RADIUS_MD);
-        assert!(RADIUS_MD < RADIUS_LG);
-        assert!(RADIUS_LG < RADIUS_XL);
-        assert!(RADIUS_XL < RADIUS_FULL);
+        let scale = [RADIUS_SM, RADIUS_MD, RADIUS_LG, RADIUS_XL, RADIUS_FULL];
+        assert!(scale.windows(2).all(|w| w[0] < w[1]));
     }
 
     #[test]

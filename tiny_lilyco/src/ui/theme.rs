@@ -254,12 +254,12 @@ impl Theme {
     ) -> Result<(), &'static str> {
         use ::core::fmt::Write as _;
         let kind = if self.dark { "dark" } else { "light" };
-        ::core::write!(out, ":root {{\n  color-scheme: {};\n", kind)
-            .map_err(|_| "buffer full")?;
+        out.push_str(":root {\n").map_err(|_| "buffer full")?;
+        ::core::writeln!(out, "  color-scheme: {};", kind).map_err(|_| "buffer full")?;
         for (name, color) in self.palette.entries() {
-            ::core::write!(
+            ::core::writeln!(
                 out,
-                "  --{}: #{:02x}{:02x}{:02x};\n",
+                "  --{}: #{:02x}{:02x}{:02x};",
                 name,
                 color.r(),
                 color.g(),
@@ -267,7 +267,7 @@ impl Theme {
             )
             .map_err(|_| "buffer full")?;
         }
-        ::core::write!(out, "  --theme-kind: {};\n}}\n", kind).map_err(|_| "buffer full")
+        ::core::writeln!(out, "  --theme-kind: {};\n}}", kind).map_err(|_| "buffer full")
     }
 }
 
