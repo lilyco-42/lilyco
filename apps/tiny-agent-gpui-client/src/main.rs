@@ -137,7 +137,7 @@ impl AgentView {
         std::thread::spawn(move || stream_run(&base, &goal, &feed));
     }
 
-    fn on_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+    fn on_key(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
         if key == "enter" {
             self.submit(cx);
