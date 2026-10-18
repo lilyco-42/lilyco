@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tiny Agent</title>
+<style>
+  :root {
+    --bg: #1a1b26; --fg: #c0caf5; --muted: #565f89; --card: #1f2335;
+    --border: #292e42; --accent: #7aa2f7; --ok: #9ece6a; --warn: #e0af68;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg);
+    font: 15px/1.6 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 22px; border-bottom: 1px solid var(--border);
+  }
+  .brand { font-weight: 600; font-size: 17px; }
+  .status { font-size: 12px; color: var(--muted); }
+  main { flex: 1; overflow: auto; padding: 28px 22px; }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  .line { margin: 0 0 8px; white-space: pre-wrap; word-break: break-word; }
+  .line.big { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+  .line.muted { color: var(--muted); font-size: 13px; }
+  .line.tool { color: var(--accent); }
+  .line.done { color: var(--ok); margin-top: 12px; }
+  footer {
+    display: flex; gap: 10px; padding: 16px 22px 22px;
+    border-top: 1px solid var(--border); justify-content: center;
+  }
+  input {
+    flex: 1; max-width: 640px; padding: 12px 16px; font: inherit;
+    border-radius: 10px; border: 1px solid var(--border);
+    background: var(--card); color: var(--fg); outline: none;
+  }
+  input:focus { box-shadow: 0 0 0 2px var(--accent); }
+  button {
+    padding: 12px 26px; font: inherit; font-weight: 600; cursor: pointer;
+    border-radius: 10px; border: 1px solid var(--border);
+    background: var(--accent); color: #1a1b26;
+  }
+  button:disabled { opacity: .55; cursor: default; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">Tiny Agent</div>
+    <div class="status" id="status">连接中…</div>
+  </header>
+  <main><div class="wrap" id="log"></div></main>
+  <footer>
+    <input id="goal" placeholder="用一句话告诉我要做什么…" autofocus>
+    <button id="go">开始</button>
+  </footer>
+
+<script type="module">
+  const log = document.getElementById('log');
+  const status = document.getElementById('status');
+  const input = document.getElementById('goal');
+  const go = document.getElementById('go');
+
+  function add(text, cls) {
+    const p = document.createElement('p');
+    p.className = 'line' + (cls ? ' ' + cls : '');
+    p.textContent = text;
+    log.appendChild(p);
+  }
+
+  async function health() {
+    try {
+      const res = await fetch('/api/health');
+      const body = await res.json();
+      status.textContent = '后端就绪 · 模型: ' + body.model;
+    } catch {
+      status.textContent = '后端无响应';
+    }
+  }
+
+  // EventSource cannot POST, so the SSE body is read straight off the fetch body.
+  async function run(goal) {
+    log.innerHTML = '';
+    add('你说：' + goal, 'big');
+    go.disabled = true;
+    go.textContent = '正在做…';
+    try {
+      const res = await fetch('/api/run', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ goal }),
+      });
+      if (!res.ok || !res.body) {
+        add('后端返回错误：' + res.status, 'muted');
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let cut;
+        while ((cut = buffer.indexOf('\n\n')) >= 0) {
+          const chunk = buffer.slice(0, cut);
+          buffer = buffer.slice(cut + 2);
+          const payload = chunk.split('\n').find((l) => l.startsWith('data:'));
+          if (!payload) continue;
+          handle(JSON.parse(payload.slice(5).trim()));
+        }
+      }
+    } catch (err) {
+      add('请求失败：' + err, 'muted');
+    } finally {
+      go.disabled = false;
+      go.textContent = '开始';
+    }
+  }
+
+  function handle(ev) {
+    if (ev.kind === 'tool') add(ev.text, 'tool');
+    else if (ev.kind === 'output') add('  ' + ev.text);
+    else if (ev.kind === 'done') add(ev.text, 'done');
+    else add(ev.text, 'muted');
+  }
+
+  go.addEventListener('click', () => {
+    const value = input.value.trim();
+    if (!value) return;
+    run(value);
+    input.value = '';
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') go.click();
+  });
+
+  health();
+</script>
+</body>
+</html>
