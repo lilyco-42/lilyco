@@ -52,7 +52,10 @@ impl TinyApp for AgentApp {
         schema.validate_input(args)
     }
 
-    fn execute<F>(&self, args: Self::Args, mut progress: F) -> Result<Self::Output, Self::Error>
+    /// The goal is carried by the app but not yet consumed: [`ScriptedLlm`]
+    /// replays a construction-time plan, so a real model is the only thing that
+    /// would read it. Wire it here when the HTTP provider lands.
+    fn execute<F>(&self, _goal: Self::Args, mut progress: F) -> Result<Self::Output, Self::Error>
     where
         F: FnMut(Progress),
     {
