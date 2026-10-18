@@ -152,7 +152,8 @@ fn execute(
         lines: Arc::clone(ui),
         taken: vec![format!("goal · {goal}"), format!("workspace · {}", workspace.display())],
     };
-    let mut llm = choose_llm(registry);
+    let (mut llm, provider) = choose_llm(registry);
+    host.taken.push(format!("provider · {provider}"));
     let outcome = drive(goal, &mut *llm, registry, &mut host, Budget::new(8, 3));
     let mut lines = host.taken;
     lines.push(summary(&outcome));
@@ -167,9 +168,14 @@ fn summary(outcome: &Outcome) -> String {
 }
 
 /// cc-switch when configured, otherwise a deterministic two-step plan.
-fn choose_llm(registry: &'static Registry) -> Box<dyn Llm> {
+fn choose_llm(registry: &'static Registry) -> (Box<dyn Llm>, &'static str) {
+    // A real model is opt-in: pointing at a dead provider would block the window
+    // for the whole HTTP timeout, and the offline plan is genuinely useful.
+    let wants_model = std::env::var("TINY_AGENT_PROVIDER")
+        .map(|v| v.eq_ignore_ascii_case("ccswitch"))
+        .unwrap_or(false);
     #[cfg(feature = "llm-anthropic")]
-    {
+    if wants_model {
         use tiny_lilyco::agent::ccswitch;
         use tiny_lilyco::agent::llm_anthropic::{AnthropicLlm, Config, SYSTEM};
         if let Ok(active) = ccswitch::load() {
@@ -179,13 +185,13 @@ fn choose_llm(registry: &'static Registry) -> Box<dyn Llm> {
                 model: active.model,
                 system: SYSTEM.to_string(),
             };
-            return Box::new(AnthropicLlm::new(config, registry));
+            return (Box::new(AnthropicLlm::new(config, registry)), "cc-switch");
         }
     }
     let mut plan = ScriptedLlm::new();
     let _ = plan.push("list_dir", "");
     let _ = plan.push("read_file", "README.md");
-    Box::new(plan)
+    (Box::new(plan), "offline plan")
 }
 
 struct UiHost {
