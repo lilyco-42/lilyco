@@ -327,6 +327,13 @@ fn script() -> String {
     let mut js = String::from("<script>");
     js.push_str("function post(m){ if (window.ipc) { window.ipc.postMessage(m); } }");
     js.push_str("post('boot');");
+    js.push_str("post('size:' + window.innerWidth + 'x' + window.innerHeight");
+    js.push_str(" + ' dpr:' + window.devicePixelRatio);");
+    js.push_str("document.addEventListener('click', function (e) {");
+    js.push_str(" var t = e.target;");
+    js.push_str(" var n = (t && (t.className || t.tagName)) || 'none';");
+    js.push_str(" post('click:' + n + '@' + e.clientX + ',' + e.clientY);");
+    js.push_str("}, true);");
     js.push_str("document.querySelectorAll('[data-set]').forEach(function (b) {");
     js.push_str(" b.addEventListener('click', function () {");
     js.push_str("  document.documentElement.dataset.theme = b.dataset.set;");
