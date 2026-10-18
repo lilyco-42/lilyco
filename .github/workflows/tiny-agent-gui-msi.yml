@@ -1,0 +1,79 @@
+name: Tiny Agent GUI MSI
+
+# Manual + push trigger. `workflow_dispatch` only works once this file exists on
+# the default branch, so the push trigger is what makes it runnable from a PR.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish the MSI under'
+        required: false
+        default: 'tiny-agent-gui-v0.2.0'
+  push:
+    paths:
+      - 'apps/tiny-agent-wry/**'
+      - '.github/workflows/tiny-agent-gui-msi.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  msi:
+    name: Build GUI MSI (windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/tiny-agent-wry
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/tiny-agent-wry
+          # Cache the registry as well as target/, so a cold runner does not
+          # re-download ~300 crates for tao + wry. The key is stable across
+          # source edits, so a rebuild only compiles this crate itself.
+          cache-all-crates: true
+          # Keep the cache even when the build fails: a failed compile still
+          # warms 99% of the dependency graph.
+          cache-on-failure: true
+          key: gui
+
+      - name: Build Tiny Agent (release)
+        run: cargo build --release
+
+      - name: Install WiX Toolset
+        working-directory: .
+        run: choco install wixtoolset --no-progress -y
+
+      - name: Compile and link the MSI
+        shell: pwsh
+        run: |
+          $wix = "C:\Program Files (x86)\WiX Toolset v3.14\bin"
+          & "$wix\candle.exe" -arch x64 -out wix\main.wixobj wix\main.wxs
+          & "$wix\light.exe" -out tiny-agent-gui-0.2.0-x64.msi wix\main.wixobj
+          Get-Item tiny-agent-gui-0.2.0-x64.msi | Select-Object Name, Length
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tiny-agent-gui-msi
+          path: apps/tiny-agent-wry/tiny-agent-gui-0.2.0-x64.msi
+          if-no-files-found: error
+
+      - name: Publish release asset
+        shell: pwsh
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || 'tiny-agent-gui-v0.2.0' }}
+        run: |
+          $asset = "apps/tiny-agent-wry/tiny-agent-gui-0.2.0-x64.msi"
+          gh release view $env:TAG 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:TAG $asset --title "Tiny Agent GUI 0.2.0" --notes "GUI build (tao + wry), Windows x64 MSI."
+          } else {
+            gh release upload $env:TAG $asset --clobber
+          }

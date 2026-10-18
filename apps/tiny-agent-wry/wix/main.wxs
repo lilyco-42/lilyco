@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- WiX 3 source for the GUI build.
+     Per-user install: no elevation, no UAC, no Program Files ACL issues.
+     The 0.1.x line shipped perMachine under a different UpgradeCode, so this
+     one coexists instead of failing to remove a package that needs admin.
+
+     Per-user packages have two hard ICE rules:
+       ICE38 — a component under the user profile must key off HKCU, not a file;
+       ICE64 — every user-profile directory must appear in the RemoveFile table. -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product
+      Id="*"
+      Name="Tiny Agent"
+      Language="1033"
+      Version="0.2.0"
+      Manufacturer="Lilyco"
+      UpgradeCode="C81F4D27-6B5A-4E93-A1C7-5E2D8B9F3A64">
+
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Tiny Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="INSTALLFOLDER" Name="Tiny Agent" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="AppMenuDir" Name="Tiny Agent" />
+      </Directory>
+    </Directory>
+
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="AppExe" Guid="4F2A9C61-8D3B-4E57-9A2C-1B6E7D3F5A08">
+        <File Id="AppExeFile"
+              Name="Tiny Agent.exe"
+              Source="..\target\release\tiny-agent-wry.exe" />
+        <RegistryValue Root="HKCU" Key="Software\Lilyco\TinyAgent"
+                       Name="exe" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+        <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="AppMenuDir">
+      <Component Id="AppShortcut" Guid="9B7E2D14-5C6A-4F83-B0D9-3A8E1C4F7B25">
+        <Shortcut Id="MenuShortcut"
+                  Name="Tiny Agent"
+                  Description="Tiny Agent"
+                  Target="[INSTALLFOLDER]Tiny Agent.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveAppMenuDir" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\Lilyco\TinyAgent"
+                       Name="shortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="Main" Title="Tiny Agent" Level="1">
+      <ComponentRef Id="AppExe" />
+      <ComponentRef Id="AppShortcut" />
+    </Feature>
+  </Product>
+</Wix>

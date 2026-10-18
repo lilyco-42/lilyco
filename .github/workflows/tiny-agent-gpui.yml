@@ -1,0 +1,37 @@
+name: Tiny Agent GPUI demo
+
+# Manual only: a GPU shell is heavy and must never gate the headless CI.
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: 'GPUI git revision to build against'
+        required: false
+        default: ''
+
+jobs:
+  build-demo:
+    name: Build the GPUI shell (Linux)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GPUI system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libvulkan-dev libssl-dev libfontconfig-dev libasound2-dev \
+            libx11-xcb-dev libxcb1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Nesting budget
+        run: python3 scripts/check_nesting.py apps/tiny-agent-gpui/src
+
+      - name: Clippy the shell
+        working-directory: apps/tiny-agent-gpui
+        run: cargo clippy --all-targets -- -D warnings

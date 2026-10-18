@@ -1,0 +1,76 @@
+name: Tiny Lilyco Remote CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'tiny_lilyco/**'
+      - 'scripts/check_nesting.py'
+      - '.github/workflows/tiny_lilyco.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'tiny_lilyco/**'
+      - 'scripts/check_nesting.py'
+
+env:
+  CARGO_TERM_COLOR: always
+
+# `tiny_lilyco` is a standalone workspace (its own `[workspace]` table), so every
+# cargo command below runs with that directory as the working directory and must
+# not use `-p`.
+defaults:
+  run:
+    working-directory: tiny_lilyco
+
+jobs:
+  nesting-budget:
+    name: Enforce nesting budget (<= 4 levels)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check nesting depth and indentation
+        working-directory: .
+        run: python3 scripts/check_nesting.py tiny_lilyco/src
+
+  no-std-targets:
+    name: Bare no_std (ARM Cortex-M4) and WASM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabi, wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tiny_lilyco
+          cache-all-crates: true
+          cache-on-failure: true
+          key: nostd
+      - name: ARM Cortex-M4 check
+        run: cargo check --lib --target thumbv7em-none-eabi --no-default-features
+      - name: WASM check
+        run: cargo check --lib --target wasm32-unknown-unknown --no-default-features
+
+  host-quality:
+    name: Clippy and tests on the host
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tiny_lilyco
+          cache-all-crates: true
+          cache-on-failure: true
+          key: host
+      - name: Clippy, no_std core
+        run: cargo clippy --no-default-features --all-targets -- -D warnings
+      - name: Clippy, host bridge
+        run: cargo clippy --features std --all-targets -- -D warnings
+      - name: Unit tests, core only
+        run: cargo test --no-default-features
+      - name: Unit tests, with host bridge
+        run: cargo test --features std

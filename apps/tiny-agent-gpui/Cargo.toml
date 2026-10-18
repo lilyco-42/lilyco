@@ -1,0 +1,22 @@
+[package]
+name = "tiny-agent-gpui"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Standalone workspace: this demo is excluded from the main workspace so the
+# headless `tiny_lilyco` CI never pays for a GPU stack.
+[workspace]
+
+[dependencies]
+tiny_lilyco = { path = "../../tiny_lilyco", features = ["std"] }
+tiny_lilyco_uda = { path = "../../tiny_lilyco_uda" }
+
+# Pin this to a commit you actually build with. An unpinned git dependency
+# resolves to HEAD and may drift; the repo hygiene rule also requires a rev.
+gpui = { git = "https://github.com/zed-industries/zed", rev = "56934ec0560bce8929025497411de7f5322fb6ca" }
+
+# Optional: swap the two lines above for the styled component kit, which
+# re-exports gpui and ships the shadcn-shaped component set:
+#   gpui-kit = "0.1"

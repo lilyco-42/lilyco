@@ -1,0 +1,21 @@
+[package]
+name = "tiny_lilyco_uda"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "UniDesktop/SDK bridge for tiny_lilyco"
+publish = false
+
+# Standalone workspace on purpose: UDA is a git dependency, and the headless
+# `tiny_lilyco` CI must never pay a network round-trip for it.
+[workspace]
+
+[dependencies]
+tiny_lilyco = { path = "../tiny_lilyco", features = ["std"] }
+uda-core = { git = "https://github.com/UniDesktop/SDK", tag = "v0.2.1" }
+
+[target.'cfg(windows)'.dependencies]
+uda-platform-windows = { git = "https://github.com/UniDesktop/SDK", tag = "v0.2.1" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+uda-platform-linux = { git = "https://github.com/UniDesktop/SDK", tag = "v0.2.1" }
