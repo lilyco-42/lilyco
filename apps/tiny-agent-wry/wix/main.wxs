@@ -12,7 +12,7 @@
       Id="*"
       Name="Tiny Agent"
       Language="1033"
-      Version="0.5.3"
+      Version="0.6.0"
       Manufacturer="Lilyco"
       UpgradeCode="C81F4D27-6B5A-4E93-A1C7-5E2D8B9F3A64">
 
@@ -53,9 +53,24 @@
       </Component>
     </DirectoryRef>
 
+
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Directory Id="VendorDir" Name="vendor" />
+    </DirectoryRef>
+
+    <DirectoryRef Id="VendorDir">
+      <Component Id="AstGrepExe" Guid="6E2A5C19-4B7D-4F38-9A61-3D8C2F7B1E94">
+        <File Id="AstGrepFile" Name="ast-grep.exe" Source="..\vendor\ast-grep.exe" />
+        <RemoveFolder Id="RemoveVendorDir" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\Lilyco\TinyAgent"
+                       Name="ast-grep" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
     <Feature Id="Main" Title="Tiny Agent" Level="1">
       <ComponentRef Id="AppExe" />
       <ComponentRef Id="AppShortcut" />
+      <ComponentRef Id="AstGrepExe" />
     </Feature>
   </Product>
 </Wix>

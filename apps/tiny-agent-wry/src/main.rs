@@ -22,7 +22,7 @@ use tiny_lilyco::agent::llm::{Llm, ScriptedLlm};
 use tiny_lilyco::agent::registry::Registry;
 use tiny_lilyco::agent::runtime::{drive, Budget, Host, Outcome};
 use tiny_lilyco::agent::tool::{ObsBuf, ObsKind, Tool, ToolError};
-use tiny_lilyco::agent::tools::{EditFile, ListDir, ReadFile};
+use tiny_lilyco::agent::tools::{AstGrep, EditFile, ListDir, ReadFile};
 use tiny_lilyco::ui::Theme;
 use wry::{WebContext, WebViewBuilder};
 
@@ -269,6 +269,20 @@ fn summary(outcome: &Outcome) -> String {
 }
 
 /// cc-switch when configured, otherwise a deterministic two-step plan.
+
+/// Read a `lang|pattern` written between backticks in the goal.
+fn quoted_pattern(goal: &str) -> Option<(String, String)> {
+    let start = goal.find('`')?;
+    let rest = &goal[start + 1..];
+    let end = rest.find('`')?;
+    let inner = rest[..end].trim();
+    let (lang, pattern) = inner.split_once('|')?;
+    if lang.trim().is_empty() || pattern.trim().is_empty() {
+        return None;
+    }
+    Some((lang.trim().to_string(), pattern.trim().to_string()))
+}
+
 fn choose_llm(registry: &'static Registry) -> (Box<dyn Llm>, String) {
     // Priority: what the user saved in the gear panel, then an explicit
     // environment override, then cc-switch, then the offline plan.
@@ -314,7 +328,14 @@ fn choose_llm(registry: &'static Registry) -> (Box<dyn Llm>, String) {
     }
     let _ = registry;
     let mut plan = ScriptedLlm::new();
-    let _ = plan.push("list_dir", "");
+    match quoted_pattern(goal) {
+        Some((lang, pat)) => {
+            let _ = plan.push("ast_grep", &format!("{lang}|{pat}"));
+        }
+        None => {
+            let _ = plan.push("list_dir", "");
+        }
+    }
     (Box::new(plan), "本地模式（不联网）".to_string())
 }
 
@@ -361,10 +382,12 @@ fn build_registry(root: &Path) -> &'static Registry {
     let read: &'static dyn Tool = Box::leak(Box::new(ReadFile::new(root)));
     let list: &'static dyn Tool = Box::leak(Box::new(ListDir::new(root)));
     let edit: &'static dyn Tool = Box::leak(Box::new(EditFile::new(root)));
+    let ast: &'static dyn Tool = Box::leak(Box::new(AstGrep::new(root, AstGrep::locate())));
     let reg: &'static mut Registry = Box::leak(Box::new(Registry::new()));
     let _ = reg.register(read);
     let _ = reg.register(list);
     let _ = reg.register(edit);
+    let _ = reg.register(ast);
     reg
 }
 
@@ -521,7 +544,7 @@ fn chrome(workspace: &Path) -> String {
     out.push_str("<button class=\"gear\" data-action=\"settings\">设置</button>");
     out.push_str("</header><main class=\"body\"><div class=\"answer\" id=\"answer\">");
     out.push_str("<p class=\"line big\">你想让我做什么？</p>");
-    out.push_str("<p class=\"line\">比如：这个文件夹里有什么 &middot; 看看 README 写了什么 &middot; 列一下文件</p>");
+    out.push_str("<p class=\"line\">比如：这个文件夹里有什么 &middot; 搜代码写 <code>rust|fn $A</code>（用反引号包住）</p>");
     out.push_str(&format!(
         "<p class=\"line small\">当前文件夹：{}</p>",
         workspace.display()
@@ -580,7 +603,7 @@ fn script() -> String {
     js.push_str(" var b=document.getElementById('go'); b.textContent='开始'; b.disabled=false; };");
     js.push_str("window.__applyProviders = function(){};");
     js.push_str("if(window.__SELFTEST){ setTimeout(function(){");
-    js.push_str(" document.getElementById('prompt').value='这个文件夹里有什么'; go(); }, 1200); }");
+    js.push_str(" document.getElementById('prompt').value='\u641c\u4ee3\u7801 `rust|pub fn $NAME`'; go(); }, 1200); }");
     js.push_str("</script>");
     js
 }
