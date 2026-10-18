@@ -50,6 +50,7 @@ fn run() -> wry::Result<()> {
         .with_min_inner_size(LogicalSize::new(880.0, 560.0))
         .build(&event_loop)
         .expect("failed to create the native window");
+    fit_to_webview_scale(&window);
 
     // WebView2 must NOT put its user-data folder under Program Files: the
     // install directory is read-only for a per-machine MSI, which fails with
@@ -73,6 +74,24 @@ fn run() -> wry::Result<()> {
             *control_flow = ControlFlow::Exit;
         }
     });
+}
+
+/// Grow the window so its *physical* size matches the CSS pixels WebView2 renders.
+///
+/// WebView2 always renders at the monitor scale, while the window may have been
+/// created at 1.0 — on a 125% display that leaves the page 25% wider than the
+/// window, clipping the right edge and the composer. This only acts when the
+/// window really came out unscaled, so it never double-applies.
+fn fit_to_webview_scale(window: &tao::window::Window) {
+    let got = window.inner_size();
+    let scale = window.scale_factor();
+    let expected = 1100.0 * scale;
+    if (got.width as f64) >= expected * 0.9 {
+        return;
+    }
+    let w = (1100.0 * scale).round() as u32;
+    let h = (720.0 * scale).round() as u32;
+    window.set_inner_size(tao::dpi::PhysicalSize::new(w, h));
 }
 
 /// A per-user, always-writable directory for the WebView2 profile.
