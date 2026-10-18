@@ -1,0 +1,59 @@
+name: Tiny Lilyco Remote CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'tiny_lilyco/**'
+      - 'scripts/check_nesting.py'
+      - '.github/workflows/tiny_lilyco.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'tiny_lilyco/**'
+      - 'scripts/check_nesting.py'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  nesting-budget:
+    name: Enforce nesting budget (<= 4 levels)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check nesting depth and indentation
+        run: python3 scripts/check_nesting.py tiny_lilyco/src
+
+  no-std-targets:
+    name: Bare no_std (ARM Cortex-M4) and WASM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabi, wasm32-unknown-unknown
+      - name: ARM Cortex-M4 check
+        run: cargo check -p tiny_lilyco --target thumbv7em-none-eabi --no-default-features
+      - name: WASM check
+        run: cargo check -p tiny_lilyco --target wasm32-unknown-unknown --no-default-features
+
+  host-quality:
+    name: Clippy and tests on the host
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Formatting (informational)
+        continue-on-error: true
+        run: cargo fmt -p tiny_lilyco -- --check
+      - name: Clippy, no_std core
+        run: cargo clippy -p tiny_lilyco --no-default-features --all-targets -- -D warnings
+      - name: Clippy, host bridge
+        run: cargo clippy -p tiny_lilyco --features std --all-targets -- -D warnings
+      - name: Unit tests, core only
+        run: cargo test -p tiny_lilyco --no-default-features
+      - name: Unit tests, with host bridge
+        run: cargo test -p tiny_lilyco --features std
