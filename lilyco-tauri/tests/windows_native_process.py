@@ -119,6 +119,9 @@ def launch_non_elevated(args, environment, output):
         sid = ctypes.cast(integrity, ctypes.POINTER(SidAttributes)).contents.Sid
         index = security.GetSidSubAuthorityCount(sid).contents.value - 1
         return {'is_elevated': bool(elevated),
+                'elevation_type': ctypes.cast(information(token, 18), ctypes.POINTER(wintypes.DWORD)).contents.value,
+                'has_restrictions': bool(ctypes.cast(information(token, 21), ctypes.POINTER(wintypes.DWORD)).contents.value),
+                'is_app_container': bool(ctypes.cast(information(token, 29), ctypes.POINTER(wintypes.DWORD)).contents.value),
                 'integrity_rid': security.GetSidSubAuthority(sid, index).contents.value}
 
     def process_snapshot(process_id):
@@ -195,3 +198,71 @@ def launch_non_elevated(args, environment, output):
         for handle in [restricted, parent]:
             if handle:
                 kernel.CloseHandle(handle)
+
+
+def probe_native_access(application, profile, evidence, environment):
+    """Observe actual ordinary-token file access before blaming WebView startup."""
+    if sys.platform != 'win32' or os.environ.get('GITHUB_ACTIONS') != 'true':
+        raise RuntimeError('Native access probes only run in Windows GitHub Actions')
+    import json
+    from pathlib import Path
+    import uuid
+
+    roots = [Path(environment[name]).resolve(strict=True) for name in ('RUNNER_TEMP', 'GITHUB_WORKSPACE')]
+    application, profile, evidence = [Path(value).resolve(strict=True) for value in (application, profile, evidence)]
+    if any(not any(value.is_relative_to(root) for root in roots) for value in (application, profile, evidence)):
+        raise ValueError('Native access probe escaped the CI workspace or temporary directory')
+    marker = profile / ('.office-native-access-' + uuid.uuid4().hex + '.txt')
+    program = '''import json,sys
+from pathlib import Path
+application, marker = map(Path, sys.argv[1:])
+result = {}
+try:
+    with application.open('rb') as stream:
+        result['application_readable'] = stream.read(2) == b'MZ'
+except OSError as error:
+    result['application_readable'] = False
+    result['application_error'] = {'errno':error.errno, 'winerror':getattr(error,'winerror',None)}
+created = False
+try:
+    with marker.open('x', encoding='utf-8') as stream:
+        created = True
+        stream.write('office-ci-owned-access-probe')
+    if marker.read_text(encoding='utf-8') != 'office-ci-owned-access-probe':
+        raise OSError('Probe bytes changed')
+    marker.unlink()
+    result['profile_write_read_delete'] = True
+except OSError as error:
+    result['profile_write_read_delete'] = False
+    result['profile_error'] = {'errno':error.errno, 'winerror':getattr(error,'winerror',None)}
+finally:
+    if created:
+        try: marker.unlink(missing_ok=True)
+        except OSError: pass
+print(json.dumps(result), flush=True)
+sys.exit(0 if result.get('application_readable') and result.get('profile_write_read_delete') else 1)
+'''
+    output_path = evidence / 'native-access-probe.log'
+    with output_path.open('w', encoding='utf-8') as output:
+        child, security = launch_non_elevated([sys.executable, '-c', program, str(application), str(marker)], environment, output)
+        try:
+            status = child.wait(timeout=15)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=10)
+            if hasattr(child, 'close'):
+                child.close()
+    try:
+        checks = json.loads(output_path.read_text(encoding='utf-8'))
+    except (ValueError, OSError):
+        checks = {'invalid_probe_output': True}
+    # Read two explicit CI-owned ACLs, never change permissions or enumerate
+    # user directories. The stdout contains only these paths and access rules.
+    executable = str(Path(environment['SYSTEMROOT']) / 'System32' / 'icacls.exe')
+    acl = {}
+    for candidate in (application, profile):
+        observed = subprocess.run([executable, str(candidate)], capture_output=True, text=True,
+                                  encoding='utf-8', errors='replace', timeout=10)
+        acl[str(candidate)] = {'exit_code': observed.returncode, 'rules': observed.stdout[:8192]}
+    return {'exit_code': status, 'checks': checks, 'actual_security': security, 'read_only_acl': acl}

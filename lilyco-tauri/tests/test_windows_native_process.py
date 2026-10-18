@@ -6,11 +6,26 @@ import sys
 import tempfile
 import unittest
 
-from windows_native_process import launch_non_elevated
+from windows_native_process import launch_non_elevated, probe_native_access
 
 
 @unittest.skipUnless(sys.platform == 'win32', 'Uses actual Windows security tokens')
 class OrdinaryNativeProcessTests(unittest.TestCase):
+    def test_ordinary_token_can_access_its_ci_payload_and_webview_folder(self):
+        with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP']) as temporary:
+            root = Path(temporary)
+            payload = root / 'read-only-probe.exe'
+            payload.write_bytes(b'MZ CI fixture; this file is read, not executed')
+            profile, evidence = root / 'webview', root / 'evidence'
+            profile.mkdir()
+            evidence.mkdir()
+            result = probe_native_access(payload, profile, evidence, dict(os.environ))
+            self.assertEqual(result['exit_code'], 0, result)
+            self.assertTrue(result['checks'].get('application_readable'), result)
+            self.assertTrue(result['checks'].get('profile_write_read_delete'), result)
+            self.assertFalse(result['actual_security']['application']['is_elevated'])
+            self.assertFalse(list(profile.glob('.office-native-access-*')))
+
     def test_ordinary_child_receives_unicode_environment_and_arguments(self):
         with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP']) as temporary:
             output_path = Path(temporary) / 'child.log'

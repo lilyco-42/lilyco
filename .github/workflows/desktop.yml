@@ -29,6 +29,17 @@ permissions:
   contents: write
 
 jobs:
+  windows-launch-contract:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Observe ordinary Windows token and CI profile access before compilation
+        run: python lilyco-tauri/tests/test_windows_native_process.py
+
   workspace-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 100

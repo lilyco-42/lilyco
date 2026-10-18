@@ -14,7 +14,7 @@ import time
 import urllib.request
 import urllib.error
 from urllib.parse import urlparse
-from windows_native_process import launch_non_elevated
+from windows_native_process import launch_non_elevated, probe_native_access
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE = ROOT.parent
@@ -124,21 +124,37 @@ def run(application_override=None, engine_override=None, label='packaged'):
                 environment['WEBVIEW2_USER_DATA_FOLDER'] = str(profile)
                 environment['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = (
                     f'--remote-debugging-port={debug_port} --remote-debugging-address=127.0.0.1')
+                access = probe_native_access(application, profile, EVIDENCE, environment)
+                (EVIDENCE / 'native-access-probe.json').write_text(json.dumps(access, indent=2) + '\n', encoding='utf-8')
+                if access['exit_code'] != 0 or not all(access['checks'].get(key) is True for key in (
+                        'application_readable', 'profile_write_read_delete')):
+                    raise RuntimeError('Ordinary Windows token cannot access the payload or WebView profile; see native-access-probe.json')
                 application_log = (EVIDENCE / 'application.log').open('w', encoding='utf-8')
                 application_process, launch_security = launch_non_elevated(
                     [str(application.resolve())], environment, application_log)
                 (EVIDENCE / 'native-launch-security.json').write_text(
                     json.dumps(launch_security, indent=2) + '\n', encoding='utf-8')
 
+                readiness = {'attempts': 0, 'started_monotonic': time.monotonic()}
+
                 def webview_ready():
+                    readiness['attempts'] += 1
                     if application_process.poll() is not None:
+                        readiness['application_exit'] = application_process.poll()
+                        (EVIDENCE / 'native-webview-readiness.json').write_text(json.dumps(readiness, indent=2), encoding='utf-8')
                         raise RuntimeError('Actual Office process exited before its WebView became ready')
                     try:
                         url = f'http://127.0.0.1:{debug_port}/json/version'
                         with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url, timeout=2) as response:
+                            readiness['http_status'] = response.status
                             return verify_debug_endpoint(json.load(response), debug_port)
-                    except (OSError, urllib.error.URLError, http.client.RemoteDisconnected):
+                    except (OSError, urllib.error.URLError, http.client.RemoteDisconnected) as error:
+                        readiness['last_error'] = {'type': type(error).__name__, 'errno': getattr(error, 'errno', None),
+                                                   'winerror': getattr(error, 'winerror', None), 'http_status': getattr(error, 'code', None)}
                         return False
+                    finally:
+                        readiness['elapsed_ms'] = round((time.monotonic() - readiness['started_monotonic']) * 1000)
+                        (EVIDENCE / 'native-webview-readiness.json').write_text(json.dumps(readiness, indent=2) + '\n', encoding='utf-8')
                 try:
                     version = wait(webview_ready, 60)
                 finally:
