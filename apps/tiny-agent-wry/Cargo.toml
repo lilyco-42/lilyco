@@ -1,6 +1,6 @@
 [package]
 name = "tiny-agent-wry"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 publish = false
@@ -10,7 +10,9 @@ publish = false
 [workspace]
 
 [dependencies]
-tiny_lilyco = { path = "../../tiny_lilyco" }
+tiny_lilyco = { path = "../../tiny_lilyco", features = ["std", "llm-anthropic"] }
 heapless = "0.8"
 tao = "0.37"
 wry = "0.57"
+
+
