@@ -25,3 +25,9 @@ heapless = "0.8"
 version = "0.18"
 default-features = false
 optional = true
+
+[[bin]]
+name = "tiny-agent"
+path = "src/bin/tiny-agent.rs"
+required-features = ["std"]
+

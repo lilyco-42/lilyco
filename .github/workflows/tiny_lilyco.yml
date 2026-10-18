@@ -72,5 +72,14 @@ jobs:
         run: cargo clippy --features std --all-targets -- -D warnings
       - name: Unit tests, core only
         run: cargo test --no-default-features
+      - name: Agent CLI smoke (real files, real loop)
+        run: |
+          mkdir -p /tmp/tiny-smoke
+          printf 'alpha\nbeta\n' > /tmp/tiny-smoke/note.txt
+          cargo run --quiet --features std --bin tiny-agent -- \
+            /tmp/tiny-smoke --call list_dir: --call read_file:note.txt | tee /tmp/agent-out.txt
+          grep -q "note.txt" /tmp/agent-out.txt
+          grep -q "beta" /tmp/agent-out.txt
+          grep -q "2 calls" /tmp/agent-out.txt
       - name: Unit tests, with host bridge
         run: cargo test --features std
