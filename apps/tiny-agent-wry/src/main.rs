@@ -50,7 +50,8 @@ fn run() -> wry::Result<()> {
         .with_min_inner_size(LogicalSize::new(880.0, 560.0))
         .build(&event_loop)
         .expect("failed to create the native window");
-    fit_to_webview_scale(&window);
+    let layout_note = fit_to_webview_scale(&window);
+    trace(&layout_note);
 
     // WebView2 must NOT put its user-data folder under Program Files: the
     // install directory is read-only for a per-machine MSI, which fails with
@@ -78,17 +79,47 @@ fn run() -> wry::Result<()> {
 
 /// Grow the window so its *physical* size matches the CSS pixels WebView2 renders.
 ///
-/// `tao` reports a 1.0 scale factor on this display while WebView2 renders at
-/// the monitor's real scale (125%), which leaves the page 25% wider than the
-/// window and clips its right edge and the composer. So ask the OS directly.
-fn fit_to_webview_scale(window: &tao::window::Window) {
+/// `tao` reports a 1.0 scale factor here while WebView2 renders at the monitor's
+/// real scale (125%), which leaves the page 25% wider than the window and clips
+/// its right edge and the composer. Two details matter:
+///
+/// * ask the OS for the DPI instead of trusting `tao`'s reading;
+/// * resize through `SetWindowPos`, because `set_inner_size` before the event
+///   loop starts is dropped.
+fn fit_to_webview_scale(window: &tao::window::Window) -> String {
     let scale = monitor_scale(window);
+    let before = window.inner_size();
     let want_w = (1100.0 * scale).round() as u32;
     let want_h = (720.0 * scale).round() as u32;
-    if window.inner_size().width >= want_w {
-        return;
+    if before.width >= want_w {
+        return format!("dpi x{scale} kept {}x{}", before.width, before.height);
     }
-    window.set_inner_size(tao::dpi::PhysicalSize::new(want_w, want_h));
+    resize_physical(window, want_w, want_h);
+    let after = window.inner_size();
+    format!(
+        "dpi x{scale} resized {}x{} -> {}x{}",
+        before.width, before.height, after.width, after.height
+    )
+}
+
+#[cfg(windows)]
+fn resize_physical(window: &tao::window::Window, w: u32, h: u32) {
+    #[link(name = "user32")]
+    extern "system" {
+        fn SetWindowPos(h: isize, after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+    }
+    use tao::platform::windows::WindowExtWindows;
+    // SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE
+    const FLAGS: u32 = 0x0002 | 0x0004 | 0x0010;
+    let hwnd = window.hwnd() as isize;
+    unsafe {
+        SetWindowPos(hwnd, 0, 0, 0, w as i32, h as i32, FLAGS);
+    }
+}
+
+#[cfg(not(windows))]
+fn resize_physical(window: &tao::window::Window, w: u32, h: u32) {
+    window.set_inner_size(tao::dpi::PhysicalSize::new(w, h));
 }
 
 /// Real per-window DPI scale, bypassing `tao`'s own (unreliable here) reading.
@@ -113,12 +144,27 @@ fn monitor_scale(window: &tao::window::Window) -> f64 {
     window.scale_factor()
 }
 
-/// A per-user, always-writable directory for the WebView2 profile.
-fn webview_data_dir() -> std::path::PathBuf {
+/// A per-user, always-writable directory for the WebView2 profile.fn webview_data_dir() -> std::path::PathBuf {
     let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string());
     let dir = std::path::Path::new(&base).join("Tiny Agent").join("webview2");
     let _ = std::fs::create_dir_all(&dir);
     dir
+}
+
+/// Append a line to `%LOCALAPPDATA%\tiny-agent\startup.log`.
+fn trace(message: &str) {
+    use std::io::Write as _;
+    let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string());
+    let dir = std::path::Path::new(&base).join("tiny-agent");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("startup.log");
+    let opened = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path);
+    if let Ok(mut file) = opened {
+        let _ = file.write_all(format!("{message}\n").as_bytes());
+    }
 }
 
 /// Persist and show a startup failure: a GUI build has no console to print to.
