@@ -295,6 +295,18 @@ if (!button || button.disabled) return false; button.click(); return true;''', t
                 time.sleep(.2)
                 metrics = js('return {width:innerWidth, body:document.documentElement.scrollWidth, height:innerHeight}')
                 assert metrics['body'] <= metrics['width'] + 1, metrics
+                # A no-overflow assertion alone missed the real 320px image:
+                # the picker consumed the row and squeezed Chinese to columns.
+                if metrics['width'] < 640:
+                    picker = js('''const text=document.querySelector('[data-testid="selected-file"]').getBoundingClientRect();
+                        const summary=document.querySelector('[data-testid="file-summary"]').getBoundingClientRect();
+                        const button=document.querySelector('[data-testid="file-picker"]').getBoundingClientRect();
+                        return {textWidth:text.width, summaryBottom:summary.bottom,
+                                buttonTop:button.top, buttonHeight:button.height}''')
+                    assert picker['textWidth'] >= 140, picker
+                    assert picker['buttonTop'] >= picker['summaryBottom'], picker
+                    assert picker['buttonHeight'] >= 40, picker
+                    metrics['file_picker_readability'] = picker
                 screenshot = request(prefix + '/screenshot')
                 (EVIDENCE / f'native-{sys.platform}-{width}.png').write_bytes(base64.b64decode(screenshot))
                 layouts.append({'requested_width': width, **metrics, 'no_horizontal_overflow': True})

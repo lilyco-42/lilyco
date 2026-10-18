@@ -278,6 +278,7 @@ Office Windows图标门还调用 native-icon.ps1 启动实际冻结程序，按�
 
 `lilyco-tauri/ui/src/office-bridge.ts` 使用官方 `window.__TAURI__`、真实 dialog 与本窗口 drag-drop；修复原 static app.js 的 `window.__TAURI` 拼写。`use-office-workspace.ts` 只调用 `office_commands/office_run`，原 Rust 白名单/lbin 处理器不改，当前读取锁止文件/参数切换，新文件、失败或新命令清除旧结果。最近路径仅在窗口内存最多八条，可逐条/全部忘记；只有主题进入 localStorage。
 `office-workspace.tsx` 组合原始 shadcn primitives；`office-result-view.tsx` 以 40 项分批展示原 JSON，完整原文可复制/查看，不把结构查看器宣传成 Office 编辑器或像素渲染器。UI依赖复用已有 Asset Studio 锁图，不手改官方组件；来源/hash和MIT原文保留。DESIGN/.design-context记录品牌与原界面审查。
+文件选择区小于640px时说明／选择按钮与读取动作分行、图标不收缩；`native_workbench.py` 除溢出检查外，记录实际字体渲染后的标题宽度、选择按钮垂直位置和命中高度。此修正针对先前真实320px截图中的中文挤成窄列，仍须新提交原生截图核验。
 Desktop Actions 先 npm ci/类型检查/Vite静态构建到原 frontend，再保存完整 runtime依赖许可至 resources/FRONTEND-LICENSES.json；组件摘要必须相同，缺完整license报失败。UI只在Actions生成，保留普通workspace的可编译静态来源，没有本机编译/运行。
 `tests/native_workbench.py` 用官方 tauri-driver 2.1.0 连接真实冻结程序，不mock窗口IPC或原CLI；本窗口native事件选真实producer fixture，实际Rust适配器调用原二进制，文档/表格/幻灯片/PDF各类UI文档字段与原CLI输出相同（PDF每次调用的elapsed_ms单独记录且必须是非负整数），且原件字节不变。缺失文件的真实失败不得保留上一个结果；最近记录可真正清除。320/520/768/1180/1440原生窗口截图及溢出证据保存。Windows driver由官方文档所用 msedgedriver-tool 固定源码8c4b34f匹配当前WebView2安装；Linux在Xvfb下用对应WebKitGTK driver。
 `tests/install_acceptance.ps1` 只在Actions RUNNER_TEMP已校验的新目录安装真正NSIS；原EXE/sidecar/图标与frontend完整notice byte一致，真实菜单shortcut/注册表存在，再从安装目录执行同一native UI/CLI流程。复制原卸载器并用官方 `_?=` 等待真实清理，不靠父进程退出；已安装payload/shortcut/注册表须删除，而用户在安装目录添加的文档原件必须保留。尚未过门前全部为待验收代码，MSI与macOS安装/完整分发仍未据此宣称完成。
