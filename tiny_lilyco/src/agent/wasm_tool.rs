@@ -16,6 +16,8 @@
 //! packaging task, not an architecture change.
 
 use std::path::Path;
+use std::string::{String, ToString};
+use std::vec::Vec;
 
 use extism::{Manifest, Plugin, Wasm};
 
