@@ -27,6 +27,15 @@ jobs:
         with:
           components: clippy
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tiny_lilyco_uda
+          # UDA is a git dependency: caching the registry + git checkout makes
+          # the second run skip a full clone of the SDK repo.
+          cache-all-crates: true
+          cache-on-failure: true
+          key: uda
+
       - name: Unit tests (mapping and degradation)
         working-directory: tiny_lilyco_uda
         run: cargo test

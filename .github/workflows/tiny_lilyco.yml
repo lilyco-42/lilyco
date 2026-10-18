@@ -41,6 +41,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: thumbv7em-none-eabi, wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tiny_lilyco
+          cache-all-crates: true
+          cache-on-failure: true
+          key: nostd
       - name: ARM Cortex-M4 check
         run: cargo check --target thumbv7em-none-eabi --no-default-features
       - name: WASM check
@@ -54,6 +60,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tiny_lilyco
+          cache-all-crates: true
+          cache-on-failure: true
+          key: host
       - name: Clippy, no_std core
         run: cargo clippy --no-default-features --all-targets -- -D warnings
       - name: Clippy, host bridge

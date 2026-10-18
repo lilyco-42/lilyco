@@ -32,6 +32,13 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tiny_lilyco
+          cache-all-crates: true
+          cache-on-failure: true
+          key: cli-msi
+
       - name: Build lilyco-agent (release)
         run: cargo build --release --bin lilyco-agent
 

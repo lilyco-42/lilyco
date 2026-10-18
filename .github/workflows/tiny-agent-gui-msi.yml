@@ -12,6 +12,7 @@ on:
   push:
     paths:
       - 'apps/tiny-agent-wry/**'
+      - '.github/workflows/tiny-agent-gui-msi.yml'
 
 permissions:
   contents: write
@@ -31,6 +32,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/tiny-agent-wry
+          # Cache the registry as well as target/, so a cold runner does not
+          # re-download ~300 crates for tao + wry.
+          cache-all-crates: true
+          # Keep the cache even when the build fails: a failed compile still
+          # warms 99% of the dependency graph.
+          cache-on-failure: true
+          key: gui
 
       - name: Build Tiny Agent (release)
         run: cargo build --release
