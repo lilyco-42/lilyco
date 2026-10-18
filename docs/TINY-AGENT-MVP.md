@@ -98,7 +98,7 @@ impl TinyApp for AgentApp {
 | 检查点/回滚 | ✅ 状态机强制；`Host` 由宿主实现（CLI 接 `jj`/`git`） |
 | lilyco 四端 | ✅ `AgentApp: TinyApp` 已就绪；尚未接进 facade 的 `run::<T>()` |
 | CLI 二进制 | ✅ `tiny-agent`：真实目录上的多步执行，默认 dry-run |
-| 真实模型 | ❌ 未接（无 key、无 HTTP 客户端）。接口已留：实现 `Llm` 即可 |
+| 真实模型 | ✅ OpenAI 兼容客户端（OpenRouter / NIM / cc-switch），CI 用 stub 验证链路 |
 | MCP 暴露 | ❌ 未接。`ToolSpec` 已具备名字/摘要/参数预算，可直接生成 `tools/list` |
 
 ---
@@ -130,7 +130,39 @@ phase  : done
 
 ---
 
-## 5.2 借鉴了哪些设计（结构，不是复杂度）
+## 5.2 接真实模型
+
+三家都是同一套 OpenAI 兼容协议（`POST {base}/chat/completions`），所以只有一个客户端：
+
+| `--provider` | base_url | 说明 |
+| :--- | :--- | :--- |
+| `openrouter` | `https://openrouter.ai/api/v1` | 需要 OpenRouter key |
+| `nim` / `nvidia` | `https://integrate.api.nvidia.com/v1` | NVIDIA NIM（有免费额度） |
+| `ccswitch` / `local` | `http://127.0.0.1:8788/v1` | 本地代理；端口不同就用 `--base-url` 覆盖 |
+| 任意 | `--base-url` | 自带网关时用它 |
+
+凭据与模型走参数或环境变量：
+
+```bash
+export TINY_AGENT_API_KEY=sk-...
+export TINY_AGENT_MODEL=anthropic/claude-3.5-sonnet   # 或 nvidia/llama-3.1-70b 等
+
+tiny-agent . --provider openrouter --goal "读完 Cargo.toml，把版本号改成 0.2.0"
+tiny-agent . --provider nim --base-url http://127.0.0.1:8788/v1 --apply
+```
+
+约定：
+
+* **默认 dry-run**，写操作必须 `--apply`；未授权时工具返回 `NotPermitted`，不会静默降级。
+* 模型每轮最多调一个工具，参数是一个字符串：`<path>` 或 `<path>|<old>|<new>`。
+* 模型返回的 `{"path":..,"old":..,"new":..}` 也会被 `normalize_args` 拍平成同一格式。
+* 请求构建与响应解析都是纯函数（`build_request` / `parse_step` / `normalize_args`），
+  CI 用本地 stub 服务器验证整条 HTTP 链路，不联网。
+
+---
+
+## 5.3 借鉴了哪些设计（结构，不是复杂度）
+
 
 | 来源 | 抄的地方 | 在本项目中的形态 |
 | :--- | :--- | :--- |
@@ -164,3 +196,4 @@ phase  : done
 | `edit_file_refuses_ambiguous_anchor` | 多处匹配时拒改并报错 |
 | `edit_file_replaces_exactly_once` | 唯一匹配时精确替换 |
 | `read_file_rejects_traversal` | `../secrets` 被拒 |
+
