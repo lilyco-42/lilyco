@@ -306,7 +306,8 @@ mod tests {
     #[test]
     fn budget_caps_the_run() {
         let mut llm = ScriptedLlm::new();
-        for _ in 0..10 {
+        // A plan holds at most 8 calls; 6 is enough to prove the cap at 3.
+        for _ in 0..6 {
             llm.push("read_file", "x").unwrap();
         }
         let mut host = FakeHost::default();
