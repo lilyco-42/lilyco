@@ -74,7 +74,7 @@ mod tests {
     use super::*;
 
     fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("tiny_lilyco_snap_{tag}"));
+        let dir = std::env::temp_dir().join(::std::format!("tiny_lilyco_snap_{tag}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

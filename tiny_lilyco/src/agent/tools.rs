@@ -312,7 +312,7 @@ fn scan(path: &Path, text: &str, needle: &str, root: &Path, out: &mut ObsBuf, st
             continue;
         }
         hits += 1;
-        let shown = format!("{}:{}: {}", relative(root, path), n + 1, line.trim());
+        let shown = ::std::format!("{}:{}: {}", relative(root, path), n + 1, line.trim());
         if push_line(out, &shown).is_err() {
             break;
         }
