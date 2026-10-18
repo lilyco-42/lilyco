@@ -16,6 +16,7 @@ default = []
 alloc = ["serde/alloc"]
 std = []
 llm-http = ["std", "dep:ureq", "dep:serde_json"]
+llm-anthropic = ["std", "dep:ureq", "dep:serde_json"]
 wtx-net = ["dep:wtx"]
 
 [dependencies]
@@ -38,3 +39,4 @@ optional = true
 [dependencies.serde_json]
 version = "1"
 optional = true
+

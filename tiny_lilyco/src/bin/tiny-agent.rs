@@ -82,6 +82,9 @@ fn run() -> Result<bool, String> {
     let root = Path::new(argv.first().map(String::as_str).unwrap_or(".")).to_path_buf();
     let apply = argv.iter().any(|a| a == "--apply");
     let provider = flag(&argv, "--provider");
+    if argv.iter().any(|a| a == "--probe") {
+        return probe(&argv);
+    }
     let calls = collect_calls(&argv);
     if provider.is_none() && calls.is_empty() {
         return Err(
@@ -93,6 +96,7 @@ fn run() -> Result<bool, String> {
     let registry = build_registry(&root);
     let goal = flag(&argv, "--goal").unwrap_or_else(|| "run the requested tools".to_string());
     let mut llm: Box<dyn Llm> = match provider.as_deref() {
+        Some("ccswitch" | "claude" | "anthropic") => build_anthropic(&argv, registry)?,
         Some(name) => build_http(name, &argv, registry)?,
         None => {
             let mut scripted = ScriptedLlm::new();
@@ -201,4 +205,68 @@ fn report(outcome: &Outcome) {
         outcome.calls, outcome.failures, outcome.checkpoints, outcome.rolled_back
     );
     println!("phase  : {}", outcome.phase);
+}
+
+#[cfg(feature = "llm-anthropic")]
+fn anthropic_config(argv: &[String]) -> Result<(tiny_lilyco::agent::llm_anthropic::Config, String), String> {
+    use tiny_lilyco::agent::llm_anthropic::{Config, SYSTEM};
+    // Explicit flags win; cc-switch is only consulted for what is missing, so
+    // the CLI stays usable on a machine without cc-switch installed.
+    let active = tiny_lilyco::agent::ccswitch::load().ok();
+    let pick = |name: &str, from: fn(&tiny_lilyco::agent::ccswitch::Active) -> String| {
+        flag(argv, name).or_else(|| active.as_ref().map(from))
+    };
+    let base_url = pick("--base-url", |a| a.base_url.clone()).ok_or("missing --base-url")?;
+    let api_key = pick("--api-key", |a| a.api_key.clone()).ok_or("missing --api-key")?;
+    let model = pick("--model", |a| a.model.clone()).ok_or("missing --model")?;
+    let provider = active.map(|a| a.provider).unwrap_or_else(|| "flags".to_string());
+    let config = Config {
+        base_url,
+        api_key,
+        model,
+        system: SYSTEM.to_string(),
+    };
+    Ok((config, provider))
+}
+
+#[cfg(feature = "llm-anthropic")]
+fn build_anthropic(argv: &[String], registry: &'static Registry) -> Result<Box<dyn Llm>, String> {
+    use tiny_lilyco::agent::llm_anthropic::AnthropicLlm;
+    let (config, provider) = anthropic_config(argv)?;
+    println!("provider : {provider}");
+    println!("endpoint : {}", config.endpoint());
+    println!("model    : {}", config.model);
+    Ok(Box::new(AnthropicLlm::new(config, registry)))
+}
+
+#[cfg(not(feature = "llm-anthropic"))]
+fn build_anthropic(_a: &[String], _r: &'static Registry) -> Result<Box<dyn Llm>, String> {
+    Err("built without the llm-anthropic feature".into())
+}
+
+/// One cheap round trip: tells a dead key from a dead endpoint.
+#[cfg(feature = "llm-anthropic")]
+fn probe(argv: &[String]) -> Result<bool, String> {
+    use tiny_lilyco::agent::ccswitch::mask;
+    use tiny_lilyco::agent::llm_anthropic::probe as round_trip;
+    let (config, provider) = anthropic_config(argv)?;
+    println!("provider : {provider}");
+    println!("endpoint : {}", config.endpoint());
+    println!("model    : {}", config.model);
+    println!("key      : {}", mask(&config.api_key));
+    match round_trip(&config) {
+        Ok(text) => {
+            println!("reply    : {text}");
+            Ok(true)
+        }
+        Err(err) => {
+            println!("error    : {err}");
+            Ok(false)
+        }
+    }
+}
+
+#[cfg(not(feature = "llm-anthropic"))]
+fn probe(_argv: &[String]) -> Result<bool, String> {
+    Err("built without the llm-anthropic feature".into())
 }

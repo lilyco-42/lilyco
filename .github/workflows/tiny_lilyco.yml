@@ -73,9 +73,9 @@ jobs:
       - name: Unit tests, core only
         run: cargo test --no-default-features
       - name: Clippy, model client
-        run: cargo clippy --features "std llm-http" --all-targets -- -D warnings
+        run: cargo clippy --features "std llm-http llm-anthropic" --all-targets -- -D warnings
       - name: Unit tests, model client (offline, no network)
-        run: cargo test --features "std llm-http"
+        run: cargo test --features "std llm-http llm-anthropic"
       - name: Model client smoke (local stub, no internet)
         run: |
           cat > /tmp/stub.py <<'PY'

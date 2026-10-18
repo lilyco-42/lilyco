@@ -11,6 +11,10 @@ pub mod tool;
 
 #[cfg(feature = "std")]
 pub mod app;
+#[cfg(feature = "llm-anthropic")]
+pub mod ccswitch;
+#[cfg(feature = "llm-anthropic")]
+pub mod llm_anthropic;
 #[cfg(feature = "llm-http")]
 pub mod llm_http;
 #[cfg(feature = "std")]
