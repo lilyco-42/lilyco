@@ -21,12 +21,17 @@ use tiny_lilyco::agent::llm::{Llm, ScriptedLlm};
 use tiny_lilyco::agent::registry::Registry;
 use tiny_lilyco::agent::runtime::{drive, Budget, Host, Outcome};
 use tiny_lilyco::agent::tool::{ObsBuf, ObsKind, Tool, ToolError};
-use tiny_lilyco::agent::tools::{EditFile, ListDir, ReadFile};
+use tiny_lilyco::adapters::snapshot::Store;
+use tiny_lilyco::agent::tools::{EditFile, Glob, Grep, ListDir, ReadFile, RunCommand};
 
 struct StdHost {
     registry: &'static Registry,
     backend: Backend,
     apply: bool,
+    /// Per-file undo: capture before, restore on demand.
+    store: Store,
+    seq: u32,
+    undo: Option<(u32, String)>,
 }
 
 impl Host for StdHost {
@@ -35,6 +40,10 @@ impl Host for StdHost {
     }
 
     fn undo(&mut self) -> Result<(), &'static str> {
+        if let Some((seq, rel)) = self.undo.take() {
+            println!("    restore: {rel} from snapshot {seq}");
+            return self.store.restore(&rel, seq);
+        }
         run_vcs(self.backend, Op::Undo, "rollback")
     }
 
@@ -44,7 +53,17 @@ impl Host for StdHost {
             println!("    {tool}({args}) -> refused (dry run, pass --apply)");
             return Err(ToolError::NotPermitted("dry run: pass --apply to mutate"));
         }
+        let mut captured = None;
+        if handle.spec().mutating {
+            let rel = args.split('|').next().unwrap_or("").trim();
+            if !rel.is_empty() {
+                self.seq += 1;
+                self.store.capture(rel, self.seq)?;
+                captured = Some((self.seq, rel.to_string()));
+            }
+        }
         let kind = handle.call(args, out)?;
+        self.undo = captured;
         println!("    {tool}({args}) -> {}", kind.label());
         for line in out.as_str().lines().take(6) {
             println!("      {line}");
@@ -117,6 +136,9 @@ fn run() -> Result<bool, String> {
         registry,
         backend,
         apply,
+        store: Store::new(root.clone()),
+        seq: 0,
+        undo: None,
     };
     let outcome = drive(&goal, &mut *llm, registry, &mut host, Budget::mvp());
     report(&outcome);
@@ -167,6 +189,9 @@ fn collect_calls(argv: &[String]) -> Vec<(&'static str, String)> {
             "read_file" => Some("read_file"),
             "list_dir" => Some("list_dir"),
             "edit_file" => Some("edit_file"),
+            "run_command" => Some("run_command"),
+            "grep" => Some("grep"),
+            "glob" => Some("glob"),
             _ => None,
         };
         if let Some(name) = known {
@@ -181,10 +206,16 @@ fn build_registry(root: &Path) -> &'static Registry {
     let read: &'static dyn Tool = Box::leak(Box::new(ReadFile::new(root)));
     let list: &'static dyn Tool = Box::leak(Box::new(ListDir::new(root)));
     let edit: &'static dyn Tool = Box::leak(Box::new(EditFile::new(root)));
+    let run: &'static dyn Tool = Box::leak(Box::new(RunCommand::new(root)));
+    let grep: &'static dyn Tool = Box::leak(Box::new(Grep::new(root)));
+    let glob: &'static dyn Tool = Box::leak(Box::new(Glob::new(root)));
     let reg: &'static mut Registry = Box::leak(Box::new(Registry::new()));
     let _ = reg.register(read);
     let _ = reg.register(list);
     let _ = reg.register(edit);
+    let _ = reg.register(run);
+    let _ = reg.register(grep);
+    let _ = reg.register(glob);
     reg
 }
 

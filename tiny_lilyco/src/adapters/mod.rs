@@ -8,6 +8,7 @@ pub mod fs_engine;
 pub mod gui;
 pub mod image_inspect;
 pub mod mcp_uda;
+pub mod snapshot;
 pub mod uda;
 pub mod vcs_guard;
 

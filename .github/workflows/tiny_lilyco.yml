@@ -76,6 +76,16 @@ jobs:
         run: cargo clippy --features "std llm-http llm-anthropic" --all-targets -- -D warnings
       - name: Unit tests, model client (offline, no network)
         run: cargo test --features "std llm-http llm-anthropic"
+      - name: Write path smoke (edit + snapshot + undo)
+        run: |
+          mkdir -p /tmp/tiny-write
+          printf 'let a = 1;\n' > /tmp/tiny-write/code.rs
+          cargo run --quiet --features std --bin tiny-agent -- \
+            /tmp/tiny-write --apply --call "edit_file:code.rs|a = 1|a = 2" \
+            | tee /tmp/write-out.txt
+          grep -q "a = 2" /tmp/tiny-write/code.rs
+          test -d /tmp/tiny-write/.tiny-agent/snap
+          grep -q "1 calls, 0 failures" /tmp/write-out.txt
       - name: Model client smoke (local stub, no internet)
         run: |
           cat > /tmp/stub.py <<'PY'
