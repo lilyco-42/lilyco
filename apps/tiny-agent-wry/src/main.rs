@@ -144,7 +144,8 @@ fn monitor_scale(window: &tao::window::Window) -> f64 {
     window.scale_factor()
 }
 
-/// A per-user, always-writable directory for the WebView2 profile.fn webview_data_dir() -> std::path::PathBuf {
+/// A per-user, always-writable directory for the WebView2 profile.
+fn webview_data_dir() -> std::path::PathBuf {
     let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string());
     let dir = std::path::Path::new(&base).join("Tiny Agent").join("webview2");
     let _ = std::fs::create_dir_all(&dir);
