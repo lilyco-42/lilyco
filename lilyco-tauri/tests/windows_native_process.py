@@ -200,6 +200,46 @@ def launch_non_elevated(args, environment, output):
                 kernel.CloseHandle(handle)
 
 
+def prepare_native_test_access(application, profile, environment, read_roots=()):
+    """Match an ordinary user's folder access in administrator-owned CI fixtures.
+
+    Only the current CI user's SID is granted access to resolved workspace/temp
+    paths. Never grant Everyone, alter runtime/system folders or elevate the app.
+    """
+    if sys.platform != 'win32' or os.environ.get('GITHUB_ACTIONS') != 'true':
+        raise RuntimeError('Native test access setup only runs in Windows GitHub Actions')
+    import csv
+    from pathlib import Path
+    import re
+
+    roots = [Path(environment[name]).resolve(strict=True) for name in ('RUNNER_TEMP', 'GITHUB_WORKSPACE')]
+    application, profile = Path(application).resolve(strict=True), Path(profile).resolve(strict=True)
+    directories = [(application.parent, 'RX'), (profile, 'F')]
+    directories.extend((Path(value).resolve(strict=True), 'RX') for value in read_roots)
+    # Validate the complete plan before the first permission mutation.
+    for directory, _access in directories:
+        if not directory.is_dir() or not any(directory != root and directory.is_relative_to(root) for root in roots):
+            raise ValueError('Refuse native test access changes outside CI-owned directories')
+    system = Path(environment['SYSTEMROOT']) / 'System32'
+    identity = subprocess.run([str(system / 'whoami.exe'), '/user', '/fo', 'csv', '/nh'],
+                              capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10, check=True)
+    rows = list(csv.reader(identity.stdout.strip().splitlines()))
+    sid = rows[-1][-1].strip() if rows else ''
+    if not re.fullmatch(r'S-1-\d+(?:-\d+)+', sid):
+        raise RuntimeError('Cannot identify the actual CI user SID for scoped native test access')
+    receipt = []
+    for directory, access in directories:
+        # Preserve all existing ACEs; no /reset, /inheritance removal, /T or
+        # system/runtime changes. A private UDF needs the user's normal full
+        # control so WebView can prepare its own child security descriptors.
+        subprocess.run([str(system / 'icacls.exe'), str(directory), '/grant',
+                        f'*{sid}:(OI)(CI)({access})'], capture_output=True, text=True,
+                       encoding='utf-8', errors='replace', timeout=15, check=True)
+        receipt.append({'path': str(directory), 'access': access})
+    return {'recipient_sid': sid, 'ci_owned_paths_only': True, 'existing_rules_preserved': True,
+            'grants': receipt}
+
+
 def probe_native_access(application, profile, evidence, environment):
     """Observe actual ordinary-token file access before blaming WebView startup."""
     if sys.platform != 'win32' or os.environ.get('GITHUB_ACTIONS') != 'true':

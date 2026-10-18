@@ -6,7 +6,7 @@ import sys
 import tempfile
 import unittest
 
-from windows_native_process import launch_non_elevated, probe_native_access
+from windows_native_process import launch_non_elevated, probe_native_access, prepare_native_test_access
 
 
 @unittest.skipUnless(sys.platform == 'win32', 'Uses actual Windows security tokens')
@@ -19,12 +19,25 @@ class OrdinaryNativeProcessTests(unittest.TestCase):
             profile, evidence = root / 'webview', root / 'evidence'
             profile.mkdir()
             evidence.mkdir()
+            receipt = prepare_native_test_access(payload, profile, dict(os.environ))
+            self.assertEqual([grant['access'] for grant in receipt['grants']], ['RX', 'F'])
+            self.assertTrue(receipt['existing_rules_preserved'])
             result = probe_native_access(payload, profile, evidence, dict(os.environ))
             self.assertEqual(result['exit_code'], 0, result)
             self.assertTrue(result['checks'].get('application_readable'), result)
             self.assertTrue(result['checks'].get('profile_write_read_delete'), result)
             self.assertFalse(result['actual_security']['application']['is_elevated'])
             self.assertFalse(list(profile.glob('.office-native-access-*')))
+
+    def test_access_setup_rejects_system_folders_before_changing_any_permissions(self):
+        with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP']) as temporary:
+            root = Path(temporary)
+            payload = root / 'read-only-probe.exe'
+            payload.write_bytes(b'MZ CI read-only fixture')
+            profile = root / 'webview'
+            profile.mkdir()
+            with self.assertRaisesRegex(ValueError, 'outside CI-owned'):
+                prepare_native_test_access(payload, profile, dict(os.environ), [os.environ['SYSTEMROOT']])
 
     def test_ordinary_child_receives_unicode_environment_and_arguments(self):
         with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP']) as temporary:

@@ -14,7 +14,7 @@ import time
 import urllib.request
 import urllib.error
 from urllib.parse import urlparse
-from windows_native_process import launch_non_elevated, probe_native_access
+from windows_native_process import launch_non_elevated, probe_native_access, prepare_native_test_access
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE = ROOT.parent
@@ -124,6 +124,9 @@ def run(application_override=None, engine_override=None, label='packaged'):
                 environment['WEBVIEW2_USER_DATA_FOLDER'] = str(profile)
                 environment['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = (
                     f'--remote-debugging-port={debug_port} --remote-debugging-address=127.0.0.1')
+                grants = prepare_native_test_access(application, profile, environment,
+                                                    [WORKSPACE / 'lilyco-binfmt/tests/fixtures/office'])
+                (EVIDENCE / 'native-test-access-setup.json').write_text(json.dumps(grants, indent=2) + '\n', encoding='utf-8')
                 access = probe_native_access(application, profile, EVIDENCE, environment)
                 (EVIDENCE / 'native-access-probe.json').write_text(json.dumps(access, indent=2) + '\n', encoding='utf-8')
                 if access['exit_code'] != 0 or not all(access['checks'].get(key) is True for key in (
