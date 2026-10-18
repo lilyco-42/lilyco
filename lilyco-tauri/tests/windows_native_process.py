@@ -100,6 +100,11 @@ def launch_non_elevated(args, environment, output):
     signature(security, 'ConvertSecurityDescriptorToStringSecurityDescriptorW',
               [pointer, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(wintypes.LPWSTR),
                ctypes.POINTER(wintypes.DWORD)])
+    signature(security, 'ConvertSidToStringSidW', [pointer, ctypes.POINTER(wintypes.LPWSTR)])
+    signature(security, 'ConvertStringSecurityDescriptorToSecurityDescriptorW',
+              [wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(pointer), pointer])
+    signature(security, 'GetSecurityDescriptorDacl',
+              [pointer, ctypes.POINTER(wintypes.BOOL), ctypes.POINTER(pointer), ctypes.POINTER(wintypes.BOOL)])
     signature(security, 'CreateProcessAsUserW', [wintypes.HANDLE, wintypes.LPCWSTR, wintypes.LPWSTR,
               pointer, pointer, wintypes.BOOL, wintypes.DWORD, pointer, wintypes.LPCWSTR,
               ctypes.POINTER(StartupInfo), ctypes.POINTER(ProcessInfo)])
@@ -133,6 +138,38 @@ def launch_non_elevated(args, environment, output):
             return text.value
         finally:
             kernel.LocalFree(ctypes.cast(text, pointer))
+
+    def user_sid(token):
+        buffer = information(token, 1)  # TokenUser
+        sid = ctypes.cast(buffer, ctypes.POINTER(SidAttributes)).contents.Sid
+        text = wintypes.LPWSTR()
+        check(security.ConvertSidToStringSidW(sid, ctypes.byref(text)))
+        try:
+            return text.value
+        finally:
+            kernel.LocalFree(ctypes.cast(text, pointer))
+
+    def prepare_owned_object_defaults(token):
+        # The hosted administrator token only gives its logon SID read/execute.
+        # After LUA filtering, even CreatePipe fails with WinError 5. Preserve
+        # every ACE and add only this user's SID to this newly created token's
+        # defaults, so its future private IPC/process objects work normally.
+        # Never alter the caller token, existing objects, system ACLs or sandbox.
+        existing = default_dacl(token)
+        if not existing or not existing.startswith('D:'):
+            raise RuntimeError('Expected an explicit default DACL on the CI token')
+        descriptor = pointer()
+        check(security.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            existing + '(A;;GA;;;' + user_sid(token) + ')', 1, ctypes.byref(descriptor), None))
+        try:
+            present, defaulted, acl = wintypes.BOOL(), wintypes.BOOL(), pointer()
+            check(security.GetSecurityDescriptorDacl(descriptor, ctypes.byref(present),
+                                                   ctypes.byref(acl), ctypes.byref(defaulted)))
+            if not present.value or not acl:
+                raise RuntimeError('Refuse an absent or NULL default DACL')
+            check(security.SetTokenInformation(token, 6, ctypes.byref(acl), ctypes.sizeof(acl)))
+        finally:
+            kernel.LocalFree(descriptor)
 
     def snapshot(token):
         elevated = ctypes.cast(information(token, 20), ctypes.POINTER(wintypes.DWORD)).contents.value
@@ -174,6 +211,7 @@ def launch_non_elevated(args, environment, output):
             label = SidAttributes(medium_sid, 0x0020)
             check(security.SetTokenInformation(restricted, 25, ctypes.byref(label),
                   ctypes.sizeof(label) + security.GetLengthSid(medium_sid)))
+            prepare_owned_object_defaults(restricted)
             limited = snapshot(restricted)
             if limited['is_elevated'] or limited['integrity_rid'] != 0x2000:
                 raise RuntimeError('Refuse to launch the native app with an elevated token')

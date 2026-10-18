@@ -285,6 +285,7 @@ Windows HWND 出现不代表图标初始化完成，native-icon.ps1 在有限15�
 
 Windows 原生验收通过 `tests/windows_native_process.py::launch_non_elevated` 启动相同的冻结／已安装 EXE。
 启动快照只读记录 TokenDefaultDacl 的 SDDL（用临时 security descriptor 格式化，不修改 token、进程或系统 ACL）。新增真实两代普通权限进程契约：后代必须能以 PROCESS_QUERY_LIMITED_INFORMATION/PROCESS_QUERY_INFORMATION 查询创建它的同用户父进程，记录实际 Win32 结果；这是 WebView2 COM 启动调查的权限前提，不能代替真实 WebView 或证明错误根因。
+39144045574 的真实普通子进程在 Python CreatePipe(None,0) 就以 WinError5 失败：其默认 DACL 仅授予管理员/系统 GA、当前 logon SID GXGR。降为 LUA 后无法读写自己新建的 IPC。CI 启动器只对**新建的受限 token** 默认 DACL 保留全部 ACE 并追加实际 TokenUser SID 的 GA；不改父 token、现存对象、系统/运行时/窗口站 ACL 或沙箱。真实两代进程契约仍须通过，完整 WebView2/安装验收仍独立待验证。依据：[CreatePipe](https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-createpipe)、[SetTokenInformation](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-settokeninformation)。
 `CreateProcessAsUserW` 显式指定现有 `winsta0\\default` 交互桌面（不改窗口站或桌面 ACL）；快速契约在真实普通权限子进程中读取窗口站和线程桌面名，必须为 WinSta0/Default。原完整 workspace、冻结包、文件选择器及安装门保留，workspace 在快速启动契约通过后才开始。此前 bf70 的文件访问已通过，但真实 WebView2 在约4.4秒内以 HRESULT0x80010108 退出；显式桌面是新修正及待验证假设，不冒称已解决完整 Windows 问题。依据：[CreateProcessAsUserW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessasuserw)。
 微软说明提升权限的 WebView2 宿主会忽略环境中的浏览器参数；这与 13e79b0 的隔离 profile 已生效而调试参数未生效的现象一致，仍需当前 CI 权限与真实 WebView2 证据验证。
 启动器先测父进程真实 token；管理员 CI 使用自己的 restricted LUA token、移除特权并设 medium integrity，启动后再核对实际子进程不是 elevated。
