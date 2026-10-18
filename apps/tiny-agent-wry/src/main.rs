@@ -358,7 +358,7 @@ fn script() -> String {
     js.push_str("function post(m){ if (window.ipc) { window.ipc.postMessage(m); } }");
     js.push_str("function setTheme(id, label) {");
     js.push_str(" document.documentElement.dataset.theme = id;");
-    js.push_str(" document.getElementById('theme-label').textContent = label + ' \u00b7 design tokens';");
+    js.push_str(" document.getElementById('theme-label').textContent = label + ' \u{00b7} design tokens';");
     js.push_str(" post('theme:' + id); }");
     js.push_str("document.querySelectorAll('[data-set]').forEach(function (b) {");
     js.push_str(" b.addEventListener('click', function () { setTheme(b.dataset.set, b.dataset.label); }); });");
@@ -380,7 +380,7 @@ fn script() -> String {
     js.push_str("function run() {");
     js.push_str(" var i = document.getElementById('prompt');");
     js.push_str(" var v = (i.value || 'ping').trim(); step += 1;");
-    js.push_str(" addRow('act', 'step ' + step + ' \u00b7 act \u00b7 ' + v, 'ok');");
+    js.push_str(" addRow('act', 'step ' + step + ' \u{00b7} act \u{00b7} ' + v, 'ok');");
     js.push_str(" i.value = ''; post('run:' + v); }");
     js.push_str("document.querySelector('[data-action=\"run\"]').addEventListener('click', run);");
     js.push_str("document.getElementById('prompt').addEventListener('keydown', function (e) {");
