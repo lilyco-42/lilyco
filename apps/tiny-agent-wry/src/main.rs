@@ -704,8 +704,12 @@ fn script() -> String {
     js.push_str(" document.querySelector('.body').scrollTop = 0;");
     js.push_str(" var b=document.getElementById('go'); b.textContent='开始'; b.disabled=false; };");
     js.push_str("window.__applyProviders = function(){};");
+    let probe = std::env::var("TINY_AGENT_SELFTEST_PROMPT")
+        .unwrap_or_else(|_| "这个文件夹里有什么".to_string());
+    let probe = escape(&probe);
     js.push_str("if(window.__SELFTEST){ setTimeout(function(){");
-    js.push_str(" document.getElementById('prompt').value='搜代码 `rust|pub fn $NAME`'; go(); }, 1200); }");
+    let line = format!(" document.getElementById('prompt').value=\"{probe}\"; go(); }}, 1200); }}");
+    js.push_str(&line);
     js.push_str("</script>");
     js
 }
