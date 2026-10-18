@@ -48,9 +48,9 @@ jobs:
           cache-on-failure: true
           key: nostd
       - name: ARM Cortex-M4 check
-        run: cargo check --target thumbv7em-none-eabi --no-default-features
+        run: cargo check --lib --target thumbv7em-none-eabi --no-default-features
       - name: WASM check
-        run: cargo check --target wasm32-unknown-unknown --no-default-features
+        run: cargo check --lib --target wasm32-unknown-unknown --no-default-features
 
   host-quality:
     name: Clippy and tests on the host
