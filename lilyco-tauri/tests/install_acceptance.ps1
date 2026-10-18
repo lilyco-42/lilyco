@@ -13,10 +13,16 @@ if (-not $installed.WaitForExit(180000)) { throw 'Actual Office installer exceed
 if ($installed.ExitCode -ne 0) { throw "Actual Office installer failed: $($installed.ExitCode)" }
 $binary = Join-Path $installation 'lilyco-office.exe'
 $engine = Join-Path $installation 'lbin.exe'
-foreach ($pair in @(@($binary,(Join-Path $workspace 'target/release/lilyco-office.exe')), @($engine,(Join-Path $workspace 'target/release/lbin.exe')))) {
-    if (-not (Test-Path -LiteralPath $pair[0])) { throw "Installed binary missing: $($pair[0])" }
-    if ((Get-FileHash -LiteralPath $pair[0] -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $pair[1] -Algorithm SHA256).Hash) { throw 'Installer changed the reviewed real binary' }
+foreach ($payload in @($binary,$engine)) {
+    if (-not (Test-Path -LiteralPath $payload)) { throw "Installed binary missing: $payload" }
 }
+# Tauri patches the application with the NSIS marker and restores the build
+# directory copy. Require that exact expected image and unchanged sidecar bytes.
+& python (Join-Path $workspace 'lilyco-tauri/tests/nsis_payload.py') `
+    --original-app (Join-Path $workspace 'target/release/lilyco-office.exe') `
+    --installed-app $binary --original-engine (Join-Path $workspace 'target/release/lbin.exe') `
+    --installed-engine $engine --report (Join-Path $workspace 'lilyco-tauri/tests/evidence/installed-payload.json')
+if ($LASTEXITCODE -ne 0) { throw 'Installed Office payload differs from the reviewed NSIS image or original sidecar' }
 foreach ($name in @('ICON-LICENSE.md','icon-source.png','icon-source.json','FRONTEND-LICENSES.json','RUST-LICENSES.json','MICROSOFT-WEBVIEW2-SDK-LICENSE.txt')) {
     $copies = @(Get-ChildItem -LiteralPath $installation -Recurse -File -Filter $name)
     if ($copies.Count -ne 1) { throw "Installed original/notice missing or duplicate: $name" }
@@ -72,7 +78,7 @@ $evidence = Join-Path $workspace 'lilyco-tauri/tests/evidence'
 $report = [ordered]@{
     installer_sha256 = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
     actual_nsis_install = $true
-    installed_original_app_and_sidecar_bytes = $true
+    installed_exact_nsis_marked_app_and_original_sidecar_bytes = $true
     installed_full_icon_and_frontend_notices = $true
     installed_original_rust_and_sdk_notices = $true
     start_menu_target_and_icon = $true

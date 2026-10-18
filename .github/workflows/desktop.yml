@@ -38,7 +38,11 @@ jobs:
         with:
           python-version: '3.13'
       - name: Observe ordinary Windows token and CI profile access before compilation
-        run: python lilyco-tauri/tests/test_windows_native_process.py
+        run: |
+          python lilyco-tauri/tests/test_windows_native_process.py
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          python lilyco-tauri/tests/test_nsis_payload.py
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
   workspace-contract:
     needs: windows-launch-contract
