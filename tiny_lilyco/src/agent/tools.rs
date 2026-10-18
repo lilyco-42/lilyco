@@ -5,7 +5,7 @@
 //! enough to prove the loop does real work.
 
 use ::std::path::{Path, PathBuf};
-use ::std::string::String;
+use ::std::string::{String, ToString};
 
 use crate::adapters::fs_engine::{
     count_lines, plan_replace, render_numbered, sanitize_rel, split_at, Window,
@@ -120,6 +120,186 @@ fn split_args(args: &str) -> Result<(&str, &str, &str), ToolError> {
         return Err(ToolError::InvalidArgument("old text is empty"));
     }
     Ok((path.trim(), old, new))
+}
+
+
+
+/// Commands the agent may run. Anything else is refused by name.
+pub const ALLOWED_COMMANDS: &[&str] = &[
+    "git", "cargo", "rustc", "ls", "dir", "cat", "rg", "grep", "find", "echo",
+    "python", "python3", "node", "type", "wc", "head",
+];
+
+/// Run one allow-listed command inside the workspace.
+pub struct RunCommand {
+    root: PathBuf,
+}
+
+impl RunCommand {
+    /// Sandbox the tool to `root`.
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        RunCommand { root: root.into() }
+    }
+}
+
+impl Tool for RunCommand {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec::new("run_command", "run an allow-listed command", true)
+    }
+
+    fn call(&self, args: &str, out: &mut ObsBuf) -> Result<ObsKind, ToolError> {
+        let mut parts = args.split_whitespace();
+        let program = parts.next().ok_or(ToolError::InvalidArgument("empty command"))?;
+        if !ALLOWED_COMMANDS.contains(&program) {
+            return Err(ToolError::NotPermitted("command is not allow-listed"));
+        }
+        let output = std::process::Command::new(program)
+            .args(parts)
+            .current_dir(&self.root)
+            .output()
+            .map_err(|_| ToolError::HostFailure("cannot spawn command"))?;
+        let code = output.status.code().unwrap_or(-1);
+        for line in ::std::string::String::from_utf8_lossy(&output.stdout).lines().take(40) {
+            push_line(out, line)?;
+        }
+        for line in ::std::string::String::from_utf8_lossy(&output.stderr).lines().take(20) {
+            push_line(out, line)?;
+        }
+        Ok(ObsKind::Exit { code })
+    }
+}
+
+/// Substring search across the workspace.
+pub struct Grep {
+    root: PathBuf,
+}
+
+impl Grep {
+    /// Sandbox the tool to `root`.
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Grep { root: root.into() }
+    }
+}
+
+impl Tool for Grep {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec::new("grep", "find a substring in workspace files", false)
+    }
+
+    fn call(&self, args: &str, out: &mut ObsBuf) -> Result<ObsKind, ToolError> {
+        let needle = args.trim();
+        if needle.is_empty() {
+            return Err(ToolError::InvalidArgument("empty pattern"));
+        }
+        let mut hits = 0usize;
+        collect(&self.root, 0, &mut |path, text| {
+            hits = scan(path, text, needle, &self.root, out, hits);
+            hits < 40
+        });
+        Ok(ObsKind::Text)
+    }
+}
+
+/// List workspace paths whose name ends with the given suffix.
+pub struct Glob {
+    root: PathBuf,
+}
+
+impl Glob {
+    /// Sandbox the tool to `root`.
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Glob { root: root.into() }
+    }
+}
+
+impl Tool for Glob {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec::new("glob", "list files whose name ends with a suffix", false)
+    }
+
+    fn call(&self, args: &str, out: &mut ObsBuf) -> Result<ObsKind, ToolError> {
+        let suffix = args.trim();
+        if suffix.is_empty() {
+            return Err(ToolError::InvalidArgument("empty suffix"));
+        }
+        let mut seen = 0usize;
+        collect(&self.root, 0, &mut |path, _| {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if !name.ends_with(suffix) || seen >= 40 {
+                return seen < 40;
+            }
+            seen += 1;
+            push_line(out, &relative(&self.root, path)).is_ok()
+        });
+        Ok(ObsKind::Text)
+    }
+}
+
+
+fn scan(path: &Path, text: &str, needle: &str, root: &Path, out: &mut ObsBuf, start: usize) -> usize {
+    let mut hits = start;
+    for (n, line) in text.lines().enumerate() {
+        if hits >= 40 {
+            break;
+        }
+        if !line.contains(needle) {
+            continue;
+        }
+        hits += 1;
+        let shown = ::std::format!("{}:{}: {}", relative(root, path), n + 1, line.trim());
+        if push_line(out, &shown).is_err() {
+            break;
+        }
+    }
+    hits
+}
+
+fn push_line(out: &mut ObsBuf, text: &str) -> Result<(), ToolError> {
+    out.push_str(text)
+        .map_err(|_| ToolError::ObservationTooLarge)?;
+    out.push('\n').map_err(|_| ToolError::ObservationTooLarge)
+}
+
+fn relative(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
+/// Walk the workspace, skipping heavy or hidden directories, and hand text files
+/// to `visit`. Returning `false` stops the walk.
+fn collect(root: &Path, depth: usize, visit: &mut impl FnMut(&Path, &str) -> bool) {
+    if depth > 3 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with('.') || name == "target" || name == "node_modules" {
+            continue;
+        }
+        if path.is_dir() {
+            collect(&path, depth + 1, visit);
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if meta.len() > 256 * 1024 {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if !visit(&path, &text) {
+            return;
+        }
+    }
 }
 
 #[cfg(test)]

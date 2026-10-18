@@ -8,6 +8,8 @@ pub mod fs_engine;
 pub mod gui;
 pub mod image_inspect;
 pub mod mcp_uda;
+#[cfg(feature = "std")]
+pub mod snapshot;
 pub mod uda;
 pub mod vcs_guard;
 

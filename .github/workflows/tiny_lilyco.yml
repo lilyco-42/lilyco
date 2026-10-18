@@ -76,6 +76,31 @@ jobs:
         run: cargo clippy --features "std llm-http llm-anthropic" --all-targets -- -D warnings
       - name: Unit tests, model client (offline, no network)
         run: cargo test --features "std llm-http llm-anthropic"
+      - name: Build the wasm tool fixture
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo build --release --target wasm32-unknown-unknown \
+            --manifest-path tests/fixtures/wasm_tool/Cargo.toml
+
+      - name: WASM tool smoke (external tool, not hand-written)
+        run: |
+          mkdir -p /tmp/tiny-wasm
+          cargo run --quiet --features "std wasm-tools" --bin tiny-agent -- \
+            /tmp/tiny-wasm \
+            --wasm-tool echo=tests/fixtures/wasm_tool/target/wasm32-unknown-unknown/release/wasm_tool_fixture.wasm \
+            --call "echo:hello wasm" | tee /tmp/wasm-out.txt
+          grep -q "wasm saw: hello wasm" /tmp/wasm-out.txt
+          grep -q "1 calls, 0 failures" /tmp/wasm-out.txt
+      - name: Write path smoke (edit + snapshot + undo)
+        run: |
+          mkdir -p /tmp/tiny-write
+          printf 'let a = 1;\n' > /tmp/tiny-write/code.rs
+          cargo run --quiet --features std --bin tiny-agent -- \
+            /tmp/tiny-write --apply --call "edit_file:code.rs|a = 1|a = 2" \
+            | tee /tmp/write-out.txt
+          grep -q "a = 2" /tmp/tiny-write/code.rs
+          test -d /tmp/tiny-write/.tiny-agent/snap
+          grep -q "1 calls, 0 failures" /tmp/write-out.txt
       - name: Model client smoke (local stub, no internet)
         run: |
           cat > /tmp/stub.py <<'PY'

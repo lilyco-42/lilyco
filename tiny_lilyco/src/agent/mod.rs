@@ -19,6 +19,8 @@ pub mod llm_anthropic;
 pub mod llm_http;
 #[cfg(feature = "std")]
 pub mod tools;
+#[cfg(feature = "wasm-tools")]
+pub mod wasm_tool;
 
 #[cfg(feature = "std")]
 pub use app::AgentApp;
