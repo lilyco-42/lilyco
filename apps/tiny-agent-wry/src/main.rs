@@ -57,13 +57,26 @@ fn run() -> wry::Result<()> {
     // install directory is read-only for a per-machine MSI, which fails with
     // E_ACCESSDENIED. Point it at %LOCALAPPDATA% instead.
     let mut context = WebContext::new(Some(webview_data_dir()));
+    let html = build_html();
+    dump_html(&html);
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
     let _webview = WebViewBuilder::new_with_web_context(&mut context)
-        .with_html(build_html())
+        .with_html(html)
         .with_devtools(true)
+        .with_ipc_handler(move |req| {
+            let _ = tx.send(req.body().clone());
+        })
         .build(&window)?;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
+        let idle = matches!(event, Event::MainEventsCleared);
+        if idle {
+            while let Ok(msg) = rx.try_recv() {
+                trace(&format!("ipc: {msg}"));
+            }
+            return;
+        }
         let closing = matches!(
             event,
             Event::WindowEvent {
@@ -311,10 +324,24 @@ fn trace_rows() -> String {
 }
 
 fn script() -> String {
-    let mut js = String::from("<script>document.querySelectorAll('[data-set]')");
-    js.push_str(".forEach(function (b) { b.addEventListener('click', function () {");
-    js.push_str(" document.documentElement.dataset.theme = b.dataset.set; }); });</script>");
+    let mut js = String::from("<script>");
+    js.push_str("function post(m){ if (window.ipc) { window.ipc.postMessage(m); } }");
+    js.push_str("post('boot');");
+    js.push_str("document.querySelectorAll('[data-set]').forEach(function (b) {");
+    js.push_str(" b.addEventListener('click', function () {");
+    js.push_str("  document.documentElement.dataset.theme = b.dataset.set;");
+    js.push_str("  post('theme:' + b.dataset.set);");
+    js.push_str(" }); });");
+    js.push_str("</script>");
     js
+}
+
+/// Write the generated document next to the logs so it can be inspected.
+fn dump_html(html: &str) {
+    let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string());
+    let dir = std::path::Path::new(&base).join("tiny-agent");
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(dir.join("ui.html"), html);
 }
 
 const BASE_CSS: &str = r#"
