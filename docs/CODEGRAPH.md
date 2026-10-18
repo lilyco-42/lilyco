@@ -284,6 +284,7 @@ Desktop Actions 先 npm ci/类型检查/Vite静态构建到原 frontend，再保
 Windows HWND 出现不代表图标初始化完成，native-icon.ps1 在有限15秒内读取实际BIG/SMALL/SMALL2和class大小图标；仍以原生像素/alpha及正常关闭证明，不设置图标、不用从EXE提取图片冒充窗口图标。966的实际Windows测试曾在只读取BIG/class-big时报无图标，Linux/macOS已通过，须用修复后的新head重新验收。Python宿主的125秒总预算覆盖窗口60秒、图标15秒、关闭30秒及PowerShell初始化；三个阶段仍分别有限截止。
 
 Windows 原生验收通过 `tests/windows_native_process.py::launch_non_elevated` 启动相同的冻结／已安装 EXE。
+`CreateProcessAsUserW` 显式指定现有 `winsta0\\default` 交互桌面（不改窗口站或桌面 ACL）；快速契约在真实普通权限子进程中读取窗口站和线程桌面名，必须为 WinSta0/Default。原完整 workspace、冻结包、文件选择器及安装门保留，workspace 在快速启动契约通过后才开始。此前 bf70 的文件访问已通过，但真实 WebView2 在约4.4秒内以 HRESULT0x80010108 退出；显式桌面是新修正及待验证假设，不冒称已解决完整 Windows 问题。依据：[CreateProcessAsUserW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessasuserw)。
 微软说明提升权限的 WebView2 宿主会忽略环境中的浏览器参数；这与 13e79b0 的隔离 profile 已生效而调试参数未生效的现象一致，仍需当前 CI 权限与真实 WebView2 证据验证。
 启动器先测父进程真实 token；管理员 CI 使用自己的 restricted LUA token、移除特权并设 medium integrity，启动后再核对实际子进程不是 elevated。
 不修改产品配置／注册表策略、不换旧 runtime、不向发布包植入调试开关；`native-launch-security.json` 只保存权限属性，不保存环境或凭据。

@@ -41,6 +41,7 @@ jobs:
         run: python lilyco-tauri/tests/test_windows_native_process.py
 
   workspace-contract:
+    needs: windows-launch-contract
     runs-on: ubuntu-latest
     timeout-minutes: 100
     steps:

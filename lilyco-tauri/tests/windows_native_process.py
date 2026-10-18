@@ -165,6 +165,10 @@ def launch_non_elevated(args, environment, output):
             startup, created = StartupInfo(), ProcessInfo()
             startup.cb = ctypes.sizeof(startup)
             startup.dwFlags = 0x0100  # STARTF_USESTDHANDLES
+            # CreateProcessAsUser otherwise chooses a noninteractive desktop.
+            # This is a real GUI test; keep its ordinary token on the existing
+            # interactive desktop without changing window-station ACLs.
+            startup.lpDesktop = 'winsta0\\default'
             with open(os.devnull, 'rb') as input_stream:
                 handles = [msvcrt.get_osfhandle(input_stream.fileno()), msvcrt.get_osfhandle(output.fileno())]
                 previous = [os.get_handle_inheritable(handle) for handle in handles]

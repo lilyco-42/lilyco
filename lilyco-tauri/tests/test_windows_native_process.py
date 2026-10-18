@@ -11,6 +11,51 @@ from windows_native_process import launch_non_elevated, probe_native_access, pre
 
 @unittest.skipUnless(sys.platform == 'win32', 'Uses actual Windows security tokens')
 class OrdinaryNativeProcessTests(unittest.TestCase):
+    def test_ordinary_child_is_on_the_existing_interactive_desktop(self):
+        program = '''
+import ctypes, json
+from ctypes import wintypes
+ui = ctypes.WinDLL('user32', use_last_error=True)
+kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+ui.GetProcessWindowStation.argtypes = []
+ui.GetProcessWindowStation.restype = wintypes.HANDLE
+ui.GetThreadDesktop.argtypes = [wintypes.DWORD]
+ui.GetThreadDesktop.restype = wintypes.HANDLE
+kernel.GetCurrentThreadId.argtypes = []
+kernel.GetCurrentThreadId.restype = wintypes.DWORD
+ui.GetUserObjectInformationW.argtypes = [wintypes.HANDLE, ctypes.c_int,
+    wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+ui.GetUserObjectInformationW.restype = wintypes.BOOL
+def name(handle):
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    length = wintypes.DWORD()
+    ui.GetUserObjectInformationW(handle, 2, None, 0, ctypes.byref(length))
+    value = ctypes.create_unicode_buffer(length.value // ctypes.sizeof(ctypes.c_wchar) + 1)
+    if not ui.GetUserObjectInformationW(handle, 2, value, ctypes.sizeof(value), ctypes.byref(length)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return value.value
+print(json.dumps({'window_station': name(ui.GetProcessWindowStation()),
+    'desktop': name(ui.GetThreadDesktop(kernel.GetCurrentThreadId()))}), flush=True)
+'''
+        with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP']) as temporary:
+            output_path = Path(temporary) / 'desktop.log'
+            with output_path.open('w', encoding='utf-8') as output:
+                child, receipt = launch_non_elevated(
+                    [sys.executable, '-c', program], dict(os.environ), output)
+                try:
+                    self.assertEqual(child.wait(timeout=20), 0)
+                    self.assertFalse(receipt['application']['is_elevated'])
+                finally:
+                    if child.poll() is None:
+                        child.kill()
+                        child.wait(timeout=10)
+                    if hasattr(child, 'close'):
+                        child.close()
+            actual = json.loads(output_path.read_text(encoding='utf-8'))
+            self.assertEqual(actual['window_station'].casefold(), 'winsta0', actual)
+            self.assertEqual(actual['desktop'].casefold(), 'default', actual)
+
     def test_ordinary_token_can_access_its_ci_payload_and_webview_folder(self):
         with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP']) as temporary:
             root = Path(temporary)
