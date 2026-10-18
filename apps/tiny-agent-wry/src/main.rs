@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 
 use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
-use tao::event_loop::{ControlFlow, EventLoop};
+use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy};
 use tao::window::WindowBuilder;
 use tiny_lilyco::adapters::image_inspect::Format;
 use tiny_lilyco::agent::llm::{Llm, ScriptedLlm};
@@ -54,7 +54,10 @@ fn declare_dpi_awareness() {
 }
 
 fn run() -> wry::Result<()> {
-    let event_loop = EventLoop::new();
+    // A user event is the only reliable way to wake the loop after WebView2
+    // delivers an IPC message: `MainEventsCleared` does not fire while idle.
+    let event_loop: EventLoop<()> = EventLoopBuilder::<()>::with_user_event().build();
+    let proxy: EventLoopProxy<()> = event_loop.create_proxy();
     let workspace = default_workspace();
     let registry = build_registry(&workspace);
     let ui = Arc::new(Mutex::new(Ui::default()));
@@ -85,24 +88,20 @@ fn run() -> wry::Result<()> {
             let mut guard = shared.lock().expect("ui lock");
             guard.lines = report;
             guard.dirty = true;
+            drop(guard);
+            let _ = proxy.send_event(());
         })
         .build(&window)?;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
-        if matches!(event, Event::MainEventsCleared) {
-            flush(&webview, &ui);
-            return;
-        }
-        let closing = matches!(
-            event,
+        match event {
+            Event::UserEvent(()) => flush(&webview, &ui),
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
-            }
-        );
-        if closing {
-            *control_flow = ControlFlow::Exit;
+            } => *control_flow = ControlFlow::Exit,
+            _ => {}
         }
     });
 }
