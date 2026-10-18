@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "tiny_lilyco",
     "lilyco-core",
     "lilyco-aic",
     "lilyco-cli",
