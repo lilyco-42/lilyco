@@ -388,7 +388,11 @@ fn script() -> String {
     js.push_str("document.querySelector('[data-action=\"new\"]').addEventListener('click', function () {");
     js.push_str(" document.getElementById('rows').innerHTML = ''; step = 0;");
     js.push_str(" document.getElementById('title').textContent = 'New session'; post('new'); });");
-    js.push_str("if (window.__SELFTEST) { setTimeout(function () { run(); run(); post('selftest:done'); }, 1200); }");
+    js.push_str("if (window.__SELFTEST) { setTimeout(function () {");
+    js.push_str(" run();");
+    js.push_str(" setTheme('neutral-light', 'Neutral Light');");
+    js.push_str(" document.querySelector('[data-view=\"diff\"]').click();");
+    js.push_str("}, 1200); }");
     js.push_str("</script>");
     js
 }
