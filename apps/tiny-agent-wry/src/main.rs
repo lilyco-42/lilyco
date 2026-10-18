@@ -367,6 +367,30 @@ fn quoted_pattern(goal: &str) -> Option<(String, String)> {
     Some((lang.trim().to_string(), pattern.trim().to_string()))
 }
 
+
+/// Split a loopback URL into host and port, so a dead local proxy can be
+/// detected before it turns into a confusing empty answer.
+fn loopback(url: &str) -> Option<(String, u16)> {
+    let rest = url.split("://").nth(1)?;
+    let authority = rest.split('/').next()?;
+    let (host, port) = authority.rsplit_once(':')?;
+    if !host.contains("127.0.0.1") && !host.contains("localhost") {
+        return None;
+    }
+    Some((host.to_string(), port.parse().ok()?))
+}
+
+fn port_open(host: &str, port: u16) -> bool {
+    let addr = format!("{host}:{port}");
+    let Ok(mut addrs) = std::net::ToSocketAddrs::to_socket_addrs(&addr) else {
+        return false;
+    };
+    let Some(sock) = addrs.next() else {
+        return false;
+    };
+    std::net::TcpStream::connect_timeout(&sock, std::time::Duration::from_millis(400)).is_ok()
+}
+
 fn choose_llm(registry: &'static Registry, goal: &str) -> (Box<dyn Llm>, String) {
     // NOTE: do not gate this on `#[cfg(feature = ...)]` — that tests *this*
     // crate's features, not `tiny_lilyco`'s, so every model path silently
@@ -402,13 +426,28 @@ fn choose_llm(registry: &'static Registry, goal: &str) -> (Box<dyn Llm>, String)
         return (Box::new(plan), "本地搜索（不联网）".to_string());
     }
     if let Some((base_url, api_key, model)) = provider_from_claude() {
+        // Claude Code's config is Anthropic-shaped (`ANTHROPIC_BASE_URL`), so it
+        // must be spoken to with `/v1/messages`, not `/v1/chat/completions`.
+        if let Some((host, port)) = loopback(&base_url) {
+            if !port_open(&host, port) {
+                let label = "免费模型（本地代理未启动）".to_string();
+                let config = HttpConfig {
+                    base_url: "https://text.pollinations.ai/openai".to_string(),
+                    api_key: "none".to_string(),
+                    model: "openai".to_string(),
+                };
+                return (Box::new(HttpLlm::new(config, registry)), label);
+            }
+        }
+        use tiny_lilyco::agent::llm_anthropic::{AnthropicLlm, Config, SYSTEM};
         let label = model.clone();
-        let config = HttpConfig {
+        let config = Config {
             base_url,
             api_key,
             model,
+            system: SYSTEM.to_string(),
         };
-        return (Box::new(HttpLlm::new(config, registry)), label);
+        return (Box::new(AnthropicLlm::new(config, registry)), label);
     }
     let config = HttpConfig {
         base_url: "https://text.pollinations.ai/openai".to_string(),
