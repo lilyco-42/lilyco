@@ -11,6 +11,9 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+/// Embedded so CI can prove the packaged binary is the one just built.
+pub const BUILD_STAMP: &str = concat!("tiny-agent-build-", env!("CARGO_PKG_VERSION"));
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -39,6 +42,7 @@ struct Ui {
 
 fn main() {
     declare_dpi_awareness();
+    trace(BUILD_STAMP);
     if let Err(err) = run() {
         report(&format!("Tiny Agent failed to start: {err}"));
     }
