@@ -1,0 +1,79 @@
+name: tiny-agent server
+
+on:
+  push:
+    paths:
+      - "apps/tiny-agent-server/**"
+      - "tiny_lilyco/**"
+      - ".github/workflows/tiny-agent-server.yml"
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: Build and smoke-test the HTTP backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/tiny-agent-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/tiny-agent-server
+          key: server
+      - name: Drop stale artifacts from the cache
+        run: cargo clean -p tiny-agent-server
+      - name: Build
+        run: cargo build --release
+      - name: Start the backend
+        run: |
+          TINY_AGENT_FAKE=1 TINY_AGENT_ADDR=127.0.0.1:8899 \
+            ./target/release/tiny-agent-server > /tmp/server.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8899/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          cat /tmp/server.log
+      - name: Health endpoint
+        run: |
+          curl -s http://127.0.0.1:8899/api/health | tee /tmp/health.json
+          grep -q '"ok":true' /tmp/health.json
+      - name: The page is served
+        run: |
+          curl -s http://127.0.0.1:8899/ | grep -q "Tiny Agent"
+      - name: SSE run stream
+        run: |
+          curl -sN -X POST http://127.0.0.1:8899/api/run \
+            -H 'content-type: application/json' \
+            -d '{"goal":"这个文件夹里有什么"}' > /tmp/sse.txt
+          cat /tmp/sse.txt
+          grep -q '"kind":"tool"' /tmp/sse.txt
+          grep -q '"kind":"done"' /tmp/sse.txt
+
+  windows-binary:
+    name: Windows server binary
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/tiny-agent-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/tiny-agent-server
+          key: server-win
+      - name: Drop stale artifacts from the cache
+        run: cargo clean -p tiny-agent-server
+      - name: Build
+        run: cargo build --release
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path target/release/tiny-agent-server.exe `
+            -DestinationPath tiny-agent-server-win.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tiny-agent-server-windows
+          path: apps/tiny-agent-server/tiny-agent-server-win.zip

@@ -1,0 +1,20 @@
+[package]
+name = "tiny-agent-server"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Standalone workspace: the server pulls a network stack that the headless
+# `tiny_lilyco` CI never sees.
+[workspace]
+
+[dependencies]
+tiny_lilyco = { path = "../../tiny_lilyco", features = ["std", "llm-http", "llm-anthropic"] }
+axum = "0.7"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net"] }
+tokio-stream = "0.1"
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tower-http = { version = "0.5", features = ["cors"] }

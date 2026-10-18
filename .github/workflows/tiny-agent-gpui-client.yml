@@ -1,0 +1,37 @@
+name: tiny-agent gpui client
+
+on:
+  push:
+    paths:
+      - "apps/tiny-agent-gpui-client/**"
+      - ".github/workflows/tiny-agent-gpui-client.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build the GPUI client (windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/tiny-agent-gpui-client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/tiny-agent-gpui-client
+          key: gpui-client
+      - name: Drop stale artifacts from the cache
+        run: cargo clean -p tiny-agent-gpui-client
+      - name: Build
+        run: cargo build --release
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path target/release/tiny-agent-gpui-client.exe `
+            -DestinationPath tiny-agent-gpui-client.zip -Force
+          Get-Item tiny-agent-gpui-client.zip | Select-Object Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tiny-agent-gpui-client
+          path: apps/tiny-agent-gpui-client/tiny-agent-gpui-client.zip

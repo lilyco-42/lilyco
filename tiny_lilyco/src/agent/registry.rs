@@ -8,7 +8,7 @@ pub const MAX_TOOLS: usize = 16;
 /// Allocation-free registry of static tool objects.
 #[derive(Default)]
 pub struct Registry {
-    tools: heapless::Vec<&'static dyn Tool, MAX_TOOLS>,
+    tools: heapless::Vec<&'static (dyn Tool + Send + Sync), MAX_TOOLS>,
 }
 
 impl Registry {
@@ -20,7 +20,7 @@ impl Registry {
     }
 
     /// Register a tool. Duplicate names are rejected rather than shadowed.
-    pub fn register(&mut self, tool: &'static dyn Tool) -> Result<(), ToolError> {
+    pub fn register(&mut self, tool: &'static (dyn Tool + Send + Sync)) -> Result<(), ToolError> {
         if self.find(tool.spec().name).is_some() {
             return Err(ToolError::InvalidArgument("duplicate tool name"));
         }
@@ -30,7 +30,7 @@ impl Registry {
     }
 
     /// Resolve by name. No aliasing: the model sees exactly one name.
-    pub fn find(&self, name: &str) -> Option<&'static dyn Tool> {
+    pub fn find(&self, name: &str) -> Option<&'static (dyn Tool + Send + Sync)> {
         let hit = self.tools.iter().find(|t| t.spec().name == name);
         hit.copied()
     }
