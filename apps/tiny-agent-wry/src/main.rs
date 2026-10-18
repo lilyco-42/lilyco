@@ -367,6 +367,7 @@ impl Host for UiHost {
         let head = match tool {
             "list_dir" => "这个文件夹里有：".to_string(),
             "read_file" => format!("{args} 的内容："),
+            "ast_grep" => "找到这些：".to_string(),
             _ => format!("{tool} 做完了"),
         };
         self.taken.push(head);
