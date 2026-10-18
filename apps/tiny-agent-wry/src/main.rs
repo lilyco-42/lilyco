@@ -77,6 +77,7 @@ fn run() -> wry::Result<()> {
         .with_devtools(true)
         .with_ipc_handler(move |req| {
             let msg = req.body().clone();
+            trace(&format!("ipc: {msg}"));
             let Some(goal) = msg.strip_prefix("run|") else {
                 return;
             };
@@ -400,7 +401,8 @@ fn trace_rows() -> String {
 
 fn script() -> String {
     let mut js = String::from("<script>");
-    js.push_str("function post(m){ if (window.ipc) { window.ipc.postMessage(m); } }");
+    js.push_str("function post(m){ if (window.ipc) { window.ipc.postMessage(m); } "+
+        "else { document.getElementById('title').textContent = 'no ipc'; } }");
     js.push_str("function setTheme(id, label){ document.documentElement.dataset.theme = id;");
     js.push_str(" document.getElementById('theme-label').textContent = label + ' \u{00b7} design tokens'; }");
     js.push_str("document.querySelectorAll('[data-set]').forEach(function (b) {");
@@ -433,6 +435,7 @@ fn script() -> String {
     js.push_str("document.querySelector('[data-action=\"new\"]').addEventListener('click', function () {");
     js.push_str(" document.getElementById('rows').innerHTML = '';");
     js.push_str(" document.getElementById('title').textContent = 'Ready'; });");
+    js.push_str("post('boot');");
     js.push_str("if (window.__SELFTEST) { setTimeout(function () { run(); }, 1200); }");
     js.push_str("</script>");
     js
