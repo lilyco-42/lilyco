@@ -12,7 +12,7 @@
       Id="*"
       Name="Tiny Agent"
       Language="1033"
-      Version="0.4.4"
+      Version="0.5.0"
       Manufacturer="Lilyco"
       UpgradeCode="C81F4D27-6B5A-4E93-A1C7-5E2D8B9F3A64">
 
@@ -59,6 +59,7 @@
     </Feature>
   </Product>
 </Wix>
+
 
 
 
