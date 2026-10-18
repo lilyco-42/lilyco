@@ -62,7 +62,7 @@ fn user_message(ctx: Decision<'_>) -> String {
     } else {
         ctx.observation
     };
-    format!(
+    ::std::format!(
         "Goal: {}\n\nPrevious observation:\n{}\n\nStep: {}",
         ctx.goal, seen, ctx.step
     )
@@ -129,7 +129,7 @@ pub fn normalize_args(raw: &str) -> String {
     let old = value.get("old").and_then(Value::as_str);
     let new = value.get("new").and_then(Value::as_str);
     match (path, old, new) {
-        (Some(p), Some(o), Some(n)) => format!("{p}|{o}|{n}"),
+        (Some(p), Some(o), Some(n)) => ::std::format!("{p}|{o}|{n}"),
         (Some(p), _, _) => p.to_string(),
         _ => trimmed.to_string(),
     }
@@ -163,7 +163,7 @@ impl Config {
         let base_url = base
             .or_else(|| std::env::var("TINY_AGENT_BASE_URL").ok())
             .or_else(|| preset(provider).map(ToString::to_string))
-            .ok_or_else(|| format!("unknown provider '{provider}': pass --base-url"))?;
+            .ok_or_else(|| ::std::format!("unknown provider '{provider}': pass --base-url"))?;
         let api_key = key
             .or_else(|| std::env::var("TINY_AGENT_API_KEY").ok())
             .ok_or("missing API key: pass --api-key or set TINY_AGENT_API_KEY")?;
@@ -179,7 +179,7 @@ impl Config {
 
     /// `POST <base>/chat/completions`.
     pub fn endpoint(&self) -> String {
-        format!("{}/chat/completions", self.base_url.trim_end_matches('/'))
+        ::std::format!("{}/chat/completions", self.base_url.trim_end_matches('/'))
     }
 }
 
@@ -210,7 +210,7 @@ impl Llm for HttpLlm {
         match post(&self.config, &body) {
             Ok(text) => parse_step(&text),
             Err(err) => {
-                eprintln!("model call failed: {err}");
+                ::std::eprintln!("model call failed: {err}");
                 Step::Done
             }
         }
@@ -220,7 +220,7 @@ impl Llm for HttpLlm {
 fn post(config: &Config, body: &str) -> Result<String, String> {
     let response = ureq::post(&config.endpoint())
         .set("Content-Type", "application/json")
-        .set("Authorization", &format!("Bearer {}", config.api_key))
+        .set("Authorization", &::std::format!("Bearer {}", config.api_key))
         .set("HTTP-Referer", "https://github.com/lilyco-42/lilyco")
         .set("X-Title", "Tiny Agent")
         .timeout(std::time::Duration::from_secs(90))
@@ -229,7 +229,7 @@ fn post(config: &Config, body: &str) -> Result<String, String> {
         Ok(resp) => resp.into_string().map_err(|e| e.to_string()),
         Err(ureq::Error::Status(code, resp)) => {
             let detail = resp.into_string().unwrap_or_default();
-            Err(format!("HTTP {code}: {}", clip(&detail, 300)))
+            Err(::std::format!("HTTP {code}: {}", clip(&detail, 300)))
         }
         Err(err) => Err(err.to_string()),
     }
