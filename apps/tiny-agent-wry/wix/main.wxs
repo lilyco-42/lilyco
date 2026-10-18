@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- WiX 3 source for the GUI build: one exe plus a Start Menu shortcut. -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product
+      Id="*"
+      Name="Tiny Agent"
+      Language="1033"
+      Version="0.1.0"
+      Manufacturer="Lilyco"
+      UpgradeCode="B3D9A6F2-4C18-4E07-8F5A-2A7E9C31D4B8">
+
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Tiny Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Tiny Agent" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="AppMenuDir" Name="Tiny Agent" />
+      </Directory>
+    </Directory>
+
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="AppExe" Guid="*">
+        <File Id="AppExeFile"
+              Name="Tiny Agent.exe"
+              Source="..\target\release\tiny-agent-wry.exe"
+              KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="AppMenuDir">
+      <Component Id="AppShortcut" Guid="*">
+        <Shortcut Id="MenuShortcut"
+                  Name="Tiny Agent"
+                  Description="Tiny Agent"
+                  Target="[INSTALLFOLDER]Tiny Agent.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveAppMenuDir" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\Lilyco\TinyAgent"
+                       Name="installed" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="Main" Title="Tiny Agent" Level="1">
+      <ComponentRef Id="AppExe" />
+      <ComponentRef Id="AppShortcut" />
+    </Feature>
+  </Product>
+</Wix>
