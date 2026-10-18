@@ -78,20 +78,39 @@ fn run() -> wry::Result<()> {
 
 /// Grow the window so its *physical* size matches the CSS pixels WebView2 renders.
 ///
-/// WebView2 always renders at the monitor scale, while the window may have been
-/// created at 1.0 — on a 125% display that leaves the page 25% wider than the
-/// window, clipping the right edge and the composer. This only acts when the
-/// window really came out unscaled, so it never double-applies.
+/// `tao` reports a 1.0 scale factor on this display while WebView2 renders at
+/// the monitor's real scale (125%), which leaves the page 25% wider than the
+/// window and clips its right edge and the composer. So ask the OS directly.
 fn fit_to_webview_scale(window: &tao::window::Window) {
-    let got = window.inner_size();
-    let scale = window.scale_factor();
-    let expected = 1100.0 * scale;
-    if (got.width as f64) >= expected * 0.9 {
+    let scale = monitor_scale(window);
+    let want_w = (1100.0 * scale).round() as u32;
+    let want_h = (720.0 * scale).round() as u32;
+    if window.inner_size().width >= want_w {
         return;
     }
-    let w = (1100.0 * scale).round() as u32;
-    let h = (720.0 * scale).round() as u32;
-    window.set_inner_size(tao::dpi::PhysicalSize::new(w, h));
+    window.set_inner_size(tao::dpi::PhysicalSize::new(want_w, want_h));
+}
+
+/// Real per-window DPI scale, bypassing `tao`'s own (unreliable here) reading.
+#[cfg(windows)]
+fn monitor_scale(window: &tao::window::Window) -> f64 {
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetDpiForWindow(hwnd: isize) -> u32;
+    }
+    use tao::platform::windows::WindowExtWindows;
+    let hwnd = window.hwnd() as isize;
+    let dpi = unsafe { GetDpiForWindow(hwnd) };
+    if dpi == 0 {
+        1.0
+    } else {
+        f64::from(dpi) / 96.0
+    }
+}
+
+#[cfg(not(windows))]
+fn monitor_scale(window: &tao::window::Window) -> f64 {
+    window.scale_factor()
 }
 
 /// A per-user, always-writable directory for the WebView2 profile.
