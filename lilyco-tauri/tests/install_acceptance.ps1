@@ -41,9 +41,13 @@ $shortcuts = @(Get-ChildItem -LiteralPath $startMenu -Recurse -File -Filter 'lil
     [IO.Path]::GetFullPath($shell.CreateShortcut($_.FullName).TargetPath) -eq [IO.Path]::GetFullPath($binary)
 })
 if ($shortcuts.Count -lt 1) { throw 'Real start menu shortcut to installed program is missing' }
+. (Join-Path $PSScriptRoot 'shortcut_icon.ps1')
+$shortcutEvidence = @()
 foreach ($shortcut in $shortcuts) {
-    $icon = $shell.CreateShortcut($shortcut.FullName).IconLocation
-    if ($icon -and -not $icon.StartsWith($binary,[StringComparison]::OrdinalIgnoreCase)) { throw 'Shortcut icon does not reference the installed icon-bearing program' }
+    $link = $shell.CreateShortcut($shortcut.FullName)
+    $shortcutEvidence += @{target=$link.TargetPath;icon_location=$link.IconLocation}
+    $shortcutEvidence | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $workspace 'lilyco-tauri/tests/evidence/installed-shortcuts.json') -Encoding utf8
+    if (-not (Test-InstalledShortcutIcon $link.IconLocation $link.TargetPath $binary)) { throw 'Shortcut icon does not reference the installed icon-bearing program at index zero' }
 }
 $registryRoots = @('HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall','HKLM:/Software/Microsoft/Windows/CurrentVersion/Uninstall','HKLM:/Software/WOW6432Node/Microsoft/Windows/CurrentVersion/Uninstall')
 $entries = @()

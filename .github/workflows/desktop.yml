@@ -43,6 +43,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           python lilyco-tauri/tests/test_nsis_payload.py
           if ($LASTEXITCODE -ne 0) { exit 1 }
+          ./lilyco-tauri/tests/test_shortcut_icon.ps1
 
   workspace-contract:
     needs: windows-launch-contract
