@@ -84,7 +84,7 @@ jobs:
           mkdir -p /tmp/tiny-sg
           printf 'pub fn alpha() {}\npub fn beta() {}\n' > /tmp/tiny-sg/lib.rs
           AST_GREP_BIN=/tmp/sg/ast-grep cargo run --quiet --features std --bin tiny-agent -- \
-            /tmp/tiny-sg --call "ast_grep:rust|pub fn \$NAME()" | tee /tmp/sg-out.txt
+            /tmp/tiny-sg --call "ast_grep:rust|pub fn \$NAME" | tee /tmp/sg-out.txt
           grep -q "alpha" /tmp/sg-out.txt
           grep -q "beta" /tmp/sg-out.txt
 
