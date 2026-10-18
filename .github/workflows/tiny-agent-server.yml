@@ -50,3 +50,30 @@ jobs:
           cat /tmp/sse.txt
           grep -q '"kind":"tool"' /tmp/sse.txt
           grep -q '"kind":"done"' /tmp/sse.txt
+
+  windows-binary:
+    name: Windows server binary
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/tiny-agent-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/tiny-agent-server
+          key: server-win
+      - name: Drop stale artifacts from the cache
+        run: cargo clean -p tiny-agent-server
+      - name: Build
+        run: cargo build --release
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path target/release/tiny-agent-server.exe `
+            -DestinationPath tiny-agent-server-win.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tiny-agent-server-windows
+          path: apps/tiny-agent-server/tiny-agent-server-win.zip
