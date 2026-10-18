@@ -41,7 +41,7 @@ print(json.dumps(results), flush=True)
                 child, receipt = launch_non_elevated(
                     [sys.executable, '-c', program], dict(os.environ), output)
                 try:
-                    self.assertEqual(child.wait(timeout=20), 0)
+                    exit_code = child.wait(timeout=20)
                     self.assertFalse(receipt['application']['is_elevated'])
                 finally:
                     if child.poll() is None:
@@ -49,7 +49,11 @@ print(json.dumps(results), flush=True)
                         child.wait(timeout=10)
                     if hasattr(child, 'close'):
                         child.close()
-            result = json.loads(output_path.read_text(encoding='utf-8'))
+            actual_output = output_path.read_text(encoding='utf-8')
+            print(json.dumps({'owned_process_probe_exit': exit_code,
+                              'actual_output': actual_output, 'launch': receipt}), flush=True)
+            self.assertEqual(exit_code, 0, actual_output)
+            result = json.loads(actual_output)
             self.assertEqual(result['exit'], 0, result)
             actual = json.loads(result['stdout'])
             print(json.dumps({'actual_owned_process_query': actual, 'launch': receipt}), flush=True)
