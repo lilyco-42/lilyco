@@ -11,6 +11,8 @@ pub mod tool;
 
 #[cfg(feature = "std")]
 pub mod app;
+#[cfg(feature = "llm-http")]
+pub mod llm_http;
 #[cfg(feature = "std")]
 pub mod tools;
 

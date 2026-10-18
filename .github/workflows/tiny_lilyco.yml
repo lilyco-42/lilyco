@@ -72,6 +72,10 @@ jobs:
         run: cargo clippy --features std --all-targets -- -D warnings
       - name: Unit tests, core only
         run: cargo test --no-default-features
+      - name: Clippy, model client
+        run: cargo clippy --features "std llm-http" --all-targets -- -D warnings
+      - name: Unit tests, model client (offline, no network)
+        run: cargo test --features "std llm-http"
       - name: Agent CLI smoke (real files, real loop)
         run: |
           mkdir -p /tmp/tiny-smoke

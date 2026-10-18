@@ -6,19 +6,45 @@
 
 use heapless::{String, Vec};
 
+/// Longest tool name the loop accepts.
+pub const MAX_NAME: usize = 32;
+
 /// Longest argument string a single call may carry.
 pub const MAX_ARGS: usize = 256;
 
 /// Longest spoken line the loop keeps.
 pub const MAX_SPEECH: usize = 256;
 
+/// Everything a model needs to decide, without exposing the registry.
+#[derive(Debug, Clone, Copy)]
+pub struct Decision<'a> {
+    /// The user's goal, verbatim.
+    pub goal: &'a str,
+    /// Completed tool calls so far.
+    pub step: u32,
+    /// Text the previous call produced (empty on the first turn).
+    pub observation: &'a str,
+}
+
 /// One requested tool invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Call {
-    /// Tool name, resolved against the registry.
-    pub tool: &'static str,
+    /// Tool name, resolved against the registry. Owned, because a model returns
+    /// it at runtime.
+    pub tool: String<MAX_NAME>,
     /// Raw arguments, validated by the tool itself.
     pub args: String<MAX_ARGS>,
+}
+
+impl Call {
+    /// Build a call, rejecting an over-long name or argument string.
+    pub fn new(tool: &str, args: &str) -> Result<Self, &'static str> {
+        let mut name = String::new();
+        name.push_str(tool).map_err(|_| "tool name too long")?;
+        let mut buf = String::new();
+        buf.push_str(args).map_err(|_| "args too long")?;
+        Ok(Call { tool: name, args: buf })
+    }
 }
 
 /// What the model decided to do next.
@@ -37,15 +63,11 @@ pub enum Step {
 /// Real implementations wrap an HTTP model; [`ScriptedLlm`] replays a fixed plan
 /// so the loop can be exercised offline and in CI.
 pub trait Llm {
-    /// Decide the next step. `step` is the number of completed tool calls, and
-    /// `observation` is the text produced by the previous one (`None` at start).
-    fn plan(&mut self, step: u32, observation: Option<&str>) -> Step;
+    /// Decide the next step from the goal and the previous observation.
+    fn plan(&mut self, ctx: Decision<'_>) -> Step;
 }
 
 /// Replays a fixed list of calls, then stops.
-///
-/// This is the MVP's default "model": it proves the machinery end to end
-/// without a network, a key, or a flaky dependency.
 #[derive(Debug, Default)]
 pub struct ScriptedLlm {
     plan: Vec<Call, 8>,
@@ -62,12 +84,9 @@ impl ScriptedLlm {
     }
 
     /// Append one call to the plan.
-    pub fn push(&mut self, tool: &'static str, args: &str) -> Result<(), &'static str> {
-        let mut buf = String::new();
-        buf.push_str(args).map_err(|_| "args too long")?;
-        self.plan
-            .push(Call { tool, args: buf })
-            .map_err(|_| "plan is full")
+    pub fn push(&mut self, tool: &str, args: &str) -> Result<(), &'static str> {
+        let call = Call::new(tool, args)?;
+        self.plan.push(call).map_err(|_| "plan is full")
     }
 
     /// How many calls are still unplayed.
@@ -77,7 +96,7 @@ impl ScriptedLlm {
 }
 
 impl Llm for ScriptedLlm {
-    fn plan(&mut self, _step: u32, _observation: Option<&str>) -> Step {
+    fn plan(&mut self, _ctx: Decision<'_>) -> Step {
         let Some(call) = self.plan.get(self.at) else {
             return Step::Done;
         };
@@ -91,7 +110,7 @@ impl Llm for ScriptedLlm {
 pub struct IdleLlm;
 
 impl Llm for IdleLlm {
-    fn plan(&mut self, _step: u32, _observation: Option<&str>) -> Step {
+    fn plan(&mut self, _ctx: Decision<'_>) -> Step {
         Step::Done
     }
 }
@@ -100,17 +119,25 @@ impl Llm for IdleLlm {
 mod tests {
     use super::*;
 
+    fn ctx() -> Decision<'static> {
+        Decision {
+            goal: "test",
+            step: 0,
+            observation: "",
+        }
+    }
+
     #[test]
     fn scripted_plan_plays_in_order_then_stops() {
         let mut llm = ScriptedLlm::new();
         llm.push("read_file", "src/main.rs").unwrap();
         llm.push("edit_file", "a->b").unwrap();
         assert_eq!(llm.remaining(), 2);
-        let first = llm.plan(0, None);
-        assert!(matches!(first, Step::Call(ref c) if c.tool == "read_file"));
-        let _ = llm.plan(1, Some("ok"));
+        let first = llm.plan(ctx());
+        assert!(matches!(first, Step::Call(ref c) if c.tool.as_str() == "read_file"));
+        let _ = llm.plan(ctx());
         assert_eq!(llm.remaining(), 0);
-        assert_eq!(llm.plan(2, None), Step::Done);
+        assert_eq!(llm.plan(ctx()), Step::Done);
     }
 
     #[test]
@@ -124,7 +151,16 @@ mod tests {
     }
 
     #[test]
+    fn oversized_tool_name_is_rejected() {
+        let mut long: heapless::String<64> = heapless::String::new();
+        for _ in 0..=MAX_NAME {
+            long.push('n').unwrap();
+        }
+        assert!(Call::new(long.as_str(), "").is_err());
+    }
+
+    #[test]
     fn idle_model_stops_immediately() {
-        assert_eq!(IdleLlm.plan(0, None), Step::Done);
+        assert_eq!(IdleLlm.plan(ctx()), Step::Done);
     }
 }

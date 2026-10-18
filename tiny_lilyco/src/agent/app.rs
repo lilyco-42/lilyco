@@ -55,14 +55,14 @@ impl TinyApp for AgentApp {
     /// The goal is carried by the app but not yet consumed: [`ScriptedLlm`]
     /// replays a construction-time plan, so a real model is the only thing that
     /// would read it. Wire it here when the HTTP provider lands.
-    fn execute<F>(&self, _goal: Self::Args, mut progress: F) -> Result<Self::Output, Self::Error>
+    fn execute<F>(&self, goal: Self::Args, mut progress: F) -> Result<Self::Output, Self::Error>
     where
         F: FnMut(Progress),
     {
         progress(Progress::Init);
         let mut llm = self.llm.borrow_mut();
         let mut host = self.host.borrow_mut();
-        let outcome = drive(&mut **llm, &self.registry, &mut **host, self.budget);
+        let outcome = drive(goal, &mut **llm, &self.registry, &mut **host, self.budget);
         let done = if outcome.failures == 0 {
             Progress::Done
         } else {

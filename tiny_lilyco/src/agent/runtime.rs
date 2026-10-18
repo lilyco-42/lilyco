@@ -13,7 +13,7 @@
 //! mutating call, roll back after repeated failure" — lives in [`Machine`] and
 //! cannot be bypassed by a host.
 
-use crate::agent::llm::{Llm, Step};
+use crate::agent::llm::{Decision, Llm, Step};
 use crate::agent::ooda::{ActPermit, Action, Machine, Phase};
 use crate::agent::registry::Registry;
 use crate::agent::tool::{ObsBuf, ObsKind, ToolError};
@@ -80,7 +80,7 @@ impl Outcome {
 }
 
 /// Drive the loop until the model stops, the budget runs out, or policy trips.
-pub fn drive(llm: &mut dyn Llm, registry: &Registry, host: &mut dyn Host, budget: Budget) -> Outcome {
+pub fn drive(goal: &str, llm: &mut dyn Llm, registry: &Registry, host: &mut dyn Host, budget: Budget) -> Outcome {
     let mut machine = Machine::new(budget.max_steps, budget.max_failures);
     let mut obs = ObsBuf::new();
     let mut outcome = Outcome {
@@ -93,7 +93,7 @@ pub fn drive(llm: &mut dyn Llm, registry: &Registry, host: &mut dyn Host, budget
     };
     let mut stopped = false;
     while !stopped && !machine.exhausted() {
-        stopped = one_turn(&mut machine, llm, registry, host, &mut obs, &mut outcome);
+        stopped = one_turn(goal, &mut machine, llm, registry, host, &mut obs, &mut outcome);
     }
     outcome.phase = machine.phase().label();
     outcome.finished = stopped || machine.exhausted() || machine.phase() == Phase::Done;
@@ -102,6 +102,7 @@ pub fn drive(llm: &mut dyn Llm, registry: &Registry, host: &mut dyn Host, budget
 
 /// Returns true when the loop should stop.
 fn one_turn(
+    goal: &str,
     machine: &mut Machine,
     llm: &mut dyn Llm,
     registry: &Registry,
@@ -112,13 +113,18 @@ fn one_turn(
     if machine.begin_orient().is_err() || machine.begin_decide().is_err() {
         return true;
     }
-    match llm.plan(machine.step(), Some(obs.as_str())) {
+    let ctx = Decision {
+        goal,
+        step: machine.step(),
+        observation: obs.as_str(),
+    };
+    match llm.plan(ctx) {
         Step::Done | Step::Say(_) => {
             machine.finish();
             true
         }
         Step::Call(call) => {
-            let Some(tool) = registry.find(call.tool) else {
+            let Some(tool) = registry.find(call.tool.as_str()) else {
                 machine.finish();
                 return true;
             };
@@ -131,7 +137,7 @@ fn one_turn(
                 return true;
             }
             obs.clear();
-            let result = host.call(call.tool, call.args.as_str(), obs);
+            let result = host.call(call.tool.as_str(), call.args.as_str(), obs);
             outcome.calls = outcome.calls.saturating_add(1);
             let ok = result.is_ok();
             if !ok {
@@ -248,7 +254,7 @@ mod tests {
         llm.push("read_file", "a").unwrap();
         llm.push("read_file", "b").unwrap();
         let mut host = FakeHost::default();
-        let out = drive(&mut llm, &registry(), &mut host, Budget::mvp());
+        let out = drive("", &mut llm, &registry(), &mut host, Budget::mvp());
         assert_eq!(out.calls, 2);
         assert_eq!(out.failures, 0);
         assert!(out.finished);
@@ -261,7 +267,7 @@ mod tests {
         let mut llm = ScriptedLlm::new();
         llm.push("edit_file", "x").unwrap();
         let mut host = FakeHost::default();
-        let out = drive(&mut llm, &registry(), &mut host, Budget::mvp());
+        let out = drive("", &mut llm, &registry(), &mut host, Budget::mvp());
         assert_eq!(out.checkpoints, 1);
         assert_eq!(host.checkpoints, 1);
         assert_eq!(out.calls, 1);
@@ -272,7 +278,7 @@ mod tests {
         let mut llm = ScriptedLlm::new();
         llm.push("read_file", "x").unwrap();
         let mut host = FakeHost::default();
-        let out = drive(&mut llm, &registry(), &mut host, Budget::mvp());
+        let out = drive("", &mut llm, &registry(), &mut host, Budget::mvp());
         assert_eq!(out.checkpoints, 0);
     }
 
@@ -286,7 +292,7 @@ mod tests {
             fail: true,
             ..Default::default()
         };
-        let out = drive(&mut llm, &registry(), &mut host, Budget::new(16, 2));
+        let out = drive("", &mut llm, &registry(), &mut host, Budget::new(16, 2));
         assert!(out.rolled_back);
         assert!(host.undos >= 1);
         assert!(out.failures >= 2);
@@ -297,7 +303,7 @@ mod tests {
         let mut llm = ScriptedLlm::new();
         llm.push("nope", "").unwrap();
         let mut host = FakeHost::default();
-        let out = drive(&mut llm, &registry(), &mut host, Budget::mvp());
+        let out = drive("", &mut llm, &registry(), &mut host, Budget::mvp());
         assert_eq!(out.calls, 0);
         assert!(out.finished);
         assert_eq!(host.calls, 0);
@@ -311,7 +317,7 @@ mod tests {
             llm.push("read_file", "x").unwrap();
         }
         let mut host = FakeHost::default();
-        let out = drive(&mut llm, &registry(), &mut host, Budget::new(3, 9));
+        let out = drive("", &mut llm, &registry(), &mut host, Budget::new(3, 9));
         assert_eq!(out.calls, 3);
     }
 }
