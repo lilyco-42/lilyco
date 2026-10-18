@@ -127,7 +127,7 @@ fn split_args(args: &str) -> Result<(&str, &str, &str), ToolError> {
 /// Commands the agent may run. Anything else is refused by name.
 pub const ALLOWED_COMMANDS: &[&str] = &[
     "git", "cargo", "rustc", "ls", "dir", "cat", "rg", "grep", "find", "echo",
-    "python", "python3", "node", "type", "wc", "head",
+    "python", "python3", "node", "type", "wc", "head", "ast-grep", "sg",
 ];
 
 /// Run one allow-listed command inside the workspace.
@@ -252,6 +252,78 @@ fn scan(path: &Path, text: &str, needle: &str, root: &Path, out: &mut ObsBuf, st
         }
     }
     hits
+}
+
+/// Structural search, delegated to ast-grep.
+///
+/// The engine is *not* reimplemented here: the tool shells out to the
+/// `ast-grep` binary (bundled next to the app, or found on PATH). Arguments are
+/// `lang|pattern`, so no shell quoting is involved.
+pub struct AstGrep {
+    root: PathBuf,
+    bin: PathBuf,
+}
+
+impl AstGrep {
+    /// `bin` is the ast-grep executable to use.
+    pub fn new(root: impl Into<PathBuf>, bin: impl Into<PathBuf>) -> Self {
+        AstGrep {
+            root: root.into(),
+            bin: bin.into(),
+        }
+    }
+
+    /// Resolve the executable: explicit env var, then the vendor folder next to
+    /// the current executable, then PATH.
+    pub fn locate() -> PathBuf {
+        if let Ok(explicit) = std::env::var("AST_GREP_BIN") {
+            return PathBuf::from(explicit);
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                let candidate = dir.join("vendor").join("ast-grep.exe");
+                if candidate.exists() {
+                    return candidate;
+                }
+            }
+        }
+        PathBuf::from("ast-grep")
+    }
+}
+
+impl Tool for AstGrep {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec::new("ast_grep", "structural search: lang|pattern", false)
+    }
+
+    fn call(&self, args: &str, out: &mut ObsBuf) -> Result<ObsKind, ToolError> {
+        let (lang, pattern) = args
+            .split_once('|')
+            .ok_or(ToolError::InvalidArgument("expected lang|pattern"))?;
+        if pattern.trim().is_empty() {
+            return Err(ToolError::InvalidArgument("empty pattern"));
+        }
+        let output = std::process::Command::new(&self.bin)
+            .arg("run")
+            .arg("-p")
+            .arg(pattern)
+            .arg("-l")
+            .arg(lang.trim())
+            .arg(".")
+            .current_dir(&self.root)
+            .output()
+            .map_err(|_| ToolError::HostFailure("cannot spawn ast-grep"))?;
+        let code = output.status.code().unwrap_or(-1);
+        for line in ::std::string::String::from_utf8_lossy(&output.stdout).lines().take(60) {
+            push_line(out, line)?;
+        }
+        if code != 0 && out.as_str().is_empty() {
+            for line in ::std::string::String::from_utf8_lossy(&output.stderr).lines().take(10) {
+                push_line(out, line)?;
+            }
+        }
+        Ok(ObsKind::Exit { code })
+    }
 }
 
 fn push_line(out: &mut ObsBuf, text: &str) -> Result<(), ToolError> {
