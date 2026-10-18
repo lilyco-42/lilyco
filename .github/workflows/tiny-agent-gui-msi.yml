@@ -8,7 +8,7 @@ on:
       tag:
         description: 'Release tag to publish the MSI under'
         required: false
-        default: 'tiny-agent-gui-v0.5.3'
+        default: 'tiny-agent-gui-v0.7.4'
   push:
     paths:
       - 'apps/tiny-agent-wry/**'
@@ -41,8 +41,38 @@ jobs:
           cache-on-failure: true
           key: gui
 
+      - name: Drop stale artifacts from the cache
+        # rust-cache restores target/ with fresh mtimes, which makes cargo
+        # believe this crate is up to date and silently packages the previous
+        # build. Removing just this package's artifacts forces a rebuild while
+        # keeping the (expensive) dependency graph cached.
+        run: cargo clean -p tiny-agent-wry
+
       - name: Build Tiny Agent (release)
         run: cargo build --release
+
+      - name: Verify the build stamp is in the binary
+        shell: pwsh
+        run: |
+          $exe = "target\release\tiny-agent-wry.exe"
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $exe))
+          $ascii = [System.Text.Encoding]::ASCII.GetString($bytes)
+          if (-not $ascii.Contains("tiny-agent-build-0.7.4")) {
+            Write-Error "stale binary: build stamp missing"
+            exit 1
+          }
+          Get-Item $exe | Select-Object Name, Length
+
+      - name: Vendor ast-grep (structural search engine)
+        shell: pwsh
+        working-directory: .
+        run: |
+          $zip = "$env:RUNNER_TEMP\sg.zip"
+          Invoke-WebRequest -Uri "https://github.com/ast-grep/ast-grep/releases/latest/download/app-x86_64-pc-windows-msvc.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath "$env:RUNNER_TEMP\sg" -Force
+          New-Item -ItemType Directory -Force -Path "apps/tiny-agent-wry/vendor" | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\sg\ast-grep.exe" "apps/tiny-agent-wry/vendor/ast-grep.exe"
+          Get-Item "apps/tiny-agent-wry/vendor/ast-grep.exe" | Select-Object Name, Length
 
       - name: Install WiX Toolset
         working-directory: .
@@ -53,14 +83,14 @@ jobs:
         run: |
           $wix = "C:\Program Files (x86)\WiX Toolset v3.14\bin"
           & "$wix\candle.exe" -arch x64 -out wix\main.wixobj wix\main.wxs
-          & "$wix\light.exe" -out tiny-agent-gui-0.5.3-x64.msi wix\main.wixobj
-          Get-Item tiny-agent-gui-0.5.3-x64.msi | Select-Object Name, Length
+          & "$wix\light.exe" -out tiny-agent-gui-0.7.4-x64.msi wix\main.wixobj
+          Get-Item tiny-agent-gui-0.7.4-x64.msi | Select-Object Name, Length
 
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
         with:
           name: tiny-agent-gui-msi
-          path: apps/tiny-agent-wry/tiny-agent-gui-0.5.3-x64.msi
+          path: apps/tiny-agent-wry/tiny-agent-gui-0.7.4-x64.msi
           if-no-files-found: error
 
       - name: Publish release asset
@@ -68,15 +98,20 @@ jobs:
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.tag || 'tiny-agent-gui-v0.5.3' }}
+          TAG: ${{ inputs.tag || 'tiny-agent-gui-v0.7.4' }}
         run: |
-          $asset = "apps/tiny-agent-wry/tiny-agent-gui-0.5.3-x64.msi"
+          $asset = "apps/tiny-agent-wry/tiny-agent-gui-0.7.4-x64.msi"
           gh release view $env:TAG 2>$null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $env:TAG $asset --title "Tiny Agent GUI 0.5.3" --notes "GUI build (tao + wry), Windows x64 MSI."
+            gh release create $env:TAG $asset --title "Tiny Agent GUI 0.7.4" --notes "GUI build (tao + wry), Windows x64 MSI."
           } else {
             gh release upload $env:TAG $asset --clobber
           }
+
+
+
+
+
 
 
 

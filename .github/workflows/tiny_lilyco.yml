@@ -76,6 +76,18 @@ jobs:
         run: cargo clippy --features "std llm-http llm-anthropic" --all-targets -- -D warnings
       - name: Unit tests, model client (offline, no network)
         run: cargo test --features "std llm-http llm-anthropic"
+      - name: Structural search smoke (ast-grep, not hand-written)
+        run: |
+          curl -sSL -o /tmp/sg.zip https://github.com/ast-grep/ast-grep/releases/latest/download/app-x86_64-unknown-linux-gnu.zip
+          mkdir -p /tmp/sg && unzip -q /tmp/sg.zip -d /tmp/sg
+          chmod +x /tmp/sg/ast-grep
+          mkdir -p /tmp/tiny-sg
+          printf 'pub fn alpha() {}\npub fn beta() {}\n' > /tmp/tiny-sg/lib.rs
+          AST_GREP_BIN=/tmp/sg/ast-grep cargo run --quiet --features std --bin tiny-agent -- \
+            /tmp/tiny-sg --call "ast_grep:rust|pub fn \$NAME" | tee /tmp/sg-out.txt
+          grep -q "alpha" /tmp/sg-out.txt
+          grep -q "beta" /tmp/sg-out.txt
+
       - name: Build the wasm tool fixture
         run: |
           rustup target add wasm32-unknown-unknown
@@ -86,7 +98,7 @@ jobs:
         run: |
           mkdir -p /tmp/tiny-wasm
           cargo run --quiet --features "std wasm-tools" --bin tiny-agent -- \
-            /tmp/tiny-wasm \
+            /tmp/tiny-wasm --apply \
             --wasm-tool echo=tests/fixtures/wasm_tool/target/wasm32-unknown-unknown/release/wasm_tool_fixture.wasm \
             --call "echo:hello wasm" | tee /tmp/wasm-out.txt
           grep -q "wasm saw: hello wasm" /tmp/wasm-out.txt

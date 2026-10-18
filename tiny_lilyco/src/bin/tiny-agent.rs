@@ -22,7 +22,7 @@ use tiny_lilyco::agent::registry::Registry;
 use tiny_lilyco::agent::runtime::{drive, Budget, Host, Outcome};
 use tiny_lilyco::agent::tool::{ObsBuf, ObsKind, Tool, ToolError};
 use tiny_lilyco::adapters::snapshot::Store;
-use tiny_lilyco::agent::tools::{EditFile, Glob, Grep, ListDir, ReadFile, RunCommand};
+use tiny_lilyco::agent::tools::{AstGrep, EditFile, Glob, Grep, ListDir, ReadFile, RunCommand};
 
 struct StdHost {
     registry: &'static Registry,
@@ -220,6 +220,7 @@ fn build_registry(root: &Path, wasm: &[(String, String)]) -> &'static Registry {
     let run: &'static dyn Tool = Box::leak(Box::new(RunCommand::new(root)));
     let grep: &'static dyn Tool = Box::leak(Box::new(Grep::new(root)));
     let glob: &'static dyn Tool = Box::leak(Box::new(Glob::new(root)));
+    let ast: &'static dyn Tool = Box::leak(Box::new(AstGrep::new(root, AstGrep::locate())));
     let reg: &'static mut Registry = Box::leak(Box::new(Registry::new()));
     let _ = reg.register(read);
     let _ = reg.register(list);
@@ -227,9 +228,11 @@ fn build_registry(root: &Path, wasm: &[(String, String)]) -> &'static Registry {
     let _ = reg.register(run);
     let _ = reg.register(grep);
     let _ = reg.register(glob);
+    let _ = reg.register(ast);
     #[cfg(feature = "wasm-tools")]
     for (name, path) in wasm {
-        match tiny_lilyco::agent::wasm_tool::WasmTool::load(name.as_str(), Path::new(path)) {
+        let label: &'static str = Box::leak(name.clone().into_boxed_str());
+        match tiny_lilyco::agent::wasm_tool::WasmTool::load(label, Path::new(path)) {
             Ok(tool) => {
                 let leaked: &'static dyn Tool = Box::leak(Box::new(tool));
                 let _ = reg.register(leaked);

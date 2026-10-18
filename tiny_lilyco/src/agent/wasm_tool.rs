@@ -60,7 +60,13 @@ impl Tool for WasmTool {
     }
 
     fn call(&self, args: &str, out: &mut ObsBuf) -> Result<ObsKind, ToolError> {
-        let text = self.invoke(args).map_err(ToolError::HostFailure)?;
+        let text = match self.invoke(args) {
+            Ok(text) => text,
+            Err(err) => {
+                ::std::eprintln!("wasm tool '{}' failed: {err}", self.name);
+                return Err(ToolError::HostFailure("wasm tool failed"));
+            }
+        };
         out.push_str(&text)
             .map_err(|_| ToolError::ObservationTooLarge)?;
         Ok(ObsKind::Text)

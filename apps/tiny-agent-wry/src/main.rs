@@ -11,6 +11,9 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+/// Embedded so CI can prove the packaged binary is the one just built.
+pub const BUILD_STAMP: &str = concat!("tiny-agent-build-", env!("CARGO_PKG_VERSION"));
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -18,11 +21,11 @@ use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy};
 use tao::window::WindowBuilder;
-use tiny_lilyco::agent::llm::{Llm, ScriptedLlm};
+use tiny_lilyco::agent::llm::{Decision, Llm, ScriptedLlm, Step};
 use tiny_lilyco::agent::registry::Registry;
 use tiny_lilyco::agent::runtime::{drive, Budget, Host, Outcome};
 use tiny_lilyco::agent::tool::{ObsBuf, ObsKind, Tool, ToolError};
-use tiny_lilyco::agent::tools::{EditFile, ListDir, ReadFile};
+use tiny_lilyco::agent::tools::{AstGrep, EditFile, ListDir, ReadFile};
 use tiny_lilyco::ui::Theme;
 use wry::{WebContext, WebViewBuilder};
 
@@ -39,6 +42,7 @@ struct Ui {
 
 fn main() {
     declare_dpi_awareness();
+    trace(BUILD_STAMP);
     if let Err(err) = run() {
         report(&format!("Tiny Agent failed to start: {err}"));
     }
@@ -201,7 +205,6 @@ fn test_provider(id: &str) -> String {
     let Some(p) = list.iter().find(|p| p.id == id) else {
         return format!("test failed · unknown provider {id}");
     };
-    #[cfg(feature = "llm-anthropic")]
     {
         use tiny_lilyco::agent::llm_anthropic::{probe, Config, SYSTEM};
         let config = Config {
@@ -234,6 +237,23 @@ fn escape(text: &str) -> String {
     out
 }
 
+
+/// Keeps the model's final sentence so it can be shown as the answer.
+struct Recorder {
+    inner: Box<dyn Llm>,
+    answer: Option<String>,
+}
+
+impl Llm for Recorder {
+    fn plan(&mut self, ctx: Decision<'_>) -> Step {
+        let step = self.inner.plan(ctx);
+        if let Step::Say(text) = &step {
+            self.answer = Some(text.to_string());
+        }
+        step
+    }
+}
+
 /// Run one goal and return the trace lines.
 fn execute(
     goal: &str,
@@ -247,13 +267,18 @@ fn execute(
         lines: Arc::clone(ui),
         taken: vec![format!("我在 {} 里处理这件事：{}", workspace.display(), goal)],
     };
-    let (mut llm, provider) = choose_llm(registry);
-    if provider.starts_with("model") {
-        host.taken.push(format!("用 {provider} 来思考"));
-    }
-    let outcome = drive(goal, &mut *llm, registry, &mut host, Budget::new(8, 3));
+    let (llm, provider) = choose_llm(registry, goal);
+    let mut brain = Recorder {
+        inner: llm,
+        answer: None,
+    };
+    let outcome = drive(goal, &mut brain, registry, &mut host, Budget::new(8, 3));
     let mut lines = host.taken;
+    if let Some(answer) = brain.answer {
+        lines.insert(1, answer);
+    }
     lines.push(summary(&outcome));
+    let _ = provider;
     lines
 }
 
@@ -269,53 +294,167 @@ fn summary(outcome: &Outcome) -> String {
 }
 
 /// cc-switch when configured, otherwise a deterministic two-step plan.
-fn choose_llm(registry: &'static Registry) -> (Box<dyn Llm>, String) {
-    // Priority: what the user saved in the gear panel, then an explicit
-    // environment override, then cc-switch, then the offline plan.
+
+/// Read a `lang|pattern` written between backticks in the goal.
+
+/// Seed a provider from the config Claude Code / cc-switch materialises.
+///
+/// The key lives in the user's file, never in this binary. Two normalisations
+/// are applied because gateways and model ids drift:
+///   * a bare host (`https://host`) becomes `https://host/v1`;
+///   * a `[1M]`-style context suffix is stripped from the model id.
+fn provider_from_claude() -> Option<(String, String, String)> {
+    let home = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).ok()?;
+    let path = std::path::Path::new(&home).join(".claude").join("settings.json");
+    let raw = std::fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let env = value.get("env")?;
+    let base = env.get("ANTHROPIC_BASE_URL")?.as_str()?.trim();
+    let token = env.get("ANTHROPIC_AUTH_TOKEN")?.as_str()?.trim();
+    let model = env
+        .get("ANTHROPIC_MODEL")
+        .or_else(|| env.get("ANTHROPIC_DEFAULT_SONNET_MODEL"))
+        .and_then(serde_json::Value::as_str)?
+        .trim();
+    if base.is_empty() || token.is_empty() || model.is_empty() {
+        return None;
+    }
+    Some((
+        normalise_base(base),
+        token.to_string(),
+        live_model(model),
+    ))
+}
+
+fn normalise_base(base: &str) -> String {
+    let trimmed = base.trim_end_matches('/');
+    let after_scheme = trimmed.split("://").nth(1).unwrap_or("");
+    if after_scheme.contains('/') {
+        return trimmed.to_string();
+    }
+    format!("{trimmed}/v1")
+}
+
+/// Map retired model ids to their replacement.
+///
+/// NVIDIA retired `deepseek-v4-flash` on 2026-08-07 (HTTP 410); the successor
+/// keeps the API shape. Kept as data so the next retirement is a one-line edit.
+fn live_model(model: &str) -> String {
+    let stripped = match model.find('[') {
+        Some(at) => &model[..at],
+        None => model,
+    };
+    let retired = [
+        ("deepseek-ai/deepseek-v4-flash", "deepseek-ai/deepseek-v4.1-flash"),
+    ];
+    for (old, new) in retired {
+        if stripped == old {
+            return new.to_string();
+        }
+    }
+    stripped.to_string()
+}
+
+fn quoted_pattern(goal: &str) -> Option<(String, String)> {
+    let start = goal.find('`')?;
+    let rest = &goal[start + 1..];
+    let end = rest.find('`')?;
+    let inner = rest[..end].trim();
+    let (lang, pattern) = inner.split_once('|')?;
+    if lang.trim().is_empty() || pattern.trim().is_empty() {
+        return None;
+    }
+    Some((lang.trim().to_string(), pattern.trim().to_string()))
+}
+
+
+/// Split a loopback URL into host and port, so a dead local proxy can be
+/// detected before it turns into a confusing empty answer.
+fn loopback(url: &str) -> Option<(String, u16)> {
+    let rest = url.split("://").nth(1)?;
+    let authority = rest.split('/').next()?;
+    let (host, port) = authority.rsplit_once(':')?;
+    if !host.contains("127.0.0.1") && !host.contains("localhost") {
+        return None;
+    }
+    Some((host.to_string(), port.parse().ok()?))
+}
+
+fn port_open(host: &str, port: u16) -> bool {
+    let addr = format!("{host}:{port}");
+    let Ok(mut addrs) = std::net::ToSocketAddrs::to_socket_addrs(&addr) else {
+        return false;
+    };
+    let Some(sock) = addrs.next() else {
+        return false;
+    };
+    std::net::TcpStream::connect_timeout(&sock, std::time::Duration::from_millis(400)).is_ok()
+}
+
+fn choose_llm(registry: &'static Registry, goal: &str) -> (Box<dyn Llm>, String) {
+    // NOTE: do not gate this on `#[cfg(feature = ...)]` — that tests *this*
+    // crate's features, not `tiny_lilyco`'s, so every model path silently
+    // compiled out and the app degenerated into a directory lister.
+    use tiny_lilyco::agent::llm_http::{Config as HttpConfig, HttpLlm};
+
     let settings = load_settings();
-    #[cfg(feature = "llm-http")]
-    if settings.usable() && settings.openai_style() {
-        use tiny_lilyco::agent::llm_http::{Config, HttpLlm};
-        let config = Config {
+    if settings.usable() {
+        let config = HttpConfig {
             base_url: settings.base.clone(),
             api_key: settings.key.clone(),
             model: settings.model.clone(),
         };
-        let label = format!("model · {}", settings.model);
+        let label = settings.model.clone();
         return (Box::new(HttpLlm::new(config, registry)), label);
     }
-    #[cfg(feature = "llm-anthropic")]
-    if settings.usable() {
-        use tiny_lilyco::agent::llm_anthropic::{AnthropicLlm, Config, SYSTEM};
-        let config = Config {
-            base_url: settings.base.clone(),
-            api_key: settings.key.clone(),
-            model: settings.model.clone(),
-            system: SYSTEM.to_string(),
-        };
-        let label = format!("model · {}", settings.model);
-        return (Box::new(AnthropicLlm::new(config, registry)), label);
-    }
-    #[cfg(feature = "llm-anthropic")]
     if std::env::var("TINY_AGENT_PROVIDER").is_ok() || providers::chosen_id().is_some() {
-        use tiny_lilyco::agent::llm_anthropic::{AnthropicLlm, Config, SYSTEM};
         if let Ok(list) = providers::list() {
             if let Some(p) = providers::resolve(&list) {
-                let config = Config {
+                let config = HttpConfig {
                     base_url: p.base_url.clone(),
                     api_key: p.token.clone(),
                     model: p.model.clone(),
-                    system: SYSTEM.to_string(),
                 };
-                let label = format!("cc-switch · {}", p.name);
-                return (Box::new(AnthropicLlm::new(config, registry)), label);
+                let label = p.name.clone();
+                return (Box::new(HttpLlm::new(config, registry)), label);
             }
         }
     }
-    let _ = registry;
-    let mut plan = ScriptedLlm::new();
-    let _ = plan.push("list_dir", "");
-    (Box::new(plan), "本地模式（不联网）".to_string())
+    if let Some((lang, pat)) = quoted_pattern(goal) {
+        let mut plan = ScriptedLlm::new();
+        let _ = plan.push("ast_grep", &format!("{lang}|{pat}"));
+        return (Box::new(plan), "本地搜索（不联网）".to_string());
+    }
+    if let Some((base_url, api_key, model)) = provider_from_claude() {
+        // Claude Code's config is Anthropic-shaped (`ANTHROPIC_BASE_URL`), so it
+        // must be spoken to with `/v1/messages`, not `/v1/chat/completions`.
+        if let Some((host, port)) = loopback(&base_url) {
+            if !port_open(&host, port) {
+                let label = "免费模型（本地代理未启动）".to_string();
+                let config = HttpConfig {
+                    base_url: "https://text.pollinations.ai/openai".to_string(),
+                    api_key: "none".to_string(),
+                    model: "openai".to_string(),
+                };
+                return (Box::new(HttpLlm::new(config, registry)), label);
+            }
+        }
+        use tiny_lilyco::agent::llm_anthropic::{AnthropicLlm, Config, SYSTEM};
+        let label = model.clone();
+        let config = Config {
+            base_url,
+            api_key,
+            model,
+            system: SYSTEM.to_string(),
+        };
+        return (Box::new(AnthropicLlm::new(config, registry)), label);
+    }
+    let config = HttpConfig {
+        base_url: "https://text.pollinations.ai/openai".to_string(),
+        api_key: "none".to_string(),
+        model: "openai".to_string(),
+    };
+    (Box::new(HttpLlm::new(config, registry)), "免费模型".to_string())
 }
 
 struct UiHost {
@@ -346,6 +485,7 @@ impl Host for UiHost {
         let head = match tool {
             "list_dir" => "这个文件夹里有：".to_string(),
             "read_file" => format!("{args} 的内容："),
+            "ast_grep" => "找到这些：".to_string(),
             _ => format!("{tool} 做完了"),
         };
         self.taken.push(head);
@@ -361,10 +501,12 @@ fn build_registry(root: &Path) -> &'static Registry {
     let read: &'static dyn Tool = Box::leak(Box::new(ReadFile::new(root)));
     let list: &'static dyn Tool = Box::leak(Box::new(ListDir::new(root)));
     let edit: &'static dyn Tool = Box::leak(Box::new(EditFile::new(root)));
+    let ast: &'static dyn Tool = Box::leak(Box::new(AstGrep::new(root, AstGrep::locate())));
     let reg: &'static mut Registry = Box::leak(Box::new(Registry::new()));
     let _ = reg.register(read);
     let _ = reg.register(list);
     let _ = reg.register(edit);
+    let _ = reg.register(ast);
     reg
 }
 
@@ -521,7 +663,7 @@ fn chrome(workspace: &Path) -> String {
     out.push_str("<button class=\"gear\" data-action=\"settings\">设置</button>");
     out.push_str("</header><main class=\"body\"><div class=\"answer\" id=\"answer\">");
     out.push_str("<p class=\"line big\">你想让我做什么？</p>");
-    out.push_str("<p class=\"line\">比如：这个文件夹里有什么 &middot; 看看 README 写了什么 &middot; 列一下文件</p>");
+    out.push_str("<p class=\"line\">比如：这个文件夹里有什么 &middot; 搜代码写 <code>rust|fn $A</code>（用反引号包住）</p>");
     out.push_str(&format!(
         "<p class=\"line small\">当前文件夹：{}</p>",
         workspace.display()
@@ -579,8 +721,12 @@ fn script() -> String {
     js.push_str(" document.querySelector('.body').scrollTop = 0;");
     js.push_str(" var b=document.getElementById('go'); b.textContent='开始'; b.disabled=false; };");
     js.push_str("window.__applyProviders = function(){};");
+    let probe = std::env::var("TINY_AGENT_SELFTEST_PROMPT")
+        .unwrap_or_else(|_| "这个文件夹里有什么".to_string());
+    let probe = escape(&probe);
     js.push_str("if(window.__SELFTEST){ setTimeout(function(){");
-    js.push_str(" document.getElementById('prompt').value='这个文件夹里有什么'; go(); }, 1200); }");
+    let line = format!(" document.getElementById('prompt').value=\"{probe}\"; go(); }}, 1200); }}");
+    js.push_str(&line);
     js.push_str("</script>");
     js
 }
