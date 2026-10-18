@@ -401,8 +401,7 @@ fn trace_rows() -> String {
 
 fn script() -> String {
     let mut js = String::from("<script>");
-    js.push_str("function post(m){ if (window.ipc) { window.ipc.postMessage(m); } "+
-        "else { document.getElementById('title').textContent = 'no ipc'; } }");
+    js.push_str("function post(m){ if (window.ipc) { window.ipc.postMessage(m); } else { document.getElementById('title').textContent = 'no ipc'; } }");
     js.push_str("function setTheme(id, label){ document.documentElement.dataset.theme = id;");
     js.push_str(" document.getElementById('theme-label').textContent = label + ' \u{00b7} design tokens'; }");
     js.push_str("document.querySelectorAll('[data-set]').forEach(function (b) {");
