@@ -83,6 +83,24 @@ impl AgentView {
         let base = std::env::var("TINY_AGENT_SERVER")
             .unwrap_or_else(|_| "http://127.0.0.1:8787".to_string());
         let poll = Self::start_polling(cx);
+        let probe_feed = Arc::clone(&feed);
+        let probe_base = base.clone();
+        std::thread::spawn(move || probe(&probe_base, &probe_feed));
+        if std::env::var("TINY_AGENT_SELFTEST").is_ok() {
+            cx.spawn(|this: WeakEntity<Self>, cx: &mut gpui::AsyncApp| {
+                let mut cx = cx.clone();
+                async move {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(900))
+                        .await;
+                    let _ = this.update(&mut cx, |view, cx| {
+                        view.input = "这个文件夹里有什么".to_string();
+                        view.submit(cx);
+                    });
+                }
+            })
+            .detach();
+        }
         Self {
             focus_handle: cx.focus_handle(),
             feed,
@@ -150,6 +168,12 @@ impl AgentView {
         }
         if let Some(text) = event.keystroke.key_char.as_ref() {
             self.input.push_str(text);
+            cx.notify();
+            return;
+        }
+        // Fallback for plain ASCII without an IME: `key` is the character.
+        if key.len() == 1 && key.is_ascii() {
+            self.input.push_str(key);
             cx.notify();
         }
     }
@@ -255,6 +279,26 @@ fn row(line: Line) -> impl IntoElement {
         .text_size(px(size))
         .text_color(rgb(color))
         .child(SharedString::from(line.text))
+}
+
+
+/// One cheap health probe so the header tells the truth before the first run.
+fn probe(base: &str, feed: &Arc<Mutex<Feed>>) {
+    let url = format!("{base}/api/health");
+    let text = match ureq::get(&url).call() {
+        Ok(resp) => resp.into_string().unwrap_or_default(),
+        Err(err) => {
+            let mut guard = feed.lock().expect("feed");
+            guard.status = format!("后端未连接：{err}");
+            return;
+        }
+    };
+    let model = serde_json::from_str::<serde_json::Value>(&text)
+        .ok()
+        .and_then(|v| v["model"].as_str().map(str::to_string))
+        .unwrap_or_else(|| "?".to_string());
+    let mut guard = feed.lock().expect("feed");
+    guard.status = format!("后端就绪 · 模型: {model}");
 }
 
 /// Blocking SSE reader: one POST, then line-by-line dispatch.
