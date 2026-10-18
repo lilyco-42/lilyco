@@ -2,7 +2,11 @@
 <!-- WiX 3 source for the GUI build.
      Per-user install: no elevation, no UAC, no Program Files ACL issues.
      The 0.1.x line shipped perMachine under a different UpgradeCode, so this
-     one coexists instead of failing to remove a package that needs admin. -->
+     one coexists instead of failing to remove a package that needs admin.
+
+     Per-user packages have two hard ICE rules:
+       ICE38 — a component under the user profile must key off HKCU, not a file;
+       ICE64 — every user-profile directory must appear in the RemoveFile table. -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product
       Id="*"
@@ -18,9 +22,7 @@
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="LocalAppDataFolder">
-        <Directory Id="ProgramsFolder" Name="Programs">
-          <Directory Id="INSTALLFOLDER" Name="Tiny Agent" />
-        </Directory>
+        <Directory Id="INSTALLFOLDER" Name="Tiny Agent" />
       </Directory>
       <Directory Id="ProgramMenuFolder">
         <Directory Id="AppMenuDir" Name="Tiny Agent" />
@@ -31,8 +33,10 @@
       <Component Id="AppExe" Guid="*">
         <File Id="AppExeFile"
               Name="Tiny Agent.exe"
-              Source="..\target\release\tiny-agent-wry.exe"
-              KeyPath="yes" />
+              Source="..\target\release\tiny-agent-wry.exe" />
+        <RegistryValue Root="HKCU" Key="Software\Lilyco\TinyAgent"
+                       Name="exe" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+        <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
       </Component>
     </DirectoryRef>
 
@@ -45,7 +49,7 @@
                   WorkingDirectory="INSTALLFOLDER" />
         <RemoveFolder Id="RemoveAppMenuDir" On="uninstall" />
         <RegistryValue Root="HKCU" Key="Software\Lilyco\TinyAgent"
-                       Name="installed" Type="integer" Value="1" KeyPath="yes" />
+                       Name="shortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </DirectoryRef>
 
