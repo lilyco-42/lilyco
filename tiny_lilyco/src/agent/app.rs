@@ -5,6 +5,7 @@
 //! the MCP server — `one struct, four front-ends` — exactly like every other
 //! Lilyco application.
 
+use std::boxed::Box;
 use std::cell::RefCell;
 
 use crate::agent::llm::Llm;
