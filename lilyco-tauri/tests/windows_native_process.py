@@ -95,6 +95,11 @@ def launch_non_elevated(args, environment, output):
     signature(security, 'GetLengthSid', [pointer], wintypes.DWORD)
     signature(security, 'GetSidSubAuthorityCount', [pointer], ctypes.POINTER(wintypes.BYTE))
     signature(security, 'GetSidSubAuthority', [pointer, wintypes.DWORD], ctypes.POINTER(wintypes.DWORD))
+    signature(security, 'InitializeSecurityDescriptor', [pointer, wintypes.DWORD])
+    signature(security, 'SetSecurityDescriptorDacl', [pointer, wintypes.BOOL, pointer, wintypes.BOOL])
+    signature(security, 'ConvertSecurityDescriptorToStringSecurityDescriptorW',
+              [pointer, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(wintypes.LPWSTR),
+               ctypes.POINTER(wintypes.DWORD)])
     signature(security, 'CreateProcessAsUserW', [wintypes.HANDLE, wintypes.LPCWSTR, wintypes.LPWSTR,
               pointer, pointer, wintypes.BOOL, wintypes.DWORD, pointer, wintypes.LPCWSTR,
               ctypes.POINTER(StartupInfo), ctypes.POINTER(ProcessInfo)])
@@ -113,6 +118,22 @@ def launch_non_elevated(args, environment, output):
         check(security.GetTokenInformation(token, kind, buffer, length, ctypes.byref(length)))
         return buffer
 
+    def default_dacl(token):
+        # Read-only: describe the token's defaults for newly created objects.
+        # A temporary descriptor is used only to format the ACL, never applied.
+        buffer = information(token, 6)  # TokenDefaultDacl
+        acl = ctypes.cast(buffer, ctypes.POINTER(pointer)).contents.value
+        descriptor = ctypes.create_string_buffer(64)
+        check(security.InitializeSecurityDescriptor(descriptor, 1))
+        check(security.SetSecurityDescriptorDacl(descriptor, True, acl, False))
+        text = wintypes.LPWSTR()
+        check(security.ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            descriptor, 1, 4, ctypes.byref(text), None))
+        try:
+            return text.value
+        finally:
+            kernel.LocalFree(ctypes.cast(text, pointer))
+
     def snapshot(token):
         elevated = ctypes.cast(information(token, 20), ctypes.POINTER(wintypes.DWORD)).contents.value
         integrity = information(token, 25)
@@ -122,6 +143,7 @@ def launch_non_elevated(args, environment, output):
                 'elevation_type': ctypes.cast(information(token, 18), ctypes.POINTER(wintypes.DWORD)).contents.value,
                 'has_restrictions': bool(ctypes.cast(information(token, 21), ctypes.POINTER(wintypes.DWORD)).contents.value),
                 'is_app_container': bool(ctypes.cast(information(token, 29), ctypes.POINTER(wintypes.DWORD)).contents.value),
+                'default_dacl': default_dacl(token),
                 'integrity_rid': security.GetSidSubAuthority(sid, index).contents.value}
 
     def process_snapshot(process_id):

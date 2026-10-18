@@ -11,6 +11,50 @@ from windows_native_process import launch_non_elevated, probe_native_access, pre
 
 @unittest.skipUnless(sys.platform == 'win32', 'Uses actual Windows security tokens')
 class OrdinaryNativeProcessTests(unittest.TestCase):
+    def test_ordinary_descendant_can_query_its_launching_process(self):
+        query = '''
+import ctypes, json, sys
+from ctypes import wintypes
+kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+kernel.OpenProcess.restype = wintypes.HANDLE
+kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+kernel.CloseHandle.restype = wintypes.BOOL
+results = []
+for access in [0x1000, 0x0400]:
+    handle = kernel.OpenProcess(access, False, int(sys.argv[1]))
+    results.append({'access': access, 'allowed': bool(handle),
+                    'winerror': 0 if handle else ctypes.get_last_error()})
+    if handle:
+        kernel.CloseHandle(handle)
+print(json.dumps(results), flush=True)
+'''
+        program = ('import json,os,subprocess,sys,time\n'
+                   'result=subprocess.run([sys.executable,"-c",' + repr(query)
+                   + ',str(os.getpid())],capture_output=True,text=True)\n'
+                   'print(json.dumps({"exit":result.returncode,"stdout":result.stdout,'
+                   '"stderr":result.stderr}),flush=True)\n'
+                   'time.sleep(1)\n')
+        with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP']) as temporary:
+            output_path = Path(temporary) / 'descendant-query.log'
+            with output_path.open('w', encoding='utf-8') as output:
+                child, receipt = launch_non_elevated(
+                    [sys.executable, '-c', program], dict(os.environ), output)
+                try:
+                    self.assertEqual(child.wait(timeout=20), 0)
+                    self.assertFalse(receipt['application']['is_elevated'])
+                finally:
+                    if child.poll() is None:
+                        child.kill()
+                        child.wait(timeout=10)
+                    if hasattr(child, 'close'):
+                        child.close()
+            result = json.loads(output_path.read_text(encoding='utf-8'))
+            self.assertEqual(result['exit'], 0, result)
+            actual = json.loads(result['stdout'])
+            print(json.dumps({'actual_owned_process_query': actual, 'launch': receipt}), flush=True)
+            self.assertTrue(all(row['allowed'] for row in actual), {'actual': actual, 'launch': receipt})
+
     def test_ordinary_child_is_on_the_existing_interactive_desktop(self):
         program = '''
 import ctypes, json
