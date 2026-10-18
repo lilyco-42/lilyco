@@ -17,7 +17,7 @@ use tao::window::WindowBuilder;
 use tiny_lilyco::adapters::image_inspect::Format;
 use tiny_lilyco::agent::Phase;
 use tiny_lilyco::ui::{RowBody, Theme, TraceRow};
-use wry::WebViewBuilder;
+use wry::{WebContext, WebViewBuilder};
 
 fn main() {
     if let Err(err) = run() {
@@ -34,7 +34,11 @@ fn run() -> wry::Result<()> {
         .build(&event_loop)
         .expect("failed to create the native window");
 
-    let _webview = WebViewBuilder::new()
+    // WebView2 must NOT put its user-data folder under Program Files: the
+    // install directory is read-only for a per-machine MSI, which fails with
+    // E_ACCESSDENIED. Point it at %LOCALAPPDATA% instead.
+    let mut context = WebContext::new(Some(webview_data_dir()));
+    let _webview = WebViewBuilder::new_with_web_context(&mut context)
         .with_html(build_html())
         .with_devtools(true)
         .build(&window)?;
@@ -54,13 +58,33 @@ fn run() -> wry::Result<()> {
     });
 }
 
-/// Persist a startup failure, because a GUI build has no console to print to.
+/// A per-user, always-writable directory for the WebView2 profile.
+fn webview_data_dir() -> std::path::PathBuf {
+    let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string());
+    let dir = std::path::Path::new(&base).join("Tiny Agent").join("webview2");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Persist and show a startup failure: a GUI build has no console to print to.
 fn report(message: &str) {
     eprintln!("{message}");
     let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string());
     let dir = std::path::Path::new(&base).join("tiny-agent");
     let _ = std::fs::create_dir_all(&dir);
     let _ = std::fs::write(dir.join("error.log"), message);
+    popup(message);
+}
+
+/// A dependency-free message box, so a failed launch is never silent.
+fn popup(message: &str) {
+    let script = "[void][System.Reflection.Assembly]::LoadWithPartialName(\
+                  'PresentationFramework'); \
+                  [System.Windows.MessageBox]::Show($env:TINY_AGENT_ERROR, 'Tiny Agent')";
+    let _ = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", script])
+        .env("TINY_AGENT_ERROR", message)
+        .spawn();
 }
 
 fn build_html() -> String {
