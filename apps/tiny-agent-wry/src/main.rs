@@ -241,8 +241,13 @@ fn build_registry(root: &Path) -> &'static Registry {
 }
 
 fn default_workspace() -> PathBuf {
-    std::env::var("TINY_AGENT_WORKSPACE")
-        .map(PathBuf::from)
+    if let Ok(explicit) = std::env::var("TINY_AGENT_WORKSPACE") {
+        return PathBuf::from(explicit);
+    }
+    // Launched from the Start Menu the CWD is System32, which is useless as a
+    // workspace; the home directory at least contains the user's own files.
+    let home = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
+    home.map(PathBuf::from)
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
 }
 
