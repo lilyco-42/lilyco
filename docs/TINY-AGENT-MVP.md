@@ -97,8 +97,48 @@ impl TinyApp for AgentApp {
 | 观察回灌 | ✅ 上一轮 observation 会传给下一次 `plan()` |
 | 检查点/回滚 | ✅ 状态机强制；`Host` 由宿主实现（CLI 接 `jj`/`git`） |
 | lilyco 四端 | ✅ `AgentApp: TinyApp` 已就绪；尚未接进 facade 的 `run::<T>()` |
+| CLI 二进制 | ✅ `tiny-agent`：真实目录上的多步执行，默认 dry-run |
 | 真实模型 | ❌ 未接（无 key、无 HTTP 客户端）。接口已留：实现 `Llm` 即可 |
-| CLI 二进制 | ❌ 未加。宿主实现 `Host` 是唯一缺口 |
+| MCP 暴露 | ❌ 未接。`ToolSpec` 已具备名字/摘要/参数预算，可直接生成 `tools/list` |
+
+---
+
+## 5.1 CLI 用法
+
+```bash
+# 只读计划（默认）：观察现有文件
+tiny-agent . --call list_dir: --call read_file:Cargo.toml
+
+# 真正执行写操作：显式 --apply 才会改文件，且 mutating 前必有 checkpoint
+tiny-agent . --call edit_file:"README.md|old|new" --apply
+```
+
+CI 里的真实输出（`/tmp/tiny-smoke`）：
+
+```text
+root   : /tmp/tiny-smoke
+mode   : dry-run
+vcs    : Git
+    list_dir() -> text
+      note.txt
+    read_file(note.txt) -> text
+          1| alpha
+          2| beta
+result : 2 calls, 0 failures, 0 checkpoints, rolled_back=false
+phase  : done
+```
+
+---
+
+## 5.2 借鉴了哪些设计（结构，不是复杂度）
+
+| 来源 | 抄的地方 | 在本项目中的形态 |
+| :--- | :--- | :--- |
+| Claude Code | 权限模式：默认只读，写操作要显式授权 | `--apply`；未授权时 `ToolError::NotPermitted` |
+| Codex | 沙箱与审批分离 | `Host::checkpoint` 独立于 `drive`，回滚不依赖模型 |
+| opencode | 单二进制 + 工具表 | `tiny-agent` 一个入口，`Registry` 一张表 |
+| zerostack | 确定性、低占用 | 计划固定 → trace 固定；核心零分配 |
+
 
 ---
 
