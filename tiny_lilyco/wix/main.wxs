@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimal WiX 3 source: one exe, per-machine install under Program Files. -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product
+      Id="*"
+      Name="Tiny Agent"
+      Language="1033"
+      Version="0.1.0"
+      Manufacturer="Lilyco"
+      UpgradeCode="7C4E2B1A-9D3F-4A55-9C2E-6B8A1D4F7E21">
+
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Tiny Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Tiny Agent" />
+      </Directory>
+    </Directory>
+
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="AgentExe" Guid="*">
+        <File Id="AgentExeFile"
+              Name="lilyco-agent.exe"
+              Source="..\target\release\lilyco-agent.exe"
+              KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="Main" Title="Tiny Agent" Level="1">
+      <ComponentRef Id="AgentExe" />
+    </Feature>
+  </Product>
+</Wix>

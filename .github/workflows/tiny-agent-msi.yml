@@ -1,0 +1,66 @@
+name: Tiny Agent MSI
+
+# Manual: produces a Windows .msi and attaches it to a release so the file has a
+# stable download URL.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish the MSI under'
+        required: false
+        default: 'tiny-agent-v0.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  msi:
+    name: Build MSI (windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: tiny_lilyco
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build lilyco-agent (release)
+        run: cargo build --release --bin lilyco-agent
+
+      - name: Install WiX Toolset
+        working-directory: .
+        run: choco install wixtoolset --no-progress -y
+
+      - name: Compile and link the MSI
+        shell: pwsh
+        run: |
+          $wix = "C:\Program Files (x86)\WiX Toolset v3.14\bin"
+          & "$wix\candle.exe" -arch x64 -out wix\main.wixobj wix\main.wxs
+          & "$wix\light.exe" -out tiny-agent-0.1.0-x64.msi wix\main.wixobj
+          Get-Item tiny-agent-0.1.0-x64.msi | Select-Object Name, Length
+
+      - name: Smoke test the binary
+        run: .\target\release\lilyco-agent.exe
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tiny-agent-msi
+          path: tiny_lilyco/tiny-agent-0.1.0-x64.msi
+          if-no-files-found: error
+
+      - name: Publish release asset
+        shell: pwsh
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          $asset = "tiny_lilyco/tiny-agent-0.1.0-x64.msi"
+          gh release view $env:TAG 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:TAG $asset --title "Tiny Agent 0.1.0" --notes "Windows MSI built by GitHub Actions."
+          } else {
+            gh release upload $env:TAG $asset --clobber
+          }
