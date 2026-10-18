@@ -1,0 +1,42 @@
+[package]
+name = "tiny_lilyco"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "no_std allocation-free agent core for the Lilyco framework"
+repository = "https://github.com/lilyco-42/lilyco"
+
+# Standalone workspace: the parent workspace runs `cargo fmt --all` over every
+# member, and this crate is formatted by hand so it has no local rustfmt pass.
+# Keeping it out of `members` means the main CI is never blocked by it.
+[workspace]
+
+[features]
+default = []
+alloc = ["serde/alloc"]
+std = []
+llm-http = ["std", "dep:ureq", "dep:serde_json"]
+llm-anthropic = ["std", "dep:ureq", "dep:serde_json"]
+wtx-net = ["dep:wtx"]
+
+[dependencies]
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+heapless = "0.8"
+
+[dependencies.wtx]
+version = "0.18"
+default-features = false
+optional = true
+
+[[bin]]
+name = "tiny-agent"
+path = "src/bin/tiny-agent.rs"
+required-features = ["std"]
+[dependencies.ureq]
+version = "2"
+optional = true
+
+[dependencies.serde_json]
+version = "1"
+optional = true
+

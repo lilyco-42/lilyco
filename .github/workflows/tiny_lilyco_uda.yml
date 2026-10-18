@@ -1,0 +1,50 @@
+name: Tiny Lilyco UDA bridge
+
+# Manual only: pulls UniDesktop/SDK from git and touches real desktop APIs.
+on:
+  workflow_dispatch:
+
+jobs:
+  nesting:
+    name: Nesting budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check nesting depth and indentation
+        run: python3 scripts/check_nesting.py tiny_lilyco_uda/src apps/tiny-agent-gpui/src
+
+  check:
+    name: Check and test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tiny_lilyco_uda
+          # UDA is a git dependency: caching the registry + git checkout makes
+          # the second run skip a full clone of the SDK repo.
+          cache-all-crates: true
+          cache-on-failure: true
+          key: uda
+
+      - name: Unit tests (mapping and degradation)
+        working-directory: tiny_lilyco_uda
+        run: cargo test
+
+      - name: Clippy
+        working-directory: tiny_lilyco_uda
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Real probe
+        working-directory: tiny_lilyco_uda
+        continue-on-error: true
+        run: cargo run --quiet --example probe
