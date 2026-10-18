@@ -1,68 +1,51 @@
-# Tiny Agent — 开箱即用的桌面 agent
+# Tiny Agent — 装上就能用
 
-双击安装，打开就是一个能跑的 agent 窗口：输入一句目标，回车，它就在你的目录里执行。
+双击安装，打开，打一句话，点「开始」。就这三步。
 
-## 安装
+## 第一次打开
 
-下载 `tiny-agent-gui-x.y.z-x64.msi` → 双击 → 完成（**不需要管理员**，装到
-`%LOCALAPPDATA%\Tiny Agent`，开始菜单有快捷方式）。
+窗口中间写着「你想让我做什么？」，下面有一个输入框和一个「开始」按钮。
 
-## 第一次使用
+1. 在输入框打一句人话，比如 **这个文件夹里有什么**
+2. 点「开始」（或按回车）
+3. 结果直接出现在上方
 
-1. 打开「Tiny Agent」
-2. 在底部输入框打一句目标，例如 `list the workspace`
-3. 回车（或点 **Run**）
-4. 看左边的 trace
-
-默认工作目录是**你的用户主目录**。想换目录，用环境变量启动：
+默认在你的**文档**目录工作。想换目录：
 
 ```powershell
-$env:TINY_AGENT_WORKSPACE = "D:\my-project"
+$env:TINY_AGENT_WORKSPACE = "D:\我的项目"
 & "$env:LOCALAPPDATA\Tiny Agent\Tiny Agent.exe"
 ```
 
-## 两种大脑
+## 两种模式
 
-| 模式 | 怎么开 | 行为 |
+| 模式 | 怎么用 | 会发生什么 |
 | :--- | :--- | :--- |
-| **离线计划**（默认） | 不用配置 | 立刻执行 `list_dir` + `read_file README.md`，零依赖、零等待 |
-| **真实模型** | `TINY_AGENT_PROVIDER=ccswitch` | 读 cc-switch 当前 provider，走 Anthropic 协议 |
+| **本地模式**（默认） | 什么都不用填 | 只做本地文件操作：列目录。不联网、不花钱 |
+| **接模型** | 点右上角「设置」 | 填接口地址 / API Key / 模型，保存后自动使用 |
 
-```powershell
-$env:TINY_AGENT_PROVIDER = "ccswitch"
-& "$env:LOCALAPPDATA\Tiny Agent\Tiny Agent.exe"
-```
+设置里填什么：
 
-真实模型是 **opt-in** 的原因：provider 若失效，窗体要等 HTTP 超时，表现为一直
-`Running…`。离线计划保证"打开就有结果"。
+| 字段 | 例子 |
+| :--- | :--- |
+| 接口地址 | `https://openrouter.ai/api/v1`（以 `/v1` 结尾按 OpenAI 协议）<br>`https://api.deepseek.com/anthropic`（其他按 Anthropic 协议） |
+| API Key | `sk-...` |
+| 模型 | `deepseek-chat` / `anthropic/claude-3.5-sonnet` |
 
-## 界面
-
-* **Trace**：每一步一行 —— `goal / workspace / provider / 工具调用 → 结果`
-* **Diff / Preview**：预留给后续版本
-* 左下角三个主题：Tokyo Night（默认）/ Neutral Light / Neutral Dark，全部来自
-  `tiny_lilyco::ui` 的设计令牌
+填完保存，下次点「开始」就用模型回答。
 
 ## 安全边界
 
-* 当前版本**只读**：`edit_file` 会返回 `refused (dry run)`。写操作要等 checkpoint
-  真正接上 `jj`/`git` 之后才放开 —— 宁可先不能用，也不要在没有回滚的情况下改你的文件。
-* trace 只展示工具的**前 12 行**输出，避免长目录刷屏。
+* 现在**不会改你的文件**。让它改东西，它会回答「改文件这件事我暂时不敢做：还没接上自动备份」。
+  等自动备份（jj/git 快照）接上了才放开。
+* 不填 Key 时**完全不联网**，可以断网使用。
 
-## 排障
+## 出问题了看哪里
 
 | 现象 | 看这里 |
 | :--- | :--- |
 | 窗口没出现 | `%LOCALAPPDATA%\tiny-agent\error.log` |
-| 一直 `Running…` | 说明在用真实模型且上游卡住；去掉 `TINY_AGENT_PROVIDER` 回到离线计划 |
+| 一直显示「正在做…」 | 说明模型接口卡住了；点右上角设置把 Key 清空即回到本地模式 |
 | 想看页面源码 | `%LOCALAPPDATA%\tiny-agent\ui.html` |
-| 启动尺寸/DPI | `%LOCALAPPDATA%\tiny-agent\startup.log`（如 `dpi x1.25 ok 1375x900`） |
-
-## 自测
-
-```powershell
-$env:TINY_AGENT_SELFTEST = "1"
-& "$env:LOCALAPPDATA\Tiny Agent\Tiny Agent.exe"
-```
-
-启动 1.2 秒后自动跑一次，用来确认装的是好的。
+| 启动尺寸/DPI | `%LOCALAPPDATA%\tiny-agent\startup.log` |
+| 你保存的设置 | `%LOCALAPPDATA%\Tiny Agent\settings.json` |
