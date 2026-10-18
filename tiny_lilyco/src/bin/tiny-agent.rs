@@ -54,18 +54,18 @@ impl Host for StdHost {
     }
 
     fn call(&mut self, tool: &str, args: &str, out: &mut ObsBuf) -> Result<ObsKind, ToolError> {
-        let spec = self
-            .registry
-            .find(tool)
-            .ok_or(ToolError::UnknownTool)?
-            .spec();
+        let handle = self.registry.find(tool).ok_or(ToolError::UnknownTool)?;
+        let spec = handle.spec();
         if spec.mutating && !self.apply {
+            println!("    {tool}({args}) -> refused (dry run)");
             return Err(ToolError::NotPermitted("dry run: pass --apply to mutate"));
         }
-        self.registry
-            .find(tool)
-            .ok_or(ToolError::UnknownTool)?
-            .call(args, out)
+        let kind = handle.call(args, out)?;
+        println!("    {tool}({args}) -> {}", kind.label());
+        for line in out.as_str().lines().take(6) {
+            println!("      {line}");
+        }
+        Ok(kind)
     }
 }
 
