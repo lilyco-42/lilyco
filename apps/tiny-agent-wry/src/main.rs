@@ -205,7 +205,6 @@ fn test_provider(id: &str) -> String {
     let Some(p) = list.iter().find(|p| p.id == id) else {
         return format!("test failed · unknown provider {id}");
     };
-    #[cfg(feature = "llm-anthropic")]
     {
         use tiny_lilyco::agent::llm_anthropic::{probe, Config, SYSTEM};
         let config = Config {
@@ -369,79 +368,54 @@ fn quoted_pattern(goal: &str) -> Option<(String, String)> {
 }
 
 fn choose_llm(registry: &'static Registry, goal: &str) -> (Box<dyn Llm>, String) {
-    // Priority: what the user saved in the gear panel, then an explicit
-    // environment override, then cc-switch, then the offline plan.
+    // NOTE: do not gate this on `#[cfg(feature = ...)]` — that tests *this*
+    // crate's features, not `tiny_lilyco`'s, so every model path silently
+    // compiled out and the app degenerated into a directory lister.
+    use tiny_lilyco::agent::llm_http::{Config as HttpConfig, HttpLlm};
+
     let settings = load_settings();
-    #[cfg(feature = "llm-http")]
-    if settings.usable() && settings.openai_style() {
-        use tiny_lilyco::agent::llm_http::{Config, HttpLlm};
-        let config = Config {
+    if settings.usable() {
+        let config = HttpConfig {
             base_url: settings.base.clone(),
             api_key: settings.key.clone(),
             model: settings.model.clone(),
         };
-        let label = format!("model · {}", settings.model);
+        let label = settings.model.clone();
         return (Box::new(HttpLlm::new(config, registry)), label);
     }
-    #[cfg(feature = "llm-anthropic")]
-    if settings.usable() {
-        use tiny_lilyco::agent::llm_anthropic::{AnthropicLlm, Config, SYSTEM};
-        let config = Config {
-            base_url: settings.base.clone(),
-            api_key: settings.key.clone(),
-            model: settings.model.clone(),
-            system: SYSTEM.to_string(),
-        };
-        let label = format!("model · {}", settings.model);
-        return (Box::new(AnthropicLlm::new(config, registry)), label);
-    }
-    #[cfg(feature = "llm-anthropic")]
     if std::env::var("TINY_AGENT_PROVIDER").is_ok() || providers::chosen_id().is_some() {
-        use tiny_lilyco::agent::llm_anthropic::{AnthropicLlm, Config, SYSTEM};
         if let Ok(list) = providers::list() {
             if let Some(p) = providers::resolve(&list) {
-                let config = Config {
+                let config = HttpConfig {
                     base_url: p.base_url.clone(),
                     api_key: p.token.clone(),
                     model: p.model.clone(),
-                    system: SYSTEM.to_string(),
                 };
-                let label = format!("cc-switch · {}", p.name);
-                return (Box::new(AnthropicLlm::new(config, registry)), label);
+                let label = p.name.clone();
+                return (Box::new(HttpLlm::new(config, registry)), label);
             }
         }
     }
-    let _ = registry;
-    // Nothing configured: a keyless OpenAI-compatible gateway is the difference
-    // between an assistant and a directory lister. A backtick pattern still wins,
-    // because structural search needs no model at all.
     if let Some((lang, pat)) = quoted_pattern(goal) {
         let mut plan = ScriptedLlm::new();
         let _ = plan.push("ast_grep", &format!("{lang}|{pat}"));
         return (Box::new(plan), "本地搜索（不联网）".to_string());
     }
-    #[cfg(feature = "llm-http")]
-    {
-        use tiny_lilyco::agent::llm_http::{Config, HttpLlm};
-        if let Some((base_url, api_key, model)) = provider_from_claude() {
-            let config = Config {
-                base_url,
-                api_key,
-                model: model.clone(),
-            };
-            return (Box::new(HttpLlm::new(config, registry)), model);
-        }
-        let config = Config {
-            base_url: "https://text.pollinations.ai/openai".to_string(),
-            api_key: "none".to_string(),
-            model: "openai".to_string(),
+    if let Some((base_url, api_key, model)) = provider_from_claude() {
+        let label = model.clone();
+        let config = HttpConfig {
+            base_url,
+            api_key,
+            model,
         };
-        return (Box::new(HttpLlm::new(config, registry)), "免费模型".to_string());
+        return (Box::new(HttpLlm::new(config, registry)), label);
     }
-    #[allow(unreachable_code)]
-    let mut plan = ScriptedLlm::new();
-    let _ = plan.push("list_dir", "");
-    (Box::new(plan), "本地模式（不联网）".to_string())
+    let config = HttpConfig {
+        base_url: "https://text.pollinations.ai/openai".to_string(),
+        api_key: "none".to_string(),
+        model: "openai".to_string(),
+    };
+    (Box::new(HttpLlm::new(config, registry)), "免费模型".to_string())
 }
 
 struct UiHost {
