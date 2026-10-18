@@ -57,7 +57,7 @@ fn run() -> wry::Result<()> {
     // install directory is read-only for a per-machine MSI, which fails with
     // E_ACCESSDENIED. Point it at %LOCALAPPDATA% instead.
     let mut context = WebContext::new(Some(webview_data_dir()));
-    let html = build_html();
+    let html = build_html(selftest_requested());
     dump_html(&html);
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     let _webview = WebViewBuilder::new_with_web_context(&mut context)
@@ -239,7 +239,14 @@ fn popup(message: &str) {
         .spawn();
 }
 
-fn build_html() -> String {
+/// `TINY_AGENT_SELFTEST=1` drives a scripted click sequence, so CI or a human
+/// can verify the buttons react without a mouse.
+fn selftest_requested() -> bool {
+    std::env::var("TINY_AGENT_SELFTEST")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+}
+fn build_html(selftest: bool) -> String {
     let mut html = String::new();
     html.push_str("<!doctype html><html data-theme=\"");
     html.push_str(Theme::default_theme().id);
@@ -248,6 +255,9 @@ fn build_html() -> String {
     html.push_str(&theme_css());
     html.push_str(BASE_CSS);
     html.push_str("</style></head><body>");
+    if selftest {
+        html.push_str("<script>window.__SELFTEST = true;</script>");
+    }
     html.push_str(&chrome());
     html.push_str(&script());
     html.push_str("</body></html>");
@@ -272,25 +282,45 @@ fn chrome() -> String {
     let mut out = String::new();
     out.push_str("<div class=\"app\"><aside class=\"sidebar\">");
     out.push_str("<div class=\"wordmark\">Tiny Agent</div>");
-    out.push_str("<button class=\"primary\">New session</button>");
-    out.push_str("<nav><a class=\"nav active\">Trace</a><a class=\"nav\">Diff</a>");
-    out.push_str("<a class=\"nav\">Preview</a></nav>");
+    out.push_str("<button class=\"primary\" data-action=\"new\">New session</button>");
+    out.push_str("<nav><a class=\"nav active\" data-view=\"trace\">Trace</a>");
+    out.push_str("<a class=\"nav\" data-view=\"diff\">Diff</a>");
+    out.push_str("<a class=\"nav\" data-view=\"preview\">Preview</a></nav>");
     out.push_str("<div class=\"spacer\"></div>");
     out.push_str("<div class=\"theme\"><span>Theme</span>");
     for theme in Theme::all() {
         out.push_str(&format!(
-            "<button class=\"chip\" data-set=\"{}\">{}</button>",
-            theme.id, theme.label
+            "<button class=\"chip\" data-set=\"{}\" data-label=\"{}\">{}</button>",
+            theme.id, theme.label, theme.label
         ));
     }
     out.push_str("</div></aside><main class=\"main\">");
-    out.push_str("<header class=\"header\"><span>Untitled session</span>");
-    out.push_str("<span class=\"muted\">Tokyo Night · design tokens</span></header>");
-    out.push_str("<section class=\"trace\"><p class=\"section\">OODA trace</p>");
+    out.push_str("<header class=\"header\"><span id=\"title\">Untitled session</span>");
+    out.push_str("<span class=\"muted\" id=\"theme-label\">Tokyo Night · design tokens</span></header>");
+    out.push_str(&views());
+    out.push_str("<footer class=\"composer\">");
+    out.push_str("<input id=\"prompt\" class=\"input\" placeholder=\"Ask the agent, or press Enter\">");
+    out.push_str("<button class=\"primary\" data-action=\"run\">Run</button></footer></main></div>");
+    out
+}
+
+fn views() -> String {
+    let mut out = String::new();
+    out.push_str("<section class=\"view active\" id=\"view-trace\">");
+    out.push_str("<p class=\"section\">OODA trace</p><div id=\"rows\">");
     out.push_str(&trace_rows());
-    out.push_str("</section><footer class=\"composer\">");
-    out.push_str("<div class=\"input\">Ask the agent, or paste an image…</div>");
-    out.push_str("<button class=\"primary\">Run</button></footer></main></div>");
+    out.push_str("</div></section>");
+    out.push_str("<section class=\"view\" id=\"view-diff\">");
+    out.push_str("<p class=\"section\">Last edit</p>");
+    out.push_str("<pre class=\"card mono\">--- src/ui/theme.rs\n");
+    out.push_str("+++ src/ui/theme.rs\n@@ -12,6 +12,8 @@\n");
+    out.push_str("+    pub const fn tokyo_night() -&gt; Self {\n");
+    out.push_str("+        Palette::night()\n-    pub const fn dark() -&gt; Self\n");
+    out.push_str("</pre></section>");
+    out.push_str("<section class=\"view\" id=\"view-preview\">");
+    out.push_str("<p class=\"section\">Preview</p>");
+    out.push_str("<div class=\"card\">image_probe · png 1024x768 → 1568x1176</div>");
+    out.push_str("</section>");
     out
 }
 
@@ -326,28 +356,39 @@ fn trace_rows() -> String {
 fn script() -> String {
     let mut js = String::from("<script>");
     js.push_str("function post(m){ if (window.ipc) { window.ipc.postMessage(m); } }");
-    js.push_str("post('boot');");
-    js.push_str("post('size:' + window.innerWidth + 'x' + window.innerHeight");
-    js.push_str(" + ' dpr:' + window.devicePixelRatio);");
-    js.push_str("document.addEventListener('click', function (e) {");
-    js.push_str(" var t = e.target;");
-    js.push_str(" var n = (t && (t.className || t.tagName)) || 'none';");
-    js.push_str(" post('click:' + n + '@' + e.clientX + ',' + e.clientY);");
-    js.push_str("}, true);");
+    js.push_str("function setTheme(id, label) {");
+    js.push_str(" document.documentElement.dataset.theme = id;");
+    js.push_str(" document.getElementById('theme-label').textContent = label + ' \u00b7 design tokens';");
+    js.push_str(" post('theme:' + id); }");
     js.push_str("document.querySelectorAll('[data-set]').forEach(function (b) {");
-    js.push_str(" b.addEventListener('click', function () {");
-    js.push_str("  document.documentElement.dataset.theme = b.dataset.set;");
-    js.push_str("  post('theme:' + b.dataset.set);");
-    js.push_str(" }); });");
-    js.push_str("post('count:' + document.querySelectorAll('[data-set]').length);");
-    js.push_str("setTimeout(function () {");
-    js.push_str(" var b = document.querySelector('[data-set=\"neutral-light\"]');");
-    js.push_str(" if (!b) { post('selftest:no-button'); return; }");
-    js.push_str(" b.click();");
-    js.push_str(" var bg = getComputedStyle(document.documentElement)");
-    js.push_str(".getPropertyValue('--background').trim();");
-    js.push_str(" post('selftest:bg=' + bg + ' theme=' + document.documentElement.dataset.theme);");
-    js.push_str("}, 3000);");
+    js.push_str(" b.addEventListener('click', function () { setTheme(b.dataset.set, b.dataset.label); }); });");
+    js.push_str("document.querySelectorAll('[data-view]').forEach(function (a) {");
+    js.push_str(" a.addEventListener('click', function () {");
+    js.push_str("  document.querySelectorAll('.nav').forEach(function (x) { x.classList.remove('active'); });");
+    js.push_str("  a.classList.add('active');");
+    js.push_str("  document.querySelectorAll('.view').forEach(function (v) { v.classList.remove('active'); });");
+    js.push_str("  document.getElementById('view-' + a.dataset.view).classList.add('active');");
+    js.push_str("  post('view:' + a.dataset.view); }); });");
+    js.push_str("var step = 5;");
+    js.push_str("function addRow(badge, text, kind) {");
+    js.push_str(" var d = document.createElement('div'); d.className = 'row';");
+    js.push_str(" var dot = document.createElement('span'); dot.className = 'dot ' + kind;");
+    js.push_str(" var b = document.createElement('span'); b.className = 'badge'; b.textContent = badge;");
+    js.push_str(" var t = document.createElement('span'); t.className = 'text'; t.textContent = text;");
+    js.push_str(" d.appendChild(dot); d.appendChild(b); d.appendChild(t);");
+    js.push_str(" document.getElementById('rows').appendChild(d); }");
+    js.push_str("function run() {");
+    js.push_str(" var i = document.getElementById('prompt');");
+    js.push_str(" var v = (i.value || 'ping').trim(); step += 1;");
+    js.push_str(" addRow('act', 'step ' + step + ' \u00b7 act \u00b7 ' + v, 'ok');");
+    js.push_str(" i.value = ''; post('run:' + v); }");
+    js.push_str("document.querySelector('[data-action=\"run\"]').addEventListener('click', run);");
+    js.push_str("document.getElementById('prompt').addEventListener('keydown', function (e) {");
+    js.push_str(" if (e.key === 'Enter') { run(); } });");
+    js.push_str("document.querySelector('[data-action=\"new\"]').addEventListener('click', function () {");
+    js.push_str(" document.getElementById('rows').innerHTML = ''; step = 0;");
+    js.push_str(" document.getElementById('title').textContent = 'New session'; post('new'); });");
+    js.push_str("if (window.__SELFTEST) { setTimeout(function () { run(); run(); post('selftest:done'); }, 1200); }");
     js.push_str("</script>");
     js
 }
@@ -404,7 +445,21 @@ body {
   font-size: 14px;
 }
 .muted { color: var(--muted-foreground); font-size: 12px; }
-.trace { flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.view { display: none; }
+.view.active {
+  display: flex; flex-direction: column; flex: 1;
+  overflow: auto; padding: 16px; gap: 8px;
+}
+.card {
+  background: var(--card); color: var(--card-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px;
+}
+.mono {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px; white-space: pre; margin: 0; overflow: auto;
+}
+input.input { border: none; outline: none; font: inherit; }
+input.input:focus { box-shadow: 0 0 0 2px var(--ring); }
 .section { margin: 0 0 4px; font-size: 12px; color: var(--muted-foreground); }
 .row {
   display: flex; align-items: center; gap: 12px; padding: 8px 12px;
