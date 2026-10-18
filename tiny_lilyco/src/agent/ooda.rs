@@ -268,15 +268,16 @@ mod tests {
     #[test]
     fn repeated_failure_requests_rollback() {
         let mut m = Machine::new(10, 2);
-        for _ in 0..2 {
+        let mut rounds = 0u32;
+        while !m.wants_rollback() && rounds < 5 {
+            rounds += 1;
             let _ = m.begin_orient();
             let _ = m.begin_decide();
             let _ = m.begin_act(&action(&READ));
             let _ = m.finish_act(false);
-            if m.wants_rollback() {
-                break;
+            if !m.wants_rollback() {
+                let _ = m.finish_verify();
             }
-            let _ = m.recovered();
         }
         assert!(m.wants_rollback());
         assert_eq!(m.failures(), 2);

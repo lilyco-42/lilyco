@@ -145,13 +145,27 @@ fn le24(b: &[u8], off: usize) -> Option<u32> {
     Some(a | (c << 8) | (d << 16))
 }
 
+fn be32(b: &[u8], off: usize) -> Option<u32> {
+    let a = *b.get(off)?;
+    let c = *b.get(off + 1)?;
+    let d = *b.get(off + 2)?;
+    let e = *b.get(off + 3)?;
+    Some(u32::from(a) << 24 | u32::from(c) << 16 | u32::from(d) << 8 | u32::from(e))
+}
+
+fn le32(b: &[u8], off: usize) -> Option<u32> {
+    let a = *b.get(off)?;
+    let c = *b.get(off + 1)?;
+    let d = *b.get(off + 2)?;
+    let e = *b.get(off + 3)?;
+    Some(u32::from(a) | u32::from(c) << 8 | u32::from(d) << 16 | u32::from(e) << 24)
+}
+
 fn png_dims(b: &[u8]) -> Option<(u32, u32)> {
     if b.len() < 24 {
         return None;
     }
-    let w = u32::from(be16(b, 16)?);
-    let h = u32::from(be16(b, 20)?);
-    Some((w, h))
+    Some((be32(b, 16)?, be32(b, 20)?))
 }
 
 fn gif_dims(b: &[u8]) -> Option<(u32, u32)> {
@@ -159,9 +173,9 @@ fn gif_dims(b: &[u8]) -> Option<(u32, u32)> {
 }
 
 fn bmp_dims(b: &[u8]) -> Option<(u32, u32)> {
-    let w = u32::from(le16(b, 18)?);
-    let h = u32::from(le16(b, 20)?);
-    Some((w, h))
+    let w = le32(b, 18)?;
+    let h = le32(b, 22)?;
+    Some((w, h & 0x7FFF_FFFF))
 }
 
 fn webp_dims(b: &[u8]) -> Option<(u32, u32)> {
@@ -201,7 +215,8 @@ mod tests {
     const PNG: [u8; 24] = [
         0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, //
         0, 0, 0, 13, b'I', b'H', b'D', b'R', //
-        0x02, 0x80, 0x01, 0xE0, 0, 0, 0, 0,
+        0, 0, 0x02, 0x80, // width  = 640 (4-byte big endian)
+        0, 0, 0x01, 0xE0, // height = 480
     ];
 
     #[test]
