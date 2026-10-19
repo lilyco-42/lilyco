@@ -227,23 +227,19 @@ fn fake_plan(goal: &str) -> ScriptedLlm {
 /// This is the "own free compute" path: no key, no configuration, just a local
 /// OpenAI-compatible endpoint. Cached so it costs one request per process.
 fn local_relay() -> Option<(String, String)> {
-    use std::sync::OnceLock;
-    static FOUND: OnceLock<Option<(String, String)>> = OnceLock::new();
-    FOUND
-        .get_or_init(|| {
-            let base = std::env::var("TINY_AGENT_RELAY_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:8080/v1".to_string());
-            let body = ureq::get(&format!("{base}/models"))
-                .timeout(std::time::Duration::from_millis(1200))
-                .call()
-                .ok()?
-                .into_string()
-                .ok()?;
-            let value: serde_json::Value = serde_json::from_str(&body).ok()?;
-            let model = value["data"][0]["id"].as_str()?.to_string();
-            Some((base, model))
-        })
-        .clone()
+    // No caching: a relay comes and goes with the remote GPU session, and a
+    // cached "not found" would outlive the outage.
+    let base = std::env::var("TINY_AGENT_RELAY_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8080/v1".to_string());
+    let body = ureq::get(&format!("{base}/models"))
+        .timeout(std::time::Duration::from_millis(2500))
+        .call()
+        .ok()?
+        .into_string()
+        .ok()?;
+    let value: serde_json::Value = serde_json::from_str(&body).ok()?;
+    let model = value["data"][0]["id"].as_str()?.to_string();
+    Some((base, model))
 }
 
 /// The Claude-configured provider, but only after a real round trip.
