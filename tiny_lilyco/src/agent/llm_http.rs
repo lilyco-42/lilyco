@@ -341,6 +341,7 @@ impl HttpLlm {
             config,
             registry,
             tools: false,
+            text_protocol: false,
         }
     }
 
