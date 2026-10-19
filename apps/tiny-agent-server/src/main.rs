@@ -229,15 +229,14 @@ fn choose_llm(registry: &'static Registry, goal: &str) -> Box<dyn Llm> {
         return Box::new(HttpLlm::new(config, registry));
     }
     if let Some((base_url, api_key, model)) = live_claude() {
-            use tiny_lilyco::agent::llm_anthropic::{AnthropicLlm, Config as AntiConfig, SYSTEM};
-            let config = AntiConfig {
-                base_url,
-                api_key,
-                model,
-                system: SYSTEM.to_string(),
-            };
-            return Box::new(AnthropicLlm::new(config, registry));
-        }
+        use tiny_lilyco::agent::llm_anthropic::{AnthropicLlm, Config as AntiConfig, SYSTEM};
+        let config = AntiConfig {
+            base_url,
+            api_key,
+            model,
+            system: SYSTEM.to_string(),
+        };
+        return Box::new(AnthropicLlm::new(config, registry));
     }
     let config = Config {
         base_url: "https://text.pollinations.ai/openai".to_string(),
