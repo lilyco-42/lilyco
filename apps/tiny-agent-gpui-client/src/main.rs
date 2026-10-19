@@ -284,12 +284,13 @@ impl Render for AgentView {
 fn row(line: Line) -> impl IntoElement {
     let color = match line.kind.as_str() {
         "goal" => ACCENT,
+        "answer" => OK,
         "tool" => ACCENT,
         "done" => OK,
         "output" => MUTED,
         _ => FG,
     };
-    let size = if line.kind == "goal" { 20. } else { 14. };
+    let size = if line.kind == "goal" || line.kind == "answer" { 19. } else { 14. };
     gpui::div()
         .text_size(px(size))
         .text_color(rgb(color))

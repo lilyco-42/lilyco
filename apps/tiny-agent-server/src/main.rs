@@ -20,7 +20,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use tiny_lilyco::agent::llm::{Llm, ScriptedLlm};
+use tiny_lilyco::agent::llm::{Decision, Llm, ScriptedLlm, Step};
 use tiny_lilyco::agent::registry::Registry;
 use tiny_lilyco::agent::runtime::{drive, Budget, Host, Outcome};
 use tiny_lilyco::agent::tool::{ObsBuf, ObsKind, Tool, ToolError};
@@ -86,8 +86,21 @@ async fn run(State(app): State<Arc<App>>, Json(req): Json<RunRequest>) -> Sse<im
             registry,
             tx: tx.clone(),
         };
-        let mut llm = choose_llm(registry, &goal);
-        let outcome = drive(&goal, &mut *llm, registry, &mut host, Budget::new(8, 3));
+        let llm = choose_llm(registry, &goal);
+        let mut brain = Recorder {
+            inner: llm,
+            answer: None,
+        };
+        let outcome = drive(&goal, &mut brain, registry, &mut host, Budget::new(8, 3));
+        if let Some(answer) = brain.answer {
+            let body = EventBody {
+                kind: "answer",
+                text: answer,
+            };
+            if let Ok(json) = serde_json::to_string(&body) {
+                let _ = tx.send(json);
+            }
+        }
         let body = EventBody {
             kind: "done",
             text: summary(&outcome),
@@ -154,7 +167,7 @@ impl Host for StreamHost {
 
 fn summary(outcome: &Outcome) -> String {
     if outcome.calls == 0 && outcome.failures == 0 {
-        return "模型没有回话：检查设置里的接口地址与 Key。".to_string();
+        return String::new();
     }
     format!(
         "完成 · {} 步 · {} 次失败",
@@ -174,6 +187,23 @@ fn model_label() -> String {
         return format!("{model} (claude 配置)");
     }
     "openai (免费网关)".to_string()
+}
+
+
+/// Keeps the model's final sentence so it can be streamed as an answer.
+struct Recorder {
+    inner: Box<dyn Llm>,
+    answer: Option<String>,
+}
+
+impl Llm for Recorder {
+    fn plan(&mut self, ctx: Decision<'_>) -> Step {
+        let step = self.inner.plan(ctx);
+        if let Step::Say(text) = &step {
+            self.answer = Some(text.to_string());
+        }
+        step
+    }
 }
 
 /// Deterministic plan used by `TINY_AGENT_FAKE=1` and by CI.
