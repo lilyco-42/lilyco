@@ -176,6 +176,17 @@ fn model_label() -> String {
     "openai (免费网关)".to_string()
 }
 
+/// Deterministic plan used by `TINY_AGENT_FAKE=1` and by CI.
+fn fake_plan(goal: &str) -> ScriptedLlm {
+    let mut plan = ScriptedLlm::new();
+    if let Some(pattern) = goal.split('`').nth(1) {
+        let _ = plan.push("ast_grep", pattern);
+    } else {
+        let _ = plan.push("list_dir", "");
+    }
+    plan
+}
+
 /// Pick a model for one run.
 fn choose_llm(registry: &'static Registry, goal: &str) -> Box<dyn Llm> {
     if std::env::var("TINY_AGENT_FAKE").is_ok() {
