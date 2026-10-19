@@ -71,6 +71,9 @@ if ($Mode -eq 'select') {
     $actualText = [Text.StringBuilder]::new(32768)
     # GetWindowText cannot read another process's edit control (Win32 contract).
     if ([OfficeFileDialog]::ReadText($edit,0x000D,[IntPtr]$actualText.Capacity,$actualText,2,2000,[ref]$result) -eq [IntPtr]::Zero) { throw 'Native filename field could not be read back' }
+    # CI-owned fixture paths only; capture the real control before classifying
+    # a mismatch, rather than guessing whether the shell normalized/reset it.
+    @{filename_control_id=[OfficeFileDialog]::GetDlgCtrlID($edit);expected_text=[IO.Path]::GetFullPath($Fixture);observed_text=$actualText.ToString();copied_characters=$result.ToInt64();owner_pid=$owners[0].Id} | ConvertTo-Json -Compress | Write-Output
     if ($actualText.ToString() -ne [IO.Path]::GetFullPath($Fixture)) { throw 'Native filename field differs from the requested fixture' }
 }
 $commandId = if ($Mode -eq 'select') { 1 } else { 2 }

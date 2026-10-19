@@ -227,6 +227,8 @@ if (!button || button.disabled) return false; button.click(); return true;''', t
                         (EVIDENCE / f'native-dialog-{mode}.log').write_text(output, encoding='utf-8')
                         assert operator.returncode == 0, output
                         wait(lambda: js('return document.querySelector("[data-testid=selected-file]")?.textContent') == dialog_fixture.name)
+                        wait(lambda: os.path.normcase(os.path.normpath(js('return document.querySelector("[data-testid=file-summary] p")?.textContent') or ''))
+                             == os.path.normcase(str(dialog_fixture.resolve())))
                         assert not js('return document.querySelector("[role=alert]")?.textContent')
                     finally:
                         if operator.poll() is None:
