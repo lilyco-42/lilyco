@@ -26,6 +26,7 @@ public static class OfficeFileDialog {
     [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr window);
     [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr window, int id);
     [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW", CharSet=CharSet.Unicode)] public static extern IntPtr SetText(IntPtr window, uint message, IntPtr w, string text, uint flags, uint timeout, out IntPtr result);
+    [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW", CharSet=CharSet.Unicode)] public static extern IntPtr ReadText(IntPtr window, uint message, IntPtr w, [Out] StringBuilder text, uint flags, uint timeout, out IntPtr result);
     [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW")] public static extern IntPtr Send(IntPtr window, uint message, IntPtr w, IntPtr l, uint flags, uint timeout, out IntPtr result);
     public static IntPtr Find(uint pid) {
         IntPtr found = IntPtr.Zero;
@@ -68,7 +69,8 @@ if ($Mode -eq 'select') {
     if ($edit -eq [IntPtr]::Zero) { throw 'Actual native filename field is missing' }
     if ([OfficeFileDialog]::SetText($edit,0x000C,[IntPtr]::Zero,[IO.Path]::GetFullPath($Fixture),2,2000,[ref]$result) -eq [IntPtr]::Zero) { throw 'Native filename field did not accept the fixture path' }
     $actualText = [Text.StringBuilder]::new(32768)
-    [void][OfficeFileDialog]::GetWindowText($edit,$actualText,$actualText.Capacity)
+    # GetWindowText cannot read another process's edit control (Win32 contract).
+    if ([OfficeFileDialog]::ReadText($edit,0x000D,[IntPtr]$actualText.Capacity,$actualText,2,2000,[ref]$result) -eq [IntPtr]::Zero) { throw 'Native filename field could not be read back' }
     if ($actualText.ToString() -ne [IO.Path]::GetFullPath($Fixture)) { throw 'Native filename field differs from the requested fixture' }
 }
 $commandId = if ($Mode -eq 'select') { 1 } else { 2 }
