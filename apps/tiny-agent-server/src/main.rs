@@ -170,7 +170,7 @@ fn model_label() -> String {
     if let Ok(model) = std::env::var("TINY_AGENT_MODEL") {
         return model;
     }
-    if let Some((_, _, model)) = provider_from_claude() {
+    if let Some((_, _, model)) = live_claude() {
         return format!("{model} (claude 配置)");
     }
     "openai (免费网关)".to_string()
@@ -187,6 +187,33 @@ fn fake_plan(goal: &str) -> ScriptedLlm {
     plan
 }
 
+
+/// The Claude-configured provider, but only after a real round trip.
+///
+/// A listening port proves nothing: cc-switch's proxy happily accepts
+/// connections while its upstream key is dead, so a probe decides. The answer is
+/// cached — one extra request per process, not per turn.
+fn live_claude() -> Option<(String, String, String)> {
+    use std::sync::OnceLock;
+    static CHOICE: OnceLock<Option<(String, String, String)>> = OnceLock::new();
+    CHOICE
+        .get_or_init(|| {
+            let provider = provider_from_claude()?;
+            if !reachable(&provider.0) {
+                return None;
+            }
+            use tiny_lilyco::agent::llm_anthropic::{probe, Config, SYSTEM};
+            let config = Config {
+                base_url: provider.0.clone(),
+                api_key: provider.1.clone(),
+                model: provider.2.clone(),
+                system: SYSTEM.to_string(),
+            };
+            probe(&config).ok().map(|_| provider)
+        })
+        .clone()
+}
+
 /// Pick a model for one run.
 fn choose_llm(registry: &'static Registry, goal: &str) -> Box<dyn Llm> {
     if std::env::var("TINY_AGENT_FAKE").is_ok() {
@@ -201,8 +228,7 @@ fn choose_llm(registry: &'static Registry, goal: &str) -> Box<dyn Llm> {
         };
         return Box::new(HttpLlm::new(config, registry));
     }
-    if let Some((base_url, api_key, model)) = provider_from_claude() {
-        if reachable(&base_url) {
+    if let Some((base_url, api_key, model)) = live_claude() {
             use tiny_lilyco::agent::llm_anthropic::{AnthropicLlm, Config as AntiConfig, SYSTEM};
             let config = AntiConfig {
                 base_url,
