@@ -1,12 +1,15 @@
 param(
   [Parameter(Mandatory=$true)][string]$Application,
   [Parameter(Mandatory=$true)][ValidateSet('select','cancel')][string]$Mode,
-  [string]$Fixture
+  [string]$Fixture,
+  [int]$OwnerProcessId = 0
 )
 $ErrorActionPreference = 'Stop'
 if ($env:GITHUB_ACTIONS -ne 'true') { throw 'Actual Office file dialog acceptance only runs in Actions' }
 $applicationPath = [IO.Path]::GetFullPath($Application)
-$owners = @(Get-Process -Name 'lilyco-office' -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $applicationPath })
+$owners = if ($OwnerProcessId -gt 0) { @(Get-Process -Id $OwnerProcessId -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $applicationPath }) } else {
+  @(Get-Process -Name 'lilyco-office' -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $applicationPath })
+}
 if ($owners.Count -ne 1) { throw 'Expected one actual WebDriver-owned Office binary' }
 if ($Mode -eq 'select' -and -not (Test-Path -LiteralPath $Fixture -PathType Leaf)) { throw 'Actual file dialog fixture is missing' }
 Add-Type -TypeDefinition @'
@@ -64,8 +67,19 @@ if ($Mode -eq 'select') {
     $edit = [OfficeFileDialog]::Filename($dialog)
     if ($edit -eq [IntPtr]::Zero) { throw 'Actual native filename field is missing' }
     if ([OfficeFileDialog]::SetText($edit,0x000C,[IntPtr]::Zero,[IO.Path]::GetFullPath($Fixture),2,2000,[ref]$result) -eq [IntPtr]::Zero) { throw 'Native filename field did not accept the fixture path' }
+    $actualText = [Text.StringBuilder]::new(32768)
+    [void][OfficeFileDialog]::GetWindowText($edit,$actualText,$actualText.Capacity)
+    if ($actualText.ToString() -ne [IO.Path]::GetFullPath($Fixture)) { throw 'Native filename field differs from the requested fixture' }
 }
-$button = [OfficeFileDialog]::GetDlgItem($dialog, $(if ($Mode -eq 'select') { 1 } else { 2 }))
+$commandId = if ($Mode -eq 'select') { 1 } else { 2 }
+$button = [OfficeFileDialog]::GetDlgItem($dialog, $commandId)
 if ($button -eq [IntPtr]::Zero) { throw 'Actual native Open/Cancel button is missing' }
-if ([OfficeFileDialog]::Send($button,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero,2,2000,[ref]$result) -eq [IntPtr]::Zero) { throw 'Native Open/Cancel button did not respond' }
+# Send the actual dialog's BN_CLICKED command. BM_CLICK on an inactive button
+# can return without accepting the dialog. Never replay an uncertain action.
+$sent = [OfficeFileDialog]::Send($dialog,0x0111,[IntPtr]$commandId,$button,2,2000,[ref]$result) -ne [IntPtr]::Zero
+$deadline = [DateTime]::UtcNow.AddSeconds(15)
+while ([DateTime]::UtcNow -lt $deadline -and [OfficeFileDialog]::Find([uint32]$owners[0].Id) -ne [IntPtr]::Zero) { Start-Sleep -Milliseconds 100 }
+if ([OfficeFileDialog]::Find([uint32]$owners[0].Id) -ne [IntPtr]::Zero) { throw "Native $Mode command did not close its actual dialog (message acknowledged: $sent)" }
+if ($owners[0].HasExited) { throw 'Dialog owner exited before the selection could be delivered' }
+@{mode=$Mode;actual_dialog_closed=$true;message_acknowledged=$sent;filename_verified=($Mode -eq 'select')} | ConvertTo-Json -Compress | Write-Output
 Write-Output "Used actual native Office file dialog: $Mode"

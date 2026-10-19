@@ -223,7 +223,7 @@ if (!button || button.disabled) return false; button.click(); return true;''', t
                     ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
                     try:
                         click(button)
-                        output, _ = operator.communicate(timeout=45)
+                        output, _ = operator.communicate(timeout=60)
                         (EVIDENCE / f'native-dialog-{mode}.log').write_text(output, encoding='utf-8')
                         assert operator.returncode == 0, output
                         wait(lambda: js('return document.querySelector("[data-testid=selected-file]")?.textContent') == dialog_fixture.name)
