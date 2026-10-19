@@ -74,16 +74,20 @@ pub fn build_request(model: &str, ctx: Decision<'_>, tools: &[(&str, &str)]) -> 
         .iter()
         .map(|(name, summary)| tool_def(name, summary))
         .collect();
-    let body = json!({
+    let mut body = json!({
         "model": model,
         "messages": [
             { "role": "system", "content": SYSTEM },
             { "role": "user", "content": user_message(ctx) }
         ],
-        "tools": defs,
-        "tool_choice": "auto",
         "temperature": 0.2
     });
+    // An empty `tools` array is rejected by some gateways ("must not be an
+    // empty array"), so the field is omitted entirely when there is no tool.
+    if !defs.is_empty() {
+        body["tools"] = Value::Array(defs);
+        body["tool_choice"] = json!("auto");
+    }
     body.to_string()
 }
 /// Turn one response body into the next [`Step`].
