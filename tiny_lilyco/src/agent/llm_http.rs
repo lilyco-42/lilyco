@@ -103,6 +103,93 @@ fn visible(text: &str) -> &str {
     text
 }
 
+
+/// System prompt for the JSON-in-prose protocol.
+pub const TEXT_SYSTEM: &str = "You are a coding agent. Answer with ONE JSON object and nothing else.
+\
+To use a tool:  {\"tool\": \"<name>\", \"args\": \"<single string argument>\"}
+\
+To finish:      {\"final\": \"<short answer for the user>\"}
+\
+Rules: at most one tool per turn; call a tool only when it moves the goal forward;\
+ when the goal is met answer with \"final\". Never write prose outside the JSON.";
+
+fn text_tool_lines(tools: &[(&str, &str)]) -> String {
+    let mut out = String::new();
+    for (name, summary) in tools {
+        out.push_str("- ");
+        out.push_str(name);
+        out.push_str(": ");
+        out.push_str(summary);
+        out.push('\n');
+    }
+    out
+}
+
+/// Build a request that asks for a JSON action instead of a native tool call.
+pub fn build_text_request(model: &str, ctx: Decision<'_>, tools: &[(&str, &str)]) -> String {
+    let system = ::std::format!(
+        "{TEXT_SYSTEM}\n\nAvailable tools (args is always one string):\n{}",
+        text_tool_lines(tools)
+    );
+    json!({
+        "model": model,
+        "messages": [
+            { "role": "system", "content": system },
+            { "role": "user", "content": user_message(ctx) }
+        ],
+        "temperature": 0.2
+    })
+    .to_string()
+}
+
+/// Turn a JSON-in-prose reply into a [`Step`].
+pub fn parse_text_step(raw: &str) -> Step {
+    let Ok(value) = serde_json::from_str::<Value>(raw) else {
+        return Step::Done;
+    };
+    let Some(text) = value["choices"][0]["message"]["content"].as_str() else {
+        return Step::Done;
+    };
+    let text = visible(text);
+    if let Some(action) = first_json_object(text) {
+        if let Some(name) = action["tool"].as_str() {
+            let args = action["args"].as_str().unwrap_or("");
+            if let Ok(call) = Call::new(name, args) {
+                return Step::Call(call);
+            }
+        }
+        for key in ["final", "answer", "say"] {
+            if let Some(final_text) = action[key].as_str() {
+                return say(final_text);
+            }
+        }
+    }
+    // The model ignored the protocol: treat prose as the final answer rather
+    // than looping forever.
+    say(text)
+}
+
+fn say(text: &str) -> Step {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Step::Done;
+    }
+    let mut buf = heapless::String::<MAX_SPEECH>::new();
+    let _ = buf.push_str(clip(trimmed, MAX_SPEECH));
+    Step::Say(buf)
+}
+
+/// First `{...}` span in the text, if it parses as JSON.
+fn first_json_object(text: &str) -> Option<Value> {
+    let start = text.find('{')?;
+    let end = text.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+    serde_json::from_str::<Value>(&text[start..=end]).ok()
+}
+
 /// Turn one response body into the next [`Step`].
 pub fn parse_step(raw: &str) -> Step {
     let Ok(value) = serde_json::from_str::<Value>(raw) else {
@@ -221,6 +308,9 @@ pub struct HttpLlm {
     /// Some OpenAI-compatible gateways (notably free ones) stall when a
     /// `tools` array is present, so tool use is opt-out.
     tools: bool,
+    /// How the model is asked to act: native tool calls, or a text protocol for
+    /// servers that refuse `tools` (vLLM without a tool-call parser).
+    text_protocol: bool,
 }
 
 impl HttpLlm {
@@ -230,6 +320,17 @@ impl HttpLlm {
             config,
             registry,
             tools: true,
+            text_protocol: false,
+        }
+    }
+
+    /// Talk to servers that reject `tools`: the action is a JSON object in prose.
+    pub fn text_protocol(config: Config, registry: &'static Registry) -> Self {
+        HttpLlm {
+            config,
+            registry,
+            tools: false,
+            text_protocol: true,
         }
     }
 
@@ -243,6 +344,20 @@ impl HttpLlm {
         }
     }
 
+
+
+    /// One turn of the JSON-in-prose protocol.
+    fn plan_via_text(&self, ctx: Decision<'_>) -> Step {
+        let tools = self.tool_list();
+        let body = build_text_request(&self.config.model, ctx, &tools);
+        match post(&self.config, &body) {
+            Ok(raw) => parse_text_step(&raw),
+            Err(err) => {
+                ::std::eprintln!("model call failed (text protocol): {err}");
+                Step::Done
+            }
+        }
+    }
 
     /// Retry once without tool schemas.
     fn answer_without_tools(&self, ctx: Decision<'_>) -> Step {
@@ -266,6 +381,9 @@ impl HttpLlm {
 
 impl Llm for HttpLlm {
     fn plan(&mut self, ctx: Decision<'_>) -> Step {
+        if self.text_protocol {
+            return self.plan_via_text(ctx);
+        }
         let tools = if self.tools { self.tool_list() } else { Vec::new() };
         let body = build_request(&self.config.model, ctx, &tools);
         match post(&self.config, &body) {
@@ -353,6 +471,42 @@ mod tests {
     fn reasoning_blocks_are_hidden() {
         assert_eq!(visible("plan…\n<｜end▁of▁thinking｜>\n\n答案"), "答案");
         assert_eq!(visible("no think here"), "no think here");
+    }
+
+
+    fn text_reply(content: &str) -> String {
+        serde_json::json!({ "choices": [{ "message": { "content": content } }] }).to_string()
+    }
+
+    #[test]
+    fn text_protocol_reads_a_tool_call() {
+        let raw = text_reply(r#"{"tool":"list_dir","args":""}"#);
+        match parse_text_step(&raw) {
+            Step::Call(call) => {
+                assert_eq!(call.tool.as_str(), "list_dir");
+                assert_eq!(call.args.as_str(), "");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn text_protocol_reads_a_final_answer() {
+        let raw = text_reply(r#"{"final":"done here"}"#);
+        assert!(matches!(parse_text_step(&raw), Step::Say(_)));
+    }
+
+    #[test]
+    fn text_protocol_falls_back_to_prose() {
+        let raw = text_reply("I could not do that.");
+        assert!(matches!(parse_text_step(&raw), Step::Say(_)));
+    }
+
+    #[test]
+    fn text_protocol_ignores_malformed_json() {
+        let raw = text_reply("{not json}");
+        assert!(matches!(parse_text_step(&raw), Step::Say(_)));
+        assert_eq!(parse_text_step("nope"), Step::Done);
     }
 
     #[test]

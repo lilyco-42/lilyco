@@ -288,7 +288,9 @@ fn choose_llm(registry: &'static Registry, goal: &str) -> Box<dyn Llm> {
             api_key: std::env::var("TINY_AGENT_RELAY_KEY").unwrap_or_else(|_| "local".to_string()),
             model,
         };
-        return Box::new(HttpLlm::new(config, registry));
+        // The local relay speaks the JSON-in-prose protocol: vLLM without a
+        // tool-call parser refuses native `tools`, but it can still act.
+        return Box::new(HttpLlm::text_protocol(config, registry));
     }
     if let Some((base_url, api_key, model)) = live_claude() {
         use tiny_lilyco::agent::llm_anthropic::{AnthropicLlm, Config as AntiConfig, SYSTEM};
