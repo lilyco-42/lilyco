@@ -162,11 +162,18 @@ fn summary(outcome: &Outcome) -> String {
     )
 }
 
-fn model_label() -> &'static str {
+/// Human-readable description of the provider a run would use.
+fn model_label() -> String {
     if std::env::var("TINY_AGENT_FAKE").is_ok() {
-        return "fake";
+        return "fake".to_string();
     }
-    "remote"
+    if let Ok(model) = std::env::var("TINY_AGENT_MODEL") {
+        return model;
+    }
+    if let Some((_, _, model)) = provider_from_claude() {
+        return format!("{model} (claude 配置)");
+    }
+    "openai (免费网关)".to_string()
 }
 
 /// Pick a model for one run.
@@ -183,6 +190,18 @@ fn choose_llm(registry: &'static Registry, goal: &str) -> Box<dyn Llm> {
         };
         return Box::new(HttpLlm::new(config, registry));
     }
+    if let Some((base_url, api_key, model)) = provider_from_claude() {
+        if reachable(&base_url) {
+            use tiny_lilyco::agent::llm_anthropic::{AnthropicLlm, Config as AntiConfig, SYSTEM};
+            let config = AntiConfig {
+                base_url,
+                api_key,
+                model,
+                system: SYSTEM.to_string(),
+            };
+            return Box::new(AnthropicLlm::new(config, registry));
+        }
+    }
     let config = Config {
         base_url: "https://text.pollinations.ai/openai".to_string(),
         api_key: "none".to_string(),
@@ -191,15 +210,77 @@ fn choose_llm(registry: &'static Registry, goal: &str) -> Box<dyn Llm> {
     Box::new(HttpLlm::new(config, registry))
 }
 
-/// Deterministic plan used by `TINY_AGENT_FAKE=1` and by CI.
-fn fake_plan(goal: &str) -> ScriptedLlm {
-    let mut plan = ScriptedLlm::new();
-    if let Some(pattern) = goal.split('`').nth(1) {
-        let _ = plan.push("ast_grep", pattern);
-    } else {
-        let _ = plan.push("list_dir", "");
+/// Read the provider Claude Code / cc-switch materialises.
+///
+/// The key stays in the user's own file. Two normalisations, because gateways
+/// and model ids drift: a bare host becomes `https://host/v1`, and a `[1M]`
+/// style context suffix is stripped from the model id.
+fn provider_from_claude() -> Option<(String, String, String)> {
+    let home = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).ok()?;
+    let path = std::path::Path::new(&home).join(".claude").join("settings.json");
+    let raw = std::fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let env = value.get("env")?;
+    let base = env.get("ANTHROPIC_BASE_URL")?.as_str()?.trim();
+    let token = env.get("ANTHROPIC_AUTH_TOKEN")?.as_str()?.trim();
+    let model = env
+        .get("ANTHROPIC_MODEL")
+        .or_else(|| env.get("ANTHROPIC_DEFAULT_SONNET_MODEL"))
+        .and_then(serde_json::Value::as_str)?
+        .trim();
+    if base.is_empty() || token.is_empty() || model.is_empty() {
+        return None;
     }
-    plan
+    Some((normalise_base(base), token.to_string(), live_model(model)))
+}
+
+fn normalise_base(base: &str) -> String {
+    let trimmed = base.trim_end_matches('/');
+    let after_scheme = trimmed.split("://").nth(1).unwrap_or("");
+    if after_scheme.contains('/') {
+        return trimmed.to_string();
+    }
+    format!("{trimmed}/v1")
+}
+
+/// Map retired model ids to their replacement (NVIDIA retired v4-flash).
+fn live_model(model: &str) -> String {
+    let stripped = match model.find('[') {
+        Some(at) => &model[..at],
+        None => model,
+    };
+    if stripped == "deepseek-ai/deepseek-v4-flash" {
+        return "deepseek-ai/deepseek-v4.1-flash".to_string();
+    }
+    stripped.to_string()
+}
+
+/// False when a loopback endpoint has nothing listening, so a dead local proxy
+/// does not turn into a silent empty answer.
+fn reachable(url: &str) -> bool {
+    let Some(rest) = url.split("://").nth(1) else {
+        return true;
+    };
+    let Some(authority) = rest.split('/').next() else {
+        return true;
+    };
+    let Some((host, port)) = authority.rsplit_once(':') else {
+        return true;
+    };
+    if !host.contains("127.0.0.1") && !host.contains("localhost") {
+        return true;
+    }
+    let Ok(port) = port.parse::<u16>() else {
+        return true;
+    };
+    let addr = format!("{host}:{port}");
+    let Ok(mut addrs) = std::net::ToSocketAddrs::to_socket_addrs(&addr) else {
+        return false;
+    };
+    let Some(sock) = addrs.next() else {
+        return false;
+    };
+    std::net::TcpStream::connect_timeout(&sock, std::time::Duration::from_millis(400)).is_ok()
 }
 
 fn build_registry(root: &std::path::Path) -> &'static Registry {

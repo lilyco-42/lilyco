@@ -192,8 +192,23 @@ impl Render for AgentView {
             (guard.lines.clone(), guard.status.clone())
         };
         let _ = self.tick;
+        // The newest events matter most; a long run would otherwise paint past
+        // the window bottom with no way to scroll back yet.
+        let total = lines.len();
+        let shown: Vec<Line> = lines.into_iter().skip(total.saturating_sub(22)).collect();
         let mut column = gpui::div().flex().flex_col().gap_1().w_full();
-        for line in lines {
+        if total > shown.len() {
+            column = column.child(
+                gpui::div()
+                    .text_size(px(12.))
+                    .text_color(rgb(MUTED))
+                    .child(SharedString::from(format!(
+                        "… 上面还有 {} 行",
+                        total - shown.len()
+                    ))),
+            );
+        }
+        for line in shown {
             column = column.child(row(line));
         }
         gpui::div()
