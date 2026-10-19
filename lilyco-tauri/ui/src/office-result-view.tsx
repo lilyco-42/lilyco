@@ -12,8 +12,8 @@ export function OfficeResultView({ value, depth = 0 }: { value: OfficeValue; dep
   const entries: [string, OfficeValue][] = Array.isArray(value) ? value.slice(0, limit).map((item, index) => [String(index + 1), item]) : Object.entries(value).slice(0, limit);
   if (count === 0) return <span className="text-muted-foreground">没有记录</span>;
   return <div className="min-w-0 divide-y divide-border">
-    {entries.map(([key, item]) => <div key={key} className="grid min-w-0 gap-2 py-3 sm:grid-cols-[minmax(90px,150px)_minmax(0,1fr)]">
-      <span className="break-words text-sm font-medium text-muted-foreground">{key}</span>
+    {entries.map(([key, item]) => <div key={key} className={`grid min-w-0 gap-2 py-3 ${depth < 2 ? "sm:grid-cols-[minmax(90px,150px)_minmax(0,1fr)]" : ""}`}>
+      <span className="min-w-0 break-words text-sm font-medium text-muted-foreground [overflow-wrap:anywhere]">{key}</span>
       <div className="min-w-0 text-sm leading-7"><OfficeResultView value={item} depth={depth + 1} /></div>
     </div>)}
     {count > limit && <Button variant="outline" className="my-3 min-h-10" onClick={() => setLimit(previous => previous + 40)}>继续显示 · 还有 {count - limit} 项</Button>}

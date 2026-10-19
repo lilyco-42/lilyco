@@ -275,6 +275,16 @@ if (!button || button.disabled) return false; button.click(); return true;''', t
                                  'original_cli_document_content_equals_actual_ui': True,
                                  'per_invocation_timings': timings, 'original_file_unchanged': True})
 
+                # Check actual loaded data too: an empty result after clearing
+                # history cannot expose deep nested grids forcing the window wide.
+                click('可读视图')
+                for result_width in [320, 768, 1180]:
+                    request(prefix + '/window/rect', 'POST', {'width': result_width, 'height': 900})
+                    wait(lambda: js('return innerWidth') <= result_width)
+                    metrics = js('return {width:innerWidth, body:document.documentElement.scrollWidth}')
+                    assert metrics['body'] <= metrics['width'] + 1, {'format': extension, 'loaded_result': metrics}
+                    (EVIDENCE / f'native-loaded-{extension}-{result_width}.png').write_bytes(base64.b64decode(request(prefix + '/screenshot')))
+
             # A failed next file must remove the previous successful result.
             missing = fixtures / 'not-a-real-office-file.docx'
             assert not missing.exists()
