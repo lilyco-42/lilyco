@@ -93,8 +93,10 @@ impl AgentView {
                     cx.background_executor()
                         .timer(Duration::from_millis(900))
                         .await;
+                    let prompt = std::env::var("TINY_AGENT_SELFTEST_PROMPT")
+                        .unwrap_or_else(|_| "这个文件夹里有什么".to_string());
                     let _ = this.update(&mut cx, |view, cx| {
-                        view.input = "这个文件夹里有什么".to_string();
+                        view.input = prompt.clone();
                         view.submit(cx);
                     });
                 }
@@ -157,7 +159,7 @@ impl AgentView {
 
     fn on_key(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
-        if key == "enter" {
+        if key.eq_ignore_ascii_case("enter") || key.eq_ignore_ascii_case("return") {
             self.submit(cx);
             return;
         }
