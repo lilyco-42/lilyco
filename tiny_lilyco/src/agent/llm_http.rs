@@ -90,6 +90,19 @@ pub fn build_request(model: &str, ctx: Decision<'_>, tools: &[(&str, &str)]) -> 
     }
     body.to_string()
 }
+
+/// Drop a leaked reasoning block: reasoning models emit `…<｜end▁of▁thinking｜>answer`
+/// inside `content`, and the chain of thought is not what the user asked for.
+fn visible(text: &str) -> &str {
+    const CLOSERS: [&str; 3] = ["<｜end▁of▁thinking｜>", "</think>", "[/THINK]"];
+    for closer in CLOSERS {
+        if let Some(at) = text.find(closer) {
+            return text[at + closer.len()..].trim_start();
+        }
+    }
+    text
+}
+
 /// Turn one response body into the next [`Step`].
 pub fn parse_step(raw: &str) -> Step {
     let Ok(value) = serde_json::from_str::<Value>(raw) else {
@@ -102,7 +115,7 @@ pub fn parse_step(raw: &str) -> Step {
     match message["content"].as_str() {
         Some(text) if !text.trim().is_empty() => {
             let mut buf = heapless::String::<MAX_SPEECH>::new();
-            let _ = buf.push_str(clip(text, MAX_SPEECH));
+            let _ = buf.push_str(clip(visible(text), MAX_SPEECH));
             Step::Say(buf)
         }
         _ => Step::Done,
@@ -334,6 +347,12 @@ mod tests {
     fn final_answer_is_parsed() {
         let raw = r#"{"choices":[{"message":{"content":"done"}}]}"#;
         assert!(matches!(parse_step(raw), Step::Say(_)));
+    }
+
+    #[test]
+    fn reasoning_blocks_are_hidden() {
+        assert_eq!(visible("plan…\n<｜end▁of▁thinking｜>\n\n答案"), "答案");
+        assert_eq!(visible("no think here"), "no think here");
     }
 
     #[test]
