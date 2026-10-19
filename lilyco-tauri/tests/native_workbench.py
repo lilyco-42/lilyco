@@ -280,7 +280,7 @@ if (!button || button.disabled) return false; button.click(); return true;''', t
                 click('可读视图')
                 for result_width in [320, 768, 1180]:
                     request(prefix + '/window/rect', 'POST', {'width': result_width, 'height': 900})
-                    wait(lambda: js('return innerWidth') <= result_width)
+                    wait(lambda: result_width - 32 <= js('return innerWidth') <= result_width)
                     metrics = js('return {width:innerWidth, body:document.documentElement.scrollWidth}')
                     assert metrics['body'] <= metrics['width'] + 1, {'format': extension, 'loaded_result': metrics}
                     (EVIDENCE / f'native-loaded-{extension}-{result_width}.png').write_bytes(base64.b64decode(request(prefix + '/screenshot')))
