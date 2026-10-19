@@ -194,6 +194,13 @@ impl Config {
     }
 }
 
+
+/// True when a provider rejected the request because of tool schemas.
+fn mentions_tools(err: &str) -> bool {
+    let lower = err.to_ascii_lowercase();
+    lower.contains("tool")
+}
+
 /// A model reached over HTTP.
 pub struct HttpLlm {
     config: Config,
@@ -223,6 +230,19 @@ impl HttpLlm {
         }
     }
 
+
+    /// Retry once without tool schemas.
+    fn answer_without_tools(&self, ctx: Decision<'_>) -> Step {
+        let plain = build_request(&self.config.model, ctx, &[]);
+        match post(&self.config, &plain) {
+            Ok(text) => parse_step(&text),
+            Err(err) => {
+                ::std::eprintln!("model call failed (no tools): {err}");
+                Step::Done
+            }
+        }
+    }
+
     fn tool_list(&self) -> Vec<(&'static str, &'static str)> {
         self.registry
             .specs()
@@ -237,6 +257,9 @@ impl Llm for HttpLlm {
         let body = build_request(&self.config.model, ctx, &tools);
         match post(&self.config, &body) {
             Ok(text) => parse_step(&text),
+            // Some servers (vLLM without `--enable-auto-tool-choice`, free
+            // gateways) reject tool schemas. Answering in prose beats failing.
+            Err(err) if self.tools && mentions_tools(&err) => self.answer_without_tools(ctx),
             Err(err) => {
                 ::std::eprintln!("model call failed: {err}");
                 Step::Done
