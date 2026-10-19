@@ -243,7 +243,8 @@ fn choose_llm(registry: &'static Registry, goal: &str) -> Box<dyn Llm> {
         api_key: "none".to_string(),
         model: "openai".to_string(),
     };
-    Box::new(HttpLlm::new(config, registry))
+    // This gateway stalls on a `tools` array; prose answers only.
+    Box::new(HttpLlm::without_tools(config, registry))
 }
 
 /// Read the provider Claude Code / cc-switch materialises.

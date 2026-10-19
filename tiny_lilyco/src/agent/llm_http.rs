@@ -194,12 +194,29 @@ impl Config {
 pub struct HttpLlm {
     config: Config,
     registry: &'static Registry,
+    /// Some OpenAI-compatible gateways (notably free ones) stall when a
+    /// `tools` array is present, so tool use is opt-out.
+    tools: bool,
 }
 
 impl HttpLlm {
     /// Bind to a registry so tool schemas can be sent every turn.
     pub fn new(config: Config, registry: &'static Registry) -> Self {
-        HttpLlm { config, registry }
+        HttpLlm {
+            config,
+            registry,
+            tools: true,
+        }
+    }
+
+    /// Same client, but the request carries no `tools` array: the model can only
+    /// answer in prose. Used for gateways that hang on tool schemas.
+    pub fn without_tools(config: Config, registry: &'static Registry) -> Self {
+        HttpLlm {
+            config,
+            registry,
+            tools: false,
+        }
     }
 
     fn tool_list(&self) -> Vec<(&'static str, &'static str)> {
@@ -212,7 +229,7 @@ impl HttpLlm {
 
 impl Llm for HttpLlm {
     fn plan(&mut self, ctx: Decision<'_>) -> Step {
-        let tools = self.tool_list();
+        let tools = if self.tools { self.tool_list() } else { Vec::new() };
         let body = build_request(&self.config.model, ctx, &tools);
         match post(&self.config, &body) {
             Ok(text) => parse_step(&text),
