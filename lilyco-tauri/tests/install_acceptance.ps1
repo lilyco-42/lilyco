@@ -55,7 +55,15 @@ foreach ($root in $registryRoots) {
     if (Test-Path -LiteralPath $root) {
         foreach ($key in Get-ChildItem -LiteralPath $root) {
             $entry = Get-ItemProperty -LiteralPath $key.PSPath
-            if ($entry.InstallLocation -and $entry.InstallLocation.TrimEnd('\','/') -eq $installation) { $entries += $key.PSPath }
+            # The pinned official Tauri NSIS template quotes InstallLocation.
+            # Compare the exact normalized path, not the registry string bytes.
+            if (Test-InstalledLocation $entry.InstallLocation $installation) {
+                if (-not (Test-InstalledLocation $entry.UninstallString (Join-Path $installation 'uninstall.exe'))) { throw 'Installed uninstall registration points to a different program' }
+                if (-not (Test-InstalledLocation $entry.DisplayIcon $binary)) { throw 'Installed registry icon points to a different program' }
+                @{key=$key.PSPath;install_location=$entry.InstallLocation;uninstall_string=$entry.UninstallString;display_icon=$entry.DisplayIcon} |
+                    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $workspace 'lilyco-tauri/tests/evidence/installed-registration.json') -Encoding utf8
+                $entries += $key.PSPath
+            }
         }
     }
 }

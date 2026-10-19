@@ -14,3 +14,14 @@ function Test-InstalledShortcutIcon {
     if ($index -ne 0 -or -not [IO.Path]::IsPathFullyQualified($iconPath)) { return $false }
     return [IO.Path]::GetFullPath($iconPath).Equals([IO.Path]::GetFullPath($ExpectedBinary),[StringComparison]::OrdinalIgnoreCase)
 }
+
+function Test-InstalledLocation {
+    param([string]$Location, [string]$ExpectedPath)
+    if ([string]::IsNullOrWhiteSpace($Location)) { return $false }
+    $value = $Location.Trim()
+    if ($value.Length -ge 2 -and $value.StartsWith('"') -and $value.EndsWith('"')) {
+        $value = $value.Substring(1,$value.Length - 2)
+    }
+    if ($value.Contains('"') -or -not [IO.Path]::IsPathFullyQualified($value)) { return $false }
+    return [IO.Path]::GetFullPath($value).TrimEnd('\','/').Equals([IO.Path]::GetFullPath($ExpectedPath).TrimEnd('\','/'),[StringComparison]::OrdinalIgnoreCase)
+}

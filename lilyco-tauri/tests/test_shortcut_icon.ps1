@@ -9,6 +9,13 @@ foreach ($location in @("$binary,1", "$binary.bak,0", 'relative.exe,0', 'other.e
     if (Test-InstalledShortcutIcon $location $binary $binary) { throw 'Wrong icon target or index accepted' }
 }
 if (Test-InstalledShortcutIcon ',0' ($binary+'.bak') $binary) { throw 'Implicit icon from wrong target accepted' }
+$installDirectory = Split-Path -Parent $binary
+foreach ($location in @($installDirectory, ('"'+$installDirectory+'"'), ($installDirectory+'\'))) {
+    if (-not (Test-InstalledLocation $location $installDirectory)) { throw 'Valid quoted or unquoted InstallLocation rejected' }
+}
+foreach ($location in @('', 'relative', ($installDirectory+'-other'), ('"'+$installDirectory+'" --extra'), ('"'+$installDirectory))) {
+    if (Test-InstalledLocation $location $installDirectory) { throw 'Different or malformed InstallLocation accepted' }
+}
 # Exercise WSH itself, not only string fixtures.
 $linkPath = Join-Path $env:RUNNER_TEMP 'office-shortcut-icon-contract.lnk'
 $shell = New-Object -ComObject WScript.Shell
