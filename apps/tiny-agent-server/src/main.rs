@@ -183,6 +183,9 @@ fn model_label() -> String {
     if let Ok(model) = std::env::var("TINY_AGENT_MODEL") {
         return model;
     }
+    if let Some((_, model)) = local_relay() {
+        return format!("{model} (本机中转站)");
+    }
     if let Some((_, _, model)) = live_claude() {
         return format!("{model} (claude 配置)");
     }
@@ -217,6 +220,31 @@ fn fake_plan(goal: &str) -> ScriptedLlm {
     plan
 }
 
+
+
+/// A relay running on this machine (the Kaggle/vLLM bridge), found by asking it.
+///
+/// This is the "own free compute" path: no key, no configuration, just a local
+/// OpenAI-compatible endpoint. Cached so it costs one request per process.
+fn local_relay() -> Option<(String, String)> {
+    use std::sync::OnceLock;
+    static FOUND: OnceLock<Option<(String, String)>> = OnceLock::new();
+    FOUND
+        .get_or_init(|| {
+            let base = std::env::var("TINY_AGENT_RELAY_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:8080/v1".to_string());
+            let body = ureq::get(&format!("{base}/models"))
+                .timeout(std::time::Duration::from_millis(1200))
+                .call()
+                .ok()?
+                .into_string()
+                .ok()?;
+            let value: serde_json::Value = serde_json::from_str(&body).ok()?;
+            let model = value["data"][0]["id"].as_str()?.to_string();
+            Some((base, model))
+        })
+        .clone()
+}
 
 /// The Claude-configured provider, but only after a real round trip.
 ///
@@ -255,6 +283,14 @@ fn choose_llm(registry: &'static Registry, goal: &str) -> Box<dyn Llm> {
             base_url: base,
             api_key: std::env::var("TINY_AGENT_API_KEY").unwrap_or_default(),
             model: std::env::var("TINY_AGENT_MODEL").unwrap_or_else(|_| "openai".to_string()),
+        };
+        return Box::new(HttpLlm::new(config, registry));
+    }
+    if let Some((base_url, model)) = local_relay() {
+        let config = Config {
+            base_url,
+            api_key: std::env::var("TINY_AGENT_RELAY_KEY").unwrap_or_else(|_| "local".to_string()),
+            model,
         };
         return Box::new(HttpLlm::new(config, registry));
     }
