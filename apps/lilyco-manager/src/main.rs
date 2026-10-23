@@ -6,8 +6,8 @@ use axum::{
     Json, Router,
 };
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, Database, DatabaseConnection,
-    DbBackend, EntityTrait, QueryOrder, QuerySelect, Statement,
+    ActiveModelTrait, ActiveValue::Set, ConnectionTrait, Database, DatabaseConnection, DbBackend,
+    EntityTrait, QueryOrder, QuerySelect, Statement,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -149,12 +149,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::env::var("LILYCO_MANAGER_DB").unwrap_or_else(|_| "lilyco-manager.sqlite".to_string());
     let url = format!("sqlite://{db_path}?mode=rwc");
     let db = Database::connect(url).await?;
-    db.execute(Statement::from_string(
+    db.execute(&Statement::from_string(
         DbBackend::Sqlite,
         "CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY AUTOINCREMENT, tool TEXT NOT NULL, output TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);".to_string(),
     ))
     .await?;
-    let token = std::env::var("LILYCO_MANAGER_TOKEN").unwrap_or(session_token()?);
+    let token = std::env::var("LILYCO_MANAGER_TOKEN").unwrap_or(
+        session_token().map_err(|err| format!("random token generation failed: {err}"))?,
+    );
     if token.len() < 24 {
         return Err("LILYCO_MANAGER_TOKEN must be at least 24 characters".into());
     }
