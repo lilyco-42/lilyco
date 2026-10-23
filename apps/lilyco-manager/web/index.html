@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lilyco Manager</title>
+<style>body{margin:0;background:#10121b;color:#e8eaf5;font:15px system-ui,sans-serif}main{max-width:920px;margin:45px auto;padding:20px}header{display:flex;justify-content:space-between;align-items:center}h1{font-size:26px}section{background:#1b1e2a;border:1px solid #33384b;border-radius:14px;padding:20px;margin-top:20px}button{border:0;border-radius:7px;background:#638cfa;color:white;padding:9px 13px;cursor:pointer;margin:4px}pre{white-space:pre-wrap;background:#10121b;padding:14px;border-radius:8px;overflow:auto}small{color:#aab3cf}</style></head>
+<body><main><header><div><h1>Lilyco Manager</h1><small>本地工具控制台 · MVP</small></div><span>● Local</span></header>
+<section><h2>工具注册表</h2><div id="tools">加载中...</div></section>
+<section><h2>调用结果</h2><pre id="output">选择一个只读工具运行</pre></section>
+<section><h2>运行历史</h2><button id="refresh">刷新历史</button><pre id="history">—</pre></section>
+</main><script>
+const token = new URLSearchParams(location.hash.slice(1)).get('token') || '';
+history.replaceState(null,'',location.pathname);
+async function call(path,method='GET') {
+ const res=await fetch(path,{method,headers:{'x-lilyco-token':token}});
+ if(!res.ok)throw new Error('HTTP '+res.status);
+ return res.json();
+}
+async function loadTools(){
+ try {const {tools}=await call('/api/tools');const root=document.getElementById('tools');root.replaceChildren();
+ for(const tool of tools){const row=document.createElement('div');const b=document.createElement('button');b.textContent='运行';b.onclick=async()=>{try{document.getElementById('output').textContent=JSON.stringify(await call('/api/tools/'+encodeURIComponent(tool.name)+'/run','POST'),null,2);await loadHistory();}catch(e){document.getElementById('output').textContent=String(e)}};row.append(document.createTextNode(tool.name+' — '+tool.description+' '),b);root.append(row);}
+ }catch(e){document.getElementById('tools').textContent=String(e)}
+}
+async function loadHistory(){try{document.getElementById('history').textContent=JSON.stringify(await call('/api/history'),null,2)}catch(e){document.getElementById('history').textContent=String(e)}}
+document.getElementById('refresh').onclick=loadHistory;
+loadTools();loadHistory();
+</script></body></html>
