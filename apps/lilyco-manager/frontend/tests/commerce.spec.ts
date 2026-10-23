@@ -38,9 +38,14 @@ test('CI embeds and executes verified WebAssembly exposure kernel on device', as
     mimeType: 'image/png',
     buffer: readFileSync(resolve('tests/fixtures/sample.png'))
   }])
-  await page.getByRole('checkbox', { name: '用 WebGPU 加速亮度调整' }).uncheck().catch(() => {})
-  await page.getByLabel('亮度').fill('1.2').catch(() => {})
-  await page.locator('input[type=range]').last().fill('1.2')
+  const slider = page.locator('input[type=range]').last()
+  await slider.evaluate(el => {
+    const input = el as HTMLInputElement
+    input.value = '1.2'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await expect(page.getByText('亮度 1.20 ×')).toBeVisible()
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 30000 }),
     page.getByRole('button', { name: '导出商品图 ZIP' }).click()
@@ -48,4 +53,6 @@ test('CI embeds and executes verified WebAssembly exposure kernel on device', as
   expect(download.suggestedFilename()).toContain('commerce-assets.zip')
   await expect(page.getByText('上次执行引擎：WebAssembly')).toBeVisible()
 })
+
+
 
