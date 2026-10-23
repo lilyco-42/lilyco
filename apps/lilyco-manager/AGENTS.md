@@ -22,3 +22,6 @@ Read `../../AGENTS.md`, `docs/TECHNICAL_SPEC.md`, and `docs/UI_SPEC.md` before m
 5. Update TECHNICAL_SPEC / UI_SPEC when architecture or interactions change.
 
 See also `../../docs/CODEGRAPH.md` for framework-level architecture.
+
+- Ecosystem catalog must contain PUBLIC repos only; do not commit or embed private repository metadata. Discovery status is never execution permission.
+

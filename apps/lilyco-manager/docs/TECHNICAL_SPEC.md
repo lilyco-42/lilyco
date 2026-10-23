@@ -37,3 +37,7 @@ M1: real Lilyco tool discovery and safe read-only calls.
 M2: execution progress and history with SSE.
 M3: permissioned MCP/CLI gateway, installation and updating.
 M4: optional wtx/Turso comparative benchmarks and backend ADR.
+
+## Ecosystem discovery v0
+The embedded ecosystem.json is a reviewed snapshot of PUBLIC GitHub repositories only. GET /api/ecosystem returns project metadata to authenticated local users. 'discovered' never implies installed, integrated, executable or trustworthy. Private repositories and secrets must never be bundled into the public repository or release. Future adapters require reviewed manifests, capabilities, signatures, explicit permissions, and sandboxing.
+

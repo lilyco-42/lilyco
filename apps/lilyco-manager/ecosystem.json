@@ -1,0 +1,210 @@
+[
+  {
+    "name": "lilyco",
+    "description": "让人类远离计算机，AI 可做任何事 —— 加速 Token 2 Anything 到来，促进智能在现实世界的流动性，解放人类，加快躺平未来。一个 struct 派生 CLI/TUI/Web/MCP 四端，天生 AI-callable：MCP 服务器 + 进度通知 + 采样桥（工具可反向调用 Agent 的 LLM）。一套代码，Windows/Linux/Android 全平台。",
+    "url": "https://github.com/lilyco-42/lilyco",
+    "category": "project",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lilyco-42",
+    "description": "云枢智创数码信息科技服务工作室 · 项目总览（GitHub 个人主页 README）",
+    "url": "https://github.com/lilyco-42/lilyco-42",
+    "category": "project",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lilyco-42.github.io",
+    "description": "lilyco-42 项目仪表盘 —— AI 优先的 Rust 框架、浏览器内 WASM 应用、Windows 桌面工具，以及逐条可核验的预研记录。让人类远离计算机，AI 可做任何事。",
+    "url": "https://github.com/lilyco-42/lilyco-42.github.io",
+    "category": "project",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lilyco-approve",
+    "description": "Android 自动点按助手：无障碍服务读屏并代点 Approve / Reject，全程离线；内置端侧 GGUF 推理与 TTS，可经 Termux 桥接",
+    "url": "https://github.com/lilyco-42/lilyco-approve",
+    "category": "project",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lilyco-brand",
+    "description": "lilyco brand assets: Blossom-weave mark, lockup, mpkg 0.3.0, deterministic HTML->video pipeline (Blossom promo 16s / 42-impact lily bloom 14s)",
+    "url": "https://github.com/lilyco-42/lilyco-brand",
+    "category": "project",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lilyco-crypto",
+    "description": "no_std 零依赖密码学原语 · MD5 / SHA-256 / HMAC / 常量时间比较 / 卡密生成 —— 供 lilyco 生态复用，裸机与 WASM 可用",
+    "url": "https://github.com/lilyco-42/lilyco-crypto",
+    "category": "infrastructure",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "local-ai-studio",
+    "description": "本地 AI 工具箱预研：引擎一律用上游预编译产物，构建与验证只在 GitHub Actions",
+    "url": "https://github.com/lilyco-42/local-ai-studio",
+    "category": "application",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "ly_motion",
+    "description": "🦀 Rust 动效/动画引擎：图片素材运动 · 高效骨骼绑定 · 类 PCL 的 UI 动效 · 类 manim 的声明式出片 —— 流畅 / 顺滑 / 丝滑",
+    "url": "https://github.com/lilyco-42/ly_motion",
+    "category": "project",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "Lyco",
+    "description": "Lyco 局域网IP扫描和端口嗅探，简单的局域网内聊天。",
+    "url": "https://github.com/lilyco-42/Lyco",
+    "category": "project",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco_agent",
+    "description": "lyco_agent — 能学习视频/CLI手册的本地 AI agent: 工具调用+诚实降级+运行时学习 (Rust lycore + GRPO 小模型). 工具调用和学习能力 > Scaling Law",
+    "url": "https://github.com/lilyco-42/lyco_agent",
+    "category": "project",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco_chat",
+    "description": "From-scratch pure-Rust Transformer: BitNet 1.58-bit quantization bit-exact with microsoft/BitNet i2_s, dual MoE (Colibrì-packed + DeepSeek shared-expert). Bilingual Rust-std Q&A via a 9-layer routing chain that says 'I don't know' and learns instead of hallucinating. Verified by 220 tests.",
+    "url": "https://github.com/lilyco-42/lyco_chat",
+    "category": "project",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco_music",
+    "description": "LX Music NetEase-style UI remake (Vue3 + shadcn-vue + Tailwind), built via GitHub Actions",
+    "url": "https://github.com/lilyco-42/lyco_music",
+    "category": "application",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco-ai-toolkit",
+    "description": "Multi-domain AI asset studio: MC skin / 3D / music / lyrics / code",
+    "url": "https://github.com/lilyco-42/lyco-ai-toolkit",
+    "category": "application",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco-app",
+    "description": "Lyco AI companion app: mobile plus desktop, on-device GGUF, permission-extended AI (location to POI to reviews)",
+    "url": "https://github.com/lilyco-42/lyco-app",
+    "category": "project",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco-browser",
+    "description": "LYCO fingerprint browser: multi-profile Chromium + LYCO VPN/Billing integration, GitHub Actions-only builds",
+    "url": "https://github.com/lilyco-42/lyco-browser",
+    "category": "application",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco-cli",
+    "description": "统一多语言脚手架工具：gh api 驱动模板 + 声明式渲染 (Rust CLI)",
+    "url": "https://github.com/lilyco-42/lyco-cli",
+    "category": "infrastructure",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco-desktop-switcher",
+    "description": "",
+    "url": "https://github.com/lilyco-42/lyco-desktop-switcher",
+    "category": "application",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco-engine",
+    "description": "yuzu — WASM-based cross-platform visual novel engine (YuzuSoft) + resource streaming backend",
+    "url": "https://github.com/lilyco-42/lyco-engine",
+    "category": "project",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco-ip",
+    "description": "LYCO · 原创角色 IP 资源库 — 设计资产、配色指南、形象规范与挂件规范",
+    "url": "https://github.com/lilyco-42/lyco-ip",
+    "category": "project",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco-jev",
+    "description": "lyco-jev: fork of jev-chat-jarvis with on-device Jev-Style-0.8B judged on the phone, OCR+YOLO vision, gated auto-reply and long-term memory",
+    "url": "https://github.com/lilyco-42/lyco-jev",
+    "category": "project",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco-model",
+    "description": "模型评测报告与可复现实验：RAG / OODA / 投毒 / 声明核验脚本",
+    "url": "https://github.com/lilyco-42/lyco-model",
+    "category": "infrastructure",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco-model-bench",
+    "description": "每日模型发现 + token 测速：追踪 NVIDIA NIM / OpenRouter 的模型供给变化与中文响应速度",
+    "url": "https://github.com/lilyco-42/lyco-model-bench",
+    "category": "infrastructure",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco-router",
+    "description": "按需服务路由器：像 mc-router 一样——平时零占用，有人连才拉起后端，空闲即停。lilyco 一个 struct 出 CLI/TUI/Web/MCP。",
+    "url": "https://github.com/lilyco-42/lyco-router",
+    "category": "infrastructure",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco-router-eval",
+    "description": "Independent-eval-Qwen3-0.6B-ondevice-router-40cases",
+    "url": "https://github.com/lilyco-42/lyco-router-eval",
+    "category": "infrastructure",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco-skill",
+    "description": "写代码前先侦察！🕵️ 项目预研技能：需求钉死一句话 → gh 近义词模糊搜现成方案 → 论坛(Reddit/吾爱破解)挖冷门知识 → build-vs-buy 决策。主流方案 ≥80% 就抄，硬约束才自研——让 Agent 少造 80% 轮子，汇报 ≤12 行不废话。",
+    "url": "https://github.com/lilyco-42/lyco-skill",
+    "category": "infrastructure",
+    "integration": "discovered",
+    "visibility": "public"
+  },
+  {
+    "name": "lyco-whisper",
+    "description": "一个本地的视频字幕生成工具",
+    "url": "https://github.com/lilyco-42/lyco-whisper",
+    "category": "application",
+    "integration": "discovered",
+    "visibility": "public"
+  }
+]

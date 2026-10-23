@@ -3,9 +3,11 @@ import {ref,computed,onMounted} from 'vue'
 import {Blocks,LayoutDashboard,History,Plug,Settings,Search,Play,RefreshCw,Terminal,Database,ShieldCheck,Activity} from 'lucide-vue-next'
 type Tool={name:string;description:string;read_only:boolean}
 type Run={id:number;tool:string;output:string;created_at:string}
+type Project={name:string;description:string|null;url:string;category:string;integration:string;visibility:string}
 const token=new URLSearchParams(location.hash.slice(1)).get('token')??''
 history.replaceState(null,'',location.pathname)
-const menu=[{id:'overview',name:'概览',icon:LayoutDashboard},{id:'tools',name:'工具中心',icon:Blocks},{id:'runs',name:'运行历史',icon:History},{id:'mcp',name:'MCP 服务',icon:Plug},{id:'settings',name:'设置',icon:Settings}]
+const menu=[{id:'overview',name:'概览',icon:LayoutDashboard},{id:'tools',name:'工具中心',icon:Blocks},{id:'ecosystem',name:'生态项目',icon:Blocks},{id:'runs',name:'运行历史',icon:History},{id:'mcp',name:'MCP 服务',icon:Plug},{id:'settings',name:'设置',icon:Settings}]
+const projects=ref<Project[]>([])
 const tab=ref('tools'), tools=ref<Tool[]>([]), runs=ref<Run[]>([]), query=ref(''), loading=ref(false), error=ref(''), output=ref(''), selected=ref('')
 const filtered=computed(()=>tools.value.filter(x=>(x.name+x.description).toLowerCase().includes(query.value.toLowerCase())))
 async function api(path:string,method='GET'){
@@ -15,7 +17,7 @@ async function api(path:string,method='GET'){
 }
 async function refresh(){
  loading.value=true;error.value=''
- try{const [t,h]=await Promise.all([api('/api/tools'),api('/api/history')]);tools.value=t.tools??[];runs.value=h.runs??[]}
+ try{const [t,h,e]=await Promise.all([api('/api/tools'),api('/api/history'),api('/api/ecosystem')]);tools.value=t.tools??[];runs.value=h.runs??[];projects.value=e.projects??[]}
  catch(e){error.value=String(e)}finally{loading.value=false}
 }
 async function invoke(tool:Tool){
@@ -49,8 +51,19 @@ onMounted(refresh)
    </div>
   </section>
   <section v-if="tab==='overview'||tab==='tools'" class="mt-5 bg-[#141d2d] border border-white/10 rounded-xl p-5"><div class="flex justify-between gap-3"><h2 class="font-semibold">执行结果</h2><span class="text-xs font-mono text-slate-400">{{selected||'NO TASK'}}</span></div><pre class="mt-4 rounded-lg bg-[#090f19] p-4 text-sm text-emerald-200 max-h-80 overflow-auto">{{output||'选择工具后显示 JSON 输出'}}</pre></section>
+  <section v-if="tab==='ecosystem'" class="bg-[#141d2d] border border-white/10 rounded-xl overflow-hidden">
+   <div class="p-5 border-b border-white/10"><h2 class="text-lg font-semibold">Lilyco 生态仓库</h2><p class="text-xs text-slate-400 mt-1">来自 lilyco-42 GitHub 仓库目录 · 仅发现，未获准执行</p></div>
+   <div class="p-3 sm:p-5 grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+    <article v-for="project in projects" :key="project.name" class="rounded-xl bg-[#0b1220] border border-white/10 p-4 flex flex-col gap-3">
+     <div class="flex justify-between gap-2"><h3 class="font-mono text-sm font-semibold">{{project.name}}</h3><span class="text-xs text-slate-400">{{project.category}}</span></div>
+     <p class="text-xs text-slate-400 line-clamp-3 flex-1">{{project.description||'暂无仓库描述'}}</p>
+     <div class="flex items-center justify-between"><span class="text-xs text-amber-300">已发现 · 未接入</span><a :href="project.url" target="_blank" rel="noopener noreferrer" class="text-sm text-indigo-300 underline">GitHub ↗</a></div>
+    </article>
+   </div>
+  </section>
   <section v-if="tab==='runs'" class="bg-[#141d2d] border border-white/10 rounded-xl overflow-hidden"><h2 class="p-5 border-b border-white/10 font-semibold">运行历史</h2><div v-for="run in runs" :key="run.id" class="p-5 border-b border-white/5 flex justify-between gap-2 flex-wrap text-sm"><span class="font-mono">{{run.tool}}</span><span class="text-slate-400">{{run.created_at}}</span></div><p v-if="!runs.length" class="p-10 text-center text-slate-400">暂无记录</p></section>
   <section v-if="tab==='mcp'||tab==='settings'" class="bg-[#141d2d] border border-white/10 rounded-xl p-8"><h2 class="font-semibold text-lg">{{tab==='mcp'?'MCP 网关':'系统设置'}}</h2><p class="text-slate-400 text-sm mt-3">功能规划中，后端接口尚未开放。</p></section>
  </main>
 </div>
 </template>
+

@@ -35,3 +35,7 @@ Vue 3 SFC + TypeScript + Vite + Tailwind CSS 4; use lucide icons, reusable layou
 [ ] Dark/light token compatibility
 [ ] Tool call + history end-to-end smoke verified
 [ ] Screenshots reviewed before shipping
+
+## Ecosystem registry view
+Show source repositories with name, category, description, upstream URL, and explicit 'discovered / not integrated' state. No run/install buttons until a vetted adapter exists. Do not label a repository supported because its name begins with lyco/lilyco.
+

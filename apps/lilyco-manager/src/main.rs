@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use std::net::SocketAddr;
 
 const PAGE: &str = include_str!("../frontend/dist/index.html");
+const ECOSYSTEM: &str = include_str!("../ecosystem.json");
 
 mod runs {
     use sea_orm::entity::prelude::*;
@@ -78,6 +79,17 @@ async fn index() -> Html<&'static str> {
     Html(PAGE)
 }
 
+async fn ecosystem(
+    State(state): State<App>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, StatusCode> {
+    if !authorised(&headers, &state.token) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let projects: Value =
+        serde_json::from_str(ECOSYSTEM).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(json!({"projects": projects})))
+}
 async fn list(State(state): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
     if !authorised(&headers, &state.token) {
         return Err(StatusCode::UNAUTHORIZED);
@@ -164,6 +176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let router = Router::new()
         .route("/", get(index))
         .route("/api/tools", get(list))
+        .route("/api/ecosystem", get(ecosystem))
         .route("/api/tools/:name/run", post(run))
         .route("/api/history", get(history))
         .with_state(app);
