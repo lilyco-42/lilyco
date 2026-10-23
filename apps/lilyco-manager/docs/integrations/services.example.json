@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "services": [
+    {
+      "id": "infinite-canvas",
+      "name": "Infinite Canvas",
+      "type": "frontend",
+      "upstream": "https://github.com/basketikun/infinite-canvas",
+      "status": "research_only",
+      "requires": ["scoped_customer_key", "openai_compatible_endpoint"],
+      "notes": "UI calls endpoint directly from browser. Verify image/video capability before advertising."
+    },
+    {
+      "id": "uncensored-api-relay",
+      "name": "Lilyco Rust API Relay",
+      "type": "gateway",
+      "upstream": "https://github.com/lilyco-42/uncensored-api-relay",
+      "status": "existing_repository_unverified_deployment",
+      "health_path": "/health",
+      "capabilities": ["chat_completions", "anthropic_messages", "models", "sse"]
+    },
+    {
+      "id": "studio-billing",
+      "name": "Studio Billing",
+      "type": "billing",
+      "upstream": "https://github.com/lilyco-42/studio-billing",
+      "status": "existing_repository_unverified_deployment",
+      "notes": "Billing admin and entitlement APIs are server-side only."
+    }
+  ]
+}
