@@ -10,14 +10,14 @@ test('AI worker is lazy, user-triggered, and never uploads source images',async(
   page.on('request',request=>{if(request.method()==='POST'||request.method()==='PUT')outgoing.push(request.url())})
   let loaded=0
   await context.route('**/dist/transformers.web.min.js',route=>route.continue())
-  await context.route('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.web.min.js',async route=>{
+  await context.route('https://esm.sh/@huggingface/transformers@3.8.1?bundle&target=es2022&conditions=browser',async route=>{
     loaded++
     await route.fulfill({status:200,contentType:'text/javascript',headers:{'access-control-allow-origin':'*'},body:`
 export const env = {};
 export const RawImage = { async fromBlob(blob){ return { blob }; } };
 export async function pipeline(task,model,options){
   options.progress_callback?.({status:'progress',progress:100});
-  return async image => ({ async toBlob(){ return image.blob; } });
+  return async image => ({ channels: 4, async toBlob(){ return image.blob; } });
 }
 `})
   })

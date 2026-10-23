@@ -5,7 +5,7 @@ Date: 2026-10-23
 ## User choice and running costs
 The Commerce Studio explicitly asks users to click **AI background removal**; nothing downloads at page open. The selected PNG/JPEG/WebP is resized locally to a maximum of 1024px before being sent to a dedicated browser Web Worker as an in-memory ArrayBuffer. The Worker is a client-side thread, NOT a backend service.
 
-The Worker lazily imports the pinned @huggingface/transformers **3.8.1** browser runtime from jsDelivr after opt-in. Runtime WASM assets and model files are fetched by the user browser directly from vendor/CDN origins, never from a Lilyco GPU server. The browser may reuse cached model weights. JS/CDN download latency and availability depend on the user's network; vendor endpoints see network metadata/IP, not the uploaded image pixel data. Model fetches must use GET, never prompt/image uploads.
+The Worker lazily imports the pinned @huggingface/transformers **3.8.1** browser runtime from a pinned esm.sh ESM browser bundle after opt-in. Runtime WASM assets and model files are fetched by the user browser directly from vendor/CDN origins, never from a Lilyco GPU server. The browser may reuse cached model weights. JS/CDN download latency and availability depend on the user's network; vendor endpoints see network metadata/IP, not the uploaded image pixel data. Model fetches must use GET, never prompt/image uploads.
 
 **Recommended models:**
 - People / clothing on models: `Xenova/modnet`, Apache-2.0. The quantized CPU model is approximately 6.6 MB, GPU model approximately 13 MB; not intended for product-only images.
@@ -30,3 +30,21 @@ Images and the output PNG remain on the customer's device. A client may cancel b
 - CDN model and runtime download needed on first use; browser storage can be cleared. Offline use of AI mode is conditional on browser cache, while basic image tools remain offline.
 - WebGPU model load may fail and revert to WASM CPU. True WASM GPU compute does not exist: WebGPU uses GPU, WebAssembly uses CPU.
 - This is an experimental feature until a live model run is independently verified, and output quality tested on product photos.
+
+## Verified client runtime caveat
+Direct jsDelivr dist/transformers.web.min.js is not usable in a bare browser module worker because it references the bare specifier onnxruntime-common. The integration must use a browser-resolvable ESM bundle. This is checked by optional live browser verification and the deterministic worker routing test.
+
+
+## 2026-10-23 Windows client validation
+A real Chrome + Playwright opt-in test of Xenova/modnet completed successfully in approximately 24 seconds (tiny fixture; not a product performance benchmark). Replacing unbundled jsDelivr dist with the pinned esm.sh browser ESM bundle fixed the bare onnxruntime-common import failure. General ORMBG product inference remains unverified until its own client test completes.
+
+
+## Reviewed immutable model revisions
+- Xenova/modnet @ a2fa546052fba4c08921230a26cc69a333fca12 (model card Apache-2.0).
+- onnx-community/ormbg-ONNX @ 34e2d884afbab897e10e78fc5bb566b29533fd6 (model card Apache-2.0).
+Model updates require reviewing upstream model cards and explicitly updating the pinned revisions.
+
+## Live Chrome test results
+- MODNet (client CPU, with initial model/runtime network fetch): PASSED ~24s on tiny fixture.
+- ORMBG (client CPU, with initial model/runtime network fetch): PASSED ~49s on tiny fixture.
+These timings are NOT typical performance benchmarks for product photos; production quality/real image tests are still needed.

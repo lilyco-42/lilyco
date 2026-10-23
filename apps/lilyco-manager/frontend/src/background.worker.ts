@@ -4,7 +4,7 @@ import type { RawImage as TransformerRawImage } from '@huggingface/transformers'
  * Pinned public CDN version; nothing is fetched from or uploaded to Lilyco servers.
  * The 21 MB ONNX WASM binary and model weights are loaded by the vendor runtime on demand.
  */
-const runtimeUrl = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.web.min.js'
+const runtimeUrl = 'https://esm.sh/@huggingface/transformers@3.8.1?bundle&target=es2022&conditions=browser'
 let library: Promise<typeof import('@huggingface/transformers')> | undefined
 function runtime() {
   if (!library) {
@@ -21,6 +21,10 @@ const MODEL: Record<Mode, string> = {
   portrait: 'Xenova/modnet',
   product: 'onnx-community/ormbg-ONNX',
 }
+const MODEL_REVISIONS: Record<Mode, string> = {
+  portrait: 'fa2fa546052fba4c08921230a26cc69a333fca12',
+  product: '034e2d884afbab897e10e78fc5bb566b29533fd6',
+}
 const engines = new Map<string, Segmenter>()
 
 async function load(mode: Mode, webgpu: boolean): Promise<{ pipe: Segmenter; backend: string }> {
@@ -36,6 +40,7 @@ async function load(mode: Mode, webgpu: boolean): Promise<{ pipe: Segmenter; bac
   env.allowRemoteModels = true
   env.useBrowserCache = true
   const instance = await pipeline('background-removal', model, {
+    revision: MODEL_REVISIONS[mode],
     device: backend,
     dtype: backend === 'webgpu' ? 'fp16' : 'q8',
     progress_callback: (item: Progress) => {
@@ -66,6 +71,7 @@ self.onmessage = async (event: MessageEvent<Request>) => {
     const result = await selected.pipe(source)
     const image = Array.isArray(result) ? result[0] : result
     if (!image) throw Error('模型没有返回图片')
+    if(image.channels!==4)throw Error('Model did not produce RGBA image')
     const blob = await image.toBlob()
     if (blob.type && !blob.type.includes('png')) {
       // Require transparent PNG round-trip. Image model results are expected to be RGBA.
@@ -76,6 +82,3 @@ self.onmessage = async (event: MessageEvent<Request>) => {
     postMessage({ kind: 'error', id: request.id, message: error instanceof Error ? error.message : String(error) })
   }
 }
-
-
-
