@@ -19,6 +19,12 @@ jobs:
         working-directory: apps/lilyco-manager
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Build Vue UI
+        run: |
+          cd frontend
+          bun install --frozen-lockfile
+          bun run build
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -31,3 +37,4 @@ jobs:
           name: lilyco-manager-${{ runner.os }}
           path: apps/lilyco-manager/target/release/lilyco-manager*
           if-no-files-found: error
+

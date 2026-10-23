@@ -13,7 +13,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 
-const PAGE: &str = include_str!("../web/index.html");
+const PAGE: &str = include_str!("../frontend/dist/index.html");
 
 mod runs {
     use sea_orm::entity::prelude::*;
