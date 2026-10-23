@@ -6,8 +6,8 @@ use axum::{
     Json, Router,
 };
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ConnectionTrait, Database, DatabaseConnection, DbBackend,
-    EntityTrait, QueryOrder, QuerySelect, Statement,
+    ActiveModelTrait, ActiveValue::Set, ConnectionTrait, Database, DatabaseConnection, EntityTrait,
+    QueryOrder, QuerySelect,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
