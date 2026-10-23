@@ -124,6 +124,7 @@ async function exportImages(){
   <h2 class="text-2xl font-semibold mt-2">跨境电商商品图工作台</h2>
   <p class="text-sm text-slate-300 mt-3 max-w-3xl">图片只在当前浏览器中处理，不上传到 Lilyco 服务器。支持批量统一尺寸、背景、透明图居中、亮度增强与 ZIP 交付。AI 抠图复用 Rembg Studio，创意画布复用 Infinite Canvas。</p>
   <div class="flex flex-wrap gap-2 mt-5">
+   <a href="http://127.0.0.1:8042/" target="_blank" rel="noopener noreferrer" class="px-3 py-2 rounded-lg bg-indigo-500/70 hover:bg-indigo-500 text-sm inline-flex items-center gap-2">打开本机 Rembg Studio（需已启动） ↗</a>
    <a href="https://github.com/lilyco-42/rembg-ui" rel="noopener noreferrer" target="_blank" class="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-sm inline-flex items-center gap-2"><Layers :size="15"/>Rembg Studio · 本地 AI 抠图 <ExternalLink :size="13"/></a>
    <a href="https://github.com/basketikun/infinite-canvas" rel="noopener noreferrer" target="_blank" class="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-sm inline-flex items-center gap-2"><ImagePlus :size="15"/>Infinite Canvas · 创作画布 <ExternalLink :size="13"/></a>
   </div>
@@ -173,5 +174,6 @@ async function exportImages(){
  </div>
 </div>
 </template>
+
 
 

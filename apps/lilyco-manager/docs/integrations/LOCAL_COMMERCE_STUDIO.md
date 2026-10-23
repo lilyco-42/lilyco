@@ -44,3 +44,7 @@ Never upload local images without consent. Do not claim browser WebGPU exposure 
 - [ ] Native Rembg Studio connection requires a local reviewed adapter
 - [ ] ONNX WebGPU/WASM image segmentation not yet implemented
 
+
+## Standalone client mode
+Without a Manager session token, the compiled frontend operates as a static standalone browser client and shows Studio + reviewed catalog only. No requests to the Rust APIs are attempted. Desktop Manager with a valid token exposes additional management menus and metrics. The local Rembg Studio launch link uses its documented default http://127.0.0.1:8042/ (must be running).
+

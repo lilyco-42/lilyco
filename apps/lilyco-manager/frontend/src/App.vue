@@ -9,7 +9,9 @@ type Adapter={tool:string;project:string;installed:boolean;read_only:boolean}
 type Project={name:string;description:string|null;url:string;category:string;integration:string;visibility:string}
 const token=new URLSearchParams(location.hash.slice(1)).get('token')??''
 history.replaceState(null,'',location.pathname)
-const menu=[{id:'overview',name:'概览',icon:LayoutDashboard},{id:'studio',name:'商品图工坊',icon:LayoutDashboard},{id:'tools',name:'工具中心',icon:Blocks},{id:'ecosystem',name:'生态项目',icon:Blocks},{id:'runs',name:'运行历史',icon:History},{id:'mcp',name:'MCP 服务',icon:Plug},{id:'settings',name:'设置',icon:Settings}]
+const hasManagerSession=!!token
+const fullMenu=[{id:'overview',name:'概览',icon:LayoutDashboard},{id:'studio',name:'商品图工坊',icon:LayoutDashboard},{id:'tools',name:'工具中心',icon:Blocks},{id:'ecosystem',name:'生态项目',icon:Blocks},{id:'runs',name:'运行历史',icon:History},{id:'mcp',name:'MCP 服务',icon:Plug},{id:'settings',name:'设置',icon:Settings}]
+const menu=hasManagerSession?fullMenu:fullMenu.filter(x=>x.id==='studio'||x.id==='ecosystem')
 const projects=ref<Project[]>([])
 const adapters=ref<Adapter[]>([])
 const tab=ref('studio'), tools=ref<Tool[]>([]), runs=ref<Run[]>([]), query=ref(''), loading=ref(false), error=ref(''), output=ref(''), selected=ref('')
@@ -32,7 +34,7 @@ async function invoke(tool:Tool){
  try{output.value=JSON.stringify(await api('/api/tools/'+encodeURIComponent(tool.name)+'/run','POST'),null,2);await refresh()}
  catch(e){error.value=String(e)}finally{loading.value=false}
 }
-onMounted(refresh)
+onMounted(()=>{if(hasManagerSession)refresh()})
 </script>
 <template>
 <div class="min-h-screen lg:flex bg-[#0b1220] text-[#e9eefb]">
@@ -44,9 +46,9 @@ onMounted(refresh)
   <p class="hidden lg:block mt-auto text-xs text-slate-500 border-t border-white/10 pt-5">● 本机连接 · Lilyco Manager</p>
  </aside>
  <main class="flex-1 min-w-0 max-w-[1500px] mx-auto p-5 sm:p-8 lg:p-10">
-  <header class="flex flex-wrap justify-between gap-4 items-center mb-8"><div><p class="text-indigo-300 text-xs tracking-widest mb-2">WORKSPACE / LILYCO</p><h1 class="text-3xl font-semibold">{{menu.find(x=>x.id===tab)?.name}}</h1><p class="text-sm text-slate-400 mt-2">本地工具 · 执行状态 · Agent 集成</p></div><button @click="refresh" :disabled="loading" class="border border-white/15 rounded-lg px-4 py-2 flex items-center gap-2 text-sm hover:bg-white/5"><RefreshCw :size="16" :class="loading?'animate-spin':''"/>刷新</button></header>
+  <header class="flex flex-wrap justify-between gap-4 items-center mb-8"><div><p class="text-indigo-300 text-xs tracking-widest mb-2">WORKSPACE / LILYCO</p><h1 class="text-3xl font-semibold">{{menu.find(x=>x.id===tab)?.name}}</h1><p class="text-sm text-slate-400 mt-2">本地工具 · 执行状态 · Agent 集成</p></div><button v-if="hasManagerSession && tab!=='studio'" @click="refresh" :disabled="loading" class="border border-white/15 rounded-lg px-4 py-2 flex items-center gap-2 text-sm hover:bg-white/5"><RefreshCw :size="16" :class="loading?'animate-spin':''"/>刷新</button></header>
   <p v-if="error && tab!=='studio'" role="alert" class="p-4 mb-5 border border-red-400/30 rounded-xl bg-red-400/10 text-red-200">{{error}}</p>
-  <div class="grid sm:grid-cols-3 gap-4 mb-7">
+  <div v-if="hasManagerSession && tab!=='studio'" class="grid sm:grid-cols-3 gap-4 mb-7">
    <div v-for="stat in [{label:'已注册工具',value:tools.length,icon:Blocks},{label:'最近执行记录',value:runs.length,icon:Activity},{label:'存储引擎',value:'SQLite',icon:Database}]" :key="stat.label" class="rounded-xl bg-[#141d2d] border border-white/10 p-5"><div class="flex justify-between text-sm text-slate-400"><span>{{stat.label}}</span><component :is="stat.icon" :size="18"/></div><div class="text-3xl font-semibold mt-5">{{stat.value}}</div></div>
   </div>
   <section v-if="tab==='overview'||tab==='tools'" class="bg-[#141d2d] border border-white/10 rounded-xl overflow-hidden">
@@ -91,3 +93,4 @@ onMounted(refresh)
  </main>
 </div>
 </template>
+
