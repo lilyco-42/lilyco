@@ -3,12 +3,15 @@ import {ref,computed,onMounted} from 'vue'
 import {Blocks,LayoutDashboard,History,Plug,Settings,Search,Play,RefreshCw,Terminal,Database,ShieldCheck,Activity} from 'lucide-vue-next'
 type Tool={name:string;description:string;read_only:boolean}
 type Run={id:number;tool:string;output:string;created_at:string}
+type Adapter={tool:string;project:string;installed:boolean;read_only:boolean}
 type Project={name:string;description:string|null;url:string;category:string;integration:string;visibility:string}
 const token=new URLSearchParams(location.hash.slice(1)).get('token')??''
 history.replaceState(null,'',location.pathname)
 const menu=[{id:'overview',name:'概览',icon:LayoutDashboard},{id:'tools',name:'工具中心',icon:Blocks},{id:'ecosystem',name:'生态项目',icon:Blocks},{id:'runs',name:'运行历史',icon:History},{id:'mcp',name:'MCP 服务',icon:Plug},{id:'settings',name:'设置',icon:Settings}]
 const projects=ref<Project[]>([])
+const adapters=ref<Adapter[]>([])
 const tab=ref('tools'), tools=ref<Tool[]>([]), runs=ref<Run[]>([]), query=ref(''), loading=ref(false), error=ref(''), output=ref(''), selected=ref('')
+const installed=computed(()=>new Map(adapters.value.map(x=>[x.tool,x.installed])))
 const filtered=computed(()=>tools.value.filter(x=>(x.name+x.description).toLowerCase().includes(query.value.toLowerCase())))
 async function api(path:string,method='GET'){
  const response=await fetch(path,{method,headers:{'x-lilyco-token':token}})
@@ -17,7 +20,7 @@ async function api(path:string,method='GET'){
 }
 async function refresh(){
  loading.value=true;error.value=''
- try{const [t,h,e]=await Promise.all([api('/api/tools'),api('/api/history'),api('/api/ecosystem')]);tools.value=t.tools??[];runs.value=h.runs??[];projects.value=e.projects??[]}
+ try{const [t,h,e,a]=await Promise.all([api('/api/tools'),api('/api/history'),api('/api/ecosystem'),api('/api/adapters')]);tools.value=t.tools??[];runs.value=h.runs??[];projects.value=e.projects??[];adapters.value=a.adapters??[]}
  catch(e){error.value=String(e)}finally{loading.value=false}
 }
 async function invoke(tool:Tool){
@@ -47,7 +50,7 @@ onMounted(refresh)
    <p v-if="filtered.length===0" class="p-10 text-center text-slate-400">暂无匹配工具</p>
    <div v-for="tool in filtered" :key="tool.name" class="p-5 border-b last:border-0 border-white/5 flex flex-wrap justify-between items-center gap-4">
     <div class="flex gap-3 items-center"><div class="p-3 rounded-lg bg-indigo-400/10 text-indigo-300"><Terminal :size="19"/></div><div><p class="font-mono text-sm">{{tool.name}}</p><p class="text-slate-400 text-xs mt-1">{{tool.description}}</p></div></div>
-    <div class="flex gap-3 items-center"><span class="flex gap-1 text-xs text-emerald-300"><ShieldCheck :size="14"/>只读</span><button @click="invoke(tool)" :disabled="loading" class="rounded-lg bg-indigo-500 hover:bg-indigo-400 disabled:opacity-50 px-3 py-2 flex gap-2 items-center text-xs"><Play :size="13"/>运行</button></div>
+    <div class="flex gap-3 items-center"><span class="flex gap-1 text-xs text-emerald-300"><ShieldCheck :size="14"/>只读</span><span v-if="installed.has(tool.name)" class="text-xs" :class="installed.get(tool.name)?'text-emerald-300':'text-amber-300'">{{installed.get(tool.name)?'已安装':'未安装'}}</span><button @click="invoke(tool)" :disabled="loading || (installed.has(tool.name) && !installed.get(tool.name))" class="rounded-lg bg-indigo-500 hover:bg-indigo-400 disabled:opacity-50 px-3 py-2 flex gap-2 items-center text-xs"><Play :size="13"/>运行</button></div>
    </div>
   </section>
   <section v-if="tab==='overview'||tab==='tools'" class="mt-5 bg-[#141d2d] border border-white/10 rounded-xl p-5"><div class="flex justify-between gap-3"><h2 class="font-semibold">执行结果</h2><span class="text-xs font-mono text-slate-400">{{selected||'NO TASK'}}</span></div><pre class="mt-4 rounded-lg bg-[#090f19] p-4 text-sm text-emerald-200 max-h-80 overflow-auto">{{output||'选择工具后显示 JSON 输出'}}</pre></section>
@@ -66,4 +69,5 @@ onMounted(refresh)
  </main>
 </div>
 </template>
+
 

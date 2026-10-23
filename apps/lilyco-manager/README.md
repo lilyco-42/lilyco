@@ -16,3 +16,13 @@
 
 Vue 3 + TypeScript + Vite + Tailwind CSS 4；发布时嵌入 frontend/dist/index.html。开发约束见 AGENTS.md、docs/TECHNICAL_SPEC.md 和 docs/UI_SPEC.md。
 
+## Read-only executable adapters
+
+API: GET /api/adapters returns availability for desktop.status and lyco.version.
+The manager only calls a fixed executable and fixed arguments:
+- lyco-desktop-switcher: status --json
+- lyco: --version
+
+Executable resolution: LILYCO_DESKTOP_SWITCHER_EXE and LILYCO_CLI_EXE override PATH. Overrides must be absolute existing files. The UI reports installed/unavailable status. Calls have a 4-second timeout and bounded stdout. No shell, plugin installation, writes or desktop switching are exposed in this phase.
+
+To use: install the signed/trusted executable from its upstream project, then set an absolute override path or add the program to PATH. Restart manager to refresh its process environment. An executable in PATH is trusted code; do not add writable/untrusted directories to PATH.

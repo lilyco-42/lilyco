@@ -12,6 +12,8 @@ use sea_orm::{
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::time::Duration;
 
 const PAGE: &str = include_str!("../frontend/dist/index.html");
 const ECOSYSTEM: &str = include_str!("../ecosystem.json");
@@ -97,6 +99,72 @@ async fn list(State(state): State<App>, headers: HeaderMap) -> Result<Json<Value
     Ok(Json(json!({"tools":tools()})))
 }
 
+/// Only these two fixed executable integrations are permitted. No arbitrary paths or arguments
+/// supplied by API callers are ever executed.
+fn executable_path(name: &str) -> Option<PathBuf> {
+    let (key, default) = match name {
+        "desktop.status" => ("LILYCO_DESKTOP_SWITCHER_EXE", "lyco-desktop-switcher"),
+        "lyco.version" => ("LILYCO_CLI_EXE", "lyco"),
+        _ => return None,
+    };
+    if let Some(path) = std::env::var_os(key) {
+        let path = PathBuf::from(path);
+        return (path.is_absolute() && path.is_file()).then_some(path);
+    }
+    let paths = std::env::split_paths(&std::env::var_os("PATH")?);
+    for directory in paths {
+        for suffix in if cfg!(windows) {
+            vec![".exe"]
+        } else {
+            vec![""]
+        } {
+            let path = directory.join(format!("{default}{suffix}"));
+            if path.is_file() {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+async fn adapter_call(name: &str) -> Result<Value, StatusCode> {
+    let program = executable_path(name).ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let args: &[&str] = match name {
+        "desktop.status" => &["status", "--json"],
+        "lyco.version" => &["--version"],
+        _ => return Err(StatusCode::NOT_FOUND),
+    };
+    let child = tokio::process::Command::new(program)
+        .args(args)
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(4), child)
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+    if !output.status.success() {
+        return Err(StatusCode::BAD_GATEWAY);
+    }
+    if output.stdout.len() > 64 * 1024 {
+        return Err(StatusCode::BAD_GATEWAY);
+    }
+    let stdout = String::from_utf8(output.stdout).map_err(|_| StatusCode::BAD_GATEWAY)?;
+    Ok(match name {
+        "desktop.status" => serde_json::from_str(&stdout).map_err(|_| StatusCode::BAD_GATEWAY)?,
+        "lyco.version" => json!({"version":stdout.trim()}),
+        _ => return Err(StatusCode::NOT_FOUND),
+    })
+}
+
+async fn adapters(State(state): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
+    if !authorised(&headers, &state.token) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    Ok(Json(json!({"adapters": [
+        {"tool":"desktop.status","project":"lyco-desktop-switcher","installed":executable_path("desktop.status").is_some(),"read_only":true},
+        {"tool":"lyco.version","project":"lyco-cli","installed":executable_path("lyco.version").is_some(),"read_only":true}
+    ]})))
+}
 async fn run(
     State(state): State<App>,
     headers: HeaderMap,
@@ -105,7 +173,10 @@ async fn run(
     if !authorised(&headers, &state.token) {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    let output = execute(&name).map_err(|_| StatusCode::NOT_FOUND)?;
+    let output = match name.as_str() {
+        "desktop.status" | "lyco.version" => adapter_call(&name).await?,
+        _ => execute(&name).map_err(|_| StatusCode::NOT_FOUND)?,
+    };
     let record = runs::ActiveModel {
         tool: Set(name),
         output: Set(output.to_string()),
@@ -177,6 +248,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/", get(index))
         .route("/api/tools", get(list))
         .route("/api/ecosystem", get(ecosystem))
+        .route("/api/adapters", get(adapters))
         .route("/api/tools/:name/run", post(run))
         .route("/api/history", get(history))
         .with_state(app);

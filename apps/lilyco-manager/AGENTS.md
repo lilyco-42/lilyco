@@ -25,3 +25,4 @@ See also `../../docs/CODEGRAPH.md` for framework-level architecture.
 
 - Ecosystem catalog must contain PUBLIC repos only; do not commit or embed private repository metadata. Discovery status is never execution permission.
 
+- Fixed executable adapter calls may only expose reviewed read-only operations. Never accept executable names or argv from HTTP clients. Keep 4-second timeout, bounded output and explicit installed/unavailable states.

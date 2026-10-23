@@ -41,3 +41,5 @@ M4: optional wtx/Turso comparative benchmarks and backend ADR.
 ## Ecosystem discovery v0
 The embedded ecosystem.json is a reviewed snapshot of PUBLIC GitHub repositories only. GET /api/ecosystem returns project metadata to authenticated local users. 'discovered' never implies installed, integrated, executable or trustworthy. Private repositories and secrets must never be bundled into the public repository or release. Future adapters require reviewed manifests, capabilities, signatures, explicit permissions, and sandboxing.
 
+## Integration adapters v1
+GET /api/adapters reports installed/unavailable for whitelisted binaries. Tools desktop.status and lyco.version have fixed argv and bounded subprocess timeouts. This is not a general subprocess runner. Adapter binaries are trusted executable code; installation is an explicit user action, not triggered by visiting a web page.
