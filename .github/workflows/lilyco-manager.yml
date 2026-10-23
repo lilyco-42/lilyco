@@ -19,7 +19,22 @@ jobs:
         working-directory: apps/lilyco-manager
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout reviewed WASM pixel kernels source
+        uses: actions/checkout@v4
+        with:
+          repository: lilyco-42/wasm-pixel-kernels
+          ref: 94285d78cec5edb0e2f671b0bfe5632a4d05df10
+          path: external-wasm-pixel-kernels
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
       - uses: oven-sh/setup-bun@v2
+      - name: Build reviewed browser WASM locally in CI only
+        shell: bash
+        run: |
+          cargo build --release --target wasm32-unknown-unknown --manifest-path ../../external-wasm-pixel-kernels/Cargo.toml
+          bun scripts/embed-wasm.mjs ../../external-wasm-pixel-kernels/target/wasm32-unknown-unknown/release/wasm_pixel_kernels.wasm
       - name: Validate project catalog
         run: bun scripts/validate-catalog.mjs
       - name: Build Vue UI
@@ -32,9 +47,7 @@ jobs:
         run: |
           cd frontend
           bun run smoke
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+
       - run: cargo fmt -- --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
@@ -44,4 +57,5 @@ jobs:
           name: lilyco-manager-${{ runner.os }}
           path: apps/lilyco-manager/target/release/lilyco-manager*
           if-no-files-found: error
+
 

@@ -2,6 +2,7 @@
 import { ref, computed, watch, onBeforeUnmount, onMounted } from 'vue'
 import { zipSync, strToU8 } from 'fflate'
 import { webGpuAvailable, exposeOnGpu } from './webgpu'
+import { exposureOnWasm, wasmEmbedded } from './wasm-kernels'
 import { ImagePlus, Download, X, Cpu, Zap, CheckCircle2, AlertCircle, Layers, ExternalLink } from 'lucide-vue-next'
 
 type Entry = { id:number; name:string; source:File; preview:string }
@@ -14,6 +15,8 @@ const skuPrefix=ref('SKU')
 const exposure=ref(1)
 const gpuSupport=ref(false)
 const useGpu=ref(true)
+const useWasm=ref(true)
+const executionBackend=ref('')
 const isBusy=ref(false)
 const progress=ref('')
 const status=ref('')
@@ -77,10 +80,15 @@ async function renderOne(entry:Entry):Promise<Uint8Array>{
    const data=ctx.getImageData(0,0,canvas.width,canvas.height)
    let modified=false
    if(useGpu.value&&gpuSupport.value){
-    try{ctx.putImageData(await exposeOnGpu(data,exposure.value),0,0);modified=true}
-    catch{status.value='WebGPU 加速失败，已自动退回浏览器 CPU 处理'}
+    try{ctx.putImageData(await exposeOnGpu(data,exposure.value),0,0);modified=true;executionBackend.value='WebGPU'}
+    catch{status.value='WebGPU 失败，正在尝试 WebAssembly / CPU 回退'}
+   }
+   if(!modified&&wasmEmbedded&&useWasm.value){
+    try{ctx.putImageData(await exposureOnWasm(data,exposure.value),0,0);modified=true;executionBackend.value='WebAssembly'}
+    catch{status.value='WebAssembly 内核执行失败，已回退浏览器 CPU'}
    }
    if(!modified){
+    executionBackend.value='Canvas2D CPU'
     for(let i=0;i<data.data.length;i+=4)for(let c=0;c<3;c++)data.data[i+c]=Math.min(255,data.data[i+c]!*exposure.value)
     ctx.putImageData(data,0,0)
    }
@@ -163,17 +171,22 @@ async function exportImages(){
    <label class="block text-sm">边距 {{margin}}%<input type="range" min="0" max="25" v-model.number="margin" class="w-full mt-3 accent-indigo-400"/></label>
    <label class="block text-sm">亮度 {{exposure.toFixed(2)}} ×<input type="range" min="0.7" max="1.4" step="0.05" v-model.number="exposure" class="w-full mt-3 accent-indigo-400"/></label>
    <div class="rounded-lg bg-[#0b1220] p-3 text-xs space-y-2">
+    <p :data-wasm-ready='wasmEmbedded' class='text-slate-300'>WASM 图像内核：{{wasmEmbedded?'已嵌入（离线）':'未打包 · Canvas2D 回退'}}</p>
     <div class="flex items-center gap-2"><Zap v-if="gpuSupport" :size="16" class="text-emerald-300"/><Cpu v-else :size="16" class="text-amber-300"/><span>{{gpuSupport?'检测到 WebGPU':'WebGPU 不可用 · CPU 兼容模式'}}</span></div>
     <label v-if="gpuSupport" class="flex gap-2 items-center"><input type="checkbox" v-model="useGpu" class="accent-indigo-400"/>用 WebGPU 加速亮度调整</label>
+    <label v-if="wasmEmbedded" class="flex gap-2 items-center"><input type="checkbox" v-model="useWasm" class="accent-indigo-400"/>启用 WebAssembly 像素算子</label>
     <p class="text-slate-400">WebGPU 仅用于本地像素增强；当前未内置 GPU 抠图模型。WASM AI 推理需额外模型适配。</p>
    </div>
    <button type="button" :disabled="isBusy||!entries.length||(!entries.length)" @click="exportImages" class="w-full flex items-center justify-center gap-2 rounded-lg bg-indigo-500 hover:bg-indigo-400 disabled:opacity-40 py-3 font-semibold"><Download :size="17"/>{{isBusy?'正在处理':'导出商品图 ZIP'}}</button>
+   <p v-if="executionBackend" class="text-xs text-slate-300">上次执行引擎：{{executionBackend}}</p>
    <p v-if="progress" role="status" class="text-xs text-emerald-300 flex gap-2"><CheckCircle2 :size="15"/>{{progress}}</p>
    <p v-if="status" role="alert" class="text-xs text-amber-300 flex gap-2"><AlertCircle :size="15"/>{{status}}</p>
   </section>
  </div>
 </div>
 </template>
+
+
 
 
 

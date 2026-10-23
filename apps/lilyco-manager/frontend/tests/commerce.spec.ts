@@ -27,3 +27,25 @@ test('offline browser creates deliverable image ZIP with no image uploads', asyn
   expect(outgoing).toEqual([])
 })
 
+
+test('CI embeds and executes verified WebAssembly exposure kernel on device', async ({ page }) => {
+  test.skip(!process.env.CI, 'WASM is embedded by CI after compiling pinned source; local source build uses CPU fallback')
+  await page.addInitScript(() => Object.defineProperty(navigator, 'gpu', {value:undefined,configurable:true}))
+  await page.goto(pathToFileURL(resolve('dist/index.html')).href)
+  await expect(page.locator('[data-wasm-ready="true"]')).toBeVisible()
+  await page.locator('input[type=file]').setInputFiles([{
+    name: 'wasm.png',
+    mimeType: 'image/png',
+    buffer: readFileSync(resolve('tests/fixtures/sample.png'))
+  }])
+  await page.getByRole('checkbox', { name: '用 WebGPU 加速亮度调整' }).uncheck().catch(() => {})
+  await page.getByLabel('亮度').fill('1.2').catch(() => {})
+  await page.locator('input[type=range]').last().fill('1.2')
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 30000 }),
+    page.getByRole('button', { name: '导出商品图 ZIP' }).click()
+  ])
+  expect(download.suggestedFilename()).toContain('commerce-assets.zip')
+  await expect(page.getByText('上次执行引擎：WebAssembly')).toBeVisible()
+})
+

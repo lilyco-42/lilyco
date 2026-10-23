@@ -33,3 +33,6 @@ See also `../../docs/CODEGRAPH.md` for framework-level architecture.
 - Local Commerce Studio uses browser Canvas2D and opt-in WebGPU for exposure only; no network image uploads. See docs/integrations/LOCAL_COMMERCE_STUDIO.md. Never market this as full WebGPU/WASM AI masking before model tests.
 - New project catalog entries require provenance and manual approval; third-party project pages are links, never code execution. Validate catalog in CI.
 
+
+- Browser WASM kernels are compiled in GitHub Actions from a PINNED reviewed source commit, bundled offline into the single-file UI and exercised by an actual Chrome test. Salience C→WASM compatibility rules: docs/integrations/SALIENCE_WASM_ABI.md. Never auto-load arbitrary third-party WASM or offload client inference to Lilyco servers.
+

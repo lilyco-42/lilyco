@@ -48,3 +48,7 @@ Never upload local images without consent. Do not claim browser WebGPU exposure 
 ## Standalone client mode
 Without a Manager session token, the compiled frontend operates as a static standalone browser client and shows Studio + reviewed catalog only. No requests to the Rust APIs are attempted. Desktop Manager with a valid token exposes additional management menus and metrics. The local Rembg Studio launch link uses its documented default http://127.0.0.1:8042/ (must be running).
 
+
+## Offline WASM acceleration (latest)
+The release pipeline now compiles pinned wasm-pixel-kernels Rust source in GitHub Actions and embeds its WASM module inside the offline client. The verified exposure operation is used after WebGPU and before CPU fallback. WebAssembly executes on the customer's CPU, **not** GPU. Salience-produced C→WASM code can join via the reviewed ABI proposal; the named Salience source repo has not yet been located.
+
