@@ -33,6 +33,7 @@ jobs:
       - name: Build reviewed browser WASM locally in CI only
         shell: bash
         run: |
+          printf "\n[workspace]\n" >> ../../external-wasm-pixel-kernels/Cargo.toml
           cargo build --release --target wasm32-unknown-unknown --manifest-path ../../external-wasm-pixel-kernels/Cargo.toml
           bun scripts/embed-wasm.mjs ../../external-wasm-pixel-kernels/target/wasm32-unknown-unknown/release/wasm_pixel_kernels.wasm
       - name: Validate project catalog
@@ -57,5 +58,4 @@ jobs:
           name: lilyco-manager-${{ runner.os }}
           path: apps/lilyco-manager/target/release/lilyco-manager*
           if-no-files-found: error
-
 
