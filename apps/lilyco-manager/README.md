@@ -26,3 +26,9 @@ The manager only calls a fixed executable and fixed arguments:
 Executable resolution: LILYCO_DESKTOP_SWITCHER_EXE and LILYCO_CLI_EXE override PATH. Overrides must be absolute existing files. The UI reports installed/unavailable status. Calls have a 4-second timeout and bounded stdout. No shell, plugin installation, writes or desktop switching are exposed in this phase.
 
 To use: install the signed/trusted executable from its upstream project, then set an absolute override path or add the program to PATH. Restart manager to refresh its process environment. An executable in PATH is trusted code; do not add writable/untrusted directories to PATH.
+
+## 本地电商商品图工坊
+- 启动 Manager EXE 后打开左侧 商品图工坊；本机浏览器处理，上传服务器为零。
+- 透明 PNG 可由 rembg-ui 生成，再按 SKU 批量居中、换底色、亮度调整、生成 ZIP。
+- WebGPU 用于亮度调整，CPU 自动回退；WebGPU/WASM AI 抠图模型不属于当前版本。
+- 自己或第三方项目投稿使用 GitHub 生态项目 Issue 模板，经人工审核后进入发布目录。

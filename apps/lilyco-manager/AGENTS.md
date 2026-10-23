@@ -29,3 +29,7 @@ See also `../../docs/CODEGRAPH.md` for framework-level architecture.
 
 - For any Canvas/API relay work, read docs/integrations/CANVAS_RELAY.md. Never expose billing provider secrets, treat Canvas keys as client-visible, and verify model capability and real usage before paid release.
 
+
+- Local Commerce Studio uses browser Canvas2D and opt-in WebGPU for exposure only; no network image uploads. See docs/integrations/LOCAL_COMMERCE_STUDIO.md. Never market this as full WebGPU/WASM AI masking before model tests.
+- New project catalog entries require provenance and manual approval; third-party project pages are links, never code execution. Validate catalog in CI.
+

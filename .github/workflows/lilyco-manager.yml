@@ -20,10 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - name: Validate project catalog
+        run: bun scripts/validate-catalog.mjs
       - name: Build Vue UI
         run: |
           cd frontend
           bun install --frozen-lockfile
+          bun run typecheck
           bun run build
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -37,4 +40,3 @@ jobs:
           name: lilyco-manager-${{ runner.os }}
           path: apps/lilyco-manager/target/release/lilyco-manager*
           if-no-files-found: error
-

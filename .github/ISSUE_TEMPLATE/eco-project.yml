@@ -1,0 +1,43 @@
+name: '生态项目投稿'
+description: '申请把公开的本地客户端、WASM、WebGPU、CLI 或 MCP 项目纳入 Lilyco 生态目录'
+title: '[生态项目] '
+labels: ['ecosystem']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        仅收录有明确来源、许可证和可核实说明的项目。提交不等于批准安装或执行。
+  - type: input
+    id: repository
+    attributes:
+      label: GitHub 项目地址
+      placeholder: https://github.com/owner/repo
+    validations:
+      required: true
+  - type: textarea
+    id: capabilities
+    attributes:
+      label: 解决什么问题与主要功能
+      description: 请说明实际可用能力、支持平台以及是否需要远程模型 API
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: 运行方式
+      options: ['客户端本地计算', '浏览器 WASM / WebGPU', 'CLI / MCP', '需要第三方 API', '其他']
+    validations:
+      required: true
+  - type: input
+    id: license
+    attributes:
+      label: 开源许可证与商业使用限制
+    validations:
+      required: true
+  - type: checkboxes
+    id: declaration
+    attributes:
+      label: 声明
+      options:
+        - label: 我确认项目链接和描述准确，不包含未授权分发的文件或密钥
+          required: true

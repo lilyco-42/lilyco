@@ -1,0 +1,32 @@
+name: External Canvas Release Watch
+on:
+  schedule:
+    - cron: '35 3 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare reviewed Canvas release to upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline="v0.20.0"
+          latest="$(gh api repos/basketikun/infinite-canvas/releases/latest --jq .tag_name)"
+          if [[ "$latest" == "$baseline" ]]; then
+            echo "Latest reviewed release is unchanged: $baseline"
+            exit 0
+          fi
+          title="[Upstream] Infinite Canvas $latest requires review"
+          titles="$(gh issue list --repo "$GH_REPO" --state all --limit 300 --json title --jq '.[].title')"
+          if grep -Fqx "$title" <<< "$titles"; then
+            echo "Release issue already exists"
+            exit 0
+          fi
+          gh issue create --repo "$GH_REPO" --title "$title" --body "Detected upstream release $latest, reviewed baseline $baseline. Check https://github.com/basketikun/infinite-canvas/releases/tag/$latest. Review license/credits, canvas local storage migrations, local Agent/MCP compatibility and UI tests. Never auto-merge upstream into a shipped client."
