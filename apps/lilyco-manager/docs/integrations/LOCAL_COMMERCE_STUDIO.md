@@ -39,7 +39,8 @@ Never upload local images without consent. Do not claim browser WebGPU exposure 
 - [x] Vue TypeScript typecheck and local Vite build
 - [x] Catalog 7 entries validated
 - [x] Browser loads local studio, sees WebGPU support and control widgets; no JS errors
-- [ ] Export with actual uploaded images verified end-to-end
+- [x] Real Chrome export test: PNG input -> canvas rendering -> ZIP download -> image and delivery manifest assertion; verifies zero outbound upload requests
 - [ ] Windows/Linux GitHub Actions and packaged EXE verified for this commit
 - [ ] Native Rembg Studio connection requires a local reviewed adapter
 - [ ] ONNX WebGPU/WASM image segmentation not yet implemented
+

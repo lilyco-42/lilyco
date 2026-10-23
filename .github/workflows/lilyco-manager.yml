@@ -28,6 +28,10 @@ jobs:
           bun install --frozen-lockfile
           bun run typecheck
           bun run build
+      - name: Browser image export smoke test
+        run: |
+          cd frontend
+          bun run smoke
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -40,3 +44,4 @@ jobs:
           name: lilyco-manager-${{ runner.os }}
           path: apps/lilyco-manager/target/release/lilyco-manager*
           if-no-files-found: error
+
