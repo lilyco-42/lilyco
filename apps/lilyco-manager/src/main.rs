@@ -111,7 +111,8 @@ fn executable_path(name: &str) -> Option<PathBuf> {
         let path = PathBuf::from(path);
         return (path.is_absolute() && path.is_file()).then_some(path);
     }
-    let paths = std::env::split_paths(&std::env::var_os("PATH")?);
+    let path_env = std::env::var_os("PATH")?;
+    let paths = std::env::split_paths(&path_env);
     for directory in paths {
         for suffix in if cfg!(windows) {
             vec![".exe"]
