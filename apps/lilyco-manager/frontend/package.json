@@ -9,6 +9,7 @@
     "smoke": "playwright test"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.7.0",
     "fflate": "^0.8.3",
     "lucide-vue-next": "^0.468.0",
     "vue": "^3.5.0"

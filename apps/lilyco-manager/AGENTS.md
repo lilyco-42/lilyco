@@ -36,3 +36,6 @@ See also `../../docs/CODEGRAPH.md` for framework-level architecture.
 
 - Browser WASM kernels are compiled in GitHub Actions from a PINNED reviewed source commit, bundled offline into the single-file UI and exercised by an actual Chrome test. Salience C→WASM compatibility rules: docs/integrations/SALIENCE_WASM_ABI.md. Never auto-load arbitrary third-party WASM or offload client inference to Lilyco servers.
 
+
+- Client AI image segmentation: read docs/integrations/BROWSER_AI_REMOVAL.md. All models downloaded only after explicit user opt-in; no pixels uploaded; never add inference on Lilyco servers; retain commercial license attribution, CDN pinning and browser smoke tests.
+

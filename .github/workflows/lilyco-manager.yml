@@ -44,6 +44,8 @@ jobs:
           bun install --frozen-lockfile
           bun run typecheck
           bun run build
+      - name: Enforce small local-first client bundle
+        run: bun scripts/check-bundle-size.mjs
       - name: Browser image export smoke test
         run: |
           cd frontend
@@ -58,4 +60,5 @@ jobs:
           name: lilyco-manager-${{ runner.os }}
           path: apps/lilyco-manager/target/release/lilyco-manager*
           if-no-files-found: error
+
 

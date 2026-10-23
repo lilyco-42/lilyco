@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch, onBeforeUnmount, onMounted } from 'vue'
+import BackgroundWorker from './background.worker?worker&inline'
 import { zipSync, strToU8 } from 'fflate'
 import { webGpuAvailable, exposeOnGpu } from './webgpu'
 import { exposureOnWasm, wasmEmbedded } from './wasm-kernels'
 import { ImagePlus, Download, X, Cpu, Zap, CheckCircle2, AlertCircle, Layers, ExternalLink } from 'lucide-vue-next'
 
-type Entry = { id:number; name:string; source:File; preview:string }
+type Entry = { id:number; name:string; source:File; preview:string; processed?:boolean }
 const entries=ref<Entry[]>([])
 const size=ref(1200)
 const background=ref<'white'|'gray'|'transparent'>('white')
@@ -21,10 +22,78 @@ const isBusy=ref(false)
 const progress=ref('')
 const status=ref('')
 const nextId=ref(0)
+const selectedId=ref<number|null>(null)
+const aiMode=ref<'portrait'|'product'>('portrait')
+const aiUseGpu=ref(true)
+const aiBusy=ref(false)
+const aiProgress=ref('')
+const aiTimeoutMs=8*60*1000
+const selected=computed(()=>entries.value.find(e=>e.id===selectedId.value))
+let aiWorker:Worker|null=null
+let activeJob=0
+let aiTimeout:ReturnType<typeof setTimeout>|undefined
+
+function cancelAI(){
+ if(aiTimeout){clearTimeout(aiTimeout);aiTimeout=undefined}
+ aiWorker?.terminate();aiWorker=null
+ aiBusy.value=false
+ aiProgress.value='任务已停止；未向服务器上传图片'
+}
+async function removeBackground(){
+ const target=selected.value
+ if(!target||aiBusy.value)return
+ aiBusy.value=true;status.value=''
+ aiProgress.value='准备本地图片…'
+ const job=++activeJob
+ try {
+   // Cap inference input size to prevent memory exhaustion on low-end client devices.
+   const bitmap=await createImageBitmap(target.source)
+   if(bitmap.width*bitmap.height>50000000){bitmap.close();throw Error('图片像素超过 5000 万，请先缩小图片')}
+   const side=1024
+   const scale=Math.min(1,side/Math.max(bitmap.width,bitmap.height))
+   const canvas=document.createElement('canvas')
+   canvas.width=Math.max(1,Math.round(bitmap.width*scale))
+   canvas.height=Math.max(1,Math.round(bitmap.height*scale))
+   const context=canvas.getContext('2d')!
+   context.drawImage(bitmap,0,0,canvas.width,canvas.height)
+   bitmap.close()
+   const blob=await new Promise<Blob>((resolve,reject)=>
+     canvas.toBlob(b=>b?resolve(b):reject(Error('无法准备模型输入')),'image/png'))
+   const bytes=await blob.arrayBuffer()
+   const worker=new BackgroundWorker()
+   aiWorker=worker
+   worker.onmessage=(event:MessageEvent<{kind:string;id?:number;text?:string;message?:string;blob?:Blob;backend?:string;model?:string}>)=>{
+     const reply=event.data
+     if(reply.kind==='progress'){aiProgress.value=reply.text??'正在本地处理';return}
+     if(reply.id!==job)return
+     if(aiTimeout)clearTimeout(aiTimeout)
+     aiTimeout=undefined;aiWorker?.terminate();aiWorker=null;aiBusy.value=false
+     if(reply.kind==='error'){status.value='AI 抠图失败：'+(reply.message??'未知错误');aiProgress.value='';return}
+     if(reply.kind==='result'&&reply.blob){
+       const current=entries.value.find(e=>e.id===target.id)
+       if(!current){aiProgress.value='图片已移除';return}
+       URL.revokeObjectURL(current.preview)
+       current.preview=URL.createObjectURL(reply.blob)
+       current.processed=true
+       aiProgress.value='完成：'+(reply.model??'AI')+' · '+(reply.backend??'本机')+'；导出时保留透明背景'
+       background.value='transparent';format.value='png'
+     }
+   }
+   worker.onerror=e=>{
+     status.value='本地推理 Worker 异常：'+e.message
+     cancelAI()
+   }
+   aiTimeout=setTimeout(()=>{status.value='模型下载或推理超时；可以重新尝试';cancelAI()},aiTimeoutMs)
+   worker.postMessage({kind:'remove',id:job,bytes,mime:'image/png',mode:aiMode.value,webgpu:aiUseGpu.value&&gpuSupport.value},[bytes])
+ }catch(e){
+   aiBusy.value=false
+   status.value='AI 抠图准备失败：'+String(e)
+ }
+}
 watch(background,b=>{if(b==='transparent'&&format.value==='jpeg')format.value='png'})
 const sample= computed(()=>entries.value[0]?.preview)
 onMounted(async()=>{gpuSupport.value=await webGpuAvailable()})
-onBeforeUnmount(()=>entries.value.forEach(e=>URL.revokeObjectURL(e.preview)))
+onBeforeUnmount(()=>{cancelAI();entries.value.forEach(e=>URL.revokeObjectURL(e.preview))})
 
 function addFiles(event:Event){
  const input=event.target as HTMLInputElement
@@ -33,13 +102,18 @@ function addFiles(event:Event){
    if(!['image/png','image/jpeg','image/webp'].includes(file.type)){status.value='仅支持 PNG / JPEG / WebP 文件';continue}
    if(file.size>25*1024*1024){status.value='单张图片上限 25MB';continue}
    if(entries.value.length>=50){status.value='每批最多 50 张';break}
-   entries.value.push({id:nextId.value++,name:file.name,source:file,preview:URL.createObjectURL(file)})
+   const entry={id:nextId.value++,name:file.name,source:file,preview:URL.createObjectURL(file)}
+   entries.value.push(entry)
+   if(selectedId.value===null)selectedId.value=entry.id
  }
  input.value=''
 }
 function remove(id:number){
  const i=entries.value.findIndex(e=>e.id===id)
- if(i>=0){URL.revokeObjectURL(entries.value[i]!.preview);entries.value.splice(i,1)}
+ if(i>=0){
+   if(selectedId.value===id){cancelAI();selectedId.value=entries.value[i+1]?.id??entries.value[i-1]?.id??null}
+   URL.revokeObjectURL(entries.value[i]!.preview);entries.value.splice(i,1)
+ }
 }
 function safeName(name:string){return name.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,35)||'product'}
 function toBlob(canvas:HTMLCanvasElement,type:string):Promise<Blob>{
@@ -130,7 +204,7 @@ async function exportImages(){
  <section class="rounded-2xl border border-indigo-400/20 bg-gradient-to-r from-[#172945] to-[#111b2a] p-6">
   <p class="uppercase text-xs tracking-widest text-indigo-300">LOCAL-FIRST · COMMERCE STUDIO</p>
   <h2 class="text-2xl font-semibold mt-2">跨境电商商品图工作台</h2>
-  <p class="text-sm text-slate-300 mt-3 max-w-3xl">图片只在当前浏览器中处理，不上传到 Lilyco 服务器。支持批量统一尺寸、背景、透明图居中、亮度增强与 ZIP 交付。AI 抠图复用 Rembg Studio，创意画布复用 Infinite Canvas。</p>
+  <p class="text-sm text-slate-300 mt-3 max-w-3xl">图片只在当前浏览器中处理，不上传到 Lilyco 服务器。支持批量统一尺寸、背景、透明图居中、亮度增强与 ZIP 交付。AI 抠图支持按需加载客户端模型，也可复用 Rembg Studio；创意画布复用 Infinite Canvas。</p>
   <div class="flex flex-wrap gap-2 mt-5">
    <a href="http://127.0.0.1:8042/" target="_blank" rel="noopener noreferrer" class="px-3 py-2 rounded-lg bg-indigo-500/70 hover:bg-indigo-500 text-sm inline-flex items-center gap-2">打开本机 Rembg Studio（需已启动） ↗</a>
    <a href="https://github.com/lilyco-42/rembg-ui" rel="noopener noreferrer" target="_blank" class="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-sm inline-flex items-center gap-2"><Layers :size="15"/>Rembg Studio · 本地 AI 抠图 <ExternalLink :size="13"/></a>
@@ -150,11 +224,23 @@ async function exportImages(){
     <div v-for="item in entries" :key="item.id" class="rounded-lg bg-[#0d1625] border border-white/10 p-2 relative">
      <img :src="item.preview" :alt="item.name" class="w-full h-32 object-contain rounded bg-[linear-gradient(45deg,#293349_25%,transparent_25%),linear-gradient(-45deg,#293349_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#293349_75%),linear-gradient(-45deg,transparent_75%,#293349_75%)] bg-[length:16px_16px]"/>
      <p class="truncate text-xs text-slate-400 mt-2" :title="item.name">{{item.name}}</p>
+     <button type="button" @click="selectedId=item.id" :aria-pressed="selectedId===item.id" class="text-xs mt-1 rounded px-2 py-1" :class="selectedId===item.id?'bg-indigo-500 text-white':'bg-white/10'">{{selectedId===item.id?'已选中':'选择此图'}}</button>
      <button type="button" :aria-label="'移除 '+item.name" @click="remove(item.id)" class="absolute right-1 top-1 rounded-md bg-[#101827]/95 p-1"><X :size="14"/></button>
     </div>
    </div>
    <div v-else class="text-xs text-slate-500">本地预览暂为空；导入图片后才会进行处理。</div>
    <p v-if="sample" class="text-xs text-slate-400">已载入本地图片预览；抠图需要先使用 Rembg Studio 生成透明 PNG。</p>
+  </section>
+  <section class="rounded-xl border border-white/10 bg-[#141d2d] p-5 space-y-4 lg:col-span-2">
+   <div class="flex flex-wrap justify-between gap-3 items-start"><div><h3 class="font-semibold">本机 AI 抠图 <span class="text-amber-300 text-xs">实验性</span></h3><p class="text-xs text-slate-400 mt-2">自主选择图片后点击运行；模型权重直达客户端缓存，推理在浏览器 Worker 内执行，不使用 Lilyco 的 GPU 或上传图片。</p></div><span class="text-xs text-emerald-300">设备端计算</span></div>
+   <div class="flex flex-wrap gap-3 items-end">
+    <label class="text-xs">模型类型<select v-model="aiMode" :disabled="aiBusy" class="block mt-2 rounded-lg bg-[#0b1220] border border-white/15 px-3 py-2"><option value="portrait">轻量人像 MODNet · ~7MB</option><option value="product">通用物品 ORMBG · ~44MB</option></select></label>
+    <label v-if="gpuSupport&&aiMode==='portrait'" class="text-xs flex gap-2 items-center pb-3"><input type="checkbox" v-model="aiUseGpu" :disabled="aiBusy"/>优先 WebGPU</label>
+    <button type="button" @click="removeBackground" :disabled="!selected||aiBusy" class="px-4 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-400 disabled:opacity-40 text-sm">对选中图片 AI 抠图</button>
+    <button v-if="aiBusy" @click="cancelAI" type="button" class="px-4 py-2 border border-white/20 rounded-lg text-sm">停止任务</button>
+   </div>
+   <p v-if="aiProgress" role="status" class="text-sm text-indigo-200">{{aiProgress}}</p>
+   <p class="text-xs text-slate-400">首次点击需要从 Hugging Face 下载模型（不是 Lilyco 服务器）；后续依赖浏览器缓存。通用模型的首次加载与内存消耗更大，低配置设备推荐使用 Rembg Studio 本地客户端。可能需要联网下载 ONNX Runtime 的 WASM 运行文件。</p>
   </section>
   <section class="rounded-xl bg-[#141d2d] border border-white/10 p-5 space-y-5">
    <h3 class="font-semibold">导出参数</h3>
@@ -185,4 +271,7 @@ async function exportImages(){
  </div>
 </div>
 </template>
+
+
+
 
