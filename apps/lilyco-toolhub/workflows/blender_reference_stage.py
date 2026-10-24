@@ -78,6 +78,8 @@ scene.render.resolution_percentage=100
 scene.render.image_settings.file_format='PNG'
 scene.render.filepath=str(out/'draft_preview.png')
 scene.camera.data.lens=50
+# Pack all supplied reference images into the Blend file for portable delivery.
+bpy.ops.file.pack_all()
 bpy.ops.wm.save_as_mainfile(filepath=str(out/'reference_stage.blend'))
 
 # Separate draft proxy GLB for testing downstream export, not a deliverable high-fidelity mesh.
@@ -95,3 +97,4 @@ result = {
 }
 (out/'stage_result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
 print('LYCO_STAGE_RESULT='+json.dumps(result,ensure_ascii=False))
+

@@ -34,7 +34,7 @@ class StudioTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             path=Path(td)/'image.png'
             path.write_bytes(b'\x89PNG\r\n\x1a\n' + b'example')
-            self.assertEqual(studio._input_image(str(path)),path)
+            self.assertEqual(studio._input_image(str(path)),path.resolve())
             path.write_bytes(b'bad!')
             with self.assertRaises(studio.WorkflowError):
                 studio._input_image(str(path))
@@ -72,3 +72,4 @@ class StudioTests(unittest.TestCase):
 
 if __name__=='__main__':
     unittest.main()
+
