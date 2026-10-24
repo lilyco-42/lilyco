@@ -23,6 +23,7 @@ mod diff;
 mod dominant;
 mod foreground;
 mod info;
+mod remove_background;
 mod resize;
 mod screenshot;
 mod trace;
@@ -34,13 +35,14 @@ use crate::diff::PixelDiff;
 use crate::dominant::DominantColors;
 use crate::foreground::ExtractForeground;
 use crate::info::ImageInfo;
+use crate::remove_background::RemoveBackground;
 use crate::resize::Resize;
 use crate::screenshot::HtmlScreenshot;
 use crate::trace::Trace;
 
 // ── registry + main ────────────────────────────────────────
 
-/// 注册全部 8 个视觉工具，供 MCP / --list 使用
+/// 注册全部 9 个视觉工具，供 MCP / --list 使用
 fn build_registry() -> Registry {
     let mut r = Registry::new();
     for cmd in [
@@ -50,6 +52,7 @@ fn build_registry() -> Registry {
         RegisteredCommand::from_app::<DominantColors>(),
         RegisteredCommand::from_app::<PixelDiff>(),
         RegisteredCommand::from_app::<ExtractForeground>(),
+        RegisteredCommand::from_app::<RemoveBackground>(),
         RegisteredCommand::from_app::<Trace>(),
         RegisteredCommand::from_app::<HtmlScreenshot>(),
     ] {

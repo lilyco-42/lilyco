@@ -262,8 +262,8 @@ fn html_screenshot_errors_without_browser() {
 }
 
 #[test]
-fn registry_has_eight_tools() {
-    assert_eq!(build_registry().visible().count(), 8);
+fn registry_has_nine_tools() {
+    assert_eq!(build_registry().visible().count(), 9);
 }
 
 // ── 对齐上游 test_crop.py ─────────────────────────────

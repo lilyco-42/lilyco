@@ -1,0 +1,51 @@
+name: Lilyco Vision Agent Tools
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lilyco-vision/**'
+      - 'lilyco-core/**'
+      - 'lilyco-macros/**'
+      - 'lilyco-mcp/**'
+      - 'lilyco/**'
+      - '.github/workflows/lilyco-vision-tools.yml'
+  pull_request:
+    paths:
+      - 'lilyco-vision/**'
+      - '.github/workflows/lilyco-vision-tools.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  vision-tools:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Run vision tests
+        run: cargo test -p lilyco-vision
+      - name: Build local vision MCP client
+        run: cargo build --release -p lilyco-vision
+      - name: Verify AI tool registry
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then bin="target/release/lvision.exe"; else bin="target/release/lvision"; fi
+          "$bin" --list > vision-schema.json
+          python -c "import json; x=json.load(open('vision-schema.json',encoding='utf8')); assert 'remove-background' in json.dumps(x); print('remove-background MCP tool present')"
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: lvision-${{ runner.os }}
+          path: |
+            target/release/lvision
+            target/release/lvision.exe
+          if-no-files-found: error

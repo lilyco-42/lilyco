@@ -2,7 +2,7 @@
 name = "lilyco-vision"
 version = "0.3.1"
 edition = "2021"
-description = "Vision toolkit (image-info / crop / resize / dominant-colors / pixel-diff / foreground / trace / screenshot) as Lilyco apps — CLI / TUI / Web / MCP, AI-callable by default"
+description = "Vision toolkit (image-info / crop / resize / dominant-colors / pixel-diff / foreground / AI background removal / trace / screenshot) as Lilyco apps — CLI / TUI / Web / MCP, AI-callable by default"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/lilyco-42/lilyco"
 
@@ -28,3 +28,4 @@ default = ["full"]
 full = ["dep:lilyco", "lilyco/full"]
 # Android/Termux：headless（CLI + MCP）
 android = ["dep:lilyco"]
+
