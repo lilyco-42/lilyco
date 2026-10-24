@@ -1,0 +1,21 @@
+{
+  "name": "@lilyco/toolhub-gui",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "dev": "vite --host 127.0.0.1"
+  },
+  "dependencies": {
+    "naive-ui": "^2.45.3",
+    "vue": "^3.5.18"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.1.0",
+    "vue-tsc": "^3.1.0"
+  }
+}

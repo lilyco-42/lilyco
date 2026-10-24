@@ -69,3 +69,22 @@ LILYCO_TRUST_LOCAL_MEDIA=1
 3. Set env LILYCO_MEDIA_ROOT to a project directory and LILYCO_TRUST_LOCAL_MEDIA=1 only after reviewing the scripts it contains. Install Manim Community CLI, Chrome, FFmpeg on the client.
 4. Start python -u hub.py --config tools.json as a stdio MCP server. It exposes media__manim_render, media__html_to_video plus existing vision/files/grep/ffmpeg/mpkg tools.
 5. Rendering takes place on the client with limits; HTML must implement window.seek(seconds). Returned output paths can be passed to fmpeg__Ffmpeg for further encoding/trim.
+
+## Local GUI for humans (Naive UI)
+
+A full local browser GUI is available in `gui_server.py` with a Vue 3 + Naive UI professional commercial-friendly (MIT) component library. It is a human front-end to **the same ToolHub registry** used by AI clients. See `docs/UI_STANDARDS.md`.
+
+On a development computer:
+```bash
+cd apps/lilyco-toolhub/gui
+bun install
+bun run typecheck
+bun run build
+cd ..
+python gui_server.py --config /path/to/local/tools.json
+```
+The browser will open on `http://127.0.0.1:<random-port>/` with a random one-session token stored in its browser session. Search real tools, choose typed parameters or advanced JSON, browse for local inputs via the OS picker, inspect output previews and session history. The GUI accepts no anonymous API calls, never talks to cloud servers, and performs no model inference itself.
+
+For end users, download a GitHub Actions `lilyco-toolhub-Windows` artifact and extract it. The release includes `gui_server.py` and `gui/dist`, already compiled: no frontend build is needed. Regenerate `tools.json` with the included `prepare_bundle.py` on the client's machine, then start `python gui_server.py --config tools.json` as an ordinary local program.
+
+Risk-sensitive rename/delete/write and script execution functions have an additional GUI confirmation; the original tool's MCP safety policy remains in force.

@@ -24,8 +24,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Test toolhub MCP discovery/routing/safety
+      - name: Test toolhub MCP discovery, safety and GUI security
         run: python -m unittest discover -s apps/lilyco-toolhub/tests -v
+      - uses: oven-sh/setup-bun@v2
+      - name: Build commercial component library GUI
+        shell: bash
+        run: |
+          cd apps/lilyco-toolhub/gui
+          bun install --frozen-lockfile
+          bun run typecheck
+          bun run build
   build-tools:
     strategy:
       fail-fast: false
@@ -36,6 +44,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
+      - name: Build packaged human GUI
+        shell: bash
+        run: |
+          cd apps/lilyco-toolhub/gui
+          bun install --frozen-lockfile
+          bun run typecheck
+          bun run build
       - name: Build existing local MCP domain tools
         run: cargo build --release -p lilyco-vision -p lilyco-files -p lilyco-grep -p lilyco-ffmpeg -p lilyco-mpkg
       - name: Validate local tool discovery through unified Hub
@@ -50,7 +66,11 @@ jobs:
       - name: Package client-side binaries and Hub
         shell: bash
         run: |
-          cp apps/lilyco-toolhub/hub.py apps/lilyco-toolhub/README.md apps/lilyco-toolhub/tools.example.json _hubdist/
+          cp apps/lilyco-toolhub/hub.py apps/lilyco-toolhub/gui_server.py apps/lilyco-toolhub/README.md apps/lilyco-toolhub/tools.example.json _hubdist/
+          mkdir -p _hubdist/gui
+          cp -R apps/lilyco-toolhub/gui/dist _hubdist/gui/
+          cp apps/lilyco-toolhub/gui/NAIVE_UI_LICENSE.txt apps/lilyco-toolhub/gui/THIRD_PARTY_NOTICES.md _hubdist/gui/
+          cp -R apps/lilyco-toolhub/docs _hubdist/docs/
           cp apps/lilyco-toolhub/scripts/prepare_bundle.py _hubdist/
           rm _hubdist/tools.json
       - uses: actions/upload-artifact@v4

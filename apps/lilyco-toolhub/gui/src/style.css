@@ -1,0 +1,33 @@
+:root {font-family: Inter, 'Segoe UI', 'Microsoft Yahei UI', system-ui, sans-serif; font-synthesis:none}
+*{box-sizing:border-box}
+body{margin:0;min-width:340px;background:#10151f}
+#app{min-height:100vh}
+.app-layout{min-height:100vh}
+.app-sider{border-right:1px solid rgba(255,255,255,.065)}
+.brand{padding:24px 20px 18px;border-bottom:1px solid rgba(255,255,255,.065)}
+.brand-overline{font-size:10px;font-weight:800;letter-spacing:.19em;color:#8b9ab9}
+.brand-title{font-weight:750;font-size:21px;letter-spacing:-.035em;margin-top:4px;color:#f3f5fa}
+.brand-subtitle{font-size:12px;color:#8b9ab9;margin-top:6px;line-height:1.6}
+.sider-lower{padding:18px 17px 24px}
+.content{max-width:1520px;margin:auto;padding:32px 38px 56px}
+.title-row{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;margin-bottom:26px}
+.page-title{font-size:28px;font-weight:740;color:#f2f5fb;letter-spacing:-.035em;margin:0}
+.page-description{font-size:13px;color:#9ba8bd;margin:8px 0 0}
+.header-caption{color:#8393aa;font-size:12px;line-height:1.4}
+.tool-tile{cursor:pointer;height:100%;transition:border-color .14s}
+.tool-tile:hover{border-color:#657ced!important}
+.tool-tile.selected{border-color:#8195ec!important}
+.tool-tile-title{font-weight:640;font-size:14px;overflow-wrap:anywhere}
+.tool-description{font-size:12px;color:#99a7bd;line-height:1.65;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.panel-head{margin-bottom:20px}
+.mono{font-family:'Cascadia Code',Consolas,monospace}
+.preview-image{display:block;max-width:100%;max-height:400px;object-fit:contain;margin:auto}
+.preview-video{width:100%;max-height:420px;background:#000}
+.result-text{white-space:pre-wrap;overflow-wrap:anywhere;max-height:370px;overflow:auto;font-family:Consolas,monospace;font-size:12px;color:#d0def3;background:#0c121b;padding:14px;border-radius:8px}
+.provider-grid{display:flex;flex-wrap:wrap;gap:8px}
+.sider-actions{padding:18px}
+@media(max-width:960px){.content{padding:22px 18px 34px}.app-sider{display:none}.page-title{font-size:23px}}
+@media(max-width:640px){.tool-tile-title{font-size:13px}.content{padding:16px 13px 30px}}
+
+.mobile-nav{display:none;margin-top:10px}
+@media(max-width:960px){.mobile-nav{display:flex}}
