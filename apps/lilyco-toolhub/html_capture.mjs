@@ -4,7 +4,7 @@
  */
 import { chromium } from 'playwright-core';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 
 const [source, frameDir, frameCountStr, fpsStr, widthStr, heightStr] = process.argv.slice(2);
