@@ -263,7 +263,9 @@ fn html_screenshot_errors_without_browser() {
 
 #[test]
 fn registry_has_nine_tools() {
-    assert_eq!(build_registry().visible().count(), 9);
+    let registry = build_registry();
+    assert_eq!(registry.visible().count(), 9);
+    assert!(registry.to_json().contains("remove-background"));
 }
 
 // ── 对齐上游 test_crop.py ─────────────────────────────

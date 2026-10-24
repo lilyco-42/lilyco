@@ -12,6 +12,7 @@ const TIMEOUT: Duration = Duration::from_secs(300);
 /// Requires locally installed trusted rembg CLI. No Lilyco server inference.
 #[derive(App)]
 #[app(
+    name = "remove-background",
     run = "run_remove_background",
     about = "Remove the background of a local image using a CLIENT-SIDE ONNX rembg model. Returns a new transparent PNG path for downstream AI tools. Remains on the user's machine; requires rembg[cpu,cli] or rembg[gpu,cli] installed locally. Select u2netp, u2net, silueta, or isnet-general-use. Input <=25MiB/50MP; never overwrite files. First use may download the model to the client's cache."
 )]
