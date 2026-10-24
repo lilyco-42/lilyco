@@ -158,7 +158,23 @@ jobs:
         working-directory: apps/vision-studio
         shell: pwsh
         run: |
-          choco install nsis -y --no-progress
+          $nsisInstalled = $false
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            choco install nsis --version=3.13.0 -y --no-progress
+            $installExit = $LASTEXITCODE
+            if ($installExit -in 0,3010) { $nsisInstalled = $true; break }
+            if ($attempt -lt 3) { Start-Sleep -Seconds (3 * $attempt) }
+          }
+          if (-not $nsisInstalled) { throw "NSIS installation failed: $installExit" }
+          $compiler = (Get-Command makensis.exe -ErrorAction SilentlyContinue).Source
+          if (-not $compiler) {
+            $compiler = @("${env:ProgramFiles(x86)}\NSIS\makensis.exe", "$env:ProgramFiles\NSIS\makensis.exe") |
+              Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          }
+          if (-not $compiler) { throw 'NSIS reported success but makensis.exe is missing' }
+          Split-Path -Parent $compiler | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & $compiler /VERSION
+          if ($LASTEXITCODE -ne 0) { throw 'Installed NSIS compiler cannot report its version' }
           Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile webview2-bootstrap.exe
           $signature = Get-AuthenticodeSignature webview2-bootstrap.exe
           if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft Corporation') { throw 'Invalid WebView2 bootstrap signature' }
@@ -173,7 +189,9 @@ jobs:
         working-directory: apps/vision-studio
         run: |
           python packaging/windows-installer.py
+          if ($LASTEXITCODE -ne 0) { throw 'Vision installer build failed; do not run a nonexistent installer' }
           python tests/installer_smoke.py
+          if ($LASTEXITCODE -ne 0) { throw 'Vision installed app acceptance failed' }
       - name: Preserve evidence
         if: always()
         uses: actions/upload-artifact@v4

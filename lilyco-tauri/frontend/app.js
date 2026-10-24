@@ -1,8 +1,8 @@
 // 桌面端只有这一条链：挑文件 → 选问题 → invoke 命令层 → 把 lbin 那本账原样铺开。
 // 页面自己不解释任何字段：说法由 lbin 与 CI 上那本对账负责，这里只负责看得见。
 
-const { invoke } = window.__TAURI.core;
-const { open } = window.__TAURI.dialog;
+const { invoke } = window.__TAURI__.core;
+const open = options => invoke("plugin:dialog|open", { options });
 
 const pickBtn = document.getElementById("pick");
 const picked = document.getElementById("picked");
@@ -33,7 +33,8 @@ function cell(value) {
   return JSON.stringify(value, null, 1);
 }
 
-function renderBook(json) {
+function renderBook(output) {
+  const json = output.value;
   body.textContent = "";
   const entries =
     json && typeof json === "object" && !Array.isArray(json)
@@ -52,7 +53,7 @@ function renderBook(json) {
   empty.hidden = true;
   table.hidden = false;
   rawbox.hidden = false;
-  raw.textContent = JSON.stringify(json, null, 2);
+  raw.textContent = output.json;
 }
 
 async function loadCommands() {
