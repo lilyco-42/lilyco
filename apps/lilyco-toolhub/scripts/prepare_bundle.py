@@ -20,6 +20,10 @@ plugin = folder / "media_mcp.py"
 if not plugin.is_file():
     raise SystemExit(f"Missing media MCP script: {plugin}")
 servers["media"] = {"command": sys.executable, "args": ["-u", str(plugin)]}
+studio = folder / "studio_mcp.py"
+if not studio.is_file():
+    raise SystemExit(f"Missing client studio provider: {studio}")
+servers["studio"] = {"command": sys.executable, "args": ["-u", str(studio)]}
 out = folder / "tools.json"
 out.write_text(json.dumps({"servers": servers}, indent=2, ensure_ascii=False), encoding="utf-8")
 print("Generated trusted Tool Hub config:", out)

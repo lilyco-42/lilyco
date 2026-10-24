@@ -92,3 +92,6 @@ Risk-sensitive rename/delete/write and script execution functions have an additi
 ## Spine asset inspection
 
 The optional lilyco-spine Rust member provides local read-only spine__inspect-skeleton and spine__inspect-atlas to the same Registry. No official runtime is bundled. See ../../lilyco-spine/README.md and ../../docs/COMMERCIAL_LILYCO_TOOLS_2026.md.
+
+## AI Studio from three-view images
+The studio provider offers lyco_find_skills, lyco_environment_preflight, and lyco_create_3d_reference as Lilyco MCP tools, discoverable through Tool Hub. See docs/THREE_VIEW_STUDIO.md. It prepares a Blender reference scene; it does not claim high-fidelity reconstructed models.

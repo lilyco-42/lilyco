@@ -49,6 +49,7 @@ const alertTag=computed(()=>loading.value?'正在加载':displayError.value?'连
 const toolGroups=[
   {key:'vision',title:'图像处理',desc:'本地抠图、图片调整与分析'},
   {key:'spine',title:'Spine 素材',desc:'骨骼动画资源元数据检查'},
+  {key:'studio',title:'AI 自动工作流',desc:'发现技能、准备 Blender 与三视图工程'},
   {key:'media',title:'创作与视频',desc:'Manim / HTML 动画渲染'},
   {key:'ffmpeg',title:'视频处理',desc:'格式转换与裁剪'},
   {key:'files',title:'文件管理',desc:'本地查找与批处理'},
@@ -61,6 +62,9 @@ function titleFor(name){
     'vision__ImageInfo':'图片信息',
     'spine__inspect-skeleton':'Spine 骨骼检查',
     'spine__inspect-atlas':'Spine 图集检查',
+    'studio__lyco_find_skills':'查找 Lyco 技能',
+    'studio__lyco_environment_preflight':'检查创作环境',
+    'studio__lyco_create_3d_reference':'用三视图准备 Blender 工程',
     'media__manim_render':'Manim 数学动画',
     'media__html_to_video':'HTML 转视频',
     'hub_status':'工具服务状态',
@@ -232,7 +236,10 @@ watch(advanced,v=>{if(v)jsonArgs.value=JSON.stringify(args.value,null,2);else{tr
               <n-tag type="success" size="medium" :bordered="false">{{providers.filter(([,state])=>String(state).startsWith('ready')).length}} 个在线提供者</n-tag>
             </n-space>
           </div>
-          <n-grid cols="1 l:5" :x-gap="18" :y-gap="20" responsive="screen">
+          <n-alert type="info" title="一句话开始创作" style="margin-bottom:18px">
+            三视图到 3D 工作流正在接入：先把正面、侧面、背面图片制作成可编辑 Blender 参考工程；高质量 3D 网格重建仍需专用模型与质检。
+            <n-button style="margin-left:12px" size="small" type="primary" secondary @click="()=>{const t=tools.find(t=>t.name==='studio__lyco_create_3d_reference');if(t)choose(t);else message.warning('工作流尚未安装')}">准备三视图工程</n-button>
+          </n-alert>          <n-grid cols="1 l:5" :x-gap="18" :y-gap="20" responsive="screen">
             <n-gi span="1 l:3">
               <n-card :bordered="false" title="发现工具">
                 <template #header-extra><n-text depth="3" style="font-size:12px">统一搜索与分类</n-text></template>

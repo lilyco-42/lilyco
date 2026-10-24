@@ -165,6 +165,8 @@ class ToolHub:
 
 
 def main() -> None:
+    if hasattr(sys.stdin, "reconfigure"): sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stdout, "reconfigure"): sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, help="Trusted local tools.json file")
     args = parser.parse_args()

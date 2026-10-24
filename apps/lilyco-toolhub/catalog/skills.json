@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "last_reviewed": "2026-10-24",
+  "skills": [
+    {
+      "id": "lyco.research",
+      "name": "Lyco Skill — research before build",
+      "publisher": "lilyco-42",
+      "source": "https://github.com/lilyco-42/lyco-skill",
+      "capabilities": ["research", "software-selection", "feasibility"],
+      "execution": "read_only",
+      "trust": "reviewed",
+      "description": "Compare tools, licenses and costs; never execute arbitrary discovered code."
+    },
+    {
+      "id": "cli-anything.blender",
+      "name": "CLI-Anything Blender harness",
+      "publisher": "HKUDS",
+      "source": "https://github.com/HKUDS/CLI-Anything",
+      "license": "Apache-2.0",
+      "capabilities": ["3d", "blender", "cli"],
+      "execution": "trusted_installed_cli",
+      "trust": "upstream_allowlist",
+      "cli_hub_name": "blender",
+      "description": "Blender CLI harness; installation from the official catalog only after initial device approval."
+    },
+    {
+      "id": "lyco.blender.pipeline",
+      "name": "Blender Game Pipeline Experts",
+      "publisher": "lilyco-42",
+      "source": "https://github.com/lilyco-42/blender-game-pipeline-experts",
+      "license": "MIT",
+      "capabilities": ["3d", "topology", "uv", "pbr", "fbx", "expert-workflow"],
+      "execution": "manifest_only",
+      "trust": "reviewed",
+      "description": "Expert techniques for later-stage model QA; scripts only run when separately bundled, pinned and audited."
+    },
+    {
+      "id": "lyco.3d.reference-stage",
+      "name": "Three-view 3D reference stage",
+      "publisher": "lilyco-42",
+      "source": "https://github.com/lilyco-42/lilyco",
+      "license": "MIT OR Apache-2.0",
+      "capabilities": ["3d", "reference-images", "blender", "scene-preparation"],
+      "execution": "bundled_builtin",
+      "trust": "reviewed",
+      "description": "Prepare editable Blender orthographic reference scene and preview, not automatic high-fidelity modeling."
+    }
+  ]
+}

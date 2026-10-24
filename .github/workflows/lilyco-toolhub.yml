@@ -63,8 +63,10 @@ jobs:
           if [[ "${{ runner.os }}" == "Windows" ]]; then ext=".exe"; else ext=""; fi
           cp target/release/lvision$ext target/release/lfiles$ext target/release/lgrep$ext target/release/lffmpeg$ext target/release/lmpkg$ext target/release/lspine$ext _hubdist/
           cp apps/lilyco-toolhub/media_mcp.py apps/lilyco-toolhub/html_capture.mjs apps/lilyco-toolhub/package.json _hubdist/
+          cp apps/lilyco-toolhub/studio_mcp.py _hubdist/
+          cp -R apps/lilyco-toolhub/catalog apps/lilyco-toolhub/workflows _hubdist/
           python apps/lilyco-toolhub/scripts/prepare_bundle.py _hubdist
-          python -c "import importlib.util,json; spec=importlib.util.spec_from_file_location('hub','apps/lilyco-toolhub/hub.py'); m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);h=m.ToolHub(json.load(open('_hubdist/tools.json')));names=[x['name'] for x in h.discover()]; print('discovered',len(names),'tools'); assert len(names)>=23 and 'vision__remove-background' in names and 'media__manim_render' in names and 'media__html_to_video' in names and 'spine__inspect-skeleton' in names and 'spine__inspect-atlas' in names; assert all(not x.startswith('unavailable') for x in h.status.values()),h.status"
+          python -c "import importlib.util,json; spec=importlib.util.spec_from_file_location('hub','apps/lilyco-toolhub/hub.py'); m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);h=m.ToolHub(json.load(open('_hubdist/tools.json')));names=[x['name'] for x in h.discover()]; print('discovered',len(names),'tools'); assert len(names)>=26 and 'vision__remove-background' in names and 'media__manim_render' in names and 'media__html_to_video' in names and 'spine__inspect-skeleton' in names and 'spine__inspect-atlas' in names and 'studio__lyco_find_skills' in names and 'studio__lyco_create_3d_reference' in names; assert all(not x.startswith('unavailable') for x in h.status.values()),h.status"
       - name: Package client-side binaries and Hub
         shell: bash
         run: |
