@@ -48,6 +48,7 @@ const menuOptions=[
 const alertTag=computed(()=>loading.value?'正在加载':displayError.value?'连接异常':'本地已连接')
 const toolGroups=[
   {key:'vision',title:'图像处理',desc:'本地抠图、图片调整与分析'},
+  {key:'spine',title:'Spine 素材',desc:'骨骼动画资源元数据检查'},
   {key:'media',title:'创作与视频',desc:'Manim / HTML 动画渲染'},
   {key:'ffmpeg',title:'视频处理',desc:'格式转换与裁剪'},
   {key:'files',title:'文件管理',desc:'本地查找与批处理'},
@@ -58,6 +59,8 @@ function titleFor(name){
   const special={
     'vision__remove-background':'AI 智能抠图',
     'vision__ImageInfo':'图片信息',
+    'spine__inspect-skeleton':'Spine 骨骼检查',
+    'spine__inspect-atlas':'Spine 图集检查',
     'media__manim_render':'Manim 数学动画',
     'media__html_to_video':'HTML 转视频',
     'hub_status':'工具服务状态',

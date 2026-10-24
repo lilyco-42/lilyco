@@ -7,7 +7,7 @@ import sys
 folder = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
 name_to_binary = {
     "vision": "lvision", "files": "lfiles", "grep": "lgrep",
-    "ffmpeg": "lffmpeg", "mpkg": "lmpkg",
+    "ffmpeg": "lffmpeg", "mpkg": "lmpkg", "spine": "lspine",
 }
 extension = ".exe" if os.name == "nt" else ""
 servers = {}

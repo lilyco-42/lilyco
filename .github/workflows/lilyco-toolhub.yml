@@ -52,17 +52,19 @@ jobs:
           bun install --frozen-lockfile
           bun run typecheck
           bun run build
+      - name: Test new Spine native metadata tools
+        run: cargo test -p lilyco-spine
       - name: Build existing local MCP domain tools
-        run: cargo build --release -p lilyco-vision -p lilyco-files -p lilyco-grep -p lilyco-ffmpeg -p lilyco-mpkg
+        run: cargo build --release -p lilyco-vision -p lilyco-files -p lilyco-grep -p lilyco-ffmpeg -p lilyco-mpkg -p lilyco-spine
       - name: Validate local tool discovery through unified Hub
         shell: bash
         run: |
           mkdir -p _hubdist
           if [[ "${{ runner.os }}" == "Windows" ]]; then ext=".exe"; else ext=""; fi
-          cp target/release/lvision$ext target/release/lfiles$ext target/release/lgrep$ext target/release/lffmpeg$ext target/release/lmpkg$ext _hubdist/
+          cp target/release/lvision$ext target/release/lfiles$ext target/release/lgrep$ext target/release/lffmpeg$ext target/release/lmpkg$ext target/release/lspine$ext _hubdist/
           cp apps/lilyco-toolhub/media_mcp.py apps/lilyco-toolhub/html_capture.mjs apps/lilyco-toolhub/package.json _hubdist/
           python apps/lilyco-toolhub/scripts/prepare_bundle.py _hubdist
-          python -c "import importlib.util,json; spec=importlib.util.spec_from_file_location('hub','apps/lilyco-toolhub/hub.py'); m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);h=m.ToolHub(json.load(open('_hubdist/tools.json')));names=[x['name'] for x in h.discover()]; print('discovered',len(names),'tools'); assert len(names)>=21 and 'vision__remove-background' in names and 'media__manim_render' in names and 'media__html_to_video' in names; assert all(not x.startswith('unavailable') for x in h.status.values()),h.status"
+          python -c "import importlib.util,json; spec=importlib.util.spec_from_file_location('hub','apps/lilyco-toolhub/hub.py'); m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);h=m.ToolHub(json.load(open('_hubdist/tools.json')));names=[x['name'] for x in h.discover()]; print('discovered',len(names),'tools'); assert len(names)>=23 and 'vision__remove-background' in names and 'media__manim_render' in names and 'media__html_to_video' in names and 'spine__inspect-skeleton' in names and 'spine__inspect-atlas' in names; assert all(not x.startswith('unavailable') for x in h.status.values()),h.status"
       - name: Package client-side binaries and Hub
         shell: bash
         run: |

@@ -88,3 +88,7 @@ The browser will open on `http://127.0.0.1:<random-port>/` with a random one-ses
 For end users, download a GitHub Actions `lilyco-toolhub-Windows` artifact and extract it. The release includes `gui_server.py` and `gui/dist`, already compiled: no frontend build is needed. Regenerate `tools.json` with the included `prepare_bundle.py` on the client's machine, then start `python gui_server.py --config tools.json` as an ordinary local program.
 
 Risk-sensitive rename/delete/write and script execution functions have an additional GUI confirmation; the original tool's MCP safety policy remains in force.
+
+## Spine asset inspection
+
+The optional lilyco-spine Rust member provides local read-only spine__inspect-skeleton and spine__inspect-atlas to the same Registry. No official runtime is bundled. See ../../lilyco-spine/README.md and ../../docs/COMMERCIAL_LILYCO_TOOLS_2026.md.
