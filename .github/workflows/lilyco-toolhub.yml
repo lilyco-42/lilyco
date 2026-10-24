@@ -1,0 +1,57 @@
+name: Lilyco Tool Hub
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/lilyco-toolhub/**'
+      - '.github/workflows/lilyco-toolhub.yml'
+  pull_request:
+    paths:
+      - 'apps/lilyco-toolhub/**'
+      - '.github/workflows/lilyco-toolhub.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  gateway-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test toolhub MCP discovery/routing/safety
+        run: python -m unittest discover -s apps/lilyco-toolhub/tests -v
+  build-tools:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build existing local MCP domain tools
+        run: cargo build --release -p lilyco-vision -p lilyco-files -p lilyco-grep -p lilyco-ffmpeg -p lilyco-mpkg
+      - name: Validate local tool discovery through unified Hub
+        shell: bash
+        run: |
+          mkdir -p _hubdist
+          if [[ "${{ runner.os }}" == "Windows" ]]; then ext=".exe"; else ext=""; fi
+          cp target/release/lvision$ext target/release/lfiles$ext target/release/lgrep$ext target/release/lffmpeg$ext target/release/lmpkg$ext _hubdist/
+          python -c "import os,json,pathlib; p=pathlib.Path('_hubdist').resolve(); cfg={'servers':{k:{'command':str(p / (v + ('.exe' if os.name == 'nt' else ''))),'args':['--mcp']} for k,v in {'vision':'lvision','files':'lfiles','grep':'lgrep','ffmpeg':'lffmpeg','mpkg':'lmpkg'}.items()}}; pathlib.Path('_hubdist/tools.json').write_text(json.dumps(cfg),encoding='utf-8')"
+          python -c "import importlib.util,json; spec=importlib.util.spec_from_file_location('hub','apps/lilyco-toolhub/hub.py'); m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);h=m.ToolHub(json.load(open('_hubdist/tools.json')));names=[x['name'] for x in h.discover()]; print('discovered',len(names),'tools'); assert len(names)>10 and 'vision__remove-background' in names; assert all(not x.startswith('unavailable') for x in h.status.values()),h.status"
+      - name: Package client-side binaries and Hub
+        shell: bash
+        run: |
+          cp apps/lilyco-toolhub/hub.py apps/lilyco-toolhub/README.md apps/lilyco-toolhub/tools.example.json _hubdist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lilyco-toolhub-${{ runner.os }}
+          path: _hubdist/
+          if-no-files-found: error
