@@ -131,10 +131,21 @@ def _input_image(raw: str) -> Path:
 def _job_workspace() -> Path:
     raw = os.environ.get('LILYCO_AUTOMATION_ROOT')
     if not raw:
-        raise WorkflowError('LILYCO_AUTOMATION_ROOT required for local project output')
-    folder = Path(raw).resolve(strict=True)
+        # First run should not require a shell or manual environment variables.
+        # Use a single client-owned workspace rather than arbitrary user paths.
+        folder = Path.home() / 'Documents' / 'Lilyco' / 'Projects'
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise WorkflowError('cannot create default local project directory') from exc
+    else:
+        folder = Path(raw)
+    try:
+        folder = folder.resolve(strict=True)
+    except OSError as exc:
+        raise WorkflowError('approved project root is missing or inaccessible') from exc
     if not folder.is_dir():
-        raise WorkflowError('automation root must be an existing local directory')
+        raise WorkflowError('automation root must be a local directory')
     return folder
 
 

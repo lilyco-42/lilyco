@@ -64,12 +64,13 @@ class StudioTests(unittest.TestCase):
         bad=studio.mcp_message({'jsonrpc':'2.0','id':2,'method':'tools/call','params':{'name':'unknown','arguments':{}}})
         self.assertTrue(bad['result']['isError'])
 
-    def test_output_root_is_explicit(self):
-        with patch.dict(os.environ,{'LILYCO_AUTOMATION_ROOT':''}):
-            with self.assertRaises(studio.WorkflowError):
-                studio._job_workspace()
+    def test_default_local_output_root_is_created_without_manual_setup(self):
+        with tempfile.TemporaryDirectory() as td:
+            with patch.dict(os.environ, {'LILYCO_AUTOMATION_ROOT':''}), patch.object(studio.Path, 'home', return_value=Path(td)):
+                p = studio._job_workspace()
+            self.assertTrue(p.is_dir())
+            self.assertEqual(p, (Path(td)/'Documents'/'Lilyco'/'Projects').resolve())
 
 
 if __name__=='__main__':
     unittest.main()
-

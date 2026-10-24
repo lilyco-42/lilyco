@@ -26,7 +26,7 @@
 从 GitHub Actions 的 Lilyco Tool Hub 发布包解压，按照其 README 生成 tools.json。额外为 studio 提供：
 
 - Blender 4.2+ 本机安装；推荐从 Blender 官网或系统软件包管理器获取。
-- 先在用户设备创建 LILYCO_AUTOMATION_ROOT（输出目录）。
+- 默认自动创建本机 Documents/Lilyco/Projects 输出目录，用户无须配置环境变量；高级用户可显式指定 LILYCO_AUTOMATION_ROOT。
 - 可选安装 CLI-Anything 官方 cli-hub：pip install cli-anything-hub，然后 cli-hub search blender；harness 由审核的 CLI-Hub 环境进行安装。
 - 直接启动 python -u hub.py --config tools.json 或人类 GUI python gui_server.py --config tools.json。
 - 用 studio__lyco_environment_preflight 检查，再调用 studio__lyco_create_3d_reference。
