@@ -34,7 +34,7 @@ LOG = logging.getLogger("lilyco-toolhub-gui")
 class GUIState:
     def __init__(self, hub: ToolHub, static_root: Path, token: str | None = None):
         self.hub = hub
-        self.static_root = static_root
+        self.static_root = static_root.resolve()
         self.token = token or secrets.token_urlsafe(32)
         self.history: deque[dict[str, Any]] = deque(maxlen=MAX_HISTORY)
         self.artifacts: dict[str, Path] = {}

@@ -39,6 +39,8 @@ class GUIContractTests(unittest.TestCase):
         cls.output.write_bytes(b"\x89PNG\r\n\x1a\n")
         cls.fake = FakeHub(cls.output)
         cls.state = GUIState(cls.fake, folder, token="unit-test-token")
+        cls.assert_path_resolved = cls.state.static_root == folder.resolve()
+        assert cls.assert_path_resolved
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(cls.state))
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
@@ -123,4 +125,3 @@ class GUIContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
