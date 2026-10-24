@@ -1,0 +1,7 @@
+{
+  "name": "@lilyco/media-capture",
+  "private": true,
+  "version": "0.1.0",
+  "description": "client-local HTML deterministic screenshot capture",
+  "dependencies": {"playwright-core": "1.56.1"}
+}

@@ -1,9 +1,41 @@
 {
   "servers": {
-    "vision": {"command": "lvision", "args": ["--mcp"]},
-    "files": {"command": "lfiles", "args": ["--mcp"]},
-    "grep": {"command": "lgrep", "args": ["--mcp"]},
-    "ffmpeg": {"command": "lffmpeg", "args": ["--mcp"]},
-    "mpkg": {"command": "lmpkg", "args": ["--mcp"]}
+    "vision": {
+      "command": "lvision",
+      "args": [
+        "--mcp"
+      ]
+    },
+    "files": {
+      "command": "lfiles",
+      "args": [
+        "--mcp"
+      ]
+    },
+    "grep": {
+      "command": "lgrep",
+      "args": [
+        "--mcp"
+      ]
+    },
+    "ffmpeg": {
+      "command": "lffmpeg",
+      "args": [
+        "--mcp"
+      ]
+    },
+    "mpkg": {
+      "command": "lmpkg",
+      "args": [
+        "--mcp"
+      ]
+    },
+    "media": {
+      "args": [
+        "-u",
+        "/absolute/path/to/apps/lilyco-toolhub/media_mcp.py"
+      ],
+      "command": "python"
+    }
   }
 }
