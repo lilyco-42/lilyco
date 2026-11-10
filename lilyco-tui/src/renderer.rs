@@ -271,7 +271,8 @@ pub fn render_command_select(
         buf.set_string(area.x, row_y, &shown, style);
     }
 
-    let footer_y = area.y + area.height - 1;
+    // 终端高度可能为 0（pty 未设置窗口大小时），用 saturating_sub 避免下溢 panic
+    let footer_y = area.y + area.height.saturating_sub(1);
     buf.set_string(
         area.x,
         footer_y,
