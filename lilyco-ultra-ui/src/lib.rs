@@ -35,6 +35,7 @@ impl UltraUiServer {
             .route("/api/render", post(render_handler))
             .route("/api/validate", post(validate_handler))
             .route("/api/example", get(example_handler))
+            .route("/api/example/calculator", get(calculator_example_handler))
             .with_state(Arc::new(()));
 
         let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.port))

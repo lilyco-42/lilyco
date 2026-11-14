@@ -1,0 +1,971 @@
+{
+  "browser": "Chrome/157.0.8103.38",
+  "fixed_online": {
+    "runs": 3,
+    "rendered": 3,
+    "exceptions": 0,
+    "browser_ready_ms": {
+      "n": 3,
+      "min": 198.69,
+      "median": 211.22,
+      "max": 813.72,
+      "mean": 407.88
+    },
+    "nav_to_render_ms": {
+      "n": 3,
+      "min": 1327,
+      "median": 4766,
+      "max": 5468,
+      "mean": 3853.67
+    },
+    "cold_start_ms": {
+      "n": 3,
+      "min": 2140.72,
+      "median": 4964.69,
+      "max": 5679.22,
+      "mean": 4261.55
+    },
+    "click_latency_ms": {
+      "n": 3,
+      "min": 12.7,
+      "median": 13.1,
+      "max": 14.9,
+      "mean": 13.57
+    },
+    "chrome_tree_rss_mb": {
+      "n": 3,
+      "min": 1112.61,
+      "median": 1114.61,
+      "max": 1116.07,
+      "mean": 1114.43
+    },
+    "js_heap_mb": {
+      "n": 3,
+      "min": 8.18,
+      "median": 8.19,
+      "max": 9.9,
+      "mean": 8.75
+    },
+    "external_requests": {
+      "n": 3,
+      "min": 3,
+      "median": 3,
+      "max": 3,
+      "mean": 3
+    },
+    "network_failures": {
+      "n": 3,
+      "min": 0,
+      "median": 0,
+      "max": 0,
+      "mean": 0
+    }
+  },
+  "old_unpinned": {
+    "runs": 1,
+    "rendered": 0,
+    "exceptions": 1,
+    "browser_ready_ms": {
+      "n": 1,
+      "min": 221.56,
+      "median": 221.56,
+      "max": 221.56,
+      "mean": 221.56
+    },
+    "nav_to_render_ms": null,
+    "cold_start_ms": null,
+    "click_latency_ms": null,
+    "chrome_tree_rss_mb": {
+      "n": 1,
+      "min": 969.6,
+      "median": 969.6,
+      "max": 969.6,
+      "mean": 969.6
+    },
+    "js_heap_mb": {
+      "n": 1,
+      "min": 7.72,
+      "median": 7.72,
+      "max": 7.72,
+      "mean": 7.72
+    },
+    "external_requests": {
+      "n": 1,
+      "min": 6,
+      "median": 6,
+      "max": 6,
+      "mean": 6
+    },
+    "network_failures": {
+      "n": 1,
+      "min": 0,
+      "median": 0,
+      "max": 0,
+      "mean": 0
+    }
+  },
+  "offline_vendored": {
+    "runs": 3,
+    "rendered": 3,
+    "exceptions": 0,
+    "browser_ready_ms": {
+      "n": 3,
+      "min": 177.84,
+      "median": 200.93,
+      "max": 263.14,
+      "mean": 213.97
+    },
+    "nav_to_render_ms": {
+      "n": 3,
+      "min": 415,
+      "median": 415,
+      "max": 450,
+      "mean": 426.67
+    },
+    "cold_start_ms": {
+      "n": 3,
+      "min": 592.84,
+      "median": 650.93,
+      "max": 678.14,
+      "mean": 640.63
+    },
+    "click_latency_ms": {
+      "n": 3,
+      "min": 13.3,
+      "median": 13.8,
+      "max": 14.6,
+      "mean": 13.9
+    },
+    "chrome_tree_rss_mb": {
+      "n": 3,
+      "min": 1112.0,
+      "median": 1113.31,
+      "max": 1115.84,
+      "mean": 1113.72
+    },
+    "js_heap_mb": {
+      "n": 3,
+      "min": 8.13,
+      "median": 8.14,
+      "max": 8.14,
+      "mean": 8.14
+    },
+    "external_requests": {
+      "n": 3,
+      "min": 0,
+      "median": 0,
+      "max": 0,
+      "mean": 0
+    },
+    "network_failures": {
+      "n": 3,
+      "min": 0,
+      "median": 0,
+      "max": 0,
+      "mean": 0
+    }
+  },
+  "cdn_blocked": {
+    "runs": 3,
+    "rendered": 0,
+    "exceptions": 3,
+    "browser_ready_ms": {
+      "n": 3,
+      "min": 176.1,
+      "median": 284.2,
+      "max": 761.03,
+      "mean": 407.11
+    },
+    "nav_to_render_ms": null,
+    "cold_start_ms": null,
+    "click_latency_ms": null,
+    "chrome_tree_rss_mb": {
+      "n": 3,
+      "min": 752.96,
+      "median": 906.82,
+      "max": 926.87,
+      "mean": 862.22
+    },
+    "js_heap_mb": {
+      "n": 3,
+      "min": 1.12,
+      "median": 1.12,
+      "max": 1.12,
+      "mean": 1.12
+    },
+    "external_requests": {
+      "n": 3,
+      "min": 3,
+      "median": 3,
+      "max": 3,
+      "mean": 3
+    },
+    "network_failures": {
+      "n": 3,
+      "min": 3,
+      "median": 3,
+      "max": 3,
+      "mean": 3
+    }
+  },
+  "raw": {
+    "fixed": [
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "online0",
+        "results": [
+          {
+            "url": "bench-react-fixed.html",
+            "firstRenderMs": 1327,
+            "wallMs": 1645,
+            "snap": {
+              "els": 8,
+              "btn": 2,
+              "title": "图片压缩工具",
+              "ready": "complete"
+            },
+            "post": {
+              "nodes": 37,
+              "heap": 11900000,
+              "els": 8
+            },
+            "metrics": {
+              "Timestamp": 40954.578631,
+              "AudioHandlers": 0,
+              "AudioWorkletProcessors": 0,
+              "Documents": 4,
+              "Frames": 4,
+              "JSEventListeners": 142,
+              "LayoutObjects": 54,
+              "MediaKeySessions": 0,
+              "MediaKeys": 0,
+              "Nodes": 114,
+              "Resources": 3,
+              "ContextLifecycleStateObservers": 13,
+              "V8PerContextDatas": 2,
+              "WorkerGlobalScopes": 0,
+              "UACSSResources": 0,
+              "RTCPeerConnections": 0,
+              "ResourceFetchers": 4,
+              "AdSubframes": 0,
+              "DetachedScriptStates": 1,
+              "ArrayBufferContents": 1,
+              "LayoutCount": 2,
+              "RecalcStyleCount": 2,
+              "LayoutDuration": 0.037637,
+              "RecalcStyleDuration": 0.015143,
+              "DevToolsCommandDuration": 0.008058,
+              "ScriptDuration": 0.291813,
+              "V8CompileDuration": 0.000515,
+              "TaskDuration": 0.383476,
+              "TaskOtherDuration": 0.03031,
+              "ThreadTime": 0.328797,
+              "ProcessTime": 0.58,
+              "JSHeapUsedSize": 8573360,
+              "JSHeapTotalSize": 16179200,
+              "FirstMeaningfulPaint": 0,
+              "DomContentLoaded": 40954.136014,
+              "NavigationStart": 40952.953566
+            },
+            "clickLatency": 12.700000002980232,
+            "exceptions": [],
+            "netFail": [],
+            "net": {
+              "requests": 4,
+              "failures": 0,
+              "external": 3,
+              "bytes": 3220931
+            },
+            "consoleErrors": 0
+          }
+        ],
+        "browser_ready_ms": 813.7234109963174,
+        "chrome_tree_rss_bytes": 1166659584,
+        "stdout": "CDP_DONE [{\"url\":\"bench-react-fixed.html\",\"els\":8,\"ms\":1327,\"click\":12.700000002980232,\"ex\":0,\"ext\":3}]"
+      },
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "online1",
+        "results": [
+          {
+            "url": "bench-react-fixed.html",
+            "firstRenderMs": 5468,
+            "wallMs": 5785,
+            "snap": {
+              "els": 8,
+              "btn": 2,
+              "title": "图片压缩工具",
+              "ready": "complete"
+            },
+            "post": {
+              "nodes": 37,
+              "heap": 14300000,
+              "els": 8
+            },
+            "metrics": {
+              "Timestamp": 40960.747388,
+              "AudioHandlers": 0,
+              "AudioWorkletProcessors": 0,
+              "Documents": 4,
+              "Frames": 4,
+              "JSEventListeners": 142,
+              "LayoutObjects": 54,
+              "MediaKeySessions": 0,
+              "MediaKeys": 0,
+              "Nodes": 114,
+              "Resources": 3,
+              "ContextLifecycleStateObservers": 13,
+              "V8PerContextDatas": 2,
+              "WorkerGlobalScopes": 0,
+              "UACSSResources": 0,
+              "RTCPeerConnections": 0,
+              "ResourceFetchers": 4,
+              "AdSubframes": 0,
+              "DetachedScriptStates": 1,
+              "ArrayBufferContents": 3,
+              "LayoutCount": 2,
+              "RecalcStyleCount": 2,
+              "LayoutDuration": 0.025572,
+              "RecalcStyleDuration": 0.012932,
+              "DevToolsCommandDuration": 0.039293,
+              "ScriptDuration": 0.221693,
+              "V8CompileDuration": 0.000451,
+              "TaskDuration": 0.329948,
+              "TaskOtherDuration": 0.030007,
+              "ThreadTime": 0.298611,
+              "ProcessTime": 0.51,
+              "JSHeapUsedSize": 10378104,
+              "JSHeapTotalSize": 16703488,
+              "FirstMeaningfulPaint": 0,
+              "DomContentLoaded": 40960.337084,
+              "NavigationStart": 40954.979756
+            },
+            "clickLatency": 13.100000001490116,
+            "exceptions": [],
+            "netFail": [],
+            "net": {
+              "requests": 4,
+              "failures": 0,
+              "external": 3,
+              "bytes": 3220931
+            },
+            "consoleErrors": 0
+          }
+        ],
+        "browser_ready_ms": 211.22474900039379,
+        "chrome_tree_rss_bytes": 1170280448,
+        "stdout": "CDP_DONE [{\"url\":\"bench-react-fixed.html\",\"els\":8,\"ms\":5468,\"click\":13.100000001490116,\"ex\":0,\"ext\":3}]"
+      },
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "online2",
+        "results": [
+          {
+            "url": "bench-react-fixed.html",
+            "firstRenderMs": 4766,
+            "wallMs": 5087,
+            "snap": {
+              "els": 8,
+              "btn": 2,
+              "title": "图片压缩工具",
+              "ready": "complete"
+            },
+            "post": {
+              "nodes": 37,
+              "heap": 11900000,
+              "els": 8
+            },
+            "metrics": {
+              "Timestamp": 40966.188991,
+              "AudioHandlers": 0,
+              "AudioWorkletProcessors": 0,
+              "Documents": 4,
+              "Frames": 4,
+              "JSEventListeners": 142,
+              "LayoutObjects": 54,
+              "MediaKeySessions": 0,
+              "MediaKeys": 0,
+              "Nodes": 114,
+              "Resources": 3,
+              "ContextLifecycleStateObservers": 13,
+              "V8PerContextDatas": 2,
+              "WorkerGlobalScopes": 0,
+              "UACSSResources": 0,
+              "RTCPeerConnections": 0,
+              "ResourceFetchers": 4,
+              "AdSubframes": 0,
+              "DetachedScriptStates": 1,
+              "ArrayBufferContents": 1,
+              "LayoutCount": 2,
+              "RecalcStyleCount": 2,
+              "LayoutDuration": 0.028906,
+              "RecalcStyleDuration": 0.00973,
+              "DevToolsCommandDuration": 0.041736,
+              "ScriptDuration": 0.269214,
+              "V8CompileDuration": 0.000534,
+              "TaskDuration": 0.381871,
+              "TaskOtherDuration": 0.031751,
+              "ThreadTime": 0.345261,
+              "ProcessTime": 0.58,
+              "JSHeapUsedSize": 8583760,
+              "JSHeapTotalSize": 16179200,
+              "FirstMeaningfulPaint": 0,
+              "DomContentLoaded": 40965.765425,
+              "NavigationStart": 40961.126668
+            },
+            "clickLatency": 14.899999998509884,
+            "exceptions": [],
+            "netFail": [],
+            "net": {
+              "requests": 4,
+              "failures": 0,
+              "external": 3,
+              "bytes": 3220931
+            },
+            "consoleErrors": 0
+          }
+        ],
+        "browser_ready_ms": 198.69019799807575,
+        "chrome_tree_rss_bytes": 1168748544,
+        "stdout": "CDP_DONE [{\"url\":\"bench-react-fixed.html\",\"els\":8,\"ms\":4766,\"click\":14.899999998509884,\"ex\":0,\"ext\":3}]"
+      }
+    ],
+    "old": [
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "old0",
+        "results": [
+          {
+            "url": "bench-react.html",
+            "firstRenderMs": null,
+            "wallMs": 20354,
+            "snap": {
+              "els": 0,
+              "btn": 0,
+              "title": null,
+              "ready": "complete"
+            },
+            "post": {
+              "nodes": 13,
+              "heap": 11200000,
+              "els": 0
+            },
+            "metrics": {
+              "Timestamp": 40986.929255,
+              "AudioHandlers": 0,
+              "AudioWorkletProcessors": 0,
+              "Documents": 4,
+              "Frames": 4,
+              "JSEventListeners": 4,
+              "LayoutObjects": 9,
+              "MediaKeySessions": 0,
+              "MediaKeys": 0,
+              "Nodes": 45,
+              "Resources": 3,
+              "ContextLifecycleStateObservers": 12,
+              "V8PerContextDatas": 2,
+              "WorkerGlobalScopes": 0,
+              "UACSSResources": 0,
+              "RTCPeerConnections": 0,
+              "ResourceFetchers": 4,
+              "AdSubframes": 0,
+              "DetachedScriptStates": 1,
+              "ArrayBufferContents": 4,
+              "LayoutCount": 1,
+              "RecalcStyleCount": 1,
+              "LayoutDuration": 0.000212,
+              "RecalcStyleDuration": 0.00057,
+              "DevToolsCommandDuration": 0.161443,
+              "ScriptDuration": 0.195889,
+              "V8CompileDuration": 0.00093,
+              "TaskDuration": 0.409695,
+              "TaskOtherDuration": 0.050651,
+              "ThreadTime": 0.43358,
+              "ProcessTime": 0.71,
+              "JSHeapUsedSize": 8093624,
+              "JSHeapTotalSize": 14577664,
+              "FirstMeaningfulPaint": 0,
+              "DomContentLoaded": 40970.603381,
+              "NavigationStart": 40966.625241
+            },
+            "clickLatency": null,
+            "exceptions": [
+              "SyntaxError: Failed to execute 'appendChild' on 'Node': Cannot use import statement outside a module"
+            ],
+            "netFail": [],
+            "net": {
+              "requests": 7,
+              "failures": 0,
+              "external": 6,
+              "bytes": 2530456
+            },
+            "consoleErrors": 0
+          }
+        ],
+        "browser_ready_ms": 221.5648759956821,
+        "chrome_tree_rss_bytes": 1016696832,
+        "stdout": "CDP_DONE [{\"url\":\"bench-react.html\",\"els\":0,\"ms\":null,\"click\":null,\"ex\":1,\"ext\":6}]"
+      }
+    ],
+    "offline": [
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "off0",
+        "results": [
+          {
+            "url": "fix-proposed.html",
+            "firstRenderMs": 415,
+            "wallMs": 732,
+            "snap": {
+              "els": 8,
+              "btn": 2,
+              "title": "图片压缩工具",
+              "ready": "complete"
+            },
+            "post": {
+              "nodes": 37,
+              "heap": 11900000,
+              "els": 8
+            },
+            "metrics": {
+              "Timestamp": 40988.30346,
+              "AudioHandlers": 0,
+              "AudioWorkletProcessors": 0,
+              "Documents": 4,
+              "Frames": 4,
+              "JSEventListeners": 142,
+              "LayoutObjects": 54,
+              "MediaKeySessions": 0,
+              "MediaKeys": 0,
+              "Nodes": 119,
+              "Resources": 0,
+              "ContextLifecycleStateObservers": 12,
+              "V8PerContextDatas": 2,
+              "WorkerGlobalScopes": 0,
+              "UACSSResources": 0,
+              "RTCPeerConnections": 0,
+              "ResourceFetchers": 4,
+              "AdSubframes": 0,
+              "DetachedScriptStates": 1,
+              "ArrayBufferContents": 1,
+              "LayoutCount": 3,
+              "RecalcStyleCount": 3,
+              "LayoutDuration": 0.034056,
+              "RecalcStyleDuration": 0.011484,
+              "DevToolsCommandDuration": 0.001313,
+              "ScriptDuration": 0.234919,
+              "V8CompileDuration": 0.053689,
+              "TaskDuration": 0.401875,
+              "TaskOtherDuration": 0.066414,
+              "ThreadTime": 0.35505,
+              "ProcessTime": 0.48,
+              "JSHeapUsedSize": 8528136,
+              "JSHeapTotalSize": 15917056,
+              "FirstMeaningfulPaint": 0,
+              "DomContentLoaded": 40987.880411,
+              "NavigationStart": 40987.58946
+            },
+            "clickLatency": 13.299999997019768,
+            "exceptions": [],
+            "netFail": [],
+            "net": {
+              "requests": 1,
+              "failures": 0,
+              "external": 0,
+              "bytes": 3220443
+            },
+            "consoleErrors": 0
+          }
+        ],
+        "browser_ready_ms": 263.13600999856135,
+        "chrome_tree_rss_bytes": 1167388672,
+        "stdout": "CDP_DONE [{\"url\":\"fix-proposed.html\",\"els\":8,\"ms\":415,\"click\":13.299999997019768,\"ex\":0,\"ext\":0}]"
+      },
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "off1",
+        "results": [
+          {
+            "url": "fix-proposed.html",
+            "firstRenderMs": 450,
+            "wallMs": 771,
+            "snap": {
+              "els": 8,
+              "btn": 2,
+              "title": "图片压缩工具",
+              "ready": "complete"
+            },
+            "post": {
+              "nodes": 37,
+              "heap": 11900000,
+              "els": 8
+            },
+            "metrics": {
+              "Timestamp": 40989.436561,
+              "AudioHandlers": 0,
+              "AudioWorkletProcessors": 0,
+              "Documents": 4,
+              "Frames": 4,
+              "JSEventListeners": 142,
+              "LayoutObjects": 54,
+              "MediaKeySessions": 0,
+              "MediaKeys": 0,
+              "Nodes": 118,
+              "Resources": 0,
+              "ContextLifecycleStateObservers": 12,
+              "V8PerContextDatas": 2,
+              "WorkerGlobalScopes": 0,
+              "UACSSResources": 0,
+              "RTCPeerConnections": 0,
+              "ResourceFetchers": 4,
+              "AdSubframes": 0,
+              "DetachedScriptStates": 1,
+              "ArrayBufferContents": 1,
+              "LayoutCount": 3,
+              "RecalcStyleCount": 3,
+              "LayoutDuration": 0.034492,
+              "RecalcStyleDuration": 0.013679,
+              "DevToolsCommandDuration": 0.001514,
+              "ScriptDuration": 0.266069,
+              "V8CompileDuration": 0.048971,
+              "TaskDuration": 0.442531,
+              "TaskOtherDuration": 0.077806,
+              "ThreadTime": 0.393983,
+              "ProcessTime": 0.52,
+              "JSHeapUsedSize": 8531584,
+              "JSHeapTotalSize": 16179200,
+              "FirstMeaningfulPaint": 0,
+              "DomContentLoaded": 40988.992408,
+              "NavigationStart": 40988.685793
+            },
+            "clickLatency": 14.600000001490116,
+            "exceptions": [],
+            "netFail": [],
+            "net": {
+              "requests": 1,
+              "failures": 0,
+              "external": 0,
+              "bytes": 3220443
+            },
+            "consoleErrors": 0
+          }
+        ],
+        "browser_ready_ms": 200.93089000147302,
+        "chrome_tree_rss_bytes": 1170042880,
+        "stdout": "CDP_DONE [{\"url\":\"fix-proposed.html\",\"els\":8,\"ms\":450,\"click\":14.600000001490116,\"ex\":0,\"ext\":0}]"
+      },
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "off2",
+        "results": [
+          {
+            "url": "fix-proposed.html",
+            "firstRenderMs": 415,
+            "wallMs": 733,
+            "snap": {
+              "els": 8,
+              "btn": 2,
+              "title": "图片压缩工具",
+              "ready": "complete"
+            },
+            "post": {
+              "nodes": 37,
+              "heap": 11900000,
+              "els": 8
+            },
+            "metrics": {
+              "Timestamp": 40990.513461,
+              "AudioHandlers": 0,
+              "AudioWorkletProcessors": 0,
+              "Documents": 4,
+              "Frames": 4,
+              "JSEventListeners": 142,
+              "LayoutObjects": 54,
+              "MediaKeySessions": 0,
+              "MediaKeys": 0,
+              "Nodes": 118,
+              "Resources": 0,
+              "ContextLifecycleStateObservers": 12,
+              "V8PerContextDatas": 2,
+              "WorkerGlobalScopes": 0,
+              "UACSSResources": 0,
+              "RTCPeerConnections": 0,
+              "ResourceFetchers": 4,
+              "AdSubframes": 0,
+              "DetachedScriptStates": 1,
+              "ArrayBufferContents": 1,
+              "LayoutCount": 3,
+              "RecalcStyleCount": 3,
+              "LayoutDuration": 0.032915,
+              "RecalcStyleDuration": 0.009342,
+              "DevToolsCommandDuration": 0.001133,
+              "ScriptDuration": 0.246304,
+              "V8CompileDuration": 0.047268,
+              "TaskDuration": 0.404312,
+              "TaskOtherDuration": 0.06735,
+              "ThreadTime": 0.35585,
+              "ProcessTime": 0.47,
+              "JSHeapUsedSize": 8537484,
+              "JSHeapTotalSize": 16179200,
+              "FirstMeaningfulPaint": 0,
+              "DomContentLoaded": 40990.0932,
+              "NavigationStart": 40989.798847
+            },
+            "clickLatency": 13.799999997019768,
+            "exceptions": [],
+            "netFail": [],
+            "net": {
+              "requests": 1,
+              "failures": 0,
+              "external": 0,
+              "bytes": 3220443
+            },
+            "consoleErrors": 0
+          }
+        ],
+        "browser_ready_ms": 177.83785299980082,
+        "chrome_tree_rss_bytes": 1166020608,
+        "stdout": "CDP_DONE [{\"url\":\"fix-proposed.html\",\"els\":8,\"ms\":415,\"click\":13.799999997019768,\"ex\":0,\"ext\":0}]"
+      }
+    ],
+    "blocked": [
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "block",
+        "results": [
+          {
+            "url": "bench-react-fixed.html",
+            "firstRenderMs": null,
+            "wallMs": 20335,
+            "snap": {
+              "els": 0,
+              "btn": 0,
+              "title": null,
+              "ready": "complete"
+            },
+            "post": {
+              "nodes": 13,
+              "heap": 10000000,
+              "els": 0
+            },
+            "metrics": {
+              "Timestamp": 41011.175244,
+              "AudioHandlers": 0,
+              "AudioWorkletProcessors": 0,
+              "Documents": 4,
+              "Frames": 4,
+              "JSEventListeners": 0,
+              "LayoutObjects": 9,
+              "MediaKeySessions": 0,
+              "MediaKeys": 0,
+              "Nodes": 45,
+              "Resources": 6,
+              "ContextLifecycleStateObservers": 12,
+              "V8PerContextDatas": 2,
+              "WorkerGlobalScopes": 0,
+              "UACSSResources": 0,
+              "RTCPeerConnections": 0,
+              "ResourceFetchers": 4,
+              "AdSubframes": 0,
+              "DetachedScriptStates": 1,
+              "ArrayBufferContents": 0,
+              "LayoutCount": 1,
+              "RecalcStyleCount": 1,
+              "LayoutDuration": 0.0001,
+              "RecalcStyleDuration": 0.000335,
+              "DevToolsCommandDuration": 0.162705,
+              "ScriptDuration": 0.000441,
+              "V8CompileDuration": 0.000226,
+              "TaskDuration": 0.205652,
+              "TaskOtherDuration": 0.041845,
+              "ThreadTime": 0.235694,
+              "ProcessTime": 0.37,
+              "JSHeapUsedSize": 1176232,
+              "JSHeapTotalSize": 1572864,
+              "FirstMeaningfulPaint": 0,
+              "DomContentLoaded": 40990.876832,
+              "NavigationStart": 40990.862742
+            },
+            "clickLatency": null,
+            "exceptions": [
+              "ReferenceError: Babel is not defined"
+            ],
+            "netFail": [
+              "",
+              "",
+              ""
+            ],
+            "net": {
+              "requests": 4,
+              "failures": 3,
+              "external": 3,
+              "bytes": 8799
+            },
+            "consoleErrors": 0
+          }
+        ],
+        "browser_ready_ms": 176.10405999585055,
+        "chrome_tree_rss_bytes": 950870016,
+        "stdout": "CDP_DONE [{\"url\":\"bench-react-fixed.html\",\"els\":0,\"ms\":null,\"click\":null,\"ex\":1,\"ext\":3}]"
+      },
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "block",
+        "results": [
+          {
+            "url": "bench-react-fixed.html",
+            "firstRenderMs": null,
+            "wallMs": 20436,
+            "snap": {
+              "els": 0,
+              "btn": 0,
+              "title": null,
+              "ready": "complete"
+            },
+            "post": {
+              "nodes": 13,
+              "heap": 10000000,
+              "els": 0
+            },
+            "metrics": {
+              "Timestamp": 41032.318127,
+              "AudioHandlers": 0,
+              "AudioWorkletProcessors": 0,
+              "Documents": 4,
+              "Frames": 4,
+              "JSEventListeners": 0,
+              "LayoutObjects": 9,
+              "MediaKeySessions": 0,
+              "MediaKeys": 0,
+              "Nodes": 45,
+              "Resources": 6,
+              "ContextLifecycleStateObservers": 12,
+              "V8PerContextDatas": 2,
+              "WorkerGlobalScopes": 0,
+              "UACSSResources": 0,
+              "RTCPeerConnections": 0,
+              "ResourceFetchers": 4,
+              "AdSubframes": 0,
+              "DetachedScriptStates": 1,
+              "ArrayBufferContents": 0,
+              "LayoutCount": 1,
+              "RecalcStyleCount": 1,
+              "LayoutDuration": 0.000105,
+              "RecalcStyleDuration": 0.000336,
+              "DevToolsCommandDuration": 0.192875,
+              "ScriptDuration": 0.000363,
+              "V8CompileDuration": 0.000203,
+              "TaskDuration": 0.237603,
+              "TaskOtherDuration": 0.043721,
+              "ThreadTime": 0.250388,
+              "ProcessTime": 0.39,
+              "JSHeapUsedSize": 1175160,
+              "JSHeapTotalSize": 1572864,
+              "FirstMeaningfulPaint": 0,
+              "DomContentLoaded": 41011.987202,
+              "NavigationStart": 41011.969582
+            },
+            "clickLatency": null,
+            "exceptions": [
+              "ReferenceError: Babel is not defined"
+            ],
+            "netFail": [
+              "",
+              "",
+              ""
+            ],
+            "net": {
+              "requests": 4,
+              "failures": 3,
+              "external": 3,
+              "bytes": 8799
+            },
+            "consoleErrors": 0
+          }
+        ],
+        "browser_ready_ms": 284.1954820032697,
+        "chrome_tree_rss_bytes": 789532672,
+        "stdout": "CDP_DONE [{\"url\":\"bench-react-fixed.html\",\"els\":0,\"ms\":null,\"click\":null,\"ex\":1,\"ext\":3}]"
+      },
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "block",
+        "results": [
+          {
+            "url": "bench-react-fixed.html",
+            "firstRenderMs": null,
+            "wallMs": 20312,
+            "snap": {
+              "els": 0,
+              "btn": 0,
+              "title": null,
+              "ready": "complete"
+            },
+            "post": {
+              "nodes": 13,
+              "heap": 10000000,
+              "els": 0
+            },
+            "metrics": {
+              "Timestamp": 41053.983513,
+              "AudioHandlers": 0,
+              "AudioWorkletProcessors": 0,
+              "Documents": 4,
+              "Frames": 4,
+              "JSEventListeners": 0,
+              "LayoutObjects": 9,
+              "MediaKeySessions": 0,
+              "MediaKeys": 0,
+              "Nodes": 45,
+              "Resources": 6,
+              "ContextLifecycleStateObservers": 12,
+              "V8PerContextDatas": 2,
+              "WorkerGlobalScopes": 0,
+              "UACSSResources": 0,
+              "RTCPeerConnections": 0,
+              "ResourceFetchers": 4,
+              "AdSubframes": 0,
+              "DetachedScriptStates": 1,
+              "ArrayBufferContents": 0,
+              "LayoutCount": 1,
+              "RecalcStyleCount": 1,
+              "LayoutDuration": 0.000117,
+              "RecalcStyleDuration": 0.000495,
+              "DevToolsCommandDuration": 0.162437,
+              "ScriptDuration": 0.000542,
+              "V8CompileDuration": 0.000217,
+              "TaskDuration": 0.206647,
+              "TaskOtherDuration": 0.042839,
+              "ThreadTime": 0.23911,
+              "ProcessTime": 0.41,
+              "JSHeapUsedSize": 1175160,
+              "JSHeapTotalSize": 1572864,
+              "FirstMeaningfulPaint": 0,
+              "DomContentLoaded": 41033.694139,
+              "NavigationStart": 41033.678201
+            },
+            "clickLatency": null,
+            "exceptions": [
+              "ReferenceError: Babel is not defined"
+            ],
+            "netFail": [
+              "",
+              "",
+              ""
+            ],
+            "net": {
+              "requests": 4,
+              "failures": 3,
+              "external": 3,
+              "bytes": 8799
+            },
+            "consoleErrors": 0
+          }
+        ],
+        "browser_ready_ms": 761.0310309974011,
+        "chrome_tree_rss_bytes": 971894784,
+        "stdout": "CDP_DONE [{\"url\":\"bench-react-fixed.html\",\"els\":0,\"ms\":null,\"click\":null,\"ex\":1,\"ext\":3}]"
+      }
+    ]
+  }
+}

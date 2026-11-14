@@ -3735,6 +3735,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lilyco-spine"
+version = "0.1.0"
+dependencies = [
+ "lilyco",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "lilyco-srt"
 version = "0.3.0"
 dependencies = [

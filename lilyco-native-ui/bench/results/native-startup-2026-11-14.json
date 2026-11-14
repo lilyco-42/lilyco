@@ -1,0 +1,339 @@
+{
+  "backend": "NSH/GTK4 (Rust, no WebView, no QuickJS)",
+  "binary": "/home/lilyco/.cache/lilyco-build/target/release/lilyco-native-ui",
+  "spec": "/tmp/bench-spec.json",
+  "runs": 5,
+  "hold_s": 3.5,
+  "window_appear_ms": {
+    "n": 4,
+    "min": 220.43,
+    "median": 245.78,
+    "max": 392.87,
+    "mean": 276.22
+  },
+  "window_mapped_ms": null,
+  "first_frame_internal_ms": {
+    "n": 5,
+    "min": 26.45,
+    "median": 32.18,
+    "max": 65.99,
+    "mean": 39.71
+  },
+  "rss_mb": {
+    "n": 5,
+    "min": 174.99,
+    "median": 175.92,
+    "max": 176.89,
+    "mean": 176.03
+  },
+  "fps_monitor_rss_mb": {
+    "n": 23,
+    "min": 183.4,
+    "median": 184.4,
+    "max": 185.5,
+    "mean": 184.47
+  },
+  "fps_monitor_cpu_pct": {
+    "n": 23,
+    "min": 0.0,
+    "median": 0.0,
+    "max": 2.0,
+    "mean": 0.26
+  },
+  "turn_ms": {
+    "n": 10,
+    "min": 0.07,
+    "median": 0.79,
+    "max": 1.91,
+    "mean": 0.82
+  },
+  "events_per_run": [
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "interaction_turn_ms": null,
+  "clicks": [
+    {
+      "x": 1100,
+      "y": 718,
+      "wall_ms": 701.8489370020689
+    },
+    {
+      "x": 1100,
+      "y": 718,
+      "wall_ms": 701.656812998408
+    },
+    {
+      "x": 1100,
+      "y": 718,
+      "wall_ms": 701.6327649980667
+    },
+    null,
+    {
+      "x": 1100,
+      "y": 718,
+      "wall_ms": 701.486190999276
+    }
+  ],
+  "crashes": 0,
+  "criticals": 0,
+  "raw": [
+    {
+      "first_frame_ms": 65.992,
+      "fps_samples": [
+        [
+          1,
+          183.8
+        ],
+        [
+          0,
+          184.4
+        ],
+        [
+          0,
+          184.5
+        ],
+        [
+          0,
+          184.9
+        ]
+      ],
+      "turn_ms": [
+        1.908,
+        1.062
+      ],
+      "events": [],
+      "event_turn_ms": [],
+      "run": 1,
+      "pid": 1311351,
+      "window_id": "0x1a00004",
+      "window_appear_ms": 392.8734840010293,
+      "window_mapped_ms": null,
+      "geometry": {
+        "id": "0x1a00004",
+        "x": "800",
+        "y": "78",
+        "w": "1280",
+        "h": "1640",
+        "root_x": "800",
+        "root_y": "78",
+        "mapped": "1"
+      },
+      "rss_bytes": 184467456,
+      "click": {
+        "x": 1100,
+        "y": 718,
+        "wall_ms": 701.8489370020689
+      },
+      "exit": -15,
+      "crash": false,
+      "critical": false
+    },
+    {
+      "first_frame_ms": 32.181,
+      "fps_samples": [
+        [
+          1,
+          184.4
+        ],
+        [
+          0,
+          185.0
+        ],
+        [
+          0,
+          185.1
+        ],
+        [
+          0,
+          185.3
+        ]
+      ],
+      "turn_ms": [
+        0.857,
+        0.169
+      ],
+      "events": [],
+      "event_turn_ms": [],
+      "run": 2,
+      "pid": 1311462,
+      "window_id": "0x1c00004",
+      "window_appear_ms": 220.4327990039019,
+      "window_mapped_ms": null,
+      "geometry": {
+        "id": "0x1c00004",
+        "x": "800",
+        "y": "78",
+        "w": "1280",
+        "h": "1640",
+        "root_x": "800",
+        "root_y": "78",
+        "mapped": "1"
+      },
+      "rss_bytes": 185085952,
+      "click": {
+        "x": 1100,
+        "y": 718,
+        "wall_ms": 701.656812998408
+      },
+      "exit": -15,
+      "crash": false,
+      "critical": false
+    },
+    {
+      "first_frame_ms": 46.717,
+      "fps_samples": [
+        [
+          2,
+          184.0
+        ],
+        [
+          0,
+          183.4
+        ],
+        [
+          0,
+          183.5
+        ]
+      ],
+      "turn_ms": [
+        0.071,
+        1.882
+      ],
+      "events": [],
+      "event_turn_ms": [],
+      "run": 3,
+      "pid": 1311609,
+      "window_id": "0x1a00004",
+      "window_appear_ms": 242.354209003679,
+      "window_mapped_ms": null,
+      "geometry": {
+        "id": "0x1a00004",
+        "x": "800",
+        "y": "78",
+        "w": "1280",
+        "h": "1640",
+        "root_x": "800",
+        "root_y": "78",
+        "mapped": "1"
+      },
+      "rss_bytes": 183492608,
+      "click": {
+        "x": 1100,
+        "y": 718,
+        "wall_ms": 701.6327649980667
+      },
+      "exit": -15,
+      "crash": false,
+      "critical": false
+    },
+    {
+      "first_frame_ms": 26.454,
+      "fps_samples": [
+        [
+          1,
+          183.6
+        ],
+        [
+          0,
+          183.9
+        ],
+        [
+          0,
+          184.1
+        ],
+        [
+          0,
+          184.7
+        ],
+        [
+          0,
+          184.9
+        ],
+        [
+          0,
+          185.5
+        ],
+        [
+          0,
+          185.5
+        ],
+        [
+          0,
+          185.5
+        ]
+      ],
+      "turn_ms": [
+        0.135,
+        1.274
+      ],
+      "events": [],
+      "event_turn_ms": [],
+      "run": 4,
+      "pid": 1311743,
+      "window_id": null,
+      "window_appear_ms": null,
+      "window_mapped_ms": null,
+      "geometry": {},
+      "rss_bytes": 185483264,
+      "click": null,
+      "exit": -15,
+      "crash": false,
+      "critical": false
+    },
+    {
+      "first_frame_ms": 27.205,
+      "fps_samples": [
+        [
+          1,
+          183.7
+        ],
+        [
+          0,
+          184.3
+        ],
+        [
+          0,
+          184.4
+        ],
+        [
+          0,
+          184.5
+        ]
+      ],
+      "turn_ms": [
+        0.728,
+        0.129
+      ],
+      "events": [],
+      "event_turn_ms": [],
+      "run": 5,
+      "pid": 1312370,
+      "window_id": "0x1a00004",
+      "window_appear_ms": 249.21064199588727,
+      "window_mapped_ms": null,
+      "geometry": {
+        "id": "0x1a00004",
+        "x": "800",
+        "y": "78",
+        "w": "1280",
+        "h": "1640",
+        "root_x": "800",
+        "root_y": "78",
+        "mapped": "1"
+      },
+      "rss_bytes": 184356864,
+      "click": {
+        "x": 1100,
+        "y": 718,
+        "wall_ms": 701.486190999276
+      },
+      "exit": -15,
+      "crash": false,
+      "critical": false
+    }
+  ]
+}
