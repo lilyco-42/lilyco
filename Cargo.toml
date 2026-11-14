@@ -29,6 +29,9 @@ members = [
     "lilyco-srt",
 ]
 resolver = "2"
+# NSH 原生后端独立解析：nsh-base 要 unicode-width ^0.2.2，
+# 主 workspace 的 ratatui 0.29 钉死 =0.2.0，Cargo 不允许同区间两版共存。
+exclude = ["lilyco-native-ui"]
 
 # ============================================================================
 # 🔴 日常工作集：只编「非图形 / 非桌面」成员

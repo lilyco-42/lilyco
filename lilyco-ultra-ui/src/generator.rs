@@ -1,7 +1,12 @@
 //! # Lilyco Ultra UI — Generator
 //!
 //! 将 UiSpec 转换为完整的 React HTML 页面。
-//! 生成的页面使用 CDN React 18 + Babel Standalone，无需构建步骤。
+//! 生成的页面使用固定版本 React 18 + Babel Standalone，无需构建步骤。
+//!
+//! 依赖锁到 18.3.1 / @babel/standalone 7.28.4 并带 SRI，且显式指定 classic
+//! runtime：unpkg 上未锁版本的 babel.min.js 浮到 8.1.2 后默认 automatic
+//! runtime，会编译出 import ... from "react/jsx-runtime"，浏览器里直接抛
+//! SyntaxError、整页白屏（2026-11-14 实测）。
 
 use crate::spec::UiSpec;
 
@@ -15,26 +20,35 @@ pub fn generate_react_html(spec: &UiSpec) -> String {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{title}</title>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <title>{title}</title>{head_scripts}
   <style>{css}</style>
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel" data-presets="react">
+  <script type="text/babel" data-presets="lilyco-react">
     const SPEC = {spec_json};
     {react_app}
   </script>
 </body>
 </html>"###,
         title = title,
+        head_scripts = HEAD_SCRIPTS,
         css = CSS,
         spec_json = spec_json,
         react_app = REACT_APP,
     )
 }
+
+/// 固定版本 + SRI + 显式 classic runtime。
+///
+/// 三条脚本都锁到具体版本并用 sha384 校验，避免 CDN 浮点版本或返回体变化；
+/// Babel 7 默认 classic，这里仍显式注册 preset，保证将来升级到 Babel 8 时
+/// 不会重新生成 import 语句而白屏。
+const HEAD_SCRIPTS: &str = r#"
+  <script crossorigin integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script crossorigin integrity="sha384-tL0JdJBWAk5nHKZhc/dtWf7bZRpYP13x4HjH85NrwCr/JkBnrZ7RNBOAdDzJlpof" src="https://unpkg.com/@babel/standalone@7.28.4/babel.min.js"></script>
+  <script>Babel.registerPreset("lilyco-react", { presets: [[Babel.availablePresets["react"], { runtime: "classic" }]] });</script>"#;
 
 const CSS: &str = r#"
 *{margin:0;padding:0;box-sizing:border-box}
@@ -56,6 +70,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .el-divider{border:none;border-top:1px solid #e2e8f0;margin:20px 0}
 .el-image{border-radius:8px;display:block}.el-link{color:#3b82f6;text-decoration:none;font-size:15px}.el-link:hover{text-decoration:underline}
 .el-pw{margin:14px 0}.el-pt{width:100%;height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden}.el-pb{height:100%;background:#3b82f6;border-radius:4px;transition:width .3s}
+.el-calc{padding:12px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;display:flex;gap:12px;align-items:center}
 .el-toast{position:fixed;top:24px;right:24px;padding:16px 24px;background:#1e293b;color:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.2);z-index:9999;max-width:400px;animation:slideIn .3s ease;font-size:14px}
 .el-toast .tt{font-weight:600;margin-bottom:4px}.el-toast .td{color:#94a3b8;font-family:monospace;font-size:13px;word-break:break-all}
 @keyframes slideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}
@@ -107,6 +122,7 @@ function App() {
         <div key={i} className="el el-pw">{el.标签 && <label className="el-label">{el.标签} — {pct}%</label>}
         <div className="el-pt"><div className="el-pb" style={{width:pct+'%'}} /></div></div>); }
       case '链接': return <a key={i} className="el el-link" href={el.链接} target="_blank" rel="noopener noreferrer">{el.文本}</a>;
+      case '计算器': return <div key={i} className="el el-calc"><b>计算器（{el.模式 || 'standard'}）</b><code>{values[el.变量] ?? '0'}</code></div>;
       default: return <div key={i} className="el" style={{color:'#ef4444'}}>未知元素类型: {el.类型}</div>;
     }
   };

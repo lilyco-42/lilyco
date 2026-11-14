@@ -1,0 +1,155 @@
+{
+  "backend": "NSH/GTK4 Rust AppSource::Rust",
+  "method": "AT-SPI nsh.activate on button 开始压缩 → Rust on_press → NSH perf commit/turn",
+  "binary": "/home/lilyco/.cache/lilyco-build/target/release/lilyco-native-ui",
+  "spec": "/tmp/bench-spec.json",
+  "runs": 5,
+  "hold_s": 1.3,
+  "press_handler_ms": {
+    "n": 5,
+    "min": 0.1,
+    "median": 0.16,
+    "max": 0.63,
+    "mean": 0.25
+  },
+  "event_to_commit_ms": {
+    "n": 5,
+    "min": 1.0,
+    "median": 2.0,
+    "max": 2.0,
+    "mean": 1.6
+  },
+  "event_to_turn_ms": {
+    "n": 5,
+    "min": 1.0,
+    "median": 2.0,
+    "max": 2.0,
+    "mean": 1.6
+  },
+  "state_commit_ms": {
+    "n": 5,
+    "min": 1.1,
+    "median": 2.15,
+    "max": 2.23,
+    "mean": 1.85
+  },
+  "do_action_us": {
+    "n": 5,
+    "min": 112,
+    "median": 129,
+    "max": 228,
+    "mean": 149
+  },
+  "press_count": 5,
+  "event_count": 5,
+  "accepted": 5,
+  "crashes": 0,
+  "criticals": 0,
+  "raw": [
+    {
+      "run": 1,
+      "pid": 1353371,
+      "window_id": "0x1a00004",
+      "window_appear_ms": 388.53792100417195,
+      "activation": {
+        "rc": 0,
+        "stdout": "ATSPI_ACTIVATE name='开始压缩' start_epoch_us=1794668198909716 end_epoch_us=1794668198909866 do_action_us=150 accepted=True pid=1353371",
+        "stderr": ""
+      },
+      "do_action_us": 150,
+      "accepted": true,
+      "press_count": 1,
+      "event_count": 1,
+      "press_handler_ms": 0.151,
+      "event_to_commit_ms": 2.0,
+      "event_to_turn_ms": 2.0,
+      "state_commit_ms": 2.151,
+      "crash": false,
+      "critical": false
+    },
+    {
+      "run": 2,
+      "pid": 1353472,
+      "window_id": "0x1a00004",
+      "window_appear_ms": 240.48428700189106,
+      "activation": {
+        "rc": 0,
+        "stdout": "ATSPI_ACTIVATE name='开始压缩' start_epoch_us=1794668201211688 end_epoch_us=1794668201211800 do_action_us=112 accepted=True pid=1353472",
+        "stderr": ""
+      },
+      "do_action_us": 112,
+      "accepted": true,
+      "press_count": 1,
+      "event_count": 1,
+      "press_handler_ms": 0.627,
+      "event_to_commit_ms": 1.0,
+      "event_to_turn_ms": 1.0,
+      "state_commit_ms": 1.627,
+      "crash": false,
+      "critical": false
+    },
+    {
+      "run": 3,
+      "pid": 1353569,
+      "window_id": "0x1a00004",
+      "window_appear_ms": 216.24168600101257,
+      "activation": {
+        "rc": 0,
+        "stdout": "ATSPI_ACTIVATE name='开始压缩' start_epoch_us=1794668203504175 end_epoch_us=1794668203504301 do_action_us=126 accepted=True pid=1353569",
+        "stderr": ""
+      },
+      "do_action_us": 126,
+      "accepted": true,
+      "press_count": 1,
+      "event_count": 1,
+      "press_handler_ms": 0.105,
+      "event_to_commit_ms": 1.0,
+      "event_to_turn_ms": 1.0,
+      "state_commit_ms": 1.105,
+      "crash": false,
+      "critical": false
+    },
+    {
+      "run": 4,
+      "pid": 1353633,
+      "window_id": "0x1a00004",
+      "window_appear_ms": 222.67253199970583,
+      "activation": {
+        "rc": 0,
+        "stdout": "ATSPI_ACTIVATE name='开始压缩' start_epoch_us=1794668205785292 end_epoch_us=1794668205785421 do_action_us=129 accepted=True pid=1353633",
+        "stderr": ""
+      },
+      "do_action_us": 129,
+      "accepted": true,
+      "press_count": 1,
+      "event_count": 1,
+      "press_handler_ms": 0.158,
+      "event_to_commit_ms": 2.0,
+      "event_to_turn_ms": 2.0,
+      "state_commit_ms": 2.158,
+      "crash": false,
+      "critical": false
+    },
+    {
+      "run": 5,
+      "pid": 1353697,
+      "window_id": "0x1a00004",
+      "window_appear_ms": 218.1580690012197,
+      "activation": {
+        "rc": 0,
+        "stdout": "ATSPI_ACTIVATE name='开始压缩' start_epoch_us=1794668208069756 end_epoch_us=1794668208069984 do_action_us=228 accepted=True pid=1353697",
+        "stderr": ""
+      },
+      "do_action_us": 228,
+      "accepted": true,
+      "press_count": 1,
+      "event_count": 1,
+      "press_handler_ms": 0.233,
+      "event_to_commit_ms": 2.0,
+      "event_to_turn_ms": 2.0,
+      "state_commit_ms": 2.233,
+      "crash": false,
+      "critical": false
+    }
+  ]
+}
