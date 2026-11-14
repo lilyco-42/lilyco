@@ -1,64 +1,103 @@
 name: Lilyco Manager CI
+
 on:
   push:
     branches: [main]
     paths:
       - 'apps/lilyco-manager/**'
       - '.github/workflows/lilyco-manager.yml'
+  pull_request:
+    paths:
+      - 'apps/lilyco-manager/**'
+      - '.github/workflows/lilyco-manager.yml'
   workflow_dispatch:
+
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    strategy:
-      matrix:
-        os: [windows-latest, ubuntu-latest]
+    name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     defaults:
       run:
         working-directory: apps/lilyco-manager
     steps:
       - uses: actions/checkout@v4
+
       - name: Checkout reviewed WASM pixel kernels source
         uses: actions/checkout@v4
         with:
           repository: lilyco-42/wasm-pixel-kernels
           ref: 94285d78cec5edb0e2f671b0bfe5632a4d05df10
           path: external-wasm-pixel-kernels
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
           components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/lilyco-manager
+
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Build reviewed browser WASM locally in CI only
         shell: bash
         run: |
           printf "\n[workspace]\n" >> ../../external-wasm-pixel-kernels/Cargo.toml
           cargo build --release --target wasm32-unknown-unknown --manifest-path ../../external-wasm-pixel-kernels/Cargo.toml
           bun scripts/embed-wasm.mjs ../../external-wasm-pixel-kernels/target/wasm32-unknown-unknown/release/wasm_pixel_kernels.wasm
+
       - name: Validate project catalog
         run: bun scripts/validate-catalog.mjs
+
+      - name: Repository consistency
+        run: bun scripts/dev-check.mjs
+
       - name: Build Vue UI
         run: |
           cd frontend
           bun install --frozen-lockfile
           bun run typecheck
           bun run build
-      - name: Enforce small local-first client bundle
-        run: bun scripts/check-bundle-size.mjs
-      - name: Browser image export smoke test
+
+      - name: Browser smoke tests
+        if: runner.os == 'Linux'
         run: |
           cd frontend
           bun run smoke
 
-      - run: cargo fmt -- --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
-      - run: cargo build --release
-      - uses: actions/upload-artifact@v4
+      - name: Rust formatting
+        run: cargo fmt -- --check
+
+      - name: Rust lint
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Rust tests
+        run: cargo test
+
+      - name: Release build
+        run: cargo build --release
+
+      - name: Performance budgets
+        run: bun scripts/perf-check.mjs
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
         with:
           name: lilyco-manager-${{ runner.os }}
           path: apps/lilyco-manager/target/release/lilyco-manager*
           if-no-files-found: error
-
-

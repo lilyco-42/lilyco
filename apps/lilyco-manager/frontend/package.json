@@ -6,7 +6,9 @@
   "scripts": {
     "build": "vite build",
     "typecheck": "vue-tsc --noEmit",
-    "smoke": "playwright test"
+    "smoke": "playwright test",
+    "check": "bun ../scripts/dev-check.mjs",
+    "perf": "bun ../scripts/perf-check.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.7.0",

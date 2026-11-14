@@ -1,6 +1,286 @@
 @import "tailwindcss";
-:root{font-family:Inter,ui-sans-serif,system-ui,"Microsoft YaHei",sans-serif;background:#0b1220;color:#e9eefb}
-body{margin:0}
-button{cursor:pointer}
-button:focus-visible,input:focus-visible{outline:2px solid #7c9cff;outline-offset:3px}
-pre{white-space:pre-wrap;overflow-wrap:anywhere}
+@import "./design/tokens.css";
+
+/* Tailwind v4 语义主题：所有工具类都指向 ui-spec 令牌。 */
+@theme inline {
+  --color-canvas: var(--lc-color-canvas);
+  --color-canvas-soft: var(--lc-color-canvas-soft);
+  --color-surface: var(--lc-color-surface);
+  --color-surface-hover: var(--lc-color-surface-hover);
+  --color-ink: var(--lc-color-ink);
+  --color-ink-soft: var(--lc-color-ink-soft);
+  --color-ink-mute: var(--lc-color-ink-mute);
+  --color-ink-inverse: var(--lc-color-ink-inverse);
+  --color-line: var(--lc-color-line);
+  --color-line-strong: var(--lc-color-line-strong);
+  --color-primary: var(--lc-color-primary);
+  --color-brand: var(--lc-color-brand);
+  --color-brand-soft: var(--lc-color-brand-soft);
+  --color-on-brand: var(--lc-color-on-brand);
+  --color-success: var(--lc-color-success);
+  --color-success-soft: var(--lc-color-success-soft);
+  --color-warning: var(--lc-color-warning);
+  --color-warning-soft: var(--lc-color-warning-soft);
+  --color-danger: var(--lc-color-danger);
+  --color-danger-soft: var(--lc-color-danger-soft);
+  --color-on-danger: var(--lc-color-on-danger);
+  --color-info: var(--lc-color-info);
+  --color-info-soft: var(--lc-color-info-soft);
+  --color-focus-ring: var(--lc-color-focus-ring);
+  --color-disabled-surface: var(--lc-color-disabled-surface);
+  --color-disabled-ink: var(--lc-color-disabled-ink);
+  --color-overlay: var(--lc-color-overlay);
+  --color-button: var(--lc-color-button);
+  --color-on-button: var(--lc-color-on-button);
+
+  --radius-sm: var(--lc-rounded-sm);
+  --radius-md: var(--lc-rounded-md);
+  --radius-lg: var(--lc-rounded-lg);
+  --radius-pill: var(--lc-rounded-pill);
+}
+
+/* shadcn/ui CSS 变量桥：组件可直接使用 bg-background / text-foreground 等。 */
+:root {
+  --background: var(--lc-color-canvas);
+  --foreground: var(--lc-color-ink);
+  --card: var(--lc-color-surface);
+  --card-foreground: var(--lc-color-ink);
+  --popover: var(--lc-color-surface);
+  --popover-foreground: var(--lc-color-ink);
+  --primary: var(--lc-color-brand);
+  --primary-foreground: var(--lc-color-on-brand);
+  --secondary: var(--lc-color-canvas-soft);
+  --secondary-foreground: var(--lc-color-ink);
+  --muted: var(--lc-color-canvas-soft);
+  --muted-foreground: var(--lc-color-ink-soft);
+  --accent: var(--lc-color-brand-soft);
+  --accent-foreground: var(--lc-color-ink);
+  --destructive: var(--lc-color-danger);
+  --destructive-foreground: var(--lc-color-on-danger);
+  --border: var(--lc-color-line);
+  --input: var(--lc-color-line-strong);
+  --ring: var(--lc-color-focus-ring);
+  --radius: var(--lc-rounded-md);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif;
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--lc-color-canvas);
+  color: var(--lc-color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--lc-color-focus-ring);
+  outline-offset: 3px;
+}
+
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+::selection {
+  background: var(--lc-color-selection);
+}
+
+/* ---- 共享组件类 ---- */
+.card {
+  background: var(--lc-color-surface);
+  border: 1px solid var(--lc-color-line);
+  border-radius: var(--lc-rounded-lg);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--lc-spacing-sm);
+  min-height: 36px;
+  padding: 7px 13px;
+  border: 1px solid transparent;
+  border-radius: var(--lc-rounded-md);
+  background: var(--lc-color-button);
+  color: var(--lc-color-on-button);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: background-color 0.16s, border-color 0.16s, color 0.16s, transform 0.16s;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  transform: none;
+  background: var(--lc-color-disabled-surface);
+  color: var(--lc-color-disabled-ink);
+  border-color: transparent;
+}
+
+.btn-brand {
+  background: var(--lc-color-brand);
+  color: var(--lc-color-on-brand);
+}
+
+.btn-secondary {
+  background: var(--lc-color-surface);
+  border-color: var(--lc-color-line-strong);
+  color: var(--lc-color-ink);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--lc-color-surface-hover);
+}
+
+.btn-quiet {
+  background: var(--lc-color-canvas-soft);
+  color: var(--lc-color-ink);
+}
+
+.btn-quiet:hover:not(:disabled) {
+  background: var(--lc-color-surface-hover);
+}
+
+.btn-danger {
+  background: var(--lc-color-danger);
+  color: var(--lc-color-on-danger);
+}
+
+.btn-sm {
+  min-height: 30px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.input {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 11px;
+  border: 1px solid var(--lc-color-line-strong);
+  border-radius: var(--lc-rounded-md);
+  background: var(--lc-color-surface);
+  color: var(--lc-color-ink);
+  font-size: 13px;
+}
+
+.input::placeholder {
+  color: var(--lc-color-ink-mute);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--lc-rounded-pill);
+  background: var(--lc-color-canvas-soft);
+  color: var(--lc-color-ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-brand {
+  background: var(--lc-color-brand-soft);
+  color: var(--lc-color-brand);
+}
+
+.badge-success {
+  background: var(--lc-color-success-soft);
+  color: var(--lc-color-success);
+}
+
+.badge-warning {
+  background: var(--lc-color-warning-soft);
+  color: var(--lc-color-warning);
+}
+
+.badge-danger {
+  background: var(--lc-color-danger-soft);
+  color: var(--lc-color-danger);
+}
+
+.alert {
+  padding: 12px 14px;
+  border: 1px solid var(--lc-color-line);
+  border-radius: var(--lc-rounded-md);
+  background: var(--lc-color-canvas-soft);
+  color: var(--lc-color-ink-soft);
+  font-size: 13px;
+}
+
+.alert-danger {
+  border-color: color-mix(in srgb, var(--lc-color-danger) 35%, transparent);
+  background: var(--lc-color-danger-soft);
+  color: var(--lc-color-danger);
+}
+
+.alert-warning {
+  border-color: color-mix(in srgb, var(--lc-color-warning) 35%, transparent);
+  background: var(--lc-color-warning-soft);
+  color: var(--lc-color-warning);
+}
+
+.alert-success {
+  border-color: color-mix(in srgb, var(--lc-color-success) 35%, transparent);
+  background: var(--lc-color-success-soft);
+  color: var(--lc-color-success);
+}
+
+.log {
+  background: var(--lc-color-canvas-soft);
+  border: 1px solid var(--lc-color-line);
+  border-radius: var(--lc-rounded-md);
+  color: var(--lc-color-ink-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
