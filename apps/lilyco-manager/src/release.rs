@@ -609,9 +609,10 @@ mod tests {
         std::fs::write(root.join("pkg").join(name), b"binary").unwrap();
 
         let manifest = sample_manifest();
+        let configured = format!("pkg/{name}");
         assert_eq!(
-            locate_binary(&manifest, Some("pkg/app"), &root).unwrap(),
-            PathBuf::from("pkg/app")
+            locate_binary(&manifest, Some(&configured), &root).unwrap(),
+            PathBuf::from(&configured)
         );
         assert!(locate_binary(&manifest, Some("pkg/missing"), &root).is_err());
         assert_eq!(
