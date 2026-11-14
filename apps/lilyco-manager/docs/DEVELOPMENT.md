@@ -32,6 +32,9 @@ bun run smoke
 # 仓库一致性 / 性能预算
 bun scripts/dev-check.mjs
 bun scripts/perf-check.mjs
+
+# 运行时冒烟（需要先 cargo build --release）
+bun scripts/smoke-server.mjs
 ```
 
 `dev-check` 校验仓库结构、文档、脚本、CI 关键触发器和 catalog；`perf-check` 校验单文件前端体积、离线约束和可选的 release 二进制体积。
@@ -45,6 +48,7 @@ bun scripts/perf-check.mjs
 | 前端类型检查 | `frontend/src` | Vue SFC 与 API 类型 |
 | 浏览器冒烟 | `frontend/tests/commerce.spec.ts` | 离线商品图导出、WASM 内核 |
 | 管理面板交互 | `frontend/tests/apps.spec.ts` | 应用列表、Release 安装、开发任务、MCP、主题切换 |
+| 运行时冒烟 | `scripts/smoke-server.mjs` | 401/200、执行/历史、跨源拒绝、启动耗时、p95 延迟、RSS |
 
 新增 API 时必须同时补契约测试；新增 UI 交互必须可在 mock API 下离线复现，不依赖真实 GitHub 或本机应用。
 
@@ -56,7 +60,7 @@ bun scripts/perf-check.mjs
 - `pull_request` 使用相同路径过滤。
 - `concurrency` 按 workflow + ref 取消旧任务。
 - Rust 校验与 release 构建运行在 Ubuntu、macOS、Windows。
-- 浏览器冒烟仅在 Linux 执行，避免 macOS/Windows 的 Chrome 安装差异造成假失败；性能预算在三平台都执行。
+- 浏览器冒烟仅在 Linux 执行，避免 macOS/Windows 的 Chrome 安装差异造成假失败；运行时冒烟（启动、401/200、延迟、RSS）与性能预算在三平台都执行。
 - Rust 依赖使用 `Swatinem/rust-cache`；WASM 源固定到审核过的 commit。
 
 跨平台测试不能依赖宿主路径分隔符、宿主平台资产名或本地绝对路径。平台相关逻辑必须通过纯函数 + 显式平台键测试。

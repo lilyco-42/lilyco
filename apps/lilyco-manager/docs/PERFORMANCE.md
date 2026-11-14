@@ -9,6 +9,9 @@
 | 单文件前端 raw | 1 MiB | `scripts/perf-check.mjs`、CI |
 | 单文件前端 gzip | 128 KiB | `scripts/perf-check.mjs`、CI |
 | release 二进制 | 32 MiB | `scripts/perf-check.mjs`（存在时） |
+| 启动到监听 | 5 s | `scripts/smoke-server.mjs`、CI |
+| `/api/tools` p95（40 次） | 500 ms | `scripts/smoke-server.mjs`、CI |
+| 空闲 RSS | 256 MiB | `scripts/smoke-server.mjs`、CI |
 | 运行历史 | 最近 500 条 | `HISTORY_LIMIT` + `prune_history` |
 | 单应用日志 | 500 行 | `supervisor.rs` |
 | 开发任务日志 | 500 行 / 任务 | `dev.rs` |
@@ -44,8 +47,11 @@ strip = true
 cd frontend && bun run build
 cd .. && bun scripts/perf-check.mjs
 
-# 二进制体积
+# 运行时冒烟 + 启动/延迟/RSS
 cargo build --release
+bun scripts/smoke-server.mjs
+
+# 二进制体积
 ls -lh target/release/lilyco-manager
 
 # 冷启动到监听（Linux）
@@ -66,8 +72,9 @@ kill $PID
 | `frontend/dist/index.html` raw | 162,648 B |
 | gzip | 58,064 B |
 | release 二进制（Linux x64，strip + thin LTO） | 6,699,280 B（约 6.4 MiB） |
-| 启动到打印监听地址（Linux x64） | 约 12 ms |
-| 空闲常驻内存 RSS（Linux x64，18 线程） | 约 8.0 MiB |
+| 启动到打印监听地址（Linux x64） | 约 12–13 ms |
+| `/api/tools` p95（40 次，Linux x64） | 约 7 ms |
+| 空闲常驻内存 RSS（Linux x64，18 线程） | 约 8.1 MiB |
 | 运行历史上限 | 500 |
 | 单应用日志上限 | 500 行 |
 | 开发任务记录上限 | 32 |
