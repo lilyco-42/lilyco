@@ -201,72 +201,72 @@ async function exportImages(){
 </script>
 <template>
 <div class="space-y-5">
- <section class="rounded-2xl border border-indigo-400/20 bg-gradient-to-r from-[#172945] to-[#111b2a] p-6">
-  <p class="uppercase text-xs tracking-widest text-indigo-300">LOCAL-FIRST · COMMERCE STUDIO</p>
+ <section class="rounded-2xl border border-brand/20 bg-brand-soft p-6">
+  <p class="uppercase text-xs tracking-widest text-brand">LOCAL-FIRST · COMMERCE STUDIO</p>
   <h2 class="text-2xl font-semibold mt-2">跨境电商商品图工作台</h2>
-  <p class="text-sm text-slate-300 mt-3 max-w-3xl">图片只在当前浏览器中处理，不上传到 Lilyco 服务器。支持批量统一尺寸、背景、透明图居中、亮度增强与 ZIP 交付。AI 抠图支持按需加载客户端模型，也可复用 Rembg Studio；创意画布复用 Infinite Canvas。</p>
+  <p class="text-sm text-ink-soft mt-3 max-w-3xl">图片只在当前浏览器中处理，不上传到 Lilyco 服务器。支持批量统一尺寸、背景、透明图居中、亮度增强与 ZIP 交付。AI 抠图支持按需加载客户端模型，也可复用 Rembg Studio；创意画布复用 Infinite Canvas。</p>
   <div class="flex flex-wrap gap-2 mt-5">
-   <a href="http://127.0.0.1:8042/" target="_blank" rel="noopener noreferrer" class="px-3 py-2 rounded-lg bg-indigo-500/70 hover:bg-indigo-500 text-sm inline-flex items-center gap-2">打开本机 Rembg Studio（需已启动） ↗</a>
-   <a href="https://github.com/lilyco-42/rembg-ui" rel="noopener noreferrer" target="_blank" class="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-sm inline-flex items-center gap-2"><Layers :size="15"/>Rembg Studio · 本地 AI 抠图 <ExternalLink :size="13"/></a>
-   <a href="https://github.com/basketikun/infinite-canvas" rel="noopener noreferrer" target="_blank" class="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-sm inline-flex items-center gap-2"><ImagePlus :size="15"/>Infinite Canvas · 创作画布 <ExternalLink :size="13"/></a>
+   <a href="http://127.0.0.1:8042/" target="_blank" rel="noopener noreferrer" class="px-3 py-2 rounded-lg btn btn-brand text-sm inline-flex items-center gap-2">打开本机 Rembg Studio（需已启动） ↗</a>
+   <a href="https://github.com/lilyco-42/rembg-ui" rel="noopener noreferrer" target="_blank" class="px-3 py-2 rounded-lg btn btn-secondary text-sm inline-flex items-center gap-2"><Layers :size="15"/>Rembg Studio · 本地 AI 抠图 <ExternalLink :size="13"/></a>
+   <a href="https://github.com/basketikun/infinite-canvas" rel="noopener noreferrer" target="_blank" class="px-3 py-2 rounded-lg btn btn-secondary text-sm inline-flex items-center gap-2"><ImagePlus :size="15"/>Infinite Canvas · 创作画布 <ExternalLink :size="13"/></a>
   </div>
  </section>
  <div class="grid lg:grid-cols-[minmax(0,1fr)_310px] gap-5 items-start">
-  <section class="bg-[#141d2d] rounded-xl border border-white/10 p-5 space-y-5">
-   <div class="flex items-center justify-between gap-2"><h3 class="font-semibold">批量导入</h3><span class="text-xs text-slate-400">{{entries.length}} / 50</span></div>
-   <label class="cursor-pointer block border-2 border-dashed border-indigo-400/30 hover:border-indigo-400/60 rounded-xl text-center py-10 bg-indigo-300/[.03]">
-    <ImagePlus :size="30" class="mx-auto text-indigo-300"/>
+  <section class="card rounded-xl border border-line p-5 space-y-5">
+   <div class="flex items-center justify-between gap-2"><h3 class="font-semibold">批量导入</h3><span class="text-xs text-ink-soft">{{entries.length}} / 50</span></div>
+   <label class="cursor-pointer block border-2 border-dashed border-brand/30 hover:border-brand/60 rounded-xl text-center py-10 bg-brand-soft/40">
+    <ImagePlus :size="30" class="mx-auto text-brand"/>
     <span class="block mt-3 text-sm">点击选择商品图片（可多选）</span>
-    <span class="block mt-2 text-xs text-slate-400">PNG、JPEG、WebP 等 · 单张不超过 25 MB</span>
+    <span class="block mt-2 text-xs text-ink-soft">PNG、JPEG、WebP 等 · 单张不超过 25 MB</span>
     <input aria-label="导入商品图片" type="file" accept="image/*" multiple class="sr-only" @change="addFiles"/>
    </label>
    <div v-if="entries.length" class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
-    <div v-for="item in entries" :key="item.id" class="rounded-lg bg-[#0d1625] border border-white/10 p-2 relative">
-     <img :src="item.preview" :alt="item.name" class="w-full h-32 object-contain rounded bg-[linear-gradient(45deg,#293349_25%,transparent_25%),linear-gradient(-45deg,#293349_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#293349_75%),linear-gradient(-45deg,transparent_75%,#293349_75%)] bg-[length:16px_16px]"/>
-     <p class="truncate text-xs text-slate-400 mt-2" :title="item.name">{{item.name}}</p>
-     <button type="button" @click="selectedId=item.id" :aria-pressed="selectedId===item.id" class="text-xs mt-1 rounded px-2 py-1" :class="selectedId===item.id?'bg-indigo-500 text-white':'bg-white/10'">{{selectedId===item.id?'已选中':'选择此图'}}</button>
-     <button type="button" :aria-label="'移除 '+item.name" @click="remove(item.id)" class="absolute right-1 top-1 rounded-md bg-[#101827]/95 p-1"><X :size="14"/></button>
+    <div v-for="item in entries" :key="item.id" class="rounded-lg bg-canvas-soft border border-line p-2 relative">
+     <img :src="item.preview" :alt="item.name" class="w-full h-32 object-contain rounded bg-[linear-gradient(45deg,var(--lc-color-line)_25%,transparent_25%),linear-gradient(-45deg,var(--lc-color-line)_25%,transparent_25%),linear-gradient(45deg,transparent_75%,var(--lc-color-line)_75%),linear-gradient(-45deg,transparent_75%,var(--lc-color-line)_75%)] bg-[length:16px_16px]"/>
+     <p class="truncate text-xs text-ink-soft mt-2" :title="item.name">{{item.name}}</p>
+     <button type="button" @click="selectedId=item.id" :aria-pressed="selectedId===item.id" class="text-xs mt-1 rounded px-2 py-1" :class="selectedId===item.id?'bg-brand text-on-brand':'bg-canvas-soft'">{{selectedId===item.id?'已选中':'选择此图'}}</button>
+     <button type="button" :aria-label="'移除 '+item.name" @click="remove(item.id)" class="absolute right-1 top-1 rounded-md bg-surface/95 p-1"><X :size="14"/></button>
     </div>
    </div>
-   <div v-else class="text-xs text-slate-500">本地预览暂为空；导入图片后才会进行处理。</div>
-   <p v-if="sample" class="text-xs text-slate-400">已载入本地图片预览；抠图需要先使用 Rembg Studio 生成透明 PNG。</p>
+   <div v-else class="text-xs text-ink-mute">本地预览暂为空；导入图片后才会进行处理。</div>
+   <p v-if="sample" class="text-xs text-ink-soft">已载入本地图片预览；抠图需要先使用 Rembg Studio 生成透明 PNG。</p>
   </section>
-  <section class="rounded-xl border border-white/10 bg-[#141d2d] p-5 space-y-4 lg:col-span-2">
-   <div class="flex flex-wrap justify-between gap-3 items-start"><div><h3 class="font-semibold">本机 AI 抠图 <span class="text-amber-300 text-xs">实验性</span></h3><p class="text-xs text-slate-400 mt-2">自主选择图片后点击运行；模型权重直达客户端缓存，推理在浏览器 Worker 内执行，不使用 Lilyco 的 GPU 或上传图片。</p></div><span class="text-xs text-emerald-300">设备端计算</span></div>
+  <section class="rounded-xl border border-line card p-5 space-y-4 lg:col-span-2">
+   <div class="flex flex-wrap justify-between gap-3 items-start"><div><h3 class="font-semibold">本机 AI 抠图 <span class="text-warning text-xs">实验性</span></h3><p class="text-xs text-ink-soft mt-2">自主选择图片后点击运行；模型权重直达客户端缓存，推理在浏览器 Worker 内执行，不使用 Lilyco 的 GPU 或上传图片。</p></div><span class="text-xs text-success">设备端计算</span></div>
    <div class="flex flex-wrap gap-3 items-end">
-    <label class="text-xs">模型类型<select v-model="aiMode" :disabled="aiBusy" class="block mt-2 rounded-lg bg-[#0b1220] border border-white/15 px-3 py-2"><option value="portrait">轻量人像 MODNet · ~7MB</option><option value="product">通用物品 ORMBG · ~44MB</option></select></label>
+    <label class="text-xs">模型类型<select v-model="aiMode" :disabled="aiBusy" class="block mt-2 rounded-lg bg-canvas border border-line-strong px-3 py-2"><option value="portrait">轻量人像 MODNet · ~7MB</option><option value="product">通用物品 ORMBG · ~44MB</option></select></label>
     <label v-if="gpuSupport&&aiMode==='portrait'" class="text-xs flex gap-2 items-center pb-3"><input type="checkbox" v-model="aiUseGpu" :disabled="aiBusy"/>优先 WebGPU</label>
-    <button type="button" @click="removeBackground" :disabled="!selected||aiBusy" class="px-4 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-400 disabled:opacity-40 text-sm">对选中图片 AI 抠图</button>
-    <button v-if="aiBusy" @click="cancelAI" type="button" class="px-4 py-2 border border-white/20 rounded-lg text-sm">停止任务</button>
+    <button type="button" @click="removeBackground" :disabled="!selected||aiBusy" class="px-4 py-2 rounded-lg btn btn-brand disabled:opacity-40 text-sm">对选中图片 AI 抠图</button>
+    <button v-if="aiBusy" @click="cancelAI" type="button" class="px-4 py-2 border border-line-strong rounded-lg text-sm">停止任务</button>
    </div>
-   <p v-if="aiProgress" role="status" class="text-sm text-indigo-200">{{aiProgress}}</p>
-   <p class="text-xs text-slate-400">首次点击需要从 Hugging Face 下载模型（不是 Lilyco 服务器）；后续依赖浏览器缓存。通用模型的首次加载与内存消耗更大，低配置设备推荐使用 Rembg Studio 本地客户端。可能需要联网下载 ONNX Runtime 的 WASM 运行文件。</p>
+   <p v-if="aiProgress" role="status" class="text-sm text-brand">{{aiProgress}}</p>
+   <p class="text-xs text-ink-soft">首次点击需要从 Hugging Face 下载模型（不是 Lilyco 服务器）；后续依赖浏览器缓存。通用模型的首次加载与内存消耗更大，低配置设备推荐使用 Rembg Studio 本地客户端。可能需要联网下载 ONNX Runtime 的 WASM 运行文件。</p>
   </section>
-  <section class="rounded-xl bg-[#141d2d] border border-white/10 p-5 space-y-5">
+  <section class="rounded-xl card border border-line p-5 space-y-5">
    <h3 class="font-semibold">导出参数</h3>
    <label class="block text-sm">画布尺寸
-    <select v-model.number="size" class="mt-2 w-full rounded-lg bg-[#0b1220] border border-white/15 p-3"><option v-for="v in [800,1200,1600,2000]" :value="v" :key="v">{{v}} × {{v}} px</option></select>
+    <select v-model.number="size" class="mt-2 w-full rounded-lg bg-canvas border border-line-strong p-3"><option v-for="v in [800,1200,1600,2000]" :value="v" :key="v">{{v}} × {{v}} px</option></select>
    </label>
    <label class="block text-sm">背景
-    <select v-model="background" class="mt-2 w-full rounded-lg bg-[#0b1220] border border-white/15 p-3"><option value="white">纯白</option><option value="gray">浅灰</option><option value="transparent">透明</option></select>
+    <select v-model="background" class="mt-2 w-full rounded-lg bg-canvas border border-line-strong p-3"><option value="white">纯白</option><option value="gray">浅灰</option><option value="transparent">透明</option></select>
    </label>
    <label class="block text-sm">导出格式
-    <select v-model="format" class="mt-2 w-full rounded-lg bg-[#0b1220] border border-white/15 p-3"><option value="png">PNG</option><option value="jpeg" :disabled="background==='transparent'">JPEG</option><option value="webp">WebP</option></select>
+    <select v-model="format" class="mt-2 w-full rounded-lg bg-canvas border border-line-strong p-3"><option value="png">PNG</option><option value="jpeg" :disabled="background==='transparent'">JPEG</option><option value="webp">WebP</option></select>
    </label>
-   <label class="block text-sm">SKU 前缀<input v-model="skuPrefix" maxlength="32" aria-label="SKU 文件名前缀" class="mt-2 w-full rounded-lg bg-[#0b1220] border border-white/15 p-3" placeholder="SKU"/></label>
-   <label class="block text-sm">边距 {{margin}}%<input type="range" min="0" max="25" v-model.number="margin" class="w-full mt-3 accent-indigo-400"/></label>
-   <label class="block text-sm">亮度 {{exposure.toFixed(2)}} ×<input type="range" min="0.7" max="1.4" step="0.05" v-model.number="exposure" class="w-full mt-3 accent-indigo-400"/></label>
-   <div class="rounded-lg bg-[#0b1220] p-3 text-xs space-y-2">
-    <p :data-wasm-ready='wasmEmbedded' class='text-slate-300'>WASM 图像内核：{{wasmEmbedded?'已嵌入（离线）':'未打包 · Canvas2D 回退'}}</p>
-    <div class="flex items-center gap-2"><Zap v-if="gpuSupport" :size="16" class="text-emerald-300"/><Cpu v-else :size="16" class="text-amber-300"/><span>{{gpuSupport?'检测到 WebGPU':'WebGPU 不可用 · CPU 兼容模式'}}</span></div>
-    <label v-if="gpuSupport" class="flex gap-2 items-center"><input type="checkbox" v-model="useGpu" class="accent-indigo-400"/>用 WebGPU 加速亮度调整</label>
-    <label v-if="wasmEmbedded" class="flex gap-2 items-center"><input type="checkbox" v-model="useWasm" class="accent-indigo-400"/>启用 WebAssembly 像素算子</label>
-    <p class="text-slate-400">WebGPU 仅用于本地像素增强；当前未内置 GPU 抠图模型。WASM AI 推理需额外模型适配。</p>
+   <label class="block text-sm">SKU 前缀<input v-model="skuPrefix" maxlength="32" aria-label="SKU 文件名前缀" class="mt-2 w-full rounded-lg bg-canvas border border-line-strong p-3" placeholder="SKU"/></label>
+   <label class="block text-sm">边距 {{margin}}%<input type="range" min="0" max="25" v-model.number="margin" class="w-full mt-3 accent-brand"/></label>
+   <label class="block text-sm">亮度 {{exposure.toFixed(2)}} ×<input type="range" min="0.7" max="1.4" step="0.05" v-model.number="exposure" class="w-full mt-3 accent-brand"/></label>
+   <div class="rounded-lg bg-canvas p-3 text-xs space-y-2">
+    <p :data-wasm-ready='wasmEmbedded' class='text-ink-soft'>WASM 图像内核：{{wasmEmbedded?'已嵌入（离线）':'未打包 · Canvas2D 回退'}}</p>
+    <div class="flex items-center gap-2"><Zap v-if="gpuSupport" :size="16" class="text-success"/><Cpu v-else :size="16" class="text-warning"/><span>{{gpuSupport?'检测到 WebGPU':'WebGPU 不可用 · CPU 兼容模式'}}</span></div>
+    <label v-if="gpuSupport" class="flex gap-2 items-center"><input type="checkbox" v-model="useGpu" class="accent-brand"/>用 WebGPU 加速亮度调整</label>
+    <label v-if="wasmEmbedded" class="flex gap-2 items-center"><input type="checkbox" v-model="useWasm" class="accent-brand"/>启用 WebAssembly 像素算子</label>
+    <p class="text-ink-soft">WebGPU 仅用于本地像素增强；当前未内置 GPU 抠图模型。WASM AI 推理需额外模型适配。</p>
    </div>
-   <button type="button" :disabled="isBusy||!entries.length||(!entries.length)" @click="exportImages" class="w-full flex items-center justify-center gap-2 rounded-lg bg-indigo-500 hover:bg-indigo-400 disabled:opacity-40 py-3 font-semibold"><Download :size="17"/>{{isBusy?'正在处理':'导出商品图 ZIP'}}</button>
-   <p v-if="executionBackend" class="text-xs text-slate-300">上次执行引擎：{{executionBackend}}</p>
-   <p v-if="progress" role="status" class="text-xs text-emerald-300 flex gap-2"><CheckCircle2 :size="15"/>{{progress}}</p>
-   <p v-if="status" role="alert" class="text-xs text-amber-300 flex gap-2"><AlertCircle :size="15"/>{{status}}</p>
+   <button type="button" :disabled="isBusy||!entries.length||(!entries.length)" @click="exportImages" class="w-full flex items-center justify-center gap-2 rounded-lg btn btn-brand disabled:opacity-40 py-3 font-semibold"><Download :size="17"/>{{isBusy?'正在处理':'导出商品图 ZIP'}}</button>
+   <p v-if="executionBackend" class="text-xs text-ink-soft">上次执行引擎：{{executionBackend}}</p>
+   <p v-if="progress" role="status" class="text-xs text-success flex gap-2"><CheckCircle2 :size="15"/>{{progress}}</p>
+   <p v-if="status" role="alert" class="text-xs text-warning flex gap-2"><AlertCircle :size="15"/>{{status}}</p>
   </section>
  </div>
 </div>
