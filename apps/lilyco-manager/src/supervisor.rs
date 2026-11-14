@@ -131,6 +131,8 @@ impl Supervisor {
 
 /// 先请求优雅退出（Unix SIGTERM），3 秒未退出再强杀。
 async fn terminate(child: &mut Child, pid: u32) -> Result<i32, String> {
+    #[cfg(not(unix))]
+    let _ = pid;
     #[cfg(unix)]
     {
         // SAFETY: pid 来自本进程启动的子进程；kill 失败时退回强杀。
