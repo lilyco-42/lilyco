@@ -381,8 +381,13 @@ fn extract(archive: &Path, destination: &Path, binary: &str) -> Result<(), Strin
         }
         return Ok(());
     }
-    // 裸二进制：按 binary 名字落盘。
-    let target = destination.join(binary);
+    // 裸二进制：按 binary 名字落盘。Windows 上必须带 .exe，
+    // 否则 locate_binary 按 `<binary>.exe` 查找会报「未找到可执行文件」。
+    let target = if cfg!(windows) {
+        destination.join(format!("{binary}.exe"))
+    } else {
+        destination.join(binary)
+    };
     std::fs::copy(archive, &target).map_err(|err| format!("复制二进制失败: {err}"))?;
     Ok(())
 }
@@ -638,7 +643,8 @@ mod tests {
         std::fs::create_dir_all(&out).unwrap();
 
         extract(&archive, &out, "app").unwrap();
-        assert_eq!(std::fs::read(out.join("app")).unwrap(), b"#!/bin/sh\n");
+        let expected = if cfg!(windows) { "app.exe" } else { "app" };
+        assert_eq!(std::fs::read(out.join(expected)).unwrap(), b"#!/bin/sh\n");
         std::fs::remove_dir_all(&root).unwrap();
     }
 
