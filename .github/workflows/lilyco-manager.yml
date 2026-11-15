@@ -92,6 +92,15 @@ jobs:
       - name: Release build
         run: cargo build --release
 
+      # 真实二进制 + 浏览器：确认 UI 打的是真后端（工具执行、历史、积木页）。
+      - name: Browser full-stack lifecycle (real backend)
+        if: runner.os == 'Linux'
+        env:
+          LILYCO_MANAGER_E2E_BIN: ${{ github.workspace }}/apps/lilyco-manager/target/release/lilyco-manager
+        run: |
+          cd frontend
+          bun x playwright test tests/fullstack.spec.ts
+
       - name: Runtime smoke and latency
         run: bun scripts/smoke-server.mjs
 

@@ -40,6 +40,8 @@ LILYCO_MANAGER_APPS=/home/lilyco/code lilyco-manager
   使用 shadcn CSS 变量桥和 ui-spec 令牌。
 - 左侧选积木、中间实时预览、右侧改属性；底部 JSON 调试面板支持粘贴、校验、复制和导出。
   未知积木或类型错误只报错，不覆盖最后一个可用预览；不会写入后端或磁盘。
+- 「页面组合」把积木拼成原型页：追加（上限 12 块）、上移/下移、删除、点击选中后改属性，
+  整页 JSON（`{title, blocks[]}`）可校验、复制、导出；校验失败保留最后一次应用的页面。
 - `GET /api/openapi.json` 返回同一套路由的 OpenAPI 3.1 形状清单（同样要求 token）。
   契约测试会遍历文档里的每个 path + method，无 token 必须得到 401，避免文档与路由漂移。
 
@@ -52,6 +54,10 @@ LILYCO_MANAGER_APPS=/home/lilyco/code lilyco-manager
 Vue 3 + TypeScript + Vite + Tailwind CSS 4；发布时嵌入 frontend/dist/index.html。设计令牌来自 `lilyco-42/ui-spec`，浅色优先，`html[data-theme="dark"]` 切换深色。Tailwind 通过 `@theme inline` 暴露 `bg-canvas`、`text-ink`、`border-line` 等语义类，并提供 shadcn CSS 变量桥（`--background`、`--foreground`、`--card`、`--primary` 等）。开发约束见 AGENTS.md、docs/TECHNICAL_SPEC.md 和 docs/UI_SPEC.md。
 
 开发闭环、测试分层、CI 矩阵与跨平台约束见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)；性能预算与测量方法见 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)。
+
+全栈浏览器用例 `frontend/tests/fullstack.spec.ts` 会启动真实 release 二进制（临时 SQLite + 随机端口），
+在浏览器里执行工具、查看历史并打开积木页；本地先 `cargo build --release`，再
+`LILYCO_MANAGER_E2E_BIN=target/release/lilyco-manager bun x playwright test tests/fullstack.spec.ts`。
 
 ## Read-only executable adapters
 

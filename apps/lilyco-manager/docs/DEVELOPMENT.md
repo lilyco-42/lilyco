@@ -49,7 +49,7 @@ bun scripts/smoke-server.mjs
 | 前端类型检查 | `frontend/src` | Vue SFC 与 API 类型 |
 | 浏览器冒烟 | `frontend/tests/commerce.spec.ts` | 离线商品图导出、WASM 内核 |
 | 管理面板交互 | `frontend/tests/apps.spec.ts` | 应用列表、Release 安装、开发任务、MCP、主题切换 |
-| 积木/原型交互 | `frontend/tests/blocks.spec.ts` | 属性编辑、积木切换、JSON 校验、深色令牌 |
+| 积木/原型交互 | `frontend/tests/blocks.spec.ts` | 属性编辑、积木切换、JSON 校验、深色令牌、页面组合（追加/排序/删除/整页 JSON） |
 | 运行时冒烟 | `scripts/smoke-server.mjs` | 401/200、执行/历史、跨源拒绝、启动耗时、p95 延迟、RSS |
 
 新增 API 时必须同时补契约测试；新增 UI 交互必须可在 mock API 下离线复现，不依赖真实 GitHub 或本机应用。

@@ -67,6 +67,10 @@ Vue 3 SFC + TypeScript + Vite + Tailwind CSS 4; use lucide icons, reusable layou
 - Copy/export actions are explicit; when the clipboard is unavailable the UI says so instead of
   pretending the copy succeeded.
 - Theme follows the global light/dark token set; the view must be checked at 375px and 1440px.
+- 「页面组合」tab composes blocks into a prototype page: append from the catalog (max 12), reorder
+  with 上移/下移, delete (never below 1), click a block to edit its props, and edit the whole
+  page JSON (`{title, blocks[]}`). Validation reports the block index; invalid input leaves the
+  last applied page untouched. Export is a page-level JSON file; nothing is written server-side.
 
 ## Design system usage
 
