@@ -46,6 +46,7 @@ bun scripts/smoke-server.mjs
 | 单元测试 | `src/*.rs` 的 `#[cfg(test)]` | 清单校验、路径穿越、平台资产别名、日志环形缓冲、token |
 | API 契约测试 | `src/main.rs` | 401、工具列表、执行/历史、同源校验、应用列表、历史上限、OpenAPI 全路由鉴权 |
 | 生命周期集成测试 | `src/main.rs` | 启动 → 状态 → 日志 → 重复启动 409 → 停止；开发任务固定 argv、退出码与日志 |
+| Release 生命周期 | `src/release.rs` | 本机 HTTP 发布源 → SHA-256 校验 → 落位 → 更新 → 卸载；不访问 GitHub |
 | 前端类型检查 | `frontend/src` | Vue SFC 与 API 类型 |
 | 浏览器冒烟 | `frontend/tests/commerce.spec.ts` | 离线商品图导出、WASM 内核 |
 | 管理面板交互 | `frontend/tests/apps.spec.ts` | 应用列表、Release 安装、开发任务、MCP、主题切换 |

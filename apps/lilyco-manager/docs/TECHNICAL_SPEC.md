@@ -82,6 +82,11 @@ The HTTP layer never accepts an executable name, argv or env. Manifest ids are v
 - Archives: tar.gz, zip, or a raw binary. Extraction caps: 256MB download, 512MB expanded,
   5000 entries, depth 4. `enclosed_name` prevents zip traversal.
 - Managed layout: `<data>/lilyco/apps/<id>/{downloads,releases/<tag>,current.json}`.
+The install/update/uninstall chain is covered by a real local-HTTP test: a test-only API
+base points at a loopback release server that serves a digest-bearing asset, so the test
+exercises download, SHA-256 verification, extraction, `current.json`, update and uninstall
+without contacting GitHub or trusting a mocked filesystem.
+
 - `POST /api/apps/:id/uninstall` removes the manager-owned directory only. It stops a
   manager-supervised instance first and never touches the source repository or a PATH binary.
 - Binary resolution order: `LILYCO_MANAGER_BIN_<ID>` > managed install > `PATH`.

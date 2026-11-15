@@ -14,6 +14,7 @@
 - `POST /api/apps/:id/uninstall` 删除托管安装目录；不触碰源码仓库或 PATH 中的版本。
 - 二进制解析优先级：`LILYCO_MANAGER_BIN_<ID>` > 托管安装 > `PATH`。
 - 只安装带 digest 的正式 Release 资产，不执行安装脚本。
+- 安装链路有本机 HTTP 发布源集成测试：下载 → SHA-256 校验 → 落位 → 更新 → 卸载，全程不访问 GitHub。
 
 ## 开发任务
 - `GET /api/apps/:id/dev` 列出清单中的固定任务与最近任务记录。
