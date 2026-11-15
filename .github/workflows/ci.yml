@@ -103,6 +103,63 @@ jobs:
       - name: Office cross-check — Rust 读者 vs 标准库 Python 读者
         run: python3 scripts/acceptance/office_probe.py target/debug/lbin
 
+  # NSH/GTK4 原生后端：独立 workspace（nsh-base 要 unicode-width ^0.2.2，
+  # 与主 workspace 的 ratatui =0.2.0 不能共存），所以单独 job、单独缓存，
+  # 不并入 framework/apps 的 cargo fmt/clippy/test。
+  # 只跑 Linux：GTK4 是这条路径唯一的目标平台，xvfb 提供无头 X11。
+  native-ui:
+    name: native-ui (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: lilyco-native-ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GTK4 + GStreamer dev headers (nsh-platform-linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+
+      - name: Install stable toolchain (fmt + clippy)
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: lilyco-native-ui -> target
+          key: native-ui
+
+      - name: Check formatting (native-ui workspace)
+        run: cargo fmt --check
+
+      - name: Clippy (native-ui, all targets)
+        run: cargo clippy --all-targets -- -D warnings
+
+      # UiSpec 契约覆盖：13 种元素都能渲染、React/原生两个后端吃同一份 spec。
+      - name: Run tests (native-ui)
+        run: cargo test
+
+      # 冒烟只验证「窗口能起来并活过 10 秒」，不测像素。
+      # timeout 杀掉进程时退出码为 124，是成功路径；panic/CRITICAL 才算失败。
+      - name: Headless startup smoke (Xvfb + software GL)
+        run: |
+          sudo apt-get install -y xvfb libgl1-mesa-dri
+          cargo build
+          set +e
+          GDK_BACKEND=x11 GSK_RENDERER=cairo LIBGL_ALWAYS_SOFTWARE=1 \
+            xvfb-run -a -s "-screen 0 1280x800x24" \
+            timeout 10 ./target/debug/lilyco-native-ui > smoke.log 2>&1
+          code=$?
+          set -e
+          cat smoke.log
+          echo "startup exit code: $code"
+          test "$code" -eq 124
+          ! grep -Eq "panicked|CRITICAL" smoke.log
+
   # 产出可直接使用的二进制 —— 本机不装 Rust 也能拿到
   release-build:
     name: build binaries (windows)

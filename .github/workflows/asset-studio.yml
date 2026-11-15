@@ -48,7 +48,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # Playwright 1.56.1 不支持 ubuntu-26.04；ubuntu-latest 已滚动到 26.04，
+        # 这里钉 24.04，等 Playwright 支持新镜像再抬。
+        os: [ubuntu-24.04, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     steps:
