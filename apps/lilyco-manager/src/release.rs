@@ -6,6 +6,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+const GITHUB_API: &str = "https://api.github.com";
 const MAX_DOWNLOAD_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_EXTRACT_BYTES: u64 = 512 * 1024 * 1024;
 
@@ -78,7 +79,7 @@ pub async fn status(manifest: &Manifest) -> ReleaseStatus {
             error: None,
         };
     };
-    match latest_release(&spec.repo).await {
+    match latest_release(GITHUB_API, &spec.repo).await {
         Ok((tag, assets)) => {
             let asset = pick_asset(&spec.assets, &assets);
             ReleaseStatus {
@@ -108,11 +109,17 @@ pub async fn status(manifest: &Manifest) -> ReleaseStatus {
 }
 
 pub async fn install(manifest: &Manifest) -> Result<InstallOutcome, String> {
+    install_from(GITHUB_API, manifest).await
+}
+
+/// `install` 的实际实现。`api_base` 只由调用方传入：生产固定 GitHub API，
+/// 测试用本机 HTTP 服务覆盖下载、摘要校验、落位、更新与卸载的完整链路。
+async fn install_from(api_base: &str, manifest: &Manifest) -> Result<InstallOutcome, String> {
     let spec = manifest
         .release
         .as_ref()
         .ok_or("该应用未配置 release 发布源")?;
-    let (tag, assets) = latest_release(&spec.repo).await?;
+    let (tag, assets) = latest_release(api_base, &spec.repo).await?;
     validate_tag(&tag)?;
     let asset = pick_asset(&spec.assets, &assets)
         .ok_or_else(|| format!("发布 {tag} 没有匹配 {} 的资产", platform_key()))?;
@@ -198,8 +205,8 @@ fn pick_asset_for<'a>(
     None
 }
 
-async fn latest_release(repo: &str) -> Result<(String, Vec<Asset>), String> {
-    let url = format!("https://api.github.com/repos/{repo}/releases/latest");
+async fn latest_release(api_base: &str, repo: &str) -> Result<(String, Vec<Asset>), String> {
+    let url = format!("{api_base}/repos/{repo}/releases/latest");
     let mut request = http_client()?
         .get(&url)
         .header("Accept", "application/vnd.github+json");
@@ -374,8 +381,13 @@ fn extract(archive: &Path, destination: &Path, binary: &str) -> Result<(), Strin
         }
         return Ok(());
     }
-    // 裸二进制：按 binary 名字落盘。
-    let target = destination.join(binary);
+    // 裸二进制：按 binary 名字落盘。Windows 上必须带 .exe，
+    // 否则 locate_binary 按 `<binary>.exe` 查找会报「未找到可执行文件」。
+    let target = if cfg!(windows) {
+        destination.join(format!("{binary}.exe"))
+    } else {
+        destination.join(binary)
+    };
     std::fs::copy(archive, &target).map_err(|err| format!("复制二进制失败: {err}"))?;
     Ok(())
 }
@@ -631,7 +643,102 @@ mod tests {
         std::fs::create_dir_all(&out).unwrap();
 
         extract(&archive, &out, "app").unwrap();
-        assert_eq!(std::fs::read(out.join("app")).unwrap(), b"#!/bin/sh\n");
+        let expected = if cfg!(windows) { "app.exe" } else { "app" };
+        assert_eq!(std::fs::read(out.join(expected)).unwrap(), b"#!/bin/sh\n");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    fn digest_of(bytes: &[u8]) -> String {
+        let digest = Sha256::digest(bytes);
+        let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+        format!("sha256:{hex}")
+    }
+
+    /// 安装完整链路：本机 HTTP 发布源 → 摘要校验 → 落位 → 更新 → 卸载。
+    /// 不访问 GitHub，也不依赖宿主平台资产名（资产键由 `platform_key()` 生成）。
+    #[tokio::test]
+    async fn installs_verifies_updates_and_uninstalls() {
+        use axum::{routing::get, Router};
+        use std::sync::Arc;
+        use tokio::sync::Mutex;
+
+        let data = temp_dir("install-data");
+        std::env::set_var("XDG_DATA_HOME", &data);
+
+        let v1 = b"#!/bin/sh\necho v1\n".to_vec();
+        let state = Arc::new(Mutex::new((
+            "v0.1.0".to_string(),
+            digest_of(&v1),
+            v1.clone(),
+        )));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let release_state = state.clone();
+        let asset_state = state.clone();
+        let demo = Router::new()
+            .route(
+                "/repos/lilyco-42/demo/releases/latest",
+                get(move || {
+                    let state = release_state.clone();
+                    async move {
+                        let state = state.lock().await;
+                        axum::Json(json!({
+                            "tag_name": state.0,
+                            "assets": [{
+                                "name": "demo.bin",
+                                "browser_download_url": format!("http://{addr}/asset"),
+                                "digest": state.1,
+                            }]
+                        }))
+                    }
+                }),
+            )
+            .route(
+                "/asset",
+                get(move || {
+                    let state = asset_state.clone();
+                    async move { state.lock().await.2.clone() }
+                }),
+            );
+        let server = tokio::spawn(async move { axum::serve(listener, demo).await.unwrap() });
+
+        let mut manifest = sample_manifest();
+        manifest.id = "install-lifecycle".into();
+        manifest.binary = "demo".into();
+        manifest.release = Some(manifest::ReleaseSpec {
+            repo: "lilyco-42/demo".into(),
+            assets: std::collections::BTreeMap::from([(
+                platform_key().to_string(),
+                "demo.bin".to_string(),
+            )]),
+            binary_path: None,
+        });
+        let base = format!("http://{addr}");
+
+        let first = install_from(&base, &manifest).await.unwrap();
+        assert_eq!(first.tag, "v0.1.0");
+        assert!(first.updated);
+        let installed = manifest::managed_binary(&manifest).expect("安装后应解析出托管二进制");
+        assert_eq!(std::fs::read(&installed).unwrap(), v1);
+
+        let v2 = b"#!/bin/sh\necho v2\n".to_vec();
+        {
+            let mut state = state.lock().await;
+            *state = ("v0.2.0".to_string(), digest_of(&v2), v2.clone());
+        }
+        let second = install_from(&base, &manifest).await.unwrap();
+        assert_eq!(second.tag, "v0.2.0");
+        assert!(second.updated);
+        assert_eq!(current_tag(&manifest).as_deref(), Some("v0.2.0"));
+        let installed = manifest::managed_binary(&manifest).unwrap();
+        assert_eq!(std::fs::read(&installed).unwrap(), v2);
+
+        assert!(uninstall(&manifest).unwrap());
+        assert!(!manifest::managed_dir(&manifest.id).unwrap().exists());
+        assert!(!uninstall(&manifest).unwrap());
+
+        server.abort();
+        std::env::remove_var("XDG_DATA_HOME");
+        let _ = std::fs::remove_dir_all(&data);
     }
 }
