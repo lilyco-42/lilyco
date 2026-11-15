@@ -55,6 +55,10 @@ Vue 3 + TypeScript + Vite + Tailwind CSS 4；发布时嵌入 frontend/dist/index
 
 开发闭环、测试分层、CI 矩阵与跨平台约束见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)；性能预算与测量方法见 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)。
 
+全栈浏览器用例 `frontend/tests/fullstack.spec.ts` 会启动真实 release 二进制（临时 SQLite + 随机端口），
+在浏览器里执行工具、查看历史并打开积木页；本地先 `cargo build --release`，再
+`LILYCO_MANAGER_E2E_BIN=target/release/lilyco-manager bun x playwright test tests/fullstack.spec.ts`。
+
 ## Read-only executable adapters
 
 API: GET /api/adapters returns availability for desktop.status and lyco.version.
