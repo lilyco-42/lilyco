@@ -1152,9 +1152,9 @@ mod tests {
 
     /// 选择页 → Enter 进表单 → 表单里的命令就是高亮那条（且高亮项必有 handler）
     ///
-    /// 不断言"第一条是 read"：`Registry.commands` 是 `HashMap`，`visible()` 的
-    /// 顺序不确定，所以默认高亮哪条本就不该被写死。这里断言的是真正的不变量：
-    /// 高亮项与进入的表单一致，且该名字在 handler 表里查得到。
+    /// 不断言"第一条是 read"：命令表按名字有序（`BTreeMap`）但选择页的可见集合
+    /// 仍可能随 hidden / 别名变化，所以默认高亮哪条本就不该被写死。这里断言的是
+    /// 真正的不变量：高亮项与进入的表单一致，且该名字在 handler 表里查得到。
     #[cfg(feature = "tui")]
     #[test]
     fn multi_tui_enter_moves_into_highlighted_command_form() {
