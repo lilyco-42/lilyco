@@ -1116,6 +1116,7 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
+    #[cfg(unix)]
     fn manifest_with(id: &str, binary: &str, capabilities: manifest::Capabilities) -> Manifest {
         Manifest {
             schema_version: 1,
