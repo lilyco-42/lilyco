@@ -16,6 +16,10 @@ Windows/Linux/macOS local-first manager: launch a loopback HTTP server on an eph
 - `POST /api/tools/:name/run`: {ok:true,output:object}; only allowlisted tools.
 - `GET /api/history`: {runs:[{id,tool,output,created_at}]} maximum 50 returned; storage retains the latest 500 rows.
 - Auth for /api/: x-lilyco-token; reject missing tokens. State mutations additionally require `Origin` to match `Host` to reduce cross-origin and DNS rebinding risk. Constant-time token comparison remains a follow-up hardening item.
+- `GET /api/openapi.json`: machine-readable API document (OpenAPI 3.1 shape) for the same
+  routes. It is authenticated like every other API. The contract test walks every documented
+  path + method without a token and requires 401, so a route cannot silently disappear or
+  become public while the document still claims it exists.
 
 ## Lifecycle & security
 - Bind loopback only, random port and CSPRNG session token.

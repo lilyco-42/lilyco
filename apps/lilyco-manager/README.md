@@ -34,6 +34,15 @@ LILYCO_MANAGER_APPS=/home/lilyco/code lilyco-manager
 - `/api/mcp/config` 生成 `lilyco-toolhub` 的 `servers` 映射；`POST` 写入 `~/.config/lilyco/tools.json`。
 - 设置 `LILYCO_TOOLHUB=/绝对路径/apps/lilyco-toolhub/hub.py` 后，页面会给出 Claude / Cursor / Codex 客户端配置片段。
 
+## 设计积木与接口清单
+- 左侧「设计积木」是本地原型工作台：组件来自 `frontend/src/components/ui/` 的 shadcn 风格原语
+  （Button / Card / Badge / Input / Textarea / Select / Switch / Alert / Separator / Label），
+  使用 shadcn CSS 变量桥和 ui-spec 令牌。
+- 左侧选积木、中间实时预览、右侧改属性；底部 JSON 调试面板支持粘贴、校验、复制和导出。
+  未知积木或类型错误只报错，不覆盖最后一个可用预览；不会写入后端或磁盘。
+- `GET /api/openapi.json` 返回同一套路由的 OpenAPI 3.1 形状清单（同样要求 token）。
+  契约测试会遍历文档里的每个 path + method，无 token 必须得到 401，避免文档与路由漂移。
+
 ## 安全
 只监听 127.0.0.1，默认不暴露外网；token 不写入持久化数据库。不要将打印的完整 URL 或 token 外传。浏览器本地页面有意不加载第三方脚本。
 

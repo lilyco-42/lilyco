@@ -133,6 +133,10 @@ async function main() {
   const history = await (await api('/api/history')).json()
   if (history.runs?.[0]?.tool !== 'manager.health') throw new Error('history did not record the run')
 
+  const spec = await (await api('/api/openapi.json')).json()
+  if (spec.openapi !== '3.1.0') throw new Error(`expected OpenAPI 3.1.0, got ${spec.openapi}`)
+  if (Object.keys(spec.paths ?? {}).length < 19) throw new Error('OpenAPI document is missing routes')
+
   const crossOrigin = await fetch(baseUrl + '/api/apps/missing/start', {
     method: 'POST',
     headers: { 'x-lilyco-token': token, Origin: 'http://evil.example' },
@@ -158,7 +162,7 @@ async function main() {
   if (problems.length) throw new Error(problems.join('; '))
 
   console.log(
-    `smoke-server: 401/200/run/history/origin checks passed; startup ${startupMs} ms, p95 ${p95} ms, RSS ${rss || 'n/a'} KiB`,
+    `smoke-server: 401/200/run/history/openapi/origin checks passed; startup ${startupMs} ms, p95 ${p95} ms, RSS ${rss || 'n/a'} KiB`,
   )
   finish(0)
 }
