@@ -3,6 +3,7 @@ import {computed,ref,watch} from 'vue'
 import {Blocks,Copy,Download,RefreshCw,Wand2} from 'lucide-vue-next'
 import {blocks,createSpec,definitionOf,validateSpec,type BlockKind,type BlockSpec} from './blocks/catalog'
 import BlockPreview from './components/BlockPreview.vue'
+import PageComposer from './components/PageComposer.vue'
 import Alert from './components/ui/Alert.vue'
 import Badge from './components/ui/Badge.vue'
 import Button from './components/ui/Button.vue'
@@ -19,6 +20,7 @@ import Switch from './components/ui/Switch.vue'
 import Textarea from './components/ui/Textarea.vue'
 
 const definitionsCount=blocks.length
+const mode=ref<'block'|'page'>('block')
 const spec=ref<BlockSpec>(createSpec('hero'))
 const definition=computed(()=>definitionOf(spec.value.kind))
 const jsonDraft=ref(JSON.stringify(spec.value,null,2))
@@ -75,6 +77,19 @@ function download(){
    </div>
   </div>
 
+  <div class="mb-5 flex flex-wrap items-center gap-2">
+   <div class="inline-flex rounded-lg border border-line bg-surface p-1" role="tablist" aria-label="原型模式">
+    <button type="button" role="tab" :aria-selected="mode==='block'" @click="mode='block'"
+     :class="['rounded-md px-3 py-1.5 text-[13px] font-semibold transition-colors',mode==='block'?'bg-primary text-on-brand':'text-ink-soft hover:bg-surface-hover']">单块调试</button>
+    <button type="button" role="tab" :aria-selected="mode==='page'" @click="mode='page'"
+     :class="['rounded-md px-3 py-1.5 text-[13px] font-semibold transition-colors',mode==='page'?'bg-primary text-on-brand':'text-ink-soft hover:bg-surface-hover']">页面组合</button>
+   </div>
+   <p class="text-[11px] text-ink-mute">单块调试适合抠组件；页面组合把积木拼成可导出的原型页。</p>
+  </div>
+
+  <PageComposer v-if="mode==='page'"/>
+
+  <template v-else>
   <div class="grid gap-5 xl:grid-cols-[210px_minmax(0,1fr)_280px]">
    <Card>
     <CardHeader><CardTitle class="flex items-center gap-2"><Blocks :size="16"/>积木目录</CardTitle><CardDescription>选择后替换预览</CardDescription></CardHeader>
@@ -141,5 +156,6 @@ function download(){
     <p v-else-if="notice" class="mt-3 text-xs text-muted-foreground" aria-live="polite">{{notice}}</p>
    </CardContent>
   </Card>
+  </template>
  </div>
 </template>

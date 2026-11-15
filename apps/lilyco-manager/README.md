@@ -40,6 +40,8 @@ LILYCO_MANAGER_APPS=/home/lilyco/code lilyco-manager
   使用 shadcn CSS 变量桥和 ui-spec 令牌。
 - 左侧选积木、中间实时预览、右侧改属性；底部 JSON 调试面板支持粘贴、校验、复制和导出。
   未知积木或类型错误只报错，不覆盖最后一个可用预览；不会写入后端或磁盘。
+- 「页面组合」把积木拼成原型页：追加（上限 12 块）、上移/下移、删除、点击选中后改属性，
+  整页 JSON（`{title, blocks[]}`）可校验、复制、导出；校验失败保留最后一次应用的页面。
 - `GET /api/openapi.json` 返回同一套路由的 OpenAPI 3.1 形状清单（同样要求 token）。
   契约测试会遍历文档里的每个 path + method，无 token 必须得到 401，避免文档与路由漂移。
 

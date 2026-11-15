@@ -80,3 +80,49 @@ test('积木工作台：深色主题沿用 shadcn 令牌', async ({ page }) => {
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   await expect(page.getByTestId('preview-canvas')).toBeVisible()
 })
+
+test('页面组合：追加、排序、删除与整页 JSON 校验', async ({ page }) => {
+  await page.goto(`${baseUrl}/#token=${'t'.repeat(32)}`)
+  await page.getByRole('button', { name: '设计积木' }).click()
+  await page.getByRole('tab', { name: '页面组合' }).click()
+
+  await expect(page.getByTestId('page-canvas')).toContainText('未命名原型页')
+  await expect(page.getByTestId('page-canvas')).toContainText('本地优先的工具工作台')
+  const json = page.getByLabel('页面 JSON')
+
+  // 追加一块，页面 JSON 从 3 块变成 4 块。
+  await page.getByRole('button', { name: '添加积木：日志面板' }).click()
+  await expect(page.getByTestId('page-canvas')).toContainText('最近输出')
+  await expect(json).toHaveValue(/"kind": "logs"/)
+
+  // 上移后顺序变化：第 4 块（logs）移到第 3 位。
+  await page.getByRole('button', { name: '上移第 4 块' }).click()
+  const moved = JSON.parse((await json.inputValue()) as string)
+  expect(moved.blocks.map((block: { kind: string }) => block.kind)).toEqual(['hero', 'stats', 'logs', 'empty'])
+
+  // 删除第 1 块，剩 3 块。
+  await page.getByRole('button', { name: '删除第 1 块' }).click()
+  const removed = JSON.parse((await json.inputValue()) as string)
+  expect(removed.blocks).toHaveLength(3)
+
+  // 整页 JSON 应用：标题与指标值都更新。
+  await json.fill(
+    JSON.stringify({
+      title: '登录原型',
+      blocks: [
+        { kind: 'hero', props: { title: '欢迎回来', description: '本地优先的登录页。', badge: 'DEMO', tone: 'brand' } },
+        { kind: 'stats', props: { label: '在线设备', value: '3', hint: '本机回环', tone: 'neutral' } },
+      ],
+    }),
+  )
+  await page.getByRole('button', { name: '应用 JSON' }).click()
+  await expect(page.getByTestId('page-canvas')).toContainText('登录原型')
+  await expect(page.getByTestId('page-canvas')).toContainText('欢迎回来')
+  await expect(page.getByTestId('page-canvas')).toContainText('在线设备')
+
+  // 空 blocks：就地报错，不覆盖已应用的原型页。
+  await json.fill(JSON.stringify({ title: '空页', blocks: [] }))
+  await page.getByRole('button', { name: '应用 JSON' }).click()
+  await expect(page.getByText('blocks 至少要有 1 块积木')).toBeVisible()
+  await expect(page.getByTestId('page-canvas')).toContainText('登录原型')
+})
