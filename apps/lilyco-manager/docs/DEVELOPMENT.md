@@ -44,10 +44,12 @@ bun scripts/smoke-server.mjs
 | 层 | 位置 | 覆盖 |
 | --- | --- | --- |
 | 单元测试 | `src/*.rs` 的 `#[cfg(test)]` | 清单校验、路径穿越、平台资产别名、日志环形缓冲、token |
-| API 契约测试 | `src/main.rs` | 401、工具列表、执行/历史、同源校验、应用列表、历史上限 |
+| API 契约测试 | `src/main.rs` | 401、工具列表、执行/历史、同源校验、应用列表、历史上限、OpenAPI 全路由鉴权 |
+| 生命周期集成测试 | `src/main.rs` | 启动 → 状态 → 日志 → 重复启动 409 → 停止；开发任务固定 argv、退出码与日志 |
 | 前端类型检查 | `frontend/src` | Vue SFC 与 API 类型 |
 | 浏览器冒烟 | `frontend/tests/commerce.spec.ts` | 离线商品图导出、WASM 内核 |
 | 管理面板交互 | `frontend/tests/apps.spec.ts` | 应用列表、Release 安装、开发任务、MCP、主题切换 |
+| 积木/原型交互 | `frontend/tests/blocks.spec.ts` | 属性编辑、积木切换、JSON 校验、深色令牌 |
 | 运行时冒烟 | `scripts/smoke-server.mjs` | 401/200、执行/历史、跨源拒绝、启动耗时、p95 延迟、RSS |
 
 新增 API 时必须同时补契约测试；新增 UI 交互必须可在 mock API 下离线复现，不依赖真实 GitHub 或本机应用。

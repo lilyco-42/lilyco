@@ -3,6 +3,7 @@ import {ref,computed,onMounted} from 'vue'
 import CommerceStudio from './CommerceStudio.vue'
 import AppsView from './AppsView.vue'
 import McpView from './McpView.vue'
+import BlocksView from './BlocksView.vue'
 import catalog from '../../catalog.json'
 import {Blocks,Package,LayoutDashboard,History,Plug,Settings,Search,Play,RefreshCw,Terminal,Database,ShieldCheck,Activity,Sun,Moon} from 'lucide-vue-next'
 type Tool={name:string;description:string;read_only:boolean}
@@ -13,7 +14,7 @@ type Theme='light'|'dark'
 const token=new URLSearchParams(location.hash.slice(1)).get('token')??''
 history.replaceState(null,'',location.pathname)
 const hasManagerSession=!!token
-const fullMenu=[{id:'overview',name:'概览',icon:LayoutDashboard},{id:'apps',name:'应用',icon:Package},{id:'studio',name:'商品图工坊',icon:LayoutDashboard},{id:'tools',name:'工具中心',icon:Blocks},{id:'ecosystem',name:'生态项目',icon:Blocks},{id:'runs',name:'运行历史',icon:History},{id:'mcp',name:'MCP 服务',icon:Plug},{id:'settings',name:'设置',icon:Settings}]
+const fullMenu=[{id:'overview',name:'概览',icon:LayoutDashboard},{id:'apps',name:'应用',icon:Package},{id:'blocks',name:'设计积木',icon:Blocks},{id:'studio',name:'商品图工坊',icon:LayoutDashboard},{id:'tools',name:'工具中心',icon:Blocks},{id:'ecosystem',name:'生态项目',icon:Blocks},{id:'runs',name:'运行历史',icon:History},{id:'mcp',name:'MCP 服务',icon:Plug},{id:'settings',name:'设置',icon:Settings}]
 const menu=hasManagerSession?fullMenu:fullMenu.filter(x=>x.id==='studio'||x.id==='ecosystem')
 const projects=ref<Project[]>([])
 const adapters=ref<Adapter[]>([])
@@ -73,11 +74,11 @@ onMounted(()=>{
    <div><p class="text-brand text-xs tracking-widest mb-2">WORKSPACE / LILYCO</p><h1 class="text-3xl font-semibold">{{menu.find(x=>x.id===tab)?.name}}</h1><p class="text-sm text-ink-soft mt-2">本地工具 · 执行状态 · Agent 集成</p></div>
    <div class="flex items-center gap-2">
     <button @click="toggleTheme" class="btn btn-secondary btn-sm lg:hidden" :aria-label="theme==='dark'?'切换到浅色主题':'切换到深色主题'"><Sun v-if="theme==='dark'" :size="15"/><Moon v-else :size="15"/></button>
-    <button v-if="hasManagerSession && !['studio','apps','mcp'].includes(tab)" @click="refresh" :disabled="loading" class="btn btn-secondary"><RefreshCw :size="16" :class="loading?'animate-spin':''"/>刷新</button>
+    <button v-if="hasManagerSession && !['studio','apps','mcp','blocks'].includes(tab)" @click="refresh" :disabled="loading" class="btn btn-secondary"><RefreshCw :size="16" :class="loading?'animate-spin':''"/>刷新</button>
    </div>
   </header>
   <p v-if="error && tab!=='studio'" role="alert" class="alert alert-danger mb-5">{{error}}</p>
-  <div v-if="hasManagerSession && !['studio','apps','mcp'].includes(tab)" class="grid sm:grid-cols-3 gap-4 mb-7">
+  <div v-if="hasManagerSession && !['studio','apps','mcp','blocks'].includes(tab)" class="grid sm:grid-cols-3 gap-4 mb-7">
    <div v-for="stat in [{label:'已注册工具',value:tools.length,icon:Blocks},{label:'最近执行记录',value:runs.length,icon:Activity},{label:'存储引擎',value:'SQLite',icon:Database}]" :key="stat.label" class="card p-5"><div class="flex justify-between text-sm text-ink-soft"><span>{{stat.label}}</span><component :is="stat.icon" :size="18"/></div><div class="text-3xl font-semibold mt-5">{{stat.value}}</div></div>
   </div>
   <section v-if="tab==='overview'||tab==='tools'" class="card overflow-hidden">
@@ -119,6 +120,7 @@ onMounted(()=>{
   </section>
   <section v-if="tab==='runs'" class="card overflow-hidden"><h2 class="p-5 border-b border-line font-semibold">运行历史</h2><div v-for="run in runs" :key="run.id" class="p-5 border-b border-line/60 flex justify-between gap-2 flex-wrap text-sm"><span class="font-mono">{{run.tool}}</span><span class="text-ink-soft">{{run.created_at}}</span></div><p v-if="!runs.length" class="p-10 text-center text-ink-soft">暂无记录</p></section>
   <AppsView v-if="tab==='apps'" :token="token"/>
+  <BlocksView v-if="tab==='blocks'"/>
   <McpView v-if="tab==='mcp'" :token="token"/>
   <section v-if="tab==='settings'" class="card p-8"><h2 class="font-semibold text-lg">系统设置</h2><p class="text-ink-soft text-sm mt-3">主题偏好保存在本机浏览器；应用与任务配置来自各仓库的 lilyco.app.json。</p></section>
  </main>
