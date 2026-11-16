@@ -11,6 +11,9 @@ on:
       - 'apps/lilyco-manager/**'
       - '.github/workflows/lilyco-manager.yml'
   workflow_dispatch:
+  # 线上发布源联调每周跑一次：GitHub 网络/资产命名变化才会暴露的问题。
+  schedule:
+    - cron: '0 4 * * 1'
 
 permissions:
   contents: read
@@ -113,3 +116,39 @@ jobs:
           name: lilyco-manager-${{ runner.os }}
           path: apps/lilyco-manager/target/release/lilyco-manager*
           if-no-files-found: error
+
+  # 线上发布源联调：真实 GitHub Release → SHA-256 校验 → 解包 → 执行 --version → 卸载。
+  # 只在 workflow_dispatch / 每周定时跑，PR 与 main 的常规流水线不受外部网络抖动影响。
+  live-release:
+    name: live release (real GitHub)
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/lilyco-manager
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/lilyco-manager
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build Vue UI
+        working-directory: apps/lilyco-manager/frontend
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Install from real GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: cargo test -- --ignored live_
