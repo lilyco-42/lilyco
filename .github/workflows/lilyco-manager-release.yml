@@ -130,23 +130,22 @@ jobs:
 
       # 从压缩包解出来真跑一次。管理器没有 --help，启动后打印监听地址再由 timeout 收掉，
       # 这样才能证明资产本身可执行，而不是只看过编译产物。
-      - name: Verify packaged binary (Linux)
-        if: runner.os == 'Linux'
+      # GNU `timeout` 在 macOS runner 上不存在，用「后台启动 + 轮询日志 + 主动 kill」
+      # 实现同样语义，Linux/macOS 共用。
+      - name: Verify packaged binary (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
           mkdir -p verify && cd verify
           tar -xzf "../${{ matrix.asset }}"
-          LILYCO_MANAGER_NO_BROWSER=1 LILYCO_MANAGER_DB=runs.sqlite \
-            timeout 20 ./lilyco-manager > out.txt 2>&1 || true
-          cat out.txt
-          grep -q "listening on http://127.0.0.1:" out.txt
-
-      - name: Verify packaged binary (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          mkdir -p verify && cd verify
-          tar -xzf "../${{ matrix.asset }}"
-          LILYCO_MANAGER_NO_BROWSER=1 LILYCO_MANAGER_DB=runs.sqlite \
-            timeout 20 ./lilyco-manager > out.txt 2>&1 || true
+          LILYCO_MANAGER_NO_BROWSER=1 LILYCO_MANAGER_DB=runs.sqlite ./lilyco-manager > out.txt 2>&1 &
+          pid=$!
+          for _ in $(seq 1 40); do
+            grep -q "listening on http://127.0.0.1:" out.txt && break
+            sleep 0.5
+          done
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
           cat out.txt
           grep -q "listening on http://127.0.0.1:" out.txt
 
