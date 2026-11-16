@@ -92,5 +92,12 @@ test('真实后端 + 浏览器：工具执行、历史与积木页', async ({ pa
   await expect(page.getByTestId('api-operation').first()).toBeVisible()
   expect(await page.getByTestId('api-operation').count()).toBeGreaterThanOrEqual(20)
 
+  // 试调用打真后端：GET /api/tools 带会话 token 返回 200 与工具列表。
+  await page.getByRole('button', { name: '试调用 /api/tools' }).click()
+  await page.getByRole('button', { name: '发送 GET' }).click()
+  const result = page.getByTestId('api-result')
+  await expect(result).toContainText('HTTP 200')
+  await expect(result).toContainText('manager.health')
+
   expect(consoleErrors).toEqual([])
 })
