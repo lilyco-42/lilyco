@@ -855,9 +855,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// SQLite URL 里的路径统一用 `/`。Windows 的 `verify\runs.sqlite` 或
+/// `C:\\Users\\me\\runs.sqlite` 直接塞进 `sqlite://` 会解析失败，
+/// 盘符路径需要写成 `sqlite:///C:/...`（三条斜杠）。
+fn sqlite_url(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    let absolute_drive = normalized.len() >= 2 && normalized.as_bytes()[1] == b':';
+    if absolute_drive {
+        format!("sqlite:///{normalized}?mode=rwc")
+    } else {
+        format!("sqlite://{normalized}?mode=rwc")
+    }
+}
+
 async fn connect_db(path: &str) -> Result<DatabaseConnection, sea_orm::DbErr> {
-    let url = format!("sqlite://{path}?mode=rwc");
-    let db = Database::connect(url).await?;
+    let db = Database::connect(sqlite_url(path)).await?;
     db.execute_unprepared("CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY AUTOINCREMENT, tool TEXT NOT NULL, output TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);")
         .await?;
     Ok(db)
@@ -941,6 +953,50 @@ mod tests {
             dev: None,
             source_dir: None,
         }
+    }
+
+    /// Windows 上 `verify\runs.sqlite` 曾被拼成无法解析的 URL：
+    /// 这里钉住相对路径、反斜杠、盘符、Unix 绝对路径四种形态。
+    #[test]
+    fn sqlite_url_normalises_windows_paths() {
+        assert_eq!(sqlite_url("runs.sqlite"), "sqlite://runs.sqlite?mode=rwc");
+        assert_eq!(
+            sqlite_url("verify\\runs.sqlite"),
+            "sqlite://verify/runs.sqlite?mode=rwc"
+        );
+        assert_eq!(
+            sqlite_url("C:\\Users\\me\\runs.sqlite"),
+            "sqlite:///C:/Users/me/runs.sqlite?mode=rwc"
+        );
+        assert_eq!(
+            sqlite_url("/tmp/runs.sqlite"),
+            "sqlite:///tmp/runs.sqlite?mode=rwc"
+        );
+    }
+
+    /// 反斜杠路径不只要 URL 合法，连接与建表也要真的可用。
+    #[tokio::test]
+    async fn connect_db_accepts_backslash_paths() {
+        let dir = std::env::temp_dir().join(format!("lilyco-manager-db-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let windows_style = dir.join("runs.sqlite").to_string_lossy().replace('/', "\\");
+
+        let db = connect_db(&windows_style).await.unwrap();
+        runs::ActiveModel {
+            tool: Set("db.test".into()),
+            output: Set("{}".into()),
+            created_at: Set(now_secs().to_string()),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .unwrap();
+        assert_eq!(runs::Entity::find().all(&db).await.unwrap().len(), 1);
+        db.close().await.unwrap();
+
+        assert!(dir.join("runs.sqlite").is_file(), "库文件应落到归一化路径");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn request(method: &str, uri: &str, token: Option<&str>) -> Request<Body> {

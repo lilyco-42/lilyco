@@ -94,7 +94,7 @@ bun scripts/smoke-server.mjs
 | 变量 | 说明 |
 | --- | --- |
 | `LILYCO_MANAGER_TOKEN` | 固定会话 token；至少 24 字符。缺省随机生成 |
-| `LILYCO_MANAGER_DB` | SQLite 路径；缺省 `lilyco-manager.sqlite` |
+| `LILYCO_MANAGER_DB` | SQLite 路径；缺省 `lilyco-manager.sqlite`。Windows 反斜杠与盘符路径会被归一化成 `sqlite:///C:/...` |
 | `LILYCO_MANAGER_APPS` | 清单目录列表，使用平台路径分隔符 |
 | `LILYCO_MANAGER_NO_BROWSER` | 设置后不自动打开浏览器 |
 | `LILYCO_MANAGER_BIN_<ID>` | 覆盖单个应用的二进制绝对路径 |

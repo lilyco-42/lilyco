@@ -159,7 +159,7 @@ jobs:
         run: |
           Expand-Archive -Path "${{ matrix.asset }}" -DestinationPath verify -Force
           $env:LILYCO_MANAGER_NO_BROWSER = '1'
-          $env:LILYCO_MANAGER_DB = 'verify\runs.sqlite'
+          $env:LILYCO_MANAGER_DB = 'runs.sqlite'
           $p = Start-Process -FilePath ".\verify\lilyco-manager.exe" -WorkingDirectory verify `
             -RedirectStandardOutput "verify\out.txt" -RedirectStandardError "verify\err.txt" -PassThru
           Start-Sleep -Seconds 10
