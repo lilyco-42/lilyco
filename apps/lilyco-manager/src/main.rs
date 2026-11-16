@@ -1105,6 +1105,58 @@ mod tests {
         assert!(operations >= 20, "只验证了 {operations} 个操作");
     }
 
+    /// 错误路径的状态码契约：404 不存在、400 能力缺失、409 未托管进程、503 二进制缺失。
+    /// 这些码是面板与脚本的分支依据，不能被顺手改成 200 或 500。
+    #[tokio::test]
+    async fn error_paths_use_explicit_status_codes() {
+        let mut run_only = sample_manifest();
+        run_only.id = "runonly".into();
+        run_only.name = "Run Only".into();
+        run_only.capabilities.run = true;
+        let app = test_state_with(vec![sample_manifest(), run_only]).await;
+        let token = app.token.clone();
+
+        for (method, uri, expected) in [
+            ("GET", "/api/apps/missing/logs", StatusCode::NOT_FOUND),
+            ("GET", "/api/apps/missing/release", StatusCode::NOT_FOUND),
+            ("GET", "/api/apps/missing/schema", StatusCode::NOT_FOUND),
+            ("GET", "/api/apps/missing/dev", StatusCode::NOT_FOUND),
+            ("POST", "/api/apps/missing/start", StatusCode::NOT_FOUND),
+            ("POST", "/api/apps/missing/stop", StatusCode::NOT_FOUND),
+            ("GET", "/api/dev/jobs/missing/logs", StatusCode::NOT_FOUND),
+            ("POST", "/api/tools/missing.dev/run", StatusCode::NOT_FOUND),
+            // 清单存在但没声明能力：明确 400，而不是含糊的 404。
+            ("POST", "/api/apps/demo/start", StatusCode::BAD_REQUEST),
+            ("GET", "/api/apps/demo/schema", StatusCode::BAD_REQUEST),
+            // 没有 dev 规格时任务名也无从匹配，按未知任务处理。
+            ("POST", "/api/apps/demo/dev/check", StatusCode::NOT_FOUND),
+            // 有 run 能力但二进制不在这台机器上：503 而不是 500 或假成功。
+            (
+                "POST",
+                "/api/apps/runonly/start",
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+        ] {
+            let (status, _) = call(&app, request(method, uri, Some(&token))).await;
+            assert_eq!(status, expected, "{method} {uri} 状态码不符合契约");
+        }
+
+        // 未由管理器启动的应用：停止返回 409，而不是假装成功。
+        let (status, _) = call(&app, request("POST", "/api/apps/demo/stop", Some(&token))).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+
+        // 没有进程时日志仍是 200 + 空数组，方便面板直接渲染。
+        for uri in [
+            "/api/apps/demo/logs",
+            "/api/apps/demo/logs?limit=0",
+            "/api/apps/runonly/logs",
+        ] {
+            let (status, body) = call(&app, request("GET", uri, Some(&token))).await;
+            assert_eq!(status, StatusCode::OK, "{uri}");
+            assert_eq!(body["lines"], json!([]), "{uri} 不应有日志");
+        }
+    }
+
     #[tokio::test]
     async fn uninstall_unknown_app_is_not_found() {
         let app = test_state().await;

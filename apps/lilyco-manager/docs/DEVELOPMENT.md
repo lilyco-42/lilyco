@@ -44,7 +44,7 @@ bun scripts/smoke-server.mjs
 | 层 | 位置 | 覆盖 |
 | --- | --- | --- |
 | 单元测试 | `src/*.rs` 的 `#[cfg(test)]` | 清单校验、路径穿越、平台资产别名、日志环形缓冲、token |
-| API 契约测试 | `src/main.rs` | 401、工具列表、执行/历史、同源校验、应用列表、历史上限、OpenAPI 全路由鉴权 |
+| API 契约测试 | `src/main.rs` | 401、工具列表、执行/历史、同源校验、应用列表、历史上限、OpenAPI 全路由鉴权、错误路径状态码（404/400/409/503） |
 | 生命周期集成测试 | `src/main.rs` | 启动 → 状态 → 日志 → 重复启动 409 → 停止；开发任务固定 argv、退出码与日志 |
 | Release 生命周期 | `src/release.rs` | 本机 HTTP 发布源 → SHA-256 校验 → 落位 → 更新 → 卸载；不访问 GitHub |
 | 线上发布源联调 | `src/release.rs`（`--ignored live_`） | 真实 GitHub Release（`lilyco-42/lycodl`）→ 匹配平台资产 → SHA-256 → 解包 → 执行 `--version` → 重复安装 → 卸载；CI `live-release` job 定时/手动跑 |
