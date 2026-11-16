@@ -50,6 +50,10 @@ Vue 3 SFC + TypeScript + Vite + Tailwind CSS 4; use lucide icons, reusable layou
   Managed installs also expose a confirmed uninstall action that removes only the managed copy.
 - Development-task panel lists only manifest tasks; running a task shows live bounded output,
   exit code and a disabled state until the job finishes.
+- Live output uses `EventSource`: the panel first POSTs for a single-use, job-bound, 30-second
+  ticket, then subscribes to `/api/dev/jobs/{job}/stream?ticket=…`. The long-lived manager token
+  must never appear in a URL. First lines are expected to render while the job is still running;
+  a dropped stream closes cleanly and reports inline instead of spinning forever.
 
 ## Design blocks / prototype view
 

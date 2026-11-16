@@ -44,15 +44,17 @@ bun scripts/smoke-server.mjs
 | 层 | 位置 | 覆盖 |
 | --- | --- | --- |
 | 单元测试 | `src/*.rs` 的 `#[cfg(test)]` | 清单校验、路径穿越、平台资产别名、日志环形缓冲、token |
-| API 契约测试 | `src/main.rs` | 401、工具列表、执行/历史、同源校验、应用列表、历史上限、OpenAPI 全路由鉴权、错误路径状态码（404/400/409/503） |
+| API 契约测试 | `src/main.rs` | 401、工具列表、执行/历史、同源校验、应用列表、历史上限、OpenAPI 全路由鉴权、错误路径状态码（404/400/409/503）、SSE 票据（无票据 401 / 未知 job 404 / 单次有效 / 绑定 job）与增量行先于 done |
 | 生命周期集成测试 | `src/main.rs` | 启动 → 状态 → 日志 → 重复启动 409 → 停止；开发任务固定 argv、退出码与日志 |
+| 实时日志（SSE） | `src/main.rs` + `frontend/src/AppsView.vue` | 票据 → `EventSource` 增量行 → `done` 退出码；前端不再 1.2 s 轮询 `/logs` |
 | Release 生命周期 | `src/release.rs` | 本机 HTTP 发布源 → SHA-256 校验 → 落位 → 更新 → 卸载；不访问 GitHub |
 | 线上发布源联调 | `src/release.rs`（`--ignored live_`） | 真实 GitHub Release（`lilyco-42/lycodl`）→ 匹配平台资产 → SHA-256 → 解包 → 执行 `--version` → 重复安装 → 卸载；CI `live-release` job 定时/手动跑 |
 | 前端类型检查 | `frontend/src` | Vue SFC 与 API 类型 |
 | 浏览器冒烟 | `frontend/tests/commerce.spec.ts` | 离线商品图导出、WASM 内核 |
-| 管理面板交互 | `frontend/tests/apps.spec.ts` | 应用列表、Release 安装、开发任务、MCP、主题切换 |
+| 管理面板交互 | `frontend/tests/apps.spec.ts` | 应用列表、Release 安装、开发任务（SSE 票据 + 流事件）、MCP、主题切换 |
 | 积木/原型交互 | `frontend/tests/blocks.spec.ts` | 属性编辑、积木切换、JSON 校验、深色令牌、页面组合（追加/排序/删除/整页 JSON） |
 | 接口文档视图 | `frontend/tests/api-docs.spec.ts` | 按 tag 分组、方法徽标、路径与摘要、刷新重新拉取、GET 试调用（状态码/耗时/JSON/带 token）、POST 无试调用、零 console error |
+| 全栈浏览器 E2E | `frontend/tests/fullstack.spec.ts` | 真实 release 二进制（临时 DB + 随机端口）→ 工具执行 → 历史 → 开发任务日志经 SSE 实时到达（首行先于完成）→ 积木页 → 接口文档；未设 `LILYCO_MANAGER_E2E_BIN` 时跳过 |
 | 管理器发布 | `.github/workflows/lilyco-manager-release.yml` | `manager-v*` 标签/手动触发 → linux-x64、windows-x64、macos-universal 资产 → 解包自检 → `SHA256SUMS` + 校验 GitHub `digest` |
 | 运行时冒烟 | `scripts/smoke-server.mjs` | 401/200、执行/历史、跨源拒绝、启动耗时、p95 延迟、RSS |
 
