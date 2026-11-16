@@ -86,5 +86,11 @@ test('真实后端 + 浏览器：工具执行、历史与积木页', async ({ pa
   await page.getByRole('tab', { name: '页面组合' }).click()
   await expect(page.getByTestId('page-canvas')).toContainText('未命名原型页')
 
+  // 接口文档读的是真实 /api/openapi.json：路由数与契约测试同源。
+  await page.getByRole('button', { name: '接口文档' }).click()
+  await expect(page.getByRole('heading', { name: 'Lilyco Manager API' })).toBeVisible()
+  await expect(page.getByTestId('api-operation').first()).toBeVisible()
+  expect(await page.getByTestId('api-operation').count()).toBeGreaterThanOrEqual(20)
+
   expect(consoleErrors).toEqual([])
 })
