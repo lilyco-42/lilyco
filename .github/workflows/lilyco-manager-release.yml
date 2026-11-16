@@ -117,16 +117,20 @@ jobs:
           tar -czf "${{ matrix.asset }}" -C dist lilyco-manager
           ls -l "${{ matrix.asset }}"
 
+      # Windows 的 Git Bash 不保证有 sha256sum / shasum，用 openssl 兜底。
       - name: Write SHA-256
         shell: bash
         run: |
+          asset="${{ matrix.asset }}"
           mkdir -p checksums
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            shasum -a 256 "${{ matrix.asset }}" | awk '{print $1"  "$2}' > "checksums/${{ matrix.asset }}.sha256"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$asset" > "checksums/$asset.sha256"
+          elif command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 "$asset" | awk '{print $1"  "$2}' > "checksums/$asset.sha256"
           else
-            sha256sum "${{ matrix.asset }}" > "checksums/${{ matrix.asset }}.sha256"
+            echo "$(openssl dgst -sha256 "$asset" | sed 's/.*= //')  $asset" > "checksums/$asset.sha256"
           fi
-          cat "checksums/${{ matrix.asset }}.sha256"
+          cat "checksums/$asset.sha256"
 
       # 从压缩包解出来真跑一次。管理器没有 --help，启动后打印监听地址再由 timeout 收掉，
       # 这样才能证明资产本身可执行，而不是只看过编译产物。
