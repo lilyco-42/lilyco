@@ -1127,6 +1127,7 @@ mod tests {
         (status, body)
     }
 
+    #[cfg(unix)]
     async fn call_text(app: &App, request: Request<Body>) -> (StatusCode, String, Option<String>) {
         let response = build_router(app.clone()).oneshot(request).await.unwrap();
         let status = response.status();
