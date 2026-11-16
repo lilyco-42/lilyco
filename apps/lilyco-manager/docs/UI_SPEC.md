@@ -71,6 +71,11 @@ Vue 3 SFC + TypeScript + Vite + Tailwind CSS 4; use lucide icons, reusable layou
   with 上移/下移, delete (never below 1), click a block to edit its props, and edit the whole
   page JSON (`{title, blocks[]}`). Validation reports the block index; invalid input leaves the
   last applied page untouched. Export is a page-level JSON file; nothing is written server-side.
+- 「接口文档」tab renders `GET /api/openapi.json` grouped by tag with method badges, paths and
+  summaries, plus refresh and whole-document copy. GET rows expose a try-it panel (path params,
+  status badge, latency, formatted JSON); POST rows deliberately do not, so the docs page can
+  never mutate local state in one click. Layout must not overflow at 375px, and the card
+  background must follow the global light/dark tokens.
 
 ## Design system usage
 
