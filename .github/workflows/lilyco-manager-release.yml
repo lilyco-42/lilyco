@@ -194,7 +194,15 @@ jobs:
         run: |
           cd release
           ls -l
-          cat *.sha256 > SHA256SUMS
+          # upload-artifact 会保留上传时的相对路径，校验和可能落在 checksums/ 下。
+          if ls *.sha256 >/dev/null 2>&1; then
+            cat *.sha256 > SHA256SUMS
+          elif ls checksums/*.sha256 >/dev/null 2>&1; then
+            cat checksums/*.sha256 > SHA256SUMS
+          else
+            echo "没有找到任何 .sha256 文件"; exit 1
+          fi
+          test -s SHA256SUMS
           cat SHA256SUMS
 
       - name: Write release notes
