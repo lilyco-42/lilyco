@@ -183,7 +183,7 @@ onMounted(load)
       </div>
     </div>
 
-    <Card>
+    <Card data-testid="api-doc-card">
       <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
         <div>
           <CardTitle>{{ doc?.info.title ?? 'Lilyco Manager API' }}</CardTitle>

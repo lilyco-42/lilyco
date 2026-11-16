@@ -142,3 +142,27 @@ test('接口文档：GET 可试调用，写操作不暴露试调用', async ({ p
     .click()
   await expect(page.getByTestId('api-try')).toHaveCount(0)
 })
+
+test('接口文档：375px 窄屏不横向溢出，深色令牌生效', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 720 })
+  await page.goto(`${baseUrl}/#token=${'t'.repeat(32)}`)
+  await page.getByRole('button', { name: '接口文档' }).click()
+  await expect(page.getByTestId('api-operation').first()).toBeVisible()
+
+  // 窄屏下试调用面板仍可用，结果区立即可见。
+  await page.getByRole('button', { name: '试调用 /api/tools' }).click()
+  await page.getByRole('button', { name: '发送 GET' }).click()
+  await expect(page.getByTestId('api-result')).toContainText('HTTP 200')
+
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  )
+  expect(overflow).toBeLessThanOrEqual(0)
+
+  // 深色主题走同一套令牌：卡片底色必须真的变，而不是只切了个属性。
+  const card = page.locator('[data-testid="api-doc-card"]')
+  const light = await card.evaluate(node => getComputedStyle(node).backgroundColor)
+  await page.getByRole('button', { name: '切换到深色主题' }).click()
+  const dark = await card.evaluate(node => getComputedStyle(node).backgroundColor)
+  expect(dark).not.toBe(light)
+})
