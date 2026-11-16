@@ -50,6 +50,18 @@ LILYCO_MANAGER_APPS=/home/lilyco/code lilyco-manager
 - GET 操作可「试调用」：填写路径参数后带当前会话 token 发请求，显示状态码、耗时与格式化 JSON；
   写操作（POST）不在文档页暴露试调用，仍从各自面板执行。
 
+## 发布
+
+管理器自身的三平台资产由 `.github/workflows/lilyco-manager-release.yml` 产出：推送 `manager-v*`
+标签或手动 `workflow_dispatch`（需填标签）都会在对应平台编译、打包、解包自检，并上传
+
+- `lilyco-manager-linux-x64.tar.gz`
+- `lilyco-manager-windows-x64.zip`
+- `lilyco-manager-macos-universal.tar.gz`（arm64 + x64 `lipo` 合并）
+
+发布 job 还会核对 GitHub 返回的资产 `digest` 是否为 `sha256:`，并附带 `SHA256SUMS`；安装端据此校验。
+标签前缀用 `manager-v`，不会触发 `ci.yml` 里针对应用二进制（`v*`）的发布 job。
+
 ## 安全
 只监听 127.0.0.1，默认不暴露外网；token 不写入持久化数据库。不要将打印的完整 URL 或 token 外传。浏览器本地页面有意不加载第三方脚本。
 

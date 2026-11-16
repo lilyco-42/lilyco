@@ -53,6 +53,7 @@ bun scripts/smoke-server.mjs
 | 管理面板交互 | `frontend/tests/apps.spec.ts` | 应用列表、Release 安装、开发任务、MCP、主题切换 |
 | 积木/原型交互 | `frontend/tests/blocks.spec.ts` | 属性编辑、积木切换、JSON 校验、深色令牌、页面组合（追加/排序/删除/整页 JSON） |
 | 接口文档视图 | `frontend/tests/api-docs.spec.ts` | 按 tag 分组、方法徽标、路径与摘要、刷新重新拉取、GET 试调用（状态码/耗时/JSON/带 token）、POST 无试调用、零 console error |
+| 管理器发布 | `.github/workflows/lilyco-manager-release.yml` | `manager-v*` 标签/手动触发 → linux-x64、windows-x64、macos-universal 资产 → 解包自检 → `SHA256SUMS` + 校验 GitHub `digest` |
 | 运行时冒烟 | `scripts/smoke-server.mjs` | 401/200、执行/历史、跨源拒绝、启动耗时、p95 延迟、RSS |
 
 新增 API 时必须同时补契约测试；新增 UI 交互必须可在 mock API 下离线复现，不依赖真实 GitHub 或本机应用。
