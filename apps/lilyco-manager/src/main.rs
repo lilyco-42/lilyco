@@ -715,18 +715,19 @@ async fn dev_stream(
 
     let dev = state.dev.clone();
     let stream = stream! {
-        let mut emitted = 0usize;
+        // 已消费到的累计行号（含已被环形缓冲裁掉的行）。用累计行号而不是
+        // 缓冲区长度，缓冲写满并开始 pop_front 后仍能继续推送新行。
+        let mut consumed = 0u64;
         loop {
             let Some(snapshot) = dev.logs(&job, 500).await else { break };
-            // 日志环形缓冲被裁剪后索引会失效，重新从头发送已保留的行。
-            if snapshot.lines.len() < emitted {
-                emitted = 0;
-            }
-            for line in snapshot.lines.iter().skip(emitted) {
+            let available = snapshot.lines.len() as u64;
+            let first_index = snapshot.total_lines.saturating_sub(available);
+            let skip = consumed.saturating_sub(first_index) as usize;
+            for line in snapshot.lines.iter().skip(skip) {
                 let data = serde_json::to_string(line).unwrap_or_else(|_| "\"\"".to_string());
                 yield Ok(Event::default().event("line").data(data));
             }
-            emitted = snapshot.lines.len();
+            consumed = snapshot.total_lines;
             if !snapshot.running {
                 let done = json!({
                     "exit_code": snapshot.exit_code,
@@ -1142,6 +1143,71 @@ mod tests {
             String::from_utf8_lossy(&bytes).to_string(),
             content_type,
         )
+    }
+
+    /// 日志超过 500 行后环形缓冲开始裁剪：SSE 必须继续推送新行，且每行只发一次。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dev_stream_keeps_emitting_after_log_buffer_wraps() {
+        let dir = std::env::temp_dir().join(format!("lilyco-manager-wrap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest_path = dir.join(manifest::MANIFEST_FILE);
+        std::fs::write(
+            &manifest_path,
+            r#"{
+                "schema_version": 1,
+                "id": "devwrap",
+                "name": "Dev Wrap",
+                "binary": "sh",
+                "dev": {"tasks": {"burst": ["sh", "-c", "i=0; while [ $i -lt 510 ]; do echo line-$i; i=$((i+1)); done; sleep 0.3; echo line-after-cap"]}}
+            }"#,
+        )
+        .unwrap();
+        let manifest = manifest::load_file(&manifest_path).unwrap();
+        let app = test_state_with(vec![manifest]).await;
+        let token = app.token.clone();
+
+        let (status, body) = call(
+            &app,
+            request("POST", "/api/apps/devwrap/dev/burst", Some(&token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let job = body["job"].as_str().unwrap().to_string();
+        let (status, body) = call(
+            &app,
+            request(
+                "POST",
+                &format!("/api/dev/jobs/{job}/stream-ticket"),
+                Some(&token),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let ticket = body["ticket"].as_str().unwrap();
+
+        let (status, text, _) = call_text(
+            &app,
+            request(
+                "GET",
+                &format!("/api/dev/jobs/{job}/stream?ticket={ticket}"),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        // 缓冲写满后的新行仍然到达（旧实现会在这里静默停住）。
+        assert!(text.contains("\"line-after-cap\""), "{text}");
+        assert!(text.contains("\"line-509\""), "{text}");
+        // 不重复发送：同一行只出现一次。
+        assert_eq!(
+            text.matches("\"line-400\"").count(),
+            1,
+            "line-400 重复发送: {text}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// SSE 实时进度：长期 token 不进 URL；用带 token 的 POST 换单次短期票据，
