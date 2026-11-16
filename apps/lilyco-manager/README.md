@@ -20,6 +20,11 @@
 - `GET /api/apps/:id/dev` 列出清单中的固定任务与最近任务记录。
 - `POST /api/apps/:id/dev/:task` 在仓库目录执行固定 argv，返回 job id。
 - `GET /api/dev/jobs/:job/logs` 读取任务输出与退出码；HTTP 不能传 argv。
+- 面板默认用 SSE 实时接收：`POST /api/dev/jobs/:job/stream-ticket` 换一张 30 秒、单次、
+  绑定该 job 的票据，再 `GET /api/dev/jobs/:job/stream?ticket=…` 订阅增量行与 `done` 事件。
+  `EventSource` 不能带自定义 header，票据让长期 token 不进入 URL 或访问日志。
+- 流先推已有行，再按 150 ms 轮询内部缓冲推送新行；任务结束后发 `done`（含退出码）并关闭连接。
+  票据重放、换 job 使用或过期都返回 401。
 
 ## 应用清单
 应用通过仓库根目录的 `lilyco.app.json` 自助注册，规范见 [docs/MANIFEST.md](docs/MANIFEST.md)。开发时可直接指向源码目录：

@@ -10,6 +10,8 @@ const pageHtml = readFileSync(resolve('dist/index.html'))
 let server: Server
 let baseUrl = ''
 let installed = true
+let streamTicketToken = ''
+let streamRequests = 0
 
 function json(response: import('node:http').ServerResponse, body: unknown, status = 200) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
@@ -75,6 +77,22 @@ test.beforeAll(async () => {
       })
     } else if (path === '/api/apps/demo/dev/check' && request.method === 'POST') {
       json(response, { ok: true, job: 'job-1' })
+    } else if (path === '/api/dev/jobs/job-1/stream-ticket' && request.method === 'POST') {
+      streamTicketToken = String(request.headers['x-lilyco-token'] ?? '')
+      json(response, { ticket: 'ticket-1', expires_in: 30 })
+    } else if (path === '/api/dev/jobs/job-1/stream') {
+      if (url.searchParams.get('ticket') !== 'ticket-1') {
+        json(response, { error: 'unauthorized' }, 401)
+        return
+      }
+      streamRequests += 1
+      response.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache',
+      })
+      response.write('event: line\ndata: "Finished dev profile"\n\n')
+      response.write('event: done\ndata: {"exit_code":0,"finished_at":1}\n\n')
+      response.end()
     } else if (path === '/api/dev/jobs/job-1/logs') {
       json(response, {
         job: {
@@ -144,6 +162,10 @@ test('apps panel drives release, dev task and MCP views offline', async ({ page 
   await page.getByRole('button', { name: 'check' }).click()
   await expect(page.getByText('完成')).toBeVisible()
   await expect(page.getByText('Finished dev profile')).toBeVisible()
+  // 日志走 EventSource：先用带 token 的 POST 换票，再带票据订阅 SSE。
+  expect(streamRequests).toBe(1)
+  expect(streamTicketToken).toBe('test-token-1234567890')
+  await expect(page.getByText('SSE 实时')).toBeVisible()
 
   await page.getByRole('button', { name: 'MCP 服务' }).click()
   await expect(page.getByText('demo__echo')).toBeVisible()

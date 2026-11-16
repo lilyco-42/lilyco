@@ -1,10 +1,15 @@
+use async_stream::stream;
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
-    response::Html,
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        Html,
+    },
     routing::{get, post},
     Json, Router,
 };
+use futures_core::Stream;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ConnectionTrait, Database, DatabaseConnection, EntityTrait,
     QueryOrder, QuerySelect,
@@ -12,10 +17,11 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const PAGE: &str = include_str!("../frontend/dist/index.html");
 const ECOSYSTEM: &str = include_str!("../ecosystem.json");
@@ -60,6 +66,15 @@ struct App {
     supervisor: Supervisor,
     dev: dev::DevRunner,
     install_lock: Arc<tokio::sync::Mutex<()>>,
+    /// 一次性日志流票据：job id -> 过期时间。EventSource 不能带自定义 header，
+    /// 所以先用带 token 的 POST 换短期票据，票据只能用于对应 job 且单次有效。
+    tickets: Arc<tokio::sync::Mutex<BTreeMap<String, StreamTicket>>>,
+}
+
+#[derive(Debug, Clone)]
+struct StreamTicket {
+    job: String,
+    expires: Instant,
 }
 
 #[derive(Serialize)]
@@ -140,7 +155,7 @@ fn api_spec() -> Value {
         "info": {
             "title": "Lilyco Manager API",
             "version": env!("CARGO_PKG_VERSION"),
-            "description": "本机只读工具、应用生命周期、MCP 聚合与开发任务。全部接口要求 x-lilyco-token，状态变更接口额外校验 Origin/Host 同源。",
+            "description": "本机只读工具、应用生命周期、MCP 聚合与开发任务。全部接口要求 x-lilyco-token，状态变更接口额外校验 Origin/Host 同源；开发任务日志流先用 POST 换一次性票据，再由 EventSource 带 ticket 订阅。",
         },
         "servers": [{"url": "http://127.0.0.1"}],
         "components": {
@@ -166,6 +181,8 @@ fn api_spec() -> Value {
             "/api/apps/{id}/dev": {"get": operation("清单中的固定开发任务与最近记录", "dev")},
             "/api/apps/{id}/dev/{task}": {"post": operation("按固定 argv 启动开发任务", "dev")},
             "/api/dev/jobs/{job}/logs": {"get": operation("读取开发任务输出与退出码", "dev")},
+            "/api/dev/jobs/{job}/stream-ticket": {"post": operation("为日志流签发一次性短期票据", "dev")},
+            "/api/dev/jobs/{job}/stream": {"get": operation("SSE 实时推送开发任务输出", "dev")},
             "/api/mcp/tools": {"get": operation("聚合各应用 --mcp 的工具列表", "mcp")},
             "/api/mcp/config": {
                 "get": operation("生成 lilyco-toolhub 配置", "mcp"),
@@ -632,6 +649,98 @@ async fn dev_job_logs(
     Ok(Json(json!({"job": snapshot})))
 }
 
+const STREAM_TICKET_TTL: Duration = Duration::from_secs(30);
+const STREAM_POLL: Duration = Duration::from_millis(150);
+
+#[derive(Deserialize)]
+struct StreamQuery {
+    ticket: Option<String>,
+}
+
+fn stream_ticket() -> Result<String, getrandom::Error> {
+    let mut bytes = [0u8; 16];
+    getrandom::getrandom(&mut bytes)?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+/// 用带 token 的 POST 换一张短期、单次、绑定 job 的票据。
+/// 浏览器 `EventSource` 不能设置 `x-lilyco-token`，票据让长期 token 不进入 URL 与访问日志。
+async fn dev_stream_ticket(
+    State(state): State<App>,
+    headers: HeaderMap,
+    Path(job): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    if !authorised_mutation(&headers, &state.token) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    if state.dev.logs(&job, 1).await.is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let ticket = stream_ticket().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut tickets = state.tickets.lock().await;
+    let now = Instant::now();
+    tickets.retain(|_, entry| entry.expires > now);
+    tickets.insert(
+        ticket.clone(),
+        StreamTicket {
+            job,
+            expires: now + STREAM_TICKET_TTL,
+        },
+    );
+    Ok(Json(
+        json!({"ticket": ticket, "expires_in": STREAM_TICKET_TTL.as_secs()}),
+    ))
+}
+
+/// SSE 增量推送：只发送上次之后的新行，任务结束后发 `done` 并关闭流。
+async fn dev_stream(
+    State(state): State<App>,
+    Path(job): Path<String>,
+    Query(query): Query<StreamQuery>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
+    let Some(ticket) = query.ticket else {
+        return Err(StatusCode::UNAUTHORIZED);
+    };
+    let valid = {
+        let mut tickets = state.tickets.lock().await;
+        matches!(tickets.remove(&ticket), Some(entry) if entry.job == job && entry.expires > Instant::now())
+    };
+    if !valid {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    // 票据校验之后再判断 job 是否存在，避免匿名探测。
+    if state.dev.logs(&job, 1).await.is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let dev = state.dev.clone();
+    let stream = stream! {
+        let mut emitted = 0usize;
+        loop {
+            let Some(snapshot) = dev.logs(&job, 500).await else { break };
+            // 日志环形缓冲被裁剪后索引会失效，重新从头发送已保留的行。
+            if snapshot.lines.len() < emitted {
+                emitted = 0;
+            }
+            for line in snapshot.lines.iter().skip(emitted) {
+                let data = serde_json::to_string(line).unwrap_or_else(|_| "\"\"".to_string());
+                yield Ok(Event::default().event("line").data(data));
+            }
+            emitted = snapshot.lines.len();
+            if !snapshot.running {
+                let done = json!({
+                    "exit_code": snapshot.exit_code,
+                    "finished_at": snapshot.finished_at,
+                });
+                yield Ok(Event::default().event("done").data(done.to_string()));
+                break;
+            }
+            tokio::time::sleep(STREAM_POLL).await;
+        }
+    };
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
 async fn mcp_tools(
     State(state): State<App>,
     headers: HeaderMap,
@@ -889,6 +998,7 @@ fn build_state(
         supervisor: Supervisor::default(),
         dev: dev::DevRunner::default(),
         install_lock: Arc::new(tokio::sync::Mutex::new(())),
+        tickets: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
     }
 }
 
@@ -912,6 +1022,8 @@ fn build_router(app: App) -> Router {
         .route("/api/apps/:id/dev", get(app_dev))
         .route("/api/apps/:id/dev/:task", post(dev_task))
         .route("/api/dev/jobs/:job/logs", get(dev_job_logs))
+        .route("/api/dev/jobs/:job/stream-ticket", post(dev_stream_ticket))
+        .route("/api/dev/jobs/:job/stream", get(dev_stream))
         .route("/api/mcp/tools", get(mcp_tools))
         .route("/api/mcp/config", get(mcp_config).post(write_mcp_config))
         .with_state(app)
@@ -1013,6 +1125,129 @@ mod tests {
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
         (status, body)
+    }
+
+    #[cfg(unix)]
+    async fn call_text(app: &App, request: Request<Body>) -> (StatusCode, String, Option<String>) {
+        let response = build_router(app.clone()).oneshot(request).await.unwrap();
+        let status = response.status();
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        (
+            status,
+            String::from_utf8_lossy(&bytes).to_string(),
+            content_type,
+        )
+    }
+
+    /// SSE 实时进度：长期 token 不进 URL；用带 token 的 POST 换单次短期票据，
+    /// 票据绑定 job、只能成功用一次；流里先到增量行，最后到 done。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dev_stream_requires_ticket_and_pushes_incrementally() {
+        let dir = std::env::temp_dir().join(format!("lilyco-manager-sse-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest_path = dir.join(manifest::MANIFEST_FILE);
+        std::fs::write(
+            &manifest_path,
+            r#"{
+                "schema_version": 1,
+                "id": "devstream",
+                "name": "Dev Stream",
+                "binary": "sh",
+                "dev": {"tasks": {"stream": ["sh", "-c", "echo first-line; sleep 0.4; echo second-line"]}}
+            }"#,
+        )
+        .unwrap();
+        let manifest = manifest::load_file(&manifest_path).unwrap();
+        let app = test_state_with(vec![manifest]).await;
+        let token = app.token.clone();
+
+        // 无票据、错误票据与未认证换票的契约。
+        let (status, _, _) =
+            call_text(&app, request("GET", "/api/dev/jobs/none/stream", None)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, _, _) = call_text(
+            &app,
+            request("GET", "/api/dev/jobs/none/stream?ticket=bogus", None),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, _) = call(
+            &app,
+            request("POST", "/api/dev/jobs/missing/stream-ticket", Some(&token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = call(
+            &app,
+            request("POST", "/api/dev/jobs/missing/stream-ticket", None),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        // 启动任务后换票。
+        let (status, body) = call(
+            &app,
+            request("POST", "/api/apps/devstream/dev/stream", Some(&token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let job = body["job"].as_str().unwrap().to_string();
+        let ticket_uri = format!("/api/dev/jobs/{job}/stream-ticket");
+        let (status, body) = call(&app, request("POST", &ticket_uri, Some(&token))).await;
+        assert_eq!(status, StatusCode::OK);
+        let ticket = body["ticket"].as_str().unwrap().to_string();
+        assert_eq!(ticket.len(), 32, "票据应为 32 位十六进制");
+        assert_eq!(body["expires_in"], 30);
+
+        // 流本身不带 header，只带票据。
+        let uri = format!("/api/dev/jobs/{job}/stream?ticket={ticket}");
+        let (status, text, content_type) = call_text(&app, request("GET", &uri, None)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            content_type
+                .unwrap_or_default()
+                .starts_with("text/event-stream"),
+            "SSE content-type 不正确"
+        );
+        assert!(text.contains("event: line"), "{text}");
+        assert!(text.contains("\"first-line\""), "{text}");
+        assert!(text.contains("\"second-line\""), "{text}");
+        assert!(text.contains("event: done"), "{text}");
+        assert!(text.contains("\"exit_code\":0"), "{text}");
+        let first = text.find("first-line").unwrap();
+        let second = text.find("second-line").unwrap();
+        let done = text.find("event: done").unwrap();
+        assert!(
+            first < second && second < done,
+            "增量行必须先于 done: {text}"
+        );
+
+        // 票据单次有效。
+        let (status, _, _) = call_text(&app, request("GET", &uri, None)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        // 票据绑定 job：换个 job 路径即无效。
+        let (_, body) = call(&app, request("POST", &ticket_uri, Some(&token))).await;
+        let other = body["ticket"].as_str().unwrap();
+        let (status, _, _) = call_text(
+            &app,
+            request(
+                "GET",
+                &format!("/api/dev/jobs/other/stream?ticket={other}"),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

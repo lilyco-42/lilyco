@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -40,6 +40,21 @@ test.beforeAll(async () => {
   temp = mkdtempSync(join(tmpdir(), 'lilyco-manager-e2e-'))
   const appsDir = join(temp, 'apps')
   mkdirSync(appsDir)
+  // 一个真实可跑的开发任务：先吐一行、等 1 秒、再吐一行，
+  // 用来证明日志是在任务结束前实时到达的。
+  const devDir = join(appsDir, 'devdemo')
+  mkdirSync(devDir)
+  writeFileSync(
+    join(devDir, 'lilyco.app.json'),
+    JSON.stringify({
+      schema_version: 1,
+      id: 'devdemo',
+      name: '日志演示',
+      description: 'SSE 全栈验收',
+      binary: 'sh',
+      dev: { tasks: { stream: ['sh', '-c', 'echo first-line; sleep 1; echo second-line'] } },
+    }),
+  )
   child = spawn(binary, [], {
     env: {
       ...process.env,
@@ -63,10 +78,14 @@ test('真实后端 + 浏览器：工具执行、历史与积木页', async ({ pa
   test.skip(!binary, '设置 LILYCO_MANAGER_E2E_BIN 后运行全栈用例')
 
   const consoleErrors: string[] = []
+  const jobRequests: string[] = []
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push(message.text())
   })
   page.on('pageerror', (error) => consoleErrors.push(error.message))
+  page.on('request', (request) => {
+    if (request.url().includes('/api/dev/jobs/')) jobRequests.push(request.url())
+  })
 
   await page.goto(`${baseUrl}/#token=${token}`)
   await page.getByRole('button', { name: '概览' }).click()
@@ -80,6 +99,19 @@ test('真实后端 + 浏览器：工具执行、历史与积木页', async ({ pa
 
   await page.getByRole('button', { name: '运行历史' }).click()
   await expect(page.getByText('manager.health').last()).toBeVisible()
+
+  // 开发任务日志通过 SSE 实时到达：第一行出现时任务仍在运行。
+  await page.getByRole('button', { name: '应用' }).click()
+  const devCard = page.locator('article').filter({ hasText: '日志演示' })
+  await devCard.getByRole('button', { name: /开发任务/ }).click()
+  await devCard.getByRole('button', { name: 'stream' }).click()
+  await expect(devCard.getByText('运行中')).toBeVisible()
+  await expect(devCard.locator('pre')).toContainText('first-line')
+  // 证明浏览器用的是带一次性票据的 EventSource，而不是轮询 /logs。
+  expect(jobRequests.some((url) => url.includes('/stream?ticket='))).toBe(true)
+  await expect(devCard.locator('pre')).toContainText('second-line', { timeout: 5000 })
+  await expect(devCard.getByText('完成')).toBeVisible()
+  await expect(devCard.getByText('SSE 实时')).toBeVisible()
 
   // 积木原型台是纯前端，但要在真实页面里证明没被后端/主题打断。
   await page.getByRole('button', { name: '设计积木' }).click()

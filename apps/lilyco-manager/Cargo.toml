@@ -8,7 +8,9 @@ license = "MIT OR Apache-2.0"
 [workspace]
 
 [dependencies]
+async-stream = "0.3"
 axum = "0.7"
+futures-core = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "process", "time", "io-util", "sync"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
