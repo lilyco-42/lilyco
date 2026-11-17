@@ -1289,8 +1289,14 @@ mod tests {
         );
         let css = include_str!("../assets/app.css");
         assert!(css.contains("attr(data-source)"), "样式未消费 data-source");
-        assert!(css.contains("attr(data-view-id)"), "样式未消费 data-view-id");
-        assert!(css.contains("attr(data-view-kind-hint)"), "样式未消费 kind 提示");
+        assert!(
+            css.contains("attr(data-view-id)"),
+            "样式未消费 data-view-id"
+        );
+        assert!(
+            css.contains("attr(data-view-kind-hint)"),
+            "样式未消费 kind 提示"
+        );
 
         let arg = lilyco_core::schema::ArgSchema {
             name: "file".into(),
