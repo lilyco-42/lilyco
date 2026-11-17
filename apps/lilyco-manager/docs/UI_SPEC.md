@@ -55,6 +55,24 @@ Vue 3 SFC + TypeScript + Vite + Tailwind CSS 4; use lucide icons, reusable layou
   must never appear in a URL. First lines are expected to render while the job is still running;
   a dropped stream closes cleanly and reports inline instead of spinning forever.
 
+## Projects / plans view
+
+- Route: sidebar「项目/方案」. Cards and controls reuse the shadcn-style primitives
+  (`Card`, `Button`, `Input`, `Textarea`, `Select`, `Badge`, `Alert`, `Separator`, `Label`)
+  and the shadcn CSS variable bridge; no bespoke form styling.
+- A project card shows its name, description, real status badge and a project-level status
+  `Select`; changing the status PATCHes immediately and re-reads the list.
+- Plans are nested inside their project: title, detail, status badge, inline status `Select`,
+  edit and delete actions. The add-plan composer always sits below the existing plans.
+- Status vocabulary is fixed and translated for display: project `active|paused|done`
+  → 进行中 / 已暂停 / 已完成; plan `draft|doing|done` → 草稿 / 进行中 / 已完成.
+- Deletion is two-step in place (`删除` → `确认删除`) rather than a browser `confirm()`,
+  so destructive actions stay testable and never fire on a single misclick.
+- Validation and request failures render inline in an `Alert`; successful mutations may show a
+  short `aria-live` notice. The empty state explains that a project must exist before a plan.
+- The view must not overflow at 375px and card/dialog surfaces must follow the global light/dark
+  tokens like the rest of the console.
+
 ## Design blocks / prototype view
 
 - Route: sidebar「设计积木」. It is local-only UI over the shared shadcn-style primitives in

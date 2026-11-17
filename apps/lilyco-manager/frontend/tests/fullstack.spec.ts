@@ -113,6 +113,31 @@ test('真实后端 + 浏览器：工具执行、历史与积木页', async ({ pa
   await expect(devCard.getByText('完成')).toBeVisible()
   await expect(devCard.getByText('SSE 实时')).toBeVisible()
 
+  // 项目/方案落真实 SQLite：创建 → 改状态 → 刷新页面后仍在。
+  await page.getByRole('button', { name: '项目/方案' }).click()
+  await expect(page.getByTestId('projects-empty')).toBeVisible()
+  await page.getByLabel('项目名称').fill('管理器 v0.4')
+  await page.getByLabel('描述').fill('真实后端持久化验收')
+  await page.getByRole('button', { name: '创建项目' }).click()
+  let projectCard = page.getByTestId('project-card').filter({ hasText: '管理器 v0.4' })
+  await expect(projectCard).toBeVisible()
+  await page.getByLabel('新方案标题：管理器 v0.4').fill('补齐项目/方案视图')
+  await page.getByLabel('新方案说明：管理器 v0.4').fill('契约 + shadcn + Playwright')
+  await projectCard.getByRole('button', { name: '添加方案' }).click()
+  const fullstackPlan = projectCard.getByTestId('plan-row').filter({ hasText: '补齐项目/方案视图' })
+  await expect(fullstackPlan).toBeVisible()
+  await expect(fullstackPlan.getByTestId('plan-status-badge')).toHaveText('草稿')
+  await fullstackPlan.getByLabel('方案状态：补齐项目/方案视图').selectOption('doing')
+  await expect(fullstackPlan.getByTestId('plan-status-badge')).toHaveText('进行中')
+
+  await page.goto(`${baseUrl}/#token=${token}`)
+  await page.getByRole('button', { name: '项目/方案' }).click()
+  projectCard = page.getByTestId('project-card').filter({ hasText: '管理器 v0.4' })
+  await expect(projectCard).toBeVisible()
+  await expect(projectCard).toContainText('真实后端持久化验收')
+  await expect(projectCard.getByTestId('plan-row').filter({ hasText: '补齐项目/方案视图' })).toBeVisible()
+  await expect(projectCard.getByTestId('plan-row').getByTestId('plan-status-badge')).toHaveText('进行中')
+
   // 积木原型台是纯前端，但要在真实页面里证明没被后端/主题打断。
   await page.getByRole('button', { name: '设计积木' }).click()
   await page.getByRole('tab', { name: '页面组合' }).click()
@@ -122,7 +147,7 @@ test('真实后端 + 浏览器：工具执行、历史与积木页', async ({ pa
   await page.getByRole('button', { name: '接口文档' }).click()
   await expect(page.getByRole('heading', { name: 'Lilyco Manager API' })).toBeVisible()
   await expect(page.getByTestId('api-operation').first()).toBeVisible()
-  expect(await page.getByTestId('api-operation').count()).toBeGreaterThanOrEqual(20)
+  expect(await page.getByTestId('api-operation').count()).toBeGreaterThanOrEqual(30)
 
   // 试调用打真后端：GET /api/tools 带会话 token 返回 200 与工具列表。
   await page.getByRole('button', { name: '试调用 /api/tools' }).click()

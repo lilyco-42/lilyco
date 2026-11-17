@@ -6,7 +6,7 @@
 设置强随机环境变量 `LILYCO_MANAGER_TOKEN` 后启动 lilyco-manager。Linux 可自动使用 /dev/urandom；Windows/Linux 默认生成强随机 token，可通过环境变量覆盖。测试或服务模式可设置 `LILYCO_MANAGER_NO_BROWSER=1`。
 
 ## 当前范围
-已实现两个内置只读工具、发现、调用、历史查看和自动打开浏览器；应用总览（清单发现、启动/停止、日志、`--schema`）、MCP 工具聚合/配置导出、GitHub Release 安装/更新/卸载、仓库内开发任务编排，以及基于 `lilyco-42/ui-spec` 的统一设计系统（浅色优先 + 深色主题）。尚未实现 Turso / wtx 后端。后续先通过 facade 读出 CommandSchema，再重用 core executor 做真实工具调度，不允许 Web 层直接执行任意外部命令。
+已实现两个内置只读工具、发现、调用、历史查看和自动打开浏览器；应用总览（清单发现、启动/停止、日志、`--schema`）、项目/方案、MCP 工具聚合/配置导出、GitHub Release 安装/更新/卸载、仓库内开发任务编排，以及基于 `lilyco-42/ui-spec` 的统一设计系统（浅色优先 + 深色主题）。尚未实现 Turso / wtx 后端。后续先通过 facade 读出 CommandSchema，再重用 core executor 做真实工具调度，不允许 Web 层直接执行任意外部命令。
 
 ## 应用安装与更新
 - `GET /api/apps/:id/release` 查询 GitHub 最新 Release、当前托管版本与平台资产。
@@ -26,6 +26,14 @@
 - 流先推已有行，再按 150 ms 轮询内部缓冲推送新行；任务结束后发 `done`（含退出码）并关闭连接。
   增量定位用累计行号而不是缓冲长度，500 行环形缓冲开始裁剪后仍会继续推送且不重复。
   票据重放、换 job 使用或过期都返回 401。
+
+## 项目 / 方案
+- `GET /api/projects` 返回 `{projects, count}`，方案直接嵌套在项目的 `plans` 里；
+  `POST /api/projects` 创建项目，`GET/PATCH/DELETE /api/projects/:id` 读取、更新或级联删除。
+- `POST /api/projects/:id/plans` 新增方案；`PATCH/DELETE /api/plans/:id` 更新标题/说明/状态或删除。
+- 项目状态 `active | paused | done`，方案状态 `draft | doing | done`；名称与标题必填，
+  长度或状态不合法返回 400，未知 id 返回 404。无 token 的写请求在 JSON 解析前就返回 401。
+- 数据与运行历史同库（管理器自己的 SQLite），重启后仍在；面板「项目/方案」一次请求即可渲染。
 
 ## 应用清单
 应用通过仓库根目录的 `lilyco.app.json` 自助注册，规范见 [docs/MANIFEST.md](docs/MANIFEST.md)。开发时可直接指向源码目录：
@@ -51,7 +59,7 @@ LILYCO_MANAGER_APPS=/home/lilyco/code lilyco-manager
   整页 JSON（`{title, blocks[]}`）可校验、复制、导出；校验失败保留最后一次应用的页面。
 - `GET /api/openapi.json` 返回同一套路由的 OpenAPI 3.1 形状清单（同样要求 token）。
   契约测试会遍历文档里的每个 path + method，无 token 必须得到 401，避免文档与路由漂移。
-- 左侧「接口文档」直接渲染这份清单：按 tag 分组（工具 / 应用 / 发布 / 开发任务 / MCP / 元数据），
+- 左侧「接口文档」直接渲染这份清单：按 tag 分组（工具 / 应用 / 项目 / 发布 / 开发任务 / MCP / 元数据），
   每行显示方法徽标、路径与摘要，可刷新、可复制整份 JSON。
 - GET 操作可「试调用」：填写路径参数后带当前会话 token 发请求，显示状态码、耗时与格式化 JSON；
   写操作（POST）不在文档页暴露试调用，仍从各自面板执行。
