@@ -121,7 +121,7 @@ impl Life {
         }
         std::mem::swap(&mut self.cells, &mut self.next);
         self.generation += 1;
-        if self.generation % RESTART == 0 {
+        if self.generation.is_multiple_of(RESTART) {
             self.seed();
         }
     }
@@ -241,7 +241,7 @@ fn record_tick(step_us: u32) {
         m.last_tick = Some(now);
         m.step_us.push(step_us);
         m.ticks += 1;
-        if m.ticks % 60 == 0 {
+        if m.ticks.is_multiple_of(60) {
             Some(m.snapshot())
         } else {
             None
@@ -270,12 +270,7 @@ fn draw(life: &Life) -> Painter {
         for y in 0..life.rows {
             for x in 0..life.cols {
                 if life.cells[y * life.cols + x] == 1 {
-                    painter = painter.fill_rect(
-                        x as f32 * c,
-                        y as f32 * c,
-                        c - 1.0,
-                        c - 1.0,
-                    );
+                    painter = painter.fill_rect(x as f32 * c, y as f32 * c, c - 1.0, c - 1.0);
                 }
             }
         }
@@ -304,7 +299,7 @@ fn Game() -> impl IntoElement {
     };
     canvas(move || {
         let started = Instant::now();
-        let painter = life.with(|state| draw(state));
+        let painter = life.with(draw);
         record_draw(started.elapsed().as_micros() as u32);
         painter
     })
@@ -314,13 +309,11 @@ fn Game() -> impl IntoElement {
 
 fn main() -> impl std::process::Termination {
     let bench = std::env::var_os("LILYCO_BENCH").is_some();
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or(if bench {
-            "nsh::perf=info,nsh::fps=info"
-        } else {
-            "warn"
-        }),
-    )
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(if bench {
+        "nsh::perf=info,nsh::fps=info"
+    } else {
+        "warn"
+    }))
     .format_timestamp_millis()
     .init();
 
