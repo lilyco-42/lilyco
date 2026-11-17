@@ -497,7 +497,7 @@ pub mod prelude {
     };
     pub use crate::schema::{ArgKind, ArgSchema, CommandSchema, ValueEnum};
     pub use crate::view::{
-        AccordionItem, ButtonVariant, CarouselItem, ChartKind, CommandItem, Component, KeyValueItem,
-        LogLine, MenuGroup, MenuItem, NavItem, SheetSide, TabItem, Tone, ViewSlot,
+        AccordionItem, ButtonVariant, CarouselItem, ChartKind, CommandItem, Component,
+        KeyValueItem, LogLine, MenuGroup, MenuItem, NavItem, SheetSide, TabItem, Tone, ViewSlot,
     };
 }

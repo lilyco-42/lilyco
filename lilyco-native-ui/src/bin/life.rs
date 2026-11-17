@@ -236,12 +236,8 @@ fn draw(life: &Life) -> Painter {
     for y in 0..ROWS {
         for x in 0..COLS {
             if life.cells[y * COLS + x] == 1 {
-                painter = painter.fill_rect(
-                    x as f32 * CELL,
-                    y as f32 * CELL,
-                    CELL - 1.0,
-                    CELL - 1.0,
-                );
+                painter =
+                    painter.fill_rect(x as f32 * CELL, y as f32 * CELL, CELL - 1.0, CELL - 1.0);
             }
         }
     }
@@ -275,13 +271,11 @@ fn Game() -> impl IntoElement {
 
 fn main() -> impl std::process::Termination {
     let bench = std::env::var_os("LILYCO_BENCH").is_some();
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or(if bench {
-            "nsh::perf=info,nsh::fps=info"
-        } else {
-            "warn"
-        }),
-    )
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(if bench {
+        "nsh::perf=info,nsh::fps=info"
+    } else {
+        "warn"
+    }))
     .format_timestamp_millis()
     .init();
 

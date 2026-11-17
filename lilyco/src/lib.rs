@@ -654,10 +654,7 @@ fn build_handler<A: App + Send + 'static>() -> Handler {
 /// spawn 保证事件流恒以 Done / Error 终态结尾。
 /// 视图组件在 TUI 里的降级文本（无可视组件层时的唯一表示）
 #[cfg(feature = "tui")]
-pub(crate) fn view_fallback_line(
-    id: &str,
-    component: &lilyco_core::view::Component,
-) -> String {
+pub(crate) fn view_fallback_line(id: &str, component: &lilyco_core::view::Component) -> String {
     let kind = serde_json::to_value(component)
         .ok()
         .and_then(|v| {
@@ -758,12 +755,15 @@ mod tests {
             },
         );
         assert_eq!(line, "视图 job: progress");
-        let line = view_fallback_line("t", &Component::Table {
-            caption: None,
-            columns: vec![],
-            rows: vec![],
-            sortable: false,
-        });
+        let line = view_fallback_line(
+            "t",
+            &Component::Table {
+                caption: None,
+                columns: vec![],
+                rows: vec![],
+                sortable: false,
+            },
+        );
         assert_eq!(line, "视图 t: table");
     }
 
