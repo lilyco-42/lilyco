@@ -107,6 +107,15 @@ pub(crate) async fn index(
     } else {
         "false"
     };
+    // ?debug=1：把每个字段/视图的来源（arg / view id / kind）标在页面上
+    let debug_attr = if matches!(
+        params.get("debug").map(String::as_str),
+        Some("1") | Some("true")
+    ) {
+        r#" data-debug="1""#
+    } else {
+        ""
+    };
     let html = HTML_TEMPLATE
         .replace("__CSS__", include_str!("../assets/app.css"))
         .replace("__CANCEL_JS__", cancellable)
@@ -118,6 +127,7 @@ pub(crate) async fn index(
         .replace("__CMD_NAME__", &html_escape(&schema.name))
         .replace("__CMD_JS__", &serde_json::json!(schema.name).to_string())
         .replace("__META__", &meta_json)
+        .replace("__BODY_ATTR__", debug_attr)
         // token 最后注入且 token 为随机字母数字，无碰撞风险
         .replace("__TOKEN__", &state.token);
 
@@ -207,10 +217,13 @@ impl<'a> Field<'a> {
 /// 外壳：标签 + 控件。Flag 走整行布局，其余一律「标签在上、控件在下」
 fn field_shell(f: &Field, widget: String) -> String {
     if matches!(f.arg.kind, ArgKind::Flag) {
-        return format!(r##"<div class="field field-flag">{widget}</div>"##) + "\n";
+        return format!(
+            r##"<div class="field field-flag" data-source="arg:{esc}">{widget}</div>"##,
+            esc = f.esc_name
+        ) + "\n";
     }
     format!(
-        r##"<div class="field"><label for="field-{esc}">{label}</label>{widget}</div>"##,
+        r##"<div class="field" data-source="arg:{esc}"><label for="field-{esc}">{label}</label>{widget}</div>"##,
         esc = f.esc_name,
         label = f.label_with_mark()
     ) + "\n"
@@ -1265,6 +1278,32 @@ mod tests {
         assert!(html.contains(r#"data-view-placeholder="1""#), "{html}");
         assert!(html.contains("任务进度"), "槽位标题应显示在占位里");
         assert_eq!(render_view_slots(&[]), "", "无槽位时不应产生占位");
+    }
+
+    /// `?debug=1` 的接线：body 占位符、字段来源、视图来源都要在，且样式真的消费它们
+    #[test]
+    fn debug_mode_wires_sources() {
+        assert!(
+            HTML_TEMPLATE.contains("__BODY_ATTR__"),
+            "模板缺少 body 调试属性占位符"
+        );
+        let css = include_str!("../assets/app.css");
+        assert!(css.contains("attr(data-source)"), "样式未消费 data-source");
+        assert!(css.contains("attr(data-view-id)"), "样式未消费 data-view-id");
+        assert!(css.contains("attr(data-view-kind-hint)"), "样式未消费 kind 提示");
+
+        let arg = lilyco_core::schema::ArgSchema {
+            name: "file".into(),
+            about: "文件".into(),
+            kind: lilyco_core::schema::ArgKind::Text,
+            required: true,
+            default: None,
+        };
+        let shell = field_shell(&Field::new(&arg), "<input>".into());
+        assert!(
+            shell.contains(r#"data-source="arg:file""#),
+            "字段未标注来源: {shell}"
+        );
     }
 
     #[test]

@@ -667,3 +667,26 @@ input[type="checkbox"] {
   .btn.loading .btn-label::after { content: " …"; }
   .btn.loading::after { display: none; }
 }
+
+/* ── ?debug=1：标出每个字段/视图的来源 ── */
+body[data-debug="1"] .field { position: relative; outline: 1px dashed var(--control); outline-offset: 2px; padding-top: var(--s-3); }
+body[data-debug="1"] .field::before {
+  content: attr(data-source);
+  position: absolute; top: -9px; left: 6px;
+  padding: 0 4px; border-radius: 3px;
+  background: var(--surface-2); color: var(--accent);
+  font: 10px/1.6 var(--mono);
+}
+body[data-debug="1"] #views .view { position: relative; outline: 1px dashed var(--control); outline-offset: 2px; padding-top: var(--s-3); }
+body[data-debug="1"] #views .view::before {
+  content: "view:" attr(data-view-id) " · kind:" attr(data-view-kind-hint);
+  position: absolute; top: -9px; left: 6px;
+  padding: 0 4px; border-radius: 3px;
+  background: var(--surface-2); color: var(--accent);
+  font: 10px/1.6 var(--mono);
+}
+body[data-debug="1"] .card::after {
+  content: "schema: " attr(data-cmd);
+  position: absolute; right: 12px; top: 8px;
+  color: var(--ink-muted); font: 10px var(--mono);
+}
