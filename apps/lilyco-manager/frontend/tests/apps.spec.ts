@@ -56,6 +56,8 @@ test.beforeAll(async () => {
     }
     if (path === '/api/tools') {
       json(response, { tools: [{ name: 'manager.health', description: '健康检查', read_only: true }] })
+    } else if (path === '/api/settings') {
+      json(response, { read_only: false, version: 'test' })
     } else if (path === '/api/history') {
       json(response, { runs: [] })
     } else if (path === '/api/ecosystem') {

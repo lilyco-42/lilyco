@@ -68,6 +68,9 @@ struct App {
     supervisor: Supervisor,
     dev: dev::DevRunner,
     install_lock: Arc<tokio::sync::Mutex<()>>,
+    /// 只读模式：所有写接口在鉴权之后返回 403。用于展示/巡检场景，
+    /// 只允许 GET 与日志流票据，避免误触本机应用与数据。
+    read_only: bool,
     /// 一次性日志流票据：job id -> 过期时间。EventSource 不能带自定义 header，
     /// 所以先用带 token 的 POST 换短期票据，票据只能用于对应 job 且单次有效。
     tickets: Arc<tokio::sync::Mutex<BTreeMap<String, StreamTicket>>>,
@@ -131,6 +134,17 @@ async fn index() -> Html<&'static str> {
     Html(PAGE)
 }
 
+/// 面板用它决定是否禁用写控件；只返回模式与版本，不泄露本机路径。
+async fn settings(State(state): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
+    if !authorised(&headers, &state.token) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    Ok(Json(json!({
+        "read_only": state.read_only,
+        "version": env!("CARGO_PKG_VERSION"),
+    })))
+}
+
 /// 机器可读的接口清单：给管理面板、脚本和契约测试共用。
 /// 只暴露路由形状与鉴权要求，不包含 token、本机路径或进程信息。
 async fn openapi(State(state): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
@@ -160,13 +174,27 @@ fn project_operation(summary: &str) -> Value {
     operation
 }
 
+/// 写操作在只读模式下返回 403；文档里显式列出，调用方才能区分
+/// 「没带 token」与「服务器被配置为只读」。
+fn mutation(summary: &str, tag: &str) -> Value {
+    let mut operation = operation(summary, tag);
+    operation["responses"]["403"] = json!({"description": "只读模式拒绝写操作"});
+    operation
+}
+
+fn project_mutation(summary: &str) -> Value {
+    let mut operation = project_operation(summary);
+    operation["responses"]["403"] = json!({"description": "只读模式拒绝写操作"});
+    operation
+}
+
 fn api_spec() -> Value {
     json!({
         "openapi": "3.1.0",
         "info": {
             "title": "Lilyco Manager API",
             "version": env!("CARGO_PKG_VERSION"),
-            "description": "本机只读工具、应用生命周期、MCP 聚合与开发任务。全部接口要求 x-lilyco-token，状态变更接口额外校验 Origin/Host 同源；开发任务日志流先用 POST 换一次性票据，再由 EventSource 带 ticket 订阅。",
+            "description": "本机只读工具、应用生命周期、MCP 聚合与开发任务。全部接口要求 x-lilyco-token，状态变更接口额外校验 Origin/Host 同源；开发任务日志流先用 POST 换一次性票据，再由 EventSource 带 ticket 订阅。设置 LILYCO_MANAGER_READ_ONLY=1 后所有写接口在鉴权后返回 403，GET 与日志流保持可用。",
         },
         "servers": [{"url": "http://127.0.0.1"}],
         "components": {
@@ -179,41 +207,42 @@ fn api_spec() -> Value {
             "/api/tools": {"get": operation("只读工具注册表", "tools")},
             "/api/ecosystem": {"get": operation("已审核生态项目目录", "meta")},
             "/api/adapters": {"get": operation("固定可执行适配器可用性", "meta")},
-            "/api/tools/{name}/run": {"post": operation("执行已注册的只读工具", "tools")},
+            "/api/tools/{name}/run": {"post": mutation("执行已注册的只读工具", "tools")},
             "/api/history": {"get": operation("最近的执行记录", "tools")},
             "/api/apps": {"get": operation("应用清单与受管进程状态", "apps")},
-            "/api/apps/{id}/start": {"post": operation("启动清单定义的应用", "apps")},
-            "/api/apps/{id}/stop": {"post": operation("停止管理器启动的应用", "apps")},
+            "/api/apps/{id}/start": {"post": mutation("启动清单定义的应用", "apps")},
+            "/api/apps/{id}/stop": {"post": mutation("停止管理器启动的应用", "apps")},
             "/api/apps/{id}/logs": {"get": operation("读取有界进程日志", "apps")},
             "/api/apps/{id}/schema": {"get": operation("执行 --schema 并返回命令清单", "apps")},
             "/api/apps/{id}/release": {"get": operation("查询 GitHub Release 与本地托管版本", "release")},
-            "/api/apps/{id}/install": {"post": operation("校验 SHA-256 后安装托管二进制", "release")},
-            "/api/apps/{id}/uninstall": {"post": operation("删除托管安装目录", "release")},
+            "/api/apps/{id}/install": {"post": mutation("校验 SHA-256 后安装托管二进制", "release")},
+            "/api/apps/{id}/uninstall": {"post": mutation("删除托管安装目录", "release")},
             "/api/apps/{id}/dev": {"get": operation("清单中的固定开发任务与最近记录", "dev")},
-            "/api/apps/{id}/dev/{task}": {"post": operation("按固定 argv 启动开发任务", "dev")},
+            "/api/apps/{id}/dev/{task}": {"post": mutation("按固定 argv 启动开发任务", "dev")},
             "/api/dev/jobs/{job}/logs": {"get": operation("读取开发任务输出与退出码", "dev")},
-            "/api/dev/jobs/{job}/stream-ticket": {"post": operation("为日志流签发一次性短期票据", "dev")},
+            "/api/dev/jobs/{job}/stream-ticket": {"post": operation("为日志流签发一次性短期票据（只读模式仍可用）", "dev")},
             "/api/dev/jobs/{job}/stream": {"get": operation("SSE 实时推送开发任务输出", "dev")},
             "/api/projects": {
                 "get": project_operation("项目列表与嵌套方案"),
-                "post": project_operation("创建项目"),
+                "post": project_mutation("创建项目"),
             },
             "/api/projects/{id}": {
                 "get": project_operation("读取单个项目与方案"),
-                "patch": project_operation("更新项目名称、描述或状态"),
-                "delete": project_operation("删除项目并级联删除方案"),
+                "patch": project_mutation("更新项目名称、描述或状态"),
+                "delete": project_mutation("删除项目并级联删除方案"),
             },
-            "/api/projects/{id}/plans": {"post": project_operation("为项目新增方案")},
+            "/api/projects/{id}/plans": {"post": project_mutation("为项目新增方案")},
             "/api/plans/{id}": {
-                "patch": project_operation("更新方案标题、说明或状态"),
-                "delete": project_operation("删除方案"),
+                "patch": project_mutation("更新方案标题、说明或状态"),
+                "delete": project_mutation("删除方案"),
             },
             "/api/mcp/tools": {"get": operation("聚合各应用 --mcp 的工具列表", "mcp")},
             "/api/mcp/config": {
                 "get": operation("生成 lilyco-toolhub 配置", "mcp"),
-                "post": operation("写入本机 tools.json", "mcp"),
+                "post": mutation("写入本机 tools.json", "mcp"),
             },
             "/api/openapi.json": {"get": operation("本接口清单", "meta")},
+            "/api/settings": {"get": operation("只读模式与版本", "meta")},
         }
     })
 }
@@ -977,7 +1006,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for warning in &registry.warnings {
         eprintln!("lilyco-manager: {warning}");
     }
-    let app = build_state(db, token.clone(), registry.apps, registry.warnings);
+    let app = build_state(
+        db,
+        token.clone(),
+        registry.apps,
+        registry.warnings,
+        read_only_mode(),
+    );
     let router = build_router(app);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let addr: SocketAddr = listener.local_addr()?;
@@ -1011,11 +1046,23 @@ async fn connect_db(path: &str) -> Result<DatabaseConnection, sea_orm::DbErr> {
     Ok(db)
 }
 
+/// `LILYCO_MANAGER_READ_ONLY=1|true|yes` 开启只读模式；其他值保持可写。
+fn read_only_mode() -> bool {
+    matches!(
+        std::env::var("LILYCO_MANAGER_READ_ONLY")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes"
+    )
+}
+
 fn build_state(
     db: DatabaseConnection,
     token: String,
     apps: Vec<Manifest>,
     warnings: Vec<String>,
+    read_only: bool,
 ) -> App {
     App {
         db,
@@ -1025,6 +1072,7 @@ fn build_state(
         supervisor: Supervisor::default(),
         dev: dev::DevRunner::default(),
         install_lock: Arc::new(tokio::sync::Mutex::new(())),
+        read_only,
         tickets: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
     }
 }
@@ -1104,6 +1152,29 @@ async fn plan_delete(
     Ok(Json(projects::delete_plan(&state.db, id).await?))
 }
 
+/// 全局写入门：先鉴权再判断只读模式，保证无 token 的写请求仍然是 401，
+/// 不会因为只读模式泄漏成 403。日志流票据是读取日志的前置步骤，只读模式
+/// 仍允许签发；其余 POST/PATCH/DELETE 一律 403。
+async fn write_guard(
+    State(state): State<App>,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let path = request.uri().path().to_string();
+    let read_request = matches!(*request.method(), Method::GET | Method::HEAD)
+        || (path.starts_with("/api/dev/jobs/") && path.ends_with("/stream"));
+    if !read_request {
+        if !authorised_mutation(request.headers(), &state.token) {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+        let stream_ticket = path.starts_with("/api/dev/jobs/") && path.ends_with("/stream-ticket");
+        if state.read_only && !stream_ticket {
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+    Ok(next.run(request).await)
+}
+
 fn build_router(app: App) -> Router {
     let projects_router = Router::new()
         .route("/api/projects", get(projects_list).post(project_create))
@@ -1122,6 +1193,7 @@ fn build_router(app: App) -> Router {
         .route("/api/tools", get(list))
         .route("/api/ecosystem", get(ecosystem))
         .route("/api/openapi.json", get(openapi))
+        .route("/api/settings", get(settings))
         .route("/api/adapters", get(adapters))
         .route("/api/tools/:name/run", post(run))
         .route("/api/history", get(history))
@@ -1141,7 +1213,8 @@ fn build_router(app: App) -> Router {
         .route("/api/mcp/tools", get(mcp_tools))
         .route("/api/mcp/config", get(mcp_config).post(write_mcp_config))
         .merge(projects_router)
-        .with_state(app)
+        .with_state(app.clone())
+        .route_layer(middleware::from_fn_with_state(app, write_guard))
 }
 
 #[cfg(test)]
@@ -1153,16 +1226,24 @@ mod tests {
     use tower::ServiceExt;
 
     async fn test_state_with(apps: Vec<Manifest>) -> App {
+        test_state_with_apps(apps, false).await
+    }
+
+    async fn test_state_with_apps(apps: Vec<Manifest>, read_only: bool) -> App {
         let db = Database::connect("sqlite::memory:").await.unwrap();
         db.execute_unprepared("CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY AUTOINCREMENT, tool TEXT NOT NULL, output TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);")
             .await
             .unwrap();
         projects::ensure_tables(&db).await.unwrap();
-        build_state(db, "t".repeat(32), apps, vec![])
+        build_state(db, "t".repeat(32), apps, vec![], read_only)
     }
 
     async fn test_state() -> App {
         test_state_with(vec![sample_manifest()]).await
+    }
+
+    async fn read_only_state() -> App {
+        test_state_with_apps(vec![sample_manifest()], true).await
     }
 
     fn sample_manifest() -> Manifest {
@@ -1470,6 +1551,67 @@ mod tests {
             .await;
             assert_eq!(status, StatusCode::BAD_REQUEST);
         }
+    }
+
+    /// 只读模式：GET 与日志流票据保持可用，写操作在鉴权后 403；
+    /// 无 token / 跨源仍必须是 401，不能让模式检查抢先泄漏成 403。
+    #[tokio::test]
+    async fn read_only_mode_blocks_writes_after_authentication() {
+        let app = read_only_state().await;
+        let token = app.token.clone();
+
+        let (status, body) = call(&app, request("GET", "/api/settings", Some(&token))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["read_only"], true);
+
+        let (status, body) = call(&app, request("GET", "/api/projects", Some(&token))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["count"], 0);
+
+        for (method, uri) in [
+            ("POST", "/api/tools/manager.health/run"),
+            ("POST", "/api/projects"),
+            ("PATCH", "/api/projects/1"),
+            ("DELETE", "/api/projects/1"),
+        ] {
+            let (status, _) =
+                call_json(&app, method, uri, json!({"name": "x"}), Some(&token)).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{method} {uri}");
+        }
+
+        let (status, _) =
+            call_json(&app, "POST", "/api/projects", json!({"name": "x"}), None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let cross_origin = Request::builder()
+            .method("POST")
+            .uri("/api/projects")
+            .header("content-type", "application/json")
+            .header("x-lilyco-token", &token)
+            .header("origin", "http://evil.example")
+            .header("host", "127.0.0.1:4321")
+            .body(Body::from(json!({"name": "cross"}).to_string()))
+            .unwrap();
+        let (status, _) = call(&app, cross_origin).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        // 票据本身不改业务状态，只读模式下仍可签发；未知 job 依旧 404。
+        let (status, _) = call(
+            &app,
+            request("POST", "/api/dev/jobs/missing/stream-ticket", Some(&token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (_, spec) = call(&app, request("GET", "/api/openapi.json", Some(&token))).await;
+        assert_eq!(
+            spec["paths"]["/api/projects"]["post"]["responses"]["403"]["description"],
+            "只读模式拒绝写操作"
+        );
+        assert_eq!(
+            spec["paths"]["/api/tools/{name}/run"]["post"]["responses"]["403"]["description"],
+            "只读模式拒绝写操作"
+        );
     }
 
     #[cfg(unix)]

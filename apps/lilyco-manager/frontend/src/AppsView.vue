@@ -6,7 +6,7 @@ type AppInfo={id:string;name:string;description:string;repository:string|null;bi
 type Release={configured:boolean;repo:string|null;platform:string;current_tag:string|null;latest_tag:string|null;asset:string|null;update_available:boolean;error:string|null}
 type DevTask={name:string;argv:string[]}
 type DevJob={id:string;app:string;task:string;running:boolean;exit_code:number|null;started_at:number;finished_at:number|null;lines:string[]}
-const props=defineProps<{token:string}>()
+const props=defineProps<{token:string;readOnly?:boolean}>()
 const apps=ref<AppInfo[]>([]),warnings=ref<string[]>([]),loading=ref(false),busy=ref(''),error=ref(''),notice=ref('')
 const logs=ref<Record<string,string[]>>({}),schemaCounts=ref<Record<string,number>>({})
 const releases=ref<Record<string,Release>>({})
@@ -123,7 +123,7 @@ onUnmounted(()=>{for(const source of Object.values(streams))source.close()})
 <template>
  <section class="mb-5">
   <div class="flex flex-wrap justify-between gap-3 items-center mb-4">
-   <div><h2 class="text-lg font-semibold">应用</h2><p class="text-xs text-ink-soft mt-1">来自各仓库的 lilyco.app.json 清单 · 只按清单固定参数启动</p></div>
+   <div><h2 class="text-lg font-semibold">应用</h2><p class="text-xs text-ink-soft mt-1">来自各仓库的 lilyco.app.json 清单 · 只按清单固定参数启动</p><p v-if="readOnly" class="text-xs text-ink-mute mt-1">只读模式：启动、停止、安装与开发任务已禁用。</p></div>
    <button @click="refresh" :disabled="loading" class="btn btn-secondary"><RefreshCw :size="16" :class="loading?'animate-spin':''"/>刷新</button>
   </div>
   <p v-if="error" role="alert" class="alert alert-danger mb-4">{{error}}</p>
@@ -155,8 +155,8 @@ onUnmounted(()=>{for(const source of Object.values(streams))source.close()})
      <span v-else class="badge">未运行</span>
     </div>
     <div class="flex flex-wrap gap-2 mt-auto">
-     <button v-if="app.capabilities.run && !app.status?.running" @click="start(app)" :disabled="!app.installed||busy==='start:'+app.id" class="btn btn-brand btn-sm"><Play :size="13"/>启动</button>
-     <button v-if="app.status?.running" @click="stop(app)" :disabled="busy==='stop:'+app.id" class="btn btn-danger btn-sm"><Square :size="13"/>停止</button>
+     <button v-if="app.capabilities.run && !app.status?.running" @click="start(app)" :disabled="readOnly||!app.installed||busy==='start:'+app.id" class="btn btn-brand btn-sm"><Play :size="13"/>启动</button>
+     <button v-if="app.status?.running" @click="stop(app)" :disabled="readOnly||busy==='stop:'+app.id" class="btn btn-danger btn-sm"><Square :size="13"/>停止</button>
      <button v-if="app.status" @click="toggleLogs(app)" class="btn btn-secondary btn-sm"><ScrollText :size="13"/>日志</button>
      <button v-if="app.capabilities.schema" @click="loadSchema(app)" :disabled="!app.installed||busy==='schema:'+app.id" class="btn btn-secondary btn-sm"><Terminal :size="13"/>命令清单</button>
      <button v-if="app.url" @click="openApp(app)" class="btn btn-secondary btn-sm"><ExternalLink :size="13"/>打开</button>
@@ -180,14 +180,14 @@ onUnmounted(()=>{for(const source of Object.values(streams))source.close()})
      </div>
      <p v-if="releases[app.id].error" class="text-danger break-words">{{releases[app.id].error}}</p>
      <div class="flex justify-end gap-2">
-      <button v-if="releases[app.id].current_tag" @click="uninstall(app)" :disabled="busy==='uninstall:'+app.id||busy==='install:'+app.id" class="btn btn-danger btn-sm"><Trash2 :size="13"/>{{busy==='uninstall:'+app.id?'卸载中…':'卸载'}}</button>
-      <button @click="install(app)" :disabled="busy==='install:'+app.id||busy==='uninstall:'+app.id||!!releases[app.id].error" class="btn btn-brand btn-sm"><Download :size="13"/>{{busy==='install:'+app.id?'安装中…':(releases[app.id].current_tag?'安装更新':'安装')}}</button>
+      <button v-if="releases[app.id].current_tag" @click="uninstall(app)" :disabled="readOnly||busy==='uninstall:'+app.id||busy==='install:'+app.id" class="btn btn-danger btn-sm"><Trash2 :size="13"/>{{busy==='uninstall:'+app.id?'卸载中…':'卸载'}}</button>
+      <button @click="install(app)" :disabled="readOnly||busy==='install:'+app.id||busy==='uninstall:'+app.id||!!releases[app.id].error" class="btn btn-brand btn-sm"><Download :size="13"/>{{busy==='install:'+app.id?'安装中…':(releases[app.id].current_tag?'安装更新':'安装')}}</button>
      </div>
     </div>
 
     <div v-if="dev[app.id]" class="rounded-lg border border-line bg-canvas-soft p-3">
      <div class="flex flex-wrap gap-2">
-      <button v-for="task in dev[app.id].tasks" :key="task.name" @click="runTask(app,task)" :disabled="busy==='dev:'+app.id+':'+task.name||jobs[app.id]?.running" class="btn btn-secondary btn-sm" :title="command(task)"><Play :size="12"/>{{task.name}}</button>
+      <button v-for="task in dev[app.id].tasks" :key="task.name" @click="runTask(app,task)" :disabled="readOnly||busy==='dev:'+app.id+':'+task.name||jobs[app.id]?.running" class="btn btn-secondary btn-sm" :title="command(task)"><Play :size="12"/>{{task.name}}</button>
       <span v-if="!dev[app.id].tasks.length" class="text-xs text-ink-soft">该应用未配置开发任务</span>
      </div>
      <p v-if="jobs[app.id]" class="text-xs mt-2 flex flex-wrap gap-2 items-center">

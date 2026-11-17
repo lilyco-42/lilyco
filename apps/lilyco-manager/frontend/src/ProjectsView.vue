@@ -21,7 +21,7 @@ type Plan={id:number;project_id:number;title:string;detail:string;status:PlanSta
 type Project={id:number;name:string;description:string;status:ProjectStatus;created_at:string;updated_at:string;plans:Plan[]}
 type Draft={title:string;detail:string;status:PlanStatus}
 
-const props=defineProps<{token:string}>()
+const props=defineProps<{token:string;readOnly?:boolean}>()
 
 const projectStatusLabel:Record<ProjectStatus,string>={active:'进行中',paused:'已暂停',done:'已完成'}
 const planStatusLabel:Record<PlanStatus,string>={draft:'草稿',doing:'进行中',done:'已完成'}
@@ -203,6 +203,7 @@ onMounted(load)
    <div>
     <h2 class="text-lg font-semibold">项目 / 方案</h2>
     <p class="mt-1 text-xs text-ink-soft">项目承载目标与状态，方案是可以逐条推进的执行单元。数据写入本机 SQLite，面板只与本机回环接口通信。</p>
+    <p v-if="readOnly" class="mt-1 text-xs text-ink-mute">只读模式：创建、编辑、状态推进与删除已禁用。</p>
    </div>
    <div class="flex flex-wrap items-center gap-2">
     <Badge variant="brand" data-testid="project-count"><FolderKanban :size="12"/>{{projects.length}} 个项目</Badge>
@@ -223,20 +224,20 @@ onMounted(load)
     <form class="grid gap-3 sm:grid-cols-2" @submit.prevent="createProject">
      <div class="flex flex-col gap-1.5">
       <Label for="project-name">项目名称</Label>
-      <Input id="project-name" v-model="draftName" placeholder="例如：管理器 v0.3" autocomplete="off"/>
+      <Input id="project-name" v-model="draftName" :disabled="readOnly" placeholder="例如：管理器 v0.3" autocomplete="off"/>
      </div>
      <div class="flex flex-col gap-1.5">
       <Label for="project-status">初始状态</Label>
-      <Select id="project-status" v-model="draftStatus">
+      <Select id="project-status" v-model="draftStatus" :disabled="readOnly">
        <option v-for="(label,value) in projectStatusLabel" :key="value" :value="value">{{label}}</option>
       </Select>
      </div>
      <div class="flex flex-col gap-1.5 sm:col-span-2">
       <Label for="project-description">描述</Label>
-      <Textarea id="project-description" v-model="draftDescription" :rows="2" placeholder="目标、范围或验收标准（可留空）"/>
+      <Textarea id="project-description" v-model="draftDescription" :disabled="readOnly" :rows="2" placeholder="目标、范围或验收标准（可留空）"/>
      </div>
      <div class="sm:col-span-2">
-      <Button type="submit" :disabled="busy==='create'||!draftName.trim()"><Plus :size="14"/>创建项目</Button>
+      <Button type="submit" :disabled="readOnly||busy==='create'||!draftName.trim()"><Plus :size="14"/>创建项目</Button>
      </div>
     </form>
    </CardContent>
@@ -255,12 +256,12 @@ onMounted(load)
       </div>
       <div class="flex flex-wrap items-center gap-2">
        <Badge :variant="projectStatusVariant[project.status]" data-testid="project-status-badge">{{projectStatusLabel[project.status]}}</Badge>
-       <Select class="w-[124px]" :aria-label="`项目状态：${project.name}`" :model-value="project.status"
+       <Select class="w-[124px]" :aria-label="`项目状态：${project.name}`" :disabled="readOnly" :model-value="project.status"
         @update:model-value="value=>setProjectStatus(project,value as ProjectStatus)">
         <option v-for="(label,value) in projectStatusLabel" :key="value" :value="value">{{label}}</option>
        </Select>
-       <Button size="sm" variant="secondary" data-testid="project-edit" @click="startProjectEdit(project)">编辑</Button>
-       <Button size="sm" variant="destructive" data-testid="project-delete" :disabled="busy==='project-'+project.id" @click="askDeleteProject(project)">
+       <Button size="sm" variant="secondary" data-testid="project-edit" :disabled="readOnly" @click="startProjectEdit(project)">编辑</Button>
+       <Button size="sm" variant="destructive" data-testid="project-delete" :disabled="readOnly||busy==='project-'+project.id" @click="askDeleteProject(project)">
         <Trash2 :size="13"/>{{confirmingProject===project.id?'确认删除':'删除'}}
        </Button>
       </div>
@@ -277,7 +278,7 @@ onMounted(load)
        <Textarea :id="`project-edit-description-${project.id}`" v-model="projectEdit.description" :rows="2"/>
       </div>
       <div class="flex gap-2 sm:col-span-2">
-       <Button type="submit" size="sm" :disabled="busy==='project-'+project.id||!projectEdit.name.trim()">保存</Button>
+       <Button type="submit" size="sm" :disabled="readOnly||busy==='project-'+project.id||!projectEdit.name.trim()">保存</Button>
        <Button type="button" size="sm" variant="ghost" @click="editingProject=null">取消</Button>
       </div>
      </form>
@@ -306,7 +307,7 @@ onMounted(load)
         <Textarea :id="`plan-edit-detail-${plan.id}`" v-model="planEdit.detail" :rows="2"/>
        </div>
        <div class="flex gap-2 sm:col-span-2">
-        <Button type="submit" size="sm" :disabled="busy==='plan-'+plan.id||!planEdit.title.trim()">保存方案</Button>
+        <Button type="submit" size="sm" :disabled="readOnly||busy==='plan-'+plan.id||!planEdit.title.trim()">保存方案</Button>
         <Button type="button" size="sm" variant="ghost" @click="editingPlan=null">取消</Button>
        </div>
       </form>
@@ -317,12 +318,12 @@ onMounted(load)
        </div>
        <div class="flex flex-wrap items-center gap-2">
         <Badge :variant="planStatusVariant[plan.status]" data-testid="plan-status-badge">{{planStatusLabel[plan.status]}}</Badge>
-        <Select class="w-[116px]" :aria-label="`方案状态：${plan.title}`" :model-value="plan.status"
+        <Select class="w-[116px]" :aria-label="`方案状态：${plan.title}`" :disabled="readOnly" :model-value="plan.status"
          @update:model-value="value=>setPlanStatus(plan,value as PlanStatus)">
          <option v-for="(label,value) in planStatusLabel" :key="value" :value="value">{{label}}</option>
         </Select>
-        <Button size="sm" variant="secondary" data-testid="plan-edit" @click="startPlanEdit(plan)">编辑</Button>
-        <Button size="sm" variant="destructive" data-testid="plan-delete" :disabled="busy==='plan-'+plan.id" @click="askDeletePlan(plan)">
+        <Button size="sm" variant="secondary" data-testid="plan-edit" :disabled="readOnly" @click="startPlanEdit(plan)">编辑</Button>
+        <Button size="sm" variant="destructive" data-testid="plan-delete" :disabled="readOnly||busy==='plan-'+plan.id" @click="askDeletePlan(plan)">
          <Trash2 :size="13"/>{{confirmingPlan===plan.id?'确认删除':'删除'}}
         </Button>
        </div>
@@ -330,13 +331,13 @@ onMounted(load)
      </div>
 
      <form class="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_150px_auto]" @submit.prevent="addPlan(project)">
-      <Input v-model="drafts[project.id].title" :aria-label="`新方案标题：${project.name}`" placeholder="新方案标题"/>
-      <Select v-model="drafts[project.id].status" :aria-label="`新方案状态：${project.name}`">
+      <Input v-model="drafts[project.id].title" :disabled="readOnly" :aria-label="`新方案标题：${project.name}`" placeholder="新方案标题"/>
+      <Select v-model="drafts[project.id].status" :disabled="readOnly" :aria-label="`新方案状态：${project.name}`">
        <option v-for="(label,value) in planStatusLabel" :key="value" :value="value">{{label}}</option>
       </Select>
-      <Button type="submit" :disabled="busy==='plan-'+project.id||!drafts[project.id].title.trim()"><Plus :size="14"/>添加方案</Button>
+      <Button type="submit" :disabled="readOnly||busy==='plan-'+project.id||!drafts[project.id].title.trim()"><Plus :size="14"/>添加方案</Button>
       <div class="sm:col-span-3">
-       <Textarea v-model="drafts[project.id].detail" :rows="2" :aria-label="`新方案说明：${project.name}`" placeholder="说明（可留空）"/>
+       <Textarea v-model="drafts[project.id].detail" :disabled="readOnly" :rows="2" :aria-label="`新方案说明：${project.name}`" placeholder="说明（可留空）"/>
       </div>
      </form>
     </CardContent>

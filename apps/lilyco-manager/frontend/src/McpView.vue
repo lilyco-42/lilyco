@@ -4,7 +4,7 @@ import {Plug,RefreshCw,Search,Copy,Save,ShieldCheck,AlertTriangle} from 'lucide-
 type Tool={name:string;app:string;original_name:string;description:string;input_schema:unknown}
 type Provider={id:string;ok:boolean;tools?:number;error?:string}
 type Config={servers:Record<string,unknown>;config_path:string|null;toolhub:string|null;client_config:unknown;hint:string;written?:boolean}
-const props=defineProps<{token:string}>()
+const props=defineProps<{token:string;readOnly?:boolean}>()
 const tools=ref<Tool[]>([]),providers=ref<Provider[]>([]),config=ref<Config|null>(null)
 const query=ref(''),loading=ref(false),busy=ref(''),error=ref(''),notice=ref('')
 async function api(path:string,method='GET'){
@@ -39,7 +39,7 @@ onMounted(refresh)
 <template>
  <section class="mb-5">
   <div class="flex flex-wrap justify-between gap-3 items-center mb-4">
-   <div><h2 class="text-lg font-semibold">MCP 服务</h2><p class="text-xs text-ink-soft mt-1">从每个应用的 --mcp 动态发现工具 · 统一命名空间 app__tool</p></div>
+   <div><h2 class="text-lg font-semibold">MCP 服务</h2><p class="text-xs text-ink-soft mt-1">从每个应用的 --mcp 动态发现工具 · 统一命名空间 app__tool</p><p v-if="readOnly" class="text-xs text-ink-mute mt-1">只读模式：写入 tools.json 已禁用，复制配置仍可用。</p></div>
    <button @click="refresh" :disabled="loading" class="btn btn-secondary"><RefreshCw :size="16" :class="loading?'animate-spin':''"/>刷新</button>
   </div>
   <p v-if="error" role="alert" class="alert alert-danger mb-4">{{error}}</p>
@@ -72,7 +72,7 @@ onMounted(refresh)
     <div><h3 class="font-semibold">客户端配置</h3><p class="text-xs text-ink-soft mt-1">{{config?.hint}}</p></div>
     <div class="flex gap-2">
      <button @click="copyConfig" class="btn btn-secondary btn-sm"><Copy :size="13"/>复制</button>
-     <button @click="writeConfig" :disabled="busy==='write'" class="btn btn-brand btn-sm"><Save :size="13"/>写入 tools.json</button>
+     <button @click="writeConfig" :disabled="readOnly||busy==='write'" class="btn btn-brand btn-sm"><Save :size="13"/>写入 tools.json</button>
     </div>
    </div>
    <pre class="log p-4 max-h-72 overflow-auto">{{configText}}</pre>
