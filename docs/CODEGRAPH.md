@@ -89,7 +89,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 
 | 符号 | 位置 | 说明 |
 |---|---|---|
-| `trait App` | `lilyco-core/src/app.rs:10` | `schema()` + `from_args()` + `run(&Context)`；宏自动实现 |
+| `trait App` | `lilyco-core/src/app.rs:10` | `schema()` + `from_args()` + `run(&Context)` + `views()`（默认空，宏按 `#[view]` 生成）；宏自动实现 |
 | `trait Renderer` | `lilyco-core/src/app.rs:22` | `render(&CommandSchema) -> Output`，各后端实现 |
 | `struct CommandSchema` | `lilyco-core/src/schema.rs:40` | 命令的机器可读描述（四端渲染的唯一事实源） |
 | `enum ArgKind` | `lilyco-core/src/schema.rs:21` | Flag/Text/Number{min,max}/Enum/Path{must_exist}/List |
@@ -100,8 +100,10 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `RegisteredCommand::from_app` | `lilyco-core/src/registry.rs:92` | App 类型 → 注册表条目（零样板入口） |
 | `spawn()` / `execute()` | `lilyco-core/src/executor.rs:35,92` | **唯一执行宿主**：后台线程 + 进度 channel |
 | `struct Task` | `lilyco-core/src/executor.rs:20` | `cancel` + `rx` + `handle` |
-| `enum Progress` | `lilyco-core/src/progress.rs:10` | Started/Tick/Log/Done/Error，serde tag=`type` |
-| `Context` | `lilyco-core/src/context.rs` | handler 上报进度：`emit:71` `tick:81` `log:92` `done:100` `is_cancelled:76` |
+| `enum Progress` | `lilyco-core/src/progress.rs:10` | Started/Tick/Log/Telemetry/Done/Error/**View**，serde tag=`type` |
+| `enum Component` | `lilyco-core/src/view.rs:136` | 52 个语义视图组件（snake_case `kind`，容器带 `children`）；后端只声明，前端按 kind 渲染 |
+| `struct ViewSlot` | `lilyco-core/src/view.rs:497` | 静态槽位：`#[view(id,title,kind)]` → `App::views()` → `run_registry --schema` 的 `views` |
+| `Context` | `lilyco-core/src/context.rs` | handler 上报进度：`emit:71` `tick:81` `log:92` `done:100` `is_cancelled:76` `view:131` `view_progress:139` |
 | `trait HostBridge` | `lilyco-core/src/context.rs` | handler 反向调用宿主的唯一接口：`ctx.sample()`（MCP sampling/createMessage）/ `ctx.roots()`；CLI/TUI/GUI 不接桥，返回带指引错误 |
 | `enum AppError` | `lilyco-core/src/error.rs` | InvalidArg/InvalidInput/Runtime/Cancelled |
 
