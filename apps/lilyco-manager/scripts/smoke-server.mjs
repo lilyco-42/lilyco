@@ -238,6 +238,12 @@ async function main() {
   const remaining = await (await api('/api/projects')).json()
   if (remaining.count !== 0) throw new Error(`expected no projects after delete, got ${remaining.count}`)
 
+  const audit = await (await api('/api/history')).json()
+  const auditTools = (audit.runs ?? []).map((run) => run.tool)
+  for (const tool of ['project.create', 'project.update', 'project.delete', 'plan.create', 'plan.update', 'plan.delete']) {
+    if (!auditTools.includes(tool)) throw new Error(`missing audit entry ${tool}`)
+  }
+
 
   const crossOrigin = await fetch(baseUrl + '/api/apps/missing/start', {
     method: 'POST',
