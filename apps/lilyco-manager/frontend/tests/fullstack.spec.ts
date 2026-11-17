@@ -130,6 +130,14 @@ test('真实后端 + 浏览器：工具执行、历史与积木页', async ({ pa
   await fullstackPlan.getByLabel('方案状态：补齐项目/方案视图').selectOption('doing')
   await expect(fullstackPlan.getByTestId('plan-status-badge')).toHaveText('进行中')
 
+  // 真实后端审计：项目/方案变更进入运行历史，展开可见结果状态。
+  await page.getByRole('button', { name: '运行历史' }).click()
+  await page.getByRole('button', { name: '刷新' }).click()
+  const auditRow = page.getByTestId('run-row').filter({ hasText: 'plan.update' }).first()
+  await expect(auditRow).toBeVisible()
+  await auditRow.click()
+  await expect(auditRow.locator('..')).toContainText('"status": "doing"')
+
   await page.goto(`${baseUrl}/#token=${token}`)
   await page.getByRole('button', { name: '项目/方案' }).click()
   projectCard = page.getByTestId('project-card').filter({ hasText: '管理器 v0.4' })
