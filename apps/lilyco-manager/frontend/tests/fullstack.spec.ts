@@ -166,3 +166,54 @@ test('真实后端 + 浏览器：工具执行、历史与积木页', async ({ pa
 
   expect(consoleErrors).toEqual([])
 })
+
+test('只读模式真实二进制：面板禁用写控件，接口 403', async ({ page }) => {
+  test.skip(!binary, '设置 LILYCO_MANAGER_E2E_BIN 后运行全栈用例')
+  if (!binary) return
+  const readOnlyTemp = mkdtempSync(join(tmpdir(), 'lilyco-manager-readonly-'))
+  const readOnlyApps = join(readOnlyTemp, 'apps')
+  mkdirSync(readOnlyApps)
+  const readOnlyChild = spawn(binary, [], {
+    env: {
+      ...process.env,
+      LILYCO_MANAGER_DB: join(readOnlyTemp, 'runs.sqlite'),
+      LILYCO_MANAGER_APPS: readOnlyApps,
+      LILYCO_MANAGER_NO_BROWSER: '1',
+      LILYCO_MANAGER_READ_ONLY: '1',
+      LILYCO_MANAGER_TOKEN: token,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  readOnlyChild.stderr.on('data', () => {})
+  try {
+    const readOnlyUrl = await waitForUrl(readOnlyChild.stdout)
+    await page.goto(`${readOnlyUrl}/#token=${token}`)
+    await expect(page.getByTestId('read-only-banner')).toContainText('只读模式')
+
+    const settings = await page.evaluate(
+      async (value) => (await fetch('/api/settings', { headers: { 'x-lilyco-token': value } })).json(),
+      token,
+    )
+    expect(settings.read_only).toBe(true)
+
+    await page.getByRole('button', { name: '项目/方案' }).click()
+    await expect(page.getByRole('button', { name: '创建项目' })).toBeDisabled()
+    await expect(page.getByLabel('项目名称')).toBeDisabled()
+
+    const blocked = await page.evaluate(
+      async (value) =>
+        (
+          await fetch('/api/projects', {
+            method: 'POST',
+            headers: { 'x-lilyco-token': value, 'content-type': 'application/json' },
+            body: JSON.stringify({ name: '只读拒绝' }),
+          })
+        ).status,
+      token,
+    )
+    expect(blocked).toBe(403)
+  } finally {
+    readOnlyChild.kill()
+    rmSync(readOnlyTemp, { recursive: true, force: true })
+  }
+})
