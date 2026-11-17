@@ -77,6 +77,17 @@ Vue 3 SFC + TypeScript + Vite + Tailwind CSS 4; use lucide icons, reusable layou
   tasks, project/plan create/edit/status/delete, MCP `tools.json` write). Reads, log viewing and
   config copying stay enabled so the console remains useful for inspection.
 
+## Runs / audit view
+
+- Route: sidebar「运行历史」. It lists the bounded `runs` table (same SQLite file as
+  projects/plans) with the newest entry first.
+- Each row is a button that expands the stored JSON output in a read-only `log` block;
+  expanding again collapses it. Raw non-JSON output is shown verbatim.
+- Entries whose tool starts with `project.` or `plan.` carry a「审计」badge, so plan changes
+  are distinguishable from tool executions at a glance. IDs, names/titles and result status
+  come from the backend audit payload; the view must not invent fields.
+- History is refreshed with the page-level「刷新」button; no background polling.
+
 ## Design blocks / prototype view
 
 - Route: sidebar「设计积木」. It is local-only UI over the shared shadcn-style primitives in
