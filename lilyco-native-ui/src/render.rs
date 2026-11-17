@@ -242,12 +242,10 @@ pub fn render_element(el: &ElementSpec, state: &UiState) -> AnyElement {
         }
 
         ElementSpec::Image { src, width } => {
-            // 契约里的「宽度」支持 "48px" 这类固定值，也支持 "100%" 这类相对值；
-            // 固定值走 .w(px(..))，其余（含默认 "100%"）退化为 .w_full()。
-            let img = match image_width(width) {
-                Some(w) => image(src.clone()).w(px(w)),
-                None => image(src.clone()).w_full(),
-            };
+            let mut img = image(src.clone()).w_full();
+            if let Some(h) = parse_px(width) {
+                img = img.h(px(h));
+            }
             img.into_element()
         }
 
@@ -359,16 +357,6 @@ fn parse_px(width: &str) -> Option<f32> {
     width.strip_suffix("px").and_then(|n| n.parse().ok())
 }
 
-/// 把契约里的图片「宽度」翻译成布局约束：
-/// - `"48px"` → `Some(48.0)`，由调用方写成 `.w(px(48.0))`；
-/// - `"100%"` 或任何非像素值 → `None`，由调用方写成 `.w_full()`。
-///
-/// 早期实现把这个值当成高度（`.h(px(..))`）且保留 `.w_full()`，
-/// 导致「宽度」语义丢失，见 bench/TEST_REPORT.md 第 8 节。
-fn image_width(width: &str) -> Option<f32> {
-    parse_px(width.trim())
-}
-
 /// 四则运算 + 括号的极简求值器：证明交互逻辑也能纯 Rust 跑在原生后端，
 /// 不需要把表达式交给任何 JS 引擎。
 fn eval_expr(src: &str) -> String {
@@ -464,7 +452,7 @@ fn parse_atom(b: &[u8], p: &mut usize) -> Result<f64, ()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{eval_expr, image_width};
+    use super::eval_expr;
 
     #[test]
     fn arithmetic() {
@@ -472,13 +460,5 @@ mod tests {
         assert_eq!(eval_expr("(1+2)*3"), "9");
         assert_eq!(eval_expr("10/4"), "2.5");
         assert_eq!(eval_expr("1+"), "表达式无效");
-    }
-
-    #[test]
-    fn image_width_parses_px_and_falls_back_to_full() {
-        assert_eq!(image_width("48px"), Some(48.0));
-        assert_eq!(image_width(" 48px "), Some(48.0));
-        assert_eq!(image_width("100%"), None);
-        assert_eq!(image_width(""), None);
     }
 }

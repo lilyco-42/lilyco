@@ -381,8 +381,13 @@ fn extract(archive: &Path, destination: &Path, binary: &str) -> Result<(), Strin
         }
         return Ok(());
     }
-    // 裸二进制：按 binary 名字落盘。
-    let target = destination.join(binary);
+    // 裸二进制：按 binary 名字落盘。Windows 上必须带 .exe，
+    // 否则 locate_binary 按 `<binary>.exe` 查找会报「未找到可执行文件」。
+    let target = if cfg!(windows) {
+        destination.join(format!("{binary}.exe"))
+    } else {
+        destination.join(binary)
+    };
     std::fs::copy(archive, &target).map_err(|err| format!("复制二进制失败: {err}"))?;
     Ok(())
 }
@@ -638,7 +643,8 @@ mod tests {
         std::fs::create_dir_all(&out).unwrap();
 
         extract(&archive, &out, "app").unwrap();
-        assert_eq!(std::fs::read(out.join("app")).unwrap(), b"#!/bin/sh\n");
+        let expected = if cfg!(windows) { "app.exe" } else { "app" };
+        assert_eq!(std::fs::read(out.join(expected)).unwrap(), b"#!/bin/sh\n");
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -732,6 +738,97 @@ mod tests {
         assert!(!uninstall(&manifest).unwrap());
 
         server.abort();
+        std::env::remove_var("XDG_DATA_HOME");
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    /// 真实 GitHub Release：走生产 `GITHUB_API` 把 status → install → 运行 → 卸载跑一遍，
+    /// 证明「本机发布源 E2E」之外的线上路径（真实资产名、真实 SHA-256 digest、真实下载域名）也成立。
+    ///
+    /// 默认忽略：需要网络与真实发布。CI 在 `live-release` job（workflow_dispatch / 每周定时）
+    /// 用 `cargo test -- --ignored live_` 执行；本地同法可复现。
+    #[ignore = "访问真实 GitHub Release，需网络；用 `cargo test -- --ignored live_` 运行"]
+    #[tokio::test]
+    async fn live_install_lycodl_from_github_release() {
+        let data = std::env::temp_dir().join(format!("lilyco-manager-live-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&data);
+        std::fs::create_dir_all(&data).unwrap();
+        std::env::set_var("XDG_DATA_HOME", &data);
+
+        let mut assets = std::collections::BTreeMap::new();
+        for (platform, asset) in [
+            ("linux-x64", "lycodl-linux-x64.tar.gz"),
+            ("linux-aarch64", "lycodl-linux-aarch64.tar.gz"),
+            ("windows-x64", "lycodl-windows-x64.zip"),
+            ("macos-universal", "lycodl-macos-universal.tar.gz"),
+        ] {
+            assets.insert(platform.to_string(), asset.to_string());
+        }
+        let manifest = Manifest {
+            schema_version: 1,
+            id: "lycodl-live".into(),
+            name: "lycodl".into(),
+            description: "真实发布源联调用例".into(),
+            repository: Some("https://github.com/lilyco-42/lycodl".into()),
+            binary: "lycodl".into(),
+            capabilities: Default::default(),
+            run: None,
+            mcp: None,
+            schema: None,
+            release: Some(manifest::ReleaseSpec {
+                repo: "lilyco-42/lycodl".into(),
+                assets,
+                binary_path: None,
+            }),
+            dev: None,
+            source_dir: None,
+        };
+
+        let status = status(&manifest).await;
+        assert!(status.configured);
+        assert_eq!(status.platform, platform_key());
+        assert_eq!(status.error, None, "真实发布查询失败");
+        let tag = status.latest_tag.clone().expect("真实发布缺 latest_tag");
+        assert!(tag.starts_with('v'), "tag 形状异常: {tag}");
+        let asset = status.asset.clone().expect("没有匹配当前平台的资产");
+        assert!(asset.starts_with("lycodl-"), "资产名异常: {asset}");
+        assert_eq!(status.current_tag, None, "临时目录不应有当前版本");
+
+        let outcome = install(&manifest).await.expect("真实安装失败");
+        assert_eq!(outcome.tag, tag);
+        assert!(outcome.updated, "首次安装应标记为更新");
+        let pointer = std::fs::read_to_string(
+            manifest::managed_dir(&manifest.id)
+                .unwrap()
+                .join("current.json"),
+        )
+        .unwrap();
+        assert!(pointer.contains(&tag), "current.json 未跟随 tag: {pointer}");
+        let installed = manifest::managed_binary(&manifest).expect("托管二进制不存在");
+        assert!(installed.is_file(), "托管二进制不在磁盘上: {installed:?}");
+
+        // 真正执行一次，确认解包/权限/平台资产都没错位。
+        let output = std::process::Command::new(&installed)
+            .arg("--version")
+            .output()
+            .expect("无法执行托管二进制");
+        assert!(
+            output.status.success(),
+            "--version 失败: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let version = String::from_utf8_lossy(&output.stdout).to_lowercase();
+        assert!(version.contains("lycodl"), "--version 输出异常: {version}");
+
+        // 再装一次同一 tag：内容不变，但不应再标记为更新。
+        let again = install(&manifest).await.expect("重复安装失败");
+        assert_eq!(again.tag, tag);
+        assert!(!again.updated, "同一 tag 重复安装不应标记为更新");
+
+        assert!(uninstall(&manifest).unwrap());
+        assert!(!manifest::managed_dir(&manifest.id).unwrap().exists());
+        assert!(!uninstall(&manifest).unwrap());
+
         std::env::remove_var("XDG_DATA_HOME");
         let _ = std::fs::remove_dir_all(&data);
     }

@@ -36,6 +36,8 @@ struct JobState {
     exit_code: Option<i32>,
     finished_at: Option<u64>,
     lines: VecDeque<String>,
+    /// 累计产生过的行数（含已被环形缓冲裁掉的行），用于增量流定位。
+    total: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -47,6 +49,8 @@ pub struct JobSnapshot {
     pub exit_code: Option<i32>,
     pub started_at: u64,
     pub finished_at: Option<u64>,
+    /// 累计行数；`lines` 只是尾部窗口，二者配合可避免重复或漏发。
+    pub total_lines: u64,
     pub lines: Vec<String>,
 }
 
@@ -167,6 +171,7 @@ fn snapshot(job: &Job, state: &JobState) -> JobSnapshot {
         exit_code: state.exit_code,
         started_at: job.started_at,
         finished_at: state.finished_at,
+        total_lines: state.total,
         lines,
     }
 }
@@ -178,6 +183,7 @@ async fn pump<R: AsyncRead + Unpin>(reader: R, state: Arc<Mutex<JobState>>) {
         if state.lines.len() == MAX_LOG_LINES {
             state.lines.pop_front();
         }
+        state.total += 1;
         state.lines.push_back(line);
     }
 }

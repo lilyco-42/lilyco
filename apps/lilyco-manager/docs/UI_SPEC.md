@@ -50,6 +50,36 @@ Vue 3 SFC + TypeScript + Vite + Tailwind CSS 4; use lucide icons, reusable layou
   Managed installs also expose a confirmed uninstall action that removes only the managed copy.
 - Development-task panel lists only manifest tasks; running a task shows live bounded output,
   exit code and a disabled state until the job finishes.
+- Live output uses `EventSource`: the panel first POSTs for a single-use, job-bound, 30-second
+  ticket, then subscribes to `/api/dev/jobs/{job}/stream?ticket=…`. The long-lived manager token
+  must never appear in a URL. First lines are expected to render while the job is still running;
+  a dropped stream closes cleanly and reports inline instead of spinning forever.
+
+## Design blocks / prototype view
+
+- Route: sidebar「设计积木」. It is local-only UI over the shared shadcn-style primitives in
+  `frontend/src/components/ui/` (Button, Card, Badge, Input, Textarea, Select, Switch, Alert,
+  Separator, Label); components consume the shadcn CSS variable bridge (`bg-background`,
+  `text-foreground`, `border-border`, `bg-primary`, `ring-ring`).
+- Three panes: block catalog, live preview, property inspector. Editing a property updates the
+  preview immediately; no backend write and no third-party script.
+- A JSON debug panel shows the exact block spec, accepts a pasted spec, and validates it in
+  place. Unknown kinds, wrong prop types and out-of-range select values render an inline danger
+  alert without replacing the last valid preview.
+- Block list is keyboard reachable (`aria-pressed` per block); every inspector control has a
+  visible label; notify/validation text is announced through `aria-live` or `role="status"`.
+- Copy/export actions are explicit; when the clipboard is unavailable the UI says so instead of
+  pretending the copy succeeded.
+- Theme follows the global light/dark token set; the view must be checked at 375px and 1440px.
+- 「页面组合」tab composes blocks into a prototype page: append from the catalog (max 12), reorder
+  with 上移/下移, delete (never below 1), click a block to edit its props, and edit the whole
+  page JSON (`{title, blocks[]}`). Validation reports the block index; invalid input leaves the
+  last applied page untouched. Export is a page-level JSON file; nothing is written server-side.
+- 「接口文档」tab renders `GET /api/openapi.json` grouped by tag with method badges, paths and
+  summaries, plus refresh and whole-document copy. GET rows expose a try-it panel (path params,
+  status badge, latency, formatted JSON); POST rows deliberately do not, so the docs page can
+  never mutate local state in one click. Layout must not overflow at 375px, and the card
+  background must follow the global light/dark tokens.
 
 ## Design blocks / prototype view
 

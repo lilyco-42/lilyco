@@ -9,7 +9,7 @@
 //! - 声明式加载：运行期从 JSON 装配命令定义（unilang FR-REG-3）
 //! - 校验：非空名 / 重名拒绝（unilang FR-REG-9 的"无静默失败"原则）
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -156,16 +156,21 @@ pub enum RegistryError {
 /// 策略检查——四个后端（CLI/TUI/Web/MCP）共用这道门，无旁路。
 /// 策略须在注册命令**之前**通过 [`Registry::with_policy`] 设置（门在注册时包住 handler）。
 pub struct Registry {
-    commands: HashMap<String, RegisteredCommand>,
-    aliases: HashMap<String, String>,
+    // BTreeMap 而非 HashMap：命令表是**对外可观测**的（CLI --help 列表、--schema
+    // JSON 清单、MCP tools/list、TUI / Web 的命令选择页都直接按迭代顺序输出）。
+    // HashMap 的迭代顺序由随机种子决定，会让同一个二进制每次运行的输出顺序都不同，
+    // 破坏「同一份清单逐字节可比」这个契约，也给下游的黄金文件测试制造假失败。
+    // 换成有序表后 help / schema 输出稳定，且顺序只由命令名决定、与注册先后无关。
+    commands: BTreeMap<String, RegisteredCommand>,
+    aliases: BTreeMap<String, String>,
     policy: Arc<dyn SafetyPolicy>,
 }
 
 impl Default for Registry {
     fn default() -> Self {
         Self {
-            commands: HashMap::new(),
-            aliases: HashMap::new(),
+            commands: BTreeMap::new(),
+            aliases: BTreeMap::new(),
             policy: Arc::new(crate::safety::DenyElevated),
         }
     }
@@ -513,6 +518,62 @@ mod tests {
             matches!(&err, AppError::Safety(m) if m.contains("500")),
             "{err}"
         );
+    }
+
+    /// 命令表顺序必须只由命令名决定，与注册先后无关
+    ///
+    /// 为什么值得单独钉住：这张表是**对外契约**——CLI `--help` 的命令列表、
+    /// 根级 `--schema` 的 JSON 清单、MCP `tools/list`、TUI / Web 的命令选择页
+    /// 都直接按迭代顺序输出。曾经这里是 `HashMap`，顺序由每进程随机种子决定，
+    /// 同一个二进制连跑两次 `--schema` 得到的 JSON 字节不同，任何逐字节比对
+    /// 清单的测试 / 脚本 / 下游黄金文件都会随机假失败。
+    #[test]
+    fn names_are_sorted_regardless_of_registration_order() {
+        let mut forward = Registry::new();
+        for n in ["zeta", "alpha", "mike"] {
+            forward
+                .register(RegisteredCommand::new(n, simple_schema(n)))
+                .unwrap();
+        }
+        let mut backward = Registry::new();
+        for n in ["mike", "alpha", "zeta"] {
+            backward
+                .register(RegisteredCommand::new(n, simple_schema(n)))
+                .unwrap();
+        }
+        let expect = vec!["alpha".to_string(), "mike".to_string(), "zeta".to_string()];
+        assert_eq!(forward.names(), expect, "names() 应按名字升序");
+        assert_eq!(backward.names(), expect, "注册顺序不应影响 names()");
+        let iter_forward: Vec<&str> = forward.iter().map(|c| c.name.as_str()).collect();
+        let iter_backward: Vec<&str> = backward.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(iter_forward, vec!["alpha", "mike", "zeta"]);
+        assert_eq!(iter_backward, iter_forward, "iter() 顺序也应是确定的");
+        let visible_forward: Vec<&str> = forward.visible().map(|c| c.name.as_str()).collect();
+        assert_eq!(visible_forward, vec!["alpha", "mike", "zeta"]);
+    }
+
+    /// `to_json()` 导出的清单在多次运行 / 不同注册顺序下都必须逐字节一致
+    #[test]
+    fn to_json_is_byte_stable_across_registration_orders() {
+        let mut a = Registry::new();
+        for n in ["beta", "alpha"] {
+            a.register(RegisteredCommand::new(n, simple_schema(n)))
+                .unwrap();
+        }
+        let mut b = Registry::new();
+        for n in ["alpha", "beta"] {
+            b.register(RegisteredCommand::new(n, simple_schema(n)))
+                .unwrap();
+        }
+        let ja = serde_json::to_string(&a.to_json()).unwrap();
+        let jb = serde_json::to_string(&b.to_json()).unwrap();
+        assert_eq!(
+            ja, jb,
+            "同一组命令必须导出同一份字节，否则下游契约测试会假失败"
+        );
+        let first: Vec<RegisteredCommand> = serde_json::from_value(a.to_json()).unwrap();
+        assert_eq!(first[0].name, "alpha");
+        assert_eq!(first[1].name, "beta");
     }
 
     #[test]

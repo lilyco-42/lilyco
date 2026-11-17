@@ -12,7 +12,7 @@ const logs=ref<Record<string,string[]>>({}),schemaCounts=ref<Record<string,numbe
 const releases=ref<Record<string,Release>>({})
 const dev=ref<Record<string,{tasks:DevTask[];jobs:DevJob[]}>>({})
 const jobs=ref<Record<string,DevJob>>({})
-const timers:Record<string,number>={}
+const streams:Record<string,EventSource>={}
 async function api(path:string,method='GET'){
  const response=await fetch(path,{method,headers:{'x-lilyco-token':props.token}})
  if(!response.ok){let message='HTTP '+response.status;try{const body=await response.json();if(body.error)message=body.error}catch{}throw new Error(message)}
@@ -78,26 +78,47 @@ async function runTask(app:AppInfo,task:DevTask){
   const data=await api('/api/apps/'+encodeURIComponent(app.id)+'/dev/'+encodeURIComponent(task.name),'POST')
   const now=Date.now()
   jobs.value[app.id]={id:data.job,app:app.id,task:task.name,running:true,exit_code:null,started_at:Math.floor(now/1000),finished_at:null,lines:[]}
-  pollJob(app,data.job)
+  subscribeJob(app,data.job)
  }catch(e){error.value=app.name+' / '+task.name+' 启动失败：'+String(e)}finally{busy.value=''}
 }
-function pollJob(app:AppInfo,jobId:string){
- if(timers[app.id])clearTimeout(timers[app.id])
- const tick=async()=>{
-  try{
-   const data=await api('/api/dev/jobs/'+encodeURIComponent(jobId)+'/logs?limit=300')
-   jobs.value[app.id]=data.job
-   if(data.job.running)timers[app.id]=window.setTimeout(tick,1200)
-  }catch(e){error.value=app.name+' 任务日志读取失败：'+String(e)}
- }
- tick()
+function closeStream(appId:string){
+ const source=streams[appId]
+ if(source){source.close();delete streams[appId]}
+}
+// EventSource 不能带自定义 header：先用带 token 的 POST 换一次性票据，
+// 再用票据订阅 SSE。长期 token 不会进入 URL。
+async function subscribeJob(app:AppInfo,jobId:string){
+ closeStream(app.id);error.value=''
+ try{
+  const data=await api('/api/dev/jobs/'+encodeURIComponent(jobId)+'/stream-ticket','POST')
+  const source=new EventSource('/api/dev/jobs/'+encodeURIComponent(jobId)+'/stream?ticket='+encodeURIComponent(data.ticket))
+  streams[app.id]=source
+  source.addEventListener('line',event=>{
+   const line=JSON.parse((event as MessageEvent).data) as string
+   const current=jobs.value[app.id]
+   if(current)current.lines=[...current.lines,line]
+  })
+  source.addEventListener('done',event=>{
+   const done=JSON.parse((event as MessageEvent).data) as {exit_code:number|null;finished_at:number|null}
+   const current=jobs.value[app.id]
+   if(current){current.running=false;current.exit_code=done.exit_code;current.finished_at=done.finished_at}
+   closeStream(app.id)
+  })
+  source.onerror=()=>{
+   const current=jobs.value[app.id]
+   const wasRunning=current?.running===true
+   closeStream(app.id)
+   if(current)current.running=false
+   if(wasRunning)error.value=app.name+' 任务日志流已断开'
+  }
+ }catch(e){error.value=app.name+' 任务日志订阅失败：'+String(e)}
 }
 function openApp(app:AppInfo){
  if(app.url)window.open(app.url,'_blank','noopener,noreferrer')
 }
 function command(task:DevTask){return task.argv.join(' ')}
 onMounted(refresh)
-onUnmounted(()=>{for(const timer of Object.values(timers))clearTimeout(timer)})
+onUnmounted(()=>{for(const source of Object.values(streams))source.close()})
 </script>
 <template>
  <section class="mb-5">
@@ -172,6 +193,7 @@ onUnmounted(()=>{for(const timer of Object.values(timers))clearTimeout(timer)})
      <p v-if="jobs[app.id]" class="text-xs mt-2 flex flex-wrap gap-2 items-center">
       <span class="font-mono text-ink">{{jobs[app.id].task}}</span>
       <span class="badge" :class="jobs[app.id].running?'badge-warning':(jobs[app.id].exit_code===0?'badge-success':'badge-danger')">{{jobs[app.id].running?'运行中':(jobs[app.id].exit_code===0?'完成':'退出 '+jobs[app.id].exit_code)}}</span>
+      <span class="badge" title="通过 EventSource 实时接收">SSE 实时</span>
       <span class="text-ink-mute">每次任务在仓库目录执行，参数来自清单</span>
      </p>
      <pre v-if="jobs[app.id]" class="log mt-2 p-3 max-h-64 overflow-auto">{{jobs[app.id].lines.join('\n')||'等待输出…'}}</pre>

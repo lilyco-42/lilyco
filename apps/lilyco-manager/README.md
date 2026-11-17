@@ -20,6 +20,12 @@
 - `GET /api/apps/:id/dev` 列出清单中的固定任务与最近任务记录。
 - `POST /api/apps/:id/dev/:task` 在仓库目录执行固定 argv，返回 job id。
 - `GET /api/dev/jobs/:job/logs` 读取任务输出与退出码；HTTP 不能传 argv。
+- 面板默认用 SSE 实时接收：`POST /api/dev/jobs/:job/stream-ticket` 换一张 30 秒、单次、
+  绑定该 job 的票据，再 `GET /api/dev/jobs/:job/stream?ticket=…` 订阅增量行与 `done` 事件。
+  `EventSource` 不能带自定义 header，票据让长期 token 不进入 URL 或访问日志。
+- 流先推已有行，再按 150 ms 轮询内部缓冲推送新行；任务结束后发 `done`（含退出码）并关闭连接。
+  增量定位用累计行号而不是缓冲长度，500 行环形缓冲开始裁剪后仍会继续推送且不重复。
+  票据重放、换 job 使用或过期都返回 401。
 
 ## 应用清单
 应用通过仓库根目录的 `lilyco.app.json` 自助注册，规范见 [docs/MANIFEST.md](docs/MANIFEST.md)。开发时可直接指向源码目录：
@@ -41,8 +47,26 @@ LILYCO_MANAGER_APPS=/home/lilyco/code lilyco-manager
   使用 shadcn CSS 变量桥和 ui-spec 令牌。
 - 左侧选积木、中间实时预览、右侧改属性；底部 JSON 调试面板支持粘贴、校验、复制和导出。
   未知积木或类型错误只报错，不覆盖最后一个可用预览；不会写入后端或磁盘。
+- 「页面组合」把积木拼成原型页：追加（上限 12 块）、上移/下移、删除、点击选中后改属性，
+  整页 JSON（`{title, blocks[]}`）可校验、复制、导出；校验失败保留最后一次应用的页面。
 - `GET /api/openapi.json` 返回同一套路由的 OpenAPI 3.1 形状清单（同样要求 token）。
   契约测试会遍历文档里的每个 path + method，无 token 必须得到 401，避免文档与路由漂移。
+- 左侧「接口文档」直接渲染这份清单：按 tag 分组（工具 / 应用 / 发布 / 开发任务 / MCP / 元数据），
+  每行显示方法徽标、路径与摘要，可刷新、可复制整份 JSON。
+- GET 操作可「试调用」：填写路径参数后带当前会话 token 发请求，显示状态码、耗时与格式化 JSON；
+  写操作（POST）不在文档页暴露试调用，仍从各自面板执行。
+
+## 发布
+
+管理器自身的三平台资产由 `.github/workflows/lilyco-manager-release.yml` 产出：推送 `manager-v*`
+标签或手动 `workflow_dispatch`（需填标签）都会在对应平台编译、打包、解包自检，并上传
+
+- `lilyco-manager-linux-x64.tar.gz`
+- `lilyco-manager-windows-x64.zip`
+- `lilyco-manager-macos-universal.tar.gz`（arm64 + x64 `lipo` 合并）
+
+发布 job 还会核对 GitHub 返回的资产 `digest` 是否为 `sha256:`，并附带 `SHA256SUMS`；安装端据此校验。
+标签前缀用 `manager-v`，不会触发 `ci.yml` 里针对应用二进制（`v*`）的发布 job。
 
 ## 安全
 只监听 127.0.0.1，默认不暴露外网；token 不写入持久化数据库。不要将打印的完整 URL 或 token 外传。浏览器本地页面有意不加载第三方脚本。
@@ -53,6 +77,14 @@ LILYCO_MANAGER_APPS=/home/lilyco/code lilyco-manager
 Vue 3 + TypeScript + Vite + Tailwind CSS 4；发布时嵌入 frontend/dist/index.html。设计令牌来自 `lilyco-42/ui-spec`，浅色优先，`html[data-theme="dark"]` 切换深色。Tailwind 通过 `@theme inline` 暴露 `bg-canvas`、`text-ink`、`border-line` 等语义类，并提供 shadcn CSS 变量桥（`--background`、`--foreground`、`--card`、`--primary` 等）。开发约束见 AGENTS.md、docs/TECHNICAL_SPEC.md 和 docs/UI_SPEC.md。
 
 开发闭环、测试分层、CI 矩阵与跨平台约束见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)；性能预算与测量方法见 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)。
+
+发布源有两条验证路径：常规 `cargo test` 用本机 HTTP 假发布源覆盖安装/更新/卸载（不访问网络）；
+被忽略的 `live_install_lycodl_from_github_release` 走真实 GitHub Release（`lilyco-42/lycodl`），
+本地用 `cargo test -- --ignored live_` 手动跑，CI 由 `live-release` job 在手动触发与每周定时执行。
+
+全栈浏览器用例 `frontend/tests/fullstack.spec.ts` 会启动真实 release 二进制（临时 SQLite + 随机端口），
+在浏览器里执行工具、查看历史、打开积木页与接口文档；本地先 `cargo build --release`，再
+`LILYCO_MANAGER_E2E_BIN=target/release/lilyco-manager bun x playwright test tests/fullstack.spec.ts`。
 
 ## Read-only executable adapters
 

@@ -132,3 +132,31 @@ export function validateSpec(input: unknown): { spec?: BlockSpec; error?: string
   }
   return { spec: { kind: definition.kind, props } }
 }
+
+export type PageSpec = { title: string; blocks: BlockSpec[] }
+
+export const MAX_PAGE_BLOCKS = 12
+
+export function createPage(): PageSpec {
+  return { title: '未命名原型页', blocks: [createSpec('hero'), createSpec('stats'), createSpec('empty')] }
+}
+
+/// 页面组合的规格校验：标题非空、1–12 块，每块复用单块校验。
+/// 错误信息带块序号，便于在 JSON 面板里定位。
+export function validatePage(input: unknown): { page?: PageSpec; error?: string } {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { error: '顶层必须是对象，形如 {"title":"页面标题","blocks":[…]}' }
+  }
+  const value = input as { title?: unknown; blocks?: unknown }
+  if (typeof value.title !== 'string' || !value.title.trim()) return { error: 'title 必须是非空字符串' }
+  if (!Array.isArray(value.blocks)) return { error: 'blocks 必须是数组' }
+  if (value.blocks.length === 0) return { error: 'blocks 至少要有 1 块积木' }
+  if (value.blocks.length > MAX_PAGE_BLOCKS) return { error: `一页最多 ${MAX_PAGE_BLOCKS} 块积木` }
+  const parsed: BlockSpec[] = []
+  for (const [index, item] of value.blocks.entries()) {
+    const result = validateSpec(item)
+    if (result.error || !result.spec) return { error: `第 ${index + 1} 块：${result.error ?? '校验失败'}` }
+    parsed.push(result.spec)
+  }
+  return { page: { title: value.title, blocks: parsed } }
+}

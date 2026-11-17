@@ -117,36 +117,39 @@ jobs:
           tar -czf "${{ matrix.asset }}" -C dist lilyco-manager
           ls -l "${{ matrix.asset }}"
 
+      # Windows 的 Git Bash 不保证有 sha256sum / shasum，用 openssl 兜底。
       - name: Write SHA-256
         shell: bash
         run: |
+          asset="${{ matrix.asset }}"
           mkdir -p checksums
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            shasum -a 256 "${{ matrix.asset }}" | awk '{print $1"  "$2}' > "checksums/${{ matrix.asset }}.sha256"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$asset" > "checksums/$asset.sha256"
+          elif command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 "$asset" | awk '{print $1"  "$2}' > "checksums/$asset.sha256"
           else
-            sha256sum "${{ matrix.asset }}" > "checksums/${{ matrix.asset }}.sha256"
+            echo "$(openssl dgst -sha256 "$asset" | sed 's/.*= //')  $asset" > "checksums/$asset.sha256"
           fi
-          cat "checksums/${{ matrix.asset }}.sha256"
+          cat "checksums/$asset.sha256"
 
       # 从压缩包解出来真跑一次。管理器没有 --help，启动后打印监听地址再由 timeout 收掉，
       # 这样才能证明资产本身可执行，而不是只看过编译产物。
-      - name: Verify packaged binary (Linux)
-        if: runner.os == 'Linux'
+      # GNU `timeout` 在 macOS runner 上不存在，用「后台启动 + 轮询日志 + 主动 kill」
+      # 实现同样语义，Linux/macOS 共用。
+      - name: Verify packaged binary (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
           mkdir -p verify && cd verify
           tar -xzf "../${{ matrix.asset }}"
-          LILYCO_MANAGER_NO_BROWSER=1 LILYCO_MANAGER_DB=runs.sqlite \
-            timeout 20 ./lilyco-manager > out.txt 2>&1 || true
-          cat out.txt
-          grep -q "listening on http://127.0.0.1:" out.txt
-
-      - name: Verify packaged binary (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          mkdir -p verify && cd verify
-          tar -xzf "../${{ matrix.asset }}"
-          LILYCO_MANAGER_NO_BROWSER=1 LILYCO_MANAGER_DB=runs.sqlite \
-            timeout 20 ./lilyco-manager > out.txt 2>&1 || true
+          LILYCO_MANAGER_NO_BROWSER=1 LILYCO_MANAGER_DB=runs.sqlite ./lilyco-manager > out.txt 2>&1 &
+          pid=$!
+          for _ in $(seq 1 40); do
+            grep -q "listening on http://127.0.0.1:" out.txt && break
+            sleep 0.5
+          done
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
           cat out.txt
           grep -q "listening on http://127.0.0.1:" out.txt
 
@@ -156,7 +159,7 @@ jobs:
         run: |
           Expand-Archive -Path "${{ matrix.asset }}" -DestinationPath verify -Force
           $env:LILYCO_MANAGER_NO_BROWSER = '1'
-          $env:LILYCO_MANAGER_DB = 'verify\runs.sqlite'
+          $env:LILYCO_MANAGER_DB = 'runs.sqlite'
           $p = Start-Process -FilePath ".\verify\lilyco-manager.exe" -WorkingDirectory verify `
             -RedirectStandardOutput "verify\out.txt" -RedirectStandardError "verify\err.txt" -PassThru
           Start-Sleep -Seconds 10
@@ -191,7 +194,15 @@ jobs:
         run: |
           cd release
           ls -l
-          cat *.sha256 > SHA256SUMS
+          # upload-artifact 会保留上传时的相对路径，校验和可能落在 checksums/ 下。
+          if ls *.sha256 >/dev/null 2>&1; then
+            cat *.sha256 > SHA256SUMS
+          elif ls checksums/*.sha256 >/dev/null 2>&1; then
+            cat checksums/*.sha256 > SHA256SUMS
+          else
+            echo "没有找到任何 .sha256 文件"; exit 1
+          fi
+          test -s SHA256SUMS
           cat SHA256SUMS
 
       - name: Write release notes
