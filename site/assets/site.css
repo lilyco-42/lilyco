@@ -263,3 +263,21 @@ p { margin: 0 0 var(--s-3); }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+/* 语法高亮令牌（构建期生成，明暗自动跟随） */
+.tok-c { color: var(--ink-muted); font-style: italic; }
+.tok-s { color: var(--ok); }
+.tok-k { color: var(--accent); }
+.tok-n { color: var(--warn); }
+.tok-m { color: var(--danger); }
+.tok-a { color: color-mix(in srgb, var(--accent) 55%, var(--danger) 45%); }
+
+/* 组件 demo 下的「Rust 声明」折叠 */
+.demo-code { margin-top: 2px; }
+.demo-code summary {
+  cursor: pointer; color: var(--ink-muted);
+  font: 11.5px var(--mono); list-style: none;
+}
+.demo-code summary::-webkit-details-marker { display: none; }
+.demo-code summary::before { content: "▸ "; color: var(--accent); }
+.demo-code[open] summary::before { content: "▾ "; }
+.demo-code pre { margin-top: 6px; padding: var(--s-2); font-size: 11.5px; }

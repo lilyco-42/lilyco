@@ -107,6 +107,10 @@ fn main() {
       <div class="demo">
         <span class="kind">progress</span>
         <div class="v-progress"><div class="v-progress-track"><div class="v-progress-bar"></div></div></div>
+        <details class="demo-code"><summary>Rust 声明</summary><pre><code>ctx.view(<span class="tok-s">"job"</span>, Component::Progress {
+    label: Some(<span class="tok-s">"下载中"</span>.into()),
+    current: Some(<span class="tok-n">3</span>), total: Some(<span class="tok-n">10</span>),
+});</code></pre></details>
       </div>
       <div class="demo">
         <span class="kind">badge</span>
@@ -115,10 +119,21 @@ fn main() {
       <div class="demo">
         <span class="kind">alert</span>
         <div class="v-alert"><strong>提示</strong><div class="v-desc">组件由后端声明，前端决定外观。</div></div>
+        <details class="demo-code"><summary>Rust 声明</summary><pre><code>Component::Alert {
+    title: <span class="tok-s">"提示"</span>.into(),
+    description: Some(<span class="tok-s">"组件由后端声明"</span>.into()),
+    tone: Tone::Info,
+}</code></pre></details>
       </div>
       <div class="demo">
         <span class="kind">table</span>
         <div class="v-table"><table><thead><tr><th>文件</th><th>行</th></tr></thead><tbody><tr><td>a.rs</td><td>42</td></tr><tr><td>b.rs</td><td>7</td></tr></tbody></table></div>
+        <details class="demo-code"><summary>Rust 声明</summary><pre><code>Component::Table {
+    caption: None,
+    columns: vec![<span class="tok-s">"文件"</span>.into(), <span class="tok-s">"行"</span>.into()],
+    rows: vec![vec![<span class="tok-s">"a.rs"</span>.into(), <span class="tok-s">"42"</span>.into()]],
+    sortable: <span class="tok-k">false</span>,
+}</code></pre></details>
       </div>
       <div class="demo">
         <span class="kind">key_value</span>
@@ -127,6 +142,10 @@ fn main() {
       <div class="demo">
         <span class="kind">log</span>
         <div class="v-log">[info] 视图 job: progress<br><span class="warn">[warn] 已发送取消请求</span></div>
+        <details class="demo-code"><summary>Rust 声明</summary><pre><code>Component::Log {
+    lines: vec![LogLine { level: LogLevel::Info, text: <span class="tok-s">"已启动"</span>.into() }],
+}
+<span class="tok-c">// TUI 无富组件层：降级为一行「视图 id: kind」</span></code></pre></details>
       </div>
       <div class="demo">
         <span class="kind">tabs</span>
@@ -135,6 +154,11 @@ fn main() {
       <div class="demo">
         <span class="kind">chart</span>
         <div class="v-bar"><i style="height:35%"></i><i style="height:60%"></i><i style="height:85%"></i><i style="height:52%"></i><i style="height:70%"></i></div>
+        <details class="demo-code"><summary>Rust 声明</summary><pre><code>Component::Chart {
+    chart_kind: ChartKind::Bar,
+    labels: vec![<span class="tok-s">"一"</span>.into()],
+    series: vec![<span class="tok-n">35.0</span>, <span class="tok-n">60.0</span>, <span class="tok-n">85.0</span>],
+}</code></pre></details>
       </div>
       <div class="demo">
         <span class="kind">avatar</span>
@@ -152,6 +176,11 @@ fn main() {
         <span class="kind">dialog / separator</span>
         <div class="v-dialog"><div class="v-title">确认删除？</div><div class="v-desc">浮层用原生 dialog，带关闭按钮。</div></div>
         <div class="v-sep">或</div>
+        <details class="demo-code"><summary>Rust 声明</summary><pre><code>Component::Dialog {
+    id: <span class="tok-s">"confirm"</span>.into(), title: <span class="tok-s">"确认删除？"</span>.into(),
+    open: <span class="tok-k">true</span>, children: vec![],
+    description: Some(<span class="tok-s">"不可撤销"</span>.into()),
+}</code></pre></details>
       </div>
     </div>
   </section>

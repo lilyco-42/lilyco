@@ -26,6 +26,62 @@ PH = "\u0000"  # 行内占位符前缀
 CURRENT_BASE: pathlib.Path | None = None  # 当前正在渲染的 md（相对 docs/ui）
 GH_BLOB = "https://github.com/lilyco-42/lilyco/blob/main/"
 
+# ── 零依赖语法高亮（构建期完成，页面不跑 JS） ──────────────
+
+RUST_KW = (
+    r"\b(?:as|async|await|break|const|continue|crate|dyn|else|enum|extern|false|fn|for|if|"
+    r"impl|in|let|loop|match|mod|move|mut|pub|ref|return|self|Self|static|struct|super|trait|"
+    r"true|type|unsafe|use|where|while|Some|None|Ok|Err|String|Vec|Option|Result)\b"
+)
+
+
+def highlight(code: str, lang: str) -> str:
+    lang = (lang or "").strip().lower()
+    if lang in ("rust", "rs"):
+        pat = re.compile(
+            r"(?P<c>//[^\n]*)"
+            r'|(?P<s>r#?"(?:[^"\\]|\\.)*"#?)'
+            r"|(?P<a>#!?\[[^\n]*?\])"
+            r"|(?P<m>\b[a-z_][a-z0-9_]*!)"
+            r"|(?P<k>" + RUST_KW + r")"
+            r"|(?P<n>\b(?:0x[0-9a-fA-F_]+|\d[\d_]*\.?\d*)\b)",
+            re.M,
+        )
+        cls = {"c": "tok-c", "s": "tok-s", "a": "tok-a", "m": "tok-m", "k": "tok-k", "n": "tok-n"}
+    elif lang == "toml":
+        pat = re.compile(
+            r"(?P<c>#[^\n]*)"
+            r"|(?P<h>^[ \t]*\[[^\]\n]+\])"
+            r'|(?P<s>"(?:[^"\\]|\\.)*"|\'[^\']*\')'
+            r"|(?P<k>^[ \t]*[A-Za-z0-9_.-]+(?=[ \t]*=))"
+            r"|(?P<n>\b\d[\d_.]*\b)",
+            re.M,
+        )
+        cls = {"c": "tok-c", "h": "tok-k", "s": "tok-s", "k": "tok-a", "n": "tok-n"}
+    elif lang == "json":
+        pat = re.compile(r'(?P<s>"(?:[^"\\]|\\.)*")|(?P<k>\b(?:true|false|null)\b)|(?P<n>-?\b\d[\d.eE+-]*\b)')
+        cls = {"s": "tok-s", "k": "tok-k", "n": "tok-n"}
+    elif lang in ("bash", "sh", "shell", "console"):
+        pat = re.compile(
+            r"(?P<c>#[^\n]*)"
+            r'|(?P<s>"(?:[^"\\]|\\.)*"|\'[^\']*\')'
+            r"|(?P<k>\b(?:cargo|cd|git|gh|curl|python3|node|npm|echo|export|mkdir|test|grep|find|strip|filecount)\b)"
+            r"|(?P<n>[ \t]--?[A-Za-z][\w-]*)"
+        )
+        cls = {"c": "tok-c", "s": "tok-s", "k": "tok-k", "n": "tok-n"}
+    else:
+        return html.escape(code)
+
+    out: list[str] = []
+    pos = 0
+    for m in pat.finditer(code):
+        out.append(html.escape(code[pos:m.start()]))
+        kind = next(k for k in cls if m.groupdict().get(k))
+        out.append(f'<span class="{cls[kind]}">{html.escape(m.group(kind))}</span>')
+        pos = m.end()
+    out.append(html.escape(code[pos:]))
+    return "".join(out)
+
 
 # ── 行内渲染 ────────────────────────────────────────────────
 
@@ -96,7 +152,7 @@ def md_to_html(text: str) -> str:
                 i += 1
             i += 1
             cls = f' class="language-{html.escape(lang)}"' if lang else ""
-            out.append(f"<pre><code{cls}>" + html.escape("\n".join(buf)) + "</code></pre>")
+            out.append(f"<pre><code{cls}>" + highlight("\n".join(buf), lang) + "</code></pre>")
             continue
 
         if not line.strip():
