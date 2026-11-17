@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+"""Generate Conway Life fixtures using the exact lilyco-ultra-ui React/Babel stack.
+
+life-fixed.html      : pinned CDN + SRI (cold-start reference only)
+.generated/life-offline.html : same page with all three scripts vendored inline
+                               (used for steady-state FPS measurements)
+"""
+import hashlib
+import re
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+FIX = HERE / "fixtures"
+V = HERE / "vendor"
+GEN = FIX / ".generated"
+GEN.mkdir(exist_ok=True)
+
+HEAD = r'''
+  <script crossorigin integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script crossorigin integrity="sha384-tL0JdJBWAk5nHKZhc/dtWf7bZRpYP13x4HjH85NrwCr/JkBnrZ7RNBOAdDzJlpof" src="https://unpkg.com/@babel/standalone@7.28.4/babel.min.js"></script>
+  <script>Babel.registerPreset("lilyco-react", { presets: [[Babel.availablePresets["react"], { runtime: "classic" }]] });</script>'''
+
+CSS = r'''
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0f2f5;min-height:100vh;color:#1e293b;display:flex;align-items:flex-start;justify-content:center;padding:20px}
+.window{background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.08);padding:16px;width:100%}
+.window.large{max-width:960px}
+.wtitle{font-size:18px;font-weight:700;margin-bottom:12px;color:#0f172a}
+canvas{display:block;background:#101820;border-radius:6px}
+'''
+
+JS_GAME = r'''
+const COLS = 120, ROWS = 80, CELL = 6;
+const WIDTH = COLS * CELL, HEIGHT = ROWS * CELL;
+const SEED = 0x4C494C59, DENSITY = 28, RESTART = 240;
+const DIGEST_STEPS = 300, TICK_US = 16667;
+const TICK_MS = TICK_US / 1000;
+const CONFIG = 'cols=' + COLS + ',rows=' + ROWS + ',cell=' + CELL + ',seed=' + SEED + ',density=' + DENSITY + ',restart=' + RESTART + ',digest_steps=' + DIGEST_STEPS + ',tick_us=' + TICK_US;
+
+function makeLife() {
+  return { cells: new Uint8Array(COLS * ROWS), next: new Uint8Array(COLS * ROWS), rng: SEED, generation: 0 };
+}
+function rand(life) {
+  let x = life.rng;
+  x ^= x << 13;
+  x ^= x >>> 17;
+  x ^= x << 5;
+  x >>>= 0;
+  life.rng = x;
+  return x;
+}
+function seed(life) {
+  life.rng = SEED;
+  for (let i = 0; i < life.cells.length; i++) {
+    const v = rand(life);
+    life.cells[i] = (v % 100 < DENSITY) ? 1 : 0;
+  }
+  life.generation = 0;
+}
+function step(life) {
+  const cells = life.cells, next = life.next;
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx, ny = y + dy;
+          if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS) n += cells[ny * COLS + nx];
+        }
+      }
+      const alive = cells[y * COLS + x];
+      next[y * COLS + x] = (n === 3 || (alive === 1 && n === 2)) ? 1 : 0;
+    }
+  }
+  life.cells = life.next;
+  life.next = cells;
+  life.generation++;
+  if (life.generation % RESTART === 0) seed(life);
+}
+function hashLife(life, h) {
+  const cells = life.cells;
+  for (let i = 0; i < cells.length; i++) h = Math.imul(h ^ cells[i], 0x01000193) >>> 0;
+  return h;
+}
+function digest() {
+  const life = makeLife();
+  seed(life);
+  let h = 0x811c9dc5;
+  h = hashLife(life, h);
+  for (let i = 0; i < DIGEST_STEPS; i++) { step(life); h = hashLife(life, h); }
+  return h.toString(16).padStart(8, '0');
+}
+function drawLife(ctx, life) {
+  ctx.fillStyle = '#101820';
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  ctx.fillStyle = '#4ade80';
+  const cells = life.cells;
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      if (cells[y * COLS + x] === 1) ctx.fillRect(x * CELL, y * CELL, CELL - 1, CELL - 1);
+    }
+  }
+}
+
+function App() {
+  const canvasRef = React.useRef(null);
+  React.useEffect(function () {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    const life = makeLife();
+    seed(life);
+    const started = performance.now();
+    let last = started, acc = 0, ticks = 0, draws = 0;
+    const rafGaps = [], stepUs = [], drawUs = [];
+    const errors = [];
+    function frame(now) {
+      try {
+        const dt = now - last;
+        last = now;
+        rafGaps.push(Math.round(Math.min(dt, 1000) * 1000));
+        acc += Math.min(dt, 100);
+        let guard = 0;
+        while (acc >= TICK_MS && guard < 20) {
+          const t0 = performance.now();
+          step(life);
+          stepUs.push(Math.round((performance.now() - t0) * 1000));
+          acc -= TICK_MS;
+          ticks++;
+          guard++;
+        }
+        const d0 = performance.now();
+        drawLife(ctx, life);
+        drawUs.push(Math.round((performance.now() - d0) * 1000));
+        draws++;
+      } catch (e) {
+        errors.push(String(e && e.message ? e.message : e));
+      }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    window.__LIFE = {
+      digest: digest(),
+      config: CONFIG,
+      errors: errors,
+      snapshot: function () {
+        return {
+          ticks: ticks, draws: draws,
+          elapsed_ms: Math.round(performance.now() - started),
+          raf_gaps_us: rafGaps.slice(), step_us: stepUs.slice(), draw_us: drawUs.slice()
+        };
+      }
+    };
+  }, []);
+  return React.createElement('div', { className: 'window large' },
+    React.createElement('h1', { className: 'wtitle' }, 'Lilyco Life - React/Web'),
+    React.createElement('canvas', { ref: canvasRef, width: WIDTH, height: HEIGHT }));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+'''
+
+HTML = ('<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="UTF-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+        '<title>Lilyco Life - React/Web</title>' + HEAD + '\n<style>' + CSS + '</style>\n'
+        '</head>\n<body>\n<div id="root"></div>\n'
+        '<script type="text/babel" data-presets="lilyco-react">' + JS_GAME + '</script>\n'
+        '</body>\n</html>\n')
+
+fixed = FIX / 'life-fixed.html'
+fixed.write_text(HTML)
+assert 'react@18.3.1' in HTML and '@babel/standalone@7.28.4' in HTML
+assert HTML.count('Babel.registerPreset(') == 1
+assert 'data-presets="lilyco-react"' in HTML
+
+assets = iter(['react-18.3.1.js', 'react-dom-18.3.1.js', 'babel-7.28.4.js'])
+def inline(m):
+    return '<script>' + (V / next(assets)).read_text() + '</script>'
+
+offline, n = re.subn(r'<script[^>]+src="https://unpkg\.com/[^"]+"[^>]*></script>', inline, HTML)
+assert n == 3, n
+assert 'unpkg' not in offline
+assert offline.count('Babel.registerPreset(') == 1
+assert 'data-presets="lilyco-react"' in offline
+out = GEN / 'life-offline.html'
+out.write_text(offline)
+print('LIFE_FIXED', fixed, len(HTML.encode()), 'bytes', hashlib.sha256(HTML.encode()).hexdigest())
+print('LIFE_OFFLINE', out, len(offline.encode()), 'bytes', hashlib.sha256(offline.encode()).hexdigest())

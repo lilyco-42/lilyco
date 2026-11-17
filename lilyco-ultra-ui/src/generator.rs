@@ -82,6 +82,7 @@ function App() {
   const [toast, setToast] = React.useState(null);
   const timer = React.useRef(null);
   const w = SPEC.窗口;
+  const SIZE = { 小: 'small', 中等: 'medium', 大: 'large', 全屏: 'fullscreen' };
 
   const update = (k, v) => setValues(p => ({ ...p, [k]: v }));
   const showToast = (action) => {
@@ -128,7 +129,7 @@ function App() {
   };
 
   return (<>
-    <div className={'window ' + w.大小}>
+    <div className={'window ' + (SIZE[w.大小] || 'medium')}>
       <h1 className="wtitle">{w.标题}</h1>
       {(w.元素||[]).map(renderEl)}
     </div>

@@ -1,0 +1,911 @@
+{
+  "generated_at": "2026-11-15T18:05:55+0800",
+  "purpose": "60 FPS drop-off curve: fixed 360x240x2 Life grid, repeated identical fill_rect passes",
+  "environment": {
+    "kernel": "Linux 6.18.60-2-cachyos-lts",
+    "cpu_count": 16,
+    "native_binary": "/home/lilyco/.cache/lilyco-build/target/release/life_draw",
+    "native_binary_sha256": "02d1d013450c26075ebbf42e427d55d01bcbbcdc68a8d6db3303659732fc9fb7",
+    "chromium": "Chromium 157.0.8103.38 Arch Linux",
+    "node": "v26.13.0",
+    "cdp_port": 9444,
+    "hold_ms": 7000,
+    "warmup_s": 2.0,
+    "warmup_samples": 60,
+    "runs_per_point": 2,
+    "display": ":0",
+    "wayland_display": "wayland-1"
+  },
+  "configs": [
+    {
+      "tag": "draw-5",
+      "cols": 360,
+      "rows": 240,
+      "cell": 2.0,
+      "cells": 86400,
+      "canvas_px": "720x480",
+      "draw_repeat": 5,
+      "cell_visits_per_frame": 432000,
+      "fixture": "/home/lilyco/code/lilyco/lilyco-native-ui/bench/fixtures/.generated/life-draw-5.html",
+      "fixture_sha256": "e62c6fd77c3dc83a64de36d136516fa48d612bd43908c1d7d85648de5c1b9127",
+      "functional_match": true,
+      "digest": "32e242a6",
+      "config": "cols=360,rows=240,cell=2,seed=1279872089,density=28,restart=240,digest_steps=60,tick_us=16667,draw_repeat=5",
+      "error": null,
+      "native_runs": [
+        {
+          "digest": "32e242a6",
+          "config": "cols=360,rows=240,cell=2,seed=1279872089,density=28,restart=240,digest_steps=60,tick_us=16667,draw_repeat=5",
+          "fps": 57.0,
+          "frame_mean_ms": 17.55,
+          "frame_p50_ms": 15.84,
+          "canvas_mean_ms": 12.29,
+          "snapshot_mean_ms": 12.34,
+          "paint_mean_ms": 16.19,
+          "cpu_pct": 106.0,
+          "step_us": 655.5,
+          "draw_us": 787.5,
+          "tick_gaps_us": 16666.0,
+          "proc_rss_mb": 211.96,
+          "steps_per_s": 59.96,
+          "draws_per_s": 59.96,
+          "ticks": 540,
+          "draws": 540,
+          "panics": 0,
+          "run": 1
+        },
+        {
+          "digest": "32e242a6",
+          "config": "cols=360,rows=240,cell=2,seed=1279872089,density=28,restart=240,digest_steps=60,tick_us=16667,draw_repeat=5",
+          "fps": 54.0,
+          "frame_mean_ms": 18.21,
+          "frame_p50_ms": 17.62,
+          "canvas_mean_ms": 13.35,
+          "snapshot_mean_ms": 13.39,
+          "paint_mean_ms": 17.03,
+          "cpu_pct": 108.0,
+          "step_us": 619.5,
+          "draw_us": 954.0,
+          "tick_gaps_us": 16672.0,
+          "proc_rss_mb": 244.43,
+          "steps_per_s": 59.98,
+          "draws_per_s": 59.98,
+          "ticks": 540,
+          "draws": 540,
+          "panics": 0,
+          "run": 2
+        }
+      ],
+      "web_runs": [
+        {
+          "digest": "32e242a6",
+          "config": "cols=360,rows=240,cell=2,seed=1279872089,density=28,restart=240,digest_steps=60,tick_us=16667,draw_repeat=5",
+          "effective_fps": 59.88,
+          "raf_median_us": 16700,
+          "raf_mean_us": 17688.65,
+          "raf_p95_us": 33300,
+          "raf_max_us": 49900,
+          "step_us": 1000,
+          "draw_us": 9600,
+          "chrome_rss_mb": 1139.25,
+          "js_heap_mb": 10.04,
+          "chrome_cpu_pct": 79.6,
+          "steps_per_s": 59.76,
+          "draws_per_s": 53.64,
+          "firstRenderMs": 411,
+          "errors": 0,
+          "exceptions": 0,
+          "netFail": 0,
+          "externalRequests": 0,
+          "run": 1
+        },
+        {
+          "digest": "32e242a6",
+          "config": "cols=360,rows=240,cell=2,seed=1279872089,density=28,restart=240,digest_steps=60,tick_us=16667,draw_repeat=5",
+          "effective_fps": 59.88,
+          "raf_median_us": 16700,
+          "raf_mean_us": 17908.39,
+          "raf_p95_us": 33300,
+          "raf_max_us": 50000,
+          "step_us": 1000,
+          "draw_us": 9900,
+          "chrome_rss_mb": 1141.15,
+          "js_heap_mb": 9.53,
+          "chrome_cpu_pct": 77.0,
+          "steps_per_s": 59.8,
+          "draws_per_s": 53.37,
+          "firstRenderMs": 347,
+          "errors": 0,
+          "exceptions": 0,
+          "netFail": 0,
+          "externalRequests": 0,
+          "run": 2
+        }
+      ],
+      "native_aggregate": {
+        "fps": {
+          "n": 2,
+          "min": 54.0,
+          "median": 55.5,
+          "mean": 55.5,
+          "p95": 57.0,
+          "max": 57.0,
+          "stdev": 1.5
+        },
+        "steps_per_s": {
+          "n": 2,
+          "min": 59.96,
+          "median": 59.97,
+          "mean": 59.97,
+          "p95": 59.98,
+          "max": 59.98,
+          "stdev": 0.01
+        },
+        "draws_per_s": {
+          "n": 2,
+          "min": 59.96,
+          "median": 59.97,
+          "mean": 59.97,
+          "p95": 59.98,
+          "max": 59.98,
+          "stdev": 0.01
+        },
+        "step_us": {
+          "n": 2,
+          "min": 619.5,
+          "median": 637.5,
+          "mean": 637.5,
+          "p95": 655.5,
+          "max": 655.5,
+          "stdev": 18.0
+        },
+        "draw_us": {
+          "n": 2,
+          "min": 787.5,
+          "median": 870.75,
+          "mean": 870.75,
+          "p95": 954.0,
+          "max": 954.0,
+          "stdev": 83.25
+        },
+        "frame_mean_ms": {
+          "n": 2,
+          "min": 17.55,
+          "median": 17.88,
+          "mean": 17.88,
+          "p95": 18.21,
+          "max": 18.21,
+          "stdev": 0.33
+        },
+        "canvas_mean_ms": {
+          "n": 2,
+          "min": 12.29,
+          "median": 12.82,
+          "mean": 12.82,
+          "p95": 13.35,
+          "max": 13.35,
+          "stdev": 0.53
+        },
+        "snapshot_mean_ms": {
+          "n": 2,
+          "min": 12.34,
+          "median": 12.87,
+          "mean": 12.87,
+          "p95": 13.39,
+          "max": 13.39,
+          "stdev": 0.53
+        },
+        "proc_rss_mb": {
+          "n": 2,
+          "min": 211.96,
+          "median": 228.19,
+          "mean": 228.19,
+          "p95": 244.43,
+          "max": 244.43,
+          "stdev": 16.23
+        },
+        "cpu_pct": {
+          "n": 2,
+          "min": 106.0,
+          "median": 107.0,
+          "mean": 107.0,
+          "p95": 108.0,
+          "max": 108.0,
+          "stdev": 1.0
+        }
+      },
+      "web_aggregate": {
+        "effective_fps": {
+          "n": 2,
+          "min": 59.88,
+          "median": 59.88,
+          "mean": 59.88,
+          "p95": 59.88,
+          "max": 59.88,
+          "stdev": 0.0
+        },
+        "steps_per_s": {
+          "n": 2,
+          "min": 59.76,
+          "median": 59.78,
+          "mean": 59.78,
+          "p95": 59.8,
+          "max": 59.8,
+          "stdev": 0.02
+        },
+        "draws_per_s": {
+          "n": 2,
+          "min": 53.37,
+          "median": 53.5,
+          "mean": 53.5,
+          "p95": 53.64,
+          "max": 53.64,
+          "stdev": 0.14
+        },
+        "step_us": {
+          "n": 2,
+          "min": 1000.0,
+          "median": 1000.0,
+          "mean": 1000.0,
+          "p95": 1000.0,
+          "max": 1000.0,
+          "stdev": 0.0
+        },
+        "draw_us": {
+          "n": 2,
+          "min": 9600.0,
+          "median": 9750.0,
+          "mean": 9750.0,
+          "p95": 9900.0,
+          "max": 9900.0,
+          "stdev": 150.0
+        },
+        "raf_p95_us": {
+          "n": 2,
+          "min": 33300.0,
+          "median": 33300.0,
+          "mean": 33300.0,
+          "p95": 33300.0,
+          "max": 33300.0,
+          "stdev": 0.0
+        },
+        "chrome_rss_mb": {
+          "n": 2,
+          "min": 1139.25,
+          "median": 1140.2,
+          "mean": 1140.2,
+          "p95": 1141.15,
+          "max": 1141.15,
+          "stdev": 0.95
+        },
+        "js_heap_mb": {
+          "n": 2,
+          "min": 9.53,
+          "median": 9.79,
+          "mean": 9.79,
+          "p95": 10.04,
+          "max": 10.04,
+          "stdev": 0.25
+        },
+        "chrome_cpu_pct": {
+          "n": 2,
+          "min": 77.0,
+          "median": 78.3,
+          "mean": 78.3,
+          "p95": 79.6,
+          "max": 79.6,
+          "stdev": 1.3
+        },
+        "firstRenderMs": {
+          "n": 2,
+          "min": 347.0,
+          "median": 379.0,
+          "mean": 379.0,
+          "p95": 411.0,
+          "max": 411.0,
+          "stdev": 32.0
+        }
+      },
+      "native_holds_60fps": false,
+      "web_holds_60fps": false
+    },
+    {
+      "tag": "draw-6",
+      "cols": 360,
+      "rows": 240,
+      "cell": 2.0,
+      "cells": 86400,
+      "canvas_px": "720x480",
+      "draw_repeat": 6,
+      "cell_visits_per_frame": 518400,
+      "fixture": "/home/lilyco/code/lilyco/lilyco-native-ui/bench/fixtures/.generated/life-draw-6.html",
+      "fixture_sha256": "74cf5e33eb14d480889977d73b8fef81fec7f2b923b42dd30af1e1dda7d56cad",
+      "functional_match": true,
+      "digest": "32e242a6",
+      "config": "cols=360,rows=240,cell=2,seed=1279872089,density=28,restart=240,digest_steps=60,tick_us=16667,draw_repeat=6",
+      "error": null,
+      "native_runs": [
+        {
+          "digest": "32e242a6",
+          "config": "cols=360,rows=240,cell=2,seed=1279872089,density=28,restart=240,digest_steps=60,tick_us=16667,draw_repeat=6",
+          "fps": 54.0,
+          "frame_mean_ms": 19.76,
+          "frame_p50_ms": 17.86,
+          "canvas_mean_ms": 13.48,
+          "snapshot_mean_ms": 13.52,
+          "paint_mean_ms": 16.93,
+          "cpu_pct": 108.0,
+          "step_us": 809.0,
+          "draw_us": 813.5,
+          "tick_gaps_us": 16691.0,
+          "proc_rss_mb": 271.75,
+          "steps_per_s": 59.98,
+          "draws_per_s": 59.98,
+          "ticks": 540,
+          "draws": 540,
+          "panics": 0,
+          "run": 1
+        },
+        {
+          "digest": "32e242a6",
+          "config": "cols=360,rows=240,cell=2,seed=1279872089,density=28,restart=240,digest_steps=60,tick_us=16667,draw_repeat=6",
+          "fps": 18.0,
+          "frame_mean_ms": 46.34,
+          "frame_p50_ms": 40.09,
+          "canvas_mean_ms": 37.55,
+          "snapshot_mean_ms": 37.66,
+          "paint_mean_ms": 47.44,
+          "cpu_pct": 122.0,
+          "step_us": 753.5,
+          "draw_us": 2204.5,
+          "tick_gaps_us": 16667.0,
+          "proc_rss_mb": 252.14,
+          "steps_per_s": 59.97,
+          "draws_per_s": 59.97,
+          "ticks": 540,
+          "draws": 540,
+          "panics": 0,
+          "run": 2
+        }
+      ],
+      "web_runs": [
+        {
+          "digest": "32e242a6",
+          "config": "cols=360,rows=240,cell=2,seed=1279872089,density=28,restart=240,digest_steps=60,tick_us=16667,draw_repeat=6",
+          "effective_fps": 59.88,
+          "raf_median_us": 16700,
+          "raf_mean_us": 18681.05,
+          "raf_p95_us": 33400,
+          "raf_max_us": 50100,
+          "step_us": 1000,
+          "draw_us": 14650,
+          "chrome_rss_mb": 1142.25,
+          "js_heap_mb": 9.49,
+          "chrome_cpu_pct": 83.1,
+          "steps_per_s": 59.55,
+          "draws_per_s": 50.34,
+          "firstRenderMs": 551,
+          "errors": 0,
+          "exceptions": 0,
+          "netFail": 0,
+          "externalRequests": 0,
+          "run": 1
+        },
+        {
+          "digest": "32e242a6",
+          "config": "cols=360,rows=240,cell=2,seed=1279872089,density=28,restart=240,digest_steps=60,tick_us=16667,draw_repeat=6",
+          "effective_fps": 20.04,
+          "raf_median_us": 49900,
+          "raf_mean_us": 44556.12,
+          "raf_p95_us": 66700,
+          "raf_max_us": 133300,
+          "step_us": 1400,
+          "draw_us": 29750,
+          "chrome_rss_mb": 1141.64,
+          "js_heap_mb": 9.91,
+          "chrome_cpu_pct": 90.7,
+          "steps_per_s": 56.91,
+          "draws_per_s": 21.01,
+          "firstRenderMs": 1215,
+          "errors": 0,
+          "exceptions": 0,
+          "netFail": 0,
+          "externalRequests": 0,
+          "run": 2
+        }
+      ],
+      "native_aggregate": {
+        "fps": {
+          "n": 2,
+          "min": 18.0,
+          "median": 36.0,
+          "mean": 36.0,
+          "p95": 54.0,
+          "max": 54.0,
+          "stdev": 18.0
+        },
+        "steps_per_s": {
+          "n": 2,
+          "min": 59.97,
+          "median": 59.97,
+          "mean": 59.97,
+          "p95": 59.98,
+          "max": 59.98,
+          "stdev": 0.0
+        },
+        "draws_per_s": {
+          "n": 2,
+          "min": 59.97,
+          "median": 59.97,
+          "mean": 59.97,
+          "p95": 59.98,
+          "max": 59.98,
+          "stdev": 0.0
+        },
+        "step_us": {
+          "n": 2,
+          "min": 753.5,
+          "median": 781.25,
+          "mean": 781.25,
+          "p95": 809.0,
+          "max": 809.0,
+          "stdev": 27.75
+        },
+        "draw_us": {
+          "n": 2,
+          "min": 813.5,
+          "median": 1509.0,
+          "mean": 1509.0,
+          "p95": 2204.5,
+          "max": 2204.5,
+          "stdev": 695.5
+        },
+        "frame_mean_ms": {
+          "n": 2,
+          "min": 19.76,
+          "median": 33.05,
+          "mean": 33.05,
+          "p95": 46.34,
+          "max": 46.34,
+          "stdev": 13.29
+        },
+        "canvas_mean_ms": {
+          "n": 2,
+          "min": 13.48,
+          "median": 25.52,
+          "mean": 25.52,
+          "p95": 37.55,
+          "max": 37.55,
+          "stdev": 12.03
+        },
+        "snapshot_mean_ms": {
+          "n": 2,
+          "min": 13.52,
+          "median": 25.59,
+          "mean": 25.59,
+          "p95": 37.66,
+          "max": 37.66,
+          "stdev": 12.07
+        },
+        "proc_rss_mb": {
+          "n": 2,
+          "min": 252.14,
+          "median": 261.94,
+          "mean": 261.94,
+          "p95": 271.75,
+          "max": 271.75,
+          "stdev": 9.81
+        },
+        "cpu_pct": {
+          "n": 2,
+          "min": 108.0,
+          "median": 115.0,
+          "mean": 115.0,
+          "p95": 122.0,
+          "max": 122.0,
+          "stdev": 7.0
+        }
+      },
+      "web_aggregate": {
+        "effective_fps": {
+          "n": 2,
+          "min": 20.04,
+          "median": 39.96,
+          "mean": 39.96,
+          "p95": 59.88,
+          "max": 59.88,
+          "stdev": 19.92
+        },
+        "steps_per_s": {
+          "n": 2,
+          "min": 56.91,
+          "median": 58.23,
+          "mean": 58.23,
+          "p95": 59.55,
+          "max": 59.55,
+          "stdev": 1.32
+        },
+        "draws_per_s": {
+          "n": 2,
+          "min": 21.01,
+          "median": 35.68,
+          "mean": 35.68,
+          "p95": 50.34,
+          "max": 50.34,
+          "stdev": 14.67
+        },
+        "step_us": {
+          "n": 2,
+          "min": 1000.0,
+          "median": 1200.0,
+          "mean": 1200.0,
+          "p95": 1400.0,
+          "max": 1400.0,
+          "stdev": 200.0
+        },
+        "draw_us": {
+          "n": 2,
+          "min": 14650.0,
+          "median": 22200.0,
+          "mean": 22200.0,
+          "p95": 29750.0,
+          "max": 29750.0,
+          "stdev": 7550.0
+        },
+        "raf_p95_us": {
+          "n": 2,
+          "min": 33400.0,
+          "median": 50050.0,
+          "mean": 50050.0,
+          "p95": 66700.0,
+          "max": 66700.0,
+          "stdev": 16650.0
+        },
+        "chrome_rss_mb": {
+          "n": 2,
+          "min": 1141.64,
+          "median": 1141.95,
+          "mean": 1141.95,
+          "p95": 1142.25,
+          "max": 1142.25,
+          "stdev": 0.3
+        },
+        "js_heap_mb": {
+          "n": 2,
+          "min": 9.49,
+          "median": 9.7,
+          "mean": 9.7,
+          "p95": 9.91,
+          "max": 9.91,
+          "stdev": 0.21
+        },
+        "chrome_cpu_pct": {
+          "n": 2,
+          "min": 83.1,
+          "median": 86.9,
+          "mean": 86.9,
+          "p95": 90.7,
+          "max": 90.7,
+          "stdev": 3.8
+        },
+        "firstRenderMs": {
+          "n": 2,
+          "min": 551.0,
+          "median": 883.0,
+          "mean": 883.0,
+          "p95": 1215.0,
+          "max": 1215.0,
+          "stdev": 332.0
+        }
+      },
+      "native_holds_60fps": false,
+      "web_holds_60fps": false
+    },
+    {
+      "tag": "draw-7",
+      "cols": 360,
+      "rows": 240,
+      "cell": 2.0,
+      "cells": 86400,
+      "canvas_px": "720x480",
+      "draw_repeat": 7,
+      "cell_visits_per_frame": 604800,
+      "fixture": "/home/lilyco/code/lilyco/lilyco-native-ui/bench/fixtures/.generated/life-draw-7.html",
+      "fixture_sha256": "694c4b1b8095bd9aacb9af511d441b6ddd3eb6688d98570b974c9c487a64ea02",
+      "functional_match": true,
+      "digest": "32e242a6",
+      "config": "cols=360,rows=240,cell=2,seed=1279872089,density=28,restart=240,digest_steps=60,tick_us=16667,draw_repeat=7",
+      "error": null,
+      "native_runs": [
+        {
+          "digest": "32e242a6",
+          "config": "cols=360,rows=240,cell=2,seed=1279872089,density=28,restart=240,digest_steps=60,tick_us=16667,draw_repeat=7",
+          "fps": 19.0,
+          "frame_mean_ms": 51.72,
+          "frame_p50_ms": 51.77,
+          "canvas_mean_ms": 38.33,
+          "snapshot_mean_ms": 38.42,
+          "paint_mean_ms": 45.66,
+          "cpu_pct": 127.5,
+          "step_us": 781.5,
+          "draw_us": 2975.5,
+          "tick_gaps_us": 16656.0,
+          "proc_rss_mb": 313.36,
+          "steps_per_s": 59.89,
+          "draws_per_s": 59.89,
+          "ticks": 480,
+          "draws": 480,
+          "panics": 0,
+          "run": 1
+        },
+        {
+          "digest": "32e242a6",
+          "config": "cols=360,rows=240,cell=2,seed=1279872089,density=28,restart=240,digest_steps=60,tick_us=16667,draw_repeat=7",
+          "fps": 24.0,
+          "frame_mean_ms": 41.66,
+          "frame_p50_ms": 40.67,
+          "canvas_mean_ms": 30.75,
+          "snapshot_mean_ms": 30.8,
+          "paint_mean_ms": 36.83,
+          "cpu_pct": 132.5,
+          "step_us": 781.5,
+          "draw_us": 2949.5,
+          "tick_gaps_us": 16655.0,
+          "proc_rss_mb": 272.82,
+          "steps_per_s": 59.44,
+          "draws_per_s": 59.44,
+          "ticks": 540,
+          "draws": 540,
+          "panics": 0,
+          "run": 2
+        }
+      ],
+      "web_runs": [
+        {
+          "digest": "32e242a6",
+          "config": "cols=360,rows=240,cell=2,seed=1279872089,density=28,restart=240,digest_steps=60,tick_us=16667,draw_repeat=7",
+          "effective_fps": 30.03,
+          "raf_median_us": 33300,
+          "raf_mean_us": 32220.67,
+          "raf_p95_us": 50000,
+          "raf_max_us": 83400,
+          "step_us": 1100,
+          "draw_us": 23500,
+          "chrome_rss_mb": 1139.36,
+          "js_heap_mb": 9.76,
+          "chrome_cpu_pct": 97.0,
+          "steps_per_s": 58.74,
+          "draws_per_s": 28.62,
+          "firstRenderMs": 855,
+          "errors": 0,
+          "exceptions": 0,
+          "netFail": 0,
+          "externalRequests": 0,
+          "run": 1
+        },
+        {
+          "digest": "32e242a6",
+          "config": "cols=360,rows=240,cell=2,seed=1279872089,density=28,restart=240,digest_steps=60,tick_us=16667,draw_repeat=7",
+          "effective_fps": 30.03,
+          "raf_median_us": 33300,
+          "raf_mean_us": 28467.03,
+          "raf_p95_us": 49900,
+          "raf_max_us": 83300,
+          "step_us": 1000,
+          "draw_us": 21300,
+          "chrome_rss_mb": 1131.93,
+          "js_heap_mb": 9.56,
+          "chrome_cpu_pct": 92.6,
+          "steps_per_s": 59.54,
+          "draws_per_s": 33.38,
+          "firstRenderMs": 630,
+          "errors": 0,
+          "exceptions": 0,
+          "netFail": 0,
+          "externalRequests": 0,
+          "run": 2
+        }
+      ],
+      "native_aggregate": {
+        "fps": {
+          "n": 2,
+          "min": 19.0,
+          "median": 21.5,
+          "mean": 21.5,
+          "p95": 24.0,
+          "max": 24.0,
+          "stdev": 2.5
+        },
+        "steps_per_s": {
+          "n": 2,
+          "min": 59.44,
+          "median": 59.66,
+          "mean": 59.66,
+          "p95": 59.89,
+          "max": 59.89,
+          "stdev": 0.23
+        },
+        "draws_per_s": {
+          "n": 2,
+          "min": 59.44,
+          "median": 59.66,
+          "mean": 59.66,
+          "p95": 59.89,
+          "max": 59.89,
+          "stdev": 0.23
+        },
+        "step_us": {
+          "n": 2,
+          "min": 781.5,
+          "median": 781.5,
+          "mean": 781.5,
+          "p95": 781.5,
+          "max": 781.5,
+          "stdev": 0.0
+        },
+        "draw_us": {
+          "n": 2,
+          "min": 2949.5,
+          "median": 2962.5,
+          "mean": 2962.5,
+          "p95": 2975.5,
+          "max": 2975.5,
+          "stdev": 13.0
+        },
+        "frame_mean_ms": {
+          "n": 2,
+          "min": 41.66,
+          "median": 46.69,
+          "mean": 46.69,
+          "p95": 51.72,
+          "max": 51.72,
+          "stdev": 5.03
+        },
+        "canvas_mean_ms": {
+          "n": 2,
+          "min": 30.75,
+          "median": 34.54,
+          "mean": 34.54,
+          "p95": 38.33,
+          "max": 38.33,
+          "stdev": 3.79
+        },
+        "snapshot_mean_ms": {
+          "n": 2,
+          "min": 30.8,
+          "median": 34.61,
+          "mean": 34.61,
+          "p95": 38.42,
+          "max": 38.42,
+          "stdev": 3.81
+        },
+        "proc_rss_mb": {
+          "n": 2,
+          "min": 272.82,
+          "median": 293.09,
+          "mean": 293.09,
+          "p95": 313.36,
+          "max": 313.36,
+          "stdev": 20.27
+        },
+        "cpu_pct": {
+          "n": 2,
+          "min": 127.5,
+          "median": 130.0,
+          "mean": 130.0,
+          "p95": 132.5,
+          "max": 132.5,
+          "stdev": 2.5
+        }
+      },
+      "web_aggregate": {
+        "effective_fps": {
+          "n": 2,
+          "min": 30.03,
+          "median": 30.03,
+          "mean": 30.03,
+          "p95": 30.03,
+          "max": 30.03,
+          "stdev": 0.0
+        },
+        "steps_per_s": {
+          "n": 2,
+          "min": 58.74,
+          "median": 59.14,
+          "mean": 59.14,
+          "p95": 59.54,
+          "max": 59.54,
+          "stdev": 0.4
+        },
+        "draws_per_s": {
+          "n": 2,
+          "min": 28.62,
+          "median": 31.0,
+          "mean": 31.0,
+          "p95": 33.38,
+          "max": 33.38,
+          "stdev": 2.38
+        },
+        "step_us": {
+          "n": 2,
+          "min": 1000.0,
+          "median": 1050.0,
+          "mean": 1050.0,
+          "p95": 1100.0,
+          "max": 1100.0,
+          "stdev": 50.0
+        },
+        "draw_us": {
+          "n": 2,
+          "min": 21300.0,
+          "median": 22400.0,
+          "mean": 22400.0,
+          "p95": 23500.0,
+          "max": 23500.0,
+          "stdev": 1100.0
+        },
+        "raf_p95_us": {
+          "n": 2,
+          "min": 49900.0,
+          "median": 49950.0,
+          "mean": 49950.0,
+          "p95": 50000.0,
+          "max": 50000.0,
+          "stdev": 50.0
+        },
+        "chrome_rss_mb": {
+          "n": 2,
+          "min": 1131.93,
+          "median": 1135.64,
+          "mean": 1135.64,
+          "p95": 1139.36,
+          "max": 1139.36,
+          "stdev": 3.71
+        },
+        "js_heap_mb": {
+          "n": 2,
+          "min": 9.56,
+          "median": 9.66,
+          "mean": 9.66,
+          "p95": 9.76,
+          "max": 9.76,
+          "stdev": 0.1
+        },
+        "chrome_cpu_pct": {
+          "n": 2,
+          "min": 92.6,
+          "median": 94.8,
+          "mean": 94.8,
+          "p95": 97.0,
+          "max": 97.0,
+          "stdev": 2.2
+        },
+        "firstRenderMs": {
+          "n": 2,
+          "min": 630.0,
+          "median": 742.5,
+          "mean": 742.5,
+          "p95": 855.0,
+          "max": 855.0,
+          "stdev": 112.5
+        }
+      },
+      "native_holds_60fps": false,
+      "web_holds_60fps": false
+    }
+  ],
+  "largest_native_holding_60fps": null,
+  "largest_web_holding_60fps": null,
+  "first_native_drop": "draw-5",
+  "first_web_drop": "draw-5",
+  "caveats": [
+    "Native FPS is the GTK frame clock reported by nsh::fps (target 60); Web FPS is 1e6 / median(rAF interval).",
+    "Every point keeps a 720x480 canvas and the same 360x240x2 simulation; DRAW_REPEAT multiplies identical alive-cell fill_rect passes only.",
+    "Simulation state, seed and FNV-1a digest are identical across all repeat counts; only CPU/raster work grows.",
+    "native step_us measures the Life step (unchanged); draw_us measures Painter construction for all repeated passes. Web step_us/draw_us are performance.now() around equivalent JS work, not rasterization.",
+    "Native RSS is one process; Web RSS is the whole Chromium process tree.",
+    "Steady-state Web uses vendored inline fixtures; CDN cold start is excluded.",
+    "All numbers come from one sequential batch on one host; do not mix with the 17:20 grid-scaling batch or the 16:05 baseline.",
+    "Fine batch repeats 5/6/7 only; do not mix with the 17:39 coarse draw batch."
+  ]
+}

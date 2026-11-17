@@ -1,0 +1,1038 @@
+{
+  "generated_at": "2026-11-15T16:05:02+0800",
+  "game": "Conway Game of Life 120x80, cell 6px, xorshift32 seed 1279872089, B3/S23, reseed every 240 generations",
+  "environment": {
+    "kernel": "Linux 6.18.60-2-cachyos-lts",
+    "cpu_count": 16,
+    "display": ":0",
+    "wayland_display": "wayland-1",
+    "chromium": "Chromium 157.0.8103.38 Arch Linux",
+    "node": "v26.13.0",
+    "native_binary": "/home/lilyco/.cache/lilyco-build/target/release/life",
+    "native_binary_sha256": "534803472f2ad64b3db8c16ff9cd4ee39b8669b9e055cf086c905556a6f4f45d",
+    "web_fixture": "/home/lilyco/code/lilyco/lilyco-native-ui/bench/fixtures/.generated/life-offline.html",
+    "web_fixture_sha256": "c1cb09024865a40329c465e73b9370085767e5291dc123ab4045212f73bc3149",
+    "web_fixture_bytes": 3217278,
+    "fixed_fixture_sha256": "afe17f636f148e7efa2301ec6f5fbfeb1a8f49feb5d3b0037224380b6fca7498",
+    "hold_ms": 9000,
+    "warmup_s": 2.0,
+    "warmup_samples": 120,
+    "runs_per_backend": 3
+  },
+  "functional_match": true,
+  "native_digest": "3ecf46af",
+  "web_digest": "3ecf46af",
+  "config": "cols=120,rows=80,cell=6,seed=1279872089,density=28,restart=240,digest_steps=300,tick_us=16667",
+  "native": {
+    "runs": [
+      {
+        "run": 1,
+        "pid": 224629,
+        "digest": "3ecf46af",
+        "config": "cols=120,rows=80,cell=6,seed=1279872089,density=28,restart=240,digest_steps=300,tick_us=16667",
+        "first_frame_internal_ms": 0.46,
+        "ticks": 660,
+        "draws": 660,
+        "elapsed_ms": 11000,
+        "steps_per_s": 60.0,
+        "draws_per_s": 60.0,
+        "tick_gaps_us": {
+          "n": 539,
+          "min": 15089.0,
+          "median": 16666.0,
+          "mean": 16666.71,
+          "p95": 16798.0,
+          "max": 18269.0,
+          "stdev": 221.23
+        },
+        "step_us": {
+          "n": 540,
+          "min": 41.0,
+          "median": 73.0,
+          "mean": 73.97,
+          "p95": 107.0,
+          "max": 314.0,
+          "stdev": 23.72
+        },
+        "draw_us": {
+          "n": 540,
+          "min": 17.0,
+          "median": 53.0,
+          "mean": 84.31,
+          "p95": 247.0,
+          "max": 438.0,
+          "stdev": 74.36
+        },
+        "fps_monitor": {
+          "lines_total": 11,
+          "lines_steady": 9,
+          "fps": {
+            "n": 9,
+            "min": 60.0,
+            "median": 60.0,
+            "mean": 60.0,
+            "p95": 60.0,
+            "max": 60.0,
+            "stdev": 0.0
+          },
+          "frame_p50_ms": {
+            "n": 9,
+            "min": 5.3,
+            "median": 5.5,
+            "mean": 5.56,
+            "p95": 6.18,
+            "max": 6.18,
+            "stdev": 0.26
+          },
+          "frame_mean_ms": {
+            "n": 9,
+            "min": 5.63,
+            "median": 5.89,
+            "mean": 5.95,
+            "p95": 6.42,
+            "max": 6.42,
+            "stdev": 0.27
+          },
+          "gap_p50_ms": {
+            "n": 9,
+            "min": 16.56,
+            "median": 16.69,
+            "mean": 16.69,
+            "p95": 16.8,
+            "max": 16.8,
+            "stdev": 0.08
+          },
+          "paint_mean_ms": {
+            "n": 9,
+            "min": 5.31,
+            "median": 5.79,
+            "mean": 5.92,
+            "p95": 6.67,
+            "max": 6.67,
+            "stdev": 0.48
+          },
+          "snapshot_mean_ms": {
+            "n": 9,
+            "min": 1.7,
+            "median": 1.91,
+            "mean": 2.0,
+            "p95": 2.59,
+            "max": 2.59,
+            "stdev": 0.29
+          },
+          "canvas_mean_ms": {
+            "n": 9,
+            "min": 1.65,
+            "median": 1.87,
+            "mean": 1.95,
+            "p95": 2.52,
+            "max": 2.52,
+            "stdev": 0.28
+          },
+          "cpu_pct": {
+            "n": 9,
+            "min": 34.0,
+            "median": 37.0,
+            "mean": 36.67,
+            "p95": 42.0,
+            "max": 42.0,
+            "stdev": 2.49
+          },
+          "fps_rss_mb": {
+            "n": 9,
+            "min": 189.5,
+            "median": 191.4,
+            "mean": 191.03,
+            "p95": 191.6,
+            "max": 191.6,
+            "stdev": 0.7
+          }
+        },
+        "proc_rss_mb": {
+          "n": 45,
+          "min": 179.07,
+          "median": 182.0,
+          "mean": 181.58,
+          "p95": 182.75,
+          "max": 182.75,
+          "stdev": 1.17
+        },
+        "panics": 0,
+        "fps_lines_steady": [
+          "[2026-11-15T08:04:00.943Z INFO  nsh::fps] fps 60/60 frame 6.17/5.60/9.40/12.79 gap 16.67/16.79/19.68/22.62 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 6.32/5.94/9.32/12.71 snapshot 2.27/1.77/4.61/5.53 canvas 2.22/1.71/4.56/5.46 drain 0.04/0.03/0.10/0.15 commits 60 js 0.22/0.18/0.42/0.58 core 0.06/0.04/0.13/0.26 items 1 engine 1% cpu 37% rss 189.5 MB",
+          "[2026-11-15T08:04:01.946Z INFO  nsh::fps] fps 60/60 frame 5.89/5.30/9.06/12.79 gap 16.66/16.62/18.87/21.20 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 5.31/5.03/7.35/10.67 snapshot 1.73/1.43/3.67/4.70 canvas 1.68/1.40/3.60/4.63 drain 0.05/0.04/0.13/0.14 commits 60 js 0.21/0.18/0.39/0.49 core 0.05/0.04/0.13/0.21 items 1 engine 2% cpu 34% rss 190.3 MB",
+          "[2026-11-15T08:04:02.960Z INFO  nsh::fps] fps 60/60 frame 5.63/5.37/8.05/10.74 gap 16.67/16.56/19.06/21.20 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 5.79/5.51/7.96/8.77 snapshot 2.00/1.81/3.21/4.62 canvas 1.95/1.72/3.15/4.53 drain 0.06/0.04/0.10/0.25 commits 60 js 0.25/0.24/0.44/0.62 core 0.06/0.05/0.13/0.21 items 1 engine 2% cpu 36% rss 190.7 MB",
+          "[2026-11-15T08:04:03.976Z INFO  nsh::fps] fps 60/60 frame 5.69/5.42/7.58/8.84 gap 16.66/16.64/19.43/20.16 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 5.49/5.20/7.42/8.61 snapshot 1.70/1.51/2.67/3.15 canvas 1.65/1.46/2.59/3.09 drain 0.05/0.04/0.12/0.15 commits 60 js 0.24/0.22/0.43/0.57 core 0.06/0.05/0.12/0.19 items 1 engine 2% cpu 34% rss 191.0 MB",
+          "[2026-11-15T08:04:04.979Z INFO  nsh::fps] fps 60/60 frame 5.70/5.34/8.16/8.78 gap 16.69/16.70/19.10/20.16 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 5.77/5.39/8.17/8.21 snapshot 1.91/1.52/3.71/3.88 canvas 1.87/1.48/3.66/3.83 drain 0.04/0.04/0.10/0.13 commits 60 js 0.21/0.19/0.38/0.57 core 0.06/0.05/0.14/0.19 items 1 engine 2% cpu 37% rss 191.4 MB",
+          "[2026-11-15T08:04:05.981Z INFO  nsh::fps] fps 60/60 frame 6.27/5.75/9.56/12.02 gap 16.72/16.77/19.26/23.19 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 6.59/6.13/10.17/11.94 snapshot 2.24/2.13/4.50/5.13 canvas 2.18/2.05/4.41/5.08 drain 0.05/0.04/0.11/0.13 commits 60 js 0.22/0.19/0.40/0.59 core 0.07/0.05/0.16/0.30 items 1 engine 2% cpu 39% rss 191.6 MB",
+          "[2026-11-15T08:04:06.994Z INFO  nsh::fps] fps 60/60 frame 6.06/5.57/9.57/12.02 gap 16.65/16.63/19.44/23.19 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 5.39/5.17/7.48/9.74 snapshot 1.71/1.52/3.10/3.34 canvas 1.67/1.49/3.04/3.28 drain 0.04/0.04/0.10/0.16 commits 60 js 0.21/0.16/0.46/0.59 core 0.06/0.04/0.14/0.30 items 1 engine 1% cpu 34% rss 191.6 MB",
+          "[2026-11-15T08:04:07.995Z INFO  nsh::fps] fps 60/60 frame 5.72/5.50/7.82/9.54 gap 16.67/16.69/18.75/20.33 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 5.96/5.95/8.16/9.40 snapshot 1.87/1.76/3.38/3.95 canvas 1.81/1.70/3.33/3.89 drain 0.05/0.04/0.11/0.19 commits 60 js 0.22/0.18/0.47/0.66 core 0.05/0.04/0.13/0.19 items 1 engine 2% cpu 37% rss 191.6 MB",
+          "[2026-11-15T08:04:08.995Z INFO  nsh::fps] fps 60/60 frame 6.42/6.18/9.28/12.02 gap 16.69/16.80/19.03/22.53 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 6.67/6.25/10.53/11.84 snapshot 2.59/2.39/4.16/5.36 canvas 2.52/2.33/4.09/5.30 drain 0.06/0.05/0.14/0.15 commits 60 js 0.27/0.25/0.50/0.66 core 0.07/0.05/0.14/0.21 items 1 engine 2% cpu 42% rss 191.6 MB"
+        ]
+      },
+      {
+        "run": 2,
+        "pid": 225108,
+        "digest": "3ecf46af",
+        "config": "cols=120,rows=80,cell=6,seed=1279872089,density=28,restart=240,digest_steps=300,tick_us=16667",
+        "first_frame_internal_ms": 0.81,
+        "ticks": 660,
+        "draws": 660,
+        "elapsed_ms": 11000,
+        "steps_per_s": 60.0,
+        "draws_per_s": 60.0,
+        "tick_gaps_us": {
+          "n": 539,
+          "min": 15012.0,
+          "median": 16665.0,
+          "mean": 16665.65,
+          "p95": 16794.0,
+          "max": 18375.0,
+          "stdev": 191.58
+        },
+        "step_us": {
+          "n": 540,
+          "min": 40.0,
+          "median": 71.0,
+          "mean": 76.52,
+          "p95": 124.0,
+          "max": 570.0,
+          "stdev": 39.09
+        },
+        "draw_us": {
+          "n": 540,
+          "min": 16.0,
+          "median": 39.0,
+          "mean": 79.92,
+          "p95": 246.0,
+          "max": 880.0,
+          "stdev": 88.4
+        },
+        "fps_monitor": {
+          "lines_total": 11,
+          "lines_steady": 9,
+          "fps": {
+            "n": 9,
+            "min": 60.0,
+            "median": 60.0,
+            "mean": 60.0,
+            "p95": 60.0,
+            "max": 60.0,
+            "stdev": 0.0
+          },
+          "frame_p50_ms": {
+            "n": 9,
+            "min": 4.23,
+            "median": 5.28,
+            "mean": 5.43,
+            "p95": 7.53,
+            "max": 7.53,
+            "stdev": 1.03
+          },
+          "frame_mean_ms": {
+            "n": 9,
+            "min": 4.33,
+            "median": 5.85,
+            "mean": 5.75,
+            "p95": 7.64,
+            "max": 7.64,
+            "stdev": 1.03
+          },
+          "gap_p50_ms": {
+            "n": 9,
+            "min": 16.51,
+            "median": 16.63,
+            "mean": 16.59,
+            "p95": 16.64,
+            "max": 16.64,
+            "stdev": 0.05
+          },
+          "paint_mean_ms": {
+            "n": 9,
+            "min": 4.47,
+            "median": 5.11,
+            "mean": 5.68,
+            "p95": 8.49,
+            "max": 8.49,
+            "stdev": 1.27
+          },
+          "snapshot_mean_ms": {
+            "n": 9,
+            "min": 1.32,
+            "median": 1.64,
+            "mean": 2.06,
+            "p95": 3.53,
+            "max": 3.53,
+            "stdev": 0.74
+          },
+          "canvas_mean_ms": {
+            "n": 9,
+            "min": 1.28,
+            "median": 1.6,
+            "mean": 2.01,
+            "p95": 3.46,
+            "max": 3.46,
+            "stdev": 0.73
+          },
+          "cpu_pct": {
+            "n": 9,
+            "min": 29.0,
+            "median": 33.0,
+            "mean": 36.11,
+            "p95": 51.0,
+            "max": 51.0,
+            "stdev": 7.16
+          },
+          "fps_rss_mb": {
+            "n": 9,
+            "min": 189.0,
+            "median": 190.2,
+            "mean": 190.24,
+            "p95": 191.0,
+            "max": 191.0,
+            "stdev": 0.74
+          }
+        },
+        "proc_rss_mb": {
+          "n": 45,
+          "min": 178.74,
+          "median": 181.07,
+          "mean": 180.94,
+          "p95": 182.16,
+          "max": 182.16,
+          "stdev": 0.99
+        },
+        "panics": 0,
+        "fps_lines_steady": [
+          "[2026-11-15T08:04:22.767Z INFO  nsh::fps] fps 60/60 frame 4.33/4.23/5.58/7.03 gap 16.67/16.59/17.87/19.53 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 4.47/4.32/5.93/6.97 snapshot 1.41/1.30/2.23/2.48 canvas 1.36/1.25/2.17/2.44 drain 0.05/0.05/0.10/0.12 commits 60 js 0.21/0.20/0.37/0.87 core 0.08/0.06/0.15/0.19 items 1 engine 2% cpu 30% rss 189.0 MB",
+          "[2026-11-15T08:04:23.769Z INFO  nsh::fps] fps 60/60 frame 4.75/4.62/6.25/7.54 gap 16.67/16.63/18.47/19.16 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 4.87/4.73/6.36/7.47 snapshot 1.62/1.45/2.50/3.55 canvas 1.56/1.40/2.45/3.48 drain 0.05/0.04/0.10/0.13 commits 60 js 0.19/0.16/0.31/0.87 core 0.06/0.04/0.15/0.19 items 1 engine 1% cpu 31% rss 189.3 MB",
+          "[2026-11-15T08:04:24.783Z INFO  nsh::fps] fps 60/60 frame 5.97/5.29/9.25/11.41 gap 16.66/16.63/18.83/20.80 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 6.83/7.10/9.28/11.25 snapshot 3.01/3.18/5.00/5.73 canvas 2.94/3.12/4.90/5.67 drain 0.09/0.08/0.19/0.22 commits 60 js 0.26/0.21/0.58/0.74 core 0.08/0.06/0.18/0.25 items 1 engine 3% cpu 45% rss 190.2 MB",
+          "[2026-11-15T08:04:25.785Z INFO  nsh::fps] fps 60/60 frame 5.94/5.28/9.25/11.41 gap 16.67/16.64/18.80/20.80 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 4.83/4.81/6.50/7.35 snapshot 1.60/1.46/2.67/2.73 canvas 1.55/1.42/2.60/2.64 drain 0.07/0.06/0.15/0.17 commits 60 js 0.30/0.25/0.58/0.74 core 0.10/0.09/0.20/0.25 items 1 engine 2% cpu 32% rss 189.7 MB",
+          "[2026-11-15T08:04:26.799Z INFO  nsh::fps] fps 60/60 frame 5.26/4.99/7.16/9.57 gap 16.66/16.53/18.89/21.23 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 5.51/5.09/8.45/9.50 snapshot 1.84/1.44/3.53/5.71 canvas 1.78/1.39/3.41/5.64 drain 0.06/0.05/0.11/0.14 commits 60 js 0.22/0.20/0.36/0.84 core 0.08/0.07/0.16/0.20 items 1 engine 2% cpu 34% rss 190.1 MB",
+          "[2026-11-15T08:04:27.803Z INFO  nsh::fps] fps 60/60 frame 7.11/6.88/10.05/15.11 gap 16.69/16.64/19.61/22.82 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 8.49/8.44/12.04/14.94 snapshot 3.53/3.32/5.25/6.20 canvas 3.46/3.26/5.19/6.12 drain 0.08/0.08/0.15/0.18 commits 60 js 0.24/0.18/0.46/1.30 core 0.08/0.06/0.18/0.22 items 1 engine 2% cpu 51% rss 190.9 MB",
+          "[2026-11-15T08:04:28.818Z INFO  nsh::fps] fps 60/60 frame 7.64/7.53/11.07/15.11 gap 16.67/16.51/19.71/22.82 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 6.49/6.33/9.60/12.44 snapshot 2.58/2.26/5.05/6.73 canvas 2.52/2.20/4.99/6.63 drain 0.09/0.08/0.18/0.21 commits 60 js 0.23/0.18/0.41/1.30 core 0.07/0.06/0.17/0.22 items 1 engine 2% cpu 40% rss 191.0 MB",
+          "[2026-11-15T08:04:29.832Z INFO  nsh::fps] fps 60/60 frame 5.85/5.44/8.74/12.64 gap 16.62/16.51/19.36/22.79 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 5.11/4.81/7.74/9.12 snapshot 1.64/1.47/3.33/4.09 canvas 1.60/1.43/3.24/4.01 drain 0.06/0.06/0.13/0.14 commits 60 js 0.22/0.19/0.36/0.39 core 0.06/0.06/0.11/0.21 items 1 engine 2% cpu 33% rss 191.0 MB",
+          "[2026-11-15T08:04:30.833Z INFO  nsh::fps] fps 60/60 frame 4.89/4.61/7.50/9.28 gap 16.66/16.64/18.68/20.65 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 4.52/4.32/5.97/6.23 snapshot 1.32/1.28/1.88/2.71 canvas 1.28/1.25/1.83/2.64 drain 0.05/0.05/0.09/0.11 commits 60 js 0.22/0.19/0.36/0.65 core 0.07/0.06/0.11/0.18 items 1 engine 2% cpu 29% rss 191.0 MB"
+        ]
+      },
+      {
+        "run": 3,
+        "pid": 225708,
+        "digest": "3ecf46af",
+        "config": "cols=120,rows=80,cell=6,seed=1279872089,density=28,restart=240,digest_steps=300,tick_us=16667",
+        "first_frame_internal_ms": 0.47,
+        "ticks": 660,
+        "draws": 660,
+        "elapsed_ms": 11000,
+        "steps_per_s": 60.0,
+        "draws_per_s": 60.0,
+        "tick_gaps_us": {
+          "n": 539,
+          "min": 14594.0,
+          "median": 16667.0,
+          "mean": 16666.43,
+          "p95": 16990.0,
+          "max": 18749.0,
+          "stdev": 336.57
+        },
+        "step_us": {
+          "n": 540,
+          "min": 40.0,
+          "median": 72.0,
+          "mean": 78.84,
+          "p95": 140.0,
+          "max": 437.0,
+          "stdev": 33.9
+        },
+        "draw_us": {
+          "n": 540,
+          "min": 20.0,
+          "median": 47.0,
+          "mean": 69.63,
+          "p95": 186.0,
+          "max": 339.0,
+          "stdev": 54.09
+        },
+        "fps_monitor": {
+          "lines_total": 11,
+          "lines_steady": 9,
+          "fps": {
+            "n": 9,
+            "min": 60.0,
+            "median": 60.0,
+            "mean": 60.0,
+            "p95": 60.0,
+            "max": 60.0,
+            "stdev": 0.0
+          },
+          "frame_p50_ms": {
+            "n": 9,
+            "min": 5.59,
+            "median": 6.34,
+            "mean": 6.23,
+            "p95": 6.61,
+            "max": 6.61,
+            "stdev": 0.38
+          },
+          "frame_mean_ms": {
+            "n": 9,
+            "min": 5.86,
+            "median": 6.51,
+            "mean": 6.47,
+            "p95": 6.89,
+            "max": 6.89,
+            "stdev": 0.36
+          },
+          "gap_p50_ms": {
+            "n": 9,
+            "min": 16.57,
+            "median": 16.63,
+            "mean": 16.66,
+            "p95": 16.85,
+            "max": 16.85,
+            "stdev": 0.09
+          },
+          "paint_mean_ms": {
+            "n": 9,
+            "min": 5.43,
+            "median": 6.51,
+            "mean": 6.42,
+            "p95": 6.98,
+            "max": 6.98,
+            "stdev": 0.43
+          },
+          "snapshot_mean_ms": {
+            "n": 9,
+            "min": 2.13,
+            "median": 2.59,
+            "mean": 2.53,
+            "p95": 2.76,
+            "max": 2.76,
+            "stdev": 0.19
+          },
+          "canvas_mean_ms": {
+            "n": 9,
+            "min": 2.09,
+            "median": 2.54,
+            "mean": 2.47,
+            "p95": 2.7,
+            "max": 2.7,
+            "stdev": 0.18
+          },
+          "cpu_pct": {
+            "n": 9,
+            "min": 35.0,
+            "median": 40.0,
+            "mean": 39.56,
+            "p95": 42.0,
+            "max": 42.0,
+            "stdev": 2.06
+          },
+          "fps_rss_mb": {
+            "n": 9,
+            "min": 188.0,
+            "median": 189.5,
+            "mean": 189.56,
+            "p95": 190.5,
+            "max": 190.5,
+            "stdev": 0.84
+          }
+        },
+        "proc_rss_mb": {
+          "n": 45,
+          "min": 178.14,
+          "median": 180.27,
+          "mean": 180.34,
+          "p95": 181.71,
+          "max": 181.71,
+          "stdev": 0.97
+        },
+        "panics": 0,
+        "fps_lines_steady": [
+          "[2026-11-15T08:04:44.431Z INFO  nsh::fps] fps 60/60 frame 6.19/5.97/8.95/11.93 gap 16.65/16.71/19.04/22.18 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 6.60/6.37/9.05/10.96 snapshot 2.63/2.55/4.00/4.87 canvas 2.58/2.50/3.94/4.81 drain 0.07/0.04/0.14/0.79 commits 60 js 0.21/0.18/0.32/0.48 core 0.06/0.04/0.12/0.26 items 1 engine 2% cpu 40% rss 188.7 MB",
+          "[2026-11-15T08:04:45.433Z INFO  nsh::fps] fps 60/60 frame 6.86/6.56/9.42/11.44 gap 16.68/16.66/19.86/21.90 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 6.91/6.69/10.04/11.35 snapshot 2.76/2.63/4.46/4.66 canvas 2.70/2.60/4.39/4.54 drain 0.05/0.05/0.10/0.12 commits 60 js 0.19/0.17/0.29/0.31 core 0.06/0.04/0.11/0.22 items 1 engine 1% cpu 42% rss 189.5 MB",
+          "[2026-11-15T08:04:46.434Z INFO  nsh::fps] fps 60/60 frame 6.79/6.57/9.42/11.44 gap 16.69/16.57/19.86/21.90 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 6.51/6.40/9.44/9.81 snapshot 2.60/2.43/3.90/4.62 canvas 2.55/2.38/3.85/4.57 drain 0.05/0.05/0.07/0.09 commits 60 js 0.18/0.18/0.27/0.67 core 0.05/0.04/0.10/0.21 items 1 engine 1% cpu 40% rss 189.4 MB",
+          "[2026-11-15T08:04:47.451Z INFO  nsh::fps] fps 60/60 frame 6.51/6.34/8.84/9.91 gap 16.68/16.58/18.95/20.22 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 6.36/6.41/8.72/9.29 snapshot 2.54/2.25/4.12/5.60 canvas 2.48/2.18/4.08/5.51 drain 0.04/0.04/0.06/0.14 commits 60 js 0.18/0.17/0.26/0.67 core 0.04/0.04/0.06/0.11 items 1 engine 1% cpu 39% rss 188.0 MB",
+          "[2026-11-15T08:04:48.451Z INFO  nsh::fps] fps 60/60 frame 6.40/6.34/8.48/9.50 gap 16.69/16.85/18.95/19.46 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 6.30/6.29/8.11/9.45 snapshot 2.27/2.22/3.48/3.58 canvas 2.21/2.16/3.42/3.51 drain 0.04/0.04/0.10/0.15 commits 60 js 0.21/0.18/0.37/0.60 core 0.05/0.04/0.11/0.21 items 1 engine 2% cpu 39% rss 188.9 MB",
+          "[2026-11-15T08:04:49.452Z INFO  nsh::fps] fps 60/60 frame 6.73/6.49/9.50/11.22 gap 16.67/16.78/19.27/21.37 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 6.98/6.77/10.39/11.08 snapshot 2.69/2.49/4.51/5.21 canvas 2.60/2.41/4.39/5.13 drain 0.07/0.06/0.12/0.31 commits 60 js 0.26/0.24/0.41/0.60 core 0.08/0.06/0.14/0.44 items 1 engine 2% cpu 42% rss 190.5 MB",
+          "[2026-11-15T08:04:50.466Z INFO  nsh::fps] fps 60/60 frame 6.89/6.61/9.90/11.23 gap 16.67/16.60/19.27/21.67 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 6.58/6.32/9.34/11.14 snapshot 2.59/2.44/4.26/5.34 canvas 2.54/2.39/4.06/5.26 drain 0.05/0.04/0.10/0.14 commits 60 js 0.28/0.27/0.46/0.57 core 0.07/0.06/0.14/0.44 items 1 engine 2% cpu 41% rss 190.5 MB",
+          "[2026-11-15T08:04:51.482Z INFO  nsh::fps] fps 60/60 frame 6.03/5.59/8.60/11.23 gap 16.65/16.58/18.96/21.67 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 5.43/5.28/6.48/8.06 snapshot 2.13/2.06/2.94/3.33 canvas 2.09/2.01/2.90/3.27 drain 0.04/0.04/0.06/0.13 commits 60 js 0.26/0.26/0.44/0.55 core 0.06/0.05/0.12/0.20 items 1 engine 2% cpu 35% rss 190.2 MB",
+          "[2026-11-15T08:04:52.484Z INFO  nsh::fps] fps 60/60 frame 5.86/5.63/8.02/8.85 gap 16.70/16.63/18.54/20.00 over 0% update 0.00/0.00/0.00/0.00 layout 0.00/0.00/0.00/0.00 paint 6.14/5.89/8.17/8.79 snapshot 2.57/2.46/4.06/4.97 canvas 2.51/2.40/3.99/4.91 drain 0.04/0.04/0.08/0.15 commits 60 js 0.21/0.17/0.39/0.69 core 0.05/0.04/0.12/0.20 items 1 engine 1% cpu 38% rss 190.3 MB"
+        ]
+      }
+    ],
+    "aggregate": {
+      "first_frame_internal_ms": {
+        "n": 3,
+        "min": 0.46,
+        "median": 0.47,
+        "mean": 0.58,
+        "p95": 0.81,
+        "max": 0.81,
+        "stdev": 0.16
+      },
+      "steps_per_s": {
+        "n": 3,
+        "min": 60.0,
+        "median": 60.0,
+        "mean": 60.0,
+        "p95": 60.0,
+        "max": 60.0,
+        "stdev": 0.0
+      },
+      "draws_per_s": {
+        "n": 3,
+        "min": 60.0,
+        "median": 60.0,
+        "mean": 60.0,
+        "p95": 60.0,
+        "max": 60.0,
+        "stdev": 0.0
+      },
+      "panics": {
+        "n": 3,
+        "min": 0.0,
+        "median": 0.0,
+        "mean": 0.0,
+        "p95": 0.0,
+        "max": 0.0,
+        "stdev": 0.0
+      }
+    },
+    "steady_aggregate": {
+      "step_us": {
+        "n": 3,
+        "min": 71.0,
+        "median": 72.0,
+        "mean": 72.0,
+        "p95": 73.0,
+        "max": 73.0,
+        "stdev": 0.82
+      },
+      "draw_us": {
+        "n": 3,
+        "min": 39.0,
+        "median": 47.0,
+        "mean": 46.33,
+        "p95": 53.0,
+        "max": 53.0,
+        "stdev": 5.73
+      },
+      "tick_gaps_us": {
+        "n": 3,
+        "min": 16665.0,
+        "median": 16666.0,
+        "mean": 16666.0,
+        "p95": 16667.0,
+        "max": 16667.0,
+        "stdev": 0.82
+      },
+      "proc_rss_mb": {
+        "n": 3,
+        "min": 180.27,
+        "median": 181.07,
+        "mean": 181.11,
+        "p95": 182.0,
+        "max": 182.0,
+        "stdev": 0.71
+      },
+      "fps_monitor": {
+        "fps": {
+          "n": 3,
+          "min": 60.0,
+          "median": 60.0,
+          "mean": 60.0,
+          "p95": 60.0,
+          "max": 60.0,
+          "stdev": 0.0
+        },
+        "frame_p50_ms": {
+          "n": 3,
+          "min": 5.28,
+          "median": 5.5,
+          "mean": 5.71,
+          "p95": 6.34,
+          "max": 6.34,
+          "stdev": 0.46
+        },
+        "frame_mean_ms": {
+          "n": 3,
+          "min": 5.85,
+          "median": 5.89,
+          "mean": 6.08,
+          "p95": 6.51,
+          "max": 6.51,
+          "stdev": 0.3
+        },
+        "gap_p50_ms": {
+          "n": 3,
+          "min": 16.63,
+          "median": 16.63,
+          "mean": 16.65,
+          "p95": 16.69,
+          "max": 16.69,
+          "stdev": 0.03
+        },
+        "paint_mean_ms": {
+          "n": 3,
+          "min": 5.11,
+          "median": 5.79,
+          "mean": 5.8,
+          "p95": 6.51,
+          "max": 6.51,
+          "stdev": 0.57
+        },
+        "snapshot_mean_ms": {
+          "n": 3,
+          "min": 1.64,
+          "median": 1.91,
+          "mean": 2.05,
+          "p95": 2.59,
+          "max": 2.59,
+          "stdev": 0.4
+        },
+        "canvas_mean_ms": {
+          "n": 3,
+          "min": 1.6,
+          "median": 1.87,
+          "mean": 2.0,
+          "p95": 2.54,
+          "max": 2.54,
+          "stdev": 0.4
+        },
+        "cpu_pct": {
+          "n": 3,
+          "min": 33.0,
+          "median": 37.0,
+          "mean": 36.67,
+          "p95": 40.0,
+          "max": 40.0,
+          "stdev": 2.87
+        },
+        "fps_rss_mb": {
+          "n": 3,
+          "min": 189.5,
+          "median": 190.2,
+          "mean": 190.37,
+          "p95": 191.4,
+          "max": 191.4,
+          "stdev": 0.78
+        }
+      }
+    }
+  },
+  "web": {
+    "runs": [
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "offline_vendored",
+        "url": "file:///home/lilyco/code/lilyco/lilyco-native-ui/bench/fixtures/.generated/life-offline.html",
+        "firstRenderMs": 601,
+        "wallMs": 9698,
+        "digest": "3ecf46af",
+        "config": "cols=120,rows=80,cell=6,seed=1279872089,density=28,restart=240,digest_steps=300,tick_us=16667",
+        "snapshot": {
+          "ticks": 552,
+          "draws": 550,
+          "elapsed_ms": 9215
+        },
+        "warmupSamples": 120,
+        "raf_gaps_us": {
+          "n": 430,
+          "min": 16500,
+          "median": 16700,
+          "mean": 16665.81,
+          "p95": 16700,
+          "max": 16800,
+          "stdev": 58.42
+        },
+        "effective_fps": 59.88,
+        "step_us": {
+          "n": 432,
+          "min": 0,
+          "median": 100,
+          "mean": 145.83,
+          "p95": 200,
+          "max": 400,
+          "stdev": 68.93
+        },
+        "draw_us": {
+          "n": 430,
+          "min": 0,
+          "median": 100,
+          "mean": 154.42,
+          "p95": 300,
+          "max": 800,
+          "stdev": 107.9
+        },
+        "errors": [],
+        "perfMetrics": {
+          "Timestamp": 5898.402157,
+          "AudioHandlers": 0,
+          "AudioWorkletProcessors": 0,
+          "Documents": 4,
+          "Frames": 4,
+          "JSEventListeners": 136,
+          "LayoutObjects": 13,
+          "MediaKeySessions": 0,
+          "MediaKeys": 0,
+          "Nodes": 57,
+          "Resources": 0,
+          "ContextLifecycleStateObservers": 13,
+          "V8PerContextDatas": 2,
+          "WorkerGlobalScopes": 0,
+          "UACSSResources": 0,
+          "RTCPeerConnections": 0,
+          "ResourceFetchers": 4,
+          "AdSubframes": 0,
+          "DetachedScriptStates": 1,
+          "ArrayBufferContents": 7,
+          "LayoutCount": 3,
+          "RecalcStyleCount": 3,
+          "LayoutDuration": 0.024964,
+          "RecalcStyleDuration": 0.000716,
+          "DevToolsCommandDuration": 0.001386,
+          "ScriptDuration": 0.513477,
+          "V8CompileDuration": 0.057803,
+          "TaskDuration": 1.281313,
+          "TaskOtherDuration": 0.682967,
+          "ThreadTime": 1.246113,
+          "ProcessTime": 1.73,
+          "JSHeapUsedSize": 9954852,
+          "JSHeapTotalSize": 13819904,
+          "FirstMeaningfulPaint": 5889.271422,
+          "DomContentLoaded": 5889.122705,
+          "NavigationStart": 5888.778861
+        },
+        "exceptions": [],
+        "consoleErrors": [],
+        "netFail": [],
+        "externalRequests": [],
+        "run": 1,
+        "node_stdout": "LIFE_WEB {\"digest\":\"3ecf46af\",\"firstRenderMs\":601,\"ticks\":552,\"draws\":550,\"raf_median_us\":16700,\"errors\":0}",
+        "node_stderr": "",
+        "chrome_rss_mb": {
+          "n": 37,
+          "min": 1090.27,
+          "median": 1131.95,
+          "mean": 1130.39,
+          "p95": 1133.34,
+          "max": 1133.37,
+          "stdev": 7.3
+        },
+        "chrome_cpu_pct_from_proc_jiffies": 24.33,
+        "chrome_jiffies_delta": 292,
+        "js_heap_mb": 9.49,
+        "steps_per_s": 59.9,
+        "draws_per_s": 59.69
+      },
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "offline_vendored",
+        "url": "file:///home/lilyco/code/lilyco/lilyco-native-ui/bench/fixtures/.generated/life-offline.html",
+        "firstRenderMs": 568,
+        "wallMs": 9597,
+        "digest": "3ecf46af",
+        "config": "cols=120,rows=80,cell=6,seed=1279872089,density=28,restart=240,digest_steps=300,tick_us=16667",
+        "snapshot": {
+          "ticks": 556,
+          "draws": 555,
+          "elapsed_ms": 9274
+        },
+        "warmupSamples": 120,
+        "raf_gaps_us": {
+          "n": 435,
+          "min": 16500,
+          "median": 16700,
+          "mean": 16665.98,
+          "p95": 16700,
+          "max": 16800,
+          "stdev": 54.17
+        },
+        "effective_fps": 59.88,
+        "step_us": {
+          "n": 436,
+          "min": 0,
+          "median": 100,
+          "mean": 147.94,
+          "p95": 300,
+          "max": 700,
+          "stdev": 74.32
+        },
+        "draw_us": {
+          "n": 435,
+          "min": 0,
+          "median": 200,
+          "mean": 175.4,
+          "p95": 400,
+          "max": 900,
+          "stdev": 105.34
+        },
+        "errors": [],
+        "perfMetrics": {
+          "Timestamp": 5920.086493,
+          "AudioHandlers": 0,
+          "AudioWorkletProcessors": 0,
+          "Documents": 4,
+          "Frames": 4,
+          "JSEventListeners": 136,
+          "LayoutObjects": 13,
+          "MediaKeySessions": 0,
+          "MediaKeys": 0,
+          "Nodes": 57,
+          "Resources": 0,
+          "ContextLifecycleStateObservers": 13,
+          "V8PerContextDatas": 2,
+          "WorkerGlobalScopes": 0,
+          "UACSSResources": 0,
+          "RTCPeerConnections": 0,
+          "ResourceFetchers": 4,
+          "AdSubframes": 0,
+          "DetachedScriptStates": 1,
+          "ArrayBufferContents": 7,
+          "LayoutCount": 2,
+          "RecalcStyleCount": 2,
+          "LayoutDuration": 0.012077,
+          "RecalcStyleDuration": 0.000845,
+          "DevToolsCommandDuration": 0.001291,
+          "ScriptDuration": 0.473368,
+          "V8CompileDuration": 0.04644,
+          "TaskDuration": 1.135474,
+          "TaskOtherDuration": 0.601453,
+          "ThreadTime": 1.126018,
+          "ProcessTime": 1.54,
+          "JSHeapUsedSize": 9881984,
+          "JSHeapTotalSize": 13819904,
+          "FirstMeaningfulPaint": 5910.882851,
+          "DomContentLoaded": 5910.75588,
+          "NavigationStart": 5910.493654
+        },
+        "exceptions": [],
+        "consoleErrors": [],
+        "netFail": [],
+        "externalRequests": [],
+        "run": 2,
+        "node_stdout": "LIFE_WEB {\"digest\":\"3ecf46af\",\"firstRenderMs\":568,\"ticks\":556,\"draws\":555,\"raf_median_us\":16700,\"errors\":0}",
+        "node_stderr": "",
+        "chrome_rss_mb": {
+          "n": 36,
+          "min": 1115.46,
+          "median": 1134.89,
+          "mean": 1134.08,
+          "p95": 1135.63,
+          "max": 1135.64,
+          "stdev": 3.26
+        },
+        "chrome_cpu_pct_from_proc_jiffies": 18.58,
+        "chrome_jiffies_delta": 223,
+        "js_heap_mb": 9.42,
+        "steps_per_s": 59.95,
+        "draws_per_s": 59.84
+      },
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "offline_vendored",
+        "url": "file:///home/lilyco/code/lilyco/lilyco-native-ui/bench/fixtures/.generated/life-offline.html",
+        "firstRenderMs": 570,
+        "wallMs": 9599,
+        "digest": "3ecf46af",
+        "config": "cols=120,rows=80,cell=6,seed=1279872089,density=28,restart=240,digest_steps=300,tick_us=16667",
+        "snapshot": {
+          "ticks": 555,
+          "draws": 554,
+          "elapsed_ms": 9272
+        },
+        "warmupSamples": 120,
+        "raf_gaps_us": {
+          "n": 434,
+          "min": 16500,
+          "median": 16700,
+          "mean": 16665.9,
+          "p95": 16700,
+          "max": 16800,
+          "stdev": 57.51
+        },
+        "effective_fps": 59.88,
+        "step_us": {
+          "n": 435,
+          "min": 0,
+          "median": 100,
+          "mean": 145.75,
+          "p95": 200,
+          "max": 300,
+          "stdev": 67.12
+        },
+        "draw_us": {
+          "n": 434,
+          "min": 0,
+          "median": 200,
+          "mean": 165.21,
+          "p95": 300,
+          "max": 900,
+          "stdev": 93.38
+        },
+        "errors": [],
+        "perfMetrics": {
+          "Timestamp": 5941.730507,
+          "AudioHandlers": 0,
+          "AudioWorkletProcessors": 0,
+          "Documents": 4,
+          "Frames": 4,
+          "JSEventListeners": 136,
+          "LayoutObjects": 13,
+          "MediaKeySessions": 0,
+          "MediaKeys": 0,
+          "Nodes": 57,
+          "Resources": 0,
+          "ContextLifecycleStateObservers": 13,
+          "V8PerContextDatas": 2,
+          "WorkerGlobalScopes": 0,
+          "UACSSResources": 0,
+          "RTCPeerConnections": 0,
+          "ResourceFetchers": 4,
+          "AdSubframes": 0,
+          "DetachedScriptStates": 1,
+          "ArrayBufferContents": 7,
+          "LayoutCount": 2,
+          "RecalcStyleCount": 2,
+          "LayoutDuration": 0.01239,
+          "RecalcStyleDuration": 0.000528,
+          "DevToolsCommandDuration": 0.00126,
+          "ScriptDuration": 0.476645,
+          "V8CompileDuration": 0.043075,
+          "TaskDuration": 1.166401,
+          "TaskOtherDuration": 0.632503,
+          "ThreadTime": 1.151346,
+          "ProcessTime": 1.6,
+          "JSHeapUsedSize": 9899056,
+          "JSHeapTotalSize": 13557760,
+          "FirstMeaningfulPaint": 5932.521341,
+          "DomContentLoaded": 5932.399374,
+          "NavigationStart": 5932.134816
+        },
+        "exceptions": [],
+        "consoleErrors": [],
+        "netFail": [],
+        "externalRequests": [],
+        "run": 3,
+        "node_stdout": "LIFE_WEB {\"digest\":\"3ecf46af\",\"firstRenderMs\":570,\"ticks\":555,\"draws\":554,\"raf_median_us\":16700,\"errors\":0}",
+        "node_stderr": "",
+        "chrome_rss_mb": {
+          "n": 36,
+          "min": 1118.38,
+          "median": 1141.82,
+          "mean": 1141.06,
+          "p95": 1143.08,
+          "max": 1143.16,
+          "stdev": 3.97
+        },
+        "chrome_cpu_pct_from_proc_jiffies": 20.75,
+        "chrome_jiffies_delta": 249,
+        "js_heap_mb": 9.44,
+        "steps_per_s": 59.86,
+        "draws_per_s": 59.75
+      }
+    ],
+    "aggregate": {
+      "firstRenderMs": {
+        "n": 3,
+        "min": 568.0,
+        "median": 570.0,
+        "mean": 579.67,
+        "p95": 601.0,
+        "max": 601.0,
+        "stdev": 15.11
+      },
+      "effective_fps": {
+        "n": 3,
+        "min": 59.88,
+        "median": 59.88,
+        "mean": 59.88,
+        "p95": 59.88,
+        "max": 59.88,
+        "stdev": 0.0
+      },
+      "steps_per_s": {
+        "n": 3,
+        "min": 59.86,
+        "median": 59.9,
+        "mean": 59.9,
+        "p95": 59.95,
+        "max": 59.95,
+        "stdev": 0.04
+      },
+      "draws_per_s": {
+        "n": 3,
+        "min": 59.69,
+        "median": 59.75,
+        "mean": 59.76,
+        "p95": 59.84,
+        "max": 59.84,
+        "stdev": 0.06
+      },
+      "js_heap_mb": {
+        "n": 3,
+        "min": 9.42,
+        "median": 9.44,
+        "mean": 9.45,
+        "p95": 9.49,
+        "max": 9.49,
+        "stdev": 0.03
+      },
+      "chrome_cpu_pct_from_proc_jiffies": {
+        "n": 3,
+        "min": 18.58,
+        "median": 20.75,
+        "mean": 21.22,
+        "p95": 24.33,
+        "max": 24.33,
+        "stdev": 2.37
+      }
+    },
+    "steady_aggregate": {
+      "raf_gaps_us": {
+        "n": 3,
+        "min": 16700.0,
+        "median": 16700.0,
+        "mean": 16700.0,
+        "p95": 16700.0,
+        "max": 16700.0,
+        "stdev": 0.0
+      },
+      "step_us": {
+        "n": 3,
+        "min": 100.0,
+        "median": 100.0,
+        "mean": 100.0,
+        "p95": 100.0,
+        "max": 100.0,
+        "stdev": 0.0
+      },
+      "draw_us": {
+        "n": 3,
+        "min": 100.0,
+        "median": 200.0,
+        "mean": 166.67,
+        "p95": 200.0,
+        "max": 200.0,
+        "stdev": 47.14
+      },
+      "chrome_rss_mb": {
+        "n": 3,
+        "min": 1131.95,
+        "median": 1134.89,
+        "mean": 1136.22,
+        "p95": 1141.82,
+        "max": 1141.82,
+        "stdev": 4.14
+      }
+    }
+  },
+  "caveats": [
+    "native FPS is the GTK frame clock reported by nsh::fps (60/60); Web FPS is 1e6 / median(requestAnimationFrame interval).",
+    "native step_us/draw_us are Rust CPU work; Web step_us/draw_us are JS performance.now() around equivalent work, not rasterization.",
+    "native RSS is one process; Web RSS is the whole Chromium process tree (multi-process).",
+    "CDN cold start is deliberately excluded: steady-state Web uses the vendored inline fixture.",
+    "Numbers are from one sequential batch on one host; do not compare across earlier batches."
+  ]
+}
