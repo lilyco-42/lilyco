@@ -39,6 +39,9 @@ pub struct RegisteredCommand {
     pub hidden: bool,
     /// 完整 schema（CLI / TUI / GUI / MCP 都从这里渲染）
     pub schema: CommandSchema,
+    /// 静态视图槽位：页面先画壳，运行时按 id 填充
+    #[serde(default)]
+    pub views: Vec<crate::view::ViewSlot>,
     /// 执行处理器；声明式加载（JSON）时不携带
     #[serde(skip)]
     pub handler: Option<Handler>,
@@ -51,6 +54,7 @@ impl std::fmt::Debug for RegisteredCommand {
             .field("aliases", &self.aliases)
             .field("hidden", &self.hidden)
             .field("schema", &self.schema)
+            .field("views", &self.views)
             .field("handler", &self.handler.as_ref().map(|_| "<handler>"))
             .finish()
     }
@@ -64,6 +68,7 @@ impl RegisteredCommand {
             aliases: Vec::new(),
             hidden: false,
             schema,
+            views: Vec::new(),
             handler: None,
         }
     }
@@ -103,6 +108,7 @@ impl RegisteredCommand {
     pub fn from_app<A: App + Send + 'static>() -> Self {
         let schema = A::schema();
         let name = schema.name.clone();
+        let views = A::views();
         let handler: Handler = Arc::new(|ctx, args| {
             let obj = args
                 .as_object()
@@ -117,6 +123,7 @@ impl RegisteredCommand {
             aliases: Vec::new(),
             hidden: false,
             schema,
+            views,
             handler: Some(handler),
         }
     }

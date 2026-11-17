@@ -250,11 +250,53 @@ fn number_cast_type(ty: &Type) -> TokenStream {
     quote! { #ty }
 }
 
+struct ViewAttr {
+    id: String,
+    title: Option<String>,
+    kind: Option<String>,
+}
+
+/// 解析 `#[view(id = "...", title = "...", kind = "...")]`（可重复）
+///
+/// 只声明槽位，不携带数据；运行时用 `ctx.view(id, Component::…)` 填充。
+fn parse_view_attrs(attrs: &[Attribute]) -> Vec<ViewAttr> {
+    let mut out = Vec::new();
+    for attr in attrs {
+        if !attr.path().is_ident("view") {
+            continue;
+        }
+        let mut id = None;
+        let mut title = None;
+        let mut kind = None;
+        let _ = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("id") {
+                if let Lit::Str(s) = meta.value()?.parse::<Lit>()? {
+                    id = Some(s.value());
+                }
+            } else if meta.path.is_ident("title") {
+                if let Lit::Str(s) = meta.value()?.parse::<Lit>()? {
+                    title = Some(s.value());
+                }
+            } else if meta.path.is_ident("kind") {
+                if let Lit::Str(s) = meta.value()?.parse::<Lit>()? {
+                    kind = Some(s.value());
+                }
+            }
+            Ok(())
+        });
+        if let Some(id) = id {
+            out.push(ViewAttr { id, title, kind });
+        }
+    }
+    out
+}
+
 pub fn derive_app_impl(input: TokenStream) -> TokenStream {
     let input: DeriveInput = syn::parse2(input).expect("App: parse error");
 
     let struct_name = &input.ident;
     let app_attrs = parse_app_attrs(&input.attrs);
+    let view_attrs = parse_view_attrs(&input.attrs);
     // 展开路径：默认走 facade 的 `__core` 再导出；`#[app(crate = "lilyco_core")]` 让
     // 只依赖 core + macros 的嵌入方也能 derive。写错就当编译错误报出来，不 panic。
     let core: TokenStream = match app_attrs.crate_path.as_deref().map(str::trim) {
@@ -419,6 +461,26 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
         }
     };
 
+    let views_impl = if view_attrs.is_empty() {
+        quote! {}
+    } else {
+        let slots = view_attrs.iter().map(|v| {
+            let id = &v.id;
+            let title = match &v.title {
+                Some(t) => quote! { Some(#t.into()) },
+                None => quote! { None },
+            };
+            let kind = match &v.kind {
+                Some(k) => quote! { Some(#k.into()) },
+                None => quote! { None },
+            };
+            quote! { #core::view::ViewSlot { id: #id.into(), title: #title, kind: #kind } }
+        });
+        quote! {
+            fn views() -> Vec<#core::view::ViewSlot> { vec![#(#slots),*] }
+        }
+    };
+
     let expanded = quote! {
         impl #core::App for #struct_name {
             fn schema() -> #core::schema::CommandSchema {
@@ -440,6 +502,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
             }
 
             #run_impl
+            #views_impl
         }
     };
 

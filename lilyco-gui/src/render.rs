@@ -39,6 +39,26 @@ pub(crate) fn pick_command<'r>(
         .expect("pick_command: registry has no visible commands")
 }
 
+/// 静态视图槽位 → 页面占位骨架
+///
+/// 槽位只有 `id` / `title` / `kind`，没有数据；先画一个 skeleton，
+/// 运行时 `ctx.view(id, …)` 再原位替换。没有槽位时整段为空，容器保持 hidden。
+fn render_view_slots(slots: &[lilyco_core::view::ViewSlot]) -> String {
+    slots
+        .iter()
+        .map(|s| {
+            let title = s.title.as_deref().map(html_escape).unwrap_or_default();
+            let kind = s.kind.as_deref().unwrap_or("");
+            format!(
+                r##"<section class="view" data-view-id="{id}" data-view-title="{title}" data-view-kind-hint="{kind}"><div class="v v-skeleton" data-view-placeholder="1"><div class="v-title">{title}</div><div class="v-sk-line"></div><div class="v-sk-line"></div></div></section>"##,
+                id = html_escape(&s.id),
+                title = title,
+                kind = html_escape(kind),
+            )
+        })
+        .collect()
+}
+
 /// `GET /`：装配一份命令表单。这里只做「取 schema → 拼组件 → 填模板 → 挂响应头」，
 /// 具体每个控件长什么样一律在 `widget_*` 里
 pub(crate) async fn index(
@@ -46,12 +66,15 @@ pub(crate) async fn index(
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
     // 多命令模式：?cmd= 决定渲染哪个命令的表单
-    let schema = match &state.registry {
-        Some(reg) => pick_command(reg, params.get("cmd").map(|x| x.as_str()))
-            .schema
-            .clone(),
-        None => state.schema.as_ref().clone(),
+    let (schema, views) = match &state.registry {
+        Some(reg) => {
+            let cmd = pick_command(reg, params.get("cmd").map(|x| x.as_str()));
+            (cmd.schema.clone(), cmd.views.clone())
+        }
+        None => (state.schema.as_ref().clone(), Vec::new()),
     };
+    let views_html = render_view_slots(&views);
+    let views_attr = if views.is_empty() { " hidden" } else { "" };
 
     let cmd_nav = state
         .registry
@@ -89,6 +112,8 @@ pub(crate) async fn index(
         .replace("__CANCEL_JS__", cancellable)
         .replace("__CMD_NAV__", &cmd_nav)
         .replace("__FIELDS__", &fields_html)
+        .replace("__VIEWS__", &views_html)
+        .replace("__VIEWS_ATTR__", views_attr)
         .replace("__ABOUT__", &html_escape(&schema.about))
         .replace("__CMD_NAME__", &html_escape(&schema.name))
         .replace("__CMD_JS__", &serde_json::json!(schema.name).to_string())
@@ -1133,10 +1158,119 @@ mod tests {
     /// 量的是**提交进仓库的字节**：Windows runner 按 `core.autocrlf` 检出时会给每行补一个
     /// `\r`，同一个文件就地胖 441 B —— 2026-09-23 就是这样在 CI 上红的（本地 20,751 B、
     /// CI 21,192 B）。预算要管的是资源本身，不是某台机器的检出方式。
+    // ── 语义视图组件协议（批 1） ─────────────────────────────
+
+    /// 每个协议变体都必须有前端渲染分支；缺一个，后端声明的组件就会落到
+    /// 「未识别组件」的降级块里 —— 那是能跑但看不见的实现，比报错更难发现。
+    #[test]
+    fn batch1_component_kinds_have_renderers() {
+        let html = HTML_TEMPLATE;
+        let kinds = [
+            "card",
+            "separator",
+            "progress",
+            "badge",
+            "alert",
+            "toast",
+            "skeleton",
+            "key_value",
+            "table",
+            "log",
+            "result",
+            "button",
+            "section",
+            "scroll_area",
+            "aspect_ratio",
+            "collapsible",
+            "accordion",
+            "tabs",
+            "breadcrumb",
+            "pagination",
+            "sidebar",
+            "resizable",
+            "carousel",
+            "avatar",
+            "chart",
+            "toggle",
+            "toggle_group",
+            "tooltip",
+            "hover_card",
+            "dialog",
+            "sheet",
+            "drawer",
+            "alert_dialog",
+            "popover",
+            "dropdown_menu",
+            "context_menu",
+            "menubar",
+            "command",
+            "navigation_menu",
+            "input",
+            "textarea",
+            "select",
+            "checkbox",
+            "radio_group",
+            "switch",
+            "slider",
+            "combobox",
+            "input_otp",
+            "calendar",
+            "date_picker",
+            "form",
+            "label",
+        ];
+        for k in kinds {
+            assert!(
+                html.contains(&format!("case \"{k}\":")),
+                "index.html 缺少组件 `{k}` 的渲染分支（协议变体 vs 前端 case 必须一一对应）"
+            );
+        }
+        assert!(
+            html.contains("未识别组件"),
+            "缺少未知组件的降级渲染：协议新增变体时旧前端至少要看得见"
+        );
+    }
+
+    /// 声明了视图槽位就必须有渲染容器，否则后端发 view 事件时无处可画。
+    #[test]
+    fn view_slot_host_exists() {
+        let html = HTML_TEMPLATE;
+        assert!(html.contains(r#"id="views""#), "缺少 #views 容器");
+        assert!(
+            html.contains(r#"data-component="views""#),
+            "#views 未声明 data-component，验收脚本无法定位"
+        );
+        assert!(
+            html.contains(r#"case "view":showView(p.id,p.component)"#),
+            "applyEvent 未消费 view 事件"
+        );
+        assert!(
+            html.contains("__VIEWS__") && html.contains("__VIEWS_ATTR__"),
+            "模板缺少静态槽位占位符，服务端无法注入 views"
+        );
+    }
+
+    /// 静态槽位必须渲染成可替换的占位区：`data-view-id` 是运行时按 id 命中的锚点。
+    #[test]
+    fn static_view_slots_render_placeholders() {
+        use lilyco_core::view::ViewSlot;
+        let slots = vec![
+            ViewSlot::new("job").title("任务进度").kind("progress"),
+            ViewSlot::new("summary").kind("table"),
+        ];
+        let html = render_view_slots(&slots);
+        assert!(html.contains(r#"data-view-id="job""#), "{html}");
+        assert!(html.contains(r#"data-view-title="任务进度""#), "{html}");
+        assert!(html.contains(r#"data-view-kind-hint="progress""#), "{html}");
+        assert!(html.contains(r#"data-view-placeholder="1""#), "{html}");
+        assert!(html.contains("任务进度"), "槽位标题应显示在占位里");
+        assert_eq!(render_view_slots(&[]), "", "无槽位时不应产生占位");
+    }
+
     #[test]
     fn assets_stay_within_the_documented_budget() {
-        const HTML_BUDGET: usize = 21_000;
-        const CSS_BUDGET: usize = 22_500;
+        const HTML_BUDGET: usize = 44_000;
+        const CSS_BUDGET: usize = 40_000;
         let html = HTML_TEMPLATE.replace("\r\n", "\n").len();
         let css = include_str!("../assets/app.css")
             .replace("\r\n", "\n")

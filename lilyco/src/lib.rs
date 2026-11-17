@@ -338,7 +338,7 @@ pub fn run_registry_with_policy(
 /// 包住了，已注册的命令无法事后换门。重建 = 把「策略 → 各 handler」的
 /// 包裹关系按新策略重新建立一遍，对调用方完全透明。
 ///
-/// 重建会**保留**命令名、别名、隐藏标记与 schema（含各自的安全分级）。
+/// 重建会**保留**命令名、别名、隐藏标记、schema（含各自的安全分级）与视图槽位。
 fn into_registry_with_policy(
     registry: Registry,
     policy: std::sync::Arc<dyn lilyco_core::safety::SafetyPolicy>,
@@ -350,6 +350,7 @@ fn into_registry_with_policy(
         Vec<String>,
         bool,
         lilyco_core::schema::CommandSchema,
+        Vec<lilyco_core::view::ViewSlot>,
     )> = registry
         .iter()
         .map(|c| {
@@ -358,16 +359,18 @@ fn into_registry_with_policy(
                 c.aliases.clone(),
                 c.hidden,
                 c.schema.clone(),
+                c.views.clone(),
             )
         })
         .collect();
-    for (name, aliases, hidden, schema) in entries {
+    for (name, aliases, hidden, schema, views) in entries {
         match registry.get(&name).and_then(|c| c.handler.clone()) {
             Some(handler) => {
-                let cmd = lilyco_core::registry::RegisteredCommand::new(name, schema)
+                let mut cmd = lilyco_core::registry::RegisteredCommand::new(name, schema)
                     .with_handler(handler)
                     .hidden(hidden)
                     .aliases(aliases);
+                cmd.views = views;
                 // 重建只改安全策略，命令本身不该丢东西
                 debug_assert!(cmd.handler.is_some());
                 out.register(cmd).unwrap_or_else(|e| {
@@ -649,6 +652,23 @@ fn build_handler<A: App + Send + 'static>() -> Handler {
 /// 与 `run_tui` 的事件循环交替运行：只消费目前已到达的进度事件，
 /// 不阻塞等待，从而保证执行期间键盘仍然可响应、可取消。
 /// spawn 保证事件流恒以 Done / Error 终态结尾。
+/// 视图组件在 TUI 里的降级文本（无可视组件层时的唯一表示）
+#[cfg(feature = "tui")]
+pub(crate) fn view_fallback_line(
+    id: &str,
+    component: &lilyco_core::view::Component,
+) -> String {
+    let kind = serde_json::to_value(component)
+        .ok()
+        .and_then(|v| {
+            v.get("kind")
+                .and_then(|k| k.as_str())
+                .map(std::string::ToString::to_string)
+        })
+        .unwrap_or_else(|| "unknown".into());
+    format!("视图 {id}: {kind}")
+}
+
 #[cfg(feature = "tui")]
 fn drain_task(app: &mut lilyco_tui::TuiApp, task: &executor::Task) {
     use std::sync::mpsc::TryRecvError;
@@ -664,6 +684,10 @@ fn drain_task(app: &mut lilyco_tui::TuiApp, task: &executor::Task) {
             Ok(Progress::Log { level, message }) => app.log_progress(level_name(&level), message),
             Ok(Progress::Telemetry { key, value }) => {
                 app.log_progress("info", format!("{key}={value}"));
+            }
+            // TUI 没有富组件层：降级为一行「视图 id: kind」，不 panic、不吞事件
+            Ok(Progress::View { id, component }) => {
+                app.log_progress("info", view_fallback_line(&id, &component));
             }
             Ok(Progress::Done {
                 result,
@@ -718,6 +742,80 @@ mod tests {
             stdin_is_terminal: true,
         };
         assert_eq!(detect_backend(&e), Backend::Mcp);
+    }
+
+    /// TUI 没有富组件层：视图事件必须降级为一行文本，而不是丢掉或 panic
+    #[cfg(feature = "tui")]
+    #[test]
+    fn tui_view_falls_back_to_text() {
+        use lilyco_core::view::Component;
+        let line = view_fallback_line(
+            "job",
+            &Component::Progress {
+                label: None,
+                current: Some(1),
+                total: Some(2),
+            },
+        );
+        assert_eq!(line, "视图 job: progress");
+        let line = view_fallback_line("t", &Component::Table {
+            caption: None,
+            columns: vec![],
+            rows: vec![],
+            sortable: false,
+        });
+        assert_eq!(line, "视图 t: table");
+    }
+
+    /// 端到端：drain_task 收到 Progress::View 后必须进 TUI 日志，且不吞掉 Done
+    #[cfg(feature = "tui")]
+    #[test]
+    fn drain_task_turns_view_into_log_line() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::mpsc;
+        use std::sync::Arc;
+
+        let schema = lilyco_core::schema::CommandSchema {
+            name: "demo".into(),
+            about: "demo".into(),
+            args: vec![],
+            subcommands: vec![],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
+        };
+        let mut app = lilyco_tui::TuiApp::new(&schema);
+
+        let (tx, rx) = mpsc::channel();
+        tx.send(Progress::View {
+            id: "job".into(),
+            component: lilyco_core::view::Component::Progress {
+                label: Some("处理中".into()),
+                current: Some(1),
+                total: Some(2),
+            },
+        })
+        .unwrap();
+        tx.send(Progress::Done {
+            result: serde_json::json!({ "ok": true }),
+            duration_ms: 1,
+        })
+        .unwrap();
+
+        let task = executor::Task {
+            cancel: Arc::new(AtomicBool::new(false)),
+            rx,
+            handle: std::thread::spawn(|| Ok(serde_json::json!({ "ok": true }))),
+        };
+        drain_task(&mut app, &task);
+
+        assert!(
+            app.form
+                .progress_log
+                .iter()
+                .any(|l| l.contains("视图 job: progress")),
+            "TUI 日志里必须有降级行，实际: {:?}",
+            app.form.progress_log
+        );
+        assert_eq!(*app.state(), lilyco_tui::AppState::Done);
     }
 
     #[cfg(feature = "web")]

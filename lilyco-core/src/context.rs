@@ -125,6 +125,34 @@ impl Context {
         });
     }
 
+    /// 声明或更新一个语义视图组件
+    ///
+    /// 后端只给类型与数据，前端决定怎么画。同一个 `id` 的后续调用视为更新。
+    pub fn view(&self, id: impl Into<String>, component: crate::view::Component) {
+        self.emit(Progress::View {
+            id: id.into(),
+            component,
+        });
+    }
+
+    /// 便捷：声明/更新一个进度条（`total: None` 表示不确定）
+    pub fn view_progress(
+        &self,
+        id: impl Into<String>,
+        label: Option<impl Into<String>>,
+        current: Option<u64>,
+        total: Option<u64>,
+    ) {
+        self.view(
+            id,
+            crate::view::Component::Progress {
+                label: label.map(Into::into),
+                current,
+                total,
+            },
+        );
+    }
+
     /// 上报 Done 事件
     pub fn done(&self, result: serde_json::Value, duration_ms: u64) {
         self.emit(Progress::Done {

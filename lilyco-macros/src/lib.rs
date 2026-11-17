@@ -25,7 +25,8 @@ mod value_enum;
 /// - `#[arg(default = value)]` — 默认值
 /// - `#[arg(range = lo..=hi)]` — 数字范围（仅数字类型）
 /// - `#[arg(must_exist = true)]` — Path 必须存在
-#[proc_macro_derive(App, attributes(app, arg))]
+/// - `#[view(id = "...", title = "...", kind = "...")]` — 静态视图槽位（可重复）
+#[proc_macro_derive(App, attributes(app, arg, view))]
 pub fn derive_app(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     app_derive::derive_app_impl(input.into()).into()
 }

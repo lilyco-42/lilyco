@@ -563,6 +563,99 @@ input[type="checkbox"] {
 /* 关掉动画不等于关掉状态：这两条给「被停了动画就啥也看不出来」的两个组件留了静态替代。
    环境级没法实测（这台浏览器工具改不了 prefers-reduced-motion），规则级由
    render.rs 的 reduced_motion_keeps_a_non_animated_state_signal 盯着别被删。 */
+/* ── 语义视图区：后端声明 kind + 数据，这里只负责外观 ── */
+.views { margin-top: var(--s-5); display: grid; gap: var(--s-4); }
+#views[hidden] { display: none; }
+.view { display: grid; gap: var(--s-3); }
+.v { border-radius: var(--r-panel); }
+.v-card { display: grid; gap: var(--s-2); padding: var(--s-4); background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-control); }
+.v-title { color: var(--ink); font-size: 15px; font-weight: 600; line-height: 1.4; }
+.v-desc { color: var(--ink-muted); font-size: 13px; line-height: 1.6; }
+.v-sep { display: flex; align-items: center; gap: var(--s-2); color: var(--ink-muted); font-size: 12px; }
+.v-sep::before, .v-sep::after { content: ""; flex: 1; height: 1px; background: var(--hairline); }
+.v-progress { display: grid; gap: var(--s-1); }
+.v-progress-label { color: var(--ink-muted); font-size: 12.5px; }
+.v-progress-track { height: 8px; overflow: hidden; border-radius: var(--r-pill); background: var(--surface-3); }
+.v-progress-bar { height: 100%; background: var(--accent); transition: width 200ms ease; }
+.v-progress[data-indet="1"] .v-progress-bar { width: 100% !important; opacity: 0.5; }
+.v-badge { display: inline-flex; align-items: center; width: fit-content; padding: 2px 8px; border: 1px solid var(--hairline); border-radius: var(--r-pill); background: var(--surface-2); color: var(--ink-muted); font-size: 12px; }
+.v-badge.info { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); background: var(--accent-soft); }
+.v-badge.success { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.v-badge.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.v-badge.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, transparent); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.v-alert { display: grid; gap: var(--s-1); padding: var(--s-3); border: 1px solid var(--hairline); border-left: 3px solid var(--control); border-radius: var(--r-control); background: var(--surface-2); }
+.v-alert.info { border-left-color: var(--accent); }
+.v-alert.success { border-left-color: var(--ok); }
+.v-alert.warn { border-left-color: var(--warn); }
+.v-alert.danger { border-left-color: var(--danger); }
+.v-alert-title { color: var(--ink); font-size: 13px; font-weight: 600; }
+.v-alert-desc { color: var(--ink-muted); font-size: 13px; line-height: 1.6; }
+.v-toast { width: fit-content; padding: var(--s-2) var(--s-3); border: 1px solid var(--hairline); border-radius: var(--r-control); background: var(--surface); color: var(--ink); font-size: 13px; }
+.v-toast.success { border-color: var(--ok); color: var(--ok); }
+.v-toast.warn { border-color: var(--warn); color: var(--warn); }
+.v-toast.danger { border-color: var(--danger); color: var(--danger); }
+.v-skeleton { display: grid; gap: var(--s-2); }
+.v-sk-line { height: 12px; border-radius: var(--r-pill); background: var(--surface-3); }
+.v-kv { display: grid; }
+.v-kv-row { display: flex; justify-content: space-between; gap: var(--s-3); padding: var(--s-1) 0; border-bottom: 1px solid var(--hairline); font-size: 13px; }
+.v-kv-k { color: var(--ink-muted); }
+.v-kv-v { min-width: 0; color: var(--ink); overflow-wrap: anywhere; }
+.v-table { overflow-x: auto; }
+.v-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.v-table th, .v-table td { padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--hairline); text-align: left; }
+.v-table th { color: var(--ink-muted); font-weight: 600; }
+.v-log { max-height: 240px; overflow: auto; padding: var(--s-3); border-radius: var(--r-panel); background: #0d1117; color: #e6edf3; font-family: var(--mono); font-size: 13px; line-height: 1.55; }
+.v-result { padding: var(--s-3); border: 1px solid var(--hairline); border-radius: var(--r-panel); background: var(--surface-2); }
+.v-result.success { border-left: 3px solid var(--ok); }
+.v-result.danger { border-left: 3px solid var(--danger); }
+.v-result pre { margin: var(--s-2) 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.v-btn { width: fit-content; }
+.v-section { display: grid; gap: var(--s-2); }
+.v-scroll { overflow: auto; padding: var(--s-3); border: 1px solid var(--hairline); border-radius: var(--r-control); }
+.v-aspect { display: grid; place-items: center; overflow: hidden; border: 1px dashed var(--hairline); border-radius: var(--r-control); }
+.v-collapse, .v-hover, .v-pop { padding: var(--s-2) var(--s-3); border: 1px solid var(--hairline); border-radius: var(--r-control); background: var(--surface-2); }
+.v-collapse summary, .v-hover summary, .v-pop summary { cursor: pointer; color: var(--ink); font-size: 13px; font-weight: 600; }
+.v-accordion { display: grid; gap: var(--s-1); }
+.v-accordion details { padding: var(--s-2) var(--s-3); border: 1px solid var(--hairline); border-radius: var(--r-control); background: var(--surface-2); }
+.v-accordion summary { cursor: pointer; color: var(--ink); font-size: 13px; font-weight: 600; }
+.v-tablist { display: flex; gap: var(--s-1); flex-wrap: wrap; border-bottom: 1px solid var(--hairline); }
+.v-tab { padding: var(--s-1) var(--s-3); color: var(--ink-muted); font-size: 13px; border-bottom: 2px solid transparent; }
+.v-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.v-crumb { display: flex; gap: var(--s-1); flex-wrap: wrap; color: var(--ink-muted); font-size: 12.5px; }
+.v-dot { color: var(--hairline); }
+.v-page { color: var(--ink-muted); font-size: 12.5px; }
+.v-sidebar, .v-navmenu, .v-menubar { display: flex; gap: var(--s-1); flex-wrap: wrap; flex-direction: column; }
+.v-menubar { flex-direction: row; }
+.v-nav { padding: var(--s-1) var(--s-2); border-radius: var(--r-control); color: var(--ink-muted); font-size: 13px; }
+.v-nav.active { color: var(--accent); background: var(--accent-soft); }
+.v-resize { display: grid; gap: var(--s-2); }
+.v-carousel { display: grid; gap: var(--s-2); }
+.v-avatar { display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.v-chart { display: flex; align-items: flex-end; gap: var(--s-1); height: 120px; }
+.v-bar { flex: 1; min-width: 6px; display: flex; align-items: flex-end; justify-content: center; border-radius: var(--r-control) var(--r-control) 0 0; background: var(--accent); }
+.v-bar span { color: var(--ink-muted); font-size: 10px; }
+.v-group { display: flex; gap: var(--s-1); flex-wrap: wrap; align-items: center; }
+.v-chip { padding: 2px 8px; border: 1px solid var(--hairline); border-radius: var(--r-pill); color: var(--ink-muted); font-size: 12px; }
+.v-chip.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.v-tip { border-bottom: 1px dashed var(--control); }
+.v-dialog { max-width: 100%; margin: var(--s-2) 0; padding: var(--s-4); border: 1px solid var(--hairline); border-radius: var(--r-panel); background: var(--surface); color: var(--ink); }
+.v-dialog.right { margin-left: auto; }
+.v-menu { display: grid; gap: 2px; margin-top: var(--s-1); padding: var(--s-1); border: 1px solid var(--hairline); border-radius: var(--r-control); background: var(--surface); }
+.v-menubar .v-menu { display: none; }
+.v-menu-item { padding: var(--s-1) var(--s-2); border-radius: var(--r-control); color: var(--ink); font-size: 13px; }
+.v-menu-item.danger { color: var(--danger); }
+.v-command { display: grid; gap: 2px; padding: var(--s-1); border: 1px solid var(--hairline); border-radius: var(--r-control); background: var(--surface); }
+.v-command-item { display: flex; justify-content: space-between; gap: var(--s-3); padding: var(--s-1) var(--s-2); border-radius: var(--r-control); color: var(--ink); font-size: 13px; }
+.v-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); color: var(--ink-muted); font-size: 13px; }
+.v-otp { display: flex; gap: var(--s-1); }
+.v-otp input { width: 36px; height: 40px; text-align: center; }
+.v-cal { display: flex; gap: var(--s-1); flex-wrap: wrap; color: var(--ink-muted); font-size: 12px; }
+.v-cal .marked { padding: 2px 6px; border-radius: var(--r-control); background: var(--accent-soft); color: var(--accent); }
+.v-form { display: grid; gap: var(--s-3); }
+.v-label { color: var(--ink-muted); font-size: 13px; }
+.v-unknown { padding: var(--s-3); border: 1px dashed var(--control); border-radius: var(--r-control); }
+.v-unknown pre { margin: var(--s-2) 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; color: var(--ink-muted); }
+
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
   /* 不确定态原来靠 40% 的条来回跑；停掉动画它会停在半路，读起来像「卡在 40%」。
