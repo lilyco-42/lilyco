@@ -36,6 +36,8 @@
 - 项目状态 `active | paused | done`，方案状态 `draft | doing | done`；名称与标题必填，
   长度或状态不合法返回 400，未知 id 返回 404。无 token 的写请求在 JSON 解析前就返回 401。
 - 数据与运行历史同库（管理器自己的 SQLite），重启后仍在；面板「项目/方案」一次请求即可渲染。
+- 六类成功变更写入运行历史（`project.create/update/delete`、`plan.create/update/delete`），
+  面板「运行历史」可展开查看审计 JSON；失败请求与只读拒绝不落审计。
 
 ## 应用清单
 应用通过仓库根目录的 `lilyco.app.json` 自助注册，规范见 [docs/MANIFEST.md](docs/MANIFEST.md)。开发时可直接指向源码目录：

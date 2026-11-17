@@ -22,6 +22,7 @@ const projects=ref<Project[]>([])
 const adapters=ref<Adapter[]>([])
 const tab=ref(hasManagerSession?'apps':'studio'), tools=ref<Tool[]>([]), runs=ref<Run[]>([]), query=ref(''), loading=ref(false), error=ref(''), output=ref(''), selected=ref('')
 const theme=ref<Theme>('light')
+const expandedRun=ref<number|null>(null)
 const readOnly=ref(false)
 const installed=computed(()=>new Map(adapters.value.map(x=>[x.tool,x.installed])))
 const community=catalog.entries.filter(p=>p.origin==='community')
@@ -33,6 +34,10 @@ function applyTheme(next:Theme){
  try{localStorage.setItem('lilyco-theme',next)}catch{}
 }
 function toggleTheme(){applyTheme(theme.value==='dark'?'light':'dark')}
+function toggleRun(run:Run){expandedRun.value=expandedRun.value===run.id?null:run.id}
+function runOutput(run:Run){
+ try{return JSON.stringify(JSON.parse(run.output),null,2)}catch{return run.output}
+}
 async function api(path:string,method='GET'){
  const response=await fetch(path,{method,headers:{'x-lilyco-token':token}})
  if(!response.ok)throw new Error('HTTP '+response.status)
@@ -127,7 +132,17 @@ onMounted(()=>{
     </article>
    </div>
   </section>
-  <section v-if="tab==='runs'" class="card overflow-hidden"><h2 class="p-5 border-b border-line font-semibold">运行历史</h2><div v-for="run in runs" :key="run.id" class="p-5 border-b border-line/60 flex justify-between gap-2 flex-wrap text-sm"><span class="font-mono">{{run.tool}}</span><span class="text-ink-soft">{{run.created_at}}</span></div><p v-if="!runs.length" class="p-10 text-center text-ink-soft">暂无记录</p></section>
+  <section v-if="tab==='runs'" class="card overflow-hidden">
+   <h2 class="p-5 border-b border-line font-semibold">运行历史</h2>
+   <div v-for="run in runs" :key="run.id" class="border-b border-line/60 last:border-0">
+    <button type="button" data-testid="run-row" class="w-full p-5 flex justify-between gap-2 flex-wrap text-sm text-left hover:bg-surface-hover" :aria-expanded="expandedRun===run.id" @click="toggleRun(run)">
+     <span class="font-mono flex items-center gap-2">{{run.tool}}<span v-if="run.tool.startsWith('project.')||run.tool.startsWith('plan.')" class="badge badge-brand">审计</span></span>
+     <span class="text-ink-soft">{{run.created_at}}</span>
+    </button>
+    <pre v-if="expandedRun===run.id" class="log mx-5 mb-4 p-3 max-h-64 overflow-auto">{{runOutput(run)}}</pre>
+   </div>
+   <p v-if="!runs.length" class="p-10 text-center text-ink-soft">暂无记录</p>
+  </section>
   <AppsView v-if="tab==='apps'" :token="token" :read-only="readOnly"/>
   <ProjectsView v-if="tab==='projects'" :token="token" :read-only="readOnly"/>
   <BlocksView v-if="tab==='blocks'"/>
