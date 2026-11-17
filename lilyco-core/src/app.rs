@@ -14,8 +14,15 @@ pub trait App: Sized {
     /// 从解析后的参数 map 构造自身（CLI 调用路径）
     fn from_args(args: &HashMap<String, serde_json::Value>) -> Result<Self, AppError>;
 
-    /// 执行业务逻辑，通过 ctx 上报进度
+    /// 执行
     fn run(&self, ctx: &Context) -> Result<serde_json::Value, AppError>;
+
+    /// 静态视图槽位（`#[view(id = "...", title = "...", kind = "...")]`）
+    ///
+    /// 默认无槽位。运行时用 [`Context::view`] 按同一 id 填充。
+    fn views() -> Vec<crate::view::ViewSlot> {
+        Vec::new()
+    }
 }
 
 /// 渲染器：把 CommandSchema 转换成各端的表示

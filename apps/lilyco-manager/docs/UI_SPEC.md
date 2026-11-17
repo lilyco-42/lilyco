@@ -81,6 +81,23 @@ Vue 3 SFC + TypeScript + Vite + Tailwind CSS 4; use lucide icons, reusable layou
   never mutate local state in one click. Layout must not overflow at 375px, and the card
   background must follow the global light/dark tokens.
 
+## Design blocks / prototype view
+
+- Route: sidebar「设计积木」. It is local-only UI over the shared shadcn-style primitives in
+  `frontend/src/components/ui/` (Button, Card, Badge, Input, Textarea, Select, Switch, Alert,
+  Separator, Label); components consume the shadcn CSS variable bridge (`bg-background`,
+  `text-foreground`, `border-border`, `bg-primary`, `ring-ring`).
+- Three panes: block catalog, live preview, property inspector. Editing a property updates the
+  preview immediately; no backend write and no third-party script.
+- A JSON debug panel shows the exact block spec, accepts a pasted spec, and validates it in
+  place. Unknown kinds, wrong prop types and out-of-range select values render an inline danger
+  alert without replacing the last valid preview.
+- Block list is keyboard reachable (`aria-pressed` per block); every inspector control has a
+  visible label; notify/validation text is announced through `aria-live` or `role="status"`.
+- Copy/export actions are explicit; when the clipboard is unavailable the UI says so instead of
+  pretending the copy succeeded.
+- Theme follows the global light/dark token set; the view must be checked at 375px and 1440px.
+
 ## Design system usage
 
 - Prefer semantic utilities (`bg-canvas`, `bg-surface`, `text-ink`, `text-ink-soft`,

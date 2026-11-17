@@ -1,0 +1,2848 @@
+{
+  "browser": "Chrome/157.0.8103.38",
+  "runs_per_group": 3,
+  "groups": {
+    "fixed_online": {
+      "runs": 3,
+      "errors": [],
+      "rendered": 3,
+      "matrixPass": {
+        "n": 3,
+        "min": 14,
+        "median": 14,
+        "max": 14,
+        "mean": 14
+      },
+      "matrixTotal": 14,
+      "firstRenderMs": {
+        "n": 3,
+        "min": 3194,
+        "median": 6553,
+        "max": 8688,
+        "mean": 6145
+      },
+      "browserReadyMs": {
+        "n": 3,
+        "min": 180.73,
+        "median": 225.62,
+        "max": 353.28,
+        "mean": 253.21
+      },
+      "coldStartMs": {
+        "n": 3,
+        "min": 3419.62,
+        "median": 6906.28,
+        "max": 8868.73,
+        "mean": 6398.21
+      },
+      "clickLatencyMs": {
+        "n": 3,
+        "min": 12,
+        "median": 13.6,
+        "max": 16.5,
+        "mean": 14.03
+      },
+      "secondClickCarriesState": 3,
+      "chromeTreeRssMb": {
+        "n": 3,
+        "min": 1106.14,
+        "median": 1108.3,
+        "max": 1108.57,
+        "mean": 1107.67
+      },
+      "jsHeapMb": {
+        "n": 3,
+        "min": 8.37,
+        "median": 8.45,
+        "max": 10.29,
+        "mean": 9.04
+      },
+      "externalRequests": {
+        "n": 3,
+        "min": 3,
+        "median": 3,
+        "max": 3,
+        "mean": 3
+      },
+      "networkFailures": {
+        "n": 3,
+        "min": 0,
+        "median": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "exceptions": 0,
+      "windowClasses": [
+        "window large"
+      ]
+    },
+    "offline_vendored": {
+      "runs": 3,
+      "errors": [],
+      "rendered": 3,
+      "matrixPass": {
+        "n": 3,
+        "min": 14,
+        "median": 14,
+        "max": 14,
+        "mean": 14
+      },
+      "matrixTotal": 14,
+      "firstRenderMs": {
+        "n": 3,
+        "min": 453,
+        "median": 521,
+        "max": 687,
+        "mean": 553.67
+      },
+      "browserReadyMs": {
+        "n": 3,
+        "min": 234.53,
+        "median": 242.5,
+        "max": 332.97,
+        "mean": 270.0
+      },
+      "coldStartMs": {
+        "n": 3,
+        "min": 687.53,
+        "median": 853.97,
+        "max": 929.5,
+        "mean": 823.67
+      },
+      "clickLatencyMs": {
+        "n": 3,
+        "min": 11.1,
+        "median": 11.5,
+        "max": 20,
+        "mean": 14.2
+      },
+      "secondClickCarriesState": 3,
+      "chromeTreeRssMb": {
+        "n": 3,
+        "min": 1112.31,
+        "median": 1112.87,
+        "max": 1116.55,
+        "mean": 1113.91
+      },
+      "jsHeapMb": {
+        "n": 3,
+        "min": 8.51,
+        "median": 8.51,
+        "max": 8.6,
+        "mean": 8.54
+      },
+      "externalRequests": {
+        "n": 3,
+        "min": 0,
+        "median": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "networkFailures": {
+        "n": 3,
+        "min": 0,
+        "median": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "exceptions": 0,
+      "windowClasses": [
+        "window large"
+      ]
+    },
+    "cdn_blocked": {
+      "runs": 3,
+      "errors": [],
+      "rendered": 0,
+      "matrixPass": {
+        "n": 3,
+        "min": 0,
+        "median": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "matrixTotal": 14,
+      "firstRenderMs": null,
+      "browserReadyMs": {
+        "n": 3,
+        "min": 165.27,
+        "median": 171.12,
+        "max": 243.86,
+        "mean": 193.42
+      },
+      "coldStartMs": null,
+      "clickLatencyMs": null,
+      "secondClickCarriesState": 0,
+      "chromeTreeRssMb": {
+        "n": 3,
+        "min": 1142.41,
+        "median": 1144.45,
+        "max": 1161.73,
+        "mean": 1149.53
+      },
+      "jsHeapMb": {
+        "n": 3,
+        "min": 1.59,
+        "median": 1.62,
+        "max": 1.62,
+        "mean": 1.61
+      },
+      "externalRequests": {
+        "n": 3,
+        "min": 3,
+        "median": 3,
+        "max": 3,
+        "mean": 3
+      },
+      "networkFailures": {
+        "n": 3,
+        "min": 3,
+        "median": 3,
+        "max": 3,
+        "mean": 3
+      },
+      "exceptions": 3,
+      "windowClasses": [
+        "None"
+      ]
+    },
+    "old_unpinned": {
+      "runs": 1,
+      "errors": [],
+      "rendered": 0,
+      "matrixPass": {
+        "n": 1,
+        "min": 0,
+        "median": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "matrixTotal": 14,
+      "firstRenderMs": null,
+      "browserReadyMs": {
+        "n": 1,
+        "min": 167.93,
+        "median": 167.93,
+        "max": 167.93,
+        "mean": 167.93
+      },
+      "coldStartMs": null,
+      "clickLatencyMs": null,
+      "secondClickCarriesState": 0,
+      "chromeTreeRssMb": {
+        "n": 1,
+        "min": 1194.66,
+        "median": 1194.66,
+        "max": 1194.66,
+        "mean": 1194.66
+      },
+      "jsHeapMb": {
+        "n": 1,
+        "min": 9.78,
+        "median": 9.78,
+        "max": 9.78,
+        "mean": 9.78
+      },
+      "externalRequests": {
+        "n": 1,
+        "min": 6,
+        "median": 6,
+        "max": 6,
+        "mean": 6
+      },
+      "networkFailures": {
+        "n": 1,
+        "min": 0,
+        "median": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "exceptions": 1,
+      "windowClasses": [
+        "None"
+      ]
+    }
+  },
+  "raw": {
+    "fixed_online": [
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "online",
+        "url": "all-13-react-fixed.html",
+        "firstRenderMs": 6553,
+        "wallMs": 6891,
+        "snap": {
+          "ready": "complete",
+          "rootChildren": 1,
+          "windowClass": "window large",
+          "title": "Lilyco 原生全变体烟测",
+          "elCount": 12,
+          "els": [
+            {
+              "tag": "H1",
+              "cls": "el el-heading h1",
+              "text": "十三变体",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "P",
+              "cls": "el el-text",
+              "text": "纯 Rust / NSH GTK 原生视图",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "名称",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "数量",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "格式pngwebp",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "LABEL",
+              "cls": "el el-checkbox",
+              "text": "启用",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "备注hello",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "IMG",
+              "cls": "el el-image",
+              "text": "",
+              "value": null,
+              "checked": null,
+              "src": "/usr/share/icons/hicolor/128x128/actions/document-share.png",
+              "href": null,
+              "width": "48px",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "HR",
+              "cls": "el el-divider",
+              "text": "",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-pw",
+              "text": "压缩进度 — 42%",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": "42%",
+              "children": 2
+            },
+            {
+              "tag": "A",
+              "cls": "el el-link",
+              "text": "NSH 官网",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": "https://nsh.dev",
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-calc",
+              "text": "计算器（scientific）0",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            }
+          ],
+          "buttons": [
+            {
+              "text": "执行",
+              "cls": "el-btn primary"
+            }
+          ],
+          "inputs": [
+            {
+              "type": "text",
+              "value": "abc",
+              "checked": false,
+              "min": "",
+              "max": "",
+              "placeholder": "输入"
+            },
+            {
+              "type": "number",
+              "value": "7",
+              "checked": false,
+              "min": "0",
+              "max": "100",
+              "placeholder": ""
+            },
+            {
+              "type": "checkbox",
+              "value": "on",
+              "checked": true,
+              "min": "",
+              "max": "",
+              "placeholder": ""
+            }
+          ],
+          "selects": [
+            {
+              "value": "png",
+              "options": [
+                "png",
+                "webp"
+              ]
+            }
+          ],
+          "textareas": [
+            {
+              "value": "hello",
+              "rows": 3
+            }
+          ],
+          "images": [
+            {
+              "src": "/usr/share/icons/hicolor/128x128/actions/document-share.png",
+              "width": "48px",
+              "complete": true,
+              "naturalWidth": 128
+            }
+          ],
+          "links": [
+            {
+              "href": "https://nsh.dev",
+              "text": "NSH 官网"
+            }
+          ],
+          "headings": [
+            {
+              "tag": "H1",
+              "cls": "el el-heading h1",
+              "text": "十三变体"
+            }
+          ],
+          "bars": [
+            "42%"
+          ],
+          "calcs": [
+            "计算器（scientific）0"
+          ],
+          "toast": null
+        },
+        "matrix": {
+          "标题": true,
+          "文本": true,
+          "输入框": true,
+          "数字框": true,
+          "选择框": true,
+          "复选框": true,
+          "文本域": true,
+          "图片": true,
+          "分隔线": true,
+          "进度条": true,
+          "链接": true,
+          "计算器": true,
+          "按钮": true,
+          "标题栏": true
+        },
+        "matrixPass": 14,
+        "matrixTotal": 14,
+        "windowClass": "window large",
+        "expectedWindowClass": "window large",
+        "interaction": {
+          "firstClick": {
+            "ok": true,
+            "latency": 12,
+            "text": "动作 \"run\" 已触发{}时间: 14:40:21"
+          },
+          "setValue": {
+            "ok": true,
+            "value": "matrix-ok"
+          },
+          "secondClick": {
+            "ok": true,
+            "latency": 12,
+            "text": "动作 \"run\" 已触发{\n  \"v_input\": \"matrix-ok\"\n}时间: 14:40:21"
+          }
+        },
+        "metrics": {
+          "Timestamp": 860.665375,
+          "AudioHandlers": 0,
+          "AudioWorkletProcessors": 0,
+          "Documents": 4,
+          "Frames": 4,
+          "JSEventListeners": 144,
+          "LayoutObjects": 76,
+          "MediaKeySessions": 0,
+          "MediaKeys": 0,
+          "Nodes": 133,
+          "Resources": 4,
+          "ContextLifecycleStateObservers": 13,
+          "V8PerContextDatas": 2,
+          "WorkerGlobalScopes": 0,
+          "UACSSResources": 0,
+          "RTCPeerConnections": 0,
+          "ResourceFetchers": 4,
+          "AdSubframes": 0,
+          "DetachedScriptStates": 1,
+          "ArrayBufferContents": 3,
+          "LayoutCount": 3,
+          "RecalcStyleCount": 2,
+          "LayoutDuration": 0.039513,
+          "RecalcStyleDuration": 0.009336,
+          "DevToolsCommandDuration": 0.075878,
+          "ScriptDuration": 0.205008,
+          "V8CompileDuration": 0.000345,
+          "TaskDuration": 0.370769,
+          "TaskOtherDuration": 0.040689,
+          "ThreadTime": 0.333115,
+          "ProcessTime": 0.55,
+          "JSHeapUsedSize": 10784904,
+          "JSHeapTotalSize": 16441344,
+          "FirstMeaningfulPaint": 0,
+          "DomContentLoaded": 860.244776,
+          "NavigationStart": 853.81331
+        },
+        "exceptions": [],
+        "netFail": [],
+        "net": {
+          "requests": 5,
+          "failures": 0,
+          "external": 3,
+          "bytes": 3222215
+        },
+        "consoleErrors": 0,
+        "browser_ready_ms": 353.28193599991664,
+        "chrome_tree_rss_mb": 1106.14,
+        "stdout": "MATRIX_DONE {\"mode\":\"online\",\"els\":12,\"ms\":6553,\"pass\":14,\"click\":12,\"ex\":0,\"ext\":3,\"fail\":0}",
+        "blocked": false
+      },
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "online",
+        "url": "all-13-react-fixed.html",
+        "firstRenderMs": 8688,
+        "wallMs": 9033,
+        "snap": {
+          "ready": "complete",
+          "rootChildren": 1,
+          "windowClass": "window large",
+          "title": "Lilyco 原生全变体烟测",
+          "elCount": 12,
+          "els": [
+            {
+              "tag": "H1",
+              "cls": "el el-heading h1",
+              "text": "十三变体",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "P",
+              "cls": "el el-text",
+              "text": "纯 Rust / NSH GTK 原生视图",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "名称",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "数量",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "格式pngwebp",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "LABEL",
+              "cls": "el el-checkbox",
+              "text": "启用",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "备注hello",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "IMG",
+              "cls": "el el-image",
+              "text": "",
+              "value": null,
+              "checked": null,
+              "src": "/usr/share/icons/hicolor/128x128/actions/document-share.png",
+              "href": null,
+              "width": "48px",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "HR",
+              "cls": "el el-divider",
+              "text": "",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-pw",
+              "text": "压缩进度 — 42%",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": "42%",
+              "children": 2
+            },
+            {
+              "tag": "A",
+              "cls": "el el-link",
+              "text": "NSH 官网",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": "https://nsh.dev",
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-calc",
+              "text": "计算器（scientific）0",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            }
+          ],
+          "buttons": [
+            {
+              "text": "执行",
+              "cls": "el-btn primary"
+            }
+          ],
+          "inputs": [
+            {
+              "type": "text",
+              "value": "abc",
+              "checked": false,
+              "min": "",
+              "max": "",
+              "placeholder": "输入"
+            },
+            {
+              "type": "number",
+              "value": "7",
+              "checked": false,
+              "min": "0",
+              "max": "100",
+              "placeholder": ""
+            },
+            {
+              "type": "checkbox",
+              "value": "on",
+              "checked": true,
+              "min": "",
+              "max": "",
+              "placeholder": ""
+            }
+          ],
+          "selects": [
+            {
+              "value": "png",
+              "options": [
+                "png",
+                "webp"
+              ]
+            }
+          ],
+          "textareas": [
+            {
+              "value": "hello",
+              "rows": 3
+            }
+          ],
+          "images": [
+            {
+              "src": "/usr/share/icons/hicolor/128x128/actions/document-share.png",
+              "width": "48px",
+              "complete": true,
+              "naturalWidth": 128
+            }
+          ],
+          "links": [
+            {
+              "href": "https://nsh.dev",
+              "text": "NSH 官网"
+            }
+          ],
+          "headings": [
+            {
+              "tag": "H1",
+              "cls": "el el-heading h1",
+              "text": "十三变体"
+            }
+          ],
+          "bars": [
+            "42%"
+          ],
+          "calcs": [
+            "计算器（scientific）0"
+          ],
+          "toast": null
+        },
+        "matrix": {
+          "标题": true,
+          "文本": true,
+          "输入框": true,
+          "数字框": true,
+          "选择框": true,
+          "复选框": true,
+          "文本域": true,
+          "图片": true,
+          "分隔线": true,
+          "进度条": true,
+          "链接": true,
+          "计算器": true,
+          "按钮": true,
+          "标题栏": true
+        },
+        "matrixPass": 14,
+        "matrixTotal": 14,
+        "windowClass": "window large",
+        "expectedWindowClass": "window large",
+        "interaction": {
+          "firstClick": {
+            "ok": true,
+            "latency": 13.599999999976717,
+            "text": "动作 \"run\" 已触发{}时间: 14:40:31"
+          },
+          "setValue": {
+            "ok": true,
+            "value": "matrix-ok"
+          },
+          "secondClick": {
+            "ok": true,
+            "latency": 11.300000000046566,
+            "text": "动作 \"run\" 已触发{\n  \"v_input\": \"matrix-ok\"\n}时间: 14:40:31"
+          }
+        },
+        "metrics": {
+          "Timestamp": 870.008801,
+          "AudioHandlers": 0,
+          "AudioWorkletProcessors": 0,
+          "Documents": 4,
+          "Frames": 4,
+          "JSEventListeners": 144,
+          "LayoutObjects": 76,
+          "MediaKeySessions": 0,
+          "MediaKeys": 0,
+          "Nodes": 133,
+          "Resources": 4,
+          "ContextLifecycleStateObservers": 13,
+          "V8PerContextDatas": 2,
+          "WorkerGlobalScopes": 0,
+          "UACSSResources": 0,
+          "RTCPeerConnections": 0,
+          "ResourceFetchers": 4,
+          "AdSubframes": 0,
+          "DetachedScriptStates": 1,
+          "ArrayBufferContents": 1,
+          "LayoutCount": 3,
+          "RecalcStyleCount": 2,
+          "LayoutDuration": 0.038318,
+          "RecalcStyleDuration": 0.011005,
+          "DevToolsCommandDuration": 0.103656,
+          "ScriptDuration": 0.219137,
+          "V8CompileDuration": 0.000416,
+          "TaskDuration": 0.414968,
+          "TaskOtherDuration": 0.042436,
+          "ThreadTime": 0.379219,
+          "ProcessTime": 0.61,
+          "JSHeapUsedSize": 8859984,
+          "JSHeapTotalSize": 16179200,
+          "FirstMeaningfulPaint": 0,
+          "DomContentLoaded": 869.577803,
+          "NavigationStart": 861.020706
+        },
+        "exceptions": [],
+        "netFail": [],
+        "net": {
+          "requests": 5,
+          "failures": 0,
+          "external": 3,
+          "bytes": 3222215
+        },
+        "consoleErrors": 0,
+        "browser_ready_ms": 180.72632700000213,
+        "chrome_tree_rss_mb": 1108.3,
+        "stdout": "MATRIX_DONE {\"mode\":\"online\",\"els\":12,\"ms\":8688,\"pass\":14,\"click\":13.599999999976717,\"ex\":0,\"ext\":3,\"fail\":0}",
+        "blocked": false
+      },
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "online",
+        "url": "all-13-react-fixed.html",
+        "firstRenderMs": 3194,
+        "wallMs": 3547,
+        "snap": {
+          "ready": "complete",
+          "rootChildren": 1,
+          "windowClass": "window large",
+          "title": "Lilyco 原生全变体烟测",
+          "elCount": 12,
+          "els": [
+            {
+              "tag": "H1",
+              "cls": "el el-heading h1",
+              "text": "十三变体",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "P",
+              "cls": "el el-text",
+              "text": "纯 Rust / NSH GTK 原生视图",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "名称",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "数量",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "格式pngwebp",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "LABEL",
+              "cls": "el el-checkbox",
+              "text": "启用",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "备注hello",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "IMG",
+              "cls": "el el-image",
+              "text": "",
+              "value": null,
+              "checked": null,
+              "src": "/usr/share/icons/hicolor/128x128/actions/document-share.png",
+              "href": null,
+              "width": "48px",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "HR",
+              "cls": "el el-divider",
+              "text": "",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-pw",
+              "text": "压缩进度 — 42%",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": "42%",
+              "children": 2
+            },
+            {
+              "tag": "A",
+              "cls": "el el-link",
+              "text": "NSH 官网",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": "https://nsh.dev",
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-calc",
+              "text": "计算器（scientific）0",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            }
+          ],
+          "buttons": [
+            {
+              "text": "执行",
+              "cls": "el-btn primary"
+            }
+          ],
+          "inputs": [
+            {
+              "type": "text",
+              "value": "abc",
+              "checked": false,
+              "min": "",
+              "max": "",
+              "placeholder": "输入"
+            },
+            {
+              "type": "number",
+              "value": "7",
+              "checked": false,
+              "min": "0",
+              "max": "100",
+              "placeholder": ""
+            },
+            {
+              "type": "checkbox",
+              "value": "on",
+              "checked": true,
+              "min": "",
+              "max": "",
+              "placeholder": ""
+            }
+          ],
+          "selects": [
+            {
+              "value": "png",
+              "options": [
+                "png",
+                "webp"
+              ]
+            }
+          ],
+          "textareas": [
+            {
+              "value": "hello",
+              "rows": 3
+            }
+          ],
+          "images": [
+            {
+              "src": "/usr/share/icons/hicolor/128x128/actions/document-share.png",
+              "width": "48px",
+              "complete": true,
+              "naturalWidth": 128
+            }
+          ],
+          "links": [
+            {
+              "href": "https://nsh.dev",
+              "text": "NSH 官网"
+            }
+          ],
+          "headings": [
+            {
+              "tag": "H1",
+              "cls": "el el-heading h1",
+              "text": "十三变体"
+            }
+          ],
+          "bars": [
+            "42%"
+          ],
+          "calcs": [
+            "计算器（scientific）0"
+          ],
+          "toast": null
+        },
+        "matrix": {
+          "标题": true,
+          "文本": true,
+          "输入框": true,
+          "数字框": true,
+          "选择框": true,
+          "复选框": true,
+          "文本域": true,
+          "图片": true,
+          "分隔线": true,
+          "进度条": true,
+          "链接": true,
+          "计算器": true,
+          "按钮": true,
+          "标题栏": true
+        },
+        "matrixPass": 14,
+        "matrixTotal": 14,
+        "windowClass": "window large",
+        "expectedWindowClass": "window large",
+        "interaction": {
+          "firstClick": {
+            "ok": true,
+            "latency": 16.5,
+            "text": "动作 \"run\" 已触发{}时间: 14:40:35"
+          },
+          "setValue": {
+            "ok": true,
+            "value": "matrix-ok"
+          },
+          "secondClick": {
+            "ok": true,
+            "latency": 10.599999999976717,
+            "text": "动作 \"run\" 已触发{\n  \"v_input\": \"matrix-ok\"\n}时间: 14:40:35"
+          }
+        },
+        "metrics": {
+          "Timestamp": 873.959135,
+          "AudioHandlers": 0,
+          "AudioWorkletProcessors": 0,
+          "Documents": 4,
+          "Frames": 4,
+          "JSEventListeners": 144,
+          "LayoutObjects": 76,
+          "MediaKeySessions": 0,
+          "MediaKeys": 0,
+          "Nodes": 133,
+          "Resources": 4,
+          "ContextLifecycleStateObservers": 13,
+          "V8PerContextDatas": 2,
+          "WorkerGlobalScopes": 0,
+          "UACSSResources": 0,
+          "RTCPeerConnections": 0,
+          "ResourceFetchers": 4,
+          "AdSubframes": 0,
+          "DetachedScriptStates": 1,
+          "ArrayBufferContents": 1,
+          "LayoutCount": 3,
+          "RecalcStyleCount": 2,
+          "LayoutDuration": 0.034364,
+          "RecalcStyleDuration": 0.009409,
+          "DevToolsCommandDuration": 0.038389,
+          "ScriptDuration": 0.231042,
+          "V8CompileDuration": 0.000593,
+          "TaskDuration": 0.347281,
+          "TaskOtherDuration": 0.033484,
+          "ThreadTime": 0.306284,
+          "ProcessTime": 0.52,
+          "JSHeapUsedSize": 8779816,
+          "JSHeapTotalSize": 16441344,
+          "FirstMeaningfulPaint": 0,
+          "DomContentLoaded": 873.527989,
+          "NavigationStart": 870.46408
+        },
+        "exceptions": [],
+        "netFail": [],
+        "net": {
+          "requests": 5,
+          "failures": 0,
+          "external": 3,
+          "bytes": 3222215
+        },
+        "consoleErrors": 0,
+        "browser_ready_ms": 225.6228789999568,
+        "chrome_tree_rss_mb": 1108.57,
+        "stdout": "MATRIX_DONE {\"mode\":\"online\",\"els\":12,\"ms\":3194,\"pass\":14,\"click\":16.5,\"ex\":0,\"ext\":3,\"fail\":0}",
+        "blocked": false
+      }
+    ],
+    "offline_vendored": [
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "offline",
+        "url": "all-13-react-offline.html",
+        "firstRenderMs": 521,
+        "wallMs": 861,
+        "snap": {
+          "ready": "complete",
+          "rootChildren": 1,
+          "windowClass": "window large",
+          "title": "Lilyco 原生全变体烟测",
+          "elCount": 12,
+          "els": [
+            {
+              "tag": "H1",
+              "cls": "el el-heading h1",
+              "text": "十三变体",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "P",
+              "cls": "el el-text",
+              "text": "纯 Rust / NSH GTK 原生视图",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "名称",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "数量",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "格式pngwebp",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "LABEL",
+              "cls": "el el-checkbox",
+              "text": "启用",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "备注hello",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "IMG",
+              "cls": "el el-image",
+              "text": "",
+              "value": null,
+              "checked": null,
+              "src": "/usr/share/icons/hicolor/128x128/actions/document-share.png",
+              "href": null,
+              "width": "48px",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "HR",
+              "cls": "el el-divider",
+              "text": "",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-pw",
+              "text": "压缩进度 — 42%",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": "42%",
+              "children": 2
+            },
+            {
+              "tag": "A",
+              "cls": "el el-link",
+              "text": "NSH 官网",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": "https://nsh.dev",
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-calc",
+              "text": "计算器（scientific）0",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            }
+          ],
+          "buttons": [
+            {
+              "text": "执行",
+              "cls": "el-btn primary"
+            }
+          ],
+          "inputs": [
+            {
+              "type": "text",
+              "value": "abc",
+              "checked": false,
+              "min": "",
+              "max": "",
+              "placeholder": "输入"
+            },
+            {
+              "type": "number",
+              "value": "7",
+              "checked": false,
+              "min": "0",
+              "max": "100",
+              "placeholder": ""
+            },
+            {
+              "type": "checkbox",
+              "value": "on",
+              "checked": true,
+              "min": "",
+              "max": "",
+              "placeholder": ""
+            }
+          ],
+          "selects": [
+            {
+              "value": "png",
+              "options": [
+                "png",
+                "webp"
+              ]
+            }
+          ],
+          "textareas": [
+            {
+              "value": "hello",
+              "rows": 3
+            }
+          ],
+          "images": [
+            {
+              "src": "/usr/share/icons/hicolor/128x128/actions/document-share.png",
+              "width": "48px",
+              "complete": true,
+              "naturalWidth": 128
+            }
+          ],
+          "links": [
+            {
+              "href": "https://nsh.dev",
+              "text": "NSH 官网"
+            }
+          ],
+          "headings": [
+            {
+              "tag": "H1",
+              "cls": "el el-heading h1",
+              "text": "十三变体"
+            }
+          ],
+          "bars": [
+            "42%"
+          ],
+          "calcs": [
+            "计算器（scientific）0"
+          ],
+          "toast": null
+        },
+        "matrix": {
+          "标题": true,
+          "文本": true,
+          "输入框": true,
+          "数字框": true,
+          "选择框": true,
+          "复选框": true,
+          "文本域": true,
+          "图片": true,
+          "分隔线": true,
+          "进度条": true,
+          "链接": true,
+          "计算器": true,
+          "按钮": true,
+          "标题栏": true
+        },
+        "matrixPass": 14,
+        "matrixTotal": 14,
+        "windowClass": "window large",
+        "expectedWindowClass": "window large",
+        "interaction": {
+          "firstClick": {
+            "ok": true,
+            "latency": 11.099999999976717,
+            "text": "动作 \"run\" 已触发{}时间: 14:40:36"
+          },
+          "setValue": {
+            "ok": true,
+            "value": "matrix-ok"
+          },
+          "secondClick": {
+            "ok": true,
+            "latency": 10.29999999993015,
+            "text": "动作 \"run\" 已触发{\n  \"v_input\": \"matrix-ok\"\n}时间: 14:40:36"
+          }
+        },
+        "metrics": {
+          "Timestamp": 875.407915,
+          "AudioHandlers": 0,
+          "AudioWorkletProcessors": 0,
+          "Documents": 4,
+          "Frames": 4,
+          "JSEventListeners": 144,
+          "LayoutObjects": 76,
+          "MediaKeySessions": 0,
+          "MediaKeys": 0,
+          "Nodes": 137,
+          "Resources": 1,
+          "ContextLifecycleStateObservers": 13,
+          "V8PerContextDatas": 2,
+          "WorkerGlobalScopes": 0,
+          "UACSSResources": 0,
+          "RTCPeerConnections": 0,
+          "ResourceFetchers": 4,
+          "AdSubframes": 0,
+          "DetachedScriptStates": 1,
+          "ArrayBufferContents": 2,
+          "LayoutCount": 4,
+          "RecalcStyleCount": 3,
+          "LayoutDuration": 0.070592,
+          "RecalcStyleDuration": 0.02169,
+          "DevToolsCommandDuration": 0.002818,
+          "ScriptDuration": 0.272426,
+          "V8CompileDuration": 0.055501,
+          "TaskDuration": 0.504015,
+          "TaskOtherDuration": 0.080988,
+          "ThreadTime": 0.410993,
+          "ProcessTime": 0.56,
+          "JSHeapUsedSize": 9021984,
+          "JSHeapTotalSize": 16179200,
+          "FirstMeaningfulPaint": 0,
+          "DomContentLoaded": 874.915473,
+          "NavigationStart": 874.589306
+        },
+        "exceptions": [],
+        "netFail": [],
+        "net": {
+          "requests": 2,
+          "failures": 0,
+          "external": 0,
+          "bytes": 3221727
+        },
+        "consoleErrors": 0,
+        "browser_ready_ms": 332.972476000009,
+        "chrome_tree_rss_mb": 1112.87,
+        "stdout": "MATRIX_DONE {\"mode\":\"offline\",\"els\":12,\"ms\":521,\"pass\":14,\"click\":11.099999999976717,\"ex\":0,\"ext\":0,\"fail\":0}",
+        "blocked": false
+      },
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "offline",
+        "url": "all-13-react-offline.html",
+        "firstRenderMs": 453,
+        "wallMs": 816,
+        "snap": {
+          "ready": "complete",
+          "rootChildren": 1,
+          "windowClass": "window large",
+          "title": "Lilyco 原生全变体烟测",
+          "elCount": 12,
+          "els": [
+            {
+              "tag": "H1",
+              "cls": "el el-heading h1",
+              "text": "十三变体",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "P",
+              "cls": "el el-text",
+              "text": "纯 Rust / NSH GTK 原生视图",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "名称",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "数量",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "格式pngwebp",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "LABEL",
+              "cls": "el el-checkbox",
+              "text": "启用",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "备注hello",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "IMG",
+              "cls": "el el-image",
+              "text": "",
+              "value": null,
+              "checked": null,
+              "src": "/usr/share/icons/hicolor/128x128/actions/document-share.png",
+              "href": null,
+              "width": "48px",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "HR",
+              "cls": "el el-divider",
+              "text": "",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-pw",
+              "text": "压缩进度 — 42%",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": "42%",
+              "children": 2
+            },
+            {
+              "tag": "A",
+              "cls": "el el-link",
+              "text": "NSH 官网",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": "https://nsh.dev",
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-calc",
+              "text": "计算器（scientific）0",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            }
+          ],
+          "buttons": [
+            {
+              "text": "执行",
+              "cls": "el-btn primary"
+            }
+          ],
+          "inputs": [
+            {
+              "type": "text",
+              "value": "abc",
+              "checked": false,
+              "min": "",
+              "max": "",
+              "placeholder": "输入"
+            },
+            {
+              "type": "number",
+              "value": "7",
+              "checked": false,
+              "min": "0",
+              "max": "100",
+              "placeholder": ""
+            },
+            {
+              "type": "checkbox",
+              "value": "on",
+              "checked": true,
+              "min": "",
+              "max": "",
+              "placeholder": ""
+            }
+          ],
+          "selects": [
+            {
+              "value": "png",
+              "options": [
+                "png",
+                "webp"
+              ]
+            }
+          ],
+          "textareas": [
+            {
+              "value": "hello",
+              "rows": 3
+            }
+          ],
+          "images": [
+            {
+              "src": "/usr/share/icons/hicolor/128x128/actions/document-share.png",
+              "width": "48px",
+              "complete": true,
+              "naturalWidth": 128
+            }
+          ],
+          "links": [
+            {
+              "href": "https://nsh.dev",
+              "text": "NSH 官网"
+            }
+          ],
+          "headings": [
+            {
+              "tag": "H1",
+              "cls": "el el-heading h1",
+              "text": "十三变体"
+            }
+          ],
+          "bars": [
+            "42%"
+          ],
+          "calcs": [
+            "计算器（scientific）0"
+          ],
+          "toast": null
+        },
+        "matrix": {
+          "标题": true,
+          "文本": true,
+          "输入框": true,
+          "数字框": true,
+          "选择框": true,
+          "复选框": true,
+          "文本域": true,
+          "图片": true,
+          "分隔线": true,
+          "进度条": true,
+          "链接": true,
+          "计算器": true,
+          "按钮": true,
+          "标题栏": true
+        },
+        "matrixPass": 14,
+        "matrixTotal": 14,
+        "windowClass": "window large",
+        "expectedWindowClass": "window large",
+        "interaction": {
+          "firstClick": {
+            "ok": true,
+            "latency": 20,
+            "text": "动作 \"run\" 已触发{}时间: 14:40:37"
+          },
+          "setValue": {
+            "ok": true,
+            "value": "matrix-ok"
+          },
+          "secondClick": {
+            "ok": true,
+            "latency": 10.400000000023283,
+            "text": "动作 \"run\" 已触发{\n  \"v_input\": \"matrix-ok\"\n}时间: 14:40:37"
+          }
+        },
+        "metrics": {
+          "Timestamp": 876.625458,
+          "AudioHandlers": 0,
+          "AudioWorkletProcessors": 0,
+          "Documents": 4,
+          "Frames": 4,
+          "JSEventListeners": 144,
+          "LayoutObjects": 76,
+          "MediaKeySessions": 0,
+          "MediaKeys": 0,
+          "Nodes": 137,
+          "Resources": 1,
+          "ContextLifecycleStateObservers": 13,
+          "V8PerContextDatas": 2,
+          "WorkerGlobalScopes": 0,
+          "UACSSResources": 0,
+          "RTCPeerConnections": 0,
+          "ResourceFetchers": 4,
+          "AdSubframes": 0,
+          "DetachedScriptStates": 1,
+          "ArrayBufferContents": 2,
+          "LayoutCount": 4,
+          "RecalcStyleCount": 3,
+          "LayoutDuration": 0.042159,
+          "RecalcStyleDuration": 0.015168,
+          "DevToolsCommandDuration": 0.003917,
+          "ScriptDuration": 0.25106,
+          "V8CompileDuration": 0.048906,
+          "TaskDuration": 0.430037,
+          "TaskOtherDuration": 0.068827,
+          "ThreadTime": 0.37242,
+          "ProcessTime": 0.51,
+          "JSHeapUsedSize": 8922232,
+          "JSHeapTotalSize": 15917056,
+          "FirstMeaningfulPaint": 0,
+          "DomContentLoaded": 876.179755,
+          "NavigationStart": 875.874071
+        },
+        "exceptions": [],
+        "netFail": [],
+        "net": {
+          "requests": 2,
+          "failures": 0,
+          "external": 0,
+          "bytes": 3221727
+        },
+        "consoleErrors": 0,
+        "browser_ready_ms": 234.53152799993404,
+        "chrome_tree_rss_mb": 1112.31,
+        "stdout": "MATRIX_DONE {\"mode\":\"offline\",\"els\":12,\"ms\":453,\"pass\":14,\"click\":20,\"ex\":0,\"ext\":0,\"fail\":0}",
+        "blocked": false
+      },
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "offline",
+        "url": "all-13-react-offline.html",
+        "firstRenderMs": 687,
+        "wallMs": 1027,
+        "snap": {
+          "ready": "complete",
+          "rootChildren": 1,
+          "windowClass": "window large",
+          "title": "Lilyco 原生全变体烟测",
+          "elCount": 12,
+          "els": [
+            {
+              "tag": "H1",
+              "cls": "el el-heading h1",
+              "text": "十三变体",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "P",
+              "cls": "el el-text",
+              "text": "纯 Rust / NSH GTK 原生视图",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "名称",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "数量",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "格式pngwebp",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "LABEL",
+              "cls": "el el-checkbox",
+              "text": "启用",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-field",
+              "text": "备注hello",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            },
+            {
+              "tag": "IMG",
+              "cls": "el el-image",
+              "text": "",
+              "value": null,
+              "checked": null,
+              "src": "/usr/share/icons/hicolor/128x128/actions/document-share.png",
+              "href": null,
+              "width": "48px",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "HR",
+              "cls": "el el-divider",
+              "text": "",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-pw",
+              "text": "压缩进度 — 42%",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": "42%",
+              "children": 2
+            },
+            {
+              "tag": "A",
+              "cls": "el el-link",
+              "text": "NSH 官网",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": "https://nsh.dev",
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 0
+            },
+            {
+              "tag": "DIV",
+              "cls": "el el-calc",
+              "text": "计算器（scientific）0",
+              "value": null,
+              "checked": null,
+              "src": null,
+              "href": null,
+              "width": "",
+              "rows": null,
+              "min": null,
+              "max": null,
+              "bar": null,
+              "children": 2
+            }
+          ],
+          "buttons": [
+            {
+              "text": "执行",
+              "cls": "el-btn primary"
+            }
+          ],
+          "inputs": [
+            {
+              "type": "text",
+              "value": "abc",
+              "checked": false,
+              "min": "",
+              "max": "",
+              "placeholder": "输入"
+            },
+            {
+              "type": "number",
+              "value": "7",
+              "checked": false,
+              "min": "0",
+              "max": "100",
+              "placeholder": ""
+            },
+            {
+              "type": "checkbox",
+              "value": "on",
+              "checked": true,
+              "min": "",
+              "max": "",
+              "placeholder": ""
+            }
+          ],
+          "selects": [
+            {
+              "value": "png",
+              "options": [
+                "png",
+                "webp"
+              ]
+            }
+          ],
+          "textareas": [
+            {
+              "value": "hello",
+              "rows": 3
+            }
+          ],
+          "images": [
+            {
+              "src": "/usr/share/icons/hicolor/128x128/actions/document-share.png",
+              "width": "48px",
+              "complete": true,
+              "naturalWidth": 128
+            }
+          ],
+          "links": [
+            {
+              "href": "https://nsh.dev",
+              "text": "NSH 官网"
+            }
+          ],
+          "headings": [
+            {
+              "tag": "H1",
+              "cls": "el el-heading h1",
+              "text": "十三变体"
+            }
+          ],
+          "bars": [
+            "42%"
+          ],
+          "calcs": [
+            "计算器（scientific）0"
+          ],
+          "toast": null
+        },
+        "matrix": {
+          "标题": true,
+          "文本": true,
+          "输入框": true,
+          "数字框": true,
+          "选择框": true,
+          "复选框": true,
+          "文本域": true,
+          "图片": true,
+          "分隔线": true,
+          "进度条": true,
+          "链接": true,
+          "计算器": true,
+          "按钮": true,
+          "标题栏": true
+        },
+        "matrixPass": 14,
+        "matrixTotal": 14,
+        "windowClass": "window large",
+        "expectedWindowClass": "window large",
+        "interaction": {
+          "firstClick": {
+            "ok": true,
+            "latency": 11.5,
+            "text": "动作 \"run\" 已触发{}时间: 14:40:39"
+          },
+          "setValue": {
+            "ok": true,
+            "value": "matrix-ok"
+          },
+          "secondClick": {
+            "ok": true,
+            "latency": 10.5,
+            "text": "动作 \"run\" 已触发{\n  \"v_input\": \"matrix-ok\"\n}时间: 14:40:39"
+          }
+        },
+        "metrics": {
+          "Timestamp": 878.124264,
+          "AudioHandlers": 0,
+          "AudioWorkletProcessors": 0,
+          "Documents": 4,
+          "Frames": 4,
+          "JSEventListeners": 144,
+          "LayoutObjects": 76,
+          "MediaKeySessions": 0,
+          "MediaKeys": 0,
+          "Nodes": 138,
+          "Resources": 1,
+          "ContextLifecycleStateObservers": 13,
+          "V8PerContextDatas": 2,
+          "WorkerGlobalScopes": 0,
+          "UACSSResources": 0,
+          "RTCPeerConnections": 0,
+          "ResourceFetchers": 4,
+          "AdSubframes": 0,
+          "DetachedScriptStates": 1,
+          "ArrayBufferContents": 2,
+          "LayoutCount": 3,
+          "RecalcStyleCount": 2,
+          "LayoutDuration": 0.059587,
+          "RecalcStyleDuration": 0.02129,
+          "DevToolsCommandDuration": 0.003909,
+          "ScriptDuration": 0.422907,
+          "V8CompileDuration": 0.050488,
+          "TaskDuration": 0.655522,
+          "TaskOtherDuration": 0.097341,
+          "ThreadTime": 0.483046,
+          "ProcessTime": 0.65,
+          "JSHeapUsedSize": 8923040,
+          "JSHeapTotalSize": 16441344,
+          "FirstMeaningfulPaint": 0,
+          "DomContentLoaded": 877.55203,
+          "NavigationStart": 877.139331
+        },
+        "exceptions": [],
+        "netFail": [],
+        "net": {
+          "requests": 2,
+          "failures": 0,
+          "external": 0,
+          "bytes": 3221727
+        },
+        "consoleErrors": 0,
+        "browser_ready_ms": 242.5030679999054,
+        "chrome_tree_rss_mb": 1116.55,
+        "stdout": "MATRIX_DONE {\"mode\":\"offline\",\"els\":12,\"ms\":687,\"pass\":14,\"click\":11.5,\"ex\":0,\"ext\":0,\"fail\":0}",
+        "blocked": false
+      }
+    ],
+    "cdn_blocked": [
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "block",
+        "url": "all-13-react-fixed.html",
+        "firstRenderMs": null,
+        "wallMs": 20312,
+        "snap": {
+          "ready": "complete",
+          "rootChildren": 0,
+          "windowClass": null,
+          "title": null,
+          "elCount": 0,
+          "els": [],
+          "buttons": [],
+          "inputs": [],
+          "selects": [],
+          "textareas": [],
+          "images": [],
+          "links": [],
+          "headings": [],
+          "bars": [],
+          "calcs": [],
+          "toast": null
+        },
+        "matrix": {
+          "标题": false,
+          "文本": false,
+          "输入框": false,
+          "数字框": false,
+          "选择框": false,
+          "复选框": false,
+          "文本域": false,
+          "图片": false,
+          "分隔线": false,
+          "进度条": false,
+          "链接": false,
+          "计算器": false,
+          "按钮": false,
+          "标题栏": false
+        },
+        "matrixPass": 0,
+        "matrixTotal": 14,
+        "windowClass": null,
+        "expectedWindowClass": "window large",
+        "interaction": {
+          "firstClick": null,
+          "setValue": null,
+          "secondClick": null
+        },
+        "metrics": {
+          "Timestamp": 898.95067,
+          "AudioHandlers": 0,
+          "AudioWorkletProcessors": 0,
+          "Documents": 4,
+          "Frames": 4,
+          "JSEventListeners": 0,
+          "LayoutObjects": 9,
+          "MediaKeySessions": 0,
+          "MediaKeys": 0,
+          "Nodes": 45,
+          "Resources": 6,
+          "ContextLifecycleStateObservers": 12,
+          "V8PerContextDatas": 2,
+          "WorkerGlobalScopes": 0,
+          "UACSSResources": 0,
+          "RTCPeerConnections": 0,
+          "ResourceFetchers": 4,
+          "AdSubframes": 0,
+          "DetachedScriptStates": 1,
+          "ArrayBufferContents": 0,
+          "LayoutCount": 1,
+          "RecalcStyleCount": 1,
+          "LayoutDuration": 0.000419,
+          "RecalcStyleDuration": 0.000662,
+          "DevToolsCommandDuration": 0.255554,
+          "ScriptDuration": 0.000405,
+          "V8CompileDuration": 0.000191,
+          "TaskDuration": 0.312952,
+          "TaskOtherDuration": 0.055721,
+          "ThreadTime": 0.338898,
+          "ProcessTime": 0.5,
+          "JSHeapUsedSize": 1664532,
+          "JSHeapTotalSize": 3145728,
+          "FirstMeaningfulPaint": 0,
+          "DomContentLoaded": 878.673783,
+          "NavigationStart": 878.64493
+        },
+        "exceptions": [
+          "ReferenceError: Babel is not defined"
+        ],
+        "netFail": [
+          "",
+          "",
+          ""
+        ],
+        "net": {
+          "requests": 4,
+          "failures": 3,
+          "external": 3,
+          "bytes": 9134
+        },
+        "consoleErrors": 0,
+        "browser_ready_ms": 243.86342000002514,
+        "chrome_tree_rss_mb": 1142.41,
+        "stdout": "MATRIX_DONE {\"mode\":\"block\",\"els\":0,\"ms\":null,\"pass\":0,\"click\":null,\"ex\":1,\"ext\":3,\"fail\":3}",
+        "blocked": true
+      },
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "block",
+        "url": "all-13-react-fixed.html",
+        "firstRenderMs": null,
+        "wallMs": 20305,
+        "snap": {
+          "ready": "complete",
+          "rootChildren": 0,
+          "windowClass": null,
+          "title": null,
+          "elCount": 0,
+          "els": [],
+          "buttons": [],
+          "inputs": [],
+          "selects": [],
+          "textareas": [],
+          "images": [],
+          "links": [],
+          "headings": [],
+          "bars": [],
+          "calcs": [],
+          "toast": null
+        },
+        "matrix": {
+          "标题": false,
+          "文本": false,
+          "输入框": false,
+          "数字框": false,
+          "选择框": false,
+          "复选框": false,
+          "文本域": false,
+          "图片": false,
+          "分隔线": false,
+          "进度条": false,
+          "链接": false,
+          "计算器": false,
+          "按钮": false,
+          "标题栏": false
+        },
+        "matrixPass": 0,
+        "matrixTotal": 14,
+        "windowClass": null,
+        "expectedWindowClass": "window large",
+        "interaction": {
+          "firstClick": null,
+          "setValue": null,
+          "secondClick": null
+        },
+        "metrics": {
+          "Timestamp": 919.572702,
+          "AudioHandlers": 0,
+          "AudioWorkletProcessors": 0,
+          "Documents": 4,
+          "Frames": 4,
+          "JSEventListeners": 0,
+          "LayoutObjects": 9,
+          "MediaKeySessions": 0,
+          "MediaKeys": 0,
+          "Nodes": 45,
+          "Resources": 6,
+          "ContextLifecycleStateObservers": 12,
+          "V8PerContextDatas": 2,
+          "WorkerGlobalScopes": 0,
+          "UACSSResources": 0,
+          "RTCPeerConnections": 0,
+          "ResourceFetchers": 4,
+          "AdSubframes": 0,
+          "DetachedScriptStates": 1,
+          "ArrayBufferContents": 0,
+          "LayoutCount": 1,
+          "RecalcStyleCount": 1,
+          "LayoutDuration": 0.00019,
+          "RecalcStyleDuration": 0.000306,
+          "DevToolsCommandDuration": 0.25245,
+          "ScriptDuration": 0.000278,
+          "V8CompileDuration": 0.000134,
+          "TaskDuration": 0.30147,
+          "TaskOtherDuration": 0.048112,
+          "ThreadTime": 0.331391,
+          "ProcessTime": 0.46,
+          "JSHeapUsedSize": 1699868,
+          "JSHeapTotalSize": 3145728,
+          "FirstMeaningfulPaint": 0,
+          "DomContentLoaded": 899.284174,
+          "NavigationStart": 899.270445
+        },
+        "exceptions": [
+          "ReferenceError: Babel is not defined"
+        ],
+        "netFail": [
+          "",
+          "",
+          ""
+        ],
+        "net": {
+          "requests": 4,
+          "failures": 3,
+          "external": 3,
+          "bytes": 9134
+        },
+        "consoleErrors": 0,
+        "browser_ready_ms": 165.27049499995883,
+        "chrome_tree_rss_mb": 1144.45,
+        "stdout": "MATRIX_DONE {\"mode\":\"block\",\"els\":0,\"ms\":null,\"pass\":0,\"click\":null,\"ex\":1,\"ext\":3,\"fail\":3}",
+        "blocked": true
+      },
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "block",
+        "url": "all-13-react-fixed.html",
+        "firstRenderMs": null,
+        "wallMs": 20309,
+        "snap": {
+          "ready": "complete",
+          "rootChildren": 0,
+          "windowClass": null,
+          "title": null,
+          "elCount": 0,
+          "els": [],
+          "buttons": [],
+          "inputs": [],
+          "selects": [],
+          "textareas": [],
+          "images": [],
+          "links": [],
+          "headings": [],
+          "bars": [],
+          "calcs": [],
+          "toast": null
+        },
+        "matrix": {
+          "标题": false,
+          "文本": false,
+          "输入框": false,
+          "数字框": false,
+          "选择框": false,
+          "复选框": false,
+          "文本域": false,
+          "图片": false,
+          "分隔线": false,
+          "进度条": false,
+          "链接": false,
+          "计算器": false,
+          "按钮": false,
+          "标题栏": false
+        },
+        "matrixPass": 0,
+        "matrixTotal": 14,
+        "windowClass": null,
+        "expectedWindowClass": "window large",
+        "interaction": {
+          "firstClick": null,
+          "setValue": null,
+          "secondClick": null
+        },
+        "metrics": {
+          "Timestamp": 940.192396,
+          "AudioHandlers": 0,
+          "AudioWorkletProcessors": 0,
+          "Documents": 4,
+          "Frames": 4,
+          "JSEventListeners": 0,
+          "LayoutObjects": 9,
+          "MediaKeySessions": 0,
+          "MediaKeys": 0,
+          "Nodes": 45,
+          "Resources": 6,
+          "ContextLifecycleStateObservers": 12,
+          "V8PerContextDatas": 2,
+          "WorkerGlobalScopes": 0,
+          "UACSSResources": 0,
+          "RTCPeerConnections": 0,
+          "ResourceFetchers": 4,
+          "AdSubframes": 0,
+          "DetachedScriptStates": 1,
+          "ArrayBufferContents": 0,
+          "LayoutCount": 1,
+          "RecalcStyleCount": 1,
+          "LayoutDuration": 7.9e-05,
+          "RecalcStyleDuration": 0.000251,
+          "DevToolsCommandDuration": 0.252205,
+          "ScriptDuration": 0.000311,
+          "V8CompileDuration": 0.000269,
+          "TaskDuration": 0.30145,
+          "TaskOtherDuration": 0.048335,
+          "ThreadTime": 0.331458,
+          "ProcessTime": 0.47,
+          "JSHeapUsedSize": 1702592,
+          "JSHeapTotalSize": 3145728,
+          "FirstMeaningfulPaint": 0,
+          "DomContentLoaded": 919.896212,
+          "NavigationStart": 919.884662
+        },
+        "exceptions": [
+          "ReferenceError: Babel is not defined"
+        ],
+        "netFail": [
+          "",
+          "",
+          ""
+        ],
+        "net": {
+          "requests": 4,
+          "failures": 3,
+          "external": 3,
+          "bytes": 9134
+        },
+        "consoleErrors": 0,
+        "browser_ready_ms": 171.12452699996084,
+        "chrome_tree_rss_mb": 1161.73,
+        "stdout": "MATRIX_DONE {\"mode\":\"block\",\"els\":0,\"ms\":null,\"pass\":0,\"click\":null,\"ex\":1,\"ext\":3,\"fail\":3}",
+        "blocked": true
+      }
+    ],
+    "old_unpinned": [
+      {
+        "browser": "Chrome/157.0.8103.38",
+        "mode": "old",
+        "url": "all-13-react-old-unpinned.html",
+        "firstRenderMs": null,
+        "wallMs": 20316,
+        "snap": {
+          "ready": "complete",
+          "rootChildren": 0,
+          "windowClass": null,
+          "title": null,
+          "elCount": 0,
+          "els": [],
+          "buttons": [],
+          "inputs": [],
+          "selects": [],
+          "textareas": [],
+          "images": [],
+          "links": [],
+          "headings": [],
+          "bars": [],
+          "calcs": [],
+          "toast": null
+        },
+        "matrix": {
+          "标题": false,
+          "文本": false,
+          "输入框": false,
+          "数字框": false,
+          "选择框": false,
+          "复选框": false,
+          "文本域": false,
+          "图片": false,
+          "分隔线": false,
+          "进度条": false,
+          "链接": false,
+          "计算器": false,
+          "按钮": false,
+          "标题栏": false
+        },
+        "matrixPass": 0,
+        "matrixTotal": 14,
+        "windowClass": null,
+        "expectedWindowClass": "window large",
+        "interaction": {
+          "firstClick": null,
+          "setValue": null,
+          "secondClick": null
+        },
+        "metrics": {
+          "Timestamp": 960.82075,
+          "AudioHandlers": 0,
+          "AudioWorkletProcessors": 0,
+          "Documents": 4,
+          "Frames": 4,
+          "JSEventListeners": 4,
+          "LayoutObjects": 9,
+          "MediaKeySessions": 0,
+          "MediaKeys": 0,
+          "Nodes": 46,
+          "Resources": 3,
+          "ContextLifecycleStateObservers": 12,
+          "V8PerContextDatas": 2,
+          "WorkerGlobalScopes": 0,
+          "UACSSResources": 0,
+          "RTCPeerConnections": 0,
+          "ResourceFetchers": 4,
+          "AdSubframes": 0,
+          "DetachedScriptStates": 1,
+          "ArrayBufferContents": 4,
+          "LayoutCount": 1,
+          "RecalcStyleCount": 1,
+          "LayoutDuration": 8.6e-05,
+          "RecalcStyleDuration": 0.000353,
+          "DevToolsCommandDuration": 0.256545,
+          "ScriptDuration": 0.166842,
+          "V8CompileDuration": 0.000935,
+          "TaskDuration": 0.480641,
+          "TaskOtherDuration": 0.05588,
+          "ThreadTime": 0.504297,
+          "ProcessTime": 0.77,
+          "JSHeapUsedSize": 10250368,
+          "JSHeapTotalSize": 16412672,
+          "FirstMeaningfulPaint": 0,
+          "DomContentLoaded": 945.079464,
+          "NavigationStart": 940.507377
+        },
+        "exceptions": [
+          "SyntaxError: Failed to execute 'appendChild' on 'Node': Cannot use import statement outside a module"
+        ],
+        "netFail": [],
+        "net": {
+          "requests": 7,
+          "failures": 0,
+          "external": 6,
+          "bytes": 2530792
+        },
+        "consoleErrors": 0,
+        "browser_ready_ms": 167.9318950000379,
+        "chrome_tree_rss_mb": 1194.66,
+        "stdout": "MATRIX_DONE {\"mode\":\"old\",\"els\":0,\"ms\":null,\"pass\":0,\"click\":null,\"ex\":1,\"ext\":6,\"fail\":0}",
+        "blocked": false
+      }
+    ]
+  }
+}

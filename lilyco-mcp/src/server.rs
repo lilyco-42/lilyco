@@ -311,6 +311,17 @@ impl McpServer {
                                 Some(format!("{key}={value}")),
                             ));
                         }
+                        Progress::View { id, component } => {
+                            // 语义组件在 MCP 面转成一条可读进度消息：
+                            // `id={"kind":"progress",...}`，Agent 也能消费结构
+                            let body = serde_json::to_string(component).unwrap_or_default();
+                            sink(&progress_notification(
+                                &token,
+                                0.0,
+                                None,
+                                Some(format!("{id}={body}")),
+                            ));
+                        }
                         Progress::Log { .. } => {} // 日志不映射为进度通知
                     }
                 }

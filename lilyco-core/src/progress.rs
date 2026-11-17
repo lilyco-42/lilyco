@@ -39,6 +39,16 @@ pub enum Progress {
         /// 数据点值（结构化 JSON，可为数字/字符串/对象）
         value: serde_json::Value,
     },
+    /// 视图组件更新：后端声明语义组件，前端自行实现
+    ///
+    /// `id` 对应静态槽位（`#[view(id = "...")]`）或临时区域；同一个 id
+    /// 的后续事件视为对同一组件的更新（如进度条推进）。
+    View {
+        /// 组件槽位标识
+        id: String,
+        /// 组件类型与数据
+        component: crate::view::Component,
+    },
     /// 任务完成，携带结果
     Done {
         /// 任务结果，序列化为 JSON

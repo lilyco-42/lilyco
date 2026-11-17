@@ -22,6 +22,7 @@ pub mod progress;
 pub mod registry;
 pub mod safety;
 pub mod schema;
+pub mod view;
 
 // Re-exports at crate root for macro-generated code
 pub use app::{App, Renderer};
@@ -34,6 +35,10 @@ pub use safety::{
     DenyElevated, GateDecision, GateRequest, Interactive, SafetyPolicy, SafetyTier, Unrestricted,
 };
 pub use schema::{ArgKind, ArgSchema, CommandSchema, ValueEnum};
+pub use view::{
+    AccordionItem, ButtonVariant, CarouselItem, ChartKind, CommandItem, Component, KeyValueItem,
+    LogLine, MenuGroup, MenuItem, NavItem, SheetSide, TabItem, Tone, ViewSlot,
+};
 
 // ── 便捷导入 ──────────────────────────────────────────────
 
@@ -491,4 +496,8 @@ pub mod prelude {
         Unrestricted,
     };
     pub use crate::schema::{ArgKind, ArgSchema, CommandSchema, ValueEnum};
+    pub use crate::view::{
+        AccordionItem, ButtonVariant, CarouselItem, ChartKind, CommandItem, Component, KeyValueItem,
+        LogLine, MenuGroup, MenuItem, NavItem, SheetSide, TabItem, Tone, ViewSlot,
+    };
 }

@@ -92,6 +92,7 @@ cargo binstall lilyco-ffmpeg   # or lilyco-srt, lilyco-brush, ...
 - [Type → Widget mapping](docs/TYPE-WIDGET.md)
 - [AI Integration](docs/AI-INTEGRATION.md) — MCP, JSON Schema, progress protocol
 - [Examples](docs/EXAMPLES.md) — more apps built on lilyco
+- [UI Guidelines](docs/ui/README.md) — 入门介绍 + 手把手教程 + 设计语言 + 组件参考（内置 Web 端与 React 映射）
 - [DSH Integration](docs/DSH.md)
 - [Testing](docs/TESTING.md)
 - [Installation](docs/INSTALL.md)
