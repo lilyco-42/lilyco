@@ -1,0 +1,50 @@
+name: pages
+
+on:
+  push:
+    branches:
+      - main
+      - feat/native-ui-slice
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 构建静态站（docs/ui 到 site/dist）
+        run: python3 site/build.py
+
+      - name: 基本校验
+        run: |
+          test -f site/dist/index.html
+          test -f site/dist/docs/view-protocol.html
+          test -f site/dist/docs/tutorial/08-view-components.html
+          echo "页面数: $(find site/dist -name '*.html' | wc -l)"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

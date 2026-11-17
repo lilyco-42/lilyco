@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}} · lilyco</title>
+<meta name="description" content="lilyco 框架文档：{{TITLE}}">
+<link rel="stylesheet" href="{{ROOT}}/../assets/site.css">
+<script src="{{ROOT}}/../assets/site.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="{{ROOT}}/../index.html"><span class="brand-mark">◆</span> lilyco <span class="brand-sub">文档</span></a>
+  <nav class="topnav">
+    <a href="{{ROOT}}/../index.html">首页</a>
+    <a href="{{ROOT}}/tutorial/README.html">教程</a>
+    <a href="{{ROOT}}/view-protocol.html">组件协议</a>
+    <a class="keep" href="https://github.com/lilyco-42/lilyco">GitHub</a>
+    <span class="zoom">
+      <button class="icon-btn" type="button" data-zoom="-10" aria-label="缩小">－</button>
+      <span id="zoom-value">100%</span>
+      <button class="icon-btn" type="button" data-zoom="10" aria-label="放大">＋</button>
+    </span>
+    <button class="icon-btn" id="theme-toggle" type="button" aria-label="切换主题">◐</button>
+  </nav>
+</header>
+
+<main class="page">
+  <div class="layout">
+    <aside class="sidebar">{{NAV}}</aside>
+    <article class="article">{{BODY}}</article>
+  </div>
+</main>
+
+<footer class="foot">lilyco · 本页由 <code>site/build.py</code> 从 <code>docs/ui</code> 生成 · 零外部依赖</footer>
+</body>
+</html>
