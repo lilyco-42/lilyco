@@ -51,8 +51,23 @@ detect_platform() {
   esac
 }
 
-# 从 latest release 取指定资产的下载 URL / sha256 digest（免 jq，仅 grep/sed/awk）
-release_json() { curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null; }
+# 从最近的 vX.Y.Z release 取指定资产的下载 URL / sha256 digest（免 jq，仅 grep/sed/awk）
+# 不直接用 /releases/latest：文档快照（docs-v1）与 manager-* 也会成为 latest，
+# 按「tag 以 v+数字开头」筛，才能稳定拿到二进制版本。
+release_tag() {
+  curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=30" 2>/dev/null \
+    | grep -o '"tag_name": *"v[0-9][^"]*"' \
+    | head -n1 | sed 's/.*"\(v[0-9][^"]*\)"/\1/'
+}
+release_json() {
+  local tag
+  tag=$(release_tag)
+  if [ -n "$tag" ]; then
+    curl -fsSL "https://api.github.com/repos/$REPO/releases/tags/$tag" 2>/dev/null
+  else
+    curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null
+  fi
+}
 asset_url() { # $1 = 资产名子串
   release_json \
     | grep -o "\"browser_download_url\": *\"[^\"]*${1}[^\"]*\"" \

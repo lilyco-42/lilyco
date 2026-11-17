@@ -46,13 +46,23 @@ pub type RunnerFn = Arc<
 /// 注意 `for event in task.rx` 是**阻塞**收事件（crossbeam 收件箱，不是 async）：
 /// 它占住一个 worker 线程，所以这条路只能在多线程 runtime 上跑（`axum::serve` 的
 /// 运行时满足）。测试里要用 `flavor = "multi_thread"`，单线程 runtime 会直接僵住。
-async fn run_progress(
-    state: &AppState,
-    sid: &str,
+/// run_progress 的入参（收成一个结构体，避免 5 个裸参数）
+struct Job<'a> {
+    state: &'a AppState,
+    sid: &'a str,
     handler: Handler,
     args: serde_json::Value,
     gui_tx: tokio::sync::mpsc::Sender<serde_json::Value>,
-) {
+}
+
+async fn run_progress(job: Job<'_>) {
+    let Job {
+        state,
+        sid,
+        handler,
+        args,
+        gui_tx,
+    } = job;
     let task = executor::spawn(handler, args);
     state
         .cancels
@@ -127,7 +137,14 @@ pub(crate) async fn run_handler(
         let state2 = Arc::clone(&state);
         let sid2 = sid.clone();
         tokio::spawn(async move {
-            run_progress(&state2, &sid2, handler, args_value, tx).await;
+            let job = Job {
+                state: &state2,
+                sid: &sid2,
+                handler,
+                args: args_value,
+                gui_tx: tx,
+            };
+            run_progress(job).await;
         });
         return (
             StatusCode::OK,
