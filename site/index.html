@@ -115,6 +115,10 @@ fn main() {
       <div class="demo">
         <span class="kind">badge</span>
         <span class="v-badge success">就绪</span>
+        <details class="demo-code"><summary>Rust 声明</summary><pre><code>Component::Badge {
+    text: <span class="tok-s">"就绪"</span>.into(),
+    tone: Tone::Success,
+}</code></pre></details>
       </div>
       <div class="demo">
         <span class="kind">alert</span>
@@ -138,6 +142,11 @@ fn main() {
       <div class="demo">
         <span class="kind">key_value</span>
         <div class="v-kv"><div class="v-kv-row"><span class="v-kv-k">版本</span><span>0.3.0</span></div><div class="v-kv-row"><span class="v-kv-k">目标</span><span>wasm</span></div></div>
+        <details class="demo-code"><summary>Rust 声明</summary><pre><code>Component::KeyValue {
+    items: vec![KeyValueItem {
+        key: <span class="tok-s">"版本"</span>.into(), value: <span class="tok-s">"0.3.0"</span>.into(),
+    }],
+}</code></pre></details>
       </div>
       <div class="demo">
         <span class="kind">log</span>
@@ -150,6 +159,10 @@ fn main() {
       <div class="demo">
         <span class="kind">tabs</span>
         <div class="v-tabs"><span class="v-tab active">概览</span><span class="v-tab">日志</span><span class="v-tab">结果</span></div>
+        <details class="demo-code"><summary>Rust 声明</summary><pre><code>Component::Tabs {
+    items: vec![TabItem { id: <span class="tok-s">"overview"</span>.into(), label: <span class="tok-s">"概览"</span>.into(), children: vec![] }],
+    active: Some(<span class="tok-s">"overview"</span>.into()),
+}</code></pre></details>
       </div>
       <div class="demo">
         <span class="kind">chart</span>
@@ -163,14 +176,26 @@ fn main() {
       <div class="demo">
         <span class="kind">avatar</span>
         <div class="v-avatar">ly</div>
+        <details class="demo-code"><summary>Rust 声明</summary><pre><code>Component::Avatar {
+    name: <span class="tok-s">"lyco"</span>.into(),
+    src: None,
+}</code></pre></details>
       </div>
       <div class="demo">
         <span class="kind">skeleton</span>
         <div class="v-skeleton"><i></i><i style="width:70%"></i></div>
+        <details class="demo-code"><summary>Rust 声明</summary><pre><code>Component::Skeleton {
+    lines: <span class="tok-n">2</span>,
+}</code></pre></details>
       </div>
       <div class="demo">
         <span class="kind">result</span>
         <div class="v-result">{ "steps": 3, "ok": true }</div>
+        <details class="demo-code"><summary>Rust 声明</summary><pre><code>Component::Result {
+    ok: <span class="tok-k">true</span>,
+    title: <span class="tok-s">"完成"</span>.into(),
+    value: Some(serde_json::json!({ <span class="tok-s">"steps"</span>: <span class="tok-n">3</span> })),
+}</code></pre></details>
       </div>
       <div class="demo">
         <span class="kind">dialog / separator</span>
