@@ -16,6 +16,10 @@ Windows/Linux/macOS local-first manager: launch a loopback HTTP server on an eph
 - `POST /api/tools/:name/run`: {ok:true,output:object}; only allowlisted tools.
 - `GET /api/history`: {runs:[{id,tool,output,created_at}]} maximum 50 returned; storage retains the latest 500 rows.
 - Auth for /api/: x-lilyco-token; reject missing tokens. State mutations additionally require `Origin` to match `Host` to reduce cross-origin and DNS rebinding risk. Constant-time token comparison remains a follow-up hardening item.
+- `GET /api/openapi.json`: machine-readable API document (OpenAPI 3.1 shape) for the same
+  routes. It is authenticated like every other API. The contract test walks every documented
+  path + method without a token and requires 401, so a route cannot silently disappear or
+  become public while the document still claims it exists.
 
 ## Lifecycle & security
 - Bind loopback only, random port and CSPRNG session token.
@@ -78,6 +82,11 @@ The HTTP layer never accepts an executable name, argv or env. Manifest ids are v
 - Archives: tar.gz, zip, or a raw binary. Extraction caps: 256MB download, 512MB expanded,
   5000 entries, depth 4. `enclosed_name` prevents zip traversal.
 - Managed layout: `<data>/lilyco/apps/<id>/{downloads,releases/<tag>,current.json}`.
+The install/update/uninstall chain is covered by a real local-HTTP test: a test-only API
+base points at a loopback release server that serves a digest-bearing asset, so the test
+exercises download, SHA-256 verification, extraction, `current.json`, update and uninstall
+without contacting GitHub or trusting a mocked filesystem.
+
 - `POST /api/apps/:id/uninstall` removes the manager-owned directory only. It stops a
   manager-supervised instance first and never touches the source repository or a PATH binary.
 - Binary resolution order: `LILYCO_MANAGER_BIN_<ID>` > managed install > `PATH`.

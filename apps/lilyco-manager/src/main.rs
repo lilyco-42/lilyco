@@ -114,6 +114,68 @@ async fn index() -> Html<&'static str> {
     Html(PAGE)
 }
 
+/// 机器可读的接口清单：给管理面板、脚本和契约测试共用。
+/// 只暴露路由形状与鉴权要求，不包含 token、本机路径或进程信息。
+async fn openapi(State(state): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
+    if !authorised(&headers, &state.token) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    Ok(Json(api_spec()))
+}
+
+fn operation(summary: &str, tag: &str) -> Value {
+    json!({
+        "summary": summary,
+        "tags": [tag],
+        "responses": {
+            "200": {"description": "成功"},
+            "401": {"description": "缺少或错误的 x-lilyco-token"},
+        }
+    })
+}
+
+fn api_spec() -> Value {
+    json!({
+        "openapi": "3.1.0",
+        "info": {
+            "title": "Lilyco Manager API",
+            "version": env!("CARGO_PKG_VERSION"),
+            "description": "本机只读工具、应用生命周期、MCP 聚合与开发任务。全部接口要求 x-lilyco-token，状态变更接口额外校验 Origin/Host 同源。",
+        },
+        "servers": [{"url": "http://127.0.0.1"}],
+        "components": {
+            "securitySchemes": {
+                "managerToken": {"type": "apiKey", "in": "header", "name": "x-lilyco-token"}
+            }
+        },
+        "security": [{"managerToken": []}],
+        "paths": {
+            "/api/tools": {"get": operation("只读工具注册表", "tools")},
+            "/api/ecosystem": {"get": operation("已审核生态项目目录", "meta")},
+            "/api/adapters": {"get": operation("固定可执行适配器可用性", "meta")},
+            "/api/tools/{name}/run": {"post": operation("执行已注册的只读工具", "tools")},
+            "/api/history": {"get": operation("最近的执行记录", "tools")},
+            "/api/apps": {"get": operation("应用清单与受管进程状态", "apps")},
+            "/api/apps/{id}/start": {"post": operation("启动清单定义的应用", "apps")},
+            "/api/apps/{id}/stop": {"post": operation("停止管理器启动的应用", "apps")},
+            "/api/apps/{id}/logs": {"get": operation("读取有界进程日志", "apps")},
+            "/api/apps/{id}/schema": {"get": operation("执行 --schema 并返回命令清单", "apps")},
+            "/api/apps/{id}/release": {"get": operation("查询 GitHub Release 与本地托管版本", "release")},
+            "/api/apps/{id}/install": {"post": operation("校验 SHA-256 后安装托管二进制", "release")},
+            "/api/apps/{id}/uninstall": {"post": operation("删除托管安装目录", "release")},
+            "/api/apps/{id}/dev": {"get": operation("清单中的固定开发任务与最近记录", "dev")},
+            "/api/apps/{id}/dev/{task}": {"post": operation("按固定 argv 启动开发任务", "dev")},
+            "/api/dev/jobs/{job}/logs": {"get": operation("读取开发任务输出与退出码", "dev")},
+            "/api/mcp/tools": {"get": operation("聚合各应用 --mcp 的工具列表", "mcp")},
+            "/api/mcp/config": {
+                "get": operation("生成 lilyco-toolhub 配置", "mcp"),
+                "post": operation("写入本机 tools.json", "mcp"),
+            },
+            "/api/openapi.json": {"get": operation("本接口清单", "meta")},
+        }
+    })
+}
+
 async fn ecosystem(
     State(state): State<App>,
     headers: HeaderMap,
@@ -823,6 +885,7 @@ fn build_router(app: App) -> Router {
         .route("/", get(index))
         .route("/api/tools", get(list))
         .route("/api/ecosystem", get(ecosystem))
+        .route("/api/openapi.json", get(openapi))
         .route("/api/adapters", get(adapters))
         .route("/api/tools/:name/run", post(run))
         .route("/api/history", get(history))
@@ -850,12 +913,16 @@ mod tests {
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
-    async fn test_state() -> App {
+    async fn test_state_with(apps: Vec<Manifest>) -> App {
         let db = Database::connect("sqlite::memory:").await.unwrap();
         db.execute_unprepared("CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY AUTOINCREMENT, tool TEXT NOT NULL, output TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);")
             .await
             .unwrap();
-        build_state(db, "t".repeat(32), vec![sample_manifest()], vec![])
+        build_state(db, "t".repeat(32), apps, vec![])
+    }
+
+    async fn test_state() -> App {
+        test_state_with(vec![sample_manifest()]).await
     }
 
     fn sample_manifest() -> Manifest {
@@ -999,5 +1066,437 @@ mod tests {
         let alias = "lilyco.manager".replace(['-', '.'], "_");
         assert_eq!(alias, "lilyco_manager");
         assert!(alias.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+    }
+
+    /// FastAPI 风格的接口契约：文档里的每个 path + method 都必须真实存在且要求 token。
+    /// 未注册的路由会直接 404，所以「无 token 得到 401」同时证明了文档与路由一致。
+    #[tokio::test]
+    async fn openapi_document_covers_every_route_and_requires_token() {
+        let app = test_state().await;
+        let (status, _) = call(&app, request("GET", "/api/openapi.json", None)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let (status, doc) = call(&app, request("GET", "/api/openapi.json", Some(&app.token))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(doc["openapi"], "3.1.0");
+        assert_eq!(doc["security"][0]["managerToken"], json!([]));
+        assert_eq!(
+            doc["components"]["securitySchemes"]["managerToken"]["name"],
+            "x-lilyco-token"
+        );
+
+        let paths = doc["paths"].as_object().unwrap();
+        assert!(paths.len() >= 19, "接口文档只覆盖了 {} 条路径", paths.len());
+        let mut operations = 0;
+        for (path, item) in paths {
+            assert!(path.starts_with("/api/"), "非 API 路径: {path}");
+            for method in item.as_object().unwrap().keys() {
+                let method = method.to_ascii_uppercase();
+                let uri = path
+                    .replace("{name}", "manager.health")
+                    .replace("{id}", "demo")
+                    .replace("{task}", "check")
+                    .replace("{job}", "none");
+                let (status, _) = call(&app, request(&method, &uri, None)).await;
+                assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri} 未受保护");
+                operations += 1;
+            }
+        }
+        assert!(operations >= 20, "只验证了 {operations} 个操作");
+    }
+
+    #[tokio::test]
+    async fn uninstall_unknown_app_is_not_found() {
+        let app = test_state().await;
+        let (status, _) = call(
+            &app,
+            request("POST", "/api/apps/missing/uninstall", Some(&app.token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    fn manifest_with(id: &str, binary: &str, capabilities: manifest::Capabilities) -> Manifest {
+        Manifest {
+            schema_version: 1,
+            id: id.into(),
+            name: id.into(),
+            description: String::new(),
+            repository: None,
+            binary: binary.into(),
+            capabilities,
+            run: None,
+            mcp: None,
+            schema: None,
+            release: None,
+            dev: None,
+            source_dir: None,
+        }
+    }
+
+    /// 只读元数据接口的响应形状：字段名与只读约束不能漂。
+    #[tokio::test]
+    async fn ecosystem_and_adapters_have_stable_shape() {
+        let app = test_state().await;
+        let (status, body) = call(&app, request("GET", "/api/ecosystem", Some(&app.token))).await;
+        assert_eq!(status, StatusCode::OK);
+        let projects = body["projects"].as_array().unwrap();
+        assert!(!projects.is_empty(), "生态目录不应为空");
+        for project in projects {
+            for key in ["name", "url", "category", "integration", "visibility"] {
+                assert!(
+                    project.get(key).and_then(Value::as_str).is_some(),
+                    "生态项目缺字段 {key}: {project}"
+                );
+            }
+        }
+
+        let (status, body) = call(&app, request("GET", "/api/adapters", Some(&app.token))).await;
+        assert_eq!(status, StatusCode::OK);
+        let adapters = body["adapters"].as_array().unwrap();
+        assert_eq!(adapters.len(), 2);
+        for adapter in adapters {
+            assert_eq!(adapter["read_only"], json!(true));
+            assert!(adapter["tool"].is_string() && adapter["project"].is_string());
+        }
+    }
+
+    /// 未配置发布源时：release 仍是 200 + configured:false，安装明确 400。
+    #[tokio::test]
+    async fn release_reports_unconfigured_and_install_rejects() {
+        let app = test_state().await;
+        let (status, body) = call(
+            &app,
+            request("GET", "/api/apps/demo/release", Some(&app.token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["release"]["configured"], false);
+        assert_eq!(body["release"]["platform"], release::platform_key());
+
+        let (status, body) = call(
+            &app,
+            request("POST", "/api/apps/demo/install", Some(&app.token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"], "该应用未配置 release 发布源");
+    }
+
+    /// `--schema` 只执行清单里的固定 argv，输出的 JSON 原样返回并记录命令数。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn schema_route_runs_fixed_schema_argv() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir =
+            std::env::temp_dir().join(format!("lilyco-manager-schema-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("lilyco-schema-test");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\n[ \"$1\" = \"--schema\" ] || exit 9\nprintf '[{\"name\":\"demo\",\"args\":[]}]'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::env::set_var("LILYCO_MANAGER_BIN_SCHEMAAPP", &script);
+
+        let manifest = manifest_with(
+            "schemaapp",
+            "lilyco-schema-test",
+            manifest::Capabilities {
+                run: false,
+                mcp: false,
+                schema: true,
+            },
+        );
+        let plain = manifest_with("plain", "lilyco-schema-test", Default::default());
+        let app = test_state_with(vec![manifest, plain]).await;
+
+        let (status, body) = call(
+            &app,
+            request("GET", "/api/apps/schemaapp/schema", Some(&app.token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["commands"], 1);
+        assert_eq!(body["schema"][0]["name"], "demo");
+
+        // 没有 schema 能力的应用直接 400，不会去执行任何东西。
+        let (status, _) = call(
+            &app,
+            request("GET", "/api/apps/plain/schema", Some(&app.token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        std::env::remove_var("LILYCO_MANAGER_BIN_SCHEMAAPP");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// MCP 聚合：真实 stdio 握手（initialize + tools/list）→ 命名空间化工具；
+    /// 配置导出与写入本机 tools.json 走同一次断言。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn mcp_discovery_and_config_roundtrip() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("lilyco-manager-mcp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("lilyco-mcp-test");
+        std::fs::write(
+            &script,
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"initialize"'*) printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1"}}}' ;;
+    *'"tools/list"'*) printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"回显文本","inputSchema":{"type":"object"}}]}}' ;;
+  esac
+done
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::env::set_var("LILYCO_MANAGER_BIN_MCPAPP", &script);
+        let config_home = dir.join("config");
+        std::env::set_var("XDG_CONFIG_HOME", &config_home);
+
+        let manifest = manifest_with(
+            "mcpapp",
+            "lilyco-mcp-test",
+            manifest::Capabilities {
+                run: false,
+                mcp: true,
+                schema: false,
+            },
+        );
+        let app = test_state_with(vec![manifest]).await;
+
+        let (status, body) = call(&app, request("GET", "/api/mcp/tools", Some(&app.token))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let tools = body["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 1, "{body}");
+        assert_eq!(tools[0]["name"], "mcpapp__echo");
+        assert_eq!(tools[0]["app"], "mcpapp");
+        assert_eq!(tools[0]["original_name"], "echo");
+        assert_eq!(body["providers"][0]["ok"], true);
+
+        let (status, body) = call(&app, request("GET", "/api/mcp/config", Some(&app.token))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body["servers"]["mcpapp"]["command"],
+            script.to_string_lossy().as_ref()
+        );
+        assert_eq!(body["servers"]["mcpapp"]["args"][0], "--mcp");
+
+        let (status, body) = call(&app, request("POST", "/api/mcp/config", Some(&app.token))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["written"], true);
+        let written = config_home.join("lilyco").join("tools.json");
+        let parsed: Value =
+            serde_json::from_str(&std::fs::read_to_string(&written).unwrap()).unwrap();
+        assert_eq!(parsed["servers"]["mcpapp"]["args"][0], "--mcp");
+
+        std::env::remove_var("LILYCO_MANAGER_BIN_MCPAPP");
+        std::env::remove_var("XDG_CONFIG_HOME");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    fn lifecycle_manifest() -> Manifest {
+        Manifest {
+            schema_version: 1,
+            id: "lifecycle".into(),
+            name: "Lifecycle".into(),
+            description: "生命周期测试应用".into(),
+            repository: None,
+            binary: "lilyco-lifecycle-test".into(),
+            capabilities: manifest::Capabilities {
+                run: true,
+                mcp: false,
+                schema: false,
+            },
+            run: Some(manifest::RunSpec {
+                args: Vec::new(),
+                env: BTreeMap::new(),
+                url: None,
+            }),
+            mcp: None,
+            schema: None,
+            release: None,
+            dev: None,
+            source_dir: None,
+        }
+    }
+
+    /// 开发任务只接受清单里的任务名，argv 固定，输出与退出码经 HTTP 读回。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dev_task_runs_fixed_argv_and_reports_exit_code() {
+        let dir = std::env::temp_dir().join(format!("lilyco-manager-dev-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = Manifest {
+            schema_version: 1,
+            id: "devapp".into(),
+            name: "Dev App".into(),
+            description: String::new(),
+            repository: None,
+            binary: "lilyco-missing-dev-binary".into(),
+            capabilities: Default::default(),
+            run: None,
+            mcp: None,
+            schema: None,
+            release: None,
+            dev: Some(manifest::DevSpec {
+                tasks: BTreeMap::from([(
+                    "check".to_string(),
+                    vec!["sh".into(), "-c".into(), "echo dev-ok; exit 3".into()],
+                )]),
+                env: BTreeMap::new(),
+            }),
+            source_dir: Some(dir.clone()),
+        };
+        let app = test_state_with(vec![manifest]).await;
+
+        let (status, body) = call(
+            &app,
+            request("POST", "/api/apps/devapp/dev/check", Some(&app.token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let job = body["job"].as_str().unwrap().to_string();
+
+        let (status, body) = call(
+            &app,
+            request("GET", "/api/apps/devapp/dev", Some(&app.token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["tasks"][0]["name"], "check");
+
+        let mut finished = false;
+        for _ in 0..100 {
+            let (status, body) = call(
+                &app,
+                request(
+                    "GET",
+                    &format!("/api/dev/jobs/{job}/logs"),
+                    Some(&app.token),
+                ),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            if body["job"]["running"] == false {
+                assert_eq!(body["job"]["exit_code"], 3);
+                assert!(body["job"]["lines"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|line| line.as_str().unwrap_or_default().contains("dev-ok")));
+                finished = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(finished, "开发任务未在 5 秒内结束");
+
+        let (status, _) = call(
+            &app,
+            request("POST", "/api/apps/devapp/dev/nope", Some(&app.token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 全生命周期：启动 → 状态 → 日志 → 重复启动拒绝 → 停止 → 重复停止拒绝。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn app_lifecycle_start_logs_stop() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir =
+            std::env::temp_dir().join(format!("lilyco-manager-lifecycle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("lilyco-lifecycle-test");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\ntrap 'exit 0' TERM\nprintf 'lifecycle ready\\n'\nwhile :; do sleep 1; done\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::env::set_var("LILYCO_MANAGER_BIN_LIFECYCLE", &script);
+
+        let app = test_state_with(vec![lifecycle_manifest()]).await;
+        let (status, body) = call(
+            &app,
+            request("POST", "/api/apps/lifecycle/start", Some(&app.token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let pid = body["pid"].as_u64().unwrap();
+        assert!(pid > 0);
+
+        let mut logs = Vec::new();
+        for _ in 0..100 {
+            logs = app.supervisor.logs("lifecycle", 20).await;
+            if logs.iter().any(|line| line.contains("lifecycle ready")) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(
+            logs.iter().any(|line| line.contains("lifecycle ready")),
+            "子进程输出未进入日志: {logs:?}"
+        );
+
+        let (status, body) = call(&app, request("GET", "/api/apps", Some(&app.token))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["apps"][0]["status"]["running"], true, "{body}");
+        assert_eq!(body["apps"][0]["status"]["pid"], pid);
+
+        let (status, _) = call(
+            &app,
+            request("POST", "/api/apps/lifecycle/start", Some(&app.token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+
+        let (status, body) = call(
+            &app,
+            request("GET", "/api/apps/lifecycle/logs?limit=5", Some(&app.token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!body["lines"].as_array().unwrap().is_empty());
+
+        let (status, body) = call(
+            &app,
+            request("POST", "/api/apps/lifecycle/stop", Some(&app.token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body["exit_code"].is_number());
+
+        let (status, body) = call(&app, request("GET", "/api/apps", Some(&app.token))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["apps"][0]["status"]["running"], false, "{body}");
+
+        // 停止是幂等的：已退出时返回同一条退出码，不重复杀进程。
+        let (status, body) = call(
+            &app,
+            request("POST", "/api/apps/lifecycle/stop", Some(&app.token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["exit_code"].is_number());
+
+        std::env::remove_var("LILYCO_MANAGER_BIN_LIFECYCLE");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
