@@ -1,12 +1,13 @@
 use async_stream::stream;
 use axum::{
-    extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    extract::{Path, Query, Request, State},
+    http::{HeaderMap, Method, StatusCode},
+    middleware::{self, Next},
     response::{
         sse::{Event, KeepAlive, Sse},
-        Html,
+        Html, Response,
     },
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
 use futures_core::Stream;
@@ -32,6 +33,7 @@ const HISTORY_LIMIT: i64 = 500;
 mod dev;
 mod manifest;
 mod mcp;
+mod projects;
 mod release;
 mod supervisor;
 
@@ -149,6 +151,15 @@ fn operation(summary: &str, tag: &str) -> Value {
     })
 }
 
+/// 项目/方案写接口除了 401 还有 400（校验失败）与 404（目标不存在），
+/// 这两类码是面板与脚本的分支依据，写进文档而不是让调用方猜。
+fn project_operation(summary: &str) -> Value {
+    let mut operation = operation(summary, "projects");
+    operation["responses"]["400"] = json!({"description": "名称/标题/状态/长度校验失败"});
+    operation["responses"]["404"] = json!({"description": "项目或方案不存在"});
+    operation
+}
+
 fn api_spec() -> Value {
     json!({
         "openapi": "3.1.0",
@@ -183,6 +194,20 @@ fn api_spec() -> Value {
             "/api/dev/jobs/{job}/logs": {"get": operation("读取开发任务输出与退出码", "dev")},
             "/api/dev/jobs/{job}/stream-ticket": {"post": operation("为日志流签发一次性短期票据", "dev")},
             "/api/dev/jobs/{job}/stream": {"get": operation("SSE 实时推送开发任务输出", "dev")},
+            "/api/projects": {
+                "get": project_operation("项目列表与嵌套方案"),
+                "post": project_operation("创建项目"),
+            },
+            "/api/projects/{id}": {
+                "get": project_operation("读取单个项目与方案"),
+                "patch": project_operation("更新项目名称、描述或状态"),
+                "delete": project_operation("删除项目并级联删除方案"),
+            },
+            "/api/projects/{id}/plans": {"post": project_operation("为项目新增方案")},
+            "/api/plans/{id}": {
+                "patch": project_operation("更新方案标题、说明或状态"),
+                "delete": project_operation("删除方案"),
+            },
             "/api/mcp/tools": {"get": operation("聚合各应用 --mcp 的工具列表", "mcp")},
             "/api/mcp/config": {
                 "get": operation("生成 lilyco-toolhub 配置", "mcp"),
@@ -982,6 +1007,7 @@ async fn connect_db(path: &str) -> Result<DatabaseConnection, sea_orm::DbErr> {
     let db = Database::connect(sqlite_url(path)).await?;
     db.execute_unprepared("CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY AUTOINCREMENT, tool TEXT NOT NULL, output TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);")
         .await?;
+    projects::ensure_tables(&db).await?;
     Ok(db)
 }
 
@@ -1003,7 +1029,94 @@ fn build_state(
     }
 }
 
+/// 项目路由的鉴权中间件。必须在 `Json` 提取之前执行：否则无 token 的
+/// POST/PATCH 会先被提取器判成 400/415/422，破坏「全路由无 token 一律 401」
+/// 的 OpenAPI 契约。写操作同时校验 Origin（沿用 authorised_mutation）。
+async fn projects_guard(
+    State(state): State<App>,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let allowed = if request.method() == Method::GET || request.method() == Method::HEAD {
+        authorised(request.headers(), &state.token)
+    } else {
+        authorised_mutation(request.headers(), &state.token)
+    };
+    if !allowed {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    Ok(next.run(request).await)
+}
+
+async fn projects_list(State(state): State<App>) -> Result<Json<Value>, StatusCode> {
+    Ok(Json(projects::list(&state.db).await?))
+}
+
+async fn project_get(
+    State(state): State<App>,
+    Path(id): Path<i32>,
+) -> Result<Json<Value>, StatusCode> {
+    Ok(Json(projects::get(&state.db, id).await?))
+}
+
+async fn project_create(
+    State(state): State<App>,
+    Json(input): Json<projects::ProjectInput>,
+) -> Result<Json<Value>, StatusCode> {
+    Ok(Json(projects::create(&state.db, input).await?))
+}
+
+async fn project_update(
+    State(state): State<App>,
+    Path(id): Path<i32>,
+    Json(patch): Json<projects::ProjectPatch>,
+) -> Result<Json<Value>, StatusCode> {
+    Ok(Json(projects::update(&state.db, id, patch).await?))
+}
+
+async fn project_delete(
+    State(state): State<App>,
+    Path(id): Path<i32>,
+) -> Result<Json<Value>, StatusCode> {
+    Ok(Json(projects::delete(&state.db, id).await?))
+}
+
+async fn plan_create(
+    State(state): State<App>,
+    Path(id): Path<i32>,
+    Json(input): Json<projects::PlanInput>,
+) -> Result<Json<Value>, StatusCode> {
+    Ok(Json(projects::create_plan(&state.db, id, input).await?))
+}
+
+async fn plan_update(
+    State(state): State<App>,
+    Path(id): Path<i32>,
+    Json(patch): Json<projects::PlanPatch>,
+) -> Result<Json<Value>, StatusCode> {
+    Ok(Json(projects::update_plan(&state.db, id, patch).await?))
+}
+
+async fn plan_delete(
+    State(state): State<App>,
+    Path(id): Path<i32>,
+) -> Result<Json<Value>, StatusCode> {
+    Ok(Json(projects::delete_plan(&state.db, id).await?))
+}
+
 fn build_router(app: App) -> Router {
+    let projects_router = Router::new()
+        .route("/api/projects", get(projects_list).post(project_create))
+        .route(
+            "/api/projects/:id",
+            get(project_get)
+                .patch(project_update)
+                .delete(project_delete),
+        )
+        .route("/api/projects/:id/plans", post(plan_create))
+        .route("/api/plans/:id", patch(plan_update).delete(plan_delete))
+        .route_layer(middleware::from_fn_with_state(app.clone(), projects_guard));
+
     Router::new()
         .route("/", get(index))
         .route("/api/tools", get(list))
@@ -1027,6 +1140,7 @@ fn build_router(app: App) -> Router {
         .route("/api/dev/jobs/:job/stream", get(dev_stream))
         .route("/api/mcp/tools", get(mcp_tools))
         .route("/api/mcp/config", get(mcp_config).post(write_mcp_config))
+        .merge(projects_router)
         .with_state(app)
 }
 
@@ -1043,6 +1157,7 @@ mod tests {
         db.execute_unprepared("CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY AUTOINCREMENT, tool TEXT NOT NULL, output TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);")
             .await
             .unwrap();
+        projects::ensure_tables(&db).await.unwrap();
         build_state(db, "t".repeat(32), apps, vec![])
     }
 
@@ -1126,6 +1241,235 @@ mod tests {
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
         (status, body)
+    }
+
+    async fn call_json(
+        app: &App,
+        method: &str,
+        uri: &str,
+        body: Value,
+        token: Option<&str>,
+    ) -> (StatusCode, Value) {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json");
+        if let Some(token) = token {
+            builder = builder.header("x-lilyco-token", token);
+        }
+        let request = builder.body(Body::from(body.to_string())).unwrap();
+        call(app, request).await
+    }
+
+    /// 项目/方案全生命周期：创建 → 列表嵌套形状 → 单读 → 更新 → 删除方案 →
+    /// 级联删除项目。写操作还要覆盖「无 token 401 先于 body 解析」。
+    #[tokio::test]
+    async fn projects_and_plans_roundtrip() {
+        let app = test_state().await;
+        let token = app.token.clone();
+
+        let (status, body) = call(&app, request("GET", "/api/projects", Some(&token))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["projects"], json!([]));
+        assert_eq!(body["count"], 0);
+
+        let (status, body) = call_json(
+            &app,
+            "POST",
+            "/api/projects",
+            json!({"name": " 发布 v0.3 ", "description": " 阶段目标 ", "status": "active"}),
+            Some(&token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let project_id = body["project"]["id"].as_i64().unwrap();
+        assert_eq!(body["project"]["name"], "发布 v0.3");
+        assert_eq!(body["project"]["description"], "阶段目标");
+        assert_eq!(body["project"]["status"], "active");
+        assert_eq!(body["project"]["plans"], json!([]));
+
+        // 方案默认状态 draft，返回的 project_id 与路径一致。
+        let (status, body) = call_json(
+            &app,
+            "POST",
+            &format!("/api/projects/{project_id}/plans"),
+            json!({"title": "接入 SSE"}),
+            Some(&token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let plan_id = body["plan"]["id"].as_i64().unwrap();
+        assert_eq!(body["plan"]["status"], "draft");
+        assert_eq!(body["plan"]["project_id"], project_id);
+
+        // 列表把方案嵌在项目里，面板一次请求即可渲染。
+        let (status, body) = call(&app, request("GET", "/api/projects", Some(&token))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["count"], 1);
+        assert_eq!(body["projects"][0]["plans"][0]["title"], "接入 SSE");
+
+        let (status, body) = call(
+            &app,
+            request("GET", &format!("/api/projects/{project_id}"), Some(&token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["project"]["plans"][0]["id"], plan_id);
+
+        // 只更新传入字段，其余保持原值。
+        let (status, body) = call_json(
+            &app,
+            "PATCH",
+            &format!("/api/projects/{project_id}"),
+            json!({"status": "paused"}),
+            Some(&token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["project"]["status"], "paused");
+        assert_eq!(body["project"]["name"], "发布 v0.3");
+
+        let (status, body) = call_json(
+            &app,
+            "PATCH",
+            &format!("/api/plans/{plan_id}"),
+            json!({"title": "接入 SSE 日志流", "status": "doing"}),
+            Some(&token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["plan"]["title"], "接入 SSE 日志流");
+        assert_eq!(body["plan"]["status"], "doing");
+
+        let (status, body) = call(
+            &app,
+            request("DELETE", &format!("/api/plans/{plan_id}"), Some(&token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["ok"], true);
+        let (status, _) = call(
+            &app,
+            request("DELETE", &format!("/api/plans/{plan_id}"), Some(&token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, _) = call_json(
+            &app,
+            "POST",
+            &format!("/api/projects/{project_id}/plans"),
+            json!({"title": "第二条"}),
+            Some(&token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, body) = call(
+            &app,
+            request(
+                "DELETE",
+                &format!("/api/projects/{project_id}"),
+                Some(&token),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["deleted_plans"], 1);
+        let (status, _) = call(
+            &app,
+            request("GET", &format!("/api/projects/{project_id}"), Some(&token)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (_, body) = call(&app, request("GET", "/api/projects", Some(&token))).await;
+        assert_eq!(body["projects"], json!([]));
+    }
+
+    /// 项目/方案的状态码契约：无 token 401（先于 JSON 解析）、未知 id 404、
+    /// 名称/标题/状态/长度校验 400、跨源写操作 401。
+    #[tokio::test]
+    async fn projects_validation_and_unknown_ids_are_explicit() {
+        let app = test_state().await;
+        let token = app.token.clone();
+
+        // 无 token 的写请求即使 body 合法也必须 401，不能先报 400/415/422。
+        for (method, uri, body) in [
+            ("POST", "/api/projects", json!({"name": "x"})),
+            ("PATCH", "/api/projects/1", json!({"status": "done"})),
+            ("DELETE", "/api/projects/1", json!(null)),
+        ] {
+            let (status, _) = call_json(&app, method, uri, body, None).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri}");
+        }
+
+        // 跨源写操作同样拒绝。
+        let cross_origin = Request::builder()
+            .method("POST")
+            .uri("/api/projects")
+            .header("content-type", "application/json")
+            .header("x-lilyco-token", &token)
+            .header("origin", "http://evil.example")
+            .header("host", "127.0.0.1:4321")
+            .body(Body::from(json!({"name": "cross"}).to_string()))
+            .unwrap();
+        let (status, _) = call(&app, cross_origin).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        // 未知 id 一律 404，而不是 200/500。
+        for (method, uri) in [
+            ("GET", "/api/projects/999"),
+            ("PATCH", "/api/projects/999"),
+            ("DELETE", "/api/projects/999"),
+            ("POST", "/api/projects/999/plans"),
+            ("PATCH", "/api/plans/999"),
+            ("DELETE", "/api/plans/999"),
+        ] {
+            let (status, _) = call_json(
+                &app,
+                method,
+                uri,
+                json!({"name": "x", "title": "x"}),
+                Some(&token),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{method} {uri}");
+        }
+
+        for body in [
+            json!({"name": "   "}),
+            json!({"name": "x".repeat(121)}),
+            json!({"name": "ok", "status": "blocked"}),
+            json!({"name": "ok", "description": "x".repeat(2001)}),
+        ] {
+            let (status, _) = call_json(&app, "POST", "/api/projects", body, Some(&token)).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
+
+        let (_, body) = call_json(
+            &app,
+            "POST",
+            "/api/projects",
+            json!({"name": "校验"}),
+            Some(&token),
+        )
+        .await;
+        let id = body["project"]["id"].as_i64().unwrap();
+        for body in [
+            json!({"title": ""}),
+            json!({"title": "x".repeat(161)}),
+            json!({"title": "ok", "status": "blocked"}),
+            json!({"title": "ok", "detail": "x".repeat(4001)}),
+        ] {
+            let (status, _) = call_json(
+                &app,
+                "POST",
+                &format!("/api/projects/{id}/plans"),
+                body,
+                Some(&token),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
     }
 
     #[cfg(unix)]
@@ -1443,7 +1787,7 @@ mod tests {
         );
 
         let paths = doc["paths"].as_object().unwrap();
-        assert!(paths.len() >= 19, "接口文档只覆盖了 {} 条路径", paths.len());
+        assert!(paths.len() >= 25, "接口文档只覆盖了 {} 条路径", paths.len());
         let mut operations = 0;
         for (path, item) in paths {
             assert!(path.starts_with("/api/"), "非 API 路径: {path}");
@@ -1459,7 +1803,7 @@ mod tests {
                 operations += 1;
             }
         }
-        assert!(operations >= 20, "只验证了 {operations} 个操作");
+        assert!(operations >= 30, "只验证了 {operations} 个操作");
     }
 
     /// 错误路径的状态码契约：404 不存在、400 能力缺失、409 未托管进程、503 二进制缺失。
@@ -1481,6 +1825,7 @@ mod tests {
             ("POST", "/api/apps/missing/start", StatusCode::NOT_FOUND),
             ("POST", "/api/apps/missing/stop", StatusCode::NOT_FOUND),
             ("GET", "/api/dev/jobs/missing/logs", StatusCode::NOT_FOUND),
+            ("GET", "/api/projects/999", StatusCode::NOT_FOUND),
             ("POST", "/api/tools/missing.dev/run", StatusCode::NOT_FOUND),
             // 清单存在但没声明能力：明确 400，而不是含糊的 404。
             ("POST", "/api/apps/demo/start", StatusCode::BAD_REQUEST),
