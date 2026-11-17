@@ -58,7 +58,7 @@ bun scripts/smoke-server.mjs
 | 接口文档视图 | `frontend/tests/api-docs.spec.ts` | 按 tag 分组、方法徽标、路径与摘要、刷新重新拉取、GET 试调用（状态码/耗时/JSON/带 token）、POST 无试调用、零 console error |
 | 全栈浏览器 E2E | `frontend/tests/fullstack.spec.ts` | 真实 release 二进制（临时 DB + 随机端口）→ 工具执行 → 历史 → 开发任务日志经 SSE 实时到达（首行先于完成）→ 项目/方案落真实 SQLite 并在刷新后仍在 → 积木页 → 接口文档；未设 `LILYCO_MANAGER_E2E_BIN` 时跳过 |
 | 管理器发布 | `.github/workflows/lilyco-manager-release.yml` | `manager-v*` 标签/手动触发 → linux-x64、windows-x64、macos-universal 资产 → 解包自检 → `SHA256SUMS` + 校验 GitHub `digest` |
-| 运行时冒烟 | `scripts/smoke-server.mjs` | 401/200、执行/历史、跨源拒绝、启动耗时、p95 延迟、RSS |
+| 运行时冒烟 | `scripts/smoke-server.mjs` | 401/200、执行/历史、跨源拒绝、项目/方案完整生命周期（401/400/404/级联删除）、启动耗时、p95 延迟、RSS |
 
 新增 API 时必须同时补契约测试；新增 UI 交互必须可在 mock API 下离线复现，不依赖真实 GitHub 或本机应用。
 

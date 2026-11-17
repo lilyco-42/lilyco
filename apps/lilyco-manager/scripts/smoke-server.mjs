@@ -91,6 +91,14 @@ function api(path, init = {}) {
   })
 }
 
+function apiJson(path, method, body) {
+  return api(path, {
+    method,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 function rssKb(pid) {
   try {
     if (process.platform === 'linux') {
@@ -137,6 +145,92 @@ async function main() {
   if (spec.openapi !== '3.1.0') throw new Error(`expected OpenAPI 3.1.0, got ${spec.openapi}`)
   if (Object.keys(spec.paths ?? {}).length < 19) throw new Error('OpenAPI document is missing routes')
 
+  // 项目/方案真实生命周期：鉴权先于 JSON 解析、校验 400、未知 id 404、
+  // 状态校验与删除级联都要在真实二进制上跑一遍。
+  const anonymousProject = await fetch(baseUrl + '/api/projects', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  })
+  if (anonymousProject.status !== 401) {
+    throw new Error(`expected 401 for project create without token, got ${anonymousProject.status}`)
+  }
+
+  const invalidProject = await apiJson('/api/projects', 'POST', { name: '   ' })
+  if (invalidProject.status !== 400) {
+    throw new Error(`expected 400 for blank project name, got ${invalidProject.status}`)
+  }
+
+  const createdProject = await apiJson('/api/projects', 'POST', {
+    name: ' 冒烟项目 ',
+    description: ' 运行时项目/方案契约 ',
+    status: 'active',
+  })
+  if (createdProject.status !== 200) {
+    throw new Error(`project create returned ${createdProject.status}`)
+  }
+  const project = (await createdProject.json()).project
+  if (project.name !== '冒烟项目' || project.status !== 'active') {
+    throw new Error(`project create did not normalise the payload: ${JSON.stringify(project)}`)
+  }
+
+  const createdPlan = await apiJson(`/api/projects/${project.id}/plans`, 'POST', { title: '接入 SSE' })
+  if (createdPlan.status !== 200) throw new Error(`plan create returned ${createdPlan.status}`)
+  const plan = (await createdPlan.json()).plan
+  if (plan.status !== 'draft' || plan.project_id !== project.id) {
+    throw new Error(`plan create returned an unexpected payload: ${JSON.stringify(plan)}`)
+  }
+
+  const projects = await (await api('/api/projects')).json()
+  if (projects.count !== 1 || projects.projects?.[0]?.plans?.[0]?.id !== plan.id) {
+    throw new Error('project list did not embed the created plan')
+  }
+
+  const pausedProject = await apiJson(`/api/projects/${project.id}`, 'PATCH', { status: 'paused' })
+  if (pausedProject.status !== 200) throw new Error(`project patch returned ${pausedProject.status}`)
+  const paused = (await pausedProject.json()).project
+  if (paused.status !== 'paused' || paused.name !== '冒烟项目') {
+    throw new Error('project patch did not preserve untouched fields')
+  }
+
+  const doingPlan = await apiJson(`/api/plans/${plan.id}`, 'PATCH', { title: '接入 SSE 日志流', status: 'doing' })
+  if (doingPlan.status !== 200) throw new Error(`plan patch returned ${doingPlan.status}`)
+  const doing = (await doingPlan.json()).plan
+  if (doing.status !== 'doing' || doing.title !== '接入 SSE 日志流') {
+    throw new Error('plan patch did not apply both fields')
+  }
+
+  const unknownProject = await api('/api/projects/999')
+  if (unknownProject.status !== 404) {
+    throw new Error(`expected 404 for unknown project, got ${unknownProject.status}`)
+  }
+
+  const crossOriginPatch = await fetch(baseUrl + `/api/projects/${project.id}`, {
+    method: 'PATCH',
+    headers: { Origin: 'http://evil.example', 'content-type': 'application/json', 'x-lilyco-token': token },
+    body: JSON.stringify({ status: 'done' }),
+  })
+  if (crossOriginPatch.status !== 401) {
+    throw new Error(`expected 401 for cross-origin project patch, got ${crossOriginPatch.status}`)
+  }
+
+  const deletedPlan = await api(`/api/plans/${plan.id}`, { method: 'DELETE' })
+  if (deletedPlan.status !== 200) throw new Error(`plan delete returned ${deletedPlan.status}`)
+
+  const secondPlan = await apiJson(`/api/projects/${project.id}/plans`, 'POST', { title: '第二条' })
+  if (secondPlan.status !== 200) throw new Error(`second plan create returned ${secondPlan.status}`)
+
+  const deletedProject = await api(`/api/projects/${project.id}`, { method: 'DELETE' })
+  if (deletedProject.status !== 200) throw new Error(`project delete returned ${deletedProject.status}`)
+  const deleted = await deletedProject.json()
+  if (deleted.deleted_plans !== 1) {
+    throw new Error(`project delete should cascade one plan, got ${deleted.deleted_plans}`)
+  }
+
+  const remaining = await (await api('/api/projects')).json()
+  if (remaining.count !== 0) throw new Error(`expected no projects after delete, got ${remaining.count}`)
+
+
   const crossOrigin = await fetch(baseUrl + '/api/apps/missing/start', {
     method: 'POST',
     headers: { 'x-lilyco-token': token, Origin: 'http://evil.example' },
@@ -162,7 +256,7 @@ async function main() {
   if (problems.length) throw new Error(problems.join('; '))
 
   console.log(
-    `smoke-server: 401/200/run/history/openapi/origin checks passed; startup ${startupMs} ms, p95 ${p95} ms, RSS ${rss || 'n/a'} KiB`,
+    `smoke-server: 401/200/run/history/openapi/origin/projects checks passed; startup ${startupMs} ms, p95 ${p95} ms, RSS ${rss || 'n/a'} KiB`,
   )
   finish(0)
 }
