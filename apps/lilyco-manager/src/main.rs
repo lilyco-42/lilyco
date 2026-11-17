@@ -1107,11 +1107,24 @@ async fn project_get(
     Ok(Json(projects::get(&state.db, id).await?))
 }
 
+/// 项目/方案的每次成功变更都写入运行历史（与工具执行同库），
+/// 让「谁在什么时候把什么改成了什么」可以事后回看。
 async fn project_create(
     State(state): State<App>,
     Json(input): Json<projects::ProjectInput>,
 ) -> Result<Json<Value>, StatusCode> {
-    Ok(Json(projects::create(&state.db, input).await?))
+    let body = projects::create(&state.db, input).await?;
+    record_run(
+        &state,
+        "project.create",
+        json!({
+            "id": body["project"]["id"],
+            "name": body["project"]["name"],
+            "status": body["project"]["status"],
+        }),
+    )
+    .await;
+    Ok(Json(body))
 }
 
 async fn project_update(
@@ -1119,14 +1132,35 @@ async fn project_update(
     Path(id): Path<i32>,
     Json(patch): Json<projects::ProjectPatch>,
 ) -> Result<Json<Value>, StatusCode> {
-    Ok(Json(projects::update(&state.db, id, patch).await?))
+    let body = projects::update(&state.db, id, patch).await?;
+    record_run(
+        &state,
+        "project.update",
+        json!({
+            "id": body["project"]["id"],
+            "name": body["project"]["name"],
+            "status": body["project"]["status"],
+        }),
+    )
+    .await;
+    Ok(Json(body))
 }
 
 async fn project_delete(
     State(state): State<App>,
     Path(id): Path<i32>,
 ) -> Result<Json<Value>, StatusCode> {
-    Ok(Json(projects::delete(&state.db, id).await?))
+    let body = projects::delete(&state.db, id).await?;
+    record_run(
+        &state,
+        "project.delete",
+        json!({
+            "id": id,
+            "deleted_plans": body["deleted_plans"],
+        }),
+    )
+    .await;
+    Ok(Json(body))
 }
 
 async fn plan_create(
@@ -1134,7 +1168,19 @@ async fn plan_create(
     Path(id): Path<i32>,
     Json(input): Json<projects::PlanInput>,
 ) -> Result<Json<Value>, StatusCode> {
-    Ok(Json(projects::create_plan(&state.db, id, input).await?))
+    let body = projects::create_plan(&state.db, id, input).await?;
+    record_run(
+        &state,
+        "plan.create",
+        json!({
+            "id": body["plan"]["id"],
+            "project_id": body["plan"]["project_id"],
+            "title": body["plan"]["title"],
+            "status": body["plan"]["status"],
+        }),
+    )
+    .await;
+    Ok(Json(body))
 }
 
 async fn plan_update(
@@ -1142,14 +1188,27 @@ async fn plan_update(
     Path(id): Path<i32>,
     Json(patch): Json<projects::PlanPatch>,
 ) -> Result<Json<Value>, StatusCode> {
-    Ok(Json(projects::update_plan(&state.db, id, patch).await?))
+    let body = projects::update_plan(&state.db, id, patch).await?;
+    record_run(
+        &state,
+        "plan.update",
+        json!({
+            "id": body["plan"]["id"],
+            "title": body["plan"]["title"],
+            "status": body["plan"]["status"],
+        }),
+    )
+    .await;
+    Ok(Json(body))
 }
 
 async fn plan_delete(
     State(state): State<App>,
     Path(id): Path<i32>,
 ) -> Result<Json<Value>, StatusCode> {
-    Ok(Json(projects::delete_plan(&state.db, id).await?))
+    let body = projects::delete_plan(&state.db, id).await?;
+    record_run(&state, "plan.delete", json!({"id": id})).await;
+    Ok(Json(body))
 }
 
 /// 全局写入门：先鉴权再判断只读模式，保证无 token 的写请求仍然是 401，
@@ -1464,6 +1523,28 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
         let (_, body) = call(&app, request("GET", "/api/projects", Some(&token))).await;
         assert_eq!(body["projects"], json!([]));
+
+        // 六类成功变更都写入运行历史；输出带 id 与结果状态，失败请求不落审计。
+        let (_, history) = call(&app, request("GET", "/api/history", Some(&token))).await;
+        let runs = history["runs"].as_array().unwrap();
+        let tools: Vec<&str> = runs.iter().filter_map(|run| run["tool"].as_str()).collect();
+        for expected in [
+            "project.create",
+            "project.update",
+            "project.delete",
+            "plan.create",
+            "plan.update",
+            "plan.delete",
+        ] {
+            assert!(tools.contains(&expected), "missing {expected}: {tools:?}");
+        }
+        let update = runs
+            .iter()
+            .find(|run| run["tool"] == "project.update")
+            .unwrap();
+        let output: Value = serde_json::from_str(update["output"].as_str().unwrap()).unwrap();
+        assert_eq!(output["id"].as_i64().unwrap(), project_id);
+        assert_eq!(output["status"], "paused");
     }
 
     /// 项目/方案的状态码契约：无 token 401（先于 JSON 解析）、未知 id 404、
