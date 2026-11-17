@@ -24,6 +24,7 @@ test.beforeAll(async () => {
       return
     }
     if (path === '/api/tools') json(response, { tools: [] })
+    else if (path === '/api/settings') json(response, { read_only: false, version: 'test' })
     else if (path === '/api/history') json(response, { runs: [] })
     else if (path === '/api/ecosystem') json(response, { projects: [] })
     else if (path === '/api/adapters') json(response, { adapters: [] })

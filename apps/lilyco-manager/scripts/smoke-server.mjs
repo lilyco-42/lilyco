@@ -144,6 +144,14 @@ async function main() {
   const spec = await (await api('/api/openapi.json')).json()
   if (spec.openapi !== '3.1.0') throw new Error(`expected OpenAPI 3.1.0, got ${spec.openapi}`)
   if (Object.keys(spec.paths ?? {}).length < 19) throw new Error('OpenAPI document is missing routes')
+  if (spec.paths?.['/api/projects']?.post?.responses?.['403'] === undefined) {
+    throw new Error('OpenAPI document is missing the read-only 403 contract')
+  }
+
+  const settings = await (await api('/api/settings')).json()
+  if (settings.read_only !== false) {
+    throw new Error(`expected writable smoke server, got read_only=${settings.read_only}`)
+  }
 
   // 项目/方案真实生命周期：鉴权先于 JSON 解析、校验 400、未知 id 404、
   // 状态校验与删除级联都要在真实二进制上跑一遍。

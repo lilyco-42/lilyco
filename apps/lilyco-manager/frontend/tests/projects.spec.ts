@@ -10,6 +10,7 @@ const pageHtml = readFileSync(resolve('dist/index.html'))
 let server: Server
 let baseUrl = ''
 let lastWriteToken = ''
+let readOnlyMode = false
 
 type Plan = {
   id: number
@@ -64,6 +65,8 @@ test.beforeAll(async () => {
     }
     if (path === '/api/apps') {
       json(response, { apps: [], warnings: [] })
+    } else if (path === '/api/settings') {
+      json(response, { read_only: readOnlyMode, version: 'test' })
     } else if (path === '/api/tools') {
       json(response, { tools: [{ name: 'manager.health', description: '健康检查', read_only: true }] })
     } else if (path === '/api/history') {
@@ -253,4 +256,26 @@ test('项目/方案：创建、方案推进、编辑、删除与窄屏深色', a
   expect(cardBackground).not.toBe('rgba(0, 0, 0, 0)')
 
   expect(errors).toEqual([])
+})
+
+test('只读模式：提示可见，项目与工具的写控件禁用', async ({ page }) => {
+  readOnlyMode = true
+  try {
+    await page.goto(`${baseUrl}/#token=test-token-1234567890`)
+    await expect(page.getByTestId('read-only-banner')).toContainText('只读模式')
+
+    await page.getByRole('button', { name: '项目/方案' }).click()
+    await expect(page.getByRole('button', { name: '创建项目' })).toBeDisabled()
+    await expect(page.getByLabel('项目名称')).toBeDisabled()
+    const card = page.getByTestId('project-card').first()
+    await expect(card.getByTestId('project-edit')).toBeDisabled()
+    await expect(card.getByTestId('project-delete')).toBeDisabled()
+    await expect(card.getByLabel(/项目状态：/)).toBeDisabled()
+    await expect(card.getByRole('button', { name: '添加方案' })).toBeDisabled()
+
+    await page.getByRole('button', { name: '工具中心' }).click()
+    await expect(page.getByRole('button', { name: '运行', exact: true }).first()).toBeDisabled()
+  } finally {
+    readOnlyMode = false
+  }
 })

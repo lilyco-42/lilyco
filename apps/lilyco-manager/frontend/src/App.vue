@@ -22,6 +22,7 @@ const projects=ref<Project[]>([])
 const adapters=ref<Adapter[]>([])
 const tab=ref(hasManagerSession?'apps':'studio'), tools=ref<Tool[]>([]), runs=ref<Run[]>([]), query=ref(''), loading=ref(false), error=ref(''), output=ref(''), selected=ref('')
 const theme=ref<Theme>('light')
+const readOnly=ref(false)
 const installed=computed(()=>new Map(adapters.value.map(x=>[x.tool,x.installed])))
 const community=catalog.entries.filter(p=>p.origin==='community')
 const ownedFeatured=catalog.entries.filter(p=>p.origin==='first_party')
@@ -42,6 +43,10 @@ async function refresh(){
  try{const [t,h,e,a]=await Promise.all([api('/api/tools'),api('/api/history'),api('/api/ecosystem'),api('/api/adapters')]);tools.value=t.tools??[];runs.value=h.runs??[];projects.value=e.projects??[];adapters.value=a.adapters??[]}
  catch(e){error.value=String(e)}finally{loading.value=false}
 }
+// 设置接口失败时按可写处理：旧版后端或离线 mock 不应因此阻断面板。
+async function loadSettings(){
+ try{const data=await api('/api/settings');readOnly.value=!!data.read_only}catch{}
+}
 async function invoke(tool:Tool){
  loading.value=true;selected.value=tool.name;error.value=''
  try{output.value=JSON.stringify(await api('/api/tools/'+encodeURIComponent(tool.name)+'/run','POST'),null,2);await refresh()}
@@ -52,6 +57,7 @@ onMounted(()=>{
  try{saved=localStorage.getItem('lilyco-theme') as Theme|null}catch{}
  applyTheme(saved??(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'))
  if(hasManagerSession)refresh()
+ if(hasManagerSession)loadSettings()
 })
 </script>
 <template>
@@ -80,6 +86,7 @@ onMounted(()=>{
    </div>
   </header>
   <p v-if="error && tab!=='studio'" role="alert" class="alert alert-danger mb-5">{{error}}</p>
+  <p v-if="readOnly" role="status" data-testid="read-only-banner" class="alert alert-warning mb-5">只读模式：服务器以 LILYCO_MANAGER_READ_ONLY 启动，所有写操作会被拒绝。</p>
   <div v-if="hasManagerSession && !['studio','apps','projects','mcp','blocks','api'].includes(tab)" class="grid sm:grid-cols-3 gap-4 mb-7">
    <div v-for="stat in [{label:'已注册工具',value:tools.length,icon:Blocks},{label:'最近执行记录',value:runs.length,icon:Activity},{label:'存储引擎',value:'SQLite',icon:Database}]" :key="stat.label" class="card p-5"><div class="flex justify-between text-sm text-ink-soft"><span>{{stat.label}}</span><component :is="stat.icon" :size="18"/></div><div class="text-3xl font-semibold mt-5">{{stat.value}}</div></div>
   </div>
@@ -88,7 +95,7 @@ onMounted(()=>{
    <p v-if="filtered.length===0" class="p-10 text-center text-ink-soft">暂无匹配工具</p>
    <div v-for="tool in filtered" :key="tool.name" class="p-5 border-b last:border-0 border-line/60 flex flex-wrap justify-between items-center gap-4">
     <div class="flex gap-3 items-center"><div class="p-3 rounded-lg bg-brand-soft text-brand"><Terminal :size="19"/></div><div><p class="font-mono text-sm">{{tool.name}}</p><p class="text-ink-soft text-xs mt-1">{{tool.description}}</p></div></div>
-    <div class="flex gap-3 items-center"><span class="badge badge-success"><ShieldCheck :size="13"/>只读</span><span v-if="installed.has(tool.name)" class="badge" :class="installed.get(tool.name)?'badge-success':'badge-warning'">{{installed.get(tool.name)?'已安装':'未安装'}}</span><button @click="invoke(tool)" :disabled="loading || (installed.has(tool.name) && !installed.get(tool.name))" class="btn btn-brand btn-sm"><Play :size="13"/>运行</button></div>
+    <div class="flex gap-3 items-center"><span class="badge badge-success"><ShieldCheck :size="13"/>只读</span><span v-if="installed.has(tool.name)" class="badge" :class="installed.get(tool.name)?'badge-success':'badge-warning'">{{installed.get(tool.name)?'已安装':'未安装'}}</span><button @click="invoke(tool)" :disabled="readOnly || loading || (installed.has(tool.name) && !installed.get(tool.name))" class="btn btn-brand btn-sm"><Play :size="13"/>运行</button></div>
    </div>
   </section>
   <section v-if="tab==='overview'||tab==='tools'" class="card p-5 mt-5"><div class="flex justify-between gap-3"><h2 class="font-semibold">执行结果</h2><span class="text-xs font-mono text-ink-mute">{{selected||'NO TASK'}}</span></div><pre class="log mt-4 p-4 max-h-80 overflow-auto">{{output||'选择工具后显示 JSON 输出'}}</pre></section>
@@ -121,10 +128,10 @@ onMounted(()=>{
    </div>
   </section>
   <section v-if="tab==='runs'" class="card overflow-hidden"><h2 class="p-5 border-b border-line font-semibold">运行历史</h2><div v-for="run in runs" :key="run.id" class="p-5 border-b border-line/60 flex justify-between gap-2 flex-wrap text-sm"><span class="font-mono">{{run.tool}}</span><span class="text-ink-soft">{{run.created_at}}</span></div><p v-if="!runs.length" class="p-10 text-center text-ink-soft">暂无记录</p></section>
-  <AppsView v-if="tab==='apps'" :token="token"/>
-  <ProjectsView v-if="tab==='projects'" :token="token"/>
+  <AppsView v-if="tab==='apps'" :token="token" :read-only="readOnly"/>
+  <ProjectsView v-if="tab==='projects'" :token="token" :read-only="readOnly"/>
   <BlocksView v-if="tab==='blocks'"/>
-  <McpView v-if="tab==='mcp'" :token="token"/>
+  <McpView v-if="tab==='mcp'" :token="token" :read-only="readOnly"/>
   <ApiDocsView v-if="tab==='api'" :token="token"/>
   <section v-if="tab==='settings'" class="card p-8"><h2 class="font-semibold text-lg">系统设置</h2><p class="text-ink-soft text-sm mt-3">主题偏好保存在本机浏览器；应用与任务配置来自各仓库的 lilyco.app.json。</p></section>
  </main>

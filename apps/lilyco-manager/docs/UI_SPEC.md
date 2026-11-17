@@ -72,6 +72,10 @@ Vue 3 SFC + TypeScript + Vite + Tailwind CSS 4; use lucide icons, reusable layou
   short `aria-live` notice. The empty state explains that a project must exist before a plan.
 - The view must not overflow at 375px and card/dialog surfaces must follow the global light/dark
   tokens like the rest of the console.
+- Read-only mode: when `GET /api/settings` returns `read_only: true`, the console shows a
+  persistent banner and disables every mutation control (tool run, app start/stop/install/dev
+  tasks, project/plan create/edit/status/delete, MCP `tools.json` write). Reads, log viewing and
+  config copying stay enabled so the console remains useful for inspection.
 
 ## Design blocks / prototype view
 
