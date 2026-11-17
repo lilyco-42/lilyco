@@ -31,11 +31,12 @@ const tagNames: Record<string, string> = {
   tools: '工具',
   meta: '元数据',
   apps: '应用',
+  projects: '项目',
   release: '发布',
   dev: '开发任务',
   mcp: 'MCP',
 }
-const tagOrder = ['tools', 'apps', 'release', 'dev', 'mcp', 'meta']
+const tagOrder = ['tools', 'apps', 'projects', 'release', 'dev', 'mcp', 'meta']
 
 const groups = computed(() => {
   const buckets = new Map<string, { method: string; path: string; summary: string }[]>()

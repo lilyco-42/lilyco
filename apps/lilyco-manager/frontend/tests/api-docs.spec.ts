@@ -29,6 +29,9 @@ const document = {
     '/api/apps/{id}/install': {
       post: { summary: '安装或更新应用', tags: ['release'] },
     },
+    '/api/projects/{id}': {
+      get: { summary: '读取项目与方案', tags: ['projects'] },
+    },
     '/api/dev/jobs/{job}/logs': {
       get: { summary: '读取开发任务输出与退出码', tags: ['dev'] },
     },
@@ -86,20 +89,23 @@ test('接口文档：按 tag 分组渲染方法与路径', async ({ page }) => {
   await expect(page.getByText('需 token')).toBeVisible()
 
   const rows = page.getByTestId('api-operation')
-  await expect(rows).toHaveCount(4)
+  await expect(rows).toHaveCount(5)
 
-  // 分组顺序固定：工具 → 发布 → 元数据。
+  // 分组顺序固定：工具 → 项目 → 发布 → 开发任务 → 元数据。
   const groups = await page.locator('h3').allInnerTexts()
-  expect(groups.map(text => text.split('\n')[0].trim())).toEqual(['工具', '发布', '开发任务', '元数据'])
+  expect(groups.map(text => text.split('\n')[0].trim())).toEqual(['工具', '项目', '发布', '开发任务', '元数据'])
 
   // 方法徽标与路径逐行对应。
   await expect(rows.nth(0)).toContainText('GET')
   await expect(rows.nth(0)).toContainText('/api/tools')
   await expect(rows.nth(0)).toContainText('列出已注册工具')
-  await expect(rows.nth(1)).toContainText('POST')
-  await expect(rows.nth(1)).toContainText('/api/apps/{id}/install')
-  await expect(rows.nth(2)).toContainText('/api/dev/jobs/{job}/logs')
-  await expect(rows.nth(3)).toContainText('/api/openapi.json')
+  await expect(rows.nth(1)).toContainText('GET')
+  await expect(rows.nth(1)).toContainText('/api/projects/{id}')
+  await expect(rows.nth(1)).toContainText('读取项目与方案')
+  await expect(rows.nth(2)).toContainText('POST')
+  await expect(rows.nth(2)).toContainText('/api/apps/{id}/install')
+  await expect(rows.nth(3)).toContainText('/api/dev/jobs/{job}/logs')
+  await expect(rows.nth(4)).toContainText('/api/openapi.json')
 
   // 刷新重新拉一次文档，不缓存旧结果。
   const before = documentRequests
