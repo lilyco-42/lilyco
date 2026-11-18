@@ -31,6 +31,9 @@ pub struct DesignElement {
     pub anchor: Option<String>,
     #[serde(default)]
     pub props: Value,
+    /// 子元素（容器嵌套）；坐标相对父容器。空时不序列化，旧 JSON 完全兼容。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<DesignElement>,
 }
 
 fn default_size() -> String {
@@ -48,28 +51,12 @@ impl Default for DesignDoc {
 }
 
 impl DesignDoc {
-    /// 转换为 UiSpec：元素来自 props + `类型`，位置来自 x/y/w/h/color
+    /// 转换为 UiSpec：递归展开容器子元素，坐标由「父绝对 + 子相对」累加。
+    /// 卡片等容器本身不进入 spec（spec 无容器类型），只导出其子元素。
     pub fn to_spec(&self) -> Result<UiSpec, String> {
-        let mut elements = Vec::with_capacity(self.elements.len());
-        let mut positions = Vec::with_capacity(self.elements.len());
-        for el in &self.elements {
-            let mut obj = match &el.props {
-                Value::Object(map) => map.clone(),
-                _ => serde_json::Map::new(),
-            };
-            obj.insert("类型".into(), Value::String(el.kind.clone()));
-            elements.push(
-                serde_json::from_value::<crate::spec::ElementSpec>(Value::Object(obj))
-                    .map_err(|e| format!("元素 {} 转换为 {} 失败: {e}", el.id, el.kind))?,
-            );
-            positions.push(Position {
-                x: el.x,
-                y: el.y,
-                w: el.w,
-                h: el.h,
-                color: el.color.clone(),
-            });
-        }
+        let mut elements = Vec::new();
+        let mut positions = Vec::new();
+        flatten(&self.elements, 0.0, 0.0, &mut elements, &mut positions)?;
         Ok(UiSpec {
             window: crate::spec::WindowSpec {
                 title: self.title.clone(),
@@ -80,6 +67,39 @@ impl DesignDoc {
             },
         })
     }
+}
+
+fn flatten(
+    els: &[DesignElement],
+    ox: f64,
+    oy: f64,
+    elements: &mut Vec<crate::spec::ElementSpec>,
+    positions: &mut Vec<Position>,
+) -> Result<(), String> {
+    for el in els {
+        let abs_x = ox + el.x;
+        let abs_y = oy + el.y;
+        if el.kind != "卡片" {
+            let mut obj = match &el.props {
+                Value::Object(map) => map.clone(),
+                _ => serde_json::Map::new(),
+            };
+            obj.insert("类型".into(), Value::String(el.kind.clone()));
+            elements.push(
+                serde_json::from_value::<crate::spec::ElementSpec>(Value::Object(obj))
+                    .map_err(|e| format!("元素 {} 转换为 {} 失败: {e}", el.id, el.kind))?,
+            );
+            positions.push(Position {
+                x: abs_x,
+                y: abs_y,
+                w: el.w,
+                h: el.h,
+                color: el.color.clone(),
+            });
+        }
+        flatten(&el.children, abs_x, abs_y, elements, positions)?;
+    }
+    Ok(())
 }
 
 pub fn designer_html() -> String {
@@ -224,11 +244,7 @@ const editor = grapesjs.init({
   selectorManager: { componentFirst: true },
 });
 
-editor.on('canvas:frame:load', (args) => {
-  const win = (args && args.window) || args;
-  if (!win || !win.document || !win.document.head) return;
-  const style = win.document.createElement('style');
-  style.textContent = [
+const CANVAS_CSS = [
     'body{margin:0;font-family:system-ui,sans-serif;background:#fff}',
     'body.blueprint [data-kind]{background:transparent!important;color:transparent!important;border:1px dashed #6ea1ff!important}',
     'body.blueprint [data-kind] *{visibility:hidden}',
@@ -238,7 +254,25 @@ editor.on('canvas:frame:load', (args) => {
     '[data-kind] .anchor-dot{position:absolute;width:7px;height:7px;border-radius:50%;background:#2563eb;border:1px solid #fff;z-index:5}',
     '[data-kind] .cl{position:absolute;border-top:1px dashed #2563eb;opacity:.7}',
   ].join('');
+
+function injectCanvasStyle(win){
+  if (!win || !win.document || !win.document.head) return;
+  if (win.document.getElementById('lyco-canvas-style')) return;
+  const style = win.document.createElement('style');
+  style.id = 'lyco-canvas-style';
+  style.textContent = CANVAS_CSS;
   win.document.head.appendChild(style);
+}
+
+function ensureCanvasStyle(){
+  const f = editor.Canvas.getFrameEl();
+  if (f && f.contentWindow) injectCanvasStyle(f.contentWindow);
+  if (blueprint) { const b = canvasBody(); if (b) b.classList.add('blueprint'); }
+}
+
+editor.on('canvas:frame:load', (args) => {
+  const win = (args && args.window) || args;
+  injectCanvasStyle(win);
 });
 
 editor.setDevice('phone');
@@ -288,27 +322,32 @@ const DEF_PROPS = {
   '计算器': { '变量': 'calc', '模式': 'standard' },
 };
 
+function frameSize(w, h){
+  const f = editor.Canvas.getFrameEl();
+  if (!f) return;
+  f.style.width = w;
+  f.style.height = h;
+  f.style.margin = '0 auto';
+  f.style.background = '#fff';
+  f.style.transition = 'width .2s ease, height .2s ease';
+}
+
 function setDevice(id){
   editor.setDevice(id);
   const dev = editor.Devices.get(id);
   const w = dev ? (dev.get('width') || '390px') : '390px';
-  const frame = editor.Canvas.getFrameEl();
-  if (frame) {
-    frame.style.width = w;
-    frame.style.margin = '0 auto';
-    frame.style.background = '#fff';
-    frame.style.transition = 'width .2s ease';
-  }
+  const h = dev ? (dev.get('height') || '844px') : '844px';
+  frameSize(w, h);
   editor.refresh({ tools: true });
-  setTimeout(() => { applyAnchors(); say('设备：' + id + '（' + w + '）'); }, 160);
+  setTimeout(() => { frameSize(w, h); ensureCanvasStyle(); applyAnchors(); say('设备：' + id + '（' + w + '）'); }, 160);
 }
 
 let blueprint = false;
 function toggleBlueprint(){
-  const b = canvasBody();
-  if (!b) return;
   blueprint = !blueprint;
-  b.classList.toggle('blueprint', blueprint);
+  ensureCanvasStyle();
+  const b = canvasBody();
+  if (b) b.classList.toggle('blueprint', blueprint);
   document.getElementById('viewBtn').textContent = blueprint ? '设计' : '蓝图';
   say(blueprint ? '蓝图视图：只显示轮廓与锚点' : '设计视图');
 }
@@ -364,39 +403,40 @@ function loadTemplate(){
   const card = boxHtml('卡片', { '标题': '登录卡片' }, 'center-top', 0, 0, 360, 460,
     kids.map(e => boxHtml(e.kind, e.props, e.anchor, e.x, e.y, e.w, e.h)).join(''));
   editor.setComponents(card);
-  setTimeout(() => { applyAnchors(); say('已载入登录页模板（卡片 + 6 元素）'); }, 120);
+  setTimeout(() => { ensureCanvasStyle(); applyAnchors(); say('已载入登录页模板（卡片 + 6 元素）'); }, 120);
 }
 
 function toDesign(){
-  const els = [];
-  const walk = (comps, ox, oy) => {
-    [...comps].forEach((c) => {
-      if (!attr(c, 'data-kind')) { walk(c.components(), ox, oy); return; }
+  let seed = 0;
+  const walk = (comps) => {
+    const out = [];
+    for (const c of comps) {
+      if (!attr(c, 'data-kind')) { out.push(...walk(c.components())); continue; }
       const cs = compStyle(c);
-      if (!cs) return;
+      if (!cs) continue;
       const attrs = c.getAttributes() || {};
       const kind = attrs['data-kind'] || '文本';
-      const left = Math.round(ox + (parseFloat(cs.left) || 0));
-      const top = Math.round(oy + (parseFloat(cs.top) || 0));
       let props = {};
       try { props = JSON.parse((attrs['data-props'] || '{}').replace(/&quot;/g, '"')); } catch (_) {}
       props = Object.assign({}, DEF_PROPS[kind] || {}, props);
-      if (kind !== '卡片') els.push({
-        id: attrs['data-id'] || ('el' + els.length),
+      const node = {
+        id: attrs['data-id'] || ('el' + (seed++)),
         type: kind,
-        x: left,
-        y: top,
+        x: Math.round(parseFloat(cs.left) || 0),
+        y: Math.round(parseFloat(cs.top) || 0),
         w: Math.round(parseFloat(cs.width) || 200),
         h: Math.round(parseFloat(cs.height) || 40),
         color: null,
         anchor: attrs['data-anchor'] || 'left-top',
         props,
-      });
-      walk(c.components(), left, top);
-    });
+      };
+      const kids = walk(c.components());
+      if (kids.length) node.children = kids;
+      out.push(node);
+    }
+    return out;
   };
-  walk(editor.getWrapper().components(), 0, 0);
-  return { title: 'Lilyco 原型', size: 'medium', elements: els };
+  return { title: 'Lilyco 原型', size: 'medium', elements: walk(editor.getWrapper().components()) };
 }
 
 async function saveDoc(){
@@ -414,8 +454,14 @@ async function loadDoc(){
 }
 
 function applyDesign(doc){
-  editor.setComponents((doc.elements || []).map(e => boxHtml(e.type, Object.assign({}, e.props || {}, { id: e.id || '' }), e.anchor, e.x, e.y, e.w, e.h)));
-  setTimeout(() => { say('已加载 ' + (doc.elements || []).length + ' 个元素'); }, 120);
+  const build = (els) => (els || []).map(e => boxHtml(e.type, Object.assign({}, e.props || {}, { id: e.id || '' }), e.anchor, e.x, e.y, e.w, e.h,
+    (e.children && e.children.length) ? build(e.children).join('') : ''));
+  editor.setComponents(build(doc.elements));
+  setTimeout(() => { ensureCanvasStyle(); say('已加载 ' + countElements(doc.elements) + ' 个元素'); }, 120);
+}
+
+function countElements(els){
+  return (els || []).reduce((n, e) => n + 1 + countElements(e.children), 0);
 }
 
 async function exportHtml(){
@@ -507,6 +553,7 @@ mod tests {
                 color: Some("#ff0000".into()),
                 anchor: Some("center-top".into()),
                 props: serde_json::json!({ "文本": "确定", "动作": "ok", "样式": "primary" }),
+                children: Vec::new(),
             }],
         }
     }
@@ -552,5 +599,43 @@ mod tests {
         let d = doc();
         let v = serde_json::to_value(&d).unwrap();
         assert_eq!(v["elements"][0]["anchor"], "center-top");
+    }
+
+    #[test]
+    fn nested_children_flatten_to_absolute() {
+        let mut d = DesignDoc::default();
+        let mut card = DesignElement {
+            id: "card1".into(),
+            kind: "卡片".into(),
+            x: 10.0,
+            y: 20.0,
+            w: 360.0,
+            h: 480.0,
+            color: None,
+            anchor: Some("center-top".into()),
+            props: serde_json::json!({}),
+            children: Vec::new(),
+        };
+        card.children.push(DesignElement {
+            id: "btn2".into(),
+            kind: "按钮".into(),
+            x: 16.0,
+            y: 32.0,
+            w: 120.0,
+            h: 44.0,
+            color: None,
+            anchor: Some("left-top".into()),
+            props: serde_json::json!({ "文本": "登录", "动作": "ok", "样式": "primary" }),
+            children: Vec::new(),
+        });
+        d.elements.push(card);
+
+        let spec = d.to_spec().unwrap();
+        assert_eq!(spec.window.elements.len(), 1, "卡片容器不导出");
+        assert_eq!(spec.window.positions[0].x, 26.0, "父绝对 + 子相对");
+        assert_eq!(spec.window.positions[0].y, 52.0);
+
+        let v = serde_json::to_value(&d).unwrap();
+        assert_eq!(v["elements"][0]["children"][0]["id"], "btn2");
     }
 }

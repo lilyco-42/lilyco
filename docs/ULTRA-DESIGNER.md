@@ -14,7 +14,7 @@ LILYCO_UI=ultra LILYCO_PORT=8090 cargo run -p <你的载体>
 | 层 | 实现 |
 |---|---|
 | 编辑器内核 | GrapesJS 0.22.5，`lilyco-ultra-ui/assets/grapesjs.min.js`（1.1 MB，保留 BSD 头） |
-| 加载方式 | `include_str!` 编译期内嵌，`GET /assets/grapesjs.min.js` 返回，无 CDN、无构建链 |
+| 加载方式 | `include_str!` 编译期内嵌，`GET /assets/grapesjs.min.js` 返回，无 CDN、无构建链；文件首部保留 `BSD-3-Clause` 版权注释（Copyright (c) 2016-present Artem Buryakov） |
 | 设计器扩展 | 页面内脚本：组件块、锚点约束、蓝图视图、设备帧、对齐/分布、模板、序列化 |
 | 导出链路 | `DesignDoc` → `spec`（`布局: "absolute"` + `位置[]`）→ `generator` → React HTML |
 | 离线约束 | `canvas.styles/scripts = []`、`cssIcons = ''`，审计实测外部请求 0 |
@@ -98,8 +98,16 @@ GrapesJS 自带 `Ctrl+Z / Ctrl+Shift+Z` 撤销重做与 `Delete` 删除。
 }
 ```
 
-`elements` 始终是**扁平绝对坐标**：容器（卡片）本身不导出，子元素按「父绝对 + 子相对」累加成绝对坐标。
-这样后端 spec 无需理解嵌套，导入导出也保持稳定。
+`elements` 支持**容器嵌套**：容器（卡片）作为元素出现，其 `children` 携带子元素，子元素坐标**相对父容器**；
+`children` 为空时字段省略，旧版扁平 JSON 完全兼容。生成 UiSpec 时递归按「父绝对 + 子相对」累加，
+容器本身不进入 spec（spec 无容器类型），后端无需理解嵌套。
+
+```json
+{ "id": "card1", "type": "卡片", "x": 13, "y": 0, "w": 360, "h": 460, "anchor": "center-top",
+  "props": { "标题": "登录卡片" },
+  "children": [{ "id": "btn1", "type": "按钮", "x": 16, "y": 326, "w": 316, "h": 46,
+                 "anchor": "center-top", "props": { "文本": "登录" } }] }
+```
 
 导出转成 UiSpec 的绝对定位模式（流式 JSON 仍兼容）：
 
@@ -121,26 +129,33 @@ GrapesJS 自带 `Ctrl+Z / Ctrl+Shift+Z` 撤销重做与 `Delete` 删除。
 | `GET /api/designer/load` | 读取（404 = 尚无保存） |
 | `POST /api/designer/export` | 返回 `{ ok, spec, html }`，`html` 为 React 页面 |
 
-## 8. 实测（CDP，17 项全 PASS）
+## 8. 实测（CDP，23 项全 PASS）
 
 ```text
 设计器初始化（GrapesJS）
-页面无外链请求/失败  外部=0 失败=0
-无未捕获 JS 异常
+页面无外链请求/失败  外部=0 失败=0；无未捕获 JS 异常
 组件库 14；模板 7 节点（卡片 + 6 元素）
 组件树嵌套 [["卡片", 6]]
-设备切换 386×150 → 816×150
-约束锚点重算 13px → 220px；锚点属性 cross-device 保持 center-top
-蓝图视图 canvas body.blueprint
+设备切换 386×840 → 816×1176；自定义档 596×896（≈600×900）
+约束锚点重算 13px → 225px；锚点属性 cross-device 保持 center-top
+蓝图视图 class + 注入样式（styled=true）
+蓝图元素无填充/文字透明 rgba(0,0,0,0)
+蓝图轮廓标注 "卡片 center-top"
+蓝图约束中线 dashed/1px；锚点圆点 rgb(37,99,235)
 左对齐子元素 left 一致 [22,22,22,22,22,22]
 水平分布间距均匀 [0,0,0,0,0]
-导出 DesignDoc 6 元素；导出 HTML 8856B 且含「登录」
-保存/加载往返一致 6 → 6
-导出 → 再导入一致 6 元素
+导出 DesignDoc 7 元素（含嵌套）；JSON 父子 [["卡片",6]]
+导出 HTML 8857B，五类文案全部命中（登录 Lilyco/使用邮箱登录/邮箱/密码/登录/邮箱或密码错误）
+保存/加载往返一致 7 → 7；导出 → 再导入一致 7 元素
 预览 iframe 有内容
 ```
 
-Rust 侧：`cargo test -p lilyco-ultra-ui` 覆盖 DesignDoc 转换、JSON 键、错误定位、空稿 4 组用例。
+Rust 侧：`cargo test -p lilyco-ultra-ui` 覆盖 DesignDoc 转换、JSON 键、错误定位、空稿、
+锚点可选、嵌套扁平化 6 组用例（20 + 3 + 12 passed，0 failed）。
+
+回归：`/graph` 用改动前提交 `d55e28d` 独立构建做 before/after 对比，两版同为 6 项
+FAIL（Tab/方向键/Delete/Ctrl+Shift+Z/纯键盘连线/4px 对齐线），均为 headless 键盘与
+重绘时序限制，非本轮回归。
 
 审计方式：headless Chromium + CDP（`Runtime.evaluate` / `Network` / `Runtime.exceptionThrown`），逐项断言。
 另测 `/graph`（LiteGraph）与 `/blocks`（Scratch 积木）未受本轮影响。
@@ -152,5 +167,7 @@ Rust 侧：`cargo test -p lilyco-ultra-ui` 覆盖 DesignDoc 转换、JSON 键、
 - **蓝图视图**只表达结构与锚点，不渲染真实交互样式；与导出产物在细节上略有差异。
 - 导出的 React 页面沿用既有设计，引 `unpkg` 的 React 18 + Babel（带 SRI）；
   **设计器页面本身零外链**。
-- 卡片容器只做定位与嵌套展示，导出的 UiSpec 仍是绝对定位扁平结构，不生成容器组件。
-- 旧 `/`、`/graph`、`/blocks`、`/api/render`、`/api/validate` 均已回归通过。
+- 卡片容器在 DesignDoc 中保留嵌套（`children`），导出 UiSpec 时递归扁平化为绝对定位，
+  不生成容器组件（spec 无容器类型）。
+- 旧 `/`、`/graph`、`/blocks`、`/api/render`、`/api/validate` 均已回归：路由 200、
+  行为不变；`/graph` 已完成 before/after 基线对比。
