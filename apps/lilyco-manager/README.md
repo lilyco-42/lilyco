@@ -7,6 +7,8 @@
 
 巡检或演示时设置 `LILYCO_MANAGER_READ_ONLY=1`：面板显示只读提示并禁用写控件，所有写接口在鉴权后返回 403；GET、日志读取与日志流票据仍然可用。
 
+需要把只读会话发给别人时，可另设 `LILYCO_MANAGER_READ_TOKEN`：用这个 token 打开面板会显示只读并禁用写控件，GET 正常、写接口返回 403；主 token 的读写能力不变。
+
 ## 当前范围
 已实现两个内置只读工具、发现、调用、历史查看和自动打开浏览器；应用总览（清单发现、启动/停止、日志、`--schema`）、项目/方案、MCP 工具聚合/配置导出、GitHub Release 安装/更新/卸载、仓库内开发任务编排，以及基于 `lilyco-42/ui-spec` 的统一设计系统（浅色优先 + 深色主题）。尚未实现 Turso / wtx 后端。后续先通过 facade 读出 CommandSchema，再重用 core executor 做真实工具调度，不允许 Web 层直接执行任意外部命令。
 
