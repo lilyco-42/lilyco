@@ -62,10 +62,15 @@ where
                 let src = done.get(&edge.from).cloned().unwrap_or(Value::Null);
                 args[&edge.arg] = pick(&src, edge.pointer.as_deref());
             }
-            let output = handler(&node.command, &args)
-                .map_err(|message| RunError::Failed { node: id.clone(), message })?;
+            let output = handler(&node.command, &args).map_err(|message| RunError::Failed {
+                node: id.clone(),
+                message,
+            })?;
             done.insert(id.clone(), output.clone());
-            outputs.push(NodeRun { id: id.clone(), output });
+            outputs.push(NodeRun {
+                id: id.clone(),
+                output,
+            });
         }
     }
 

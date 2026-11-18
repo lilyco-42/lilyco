@@ -36,19 +36,14 @@ impl WindowSpec {
 }
 
 /// 窗口大小：小 / 中等 / 大 / 全屏（默认中等）
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum WindowSize {
     小,
+    #[default]
     中等,
     大,
     全屏,
-}
-
-impl Default for WindowSize {
-    fn default() -> Self {
-        WindowSize::中等
-    }
 }
 
 impl WindowSize {
