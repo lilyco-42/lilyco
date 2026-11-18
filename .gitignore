@@ -20,3 +20,6 @@ apps/vision-studio/tests/*.png
 
 # GitHub Pages 构建产物（源在 site/，由 site/build.py 生成）
 site/dist/
+# lilyco-manager 运行时数据库
+*.sqlite
+*.sqlite-journal

@@ -95,6 +95,8 @@ cargo binstall lilyco-ffmpeg   # or lilyco-srt, lilyco-brush, ...
 - [UI Guidelines](docs/ui/README.md) — 入门介绍 + 手把手教程 + 设计语言 + 组件参考（内置 Web 端与 React 映射）
 - [DSH Integration](docs/DSH.md)
 - [Testing](docs/TESTING.md)
+- [Port Allocation](docs/PORT-ALLOCATION.md) — 4200 金融、4300 游戏…按用途分段；manager 段内分配、冲突漂移、`GET /api/ports` 预警
+- [Development Standards](docs/DEVELOPMENT-STANDARDS.md) — 模块五件套、测试矩阵、端口规则、发布三件套
 - [Installation](docs/INSTALL.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Research & references](docs/RESEARCH.md)
