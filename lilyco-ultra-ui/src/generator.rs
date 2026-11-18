@@ -74,6 +74,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .el-toast{position:fixed;top:24px;right:24px;padding:16px 24px;background:#1e293b;color:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.2);z-index:9999;max-width:400px;animation:slideIn .3s ease;font-size:14px}
 .el-toast .tt{font-weight:600;margin-bottom:4px}.el-toast .td{color:#94a3b8;font-family:monospace;font-size:13px;word-break:break-all}
 @keyframes slideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}
+.window.absolute{position:relative;min-height:640px;padding:0;max-width:100%;box-shadow:none}
+.window.absolute .el-abs .el{margin:0}
+.window.absolute .wtitle{margin:0 0 12px 0}
 "#;
 
 const REACT_APP: &str = r##"
@@ -129,9 +132,14 @@ function App() {
   };
 
   return (<>
-    <div className={'window ' + (SIZE[w.大小] || 'medium')}>
+    <div className={'window ' + (SIZE[w.大小] || 'medium') + (w.布局 === 'absolute' ? ' absolute' : '')}>
       <h1 className="wtitle">{w.标题}</h1>
-      {(w.元素||[]).map(renderEl)}
+      {(w.元素||[]).map((el, i) => {
+        const node = renderEl(el, i);
+        const p = w.布局 === 'absolute' ? (w.位置 || [])[i] : null;
+        if (!p) return node;
+        return <div key={'abs' + i} className="el-abs" style={{position:'absolute', left:p.x, top:p.y, width:p.w, height:p.h, color:p.color||undefined}}>{node}</div>;
+      })}
     </div>
     {toast && <div className="el-toast"><div className="tt">动作 "{toast.action}" 已触发</div><div className="td">{toast.data}</div><div style={{marginTop:4,color:'#64748b'}}>时间: {toast.time}</div></div>}
   </>);

@@ -41,6 +41,13 @@
 - `GET /api/audit` 只返回最近 50 条项目/方案变更；面板「运行历史」可用「仅审计」筛选，
   每行可展开查看 JSON；失败请求与只读拒绝不落审计。
 
+## 端口管理
+
+- 段表与规则见 [docs/PORT-ALLOCATION.md](../../docs/PORT-ALLOCATION.md)：4200 金融、4300 游戏、4400 媒体、4800 AI、8000 运维、8700 直播、57890 内部服务。
+- 应用在清单 `run` 段声明 `preferred_port` / `port_env` / `port_band`；启动时在段内探测空闲端口并注入环境变量，冲突自动 +1 漂移（最多 20），不跨段、不抢外部端口。
+- `GET /api/ports` 返回各段 `used/free` 与每个应用的 `suggestedPort`、`drifted`，可当冲突预警。
+- 漂移只在日志里提示，调用方不得改 `port_env` 绕过。
+
 ## 应用清单
 应用通过仓库根目录的 `lilyco.app.json` 自助注册，规范见 [docs/MANIFEST.md](docs/MANIFEST.md)。开发时可直接指向源码目录：
 

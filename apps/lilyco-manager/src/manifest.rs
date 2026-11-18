@@ -57,6 +57,15 @@ pub struct RunSpec {
     /// 仅用于 UI 的“打开”按钮，必须指向本机回环地址。
     #[serde(default)]
     pub url: Option<String>,
+    /// 首选端口；manager 会在所属段内探测空闲端口并注入到 `port_env`（默认 `PORT`）。
+    #[serde(default)]
+    pub preferred_port: Option<u16>,
+    /// 端口注入的环境变量名，默认 `PORT`。
+    #[serde(default)]
+    pub port_env: Option<String>,
+    /// 端口段 key（finance/game/media/office/social/commerce/ai/devtools/ops/livestream/internal）。
+    #[serde(default)]
+    pub port_band: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -515,6 +524,9 @@ mod tests {
                 args: vec![],
                 env: BTreeMap::new(),
                 url: Some("http://127.0.0.1:8766".into()),
+                preferred_port: None,
+                port_env: None,
+                port_band: None,
             }),
             mcp: None,
             schema: None,

@@ -33,6 +33,7 @@ const HISTORY_LIMIT: i64 = 500;
 mod dev;
 mod manifest;
 mod mcp;
+mod ports;
 mod projects;
 mod release;
 mod supervisor;
@@ -436,6 +437,36 @@ fn find_app<'a>(state: &'a App, id: &str) -> Result<&'a Manifest, StatusCode> {
         .ok_or(StatusCode::NOT_FOUND)
 }
 
+async fn ports_overview(
+    State(state): State<App>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, StatusCode> {
+    if !authorised(&headers, &state.token) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let apps: Vec<Value> = state
+        .apps
+        .iter()
+        .filter_map(|app| {
+            let run = app.run.as_ref()?;
+            if run.preferred_port.is_none() && run.port_band.is_none() {
+                return None;
+            }
+            let band = ports::band_for_app(&app.id, run.port_band.as_deref());
+            let allocation = ports::allocate(band, run.preferred_port);
+            Some(json!({
+                "id": app.id,
+                "band": band.key,
+                "preferredPort": run.preferred_port,
+                "portEnv": run.port_env.clone().unwrap_or_else(|| "PORT".to_string()),
+                "suggestedPort": allocation.as_ref().map(|a| a.port),
+                "drifted": allocation.as_ref().map(|a| a.drifted),
+            }))
+        })
+        .collect();
+    Ok(Json(json!({"bands": ports::snapshot(), "apps": apps})))
+}
+
 async fn app_start(
     State(state): State<App>,
     headers: HeaderMap,
@@ -449,15 +480,36 @@ async fn app_start(
         return Err(StatusCode::BAD_REQUEST);
     }
     let program = manifest::resolve_binary(app).ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-    let empty_env = std::collections::BTreeMap::new();
-    let env = app.run.as_ref().map(|run| &run.env).unwrap_or(&empty_env);
+    let mut env = app.run.as_ref().map(|run| run.env.clone()).unwrap_or_default();
+    let mut allocated_port: Option<u16> = None;
+    if let Some(run) = app.run.as_ref() {
+        if run.preferred_port.is_some() || run.port_band.is_some() {
+            let band = ports::band_for_app(&app.id, run.port_band.as_deref());
+            let Some(allocation) = ports::allocate(band, run.preferred_port) else {
+                eprintln!(
+                    "lilyco-manager: {} 在端口段 {}（{}-{}）内没有空闲端口",
+                    app.id, band.key, band.start, band.end
+                );
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            };
+            let key = run.port_env.clone().unwrap_or_else(|| "PORT".to_string());
+            env.insert(key, allocation.port.to_string());
+            allocated_port = Some(allocation.port);
+            if allocation.drifted {
+                eprintln!(
+                    "lilyco-manager: {} 首选端口被占用，段 {} 内改用 {}",
+                    app.id, band.key, allocation.port
+                );
+            }
+        }
+    }
     let pid = state
         .supervisor
         .start(
             &app.id,
             program,
             app.run_args(),
-            env,
+            &env,
             app.source_dir.as_deref(),
         )
         .await
@@ -477,7 +529,7 @@ async fn app_start(
         json!({"pid": pid}),
     )
     .await;
-    Ok(Json(json!({"ok": true, "pid": pid})))
+    Ok(Json(json!({"ok": true, "pid": pid, "port": allocated_port})))
 }
 
 async fn app_stop(
@@ -1282,6 +1334,7 @@ fn build_router(app: App) -> Router {
         .route("/api/openapi.json", get(openapi))
         .route("/api/settings", get(settings))
         .route("/api/adapters", get(adapters))
+        .route("/api/ports", get(ports_overview))
         .route("/api/tools/:name/run", post(run))
         .route("/api/history", get(history))
         .route("/api/audit", get(audit))
@@ -2385,6 +2438,9 @@ done
                 args: Vec::new(),
                 env: BTreeMap::new(),
                 url: None,
+                preferred_port: None,
+                port_env: None,
+                port_band: None,
             }),
             mcp: None,
             schema: None,

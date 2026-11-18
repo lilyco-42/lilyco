@@ -21,6 +21,12 @@ pub struct WindowSpec {
     pub size: WindowSize,
     #[serde(rename = "元素", default)]
     pub elements: Vec<ElementSpec>,
+    /// 布局模式：流式（默认）或绝对定位（设计器产出）
+    #[serde(rename = "布局", default)]
+    pub layout: LayoutMode,
+    /// 绝对定位坐标，与 `elements` 一一对应（流式布局时为空）
+    #[serde(rename = "位置", default, skip_serializing_if = "Vec::is_empty")]
+    pub positions: Vec<Position>,
 }
 
 impl WindowSpec {
@@ -54,6 +60,29 @@ impl WindowSize {
             WindowSize::全屏 => "fullscreen",
         }
     }
+}
+
+/// 布局模式
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutMode {
+    /// 文档流（默认，与旧 JSON 兼容）
+    #[default]
+    Flow,
+    /// 绝对定位（拖拽设计器产出）
+    Absolute,
+}
+
+/// 一个元素的绝对定位（设计器写入，generator 读取）
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Position {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    /// 文本颜色（可选，设计器属性面板）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 /// 按钮样式变体
@@ -246,6 +275,15 @@ impl UiSpec {
         }
         if self.window.elements.is_empty() {
             errors.push("窗口元素列表为空 — 至少需要一个元素".into());
+        }
+        if self.window.layout == LayoutMode::Absolute
+            && self.window.positions.len() != self.window.elements.len()
+        {
+            errors.push(format!(
+                "绝对布局要求位置数量与元素一致：元素 {} 个，位置 {} 个",
+                self.window.elements.len(),
+                self.window.positions.len()
+            ));
         }
         let mut seen_vars = std::collections::HashSet::new();
         for (i, el) in self.window.elements.iter().enumerate() {

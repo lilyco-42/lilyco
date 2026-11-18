@@ -27,6 +27,7 @@ members = [
     "lilyco-dev",
     "lilyco",
     "lilyco-srt",
+    "lilyco-float",
 ]
 resolver = "2"
 # NSH 原生后端独立解析：nsh-base 要 unicode-width ^0.2.2，
