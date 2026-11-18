@@ -101,7 +101,7 @@ onMounted(()=>{
    </div>
   </header>
   <p v-if="error && tab!=='studio'" role="alert" class="alert alert-danger mb-5">{{error}}</p>
-  <p v-if="readOnly" role="status" data-testid="read-only-banner" class="alert alert-warning mb-5">只读模式：服务器以 LILYCO_MANAGER_READ_ONLY 启动，所有写操作会被拒绝。</p>
+  <p v-if="readOnly" role="status" data-testid="read-only-banner" class="alert alert-warning mb-5">只读模式：当前会话只能查看，所有写操作会被拒绝。</p>
   <div v-if="hasManagerSession && !['studio','apps','projects','mcp','blocks','api'].includes(tab)" class="grid sm:grid-cols-3 gap-4 mb-7">
    <div v-for="stat in [{label:'已注册工具',value:tools.length,icon:Blocks},{label:'最近执行记录',value:runs.length,icon:Activity},{label:'存储引擎',value:'SQLite',icon:Database}]" :key="stat.label" class="card p-5"><div class="flex justify-between text-sm text-ink-soft"><span>{{stat.label}}</span><component :is="stat.icon" :size="18"/></div><div class="text-3xl font-semibold mt-5">{{stat.value}}</div></div>
   </div>

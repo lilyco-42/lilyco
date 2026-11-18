@@ -23,6 +23,7 @@ const P95_BUDGET_MS = 500
 const RSS_BUDGET_KB = 256 * 1024
 
 const token = '0123456789abcdef'.repeat(4)
+const readToken = 'fedcba9876543210'.repeat(2)
 const temp = mkdtempSync(join(tmpdir(), 'lilyco-manager-smoke-'))
 const appsDir = join(temp, 'apps')
 mkdirSync(appsDir)
@@ -36,6 +37,7 @@ const child = spawn(binary, [], {
     LILYCO_MANAGER_APPS: appsDir,
     LILYCO_MANAGER_NO_BROWSER: '1',
     LILYCO_MANAGER_TOKEN: token,
+    LILYCO_MANAGER_READ_TOKEN: readToken,
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
@@ -152,6 +154,20 @@ async function main() {
   if (settings.read_only !== false) {
     throw new Error(`expected writable smoke server, got read_only=${settings.read_only}`)
   }
+
+  // 只读 token：GET 可用、会话报告只读、写操作 403；主 token 仍可写。
+  const readSettings = await (
+    await api('/api/settings', { headers: { 'x-lilyco-token': readToken } })
+  ).json()
+  if (readSettings.read_only !== true) throw new Error('read token session should be read-only')
+  const readTools = await api('/api/tools', { headers: { 'x-lilyco-token': readToken } })
+  if (readTools.status !== 200) throw new Error(`read token GET /api/tools returned ${readTools.status}`)
+  const readWrite = await api('/api/projects', {
+    method: 'POST',
+    headers: { 'x-lilyco-token': readToken, 'content-type': 'application/json' },
+    body: JSON.stringify({ name: '只读 token 不应写入' }),
+  })
+  if (readWrite.status !== 403) throw new Error(`read token write returned ${readWrite.status}`)
 
   // 项目/方案真实生命周期：鉴权先于 JSON 解析、校验 400、未知 id 404、
   // 状态校验与删除级联都要在真实二进制上跑一遍。

@@ -76,6 +76,8 @@ Vue 3 SFC + TypeScript + Vite + Tailwind CSS 4; use lucide icons, reusable layou
   persistent banner and disables every mutation control (tool run, app start/stop/install/dev
   tasks, project/plan create/edit/status/delete, MCP `tools.json` write). Reads, log viewing and
   config copying stay enabled so the console remains useful for inspection.
+- `read_only: true` may come from the server-wide `LILYCO_MANAGER_READ_ONLY` mode or from the
+  session using `LILYCO_MANAGER_READ_TOKEN`; both must produce the same disabled UI.
 
 ## Runs / audit view
 
