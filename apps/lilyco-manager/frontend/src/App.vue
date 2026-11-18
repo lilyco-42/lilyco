@@ -23,6 +23,7 @@ const adapters=ref<Adapter[]>([])
 const tab=ref(hasManagerSession?'apps':'studio'), tools=ref<Tool[]>([]), runs=ref<Run[]>([]), query=ref(''), loading=ref(false), error=ref(''), output=ref(''), selected=ref('')
 const theme=ref<Theme>('light')
 const expandedRun=ref<number|null>(null)
+const auditOnly=ref(false)
 const readOnly=ref(false)
 const installed=computed(()=>new Map(adapters.value.map(x=>[x.tool,x.installed])))
 const community=catalog.entries.filter(p=>p.origin==='community')
@@ -43,10 +44,19 @@ async function api(path:string,method='GET'){
  if(!response.ok)throw new Error('HTTP '+response.status)
  return response.json()
 }
+async function loadRuns(){
+ const data=await api(auditOnly.value?'/api/audit':'/api/history')
+ runs.value=data.runs??[]
+}
 async function refresh(){
  loading.value=true;error.value=''
- try{const [t,h,e,a]=await Promise.all([api('/api/tools'),api('/api/history'),api('/api/ecosystem'),api('/api/adapters')]);tools.value=t.tools??[];runs.value=h.runs??[];projects.value=e.projects??[];adapters.value=a.adapters??[]}
+ try{const [t,e,a]=await Promise.all([api('/api/tools'),api('/api/ecosystem'),api('/api/adapters')]);tools.value=t.tools??[];projects.value=e.projects??[];adapters.value=a.adapters??[];await loadRuns()}
  catch(e){error.value=String(e)}finally{loading.value=false}
+}
+async function setRunFilter(next:boolean){
+ if(auditOnly.value===next)return
+ auditOnly.value=next;error.value=''
+ try{await loadRuns()}catch(e){error.value=String(e)}
 }
 // 设置接口失败时按可写处理：旧版后端或离线 mock 不应因此阻断面板。
 async function loadSettings(){
@@ -133,7 +143,13 @@ onMounted(()=>{
    </div>
   </section>
   <section v-if="tab==='runs'" class="card overflow-hidden">
-   <h2 class="p-5 border-b border-line font-semibold">运行历史</h2>
+   <div class="p-5 border-b border-line flex flex-wrap justify-between items-center gap-3">
+    <h2 class="font-semibold">运行历史</h2>
+    <div class="flex gap-2" role="group" aria-label="运行记录筛选">
+     <button @click="setRunFilter(false)" :aria-pressed="!auditOnly" :class="['btn','btn-sm',auditOnly?'btn-secondary':'btn-brand']">全部</button>
+     <button @click="setRunFilter(true)" :aria-pressed="auditOnly" :class="['btn','btn-sm',auditOnly?'btn-brand':'btn-secondary']">仅审计</button>
+    </div>
+   </div>
    <div v-for="run in runs" :key="run.id" class="border-b border-line/60 last:border-0">
     <button type="button" data-testid="run-row" class="w-full p-5 flex justify-between gap-2 flex-wrap text-sm text-left hover:bg-surface-hover" :aria-expanded="expandedRun===run.id" @click="toggleRun(run)">
      <span class="font-mono flex items-center gap-2">{{run.tool}}<span v-if="run.tool.startsWith('project.')||run.tool.startsWith('plan.')" class="badge badge-brand">审计</span></span>
@@ -141,7 +157,7 @@ onMounted(()=>{
     </button>
     <pre v-if="expandedRun===run.id" class="log mx-5 mb-4 p-3 max-h-64 overflow-auto">{{runOutput(run)}}</pre>
    </div>
-   <p v-if="!runs.length" class="p-10 text-center text-ink-soft">暂无记录</p>
+   <p v-if="!runs.length" class="p-10 text-center text-ink-soft">{{auditOnly?'暂无审计记录':'暂无记录'}}</p>
   </section>
   <AppsView v-if="tab==='apps'" :token="token" :read-only="readOnly"/>
   <ProjectsView v-if="tab==='projects'" :token="token" :read-only="readOnly"/>

@@ -38,6 +38,8 @@
 - 数据与运行历史同库（管理器自己的 SQLite），重启后仍在；面板「项目/方案」一次请求即可渲染。
 - 六类成功变更写入运行历史（`project.create/update/delete`、`plan.create/update/delete`），
   面板「运行历史」可展开查看审计 JSON；失败请求与只读拒绝不落审计。
+- `GET /api/audit` 只返回最近 50 条项目/方案变更；面板「运行历史」可用「仅审计」筛选，
+  每行可展开查看 JSON；失败请求与只读拒绝不落审计。
 
 ## 应用清单
 应用通过仓库根目录的 `lilyco.app.json` 自助注册，规范见 [docs/MANIFEST.md](docs/MANIFEST.md)。开发时可直接指向源码目录：

@@ -12,7 +12,7 @@ let baseUrl = ''
 let lastWriteToken = ''
 let readOnlyMode = false
 type Run = { id: number; tool: string; output: string; created_at: string }
-let runs: Run[] = []
+let runs: Run[] = [{ id: 0, tool: 'manager.health', output: '{"status":"ok"}', created_at: '2026-11-17 00:00:00' }]
 let nextRun = 1
 
 function audit(tool: string, output: Record<string, unknown>) {
@@ -78,6 +78,9 @@ test.beforeAll(async () => {
       json(response, { tools: [{ name: 'manager.health', description: '健康检查', read_only: true }] })
     } else if (path === '/api/history') {
       json(response, { runs })
+    } else if (path === '/api/audit') {
+      const audited = runs.filter((run) => run.tool.startsWith('project.') || run.tool.startsWith('plan.'))
+      json(response, { runs: audited, count: audited.length })
     } else if (path === '/api/ecosystem') {
       json(response, { projects: [] })
     } else if (path === '/api/adapters') {
@@ -259,6 +262,14 @@ test('项目/方案：创建、方案推进、编辑、删除与窄屏深色', a
   await createRow.click()
   await expect(page.getByTestId('run-row').filter({ hasText: 'project.create' }).locator('..')).toContainText('"name": "管理器 v0.3"')
   await expect(page.getByTestId('run-row').filter({ hasText: 'plan.update' }).first()).toBeVisible()
+
+  // 「仅审计」隐藏工具执行，只保留项目/方案变更。
+  await expect(page.getByTestId('run-row').filter({ hasText: 'manager.health' })).toBeVisible()
+  await page.getByRole('button', { name: '仅审计' }).click()
+  await expect(page.getByTestId('run-row').filter({ hasText: 'manager.health' })).toHaveCount(0)
+  await expect(page.getByTestId('run-row').first()).toContainText('project.delete')
+  await page.getByRole('button', { name: '全部' }).click()
+  await expect(page.getByTestId('run-row').filter({ hasText: 'manager.health' })).toBeVisible()
   await page.getByRole('button', { name: '项目/方案' }).click()
 
   // 375px + 深色：新视图沿用 shadcn 令牌，不横向溢出。

@@ -87,6 +87,9 @@ Vue 3 SFC + TypeScript + Vite + Tailwind CSS 4; use lucide icons, reusable layou
   are distinguishable from tool executions at a glance. IDs, names/titles and result status
   come from the backend audit payload; the view must not invent fields.
 - History is refreshed with the page-level「刷新」button; no background polling.
+- A「全部 / 仅审计」filter switches between `GET /api/history` and `GET /api/audit`.
+  The audit view must hide tool executions and keep newest-first order; the empty state
+  distinguishes「暂无审计记录」from「暂无记录」.
 
 ## Design blocks / prototype view
 

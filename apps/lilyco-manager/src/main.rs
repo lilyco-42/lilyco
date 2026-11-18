@@ -12,8 +12,8 @@ use axum::{
 };
 use futures_core::Stream;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ConnectionTrait, Database, DatabaseConnection, EntityTrait,
-    QueryOrder, QuerySelect,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, Database,
+    DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -209,6 +209,7 @@ fn api_spec() -> Value {
             "/api/adapters": {"get": operation("固定可执行适配器可用性", "meta")},
             "/api/tools/{name}/run": {"post": mutation("执行已注册的只读工具", "tools")},
             "/api/history": {"get": operation("最近的执行记录", "tools")},
+            "/api/audit": {"get": operation("项目/方案变更审计（最近 50 条）", "projects")},
             "/api/apps": {"get": operation("应用清单与受管进程状态", "apps")},
             "/api/apps/{id}/start": {"post": mutation("启动清单定义的应用", "apps")},
             "/api/apps/{id}/stop": {"post": mutation("停止管理器启动的应用", "apps")},
@@ -363,6 +364,33 @@ async fn history(State(state): State<App>, headers: HeaderMap) -> Result<Json<Va
         })
         .collect();
     Ok(Json(json!({"runs":values})))
+}
+
+/// 项目/方案审计视图：只取 `project.*` 与 `plan.*`，最新 50 条。
+/// 不接受任意 SQL 或用户前缀，避免把运行历史查询变成注入面。
+async fn audit(State(state): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
+    if !authorised(&headers, &state.token) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let records = runs::Entity::find()
+        .filter(
+            Condition::any()
+                .add(runs::Column::Tool.like("project.%"))
+                .add(runs::Column::Tool.like("plan.%")),
+        )
+        .order_by_desc(runs::Column::Id)
+        .limit(50)
+        .all(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let values: Vec<Value> = records
+        .iter()
+        .map(|row| {
+            json!({"id":row.id,"tool":row.tool,"output":row.output,"created_at":row.created_at})
+        })
+        .collect();
+    let count = values.len();
+    Ok(Json(json!({"runs": values, "count": count})))
 }
 
 async fn app_list(State(state): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
@@ -1256,6 +1284,7 @@ fn build_router(app: App) -> Router {
         .route("/api/adapters", get(adapters))
         .route("/api/tools/:name/run", post(run))
         .route("/api/history", get(history))
+        .route("/api/audit", get(audit))
         .route("/api/apps", get(app_list))
         .route("/api/apps/:id/start", post(app_start))
         .route("/api/apps/:id/stop", post(app_stop))
@@ -1957,6 +1986,62 @@ mod tests {
         let (status, body) = call(&app, request("GET", "/api/history", Some(&app.token))).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["runs"].as_array().unwrap().len(), 50);
+    }
+
+    /// 审计接口只返回 project.* / plan.*，且与运行历史一样要求 token。
+    #[tokio::test]
+    async fn audit_endpoint_returns_only_project_and_plan_changes() {
+        let app = test_state().await;
+        let token = app.token.clone();
+
+        let (status, _) = call(&app, request("GET", "/api/audit", None)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let (_, body) = call_json(
+            &app,
+            "POST",
+            "/api/projects",
+            json!({"name": "审计项目"}),
+            Some(&token),
+        )
+        .await;
+        let project_id = body["project"]["id"].as_i64().unwrap();
+        let (_, body) = call_json(
+            &app,
+            "POST",
+            &format!("/api/projects/{project_id}/plans"),
+            json!({"title": "审计方案"}),
+            Some(&token),
+        )
+        .await;
+        let plan_id = body["plan"]["id"].as_i64().unwrap();
+        call_json(
+            &app,
+            "PATCH",
+            &format!("/api/plans/{plan_id}"),
+            json!({"status": "doing"}),
+            Some(&token),
+        )
+        .await;
+        // 工具执行也在 runs 里，但不应出现在审计接口。
+        call(
+            &app,
+            request("POST", "/api/tools/manager.health/run", Some(&token)),
+        )
+        .await;
+
+        let (status, body) = call(&app, request("GET", "/api/audit", Some(&token))).await;
+        assert_eq!(status, StatusCode::OK);
+        let runs = body["runs"].as_array().unwrap();
+        assert_eq!(body["count"], 3);
+        assert_eq!(runs.len(), 3);
+        assert_eq!(runs[0]["tool"], "plan.update");
+        assert_eq!(runs[1]["tool"], "plan.create");
+        assert_eq!(runs[2]["tool"], "project.create");
+        assert!(runs.iter().all(|run| {
+            let tool = run["tool"].as_str().unwrap();
+            tool.starts_with("project.") || tool.starts_with("plan.")
+        }));
     }
 
     #[test]

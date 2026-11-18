@@ -244,6 +244,14 @@ async function main() {
     if (!auditTools.includes(tool)) throw new Error(`missing audit entry ${tool}`)
   }
 
+  const auditOnly = await (await api('/api/audit')).json()
+  if (auditOnly.count !== auditOnly.runs?.length || auditOnly.count < 6) {
+    throw new Error(`expected at least 6 audit-only entries, got ${auditOnly.count}`)
+  }
+  if (auditOnly.runs.some((run) => !/^(project|plan)\./.test(run.tool))) {
+    throw new Error('audit endpoint leaked non-project/plan entries')
+  }
+
 
   const crossOrigin = await fetch(baseUrl + '/api/apps/missing/start', {
     method: 'POST',
