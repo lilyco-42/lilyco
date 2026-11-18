@@ -138,6 +138,13 @@ test('真实后端 + 浏览器：工具执行、历史与积木页', async ({ pa
   await auditRow.click()
   await expect(auditRow.locator('..')).toContainText('"status": "doing"')
 
+  // 「仅审计」走 /api/audit：工具执行隐藏，项目/方案变更保留。
+  await page.getByRole('button', { name: '仅审计' }).click()
+  await expect(page.getByTestId('run-row').filter({ hasText: 'manager.health' })).toHaveCount(0)
+  await expect(page.getByTestId('run-row').filter({ hasText: 'project.create' }).first()).toBeVisible()
+  await page.getByRole('button', { name: '全部' }).click()
+  await expect(page.getByTestId('run-row').filter({ hasText: 'manager.health' }).first()).toBeVisible()
+
   await page.goto(`${baseUrl}/#token=${token}`)
   await page.getByRole('button', { name: '项目/方案' }).click()
   projectCard = page.getByTestId('project-card').filter({ hasText: '管理器 v0.4' })
