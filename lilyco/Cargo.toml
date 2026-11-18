@@ -36,4 +36,5 @@ full = ["tui", "web", "ultra"]
 tui = ["dep:lilyco-tui", "dep:crossterm", "dep:ratatui"]
 web = ["dep:lilyco-gui", "dep:tokio"]
 # Ultra UI：JSON → React 生成器 playground（--ultra）
-ultra = ["dep:lilyco-ultra-ui"]
+# run_ultra 自建 tokio runtime，所以单开 ultra 也必须带 dep:tokio
+ultra = ["dep:lilyco-ultra-ui", "dep:tokio"]
