@@ -1,0 +1,451 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero" style="padding-bottom:14px;">
+  <div class="status-pill"><span class="dot"></span>1 元 = 10 积分 · ≈ $0.14 / 10 Credits · Global Checkout</div>
+  <h1 data-i18n="shop_title">商城与全球积分收银台</h1>
+  <p class="lead" data-i18n="shop_lead">支持爱发电、支付宝、国际信用卡（Visa / Mastercard / Apple Pay / Google Pay）、Google Play 内购、USDT(TRC20) 与卡密兑换。</p>
+</section>
+
+<!-- 2-Column Global Checkout Workbench -->
+<section class="block" style="margin-top:14px;">
+  <div class="checkout-layout" style="display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:18px;align-items:start;">
+    <div class="card">
+      <div class="block-head" style="margin-bottom:6px;">
+        <h2 data-i18n="topup_heading">充值积分</h2>
+        <div class="tabs" role="tablist">
+          <button class="tab-btn active" type="button" data-pay="afdian" onclick="switchPay('afdian')">爱发电</button>
+          <button class="tab-btn" type="button" data-pay="alipay" onclick="switchPay('alipay')">支付宝</button>
+          <button class="tab-btn" type="button" data-pay="creem" onclick="switchPay('creem')">Creem 国际卡</button>
+          <button class="tab-btn" type="button" data-pay="stripe" onclick="switchPay('stripe')">Stripe 沙盒</button>
+          <button class="tab-btn" type="button" data-pay="gplay" onclick="switchPay('gplay')">Google Play</button>
+          <button class="tab-btn" type="button" data-pay="usdt" onclick="switchPay('usdt')">USDT</button>
+          <button class="tab-btn" type="button" data-pay="card" onclick="switchPay('card')">卡密</button>
+        </div>
+      </div>
+
+      <!-- Preset Pack Grid (Afdian / Alipay / Stripe / Google Play) -->
+      <div id="panePacks" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:6px;"></div>
+
+      <!-- Google Play Token Box -->
+      <div id="paneGplay" style="display:none;gap:10px;margin-top:10px;padding:12px;border-radius:10px;background:var(--bg-subtle);border:1px solid var(--border);">
+        <span class="sub-label">Android 客户端内购完成后，自动同步或手动粘贴 Google Play <code>purchase_token</code> 核验入账（包名 <code>top.lain42.workbench</code>）：</span>
+        <input id="gplayToken" type="text" placeholder="粘贴 Google Play purchase_token（测试可填 GPLAY-DEMO-2026）">
+      </div>
+
+      <!-- USDT Input -->
+      <div id="paneUsdt" style="display:none;gap:12px;">
+        <div class="field">
+          <label for="usdtInput">充值 USDT 金额（1 USDT = 10 积分，范围 1 ~ 1000）</label>
+          <input id="usdtInput" type="number" min="1" max="1000" step="1" value="10" oninput="updateSummary()">
+        </div>
+        <p class="sub-label">创建订单后会生成专属 TRC20 收款地址与精确金额，48 小时内链上确认自动入账。</p>
+      </div>
+
+      <!-- Card Redeem -->
+      <div id="paneCard" style="display:none;gap:12px;">
+        <div class="field">
+          <label for="cardInput">输入激活卡 / 积分卡密</label>
+          <input id="cardInput" type="text" placeholder="例如 LAIN42-TEST-100">
+        </div>
+        <p class="sub-label">开发环境测试卡密：<code>LAIN42-TEST-100</code>（+100 积分）或 <code>LAIN42-TEST-500</code>（+500 积分）。</p>
+      </div>
+    </div>
+
+    <!-- Right: Sticky Order Summary -->
+    <aside class="card highlight" style="position:sticky;top:76px;">
+      <div class="card-meta"><span data-i18n="summary_title">订单摘要</span><span class="badge badge-brand" id="sumChannel">爱发电官方收银台</span></div>
+      <div style="display:grid;gap:10px;font-size:14px;padding:6px 0;border-bottom:1px solid var(--border);">
+        <div style="display:flex;justify-content:space-between;"><span class="sub-label">当前账户</span><strong id="sumUser">未登录</strong></div>
+        <div style="display:flex;justify-content:space-between;"><span class="sub-label">当前余额</span><span class="num" id="sumBalance">—</span></div>
+        <div style="display:flex;justify-content:space-between;"><span class="sub-label">本次到账</span><strong class="num" style="color:var(--ok);" id="sumAdd">+300 积分</strong></div>
+        <div style="display:flex;justify-content:space-between;"><span class="sub-label">充值后余额</span><strong class="num" id="sumAfter">—</strong></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <span class="sub-label">应付金额</span>
+        <span class="num" style="font-size:24px;font-weight:800;" id="sumPrice">¥30.00</span>
+      </div>
+      <button class="btn btn-primary btn-block" id="payActionBtn" type="button" onclick="handleCheckout()">请先登录账户</button>
+      <div class="msg" id="payToast"></div>
+    </aside>
+  </div>
+</section>
+
+<!-- Product Catalog -->
+<section class="block">
+  <div class="block-head">
+    <h2 data-i18n="catalog_heading">用积分购买数字商品与订阅</h2>
+    <div class="tabs">
+      <button class="tab-btn active" type="button" onclick="filterCatalog('all', this)">全部商品</button>
+      <button class="tab-btn" type="button" onclick="filterCatalog('sub', this)">订阅与会员</button>
+      <button class="tab-btn" type="button" onclick="filterCatalog('tool', this)">桌面工具</button>
+      <button class="tab-btn" type="button" onclick="filterCatalog('game', this)">游戏与内测</button>
+    </div>
+  </div>
+  <div class="grid" id="catalogGrid">
+    <div class="card"><p>正在加载商品目录...</p></div>
+  </div>
+</section>
+
+<!-- Commercial Payment Checkout Modal -->
+<dialog class="modal" id="payModal" style="width:min(460px, calc(100vw - 24px));">
+  <div class="modal-body">
+    <div class="modal-head">
+      <h3 id="pmTitle">收银台 · 确认付款</h3>
+      <button class="icon-btn" type="button" onclick="document.getElementById('payModal').close()">✕</button>
+    </div>
+    <div style="padding:14px;border-radius:12px;background:var(--bg-subtle);border:1px solid var(--border);display:grid;gap:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <span class="sub-label">应付金额</span>
+        <strong class="num" style="font-size:26px;" id="pmAmount">¥30.00</strong>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;">
+        <span class="sub-label">到账积分</span>
+        <strong class="num" style="color:var(--ok);" id="pmCredits">+300 积分</strong>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;gap:8px;">
+        <span class="sub-label">订单号</span>
+        <code id="pmOrderId" style="font-size:12px;">—</code>
+      </div>
+    </div>
+    <div id="pmUsdtBox" style="display:none;gap:8px;">
+      <span class="sub-label">TRC20 收款地址（48 小时有效）：</span>
+      <code id="pmWallet" style="padding:10px;border-radius:10px;background:var(--bg-subtle);border:1px solid var(--border);word-break:break-all;font-size:12px;"></code>
+      <button class="btn btn-sm" type="button" onclick="copyWallet(this)">一键复制 TRC20 地址</button>
+    </div>
+    <p id="pmHint" style="margin:0;font-size:13px;color:var(--muted);"></p>
+    <div style="display:grid;gap:8px;">
+      <a class="btn btn-primary btn-block" id="pmExtLink" href="#" target="_blank" rel="noopener noreferrer">前往官方收银台付款 ↗</a>
+      <button class="btn btn-primary btn-block" id="pmAlipaySubmit" type="button" style="display:none;" onclick="submitAlipayForm()">打开支付宝官方收银台 ↗</button>
+      <button class="btn btn-block" id="pmCheckBtn" type="button" onclick="verifyCurrentIntent()">我已完成付款，立即核验到账</button>
+    </div>
+    <div class="msg" id="pmMsg"></div>
+  </div>
+</dialog>
+
+<!-- Purchase Confirm Modal -->
+<dialog class="modal" id="buyModal">
+  <div class="modal-body">
+    <div class="modal-head">
+      <h3>确认积分购买</h3>
+      <button class="icon-btn" type="button" onclick="document.getElementById('buyModal').close()">✕</button>
+    </div>
+    <p id="buyDesc" style="margin:0;font-size:14px;color:var(--muted);"></p>
+    <div class="msg" id="buyMsg"></div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn" type="button" style="flex:1;" onclick="document.getElementById('buyModal').close()">取消</button>
+      <button class="btn btn-primary" id="buyConfirmBtn" type="button" style="flex:1;" onclick="confirmBuy()">确认扣除积分</button>
+    </div>
+  </div>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  @media (max-width: 960px) {
+    .checkout-layout { grid-template-columns: minmax(0, 1fr) !important; }
+    aside.card.highlight { position: static !important; }
+  }
+  .pack-btn {
+    padding: 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg);
+    text-align: left; cursor: pointer; display: grid; gap: 4px; color: var(--text);
+    min-height: 74px; touch-action: manipulation;
+  }
+  .pack-btn.selected { border-color: var(--brand); background: var(--brand-soft); }
+</style>
+<script>
+const PACKS = [
+  { product: 'points_cny_1', cny: 1, usd: 0.19, pts: 10 },
+  { product: 'points_cny_5', cny: 5, usd: 0.79, pts: 50 },
+  { product: 'points_cny_10', cny: 10, usd: 1.49, pts: 100 },
+  { product: 'points_cny_30', cny: 30, usd: 4.49, pts: 300, hot: true },
+  { product: 'points_cny_45', cny: 45, usd: 6.49, pts: 450 },
+  { product: 'points_cny_100', cny: 100, usd: 13.99, pts: 1000 },
+  { product: 'points_cny_200', cny: 200, usd: 27.99, pts: 2000 },
+  { product: 'points_cny_300', cny: 300, usd: 41.99, pts: 3000 },
+  { product: 'points_cny_1000', cny: 1000, usd: 139.00, pts: 10000 }
+];
+let payMethod = window.LAIN_LANG === 'en' ? 'stripe' : 'afdian';
+let pickedPack = PACKS[3];
+let currentIntent = null;
+let pendingAlipayHtml = '';
+let allProducts = [];
+let pendingBuyProduct = null;
+
+function isUsdChannel() { return payMethod === 'creem' || payMethod === 'stripe' || payMethod === 'gplay' || window.LAIN_LANG === 'en'; }
+
+function renderPacks() {
+  const el = document.getElementById('panePacks');
+  const usd = isUsdChannel();
+  el.innerHTML = PACKS.map((p, idx) => `
+    <button type="button" class="pack-btn ${p.product === pickedPack.product ? 'selected' : ''}" onclick="pickPack(${idx})">
+      <span style="display:flex;justify-content:space-between;align-items:center;">
+        <strong class="num" style="font-size:16px;">${usd ? '$' + p.usd.toFixed(2) : '¥' + p.cny}</strong>
+        ${p.hot ? '<span class="badge badge-brand">' + (window.LAIN_LANG === 'en' ? 'Popular' : '推荐') + '</span>' : ''}
+      </span>
+      <span class="num sub-label">${p.pts.toLocaleString()} ${window.LAIN_LANG === 'en' ? 'Credits' : '积分'}</span>
+    </button>
+  `).join('');
+}
+function pickPack(idx) { pickedPack = PACKS[idx]; renderPacks(); updateSummary(); }
+
+function switchPay(m) {
+  payMethod = m;
+  currentIntent = null;
+  document.getElementById('payToast').textContent = '';
+  document.querySelectorAll('[data-pay]').forEach(b => b.classList.toggle('active', b.dataset.pay === m));
+  const showPacks = ['afdian', 'alipay', 'creem', 'stripe', 'gplay'].includes(m);
+  document.getElementById('panePacks').style.display = showPacks ? 'grid' : 'none';
+  document.getElementById('paneGplay').style.display = m === 'gplay' ? 'grid' : 'none';
+  document.getElementById('paneUsdt').style.display = m === 'usdt' ? 'grid' : 'none';
+  document.getElementById('paneCard').style.display = m === 'card' ? 'grid' : 'none';
+  renderPacks();
+  updateSummary();
+}
+
+function updateSummary() {
+  const names = {
+    afdian: '爱发电官方收银台', alipay: '支付宝收银台',
+    creem: 'Creem · 全球国际卡 / Apple·Google Pay',
+    stripe: 'Stripe · 沙盒测试收银台',
+    gplay: 'Google Play Billing', usdt: 'USDT (TRC20)', card: '卡密兑换'
+  };
+  document.getElementById('sumChannel').textContent = names[payMethod];
+  const acct = window.LAIN_ACCOUNT;
+  const bal = acct ? acct.points.balance : null;
+  document.getElementById('sumUser').textContent = acct ? acct.username : (window.LAIN_LANG === 'en' ? 'Guest' : '未登录');
+  document.getElementById('sumBalance').textContent = bal !== null ? `${bal.toLocaleString()} 积分` : '—';
+
+  let addPts = pickedPack.pts;
+  let priceText = isUsdChannel() ? `$${pickedPack.usd.toFixed(2)}` : `¥${pickedPack.cny.toFixed(2)}`;
+  if (payMethod === 'usdt') {
+    const u = Math.max(1, Number(document.getElementById('usdtInput').value || 10));
+    addPts = Math.round(u * 10);
+    priceText = `${u} USDT`;
+  } else if (payMethod === 'card') {
+    addPts = 0;
+    priceText = window.LAIN_LANG === 'en' ? 'Gift Card' : '卡密抵扣';
+  }
+  document.getElementById('sumAdd').textContent = payMethod === 'card' ? '按卡密面值' : `+${addPts.toLocaleString()} 积分`;
+  document.getElementById('sumAfter').textContent = bal !== null ? `${(bal + addPts).toLocaleString()} 积分` : '—';
+  document.getElementById('sumPrice').textContent = priceText;
+  document.getElementById('payActionBtn').textContent = !acct
+    ? (window.LAIN_LANG === 'en' ? 'Sign In to Checkout' : '请先登录账户')
+    : (payMethod === 'card' ? '立即兑换卡密' : payMethod === 'gplay' ? '核验 Google Play 订单' : '立即前往收银台');
+}
+
+function copyWallet(btn) {
+  navigator.clipboard?.writeText(document.getElementById('pmWallet').textContent);
+  btn.textContent = '已复制地址 ✓';
+  setTimeout(() => btn.textContent = '一键复制 TRC20 地址', 1400);
+}
+
+function submitAlipayForm() {
+  if (!pendingAlipayHtml) return;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = pendingAlipayHtml;
+  const form = wrap.querySelector('form');
+  if (form) { form.target = '_blank'; document.body.appendChild(form); form.submit(); form.remove(); }
+}
+
+function openPayModal(opts) {
+  document.getElementById('pmTitle').textContent = opts.title;
+  document.getElementById('pmAmount').textContent = opts.amount;
+  document.getElementById('pmCredits').textContent = opts.credits;
+  document.getElementById('pmOrderId').textContent = opts.orderId;
+  document.getElementById('pmHint').textContent = opts.hint;
+  document.getElementById('pmMsg').textContent = '';
+  const usdtBox = document.getElementById('pmUsdtBox');
+  if (opts.wallet) { document.getElementById('pmWallet').textContent = opts.wallet; usdtBox.style.display = 'grid'; }
+  else { usdtBox.style.display = 'none'; }
+  const ext = document.getElementById('pmExtLink');
+  if (opts.extUrl) { ext.href = opts.extUrl; ext.textContent = opts.extLabel || '前往官方收银台付款 ↗'; ext.style.display = 'inline-flex'; }
+  else { ext.style.display = 'none'; }
+  document.getElementById('pmAlipaySubmit').style.display = opts.alipayForm ? 'inline-flex' : 'none';
+  document.getElementById('pmCheckBtn').style.display = opts.canCheck ? 'inline-flex' : 'none';
+  document.getElementById('payModal').showModal();
+}
+
+async function handleCheckout() {
+  if (!window.LAIN_ACCOUNT) { window.openAuthModal('login'); return; }
+  const toast = document.getElementById('payToast');
+  toast.className = 'msg';
+  toast.textContent = '正在处理...';
+
+  if (payMethod === 'card') {
+    const code = document.getElementById('cardInput').value.trim();
+    if (!code) { toast.className = 'msg err'; toast.textContent = '请输入卡密'; return; }
+    const res = await window.studioApi('/redeem', { code });
+    if (res.data.ok) {
+      toast.className = 'msg ok';
+      toast.textContent = `兑换成功！+${res.data.points_added} 积分已入账。`;
+      document.getElementById('cardInput').value = '';
+      await window.refreshAccount();
+    } else { toast.className = 'msg err'; toast.textContent = res.data.detail || '兑换失败'; }
+    return;
+  }
+  if (payMethod === 'gplay') {
+    const token = document.getElementById('gplayToken').value.trim();
+    if (!token) { toast.className = 'msg err'; toast.textContent = '请输入 Google Play purchase_token'; return; }
+    const res = await window.studioApi('/payments/google-play/verify', { product: pickedPack.product, purchase_token: token });
+    if (res.data.ok) {
+      toast.className = 'msg ok';
+      toast.textContent = `Google Play 核验成功！+${res.data.points_credit} 积分已入账。`;
+      document.getElementById('gplayToken').value = '';
+      await window.refreshAccount();
+    } else { toast.className = 'msg err'; toast.textContent = res.data.detail || '核验失败'; }
+    return;
+  }
+  if (payMethod === 'usdt') {
+    const u = Number(document.getElementById('usdtInput').value || 10);
+    const res = await window.studioApi('/points/topup', { amount_usdt: u });
+    if (!res.data.ok) { toast.className = 'msg err'; toast.textContent = res.data.detail || '下单失败'; return; }
+    toast.textContent = '';
+    openPayModal({
+      title: 'USDT (TRC20) 链上充值', amount: `${res.data.amount_usdt} USDT`,
+      credits: `+${res.data.points_credit} 积分`, orderId: res.data.order_no,
+      wallet: res.data.wallet, hint: '请使用 TRC20 网络转入精确金额，链上确认后自动入账。', canCheck: false
+    });
+    return;
+  }
+  if (payMethod === 'afdian') {
+    const res = await window.studioApi('/payments/afdian/intents', { product: pickedPack.product, reference: 'web-' + Date.now() });
+    if (!res.data.ok) { toast.className = 'msg err'; toast.textContent = res.data.detail || '下单失败'; return; }
+    toast.textContent = '';
+    currentIntent = { channel: 'afdian', id: res.data.intent_id };
+    openPayModal({
+      title: '爱发电官方收银台', amount: `¥${Number(res.data.price_cny).toFixed(2)}`,
+      credits: `+${res.data.points_credit} 积分`, orderId: res.data.intent_id,
+      extUrl: res.data.automatic_checkout_url, extLabel: '前往爱发电官方收银台付款 ↗',
+      hint: '专属链接已自动绑定当前账号与精确档位，无需手动填写留言。付款后点下方按钮立即核验。', canCheck: true
+    });
+    return;
+  }
+  if (payMethod === 'alipay') {
+    const res = await window.studioApi('/payments/alipay/topups', { amount_cny: pickedPack.cny });
+    if (!res.data.ok) { toast.className = 'msg err'; toast.textContent = res.data.detail || '下单失败'; return; }
+    toast.textContent = '';
+    currentIntent = { channel: 'alipay', id: res.data.order_no };
+    openPayModal({
+      title: res.data.live_mode ? '支付宝官方收银台（RSA2 实签）' : '支付宝收银台（开发模拟模式）',
+      amount: `¥${Number(res.data.amount_cny).toFixed(2)}`,
+      credits: `+${res.data.points_credit} 积分`, orderId: res.data.order_no,
+      extUrl: res.data.checkout_url || null, extLabel: '前往支付宝官方收银台付款 ↗',
+      alipayForm: false,
+      hint: res.data.checkout_url
+        ? '已使用商户 RSA2 私钥签名生成真实支付宝官方收银台链接；付款完成后点下方按钮实时查单入账。'
+        : '当前未配置支付宝私钥，可直接点下方按钮模拟到账。',
+      canCheck: true
+    });
+    return;
+  }
+  if (payMethod === 'creem') {
+    const res = await window.studioApi('/payments/creem/intents', { product: pickedPack.product, currency: 'USD' });
+    if (!res.data.ok) { toast.className = 'msg err'; toast.textContent = res.data.detail || '下单失败（Creem 目前支持 $1.49 / $4.49 / $13.99 三档，或店铺正在 48h 审核中）'; return; }
+    toast.textContent = '';
+    openPayModal({
+      title: 'Creem · 全球收银台（Visa / Apple Pay / Google Pay）', amount: `$${Number(res.data.price_usd).toFixed(2)} USD`,
+      credits: `+${res.data.points_credit} 积分`, orderId: res.data.creem_checkout_id || res.data.intent_id,
+      extUrl: res.data.checkout_url || null, extLabel: '前往 Creem 官方收银台付款 ↗',
+      hint: '由 Creem MoR 代收全球信用卡并自动处理 VAT 税务。', canCheck: false
+    });
+    return;
+  }
+  if (payMethod === 'stripe') {
+    const res = await window.studioApi('/payments/stripe/intents', { product: pickedPack.product, currency: 'USD' });
+    if (!res.data.ok) { toast.className = 'msg err'; toast.textContent = res.data.detail || '下单失败'; return; }
+    toast.textContent = '';
+    currentIntent = { channel: 'stripe', id: res.data.stripe_session_id || res.data.intent_id };
+    openPayModal({
+      title: 'Stripe · 国际卡 / Apple Pay / Google Pay', amount: `$${Number(res.data.price_usd).toFixed(2)} USD`,
+      credits: `+${res.data.points_credit} 积分`, orderId: res.data.stripe_session_id || res.data.intent_id,
+      extUrl: res.data.checkout_url || null, extLabel: '前往 Stripe 官方收银台付款 ↗',
+      hint: res.data.checkout_url
+        ? '已实时创建 Stripe 托管收银台（支持 Visa / Mastercard / Apple Pay / Google Pay），付款后点下方按钮核验到账。'
+        : '当前未配置 Stripe 密钥，可直接点下方按钮模拟到账。',
+      canCheck: true
+    });
+  }
+}
+
+async function verifyCurrentIntent() {
+  if (!currentIntent) return;
+  const msg = document.getElementById('pmMsg');
+  msg.className = 'msg';
+  msg.textContent = '正在核验付款状态...';
+  const url = currentIntent.channel === 'afdian'
+    ? `/payments/afdian/intents/${encodeURIComponent(currentIntent.id)}/check`
+    : currentIntent.channel === 'alipay'
+      ? `/payments/alipay/orders/${encodeURIComponent(currentIntent.id)}/check`
+      : `/payments/stripe/intents/${encodeURIComponent(currentIntent.id)}/check`;
+  const res = await window.studioApi(url, {});
+  if (res.data.ok && res.data.status === 'paid') {
+    msg.className = 'msg ok';
+    msg.textContent = `核验成功！+${res.data.points_credit} 积分已入账，右上角余额已同步更新。`;
+    await window.refreshAccount();
+  } else {
+    msg.className = 'msg err';
+    msg.textContent = res.data.detail || '暂未匹配到付款，请确认已付款后重试';
+  }
+}
+
+function productGroup(code) {
+  if (code.startsWith('proxy_') || code.startsWith('music_') || code.startsWith('ai_') || code.startsWith('paodou')) return 'sub';
+  if (code.startsWith('source_') || code.startsWith('rembg') || code.startsWith('lytrade')) return 'tool';
+  return 'game';
+}
+
+function renderCatalog(filter = 'all') {
+  const grid = document.getElementById('catalogGrid');
+  const list = allProducts.filter(p => filter === 'all' || productGroup(p.code) === filter);
+  grid.innerHTML = list.map(p => `
+    <article class="card">
+      <div class="card-meta">
+        <span class="badge">${p.prefix || 'DIGITAL'}</span>
+        <span class="sub-label">${p.duration_days ? p.duration_days + ' 天权益' : '数字权益'}</span>
+      </div>
+      <h3>${p.name}</h3>
+      <p>${p.desc || ''}</p>
+      <div style="margin-top:auto;padding-top:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+        <strong class="num" style="font-size:18px;">${p.points_price} <small style="font-size:12px;color:var(--muted);">积分</small></strong>
+        <button class="btn btn-primary btn-sm" type="button" onclick="openBuy('${p.code}')">用积分购买</button>
+      </div>
+    </article>
+  `).join('');
+}
+
+function filterCatalog(cat, btn) {
+  btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderCatalog(cat);
+}
+
+function openBuy(code) {
+  if (!window.LAIN_ACCOUNT) { window.openAuthModal('login'); return; }
+  const p = allProducts.find(x => x.code === code);
+  if (!p) return;
+  pendingBuyProduct = p;
+  document.getElementById('buyMsg').textContent = '';
+  document.getElementById('buyDesc').textContent =
+    `确定使用 ${p.points_price} 积分购买「${p.name}」吗？当前余额 ${window.LAIN_ACCOUNT.points.balance.toLocaleString()} 积分。`;
+  document.getElementById('buyModal').showModal();
+}
+
+async function confirmBuy() {
+  if (!pendingBuyProduct) return;
+  const msg = document.getElementById('buyMsg');
+  msg.className = 'msg'; msg.textContent = '正在扣款并签发权益...';
+  const res = await window.studioApi('/points/purchase', { product: pendingBuyProduct.code, reference: 'buy-' + Date.now() });
+  if (!res.data.ok) { msg.className = 'msg err'; msg.textContent = res.data.detail || '购买失败'; return; }
+  msg.className = 'msg ok';
+  msg.textContent = `购买成功！订单号 ${res.data.order.order_no}，授权码已发放至「控制台」。`;
+  await window.refreshAccount();
+}
+
+window.addEventListener('lain:account', updateSummary);
+window.addEventListener('lain:lang', () => { renderPacks(); updateSummary(); });
+switchPay(payMethod);
+window.studioApi('/products').then(r => {
+  if (r.data && r.data.products) { allProducts = r.data.products; renderCatalog('all'); }
+});
+</script>
+{% endblock %}

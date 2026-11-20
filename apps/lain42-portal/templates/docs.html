@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div class="eyebrow">API Documentation · OpenAI & Anthropic Compatible</div>
+  <h1>API 调用文档 · 一分钟接入</h1>
+  <p class="lead">一把 <code>lkr_...</code> 密钥同时支持 OpenAI 协议（<code>/relay/v1</code>）与 Anthropic Claude Code 协议（<code>/relay</code>，不带 <code>/v1</code>）。</p>
+</section>
+
+<section class="block">
+  <div class="grid">
+    <article class="card">
+      <h3>1. OpenAI 兼容对话补全（curl）</h3>
+      <pre>curl https://api.lain42.top/relay/v1/chat/completions \
+  -H "Authorization: Bearer lkr_你的密钥" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "wb-cn:glm-5.3",
+    "messages": [{"role": "user", "content": "你好"}],
+    "stream": true
+  }'</pre>
+    </article>
+    <article class="card">
+      <h3>2. Anthropic / Claude Code 兼容</h3>
+      <p>注意：Anthropic 客户端的 <code>base_url</code> <strong>不要带 <code>/v1</code></strong>。</p>
+      <pre>export ANTHROPIC_BASE_URL="https://api.lain42.top/relay"
+export ANTHROPIC_AUTH_TOKEN="lkr_你的密钥"
+claude</pre>
+    </article>
+    <article class="card">
+      <h3>3. 图像生成（志愿者算力队列）</h3>
+      <pre>curl https://api.lain42.top/relay/v1/images/generations \
+  -H "Authorization: Bearer lkr_你的密钥" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "img:flux-pro-volunteer",
+    "prompt": "clean minimal product photo"
+  }'</pre>
+    </article>
+    <article class="card">
+      <h3>4. AI Agent / MCP 原生接入本站</h3>
+      <p>本站由 Lilyco 框架驱动，直接暴露机器可读协议供 Agent 自动发现与调用：</p>
+      <pre>GET  /llms.txt
+GET  /.well-known/agent.json
+GET  /openapi.json
+POST /mcp  (JSON-RPC 2.0)</pre>
+    </article>
+  </div>
+</section>
+{% endblock %}

@@ -393,18 +393,16 @@ impl SessionManager {
         {
             let mut st = self.state.lock().expect("session lock");
             for sc in &set_cookies {
-                if let Some((nv, _rest)) = sc.split_once(';') {
-                    if let Some((k, v)) = nv.split_once('=') {
-                        st.cookies
-                            .entry(host.to_ascii_lowercase())
-                            .or_default()
-                            .insert(k.trim().to_string(), v.trim().to_string());
-                    }
-                } else if let Some((k, v)) = sc.split_once('=') {
-                    st.cookies
-                        .entry(host.to_ascii_lowercase())
-                        .or_default()
-                        .insert(k.trim().to_string(), v.trim().to_string());
+                if let Ok(parsed_cookie) = cookie::Cookie::parse(sc.as_str()) {
+                    let target_host = parsed_cookie
+                        .domain()
+                        .map(|d| d.trim_start_matches('.').to_ascii_lowercase())
+                        .filter(|d| !d.is_empty())
+                        .unwrap_or_else(|| host.to_ascii_lowercase());
+                    st.cookies.entry(target_host).or_default().insert(
+                        parsed_cookie.name().to_string(),
+                        parsed_cookie.value().to_string(),
+                    );
                 }
             }
             st.last_url = Some(final_url.clone());

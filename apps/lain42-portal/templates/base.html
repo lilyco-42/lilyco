@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>{{ page_title }} · 云枢智创 lain42</title>
+  <meta name="description" content="云枢智创 lain42 — 统一 AI API、数字商品商城、代理专线与本地工具箱。一个账户管理积分、密钥与全部数字权益。">
+  <style>
+    {{ theme_css|safe }}
+    :root {
+      --bg: #ffffff;
+      --bg-subtle: #f8fafc;
+      --card: #ffffff;
+      --border: #e5e7eb;
+      --border-strong: #d1d5db;
+      --text: #0f172a;
+      --muted: #64748b;
+      --accent: #111827;
+      --accent-fg: #ffffff;
+      --brand: #2563eb;
+      --brand-soft: rgba(37, 99, 235, 0.10);
+      --ok: #16a34a;
+      --ok-soft: rgba(22, 163, 74, 0.12);
+      --warn: #d97706;
+      --danger: #dc2626;
+      --radius: 12px;
+      --radius-lg: 16px;
+      --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+      --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.08);
+    }
+    html[data-theme="dark"] {
+      --bg: #09090b;
+      --bg-subtle: #111114;
+      --card: #141418;
+      --border: #27272a;
+      --border-strong: #3f3f46;
+      --text: #fafafa;
+      --muted: #a1a1aa;
+      --accent: #fafafa;
+      --accent-fg: #09090b;
+      --brand: #60a5fa;
+      --brand-soft: rgba(96, 165, 250, 0.14);
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+      --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.5);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; max-width: 100vw; overflow-x: hidden;
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
+      line-height: 1.6; -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%;
+    }
+    a { color: inherit; text-decoration: none; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .num { font-variant-numeric: tabular-nums; }
+    pre {
+      margin: 0; padding: 14px 16px; border-radius: var(--radius); border: 1px solid var(--border);
+      background: var(--bg-subtle); overflow-x: auto; font-size: 13px; line-height: 1.55;
+    }
+
+    /* Header */
+    header.topbar {
+      position: sticky; top: 0; z-index: 40;
+      background: color-mix(in srgb, var(--bg) 86%, transparent);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+    }
+    .topbar-inner {
+      max-width: 1160px; margin: 0 auto; padding: 10px 20px;
+      display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+    }
+    .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
+    .brand-mark {
+      width: 30px; height: 30px; border-radius: 9px; background: var(--accent); color: var(--accent-fg);
+      display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800;
+    }
+    .env-pill {
+      font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px;
+      background: var(--brand-soft); color: var(--brand);
+    }
+    nav.primary-nav { display: flex; align-items: center; gap: 4px; }
+    .nav-item {
+      min-height: 38px; padding: 6px 12px; border-radius: 9px; font-size: 14px; font-weight: 500;
+      color: var(--muted); transition: background .15s, color .15s;
+      display: inline-flex; align-items: center; justify-content: center; touch-action: manipulation;
+    }
+    .nav-item:hover { background: var(--bg-subtle); color: var(--text); }
+    .nav-item.active { background: var(--bg-subtle); color: var(--text); font-weight: 600; }
+
+    /* Top-right Account Area */
+    .header-right { display: flex; align-items: center; gap: 8px; }
+    .icon-btn {
+      min-width: 38px; min-height: 38px; padding: 0 10px; border-radius: 9px;
+      border: 1px solid var(--border); background: var(--card); color: var(--text);
+      cursor: pointer; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center;
+      touch-action: manipulation;
+    }
+    .icon-btn:hover { border-color: var(--border-strong); background: var(--bg-subtle); }
+    .acct-pill {
+      display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px 4px 5px;
+      min-height: 38px; border-radius: 999px; border: 1px solid var(--border); background: var(--card);
+      box-shadow: var(--shadow-sm); font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .acct-pill:hover { border-color: var(--border-strong); }
+    .avatar-dot {
+      width: 26px; height: 26px; border-radius: 50%; background: var(--brand); color: #fff;
+      display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;
+      text-transform: uppercase;
+    }
+    .credit-chip {
+      padding: 2px 8px; border-radius: 999px; background: var(--ok-soft); color: var(--ok);
+      font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+    }
+
+    /* Buttons */
+    .btn {
+      min-height: 44px; padding: 9px 16px; border-radius: 10px; font-size: 14px; font-weight: 600;
+      border: 1px solid var(--border); background: var(--card); color: var(--text);
+      cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      transition: transform .08s, background .15s, border-color .15s; touch-action: manipulation;
+    }
+    .btn:hover { border-color: var(--border-strong); background: var(--bg-subtle); }
+    .btn:active { transform: scale(0.99); }
+    .btn-primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+    .btn-primary:hover { opacity: 0.92; background: var(--accent); border-color: var(--accent); }
+    .btn-sm { min-height: 36px; padding: 6px 12px; font-size: 13px; border-radius: 8px; }
+    .btn-block { width: 100%; }
+
+    /* Layout & Surfaces */
+    .wrap { width: 100%; max-width: 1160px; margin: 0 auto; padding: 0 20px calc(48px + env(safe-area-inset-bottom)); }
+    .hero {
+      padding: 40px 0 26px; display: grid; gap: 16px;
+      background: radial-gradient(600px 220px at 15% 0%, var(--brand-soft), transparent 70%);
+    }
+    .status-pill {
+      width: fit-content; display: inline-flex; align-items: center; gap: 8px;
+      padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border);
+      background: var(--card); font-size: 12px; font-weight: 600; color: var(--muted);
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); display: inline-block; }
+    h1 { margin: 0; font-size: clamp(28px, 4.2vw, 44px); line-height: 1.15; letter-spacing: -0.03em; font-weight: 800; }
+    h2 { margin: 0; font-size: 21px; letter-spacing: -0.02em; font-weight: 700; }
+    h3 { margin: 0; font-size: 16px; line-height: 1.35; font-weight: 650; }
+    .lead { margin: 0; color: var(--muted); font-size: 16px; max-width: 680px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+    section.block { margin-top: 32px; }
+    .block-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+    .sub-label { font-size: 13px; color: var(--muted); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); gap: 14px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+      padding: 20px; display: flex; flex-direction: column; gap: 10px; min-width: 0;
+      box-shadow: var(--shadow-sm); transition: border-color .15s, box-shadow .15s;
+    }
+    .card:hover { border-color: var(--border-strong); }
+    .card.highlight { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand-soft), var(--shadow-sm); }
+    .card-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+    .card p { margin: 0; font-size: 14px; color: var(--muted); }
+    .badge {
+      font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+      background: var(--bg-subtle); border: 1px solid var(--border); color: var(--text); white-space: nowrap;
+    }
+    .badge-brand { background: var(--brand-soft); border-color: transparent; color: var(--brand); }
+    .badge-ok { background: var(--ok-soft); border-color: transparent; color: var(--ok); }
+
+    /* Tabs, Inputs, Tables, FAQ */
+    .tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px; border-radius: 11px; background: var(--bg-subtle); border: 1px solid var(--border); width: fit-content; max-width: 100%; }
+    .tab-btn {
+      min-height: 36px; padding: 6px 14px; border-radius: 8px; border: none; background: transparent;
+      color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; touch-action: manipulation;
+    }
+    .tab-btn.active { background: var(--card); color: var(--text); box-shadow: var(--shadow-sm); }
+    input, textarea, select.form-input {
+      width: 100%; min-height: 44px; padding: 10px 12px; font-size: 16px;
+      border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    }
+    input:focus, textarea:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
+    textarea { min-height: 110px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 600px; }
+    th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+    th { font-size: 12px; color: var(--muted); font-weight: 600; background: var(--bg-subtle); }
+    tr:last-child td { border-bottom: none; }
+    details.faq {
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+    details.faq summary { font-weight: 600; font-size: 15px; cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+    details.faq summary::after { content: "+"; font-size: 18px; color: var(--muted); }
+    details.faq[open] summary::after { content: "−"; }
+    details.faq p { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
+    .result-box {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
+      padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border);
+      background: var(--bg-subtle); word-break: break-all; white-space: pre-wrap; display: none;
+    }
+
+    /* Auth Modal */
+    dialog.modal {
+      border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0;
+      background: var(--card); color: var(--text); width: min(420px, calc(100vw - 24px));
+      box-shadow: var(--shadow-md);
+    }
+    dialog.modal::backdrop { background: rgba(15, 23, 42, 0.55); backdrop-filter: blur(4px); }
+    .modal-body { padding: 22px; display: grid; gap: 14px; }
+    .modal-head { display: flex; justify-content: space-between; align-items: center; }
+    .field { display: grid; gap: 6px; }
+    .field label { font-size: 13px; font-weight: 600; color: var(--muted); }
+    .msg { font-size: 13px; min-height: 18px; }
+    .msg.err { color: var(--danger); }
+    .msg.ok { color: var(--ok); }
+
+    footer {
+      margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--border);
+      display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px;
+      font-size: 13px; color: var(--muted);
+    }
+    @media (max-width: 960px) {
+      .topbar-inner { padding: 10px 14px; }
+      nav.primary-nav { order: 3; width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+      .nav-item { min-height: 44px; border: 1px solid var(--border); background: var(--bg-subtle); }
+      .wrap { padding: 0 14px calc(36px + env(safe-area-inset-bottom)); }
+      .grid-2 { grid-template-columns: minmax(0, 1fr); }
+      .grid { grid-template-columns: minmax(0, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">
+        <span class="brand-mark">42</span>
+        <span>云枢智创 · lain42</span>
+        <span class="env-pill">{{ env_label }}</span>
+      </a>
+      <nav class="primary-nav" aria-label="主导航">
+        <a class="nav-item {% if active_nav == "home" %}active{% endif %}" href="/" data-i18n="nav_home">首页</a>
+        <a class="nav-item {% if active_nav == "models" %}active{% endif %}" href="/models" data-i18n="nav_models">模型价格</a>
+        <a class="nav-item {% if active_nav == "shop" %}active{% endif %}" href="/shop" data-i18n="nav_shop">商城充值</a>
+        <a class="nav-item {% if active_nav == "docs" %}active{% endif %}" href="/docs" data-i18n="nav_docs">API 文档</a>
+        <a class="nav-item {% if active_nav == "tool" %}active{% endif %}" href="/tool" data-i18n="nav_tool">工具箱</a>
+        <a class="nav-item {% if active_nav == "account" %}active{% endif %}" href="/account" data-i18n="nav_account">控制台</a>
+      </nav>
+      <div class="header-right">
+        <button class="icon-btn" id="langToggle" type="button" title="Switch Language / 切换语言">EN</button>
+        <button class="icon-btn" id="modeToggle" type="button" title="切换深浅色">明/暗</button>
+        <div id="navAuthGuest">
+          <button class="btn btn-primary btn-sm" id="openAuthBtn" type="button" data-i18n="btn_login">登录 / 注册</button>
+        </div>
+        <div id="navAuthUser" style="display:none;align-items:center;gap:6px;">
+          <a class="acct-pill" href="/account" title="进入个人控制台">
+            <span class="avatar-dot" id="navAvatar">L</span>
+            <span id="navUsername">—</span>
+            <span class="credit-chip" id="navCredits">0 积分</span>
+          </a>
+          <button class="icon-btn" id="navLogoutBtn" type="button" data-i18n="btn_logout">退出</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    {% block content %}{% endblock %}
+    <footer>
+      <span>© 2026 云枢智创 · lain42（Lilyco Pure-Rust + Turso · {{ env_label }}）</span>
+      <span>
+        微信 Lilyco42 · QQ 1957374829 ·
+        <a href="/llms.txt">/llms.txt</a> ·
+        <a href="/openapi.json">OpenAPI</a> ·
+        <a href="/api/health">状态</a>
+      </span>
+    </footer>
+  </main>
+
+  <dialog class="modal" id="authModal">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h3 id="authTitle">登录云枢智创账户</h3>
+        <button class="icon-btn" type="button" onclick="document.getElementById('authModal').close()">✕</button>
+      </div>
+      <div class="tabs">
+        <button class="tab-btn active" id="tabLogin" type="button" onclick="setAuthMode('login')">登录</button>
+        <button class="tab-btn" id="tabReg" type="button" onclick="setAuthMode('reg')">注册新账户</button>
+      </div>
+      <form id="authForm" style="display:grid;gap:12px;">
+        <div class="field">
+          <label for="authUser">用户名（3-24 位字母 / 数字 / 下划线）</label>
+          <input id="authUser" autocomplete="username" required placeholder="例如 lilyco42ovo">
+        </div>
+        <div class="field">
+          <label for="authPass">密码（至少 8 位）</label>
+          <input id="authPass" type="password" autocomplete="current-password" required placeholder="请输入密码">
+        </div>
+        <div class="field" id="authEmailWrap" style="display:none;">
+          <label for="authEmail">邮箱（选填，用于找回凭据）</label>
+          <input id="authEmail" type="email" placeholder="you@example.com">
+        </div>
+        <button class="btn btn-primary btn-block" id="authSubmitBtn" type="submit">登录</button>
+        <div class="msg" id="authMsg"></div>
+      </form>
+    </div>
+  </dialog>
+
+  <script>
+    const htmlEl = document.documentElement;
+    const savedMode = localStorage.getItem('lain-theme') || localStorage.getItem('l42_mode');
+    if (savedMode === 'dark' || savedMode === 'light') htmlEl.setAttribute('data-theme', savedMode);
+    document.getElementById('modeToggle').addEventListener('click', () => {
+      const next = htmlEl.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      htmlEl.setAttribute('data-theme', next);
+      localStorage.setItem('lain-theme', next);
+    });
+
+    // Global i18n (zh-CN / en-US)
+    const I18N_DICT = {
+      zh: {
+        nav_home: '首页', nav_models: '模型价格', nav_shop: '商城充值',
+        nav_docs: 'API 文档', nav_tool: '工具箱', nav_account: '控制台',
+        btn_login: '登录 / 注册', btn_logout: '退出',
+        shop_title: '商城与全球积分收银台',
+        shop_lead: '支持爱发电、支付宝、国际信用卡（Visa / Mastercard / Apple Pay / Google Pay）、Google Play 内购、USDT(TRC20) 与卡密兑换。',
+        topup_heading: '充值积分', summary_title: '订单摘要',
+        catalog_heading: '用积分购买数字商品与订阅'
+      },
+      en: {
+        nav_home: 'Home', nav_models: 'Models', nav_shop: 'Billing & Shop',
+        nav_docs: 'API Docs', nav_tool: 'Tools', nav_account: 'Console',
+        btn_login: 'Sign In', btn_logout: 'Sign Out',
+        shop_title: 'Global Billing & Digital Storefront',
+        shop_lead: 'Instant credits top-up via Stripe (Visa / Mastercard / Apple Pay / Google Pay), Google Play Billing, Alipay, Afdian, USDT (TRC20), or Gift Cards.',
+        topup_heading: 'Top Up Credits', summary_title: 'Order Summary',
+        catalog_heading: 'Digital Products & Subscriptions'
+      }
+    };
+    window.LAIN_LANG = localStorage.getItem('lain-lang') || (navigator.language?.startsWith('en') ? 'en' : 'zh');
+    window.applyI18n = () => {
+      const lang = window.LAIN_LANG;
+      document.documentElement.lang = lang === 'en' ? 'en-US' : 'zh-CN';
+      document.getElementById('langToggle').textContent = lang === 'en' ? '中文' : 'EN';
+      const dict = I18N_DICT[lang] || I18N_DICT.zh;
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const k = el.getAttribute('data-i18n');
+        if (dict[k]) el.textContent = dict[k];
+      });
+      window.dispatchEvent(new CustomEvent('lain:lang', { detail: lang }));
+    };
+    document.getElementById('langToggle').addEventListener('click', () => {
+      window.LAIN_LANG = window.LAIN_LANG === 'en' ? 'zh' : 'en';
+      localStorage.setItem('lain-lang', window.LAIN_LANG);
+      window.applyI18n();
+    });
+    window.applyI18n();
+
+    window.LAIN_ACCOUNT = null;
+    let authMode = 'login';
+
+    window.getToken = () => localStorage.getItem('wb-token') || '';
+    window.studioApi = async (path, body) => {
+      const headers = { 'Content-Type': 'application/json' };
+      const t = window.getToken();
+      if (t) headers['Authorization'] = 'Bearer ' + t;
+      const resp = await fetch('/studio/api' + path, {
+        method: body !== undefined ? 'POST' : 'GET',
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined
+      });
+      const data = await resp.json().catch(() => ({}));
+      return { status: resp.status, data };
+    };
+
+    window.openAuthModal = (mode = 'login') => {
+      setAuthMode(mode);
+      document.getElementById('authMsg').textContent = '';
+      document.getElementById('authModal').showModal();
+    };
+    window.setAuthMode = (mode) => {
+      authMode = mode;
+      document.getElementById('tabLogin').classList.toggle('active', mode === 'login');
+      document.getElementById('tabReg').classList.toggle('active', mode === 'reg');
+      document.getElementById('authEmailWrap').style.display = mode === 'reg' ? 'grid' : 'none';
+      document.getElementById('authTitle').textContent = mode === 'reg' ? '注册云枢智创账户' : '登录云枢智创账户';
+      document.getElementById('authSubmitBtn').textContent = mode === 'reg' ? '创建账户' : '登录';
+    };
+
+    document.getElementById('openAuthBtn').addEventListener('click', () => window.openAuthModal('login'));
+    document.getElementById('navLogoutBtn').addEventListener('click', () => {
+      localStorage.removeItem('wb-token');
+      localStorage.removeItem('wb-user');
+      window.LAIN_ACCOUNT = null;
+      window.refreshAccount();
+    });
+
+    document.getElementById('authForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById('authMsg');
+      msg.className = 'msg'; msg.textContent = '正在验证...';
+      const payload = {
+        username: document.getElementById('authUser').value.trim(),
+        password: document.getElementById('authPass').value
+      };
+      if (authMode === 'reg') payload.email = document.getElementById('authEmail').value.trim();
+      const res = await window.studioApi(authMode === 'reg' ? '/register' : '/login', payload);
+      if (res.status !== 200 || !res.data.ok) {
+        msg.className = 'msg err';
+        msg.textContent = res.data.detail || '操作失败，请核对信息';
+        return;
+      }
+      localStorage.setItem('wb-token', res.data.token);
+      localStorage.setItem('wb-user', res.data.username);
+      msg.className = 'msg ok';
+      msg.textContent = authMode === 'reg' ? '注册成功！' : '登录成功！';
+      document.getElementById('authModal').close();
+      await window.refreshAccount();
+    });
+
+    window.refreshAccount = async () => {
+      const guest = document.getElementById('navAuthGuest');
+      const userBox = document.getElementById('navAuthUser');
+      if (!window.getToken()) {
+        window.LAIN_ACCOUNT = null;
+        guest.style.display = 'block';
+        userBox.style.display = 'none';
+        window.dispatchEvent(new CustomEvent('lain:account', { detail: null }));
+        return null;
+      }
+      const res = await window.studioApi('/me');
+      if (res.status !== 200 || !res.data.ok) {
+        localStorage.removeItem('wb-token');
+        window.LAIN_ACCOUNT = null;
+        guest.style.display = 'block';
+        userBox.style.display = 'none';
+        window.dispatchEvent(new CustomEvent('lain:account', { detail: null }));
+        return null;
+      }
+      window.LAIN_ACCOUNT = res.data;
+      document.getElementById('navAvatar').textContent = (res.data.username || 'L')[0];
+      document.getElementById('navUsername').textContent = res.data.username;
+      document.getElementById('navCredits').textContent = `${res.data.points.balance.toLocaleString()} 积分`;
+      guest.style.display = 'none';
+      userBox.style.display = 'inline-flex';
+      window.dispatchEvent(new CustomEvent('lain:account', { detail: res.data }));
+      return res.data;
+    };
+
+    window.refreshAccount();
+    window.__LILYCO_TOOLS__ = {
+      protocol: 'lilyco-ai-web/1.0',
+      pages: ['/', '/models', '/shop', '/docs', '/tool', '/account'],
+      endpoints: { health: '/api/health', products: '/studio/api/products', me: '/studio/api/me', mcp: '/mcp' }
+    };
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

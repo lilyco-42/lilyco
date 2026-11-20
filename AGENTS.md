@@ -27,6 +27,7 @@ workspace 依赖图、全部关键符号（带 `文件:行号`）、四端调用
    - 移动端输入框字号 `≥ 16px`、触控热区 `≥ 44px`、留出 `env(safe-area-inset-bottom)` 安全区；
    - Android/桌面 WebView 壳必须实现 `onReceivedError` 中文重试/兜底页、`onShowFileChooser` 文件上传与禁用误触缩放；
    - 任何 Web UI 改动必须通过 `320px / 390px / 768px / 1440px` 真实浏览器零横向溢出（`scrollWidth <= innerWidth`）验收。
+8. **禁止重复造轮子（`https://lib.rs` 优先）**：开工前必查 `docs/CRATE_CATALOG.md` 与 `https://lib.rs`。成熟 MIT/Apache-2.0 crate 覆盖 ≥ 80% 需求时必须直接复用（HTML 解析用 `scraper`、Cookie 用 `cookie`/`cookie_store`、模板用 `askama`/`maud`、多后端 SQL 用 `sqlx`/`sea-orm`/`turso`、MCP 优先 `rmcp`、OpenAPI 用 `utoipa`）；公共基础 crate 版本统一锁在根 `Cargo.toml` 的 `[workspace.dependencies]`。
 
 ## 常用命令
 

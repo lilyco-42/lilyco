@@ -1,0 +1,50 @@
+[package]
+name = "lain42-portal"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "云枢智创 · lain42 全 Rust 门户（Axum 0.8 + Askama + Turso 纯 Rust SQL + Lilyco AI 原生协议）"
+
+[workspace]
+
+[[bin]]
+name = "lain42-portal"
+path = "src/main.rs"
+
+[dependencies]
+lilyco = { path = "../../lilyco", default-features = false }
+lilyco-license = { path = "../../lilyco-license" }
+lilyco-pay = { path = "../../lilyco-pay", features = ["full"] }
+
+axum = "0.8"
+tower-http = { version = "0.6", features = ["compression-gzip", "cors", "fs"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
+askama = "0.13"
+turso = { version = "0.9.0-pre.6", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+ring = "0.17"
+base64 = "0.22"
+scrypt = { version = "0.11", default-features = false }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+tempfile = "3"
+
+[profile.release]
+opt-level = "s"
+lto = false
+codegen-units = 16
+panic = "abort"
+strip = "symbols"
+
+# 开发/测试服秒级增量编译配置（关闭跨 crate LTO，增量编译 ~10s）
+[profile.dev-deploy]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true

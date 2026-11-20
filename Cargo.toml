@@ -28,6 +28,8 @@ members = [
     "lilyco",
     "lilyco-srt",
     "lilyco-float",
+    "lilyco-license",
+    "lilyco-pay",
     "lilyco-web2cli",
 ]
 resolver = "2"
@@ -81,6 +83,8 @@ default-members = [
     "lilyco-dev",
     "lilyco",
     "lilyco-srt",
+    "lilyco-license",
+    "lilyco-pay",
     "lilyco-web2cli",
 ]
 
@@ -89,6 +93,19 @@ version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/lilyco-42/lilyco"
+
+# 统一核心开源 crate 版本（禁止各子 crate 各自引入冲突版本，详见 docs/CRATE_CATALOG.md）
+[workspace.dependencies]
+axum = "0.8"
+base64 = "0.22"
+cookie = "0.18"
+ring = "0.17"
+scraper = "0.23"
+serde = "1"
+serde_json = "1"
+thiserror = "2"
+tokio = "1"
+url = "2"
 
 # ============================================================================
 # 体积优化（实测 target 4,135 MB -> 953 MB，见 TAURI_1GB_ACHIEVED.md）

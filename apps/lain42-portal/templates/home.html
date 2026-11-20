@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div class="status-pill"><span class="dot"></span>AI API 与 20 节点专线运行正常 · Turso {{ health.latency_ms }} ms</div>
+  <h1>把想法做成能直接使用的产品。</h1>
+  <p class="lead">
+    云枢智创提供统一 AI API（OpenAI / Claude Code 双兼容）、LYCO Connect 代理专线、数字商品与本地工具箱。一个账户管理全部积分、订单与权益。
+  </p>
+  <div class="actions">
+    <a class="btn btn-primary" href="/shop">进入商城与充值积分 →</a>
+    <a class="btn" href="/models">查看 AI 模型与实时价格</a>
+    <a class="btn" href="/docs">一分钟 API 接入</a>
+  </div>
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <h2>这一页提供什么</h2>
+    <span class="sub-label">精选核心服务 · 开箱即用</span>
+  </div>
+  <div class="grid-2">
+    <a class="card highlight" href="/models">
+      <div class="card-meta"><span class="badge badge-brand">OpenAI + Anthropic</span><span class="badge badge-ok">实时可用</span></div>
+      <h3>统一 AI API · 10 积分 = 1 元</h3>
+      <p>DeepSeek / GLM-5.3 / Kimi / Qwen / Claude 与 10 个生图模型统一接入，按量扣积分，上游失败自动退款。</p>
+    </a>
+    <a class="card" href="/shop">
+      <div class="card-meta"><span class="badge">20 自有节点</span><span class="badge">150 积分 / 30 天</span></div>
+      <h3>LYCO Connect · 代理订阅</h3>
+      <p>韩、菲、美、德、港、澳多地出口，Clash 与通用订阅一键导入，不自动续费，透明可控。</p>
+    </a>
+    <a class="card" href="/shop">
+      <div class="card-meta"><span class="badge">全平台客户端</span><span class="badge">880 积分 / 年</span></div>
+      <h3>音乐会员 & 本地桌面工具</h3>
+      <p>LX Music 音源云同步、Rembg 商品图工作流、骨骼动画转 PNG/GIF 与独立游戏激活卡。</p>
+    </a>
+    <a class="card" href="/tool">
+      <div class="card-meta"><span class="badge badge-ok">免费 · 零上传</span><span class="badge">纯浏览器本地</span></div>
+      <h3>WASM / 本地开发者工具箱</h3>
+      <p>JSON 格式化、Base64 编解码、SHA-256 哈希与 Token 估算，全部在浏览器本地完成。</p>
+    </a>
+  </div>
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <h2>最新公告</h2>
+    <span class="sub-label">实时同步</span>
+  </div>
+  <div class="grid-2">
+    {% for item in announcements %}
+    <article class="card">
+      <div class="card-meta"><span>{{ item.published_date }}</span><span class="badge">{% if item.pinned %}置顶{% else %}动态{% endif %}</span></div>
+      <h3>{{ item.title }}</h3>
+      <p>{{ item.summary }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <h2>常见问题</h2>
+    <span class="sub-label">点击展开查看</span>
+  </div>
+  <div style="display:grid;gap:10px;">
+    <details class="faq">
+      <summary>这个网站可以免费体验吗？</summary>
+      <p>可以。工具箱（/tool）完全免费且不上传任何文件；AI API 模型页提供免费模型档位，商城注册后也支持按需小额充值（最低 ¥1 = 10 积分）。</p>
+    </details>
+    <details class="faq">
+      <summary>积分怎么用？API 和商城是同一个账户吗？</summary>
+      <p>是同一个账户。1 元人民币 = 10 积分，充值后的积分既可用于购买代理月卡、音乐会员、桌面工具，也可直接在 api.lain42.top 按量调用全部大模型。</p>
+    </details>
+    <details class="faq">
+      <summary>第一次来应该先看哪一块？</summary>
+      <p>如果调用 AI 模型，先看「模型价格」与「API 文档」；如果要充值积分或购买代理/工具，直接点击顶部「商城充值」即可，登录后右上角会实时显示你的积分余额。</p>
+    </details>
+  </div>
+</section>
+{% endblock %}

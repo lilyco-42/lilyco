@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero" style="padding-bottom:14px;">
+  <div class="status-pill"><span class="dot"></span>统一账户控制台 · 积分 / 权益 / 账单</div>
+  <h1>我的账户控制台</h1>
+  <p class="lead">集中查看实时积分余额、已购数字权益（卡密/订阅）与历史充值消费账单。</p>
+</section>
+
+<section class="block" id="acctGuest" style="display:none;">
+  <div class="card" style="align-items:flex-start;">
+    <h3>请先登录云枢智创账户</h3>
+    <p>登录后可查看你的积分余额、历史订单与全部数字权益。</p>
+    <button class="btn btn-primary" type="button" onclick="window.openAuthModal('login')">立即登录 / 注册</button>
+  </div>
+</section>
+
+<div id="acctDash" style="display:none;">
+  <section class="block" style="margin-top:14px;">
+    <div class="grid">
+      <div class="card highlight">
+        <span class="sub-label">当前可用积分</span>
+        <div class="num" style="font-size:30px;font-weight:800;" id="kpiCredits">0</div>
+        <span class="sub-label" id="kpiCny">约合 ¥0.00（10 积分 = 1 元）</span>
+      </div>
+      <div class="card">
+        <span class="sub-label">生效中权益</span>
+        <div class="num" style="font-size:30px;font-weight:800;" id="kpiEnts">0</div>
+        <span class="sub-label">支持一键复制授权码</span>
+      </div>
+      <div class="card">
+        <span class="sub-label">历史订单数</span>
+        <div class="num" style="font-size:30px;font-weight:800;" id="kpiOrders">0</div>
+        <span class="sub-label">Turso 持久化账单</span>
+      </div>
+      <div class="card">
+        <span class="sub-label">当前账号</span>
+        <div style="font-size:20px;font-weight:700;" id="kpiUser">—</div>
+        <a class="btn btn-primary btn-sm" href="/shop">去商城充值 / 购买 →</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="block-head">
+      <h2>权益与账单</h2>
+      <div class="tabs">
+        <button class="tab-btn active" type="button" onclick="switchAcctTab('ents', this)">我的权益</button>
+        <button class="tab-btn" type="button" onclick="switchAcctTab('orders', this)">订单账单</button>
+      </div>
+    </div>
+
+    <div id="tabEnts" class="grid"></div>
+    <div id="tabOrders" class="table-wrap" style="display:none;">
+      <table>
+        <thead><tr><th>订单号</th><th>商品</th><th>积分/金额</th><th>状态</th></tr></thead>
+        <tbody id="ordersBody"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function switchAcctTab(which, btn) {
+  btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tabEnts').style.display = which === 'ents' ? 'grid' : 'none';
+  document.getElementById('tabOrders').style.display = which === 'orders' ? 'block' : 'none';
+}
+
+function copyKey(key, btn) {
+  navigator.clipboard?.writeText(key);
+  btn.textContent = '已复制';
+  setTimeout(() => btn.textContent = '复制授权码', 1200);
+}
+
+function renderDashboard(acct) {
+  document.getElementById('acctGuest').style.display = acct ? 'none' : 'block';
+  document.getElementById('acctDash').style.display = acct ? 'block' : 'none';
+  if (!acct) return;
+  const bal = acct.points.balance || 0;
+  document.getElementById('kpiCredits').textContent = bal.toLocaleString();
+  document.getElementById('kpiCny').textContent = `约合 ¥${(bal / 10).toFixed(2)}（10 积分 = 1 元）`;
+  document.getElementById('kpiEnts').textContent = (acct.entitlements || []).length;
+  document.getElementById('kpiOrders').textContent = (acct.orders || []).length;
+  document.getElementById('kpiUser').textContent = acct.username;
+
+  const entsEl = document.getElementById('tabEnts');
+  const ents = acct.entitlements || [];
+  entsEl.innerHTML = ents.length ? ents.map(e => `
+    <article class="card">
+      <div class="card-meta"><span class="badge badge-ok">${e.status || 'active'}</span><span class="sub-label">${e.delivery_status || 'delivered'}</span></div>
+      <h3>${e.product}</h3>
+      <code style="font-size:12px;word-break:break-all;background:var(--bg-subtle);padding:8px;border-radius:8px;">${e.license_key}</code>
+      <button class="btn btn-sm" type="button" onclick="copyKey('${e.license_key}', this)">复制授权码</button>
+    </article>
+  `).join('') : '<div class="card"><p>暂无已购权益，去商城选购即可自动发放。</p></div>';
+
+  const orders = acct.orders || [];
+  document.getElementById('ordersBody').innerHTML = orders.length ? orders.map(o => `
+    <tr>
+      <td><code>${o.order_no}</code></td>
+      <td>${o.product}</td>
+      <td class="num">${o.points_amount} 积分</td>
+      <td><span class="badge badge-ok">${o.status}</span></td>
+    </tr>
+  `).join('') : '<tr><td colspan="4" style="color:var(--muted);">暂无订单记录</td></tr>';
+}
+
+window.addEventListener('lain:account', (ev) => renderDashboard(ev.detail));
+if (window.LAIN_ACCOUNT) renderDashboard(window.LAIN_ACCOUNT);
+</script>
+{% endblock %}

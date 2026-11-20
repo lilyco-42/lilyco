@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div class="eyebrow">AI API · OpenAI / Anthropic Compatible</div>
+  <h1>AI API 模型与实时价格</h1>
+  <p class="lead">10 积分 = 1 元人民币，价格每小时随上游实时价同步，上游失败自动退款。支持 <code>/relay/v1</code>（OpenAI 兼容）与 <code>/relay</code>（Claude Code / Anthropic 兼容）。</p>
+  <div class="hero-actions">
+    <a class="nav-link primary" href="/shop">去商城充值积分 →</a>
+    <a class="nav-link" href="/docs">查看一分钟接入文档</a>
+  </div>
+</section>
+
+<section class="block">
+  <div class="grid">
+    <article class="card"><div class="card-meta"><span>Step 1</span></div><h3>注册 / 商城充值</h3><p>在商城页输入邮箱下单并核验到账，自动生成 <code>lkr_...</code> 通用密钥。</p></article>
+    <article class="card"><div class="card-meta"><span>Step 2</span></div><h3>填写 base_url</h3><p>OpenAI 客户端填 <code>https://api.lain42.top/relay/v1</code>；Claude Code 填 <code>https://api.lain42.top/relay</code>。</p></article>
+    <article class="card"><div class="card-meta"><span>Step 3</span></div><h3>按量扣积分</h3><p>全模型统一积分账户，失败不扣费，每小时实测可用性。</p></article>
+  </div>
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <h2>模型清单（共 {{ models.len() }} 个）</h2>
+    <input id="modelSearch" type="search" placeholder="筛选模型 ID / 提供商 / 分组..." style="max-width:300px;">
+  </div>
+  <div class="table-wrap">
+    <table id="modelTable">
+      <thead>
+        <tr>
+          <th>分组</th>
+          <th>模型 ID</th>
+          <th>输入（积分/M）</th>
+          <th>输出（积分/M）</th>
+          <th>实测延迟</th>
+          <th>状态</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in models %}
+        <tr>
+          <td>{{ m.group_name }}</td>
+          <td><code>{{ m.id }}</code></td>
+          <td>{{ m.input_credits_per_m }}</td>
+          <td>{{ m.output_credits_per_m }}</td>
+          <td>{{ m.latency_ms }} ms</td>
+          <td><span class="status-tag">{% if m.available %}实时可用{% else %}暂不可用{% endif %}</span></td>
+          <td>{{ m.note }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('modelSearch').addEventListener('input', (e) => {
+  const kw = e.target.value.trim().toLowerCase();
+  document.querySelectorAll('#modelTable tbody tr').forEach(tr => {
+    tr.style.display = tr.textContent.toLowerCase().includes(kw) ? '' : 'none';
+  });
+});
+</script>
+{% endblock %}

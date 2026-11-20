@@ -2,6 +2,7 @@
 
 > 给 AI Agent 和新贡献者的**唯一导航入口**。所有符号引用带 `文件:行号`，可直接跳转。
 > **维护规则**：任何 PR 改动下述符号（新增/移动/改名/删除）必须同步更新本文件 —— 让图谱随代码漂移等于没有图谱。
+> **开源 Crate 复用规范**：[docs/CRATE_CATALOG.md](CRATE_CATALOG.md)（新功能开工前必查，禁止重复造轮子）。
 
 ## 0. 30 秒心智模型
 
@@ -281,3 +282,9 @@ Office Windows图标门还调用 native-icon.ps1 启动实际冻结程序，按�
 Windows HWND 出现不代表图标初始化完成，native-icon.ps1 在有限15秒内读取实际BIG/SMALL/SMALL2和class大小图标；仍以原生像素/alpha及正常关闭证明，不设置图标、不用从EXE提取图片冒充窗口图标。966的实际Windows测试曾在只读取BIG/class-big时报无图标，Linux/macOS已通过，须用修复后的新head重新验收。Python宿主的125秒总预算覆盖窗口60秒、图标15秒、关闭30秒及PowerShell初始化；三个阶段仍分别有限截止。
 
 563 的 Windows 真实窗口图标像素和 WM_CLOSE 已通过，后续 NSIS PE 图标核对发现安装器仍使用默认图标，故完整门仍 FAIL。`tauri.conf.json` 明确将 `bundle.windows.nsis.installerIcon/uninstallerIcon` 指向相同七尺寸 ICO，原始 EXE/NSIS PE 多帧核对保持不变；源码回归删除 installerIcon 时必须拒绝，不能把“应用 EXE 有图标”冒充“安装器有图标”。Linux/macOS 563 包载荷已通过，不替代修复后的 Windows 当前产物。
+
+### 商业复用套件与开源 Crate 替换（2026-11）
+
+- **`lilyco-license`**（`lilyco-license/src/lib.rs`）：从 `lilyco-web2cli` 抽离的独立企业授权套件（`PluginDescriptor` / `EnterpriseLicense` / `issue_license` / `verify_license` / `check_plugin_entitlement`），基于 `ring::hmac`（HMAC-SHA256 恒定时间验签），供 `lilyco-web2cli`、`apps/lain42-portal` 等商业应用共享。
+- **根 `[workspace.dependencies]`**（`Cargo.toml`）：统一锁定 `axum 0.8` / `tokio` / `serde` / `serde_json` / `thiserror 2` / `ring` / `base64` / `scraper` / `cookie` / `url`。
+- **手写轮子替换**：`lilyco-web2cli/src/dom.rs` 已改用 `scraper`（455 行 → 200 行，支持完整 CSS3 选择器）；`lilyco-web2cli/src/session.rs` 的 `Set-Cookie` 解析已改用 `cookie` crate。选型目录见 `docs/CRATE_CATALOG.md`。

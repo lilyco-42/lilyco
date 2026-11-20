@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div class="eyebrow">Browser-Local Toolkit · Zero Upload</div>
+  <h1>WASM / 本地工具箱 · 浏览器里跑真本地代码</h1>
+  <p class="lead">全部计算在你的浏览器本地完成，任何文本与密钥都不会上传服务器。</p>
+</section>
+
+<section class="block">
+  <div class="grid">
+    <article class="card">
+      <h3>JSON 格式化 / 压缩</h3>
+      <textarea id="jsonIn" placeholder='{"hello":"lain42","credits":100}'></textarea>
+      <div class="hero-actions">
+        <button class="nav-link primary" type="button" onclick="fmtJson(2)">格式化</button>
+        <button class="nav-link" type="button" onclick="fmtJson(0)">压缩</button>
+      </div>
+      <div id="jsonOut" class="result-box"></div>
+    </article>
+
+    <article class="card">
+      <h3>Base64 编解码（支持 UTF-8 中文）</h3>
+      <textarea id="b64In" placeholder="输入原文或 Base64 文本..."></textarea>
+      <div class="hero-actions">
+        <button class="nav-link primary" type="button" onclick="b64Enc()">编码</button>
+        <button class="nav-link" type="button" onclick="b64Dec()">解码</button>
+      </div>
+      <div id="b64Out" class="result-box"></div>
+    </article>
+
+    <article class="card">
+      <h3>SHA-256 哈希与 Token 估算</h3>
+      <textarea id="hashIn" placeholder="输入任意文本，实时计算 SHA-256 与估算 Token 数..."></textarea>
+      <div class="hero-actions">
+        <button class="nav-link primary" type="button" onclick="calcHash()">计算 SHA-256 & Token</button>
+      </div>
+      <div id="hashOut" class="result-box"></div>
+    </article>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+function show(id, text) { const el = document.getElementById(id); el.style.display = 'block'; el.textContent = text; }
+function fmtJson(space) {
+  try { show('jsonOut', JSON.stringify(JSON.parse(document.getElementById('jsonIn').value), null, space)); }
+  catch (e) { show('jsonOut', 'JSON 语法错误: ' + e.message); }
+}
+function b64Enc() {
+  const bytes = new TextEncoder().encode(document.getElementById('b64In').value);
+  let bin = ''; bytes.forEach(b => bin += String.fromCharCode(b));
+  show('b64Out', btoa(bin));
+}
+function b64Dec() {
+  try {
+    const bin = atob(document.getElementById('b64In').value.trim());
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    show('b64Out', new TextDecoder().decode(bytes));
+  } catch (e) { show('b64Out', 'Base64 解码失败: ' + e.message); }
+}
+async function calcHash() {
+  const txt = document.getElementById('hashIn').value;
+  const bytes = new TextEncoder().encode(txt);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const hex = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const cjk = (txt.match(/[\u4e00-\u9fff]/g) || []).length;
+  const estTokens = Math.ceil(cjk * 1.5 + (txt.length - cjk) / 4);
+  show('hashOut', `SHA-256: ${hex}\n字节数: ${bytes.length} B | 字符数: ${txt.length} | 估算 Token: ~${estTokens}`);
+}
+</script>
+{% endblock %}

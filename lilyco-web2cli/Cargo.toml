@@ -14,18 +14,20 @@ path = "src/main.rs"
 
 [dependencies]
 lilyco = { version = "0.3", path = "../lilyco", default-features = false }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+lilyco-license = { version = "0.1", path = "../lilyco-license" }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 toml = "0.8"
 ureq = "3"
-url = "2"
+url.workspace = true
 regex = "1"
-html5ever = "0.39"
+scraper.workspace = true
+ego-tree = "0.10"
+cookie.workspace = true
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
-base64 = "0.23"
-ring = "0.17"
-axum = { version = "0.8", features = ["multipart"], optional = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"], optional = true }
+base64.workspace = true
+axum = { workspace = true, features = ["multipart"], optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"], optional = true }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"], optional = true }
 
 [features]
