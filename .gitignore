@@ -23,3 +23,6 @@ site/dist/
 # lilyco-manager 运行时数据库
 *.sqlite
 *.sqlite-journal
+# Android WebView 模板构建产物与调试密钥
+lilyco-web2cli/android-template/build/
+*.keystore

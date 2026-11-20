@@ -1,0 +1,866 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lain42 · 智能政务与材料工作台</title>
+<link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Guide">
+<link rel="service-desc" type="application/openapi+json" href="/openapi.json" title="OpenAPI 3.1 Spec">
+<style>
+  :root {
+    --background: #ffffff;
+    --foreground: #09090b;
+    --card: #ffffff;
+    --card-foreground: #09090b;
+    --muted: #f4f4f5;
+    --muted-foreground: #71717a;
+    --accent: #f4f4f5;
+    --accent-foreground: #18181b;
+    --primary: #18181b;
+    --primary-foreground: #fafafa;
+    --border: #e4e4e7;
+    --input: #e4e4e7;
+    --ring: #18181b;
+    --destructive: #dc2626;
+    --destructive-foreground: #fafafa;
+    --success: #16a34a;
+    --success-bg: #f0fdf4;
+    --success-border: #bbf7d0;
+    --warn: #b45309;
+    --warn-bg: #fffbeb;
+    --warn-border: #fde68a;
+    --radius: 0.5rem;
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  }
+  .dark {
+    --background: #09090b;
+    --foreground: #fafafa;
+    --card: #09090b;
+    --card-foreground: #fafafa;
+    --muted: #27272a;
+    --muted-foreground: #a1a1aa;
+    --accent: #27272a;
+    --accent-foreground: #fafafa;
+    --primary: #fafafa;
+    --primary-foreground: #18181b;
+    --border: #27272a;
+    --input: #27272a;
+    --ring: #d4d4d8;
+    --destructive: #ef4444;
+    --destructive-foreground: #fafafa;
+    --success: #4ade80;
+    --success-bg: rgba(22, 163, 74, 0.14);
+    --success-border: rgba(74, 222, 128, 0.25);
+    --warn: #fbbf24;
+    --warn-bg: rgba(217, 119, 6, 0.14);
+    --warn-border: rgba(251, 191, 36, 0.25);
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .shell {
+    display: grid;
+    grid-template-columns: 248px 1fr;
+    min-height: 100vh;
+  }
+  /* Sidebar */
+  aside {
+    border-right: 1px solid var(--border);
+    background: var(--card);
+    display: flex;
+    flex-direction: column;
+    padding: 16px 12px;
+    gap: 16px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 8px;
+  }
+  .brand-mark {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    display: grid;
+    place-items: center;
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: -0.02em;
+  }
+  .brand-name { font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
+  .brand-ver { font-size: 11px; color: var(--muted-foreground); }
+  .nav-group-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted-foreground);
+    padding: 0 8px 6px;
+    letter-spacing: 0.02em;
+  }
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 13.5px;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.12s, color 0.12s;
+  }
+  .nav-item:hover { background: var(--accent); color: var(--accent-foreground); }
+  .nav-item.active { background: var(--accent); color: var(--foreground); font-weight: 600; }
+  .nav-left { display: flex; align-items: center; gap: 8px; }
+  .sidebar-footer {
+    margin-top: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--background);
+  }
+  .sidebar-footer-title { font-size: 12px; font-weight: 600; }
+  .sidebar-footer-desc { font-size: 11.5px; color: var(--muted-foreground); }
+
+  /* Main area */
+  .content-wrap { display: flex; flex-direction: column; min-width: 0; }
+  header {
+    height: 52px;
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: var(--background);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .crumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13.5px;
+    color: var(--muted-foreground);
+  }
+  .crumb strong { color: var(--foreground); font-weight: 600; }
+  .header-right { display: flex; align-items: center; gap: 8px; }
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--success);
+    display: inline-block;
+  }
+  main {
+    flex: 1;
+    padding: 24px;
+    max-width: 1120px;
+    width: 100%;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  /* shadcn primitives */
+  .card {
+    background: var(--card);
+    color: var(--card-foreground);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+  }
+  .card-header {
+    padding: 16px 20px 12px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .card-title { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  .card-desc { margin: 3px 0 0; font-size: 12.5px; color: var(--muted-foreground); }
+  .card-body { padding: 0 20px 18px; display: flex; flex-direction: column; gap: 14px; }
+  .separator { height: 1px; background: var(--border); width: 100%; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .btn:focus-visible, .input:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+  .btn-primary { background: var(--primary); color: var(--primary-foreground); }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-outline { background: var(--background); color: var(--foreground); border-color: var(--border); }
+  .btn-outline:hover { background: var(--accent); }
+  .btn-secondary { background: var(--muted); color: var(--foreground); }
+  .btn-secondary:hover { opacity: 0.85; }
+  .btn-destructive { background: var(--destructive); color: var(--destructive-foreground); }
+  .btn-destructive:hover { opacity: 0.9; }
+  .btn-sm { height: 30px; padding: 0 10px; font-size: 12px; }
+  .btn-icon { width: 32px; height: 32px; padding: 0; }
+
+  .input {
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 6px;
+    border: 1px solid var(--input);
+    background: var(--background);
+    color: var(--foreground);
+    font-size: 13px;
+    width: 100%;
+  }
+  .input::placeholder { color: var(--muted-foreground); }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    background: var(--muted);
+    color: var(--muted-foreground);
+  }
+  .badge-success {
+    background: var(--success-bg);
+    border-color: var(--success-border);
+    color: var(--success);
+  }
+  .badge-warn {
+    background: var(--warn-bg);
+    border-color: var(--warn-border);
+    color: var(--warn);
+  }
+  .badge-primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--primary-foreground);
+  }
+
+  /* Workspace specific */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .dropzone {
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    cursor: pointer;
+    background: var(--background);
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .dropzone:hover, .dropzone.drag { background: var(--muted); border-color: var(--ring); }
+  .thumb {
+    width: 44px;
+    height: 44px;
+    border-radius: 6px;
+    object-fit: cover;
+    border: 1px solid var(--border);
+    display: none;
+  }
+  .quick-bar { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chat-box {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--background);
+    min-height: 280px;
+    max-height: 44vh;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .bubble {
+    max-width: 88%;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13.5px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .bubble.user {
+    align-self: flex-end;
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+  .bubble.bot {
+    align-self: flex-start;
+    background: var(--muted);
+    color: var(--foreground);
+    border: 1px solid var(--border);
+  }
+  .bubble-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .composer { display: flex; gap: 8px; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  pre {
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--muted);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    overflow-x: auto;
+  }
+  .empty {
+    padding: 40px 16px;
+    text-align: center;
+    color: var(--muted-foreground);
+    font-size: 13px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+  }
+  .view { display: none; flex-direction: column; gap: 16px; }
+  .view.active { display: flex; }
+  svg.ico { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+
+  @media (max-width: 960px) {
+    .shell { grid-template-columns: minmax(0, 1fr); width: 100%; max-width: 100vw; }
+    aside { border-right: none; border-bottom: 1px solid var(--border); padding: 10px 12px; gap: 8px; min-width: 0; max-width: 100%; }
+    .nav-group-label { display: none; }
+    .nav {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      width: 100%;
+    }
+    .nav-item {
+      width: 100%;
+      padding: 8px 10px;
+      font-size: 12.5px;
+      border: 1px solid var(--border);
+      background: var(--background);
+      justify-content: center;
+      white-space: normal;
+      text-align: center;
+    }
+    .nav-item.active {
+      background: var(--primary);
+      color: var(--primary-foreground);
+      border-color: var(--primary);
+    }
+    .nav-left { justify-content: center; }
+    .sidebar-footer { display: none; }
+    .content-wrap { min-width: 0; max-width: 100%; }
+    header { height: auto; min-height: 48px; padding: 8px 12px; flex-wrap: wrap; }
+    .header-right { flex-wrap: wrap; width: 100%; justify-content: flex-start; }
+    main { padding: 12px; min-width: 0; }
+    .card { min-width: 0; overflow: hidden; }
+    .card-header { padding: 12px 14px 10px; flex-direction: column; }
+    .card-body { padding: 0 14px 14px; }
+    .dropzone { flex-direction: column; align-items: flex-start; }
+    .composer { flex-direction: column; }
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+  body { overflow-x: clip; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside>
+    <div class="brand">
+      <div class="brand-mark">L42</div>
+      <div>
+        <div class="brand-name">Lain42 Workbench</div>
+        <div class="brand-ver">lilyco-web2cli · Rust</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="nav-group-label">导航</div>
+      <nav class="nav">
+        <button id="nav-work" class="nav-item active" onclick="showView('work')">
+          <span class="nav-left">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            自然语言工作台
+          </span>
+        </button>
+        <button id="nav-drafts" class="nav-item" onclick="showView('drafts')">
+          <span class="nav-left">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            人类审核收件箱
+          </span>
+          <span id="draftCount" class="badge">0</span>
+        </button>
+        <button id="nav-plugins" class="nav-item" onclick="showView('plugins')">
+          <span class="nav-left">
+            <svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            插件与企业授权
+          </span>
+        </button>
+        <a class="nav-item" href="/ui-gallery" style="text-decoration:none">
+          <span class="nav-left">
+            <svg class="ico" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+            10 大 UI 框架对比展厅
+          </span>
+        </a>
+      </nav>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-footer-title">企业授权状态</div>
+      <div id="sideLicStatus" class="sidebar-footer-desc">未绑定企业令牌（基础模式）</div>
+      <input id="licInput" class="input mono" placeholder="L42.xxx...">
+      <button class="btn btn-primary btn-sm" onclick="verifyLic()">验证并解锁插件</button>
+    </div>
+  </aside>
+
+  <div class="content-wrap">
+    <header>
+      <div class="crumb">
+        <span>Lain42</span>
+        <span>/</span>
+        <strong id="pageTitle">自然语言工作台</strong>
+      </div>
+      <div class="header-right">
+        <select id="themeSelect" class="input" style="height:32px;width:auto;padding:0 10px;font-size:12.5px" title="切换 UI 框架主题预设" onchange="applyTheme(this.value)">
+          <option value="shadcn_zinc">shadcn/ui (Zinc)</option>
+          <option value="ant_design">Ant Design</option>
+          <option value="material_3">Material UI (M3)</option>
+          <option value="daisy_ui">daisyUI</option>
+          <option value="chakra_ui">Chakra UI</option>
+          <option value="mantine">Mantine</option>
+          <option value="hero_ui">HeroUI</option>
+          <option value="element_plus">Element Plus</option>
+          <option value="radix_headless">Radix Headless</option>
+          <option value="prime_aura">PrimeReact (Aura)</option>
+        </select>
+        <span id="accelBadge" class="badge mono" title="客户端加速与服务端引擎状态">Rust · 检测中</span>
+        <span class="badge"><span class="status-dot"></span> 服务在线</span>
+        <button class="btn btn-outline btn-icon" title="切换深浅色主题" onclick="toggleTheme()">
+          <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <!-- View 1: Natural Language Workbench -->
+      <section id="view-work" class="view active">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">材料上传与快捷处理</h2>
+              <p class="card-desc">上传证件照、营业执照或扫描件，配合下方快捷指令或自然语言即时处理</p>
+            </div>
+            <div id="pluginBadges" class="row"></div>
+          </div>
+          <div class="card-body">
+            <div id="dropzone" class="dropzone" onclick="document.getElementById('fileInput').click()">
+              <div class="row" style="gap:12px">
+                <img id="thumb" class="thumb" alt="预览">
+                <div>
+                  <div id="dropTitle" style="font-weight:500;font-size:13.5px">点击或拖拽文件到此处上传</div>
+                  <div id="dropSub" style="font-size:12px;color:var(--muted-foreground)">支持 PNG / JPG / WebP，服务端 Rust 原生毫秒级处理</div>
+                </div>
+              </div>
+              <button type="button" class="btn btn-outline btn-sm">选择文件</button>
+              <input id="fileInput" type="file" style="display:none" onchange="uploadFile(this.files[0])">
+            </div>
+
+            <div class="quick-bar">
+              <button class="btn btn-outline btn-sm" onclick="quick('帮我裁剪成一寸照 295x413 并压缩给我下载链接')">
+                <svg class="ico" viewBox="0 0 24 24"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>
+                一寸证件照 295×413
+              </button>
+              <button class="btn btn-outline btn-sm" onclick="quick('帮我裁剪成二寸照 413x579 并压缩给我下载链接')">
+                <svg class="ico" viewBox="0 0 24 24"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>
+                二寸证件照 413×579
+              </button>
+              <button class="btn btn-outline btn-sm" onclick="quick('帮我把图片缩放成 800x600 并压缩')">
+                <svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                证照扫描件压缩
+              </button>
+              <button class="btn btn-outline btn-sm" onclick="quick('校对 default 企业资料')">
+                <svg class="ico" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+                国标资料校对
+              </button>
+              <button class="btn btn-outline btn-sm" onclick="showView('drafts')">
+                <svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                打开人类审核收件箱
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">自然语言指令执行</h2>
+              <p class="card-desc">直接描述要办的事，系统自动生成下载链接、付款链接或待人类审核草稿</p>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="chatBox" class="chat-box" aria-live="polite">
+              <div class="bubble bot">你好。你可以直接上传图片或输入自然语言指令：
+1. 上传照片后选择「一寸证件照 295×413」，自动裁剪压缩并返回下载与付款链接
+2. 输入「校对 default 企业资料」，按 GB 32100-2015 / GB 11643-1999 核验统一社会信用代码与身份证号
+3. 输入「给 https://目标网站 填表生成审核草稿」，AI 预填后停靠至「人类审核收件箱」等待把关</div>
+            </div>
+            <div class="composer">
+              <input id="msgInput" class="input" placeholder="输入自然语言指令，按 Enter 执行..." onkeydown="if(event.key==='Enter')sendMsg()">
+              <button id="sendBtn" class="btn btn-primary" onclick="sendMsg()">执行</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- View 2: Human Review Inbox -->
+      <section id="view-drafts" class="view">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">人类审核收件箱（Human-in-the-Loop）</h2>
+              <p class="card-desc">AI 仅生成待审草稿，绝不绕过人工直接提交；所有字段与附件需经核对批准后才允许发送</p>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="loadDrafts()">刷新列表</button>
+          </div>
+          <div class="card-body">
+            <div id="draftsList" style="display:flex;flex-direction:column;gap:12px"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- View 3: Commercial Plugins & Enterprise License -->
+      <section id="view-plugins" class="view">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">商业插件与企业授权中心</h2>
+              <p class="card-desc">所有核心能力以插件形式按需解锁，基于 HMAC-SHA256 签名令牌验证企业权益</p>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="loadPlugins()">刷新状态</button>
+          </div>
+          <div class="card-body">
+            <div class="row" style="margin-bottom:4px">
+              <input id="mobileLicInput" class="input mono" style="flex:1;min-width:160px" placeholder="输入企业授权令牌 L42.xxx..." oninput="document.getElementById('licInput').value=this.value">
+              <button class="btn btn-primary btn-sm" onclick="verifyLic()">验证并解锁</button>
+            </div>
+            <div id="pluginsGrid" class="grid-2"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script>
+let uploadId = null;
+
+function toggleTheme() {
+  document.documentElement.classList.toggle('dark');
+  localStorage.setItem('l42_theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+}
+if (localStorage.getItem('l42_theme') === 'dark') {
+  document.documentElement.classList.add('dark');
+}
+
+function applyTheme(presetId) {
+  let link = document.getElementById('l42ThemeSheet');
+  if (!link) {
+    link = document.createElement('link');
+    link.id = 'l42ThemeSheet';
+    link.rel = 'stylesheet';
+    document.head.appendChild(link);
+  }
+  link.href = '/api/themes/' + encodeURIComponent(presetId) + '.css';
+  localStorage.setItem('l42_preset', presetId);
+}
+const savedPreset = localStorage.getItem('l42_preset');
+if (savedPreset) {
+  const sel = document.getElementById('themeSelect');
+  if (sel) sel.value = savedPreset;
+  applyTheme(savedPreset);
+}
+
+function showView(name) {
+  const titles = { work: '自然语言工作台', drafts: '人类审核收件箱', plugins: '插件与企业授权' };
+  document.getElementById('pageTitle').textContent = titles[name] || '工作台';
+  for (const k of ['work', 'drafts', 'plugins']) {
+    document.getElementById('view-' + k).classList.toggle('active', k === name);
+    document.getElementById('nav-' + k).classList.toggle('active', k === name);
+  }
+  if (name === 'drafts') loadDrafts();
+  if (name === 'plugins') loadPlugins();
+}
+
+function licHeader() {
+  const k = document.getElementById('licInput').value.trim();
+  return k ? { 'X-Lain-License': k } : {};
+}
+
+function addBubble(role, text, extra) {
+  const box = document.getElementById('chatBox');
+  const div = document.createElement('div');
+  div.className = 'bubble ' + role;
+  div.textContent = text;
+  if (extra && (extra.pay_url || extra.download_url)) {
+    const row = document.createElement('div');
+    row.className = 'bubble-actions';
+    if (extra.pay_url) {
+      const a = document.createElement('a');
+      a.className = 'btn btn-primary btn-sm';
+      a.href = extra.pay_url;
+      a.target = '_blank';
+      a.textContent = '前往付款解锁';
+      row.appendChild(a);
+    }
+    if (extra.download_url) {
+      const a = document.createElement('a');
+      a.className = 'btn btn-outline btn-sm';
+      a.href = extra.download_url;
+      a.target = '_blank';
+      a.textContent = '下载处理产物';
+      row.appendChild(a);
+    }
+    div.appendChild(row);
+  }
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+const dz = document.getElementById('dropzone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => {
+  e.preventDefault();
+  dz.classList.remove('drag');
+  if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]);
+});
+
+async function uploadFile(f) {
+  if (!f) return;
+  if (f.type.startsWith('image/')) {
+    const thumb = document.getElementById('thumb');
+    thumb.src = URL.createObjectURL(f);
+    thumb.style.display = 'block';
+  }
+  const fd = new FormData();
+  fd.append('file', f);
+  const r = await fetch('/api/upload', { method: 'POST', body: fd }).then(r => r.json());
+  if (!r.ok) { addBubble('bot', '上传失败：' + r.error); return; }
+  uploadId = r.upload_id;
+  document.getElementById('dropTitle').textContent = r.filename;
+  document.getElementById('dropSub').textContent = `${(r.bytes / 1024).toFixed(1)} KB · ID ${uploadId}`;
+  addBubble('bot', `已上传「${r.filename}」（${(r.bytes / 1024).toFixed(1)} KB），可直接点击上方快捷按钮处理。`);
+}
+
+function quick(text) {
+  document.getElementById('msgInput').value = text;
+  sendMsg();
+}
+
+async function sendMsg() {
+  const input = document.getElementById('msgInput');
+  const m = input.value.trim();
+  if (!m) return;
+  input.value = '';
+  addBubble('user', m);
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  btn.textContent = '处理中...';
+  try {
+    const r = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...licHeader() },
+      body: JSON.stringify({ message: m, upload_id: uploadId })
+    }).then(r => r.json());
+    addBubble('bot', r.reply || r.error || JSON.stringify(r, null, 2), r);
+    loadDrafts();
+  } catch (e) {
+    addBubble('bot', '请求失败：' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '执行';
+  }
+}
+
+async function verifyLic() {
+  const token = document.getElementById('licInput').value.trim();
+  if (!token) return;
+  const r = await fetch('/api/license/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token })
+  }).then(r => r.json());
+  const st = document.getElementById('sideLicStatus');
+  if (r.ok) {
+    st.textContent = `已授权：${r.license.company_name}`;
+    addBubble('bot', `企业授权验证通过：${r.license.company_name}（解锁插件：${r.license.enabled_plugins.join(', ')}）`);
+  } else {
+    st.textContent = '授权校验失败';
+    addBubble('bot', '授权校验失败：' + r.error);
+  }
+  loadPlugins();
+}
+
+async function loadPlugins() {
+  const r = await fetch('/api/plugins', { headers: licHeader() }).then(r => r.json());
+  const badges = document.getElementById('pluginBadges');
+  const grid = document.getElementById('pluginsGrid');
+  badges.innerHTML = '';
+  grid.innerHTML = '';
+  for (const p of (r.plugins || [])) {
+    const b = document.createElement('span');
+    b.className = 'badge ' + (p.unlocked ? 'badge-success' : '');
+    b.textContent = p.id;
+    badges.appendChild(b);
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-header">
+        <div>
+          <div class="card-title">${p.name}</div>
+          <div class="card-desc mono">${p.id}</div>
+        </div>
+        <span class="badge ${p.unlocked ? 'badge-success' : ''}">${p.unlocked ? '已解锁' : '¥' + (p.price_fen_monthly / 100).toFixed(0) + ' / 月'}</span>
+      </div>
+      <div class="card-body">
+        <div style="font-size:13px;color:var(--muted-foreground)">${p.description}</div>
+      </div>`;
+    grid.appendChild(card);
+  }
+}
+
+async function loadDrafts() {
+  const r = await fetch('/api/drafts').then(r => r.json());
+  const list = r.drafts || [];
+  const pending = list.filter(d => d.status === 'pending_review').length;
+  const badge = document.getElementById('draftCount');
+  badge.textContent = String(pending);
+  badge.className = 'badge ' + (pending > 0 ? 'badge-warn' : '');
+
+  const box = document.getElementById('draftsList');
+  box.innerHTML = '';
+  if (!list.length) {
+    box.innerHTML = '<div class="empty">当前没有待审核草稿。使用自然语言触发政务表单预填后，草稿将自动停靠在此等待人工核对。</div>';
+    return;
+  }
+  for (const d of list) {
+    const statusCls = d.status === 'approved' || d.status === 'submitted' ? 'badge-success' : (d.status === 'pending_review' ? 'badge-warn' : '');
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-header">
+        <div>
+          <div class="card-title mono">${d.id}</div>
+          <div class="card-desc mono">${d.command.method} ${d.command.url}</div>
+        </div>
+        <span class="badge ${statusCls}">${d.status}</span>
+      </div>
+      <div class="card-body">
+        <pre class="mono">${JSON.stringify(d.args, null, 2)}</pre>
+        <div class="row">
+          <button class="btn btn-primary btn-sm" onclick="draftAct('${d.id}','approve')">批准草稿</button>
+          <button class="btn btn-destructive btn-sm" onclick="draftAct('${d.id}','reject')">驳回</button>
+          <button class="btn btn-outline btn-sm" onclick="draftAct('${d.id}','commit')">最终提交</button>
+        </div>
+      </div>`;
+    box.appendChild(card);
+  }
+}
+
+async function draftAct(id, op) {
+  const r = await fetch(`/api/drafts/${id}/${op}`, { method: 'POST' }).then(r => r.json());
+  addBubble('bot', `[审核 ${op}] ` + (r.ok ? `草稿 ${id} 状态：${r.draft.status}` : r.error));
+  loadDrafts();
+}
+
+loadPlugins();
+loadDrafts();
+
+// 1. 客户端硬件加速能力探测（WebGPU / WASM / Rust 服务端兜底）
+(async () => {
+  const badge = document.getElementById('accelBadge');
+  if (!badge) return;
+  const hasWasm = typeof WebAssembly === 'object';
+  let hasWebGpu = false;
+  try {
+    if (navigator.gpu) {
+      const adapter = await navigator.gpu.requestAdapter();
+      hasWebGpu = !!adapter;
+    }
+  } catch (_e) {}
+  if (hasWebGpu) {
+    badge.textContent = 'WebGPU + WASM + Rust';
+    badge.className = 'badge badge-success mono';
+  } else if (hasWasm) {
+    badge.textContent = 'WASM + Rust 服务端';
+  } else {
+    badge.textContent = 'Rust 服务端引擎';
+  }
+})();
+
+// 2. AI 原生网页工具暴露（WebMCP / window.__LILYCO_TOOLS__）
+window.__LILYCO_TOOLS__ = {
+  protocol: '1.0',
+  mcp_endpoint: '/mcp',
+  llms_txt: '/llms.txt',
+  openapi: '/openapi.json',
+  chat: async (message, upload_id) =>
+    fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...licHeader() },
+      body: JSON.stringify({ message, upload_id })
+    }).then(r => r.json()),
+  listPlugins: async () => fetch('/api/plugins', { headers: licHeader() }).then(r => r.json()),
+  listDrafts: async () => fetch('/api/drafts').then(r => r.json()),
+  switchTheme: (presetId) => applyTheme(presetId),
+};
+if (navigator.modelContext && typeof navigator.modelContext.registerTool === 'function') {
+  try {
+    navigator.modelContext.registerTool({
+      name: 'lain42_chat',
+      description: 'Run natural-language image crop, GB 32100/11643 proofread, or form draft preparation',
+      inputSchema: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] },
+      execute: ({ message }) => window.__LILYCO_TOOLS__.chat(message, uploadId),
+    });
+  } catch (_e) {}
+}
+</script>
+</body>
+</html>

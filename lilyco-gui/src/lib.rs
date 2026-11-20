@@ -30,6 +30,7 @@
 //!
 //! 对外只有三个符号：[`GuiRenderer`]、[`RunnerFn`]、[`TOKEN_HEADER`]。
 
+mod ai_web;
 mod files;
 mod render;
 mod run;
@@ -53,8 +54,9 @@ use lilyco_core::{App, AppError};
 pub use crate::run::RunnerFn;
 pub use crate::security::TOKEN_HEADER;
 
+use crate::ai_web::{agent_card_handler, llms_txt_handler, openapi_handler};
 use crate::files::{pick_handler, upload_handler};
-use crate::render::index;
+use crate::render::{index, themes_handler};
 use crate::run::{cancel_handler, progress_handler, run_handler};
 use crate::security::security_mw;
 use crate::state::AppState;
@@ -113,6 +115,10 @@ impl GuiRenderer {
     async fn serve_state(&self, state: Arc<AppState>) {
         let app = Router::new()
             .route("/", get(index))
+            .route("/themes", get(themes_handler))
+            .route("/llms.txt", get(llms_txt_handler))
+            .route("/.well-known/agent.json", get(agent_card_handler))
+            .route("/openapi.json", get(openapi_handler))
             .route("/run", post(run_handler))
             .route("/progress/{id}", get(progress_handler))
             // /upload 单独放宽：axum 默认只放 2 MB，拖一个稍大的文件进去会在传输层

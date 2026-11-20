@@ -27,6 +27,7 @@
 | 想改颜色 / 字号 / 间距 | [03 · 设计语言](03-design-language.md) | [04 · 令牌参考](04-tokens.md) |
 | 要加一个控件或一块面板 | [组件参考](components/README.md) | [03 · 设计语言](03-design-language.md) |
 | 前后端分离，用 React + shadcn | [05 · React 映射](05-react-shadcn-mapping.md) | [04 · 令牌参考](04-tokens.md) |
+| 多框架适配与 10 年期演进规划 | [06 · 10 年期 UI 抽象规范](06-ten-year-ui-architecture.md) | `lilyco-core/src/theme.rs` |
 
 建议第一次按 01 → 02 顺序读，教程每一步都能跑起来。03 之后是工具书，按需查。
 

@@ -82,6 +82,7 @@ Windows 包在 `tests/notices.py` 对 `packaging/webview2-sdk.json` 固定的官
 | `lilyco` | 0.2.3 | 全部 | **唯一组合根**：后端自动选择 + 各形态入口 |
 | `lilyco-dev` | 0.3.0 | facade | **元 CLI**（bin `lilyco`）：`new` 脚手架 / `build` / `run` / `doc` 能力表 —— 它自己就是四命令的 dogfooding 样板 |
 | `lilyco-vision` | 0.3.1 | facade + image + vtracer + tempfile | 原有八视觉工具；截图独立临时 profile，图片工坊通过 MCP 复用 |
+| `lilyco-web2cli` | 0.3.0 | facade + ureq + html5ever + tungstenite + base64 + url + regex + toml | **Web2CLI**：任意网页 / OpenAPI / HAR 自动发现并编译为 `Registry`（CLI / TUI / Web / MCP），内置分类资料库（`vault`）、多格式 Cookie 导入、CDP 多层 `iframe` 控制、多步向导与人类审核闸门（`review`/`wizard`）、成功模板沉淀（`recipe`） |
 
 Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被特性门控）。
 
@@ -103,6 +104,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `enum Progress` | `lilyco-core/src/progress.rs:10` | Started/Tick/Log/Telemetry/Done/Error/**View**，serde tag=`type` |
 | `enum Component` | `lilyco-core/src/view.rs:136` | 52 个语义视图组件（snake_case `kind`，容器带 `children`）；后端只声明，前端按 kind 渲染 |
 | `struct ViewSlot` | `lilyco-core/src/view.rs:497` | 静态槽位：`#[view(id,title,kind)]` → `App::views()` → `run_registry --schema` 的 `views` |
+| `struct ThemeSpec` / `enum ThemePreset` / `struct AdapterCapabilities` | `lilyco-core/src/theme.rs:14,104,284` | 10 年期 UI 主题与多框架适配器契约（10 套主流框架预设 + CSS/JSON 导出 + 协议主版本兼容与优雅降级） |
 | `Context` | `lilyco-core/src/context.rs` | handler 上报进度：`emit:71` `tick:81` `log:92` `done:100` `is_cancelled:76` `view:131` `view_progress:139` |
 | `trait HostBridge` | `lilyco-core/src/context.rs` | handler 反向调用宿主的唯一接口：`ctx.sample()`（MCP sampling/createMessage）/ `ctx.roots()`；CLI/TUI/GUI 不接桥，返回带指引错误 |
 | `enum AppError` | `lilyco-core/src/error.rs` | InvalidArg/InvalidInput/Runtime/Cancelled |
@@ -114,7 +116,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 |---|---|---|
 | `struct CliRenderer` | `renderer.rs:27` | schema → clap 的渲染入口；`handle_builtin_flags():46`、`output_format():90`、`extract_args():103` |
 | `run::<A>()` | `single.rs:17` | 单命令一行启动（clap 校验 → extract → executor → drain） |
-| `run_registry()` | `registry.rs:28` | **多命令**：Registry → clap 子命令树；根级 `--schema` 打印清单 |
+| `run_registry` / `run_registry_from` | `registry.rs:28,33` | **多命令**：Registry → clap 子命令树（支持显式参数列表）；根级 `--schema` 打印清单 |
 | `build_registry_command()` | `registry.rs:55` | 纯函数构建根 Command（别名/隐藏→hide(true)） |
 | `resolve_registry_command()` | `registry.rs:82` | 规范名/别名 → 注册表条目（含 schema.name 兜底） |
 | `drain_events()` | `registry.rs:114` | 单/多命令共用的进度消费（Human/Json/JsonStream） |
@@ -136,7 +138,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 |---|---|---|
 | `serve_app::<A>()` | `lib.rs:158` | 单命令：**内部建单命令注册表**再走 `serve_registry`（只有那条路登记取消句柄，见 DESIGN.md §8.6）；`serve(schema, runner):78` 是给自定义 runner 的逃生口（页面据此不画「取消」） |
 | `serve_registry()` | `lib.rs:94` | **多命令**；`GET /?cmd=xxx` 渲染对应表单 + 下拉切换 |
-| `serve_state()` | `lib.rs:113` | 路由器装配处：六个端点 + `security_mw` 一道闸（**新增端点只改这里**） |
+| `serve_state()` | `lib.rs:113` | 路由器装配处：十个端点（含 `/themes`、`/llms.txt`、`/.well-known/agent.json`、`/openapi.json`）+ `security_mw` 一道闸（**新增端点只改这里**） |
 | `security_mw()` | `security.rs:63` | 回环 Host 校验 + Origin 校验 + 随机 Token（防 DNS rebinding/CSRF）；`PROTECTED_POST:21` 是那份端点清单 |
 | `AppState` | `state.rs:17` | schema / registry / sessions / cancels / token 一处真相（`pub(crate)`，测试夹具在同文件 `fixture`） |
 | `pick_command()` | `render.rs:32` | `?cmd=` → 可见命令（别名命中；隐藏回退第一个可见） |

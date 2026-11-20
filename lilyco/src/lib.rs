@@ -207,6 +207,15 @@ pub fn run_cli_registry(app_name: &str, registry: Registry) {
     lilyco_cli::run_registry(app_name, registry);
 }
 
+/// 以 CLI 多命令形态从显式参数列表运行注册表（供 `web2cli serve` 等转发使用）
+pub fn run_cli_registry_from<I, T>(app_name: &str, registry: Registry, args: I)
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    lilyco_cli::run_registry_from(app_name, registry, args);
+}
+
 /// 以 TUI 多命令形态运行整个注册表（命令选择页 → 表单 → 执行）
 ///
 /// 借鉴 mininterface 的 subcommand picker：交互终端先列出可见命令
