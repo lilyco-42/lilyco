@@ -26,8 +26,17 @@ use crate::renderer::CliRenderer;
 /// }
 /// ```
 pub fn run_registry(app_name: &str, registry: Registry) {
+    run_registry_from(app_name, registry, std::env::args_os());
+}
+
+/// 从显式参数列表运行多命令注册表（供子命令转发 / 元 CLI 使用）
+pub fn run_registry_from<I, T>(app_name: &str, registry: Registry, args: I)
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
     let cmd = build_registry_command(app_name, &registry);
-    let matches = cmd.get_matches();
+    let matches = cmd.get_matches_from(args);
 
     if matches.get_flag("schema") {
         println!(

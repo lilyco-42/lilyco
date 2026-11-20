@@ -20,6 +20,9 @@ use axum::response::{Html, IntoResponse, Response};
 
 use lilyco_core::registry::{RegisteredCommand, Registry};
 use lilyco_core::schema::{ArgKind, ArgSchema};
+use lilyco_core::theme::{
+    AdapterCapabilities, FallbackStrategy, ThemePreset, ThemeSpec, UI_PROTOCOL_VERSION,
+};
 
 use crate::files::MAX_UPLOAD_BYTES;
 use crate::state::AppState;
@@ -59,7 +62,61 @@ fn render_view_slots(slots: &[lilyco_core::view::ViewSlot]) -> String {
         .collect()
 }
 
-/// `GET /`：装配一份命令表单。这里只做「取 schema → 拼组件 → 填模板 → 挂响应头」，
+/// 按 `?theme=<id>` 解析 10 套官方 `ThemePreset` 并生成覆盖 `lilyco-gui` 语义令牌的 CSS。
+pub(crate) fn theme_override_css(id: &str) -> Option<String> {
+    let preset = ThemePreset::all_builtins()
+        .iter()
+        .find(|p| p.id().eq_ignore_ascii_case(id.trim()))?
+        .clone();
+    let spec = ThemeSpec::from_preset(preset);
+    Some(format!(
+        "\n/* lilyco-core ThemePreset: {} */\n:root {{\n  --accent: {};\n  --on-accent: {};\n  --r-md: {};\n  --r-lg: {};\n  --shadow-card: {};\n}}\n@media (prefers-color-scheme: dark) {{\n  :root {{\n    --accent: {};\n    --on-accent: {};\n  }}\n}}\n",
+        spec.display_name,
+        spec.light.primary,
+        spec.light.primary_foreground,
+        spec.shape.radius_md,
+        spec.shape.radius_lg,
+        spec.shape.card_shadow,
+        spec.dark.primary,
+        spec.dark.primary_foreground,
+    ))
+}
+
+/// `GET /themes`：返回 10 套官方 `ThemeSpec` 预设与 `lilyco-gui` 适配器能力清单（10 年期 UI 契约）。
+pub(crate) async fn themes_handler() -> impl IntoResponse {
+    let presets: Vec<ThemeSpec> = ThemePreset::all_builtins()
+        .iter()
+        .cloned()
+        .map(ThemeSpec::from_preset)
+        .collect();
+    let capabilities = AdapterCapabilities {
+        adapter_id: "lilyco-gui".into(),
+        framework_name: "Lilyco Builtin Zero-Dep Web".into(),
+        protocol_version: UI_PROTOCOL_VERSION.into(),
+        supports_dark_mode: true,
+        supports_density: true,
+        fallback: FallbackStrategy::DegradeToCard,
+        supported_kinds: vec![
+            "card".into(),
+            "section".into(),
+            "separator".into(),
+            "tabs".into(),
+            "table".into(),
+            "alert".into(),
+            "progress".into(),
+            "badge".into(),
+            "code".into(),
+            "markdown".into(),
+            "key_value".into(),
+            "stat".into(),
+        ],
+    };
+    axum::Json(serde_json::json!({
+        "protocol_version": UI_PROTOCOL_VERSION,
+        "capabilities": capabilities,
+        "themes": presets,
+    }))
+}
 /// 具体每个控件长什么样一律在 `widget_*` 里
 pub(crate) async fn index(
     State(state): State<Arc<AppState>>,
@@ -116,8 +173,12 @@ pub(crate) async fn index(
     } else {
         ""
     };
+    let css_bundle = match params.get("theme").and_then(|t| theme_override_css(t)) {
+        Some(extra) => format!("{}{extra}", include_str!("../assets/app.css")),
+        None => include_str!("../assets/app.css").to_string(),
+    };
     let html = HTML_TEMPLATE
-        .replace("__CSS__", include_str!("../assets/app.css"))
+        .replace("__CSS__", &css_bundle)
         .replace("__CANCEL_JS__", cancellable)
         .replace("__CMD_NAV__", &cmd_nav)
         .replace("__FIELDS__", &fields_html)
@@ -1449,5 +1510,14 @@ mod tests {
             .next()
             .unwrap()
             .to_string()
+    }
+
+    #[test]
+    fn theme_override_css_maps_all_builtin_presets() {
+        let ant = theme_override_css("ant_design").expect("ant_design preset");
+        assert!(ant.contains("--accent: #1677ff;"));
+        let shadcn = theme_override_css("shadcn_zinc").expect("shadcn_zinc preset");
+        assert!(shadcn.contains("--accent: #18181b;"));
+        assert!(theme_override_css("nonexistent_theme").is_none());
     }
 }

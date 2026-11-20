@@ -28,6 +28,7 @@ members = [
     "lilyco",
     "lilyco-srt",
     "lilyco-float",
+    "lilyco-web2cli",
 ]
 resolver = "2"
 # NSH 原生后端独立解析：nsh-base 要 unicode-width ^0.2.2，
@@ -80,6 +81,7 @@ default-members = [
     "lilyco-dev",
     "lilyco",
     "lilyco-srt",
+    "lilyco-web2cli",
 ]
 
 [workspace.package]

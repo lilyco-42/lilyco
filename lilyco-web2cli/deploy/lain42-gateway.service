@@ -1,0 +1,19 @@
+[Unit]
+Description=Lilyco Web2CLI Commercial Gateway (lain42.top)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/lib/lain42-gateway
+# 可选：对接真实支付收银台模板
+# Environment=LAIN_PAY_URL_TEMPLATE=https://pay.lain42.top/checkout?order={order_id}&amount={amount_fen}
+ExecStart=/usr/local/bin/lweb2cli gateway --bind 127.0.0.1:8787 --public-url https://lain42.top --require-payment --price-fen 199
+Restart=always
+RestartSec=3
+MemoryMax=256M
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

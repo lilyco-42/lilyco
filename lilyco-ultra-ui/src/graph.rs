@@ -47,12 +47,27 @@ pub struct Edge {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GraphError {
-    DuplicateNode { id: String },
-    UnknownNode { id: String },
-    UnknownCommand { node: String, command: String },
-    UnknownArg { node: String, command: String, arg: String },
-    SelfLoop { node: String },
-    Cycle { nodes: Vec<String> },
+    DuplicateNode {
+        id: String,
+    },
+    UnknownNode {
+        id: String,
+    },
+    UnknownCommand {
+        node: String,
+        command: String,
+    },
+    UnknownArg {
+        node: String,
+        command: String,
+        arg: String,
+    },
+    SelfLoop {
+        node: String,
+    },
+    Cycle {
+        nodes: Vec<String>,
+    },
 }
 
 impl std::fmt::Display for GraphError {
@@ -80,13 +95,18 @@ pub struct Plan {
 }
 
 /// 校验整张图。`known` 用在无法访问 Registry 的场景（如前端预览）。
-pub fn validate_with(graph: &GraphSpec, known: impl Fn(&str) -> Option<Vec<String>>) -> Vec<GraphError> {
+pub fn validate_with(
+    graph: &GraphSpec,
+    known: impl Fn(&str) -> Option<Vec<String>>,
+) -> Vec<GraphError> {
     let mut errors = Vec::new();
     let mut ids = std::collections::HashSet::new();
 
     for node in &graph.nodes {
         if !ids.insert(node.id.clone()) {
-            errors.push(GraphError::DuplicateNode { id: node.id.clone() });
+            errors.push(GraphError::DuplicateNode {
+                id: node.id.clone(),
+            });
             continue;
         }
         match known(&node.command) {
@@ -110,13 +130,19 @@ pub fn validate_with(graph: &GraphSpec, known: impl Fn(&str) -> Option<Vec<Strin
 
     for edge in &graph.edges {
         if edge.from == edge.to {
-            errors.push(GraphError::SelfLoop { node: edge.from.clone() });
+            errors.push(GraphError::SelfLoop {
+                node: edge.from.clone(),
+            });
         }
         if !ids.contains(&edge.from) {
-            errors.push(GraphError::UnknownNode { id: edge.from.clone() });
+            errors.push(GraphError::UnknownNode {
+                id: edge.from.clone(),
+            });
         }
         if !ids.contains(&edge.to) {
-            errors.push(GraphError::UnknownNode { id: edge.to.clone() });
+            errors.push(GraphError::UnknownNode {
+                id: edge.to.clone(),
+            });
         }
     }
 
@@ -139,16 +165,24 @@ pub fn plan(graph: &GraphSpec) -> Result<Plan, GraphError> {
 
     for edge in &graph.edges {
         if edge.from == edge.to {
-            return Err(GraphError::SelfLoop { node: edge.from.clone() });
+            return Err(GraphError::SelfLoop {
+                node: edge.from.clone(),
+            });
         }
         if !indeg.contains_key(edge.from.as_str()) {
-            return Err(GraphError::UnknownNode { id: edge.from.clone() });
+            return Err(GraphError::UnknownNode {
+                id: edge.from.clone(),
+            });
         }
         if !indeg.contains_key(edge.to.as_str()) {
-            return Err(GraphError::UnknownNode { id: edge.to.clone() });
+            return Err(GraphError::UnknownNode {
+                id: edge.to.clone(),
+            });
         }
         *indeg.get_mut(edge.to.as_str()).expect("checked") += 1;
-        next.entry(edge.from.as_str()).or_default().push(edge.to.as_str());
+        next.entry(edge.from.as_str())
+            .or_default()
+            .push(edge.to.as_str());
     }
 
     let mut queue: VecDeque<&str> = indeg
@@ -205,7 +239,11 @@ pub fn pick(value: &serde_json::Value, pointer: Option<&str>) -> serde_json::Val
         return value.clone();
     };
     let mut cur = value;
-    for seg in raw.trim_start_matches('/').split('/').filter(|s| !s.is_empty()) {
+    for seg in raw
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+    {
         let seg = seg.replace("~1", "/").replace("~0", "~");
         cur = match cur {
             serde_json::Value::Object(map) => map.get(&seg).unwrap_or(&serde_json::Value::Null),
@@ -286,7 +324,10 @@ mod tests {
 
     #[test]
     fn parallel_stage_groups_independent_nodes() {
-        let graph = g(&[("a", "count"), ("b", "count"), ("c", "echo")], &[("a", "c", "text")]);
+        let graph = g(
+            &[("a", "count"), ("b", "count"), ("c", "echo")],
+            &[("a", "c", "text")],
+        );
         let plan = plan(&graph).unwrap();
         assert_eq!(plan.stages[0], vec!["a", "b"]);
         assert_eq!(plan.stages[1], vec!["c"]);
@@ -294,7 +335,10 @@ mod tests {
 
     #[test]
     fn cycle_is_reported_with_members() {
-        let graph = g(&[("a", "x"), ("b", "x")], &[("a", "b", "p"), ("b", "a", "p")]);
+        let graph = g(
+            &[("a", "x"), ("b", "x")],
+            &[("a", "b", "p"), ("b", "a", "p")],
+        );
         match plan(&graph) {
             Err(GraphError::Cycle { nodes }) => {
                 assert!(nodes.contains(&"a".to_string()) && nodes.contains(&"b".to_string()))
@@ -311,18 +355,25 @@ mod tests {
 
     #[test]
     fn unknown_nodes_and_args_are_located() {
-        let graph = g(&[("a", "count"), ("b", "echo")], &[("a", "b", "text"), ("z", "b", "text")]);
+        let graph = g(
+            &[("a", "count"), ("b", "echo")],
+            &[("a", "b", "text"), ("z", "b", "text")],
+        );
         let errors = validate_with(&graph, |cmd| match cmd {
             "count" => Some(vec!["steps".into()]),
             "echo" => Some(vec!["text".into()]),
             _ => None,
         });
         assert!(errors.contains(&GraphError::UnknownNode { id: "z".into() }));
-        assert!(errors.contains(&GraphError::UnknownArg {
-            node: "b".into(),
-            command: "echo".into(),
-            arg: "text".into()
-        }) || !errors.iter().any(|e| matches!(e, GraphError::UnknownArg { .. })));
+        assert!(
+            errors.contains(&GraphError::UnknownArg {
+                node: "b".into(),
+                command: "echo".into(),
+                arg: "text".into()
+            }) || !errors
+                .iter()
+                .any(|e| matches!(e, GraphError::UnknownArg { .. }))
+        );
     }
 
     #[test]

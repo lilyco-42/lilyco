@@ -45,6 +45,7 @@ impl UltraUiServer {
             .route("/api/designer/load", get(designer_load_handler))
             .route("/api/designer/export", post(designer_export_handler))
             .route("/assets/litegraph.js", get(litegraph_js))
+            .route("/assets/grapesjs.min.js", get(grapesjs_js))
             .route("/api/render", post(render_handler))
             .route("/api/validate", post(validate_handler))
             .route("/api/graph/validate", post(graph_validate_handler))
@@ -146,7 +147,9 @@ async fn graph_validate_handler(Json(payload): Json<graph::GraphSpec>) -> Json<V
     Json(serde_json::json!({ "valid": errors.is_empty(), "errors": errors }))
 }
 
-async fn graph_plan_handler(Json(payload): Json<graph::GraphSpec>) -> impl axum::response::IntoResponse {
+async fn graph_plan_handler(
+    Json(payload): Json<graph::GraphSpec>,
+) -> impl axum::response::IntoResponse {
     let errors = graph::validate_with(&payload, known_args);
     if !errors.is_empty() {
         return err_response(400, &format!("图校验失败: {errors:?}"));
@@ -178,6 +181,17 @@ async fn litegraph_js() -> impl IntoResponse {
             (CACHE_CONTROL, "public, max-age=31536000, immutable"),
         ],
         include_str!("../assets/litegraph.js"),
+    )
+}
+
+/// 随二进制内嵌的 GrapesJS 0.22.5（BSD-3-Clause），设计器同源加载
+async fn grapesjs_js() -> impl IntoResponse {
+    (
+        [
+            (CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        include_str!("../assets/grapesjs.min.js"),
     )
 }
 

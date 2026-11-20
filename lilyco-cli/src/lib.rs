@@ -16,7 +16,7 @@ mod registry;
 mod renderer;
 mod single;
 
-pub use crate::registry::{build_registry_command, run_registry};
+pub use crate::registry::{build_registry_command, run_registry, run_registry_from};
 pub use crate::renderer::CliRenderer;
 pub use crate::single::run;
 

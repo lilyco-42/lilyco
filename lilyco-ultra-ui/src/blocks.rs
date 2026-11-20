@@ -311,7 +311,14 @@ mod tests {
     #[test]
     fn page_has_scratch_bits() {
         let html = blocks_html();
-        for needle in ["积木编程", "when_start", "run_command", "if", "repeat", "toJs"] {
+        for needle in [
+            "积木编程",
+            "when_start",
+            "run_command",
+            "if",
+            "repeat",
+            "toJs",
+        ] {
             assert!(html.contains(needle), "缺少 {needle}");
         }
     }

@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lain42 · 10 大高星 UI 框架组件与主题实时对比展厅</title>
+<style>
+  :root {
+    --page-bg: #ffffff;
+    --page-fg: #09090b;
+    --page-muted: #71717a;
+    --page-border: #e4e4e7;
+    --page-surface: #f4f4f5;
+  }
+  .dark {
+    --page-bg: #09090b;
+    --page-fg: #fafafa;
+    --page-muted: #a1a1aa;
+    --page-border: #27272a;
+    --page-surface: #18181b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page-bg);
+    color: var(--page-fg);
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: var(--page-bg);
+    border-bottom: 1px solid var(--page-border);
+    padding: 12px 24px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .h-left { display: flex; align-items: center; gap: 12px; }
+  .back {
+    text-decoration: none;
+    color: var(--page-fg);
+    border: 1px solid var(--page-border);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .back:hover { background: var(--page-surface); }
+  .h-title { font-weight: 700; font-size: 15px; }
+  .h-sub { font-size: 12px; color: var(--page-muted); }
+  .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  select.ctrl, button.ctrl {
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 6px;
+    border: 1px solid var(--page-border);
+    background: var(--page-bg);
+    color: var(--page-fg);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  button.ctrl.active { background: var(--page-fg); color: var(--page-bg); border-color: var(--page-fg); }
+
+  .fw-strip {
+    border-bottom: 1px solid var(--page-border);
+    padding: 10px 24px;
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    background: var(--page-surface);
+  }
+  .fw-btn {
+    padding: 7px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--page-border);
+    background: var(--page-bg);
+    color: var(--page-fg);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .fw-btn .dot { width: 8px; height: 8px; border-radius: 999px; }
+  .fw-btn.active {
+    border-color: var(--page-fg);
+    box-shadow: 0 0 0 1px var(--page-fg);
+    font-weight: 600;
+  }
+
+  main {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px 24px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .compare-grid.split {
+    grid-template-columns: 1fr 1fr;
+  }
+  @media (max-width: 1080px) {
+    .compare-grid.split { grid-template-columns: 1fr; }
+  }
+
+  /* Framework-scoped theme stage */
+  .stage {
+    border: 1px solid var(--t-border);
+    border-radius: var(--t-radius-lg);
+    background: var(--t-bg);
+    color: var(--t-fg);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    box-shadow: var(--t-shadow);
+    transition: all 0.15s ease;
+  }
+  .stage-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--t-border);
+  }
+  .stage-title { font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .stage-meta { font-size: 12px; color: var(--t-muted); }
+
+  .sec { display: flex; flex-direction: column; gap: 10px; }
+  .sec-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--t-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  @media (max-width: 680px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+
+  /* Component primitives driven purely by --t-* tokens */
+  .t-btn {
+    height: var(--t-ctl-h);
+    padding: 0 14px;
+    border-radius: var(--t-radius);
+    font-size: 13px;
+    font-weight: var(--t-btn-weight);
+    cursor: pointer;
+    border: 1px solid transparent;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: var(--t-btn-shadow);
+  }
+  .t-btn.primary { background: var(--t-primary); color: var(--t-primary-fg); }
+  .t-btn.secondary { background: var(--t-surface); color: var(--t-fg); border-color: var(--t-border); }
+  .t-btn.outline { background: transparent; color: var(--t-primary); border-color: var(--t-primary); }
+  .t-btn.ghost { background: transparent; color: var(--t-muted); }
+  .t-btn.danger { background: var(--t-danger); color: #fff; }
+
+  .t-input, .t-select {
+    height: var(--t-ctl-h);
+    padding: 0 11px;
+    border-radius: var(--t-radius);
+    border: 1px solid var(--t-border);
+    background: var(--t-input-bg);
+    color: var(--t-fg);
+    font-size: 13px;
+    width: 100%;
+  }
+  .t-label { display: block; font-size: 12.5px; font-weight: 500; margin-bottom: 4px; }
+  .t-err { font-size: 11.5px; color: var(--t-danger); margin-top: 3px; }
+
+  .t-card {
+    background: var(--t-card-bg);
+    border: 1px solid var(--t-border);
+    border-radius: var(--t-radius-lg);
+    padding: 14px;
+    box-shadow: var(--t-card-shadow);
+  }
+  .t-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 9px;
+    border-radius: var(--t-badge-radius);
+    font-size: 11.5px;
+    font-weight: 600;
+    border: 1px solid var(--t-border);
+    background: var(--t-surface);
+    color: var(--t-fg);
+  }
+  .t-badge.primary { background: var(--t-primary-soft); color: var(--t-primary); border-color: transparent; }
+  .t-badge.ok { background: rgba(22,163,74,0.14); color: #16a34a; border-color: transparent; }
+  .t-badge.warn { background: rgba(217,119,6,0.14); color: #d97706; border-color: transparent; }
+
+  .t-tabs {
+    display: inline-flex;
+    gap: 4px;
+    padding: 3px;
+    border-radius: var(--t-radius);
+    background: var(--t-surface);
+    border: 1px solid var(--t-border);
+  }
+  .t-tab {
+    padding: 5px 12px;
+    border-radius: calc(var(--t-radius) - 2px);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--t-muted);
+    cursor: pointer;
+    border: none;
+    background: transparent;
+  }
+  .t-tab.on { background: var(--t-bg); color: var(--t-fg); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+
+  .t-stepper { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .t-step {
+    padding: 8px 10px;
+    border-radius: var(--t-radius);
+    border: 1px solid var(--t-border);
+    background: var(--t-surface);
+    font-size: 12px;
+  }
+  .t-step.done { border-color: var(--t-primary); background: var(--t-primary-soft); color: var(--t-primary); font-weight: 600; }
+
+  table.t-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.t-table th, table.t-table td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--t-border);
+  }
+  table.t-table th { color: var(--t-muted); font-weight: 600; background: var(--t-surface); }
+
+  .t-alert {
+    padding: 10px 12px;
+    border-radius: var(--t-radius);
+    border: 1px solid var(--t-border);
+    background: var(--t-primary-soft);
+    color: var(--t-fg);
+    font-size: 12.5px;
+  }
+  .t-progress {
+    height: 8px;
+    border-radius: 999px;
+    background: var(--t-surface);
+    overflow: hidden;
+  }
+  .t-progress > span { display: block; height: 100%; width: 72%; background: var(--t-primary); }
+
+  .t-switch {
+    width: 36px; height: 20px; border-radius: 999px; background: var(--t-primary);
+    position: relative; display: inline-block; vertical-align: middle;
+  }
+  .t-switch::after {
+    content: ""; position: absolute; right: 2px; top: 2px; width: 16px; height: 16px;
+    border-radius: 999px; background: #fff;
+  }
+
+  /* Matrix table at bottom */
+  .matrix-card {
+    border: 1px solid var(--page-border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .matrix-card h3 { margin: 0; padding: 14px 16px; font-size: 14.5px; border-bottom: 1px solid var(--page-border); }
+  .matrix-wrap { overflow-x: auto; }
+  table.matrix { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.matrix th, table.matrix td { padding: 10px 14px; border-bottom: 1px solid var(--page-border); text-align: left; }
+  table.matrix th { background: var(--page-surface); color: var(--page-muted); font-weight: 600; }
+
+  /* Modal */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+    display: none; place-items: center; z-index: 50; padding: 16px;
+  }
+  .modal-backdrop.open { display: grid; }
+  .modal-box {
+    max-width: 420px; width: 100%; background: var(--page-bg); color: var(--page-fg);
+    border: 1px solid var(--page-border); border-radius: 10px; padding: 18px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="h-left">
+    <a class="back" href="/">← 返回工作台</a>
+    <div>
+      <div class="h-title">10 大高星 UI 框架组件与主题实时对比展厅（对标 nsh.dev）</div>
+      <div class="h-sub">同一套 Lilyco 语义组件树，一键切换 10 套主流框架视觉主题或双栏并排对比</div>
+    </div>
+  </div>
+  <div class="controls">
+    <button id="btnSingle" class="ctrl active" onclick="setMode('single')">单框架全览</button>
+    <button id="btnSplit" class="ctrl" onclick="setMode('split')">双框架并排对比</button>
+    <select id="selB" class="ctrl" style="display:none" onchange="render()"></select>
+    <button class="ctrl" onclick="toggleDark()">切换深浅色</button>
+  </div>
+</header>
+
+<div id="fwStrip" class="fw-strip"></div>
+
+<main>
+  <div id="compareGrid" class="compare-grid"></div>
+
+  <div class="matrix-card">
+    <h3>10 大高星 UI 框架全景对比表（GitHub 实测数据）</h3>
+    <div class="matrix-wrap">
+      <table class="matrix">
+        <thead>
+          <tr><th>框架</th><th>Stars</th><th>License</th><th>标志性主色与圆角</th><th>最擅长场景</th><th>政务/企业适配度</th></tr>
+        </thead>
+        <tbody id="matrixBody"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<div id="demoModal" class="modal-backdrop" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal-box">
+    <strong style="font-size:15px">人类审核二次确认（AlertDialog）</strong>
+    <div style="font-size:13px;color:var(--page-muted)">确认将「星火科技有限公司」的企业设立登记草稿提交至政务网？提交后将自动沉淀为确定性模板。</div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="ctrl" onclick="document.getElementById('demoModal').classList.remove('open')">取消</button>
+      <button class="ctrl active" onclick="document.getElementById('demoModal').classList.remove('open')">确认提交</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const FRAMEWORKS = [
+  {
+    id: 'shadcn', name: 'shadcn/ui', stars: '128.6k', license: 'MIT',
+    desc: 'New York / Zinc · 极简克制、1px 细描边、高对比黑白主按钮',
+    best: '现代 SaaS / AI 工作台 / 开发者工具', fit: '极高（简洁高级、无审美疲劳）',
+    tokens: { primary:'#18181b', primaryFg:'#fafafa', primarySoft:'#f4f4f5', radius:'6px', radiusLg:'8px', badgeRadius:'999px', ctlH:'34px', btnWeight:'500', btnShadow:'none', cardShadow:'0 1px 2px rgba(0,0,0,0.05)', danger:'#dc2626' }
+  },
+  {
+    id: 'antd', name: 'Ant Design', stars: '100.3k', license: 'MIT',
+    desc: '蚂蚁企业级中后台 · 科技蓝、紧凑高密度、完备表单与数据表格',
+    best: '企业级中后台 / 政务审批 / 财税系统', fit: '极高（国内政企最熟悉）',
+    tokens: { primary:'#1677ff', primaryFg:'#ffffff', primarySoft:'rgba(22,119,255,0.1)', radius:'6px', radiusLg:'8px', badgeRadius:'4px', ctlH:'32px', btnWeight:'500', btnShadow:'0 2px 0 rgba(5,145,255,0.1)', cardShadow:'0 1px 2px rgba(0,0,0,0.04)', danger:'#ff4d4f' }
+  },
+  {
+    id: 'mui', name: 'Material UI', stars: '99.4k', license: 'MIT',
+    desc: 'Google Material 3 · 鲜明主色、层级投影（Elevation）、清晰动效',
+    best: '跨平台 Web/移动应用 / 国际化产品', fit: '高（规范严谨、组件极全）',
+    tokens: { primary:'#1976d2', primaryFg:'#ffffff', primarySoft:'rgba(25,118,210,0.12)', radius:'4px', radiusLg:'12px', badgeRadius:'999px', ctlH:'36px', btnWeight:'600', btnShadow:'0 2px 4px rgba(0,0,0,0.18)', cardShadow:'0 2px 8px rgba(0,0,0,0.08)', danger:'#d32f2f' }
+  },
+  {
+    id: 'daisyui', name: 'daisyUI', stars: '42.9k', license: 'MIT',
+    desc: '纯 CSS 语义类名 · 30+ 预设主题一键切换、大圆角明快视觉',
+    best: '轻量无 JS 站点 / 多主题消费级工具', fit: '中（轻快省体积，偏 C 端活泼）',
+    tokens: { primary:'#570df8', primaryFg:'#ffffff', primarySoft:'rgba(87,13,248,0.1)', radius:'10px', radiusLg:'16px', badgeRadius:'999px', ctlH:'38px', btnWeight:'600', btnShadow:'none', cardShadow:'0 4px 14px rgba(0,0,0,0.06)', danger:'#f87272' }
+  },
+  {
+    id: 'chakra', name: 'Chakra UI', stars: '40.7k', license: 'MIT',
+    desc: '青绿舒展风格 · 强无障碍支持、舒适留白、组合式语义 Token',
+    best: '内容协作 / 表单向导 / 创业产品', fit: '高（阅读舒适、容错提示清晰）',
+    tokens: { primary:'#319795', primaryFg:'#ffffff', primarySoft:'rgba(49,151,149,0.12)', radius:'6px', radiusLg:'10px', badgeRadius:'6px', ctlH:'36px', btnWeight:'600', btnShadow:'none', cardShadow:'0 1px 3px rgba(0,0,0,0.07)', danger:'#e53e3e' }
+  },
+  {
+    id: 'mantine', name: 'Mantine', stars: '32.0k', license: 'MIT',
+    desc: '全能应用套件 · 利落天蓝、丰富表单/日期/通知/模态框开箱即用',
+    best: '复杂交互 Web 应用 / 仪表盘', fit: '极高（表单与工作流体验极佳）',
+    tokens: { primary:'#228be6', primaryFg:'#ffffff', primarySoft:'rgba(34,139,230,0.12)', radius:'6px', radiusLg:'8px', badgeRadius:'999px', ctlH:'34px', btnWeight:'600', btnShadow:'none', cardShadow:'0 1px 3px rgba(0,0,0,0.06)', danger:'#fa5252' }
+  },
+  {
+    id: 'heroui', name: 'HeroUI (NextUI)', stars: '31.3k', license: 'Apache-2.0',
+    desc: '高质感现代消费级 SaaS · 大圆角、细腻柔和阴影、极佳移动端观感',
+    best: 'C 端付费工具 / 商业门户首页', fit: '高（适合 lain42.top 商业转化）',
+    tokens: { primary:'#006fee', primaryFg:'#ffffff', primarySoft:'rgba(0,111,238,0.12)', radius:'12px', radiusLg:'14px', badgeRadius:'999px', ctlH:'38px', btnWeight:'500', btnShadow:'0 4px 12px rgba(0,111,238,0.28)', cardShadow:'0 4px 16px rgba(0,0,0,0.06)', danger:'#f31260' }
+  },
+  {
+    id: 'element', name: 'Element Plus', stars: '27.9k', license: 'MIT',
+    desc: 'Vue 3 国内政企事实标准 · 4px 硬朗圆角、浅蓝高亮、表单校验经典',
+    best: '国内政务网 / 企事业单位内部系统', fit: '极高（与政务目标站零违和）',
+    tokens: { primary:'#409eff', primaryFg:'#ffffff', primarySoft:'rgba(64,158,255,0.12)', radius:'4px', radiusLg:'4px', badgeRadius:'4px', ctlH:'32px', btnWeight:'500', btnShadow:'none', cardShadow:'0 2px 12px rgba(0,0,0,0.06)', danger:'#f56c6c' }
+  },
+  {
+    id: 'radix', name: 'Radix Primitives', stars: '19.5k', license: 'MIT',
+    desc: '纯 Headless 无障碍原语（类似 nsh/base）· 零强制样式、极致结构清晰',
+    best: '自定义品牌设计系统底层底座', fit: '极高（适合作为 lilyco 抽象层）',
+    tokens: { primary:'#0f172a', primaryFg:'#ffffff', primarySoft:'rgba(15,23,42,0.08)', radius:'4px', radiusLg:'6px', badgeRadius:'4px', ctlH:'32px', btnWeight:'500', btnShadow:'none', cardShadow:'none', danger:'#b91c1c' }
+  },
+  {
+    id: 'primereact', name: 'PrimeReact', stars: '8.3k', license: 'MIT',
+    desc: 'Aura 翡翠绿企业套件 · 强项在复杂 DataTable、TreeTable、向导流程',
+    best: '数据密集型审批 / 财务报表 / ERP', fit: '高（表格与多步向导强）',
+    tokens: { primary:'#10b981', primaryFg:'#ffffff', primarySoft:'rgba(16,185,129,0.12)', radius:'6px', radiusLg:'10px', badgeRadius:'6px', ctlH:'34px', btnWeight:'600', btnShadow:'none', cardShadow:'0 1px 3px rgba(0,0,0,0.06)', danger:'#ef4444' }
+  }
+];
+
+let activeA = 'shadcn';
+let activeB = 'antd';
+let mode = 'single';
+
+function toggleDark() {
+  document.documentElement.classList.toggle('dark');
+  render();
+}
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('btnSingle').classList.toggle('active', m === 'single');
+  document.getElementById('btnSplit').classList.toggle('active', m === 'split');
+  document.getElementById('selB').style.display = m === 'split' ? 'inline-block' : 'none';
+  render();
+}
+
+function styleFor(fw) {
+  const dark = document.documentElement.classList.contains('dark');
+  const t = fw.tokens;
+  const isShadcnDark = dark && (fw.id === 'shadcn' || fw.id === 'radix');
+  return [
+    `--t-bg:${dark ? '#09090b' : '#ffffff'}`,
+    `--t-card-bg:${dark ? '#111113' : '#ffffff'}`,
+    `--t-surface:${dark ? '#1c1c21' : '#f4f4f5'}`,
+    `--t-input-bg:${dark ? '#09090b' : '#ffffff'}`,
+    `--t-fg:${dark ? '#fafafa' : '#09090b'}`,
+    `--t-muted:${dark ? '#a1a1aa' : '#71717a'}`,
+    `--t-border:${dark ? '#27272a' : '#e4e4e7'}`,
+    `--t-primary:${isShadcnDark ? '#fafafa' : t.primary}`,
+    `--t-primary-fg:${isShadcnDark ? '#18181b' : t.primaryFg}`,
+    `--t-primary-soft:${isShadcnDark ? 'rgba(250,250,250,0.12)' : t.primarySoft}`,
+    `--t-radius:${t.radius}`,
+    `--t-radius-lg:${t.radiusLg}`,
+    `--t-badge-radius:${t.badgeRadius}`,
+    `--t-ctl-h:${t.ctlH}`,
+    `--t-btn-weight:${t.btnWeight}`,
+    `--t-btn-shadow:${t.btnShadow}`,
+    `--t-card-shadow:${t.cardShadow}`,
+    `--t-shadow:${dark ? 'none' : '0 1px 3px rgba(0,0,0,0.04)'}`,
+    `--t-danger:${t.danger}`,
+  ].join(';');
+}
+
+function renderStage(fw) {
+  return `
+  <section class="stage" style="${styleFor(fw)}">
+    <div class="stage-head">
+      <div>
+        <div class="stage-title">${fw.name} <span class="t-badge primary">★ ${fw.stars}</span> <span class="t-badge">${fw.license}</span></div>
+        <div class="stage-meta">${fw.desc}</div>
+      </div>
+      <span class="t-badge ok">Token 驱动</span>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">1. 按钮与操作（Button / Badge / Switch）</div>
+      <div class="row">
+        <button class="t-btn primary" onclick="document.getElementById('demoModal').classList.add('open')">主操作 / 弹窗演示</button>
+        <button class="t-btn secondary">次级按钮</button>
+        <button class="t-btn outline">描边按钮</button>
+        <button class="t-btn ghost">幽灵按钮</button>
+        <button class="t-btn danger">驳回</button>
+        <span class="t-badge primary">已解锁</span>
+        <span class="t-badge warn">待人类审核</span>
+        <span class="t-switch" title="Switch 开关"></span>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">2. 导航与多步骤向导（Tabs / Stepper）</div>
+      <div class="row" style="justify-content:space-between">
+        <div class="t-tabs">
+          <button class="t-tab on">基础资料</button>
+          <button class="t-tab">证照附件</button>
+          <button class="t-tab">审核记录</button>
+        </div>
+        <span class="stage-meta mono">Lain42 / 企业设立登记 / 草稿 #042</span>
+      </div>
+      <div class="t-stepper">
+        <div class="t-step done">1. 企业信息 ✓</div>
+        <div class="t-step done">2. 法人股东 ✓</div>
+        <div class="t-step done">3. 证照上传 ✓</div>
+        <div class="t-step">4. 人类审核</div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">3. 表单与国标校验（Input / Select / Checkbox / Error）</div>
+      <div class="grid2">
+        <div>
+          <label class="t-label">企业名称</label>
+          <input class="t-input" value="星火科技有限公司">
+        </div>
+        <div>
+          <label class="t-label">企业类型（Select）</label>
+          <select class="t-select"><option>有限责任公司</option><option>股份有限公司</option></select>
+        </div>
+        <div>
+          <label class="t-label">统一社会信用代码（GB 32100 校验态）</label>
+          <input class="t-input mono" value="91350100M000100Y44" style="border-color:var(--t-danger)">
+          <div class="t-err">校验码错误：末位应为 3，请核对营业执照</div>
+        </div>
+        <div>
+          <label class="t-label">证件照规格（Slider & Checkbox）</label>
+          <div class="row" style="height:var(--t-ctl-h)">
+            <label style="font-size:12.5px"><input type="checkbox" checked> 自动压缩 ≤ 200KB</label>
+            <input type="range" min="50" max="100" value="85" style="flex:1">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">4. 数据展示与表格（KPI Stat / DataTable）</div>
+      <div class="grid3">
+        <div class="t-card"><div class="stage-meta">待审草稿</div><div class="mono" style="font-size:20px;font-weight:700">12</div></div>
+        <div class="t-card"><div class="stage-meta">已沉淀模板</div><div class="mono" style="font-size:20px;font-weight:700">8</div></div>
+        <div class="t-card"><div class="stage-meta">内存占用</div><div class="mono" style="font-size:20px;font-weight:700">3.5 MB</div></div>
+      </div>
+      <div class="t-card" style="padding:0;overflow:hidden">
+        <table class="t-table">
+          <thead><tr><th>企业名称</th><th>插件</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr><td>星火科技有限公司</td><td class="mono">form-review</td><td><span class="t-badge warn">待审核</span></td><td><button class="t-btn secondary" style="height:26px;font-size:12px">核对</button></td></tr>
+            <tr><td>云枢智创工作室</td><td class="mono">vision</td><td><span class="t-badge ok">已交付</span></td><td><button class="t-btn ghost" style="height:26px;font-size:12px">下载</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">5. 反馈与进度（Alert / Progress）</div>
+      <div class="t-alert">检测到目标站点出现「短信验证码」，流程已自动暂停并交由操作员在可见浏览器窗口完成验证。</div>
+      <div class="t-progress"><span></span></div>
+    </div>
+  </section>`;
+}
+
+function render() {
+  const strip = document.getElementById('fwStrip');
+  strip.innerHTML = '';
+  for (const fw of FRAMEWORKS) {
+    const b = document.createElement('button');
+    b.className = 'fw-btn' + (fw.id === activeA ? ' active' : '');
+    b.innerHTML = `<span class="dot" style="background:${fw.tokens.primary}"></span>${fw.name} <span class="mono" style="opacity:0.65">${fw.stars}</span>`;
+    b.onclick = () => { activeA = fw.id; render(); };
+    strip.appendChild(b);
+  }
+
+  const grid = document.getElementById('compareGrid');
+  grid.classList.toggle('split', mode === 'split');
+  const fwA = FRAMEWORKS.find(f => f.id === activeA) || FRAMEWORKS[0];
+  if (mode === 'split') {
+    activeB = document.getElementById('selB').value || 'antd';
+    const fwB = FRAMEWORKS.find(f => f.id === activeB) || FRAMEWORKS[1];
+    grid.innerHTML = renderStage(fwA) + renderStage(fwB);
+  } else {
+    grid.innerHTML = renderStage(fwA);
+  }
+}
+
+// Init selector & matrix
+const selB = document.getElementById('selB');
+const tbody = document.getElementById('matrixBody');
+for (const fw of FRAMEWORKS) {
+  const opt = document.createElement('option');
+  opt.value = fw.id;
+  opt.textContent = '对比右侧：' + fw.name;
+  if (fw.id === activeB) opt.selected = true;
+  selB.appendChild(opt);
+
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td><b>${fw.name}</b></td><td class="mono">${fw.stars}</td><td>${fw.license}</td>
+    <td><span style="display:inline-block;width:10px;height:10px;border-radius:99px;background:${fw.tokens.primary};margin-right:6px"></span><span class="mono">${fw.tokens.primary}</span> / 圆角 ${fw.tokens.radius}</td>
+    <td>${fw.best}</td><td>${fw.fit}</td>`;
+  tbody.appendChild(tr);
+}
+render();
+</script>
+</body>
+</html>

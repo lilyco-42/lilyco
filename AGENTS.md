@@ -21,6 +21,12 @@ workspace 依赖图、全部关键符号（带 `文件:行号`）、四端调用
 4. `Progress` 事件流恒以 `Done`/`Error` 结尾（executor 合成兜底）。
 5. 任何 PR：`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets`、`cargo test --workspace` 全绿；新增能力必须带测试。
 6. 多命令语义四端对齐：可见/别名/隐藏 —— 改语义时对照 `docs/CODEGRAPH.md` §5 的矩阵，四端一起改。
+7. Web / 移动端 / WebView 交付硬性规范（详见 `docs/ui/06-ten-year-ui-architecture.md` §4.1）：
+   - 严禁依赖隐式横向滚动导航（尤其禁止父级 `overflow: hidden` 吞掉触摸滚动）；移动端一律用网格/换行或底部 TabBar，确保全部入口一屏可见；
+   - 移动端隐藏桌面侧栏时，侧栏内的核心表单/授权/操作项必须在主视图保留可见入口；
+   - 移动端输入框字号 `≥ 16px`、触控热区 `≥ 44px`、留出 `env(safe-area-inset-bottom)` 安全区；
+   - Android/桌面 WebView 壳必须实现 `onReceivedError` 中文重试/兜底页、`onShowFileChooser` 文件上传与禁用误触缩放；
+   - 任何 Web UI 改动必须通过 `320px / 390px / 768px / 1440px` 真实浏览器零横向溢出（`scrollWidth <= innerWidth`）验收。
 
 ## 常用命令
 

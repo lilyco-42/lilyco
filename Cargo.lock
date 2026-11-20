@@ -299,6 +299,7 @@ dependencies = [
  "matchit",
  "memchr",
  "mime",
+ "multer",
  "percent-encoding",
  "pin-project-lite",
  "serde_core",
@@ -2557,7 +2558,7 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "simplecss",
- "spin",
+ "spin 0.10.1",
  "thiserror 2.0.18",
  "tokio",
  "tsify",
@@ -3898,6 +3899,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "lilyco-web2cli"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "base64 0.23.1",
+ "html5ever",
+ "image",
+ "lilyco",
+ "regex",
+ "ring",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml 0.8.2",
+ "tungstenite",
+ "ureq",
+ "url",
+]
+
+[[package]]
 name = "linebender_resource_handle"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4190,6 +4212,23 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "multer"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83e87776546dc87511aa5ee218730c92b666d7264ab6ed41f9d215af9cd5224b"
+dependencies = [
+ "bytes",
+ "encoding_rs",
+ "futures-util",
+ "http",
+ "httparse",
+ "memchr",
+ "mime",
+ "spin 0.9.9",
+ "version_check",
 ]
 
 [[package]]
@@ -6644,6 +6683,12 @@ dependencies = [
 
 [[package]]
 name = "spin"
+version = "0.9.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
+
+[[package]]
+name = "spin"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "023a211cb3138dbc438680b32560ad89f699977624c9f8dbb95a47d5b4c07dd3"
@@ -7898,6 +7943,7 @@ dependencies = [
  "serde_json",
  "ureq-proto",
  "utf8-zero",
+ "webpki-roots",
 ]
 
 [[package]]
