@@ -235,10 +235,10 @@ pub mod alipay {
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine as _;
     use rsa::pkcs1::DecodeRsaPrivateKey;
-    use rsa::pkcs1v15::SigningKey;
-    use rsa::pkcs8::DecodePrivateKey;
-    use rsa::signature::{RandomizedSigner, SignatureEncoding};
-    use rsa::RsaPrivateKey;
+    use rsa::pkcs1v15::{Signature, SigningKey, VerifyingKey};
+    use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey};
+    use rsa::signature::{RandomizedSigner, SignatureEncoding, Verifier};
+    use rsa::{RsaPrivateKey, RsaPublicKey};
     use serde_json::{json, Value};
     use sha2::Sha256;
     use std::collections::BTreeMap;
@@ -308,6 +308,47 @@ pub mod alipay {
         let mut rng = rsa::rand_core::OsRng;
         let sig = signing_key.sign_with_rng(&mut rng, content.as_bytes());
         Ok(STANDARD.encode(sig.to_bytes()))
+    }
+
+    fn parse_public_key(raw: &str) -> Result<RsaPublicKey, PayError> {
+        let trimmed = raw.trim();
+        if trimmed.contains("BEGIN PUBLIC KEY") {
+            return RsaPublicKey::from_public_key_pem(trimmed)
+                .map_err(|e| PayError::Crypto(format!("SPKI PEM 公钥解析失败: {e}")));
+        }
+        let cleaned: String = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
+        let der = STANDARD
+            .decode(&cleaned)
+            .map_err(|e| PayError::Crypto(format!("公钥 Base64 解码失败: {e}")))?;
+        RsaPublicKey::from_public_key_der(&der)
+            .map_err(|e| PayError::Crypto(format!("公钥 DER 解析失败: {e}")))
+    }
+
+    /// 校验支付宝异步通知（`notify_url`）的 RSA2 (`SHA256withRSA`) 签名。
+    pub fn verify_notify_rsa2(cfg: &AlipayConfig, params: &BTreeMap<String, String>) -> bool {
+        if params.get("sign_type").map(String::as_str) != Some("RSA2") {
+            return false;
+        }
+        let Some(sig_b64) = params.get("sign").filter(|s| !s.is_empty()) else {
+            return false;
+        };
+        let Ok(sig_bytes) = STANDARD.decode(sig_b64) else {
+            return false;
+        };
+        let Ok(sig) = Signature::try_from(sig_bytes.as_slice()) else {
+            return false;
+        };
+        let Ok(pub_key) = parse_public_key(&cfg.alipay_public_key) else {
+            return false;
+        };
+        let content: String = params
+            .iter()
+            .filter(|(k, v)| k.as_str() != "sign" && k.as_str() != "sign_type" && !v.is_empty())
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join("&");
+        let verifier = VerifyingKey::<Sha256>::new(pub_key);
+        verifier.verify(content.as_bytes(), &sig).is_ok()
     }
 
     /// 生成 UTC+8 (`YYYY-MM-DD HH:MM:SS`) 时间戳（零外部日期 crate）。

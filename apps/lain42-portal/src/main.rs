@@ -180,7 +180,8 @@ mod tests {
             .unwrap();
         assert_eq!(buy.status(), StatusCode::OK);
 
-        // 4. Redeem LAIN42-TEST-100 card -> verify /me shows updated balance & entitlement
+        // 4. Redeem LAIN42-TEST-500 card (free promo bonus points) -> verify it CANNOT buy proxy_1m (non-replicable)
+        //    but CAN buy rembg_creator (replicable software tool)
         let rdm = app
             .clone()
             .oneshot(
@@ -189,14 +190,45 @@ mod tests {
                     .uri("/studio/api/redeem")
                     .header("authorization", format!("Bearer {token}"))
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"code":"LAIN42-TEST-100"}"#))
+                    .body(Body::from(r#"{"code":"LAIN42-TEST-500"}"#))
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(rdm.status(), StatusCode::OK);
 
+        let buy_proxy_with_bonus = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/studio/api/points/purchase")
+                    .header("authorization", format!("Bearer {token}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"product":"proxy_1m","reference":"ref_deny_bonus"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(buy_proxy_with_bonus.status(), StatusCode::BAD_REQUEST);
+
+        let buy_tool_with_bonus = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/studio/api/points/purchase")
+                    .header("authorization", format!("Bearer {token}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"product":"rembg_creator","reference":"ref_allow_bonus"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(buy_tool_with_bonus.status(), StatusCode::OK);
+
         let me = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri("/studio/api/me")
@@ -209,8 +241,84 @@ mod tests {
         let me_j: serde_json::Value =
             serde_json::from_slice(&me.into_body().collect().await.unwrap().to_bytes()).unwrap();
         assert_eq!(me_j["username"], "lain_tester");
-        assert_eq!(me_j["entitlements"].as_array().unwrap().len(), 1);
-        assert_eq!(me_j["entitlements"][0]["product"], "proxy_1m");
+        assert_eq!(me_j["points"]["paid_balance"], 0);
+        assert_eq!(me_j["points"]["bonus_balance"], 458);
+        assert_eq!(me_j["points"]["balance"], 458);
+        assert_eq!(me_j["entitlements"].as_array().unwrap().len(), 2);
+        let lkey = me_j["entitlements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["product"] == "proxy_1m")
+            .unwrap()["license_key"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // 5. Verify Clash subscription delivery, client receipt verify, and SEO endpoints
+        let sub = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/studio/api/sub/{lkey}/clash"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(sub.status(), StatusCode::OK);
+        let sub_yaml = String::from_utf8(sub.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+        assert!(sub_yaml.contains("LYCO-Auto"));
+
+        let ver = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/studio/api/verify")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(r#"{{"license_key":"{lkey}"}}"#)))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ver.status(), StatusCode::OK);
+
+        let rob = app
+            .clone()
+            .oneshot(Request::builder().uri("/robots.txt").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(rob.status(), StatusCode::OK);
+
+        let sm = app
+            .clone()
+            .oneshot(Request::builder().uri("/sitemap.xml").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(sm.status(), StatusCode::OK);
+        let sm_body = String::from_utf8(sm.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+        assert!(sm_body.contains("/downloads/clash-verge-rev"));
+
+        let dls = app
+            .clone()
+            .oneshot(Request::builder().uri("/downloads").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(dls.status(), StatusCode::OK);
+
+        let dl_detail = app
+            .clone()
+            .oneshot(Request::builder().uri("/downloads/clash-verge-rev").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(dl_detail.status(), StatusCode::OK);
+
+        let go_dl = app
+            .oneshot(Request::builder().uri("/go/download/clash-verge-rev").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(go_dl.status(), StatusCode::TEMPORARY_REDIRECT);
     }
 
     #[tokio::test]

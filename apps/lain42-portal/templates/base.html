@@ -4,7 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>{{ page_title }} · 云枢智创 lain42</title>
-  <meta name="description" content="云枢智创 lain42 — 统一 AI API、数字商品商城、代理专线与本地工具箱。一个账户管理积分、密钥与全部数字权益。">
+  <meta name="description" content="云枢智创 lain42 — 统一 AI API（OpenAI / Claude 兼容）、数字商品商城、LYCO Connect 代理专线与本地工具箱。一个账户管理积分、密钥与全部数字权益。">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="云枢智创 · lain42">
+  <meta property="og:title" content="{{ page_title }} · 云枢智创 lain42">
+  <meta property="og:description" content="统一 AI API（10 积分 = 1 元）、数字商品商城、全球支付与本地工具箱。">
+  <meta name="twitter:card" content="summary_large_image">
+  {% block head_extra %}{% endblock %}
+  <link rel="alternate" hreflang="zh-CN" href="https://dev.lain42.top/">
+  <link rel="alternate" hreflang="en-US" href="https://dev.lain42.top/">
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"云枢智创 · lain42","url":"https://dev.lain42.top","description":"Local AI API, Compute, Digital Products, Open-Source Release Mirrors & Developer Tools powered by Lilyco Rust"}</script>
   <style>
     {{ theme_css|safe }}
     :root {
@@ -239,8 +248,8 @@
         <a class="nav-item {% if active_nav == "home" %}active{% endif %}" href="/" data-i18n="nav_home">首页</a>
         <a class="nav-item {% if active_nav == "models" %}active{% endif %}" href="/models" data-i18n="nav_models">模型价格</a>
         <a class="nav-item {% if active_nav == "shop" %}active{% endif %}" href="/shop" data-i18n="nav_shop">商城充值</a>
+        <a class="nav-item {% if active_nav == "downloads" %}active{% endif %}" href="/downloads" data-i18n="nav_downloads">下载中心</a>
         <a class="nav-item {% if active_nav == "docs" %}active{% endif %}" href="/docs" data-i18n="nav_docs">API 文档</a>
-        <a class="nav-item {% if active_nav == "tool" %}active{% endif %}" href="/tool" data-i18n="nav_tool">工具箱</a>
         <a class="nav-item {% if active_nav == "account" %}active{% endif %}" href="/account" data-i18n="nav_account">控制台</a>
       </nav>
       <div class="header-right">
@@ -268,6 +277,11 @@
       <span>
         微信 Lilyco42 · QQ 1957374829 ·
         <a href="/llms.txt">/llms.txt</a> ·
+        <a href="/downloads">下载中心</a> ·
+        <a href="/tool">工具箱</a> ·
+        <a href="/vpn">代理专线</a> ·
+        <a href="/sitemap.xml">Sitemap</a> ·
+        <a href="/llms.txt">llms.txt</a> ·
         <a href="/openapi.json">OpenAPI</a> ·
         <a href="/api/health">状态</a>
       </span>
@@ -317,7 +331,7 @@
     const I18N_DICT = {
       zh: {
         nav_home: '首页', nav_models: '模型价格', nav_shop: '商城充值',
-        nav_docs: 'API 文档', nav_tool: '工具箱', nav_account: '控制台',
+        nav_downloads: '下载中心', nav_docs: 'API 文档', nav_tool: '工具箱', nav_account: '控制台',
         btn_login: '登录 / 注册', btn_logout: '退出',
         shop_title: '商城与全球积分收银台',
         shop_lead: '支持爱发电、支付宝、国际信用卡（Visa / Mastercard / Apple Pay / Google Pay）、Google Play 内购、USDT(TRC20) 与卡密兑换。',
@@ -326,7 +340,7 @@
       },
       en: {
         nav_home: 'Home', nav_models: 'Models', nav_shop: 'Billing & Shop',
-        nav_docs: 'API Docs', nav_tool: 'Tools', nav_account: 'Console',
+        nav_downloads: 'Downloads', nav_docs: 'API Docs', nav_tool: 'Tools', nav_account: 'Console',
         btn_login: 'Sign In', btn_logout: 'Sign Out',
         shop_title: 'Global Billing & Digital Storefront',
         shop_lead: 'Instant credits top-up via Stripe (Visa / Mastercard / Apple Pay / Google Pay), Google Play Billing, Alipay, Afdian, USDT (TRC20), or Gift Cards.',

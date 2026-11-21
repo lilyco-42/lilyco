@@ -95,6 +95,52 @@ pub struct StudioUser {
     pub username: String,
     pub email: String,
     pub points_balance: i64,
+    #[serde(default)]
+    pub bonus_points: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadItem {
+    pub slug: String,
+    pub name: String,
+    pub repo: String,
+    pub category: String,
+    pub stars: i64,
+    pub version: String,
+    pub published_at: String,
+    pub platform: String,
+    pub summary: String,
+    pub keywords: String,
+    pub cta_type: String,
+    pub asset_name: String,
+    pub asset_size_bytes: i64,
+    pub sha256: String,
+    pub github_release_url: String,
+    pub github_download_url: String,
+    pub quark_url: String,
+    #[serde(default)]
+    pub download_count: i64,
+}
+
+impl DownloadItem {
+    pub fn stars_label(&self) -> String {
+        if self.stars >= 1000 {
+            format!("{:.1}k", self.stars as f64 / 1000.0)
+        } else {
+            self.stars.to_string()
+        }
+    }
+
+    pub fn size_label(&self) -> String {
+        let mb = self.asset_size_bytes as f64 / 1_048_576.0;
+        if mb >= 1.0 {
+            format!("{mb:.1} MB")
+        } else if self.asset_size_bytes > 0 {
+            format!("{:.0} KB", self.asset_size_bytes as f64 / 1024.0)
+        } else {
+            String::new()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -197,6 +243,26 @@ impl PortalDb {
                 status TEXT NOT NULL,
                 created_unix INTEGER NOT NULL
             )",
+            "CREATE TABLE IF NOT EXISTS downloads_catalog (
+                slug TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                repo TEXT NOT NULL,
+                category TEXT NOT NULL,
+                stars INTEGER NOT NULL DEFAULT 0,
+                version TEXT NOT NULL,
+                published_at TEXT NOT NULL DEFAULT '',
+                platform TEXT NOT NULL DEFAULT '',
+                summary TEXT NOT NULL DEFAULT '',
+                keywords TEXT NOT NULL DEFAULT '',
+                cta_type TEXT NOT NULL DEFAULT 'ai',
+                asset_name TEXT NOT NULL DEFAULT '',
+                asset_size_bytes INTEGER NOT NULL DEFAULT 0,
+                sha256 TEXT NOT NULL DEFAULT '',
+                github_release_url TEXT NOT NULL DEFAULT '',
+                github_download_url TEXT NOT NULL DEFAULT '',
+                quark_url TEXT NOT NULL DEFAULT '',
+                download_count INTEGER NOT NULL DEFAULT 0
+            )",
         ];
         for sql in stmts {
             self.conn.execute(sql, ()).await?;
@@ -292,6 +358,59 @@ impl PortalDb {
                         (id, group, title, status, desc, url),
                     )
                     .await?;
+            }
+        }
+
+        // Sync embedded downloads catalog (preserve download_count across deploys)
+        let raw_downloads = include_str!("../data/downloads.json");
+        if let Ok(items) = serde_json::from_str::<Vec<DownloadItem>>(raw_downloads) {
+            for item in items {
+                let _ = self
+                    .conn
+                    .execute(
+                        "INSERT INTO downloads_catalog (
+                            slug, name, repo, category, stars, version, published_at, platform,
+                            summary, keywords, cta_type, asset_name, asset_size_bytes, sha256,
+                            github_release_url, github_download_url, quark_url, download_count
+                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 0)
+                        ON CONFLICT(slug) DO UPDATE SET
+                            name = excluded.name,
+                            repo = excluded.repo,
+                            category = excluded.category,
+                            stars = excluded.stars,
+                            version = excluded.version,
+                            published_at = excluded.published_at,
+                            platform = excluded.platform,
+                            summary = excluded.summary,
+                            keywords = excluded.keywords,
+                            cta_type = excluded.cta_type,
+                            asset_name = excluded.asset_name,
+                            asset_size_bytes = excluded.asset_size_bytes,
+                            sha256 = excluded.sha256,
+                            github_release_url = excluded.github_release_url,
+                            github_download_url = excluded.github_download_url,
+                            quark_url = excluded.quark_url",
+                        vec![
+                            Value::Text(item.slug),
+                            Value::Text(item.name),
+                            Value::Text(item.repo),
+                            Value::Text(item.category),
+                            Value::Integer(item.stars),
+                            Value::Text(item.version),
+                            Value::Text(item.published_at),
+                            Value::Text(item.platform),
+                            Value::Text(item.summary),
+                            Value::Text(item.keywords),
+                            Value::Text(item.cta_type),
+                            Value::Text(item.asset_name),
+                            Value::Integer(item.asset_size_bytes),
+                            Value::Text(item.sha256),
+                            Value::Text(item.github_release_url),
+                            Value::Text(item.github_download_url),
+                            Value::Text(item.quark_url),
+                        ],
+                    )
+                    .await;
             }
         }
         Ok(())
@@ -601,6 +720,7 @@ impl PortalDb {
                 password_hash TEXT NOT NULL,
                 email TEXT NOT NULL DEFAULT '',
                 points_balance INTEGER NOT NULL DEFAULT 0,
+                bonus_points INTEGER NOT NULL DEFAULT 0,
                 created_unix INTEGER NOT NULL
             )",
             "CREATE TABLE IF NOT EXISTS studio_intents (
@@ -640,6 +760,13 @@ impl PortalDb {
             self.conn.execute(sql, ()).await?;
         }
         // 预置 dev/test 体验卡密（仅不存在时写入）
+        let _ = self
+            .conn
+            .execute(
+                "ALTER TABLE studio_users ADD COLUMN bonus_points INTEGER NOT NULL DEFAULT 0",
+                (),
+            )
+            .await;
         for (code, pts) in [("LAIN42-TEST-100", 100i64), ("LAIN42-TEST-500", 500i64)] {
             self.conn
                 .execute(
@@ -688,14 +815,14 @@ impl PortalDb {
         let mut rows = self
             .conn
             .query(
-                "SELECT id, username, email, points_balance, password_hash FROM studio_users WHERE username = ?1",
+                "SELECT id, username, email, points_balance, bonus_points, password_hash FROM studio_users WHERE username = ?1",
                 [uname.as_str()],
             )
             .await?;
         let Some(r) = rows.next().await? else {
             return Err(DbError::Decode("用户名或密码错误".into()));
         };
-        let stored_hash = as_str(r.get_value(4)?)?;
+        let stored_hash = as_str(r.get_value(5)?)?;
         let ok = if let Some(rest) = stored_hash.strip_prefix("scrypt$") {
             if let Some((salt, hex_digest)) = rest.split_once('$') {
                 verify_python_scrypt(plain_password, salt, hex_digest)
@@ -713,6 +840,7 @@ impl PortalDb {
             username: as_str(r.get_value(1)?)?,
             email: as_str(r.get_value(2)?)?,
             points_balance: as_i64(r.get_value(3)?)?,
+            bonus_points: as_i64(r.get_value(4)?)?,
         })
     }
 
@@ -720,7 +848,7 @@ impl PortalDb {
         let mut rows = self
             .conn
             .query(
-                "SELECT id, username, email, points_balance FROM studio_users WHERE username = ?1",
+                "SELECT id, username, email, points_balance, bonus_points FROM studio_users WHERE username = ?1",
                 [username],
             )
             .await?;
@@ -732,6 +860,7 @@ impl PortalDb {
             username: as_str(r.get_value(1)?)?,
             email: as_str(r.get_value(2)?)?,
             points_balance: as_i64(r.get_value(3)?)?,
+            bonus_points: as_i64(r.get_value(4)?)?,
         })
     }
 
@@ -775,12 +904,17 @@ impl PortalDb {
             }));
         }
 
+        let total_balance = user.points_balance.max(0) + user.bonus_points.max(0);
         Ok(serde_json::json!({
             "ok": true,
             "account_id": user.id,
             "username": user.username,
             "email": user.email,
-            "points": { "balance": user.points_balance },
+            "points": {
+                "balance": total_balance,
+                "paid_balance": user.points_balance,
+                "bonus_balance": user.bonus_points
+            },
             "entitlements": entitlements,
             "orders": orders
         }))
@@ -858,6 +992,100 @@ impl PortalDb {
         }))
     }
 
+    /// Webhook 异步回调幂等入账（无需用户登录态，按 `intent_id` 定位归属用户并原子加积分）。
+    pub async fn studio_settle_intent_webhook(
+        &self,
+        intent_id: &str,
+    ) -> Result<Option<(String, i64)>, DbError> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT username, product, points_credit, status FROM studio_intents WHERE intent_id = ?1",
+                [intent_id],
+            )
+            .await?;
+        let Some(r) = rows.next().await? else {
+            return Ok(None);
+        };
+        let username = as_str(r.get_value(0)?)?;
+        let product = as_str(r.get_value(1)?)?;
+        let points_credit = as_i64(r.get_value(2)?)?;
+        let status = as_str(r.get_value(3)?)?;
+
+        if status != "paid" {
+            let now = lilyco_license::current_unix_secs() as i64;
+            self.conn
+                .execute(
+                    "UPDATE studio_intents SET status = 'paid' WHERE intent_id = ?1",
+                    [intent_id],
+                )
+                .await?;
+            self.conn
+                .execute(
+                    "UPDATE studio_users SET points_balance = points_balance + ?1 WHERE username = ?2",
+                    (points_credit, username.as_str()),
+                )
+                .await?;
+            self.conn
+                .execute(
+                    "INSERT OR IGNORE INTO studio_orders (order_no, username, product, status, points_amount, created_unix) VALUES (?1, ?2, ?3, 'paid', ?4, ?5)",
+                    (intent_id, username.as_str(), product.as_str(), points_credit, now),
+                )
+                .await?;
+        }
+        Ok(Some((username, points_credit)))
+    }
+
+    /// 按授权码查询生效中的权益（用于 `/studio/api/sub/{token}/{fmt}`、`/music/sub/{key}` 与 `/verify`）。
+    pub async fn studio_find_active_entitlement_by_key(
+        &self,
+        license_key: &str,
+    ) -> Result<Option<(String, String, String)>, DbError> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT username, product, status FROM studio_entitlements WHERE license_key = ?1 AND status = 'active' LIMIT 1",
+                [license_key],
+            )
+            .await?;
+        if let Some(r) = rows.next().await? {
+            return Ok(Some((
+                as_str(r.get_value(0)?)?,
+                as_str(r.get_value(1)?)?,
+                as_str(r.get_value(2)?)?,
+            )));
+        }
+        Ok(None)
+    }
+
+    /// 校验用户是否拥有指定商品的生效权益（用于 `/studio/api/download/{product}` 门控）。
+    pub async fn studio_user_has_entitlement(
+        &self,
+        username: &str,
+        product: &str,
+    ) -> Result<bool, DbError> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT id FROM studio_entitlements WHERE username = ?1 AND product = ?2 AND status = 'active' LIMIT 1",
+                (username, product),
+            )
+            .await?;
+        Ok(rows.next().await?.is_some())
+    }
+
+    /// Non-replicable / high-value physical or bandwidth resources (proxies, dedicated nodes, VPS)
+    /// MUST be purchased with real paid `points_balance` ONLY — never free/check-in/promo `bonus_points`.
+    /// Replicable digital products (software, desktop tools, resource downloads, music scripts, games)
+    /// allow paying with `bonus_points + points_balance`.
+    pub fn is_non_replicable_product(product: &str) -> bool {
+        let p = product.to_ascii_lowercase();
+        p.starts_with("proxy_")
+            || p.starts_with("vpn_")
+            || p.starts_with("vps_")
+            || p.starts_with("node_")
+    }
+
     pub async fn studio_purchase_with_points(
         &self,
         username: &str,
@@ -866,21 +1094,40 @@ impl PortalDb {
         prefix: &str,
     ) -> Result<serde_json::Value, DbError> {
         let user = self.studio_find_user(username).await?;
-        if user.points_balance < points_price {
-            return Err(DbError::Decode(format!(
-                "积分余额不足（需要 {points_price} 积分，当前余额 {} 积分），请先充值",
-                user.points_balance
-            )));
+        let non_replicable = Self::is_non_replicable_product(product);
+        if non_replicable {
+            if user.points_balance < points_price {
+                return Err(DbError::Decode(format!(
+                    "实付余额不足：代理/高价值不可复制资源仅限实付充值余额购买（需要 {points_price} 实付积分，当前实付余额 {} 积分；赠送/签到积分 {} 不可用于代理兑换），请先充值",
+                    user.points_balance, user.bonus_points
+                )));
+            }
+            self.conn
+                .execute(
+                    "UPDATE studio_users SET points_balance = points_balance - ?1 WHERE username = ?2",
+                    (points_price, username),
+                )
+                .await?;
+        } else {
+            let total_avail = user.bonus_points.max(0) + user.points_balance.max(0);
+            if total_avail < points_price {
+                return Err(DbError::Decode(format!(
+                    "积分余额不足（需要 {points_price} 积分，当前可用 {} 积分：赠分 {} + 实付 {}），请先充值",
+                    total_avail, user.bonus_points, user.points_balance
+                )));
+            }
+            let use_bonus = user.bonus_points.max(0).min(points_price);
+            let use_paid = points_price - use_bonus;
+            self.conn
+                .execute(
+                    "UPDATE studio_users SET bonus_points = bonus_points - ?1, points_balance = points_balance - ?2 WHERE username = ?3",
+                    (use_bonus, use_paid, username),
+                )
+                .await?;
         }
         let now = lilyco_license::current_unix_secs() as i64;
         let order_no = format!("ORD-{now}-{}", product.replace('_', "").to_uppercase());
         let license_key = format!("{prefix}-{:X}-{:04X}", now, user.id);
-        self.conn
-            .execute(
-                "UPDATE studio_users SET points_balance = points_balance - ?1 WHERE username = ?2",
-                (points_price, username),
-            )
-            .await?;
         self.conn
             .execute(
                 "INSERT INTO studio_orders (order_no, username, product, status, points_amount, created_unix) VALUES (?1, ?2, ?3, 'paid', ?4, ?5)",
@@ -899,7 +1146,8 @@ impl PortalDb {
                 "order_no": order_no,
                 "product": product,
                 "status": "paid",
-                "points_amount": points_price
+                "points_amount": points_price,
+                "non_replicable": non_replicable
             },
             "entitlement": {
                 "product": product,
@@ -937,16 +1185,31 @@ impl PortalDb {
                 (username, upper.as_str()),
             )
             .await?;
-        self.conn
-            .execute(
-                "UPDATE studio_users SET points_balance = points_balance + ?1 WHERE username = ?2",
-                (pts, username),
-            )
-            .await?;
+        let is_free_promo = upper.starts_with("LAIN42-TEST-")
+            || upper.starts_with("FREE-")
+            || upper.starts_with("GIFT-")
+            || upper.starts_with("PROMO-")
+            || upper.starts_with("SIGN-");
+        if is_free_promo {
+            self.conn
+                .execute(
+                    "UPDATE studio_users SET bonus_points = bonus_points + ?1 WHERE username = ?2",
+                    (pts, username),
+                )
+                .await?;
+        } else {
+            self.conn
+                .execute(
+                    "UPDATE studio_users SET points_balance = points_balance + ?1 WHERE username = ?2",
+                    (pts, username),
+                )
+                .await?;
+        }
         Ok(serde_json::json!({
             "ok": true,
             "delivery_status": "delivered",
-            "points_added": pts
+            "points_added": pts,
+            "wallet": if is_free_promo { "bonus_points" } else { "paid_points" }
         }))
     }
 
@@ -973,6 +1236,90 @@ impl PortalDb {
             "points_amount": as_i64(r.get_value(3)?)?,
             "created_at": as_i64(r.get_value(4)?)?
         }))
+    }
+
+    pub async fn list_downloads(&self) -> Result<Vec<DownloadItem>, DbError> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT slug, name, repo, category, stars, version, published_at, platform,
+                        summary, keywords, cta_type, asset_name, asset_size_bytes, sha256,
+                        github_release_url, github_download_url, quark_url, download_count
+                 FROM downloads_catalog
+                 ORDER BY stars DESC, slug ASC",
+                (),
+            )
+            .await?;
+        let mut out = Vec::new();
+        while let Some(r) = rows.next().await? {
+            out.push(DownloadItem {
+                slug: as_str(r.get_value(0)?)?,
+                name: as_str(r.get_value(1)?)?,
+                repo: as_str(r.get_value(2)?)?,
+                category: as_str(r.get_value(3)?)?,
+                stars: as_i64(r.get_value(4)?)?,
+                version: as_str(r.get_value(5)?)?,
+                published_at: as_str(r.get_value(6)?)?,
+                platform: as_str(r.get_value(7)?)?,
+                summary: as_str(r.get_value(8)?)?,
+                keywords: as_str(r.get_value(9)?)?,
+                cta_type: as_str(r.get_value(10)?)?,
+                asset_name: as_str(r.get_value(11)?)?,
+                asset_size_bytes: as_i64(r.get_value(12)?)?,
+                sha256: as_str(r.get_value(13)?)?,
+                github_release_url: as_str(r.get_value(14)?)?,
+                github_download_url: as_str(r.get_value(15)?)?,
+                quark_url: as_str(r.get_value(16)?)?,
+                download_count: as_i64(r.get_value(17)?)?,
+            });
+        }
+        Ok(out)
+    }
+
+    pub async fn get_download(&self, slug: &str) -> Result<Option<DownloadItem>, DbError> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT slug, name, repo, category, stars, version, published_at, platform,
+                        summary, keywords, cta_type, asset_name, asset_size_bytes, sha256,
+                        github_release_url, github_download_url, quark_url, download_count
+                 FROM downloads_catalog WHERE slug = ?1",
+                [slug],
+            )
+            .await?;
+        let Some(r) = rows.next().await? else {
+            return Ok(None);
+        };
+        Ok(Some(DownloadItem {
+            slug: as_str(r.get_value(0)?)?,
+            name: as_str(r.get_value(1)?)?,
+            repo: as_str(r.get_value(2)?)?,
+            category: as_str(r.get_value(3)?)?,
+            stars: as_i64(r.get_value(4)?)?,
+            version: as_str(r.get_value(5)?)?,
+            published_at: as_str(r.get_value(6)?)?,
+            platform: as_str(r.get_value(7)?)?,
+            summary: as_str(r.get_value(8)?)?,
+            keywords: as_str(r.get_value(9)?)?,
+            cta_type: as_str(r.get_value(10)?)?,
+            asset_name: as_str(r.get_value(11)?)?,
+            asset_size_bytes: as_i64(r.get_value(12)?)?,
+            sha256: as_str(r.get_value(13)?)?,
+            github_release_url: as_str(r.get_value(14)?)?,
+            github_download_url: as_str(r.get_value(15)?)?,
+            quark_url: as_str(r.get_value(16)?)?,
+            download_count: as_i64(r.get_value(17)?)?,
+        }))
+    }
+
+    pub async fn increment_download_count(&self, slug: &str) -> Result<(), DbError> {
+        self.conn
+            .execute(
+                "UPDATE downloads_catalog SET download_count = download_count + 1 WHERE slug = ?1",
+                [slug],
+            )
+            .await?;
+        Ok(())
     }
 }
 

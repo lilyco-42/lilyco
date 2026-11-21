@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block head_extra %}
+  <meta name="keywords" content="{{ item.keywords }}">
+  <link rel="canonical" href="https://dev.lain42.top/downloads/{{ item.slug }}">
+  <script type="application/ld+json">{{ software_json_ld|safe }}</script>
+  <script type="application/ld+json">{{ faq_json_ld|safe }}</script>
+{% endblock %}
+{% block content %}
+<nav aria-label="面包屑" style="font-size:13px;color:var(--muted);margin:16px 0 12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+  <a href="/">首页</a>
+  <span>/</span>
+  <a href="/downloads">下载中心</a>
+  <span>/</span>
+  <span style="color:var(--text);font-weight:600;">{{ item.name }}</span>
+</nav>
+
+<div class="grid-2" style="align-items:start;gap:20px;">
+  <!-- 左侧：软件详情、高速下载与 SHA-256 校验 -->
+  <div style="display:grid;gap:16px;">
+    <section class="card" style="display:grid;gap:14px;">
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <span class="badge {% if item.category == "self" %}badge-brand{% endif %}">
+          {% if item.category == "self" %}云枢智创自研{% else %}GitHub 高星开源镜像{% endif %}
+        </span>
+        <span class="badge">{{ item.version }}</span>
+        {% if item.stars > 0 %}<span class="badge num">★ {{ item.stars_label() }} Stars</span>{% endif %}
+        {% if item.download_count > 0 %}<span class="badge num">已分发 {{ item.download_count }} 次</span>{% endif %}
+      </div>
+      <h1 style="margin:0;font-size:26px;line-height:1.25;">{{ item.name }} {{ item.version }} 国内高速下载</h1>
+      <p class="muted" style="margin:0;font-size:15px;line-height:1.65;">{{ item.summary }}</p>
+
+      <div style="display:flex;flex-wrap:wrap;gap:10px;padding-top:6px;">
+        {% if !item.quark_url.is_empty() %}
+        <a class="btn btn-primary" href="/go/download/{{ item.slug }}" target="_blank" rel="noopener">
+          夸克网盘高速下载（免密码）
+        </a>
+        {% endif %}
+        <a class="btn" href="{{ item.github_release_url }}" target="_blank" rel="noopener">
+          GitHub 官方 Release
+        </a>
+        {% if !item.github_download_url.is_empty() && item.github_download_url != item.github_release_url %}
+        <a class="btn" href="{{ item.github_download_url }}" target="_blank" rel="noopener">
+          GitHub 原始安装包
+        </a>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="card" style="display:grid;gap:10px;">
+      <h2 style="margin:0;font-size:17px;">安装包信息与安全校验</h2>
+      <div style="display:grid;gap:8px;font-size:14px;">
+        <div style="display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border);padding-bottom:8px;flex-wrap:wrap;">
+          <span class="muted">开源仓库</span>
+          <a href="https://github.com/{{ item.repo }}" target="_blank" rel="noopener" style="font-weight:600;text-decoration:underline;">github.com/{{ item.repo }}</a>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border);padding-bottom:8px;flex-wrap:wrap;">
+          <span class="muted">镜像版本号</span>
+          <code class="num">{{ item.version }}</code>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border);padding-bottom:8px;flex-wrap:wrap;">
+          <span class="muted">适用平台</span>
+          <span>{{ item.platform }}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border);padding-bottom:8px;flex-wrap:wrap;">
+          <span class="muted">文件名</span>
+          <code style="word-break:break-all;">{{ item.asset_name }}</code>
+        </div>
+        {% if item.asset_size_bytes > 0 %}
+        <div style="display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border);padding-bottom:8px;flex-wrap:wrap;">
+          <span class="muted">文件大小</span>
+          <span class="num">{{ item.size_label() }}</span>
+        </div>
+        {% endif %}
+        {% if !item.published_at.is_empty() %}
+        <div style="display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border);padding-bottom:8px;flex-wrap:wrap;">
+          <span class="muted">发布日期</span>
+          <span class="num">{{ item.published_at }}</span>
+        </div>
+        {% endif %}
+        {% if !item.sha256.is_empty() %}
+        <div style="display:grid;gap:4px;">
+          <span class="muted">SHA-256 校验值（与 GitHub 原包一致）</span>
+          <code style="font-size:12px;padding:8px 10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--border);word-break:break-all;">{{ item.sha256 }}</code>
+        </div>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="card" style="display:grid;gap:10px;">
+      <h2 style="margin:0;font-size:17px;">下载与使用常见问题</h2>
+      <details class="faq" open>
+        <summary>{{ item.name }} 的夸克网盘安装包安全吗？</summary>
+        <p>安全。文件由自动化流水线直接从官方 GitHub Release（<code>{{ item.repo }}</code>）拉取并上传至夸克网盘，不修改任何二进制字节，您可使用上方 SHA-256 校验值核对一致性。</p>
+      </details>
+      <details class="faq">
+        <summary>下载完成后如何快速配置？</summary>
+        <p>
+          {% if item.cta_type == "proxy" %}
+            安装完成后，在云枢智创商城开通 LYCO Connect 订阅，复制订阅链接一键导入客户端即可稳定连接韩、菲、美三地专线。
+          {% else if item.cta_type == "music" %}
+            安装完成后，前往云枢智创商城开通 LYCO 音乐音源订阅，导入音源脚本即可解锁无损音质播放与歌单同步。
+          {% else %}
+            安装完成后，前往云枢智创控制台签发 <code>lkr_</code> API 密钥，填入客户端即可按量调用 Claude / GPT / DeepSeek / Gemini 全系模型。
+          {% endif %}
+        </p>
+      </details>
+    </section>
+  </div>
+
+  <!-- 右侧：场景化高转化 CTA 侧边栏 + 相关推荐 -->
+  <aside style="display:grid;gap:16px;">
+    {% if item.cta_type == "proxy" %}
+    <section class="card" style="border-color:color-mix(in srgb, var(--brand) 40%, var(--border));background:linear-gradient(180deg,var(--brand-soft),var(--card));display:grid;gap:12px;">
+      <span class="badge badge-brand">推荐搭配服务</span>
+      <h3 style="margin:0;font-size:18px;">LYCO Connect 专线代理订阅</h3>
+      <p class="muted" style="margin:0;font-size:13.5px;">
+        自建韩、菲、美三地四条专线（20 个自有节点），原生支持 Clash Verge Rev / v2rayN 一键导入。
+      </p>
+      <ul style="margin:0;padding-left:18px;font-size:13.5px;display:grid;gap:4px;">
+        <li>月卡 <strong>¥30</strong>（300 积分 / 30 天）</li>
+        <li>季卡 <strong>98 折</strong>（882 积分 / 90 天）</li>
+        <li>年卡 <strong>9 折</strong>（3240 积分 / 365 天）</li>
+      </ul>
+      <a class="btn btn-primary btn-block" href="/shop">立即开通订阅</a>
+      <a class="btn btn-block" href="/vpn">查看节点说明</a>
+    </section>
+    {% else if item.cta_type == "music" %}
+    <section class="card" style="border-color:color-mix(in srgb, var(--brand) 40%, var(--border));background:linear-gradient(180deg,var(--brand-soft),var(--card));display:grid;gap:12px;">
+      <span class="badge badge-brand">推荐搭配音源</span>
+      <h3 style="margin:0;font-size:18px;">LYCO 音乐无损音源订阅</h3>
+      <p class="muted" style="margin:0;font-size:13.5px;">
+        兼容 Lyco Music 与落雪音乐（LX Music）桌面版/安卓版，开通后秒发专属音源 Key，稳定解析无损音质。
+      </p>
+      <a class="btn btn-primary btn-block" href="/shop">前往商城开通音源</a>
+    </section>
+    {% else %}
+    <section class="card" style="border-color:color-mix(in srgb, var(--brand) 40%, var(--border));background:linear-gradient(180deg,var(--brand-soft),var(--card));display:grid;gap:12px;">
+      <span class="badge badge-brand">推荐搭配 AI 算力</span>
+      <h3 style="margin:0;font-size:18px;">Lain42 统一 AI API（10 积分 = ¥1）</h3>
+      <p class="muted" style="margin:0;font-size:13.5px;">
+        一个密钥同时兼容 OpenAI 与 Claude Code / Anthropic 协议，按量计费零月费，上游失败自动退款。
+      </p>
+      <ul style="margin:0;padding-left:18px;font-size:13.5px;display:grid;gap:4px;">
+        <li>支持 Claude Sonnet 4 / DeepSeek V3.2 / GLM / Qwen</li>
+        <li>支持支付宝 / 爱发电 / 国际卡 / USDT 即充即用</li>
+      </ul>
+      <a class="btn btn-primary btn-block" href="/shop">充值积分并开通</a>
+      <a class="btn btn-block" href="/models">查看实时模型价格</a>
+    </section>
+    {% endif %}
+
+    <section class="card" style="display:grid;gap:10px;">
+      <h3 style="margin:0;font-size:15px;">相关软件高速下载</h3>
+      <div style="display:grid;gap:8px;">
+        {% for rel in related %}
+        <a href="/downloads/{{ rel.slug }}" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--bg-subtle);font-size:13.5px;">
+          <span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ rel.name }}</span>
+          <span class="badge" style="flex-shrink:0;">{{ rel.version }}</span>
+        </a>
+        {% endfor %}
+      </div>
+      <a class="btn btn-sm btn-block" href="/downloads">浏览全部下载 →</a>
+    </section>
+  </aside>
+</div>
+{% endblock %}

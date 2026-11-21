@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block head_extra %}
+  <meta name="keywords" content="GitHub Release国内高速下载,夸克网盘直链镜像,开源游戏下载,影视播放器下载,无损音乐播放器下载,电子书漫画阅读器下载,Clash Verge Rev下载,v2rayN下载,Cherry Studio下载,云枢智创工具箱">
+  <link rel="canonical" href="https://dev.lain42.top/downloads">
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"CollectionPage","name":"云枢智创软件与 GitHub 高星开源国内高速下载中心","url":"https://dev.lain42.top/downloads","description":"收录 400+ 云枢智创全线自研工具与游戏、影视、音乐、电子书、网络效率等高星 GitHub 开源项目最新版，提供夸克网盘免密码国内满速镜像与 SHA-256 校验。"}</script>
+{% endblock %}
+{% block content %}
+<section class="hero" style="padding-bottom:18px;">
+  <div class="eyebrow">国内满速镜像 · 夸克网盘免密直链 · SHA-256 校验 · 收录 {{ total_count }} 款</div>
+  <h1>软件与高星 GitHub 开源高速下载中心</h1>
+  <p class="lead">
+    实时同步 <strong>云枢智创（lilyco-42）自研工具</strong> 与 <strong>游戏 / 影视 / 音乐 / 电子书 / 网络效率</strong> 等 400+ 高星 GitHub 开源项目最新正式版，
+    全部托管至夸克网盘高速节点，免密码一键转存，附官方 GitHub 校验信息。
+  </p>
+  <div style="display:grid;gap:10px;margin-top:16px;">
+    <input id="dlSearch" type="search" placeholder="搜索软件名、仓库、关键词（如 HMCL、Clash、OBS、落雪音乐、KOReader、Calibre、RustDesk）..." style="width:100%;max-width:560px;">
+    <div style="display:flex;flex-wrap:wrap;gap:6px;">
+      <button class="tab-btn active" type="button" data-cat="all" onclick="filterDl('all', this)">全部 ({{ total_count }})</button>
+      <button class="tab-btn" type="button" data-cat="self" onclick="filterDl('self', this)">云枢自研 ({{ self_count }})</button>
+      <button class="tab-btn" type="button" data-cat="oss" onclick="filterDl('oss', this)">高星效率 ({{ oss_count }})</button>
+      <button class="tab-btn" type="button" data-cat="game" onclick="filterDl('game', this)">游戏资源 ({{ game_count }})</button>
+      <button class="tab-btn" type="button" data-cat="video" onclick="filterDl('video', this)">影视媒体 ({{ video_count }})</button>
+      <button class="tab-btn" type="button" data-cat="music" onclick="filterDl('music', this)">音乐音频 ({{ music_count }})</button>
+      <button class="tab-btn" type="button" data-cat="ebook" onclick="filterDl('ebook', this)">电子书阅读 ({{ ebook_count }})</button>
+    </div>
+  </div>
+</section>
+
+<!-- 转化横幅：引流到 AI API 与 LYCO Connect 代理专线 -->
+<section class="card" style="margin-bottom:22px;background:linear-gradient(135deg,var(--brand-soft),var(--card));border-color:color-mix(in srgb, var(--brand) 30%, var(--border));">
+  <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;">
+    <div style="display:grid;gap:4px;">
+      <div style="font-weight:700;font-size:15px;">下载客户端后还需要配套服务？一站式即开即用</div>
+      <div class="muted" style="font-size:13px;">
+        <strong>LYCO Connect 代理专线</strong> 月卡 ¥30（季卡 98 折 / 年卡 9 折） ·
+        <strong>Lain42 AI API</strong> 支持 Claude / GPT / Gemini（10 积分 = 1 元） ·
+        <strong>LYCO 音乐音源</strong> 无损解锁
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+      <a class="btn btn-primary btn-sm" href="/shop">立即开通订阅 / 充值</a>
+      <a class="btn btn-sm" href="/models">查看 AI 模型价格</a>
+    </div>
+  </div>
+</section>
+
+<div id="dlStatsBar" class="muted" style="font-size:13px;margin-bottom:12px;">正在显示精选高星项目...</div>
+
+<div class="grid" id="dlGrid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;">
+  {% for item in items %}
+  <article class="card dl-card" data-cat="{{ item.category }}" data-search="{{ item.name }} {{ item.repo }} {{ item.keywords }} {{ item.summary }} {{ item.platform }}" style="display:flex;flex-direction:column;justify-content:space-between;gap:12px;">
+    <div style="display:grid;gap:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <span class="badge {% if item.category == "self" %}badge-brand{% endif %}">
+          {% if item.category == "self" %}云枢自研
+          {% else if item.category == "game" %}游戏
+          {% else if item.category == "video" %}影视
+          {% else if item.category == "music" %}音乐
+          {% else if item.category == "ebook" %}电子书
+          {% else %}高星开源{% endif %}
+        </span>
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);" class="num">
+          {% if item.stars > 0 %}<span>★ {{ item.stars_label() }}</span>{% endif %}
+          <span class="badge">{{ item.version }}</span>
+        </div>
+      </div>
+      <h2 style="margin:0;font-size:16px;line-height:1.35;word-break:break-word;">
+        <a href="/downloads/{{ item.slug }}" style="text-decoration:none;">{{ item.name }}</a>
+      </h2>
+      <p class="muted" style="margin:0;font-size:13px;line-height:1.55;word-break:break-word;">{{ item.summary }}</p>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:var(--muted);">
+        <span>平台: {{ item.platform }}</span>
+        {% if item.asset_size_bytes > 0 %}<span>· {{ item.size_label() }}</span>{% endif %}
+        {% if !item.published_at.is_empty() %}<span>· {{ item.published_at }}</span>{% endif %}
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;padding-top:6px;border-top:1px solid var(--border);">
+      {% if !item.quark_url.is_empty() %}
+      <a class="btn btn-primary btn-sm" style="flex:1;" href="/go/download/{{ item.slug }}" target="_blank" rel="noopener">夸克高速下载</a>
+      {% else %}
+      <a class="btn btn-primary btn-sm" style="flex:1;" href="/go/download/{{ item.slug }}" target="_blank" rel="noopener">GitHub 直链</a>
+      {% endif %}
+      <a class="btn btn-sm" href="/downloads/{{ item.slug }}">详情 / SHA-256</a>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+
+<div id="dlMoreWrap" style="text-align:center;margin-top:20px;display:none;">
+  <button class="btn" id="dlMoreBtn" type="button" onclick="showMoreDl()">加载更多软件 ↓</button>
+</div>
+
+<section class="card" style="margin-top:28px;">
+  <h2 style="margin:0 0 10px;font-size:18px;">常见问题与声明</h2>
+  <div style="display:grid;gap:10px;">
+    <details class="faq" open>
+      <summary>为什么通过夸克网盘分发 GitHub Releases？</summary>
+      <p>国内直连 GitHub Release 下载大体积安装包经常限速或断流。本站通过自动化流水线直接拉取官方 GitHub Release 原包、计算 SHA-256 哈希并上传至夸克网盘生成免密码永久链接，保证文件 100% 未经任何修改。</p>
+    </details>
+    <details class="faq">
+      <summary>没有找到想下载的开源项目或需要浏览器在线工具？</summary>
+      <p>纯浏览器本地工具（JSON 格式化、Base64、SHA-256、Token 估算）请访问 <a href="/tool" style="text-decoration:underline;">WASM 本地工具箱</a>；所有自研源码均开源在 <a href="https://github.com/lilyco-42" target="_blank" rel="noopener" style="text-decoration:underline;">github.com/lilyco-42</a>。</p>
+    </details>
+  </div>
+</section>
+
+<script>
+let activeCat = 'all';
+let visibleLimit = 36;
+const allCards = Array.from(document.querySelectorAll('.dl-card'));
+
+function applyDlFilter(resetLimit) {
+  if (resetLimit) visibleLimit = 36;
+  const q = (document.getElementById('dlSearch').value || '').trim().toLowerCase();
+  let matched = 0;
+  let shown = 0;
+  allCards.forEach(el => {
+    const catOk = activeCat === 'all' || el.dataset.cat === activeCat;
+    const textOk = !q || (el.dataset.search || '').toLowerCase().includes(q);
+    if (catOk && textOk) {
+      matched++;
+      if (shown < visibleLimit) {
+        el.style.display = 'flex';
+        shown++;
+      } else {
+        el.style.display = 'none';
+      }
+    } else {
+      el.style.display = 'none';
+    }
+  });
+  const stats = document.getElementById('dlStatsBar');
+  stats.textContent = `当前筛选共匹配 ${matched} 款开源软件与工具（已展示 ${shown} 款）`;
+  const moreWrap = document.getElementById('dlMoreWrap');
+  const moreBtn = document.getElementById('dlMoreBtn');
+  if (shown < matched) {
+    moreWrap.style.display = 'block';
+    moreBtn.textContent = `加载更多（剩余 ${matched - shown} 款）↓`;
+  } else {
+    moreWrap.style.display = 'none';
+  }
+}
+function filterDl(cat, btn) {
+  activeCat = cat;
+  document.querySelectorAll('[data-cat]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyDlFilter(true);
+}
+function showMoreDl() {
+  visibleLimit += 48;
+  applyDlFilter(false);
+}
+document.getElementById('dlSearch').addEventListener('input', () => applyDlFilter(true));
+applyDlFilter(true);
+</script>
+{% endblock %}

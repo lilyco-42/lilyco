@@ -160,22 +160,52 @@ body {
   border: 1px solid var(--hairline);
   border-radius: var(--r-panel);
   box-shadow: var(--shadow-card);
-  animation: rise 0.3s ease both;
 }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 /* 命令头：标题 + 说明。说明是长英文描述，按 CJK 行高放宽、限宽 */
-.card-title { margin: 0; font-size: 22px; font-weight: 650; line-height: 1.25; letter-spacing: -0.2px; }
+.card-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.2px;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.card-title::before {
+  content: "";
+  display: inline-block;
+  width: var(--s-2);
+  height: var(--s-4);
+  border-radius: var(--r-pill);
+  background: var(--accent);
+}
 .card-about {
   margin: var(--s-2) 0 var(--s-5);
-  max-width: 72ch;
+  padding-bottom: var(--s-4);
+  border-bottom: 1px solid var(--hairline);
   color: var(--ink-muted);
   font-size: 14px;
   line-height: 1.7;
 }
 
-/* ── 表单 ── */
-.field { margin-bottom: var(--s-4); }
+/* ── 表单（响应式双列参数网格：窄容器单列，宽容器标量双列、复合控件跨双列）── */
+#form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-4);
+}
+.field { margin-bottom: 0; min-width: 0; }
+.field-flag {
+  padding: var(--s-3) var(--s-4);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-control);
+  transition: border-color 0.15s;
+}
+.field-flag:hover { border-color: var(--control); }
 .field > label {
   display: block;
   margin-bottom: var(--s-2);
@@ -331,6 +361,7 @@ input[type="checkbox"] {
   padding: var(--s-3) var(--s-4);
   border: 1.5px dashed var(--control);
   border-radius: var(--r-panel);
+  background: var(--surface-2);
   color: var(--ink-muted);
   font-size: 13.5px;
   cursor: pointer;
@@ -338,7 +369,7 @@ input[type="checkbox"] {
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 /* 拖拽区是容器：hover 由里面每个控件自己报，这里只把虚线压深一档 */
-.dropzone:hover { border-color: var(--ink-muted); color: var(--ink); }
+.dropzone:hover { border-color: var(--accent); color: var(--ink); }
 .dropzone.drag-over { border-color: var(--accent); border-style: solid; background: var(--accent-soft); }
 .dropzone.uploaded {
   border-color: var(--accent);
@@ -388,14 +419,22 @@ input[type="checkbox"] {
 }
 
 /* ── 动作区 / CLI 预览 ── */
-.actions { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-5); }
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--hairline);
+}
 .cli-preview {
-  margin-top: var(--s-3);
-  padding: var(--s-3);
+  margin-top: 0;
+  padding: var(--s-3) var(--s-4);
   border: 1px solid var(--hairline);
+  border-left: 3px solid var(--accent);
   border-radius: var(--r-control);
   background: var(--surface-2);
-  color: var(--ink-muted);
+  color: var(--ink);
   font-size: 13px;
   line-height: 1.55;
   min-height: 20px;
@@ -538,6 +577,12 @@ input[type="checkbox"] {
   .icon-btn { order: 0; margin-left: auto; }
 }
 @container (min-width: 721px) {
+  #form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .field:has(.dropzone),
+  .field:has(.list-rows),
+  .field-flag,
+  .actions,
+  .cli-preview { grid-column: 1 / -1; }
   .actions { flex-wrap: nowrap; }
   .actions .btn { flex: 0 0 auto; }
   .file-chip { flex: 0 1 auto; max-width: 45%; margin-left: auto; }

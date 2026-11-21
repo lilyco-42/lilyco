@@ -398,7 +398,7 @@ fn widget_path(f: &Field, must_exist: bool) -> String {
         "可选：拖拽上传，或直接手填路径"
     };
     format!(
-        r##"<input type="text" id="field-{esc}" class="mono" data-component="path" placeholder="{ph}"{req} value="{dv}" spellcheck="false" aria-describedby="up-{esc}">\
+        r##"<input type="text" id="field-{esc}" class="mono" data-component="path" placeholder="{ph}"{req} value="{dv}" spellcheck="false" aria-describedby="up-{esc}">
 {dz}"##,
         esc = f.esc_name,
         ph = f.placeholder(),
@@ -421,11 +421,11 @@ fn widget_path(f: &Field, must_exist: bool) -> String {
 fn dropzone(f: &Field, hint: &str) -> String {
     let esc = &f.esc_name;
     format!(
-        r##"<div class="dropzone" data-component="dropzone" data-target="{esc}" data-max-upload="{MAX_UPLOAD_BYTES}">\
-<input type="file" class="visually-hidden" tabindex="-1" aria-hidden="true">\
-<span class="dz-icon" aria-hidden="true">⇪</span><span class="dz-hint">{hint}</span>\
-<span class="dz-status" id="up-{esc}" role="status" aria-live="polite"></span>\
-<button type="button" class="btn-icon dz-browse" data-component="browse">选择文件</button>{pick}\
+        r##"<div class="dropzone" data-component="dropzone" data-target="{esc}" data-max-upload="{MAX_UPLOAD_BYTES}">
+<input type="file" class="visually-hidden" tabindex="-1" aria-hidden="true">
+<span class="dz-icon" aria-hidden="true">⇪</span><span class="dz-hint">{hint}</span>
+<span class="dz-status" id="up-{esc}" role="status" aria-live="polite"></span>
+<button type="button" class="btn-icon dz-browse" data-component="browse">选择文件</button>{pick}
 <button type="button" class="file-chip" id="chip-{esc}" hidden></button></div>"##,
         pick = pick_button(f)
     )
@@ -453,7 +453,7 @@ fn pick_button(f: &Field) -> String {
 fn widget_list(f: &Field, item: &ArgKind) -> String {
     let esc = &f.esc_name;
     format!(
-        r##"<div class="list-rows" id="list-{esc}" data-component="list" data-list="{esc}" data-item="{kind}">{rows}</div>\
+        r##"<div class="list-rows" id="list-{esc}" data-component="list" data-list="{esc}" data-item="{kind}">{rows}</div>
 <button type="button" class="btn-icon list-add" data-component="list-add" data-list-add="{esc}">＋ 添加一项</button>"##,
         esc = esc,
         kind = kind_name(item),
@@ -1225,13 +1225,6 @@ mod tests {
         }
     }
 
-    /// 体积闸门（DESIGN.md §9）：这页要 `include_str!` 进每个域二进制的 `.exe`，
-    /// 上限只写在这一个地方 —— 表格里再抄一份就是第二张需要人记着的平行表。
-    /// 涨过线要么删点什么，要么改这里并说清换来什么。
-    ///
-    /// 量的是**提交进仓库的字节**：Windows runner 按 `core.autocrlf` 检出时会给每行补一个
-    /// `\r`，同一个文件就地胖 441 B —— 2026-09-23 就是这样在 CI 上红的（本地 20,751 B、
-    /// CI 21,192 B）。预算要管的是资源本身，不是某台机器的检出方式。
     // ── 语义视图组件协议（批 1） ─────────────────────────────
 
     /// 每个协议变体都必须有前端渲染分支；缺一个，后端声明的组件就会落到
@@ -1519,5 +1512,32 @@ mod tests {
         let shadcn = theme_override_css("shadcn_zinc").expect("shadcn_zinc preset");
         assert!(shadcn.contains("--accent: #18181b;"));
         assert!(theme_override_css("nonexistent_theme").is_none());
+    }
+
+    #[tokio::test]
+    async fn no_stray_raw_string_backslashes_in_rendered_html() {
+        let body = page(vec![
+            arg(
+                "file",
+                "文件",
+                ArgKind::Path { must_exist: true },
+                true,
+                None,
+            ),
+            arg(
+                "items",
+                "列表",
+                ArgKind::List {
+                    item: Box::new(ArgKind::Text),
+                },
+                false,
+                None,
+            ),
+        ])
+        .await;
+        assert!(
+            !body.contains(">\\\n"),
+            "raw string `r##\"...\"##` 中残留了行尾反斜杠，会直接作为可见 `\\` 渲染到页面上"
+        );
     }
 }

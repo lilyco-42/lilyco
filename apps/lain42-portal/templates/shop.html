@@ -394,13 +394,24 @@ function productGroup(code) {
   return 'game';
 }
 
+function isNonReplicableProduct(code) {
+  const c = (code || '').toLowerCase();
+  return c.startsWith('proxy_') || c.startsWith('vpn_') || c.startsWith('vps_') || c.startsWith('node_');
+}
+
 function renderCatalog(filter = 'all') {
   const grid = document.getElementById('catalogGrid');
   const list = allProducts.filter(p => filter === 'all' || productGroup(p.code) === filter);
-  grid.innerHTML = list.map(p => `
+  grid.innerHTML = list.map(p => {
+    const nonRep = isNonReplicableProduct(p.code);
+    const ruleBadge = nonRep
+      ? '<span class="badge badge-brand" title="不可复制带宽资源，仅支持实付充值积分购买">仅限实付积分</span>'
+      : '<span class="badge" title="可复制数字软件/资源，优先抵扣免费赠送积分">可用赠送积分</span>';
+    return `
     <article class="card">
-      <div class="card-meta">
+      <div class="card-meta" style="flex-wrap:wrap;gap:6px;">
         <span class="badge">${p.prefix || 'DIGITAL'}</span>
+        ${ruleBadge}
         <span class="sub-label">${p.duration_days ? p.duration_days + ' 天权益' : '数字权益'}</span>
       </div>
       <h3>${p.name}</h3>
@@ -410,7 +421,7 @@ function renderCatalog(filter = 'all') {
         <button class="btn btn-primary btn-sm" type="button" onclick="openBuy('${p.code}')">用积分购买</button>
       </div>
     </article>
-  `).join('');
+  `}).join('');
 }
 
 function filterCatalog(cat, btn) {
@@ -425,8 +436,14 @@ function openBuy(code) {
   if (!p) return;
   pendingBuyProduct = p;
   document.getElementById('buyMsg').textContent = '';
-  document.getElementById('buyDesc').textContent =
-    `确定使用 ${p.points_price} 积分购买「${p.name}」吗？当前余额 ${window.LAIN_ACCOUNT.points.balance.toLocaleString()} 积分。`;
+  const pts = window.LAIN_ACCOUNT.points || {};
+  const totalBal = Number(pts.balance || 0);
+  const paidBal = Number(pts.paid_balance !== undefined ? pts.paid_balance : totalBal);
+  const bonusBal = Number(pts.bonus_balance || 0);
+  const nonRep = isNonReplicableProduct(p.code);
+  document.getElementById('buyDesc').textContent = nonRep
+    ? `确定使用 ${p.points_price} 实付充值积分购买「${p.name}」吗？（代理节点属于不可复制专线带宽资源，不可使用免费赠送积分；当前可用实付积分 ${paidBal.toLocaleString()}，赠送积分 ${bonusBal.toLocaleString()}）`
+    : `确定使用 ${p.points_price} 积分购买「${p.name}」吗？（软件/可复制数字资源支持优先抵扣赠送积分；当前总可用 ${totalBal.toLocaleString()} 积分，含赠送 ${bonusBal.toLocaleString()} + 实付 ${paidBal.toLocaleString()}）`;
   document.getElementById('buyModal').showModal();
 }
 

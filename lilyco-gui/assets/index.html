@@ -99,8 +99,18 @@ function initCommandNav(){
   });
 }
 
-/* ── CLI 预览 + 读表 ── */
+/* ── CLI 预览 + 读表 + URL 参数预填（深链分享）── */
 function initCliPreview(){
+  const qs=new URLSearchParams(location.search);
+  for(const a of SCHEMA_ARGS){
+    const alt=a.name.replace(/-/g,"_");
+    const v=qs.has(a.name)?qs.get(a.name):(qs.has(alt)?qs.get(alt):null);
+    if(v===null)continue;
+    const el=$("field-"+a.name);
+    if(!el)continue;
+    if(a.kind==="Flag")el.checked=(v==="1"||v==="true"||v==="");
+    else el.value=v;
+  }
   // input 会冒泡，所以动态加出来的行也在这里一并覆盖
   $("form").addEventListener("input",updatePreview);
   $("form").addEventListener("change",updatePreview);
@@ -360,6 +370,10 @@ let es=null,activeSid=null;
 function initRunBar(){
   $("form").addEventListener("submit",run);
   $("cancel-btn").addEventListener("click",cancel);
+  document.addEventListener("keydown",e=>{
+    if((e.ctrlKey||e.metaKey)&&e.key==="Enter"&&!$("run-btn").disabled){e.preventDefault();$("form").requestSubmit()}
+    else if(e.key==="Escape"&&!$("cancel-btn").hidden&&!$("cancel-btn").disabled){e.preventDefault();cancel()}
+  });
 }
 function setBusy(b){
   const btn=$("run-btn");

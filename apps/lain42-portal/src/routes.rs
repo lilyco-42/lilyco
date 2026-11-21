@@ -3,11 +3,14 @@
 use std::sync::Arc;
 
 use askama::Template;
-use axum::extract::{Path, Query, State};
-use axum::http::{header, StatusCode};
-use axum::response::{Html, IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::body::{to_bytes, Body};
+use axum::extract::{Path, Query, Request, State};
+use axum::http::{header, HeaderName, HeaderValue, StatusCode};
+use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::routing::{any, get, post};
 use axum::{Json, Router};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 use lilyco::__core::theme::{ThemePreset, ThemeSpec};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -15,7 +18,7 @@ use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 
-use crate::db::{AiModel, Announcement, DbHealth, PortalDb};
+use crate::db::{AiModel, Announcement, DbHealth, DownloadItem, PortalDb};
 use crate::studio_api::studio_router;
 
 #[derive(Clone)]
@@ -119,6 +122,36 @@ struct VpnPage {
     theme_css: String,
 }
 
+#[derive(Template)]
+#[template(path = "downloads.html")]
+struct DownloadsPage {
+    page_title: &'static str,
+    active_nav: &'static str,
+    env_label: String,
+    theme_css: String,
+    items: Vec<DownloadItem>,
+    total_count: usize,
+    self_count: usize,
+    oss_count: usize,
+    game_count: usize,
+    video_count: usize,
+    music_count: usize,
+    ebook_count: usize,
+}
+
+#[derive(Template)]
+#[template(path = "download_detail.html")]
+struct DownloadDetailPage {
+    page_title: String,
+    active_nav: &'static str,
+    env_label: String,
+    theme_css: String,
+    item: DownloadItem,
+    related: Vec<DownloadItem>,
+    software_json_ld: String,
+    faq_json_ld: String,
+}
+
 #[derive(Deserialize)]
 struct PageQuery {
     theme: Option<String>,
@@ -180,9 +213,20 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/accounts/lookup", post(api_account_lookup))
         .route("/api/license/verify", post(api_verify_license))
         .route("/api/themes", get(api_themes))
+        .route("/api/downloads", get(api_downloads))
+        .route("/go/download/{slug}", get(go_download))
+        .route("/mc-assets", any(proxy_mc_assets_root))
+        .route("/mc-assets/", any(proxy_mc_assets_root))
+        .route("/mc-assets/{*rest}", any(proxy_mc_assets_sub))
+        .route("/relay", any(proxy_relay_root))
+        .route("/relay/", any(proxy_relay_root))
+        .route("/relay/{*rest}", any(proxy_relay_sub))
+        .route("/lain42-indexnow-key.txt", get(indexnow_key_txt))
         .route("/llms.txt", get(llms_txt))
         .route("/.well-known/agent.json", get(agent_json))
         .route("/openapi.json", get(openapi_json))
+        .route("/robots.txt", get(robots_txt))
+        .route("/sitemap.xml", get(sitemap_xml))
         .route("/mcp", post(mcp_endpoint));
 
     let router = if let Some(dir) = state.static_dir.clone() {
@@ -195,6 +239,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             .route("/models/", get(models_page))
             .route("/shop", get(shop_page))
             .route("/shop/", get(shop_page))
+            .route("/downloads", get(downloads_page))
+            .route("/downloads/", get(downloads_page))
+            .route("/downloads/{slug}", get(download_detail_page))
             .route("/account", get(account_page))
             .route("/account/", get(account_page))
             .route("/docs", get(docs_page))
@@ -480,25 +527,200 @@ async fn api_themes() -> Json<Value> {
 }
 
 async fn llms_txt(State(st): State<Arc<AppState>>) -> Response {
+    let items = st.db.list_downloads().await.unwrap_or_default();
+    let mut dl_lines = String::new();
+    for item in &items {
+        dl_lines.push_str(&format!(
+            "- /downloads/{} — {} {} ({}) [Quark Mirror + GitHub]\n",
+            item.slug, item.name, item.version, item.repo
+        ));
+    }
     let body = format!(
         "# 云枢智创 · lain42（{}）\n\n\
-        > 全 Rust Lilyco 门户（Axum 0.8 + Askama + Turso Pure-Rust SQL + lilyco-license）\n\n\
+        > 全 Rust Lilyco 门户（Axum 0.8 + Askama + Turso Pure-Rust SQL + lilyco-pay + lilyco-license）\n\n\
         ## 页面入口\n\
         - / — 首页（公告、精选商品、在线服务目录）\n\
         - /models — AI API 模型与实时积分价格（10 积分 = 1 元）\n\
-        - /shop — 数字商品商城、积分充值、账户余额与离线授权验签\n\
+        - /shop — 全球积分收银台（支付宝/爱发电/Creem/Stripe/Google Play/USDT/卡密）与数字商城\n\
+        - /downloads — 软件与高星 GitHub 开源国内高速下载中心（夸克网盘直链 + SHA-256 校验）\n\
+        - /account — 账户控制台（积分余额、生效权益、订单账单）\n\
         - /docs — OpenAI 与 Anthropic/Claude Code API 调用文档\n\
         - /tool — 纯浏览器本地 WASM 工具箱（JSON / Base64 / SHA-256 / Token 估算）\n\
-        - /vpn — LYCO Connect 三地四专线 20 节点月卡订阅\n\n\
+        - /vpn — LYCO Connect 代理订阅（月卡 ¥30 / 季卡 98 折 / 年卡 9 折）\n\n\
+        ## 软件与高星开源镜像目录（/downloads/{{slug}}）\n\
+        {}\n\
         ## 核心 API\n\
-        - GET /api/health\n\
-        - GET /api/models | GET /api/products | GET /api/services | GET /api/announcements\n\
-        - POST /api/orders | POST /api/orders/{{id}}/confirm | POST /api/accounts/lookup\n\
-        - POST /api/license/verify\n\
+        - GET /api/health | GET /api/downloads | GET /robots.txt | GET /sitemap.xml\n\
+        - GET /studio/api/products | POST /studio/api/register | POST /studio/api/login | GET /studio/api/me\n\
+        - POST /studio/api/payments/{{afdian,alipay,creem,stripe}}/intents\n\
+        - POST /studio/api/payments/{{alipay/notify,afdian/webhook,creem/webhook}}\n\
+        - GET /studio/api/sub/{{token}}/{{format}} | GET /studio/api/music/sub/{{key}} | POST /studio/api/verify\n\
         - POST /mcp (JSON-RPC 2.0)\n",
-        st.env_name
+        st.env_name, dl_lines
     );
     ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body).into_response()
+}
+
+async fn robots_txt() -> Response {
+    let body = "User-agent: *\nAllow: /\nDisallow: /studio/api/\nDisallow: /account\nSitemap: https://dev.lain42.top/sitemap.xml\n";
+    ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body).into_response()
+}
+
+async fn indexnow_key_txt() -> Response {
+    ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], "lain42indexnow2026key").into_response()
+}
+
+async fn sitemap_xml(State(st): State<Arc<AppState>>) -> Response {
+    let pages = [
+        ("/", "1.0"),
+        ("/downloads", "0.95"),
+        ("/models", "0.9"),
+        ("/shop", "0.9"),
+        ("/docs", "0.85"),
+        ("/tool", "0.8"),
+        ("/vpn", "0.85"),
+    ];
+    let mut xml = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+"#,
+    );
+    for (p, prio) in pages {
+        xml.push_str(&format!(
+            "  <url><loc>https://dev.lain42.top{p}</loc><changefreq>daily</changefreq><priority>{prio}</priority></url>\n"
+        ));
+    }
+    if let Ok(items) = st.db.list_downloads().await {
+        for item in items {
+            let lastmod = if item.published_at.is_empty() {
+                String::new()
+            } else {
+                format!("<lastmod>{}</lastmod>", item.published_at)
+            };
+            xml.push_str(&format!(
+                "  <url><loc>https://dev.lain42.top/downloads/{}</loc>{lastmod}<changefreq>weekly</changefreq><priority>0.8</priority></url>\n",
+                item.slug
+            ));
+        }
+    }
+    xml.push_str("</urlset>\n");
+    ([(header::CONTENT_TYPE, "application/xml; charset=utf-8")], xml).into_response()
+}
+
+async fn downloads_page(
+    State(st): State<Arc<AppState>>,
+    Query(q): Query<PageQuery>,
+) -> Result<Html<String>, (StatusCode, String)> {
+    let sh = build_shell(&st, q.theme.as_deref());
+    let items = st.db.list_downloads().await.map_err(internal_err)?;
+    let total_count = items.len();
+    let self_count = items.iter().filter(|i| i.category == "self").count();
+    let oss_count = items.iter().filter(|i| i.category == "oss").count();
+    let game_count = items.iter().filter(|i| i.category == "game").count();
+    let video_count = items.iter().filter(|i| i.category == "video").count();
+    let music_count = items.iter().filter(|i| i.category == "music").count();
+    let ebook_count = items.iter().filter(|i| i.category == "ebook").count();
+    let tpl = DownloadsPage {
+        page_title: "软件与高星 GitHub 开源高速下载中心（游戏/影视/音乐/电子书）",
+        active_nav: "downloads",
+        env_label: sh.env_label,
+        theme_css: sh.theme_css,
+        items,
+        total_count,
+        self_count,
+        oss_count,
+        game_count,
+        video_count,
+        music_count,
+        ebook_count,
+    };
+    render_tpl(tpl)
+}
+
+async fn download_detail_page(
+    State(st): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+    Query(q): Query<PageQuery>,
+) -> Result<Response, (StatusCode, String)> {
+    let Some(item) = st.db.get_download(&slug).await.map_err(internal_err)? else {
+        return Ok((StatusCode::NOT_FOUND, Html("<h1>404 Not Found</h1><p><a href=\"/downloads\">返回下载中心</a></p>")).into_response());
+    };
+    let sh = build_shell(&st, q.theme.as_deref());
+    let all = st.db.list_downloads().await.unwrap_or_default();
+    let related: Vec<DownloadItem> = all
+        .into_iter()
+        .filter(|x| x.slug != item.slug)
+        .take(6)
+        .collect();
+    let software_json_ld = json!({
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": item.name,
+        "softwareVersion": item.version,
+        "operatingSystem": item.platform,
+        "applicationCategory": "UtilitiesApplication",
+        "description": item.summary,
+        "downloadUrl": format!("https://dev.lain42.top/go/download/{}", item.slug),
+        "url": format!("https://dev.lain42.top/downloads/{}", item.slug),
+        "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "CNY"
+        }
+    })
+    .to_string();
+    let faq_json_ld = json!({
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+            {
+                "@type": "Question",
+                "name": format!("{} 的夸克网盘安装包安全吗？", item.name),
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": format!("安全。文件由自动化流水线直接从官方 GitHub Release ({}) 拉取并上传至夸克网盘，附带 SHA-256 校验值。", item.repo)
+                }
+            }
+        ]
+    })
+    .to_string();
+    let tpl = DownloadDetailPage {
+        page_title: format!("{} {} 国内高速下载（夸克网盘直链）", item.name, item.version),
+        active_nav: "downloads",
+        env_label: sh.env_label,
+        theme_css: sh.theme_css,
+        item,
+        related,
+        software_json_ld,
+        faq_json_ld,
+    };
+    let html = render_tpl(tpl)?;
+    Ok(html.into_response())
+}
+
+async fn go_download(
+    State(st): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+) -> Response {
+    if let Ok(Some(item)) = st.db.get_download(&slug).await {
+        let _ = st.db.increment_download_count(&slug).await;
+        let target = if !item.quark_url.is_empty() {
+            item.quark_url
+        } else if !item.github_download_url.is_empty() {
+            item.github_download_url
+        } else {
+            item.github_release_url
+        };
+        if !target.is_empty() {
+            return Redirect::temporary(&target).into_response();
+        }
+    }
+    Redirect::temporary("/downloads").into_response()
+}
+
+async fn api_downloads(State(st): State<Arc<AppState>>) -> Result<Json<Value>, (StatusCode, String)> {
+    let items = st.db.list_downloads().await.map_err(internal_err)?;
+    Ok(Json(json!({ "ok": true, "count": items.len(), "items": items })))
 }
 
 async fn agent_json(State(st): State<Arc<AppState>>) -> Json<Value> {
@@ -572,4 +794,120 @@ async fn mcp_endpoint(State(st): State<Arc<AppState>>, Json(req): Json<McpReq>) 
 
 fn internal_err<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+}
+
+async fn proxy_mc_assets_root(req: Request) -> Response {
+    proxy_local_service(8088, "", req).await
+}
+
+async fn proxy_mc_assets_sub(Path(rest): Path<String>, req: Request) -> Response {
+    proxy_local_service(8088, &rest, req).await
+}
+
+async fn proxy_relay_root(req: Request) -> Response {
+    proxy_local_service(8090, "", req).await
+}
+
+async fn proxy_relay_sub(Path(rest): Path<String>, req: Request) -> Response {
+    proxy_local_service(8090, &rest, req).await
+}
+
+async fn proxy_local_service(port: u16, rest: &str, req: Request) -> Response {
+    let method = req.method().as_str().to_string();
+    let query = req.uri().query().map(|q| format!("?{q}")).unwrap_or_default();
+    let target_path = if rest.is_empty() {
+        format!("/{query}")
+    } else {
+        format!("/{rest}{query}")
+    };
+    let req_headers = req.headers().clone();
+    let body_bytes = match to_bytes(req.into_body(), 4 * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(e) => return (StatusCode::BAD_REQUEST, format!("read body error: {e}")).into_response(),
+    };
+
+    let mut stream = match TcpStream::connect(format!("127.0.0.1:{port}")).await {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                format!("后端服务 (127.0.0.1:{port}) 暂未就绪: {e}"),
+            )
+                .into_response()
+        }
+    };
+
+    let mut wire = format!("{method} {target_path} HTTP/1.1\r\nHost: 127.0.0.1:8088\r\nConnection: close\r\nAccept-Encoding: identity\r\n");
+    for (k, v) in &req_headers {
+        let kn = k.as_str().to_ascii_lowercase();
+        if matches!(kn.as_str(), "host" | "connection" | "accept-encoding" | "content-length" | "transfer-encoding") {
+            continue;
+        }
+        if let Ok(vs) = v.to_str() {
+            wire.push_str(&format!("{}: {}\r\n", k.as_str(), vs));
+        }
+    }
+    if !body_bytes.is_empty() {
+        wire.push_str(&format!("Content-Length: {}\r\n", body_bytes.len()));
+    }
+    wire.push_str("\r\n");
+
+    if stream.write_all(wire.as_bytes()).await.is_err()
+        || (!body_bytes.is_empty() && stream.write_all(&body_bytes).await.is_err())
+    {
+        return (StatusCode::BAD_GATEWAY, "写入上游请求失败").into_response();
+    }
+
+    let mut raw = Vec::with_capacity(8192);
+    if stream.read_to_end(&mut raw).await.is_err() {
+        return (StatusCode::BAD_GATEWAY, "读取上游响应失败").into_response();
+    }
+
+    let Some(sep) = raw.windows(4).position(|w| w == b"\r\n\r\n") else {
+        return (StatusCode::BAD_GATEWAY, "上游响应格式无效").into_response();
+    };
+    let head_str = String::from_utf8_lossy(&raw[..sep]);
+    let mut lines = head_str.split("\r\n");
+    let status_line = lines.next().unwrap_or("HTTP/1.1 502 Bad Gateway");
+    let code = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(502);
+    let status = StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_GATEWAY);
+
+    let mut resp_builder = Response::builder().status(status);
+    let mut is_html = false;
+    for line in lines {
+        if let Some((k, v)) = line.split_once(':') {
+            let kn = k.trim().to_ascii_lowercase();
+            let vv = v.trim();
+            if matches!(kn.as_str(), "content-length" | "transfer-encoding" | "connection") {
+                continue;
+            }
+            if kn == "content-type" && vv.contains("text/html") {
+                is_html = true;
+            }
+            if let (Ok(hn), Ok(hv)) = (
+                HeaderName::from_bytes(kn.as_bytes()),
+                HeaderValue::from_str(vv),
+            ) {
+                resp_builder = resp_builder.header(hn, hv);
+            }
+        }
+    }
+
+    let body_slice = &raw[sep + 4..];
+    let final_body = if is_html {
+        let html = String::from_utf8_lossy(body_slice)
+            .replace("'/api/v1/", "'/mc-assets/api/v1/")
+            .replace("`/api/v1/", "`/mc-assets/api/v1/");
+        html.into_bytes()
+    } else {
+        body_slice.to_vec()
+    };
+
+    resp_builder
+        .body(Body::from(final_body))
+        .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "response build error").into_response())
 }

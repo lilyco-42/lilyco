@@ -80,8 +80,10 @@ function renderDashboard(acct) {
   document.getElementById('acctDash').style.display = acct ? 'block' : 'none';
   if (!acct) return;
   const bal = acct.points.balance || 0;
+  const paidBal = acct.points.paid_balance !== undefined ? acct.points.paid_balance : bal;
+  const bonusBal = acct.points.bonus_balance || 0;
   document.getElementById('kpiCredits').textContent = bal.toLocaleString();
-  document.getElementById('kpiCny').textContent = `约合 ¥${(bal / 10).toFixed(2)}（10 积分 = 1 元）`;
+  document.getElementById('kpiCny').textContent = `实付积分 ${paidBal.toLocaleString()}（可购代理/全站） · 赠送积分 ${bonusBal.toLocaleString()}（仅限软件/可复制资源）`;
   document.getElementById('kpiEnts').textContent = (acct.entitlements || []).length;
   document.getElementById('kpiOrders').textContent = (acct.orders || []).length;
   document.getElementById('kpiUser').textContent = acct.username;

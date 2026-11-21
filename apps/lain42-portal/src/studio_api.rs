@@ -9,15 +9,18 @@
 
 use std::sync::Arc;
 
+use axum::body::Bytes;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine as _;
 use ring::hmac;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 use crate::routes::AppState;
 
@@ -97,6 +100,7 @@ pub fn studio_router() -> Router<Arc<AppState>> {
             "/studio/api/payments/afdian/intents/{code}/check",
             post(check_afdian_intent),
         )
+        .route("/studio/api/payments/afdian/webhook", post(afdian_webhook))
         .route("/studio/api/payments/alipay", get(get_alipay))
         .route("/studio/api/payments/alipay/topups", post(create_alipay_order))
         .route("/studio/api/payments/alipay/intents", post(create_alipay_order))
@@ -104,6 +108,7 @@ pub fn studio_router() -> Router<Arc<AppState>> {
             "/studio/api/payments/alipay/orders/{number}/check",
             post(check_alipay_order),
         )
+        .route("/studio/api/payments/alipay/notify", post(alipay_notify))
         .route("/studio/api/payments/stripe", get(get_stripe))
         .route("/studio/api/payments/stripe/intents", post(create_stripe_intent))
         .route(
@@ -112,11 +117,20 @@ pub fn studio_router() -> Router<Arc<AppState>> {
         )
         .route("/studio/api/payments/creem", get(get_creem))
         .route("/studio/api/payments/creem/intents", post(create_creem_intent))
+        .route("/studio/api/payments/creem/webhook", post(creem_webhook))
         .route("/studio/api/payments/google-play", get(get_google_play))
         .route(
             "/studio/api/payments/google-play/verify",
             post(verify_google_play),
         )
+        .route("/studio/api/sub/{token}/{format}", get(proxy_subscription))
+        .route("/api/sub/{token}/{format}", get(proxy_subscription))
+        .route("/panel/api/sub/{token}", get(proxy_panel_sub_shortcut))
+        .route("/studio/api/clash/{token}", get(proxy_clash_shortcut))
+        .route("/api/clash/{token}", get(proxy_clash_shortcut))
+        .route("/studio/api/music/sub/{key}", get(music_subscription))
+        .route("/studio/api/download/{product}", get(entitled_download))
+        .route("/studio/api/verify", post(verify_client_entitlement))
         .route("/studio/api/marketing/event", post(marketing_event))
 }
 
@@ -897,4 +911,238 @@ async fn verify_google_play(
 
 async fn marketing_event() -> Json<Value> {
     Json(json!({ "ok": true }))
+}
+
+// =========================================================================
+// 异步支付 Webhook 回调（支付宝 RSA2 / 爱发电 / Creem）
+// =========================================================================
+
+async fn alipay_notify(State(st): State<Arc<AppState>>, body: Bytes) -> Response {
+    let params: BTreeMap<String, String> = url::form_urlencoded::parse(&body)
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
+    if let Some(dir) = st.pay_config_dir.as_deref() {
+        if let Ok(cfg) = lilyco_pay::alipay::AlipayConfig::from_json_file(&format!("{dir}/alipay.json")) {
+            if !lilyco_pay::alipay::verify_notify_rsa2(&cfg, &params) {
+                return (StatusCode::BAD_REQUEST, "fail").into_response();
+            }
+        }
+    }
+    let trade_status = params.get("trade_status").map(String::as_str).unwrap_or("");
+    if matches!(trade_status, "TRADE_SUCCESS" | "TRADE_FINISHED") {
+        if let Some(out_trade_no) = params.get("out_trade_no") {
+            let _ = st.db.studio_settle_intent_webhook(out_trade_no).await;
+        }
+    }
+    (StatusCode::OK, "success").into_response()
+}
+
+async fn afdian_webhook(State(st): State<Arc<AppState>>, Json(payload): Json<Value>) -> Json<Value> {
+    let order = &payload["data"]["order"];
+    let status = order.get("status").and_then(Value::as_i64).unwrap_or(0);
+    if status == 2 {
+        let custom = order
+            .get("custom_order_id")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .or_else(|| order.get("remark").and_then(Value::as_str));
+        if let Some(intent_id) = custom {
+            let _ = st.db.studio_settle_intent_webhook(intent_id.trim()).await;
+        }
+    }
+    Json(json!({ "ec": 200, "em": "" }))
+}
+
+async fn creem_webhook(
+    State(st): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if let Some(dir) = st.pay_config_dir.as_deref() {
+        if let Ok(cfg) = lilyco_pay::creem::CreemConfig::from_json_file(&format!("{dir}/creem.json")) {
+            if !cfg.webhook_secret.is_empty() {
+                let sig = headers
+                    .get("creem-signature")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
+                if !lilyco_pay::creem::verify_webhook_signature(&cfg.webhook_secret, &body, sig) {
+                    return Err(err(StatusCode::UNAUTHORIZED, "Creem Webhook 签名校验失败"));
+                }
+            }
+        }
+    }
+    let payload: Value = serde_json::from_slice(&body)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, format!("无效 JSON: {e}")))?;
+    let event = payload.get("eventType").and_then(Value::as_str).unwrap_or("");
+    if event == "checkout.completed" {
+        let order_id = payload["object"]["request_id"]
+            .as_str()
+            .or_else(|| payload["object"]["metadata"]["order_id"].as_str());
+        if let Some(oid) = order_id {
+            let _ = st.db.studio_settle_intent_webhook(oid).await;
+        }
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
+// =========================================================================
+// 订阅链接、音乐会员源、软件下载门控与客户端验签（兼容原版 lain42.top）
+// =========================================================================
+
+async fn proxy_clash_shortcut(
+    State(st): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(token): Path<String>,
+) -> Response {
+    proxy_subscription(State(st), headers, Path((token, "clash".to_string()))).await
+}
+
+async fn proxy_panel_sub_shortcut(
+    State(st): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(token): Path<String>,
+) -> Response {
+    proxy_subscription(State(st), headers, Path((token, "base64".to_string()))).await
+}
+
+async fn proxy_subscription(
+    State(st): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((token, mut format)): Path<(String, String)>,
+) -> Response {
+    let ent = match st.db.studio_find_active_entitlement_by_key(&token).await {
+        Ok(Some((u, p, _))) if p.starts_with("proxy_") => (u, p),
+        _ => return (StatusCode::NOT_FOUND, "无效或已过期的代理订阅令牌").into_response(),
+    };
+    let ua = headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if format.eq_ignore_ascii_case("base64")
+        && (ua.contains("clash")
+            || ua.contains("mihomo")
+            || ua.contains("stash")
+            || ua.contains("flclash")
+            || ua.contains("verge"))
+        && !ua.contains("v2ray")
+        && !ua.contains("shadowrocket")
+        && !ua.contains("karing")
+        && !ua.contains("nekobox")
+    {
+        format = "clash".to_string();
+    }
+    if format.eq_ignore_ascii_case("clash") || format.eq_ignore_ascii_case("yaml") {
+        let yaml = format!(
+            "# LYCO Connect · {}\nport: 7890\nsocks-port: 7891\nallow-lan: false\nmode: rule\nlog-level: info\nproxies:\n  - {{ name: \"🇰🇷 韩国 · VLESS 专线\", type: vless, server: 43.108.96.128, port: 443, uuid: f15f4aa6-e908-4f6a-b539-f5a8bdc1ad66, udp: true, tls: true, flow: xtls-rprx-vision, client-fingerprint: chrome, servername: apple.com, reality-opts: {{ public-key: 6wq54dJFy1fLskAQq1wl99afSQI8-j3LaMHIOvMBSm4, short-id: 293b1096 }} }}\n  - {{ name: \"🇵🇭 菲律宾 · VLESS 专线\", type: vless, server: 8.220.186.171, port: 12360, uuid: dafe41d4-1f78-4527-9f7e-d080a47ba577, udp: true, tls: true, flow: xtls-rprx-vision, client-fingerprint: chrome, servername: apple.com, reality-opts: {{ public-key: -5ZOXIcqFgL8_sqASL3VaJ8XFiGKQXT1D4iLYNDsTgs, short-id: b4e1150a }} }}\n  - {{ name: \"🇺🇸 美国西雅图 · Hysteria2\", type: hysteria2, server: 107.174.11.33, port: 51466, password: 67b84bf3-b69a-482b-95a9-769640b5e4b3, sni: www.bing.com, skip-cert-verify: true }}\n  - {{ name: \"🇺🇸 美国西雅图 · TUIC\", type: tuic, server: 107.174.11.33, port: 24062, uuid: 67b84bf3-b69a-482b-95a9-769640b5e4b3, password: 67b84bf3-b69a-482b-95a9-769640b5e4b3, sni: www.bing.com, alpn: [h3], skip-cert-verify: true, udp-relay-mode: native, congestion-controller: bbr }}\n  - {{ name: \"🇰🇷 韩国 · VMess 备用\", type: vmess, server: 43.108.96.128, port: 2052, uuid: f15f4aa6-e908-4f6a-b539-f5a8bdc1ad66, alterId: 0, cipher: auto, udp: true, tls: false, network: ws, ws-opts: {{ path: /f15f4aa6-e908-4f6a-b539-f5a8bdc1ad66-vm, headers: {{ Host: www.bing.com }} }} }}\nproxy-groups:\n  - name: \"🆕 自建专线 · 自动测速\"\n    type: url-test\n    url: https://cp.cloudflare.com/generate_204\n    interval: 180\n    tolerance: 60\n    proxies: [\"🇰🇷 韩国 · VLESS 专线\", \"🇵🇭 菲律宾 · VLESS 专线\", \"🇺🇸 美国西雅图 · Hysteria2\", \"🇺🇸 美国西雅图 · TUIC\", \"🇰🇷 韩国 · VMess 备用\"]\n  - name: \"LYCO-Auto\"\n    type: url-test\n    url: https://cp.cloudflare.com/generate_204\n    interval: 180\n    tolerance: 60\n    proxies: [\"🇰🇷 韩国 · VLESS 专线\", \"🇵🇭 菲律宾 · VLESS 专线\", \"🇺🇸 美国西雅图 · Hysteria2\", \"🇺🇸 美国西雅图 · TUIC\", \"🇰🇷 韩国 · VMess 备用\"]\nrules:\n  - GEOIP,CN,DIRECT\n  - MATCH,LYCO-Auto\n",
+            ent.0
+        );
+        (
+            [(header::CONTENT_TYPE, "text/yaml; charset=utf-8")],
+            yaml,
+        )
+            .into_response()
+    } else {
+        let raw = "vless://f15f4aa6-e908-4f6a-b539-f5a8bdc1ad66@43.108.96.128:443?encryption=none&security=reality&sni=apple.com&fp=chrome&pbk=6wq54dJFy1fLskAQq1wl99afSQI8-j3LaMHIOvMBSm4&sid=293b1096&type=tcp&flow=xtls-rprx-vision#%F0%9F%87%B0%F0%9F%87%B7%20%E9%9F%A9%E5%9B%BD%20%C2%B7%20VLESS\nvless://dafe41d4-1f78-4527-9f7e-d080a47ba577@8.220.186.171:12360?encryption=none&security=reality&sni=apple.com&fp=chrome&pbk=-5ZOXIcqFgL8_sqASL3VaJ8XFiGKQXT1D4iLYNDsTgs&sid=b4e1150a&type=tcp&flow=xtls-rprx-vision#%F0%9F%87%B5%F0%9F%87%AD%20%E8%8F%B2%E5%BE%8B%E5%AE%BE%20%C2%B7%20VLESS\nhysteria2://67b84bf3-b69a-482b-95a9-769640b5e4b3@107.174.11.33:51466?sni=www.bing.com&alpn=h3&insecure=1#%F0%9F%87%BA%F0%9F%87%B8%20%E7%BE%8E%E5%9B%BD%20%C2%B7%20Hysteria2\ntuic://67b84bf3-b69a-482b-95a9-769640b5e4b3:67b84bf3-b69a-482b-95a9-769640b5e4b3@107.174.11.33:24062?sni=www.bing.com&alpn=h3&insecure=1&congestion_control=bbr&udp_relay_mode=native#%F0%9F%87%BA%F0%9F%87%B8%20%E7%BE%8E%E5%9B%BD%20%C2%B7%20TUIC\n";
+        (
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            STANDARD.encode(raw.as_bytes()),
+        )
+            .into_response()
+    }
+}
+
+async fn music_subscription(
+    State(st): State<Arc<AppState>>,
+    Path(key): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let (username, product, _) = st
+        .db
+        .studio_find_active_entitlement_by_key(&key)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .filter(|(_, p, _)| p.starts_with("music_"))
+        .ok_or_else(|| err(StatusCode::FORBIDDEN, "无效或已过期的音乐会员订阅令牌"))?;
+    Ok(Json(json!({
+        "ok": true,
+        "username": username,
+        "product": product,
+        "client": "LX Music / Lyco Music",
+        "sources": ["kw", "kg", "tx", "wy", "mg"],
+        "sync_enabled": true
+    })))
+}
+
+async fn entitled_download(
+    State(st): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(product): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let username = extract_username(&headers, &st.license_secret)?;
+    let has = st
+        .db
+        .studio_user_has_entitlement(&username, &product)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if !has {
+        return Err(err(
+            StatusCode::FORBIDDEN,
+            format!("当前账户未持有商品 `{product}` 的生效权益，请先购买"),
+        ));
+    }
+    let kuake_base = std::env::var("LAIN_KUAKE_URL").ok();
+    Ok(Json(json!({
+        "ok": true,
+        "product": product,
+        "username": username,
+        "storage_backend": if kuake_base.is_some() { "kuake-studio" } else { "direct" },
+        "download_url": format!("/downloads/{product}/latest")
+    })))
+}
+
+#[derive(Deserialize)]
+struct VerifyClientReq {
+    #[serde(default)]
+    license_key: String,
+    #[serde(default)]
+    product: String,
+}
+
+async fn verify_client_entitlement(
+    State(st): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<VerifyClientReq>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let (username, product) = if !req.license_key.trim().is_empty() {
+        let (u, p, _) = st
+            .db
+            .studio_find_active_entitlement_by_key(req.license_key.trim())
+            .await
+            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .ok_or_else(|| err(StatusCode::FORBIDDEN, "授权码无效或已撤销"))?;
+        (u, p)
+    } else {
+        let u = extract_username(&headers, &st.license_secret)?;
+        let p = req.product.trim().to_string();
+        if p.is_empty()
+            || !st
+                .db
+                .studio_user_has_entitlement(&u, &p)
+                .await
+                .unwrap_or(false)
+        {
+            return Err(err(StatusCode::FORBIDDEN, "未找到该产品的生效权益"));
+        }
+        (u, p)
+    };
+    let now = lilyco_license::current_unix_secs();
+    let receipt = sign_token(&st.license_secret, &format!("rcpt|{username}|{product}|{now}"));
+    Ok(Json(json!({
+        "ok": true,
+        "valid": true,
+        "username": username,
+        "product": product,
+        "issued_unix": now,
+        "receipt": receipt
+    })))
 }
