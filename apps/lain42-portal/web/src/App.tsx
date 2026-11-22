@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   ArrowLeftRight,
+  BarChart3,
   Cpu,
   Download,
   Globe,
@@ -26,6 +27,7 @@ import { DownloadsPage } from "./pages/DownloadsPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { AccountPage } from "./pages/AccountPage";
 import { ToolsPage } from "./pages/ToolsPage";
+import { AdminAnalyticsPage } from "./pages/AdminAnalyticsPage";
 
 interface NavItem {
   id: string;
@@ -43,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "models", path: "/models", label: "AI 模型中转", icon: <Cpu className="h-4 w-4" /> },
   { id: "account", path: "/account", label: "账户与工单", icon: <User className="h-4 w-4" /> },
   { id: "tool", path: "/tool", label: "开发者工具", icon: <Wrench className="h-4 w-4" /> },
+  { id: "admin", path: "/admin", label: "数据看板", badge: "Admin", icon: <BarChart3 className="h-4 w-4" /> },
 ];
 
 function pathToTab(pathname: string): string {
@@ -145,7 +148,13 @@ export function App() {
 
       {/* Nav Items */}
       <nav className="flex-1 space-y-1 p-2.5 overflow-y-auto">
-        {NAV_ITEMS.map((item) => {
+        {NAV_ITEMS.filter(
+          (item) =>
+            item.id !== "admin" ||
+            (me &&
+              (me.username.toLowerCase() === "lilyco42ovo" ||
+                me.username.toLowerCase() === "admin"))
+        ).map((item) => {
           const active = tab === item.id;
           return (
             <button
@@ -304,6 +313,9 @@ export function App() {
             <AccountPage me={me} onRefreshMe={refreshMe} />
           )}
           {tab === "tool" && <ToolsPage />}
+          {tab === "admin" && (
+            <AdminAnalyticsPage me={me} onNeedAuth={() => navigate("account")} />
+          )}
         </main>
 
         {/* Footer */}

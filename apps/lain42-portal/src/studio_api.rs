@@ -166,7 +166,7 @@ fn hash_password(secret: &str, username: &str, password: &str) -> String {
     URL_SAFE_NO_PAD.encode(hmac::sign(&key, msg.as_bytes()).as_ref())
 }
 
-fn extract_username(headers: &HeaderMap, secret: &str) -> Result<String, (StatusCode, Json<Value>)> {
+pub(crate) fn extract_username(headers: &HeaderMap, secret: &str) -> Result<String, (StatusCode, Json<Value>)> {
     let auth = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -1102,6 +1102,10 @@ async fn proxy_subscription(
             "proxy_1m_220g" => 220 * 1024 * 1024 * 1024,
             "proxy_3m" => 660 * 1024 * 1024 * 1024,
             "proxy_1y" => 2640 * 1024 * 1024 * 1024,
+            "proxy_6m" => 10 * 1024 * 1024 * 1024,
+            "proxy_1y_140g" => 140 * 1024 * 1024 * 1024,
+            "proxy_1m_1g" => 1 * 1024 * 1024 * 1024,
+            "proxy_1y_15g" => 15 * 1024 * 1024 * 1024,
             _ => 100 * 1024 * 1024 * 1024,
         };
         let userinfo = format!("upload=0; download=0; total={total_bytes}; expire=1893456000");

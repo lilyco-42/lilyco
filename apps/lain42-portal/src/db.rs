@@ -263,6 +263,16 @@ impl PortalDb {
                 quark_url TEXT NOT NULL DEFAULT '',
                 download_count INTEGER NOT NULL DEFAULT 0
             )",
+            "CREATE TABLE IF NOT EXISTS download_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slug TEXT NOT NULL,
+                channel TEXT NOT NULL,
+                mirror TEXT NOT NULL DEFAULT '',
+                os TEXT NOT NULL DEFAULT '',
+                arch TEXT NOT NULL DEFAULT '',
+                user_agent TEXT NOT NULL DEFAULT '',
+                created_unix INTEGER NOT NULL
+            )",
         ];
         for sql in stmts {
             self.conn.execute(sql, ()).await?;
@@ -1358,6 +1368,153 @@ impl PortalDb {
             )
             .await?;
         Ok(rows)
+    }
+
+    pub async fn record_download_event(
+        &self,
+        slug: &str,
+        channel: &str,
+        mirror: &str,
+        os: &str,
+        arch: &str,
+        user_agent: &str,
+    ) -> Result<(), DbError> {
+        let now = lilyco_license::current_unix_secs() as i64;
+        let ua_short: String = user_agent.chars().take(160).collect();
+        self.conn
+            .execute(
+                "INSERT INTO download_events (slug, channel, mirror, os, arch, user_agent, created_unix)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                (slug, channel, mirror, os, arch, ua_short.as_str(), now),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn analytics_summary(&self) -> Result<serde_json::Value, DbError> {
+        let mut total_events = 0i64;
+        let mut quark_clicks = 0i64;
+        let mut mirror_clicks = 0i64;
+        let mut qr_opens = 0i64;
+        let mut page_views = 0i64;
+
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT channel, COUNT(*) FROM download_events GROUP BY channel",
+                (),
+            )
+            .await?;
+        let mut channels = Vec::new();
+        while let Some(r) = rows.next().await? {
+            let ch = as_str(r.get_value(0)?)?;
+            let cnt = as_i64(r.get_value(1)?)?;
+            total_events += cnt;
+            match ch.as_str() {
+                "quark" => quark_clicks += cnt,
+                "mirror" => mirror_clicks += cnt,
+                "quark_qr" => qr_opens += cnt,
+                "page_view" => page_views += cnt,
+                _ => {}
+            }
+            channels.push(serde_json::json!({ "channel": ch, "count": cnt }));
+        }
+
+        let dl_total = quark_clicks + mirror_clicks;
+        let quark_ctr_pct = if dl_total > 0 {
+            ((quark_clicks as f64 / dl_total as f64) * 1000.0).round() / 10.0
+        } else {
+            0.0
+        };
+
+        let mut os_rows = self
+            .conn
+            .query(
+                "SELECT CASE WHEN os = '' THEN 'unknown' ELSE os END AS o, COUNT(*) FROM download_events GROUP BY o ORDER BY COUNT(*) DESC LIMIT 8",
+                (),
+            )
+            .await?;
+        let mut os_breakdown = Vec::new();
+        while let Some(r) = os_rows.next().await? {
+            os_breakdown.push(serde_json::json!({
+                "os": as_str(r.get_value(0)?)?,
+                "count": as_i64(r.get_value(1)?)?
+            }));
+        }
+
+        let mut top_rows = self
+            .conn
+            .query(
+                "SELECT slug,
+                        SUM(CASE WHEN channel = 'quark' THEN 1 ELSE 0 END) AS q_cnt,
+                        SUM(CASE WHEN channel = 'mirror' THEN 1 ELSE 0 END) AS m_cnt,
+                        COUNT(*) AS tot
+                 FROM download_events
+                 WHERE channel IN ('quark', 'mirror', 'quark_qr')
+                 GROUP BY slug
+                 ORDER BY tot DESC
+                 LIMIT 12",
+                (),
+            )
+            .await?;
+        let mut top_downloads = Vec::new();
+        while let Some(r) = top_rows.next().await? {
+            top_downloads.push(serde_json::json!({
+                "slug": as_str(r.get_value(0)?)?,
+                "quark": as_i64(r.get_value(1)?)?,
+                "mirror": as_i64(r.get_value(2)?)?,
+                "total": as_i64(r.get_value(3)?)?
+            }));
+        }
+
+        let mut rec_rows = self
+            .conn
+            .query(
+                "SELECT id, slug, channel, mirror, os, arch, created_unix FROM download_events ORDER BY id DESC LIMIT 30",
+                (),
+            )
+            .await?;
+        let mut recent_events = Vec::new();
+        while let Some(r) = rec_rows.next().await? {
+            recent_events.push(serde_json::json!({
+                "id": as_i64(r.get_value(0)?)?,
+                "slug": as_str(r.get_value(1)?)?,
+                "channel": as_str(r.get_value(2)?)?,
+                "mirror": as_str(r.get_value(3)?)?,
+                "os": as_str(r.get_value(4)?)?,
+                "arch": as_str(r.get_value(5)?)?,
+                "created_unix": as_i64(r.get_value(6)?)?
+            }));
+        }
+
+        let total_catalog = self.count_table("downloads_catalog").await.unwrap_or(0);
+        let mut q_cat_rows = self
+            .conn
+            .query("SELECT COUNT(*) FROM downloads_catalog WHERE quark_url != ''", ())
+            .await?;
+        let quark_ready_catalog = if let Some(r) = q_cat_rows.next().await? {
+            as_i64(r.get_value(0)?).unwrap_or(0)
+        } else {
+            0
+        };
+
+        Ok(serde_json::json!({
+            "ok": true,
+            "totals": {
+                "total_events": total_events,
+                "quark_clicks": quark_clicks,
+                "mirror_clicks": mirror_clicks,
+                "qr_opens": qr_opens,
+                "page_views": page_views,
+                "quark_ctr_pct": quark_ctr_pct,
+                "total_catalog": total_catalog,
+                "quark_ready_catalog": quark_ready_catalog
+            },
+            "channel_breakdown": channels,
+            "os_breakdown": os_breakdown,
+            "top_downloads": top_downloads,
+            "recent_events": recent_events
+        }))
     }
 
     pub async fn create_contact_ticket(

@@ -215,6 +215,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/themes", get(api_themes))
         .route("/api/downloads", get(api_downloads))
         .route("/api/downloads/{slug}/resolve", get(api_resolve_download))
+        .route("/api/analytics/event", post(api_analytics_event))
+        .route("/api/admin/analytics/summary", get(api_admin_analytics_summary))
         .route("/api/admin/downloads/quark", post(api_admin_update_quark))
         .route("/api/mirrors", get(api_mirrors))
         .route("/go/download/{slug}", get(go_download))
@@ -712,18 +714,33 @@ async fn download_detail_page(
 async fn go_download(
     State(st): State<Arc<AppState>>,
     Path(slug): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
     if let Ok(Some(item)) = st.db.get_download(&slug).await {
         let _ = st.db.increment_download_count(&slug).await;
-        let target = if !item.quark_url.is_empty() {
-            item.quark_url
+        let plat = crate::mirror::detect_platform(&headers, None, None);
+        let ua = headers
+            .get("user-agent")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        let (target, channel) = if !item.quark_url.is_empty() {
+            (item.quark_url, "quark")
         } else if !item.github_download_url.is_empty() {
-            item.github_download_url
+            (item.github_download_url, "mirror")
         } else {
-            item.github_release_url
+            (item.github_release_url, "mirror")
         };
+        let _ = st
+            .db
+            .record_download_event(&slug, channel, channel, &plat.os, &plat.arch, ua)
+            .await;
         if !target.is_empty() {
-            return Redirect::temporary(&target).into_response();
+            let mut resp = Redirect::temporary(&target).into_response();
+            resp.headers_mut().insert(
+                header::REFERRER_POLICY,
+                HeaderValue::from_static("no-referrer"),
+            );
+            return resp;
         }
     }
     Redirect::temporary("/downloads").into_response()
@@ -732,6 +749,68 @@ async fn go_download(
 async fn api_downloads(State(st): State<Arc<AppState>>) -> Result<Json<Value>, (StatusCode, String)> {
     let items = st.db.list_downloads().await.map_err(internal_err)?;
     Ok(Json(json!({ "ok": true, "count": items.len(), "items": items })))
+}
+
+#[derive(Deserialize)]
+struct AnalyticsEventReq {
+    #[serde(default)]
+    slug: String,
+    channel: String,
+    #[serde(default)]
+    mirror: String,
+    #[serde(default)]
+    os: String,
+    #[serde(default)]
+    arch: String,
+}
+
+async fn api_analytics_event(
+    State(st): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<AnalyticsEventReq>,
+) -> Json<Value> {
+    let ch = req.channel.trim();
+    if !matches!(ch, "quark" | "quark_qr" | "mirror" | "page_view" | "search") {
+        return Json(json!({ "ok": false }));
+    }
+    let plat = crate::mirror::detect_platform(
+        &headers,
+        if req.os.is_empty() { None } else { Some(req.os.as_str()) },
+        if req.arch.is_empty() { None } else { Some(req.arch.as_str()) },
+    );
+    let ua = headers
+        .get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let slug = if req.slug.trim().is_empty() {
+        "_site"
+    } else {
+        req.slug.trim()
+    };
+    let _ = st
+        .db
+        .record_download_event(slug, ch, req.mirror.trim(), &plat.os, &plat.arch, ua)
+        .await;
+    Json(json!({ "ok": true }))
+}
+
+async fn api_admin_analytics_summary(
+    State(st): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let secret = headers
+        .get("x-admin-secret")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let is_secret_ok = !secret.is_empty() && secret == st.license_secret;
+    let is_admin_user = crate::studio_api::extract_username(&headers, &st.license_secret)
+        .map(|u| u.eq_ignore_ascii_case("lilyco42ovo") || u.eq_ignore_ascii_case("admin"))
+        .unwrap_or(false);
+    if !is_secret_ok && !is_admin_user {
+        return Err((StatusCode::FORBIDDEN, "仅管理员可访问数据看板".to_string()));
+    }
+    let summary = st.db.analytics_summary().await.map_err(internal_err)?;
+    Ok(Json(summary))
 }
 
 #[derive(Deserialize)]
@@ -797,12 +876,27 @@ async fn go_mirror_download(
         let plat = crate::mirror::detect_platform(&headers, q.os.as_deref(), q.arch.as_deref());
         let mirror = q.mirror.unwrap_or_else(|| "auto".to_string());
         let ghproxy = q.ghproxy;
+        let ua = headers
+            .get("user-agent")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let plat_log = plat.clone();
         if let Ok(resolved) = tokio::task::spawn_blocking(move || {
             crate::mirror::resolve_download_mirror(&item, &mirror, ghproxy.as_deref(), &plat)
         })
         .await
         {
             if !resolved.target_url.is_empty() {
+                let ch = if resolved.mirror == "quark" || resolved.target_url.contains("pan.quark.cn") {
+                    "quark"
+                } else {
+                    "mirror"
+                };
+                let _ = st
+                    .db
+                    .record_download_event(&slug, ch, &resolved.mirror_label, &plat_log.os, &plat_log.arch, &ua)
+                    .await;
                 let mut resp = Redirect::to(&resolved.target_url).into_response();
                 resp.headers_mut().insert(
                     header::REFERRER_POLICY,
