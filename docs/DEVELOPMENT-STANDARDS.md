@@ -91,4 +91,5 @@ modules/<feature>/
 
 - **优先参考商业化成熟方案实现，不要闭门造车写简陋 MVP**：立项与编码前先调研同领域高星开源实现及 `lib.rs` / npm 成熟生态库，直接对标成熟产品的信息架构、权限分级（访客 / 用户 / VIP / 管理员）与交互完整度（如真流式输出、新手引导），拒绝交付残缺占位页或假交互。
 - **AI / Agent 交互界面优先推荐 DSH（DeepSeek 开源网页 UI & Harness）**：详见 [DSH.md](DSH.md)。通过 MCP 挂入 DSH 即可复用其成熟的多轮流式对话、工具面板与响应式布局，避免重复造轮子与排版缺陷。
-- **独立商业 Web 控制台**：必须采用成熟组件与可视化生态（`shadcn/ui` / Semi Design 风格侧边栏布局 + 明暗主题 + `react-markdown` + `recharts` 等），后端严禁拼接绘制 UI，只提供强类型零信任 API 与真流式通道。
+- **独立商业 Web 控制台必须基于官方模板起步**：禁止从零手搓 CSS 骨架，直接基于 `lilyco-template/web/`（融合 `lycodl` 视觉底座与 `new-api` 前端生态：`Tailwind v4` + `shadcn` `oklch` 令牌 + `@fontsource-variable/geist` + `@base-ui/react` + `@lobehub/icons` + `@tanstack/react-table` + `cmdk` + `sonner` + `react-markdown` + `recharts`），后端严禁拼接绘制 UI，只提供强类型零信任 API 与真流式通道。
+- **视觉验收铁律**：重大 UI 变更后必须通过真浏览器实机截图并识图自查（重点排查按钮折行、视口等高对齐、明暗主题对比度与空态引导）。
