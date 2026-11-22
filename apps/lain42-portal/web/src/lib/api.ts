@@ -43,8 +43,10 @@ export interface DownloadItem {
   platform: string;
   summary: string;
   asset_name: string;
+  asset_size_bytes?: number;
   quark_url: string;
   github_release_url: string;
+  github_download_url?: string;
   download_count: number;
 }
 
@@ -63,12 +65,21 @@ export interface UserPoints {
   bonus_balance: number;
 }
 
+export interface UserEntitlementMeta {
+  sub_url?: string;
+  traffic_gb?: number;
+  expires_at?: string;
+  panel_username?: string;
+  purchase_product?: string;
+}
+
 export interface UserEntitlement {
   product: string;
   license_key: string;
   status: string;
   expires_at?: string;
   created_at?: number;
+  meta?: UserEntitlementMeta;
 }
 
 export interface MeResponse {

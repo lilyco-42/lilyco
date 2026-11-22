@@ -741,7 +741,9 @@ impl PortalDb {
                 status TEXT NOT NULL,
                 delivery_status TEXT NOT NULL,
                 license_key TEXT NOT NULL,
-                created_unix INTEGER NOT NULL
+                created_unix INTEGER NOT NULL,
+                expires_at TEXT NOT NULL DEFAULT '',
+                meta_json TEXT NOT NULL DEFAULT '{}'
             )",
             "CREATE TABLE IF NOT EXISTS studio_orders (
                 order_no TEXT PRIMARY KEY,
@@ -765,6 +767,20 @@ impl PortalDb {
             .conn
             .execute(
                 "ALTER TABLE studio_users ADD COLUMN bonus_points INTEGER NOT NULL DEFAULT 0",
+                (),
+            )
+            .await;
+        let _ = self
+            .conn
+            .execute(
+                "ALTER TABLE studio_entitlements ADD COLUMN expires_at TEXT NOT NULL DEFAULT ''",
+                (),
+            )
+            .await;
+        let _ = self
+            .conn
+            .execute(
+                "ALTER TABLE studio_entitlements ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}'",
                 (),
             )
             .await;
@@ -870,12 +886,16 @@ impl PortalDb {
         let mut ent_rows = self
             .conn
             .query(
-                "SELECT id, product, status, delivery_status, license_key, created_unix FROM studio_entitlements WHERE username = ?1 ORDER BY id DESC",
+                "SELECT id, product, status, delivery_status, license_key, created_unix, expires_at, meta_json FROM studio_entitlements WHERE username = ?1 ORDER BY id DESC",
                 [user.username.as_str()],
             )
             .await?;
         let mut entitlements = Vec::new();
         while let Some(r) = ent_rows.next().await? {
+            let expires_at = as_str(r.get_value(6)?).unwrap_or_default();
+            let meta_raw = as_str(r.get_value(7)?).unwrap_or_else(|_| "{}".to_string());
+            let meta_val: serde_json::Value =
+                serde_json::from_str(&meta_raw).unwrap_or_else(|_| serde_json::json!({}));
             entitlements.push(serde_json::json!({
                 "id": as_i64(r.get_value(0)?)?,
                 "product": as_str(r.get_value(1)?)?,
@@ -883,7 +903,8 @@ impl PortalDb {
                 "delivery_status": as_str(r.get_value(3)?)?,
                 "license_key": as_str(r.get_value(4)?)?,
                 "created_at": as_i64(r.get_value(5)?)?,
-                "meta": {}
+                "expires_at": expires_at,
+                "meta": meta_val
             }));
         }
 

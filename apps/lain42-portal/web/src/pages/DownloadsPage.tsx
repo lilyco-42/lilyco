@@ -5,8 +5,10 @@ import { Badge, Button, Card, Input } from "../components/ui/primitives";
 
 const CATS = [
   { id: "all", label: "全部" },
+  { id: "creative", label: "设计 / Adobe 平替" },
+  { id: "office", label: "办公 / OCR / 笔记" },
+  { id: "oss", label: "10k+ 开源效率" },
   { id: "self", label: "云枢自研" },
-  { id: "oss", label: "高星效率" },
   { id: "game", label: "游戏" },
   { id: "video", label: "影视" },
   { id: "music", label: "音乐" },
@@ -47,10 +49,10 @@ export function DownloadsPage() {
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <Badge variant="emerald">全部免费 · 夸克网盘免密直连</Badge>
+          <Badge variant="emerald">全部免费 · 10k+ 星开源 Release + 夸克高速镜像</Badge>
           <h1 className="mt-2 text-2xl font-bold tracking-tight">开源与自研高速下载中心</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            共收录 {items.length} 项精选资源（126 款云枢自研 + 412 款高星开源软件），国内免代理满速下载。
+            共收录 {items.length} 项精选资源（含 OBS Studio 多版本、SnowShot、Umi-OCR、Office/Adobe 平替与 10k+ 星 GitHub 最新 Release）。
           </p>
         </div>
         <div className="relative w-full sm:w-72">
@@ -117,14 +119,25 @@ export function DownloadsPage() {
               </p>
             </div>
             <div className="mt-4 flex items-center gap-2 border-t pt-3">
-              <a
-                href={`/go/download/${it.slug}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-3 text-xs font-medium text-white hover:bg-emerald-700"
-              >
-                <Download className="h-3.5 w-3.5" /> 夸克免费高速下载
-              </a>
+              {it.quark_url ? (
+                <a
+                  href={`/go/download/${it.slug}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-3 text-xs font-medium text-white hover:bg-emerald-700"
+                >
+                  <Download className="h-3.5 w-3.5" /> 夸克免费高速下载
+                </a>
+              ) : (
+                <a
+                  href={it.github_download_url || it.github_release_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-3 text-xs font-medium text-white hover:bg-emerald-700"
+                >
+                  <Download className="h-3.5 w-3.5" /> 下载最新 Release
+                </a>
+              )}
               <a
                 href={`/downloads/${it.slug}`}
                 className="inline-flex h-8 items-center justify-center rounded-md border border-input px-2.5 text-xs font-medium hover:bg-accent"
