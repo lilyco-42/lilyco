@@ -215,6 +215,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/themes", get(api_themes))
         .route("/api/downloads", get(api_downloads))
         .route("/api/downloads/{slug}/resolve", get(api_resolve_download))
+        .route("/api/admin/downloads/quark", post(api_admin_update_quark))
         .route("/api/mirrors", get(api_mirrors))
         .route("/go/download/{slug}", get(go_download))
         .route("/go/mirror/{slug}", get(go_mirror_download))
@@ -731,6 +732,34 @@ async fn go_download(
 async fn api_downloads(State(st): State<Arc<AppState>>) -> Result<Json<Value>, (StatusCode, String)> {
     let items = st.db.list_downloads().await.map_err(internal_err)?;
     Ok(Json(json!({ "ok": true, "count": items.len(), "items": items })))
+}
+
+#[derive(Deserialize)]
+struct AdminQuarkReq {
+    slug: String,
+    #[serde(default)]
+    version: String,
+    quark_url: String,
+}
+
+async fn api_admin_update_quark(
+    State(st): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<AdminQuarkReq>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let secret = headers
+        .get("x-admin-secret")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if secret.is_empty() || secret != st.license_secret {
+        return Err((StatusCode::UNAUTHORIZED, "unauthorized".to_string()));
+    }
+    let updated = st
+        .db
+        .update_download_quark_url(req.slug.trim(), req.version.trim(), req.quark_url.trim())
+        .await
+        .map_err(internal_err)?;
+    Ok(Json(json!({ "ok": true, "slug": req.slug, "updated": updated })))
 }
 
 async fn api_mirrors() -> Json<Value> {

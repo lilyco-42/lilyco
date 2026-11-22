@@ -390,7 +390,7 @@ impl PortalDb {
                             sha256 = excluded.sha256,
                             github_release_url = excluded.github_release_url,
                             github_download_url = excluded.github_download_url,
-                            quark_url = excluded.quark_url",
+                            quark_url = CASE WHEN excluded.quark_url != '' THEN excluded.quark_url ELSE downloads_catalog.quark_url END",
                         vec![
                             Value::Text(item.slug),
                             Value::Text(item.name),
@@ -1342,6 +1342,22 @@ impl PortalDb {
             )
             .await?;
         Ok(())
+    }
+
+    pub async fn update_download_quark_url(
+        &self,
+        slug: &str,
+        version: &str,
+        quark_url: &str,
+    ) -> Result<u64, DbError> {
+        let rows = self
+            .conn
+            .execute(
+                "UPDATE downloads_catalog SET quark_url = ?1, version = CASE WHEN ?2 != '' THEN ?2 ELSE version END WHERE slug = ?3",
+                (quark_url, version, slug),
+            )
+            .await?;
+        Ok(rows)
     }
 
     pub async fn create_contact_ticket(
