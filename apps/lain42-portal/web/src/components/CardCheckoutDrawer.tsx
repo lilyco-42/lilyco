@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Drawer } from "vaul";
 import {
+  Check,
   CheckCircle2,
+  Copy,
   CreditCard,
   ExternalLink,
   ShieldCheck,
@@ -133,14 +135,27 @@ export function CardCheckoutDrawer({
   );
   const [busy, setBusy] = useState<string>("");
   const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [purchased, setPurchased] = useState(false);
+  const [purchased, setPurchased] = useState<{
+    license_key: string;
+    clash_url: string;
+    base64_url: string;
+  } | null>(null);
+  const [copiedKey, setCopiedKey] = useState("");
 
   useEffect(() => {
     const valid = cfg.options.find((o) => o.code === initialCode);
     setSelectedCode(valid ? valid.code : cfg.options[0].code);
     setFeedback(null);
-    setPurchased(false);
+    setPurchased(null);
+    setCopiedKey("");
   }, [tier, initialCode, open, cfg.options]);
+
+  function copyLink(id: string, text: string) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedKey(id);
+      setTimeout(() => setCopiedKey(""), 1800);
+    });
+  }
 
   const opt =
     cfg.options.find((o) => o.code === selectedCode) || cfg.options[0];
@@ -157,11 +172,21 @@ export function CardCheckoutDrawer({
     setFeedback(null);
     try {
       const ref = `card_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      await apiFetch("/studio/api/points/purchase", {
+      const res = await apiFetch<{
+        entitlement?: {
+          license_key?: string;
+          clash_url?: string;
+          base64_url?: string;
+        };
+      }>("/studio/api/points/purchase", {
         method: "POST",
         body: JSON.stringify({ product: opt.code, reference: ref }),
       });
-      setPurchased(true);
+      setPurchased({
+        license_key: res.entitlement?.license_key || cfg.cardNo,
+        clash_url: res.entitlement?.clash_url || "",
+        base64_url: res.entitlement?.base64_url || "",
+      });
       setFeedback({ ok: true, msg: `开通成功！「${cfg.title}」已发放到您的账户钱包。` });
       onRefreshMe();
     } catch (e) {
@@ -270,36 +295,114 @@ export function CardCheckoutDrawer({
             </div>
 
             {purchased ? (
-              <div className="py-6 space-y-5 text-center">
-                <CheckCircle2 className="h-12 w-12 text-emerald-500 mx-auto" />
-                <div className="space-y-1">
-                  <h3 className="text-lg font-bold">会员卡已成功激活！</h3>
-                  <p className="text-xs text-muted-foreground">
-                    您的金属会员卡与 Clash / Base64 订阅链接已存入「账户中心」。
-                  </p>
+              <div className="py-3 space-y-4">
+                <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="h-6 w-6 shrink-0" />
+                  <div>
+                    <h3 className="text-base font-bold text-foreground">
+                      会员卡已激活！直接复制下方订阅即可使用
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      已同步保存到「账户中心」，随时可再次查看或一键导入。
+                    </p>
+                  </div>
                 </div>
-                <div className="max-w-sm mx-auto text-left">
+
+                <div className="grid gap-4 md:grid-cols-2 items-start">
                   <MembershipCard
                     tier={cfg.tier}
                     title={`${cfg.title} (${opt.cycleLabel})`}
                     holder={(me?.username || "LAIN42 MEMBER").toUpperCase()}
-                    cardNo={cfg.cardNo}
+                    cardNo={purchased.license_key}
                     expiresText={opt.durationText}
                     quotaText={opt.quotaText}
                   />
+
+                  <div className="space-y-3">
+                    {purchased.clash_url && (
+                      <div className="space-y-1.5">
+                        <div className="text-xs font-semibold">
+                          🖥️ Windows / Mac · Clash Verge Rev 订阅链接
+                        </div>
+                        <div className="flex gap-1.5">
+                          <input
+                            readOnly
+                            value={purchased.clash_url}
+                            onFocus={(e) => e.currentTarget.select()}
+                            className="flex-1 h-8 rounded-md border border-input bg-muted/40 px-2 font-mono text-[11px]"
+                          />
+                          <Button
+                            size="sm"
+                            variant="emerald"
+                            onClick={() => copyLink("clash", purchased.clash_url)}
+                          >
+                            {copiedKey === "clash" ? (
+                              <Check className="h-3.5 w-3.5" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </div>
+                        <a
+                          href={`clash://install-config?url=${encodeURIComponent(
+                            purchased.clash_url
+                          )}`}
+                          className="inline-flex h-8 w-full items-center justify-center rounded-md bg-emerald-600 px-3 text-xs font-medium text-white hover:bg-emerald-700"
+                        >
+                          一键导入 Clash Verge Rev
+                        </a>
+                      </div>
+                    )}
+
+                    {purchased.base64_url && (
+                      <div className="space-y-1.5">
+                        <div className="text-xs font-semibold">
+                          📱 iPhone / Android · Karing / Base64 通用订阅
+                        </div>
+                        <div className="flex gap-1.5">
+                          <input
+                            readOnly
+                            value={purchased.base64_url}
+                            onFocus={(e) => e.currentTarget.select()}
+                            className="flex-1 h-8 rounded-md border border-input bg-muted/40 px-2 font-mono text-[11px]"
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => copyLink("base64", purchased.base64_url)}
+                          >
+                            {copiedKey === "base64" ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-500" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="rounded-lg border bg-muted/30 p-2.5 text-[11px] text-muted-foreground space-y-1">
+                      <div className="font-semibold text-foreground">3 步极速上手：</div>
+                      <div>1. 下载 Clash Verge Rev（电脑）或 Karing（手机）</div>
+                      <div>2. 点击上方「一键导入」或粘贴订阅链接更新配置</div>
+                      <div>3. 选择「自动测速」并开启系统代理即可满速上网</div>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex justify-center gap-3">
+
+                <div className="flex justify-end gap-2 border-t pt-3">
                   <Button
                     variant="emerald"
+                    size="sm"
                     onClick={() => {
                       onClose();
                       onGoAccount();
                     }}
                   >
-                    前往账户中心查看卡片 & 复制订阅
+                    前往账户中心管理卡片
                   </Button>
-                  <Button variant="outline" onClick={onClose}>
-                    留在本页
+                  <Button variant="outline" size="sm" onClick={onClose}>
+                    完成
                   </Button>
                 </div>
               </div>

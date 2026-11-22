@@ -1160,6 +1160,77 @@ impl PortalDb {
         let now = lilyco_license::current_unix_secs() as i64;
         let order_no = format!("ORD-{now}-{}", product.replace('_', "").to_uppercase());
         let license_key = format!("{prefix}-{:X}-{:04X}", now, user.id);
+        let (duration_days, traffic_gb) = match product {
+            "proxy_1m_1g" => (30i64, 10i64),
+            "proxy_1y_15g" => (365, 120),
+            "proxy_6m" => (30, 40),
+            "proxy_1y_140g" => (365, 480),
+            "proxy_1m" => (30, 100),
+            "proxy_15_3m" => (90, 300),
+            "proxy_15_1y" => (365, 1200),
+            "proxy_1m_220g" => (30, 220),
+            "proxy_3m" => (90, 660),
+            "proxy_1y" => (365, 2640),
+            "proxy_3y" => (1095, 7920),
+            "proxy_pro_1m" => (30, 1000),
+            "proxy_pro_3m" => (90, 3000),
+            "proxy_pro_1y" => (365, 12000),
+            "proxy_pro_3y" => (1095, 36000),
+            p if p.ends_with("_annual") || p.ends_with("_1y") => (365, 0),
+            _ => (30, 0),
+        };
+        let expires_at = chrono_iso_from_unix(now + duration_days * 86400);
+
+        let mut sub_url = String::new();
+        let mut sub_token = String::new();
+        if non_replicable {
+            // Reuse user's existing active panel sub_url if present so their Clash/Karing client updates seamlessly
+            let mut prev = self
+                .conn
+                .query(
+                    "SELECT meta_json FROM studio_entitlements WHERE username = ?1 AND meta_json LIKE '%panel/api/sub/%' ORDER BY id DESC LIMIT 1",
+                    [username],
+                )
+                .await?;
+            if let Some(r) = prev.next().await? {
+                if let Ok(raw) = as_str(r.get_value(0)?) {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+                        if let Some(u) = v.get("sub_url").and_then(serde_json::Value::as_str) {
+                            sub_url = u.to_string();
+                        }
+                    }
+                }
+            }
+            if sub_url.is_empty() {
+                let tok = format!("{:x}{:04x}", (now as u64).wrapping_mul(11400714819323198485u64), user.id);
+                sub_url = format!("https://lain42.top/panel/api/sub/{tok}");
+            }
+            if let Some(tok) = sub_url.rsplit('/').next() {
+                sub_token = tok.to_string();
+            }
+        }
+        let clash_url = if !sub_token.is_empty() {
+            format!("https://lain42.top/studio/api/sub/{sub_token}/clash")
+        } else {
+            String::new()
+        };
+        let base64_url = if !sub_token.is_empty() {
+            format!("https://lain42.top/studio/api/sub/{sub_token}/base64")
+        } else {
+            String::new()
+        };
+        let meta_val = if non_replicable {
+            serde_json::json!({
+                "purchase_product": product,
+                "traffic_gb": traffic_gb,
+                "expires_at": expires_at,
+                "sub_url": sub_url
+            })
+        } else {
+            serde_json::json!({ "purchase_product": product, "expires_at": expires_at })
+        };
+        let meta_str = meta_val.to_string();
+
         self.conn
             .execute(
                 "INSERT INTO studio_orders (order_no, username, product, status, points_amount, created_unix) VALUES (?1, ?2, ?3, 'paid', ?4, ?5)",
@@ -1168,8 +1239,8 @@ impl PortalDb {
             .await?;
         self.conn
             .execute(
-                "INSERT INTO studio_entitlements (username, product, status, delivery_status, license_key, created_unix) VALUES (?1, ?2, 'active', 'delivered', ?3, ?4)",
-                (username, product, license_key.as_str(), now),
+                "INSERT INTO studio_entitlements (username, product, status, delivery_status, license_key, created_unix, expires_at, meta_json) VALUES (?1, ?2, 'active', 'delivered', ?3, ?4, ?5, ?6)",
+                (username, product, license_key.as_str(), now, expires_at.as_str(), meta_str.as_str()),
             )
             .await?;
         Ok(serde_json::json!({
@@ -1185,7 +1256,13 @@ impl PortalDb {
                 "product": product,
                 "status": "active",
                 "delivery_status": "delivered",
-                "license_key": license_key
+                "license_key": license_key,
+                "expires_at": expires_at,
+                "traffic_gb": traffic_gb,
+                "sub_url": sub_url,
+                "clash_url": clash_url,
+                "base64_url": base64_url,
+                "meta": meta_val
             }
         }))
     }
