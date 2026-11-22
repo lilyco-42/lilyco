@@ -43,10 +43,9 @@ const INITIAL_MIRRORS: MirrorProbeItem[] = [
 ];
 
 const INITIAL_GH_PROXIES: GhProxyProbeItem[] = [
-  { host: "cdn.gh-proxy.org", name: "GH-Proxy CDN", probeUrl: "https://cdn.gh-proxy.org/", ms: null },
-  { host: "gh-proxy.org", name: "GH-Proxy 主线", probeUrl: "https://gh-proxy.org/", ms: null },
-  { host: "ghfast.top", name: "GHFast 加速", probeUrl: "https://ghfast.top/", ms: null },
-  { host: "wget.la", name: "Wget.la 加速", probeUrl: "https://wget.la/", ms: null },
+  { host: "ghfast.top", name: "GHFast 高速主线 (推荐)", probeUrl: "https://ghfast.top/https://raw.githubusercontent.com/RubyMetric/chsrc/main/README.md", ms: null },
+  { host: "gh-proxy.org", name: "GH-Proxy 备用1", probeUrl: "https://gh-proxy.org/https://raw.githubusercontent.com/RubyMetric/chsrc/main/README.md", ms: null },
+  { host: "cdn.gh-proxy.org", name: "GH-Proxy CDN 备用2", probeUrl: "https://cdn.gh-proxy.org/https://raw.githubusercontent.com/RubyMetric/chsrc/main/README.md", ms: null },
 ];
 
 type RecipeKey = "nodejs" | "python" | "rust" | "go" | "fdroid" | "chsrc";

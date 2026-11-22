@@ -269,7 +269,8 @@ fn fetch_text_cached(url: &str) -> Option<String> {
 fn score_asset_name(name: &str, plat: &ClientPlatform) -> i32 {
     let skip = [
         ".sig", ".asc", ".sha256", ".sha512", ".blockmap", ".yml", ".yaml",
-        ".txt", ".json", ".zsync", ".ddeb", "pdb", "sources.tar", "source.tar",
+        ".txt", ".json", ".jsonl", ".md", ".rst", ".xml", ".license", ".sbom",
+        ".spdx", ".zsync", ".ddeb", "pdb", "sources.tar", "source.tar",
     ];
     let low = name.to_ascii_lowercase();
     if skip.iter().any(|s| low.contains(s)) || low.ends_with('/') {
@@ -384,11 +385,10 @@ pub struct MirrorQuery {
 }
 
 fn sanitize_ghproxy(raw: Option<&str>) -> &'static str {
-    match raw.unwrap_or("cdn.gh-proxy.org").trim() {
+    match raw.unwrap_or("ghfast.top").trim() {
         "gh-proxy.org" => "gh-proxy.org",
-        "ghfast.top" => "ghfast.top",
-        "wget.la" => "wget.la",
-        _ => "cdn.gh-proxy.org",
+        "cdn.gh-proxy.org" => "cdn.gh-proxy.org",
+        _ => "ghfast.top",
     }
 }
 
@@ -613,6 +613,13 @@ pub fn resolve_download_mirror(
     let is_github_binary = raw_dl.starts_with("https://github.com/")
         && (raw_dl.contains("/releases/download/") || raw_dl.contains("/archive/"));
 
+    // 如果项目没有二进制 Release 附件（如 n8n / 纯源码项目），自动构造加速源码压缩包直链，避免跳回被墙的 github.com HTML 页
+    let fallback_archive = if !is_github_binary && item.repo.contains('/') && !version.is_empty() && version != "latest" {
+        format!("https://{proxy_host}/https://github.com/{}/archive/refs/tags/{version}.tar.gz", item.repo)
+    } else {
+        String::new()
+    };
+
     let (target_url, mirror_label) = if mirror == "official" {
         (raw_dl.clone(), "GitHub 官方直链".to_string())
     } else if is_github_binary {
@@ -622,6 +629,8 @@ pub fn resolve_download_mirror(
         )
     } else if !item.quark_url.is_empty() {
         (item.quark_url.clone(), "夸克网盘高速镜像".to_string())
+    } else if !fallback_archive.is_empty() {
+        (fallback_archive, format!("源码包国内加速 ({proxy_host})"))
     } else {
         (raw_dl.clone(), "GitHub Release 页面".to_string())
     };

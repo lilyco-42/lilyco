@@ -70,9 +70,10 @@ export function DownloadsPage() {
   const [mirror, setMirror] = useState<string>(
     () => localStorage.getItem("lain42_mirror") || "tuna"
   );
-  const [ghProxy, setGhProxy] = useState<string>(
-    () => localStorage.getItem("lain42_ghproxy") || "cdn.gh-proxy.org"
-  );
+  const [ghProxy, setGhProxy] = useState<string>(() => {
+    const saved = localStorage.getItem("lain42_ghproxy") || "ghfast.top";
+    return saved === "wget.la" ? "ghfast.top" : saved;
+  });
   const [target, setTarget] = useState<string>(() => detectClientTarget());
   const [quarkModal, setQuarkModal] = useState<DownloadItem | null>(null);
 
