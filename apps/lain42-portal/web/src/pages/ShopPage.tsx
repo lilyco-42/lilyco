@@ -10,10 +10,12 @@ interface ShopPageProps {
 }
 
 const TOPUP_TIERS = [
-  { code: "points_cny_15", cny: 15, pts: 150, label: "轻量月卡刚好" },
-  { code: "points_cny_30", cny: 30, pts: 300, label: "标准 220GB 月卡" },
+  { code: "points_cny_1", cny: 1, pts: 10, label: "¥1 体验月卡刚好" },
+  { code: "points_cny_6", cny: 6, pts: 60, label: "¥6 基础月卡刚好" },
+  { code: "points_cny_15", cny: 15, pts: 150, label: "¥15 轻量极速月卡" },
+  { code: "points_cny_30", cny: 30, pts: 300, label: "¥30 标准 220GB 月卡" },
   { code: "points_cny_100", cny: 100, pts: 1000, label: "季卡 / AI 高频" },
-  { code: "points_cny_300", cny: 300, pts: 3000, label: "开发者主力包" },
+  { code: "points_cny_300", cny: 300, pts: 3000, label: "年卡 / 开发者主力包" },
 ];
 
 export function ShopPage({ me, onRefreshMe, onNeedAuth }: ShopPageProps) {
