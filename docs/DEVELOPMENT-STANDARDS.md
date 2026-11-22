@@ -86,3 +86,9 @@ modules/<feature>/
 - crate 名 `lilyco-<domain>`；应用放 `apps/<name>`；
 - 端口常量集中在一处（`ports.rs` / `DEFAULT_PORT`），不要散落在 handler 里；
 - 环境变量统一 `LILYCO_*` 前缀；应用自有变量（如 `LYBLIVE_PORT`）在 manifest 里登记。
+
+## 8. 成熟商业方案优先与 Web UI / DSH 规范
+
+- **优先参考商业化成熟方案实现，不要闭门造车写简陋 MVP**：立项与编码前先调研同领域高星开源实现及 `lib.rs` / npm 成熟生态库，直接对标成熟产品的信息架构、权限分级（访客 / 用户 / VIP / 管理员）与交互完整度（如真流式输出、新手引导），拒绝交付残缺占位页或假交互。
+- **AI / Agent 交互界面优先推荐 DSH（DeepSeek 开源网页 UI & Harness）**：详见 [DSH.md](DSH.md)。通过 MCP 挂入 DSH 即可复用其成熟的多轮流式对话、工具面板与响应式布局，避免重复造轮子与排版缺陷。
+- **独立商业 Web 控制台**：必须采用成熟组件与可视化生态（`shadcn/ui` / Semi Design 风格侧边栏布局 + 明暗主题 + `react-markdown` + `recharts` 等），后端严禁拼接绘制 UI，只提供强类型零信任 API 与真流式通道。

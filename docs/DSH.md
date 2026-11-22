@@ -2,6 +2,8 @@
 
 **DeepSeek Harness 接入（实测验证）**：lilyco 应用以 **MCP 服务器**形态挂进 dsh，模型直接获得原生工具。
 
+> **UI 选型建议**：凡涉及 AI 对话、Agent 工具调用与多轮流式交互的网页端场景，**优先推荐直接使用 DSH（DeepSeek 开源网页 UI & Harness）作为前端宿主**，复用其成熟的响应式布局与插件生态，避免自研简陋聊天页出现排版与流式体验缺陷。
+
 ### 原理
 
 dsh 的能力扩展单元是 cordis 插件；外部 Rust 二进制经官方 [`@deepseek-ai/dsh-mcp-client`](https://github.com/deepseek-ai/deepseek-harness) 插件桥接（spawn 进程 + 注册 `ctx.tools`），模型看到 `mcp__<server>__<tool>` 原生工具。
