@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/components/ui/primitives.tsx","./src/lib/api.ts","./src/lib/utils.ts","./src/pages/AccountPage.tsx","./src/pages/DownloadsPage.tsx","./src/pages/HomePage.tsx","./src/pages/ModelsPage.tsx","./src/pages/ShopPage.tsx","./src/pages/ToolsPage.tsx","./src/pages/VpnPage.tsx"],"version":"5.9.3"}

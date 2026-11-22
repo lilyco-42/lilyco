@@ -1322,6 +1322,44 @@ impl PortalDb {
             .await?;
         Ok(())
     }
+
+    pub async fn create_contact_ticket(
+        &self,
+        kind: &str,
+        contact: &str,
+        order_no: &str,
+        body: &str,
+    ) -> Result<String, DbError> {
+        self.conn
+            .execute(
+                "CREATE TABLE IF NOT EXISTS contact_tickets (
+                    id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    contact TEXT NOT NULL,
+                    order_no TEXT NOT NULL DEFAULT '',
+                    body TEXT NOT NULL,
+                    created_unix INTEGER NOT NULL
+                )",
+                (),
+            )
+            .await?;
+        let now = lilyco_license::current_unix_secs() as i64;
+        let id = format!("TK-{now}-{:04x}", (now as u32) ^ (body.len() as u32));
+        self.conn
+            .execute(
+                "INSERT INTO contact_tickets (id, kind, contact, order_no, body, created_unix) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                vec![
+                    Value::Text(id.clone()),
+                    Value::Text(kind.to_string()),
+                    Value::Text(contact.to_string()),
+                    Value::Text(order_no.to_string()),
+                    Value::Text(body.to_string()),
+                    Value::Integer(now),
+                ],
+            )
+            .await?;
+        Ok(id)
+    }
 }
 
 fn as_str(v: Value) -> Result<String, DbError> {

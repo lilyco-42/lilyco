@@ -132,6 +132,9 @@ pub fn studio_router() -> Router<Arc<AppState>> {
         .route("/studio/api/download/{product}", get(entitled_download))
         .route("/studio/api/verify", post(verify_client_entitlement))
         .route("/studio/api/marketing/event", post(marketing_event))
+        .route("/studio/api/contact", post(create_contact_ticket))
+        .route("/studio/api/proxy/quality", get(get_proxy_quality))
+        .route("/api/proxy/quality", get(get_proxy_quality))
 }
 
 fn err(code: StatusCode, detail: impl Into<String>) -> (StatusCode, Json<Value>) {
@@ -911,6 +914,68 @@ async fn verify_google_play(
 
 async fn marketing_event() -> Json<Value> {
     Json(json!({ "ok": true }))
+}
+
+#[derive(Deserialize)]
+struct ContactTicketReq {
+    #[serde(default)]
+    body: String,
+    #[serde(default)]
+    contact: String,
+    #[serde(default)]
+    order_no: String,
+    #[serde(default)]
+    kind: String,
+}
+
+async fn create_contact_ticket(
+    State(st): State<Arc<AppState>>,
+    Json(req): Json<ContactTicketReq>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let body = req.body.trim();
+    if body.len() < 5 || body.len() > 4000 {
+        return Err(err(StatusCode::BAD_REQUEST, "问题描述需在 5-4000 字之间"));
+    }
+    let contact = req.contact.trim();
+    if contact.is_empty() || contact.len() > 120 {
+        return Err(err(StatusCode::BAD_REQUEST, "请填写有效的联系方式（微信/QQ/邮箱）"));
+    }
+    let kind = if req.kind.trim().is_empty() {
+        "售后支持"
+    } else {
+        req.kind.trim()
+    };
+    let ticket_id = st
+        .db
+        .create_contact_ticket(kind, contact, req.order_no.trim(), body)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(json!({
+        "ok": true,
+        "ticket_id": ticket_id,
+        "message": "工单已提交，管理员将尽快联系处理"
+    })))
+}
+
+async fn get_proxy_quality() -> Json<Value> {
+    Json(json!({
+        "ok": true,
+        "updated_at": "2026-11-22",
+        "auto_switch_interval_sec": 120,
+        "nodes": [
+            { "name": "🇰🇷 韩国首尔 · AnyTLS", "region": "KR", "protocol": "AnyTLS", "kbps": 9598, "peak_kbps": 12696, "status": "ok" },
+            { "name": "🇰🇷 韩国首尔 · TUIC v5", "region": "KR", "protocol": "TUIC", "kbps": 6293, "peak_kbps": 10696, "status": "ok" },
+            { "name": "🇰🇷 韩国首尔 · VMess WS", "region": "KR", "protocol": "VMess", "kbps": 5914, "peak_kbps": 11302, "status": "ok" },
+            { "name": "🇰🇷 韩国首尔 · VLESS Reality", "region": "KR", "protocol": "VLESS", "kbps": 5211, "peak_kbps": 11980, "status": "ok" },
+            { "name": "🇦🇺 澳大利亚悉尼 · VLESS Reality", "region": "AU", "protocol": "VLESS", "kbps": 2660, "peak_kbps": 2679, "status": "ok" },
+            { "name": "🇦🇺 澳大利亚悉尼 · AnyTLS", "region": "AU", "protocol": "AnyTLS", "kbps": 2647, "peak_kbps": 2725, "status": "ok" },
+            { "name": "🇺🇸 美国西雅图 · Hysteria2 (端口跳跃)", "region": "US", "protocol": "Hysteria2", "kbps": 2607, "peak_kbps": 3477, "status": "ok" },
+            { "name": "🇩🇪 德国法兰克福 · VLESS 中转", "region": "DE", "protocol": "VLESS", "kbps": 2574, "peak_kbps": 2642, "status": "ok" },
+            { "name": "🇺🇸 美国西雅图 · TUIC v5", "region": "US", "protocol": "TUIC", "kbps": 1966, "peak_kbps": 2966, "status": "ok" },
+            { "name": "🇵🇭 菲律宾马尼拉 · VMess WS", "region": "PH", "protocol": "VMess", "kbps": 1405, "peak_kbps": 1470, "status": "ok" },
+            { "name": "🇵🇭 菲律宾马尼拉 · AnyTLS", "region": "PH", "protocol": "AnyTLS", "kbps": 1307, "peak_kbps": 2075, "status": "ok" }
+        ]
+    }))
 }
 
 // =========================================================================

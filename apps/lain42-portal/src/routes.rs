@@ -230,8 +230,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/mcp", post(mcp_endpoint));
 
     let router = if let Some(dir) = state.static_dir.clone() {
-        // 挂载原版 lain42.top 完整静态前端（含 /shop/ 付款界面、/account/、/models/、/docs/、/tool/、/vpn/、/go.html）
-        api_and_ai.fallback_service(ServeDir::new(dir).append_index_html_on_directories(true))
+        let index_file = std::path::PathBuf::from(&dir).join("index.html");
+        // 商业级 React + shadcn/ui SPA 前端（保留 /downloads/{slug} SSR SEO 与全量 /api/* /studio/api/*）
+        api_and_ai
+            .route("/downloads/{slug}", get(download_detail_page))
+            .fallback_service(
+                ServeDir::new(dir)
+                    .append_index_html_on_directories(true)
+                    .fallback(tower_http::services::ServeFile::new(index_file)),
+            )
     } else {
         api_and_ai
             .route("/", get(home_page))
