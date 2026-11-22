@@ -1,5 +1,5 @@
 import Tilt from "react-parallax-tilt";
-import { ArrowUpRight, Crown, ShieldCheck, Sparkles, Wifi } from "lucide-react";
+import { ArrowUpRight, Wifi } from "lucide-react";
 
 export type CardTier = "black" | "gold" | "silver" | "white";
 
@@ -27,88 +27,97 @@ export function inferCardTier(product: string): CardTier {
 
 export function productDisplayTitle(product: string): string {
   const map: Record<string, string> = {
-    proxy_pro_1m: "商业独享家宽 Pro · 月卡",
-    proxy_pro_3m: "商业独享家宽 Pro · 季卡",
-    proxy_pro_1y: "商业独享家宽 Pro · 年卡",
-    proxy_pro_3y: "商业独享家宽 Pro · 三年旗舰",
-    proxy_1m_220g: "极速专线 · 标准金卡",
-    proxy_3m: "极速专线 · 季卡",
-    proxy_1y: "极速专线 · 年卡",
-    proxy_3y: "极速专线 · 三年尊享",
-    proxy_1m: "极速专线 · 轻量银卡",
-    proxy_15_3m: "极速专线 · 轻量季卡",
-    proxy_15_1y: "极速专线 · 轻量年卡",
-    proxy_6m: "基础对话 · 云雾白卡",
-    proxy_1y_140g: "基础对话 · 年卡",
-    proxy_1m_1g: "公益体验 · 云雾白卡",
-    proxy_1y_15g: "公益体验 · 年卡",
-    music_annual: "LYCO 无损音乐 · 年卡",
+    proxy_pro_1m: "Pro · 独享家宽月卡",
+    proxy_pro_3m: "Pro · 独享家宽季卡",
+    proxy_pro_1y: "Pro · 独享家宽年卡",
+    proxy_pro_3y: "Pro · 独享家宽三年",
+    proxy_1m_220g: "Gold · 标准极速月卡",
+    proxy_3m: "Gold · 极速专线季卡",
+    proxy_1y: "Gold · 极速专线年卡",
+    proxy_3y: "Gold · 极速专线三年",
+    proxy_1m: "Silver · 轻量极速月卡",
+    proxy_15_3m: "Silver · 轻量季卡",
+    proxy_15_1y: "Silver · 轻量年卡",
+    proxy_6m: "Pearl · 基础对话月卡",
+    proxy_1y_140g: "Pearl · 基础年卡",
+    proxy_1m_1g: "Pearl · 体验月卡",
+    proxy_1y_15g: "Pearl · 公益年卡",
+    music_annual: "Silver · 无损音乐年卡",
   };
   return map[product] || product;
 }
 
+/**
+ * X Money inspired minimalist metal palette — strictly <= 3 colors per card:
+ * base metal surface + tonal specular sheen + 1 high-contrast etched ink.
+ */
 const TIER_STYLES: Record<
   CardTier,
   {
-    badge: string;
-    subtitle: string;
+    tierMark: string;
     bg: string;
-    border: string;
-    glow: string;
-    text: string;
-    muted: string;
+    rim: string;
+    shadow: string;
+    ink: string;
+    subInk: string;
     chip: string;
+    monogram: string;
     sheen: string;
     glare: string;
+    pill: string;
   }
 > = {
   black: {
-    badge: "OBSIDIAN BLACK · PRO",
-    subtitle: "RESIDENTIAL DEDICATED IP",
-    bg: "bg-gradient-to-br from-zinc-950 via-neutral-900 to-zinc-950",
-    border: "border-amber-400/55",
-    glow: "shadow-[0_14px_42px_-10px_rgba(251,191,36,0.38)]",
-    text: "text-amber-50",
-    muted: "text-amber-200/70",
-    chip: "bg-gradient-to-br from-amber-300 via-yellow-500 to-amber-600",
-    sheen: "from-transparent via-amber-300/20 to-transparent",
-    glare: "#fbbf24",
+    tierMark: "BLACK PRO",
+    bg: "bg-gradient-to-br from-[#141417] via-[#0B0B0D] to-[#1A1815]",
+    rim: "border-[#D4AF37]/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]",
+    shadow: "shadow-[0_18px_40px_-14px_rgba(0,0,0,0.85)]",
+    ink: "text-[#F5F5F7]",
+    subInk: "text-[#D4AF37]/80",
+    chip: "bg-gradient-to-br from-[#E6C875] via-[#C8A24B] to-[#9E7B2F]",
+    monogram: "border-[#D4AF37]/40 text-[#E6C875]",
+    sheen: "from-transparent via-[#D4AF37]/14 to-transparent",
+    glare: "#E6C875",
+    pill: "bg-[#D4AF37]/15 text-[#E6C875] border border-[#D4AF37]/30",
   },
   gold: {
-    badge: "CHAMPAGNE GOLD · EXPRESS",
-    subtitle: "12.7 MB/S PRIORITY ANYTLS",
-    bg: "bg-gradient-to-br from-amber-600 via-yellow-500 to-amber-700",
-    border: "border-amber-200/75",
-    glow: "shadow-[0_14px_38px_-10px_rgba(245,158,11,0.48)]",
-    text: "text-zinc-950",
-    muted: "text-zinc-900/75",
-    chip: "bg-gradient-to-br from-amber-100 via-amber-200 to-yellow-400",
-    sheen: "from-transparent via-white/35 to-transparent",
-    glare: "#fef3c7",
+    tierMark: "SATIN GOLD",
+    bg: "bg-gradient-to-br from-[#D8BE8B] via-[#C4A364] to-[#AE8B4B]",
+    rim: "border-[#F3E5C3]/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]",
+    shadow: "shadow-[0_18px_36px_-14px_rgba(174,139,75,0.5)]",
+    ink: "text-[#161410]",
+    subInk: "text-[#161410]/60",
+    chip: "bg-gradient-to-br from-[#F3E5C3] via-[#DFC48A] to-[#B59252]",
+    monogram: "border-[#161410]/25 text-[#161410]",
+    sheen: "from-transparent via-white/30 to-transparent",
+    glare: "#FFF8E7",
+    pill: "bg-[#161410]/12 text-[#161410] border border-[#161410]/20",
   },
   silver: {
-    badge: "TITANIUM SILVER · LITE",
-    subtitle: "ZERO-AD MULTI-REGION PASS",
-    bg: "bg-gradient-to-br from-slate-300 via-zinc-200 to-slate-400",
-    border: "border-white/85",
-    glow: "shadow-[0_14px_36px_-10px_rgba(148,163,184,0.48)]",
-    text: "text-slate-950",
-    muted: "text-slate-700",
-    chip: "bg-gradient-to-br from-white via-slate-200 to-slate-400",
-    sheen: "from-transparent via-white/50 to-transparent",
-    glare: "#ffffff",
+    tierMark: "TITANIUM SILVER",
+    bg: "bg-gradient-to-br from-[#E2E4E9] via-[#CFD3DB] to-[#B9BFC9]",
+    rim: "border-white/75 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]",
+    shadow: "shadow-[0_18px_36px_-14px_rgba(100,116,139,0.4)]",
+    ink: "text-[#111317]",
+    subInk: "text-[#111317]/55",
+    chip: "bg-gradient-to-br from-[#F8F9FA] via-[#D8DCE3] to-[#AEB4BF]",
+    monogram: "border-[#111317]/20 text-[#111317]",
+    sheen: "from-transparent via-white/45 to-transparent",
+    glare: "#FFFFFF",
+    pill: "bg-[#111317]/10 text-[#111317] border border-[#111317]/15",
   },
   white: {
-    badge: "PEARL WHITE · STARTER",
-    subtitle: "LAIN42 CLOUD MEMBER PASS",
-    bg: "bg-gradient-to-br from-white via-zinc-50 to-slate-100",
-    border: "border-zinc-300/90",
-    glow: "shadow-[0_12px_32px_-10px_rgba(16,185,129,0.24)]",
-    text: "text-zinc-900",
-    muted: "text-zinc-500",
-    chip: "bg-gradient-to-br from-emerald-200 via-teal-100 to-zinc-200",
-    sheen: "from-transparent via-emerald-300/25 to-transparent",
-    glare: "#a7f3d0",
+    tierMark: "CERAMIC WHITE",
+    bg: "bg-gradient-to-br from-[#FFFFFF] via-[#F5F6F8] to-[#EAECEF]",
+    rim: "border-[#D4D7DD] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]",
+    shadow: "shadow-[0_16px_32px_-14px_rgba(15,23,42,0.16)]",
+    ink: "text-[#111113]",
+    subInk: "text-[#111113]/50",
+    chip: "bg-gradient-to-br from-[#F1F2F4] via-[#E2E4E8] to-[#CDD1D8]",
+    monogram: "border-[#111113]/15 text-[#111113]",
+    sheen: "from-transparent via-white/70 to-transparent",
+    glare: "#FFFFFF",
+    pill: "bg-[#111113]/8 text-[#111113] border border-[#111113]/15",
   },
 };
 
@@ -142,16 +151,16 @@ export function MembershipCard({
 
   return (
     <Tilt
-      tiltMaxAngleX={10}
-      tiltMaxAngleY={10}
+      tiltMaxAngleX={8}
+      tiltMaxAngleY={8}
       glareEnable
-      glareMaxOpacity={0.28}
+      glareMaxOpacity={0.22}
       glareColor={st.glare}
       glarePosition="all"
-      glareBorderRadius="16px"
-      scale={onClick ? 1.02 : 1.01}
-      transitionSpeed={450}
-      className="rounded-2xl"
+      glareBorderRadius="20px"
+      scale={onClick ? 1.018 : 1.008}
+      transitionSpeed={500}
+      className="rounded-[20px]"
     >
       <div
         role={onClick ? "button" : undefined}
@@ -163,86 +172,114 @@ export function MembershipCard({
             onClick();
           }
         }}
-        className={`group relative overflow-hidden rounded-2xl border ${st.bg} ${st.border} ${st.glow} ${st.text} ${
-          compact ? "p-4" : "p-5"
-        } select-none ${onClick ? "cursor-pointer" : ""} ${
-          isExpired ? "opacity-65 grayscale-[40%]" : ""
-        }`}
+        className={`group relative aspect-[1.586/1] w-full overflow-hidden rounded-[20px] border ${st.bg} ${st.rim} ${st.shadow} ${st.ink} ${
+          compact ? "p-4" : "p-5 sm:p-6"
+        } select-none flex flex-col justify-between ${
+          onClick ? "cursor-pointer" : ""
+        } ${isExpired ? "opacity-60 grayscale-[45%]" : ""}`}
       >
-        {/* Metallic specular sweep */}
+        {/* Subtle Satin Metallic Sheen */}
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           <div
             className={`animate-card-sheen absolute inset-y-0 w-1/3 bg-gradient-to-r ${st.sheen}`}
           />
         </div>
 
-        {/* Subtle radial glow orb */}
-        <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/15 blur-2xl" />
+        {/* Fine brushed texture overlay */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.04]"
+          style={{
+            backgroundImage:
+              "repeating-linear-gradient(125deg, currentColor 0px, currentColor 1px, transparent 1px, transparent 4px)",
+          }}
+        />
 
-        <div className="relative z-10 flex flex-col justify-between gap-4">
-          {/* Top Row */}
-          <div className="flex items-start justify-between gap-2">
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-1.5 text-[10px] font-bold tracking-[0.18em] uppercase">
-                {tier === "black" ? (
-                  <Crown className="h-3.5 w-3.5 text-amber-400" />
-                ) : tier === "gold" ? (
-                  <Sparkles className="h-3.5 w-3.5" />
-                ) : (
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                )}
-                <span>{st.badge}</span>
+        {/* Top Row: Minimal Geometric Monogram + Contactless Mark */}
+        <div className="relative z-10 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <span
+              className={`inline-flex h-7 w-7 items-center justify-center rounded-lg border font-mono text-xs font-bold tracking-tight ${st.monogram}`}
+            >
+              L42
+            </span>
+            <div className="leading-none">
+              <div className="text-[10px] font-semibold tracking-[0.22em] uppercase">
+                LAIN42
               </div>
-              <div className={`text-[10px] tracking-widest uppercase ${st.muted}`}>
-                {st.subtitle}
+              <div
+                className={`mt-0.5 text-[9px] font-medium tracking-[0.2em] uppercase ${st.subInk}`}
+              >
+                {st.tierMark}
               </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              {quotaText && (
-                <span className="rounded-full bg-black/15 px-2 py-0.5 text-[10px] font-mono font-semibold backdrop-blur-xs">
-                  {quotaText}
-                </span>
-              )}
-              <Wifi className={`h-4 w-4 rotate-90 ${st.muted}`} />
             </div>
           </div>
 
-          {/* Middle: EMV Chip + Card Number */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {quotaText && (
+              <span
+                className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-medium ${st.pill}`}
+              >
+                {quotaText}
+              </span>
+            )}
+            <Wifi className={`h-4 w-4 rotate-90 ${st.subInk}`} />
+          </div>
+        </div>
+
+        {/* Middle Row: Brushed EMV Chip + Etched Title & Number */}
+        <div className="relative z-10 flex items-center gap-3.5">
+          <div
+            className={`h-7 w-10 rounded-[6px] ${st.chip} border border-black/15 shadow-inner shrink-0 relative overflow-hidden`}
+          >
+            <div className="absolute inset-x-0 top-1/2 h-px bg-black/15" />
+            <div className="absolute inset-y-0 left-1/3 w-px bg-black/15" />
+            <div className="absolute inset-y-0 right-1/3 w-px bg-black/15" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold tracking-tight truncate">
+              {title}
+            </div>
             <div
-              className={`h-7 w-10 rounded-md ${st.chip} border border-black/15 shadow-inner shrink-0`}
-            />
-            <div className="min-w-0">
-              <div className="text-sm font-bold tracking-tight truncate">{title}</div>
-              <div className={`font-mono text-xs tracking-[0.14em] truncate ${st.muted}`}>
-                {cardNo}
-              </div>
+              className={`font-mono text-[11px] tracking-[0.16em] truncate ${st.subInk}`}
+            >
+              {cardNo}
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Row: Minimalist Holder + Valid Thru / Action */}
+        <div className="relative z-10 flex items-end justify-between pt-1">
+          <div className="min-w-0">
+            <div
+              className={`text-[8px] font-medium uppercase tracking-[0.24em] ${st.subInk}`}
+            >
+              MEMBER
+            </div>
+            <div className="mt-0.5 font-mono text-xs font-medium tracking-wider truncate">
+              {holder}
             </div>
           </div>
 
-          {/* Bottom: Holder + Expiry / Click CTA */}
-          <div className="flex items-end justify-between text-[11px] pt-1.5 border-t border-current/10">
-            <div>
-              <div className={`text-[9px] uppercase tracking-widest ${st.muted}`}>
-                HOLDER
-              </div>
-              <div className="font-mono font-semibold">{holder}</div>
-            </div>
-            <div className="text-right">
-              {actionLabel ? (
-                <span className="inline-flex items-center gap-0.5 rounded-full bg-black/20 px-2.5 py-1 text-[10px] font-semibold tracking-wide backdrop-blur-xs group-hover:bg-black/30 transition-colors">
-                  {actionLabel}
-                  <ArrowUpRight className="h-3 w-3" />
-                </span>
-              ) : (
-                <>
-                  <div className={`text-[9px] uppercase tracking-widest ${st.muted}`}>
-                    {isExpired ? "EXPIRED" : "VALID THRU"}
-                  </div>
-                  <div className="font-mono font-semibold">{expiresText}</div>
-                </>
-              )}
-            </div>
+          <div className="text-right shrink-0">
+            {actionLabel ? (
+              <span
+                className={`inline-flex items-center gap-0.5 rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-wide transition-opacity group-hover:opacity-90 ${st.pill}`}
+              >
+                {actionLabel}
+                <ArrowUpRight className="h-3 w-3" />
+              </span>
+            ) : (
+              <>
+                <div
+                  className={`text-[8px] font-medium uppercase tracking-[0.24em] ${st.subInk}`}
+                >
+                  {isExpired ? "EXPIRED" : "VALID THRU"}
+                </div>
+                <div className="mt-0.5 font-mono text-xs font-medium tracking-wider">
+                  {expiresText}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
