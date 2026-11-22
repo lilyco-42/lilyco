@@ -1,4 +1,5 @@
-import { Crown, ShieldCheck, Sparkles, Wifi } from "lucide-react";
+import Tilt from "react-parallax-tilt";
+import { ArrowUpRight, Crown, ShieldCheck, Sparkles, Wifi } from "lucide-react";
 
 export type CardTier = "black" | "gold" | "silver" | "white";
 
@@ -58,51 +59,56 @@ const TIER_STYLES: Record<
     muted: string;
     chip: string;
     sheen: string;
+    glare: string;
   }
 > = {
   black: {
     badge: "OBSIDIAN BLACK · PRO",
     subtitle: "RESIDENTIAL DEDICATED IP",
     bg: "bg-gradient-to-br from-zinc-950 via-neutral-900 to-zinc-950",
-    border: "border-amber-400/50",
-    glow: "shadow-[0_12px_40px_-10px_rgba(251,191,36,0.35)]",
+    border: "border-amber-400/55",
+    glow: "shadow-[0_14px_42px_-10px_rgba(251,191,36,0.38)]",
     text: "text-amber-50",
     muted: "text-amber-200/70",
     chip: "bg-gradient-to-br from-amber-300 via-yellow-500 to-amber-600",
     sheen: "from-transparent via-amber-300/20 to-transparent",
+    glare: "#fbbf24",
   },
   gold: {
     badge: "CHAMPAGNE GOLD · EXPRESS",
     subtitle: "12.7 MB/S PRIORITY ANYTLS",
     bg: "bg-gradient-to-br from-amber-600 via-yellow-500 to-amber-700",
-    border: "border-amber-200/70",
-    glow: "shadow-[0_12px_36px_-10px_rgba(245,158,11,0.45)]",
+    border: "border-amber-200/75",
+    glow: "shadow-[0_14px_38px_-10px_rgba(245,158,11,0.48)]",
     text: "text-zinc-950",
     muted: "text-zinc-900/75",
     chip: "bg-gradient-to-br from-amber-100 via-amber-200 to-yellow-400",
     sheen: "from-transparent via-white/35 to-transparent",
+    glare: "#fef3c7",
   },
   silver: {
     badge: "TITANIUM SILVER · LITE",
     subtitle: "ZERO-AD MULTI-REGION PASS",
     bg: "bg-gradient-to-br from-slate-300 via-zinc-200 to-slate-400",
-    border: "border-white/80",
-    glow: "shadow-[0_12px_34px_-10px_rgba(148,163,184,0.45)]",
+    border: "border-white/85",
+    glow: "shadow-[0_14px_36px_-10px_rgba(148,163,184,0.48)]",
     text: "text-slate-950",
     muted: "text-slate-700",
     chip: "bg-gradient-to-br from-white via-slate-200 to-slate-400",
     sheen: "from-transparent via-white/50 to-transparent",
+    glare: "#ffffff",
   },
   white: {
     badge: "PEARL WHITE · STARTER",
     subtitle: "LAIN42 CLOUD MEMBER PASS",
     bg: "bg-gradient-to-br from-white via-zinc-50 to-slate-100",
     border: "border-zinc-300/90",
-    glow: "shadow-[0_10px_30px_-10px_rgba(16,185,129,0.22)]",
+    glow: "shadow-[0_12px_32px_-10px_rgba(16,185,129,0.24)]",
     text: "text-zinc-900",
     muted: "text-zinc-500",
     chip: "bg-gradient-to-br from-emerald-200 via-teal-100 to-zinc-200",
     sheen: "from-transparent via-emerald-300/25 to-transparent",
+    glare: "#a7f3d0",
   },
 };
 
@@ -115,6 +121,8 @@ interface MembershipCardProps {
   quotaText?: string;
   status?: string;
   compact?: boolean;
+  onClick?: () => void;
+  actionLabel?: string;
 }
 
 export function MembershipCard({
@@ -126,85 +134,118 @@ export function MembershipCard({
   quotaText,
   status = "active",
   compact = false,
+  onClick,
+  actionLabel,
 }: MembershipCardProps) {
   const st = TIER_STYLES[tier];
   const isExpired = status !== "active";
 
   return (
-    <div
-      className={`relative overflow-hidden rounded-2xl border ${st.bg} ${st.border} ${st.glow} ${st.text} ${
-        compact ? "p-4" : "p-5"
-      } transition-transform duration-300 hover:-translate-y-0.5 select-none ${
-        isExpired ? "opacity-65 grayscale-[40%]" : ""
-      }`}
+    <Tilt
+      tiltMaxAngleX={10}
+      tiltMaxAngleY={10}
+      glareEnable
+      glareMaxOpacity={0.28}
+      glareColor={st.glare}
+      glarePosition="all"
+      glareBorderRadius="16px"
+      scale={onClick ? 1.02 : 1.01}
+      transitionSpeed={450}
+      className="rounded-2xl"
     >
-      {/* Metallic specular sweep */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div
-          className={`animate-card-sheen absolute inset-y-0 w-1/3 bg-gradient-to-r ${st.sheen}`}
-        />
-      </div>
-
-      {/* Subtle radial glow orb */}
-      <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/15 blur-2xl" />
-
-      <div className="relative z-10 flex flex-col justify-between gap-4">
-        {/* Top Row: Brand + Tier Emblem */}
-        <div className="flex items-start justify-between gap-2">
-          <div className="space-y-0.5">
-            <div className="flex items-center gap-1.5 text-[10px] font-bold tracking-[0.18em] uppercase">
-              {tier === "black" ? (
-                <Crown className="h-3.5 w-3.5 text-amber-400" />
-              ) : tier === "gold" ? (
-                <Sparkles className="h-3.5 w-3.5" />
-              ) : (
-                <ShieldCheck className="h-3.5 w-3.5" />
-              )}
-              <span>{st.badge}</span>
-            </div>
-            <div className={`text-[10px] tracking-widest uppercase ${st.muted}`}>
-              {st.subtitle}
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {quotaText && (
-              <span className="rounded-full bg-black/15 px-2 py-0.5 text-[10px] font-mono font-semibold backdrop-blur-xs">
-                {quotaText}
-              </span>
-            )}
-            <Wifi className={`h-4 w-4 rotate-90 ${st.muted}`} />
-          </div>
-        </div>
-
-        {/* Middle: Metallic Chip + Card Number */}
-        <div className="flex items-center gap-3">
+      <div
+        role={onClick ? "button" : undefined}
+        tabIndex={onClick ? 0 : undefined}
+        onClick={onClick}
+        onKeyDown={(e) => {
+          if (onClick && (e.key === "Enter" || e.key === " ")) {
+            e.preventDefault();
+            onClick();
+          }
+        }}
+        className={`group relative overflow-hidden rounded-2xl border ${st.bg} ${st.border} ${st.glow} ${st.text} ${
+          compact ? "p-4" : "p-5"
+        } select-none ${onClick ? "cursor-pointer" : ""} ${
+          isExpired ? "opacity-65 grayscale-[40%]" : ""
+        }`}
+      >
+        {/* Metallic specular sweep */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
           <div
-            className={`h-7 w-10 rounded-md ${st.chip} border border-black/15 shadow-inner shrink-0`}
+            className={`animate-card-sheen absolute inset-y-0 w-1/3 bg-gradient-to-r ${st.sheen}`}
           />
-          <div className="min-w-0">
-            <div className="text-sm font-bold tracking-tight truncate">{title}</div>
-            <div className={`font-mono text-xs tracking-[0.14em] truncate ${st.muted}`}>
-              {cardNo}
-            </div>
-          </div>
         </div>
 
-        {/* Bottom: Holder + Expiry + Status */}
-        <div className="flex items-end justify-between text-[11px] pt-1 border-t border-current/10">
-          <div>
-            <div className={`text-[9px] uppercase tracking-widest ${st.muted}`}>
-              HOLDER
+        {/* Subtle radial glow orb */}
+        <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/15 blur-2xl" />
+
+        <div className="relative z-10 flex flex-col justify-between gap-4">
+          {/* Top Row */}
+          <div className="flex items-start justify-between gap-2">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold tracking-[0.18em] uppercase">
+                {tier === "black" ? (
+                  <Crown className="h-3.5 w-3.5 text-amber-400" />
+                ) : tier === "gold" ? (
+                  <Sparkles className="h-3.5 w-3.5" />
+                ) : (
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                )}
+                <span>{st.badge}</span>
+              </div>
+              <div className={`text-[10px] tracking-widest uppercase ${st.muted}`}>
+                {st.subtitle}
+              </div>
             </div>
-            <div className="font-mono font-semibold">{holder}</div>
+            <div className="flex items-center gap-1.5">
+              {quotaText && (
+                <span className="rounded-full bg-black/15 px-2 py-0.5 text-[10px] font-mono font-semibold backdrop-blur-xs">
+                  {quotaText}
+                </span>
+              )}
+              <Wifi className={`h-4 w-4 rotate-90 ${st.muted}`} />
+            </div>
           </div>
-          <div className="text-right">
-            <div className={`text-[9px] uppercase tracking-widest ${st.muted}`}>
-              {isExpired ? "EXPIRED" : "VALID THRU"}
+
+          {/* Middle: EMV Chip + Card Number */}
+          <div className="flex items-center gap-3">
+            <div
+              className={`h-7 w-10 rounded-md ${st.chip} border border-black/15 shadow-inner shrink-0`}
+            />
+            <div className="min-w-0">
+              <div className="text-sm font-bold tracking-tight truncate">{title}</div>
+              <div className={`font-mono text-xs tracking-[0.14em] truncate ${st.muted}`}>
+                {cardNo}
+              </div>
             </div>
-            <div className="font-mono font-semibold">{expiresText}</div>
+          </div>
+
+          {/* Bottom: Holder + Expiry / Click CTA */}
+          <div className="flex items-end justify-between text-[11px] pt-1.5 border-t border-current/10">
+            <div>
+              <div className={`text-[9px] uppercase tracking-widest ${st.muted}`}>
+                HOLDER
+              </div>
+              <div className="font-mono font-semibold">{holder}</div>
+            </div>
+            <div className="text-right">
+              {actionLabel ? (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-black/20 px-2.5 py-1 text-[10px] font-semibold tracking-wide backdrop-blur-xs group-hover:bg-black/30 transition-colors">
+                  {actionLabel}
+                  <ArrowUpRight className="h-3 w-3" />
+                </span>
+              ) : (
+                <>
+                  <div className={`text-[9px] uppercase tracking-widest ${st.muted}`}>
+                    {isExpired ? "EXPIRED" : "VALID THRU"}
+                  </div>
+                  <div className="font-mono font-semibold">{expiresText}</div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Tilt>
   );
 }

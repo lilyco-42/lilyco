@@ -299,7 +299,13 @@ export function App() {
         {/* Main Content */}
         <main className="flex-1 p-4 lg:p-6 max-w-6xl w-full mx-auto">
           {tab === "home" && <HomePage onNavigate={navigate} />}
-          {tab === "vpn" && <VpnPage onNavigate={navigate} />}
+          {tab === "vpn" && (
+            <VpnPage
+              me={me}
+              onRefreshMe={refreshMe}
+              onNavigate={navigate}
+            />
+          )}
           {tab === "shop" && (
             <ShopPage
               me={me}

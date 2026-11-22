@@ -8,18 +8,29 @@ import {
   Globe,
   Terminal,
 } from "lucide-react";
-import { apiFetch, type ProxyQualityNode } from "../lib/api";
+import { apiFetch, type MeResponse, type ProxyQualityNode } from "../lib/api";
 import { Badge, Button, Card } from "../components/ui/primitives";
-import { MembershipCard } from "../components/MembershipCard";
+import { type CardTier, MembershipCard } from "../components/MembershipCard";
+import { CardCheckoutDrawer } from "../components/CardCheckoutDrawer";
 
 interface VpnPageProps {
+  me: MeResponse | null;
+  onRefreshMe: () => void;
   onNavigate: (tab: string) => void;
 }
 
-export function VpnPage({ onNavigate }: VpnPageProps) {
+export function VpnPage({ me, onRefreshMe, onNavigate }: VpnPageProps) {
   const [nodes, setNodes] = useState<ProxyQualityNode[]>([]);
   const [copiedCmd, setCopiedCmd] = useState<string>("");
   const [cycle, setCycle] = useState<"month" | "quarter" | "year" | "3year">("month");
+  const [checkout, setCheckout] = useState<{ open: boolean; tier: CardTier; code?: string }>({
+    open: false,
+    tier: "gold",
+  });
+
+  function openCheckout(tier: CardTier, code?: string) {
+    setCheckout({ open: true, tier, code });
+  }
 
   useEffect(() => {
     apiFetch<{ nodes: ProxyQualityNode[] }>("/api/proxy/quality")
@@ -49,7 +60,7 @@ export function VpnPage({ onNavigate }: VpnPageProps) {
         </Button>
       </div>
 
-      {/* 4-Tier Metallic Pass Showcase (黑卡 / 金卡 / 银卡 / 白卡) */}
+      {/* 4-Tier Interactive 3D Metallic Pass Showcase (点击任意卡片直接弹出收银台购买!) */}
       <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
         <MembershipCard
           tier="black"
@@ -59,6 +70,8 @@ export function VpnPage({ onNavigate }: VpnPageProps) {
           expiresText="¥120 / 月起"
           quotaText="1000 GB"
           compact
+          actionLabel="点击定制支付"
+          onClick={() => openCheckout("black", "proxy_pro_1m")}
         />
         <MembershipCard
           tier="gold"
@@ -68,6 +81,8 @@ export function VpnPage({ onNavigate }: VpnPageProps) {
           expiresText="¥30 / 月起"
           quotaText="220 GB"
           compact
+          actionLabel="点击立即开通"
+          onClick={() => openCheckout("gold", "proxy_1m_220g")}
         />
         <MembershipCard
           tier="silver"
@@ -77,6 +92,8 @@ export function VpnPage({ onNavigate }: VpnPageProps) {
           expiresText="¥15 / 月起"
           quotaText="100 GB"
           compact
+          actionLabel="点击立即开通"
+          onClick={() => openCheckout("silver", "proxy_1m")}
         />
         <MembershipCard
           tier="white"
@@ -86,8 +103,21 @@ export function VpnPage({ onNavigate }: VpnPageProps) {
           expiresText="¥1 / ¥6 起"
           quotaText="10~40 GB"
           compact
+          actionLabel="¥1 起点击体验"
+          onClick={() => openCheckout("white", "proxy_1m_1g")}
         />
       </div>
+
+      <CardCheckoutDrawer
+        open={checkout.open}
+        tier={checkout.tier}
+        initialCode={checkout.code}
+        me={me}
+        onClose={() => setCheckout((prev) => ({ ...prev, open: false }))}
+        onRefreshMe={onRefreshMe}
+        onNeedAuth={() => onNavigate("account")}
+        onGoAccount={() => onNavigate("account")}
+      />
 
       {/* Billing Cycle Switcher (按月 / 按季 / 按年 / 按三年) */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -135,7 +165,7 @@ export function VpnPage({ onNavigate }: VpnPageProps) {
                 <li>• 站内推送云枢自研新软件推荐</li>
               </ul>
             </div>
-            <Button className="mt-4 w-full" variant="outline" onClick={() => onNavigate("shop")}>
+            <Button className="mt-4 w-full" variant="outline" onClick={() => openCheckout("white", "proxy_1m_1g")}>
               体验 ¥1 档 (10GB)
             </Button>
           </Card>
@@ -157,7 +187,7 @@ export function VpnPage({ onNavigate }: VpnPageProps) {
                 <li>• 适合 AI 文字对话，含轻量新品推荐</li>
               </ul>
             </div>
-            <Button className="mt-4 w-full" variant="outline" onClick={() => onNavigate("shop")}>
+            <Button className="mt-4 w-full" variant="outline" onClick={() => openCheckout("white", "proxy_6m")}>
               选购 ¥6 基础档 (40GB)
             </Button>
           </Card>
@@ -179,7 +209,7 @@ export function VpnPage({ onNavigate }: VpnPageProps) {
                 <li>• 高优先级供应 · 纯净零推荐打扰</li>
               </ul>
             </div>
-            <Button className="mt-4 w-full" variant="outline" onClick={() => onNavigate("shop")}>
+            <Button className="mt-4 w-full" variant="outline" onClick={() => openCheckout("silver", "proxy_1m")}>
               选购 ¥15 轻量专线 (100GB)
             </Button>
           </Card>
@@ -201,7 +231,7 @@ export function VpnPage({ onNavigate }: VpnPageProps) {
                 <li>• 纯净零打扰 · 120s 自动容错切换</li>
               </ul>
             </div>
-            <Button className="mt-4 w-full" variant="emerald" onClick={() => onNavigate("shop")}>
+            <Button className="mt-4 w-full" variant="emerald" onClick={() => openCheckout("gold", "proxy_1m_220g")}>
               推荐：选购 ¥30 主力档 (220GB)
             </Button>
           </Card>
@@ -426,7 +456,7 @@ export function VpnPage({ onNavigate }: VpnPageProps) {
               <span className="text-xs text-muted-foreground"> / 月（季 ¥324 · 年 ¥1,152 · 三年 ¥2,880）</span>
             </div>
             <div className="flex flex-wrap gap-2 lg:justify-end">
-              <Button variant="emerald" onClick={() => onNavigate("shop")}>
+              <Button variant="emerald" onClick={() => openCheckout("black", "proxy_pro_1m")}>
                 立即定制独享家宽 IP
               </Button>
               <Button variant="outline" onClick={() => onNavigate("account")}>
