@@ -188,7 +188,7 @@ fn resolve_nodejs(branch: &str, mirror: &str, plat: &ClientPlatform) -> Option<(
         (_, "arm64") => "-linux-arm64.tar.xz",
         _ => "-linux-x64.tar.xz",
     };
-    let item = arr.iter().find(|x| {
+    let item = arr.iter().rfind(|x| {
         x.get("name")
             .and_then(Value::as_str)
             .is_some_and(|n| n.starts_with("node-v") && n.ends_with(suffix))
@@ -440,14 +440,17 @@ pub fn resolve_download_mirror(
         )
     };
 
+    let is_github_binary = raw_dl.starts_with("https://github.com/")
+        && (raw_dl.contains("/releases/download/") || raw_dl.contains("/archive/"));
+
     let (target_url, mirror_label) = if mirror == "official" {
         (raw_dl.clone(), "GitHub 官方直链")
-    } else if raw_dl.starts_with("https://github.com/") {
+    } else if is_github_binary {
         (format!("https://ghfast.top/{raw_dl}"), "GitHub 国内加速代理 (ghfast)")
     } else if !item.quark_url.is_empty() {
         (item.quark_url.clone(), "夸克网盘高速镜像")
     } else {
-        (raw_dl.clone(), "官方直链")
+        (raw_dl.clone(), "GitHub Release 页面")
     };
 
     let chsrc_cmd = if slug == "chsrc" {
