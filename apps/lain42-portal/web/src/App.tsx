@@ -76,7 +76,7 @@ export function App() {
       setMe(null);
       return;
     }
-    apiFetch<MeResponse>("/studio/api/account/me")
+    apiFetch<MeResponse>("/studio/api/me")
       .then((res) => setMe(res))
       .catch(() => {
         setToken("");

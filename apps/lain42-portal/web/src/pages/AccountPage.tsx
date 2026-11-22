@@ -65,8 +65,8 @@ export function AccountPage({ me, onRefreshMe }: AccountPageProps) {
     try {
       const path =
         authMode === "login"
-          ? "/studio/api/auth/login"
-          : "/studio/api/auth/register";
+          ? "/studio/api/login"
+          : "/studio/api/register";
       const payload =
         authMode === "login"
           ? { username: username.trim(), password }
@@ -384,23 +384,30 @@ export function AccountPage({ me, onRefreshMe }: AccountPageProps) {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {orders.map((o) => (
-                      <tr key={o.order_no}>
-                        <td className="py-2.5 font-mono text-xs">{o.order_no}</td>
-                        <td className="py-2.5 text-xs">{o.product}</td>
-                        <td className="py-2.5">
-                          <Badge variant="outline">{o.payment_method}</Badge>
-                        </td>
-                        <td className="py-2.5 text-right font-mono text-xs">
-                          {o.points_delta > 0
-                            ? `+${o.points_delta}`
-                            : o.points_delta}
-                        </td>
-                        <td className="py-2.5 text-right text-xs text-muted-foreground">
-                          {o.created_at}
-                        </td>
-                      </tr>
-                    ))}
+                    {orders.map((o) => {
+                      const delta = o.points_delta ?? o.points_amount ?? 0;
+                      const ts =
+                        typeof o.created_at === "number"
+                          ? new Date(o.created_at * 1000).toLocaleString("zh-CN")
+                          : o.created_at;
+                      return (
+                        <tr key={o.order_no}>
+                          <td className="py-2.5 font-mono text-xs">{o.order_no}</td>
+                          <td className="py-2.5 text-xs">{o.product}</td>
+                          <td className="py-2.5">
+                            <Badge variant="outline">
+                              {o.payment_method || o.status || "积分"}
+                            </Badge>
+                          </td>
+                          <td className="py-2.5 text-right font-mono text-xs">
+                            {delta > 0 ? `+${delta}` : delta}
+                          </td>
+                          <td className="py-2.5 text-right text-xs text-muted-foreground">
+                            {ts}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

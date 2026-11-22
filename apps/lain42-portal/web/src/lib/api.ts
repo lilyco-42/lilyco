@@ -67,7 +67,8 @@ export interface UserEntitlement {
   product: string;
   license_key: string;
   status: string;
-  expires_at: string;
+  expires_at?: string;
+  created_at?: number;
 }
 
 export interface MeResponse {
@@ -76,15 +77,17 @@ export interface MeResponse {
   email: string;
   points: UserPoints;
   entitlements: UserEntitlement[];
+  orders?: OrderRecord[];
 }
 
 export interface OrderRecord {
   order_no: string;
   product: string;
   status: string;
-  payment_method: string;
-  points_delta: number;
-  created_at: string;
+  payment_method?: string;
+  points_delta?: number;
+  points_amount?: number;
+  created_at: string | number;
 }
 
 const TOKEN_KEY = "lain42_studio_token";
