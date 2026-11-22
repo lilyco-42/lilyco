@@ -168,44 +168,68 @@ export function VpnPage({ onNavigate }: VpnPageProps) {
       )}
 
       {cycle === "quarter" && (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className="flex flex-col justify-between p-5">
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">¥15 轻量极速 · 季卡（9 折）</span>
+                <Badge variant="secondary">300GB / 90 天</Badge>
+              </div>
+              <div className="mt-3 flex items-baseline gap-1">
+                <span className="text-3xl font-bold">¥40.5</span>
+                <span className="text-xs text-muted-foreground">/ 季（折合 ¥13.5/月）</span>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                每月 100GB 全量自建极速专线（共 300GB），3 台设备，纯净零打扰。
+              </p>
+            </div>
+            <Button className="mt-4 w-full" variant="outline" onClick={() => onNavigate("shop")}>
+              选购轻量季卡 (¥40.5)
+            </Button>
+          </Card>
+
           <Card className="flex flex-col justify-between border-emerald-500/50 bg-emerald-500/[0.03] p-5">
             <div>
               <div className="flex items-center justify-between">
-                <span className="text-base font-semibold">极速专线 · 季卡（9 折）</span>
+                <span className="text-sm font-semibold">¥30 标准极速 · 季卡（9 折）</span>
                 <Badge variant="emerald">660GB / 90 天</Badge>
               </div>
               <div className="mt-3 flex items-baseline gap-1">
                 <span className="text-3xl font-bold">¥81</span>
-                <span className="text-xs text-muted-foreground">/ 季（810 积分 · 折合 ¥27/月 · 省 ¥9）</span>
+                <span className="text-xs text-muted-foreground">/ 季（折合 ¥27/月 · 省 ¥9）</span>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                含 3 个月标准 220GB/月极速专线（共 660GB），5 台设备，韩国 12.7MB/s AnyTLS 最高优先级供应，纯净零打扰。
+                每月 220GB 标准极速专线（共 660GB），5 台设备，韩国 12.7MB/s AnyTLS 最高优先供应，纯净零打扰。
               </p>
             </div>
             <Button className="mt-4 w-full" variant="emerald" onClick={() => onNavigate("shop")}>
-              前往商城开通季卡 (¥81 / 660GB)
+              选购标准季卡 (¥81)
             </Button>
           </Card>
-          <Card className="flex flex-col justify-between p-5">
+
+          <Card className="flex flex-col justify-between border-amber-500/60 bg-amber-500/[0.04] p-5">
             <div>
               <div className="flex items-center justify-between">
-                <span className="text-base font-semibold">更长周期更划算？查看年卡与三年卡</span>
-                <Badge variant="outline">低至 ¥20/月</Badge>
+                <span className="text-sm font-semibold">👑 商业独享家宽 Pro · 季卡</span>
+                <Badge variant="amber">独享 IP · 省 ¥36</Badge>
               </div>
-              <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
-                轻度使用可选按月 ¥1（公益池）/ ¥6（基础线路）或年付 ¥9.9 / ¥58；主力开发推荐年卡（¥288/年，8 折省 ¥72）或三年尊享卡（¥720/3年，折合仅 ¥20/月）。
+              <div className="mt-3 flex items-baseline gap-1">
+                <span className="text-3xl font-bold">¥324</span>
+                <span className="text-xs text-muted-foreground">/ 季（折合 ¥108/月）</span>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                单人独享原生住宅家宽静态 IP，Claude Pro/Max 零风控专用，3000GB / 90 天，1 对 1 定制交付。
               </p>
             </div>
-            <Button className="mt-4 w-full" variant="outline" onClick={() => setCycle("year")}>
-              查看年卡 / 三年卡优惠
+            <Button className="mt-4 w-full" variant="emerald" onClick={() => onNavigate("shop")}>
+              开通独享家宽季卡 (¥324)
             </Button>
           </Card>
         </div>
       )}
 
       {cycle === "year" && (
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card className="flex flex-col justify-between p-5 border-dashed">
             <div>
               <div className="flex items-center justify-between">
@@ -214,10 +238,10 @@ export function VpnPage({ onNavigate }: VpnPageProps) {
               </div>
               <div className="mt-3 flex items-baseline gap-1">
                 <span className="text-3xl font-bold">¥9.9</span>
-                <span className="text-xs text-muted-foreground">/ 年（折合 ¥0.83/月）</span>
+                <span className="text-xs text-muted-foreground">/ 年（折 ¥0.83/月）</span>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                全年 120GB，限 1 台设备，仅开放公益普通节点池，高峰期让渡专线优先级，站内推送云枢自研新软件推荐。
+                全年 120GB，限 1 台设备，仅开放公益普通节点池，站内推送云枢自研新软件推荐。
               </p>
             </div>
             <Button className="mt-4 w-full" variant="outline" onClick={() => onNavigate("shop")}>
@@ -229,14 +253,14 @@ export function VpnPage({ onNavigate }: VpnPageProps) {
             <div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold">基础对话年卡（8 折）</span>
-                <Badge variant="secondary">常规线路 · 省 ¥14</Badge>
+                <Badge variant="secondary">480GB · 省 ¥14</Badge>
               </div>
               <div className="mt-3 flex items-baseline gap-1">
                 <span className="text-3xl font-bold">¥58</span>
-                <span className="text-xs text-muted-foreground">/ 年（折合 ¥4.8/月）</span>
+                <span className="text-xs text-muted-foreground">/ 年（折 ¥4.8/月）</span>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                全年 480GB，限 2 台设备，常规基础线路 + 公益池，不含韩国 AnyTLS 最高优先通道，展示轻量云枢自研新品推荐。
+                全年 480GB，限 2 台设备，常规基础线路 + 公益池，展示轻量云枢自研新品推荐。
               </p>
             </div>
             <Button className="mt-4 w-full" variant="outline" onClick={() => onNavigate("shop")}>
@@ -244,53 +268,133 @@ export function VpnPage({ onNavigate }: VpnPageProps) {
             </Button>
           </Card>
 
+          <Card className="flex flex-col justify-between p-5 border-emerald-500/40">
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">¥15 轻量极速年卡（8 折）</span>
+                <Badge variant="emerald">1200GB · 省 ¥36</Badge>
+              </div>
+              <div className="mt-3 flex items-baseline gap-1">
+                <span className="text-3xl font-bold">¥144</span>
+                <span className="text-xs text-muted-foreground">/ 年（折 ¥12/月）</span>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                全年 1200GB（100GB/月），3 台设备，全量自建极速专线，高优先供应，纯净零打扰。
+              </p>
+            </div>
+            <Button className="mt-4 w-full" variant="outline" onClick={() => onNavigate("shop")}>
+              选购 ¥144 轻量年卡
+            </Button>
+          </Card>
+
           <Card className="flex flex-col justify-between border-emerald-500/60 bg-emerald-500/[0.04] p-5">
             <div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold">极速专线年卡（8 折）</span>
-                <Badge variant="amber">2640GB · 立省 ¥72</Badge>
+                <span className="text-sm font-semibold">¥30 标准极速年卡（8 折）</span>
+                <Badge variant="amber">2640GB · 省 ¥72</Badge>
               </div>
               <div className="mt-3 flex items-baseline gap-1">
                 <span className="text-3xl font-bold">¥288</span>
-                <span className="text-xs text-muted-foreground">/ 年（折合 ¥24/月）</span>
+                <span className="text-xs text-muted-foreground">/ 年（折 ¥24/月）</span>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                全年 2640GB（220GB/月），5 台设备，韩国 12.7MB/s AnyTLS 最高优先级 + 工单优先响应 + 纯净零打扰。
+                全年 2640GB（220GB/月），5 台设备，韩国 12.7MB/s AnyTLS 最高优先 + 纯净零打扰。
               </p>
             </div>
             <Button className="mt-4 w-full" variant="emerald" onClick={() => onNavigate("shop")}>
-              选购 ¥288 极速年卡
+              选购 ¥288 标准年卡
             </Button>
           </Card>
         </div>
       )}
 
       {cycle === "3year" && (
-        <Card className="border-amber-500/50 bg-gradient-to-br from-amber-500/[0.06] to-emerald-500/[0.06] p-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card className="border-emerald-500/50 bg-emerald-500/[0.04] p-6 flex flex-col justify-between space-y-4">
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="amber">👑 三年尊享 · 67 折立省 ¥360</Badge>
-                <Badge variant="emerald">折合仅 ¥20 / 月</Badge>
+                <Badge variant="emerald">极速专线 · 三年 67 折立省 ¥360</Badge>
+                <Badge variant="outline">折合仅 ¥20 / 月</Badge>
               </div>
-              <h2 className="text-xl font-bold">极速专线 · 三年尊享卡（7,920 GB / 1,095 天）</h2>
-              <p className="text-sm text-muted-foreground max-w-2xl">
-                每月 220GB 满血极速专线，支持 8 台设备同时在线，享有韩国 12.7MB/s AnyTLS 最高优先级通道、未来新增海外专线免费自动扩容、全站纯净零打扰与专属工单优先支持。
+              <h2 className="text-lg font-bold">标准极速专线 · 三年尊享卡（7,920 GB）</h2>
+              <p className="text-xs text-muted-foreground">
+                每月 220GB 满血极速专线，8 台设备，韩国 12.7MB/s AnyTLS 最高优先级、新节点免费自动扩容、全站纯净零打扰。
               </p>
             </div>
-            <div className="shrink-0 text-left lg:text-right space-y-2">
+            <div className="flex items-end justify-between border-t pt-4">
               <div>
                 <span className="text-3xl font-bold">¥720</span>
-                <span className="ml-2 text-xs line-through text-muted-foreground">原价 ¥1,080</span>
+                <span className="ml-2 text-xs line-through text-muted-foreground">¥1,080</span>
               </div>
-              <div className="text-xs text-muted-foreground">7,200 付费积分 · 一次锁定三年 ¥20/月低价</div>
-              <Button variant="emerald" size="lg" className="w-full lg:w-auto" onClick={() => onNavigate("shop")}>
-                前往商城开通三年尊享卡
+              <Button variant="emerald" onClick={() => onNavigate("shop")}>
+                开通三年标准卡 (¥720)
+              </Button>
+            </div>
+          </Card>
+
+          <Card className="border-amber-500/60 bg-gradient-to-br from-amber-500/[0.08] to-orange-500/[0.04] p-6 flex flex-col justify-between space-y-4">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="amber">👑 商业独享家宽 Pro · 三年 67 折省 ¥1,440</Badge>
+                <Badge variant="outline">折合仅 ¥80 / 月</Badge>
+              </div>
+              <h2 className="text-lg font-bold">商业独享家宽 IP · 三年旗舰定制（36,000 GB）</h2>
+              <p className="text-xs text-muted-foreground">
+                单人独享海外真实家庭宽带原生静态 IP（绝不共享），专为 Claude Pro/Max、ChatGPT Pro 与海外商业账号防封定制，支持免费定制地区与专属协议。
+              </p>
+            </div>
+            <div className="flex items-end justify-between border-t pt-4">
+              <div>
+                <span className="text-3xl font-bold">¥2,880</span>
+                <span className="ml-2 text-xs line-through text-muted-foreground">¥4,320</span>
+              </div>
+              <Button variant="emerald" onClick={() => onNavigate("shop")}>
+                开通三年独享家宽 (¥2,880)
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Flagship GPT-Pro-Style Dedicated Residential IP Banner (Always Visible!) */}
+      <Card className="border-amber-500/60 bg-gradient-to-r from-amber-500/[0.08] via-orange-500/[0.05] to-emerald-500/[0.05] p-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="space-y-2 max-w-2xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="amber">👑 PRO 旗舰定制 · 类 GPT Pro 500x 级定位</Badge>
+              <Badge variant="emerald">单人独享原生家庭宽带 IP</Badge>
+              <Badge variant="outline">Claude 订阅专用防封</Badge>
+            </div>
+            <h2 className="text-xl font-bold tracking-tight">
+              商业专用独享 · 家庭宽带（家宽）独享 IP 定制服务
+            </h2>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              告别共享机场 IP 导致的 Claude 封号、ChatGPT 降智与人机验证！为您 1 对 1 独立分配海外真实住宅家庭宽带静态 IP，<strong>仅供您个人独享使用</strong>，纯净零污染、超低风控分，专为 <strong>Claude Pro / Max 订阅、ChatGPT Pro、Cursor、海外支付与商业工作流</strong> 打造。
+            </p>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground pt-1">
+              <span>✓ 1,000 GB / 月 · 10 台设备</span>
+              <span>✓ 单人独享原生家宽静态 IP</span>
+              <span>✓ 按需定制地区 / 专属 AnyTLS 节点</span>
+              <span>✓ 1 对 1 专属技术交付与售后</span>
+            </div>
+          </div>
+
+          <div className="shrink-0 space-y-2.5 lg:text-right border-t lg:border-t-0 pt-4 lg:pt-0">
+            <div>
+              <span className="text-3xl font-bold text-amber-600 dark:text-amber-400">¥120</span>
+              <span className="text-xs text-muted-foreground"> / 月（季 ¥324 · 年 ¥1,152 · 三年 ¥2,880）</span>
+            </div>
+            <div className="flex flex-wrap gap-2 lg:justify-end">
+              <Button variant="emerald" onClick={() => onNavigate("shop")}>
+                立即定制独享家宽 IP
+              </Button>
+              <Button variant="outline" onClick={() => onNavigate("account")}>
+                提交定制需求工单
               </Button>
             </div>
           </div>
-        </Card>
-      )}
+        </div>
+      </Card>
 
       {/* Clash Verge Rev Free Download Alert */}
       <Card className="border-amber-500/30 bg-amber-500/[0.04] p-5">

@@ -9,6 +9,78 @@
   },
   "products": [
     {
+      "code": "proxy_pro_3y",
+      "name": "商业独享家宽 Pro · 三年旗舰定制（67 折 · 折 ¥80/月）",
+      "desc": "【商业独享家宽三年 · 立省 ¥1440】36000GB / 1095 天，单人独享原生住宅家宽静态 IP，免费定制地区与协议，Claude / AI 商业工作站三年零忧保障。",
+      "points_price": 28800,
+      "price_cny": 2880.0,
+      "price_usdt": 399.0,
+      "duration_days": 1095,
+      "traffic_gb": 36000,
+      "sale_open": true,
+      "delivery_kind": "proxy_subscription"
+    },
+    {
+      "code": "proxy_pro_1y",
+      "name": "商业独享家宽 Pro · 年卡（8 折 · 立省 ¥288 · Claude 专用）",
+      "desc": "【商业独享家宽按年 · 折 ¥96/月 · 省 ¥288】12000GB / 365 天，单人独享原生住宅家宽静态 IP，Claude Pro/Max 长期稳定防封，含专属定制运维与优先线路保障。",
+      "points_price": 11520,
+      "price_cny": 1152.0,
+      "price_usdt": 160.0,
+      "duration_days": 365,
+      "traffic_gb": 12000,
+      "sale_open": true,
+      "delivery_kind": "proxy_subscription"
+    },
+    {
+      "code": "proxy_pro_3m",
+      "name": "商业独享家宽 Pro · 季卡（9 折 · Claude 专用独享 IP）",
+      "desc": "【商业独享家宽按季 · 折 ¥108/月 · 省 ¥36】3000GB / 90 天，单人独享原生住宅家宽静态 IP，Claude / ChatGPT Pro 零风控专用专线，1 对 1 定制交付。",
+      "points_price": 3240,
+      "price_cny": 324.0,
+      "price_usdt": 45.0,
+      "duration_days": 90,
+      "traffic_gb": 3000,
+      "sale_open": true,
+      "delivery_kind": "proxy_subscription"
+    },
+    {
+      "code": "proxy_pro_1m",
+      "name": "商业独享家宽 Pro · 月卡（Claude 专用独享原生 IP）",
+      "desc": "【类 GPT Pro 旗舰定制 · 单人独享家宽 IP】1000GB/月，10 台设备。单人独享海外真实家庭宽带原生静态 IP，绝不共享、极低风控分；专为 Claude Pro/Max 订阅、ChatGPT Pro、Cursor、海外商业账号防封与个人高稳定定制，含 1 对 1 专属交付与工单直通。",
+      "points_price": 1200,
+      "price_cny": 120.0,
+      "price_usdt": 16.8,
+      "duration_days": 30,
+      "traffic_gb": 1000,
+      "sale_open": true,
+      "delivery_kind": "proxy_subscription"
+    },
+    {
+      "code": "proxy_15_1y",
+      "name": "代理订阅 · ¥15 轻量极速年卡（1200GB / 365 天 · 8 折）",
+      "desc": "【轻量极速按年 · 折 ¥12/月 · 立省 ¥36】全年 1200GB（100GB/月）全量自建极速专线，3 台设备，高优先级供应，纯净零打扰。",
+      "points_price": 1440,
+      "price_cny": 144.0,
+      "price_usdt": 20.0,
+      "duration_days": 365,
+      "traffic_gb": 1200,
+      "sale_open": true,
+      "delivery_kind": "proxy_subscription"
+    },
+    {
+      "code": "proxy_15_3m",
+      "name": "代理订阅 · ¥15 轻量极速季卡（300GB / 90 天 · 9 折）",
+      "desc": "【轻量极速按季 · 折 ¥13.5/月】每月 100GB 全量自建极速专线（共 300GB），3 台设备，含 AnyTLS + 端口跳跃，纯净零打扰。",
+      "points_price": 405,
+      "price_cny": 40.5,
+      "price_usdt": 5.8,
+      "duration_days": 90,
+      "traffic_gb": 300,
+      "sale_open": true,
+      "delivery_kind": "proxy_subscription"
+    },
+    {
       "code": "susong_full",
       "name": "《宿松 SuSong》完整剧情激活卡",
       "price_usdt": 18.0,
