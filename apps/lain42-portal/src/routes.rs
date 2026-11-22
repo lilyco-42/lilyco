@@ -803,7 +803,12 @@ async fn go_mirror_download(
         .await
         {
             if !resolved.target_url.is_empty() {
-                return Redirect::temporary(&resolved.target_url).into_response();
+                let mut resp = Redirect::to(&resolved.target_url).into_response();
+                resp.headers_mut().insert(
+                    header::REFERRER_POLICY,
+                    HeaderValue::from_static("no-referrer"),
+                );
+                return resp;
             }
         }
     }

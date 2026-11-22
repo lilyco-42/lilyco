@@ -498,10 +498,10 @@ pub fn resolve_download_mirror(
 
     if slug == "f-droid" {
         let (target, label) = match mirror {
-            "ustc" => ("https://mirrors.ustc.edu.cn/fdroid/F-Droid.apk".to_string(), "中科大 USTC F-Droid 手机源"),
-            "bfsu" => ("https://mirrors.bfsu.edu.cn/fdroid/F-Droid.apk".to_string(), "北外 BFSU F-Droid 手机源"),
-            "official" => ("https://f-droid.org/F-Droid.apk".to_string(), "F-Droid 官方源"),
-            _ => ("https://mirrors.tuna.tsinghua.edu.cn/fdroid/F-Droid.apk".to_string(), "清华大学 TUNA F-Droid 手机源"),
+            "ustc" => ("https://mirrors.ustc.edu.cn/help/fdroid.html".to_string(), "中科大 USTC F-Droid 镜像指南"),
+            "bfsu" => ("https://mirrors.bfsu.edu.cn/help/fdroid/".to_string(), "北外 BFSU F-Droid 镜像指南"),
+            "tuna" => ("https://mirrors.tuna.tsinghua.edu.cn/help/fdroid/".to_string(), "清华大学 TUNA F-Droid 镜像指南"),
+            _ => ("https://f-droid.org/F-Droid.apk".to_string(), "F-Droid 官方最新版 APK"),
         };
         return MirrorResolution {
             slug: item.slug.clone(),
@@ -556,19 +556,19 @@ pub fn resolve_download_mirror(
         }
     }
 
-    // 2.8 Cloudflare Wrangler 专属直链 / 夸克高速盘（未进高校同步池的热门软件优先走满速网盘/R2）
+    // 2.8 夸克高速盘（未进高校同步池的热门软件优先走国内满速夸克网盘）
     if mirror != "official" && slug == "clash-verge-rev" {
         return MirrorResolution {
             slug: item.slug.clone(),
-            mirror: "wrangler".to_string(),
-            mirror_label: "Cloudflare Wrangler 高速直链 (dl.lilyco42.top)".to_string(),
+            mirror: "quark".to_string(),
+            mirror_label: "夸克网盘免费高速下载 (Clash Verge Rev)".to_string(),
             os: plat.os.clone(),
             arch: plat.arch.clone(),
             version: item.version.clone(),
             asset_name: item.asset_name.clone(),
-            target_url: "https://dl.lilyco42.top/d/clash-verge-rev".to_string(),
+            target_url: "https://pan.quark.cn/s/6d35f67343ba".to_string(),
             official_url: item.github_download_url.clone(),
-            quark_url: item.quark_url.clone(),
+            quark_url: "https://pan.quark.cn/s/6d35f67343ba".to_string(),
             chsrc_cmd: String::new(),
         };
     }
