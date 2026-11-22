@@ -164,7 +164,7 @@ mod tests {
             .unwrap();
         assert_eq!(chk.status(), StatusCode::OK);
 
-        // 3. Purchase proxy_1m (299 points) using credited 300 points
+        // 3. Purchase proxy_1m_220g (300 points, 220GB) using credited 300 paid points
         let buy = app
             .clone()
             .oneshot(
@@ -173,14 +173,14 @@ mod tests {
                     .uri("/studio/api/points/purchase")
                     .header("authorization", format!("Bearer {token}"))
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"product":"proxy_1m","reference":"ref2"}"#))
+                    .body(Body::from(r#"{"product":"proxy_1m_220g","reference":"ref2"}"#))
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(buy.status(), StatusCode::OK);
 
-        // 4. Redeem LAIN42-TEST-500 card (free promo bonus points) -> verify it CANNOT buy proxy_1m (non-replicable)
+        // 4. Redeem LAIN42-TEST-500 card (free promo bonus points) -> verify it CANNOT buy proxy_1m (150 pts, non-replicable)
         //    but CAN buy rembg_creator (replicable software tool)
         let rdm = app
             .clone()
@@ -249,7 +249,7 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|e| e["product"] == "proxy_1m")
+            .find(|e| e["product"] == "proxy_1m_220g")
             .unwrap()["license_key"]
             .as_str()
             .unwrap()
@@ -267,8 +267,21 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(sub.status(), StatusCode::OK);
+        let userinfo = sub
+            .headers()
+            .get("subscription-userinfo")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            userinfo.contains("total=236223201280"),
+            "220GB plan must advertise 236223201280 bytes in Subscription-Userinfo, got {userinfo}"
+        );
         let sub_yaml = String::from_utf8(sub.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
         assert!(sub_yaml.contains("LYCO-Auto"));
+        assert!(sub_yaml.contains("🇦🇺 澳大利亚悉尼 · VLESS 专线"));
+        assert!(sub_yaml.contains("🇰🇷 韩国二 · VLESS 中转"));
 
         let ver = app
             .clone()
