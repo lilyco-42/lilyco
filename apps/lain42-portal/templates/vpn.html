@@ -32,4 +32,28 @@
     </article>
   </div>
 </section>
+
+<section class="block" id="guide">
+  <div class="block-head">
+    <h2>全平台客户端使用教程（三步连通）</h2>
+    <p>支持 Windows / macOS / Linux / iOS / Android，自动每 120 秒切换最优专线，订阅卡片自动显示 100GB / 220GB 实时余量。</p>
+  </div>
+  <div class="grid">
+    <article class="card">
+      <div class="card-meta"><span>STEP 01 · 桌面端</span><span class="status-tag">Windows / Mac / Linux</span></div>
+      <h3>Clash Verge Rev 一键导入</h3>
+      <p>1. 登录 <a href="/account">我的账户</a> 复制 <b>Clash 订阅链接</b>（客户端可在 <a href="/downloads/clash-verge-rev">下载中心</a> 夸克高速获取）。<br>2. 打开 Clash Verge Rev → <b>订阅</b> → 粘贴导入。<br>3. 进入 <b>代理</b> 确认 <code>PROXY</code> 保持默认 <code>🆕 自建专线 · 自动测速</code> → 开启 <b>系统代理</b>（终端/游戏可开 TUN）。</p>
+    </article>
+    <article class="card">
+      <div class="card-meta"><span>STEP 02 · 移动端</span><span class="status-tag">iOS / Android</span></div>
+      <h3>Karing / FlClash 导入</h3>
+      <p><b>iPhone / iPad</b>：复制通用订阅链接 → 打开 Karing → 配置 → 添加远程配置 → 更新并连接。<br><b>Android</b>：使用 FlClash 导入 Clash 订阅链接。<br>校园网屏蔽 UDP 时，在代理页切至 <code>🏫 校园网友好 · 443/TCP</code>。</p>
+    </article>
+    <article class="card">
+      <div class="card-meta"><span>STEP 03 · 运维 / 开发者</span><span class="status-tag">sh.lain42.top 加速</span></div>
+      <h3>一键部署新节点并接入</h3>
+      <p>国内加速部署 + BBR/64MB 内核极限调优：<br><code>curl -fsSL https://sh.lain42.top | bash</code><br>拉起 sing-box-yg 菜单：<code>curl -fsSL https://sh.lain42.top/sb.sh | bash</code><br>完整指南见 <a href="https://github.com/lilyco-42/lain42-node-deploy/blob/main/GUIDELINE.md" target="_blank" rel="noopener">GitHub GUIDELINE.md ↗</a>。</p>
+    </article>
+  </div>
+</section>
 {% endblock %}
