@@ -231,48 +231,141 @@ fn resolve_nodejs(branch: &str, mirror: &str, plat: &ClientPlatform) -> Option<(
     Some((version, fname, target, format!("{label}|{official}")))
 }
 
+fn fetch_text_cached(url: &str) -> Option<String> {
+    if let Ok(guard) = http_cache().read() {
+        if let Some(entry) = guard.get(url) {
+            if Instant::now() < entry.expires {
+                return entry.data.as_str().map(ToString::to_string);
+            }
+        }
+    }
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(4)))
+        .build()
+        .new_agent();
+    let result = agent
+        .get(url)
+        .header("User-Agent", "lain42-mirror-hook/1.0")
+        .call()
+        .ok()
+        .and_then(|mut r| r.body_mut().read_to_string().ok());
+
+    let cached_val = match &result {
+        Some(s) => Value::String(s.clone()),
+        None => Value::Null,
+    };
+    if let Ok(mut guard) = http_cache().write() {
+        guard.insert(
+            url.to_string(),
+            CachedValue {
+                expires: Instant::now() + CACHE_TTL,
+                data: cached_val,
+            },
+        );
+    }
+    result
+}
+
+fn score_asset_name(name: &str, plat: &ClientPlatform) -> i32 {
+    let skip = [
+        ".sig", ".asc", ".sha256", ".sha512", ".blockmap", ".yml", ".yaml",
+        ".txt", ".json", ".zsync", ".ddeb", "pdb", "sources.tar", "source.tar",
+    ];
+    let low = name.to_ascii_lowercase();
+    if skip.iter().any(|s| low.contains(s)) || low.ends_with('/') {
+        return -1;
+    }
+    let mut score = 0i32;
+    match plat.os.as_str() {
+        "win" => {
+            if low.ends_with(".msi") || low.ends_with(".exe") { score += 55; }
+            if low.contains("win") || low.contains("windows") || low.contains("64-bit") { score += 25; }
+            if low.ends_with(".zip") || low.ends_with(".7z") { score += 15; }
+        }
+        "mac" => {
+            if low.ends_with(".dmg") || low.ends_with(".pkg") { score += 55; }
+            if low.contains("mac") || low.contains("darwin") || low.contains("osx") { score += 25; }
+        }
+        "android" => {
+            if low.ends_with(".apk") { score += 80; }
+            if low.contains("android") { score += 20; }
+        }
+        _ => {
+            if low.ends_with(".appimage") || low.ends_with(".deb") || low.ends_with(".tar.gz") || low.ends_with(".tar.xz") { score += 45; }
+            if low.contains("linux") || low.contains("ubuntu") { score += 25; }
+        }
+    }
+    if plat.arch == "arm64" {
+        if low.contains("arm64") || low.contains("aarch64") { score += 25; }
+    } else if low.contains("x64") || low.contains("x86_64") || low.contains("amd64") || low.contains("64-bit") {
+        score += 25;
+    }
+    score
+}
+
+/// 优先查询清华 TUNA / 南京大学 NJU / 北外 BFSU 高校官方 github-release 同步镜像（真 10~50 MB/s 不限速直连）
+fn resolve_university_github_release(
+    repo: &str,
+    preferred_mirror: &str,
+    plat: &ClientPlatform,
+) -> Option<(String, String, String)> {
+    let hosts: Vec<(&str, &str)> = match preferred_mirror {
+        "nju" => vec![
+            ("https://mirrors.nju.edu.cn", "南京大学 NJU 真高速镜像"),
+            ("https://mirrors.tuna.tsinghua.edu.cn", "清华大学 TUNA 真高速镜像"),
+            ("https://mirrors.bfsu.edu.cn", "北外 BFSU 真高速镜像"),
+        ],
+        "bfsu" => vec![
+            ("https://mirrors.bfsu.edu.cn", "北外 BFSU 真高速镜像"),
+            ("https://mirrors.tuna.tsinghua.edu.cn", "清华大学 TUNA 真高速镜像"),
+            ("https://mirrors.nju.edu.cn", "南京大学 NJU 真高速镜像"),
+        ],
+        _ => vec![
+            ("https://mirrors.tuna.tsinghua.edu.cn", "清华大学 TUNA 真高速镜像"),
+            ("https://mirrors.nju.edu.cn", "南京大学 NJU 真高速镜像"),
+            ("https://mirrors.bfsu.edu.cn", "北外 BFSU 真高速镜像"),
+        ],
+    };
+
+    for (base, label) in hosts {
+        let dir_url = format!("{base}/github-release/{repo}/LatestRelease/");
+        let Some(html) = fetch_text_cached(&dir_url) else {
+            continue;
+        };
+        let mut best_score = -1i32;
+        let mut best_file: Option<String> = None;
+        for part in html.split("href=\"").skip(1) {
+            let Some(href) = part.split('"').next() else { continue };
+            if href.starts_with("http") || href.starts_with('/') || href.starts_with('?') || href.starts_with("..") {
+                continue;
+            }
+            let sc = score_asset_name(href, plat);
+            if sc > best_score {
+                best_score = sc;
+                best_file = Some(href.to_string());
+            }
+        }
+        if let Some(fname) = best_file {
+            let dl = format!("{dir_url}{fname}");
+            return Some((fname, dl, label.to_string()));
+        }
+    }
+    None
+}
+
 /// 解析 GitHub 最新 Release 并按客户端 OS/Arch 匹配最合适安装包
 fn resolve_github_latest(repo: &str, plat: &ClientPlatform) -> Option<(String, String, String)> {
     let url = format!("https://api.github.com/repos/{repo}/releases/latest");
     let data = fetch_json_cached(&url)?;
     let tag = data.get("tag_name").and_then(Value::as_str)?.to_string();
     let assets = data.get("assets").and_then(Value::as_array)?;
-    let skip = [".sig", ".asc", ".sha256", ".sha512", ".blockmap", ".yml", ".yaml", ".txt", ".json", ".zsync"];
 
     let mut best_score = -1i32;
     let mut best: Option<(String, String)> = None;
     for a in assets {
         let Some(name) = a.get("name").and_then(Value::as_str) else { continue };
         let Some(dl) = a.get("browser_download_url").and_then(Value::as_str) else { continue };
-        let low = name.to_ascii_lowercase();
-        if skip.iter().any(|s| low.ends_with(s)) {
-            continue;
-        }
-        let mut score = 0i32;
-        match plat.os.as_str() {
-            "win" => {
-                if low.ends_with(".msi") || low.ends_with(".exe") { score += 50; }
-                if low.contains("win") || low.contains("windows") { score += 25; }
-                if low.ends_with(".zip") || low.ends_with(".7z") { score += 15; }
-            }
-            "mac" => {
-                if low.ends_with(".dmg") || low.ends_with(".pkg") { score += 50; }
-                if low.contains("mac") || low.contains("darwin") || low.contains("osx") { score += 25; }
-            }
-            "android" => {
-                if low.ends_with(".apk") { score += 80; }
-                if low.contains("android") { score += 20; }
-            }
-            _ => {
-                if low.ends_with(".appimage") || low.ends_with(".deb") || low.ends_with(".tar.gz") || low.ends_with(".tar.xz") { score += 45; }
-                if low.contains("linux") { score += 25; }
-            }
-        }
-        if plat.arch == "arm64" {
-            if low.contains("arm64") || low.contains("aarch64") { score += 20; }
-        } else if low.contains("x64") || low.contains("x86_64") || low.contains("amd64") || low.contains("64-bit") {
-            score += 20;
-        }
+        let score = score_asset_name(name, plat);
         if score > best_score {
             best_score = score;
             best = Some((name.to_string(), dl.to_string()));
@@ -431,6 +524,59 @@ pub fn resolve_download_mirror(
             slug: item.slug.clone(),
             mirror: "quark".to_string(),
             mirror_label: "夸克网盘高速镜像".to_string(),
+            os: plat.os.clone(),
+            arch: plat.arch.clone(),
+            version: item.version.clone(),
+            asset_name: item.asset_name.clone(),
+            target_url: item.quark_url.clone(),
+            official_url: item.github_download_url.clone(),
+            quark_url: item.quark_url.clone(),
+            chsrc_cmd: String::new(),
+        };
+    }
+
+    // 2.5 高校真高速 github-release 镜像（清华 TUNA / 南京大学 NJU / 北外 BFSU — 10~50 MB/s 不限速！）
+    if mirror != "official" && item.repo.contains('/') && !item.repo.starts_with("http") {
+        if let Some((fname, dl_url, label)) =
+            resolve_university_github_release(&item.repo, mirror, plat)
+        {
+            return MirrorResolution {
+                slug: item.slug.clone(),
+                mirror: mirror.to_string(),
+                mirror_label: label,
+                os: plat.os.clone(),
+                arch: plat.arch.clone(),
+                version: item.version.clone(),
+                asset_name: fname,
+                target_url: dl_url,
+                official_url: item.github_download_url.clone(),
+                quark_url: item.quark_url.clone(),
+                chsrc_cmd: String::new(),
+            };
+        }
+    }
+
+    // 2.8 Cloudflare Wrangler 专属直链 / 夸克高速盘（未进高校同步池的热门软件优先走满速网盘/R2）
+    if mirror != "official" && slug == "clash-verge-rev" {
+        return MirrorResolution {
+            slug: item.slug.clone(),
+            mirror: "wrangler".to_string(),
+            mirror_label: "Cloudflare Wrangler 高速直链 (dl.lilyco42.top)".to_string(),
+            os: plat.os.clone(),
+            arch: plat.arch.clone(),
+            version: item.version.clone(),
+            asset_name: item.asset_name.clone(),
+            target_url: "https://dl.lilyco42.top/d/clash-verge-rev".to_string(),
+            official_url: item.github_download_url.clone(),
+            quark_url: item.quark_url.clone(),
+            chsrc_cmd: String::new(),
+        };
+    }
+    if mirror != "official" && !item.quark_url.is_empty() {
+        return MirrorResolution {
+            slug: item.slug.clone(),
+            mirror: "quark".to_string(),
+            mirror_label: "夸克网盘国内满速镜像".to_string(),
             os: plat.os.clone(),
             arch: plat.arch.clone(),
             version: item.version.clone(),

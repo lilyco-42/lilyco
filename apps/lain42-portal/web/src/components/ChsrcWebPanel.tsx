@@ -16,8 +16,10 @@ export interface MirrorProbeItem {
   name: string;
   scope: string;
   probeUrl: string;
+  probeBytes: number;
   baseUrl: string;
   ms: number | null; // null = pending, -1 = failed/timeout
+  mbps: number | null; // real measured MB/s throughput
 }
 
 export interface GhProxyProbeItem {
@@ -27,15 +29,17 @@ export interface GhProxyProbeItem {
   ms: number | null;
 }
 
+const NODE_INDEX_BYTES = 338361;
+
 const INITIAL_MIRRORS: MirrorProbeItem[] = [
-  { id: "aliyun", name: "阿里云 / npmmirror", scope: "Node / Python / Go", probeUrl: "https://registry.npmmirror.com/favicon.ico", baseUrl: "https://registry.npmmirror.com", ms: null },
-  { id: "ustc", name: "中科大 USTC", scope: "校园网 / F-Droid / Rust", probeUrl: "https://mirrors.ustc.edu.cn/favicon.ico", baseUrl: "https://mirrors.ustc.edu.cn", ms: null },
-  { id: "nju", name: "南京大学 NJU", scope: "校园网 / Node / F-Droid", probeUrl: "https://mirrors.nju.edu.cn/favicon.ico", baseUrl: "https://mirrors.nju.edu.cn", ms: null },
-  { id: "tencent", name: "腾讯云软件源", scope: "Node / Python / Go", probeUrl: "https://mirrors.cloud.tencent.com/favicon.ico", baseUrl: "https://mirrors.cloud.tencent.com", ms: null },
-  { id: "bfsu", name: "北外 BFSU", scope: "校园网 / Node / F-Droid", probeUrl: "https://mirrors.bfsu.edu.cn/favicon.ico", baseUrl: "https://mirrors.bfsu.edu.cn", ms: null },
-  { id: "tuna", name: "清华大学 TUNA", scope: "校园网 / Node / F-Droid", probeUrl: "https://mirrors.tuna.tsinghua.edu.cn/static/img/favicon.png", baseUrl: "https://mirrors.tuna.tsinghua.edu.cn", ms: null },
-  { id: "sjtu", name: "上海交大 SJTUG", scope: "校园网 / Rust / PyPI", probeUrl: "https://mirror.sjtu.edu.cn/favicon.ico", baseUrl: "https://mirror.sjtu.edu.cn", ms: null },
-  { id: "bytedance", name: "字节跳动 rsproxy", scope: "Rust / Cargo", probeUrl: "https://rsproxy.cn/", baseUrl: "https://rsproxy.cn", ms: null },
+  { id: "tuna", name: "清华大学 TUNA", scope: "真高速 github-release + Node + F-Droid", probeUrl: "https://mirrors.tuna.tsinghua.edu.cn/nodejs-release/index.json", probeBytes: NODE_INDEX_BYTES, baseUrl: "https://mirrors.tuna.tsinghua.edu.cn", ms: null, mbps: null },
+  { id: "nju", name: "南京大学 NJU", scope: "真高速 github-release(87组织) + Node", probeUrl: "https://mirrors.nju.edu.cn/nodejs-release/index.json", probeBytes: NODE_INDEX_BYTES, baseUrl: "https://mirrors.nju.edu.cn", ms: null, mbps: null },
+  { id: "bfsu", name: "北外 BFSU", scope: "真高速 github-release + Node + F-Droid", probeUrl: "https://mirrors.bfsu.edu.cn/nodejs-release/index.json", probeBytes: NODE_INDEX_BYTES, baseUrl: "https://mirrors.bfsu.edu.cn", ms: null, mbps: null },
+  { id: "aliyun", name: "阿里云 / npmmirror", scope: "Node / Python / Go / PyPI", probeUrl: "https://registry.npmmirror.com/-/binary/node/latest-v24.x/", probeBytes: 74776, baseUrl: "https://registry.npmmirror.com", ms: null, mbps: null },
+  { id: "ustc", name: "中科大 USTC", scope: "校园网 / F-Droid / Rust / Node", probeUrl: "https://mirrors.ustc.edu.cn/node/index.json", probeBytes: NODE_INDEX_BYTES, baseUrl: "https://mirrors.ustc.edu.cn", ms: null, mbps: null },
+  { id: "tencent", name: "腾讯云软件源", scope: "Node / Python / Go / PyPI", probeUrl: "https://mirrors.cloud.tencent.com/nodejs-release/index.json", probeBytes: NODE_INDEX_BYTES, baseUrl: "https://mirrors.cloud.tencent.com", ms: null, mbps: null },
+  { id: "sjtu", name: "上海交大 SJTUG", scope: "校园网 / Rust / PyPI", probeUrl: "https://mirror.sjtu.edu.cn/favicon.ico", probeBytes: 15000, baseUrl: "https://mirror.sjtu.edu.cn", ms: null, mbps: null },
+  { id: "bytedance", name: "字节跳动 rsproxy", scope: "Rust / Cargo 专属高速源", probeUrl: "https://rsproxy.cn/", probeBytes: 12000, baseUrl: "https://rsproxy.cn", ms: null, mbps: null },
 ];
 
 const INITIAL_GH_PROXIES: GhProxyProbeItem[] = [
@@ -125,22 +129,30 @@ function buildRecipeCommand(recipe: RecipeKey, mirrorId: string): { title: strin
   }
 }
 
-async function probeEndpoint(url: string, timeoutMs = 4000): Promise<number> {
+async function probePayload(url: string, knownBytes: number, timeoutMs = 5000): Promise<{ ms: number; mbps: number }> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   const t0 = performance.now();
   try {
-    await fetch(`${url}${url.includes("?") ? "&" : "?"}_t=${Date.now()}`, {
+    const resp = await fetch(`${url}${url.includes("?") ? "&" : "?"}_t=${Date.now()}`, {
       mode: "no-cors",
       cache: "no-store",
       signal: controller.signal,
     });
-    return Math.max(1, Math.round(performance.now() - t0));
+    await resp.blob();
+    const elapsedMs = Math.max(1, Math.round(performance.now() - t0));
+    const mbps = Number(((knownBytes / 1048576) / (elapsedMs / 1000)).toFixed(2));
+    return { ms: elapsedMs, mbps };
   } catch {
-    return -1;
+    return { ms: -1, mbps: -1 };
   } finally {
     window.clearTimeout(timer);
   }
+}
+
+async function probeEndpoint(url: string, timeoutMs = 4000): Promise<number> {
+  const res = await probePayload(url, 8192, timeoutMs);
+  return res.ms;
 }
 
 interface ChsrcWebPanelProps {
@@ -169,19 +181,19 @@ export function ChsrcWebPanel({
     setGhProxies(INITIAL_GH_PROXIES.map((g) => ({ ...g, ms: null })));
 
     const mirrorResults = await Promise.all(
-      INITIAL_MIRRORS.map(async (m) => ({
-        ...m,
-        ms: await probeEndpoint(m.probeUrl),
-      }))
+      INITIAL_MIRRORS.map(async (m) => {
+        const res = await probePayload(m.probeUrl, m.probeBytes);
+        return { ...m, ms: res.ms, mbps: res.mbps };
+      })
     );
     mirrorResults.sort((a, b) => {
-      if (a.ms === null || a.ms < 0) return 1;
-      if (b.ms === null || b.ms < 0) return -1;
-      return a.ms - b.ms;
+      if (a.mbps === null || a.mbps < 0) return 1;
+      if (b.mbps === null || b.mbps < 0) return -1;
+      return b.mbps - a.mbps;
     });
     setMirrors(mirrorResults);
 
-    const fastestMirror = mirrorResults.find((m) => m.ms !== null && m.ms > 0);
+    const fastestMirror = mirrorResults.find((m) => m.mbps !== null && m.mbps > 0);
     if (fastestMirror) {
       onSelectMirror(fastestMirror.id);
     }
@@ -308,7 +320,14 @@ export function ChsrcWebPanel({
                           {m.scope}
                         </div>
                       </div>
-                      <div className="shrink-0 pl-2">{latencyBadge(m.ms)}</div>
+                      <div className="shrink-0 pl-2 text-right">
+                        {m.mbps !== null && m.mbps > 0 ? (
+                          <div className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                            {m.mbps >= 1 ? `${m.mbps.toFixed(1)} MB/s` : `${Math.round(m.mbps * 1024)} KB/s`}
+                          </div>
+                        ) : null}
+                        <div>{latencyBadge(m.ms)}</div>
+                      </div>
                     </button>
                   );
                 })}
