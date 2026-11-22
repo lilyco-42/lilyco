@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { apiFetch, type ProxyQualityNode } from "../lib/api";
 import { Badge, Button, Card } from "../components/ui/primitives";
+import { MembershipCard } from "../components/MembershipCard";
 
 interface VpnPageProps {
   onNavigate: (tab: string) => void;
@@ -46,6 +47,46 @@ export function VpnPage({ onNavigate }: VpnPageProps) {
         <Button variant="emerald" onClick={() => onNavigate("shop")}>
           前往商城开通 / 续费
         </Button>
+      </div>
+
+      {/* 4-Tier Metallic Pass Showcase (黑卡 / 金卡 / 银卡 / 白卡) */}
+      <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+        <MembershipCard
+          tier="black"
+          title="黑金卡 · 独享家宽 Pro"
+          holder="CLAUDE PRO DEDICATED"
+          cardNo="BPRO-8888-CLDE-2026"
+          expiresText="¥120 / 月起"
+          quotaText="1000 GB"
+          compact
+        />
+        <MembershipCard
+          tier="gold"
+          title="尊享金卡 · 标准极速"
+          holder="12.7MB/S ANYTLS"
+          cardNo="PRXY-220G-GOLD-2026"
+          expiresText="¥30 / 月起"
+          quotaText="220 GB"
+          compact
+        />
+        <MembershipCard
+          tier="silver"
+          title="极光银卡 · 轻量极速"
+          holder="ZERO-AD EXPRESS"
+          cardNo="PRXY-100G-SLVR-2026"
+          expiresText="¥15 / 月起"
+          quotaText="100 GB"
+          compact
+        />
+        <MembershipCard
+          tier="white"
+          title="云雾白卡 · 体验/基础"
+          holder="LAIN42 MEMBER"
+          cardNo="PRXY-FREE-PASS-2026"
+          expiresText="¥1 / ¥6 起"
+          quotaText="10~40 GB"
+          compact
+        />
       </div>
 
       {/* Billing Cycle Switcher (按月 / 按季 / 按年 / 按三年) */}

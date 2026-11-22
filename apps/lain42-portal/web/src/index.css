@@ -76,3 +76,16 @@
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
+
+@keyframes card-sheen {
+  0% {
+    transform: translateX(-140%) skewX(-24deg);
+  }
+  55%, 100% {
+    transform: translateX(240%) skewX(-24deg);
+  }
+}
+
+.animate-card-sheen {
+  animation: card-sheen 4.8s ease-in-out infinite;
+}

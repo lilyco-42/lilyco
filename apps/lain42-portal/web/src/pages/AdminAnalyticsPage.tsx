@@ -23,6 +23,7 @@ import {
 } from "recharts";
 import { apiFetch, type MeResponse } from "../lib/api";
 import { Badge, Button, Card } from "../components/ui/primitives";
+import { AdminUsersTab } from "../components/AdminUsersTab";
 
 interface AnalyticsSummary {
   ok: boolean;
@@ -58,6 +59,7 @@ interface AdminAnalyticsPageProps {
 }
 
 export function AdminAnalyticsPage({ me, onNeedAuth }: AdminAnalyticsPageProps) {
+  const [subTab, setSubTab] = useState<"analytics" | "users">("users");
   const [data, setData] = useState<AnalyticsSummary | null>(null);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
@@ -106,11 +108,34 @@ export function AdminAnalyticsPage({ me, onNeedAuth }: AdminAnalyticsPageProps) 
             实时监控全站下载点击、夸克网盘极速下载转化占比、扫码弹窗曝光与客户端系统分布
           </p>
         </div>
-        <Button size="sm" variant="outline" onClick={load} disabled={loading}>
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          刷新数据
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant={subTab === "users" ? "emerald" : "outline"}
+            onClick={() => setSubTab("users")}
+          >
+            用户管理与人工发卡
+          </Button>
+          <Button
+            size="sm"
+            variant={subTab === "analytics" ? "emerald" : "outline"}
+            onClick={() => setSubTab("analytics")}
+          >
+            数据看板与行为追踪
+          </Button>
+          {subTab === "analytics" && (
+            <Button size="sm" variant="outline" onClick={load} disabled={loading}>
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+              刷新
+            </Button>
+          )}
+        </div>
       </div>
+
+      {subTab === "users" ? (
+        <AdminUsersTab />
+      ) : (
+        <>
 
       {err && (
         <Card className="p-4 border-destructive/40 text-sm text-destructive">
@@ -298,6 +323,8 @@ export function AdminAnalyticsPage({ me, onNeedAuth }: AdminAnalyticsPageProps) 
               </table>
             </div>
           </Card>
+        </>
+      )}
         </>
       )}
     </div>

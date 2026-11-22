@@ -1517,6 +1517,162 @@ impl PortalDb {
         }))
     }
 
+    pub async fn admin_list_users(&self, query: &str) -> Result<Vec<serde_json::Value>, DbError> {
+        let q = query.trim().to_ascii_lowercase();
+        let like = format!("%{q}%");
+        let mut rows = if q.is_empty() {
+            self.conn
+                .query(
+                    "SELECT id, username, email, points_balance, bonus_points, created_unix
+                     FROM studio_users ORDER BY id DESC LIMIT 80",
+                    (),
+                )
+                .await?
+        } else {
+            self.conn
+                .query(
+                    "SELECT id, username, email, points_balance, bonus_points, created_unix
+                     FROM studio_users
+                     WHERE lower(username) LIKE ?1 OR lower(email) LIKE ?1
+                     ORDER BY id DESC LIMIT 80",
+                    [like.as_str()],
+                )
+                .await?
+        };
+        let mut out = Vec::new();
+        while let Some(r) = rows.next().await? {
+            let uname = as_str(r.get_value(1)?)?;
+            let mut ec = self
+                .conn
+                .query(
+                    "SELECT COUNT(*) FROM studio_entitlements WHERE username = ?1 AND status = 'active'",
+                    [uname.as_str()],
+                )
+                .await?;
+            let active_cnt = if let Some(er) = ec.next().await? {
+                as_i64(er.get_value(0)?).unwrap_or(0)
+            } else {
+                0
+            };
+            out.push(serde_json::json!({
+                "id": as_i64(r.get_value(0)?)?,
+                "username": uname,
+                "email": as_str(r.get_value(2)?)?,
+                "paid_balance": as_i64(r.get_value(3)?)?,
+                "bonus_balance": as_i64(r.get_value(4)?)?,
+                "created_unix": as_i64(r.get_value(5)?)?,
+                "active_entitlements": active_cnt
+            }));
+        }
+        Ok(out)
+    }
+
+    pub async fn admin_update_email(&self, username: &str, email: &str) -> Result<u64, DbError> {
+        let uname = username.trim().to_ascii_lowercase();
+        let rows = self
+            .conn
+            .execute(
+                "UPDATE studio_users SET email = ?1 WHERE username = ?2",
+                (email.trim(), uname.as_str()),
+            )
+            .await?;
+        Ok(rows)
+    }
+
+    pub async fn admin_reset_password(
+        &self,
+        username: &str,
+        new_pw_hash: &str,
+    ) -> Result<u64, DbError> {
+        let uname = username.trim().to_ascii_lowercase();
+        let rows = self
+            .conn
+            .execute(
+                "UPDATE studio_users SET password_hash = ?1 WHERE username = ?2",
+                (new_pw_hash, uname.as_str()),
+            )
+            .await?;
+        Ok(rows)
+    }
+
+    pub async fn admin_adjust_points(
+        &self,
+        username: &str,
+        paid_delta: i64,
+        bonus_delta: i64,
+    ) -> Result<StudioUser, DbError> {
+        let uname = username.trim().to_ascii_lowercase();
+        let user = self.studio_find_user(&uname).await?;
+        let next_paid = (user.points_balance + paid_delta).max(0);
+        let next_bonus = (user.bonus_points + bonus_delta).max(0);
+        self.conn
+            .execute(
+                "UPDATE studio_users SET points_balance = ?1, bonus_points = ?2 WHERE username = ?3",
+                (next_paid, next_bonus, uname.as_str()),
+            )
+            .await?;
+        self.studio_find_user(&uname).await
+    }
+
+    pub async fn admin_grant_subscription(
+        &self,
+        username: &str,
+        product: &str,
+        duration_days: i64,
+        traffic_gb: i64,
+        sub_url: &str,
+    ) -> Result<serde_json::Value, DbError> {
+        let uname = username.trim().to_ascii_lowercase();
+        let _ = self.studio_find_user(&uname).await?;
+        let now = lilyco_license::current_unix_secs() as i64;
+        let exp_unix = now + duration_days.max(1) * 86400;
+        let expires_at = chrono_iso_from_unix(exp_unix);
+        let prefix = if product.starts_with("proxy_pro") {
+            "BPRO"
+        } else if product.starts_with("proxy_") {
+            "PRXY"
+        } else {
+            "LAIN"
+        };
+        let key_hex = format!("{:012X}", (now as u64).wrapping_mul(2654435761) & 0xFFFF_FFFF_FFFF);
+        let license_key = format!(
+            "{prefix}-{}-{}-{}",
+            &key_hex[0..4],
+            &key_hex[4..8],
+            &key_hex[8..12]
+        );
+        let meta = serde_json::json!({
+            "purchase_product": product,
+            "traffic_gb": traffic_gb,
+            "expires_at": expires_at,
+            "sub_url": sub_url.trim(),
+            "granted_by": "admin"
+        });
+        let meta_str = meta.to_string();
+        self.conn
+            .execute(
+                "INSERT INTO studio_entitlements (username, product, status, delivery_status, license_key, created_unix, expires_at, meta_json)
+                 VALUES (?1, ?2, 'active', 'delivered', ?3, ?4, ?5, ?6)",
+                (
+                    uname.as_str(),
+                    product,
+                    license_key.as_str(),
+                    now,
+                    expires_at.as_str(),
+                    meta_str.as_str(),
+                ),
+            )
+            .await?;
+        Ok(serde_json::json!({
+            "ok": true,
+            "username": uname,
+            "product": product,
+            "license_key": license_key,
+            "expires_at": expires_at,
+            "traffic_gb": traffic_gb
+        }))
+    }
+
     pub async fn create_contact_ticket(
         &self,
         kind: &str,
@@ -1564,6 +1720,26 @@ fn as_str(v: Value) -> Result<String, DbError> {
         Value::Null => Ok(String::new()),
         _ => Err(DbError::Decode("expected text".into())),
     }
+}
+
+fn chrono_iso_from_unix(secs: i64) -> String {
+    // Pure integer civil-from-days (Howard Hinnant algorithm) -> YYYY-MM-DDTHH:MM:SS+00:00
+    let days = secs.div_euclid(86400);
+    let rem = secs.rem_euclid(86400);
+    let h = rem / 3600;
+    let m = (rem % 3600) / 60;
+    let s = rem % 60;
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let yr = y + if mo <= 2 { 1 } else { 0 };
+    format!("{yr:04}-{mo:02}-{d:02}T{h:02}:{m:02}:{s:02}+00:00")
 }
 
 fn as_i64(v: Value) -> Result<i64, DbError> {

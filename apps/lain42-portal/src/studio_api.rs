@@ -160,7 +160,7 @@ fn verify_token(secret: &str, token: &str) -> Option<String> {
     String::from_utf8(payload_bytes).ok()
 }
 
-fn hash_password(secret: &str, username: &str, password: &str) -> String {
+pub(crate) fn hash_password(secret: &str, username: &str, password: &str) -> String {
     let key = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
     let msg = format!("pw:{}:{}", username.to_ascii_lowercase(), password);
     URL_SAFE_NO_PAD.encode(hmac::sign(&key, msg.as_bytes()).as_ref())

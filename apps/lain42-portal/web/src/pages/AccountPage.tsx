@@ -19,6 +19,11 @@ import {
   type OrderRecord,
 } from "../lib/api";
 import { Badge, Button, Card, Input } from "../components/ui/primitives";
+import {
+  inferCardTier,
+  MembershipCard,
+  productDisplayTitle,
+} from "../components/MembershipCard";
 
 interface AccountPageProps {
   me: MeResponse | null;
@@ -309,7 +314,7 @@ export function AccountPage({ me, onRefreshMe }: AccountPageProps) {
                 暂无已开通的订阅或软件授权，前往「积分商城」即可自助兑换。
               </p>
             ) : (
-              <div className="space-y-3">
+              <div className="grid gap-4 lg:grid-cols-2">
                 {me.entitlements.map((ent, idx) => {
                   const rawSub = ent.meta?.sub_url || "";
                   const subMatch = rawSub.match(/\/panel\/api\/sub\/([A-Za-z0-9_-]+)/);
@@ -322,96 +327,71 @@ export function AccountPage({ me, onRefreshMe }: AccountPageProps) {
                   const isClashFormat = format.startsWith("clash");
                   const expiresRaw = ent.expires_at || ent.meta?.expires_at || "";
                   const expiresText = expiresRaw
-                    ? new Date(expiresRaw).toLocaleString("zh-CN", {
+                    ? new Date(expiresRaw).toLocaleDateString("zh-CN", {
                         year: "numeric",
                         month: "2-digit",
                         day: "2-digit",
-                        hour: "2-digit",
-                        minute: "2-digit",
                       })
-                    : "永久";
+                    : "PERMANENT";
                   const trafficGb = ent.meta?.traffic_gb;
+                  const tier = inferCardTier(ent.product);
+                  const cardTitle = productDisplayTitle(ent.product);
 
                   return (
                     <div
                       key={`${ent.product}-${idx}`}
-                      className="rounded-lg border p-4 space-y-3 bg-muted/20"
+                      className="rounded-2xl border p-3.5 space-y-3 bg-card shadow-xs"
                     >
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-sm">
-                            {ent.product === "proxy_1m"
-                              ? "极速专线 · 月卡"
-                              : ent.product === "proxy_1m_220g"
-                              ? "极速专线 · 220GB 标准月卡"
-                              : ent.product === "proxy_3m"
-                              ? "极速专线 · 季卡"
-                              : ent.product === "proxy_1y"
-                              ? "极速专线 · 年卡"
-                              : ent.product === "music_annual"
-                              ? "LYCO 音乐年卡"
-                              : ent.product}
-                          </span>
-                          <Badge
-                            variant={
-                              ent.status === "active" ? "emerald" : "amber"
-                            }
-                          >
-                            {ent.status === "active"
-                              ? "生效中"
-                              : ent.status === "expired"
-                              ? "已过期"
-                              : ent.status}
-                          </Badge>
-                          {trafficGb ? (
-                            <Badge variant="outline">{trafficGb} GB / 月</Badge>
-                          ) : null}
-                          <span className="text-xs text-muted-foreground">
-                            到期：{expiresText}
-                          </span>
-                        </div>
+                      <MembershipCard
+                        tier={tier}
+                        title={cardTitle}
+                        holder={me.username.toUpperCase()}
+                        cardNo={ent.license_key}
+                        expiresText={expiresText}
+                        quotaText={trafficGb ? `${trafficGb} GB/月` : undefined}
+                        status={ent.status}
+                      />
 
-                        {subToken && ent.status === "active" && (
-                          <select
-                            value={format}
-                            onChange={(e) =>
-                              setSubFormats((prev) => ({
-                                ...prev,
-                                [idx]: e.target.value,
-                              }))
-                            }
-                            className="h-8 rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          >
-                            <option value="clash">
-                              🖥️ Windows / Mac · Clash Verge Rev
-                            </option>
-                            <option value="base64">
-                              📱 iPhone / Android · Karing / Base64 通用订阅
-                            </option>
-                            <option value="clashjp">
-                              🇯🇵 日本节点 · Clash Verge
-                            </option>
-                            <option value="base64jp">
-                              🇯🇵 日本节点 · Karing Base64
-                            </option>
-                            <option value="clashcommunity">
-                              🌐 普通节点 · 已验证 · Clash
-                            </option>
-                            <option value="clashall">
-                              🌐 普通节点 · 完整目录 · Clash
-                            </option>
-                          </select>
-                        )}
-                      </div>
+                      {subToken && ent.status === "active" && (
+                        <select
+                          value={format}
+                          onChange={(e) =>
+                            setSubFormats((prev) => ({
+                              ...prev,
+                              [idx]: e.target.value,
+                            }))
+                          }
+                          className="h-8 w-full rounded-md border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <option value="clash">
+                            🖥️ Windows / Mac · Clash Verge Rev
+                          </option>
+                          <option value="base64">
+                            📱 iPhone / Android · Karing / Base64 通用订阅
+                          </option>
+                          <option value="clashjp">
+                            🇯🇵 日本节点 · Clash Verge
+                          </option>
+                          <option value="base64jp">
+                            🇯🇵 日本节点 · Karing Base64
+                          </option>
+                          <option value="clashcommunity">
+                            🌐 普通节点 · 已验证 · Clash
+                          </option>
+                          <option value="clashall">
+                            🌐 普通节点 · 完整目录 · Clash
+                          </option>
+                        </select>
+                      )}
 
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                         <input
                           readOnly
                           value={displayValue}
                           onFocus={(e) => e.currentTarget.select()}
-                          className="flex-1 h-9 rounded-md border border-input bg-background px-3 font-mono text-xs text-foreground"
+                          className="flex-1 h-8 rounded-md border border-input bg-muted/40 px-2.5 font-mono text-[11px] text-foreground"
                         />
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           <Button
                             size="sm"
                             variant="emerald"
@@ -427,9 +407,9 @@ export function AccountPage({ me, onRefreshMe }: AccountPageProps) {
                                 <Copy className="h-3.5 w-3.5" />
                                 {subToken
                                   ? isClashFormat
-                                    ? "复制 Clash 订阅"
-                                    : "复制 Base64 订阅"
-                                  : "复制授权码"}
+                                    ? "复制 Clash"
+                                    : "复制 Base64"
+                                  : "复制卡号"}
                               </>
                             )}
                           </Button>
@@ -440,9 +420,9 @@ export function AccountPage({ me, onRefreshMe }: AccountPageProps) {
                                 href={`clash://install-config?url=${encodeURIComponent(
                                   resolvedSubUrl
                                 )}`}
-                                className="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent transition-colors"
+                                className="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-2.5 text-xs font-medium hover:bg-accent transition-colors"
                               >
-                                一键导入 Clash
+                                一键导入
                               </a>
                             )}
                         </div>

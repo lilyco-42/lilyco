@@ -217,6 +217,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/downloads/{slug}/resolve", get(api_resolve_download))
         .route("/api/analytics/event", post(api_analytics_event))
         .route("/api/admin/analytics/summary", get(api_admin_analytics_summary))
+        .route("/api/admin/users", get(api_admin_list_users))
+        .route("/api/admin/users/email", post(api_admin_update_email))
+        .route("/api/admin/users/reset-password", post(api_admin_reset_password))
+        .route("/api/admin/users/adjust-points", post(api_admin_adjust_points))
+        .route("/api/admin/users/grant-subscription", post(api_admin_grant_subscription))
         .route("/api/admin/downloads/quark", post(api_admin_update_quark))
         .route("/api/mirrors", get(api_mirrors))
         .route("/go/download/{slug}", get(go_download))
@@ -794,23 +799,152 @@ async fn api_analytics_event(
     Json(json!({ "ok": true }))
 }
 
-async fn api_admin_analytics_summary(
-    State(st): State<Arc<AppState>>,
-    headers: axum::http::HeaderMap,
-) -> Result<Json<Value>, (StatusCode, String)> {
+fn check_admin_access(st: &AppState, headers: &axum::http::HeaderMap) -> Result<(), (StatusCode, String)> {
     let secret = headers
         .get("x-admin-secret")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     let is_secret_ok = !secret.is_empty() && secret == st.license_secret;
-    let is_admin_user = crate::studio_api::extract_username(&headers, &st.license_secret)
+    let is_admin_user = crate::studio_api::extract_username(headers, &st.license_secret)
         .map(|u| u.eq_ignore_ascii_case("lilyco42ovo") || u.eq_ignore_ascii_case("admin"))
         .unwrap_or(false);
     if !is_secret_ok && !is_admin_user {
-        return Err((StatusCode::FORBIDDEN, "仅管理员可访问数据看板".to_string()));
+        return Err((StatusCode::FORBIDDEN, "仅管理员可执行该操作".to_string()));
     }
+    Ok(())
+}
+
+async fn api_admin_analytics_summary(
+    State(st): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    check_admin_access(&st, &headers)?;
     let summary = st.db.analytics_summary().await.map_err(internal_err)?;
     Ok(Json(summary))
+}
+
+#[derive(Deserialize)]
+struct AdminUsersQuery {
+    #[serde(default)]
+    q: String,
+}
+
+async fn api_admin_list_users(
+    State(st): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Query(q): Query<AdminUsersQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    check_admin_access(&st, &headers)?;
+    let users = st.db.admin_list_users(&q.q).await.map_err(internal_err)?;
+    Ok(Json(json!({ "ok": true, "users": users })))
+}
+
+#[derive(Deserialize)]
+struct AdminEmailReq {
+    username: String,
+    email: String,
+}
+
+async fn api_admin_update_email(
+    State(st): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<AdminEmailReq>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    check_admin_access(&st, &headers)?;
+    let updated = st
+        .db
+        .admin_update_email(&req.username, &req.email)
+        .await
+        .map_err(internal_err)?;
+    Ok(Json(json!({ "ok": true, "updated": updated })))
+}
+
+#[derive(Deserialize)]
+struct AdminResetPwReq {
+    username: String,
+    new_password: String,
+}
+
+async fn api_admin_reset_password(
+    State(st): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<AdminResetPwReq>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    check_admin_access(&st, &headers)?;
+    if req.new_password.len() < 8 {
+        return Err((StatusCode::BAD_REQUEST, "新密码至少需要 8 位".to_string()));
+    }
+    let uname = req.username.trim().to_ascii_lowercase();
+    let hash = crate::studio_api::hash_password(&st.license_secret, &uname, &req.new_password);
+    let updated = st
+        .db
+        .admin_reset_password(&uname, &hash)
+        .await
+        .map_err(internal_err)?;
+    Ok(Json(json!({ "ok": true, "updated": updated })))
+}
+
+#[derive(Deserialize)]
+struct AdminPointsReq {
+    username: String,
+    #[serde(default)]
+    paid_delta: i64,
+    #[serde(default)]
+    bonus_delta: i64,
+}
+
+async fn api_admin_adjust_points(
+    State(st): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<AdminPointsReq>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    check_admin_access(&st, &headers)?;
+    let user = st
+        .db
+        .admin_adjust_points(&req.username, req.paid_delta, req.bonus_delta)
+        .await
+        .map_err(internal_err)?;
+    Ok(Json(json!({
+        "ok": true,
+        "username": user.username,
+        "paid_balance": user.points_balance,
+        "bonus_balance": user.bonus_points
+    })))
+}
+
+#[derive(Deserialize)]
+struct AdminGrantSubReq {
+    username: String,
+    product: String,
+    #[serde(default = "default_grant_days")]
+    duration_days: i64,
+    #[serde(default = "default_grant_gb")]
+    traffic_gb: i64,
+    #[serde(default)]
+    sub_url: String,
+}
+
+fn default_grant_days() -> i64 { 30 }
+fn default_grant_gb() -> i64 { 220 }
+
+async fn api_admin_grant_subscription(
+    State(st): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<AdminGrantSubReq>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    check_admin_access(&st, &headers)?;
+    let res = st
+        .db
+        .admin_grant_subscription(
+            &req.username,
+            req.product.trim(),
+            req.duration_days,
+            req.traffic_gb,
+            &req.sub_url,
+        )
+        .await
+        .map_err(internal_err)?;
+    Ok(Json(res))
 }
 
 #[derive(Deserialize)]
