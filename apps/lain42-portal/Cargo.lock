@@ -1384,6 +1384,7 @@ dependencies = [
  "tower",
  "tower-http",
  "turso",
+ "ureq",
  "url",
 ]
 

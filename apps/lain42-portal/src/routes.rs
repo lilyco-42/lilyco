@@ -214,7 +214,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/license/verify", post(api_verify_license))
         .route("/api/themes", get(api_themes))
         .route("/api/downloads", get(api_downloads))
+        .route("/api/downloads/{slug}/resolve", get(api_resolve_download))
+        .route("/api/mirrors", get(api_mirrors))
         .route("/go/download/{slug}", get(go_download))
+        .route("/go/mirror/{slug}", get(go_mirror_download))
         .route("/mc-assets", any(proxy_mc_assets_root))
         .route("/mc-assets/", any(proxy_mc_assets_root))
         .route("/mc-assets/{*rest}", any(proxy_mc_assets_sub))
@@ -728,6 +731,52 @@ async fn go_download(
 async fn api_downloads(State(st): State<Arc<AppState>>) -> Result<Json<Value>, (StatusCode, String)> {
     let items = st.db.list_downloads().await.map_err(internal_err)?;
     Ok(Json(json!({ "ok": true, "count": items.len(), "items": items })))
+}
+
+async fn api_mirrors() -> Json<Value> {
+    Json(crate::mirror::supported_mirrors_registry())
+}
+
+async fn api_resolve_download(
+    State(st): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+    Query(q): Query<crate::mirror::MirrorQuery>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let Some(item) = st.db.get_download(&slug).await.map_err(internal_err)? else {
+        return Err((StatusCode::NOT_FOUND, format!("未找到下载项: {slug}")));
+    };
+    let plat = crate::mirror::detect_platform(&headers, q.os.as_deref(), q.arch.as_deref());
+    let mirror = q.mirror.unwrap_or_else(|| "auto".to_string());
+    let resolved = tokio::task::spawn_blocking(move || {
+        crate::mirror::resolve_download_mirror(&item, &mirror, &plat)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(json!({ "ok": true, "resolution": resolved })))
+}
+
+async fn go_mirror_download(
+    State(st): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+    Query(q): Query<crate::mirror::MirrorQuery>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    if let Ok(Some(item)) = st.db.get_download(&slug).await {
+        let _ = st.db.increment_download_count(&slug).await;
+        let plat = crate::mirror::detect_platform(&headers, q.os.as_deref(), q.arch.as_deref());
+        let mirror = q.mirror.unwrap_or_else(|| "auto".to_string());
+        if let Ok(resolved) = tokio::task::spawn_blocking(move || {
+            crate::mirror::resolve_download_mirror(&item, &mirror, &plat)
+        })
+        .await
+        {
+            if !resolved.target_url.is_empty() {
+                return Redirect::temporary(&resolved.target_url).into_response();
+            }
+        }
+    }
+    Redirect::temporary("/downloads").into_response()
 }
 
 async fn agent_json(State(st): State<Arc<AppState>>) -> Json<Value> {

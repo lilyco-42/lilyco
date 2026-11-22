@@ -1,6 +1,7 @@
 //! 云枢智创 · lain42 全 Rust 门户入口（环境隔离：dev / test 独立端口与 Turso 数据库文件）。
 
 mod db;
+mod mirror;
 mod routes;
 mod studio_api;
 

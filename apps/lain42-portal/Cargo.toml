@@ -29,6 +29,7 @@ ring = "0.17"
 base64 = "0.22"
 scrypt = { version = "0.11", default-features = false }
 url = "2"
+ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
