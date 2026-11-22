@@ -206,6 +206,18 @@ fn resolve_nodejs(branch: &str, mirror: &str, plat: &ClientPlatform) -> Option<(
             format!("https://mirrors.tuna.tsinghua.edu.cn/nodejs-release/{branch}/{fname}"),
             "清华大学 TUNA 镜像站",
         ),
+        "bfsu" => (
+            format!("https://mirrors.bfsu.edu.cn/nodejs-release/{branch}/{fname}"),
+            "北外 BFSU 镜像站",
+        ),
+        "nju" => (
+            format!("https://mirrors.nju.edu.cn/nodejs-release/{branch}/{fname}"),
+            "南京大学 NJU 镜像站",
+        ),
+        "ustc" => (
+            format!("https://mirrors.ustc.edu.cn/node/{branch}/{fname}"),
+            "中科大 USTC 镜像站",
+        ),
         "tencent" => (
             format!("https://mirrors.cloud.tencent.com/nodejs-release/{branch}/{fname}"),
             "腾讯云软件源",
@@ -273,14 +285,25 @@ fn resolve_github_latest(repo: &str, plat: &ClientPlatform) -> Option<(String, S
 #[derive(Debug, Deserialize)]
 pub struct MirrorQuery {
     pub mirror: Option<String>,
+    pub ghproxy: Option<String>,
     pub os: Option<String>,
     pub arch: Option<String>,
+}
+
+fn sanitize_ghproxy(raw: Option<&str>) -> &'static str {
+    match raw.unwrap_or("cdn.gh-proxy.org").trim() {
+        "gh-proxy.org" => "gh-proxy.org",
+        "ghfast.top" => "ghfast.top",
+        "wget.la" => "wget.la",
+        _ => "cdn.gh-proxy.org",
+    }
 }
 
 /// 主入口：根据 slug、镜像源选择、客户端 OS/Arch 计算最终最新高速重定向 URL
 pub fn resolve_download_mirror(
     item: &DownloadItem,
     mirror_raw: &str,
+    ghproxy_raw: Option<&str>,
     plat: &ClientPlatform,
 ) -> MirrorResolution {
     let mirror = if mirror_raw.is_empty() { "auto" } else { mirror_raw };
@@ -440,17 +463,21 @@ pub fn resolve_download_mirror(
         )
     };
 
+    let proxy_host = sanitize_ghproxy(ghproxy_raw);
     let is_github_binary = raw_dl.starts_with("https://github.com/")
         && (raw_dl.contains("/releases/download/") || raw_dl.contains("/archive/"));
 
     let (target_url, mirror_label) = if mirror == "official" {
-        (raw_dl.clone(), "GitHub 官方直链")
+        (raw_dl.clone(), "GitHub 官方直链".to_string())
     } else if is_github_binary {
-        (format!("https://ghfast.top/{raw_dl}"), "GitHub 国内加速代理 (ghfast)")
+        (
+            format!("https://{proxy_host}/{raw_dl}"),
+            format!("GitHub 国内加速 ({proxy_host})"),
+        )
     } else if !item.quark_url.is_empty() {
-        (item.quark_url.clone(), "夸克网盘高速镜像")
+        (item.quark_url.clone(), "夸克网盘高速镜像".to_string())
     } else {
-        (raw_dl.clone(), "GitHub Release 页面")
+        (raw_dl.clone(), "GitHub Release 页面".to_string())
     };
 
     let chsrc_cmd = if slug == "chsrc" {

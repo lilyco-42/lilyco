@@ -748,8 +748,9 @@ async fn api_resolve_download(
     };
     let plat = crate::mirror::detect_platform(&headers, q.os.as_deref(), q.arch.as_deref());
     let mirror = q.mirror.unwrap_or_else(|| "auto".to_string());
+    let ghproxy = q.ghproxy;
     let resolved = tokio::task::spawn_blocking(move || {
-        crate::mirror::resolve_download_mirror(&item, &mirror, &plat)
+        crate::mirror::resolve_download_mirror(&item, &mirror, ghproxy.as_deref(), &plat)
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -766,8 +767,9 @@ async fn go_mirror_download(
         let _ = st.db.increment_download_count(&slug).await;
         let plat = crate::mirror::detect_platform(&headers, q.os.as_deref(), q.arch.as_deref());
         let mirror = q.mirror.unwrap_or_else(|| "auto".to_string());
+        let ghproxy = q.ghproxy;
         if let Ok(resolved) = tokio::task::spawn_blocking(move || {
-            crate::mirror::resolve_download_mirror(&item, &mirror, &plat)
+            crate::mirror::resolve_download_mirror(&item, &mirror, ghproxy.as_deref(), &plat)
         })
         .await
         {
