@@ -5,6 +5,7 @@
 //! - 也可按需拉起临时隔离的 Chrome/Chromium 实例（`ManagedChrome`）
 //! - 支持：导航、递归穿透 `iframe` 与 `ShadowRoot` 的页面快照、兼容 Vue/React/ElementUI 的填表与点击、整页截图入审、以及一键导出全部登录态 Cookies
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
@@ -78,6 +79,15 @@ pub struct CdpClient {
     next_id: u64,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NavigationResponse {
+    pub url: String,
+    pub status: u16,
+    pub mime_type: String,
+    pub headers: BTreeMap<String, String>,
+}
+
 impl CdpClient {
     /// 列出指定 CDP HTTP 端点（如 `http://127.0.0.1:9222`）下的全部目标页签。
     pub fn list_targets(cdp_http: &str) -> Result<Vec<CdpTarget>, AppError> {
@@ -130,6 +140,15 @@ impl CdpClient {
 
     /// 发送一条 CDP JSON-RPC 指令并等待对应 `id` 的返回。
     pub fn call(&mut self, method: &str, params: Value) -> Result<Value, AppError> {
+        self.call_observing(method, params, |_| {})
+    }
+
+    fn call_observing(
+        &mut self,
+        method: &str,
+        params: Value,
+        mut observe: impl FnMut(Value),
+    ) -> Result<Value, AppError> {
         let id = self.next_id;
         self.next_id += 1;
         let payload = json!({
@@ -146,22 +165,73 @@ impl CdpClient {
             if Instant::now() > deadline {
                 return Err(AppError::Runtime(format!("CDP `{method}` 等待响应超时")));
             }
-            let msg = self
-                .ws
-                .read()
-                .map_err(|e| AppError::Runtime(format!("读取 CDP `{method}` 响应失败: {e}")))?;
-            if let Message::Text(txt) = msg {
-                let Ok(v) = serde_json::from_str::<Value>(&txt) else {
-                    continue;
-                };
-                if v.get("id").and_then(Value::as_u64) == Some(id) {
-                    if let Some(err) = v.get("error") {
-                        return Err(AppError::Runtime(format!("CDP `{method}` 返回错误: {err}")));
-                    }
-                    return Ok(v.get("result").cloned().unwrap_or(Value::Null));
+            let Some(packet) = self.read_packet()? else {
+                continue;
+            };
+            if packet.get("id").and_then(Value::as_u64) == Some(id) {
+                if let Some(err) = packet.get("error") {
+                    return Err(AppError::Runtime(format!("CDP `{method}` 返回错误: {err}")));
                 }
+                return Ok(packet.get("result").cloned().unwrap_or(Value::Null));
             }
+            observe(packet);
         }
+    }
+
+    fn read_packet(&mut self) -> Result<Option<Value>, AppError> {
+        match self.ws.read() {
+            Ok(Message::Text(text)) => Ok(serde_json::from_str(&text).ok()),
+            Ok(_) => Ok(None),
+            Err(error) => Err(AppError::Runtime(format!("读取 CDP 消息失败: {error}"))),
+        }
+    }
+
+    /// 在隔离的浏览器页签中捕获主文档响应，按 frame/loader 排除 iframe 和子资源。
+    pub(crate) fn navigate_document(&mut self, url: &str) -> Result<NavigationResponse, AppError> {
+        if let MaybeTlsStream::Plain(stream) = self.ws.get_mut() {
+            stream
+                .set_read_timeout(Some(Duration::from_secs(15)))
+                .map_err(|e| AppError::Runtime(format!("设置 CDP 读取超时失败: {e}")))?;
+        }
+        self.call("Network.enable", json!({}))?;
+        let mut early_responses = Vec::new();
+        let navigation = self.call_observing("Page.navigate", json!({ "url": url }), |event| {
+            if is_document_response(&event) {
+                early_responses.push(event);
+            }
+        })?;
+        let frame = navigation.get("frameId").and_then(Value::as_str);
+        let loader = navigation.get("loaderId").and_then(Value::as_str);
+        let (Some(frame), Some(loader)) = (frame, loader) else {
+            let reason = navigation
+                .get("errorText")
+                .and_then(Value::as_str)
+                .unwrap_or("浏览器未发起主文档导航");
+            return Err(AppError::Runtime(format!("CDP 导航失败: {reason}")));
+        };
+        let matches_navigation = |event: &Value| {
+            is_document_response(event)
+                && event.pointer("/params/frameId").and_then(Value::as_str) == Some(frame)
+                && event.pointer("/params/loaderId").and_then(Value::as_str) == Some(loader)
+        };
+
+        let mut early_responses = early_responses.into_iter().filter(&matches_navigation);
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while Instant::now() < deadline {
+            let event = match early_responses.next() {
+                Some(event) => event,
+                None => match self.read_packet()? {
+                    Some(event) if matches_navigation(&event) => event,
+                    _ => continue,
+                },
+            };
+            let response = event
+                .pointer("/params/response")
+                .ok_or_else(|| AppError::Runtime("CDP 主文档响应缺少 response 字段".into()))?;
+            return serde_json::from_value(response.clone())
+                .map_err(|e| AppError::Runtime(format!("解析 CDP 主文档响应失败: {e}")));
+        }
+        Err(AppError::Runtime("等待 CDP 主文档响应超时".into()))
     }
 
     /// 导航到目标 URL 并等待文档加载完成。
@@ -638,6 +708,11 @@ impl CdpClient {
     }
 }
 
+fn is_document_response(event: &Value) -> bool {
+    event.get("method").and_then(Value::as_str) == Some("Network.responseReceived")
+        && event.pointer("/params/type").and_then(Value::as_str) == Some("Document")
+}
+
 /// 托管的临时无头 Chrome/Chromium 实例（退出时自动回收进程与临时 profile）。
 pub struct ManagedChrome {
     child: Child,
@@ -680,28 +755,32 @@ impl ManagedChrome {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|e| AppError::Runtime(format!("启动浏览器 `{browser}` 失败: {e}")))?;
+            .map_err(|e| {
+                let _ = fs::remove_dir_all(&profile_dir);
+                AppError::Runtime(format!("启动浏览器 `{browser}` 失败: {e}"))
+            })?;
 
-        let cdp_http = format!("http://127.0.0.1:{port}");
+        let chrome = Self {
+            child,
+            cdp_http: format!("http://127.0.0.1:{port}"),
+            profile_dir,
+        };
         let deadline = Instant::now() + Duration::from_secs(10);
         while Instant::now() < deadline {
-            if let Ok(targets) = CdpClient::list_targets(&cdp_http) {
+            if let Ok(targets) = CdpClient::list_targets(&chrome.cdp_http) {
                 if targets
                     .iter()
                     .any(|t| t.target_type == "page" && !t.ws_url.is_empty())
                 {
-                    return Ok(Self {
-                        child,
-                        cdp_http,
-                        profile_dir,
-                    });
+                    return Ok(chrome);
                 }
             }
             thread::sleep(Duration::from_millis(120));
         }
 
         Err(AppError::Runtime(format!(
-            "托管浏览器启动超时（{cdp_http} 未就绪）"
+            "托管浏览器启动超时（{} 未就绪）",
+            chrome.cdp_http
         )))
     }
 }

@@ -83,7 +83,7 @@ Windows 包在 `tests/notices.py` 对 `packaging/webview2-sdk.json` 固定的官
 | `lilyco` | 0.2.3 | 全部 | **唯一组合根**：后端自动选择 + 各形态入口 |
 | `lilyco-dev` | 0.3.0 | facade | **元 CLI**（bin `lilyco`）：`new` 脚手架 / `build` / `run` / `doc` 能力表 —— 它自己就是四命令的 dogfooding 样板 |
 | `lilyco-vision` | 0.3.1 | facade + image + vtracer + tempfile | 原有八视觉工具；截图独立临时 profile，图片工坊通过 MCP 复用 |
-| `lilyco-web2cli` | 0.3.0 | facade + ureq + html5ever + tungstenite + base64 + url + regex + toml | **Web2CLI**：任意网页 / OpenAPI / HAR 自动发现并编译为 `Registry`（CLI / TUI / Web / MCP），内置分类资料库（`vault`）、多格式 Cookie 导入、CDP 多层 `iframe` 控制、多步向导与人类审核闸门（`review`/`wizard`）、成功模板沉淀（`recipe`） |
+| `lilyco-web2cli` | 0.3.1 | facade + ureq + html5ever + tungstenite + base64 + url + regex + toml | **Web2CLI**：网页 / OpenAPI / HAR 自动发现并编译为 `Registry`（CLI / TUI / Web / MCP），内置 Cloudflare 响应诊断、分类资料库（`vault`）、多格式 Cookie 导入、CDP 多层 `iframe` 控制、多步向导与人类审核闸门（`review`/`wizard`）、成功模板沉淀（`recipe`） |
 
 Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被特性门控）。
 
@@ -288,3 +288,4 @@ Windows HWND 出现不代表图标初始化完成，native-icon.ps1 在有限15�
 - **`lilyco-license`**（`lilyco-license/src/lib.rs`）：从 `lilyco-web2cli` 抽离的独立企业授权套件（`PluginDescriptor` / `EnterpriseLicense` / `issue_license` / `verify_license` / `check_plugin_entitlement`），基于 `ring::hmac`（HMAC-SHA256 恒定时间验签），供 `lilyco-web2cli`、`apps/lain42-portal` 等商业应用共享。
 - **根 `[workspace.dependencies]`**（`Cargo.toml`）：统一锁定 `axum 0.8` / `tokio` / `serde` / `serde_json` / `thiserror 2` / `ring` / `base64` / `scraper` / `cookie` / `url`。
 - **手写轮子替换**：`lilyco-web2cli/src/dom.rs` 已改用 `scraper`（455 行 → 200 行，支持完整 CSS3 选择器）；`lilyco-web2cli/src/session.rs` 的 `Set-Cookie` 解析已改用 `cookie` crate。选型目录见 `docs/CRATE_CATALOG.md`。
+- **Web2CLI 响应判定**。`discover_url` 使用 `SessionManager::request_for_discovery` 校验上游 HTTP 状态。`--render` 通过 `CdpClient::navigate_document` 按 frame 和 loader 关联主文档响应。默认 feature `cloudflare` 在 `cloudflare.rs` 集中识别挑战与拦截，并用于过滤 HAR 中的挑战流量。回归覆盖位于 `lilyco-web2cli/tests/e2e.rs` 和 `lilyco-web2cli/src/discover.rs`。

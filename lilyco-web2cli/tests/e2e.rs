@@ -6,7 +6,8 @@ use std::thread;
 use lilyco::__core::context::Context;
 use lilyco::__core::safety::Interactive;
 use lilyco_web2cli::{
-    discover_url, distill_response, DraftStatus, DraftStore, SessionManager, VaultStore,
+    discover_url, distill_response, find_browser, render_with_headless_browser, DraftStatus,
+    DraftStore, SessionManager, VaultStore,
 };
 use serde_json::{json, Map, Value};
 
@@ -112,6 +113,46 @@ fn spawn_mock_site() -> String {
                 })
                 .to_string();
                 ("200 OK", "application/json", "", resp_json)
+            } else if method == "GET" && path == "/challenge" {
+                (
+                    "503 Service Unavailable",
+                    "text/html",
+                    "Cf-Mitigated: challenge\r\n",
+                    "<title>Please wait</title><form action='/test'></form>".into(),
+                )
+            } else if method == "GET" && path == "/blocked" {
+                (
+                    "403 Forbidden",
+                    "text/html",
+                    "Server: cloudflare\r\nCF-Ray: test-ICN\r\n",
+                    "<title>Attention Required! | Cloudflare</title><div id='cf-error-details'>Blocked</div>".into(),
+                )
+            } else if method == "GET" && path == "/cdn" {
+                (
+                    "200 OK",
+                    "text/html",
+                    "Server: cloudflare\r\nCF-Ray: test-ICN\r\n",
+                    "<title>Origin site</title><iframe src='/challenge'></iframe><script>
+                       const node = document.createElement('strong');
+                       node.id = 'rendered';
+                       document.body.append(node);
+                     </script>"
+                        .into(),
+                )
+            } else if method == "GET" && path == "/redirect-cdn" {
+                (
+                    "302 Found",
+                    "text/plain",
+                    "Location: /cdn\r\n",
+                    "Redirect".into(),
+                )
+            } else if method == "GET" && path == "/origin-denied" {
+                (
+                    "403 Forbidden",
+                    "text/html",
+                    "Server: cloudflare\r\nCF-Ray: test-ICN\r\n",
+                    "<title>Origin access denied</title>".into(),
+                )
             } else {
                 ("404 Not Found", "text/plain", "", "not found".to_string())
             };
@@ -125,6 +166,85 @@ fn spawn_mock_site() -> String {
     });
 
     base
+}
+
+#[test]
+fn rejects_http_errors_during_discovery() {
+    let base = spawn_mock_site();
+    let dir = tempfile::tempdir().unwrap();
+    let session = SessionManager::with_dir("http-status", dir.path().to_path_buf());
+
+    let error = discover_url(&session, &format!("{base}/origin-denied"), false)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("upstream_http_error") && error.contains("HTTP 403"));
+    assert!(discover_url(&session, &format!("{base}/cdn"), false).is_ok());
+}
+
+#[cfg(feature = "cloudflare")]
+#[test]
+fn distinguishes_cloudflare_challenge_and_block() {
+    let base = spawn_mock_site();
+    let dir = tempfile::tempdir().unwrap();
+    let session = SessionManager::with_dir("cloudflare", dir.path().to_path_buf());
+
+    for (path, expected) in [
+        ("challenge", "cloudflare_challenge"),
+        ("blocked", "cloudflare_block"),
+    ] {
+        let error = discover_url(&session, &format!("{base}/{path}"), false)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn browser_render_retains_main_document_status_and_final_url() {
+    if find_browser().is_none() {
+        eprintln!("skipping browser render test: Chrome/Chromium/Edge not found");
+        return;
+    }
+    let base = spawn_mock_site();
+    let dir = tempfile::tempdir().unwrap();
+    let session = SessionManager::with_dir("browser-status", dir.path().to_path_buf());
+    let headers = Default::default();
+
+    let blocked = session
+        .request("GET", &format!("{base}/blocked"), &headers, None, true)
+        .unwrap();
+    assert!(blocked.rendered_with_browser);
+    assert_eq!(blocked.status, 403);
+    assert!(blocked.body.contains("cf-error-details"));
+    let error = discover_url(&session, &format!("{base}/blocked"), true)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("HTTP 403"), "{error}");
+    #[cfg(feature = "cloudflare")]
+    assert!(error.contains("cloudflare_block"), "{error}");
+
+    let redirected = session
+        .request("GET", &format!("{base}/redirect-cdn"), &headers, None, true)
+        .unwrap();
+    assert!(redirected.rendered_with_browser);
+    assert_eq!(redirected.status, 200);
+    assert_eq!(redirected.final_url, format!("{base}/cdn"));
+    assert!(redirected.body.contains("Origin site"));
+    assert!(redirected.body.contains("<strong id=\"rendered\">"));
+
+    let api_url = format!("{base}/search?q=browser");
+    let json = session
+        .request("GET", &api_url, &headers, None, true)
+        .unwrap();
+    assert!(json.rendered_with_browser);
+    assert!(json.content_type.starts_with("application/json"));
+    assert_eq!(
+        serde_json::from_str::<Value>(&json.body).unwrap()["query_path"],
+        "/search?q=browser"
+    );
+    assert!(render_with_headless_browser(&api_url)
+        .unwrap()
+        .contains("<html"));
 }
 
 #[test]

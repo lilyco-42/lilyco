@@ -46,3 +46,13 @@
      `lweb2cli wizard --plan gov-apply.json --profile xinghuo --start-step 3 --approve-gate`
    - **查看已沉淀的确定性填报模板（下次给新企业填同站点零猜测复放）**：
      `lweb2cli recipe --op list`
+
+## Cloudflare 响应诊断
+
+`cloudflare` 是默认启用的 Cargo feature，无额外依赖。`inspect`、`serve <URL>` 和 `codegen --source <URL>` 在收到挑战或识别到的拦截页时返回错误，分别标记为 `cloudflare_challenge` 和 `cloudflare_block`。普通源站错误仍包含上游 HTTP 状态。
+
+`inspect --render` 使用隔离的 Chromium 会话渲染页面。通过 CDP 获取主文档的状态码和重定向后的 URL。子资源和 iframe 的响应不会影响主文档判定。
+
+对获授权的站点，可使用站点提供的 API，或通过 `lweb2cli from-har --file trace.har --host example.com` 导入脱敏的浏览器请求。启用该 feature 时，HAR 导入会跳过 `/cdn-cgi/` 请求及已识别的 Cloudflare 挑战和拦截响应。普通缓存响应如 HTTP 304 仍可导入。
+
+挑战头定义参见 [Cloudflare 官方文档](https://developers.cloudflare.com/cloudflare-challenges/challenge-types/challenge-pages/detect-response/)。

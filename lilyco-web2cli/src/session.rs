@@ -2,18 +2,22 @@
 //!
 //! - 使用 `ureq 3.x` 同步客户端（零 tokio 依赖，匹配 `lilyco-core` 同步 Handler）
 //! - 支持按 `--session <name>` 持久化 Cookie、最近访问 URL 与最近响应正文（用于 `do <n>` / `find` / `read <n>`）
-//! - 支持 `--render`（或自动 SPA 壳检测）调用本机 Chrome / Chromium / Edge `--dump-dom` 渲染 JS 页面
+//! - 支持 `--render` 通过本机 Chrome / Chromium / Edge 渲染 JS 页面并保留主文档 HTTP 状态
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use lilyco::__core::error::AppError;
 use serde::{Deserialize, Serialize};
 use ureq::ResponseExt;
+
+use crate::cdp::{CdpClient, ManagedChrome};
+#[cfg(feature = "cloudflare")]
+use crate::cloudflare::CloudflareInterruption;
 
 const DEFAULT_USER_AGENT: &str =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -39,6 +43,48 @@ pub struct FetchResponse {
     pub content_type: String,
     pub body: String,
     pub rendered_with_browser: bool,
+}
+
+struct ObservedResponse {
+    response: FetchResponse,
+    #[cfg(feature = "cloudflare")]
+    interruption: Option<CloudflareInterruption>,
+}
+
+struct RequestOptions<'a> {
+    headers: &'a BTreeMap<String, String>,
+    body: Option<(&'a str, &'a [u8])>,
+    render_js: bool,
+}
+
+impl ObservedResponse {
+    fn new<'a>(response: FetchResponse, _header: impl Fn(&str) -> Option<&'a str>) -> Self {
+        Self {
+            #[cfg(feature = "cloudflare")]
+            interruption: CloudflareInterruption::detect(response.status, &response.body, _header),
+            response,
+        }
+    }
+
+    fn into_discovery_response(self) -> Result<FetchResponse, AppError> {
+        let response = self.response;
+        #[cfg(feature = "cloudflare")]
+        if let Some(interruption) = self.interruption {
+            return Err(AppError::Runtime(format!(
+                "{}: {} 返回 HTTP {}。可使用站点提供的 API，或导入已获授权的浏览器会话生成的脱敏 HAR。",
+                interruption.label(),
+                response.final_url,
+                response.status
+            )));
+        }
+        if !(200..300).contains(&response.status) {
+            return Err(AppError::Runtime(format!(
+                "upstream_http_error: {} 返回 HTTP {}，无法发现网页命令",
+                response.final_url, response.status
+            )));
+        }
+        Ok(response)
+    }
 }
 
 #[derive(Debug)]
@@ -260,6 +306,46 @@ impl SessionManager {
         body: Option<(&str, &[u8])>, // (content_type, payload bytes)
         render_js: bool,
     ) -> Result<FetchResponse, AppError> {
+        self.fetch_bytes(
+            method,
+            url_str,
+            RequestOptions {
+                headers,
+                body,
+                render_js,
+            },
+        )
+        .map(|observed| observed.response)
+    }
+
+    pub(crate) fn request_for_discovery(
+        &self,
+        url: &str,
+        render_js: bool,
+    ) -> Result<FetchResponse, AppError> {
+        self.fetch_bytes(
+            "GET",
+            url,
+            RequestOptions {
+                headers: &BTreeMap::new(),
+                body: None,
+                render_js,
+            },
+        )?
+        .into_discovery_response()
+    }
+
+    fn fetch_bytes(
+        &self,
+        method: &str,
+        url_str: &str,
+        options: RequestOptions<'_>,
+    ) -> Result<ObservedResponse, AppError> {
+        let RequestOptions {
+            headers,
+            body,
+            render_js,
+        } = options;
         let parsed = url::Url::parse(url_str)
             .map_err(|e| AppError::InvalidArg(format!("无效 URL `{url_str}`: {e}")))?;
         if !matches!(parsed.scheme(), "http" | "https") {
@@ -270,19 +356,14 @@ impl SessionManager {
         }
 
         if render_js && method.eq_ignore_ascii_case("GET") {
-            if let Ok(dom_html) = render_with_headless_browser(url_str) {
+            if let Ok(observed) = render_browser_response(url_str, RenderOutput::ResponseBody) {
+                let response = &observed.response;
                 let mut st = self.state.lock().expect("session lock");
-                st.last_url = Some(url_str.to_string());
-                st.last_content_type = Some("text/html; charset=utf-8".to_string());
-                st.last_body = Some(dom_html.clone());
+                st.last_url = Some(response.final_url.clone());
+                st.last_content_type = Some(response.content_type.clone());
+                st.last_body = Some(response.body.clone());
                 let _ = save_session(&self.session_dir, &st);
-                return Ok(FetchResponse {
-                    final_url: url_str.to_string(),
-                    status: 200,
-                    content_type: "text/html; charset=utf-8".to_string(),
-                    body: dom_html,
-                    rendered_with_browser: true,
-                });
+                return Ok(observed);
             }
         }
 
@@ -411,13 +492,18 @@ impl SessionManager {
             let _ = save_session(&self.session_dir, &st);
         }
 
-        Ok(FetchResponse {
+        let response = FetchResponse {
             final_url,
             status,
             content_type,
             body: body_text,
             rendered_with_browser: false,
-        })
+        };
+        Ok(ObservedResponse::new(response, |name| {
+            resp.headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+        }))
     }
 }
 
@@ -534,32 +620,70 @@ pub fn find_browser() -> Option<String> {
     None
 }
 
-/// 使用无头浏览器 `--dump-dom` 获取 SPA / JS 渲染后的完整 DOM。
+/// 使用无头浏览器获取 SPA / JS 渲染后的完整 DOM。
 pub fn render_with_headless_browser(url_str: &str) -> Result<String, AppError> {
-    let browser = find_browser().ok_or_else(|| {
-        AppError::Runtime(
-            "未找到 Chrome/Chromium/Edge，无法执行 --render；可设置 CHROME_PATH".into(),
-        )
-    })?;
-    let out = Command::new(&browser)
-        .args([
-            "--headless=new",
-            "--disable-gpu",
-            "--no-sandbox",
-            "--dump-dom",
-            url_str,
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .map_err(|e| AppError::Runtime(format!("启动浏览器失败: {e}")))?;
-    if !out.status.success() {
-        return Err(AppError::Runtime(format!(
-            "无头浏览器退出码非零: {:?}",
-            out.status.code()
-        )));
+    Ok(render_browser_response(url_str, RenderOutput::Document)?
+        .response
+        .body)
+}
+
+#[derive(Clone, Copy)]
+enum RenderOutput {
+    Document,
+    ResponseBody,
+}
+
+fn render_browser_response(url: &str, output: RenderOutput) -> Result<ObservedResponse, AppError> {
+    let browser = ManagedChrome::launch()?;
+    let mut client = CdpClient::connect_http(&browser.cdp_http, None)?;
+    let navigation = client.navigate_document(url)?;
+    let header = |name: &str| {
+        navigation
+            .headers
+            .iter()
+            .find_map(|(key, value)| key.eq_ignore_ascii_case(name).then_some(value.as_str()))
+    };
+    let content_type = header("content-type")
+        .unwrap_or(&navigation.mime_type)
+        .to_string();
+    let body = read_rendered_document(&mut client, &navigation.url, output)?;
+    let response = FetchResponse {
+        final_url: navigation.url.clone(),
+        status: navigation.status,
+        content_type,
+        body,
+        rendered_with_browser: true,
+    };
+    Ok(ObservedResponse::new(response, header))
+}
+
+fn read_rendered_document(
+    client: &mut CdpClient,
+    url: &str,
+    output: RenderOutput,
+) -> Result<String, AppError> {
+    let expected = serde_json::to_string(url.split('#').next().unwrap_or(url))
+        .map_err(|e| AppError::Runtime(format!("编码浏览器文档 URL 失败: {e}")))?;
+    let extract_text = matches!(output, RenderOutput::ResponseBody);
+    let script = format!(
+        r#"(() => {{
+            const entry = performance.getEntriesByType('navigation')[0];
+            if (document.readyState !== 'complete' || entry?.name.split('#')[0] !== {expected}) return null;
+            if ({extract_text} && (document.contentType.includes('json') || document.contentType === 'text/plain')) {{
+                return document.body?.textContent ?? '';
+            }}
+            const html = document.documentElement?.outerHTML ?? '';
+            return document.doctype ? new XMLSerializer().serializeToString(document.doctype) + '\n' + html : html;
+        }})()"#
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        if let Some(body) = client.eval_js(&script)?.as_str() {
+            return Ok(body.to_string());
+        }
+        thread::sleep(Duration::from_millis(100));
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    Err(AppError::Runtime("等待浏览器渲染完成超时".into()))
 }
 
 #[cfg(test)]

@@ -582,6 +582,10 @@ pub fn discover_from_har(
         if is_static_asset(parsed.path()) {
             continue;
         }
+        #[cfg(feature = "cloudflare")]
+        if crate::cloudflare::skip_har_entry(parsed.path(), entry) {
+            continue;
+        }
 
         if detected_base.is_empty() {
             detected_base = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
@@ -857,5 +861,31 @@ mod tests {
             "https://api.example.com/users/{id}"
         );
         assert_eq!(har_spec.commands[0].args.len(), 2);
+    }
+
+    #[cfg(feature = "cloudflare")]
+    #[test]
+    fn skips_cloudflare_har_entries_and_keeps_cached_api_responses() {
+        let har = r#"{
+          "log": {
+            "entries": [
+              {
+                "request": { "method": "GET", "url": "https://api.example.com/items?challenge=true" },
+                "response": { "status": 403, "headers": [{ "name": "Cf-Mitigated", "value": "challenge" }] }
+              },
+              {
+                "request": { "method": "GET", "url": "https://api.example.com/cdn-cgi/challenge-platform/check" }
+              },
+              {
+                "request": { "method": "GET", "url": "https://api.example.com/items?limit=10" },
+                "response": { "status": 304, "headers": [{ "name": "CF-Ray", "value": "test" }] }
+              }
+            ]
+          }
+        }"#;
+        let spec = discover_from_har(har, None).unwrap();
+        assert_eq!(spec.commands.len(), 1);
+        assert_eq!(spec.commands[0].url, "https://api.example.com/items");
+        assert_eq!(spec.commands[0].args[0].param_name, "limit");
     }
 }

@@ -5,6 +5,8 @@
 //! 2. **自动发现与四端编译**（借鉴 `site2cli` / `OpenCLI` + Lilyco `Registry`）：将网页 `<form>` / JS API / OpenAPI / HAR 编译为 `WebCliSpec` → `lilyco::__core::registry::Registry` → 自动获得 CLI / TUI / Web UI / MCP Server。
 
 pub mod cdp;
+#[cfg(feature = "cloudflare")]
+mod cloudflare;
 pub mod codegen;
 pub mod discover;
 pub mod distill;
@@ -21,7 +23,6 @@ pub mod spec;
 pub mod vault;
 pub mod wizard;
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -62,7 +63,7 @@ pub fn discover_url(
     url: &str,
     render_js: bool,
 ) -> Result<WebCliSpec, AppError> {
-    let resp = session.request("GET", url, &BTreeMap::new(), None, render_js)?;
+    let resp = session.request_for_discovery(url, render_js)?;
     let trimmed = resp.body.trim_start();
     if (resp.content_type.contains("json") || trimmed.starts_with('{'))
         && (trimmed.contains("\"openapi\"") || trimmed.contains("\"swagger\""))

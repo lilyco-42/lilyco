@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-web2cli"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 description = "Convert any webpage, form, OpenAPI spec, or HAR trace into a Lilyco 4-interface app (CLI / TUI / Web / MCP)"
 license = "MIT OR Apache-2.0"
@@ -31,7 +31,8 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"], opt
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"], optional = true }
 
 [features]
-default = []
+default = ["cloudflare"]
+cloudflare = []
 full = ["lilyco/full", "server"]
 tui = ["lilyco/tui"]
 web = ["lilyco/web"]
