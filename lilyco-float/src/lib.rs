@@ -26,9 +26,9 @@ pub mod gtk_win;
 #[cfg(feature = "tray")]
 pub mod tray;
 
-pub use feed::{ChannelFeed, Feed, FloatItem};
 #[cfg(feature = "http")]
 pub use feed::HttpJsonFeed;
+pub use feed::{ChannelFeed, Feed, FloatItem};
 pub use spec::FloatSpec;
 
 #[cfg(feature = "gtk")]
