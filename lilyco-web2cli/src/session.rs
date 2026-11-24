@@ -71,7 +71,7 @@ impl ObservedResponse {
         #[cfg(feature = "cloudflare")]
         if let Some(interruption) = self.interruption {
             return Err(AppError::Runtime(format!(
-                "{}: {} 返回 HTTP {}。可使用站点提供的 API，或导入已获授权的浏览器会话生成的脱敏 HAR。",
+                "{}: {} 返回 HTTP {}。可用 inspect --ego-lite handoff 交由操作者处理，或使用站点 API / 已获授权的脱敏 HAR。",
                 interruption.label(),
                 response.final_url,
                 response.status

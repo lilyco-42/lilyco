@@ -56,3 +56,17 @@
 对获授权的站点，可使用站点提供的 API，或通过 `lweb2cli from-har --file trace.har --host example.com` 导入脱敏的浏览器请求。启用该 feature 时，HAR 导入会跳过 `/cdn-cgi/` 请求及已识别的 Cloudflare 挑战和拦截响应。普通缓存响应如 HTTP 304 仍可导入。
 
 挑战头定义参见 [Cloudflare 官方文档](https://developers.cloudflare.com/cloudflare-challenges/challenge-types/challenge-pages/detect-response/)。
+
+## ego-lite 人工交接
+
+安装并启动有界面的 ego-lite，确保 `ego-browser` 在 `PATH` 内。对需要人工登录或验证的页面，可在同一任务空间完成两步操作。
+
+```bash
+lweb2cli inspect --url https://example.com/app/ --ego-lite handoff --json
+# 在 ego-lite 中操作，直到看到目标页面。
+lweb2cli inspect --url https://example.com/app/ --ego-lite resume --save site.webcli.json --json
+```
+
+第一次返回 `waiting_for_human` 和 ego-lite 的任务编号。第二次只读取该任务中已打开的同源 HTML 页面，再把浏览器交还给操作者。目标仍在加载、显示验证提示、HTTP 状态异常或同源页签不唯一时，命令会再次返回 `waiting_for_human`。
+
+发现过程读取渲染后的 HTML，移除表单输入值和隐藏字段，浏览器会话留在 ego-lite 中。生成的 `WebCliSpec` 描述网页能力，执行时仍由 Lilyco 的 HTTP 会话处理。SPA 中已获授权的网络请求可以另行通过脱敏 HAR 导入。

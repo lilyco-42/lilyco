@@ -21,12 +21,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+mod ego_lite;
+
+use ego_lite::{EgoLiteMode, EgoLiteResult};
 use lilyco::prelude::*;
 use lilyco_web2cli::{
-    builtin_plugins, current_unix_secs, discover_from_har, distill_response, generate_crate,
-    issue_license, load_or_discover_spec, proofread_draft, proofread_profile, run_wizard_cdp,
-    verify_license, write_generated_crate, CdpClient, DraftStore, EnterpriseLicense, ManagedChrome,
-    RecipeStore, SessionManager, VaultStore, WizardPlan,
+    builtin_plugins, current_unix_secs, discover_from_har, discover_from_html, distill_response,
+    generate_crate, issue_license, load_or_discover_spec, proofread_draft, proofread_profile,
+    run_wizard_cdp, verify_license, write_generated_crate, CdpClient, DraftStore,
+    EnterpriseLicense, ManagedChrome, RecipeStore, SessionManager, VaultStore, WizardPlan,
 };
 use serde_json::{json, Map, Value};
 
@@ -250,6 +253,11 @@ struct InspectCmd {
     url: String,
     #[arg(about = "Render JS/SPA page using local headless Chrome/Edge")]
     render: bool,
+    #[arg(
+        default = "off",
+        about = "Use ego-lite for manual handoff or explicit resume"
+    )]
+    ego_lite: EgoLiteMode,
     #[arg(default = "json", about = "Output spec format")]
     format: SpecFormat,
     #[arg(about = "Optional output file path to save the WebCliSpec")]
@@ -265,12 +273,31 @@ enum SpecFormat {
 }
 
 fn run_inspect(app: &InspectCmd, ctx: &Context) -> Result<Value, AppError> {
-    let sess = SessionManager::new(&app.session);
-    ctx.log(
-        LogLevel::Info,
-        format!("Discovering capabilities from {}", app.url),
-    );
-    let spec = load_or_discover_spec(&sess, &app.url, app.render)?;
+    let spec = if let mode @ (EgoLiteMode::Handoff | EgoLiteMode::Resume) = app.ego_lite {
+        if app.render {
+            return Err(AppError::InvalidArg(
+                "--ego-lite 和 --render 只能选择一个".into(),
+            ));
+        }
+        match ego_lite::inspect(&app.url, mode)? {
+            EgoLiteResult::WaitingForHuman { task_id, reason } => {
+                return Ok(json!({
+                    "status": "waiting_for_human",
+                    "task_id": task_id,
+                    "reason": reason,
+                    "resume_with": "--ego-lite resume"
+                }));
+            }
+            EgoLiteResult::Page { url, html } => discover_from_html(url.as_str(), &html),
+        }
+    } else {
+        let sess = SessionManager::new(&app.session);
+        ctx.log(
+            LogLevel::Info,
+            format!("Discovering capabilities from {}", app.url),
+        );
+        load_or_discover_spec(&sess, &app.url, app.render)?
+    };
     let serialized = match app.format {
         SpecFormat::Json => spec.to_json_pretty()?,
         SpecFormat::Toml => spec.to_toml_pretty()?,
