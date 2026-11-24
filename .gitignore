@@ -26,3 +26,7 @@ site/dist/
 # Android WebView 模板构建产物与调试密钥
 lilyco-web2cli/android-template/build/
 *.keystore
+
+# 通用前端/构建产物（新 app 无需再逐条登记）
+**/node_modules/
+*.tsbuildinfo
