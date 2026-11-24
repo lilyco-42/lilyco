@@ -480,7 +480,11 @@ async fn app_start(
         return Err(StatusCode::BAD_REQUEST);
     }
     let program = manifest::resolve_binary(app).ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-    let mut env = app.run.as_ref().map(|run| run.env.clone()).unwrap_or_default();
+    let mut env = app
+        .run
+        .as_ref()
+        .map(|run| run.env.clone())
+        .unwrap_or_default();
     let mut allocated_port: Option<u16> = None;
     if let Some(run) = app.run.as_ref() {
         if run.preferred_port.is_some() || run.port_band.is_some() {
@@ -529,7 +533,9 @@ async fn app_start(
         json!({"pid": pid}),
     )
     .await;
-    Ok(Json(json!({"ok": true, "pid": pid, "port": allocated_port})))
+    Ok(Json(
+        json!({"ok": true, "pid": pid, "port": allocated_port}),
+    ))
 }
 
 async fn app_stop(

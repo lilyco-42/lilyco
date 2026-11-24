@@ -17,17 +17,72 @@ pub struct PortBand {
 
 /// 段划分：编号按用途分组（4200 金融、4300 游戏…），与 `docs/PORT-ALLOCATION.md` 保持一致。
 pub const BANDS: [PortBand; 11] = [
-    PortBand { key: "finance", label: "重要应用 / 金融 / 银行 / 支付", start: 4200, end: 4299 },
-    PortBand { key: "game", label: "游戏", start: 4300, end: 4399 },
-    PortBand { key: "media", label: "媒体创作（图像 / 音视频）", start: 4400, end: 4499 },
-    PortBand { key: "office", label: "生产力 / 办公", start: 4500, end: 4599 },
-    PortBand { key: "social", label: "社交 / 通讯", start: 4600, end: 4699 },
-    PortBand { key: "commerce", label: "商业 / 计费", start: 4700, end: 4799 },
-    PortBand { key: "ai", label: "AI / Agent 服务", start: 4800, end: 4899 },
-    PortBand { key: "devtools", label: "开发工具 / 构建", start: 4900, end: 4999 },
-    PortBand { key: "ops", label: "运维 / 管理面板", start: 8000, end: 8099 },
-    PortBand { key: "livestream", label: "本机直播 / 媒体工具链", start: 8700, end: 8799 },
-    PortBand { key: "internal", label: "lilyco 内部微服务", start: 57890, end: 57899 },
+    PortBand {
+        key: "finance",
+        label: "重要应用 / 金融 / 银行 / 支付",
+        start: 4200,
+        end: 4299,
+    },
+    PortBand {
+        key: "game",
+        label: "游戏",
+        start: 4300,
+        end: 4399,
+    },
+    PortBand {
+        key: "media",
+        label: "媒体创作（图像 / 音视频）",
+        start: 4400,
+        end: 4499,
+    },
+    PortBand {
+        key: "office",
+        label: "生产力 / 办公",
+        start: 4500,
+        end: 4599,
+    },
+    PortBand {
+        key: "social",
+        label: "社交 / 通讯",
+        start: 4600,
+        end: 4699,
+    },
+    PortBand {
+        key: "commerce",
+        label: "商业 / 计费",
+        start: 4700,
+        end: 4799,
+    },
+    PortBand {
+        key: "ai",
+        label: "AI / Agent 服务",
+        start: 4800,
+        end: 4899,
+    },
+    PortBand {
+        key: "devtools",
+        label: "开发工具 / 构建",
+        start: 4900,
+        end: 4999,
+    },
+    PortBand {
+        key: "ops",
+        label: "运维 / 管理面板",
+        start: 8000,
+        end: 8099,
+    },
+    PortBand {
+        key: "livestream",
+        label: "本机直播 / 媒体工具链",
+        start: 8700,
+        end: 8799,
+    },
+    PortBand {
+        key: "internal",
+        label: "lilyco 内部微服务",
+        start: 57890,
+        end: 57899,
+    },
 ];
 
 const MAX_PROBE: u16 = 20;
@@ -46,16 +101,32 @@ pub fn band_for_app(id: &str, hint: Option<&str>) -> &'static PortBand {
     }
     let lower = id.to_ascii_lowercase();
     let pick = |needles: &[&str], key: &str| {
-        needles.iter().any(|n| lower.contains(n)).then(|| band_by_key(key)).flatten()
+        needles
+            .iter()
+            .any(|n| lower.contains(n))
+            .then(|| band_by_key(key))
+            .flatten()
     };
     pick(&["bank", "pay", "finance", "wallet", "invoice"], "finance")
         .or_else(|| pick(&["game", "emulator", "steam"], "game"))
-        .or_else(|| pick(&["rembg", "vision", "asset", "photo", "video", "audio", "music", "danmu"], "media"))
+        .or_else(|| {
+            pick(
+                &[
+                    "rembg", "vision", "asset", "photo", "video", "audio", "music", "danmu",
+                ],
+                "media",
+            )
+        })
         .or_else(|| pick(&["office", "doc", "note", "task", "calendar"], "office"))
         .or_else(|| pick(&["chat", "social", "im-", "mail"], "social"))
         .or_else(|| pick(&["billing", "shop", "commerce", "order"], "commerce"))
         .or_else(|| pick(&["ai", "agent", "mcp", "llm", "model", "harness"], "ai"))
-        .or_else(|| pick(&["lyblive", "lycomc", "lycodl", "live", "stream", "obs"], "livestream"))
+        .or_else(|| {
+            pick(
+                &["lyblive", "lycomc", "lycodl", "live", "stream", "obs"],
+                "livestream",
+            )
+        })
         .or_else(|| pick(&["panel", "proxy", "gateway", "hub", "ops-"], "ops"))
         .or_else(|| pick(&["lilyco"], "internal"))
         .unwrap_or_else(|| band_by_key("devtools").expect("devtools band must exist"))
@@ -89,7 +160,10 @@ pub fn allocate(band: &PortBand, preferred: Option<u16>) -> Option<Allocation> {
             break;
         }
         if is_free(port) {
-            return Some(Allocation { port, drifted: Some(port) != preferred && preferred.is_some() });
+            return Some(Allocation {
+                port,
+                drifted: Some(port) != preferred && preferred.is_some(),
+            });
         }
         port = port.saturating_add(1);
     }
@@ -111,7 +185,9 @@ pub fn snapshot() -> Vec<BandUsage> {
     BANDS
         .iter()
         .map(|band| {
-            let used: Vec<u16> = (band.start..=band.end).filter(|port| !is_free(*port)).collect();
+            let used: Vec<u16> = (band.start..=band.end)
+                .filter(|port| !is_free(*port))
+                .collect();
             let total = u32::from(band.end) - u32::from(band.start) + 1;
             BandUsage {
                 key: band.key,

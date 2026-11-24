@@ -104,7 +104,10 @@ impl Feed for HttpJsonFeed {
         };
         let mut out = Vec::new();
         for item in items {
-            let ts = item.get(&self.ts_field).and_then(|v| v.as_i64()).unwrap_or(0);
+            let ts = item
+                .get(&self.ts_field)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
             let text = item
                 .get(&self.text_field)
                 .and_then(|v| v.as_str())
@@ -131,8 +134,16 @@ mod tests {
     #[test]
     fn channel_feed_drains_pushes() {
         let (tx, mut feed) = ChannelFeed::pair();
-        tx.send(FloatItem { ts: 1, text: "a".into() }).unwrap();
-        tx.send(FloatItem { ts: 2, text: "b".into() }).unwrap();
+        tx.send(FloatItem {
+            ts: 1,
+            text: "a".into(),
+        })
+        .unwrap();
+        tx.send(FloatItem {
+            ts: 2,
+            text: "b".into(),
+        })
+        .unwrap();
         let items = feed.poll();
         assert_eq!(items.len(), 2);
         assert!(feed.poll().is_empty());
