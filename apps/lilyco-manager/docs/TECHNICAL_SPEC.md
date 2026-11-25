@@ -4,7 +4,7 @@
 Windows/Linux/macOS local-first manager: launch a loopback HTTP server on an ephemeral port and open the default browser. The browser is the UI, not an Electron bundle. An embedded frontend must not require Node at runtime.
 
 ## Stable boundaries
-- `tiny_lilyco`: optional no_std domain and protocol building blocks. No tokio, SQLite or Vue dependency.
+- `lilyco-no_std`: optional no_std domain and protocol building blocks. No tokio, SQLite or Vue dependency.
 - `lilyco` facade: future command discovery and execution bridge; existing `CommandSchema` and executor remain sole authorities.
 - `manager-server` (currently src/main.rs): Axum REST, authentication, session and event transport.
 - `storage`: SeaORM + SQLx SQLite asynchronous history; introduce migrations before schema evolves.

@@ -1,4 +1,4 @@
-//! Bridge between [`tiny_lilyco`] and UniDesktop/SDK (UDA).
+//! Bridge between [`lilyco_no_std`] and UniDesktop/SDK (UDA).
 //!
 //! Verified against `UniDesktop/SDK` tag `v0.2.1`:
 //!
@@ -11,7 +11,7 @@
 //! Degradation is explicit: a failed probe yields `degraded = Some(reason)`,
 //! never a panic, and the UI keeps its own theme instead of guessing.
 
-use tiny_lilyco::ui::Theme;
+use lilyco_no_std::ui::Theme;
 
 /// What the OS reports about its own appearance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

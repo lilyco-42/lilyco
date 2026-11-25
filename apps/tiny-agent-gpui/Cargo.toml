@@ -1,16 +1,16 @@
 [package]
 name = "tiny-agent-gpui"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 publish = false
 
 # Standalone workspace: this demo is excluded from the main workspace so the
-# headless `tiny_lilyco` CI never pays for a GPU stack.
+# headless `lilyco-no_std` CI never pays for a GPU stack.
 [workspace]
 
 [dependencies]
-tiny_lilyco = { path = "../../tiny_lilyco", features = ["std"] }
+lilyco-no_std = { path = "../../lilyco-no_std", features = ["std"] }
 tiny_lilyco_uda = { path = "../../tiny_lilyco_uda" }
 
 # Pin this to a commit you actually build with. An unpinned git dependency

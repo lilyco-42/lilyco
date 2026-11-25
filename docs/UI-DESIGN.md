@@ -1,4 +1,4 @@
-# UI 设计与渲染后端决策（tiny_lilyco / Tiny Agent）
+# UI 设计与渲染后端决策（lilyco-no_std / Tiny Agent）
 
 > 目标：**shadcn 式高级感**（克制、灰白黑为主、细描边、低饱和），默认主题 **Tokyo Night**，
 > 并能在 Windows / Linux / macOS 上跑起来，且与 **UniDesktop/SDK (UDA)** 直接互通。
@@ -19,12 +19,12 @@
 
 **结论：GPUI + gpui-kit + UDA 为主线**，理由排序：
 
-1. **一条语言边界**：agent 内核（`tiny_lilyco`）、工具、UDA 调用、UI 全在 Rust 内，异常与类型不会跨 IPC 丢失。
+1. **一条语言边界**：agent 内核（`lilyco-no_std`）、工具、UDA 调用、UI 全在 Rust 内，异常与类型不会跨 IPC 丢失。
 2. **UDA 是 Rust crate**，跨 IPC 调用它等于把"能力探测 + 优雅退化"重新做一遍，得不偿失。
 3. **包体与启动**符合 Catime 式的极简取向；Electron 直接排除。
 4. shadcn 的"高级感"本质是**令牌 + 规则**（灰阶、1px 描边、8px 圆角、克制动效），而非 React 本身；`gpui-kit` 已经把组件层补齐。
 
-**保留的退路**：`tiny_lilyco::ui` 的令牌与 `Theme::emit_css()` 让"同一套设计"能直接投到
+**保留的退路**：`lilyco_no_std::ui` 的令牌与 `Theme::emit_css()` 让"同一套设计"能直接投到
 webview。若某天需要 Web 分发或复杂 Markdown/表格渲染，**Tauri v2 + 同一套 CSS 变量**即可切换，
 不需要改设计系统。
 
@@ -43,7 +43,7 @@ webview。若某天需要 Web 分发或复杂 Markdown/表格渲染，**Tauri v2
 
 ---
 
-## 3. 令牌（唯一来源：`tiny_lilyco::ui`）
+## 3. 令牌（唯一来源：`lilyco_no_std::ui`）
 
 ### 3.1 语义颜色（28 个角色，命名对齐 shadcn）
 
@@ -130,7 +130,7 @@ Tokyo Night 完整映射（与上游配色一致）：
 | Tooltip | Tooltip | UDA 降级原因 |
 | Toast | Notification | 后台任务完成 |
 
-> 版本以 `gpui-kit` 当前 release 为准；`tiny_lilyco::ui` 只提供令牌，不绑定组件 API。
+> 版本以 `gpui-kit` 当前 release 为准；`lilyco_no_std::ui` 只提供令牌，不绑定组件 API。
 
 ---
 
@@ -142,7 +142,7 @@ Tokyo Night 完整映射（与上游配色一致）：
    探测失败必须优雅降级为 `unknown`，不 panic。
 4. Trace 能渲染一条 `edit_file` 的 diff 卡片与一条 `exit 0` 徽章。
 5. 图片预览能显示一张 PNG 的缩略图与 `png WxH`。
-6. 全程无 `unsafe`，`tiny_lilyco` 内核保持 `no_std`。
+6. 全程无 `unsafe`，`lilyco-no_std` 内核保持 `no_std`。
 
 ---
 
@@ -151,7 +151,7 @@ Tokyo Night 完整映射（与上游配色一致）：
 仓库里 `apps/asset-studio` 与 `apps/vision-studio` 已经使用 **shadcn + Tailwind v4 + OKLCH 变量**
 （见 `apps/asset-studio/ui/src/studio-theme.css`）。本设计系统与它们的关系：
 
-| 项 | 既有 apps | `tiny_lilyco::ui` | 处理 |
+| 项 | 既有 apps | `lilyco_no_std::ui` | 处理 |
 | :--- | :--- | :--- | :--- |
 | 变量名 | `--background` `--card` `--border` … | 同名同义（28 个角色） | ✅ 完全对齐 |
 | 颜色空间 | OKLCH | sRGB `#rrggbb` | ⚠️ 并存：CSS 变量接受任意颜色语法，Tailwind 映射不挑空间；Rust/GPUI 侧必须是 u32 |
@@ -159,5 +159,5 @@ Tokyo Night 完整映射（与上游配色一致）：
 | 圆角 | `md=.5rem` `lg=.75rem` `xl=1rem` | `md=8` `lg=12` `xl=16` | ✅ 已对齐 |
 | 额外令牌 | `--checker`（透明棋盘） | 无 | 属于素材编辑器专用，agent 壳不需要 |
 
-**原则**：`tiny_lilyco::ui` 只做"共享词汇表"，不接管既有 apps 的 Tailwind 构建。
+**原则**：`lilyco_no_std::ui` 只做"共享词汇表"，不接管既有 apps 的 Tailwind 构建。
 未来若把 agent 壳做成 webview，直接消费 `Theme::emit_css()` 的输出即可与 apps 视觉统一。

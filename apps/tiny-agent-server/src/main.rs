@@ -20,11 +20,11 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use tiny_lilyco::agent::llm::{Decision, Llm, ScriptedLlm, Step};
-use tiny_lilyco::agent::registry::Registry;
-use tiny_lilyco::agent::runtime::{drive, Budget, Host, Outcome};
-use tiny_lilyco::agent::tool::{ObsBuf, ObsKind, Tool, ToolError};
-use tiny_lilyco::agent::tools::{AstGrep, EditFile, ListDir, ReadFile};
+use lilyco_no_std::agent::llm::{Decision, Llm, ScriptedLlm, Step};
+use lilyco_no_std::agent::registry::Registry;
+use lilyco_no_std::agent::runtime::{drive, Budget, Host, Outcome};
+use lilyco_no_std::agent::tool::{ObsBuf, ObsKind, Tool, ToolError};
+use lilyco_no_std::agent::tools::{AstGrep, ListDir, ReadFile};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 /// The page, kept in one file so the server has no asset pipeline.
@@ -38,6 +38,7 @@ struct App {
 
 /// One run request.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RunRequest {
     goal: String,
 }
@@ -58,7 +59,6 @@ async fn main() {
         .route("/", get(index))
         .route("/api/health", get(health))
         .route("/api/run", post(run))
-        .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(Arc::new(app));
     let addr = std::env::var("TINY_AGENT_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".to_string());
     let listener = tokio::net::TcpListener::bind(&addr)
@@ -140,22 +140,16 @@ impl StreamHost {
 }
 
 impl Host for StreamHost {
-    fn checkpoint(&mut self, label: &str) -> Result<(), &'static str> {
-        self.emit("step", format!("checkpoint · {label}"));
-        Ok(())
+    fn checkpoint(&mut self, _label: &str) -> Result<(), &'static str> {
+        Err("HTTP host is read-only")
     }
 
     fn undo(&mut self) -> Result<(), &'static str> {
-        self.emit("step", "rollback".to_string());
-        Ok(())
+        Err("HTTP host has no write checkpoint")
     }
 
     fn call(&mut self, tool: &str, args: &str, out: &mut ObsBuf) -> Result<ObsKind, ToolError> {
         let handle = self.registry.find(tool).ok_or(ToolError::UnknownTool)?;
-        if handle.spec().mutating && std::env::var("TINY_AGENT_APPLY").is_err() {
-            self.emit("step", format!("{tool} · 需要 --apply，已跳过"));
-            return Err(ToolError::NotPermitted("read-only"));
-        }
         let kind = handle.call(args, out)?;
         self.emit("tool", format!("{tool}({args})"));
         for line in out.as_str().lines().take(40) {
@@ -166,6 +160,9 @@ impl Host for StreamHost {
 }
 
 fn summary(outcome: &Outcome) -> String {
+    if let Some(reason) = outcome.stopped_by {
+        return reason.to_string();
+    }
     if outcome.calls == 0 && outcome.failures == 0 {
         return String::new();
     }
@@ -256,7 +253,7 @@ fn live_claude() -> Option<(String, String, String)> {
             if !reachable(&provider.0) {
                 return None;
             }
-            use tiny_lilyco::agent::llm_anthropic::{probe, Config, SYSTEM};
+            use lilyco_no_std::agent::llm_anthropic::{probe, Config, SYSTEM};
             let config = Config {
                 base_url: provider.0.clone(),
                 api_key: provider.1.clone(),
@@ -273,7 +270,7 @@ fn choose_llm(registry: &'static Registry, goal: &str) -> Box<dyn Llm> {
     if std::env::var("TINY_AGENT_FAKE").is_ok() {
         return Box::new(fake_plan(goal));
     }
-    use tiny_lilyco::agent::llm_http::{Config, HttpLlm};
+    use lilyco_no_std::agent::llm_http::{Config, HttpLlm};
     if let Ok(base) = std::env::var("TINY_AGENT_BASE_URL") {
         let config = Config {
             base_url: base,
@@ -293,7 +290,7 @@ fn choose_llm(registry: &'static Registry, goal: &str) -> Box<dyn Llm> {
         return Box::new(HttpLlm::text_protocol(config, registry));
     }
     if let Some((base_url, api_key, model)) = live_claude() {
-        use tiny_lilyco::agent::llm_anthropic::{AnthropicLlm, Config as AntiConfig, SYSTEM};
+        use lilyco_no_std::agent::llm_anthropic::{AnthropicLlm, Config as AntiConfig, SYSTEM};
         let config = AntiConfig {
             base_url,
             api_key,
@@ -387,12 +384,10 @@ fn reachable(url: &str) -> bool {
 fn build_registry(root: &std::path::Path) -> &'static Registry {
     let read: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(ReadFile::new(root)));
     let list: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(ListDir::new(root)));
-    let edit: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(EditFile::new(root)));
     let ast: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(AstGrep::new(root, AstGrep::locate())));
     let reg: &'static mut Registry = Box::leak(Box::new(Registry::new()));
     let _ = reg.register(read);
     let _ = reg.register(list);
-    let _ = reg.register(edit);
     let _ = reg.register(ast);
     reg
 }

@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - "apps/tiny-agent-server/**"
-      - "tiny_lilyco/**"
+      - "lilyco-no_std/**"
       - ".github/workflows/tiny-agent-server.yml"
   workflow_dispatch:
 

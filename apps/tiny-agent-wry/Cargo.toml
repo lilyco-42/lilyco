@@ -1,21 +1,21 @@
 [package]
 name = "tiny-agent-wry"
-version = "0.7.4"
+version = "0.7.5"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 publish = false
 
 # Standalone workspace: keeps the GUI stack (and its Windows-only deps) out of
-# the headless `tiny_lilyco` CI.
+# the headless `lilyco-no_std` CI.
 [workspace]
 
 [dependencies]
-tiny_lilyco = { path = "../../tiny_lilyco", features = ["std", "llm-anthropic", "llm-http"] }
-heapless = "0.8"
+lilyco-no_std = { path = "../../lilyco-no_std", features = ["std", "llm-anthropic", "llm-http"] }
+heapless = "0.9.4"
 tao = "0.37"
 wry = "0.57"
 serde_json = "1"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 
 
 

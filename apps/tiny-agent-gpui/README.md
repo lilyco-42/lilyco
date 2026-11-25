@@ -7,7 +7,7 @@ shadcn 风格 + Tokyo Night 默认主题的 agent 窗口骨架，用来验证
 
 * 三段式布局：**Sidebar（240px）/ Trace / Composer**
 * 三套主题循环切换（`Tokyo Night → Neutral Light → Neutral Dark`），
-  点击右上角按钮，颜色全部来自 `tiny_lilyco::ui::Theme`，**无硬编码色值**
+  点击右上角按钮，颜色全部来自 `lilyco_no_std::ui::Theme`，**无硬编码色值**
 * OODA trace 行：`step` + `phase` 徽章 + 工具名，卡片式浮起（`card` + `border`）
 * 桌面能力徽章：默认显示 `desktop degraded`，因为 UDA 桥还没接线
 
@@ -36,5 +36,5 @@ cargo run
 ## 下一步
 
 * 接 UDA：主题/通知/WakeLock → Header 徽章显示真实能力
-* 接 `tiny_lilyco::adapters::browser_control`：EmbeddedWebview 面板
+* 接 `lilyco_no_std::adapters::browser_control`：EmbeddedWebview 面板
 * Trace 行展开为 `Observation`（text / diff / console / image）

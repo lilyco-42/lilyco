@@ -15,13 +15,13 @@
 ## 用法
 
 ```bash
-tiny-agent <workspace> --apply \
+tiny-agent <workspace> \
   --wasm-tool ast_grep=/path/to/ast_grep.wasm \
   --call "ast_grep:pattern=console.log($A);lang=ts"
 ```
 
 插件名由 `--wasm-tool name=path` 指定，调用时用同一个名字。
-插件默认被视为 **mutating**，因此需要 `--apply`（它们可能改写文件）。
+插件以输入字符串与输出字符串交换数据。宿主禁用 WASI 和网络，限制内存与运行时间。
 
 ## 插件 ABI
 
@@ -36,7 +36,7 @@ pub fn run(input: String) -> FnResult<String> {
 }
 ```
 
-仓库里的 [`tests/fixtures/wasm_tool`](../tiny_lilyco/tests/fixtures/wasm_tool) 就是最小样例，
+仓库里的 [`tests/fixtures/wasm_tool`](../lilyco-no_std/tests/fixtures/wasm_tool) 就是最小样例，
 CI 会真的编译成 `wasm32-unknown-unknown` 并调用它。
 
 ## 接 ast-grep 的实际障碍（诚实记录）
@@ -48,10 +48,9 @@ ast-grep 本体是 Rust，但它的解析器依赖 **tree-sitter 的 C 代码**�
 | `ast-grep-core` → `wasm32-unknown-unknown` | ❌ 卡在 C 依赖 |
 | `ast-grep-core` → `wasm32-wasi` + 带 C 的交叉工具链 | ⚠️ 需要预编译 tree-sitter 语法 |
 | 用 gh 上第三方 [`nounder/ast-grep-wasm`](https://github.com/nounder/ast-grep-wasm) 产物 | ⚠️ 非官方，需自行审计 |
-| 先用 CLI 形态：宿主执行 `ast-grep` 可执行文件 | ✅ 立即可用（`run_command` 白名单加 `ast-grep` 即可） |
+| 先用 CLI 形态：宿主执行 `ast-grep` 可执行文件 | ✅ 立即可用（使用 `ast_grep` 专用工具） |
 
-**短期最省事的路线**：把 `ast-grep` 加进 `run_command` 的白名单，让 agent 直接调 CLI；
-等有人产出可信的 wasm 构建再切过去。宿主接口已经就位，切换不需要改调用方。
+当前 CLI 通过 `ast_grep` 专用适配器调用宿主的 ast-grep。
 
 ## 为什么不把 `grep`/`glob` 删掉
 

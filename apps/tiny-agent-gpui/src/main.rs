@@ -2,7 +2,7 @@
 //!
 //! Scope: one window, three regions (sidebar / trace / composer), three
 //! switchable themes, and a desktop-facts badge. Every colour comes from
-//! `tiny_lilyco::ui`, so nothing here is hard-coded.
+//! `lilyco_no_std::ui`, so nothing here is hard-coded.
 //!
 //! This crate is standalone (`[workspace]` in Cargo.toml) and is not part of
 //! the headless CI. GPUI's API moves fast: pin the git revision before relying
@@ -13,9 +13,9 @@ use gpui::{
     div, px, size, App, Application, Bounds, Context, IntoElement, Render, Window, WindowBounds,
     WindowOptions,
 };
-use tiny_lilyco::adapters::image_inspect::Format;
-use tiny_lilyco::agent::Phase;
-use tiny_lilyco::ui::{tokens, Color, RowBody, Theme, TraceRow};
+use lilyco_no_std::adapters::image_inspect::Format;
+use lilyco_no_std::agent::Phase;
+use lilyco_no_std::ui::{tokens, Color, RowBody, Theme, TraceRow};
 use tiny_lilyco_uda::DesktopFacts;
 
 /// Convert a design token into a GPUI colour.

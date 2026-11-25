@@ -3,7 +3,7 @@
 Read `../../AGENTS.md`, `docs/TECHNICAL_SPEC.md`, and `docs/UI_SPEC.md` before making changes. These requirements apply to humans and all coding agents (Codex, Claude, Cursor, Copilot, AgentDock).
 
 ## Required engineering constraints
-- Preserve the `tiny_lilyco` `no_std` boundary; web/database/UI exist only in this standalone application.
+- Preserve the `lilyco-no_std` `no_std` boundary; web/database/UI exist only in this standalone application.
 - Use Axum + SeaORM (SQLx SQLite) for the current working backend. Swapping wtx/Turso requires an ADR and CI proof.
 - Reuse Lilyco facade, `CommandSchema::validate_args`, and core executor when integrating real commands. Never execute arbitrary shell strings from HTTP.
 - Browser process listens only on 127.0.0.1, must authenticate all non-public APIs, and must validate Origin/Host for state-changing browser requests. Never place tokens in logs.

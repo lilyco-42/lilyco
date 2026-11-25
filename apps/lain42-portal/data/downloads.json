@@ -635,7 +635,7 @@
     "version": "v0.2.0",
     "published_at": "2026-10-21",
     "platform": "Windows",
-    "summary": "爱发电 CLI · 用 tiny_lilyco 框架一键对接爱发电开放接口（方案/下单/订单/查询），一个 struct 派生 CLI/TUI/Web/MCP",
+    "summary": "爱发电 CLI · 用 lilyco-no_std 框架一键对接爱发电开放接口（方案/下单/订单/查询），一个 struct 派生 CLI/TUI/Web/MCP",
     "keywords": "afdian-cli下载,afdian-cli最新版,云枢智创,lilyco-42,夸克网盘直链",
     "cta_type": "ai",
     "asset_name": "afdian-x86_64-pc-windows-msvc.exe",

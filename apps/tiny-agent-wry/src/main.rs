@@ -21,12 +21,12 @@ use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy};
 use tao::window::WindowBuilder;
-use tiny_lilyco::agent::llm::{Decision, Llm, ScriptedLlm, Step};
-use tiny_lilyco::agent::registry::Registry;
-use tiny_lilyco::agent::runtime::{drive, Budget, Host, Outcome};
-use tiny_lilyco::agent::tool::{ObsBuf, ObsKind, Tool, ToolError};
-use tiny_lilyco::agent::tools::{AstGrep, EditFile, ListDir, ReadFile};
-use tiny_lilyco::ui::Theme;
+use lilyco_no_std::agent::llm::{Decision, Llm, ScriptedLlm, Step};
+use lilyco_no_std::agent::registry::Registry;
+use lilyco_no_std::agent::runtime::{drive, Budget, Host, Outcome};
+use lilyco_no_std::agent::tool::{ObsBuf, ObsKind, Tool, ToolError};
+use lilyco_no_std::agent::tools::{AstGrep, ListDir, ReadFile};
+use lilyco_no_std::ui::Theme;
 use wry::{WebContext, WebViewBuilder};
 
 mod providers;
@@ -206,7 +206,7 @@ fn test_provider(id: &str) -> String {
         return format!("test failed · unknown provider {id}");
     };
     {
-        use tiny_lilyco::agent::llm_anthropic::{probe, Config, SYSTEM};
+        use lilyco_no_std::agent::llm_anthropic::{probe, Config, SYSTEM};
         let config = Config {
             base_url: p.base_url.clone(),
             api_key: p.token.clone(),
@@ -263,7 +263,6 @@ fn execute(
 ) -> Vec<String> {
     let mut host = UiHost {
         registry,
-        apply: false,
         lines: Arc::clone(ui),
         taken: vec![format!("我在 {} 里处理这件事：{}", workspace.display(), goal)],
     };
@@ -393,9 +392,9 @@ fn port_open(host: &str, port: u16) -> bool {
 
 fn choose_llm(registry: &'static Registry, goal: &str) -> (Box<dyn Llm>, String) {
     // NOTE: do not gate this on `#[cfg(feature = ...)]` — that tests *this*
-    // crate's features, not `tiny_lilyco`'s, so every model path silently
+    // crate's features, not `lilyco_no_std`'s, so every model path silently
     // compiled out and the app degenerated into a directory lister.
-    use tiny_lilyco::agent::llm_http::{Config as HttpConfig, HttpLlm};
+    use lilyco_no_std::agent::llm_http::{Config as HttpConfig, HttpLlm};
 
     let settings = load_settings();
     if settings.usable() {
@@ -439,7 +438,7 @@ fn choose_llm(registry: &'static Registry, goal: &str) -> (Box<dyn Llm>, String)
                 return (Box::new(HttpLlm::new(config, registry)), label);
             }
         }
-        use tiny_lilyco::agent::llm_anthropic::{AnthropicLlm, Config, SYSTEM};
+        use lilyco_no_std::agent::llm_anthropic::{AnthropicLlm, Config, SYSTEM};
         let label = model.clone();
         let config = Config {
             base_url,
@@ -459,28 +458,21 @@ fn choose_llm(registry: &'static Registry, goal: &str) -> (Box<dyn Llm>, String)
 
 struct UiHost {
     registry: &'static Registry,
-    apply: bool,
     lines: Arc<Mutex<Ui>>,
     taken: Vec<String>,
 }
 
 impl Host for UiHost {
-    fn checkpoint(&mut self, label: &str) -> Result<(), &'static str> {
-        self.taken.push(format!("checkpoint · {label}"));
-        Ok(())
+    fn checkpoint(&mut self, _label: &str) -> Result<(), &'static str> {
+        Err("desktop host is read-only")
     }
 
     fn undo(&mut self) -> Result<(), &'static str> {
-        self.taken.push("rollback".to_string());
-        Ok(())
+        Err("desktop host has no write checkpoint")
     }
 
     fn call(&mut self, tool: &str, args: &str, out: &mut ObsBuf) -> Result<ObsKind, ToolError> {
         let handle = self.registry.find(tool).ok_or(ToolError::UnknownTool)?;
-        if handle.spec().mutating && !self.apply {
-            self.taken.push("改文件这件事我暂时不敢做：还没接上自动备份。".to_string());
-            return Err(ToolError::NotPermitted("dry run"));
-        }
         let kind = handle.call(args, out)?;
         let head = match tool {
             "list_dir" => "这个文件夹里有：".to_string(),
@@ -500,12 +492,10 @@ impl Host for UiHost {
 fn build_registry(root: &Path) -> &'static Registry {
     let read: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(ReadFile::new(root)));
     let list: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(ListDir::new(root)));
-    let edit: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(EditFile::new(root)));
     let ast: &'static (dyn Tool + Send + Sync) = Box::leak(Box::new(AstGrep::new(root, AstGrep::locate())));
     let reg: &'static mut Registry = Box::leak(Box::new(Registry::new()));
     let _ = reg.register(read);
     let _ = reg.register(list);
-    let _ = reg.register(edit);
     let _ = reg.register(ast);
     reg
 }

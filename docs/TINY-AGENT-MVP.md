@@ -32,10 +32,10 @@
 
 | 件 | 文件 | 关键约束 |
 | :--- | :--- | :--- |
-| 决策 | [`agent/llm.rs`](../tiny_lilyco/src/agent/llm.rs) | `Llm::plan() -> Step`，只允许「调一个工具」或「停」 |
-| 执行 | [`agent/runtime.rs`](../tiny_lilyco/src/agent/runtime.rs) | `Host` trait；循环本身不做任何 I/O |
-| 观察 | [`agent/tool.rs`](../tiny_lilyco/src/agent/tool.rs) | `ObsBuf` 定容 8KB，`ObsKind` 标明类型（text/diff/console/image/exit） |
-| 保护 | [`agent/ooda.rs`](../tiny_lilyco/src/agent/ooda.rs) | `mutating` 工具**必须先 `checkpointed()`** 才能 `finish_act()` |
+| 决策 | [`agent/llm.rs`](../lilyco-no_std/src/agent/llm.rs) | `Llm::plan() -> Step`，只允许「调一个工具」或「停」 |
+| 执行 | [`agent/runtime.rs`](../lilyco-no_std/src/agent/runtime.rs) | `Host` trait；循环本身不做任何 I/O |
+| 观察 | [`agent/tool.rs`](../lilyco-no_std/src/agent/tool.rs) | `ObsBuf` 定容 8KB，`ObsKind` 标明类型（text/diff/console/image/exit） |
+| 保护 | [`agent/ooda.rs`](../lilyco-no_std/src/agent/ooda.rs) | `mutating` 工具**必须先 `checkpointed()`** 才能 `finish_act()` |
 
 保护这一条是硬约束，不是约定：状态机拒绝从 `Act` 直接进 `Verify`，
 所以任何宿主都无法"忘记"打快照。
@@ -43,7 +43,7 @@
 ```rust
 let permit = machine.begin_act(&action)?;   // mutating => CheckpointFirst
 if permit == ActPermit::CheckpointFirst {
-    host.checkpoint(tool_name)?;            // 只有这里能推进
+    host.checkpoint_action(&action)?;            // 只有这里能推进
     machine.checkpointed()?;
 }
 ```
@@ -71,7 +71,7 @@ if permit == ActPermit::CheckpointFirst {
 
 ## 4. 与 lilyco 生态的兼容
 
-[`agent/app.rs`](../tiny_lilyco/src/agent/app.rs) 里的 `AgentApp` 实现 `TinyApp`：
+[`agent/app.rs`](../lilyco-no_std/src/agent/app.rs) 里的 `AgentApp` 实现 `TinyApp`：
 
 ```rust
 impl TinyApp for AgentApp {
@@ -118,7 +118,6 @@ CI 里的真实输出（`/tmp/tiny-smoke`）：
 ```text
 root   : /tmp/tiny-smoke
 mode   : dry-run
-vcs    : Git
     list_dir() -> text
       note.txt
     read_file(note.txt) -> text
@@ -153,7 +152,7 @@ tiny-agent . --provider nim --apply
 
 约定：
 
-* **默认 dry-run**，写操作必须 `--apply`；未授权时工具返回 `NotPermitted`，不会静默降级。
+* **默认 dry-run**，写操作必须 `--apply`；执行器会报告未授权原因并停止变更。
 * 模型每轮最多调一个工具，参数是一个字符串：`<path>` 或 `<path>|<old>|<new>`。
 * 模型返回的 `{"path":..,"old":..,"new":..}` 也会被 `normalize_args` 拍平成同一格式。
 * 请求构建与响应解析都是纯函数（`build_request` / `parse_step` / `normalize_args`），
@@ -190,7 +189,7 @@ tiny-agent . --provider ccswitch --goal "..."   # 通过后再跑
 
 | 来源 | 抄的地方 | 在本项目中的形态 |
 | :--- | :--- | :--- |
-| Claude Code | 权限模式：默认只读，写操作要显式授权 | `--apply`；未授权时 `ToolError::NotPermitted` |
+| Claude Code | 权限模式：默认只读，写操作要显式授权 | `--apply`；未授权时返回明确失败原因 |
 | Codex | 沙箱与审批分离 | `Host::checkpoint` 独立于 `drive`，回滚不依赖模型 |
 | opencode | 单二进制 + 工具表 | `tiny-agent` 一个入口，`Registry` 一张表 |
 | zerostack | 确定性、低占用 | 计划固定 → trace 固定；核心零分配 |
