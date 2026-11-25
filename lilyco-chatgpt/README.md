@@ -1,0 +1,117 @@
+# lilyco-chatgpt (`lchatgpt`)
+
+**Drive the chatgpt.com account backend from the terminal: read-only conversation history, model list, two quota pools — and one command that actually asks the model.**
+
+One `#[derive(App)]` struct per command, so every command also shows up as a TUI form, a Web console, and an MCP tool with no extra code.
+
+Everything ships as **one self-contained binary**: no OpenAI API key, no ego-lite install, no chromium install. A browser is **optional in two separate ways**: it is one source of login state (`lchatgpt login --from browser`), and it is what `ask` drives on its default path. Neither is a hard dependency — with nothing listening on a CDP port the chat path fails with an actionable error and the other eight commands keep working.
+
+## Two quota pools: chat by default, codex only on request
+
+An account has two unrelated quotas, and `lchatgpt` treats them as two ways to send:
+
+| Path | Spends | How it sends | Default? |
+|---|---|---|---|
+| **chat** | web chat quota | drives a chromium already logged into chatgpt.com: type the prompt, click send, read the answer back over REST | ✅ `lchatgpt ask` |
+| **codex** | codex quota | `POST /backend-api/codex/responses` (SSE) | ❌ needs `--allow-codex` |
+
+This is deliberate: **the codex quota is never spent silently.** Without `--allow-codex` the string `codex/responses` does not even appear on the code path (a unit test holds that), and a failed browser lookup only reports the error plus a hint that `--allow-codex` exists.
+
+## Why the chat path needs a browser
+
+Not because of the token — because of the gate. `POST /backend-api/conversation` sits behind a Turnstile challenge plus an "SO" device collector: `POST /backend-api/sentinel/chat-requirements` answers `persona: chatgpt-paid` with `turnstile.required: true`, `proofofwork.required: true` and `so.required: true`. A real browser clears that for free; reimplementing the collector over plain HTTP is not worth it.
+
+So the chat path **lets the page send the message** and only does the typing and the reading: CDP `Input.insertText` into `div[contenteditable="true"]`, click `button[aria-label="Send"]` (a synthetic Enter key event does **not** submit — measured, 40 s of nothing), then poll `GET /backend-api/conversation/{id}` with the CLI's own Bearer until the assistant node reports `status: finished_successfully`. No DOM scraping: message nodes carry no stable attributes and the class names are hashed.
+
+> The id in the URL is not usable: after sending, the page sits on `/c/local-chatgpt%3A<uuid>`, which REST answers with 400 (encoded or not) and 404 (bare uuid). The real id appears ~16 s later in `GET /conversations`, so the CLI snapshots recent ids *before* sending, then polls the list for a new one whose last user message equals the prompt.
+
+Nothing else touches the web chat endpoint: read-only REST is all the other commands need.
+
+## Commands
+
+| Command | Tier | Purpose |
+|---|---|---|
+| `whoami` | T0 | which account the credential belongs to (`/me` + `plan_type`); token is masked |
+| `usage` | T0 | both quotas side by side: codex (`/codex/usage`) and chat (`/wham/usage` rate limits + `/conversation/init` feature limits), with reset times |
+| `models` | T0 | every model this account can pick (`/models`), the web default slug, and the codex whitelist |
+| `list` | T0 | recent conversations (`--offset` `--limit` `--order`) |
+| `show-conversation` | T0 | render one conversation's **active branch** as a transcript |
+| `search` | T0 | keyword search over history |
+| `auth` | T0 | **local** credential checkup, no network: every candidate source, which one wins, whether it can send, when it expires, and what to run next |
+| `ask` | **T1** | send one prompt — **chat quota by default** (drives a browser, reads the reply over REST); `--allow-codex` switches to SSE codex responses |
+| `login` | **T1** | store a login state in lchatgpt's own store (`--from browser` / `codex` / `refresh`) |
+
+Reads are T0 so an automated surface (MCP) can use them freely; `ask` and `login` are T1 and the default MCP policy (`DenyElevated`) refuses them.
+
+```bash
+lchatgpt auth                                    # what credential am I actually using?
+lchatgpt login --from codex                      # import ~/.codex/auth.json (read + send + refresh)
+lchatgpt login --from browser                    # optional: harvest from a running chromium over CDP
+lchatgpt whoami --json
+lchatgpt usage
+lchatgpt list --limit 5
+lchatgpt show-conversation --conversation-id 6b068588-ab08-83ea-a7fd-49cdd76f6682 --all
+lchatgpt search --query Temu
+lchatgpt ask --prompt "explain the borrow checker in one sentence"          # chat quota
+lchatgpt ask --allow-codex --prompt "explain the borrow checker" --effort low  # codex quota
+lchatgpt --tui     # picker
+lchatgpt --gui     # web console
+lchatgpt --mcp     # stdio JSON-RPC
+lchatgpt --schema  # machine contract
+```
+
+## Credentials
+
+Four sources, first hit wins (`lchatgpt auth` lists them all):
+
+```
+LCHATGPT_ACCESS_TOKEN  (+ optional LCHATGPT_ACCOUNT_ID)   ← CI / borrowed
+  ↓
+LCHATGPT_AUTH_FILE                                        ← point at any JSON
+  ↓
+~/.local/share/lchatgpt/auth.json                         ← written by lchatgpt login (0600)
+  ↓
+~/.codex/auth.json                                        ← produced by `codex login`
+```
+
+Those tokens are *not* interchangeable, and the difference is a claim, not a guess:
+
+| Source | client_id | `scp` that matters | read | send over HTTP |
+|---|---|---|---|---|
+| codex login | `app_EMoamEEZ73f0CkXaXp7hrann` | `api.connectors.invoke` | yes | yes (codex quota) |
+| browser session | `app_X8zY6vW2pQ9tR3dE7nK1jL5gH` | `model.request` / `model.read` | yes | **401** |
+
+Those are two different questions: a browser-session token cannot send over HTTP, but the *browser it lives in* can send — because the page sends the message, not the token. That is why the chat path only needs `auth::load()` (read access, to fetch the answer) while the codex path needs `auth::load_for_send()`.
+
+Refresh: only the codex credential carries a `refresh_token`. `ask --allow-codex` refreshes automatically (`ensure_fresh`: untouched while valid, one grant when expired, and a failed refresh does not block the prompt) and `login --from refresh` forces it. `refresh_token` **rotates**, so every refresh writes the new one back to the store. The OAuth *authorize* endpoint is closed to us (`400 invalid_authorize_request` for any PKCE request, and a real browser lands on "add your phone number"), so this crate never offers a login flow — it only moves an existing login state around.
+
+### Harvesting from a browser (optional)
+
+`login --from browser` talks to an **already running** chromium over the DevTools Protocol using a pure-Rust websocket client (tungstenite, `ws://` on loopback needs no TLS):
+
+1. Endpoints: `--cdp` → `$LCHATGPT_CDP` → `cdpPort` from `~/.config/ego-lite/config.json` → `9229/9222/9223/9333`. An explicit `--cdp` is tried **alone** (never falls through, so you cannot get another browser's account by accident).
+2. Targets: the `chatgpt.com` page in `GET {cdp}/json/list`, or a new tab opened with `PUT {cdp}/json/new?https://chatgpt.com/` and closed afterwards.
+3. `Runtime.evaluate` a same-origin `fetch('/api/auth/session', {credentials:'include'})` and read `accessToken` (6 attempts, 900 ms apart, because a fresh tab needs a moment).
+4. On failure it prints every endpoint it tried and why each one failed.
+
+A harvested token can only read and has no `refresh_token`, so `login` refuses to silently downgrade: if the store already holds a send-capable credential, the read-only one is reported and discarded unless you pass `--force`.
+
+## Two things that bite
+
+- **A conversation is a graph, not a line.** `mapping` is `node-id → {id,parent,children,message}`; `current_node` points at what the user last saw. `show-conversation` walks `parent` back from `current_node`, reverses, then drops tool-call nodes (`recipient != "all"`) and reasoning summaries (unless `--include-reasoning`). Measured on a real conversation: 2265 nodes were text 273, code 1668, reasoning_recap 66, thoughts 255 — filtering is not optional.
+- **Two timestamp shapes in one API.** Conversation `create_time`/`update_time` are ISO-8601 strings; message-node `create_time` is a float epoch. Both are normalised locally, without pulling in chrono/time.
+
+Numbers follow the house rule: **`0` means "use the default"** (Web/MCP send 0 for omitted numbers), and an empty string means "use the default" for string args (`--order ""` → `updated`, `login --from ""` → auto).
+
+## Docs
+
+Full command table, parameter semantics, real output, and known limits: [`docs/chatgpt.md`](../docs/chatgpt.md). Four-surface acceptance probe: [`scripts/acceptance/chatgpt_probe.py`](../scripts/acceptance/chatgpt_probe.py).
+
+## Known limits
+
+- The codex path is verified live end to end (`output_text.delta` streaming, `response_id`, token usage), but only on `gpt-6.2-sol` — a ChatGPT account gets `400 model_not_supported` for every other slug, so the command whitelists it. The chat path takes whatever model the web page picks.
+- The chat path needs a live, logged-in chromium — that is the price of spending the chat quota. No browser means no chat send (the command fails and points at `--allow-codex`); the other eight commands are unaffected.
+- The chat path is slow: one prompt measured 20–45 s, almost all of it waiting for the page, the send button, and the conversation to land. The codex path is ~2 s.
+- When a window is exhausted the backend answers `429 usage_limit_reached`; that is reported as structured output with the reset time instead of retrying or panicking. Read-only commands are unaffected.
+- A browser login state is read-only and cannot refresh itself; re-run `login --from browser` when it lapses.
+- No attachments, no images. Only plain text goes into the composer (`Input.insertText`). The chat path does leave a real conversation behind (the returned `conversation_id` is it); the codex path is a `store: false` stateless call.

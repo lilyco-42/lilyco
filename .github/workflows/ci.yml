@@ -85,10 +85,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy (apps, all targets)
-        run: cargo clippy -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt -p lilyco-aic -p lilyco-dev -p lilyco-srt --all-targets
+        run: cargo clippy -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt -p lilyco-aic -p lilyco-dev -p lilyco-srt -p lilyco-chatgpt --all-targets
 
       - name: Run tests (apps)
-        run: cargo test -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt -p lilyco-aic -p lilyco-dev -p lilyco-srt
+        run: cargo test -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt -p lilyco-aic -p lilyco-dev -p lilyco-srt -p lilyco-chatgpt
 
       # 办公文件这一摊的证据制度：同一批字节，两套独立实现必须给出同样的答案。
       # 编译只在这里发生（本机不跑 cargo build），fixture 是提交进来的真实生产者文件，
@@ -99,6 +99,14 @@ jobs:
 
       - name: Build lbin (for the office two-reader cross-check)
         run: cargo build -p lilyco-binfmt
+
+      # lchatgpt 的四端一致性：--offline 只验注册表形状与 Web/MCP/TUI 协议面，
+      # 不联网、不需要凭证（真实外网那半跑在开发机上）
+      - name: Build lchatgpt (four-surface probe)
+        run: cargo build -p lilyco-chatgpt
+
+      - name: lchatgpt four-surface probe (offline)
+        run: python3 scripts/acceptance/chatgpt_probe.py target/debug/lchatgpt --offline
 
       - name: Office cross-check — Rust 读者 vs 标准库 Python 读者
         run: python3 scripts/acceptance/office_probe.py target/debug/lbin

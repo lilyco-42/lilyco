@@ -74,6 +74,7 @@ From one struct you get:
 | `laic` | [lilyco-aic](lilyco-aic) | Alice in Cradle tooling |
 | `lpet` | [lilyco-pet](lilyco-pet) | Pet companion |
 | `lmpkg` | [lilyco-mpkg](lilyco-mpkg) | Memory package registry |
+| `lchatgpt` | [lilyco-chatgpt](lilyco-chatgpt) | ChatGPT account backend as a CLI: history, two quota pools, `ask` (chat quota by default, codex only with `--allow-codex`), and optional login-state harvest from a running browser |
 
 Install any app binary:
 ```bash

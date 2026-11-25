@@ -81,4 +81,30 @@ Web（CSRF 401 → 带令牌 SSE → 逐字比对 → 未知命令 400）、MCP�
 > 同理 `Ctrl-C` 在 winpty 下本来就不能指望——退出判定只认 Esc/q。
 > 另一个坑：从表单退出要两次状态跳转，`wait` 只给 4 秒会把干净的退出误判成挂死。
 
+## lchatgpt（`lilyco-chatgpt`）：只读命令四端一致
 
+```bash
+BIN=target/debug/lchatgpt
+python scripts/acceptance/chatgpt_probe.py "$BIN"            # 在线：真打 chatgpt.com
+python scripts/acceptance/chatgpt_probe.py "$BIN" --offline  # CI：只验协议面，不联网
+```
+
+`lchatgpt` 七条只读命令（`whoami` / `usage` / `models` / `list` / `show-conversation` / `search` / `auth`，全 T0）
+与两条提权命令（`ask` 会消耗配额、`login` 会落盘凭证，均 T1）。探针覆盖：`--schema` 的 9 条命令与分级 →
+CLI `--json` 基准（`auth` 是本地体检，`--offline` 也照跑）→
+**额度归属断言**（`ask --cdp 127.0.0.1:1` 必须失败，报错里必须有 `--allow-codex`、且**不能**出现
+`codex/responses` —— 证明没勾选时一分 codex 额度都没花；这条在线离线都跑）→
+Web（首页 9 条命令、裸 `POST /run` 401、带令牌 `whoami` 的 SSE `done.result` 与 CLI 逐字一致）→
+MCP（`tools/list` 9 工具、`ask` 描述自报 T1、`whoami` 放行、`ask` 与 `login` 都被安全门拒绝、
+`show-conversation` 缺参 `-32602`）→ TUI（真 PTY：选择页列出命令 → `q` 干净退出）。
+
+> 这个域的命令**真的会访问 chatgpt.com**，凭证按 `LCHATGPT_ACCESS_TOKEN` → `LCHATGPT_AUTH_FILE` →
+> `~/.local/share/lchatgpt/auth.json` → `~/.codex/auth.json` 的顺序找。
+> 所以 CI 里一律用 `--offline`：只验注册表形状与三端协议，不发起任何外网请求。
+>
+> `ask` 默认花 **chat 额度**（驱动一台已登录的 chromium 发消息），`--allow-codex` 才动 codex 额度。
+> 上面那条额度归属断言是 P0 的守卫：探针在 CI 里从不真的发消息，只验证「没勾选时不会走到 codex/responses」。
+
+> PTY 的坑：`pty.openpty()` 之后必须 `ioctl(TIOCSWINSZ)` 设窗口尺寸，否则是 0×0，
+> ratatui 会把命令列表挤成一列甚至画不出来（实测只收到 783 字节）。另外比对前要先剥 ANSI 转义，
+> 否则命令名被颜色码打断成 `\x1b[3whoami` 之类。

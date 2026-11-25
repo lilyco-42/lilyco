@@ -3764,6 +3764,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lilyco-chatgpt"
+version = "0.3.0"
+dependencies = [
+ "lilyco",
+ "serde",
+ "serde_json",
+ "tungstenite",
+ "ureq",
+]
+
+[[package]]
 name = "lilyco-cli"
 version = "0.3.0"
 dependencies = [

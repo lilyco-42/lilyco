@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "lilyco-chatgpt",
     "lilyco-core",
     "lilyco-aic",
     "lilyco-cli",
@@ -86,6 +87,7 @@ default-members = [
     "lilyco-license",
     "lilyco-pay",
     "lilyco-web2cli",
+    "lilyco-chatgpt",
 ]
 
 [workspace.package]
