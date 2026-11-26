@@ -68,21 +68,21 @@ Application crates have been split into independent theme repositories (all tagg
 
 | Binary | Crate | Repository | What it does |
 |---|---|---|---|
-| `lenv` | `lilyco-env-cli` | [lilyco-42/lilyco-env](https://github.com/lilyco-42/lilyco-env) | Cross-platform env doctor, JSON/TOML/YAML/INI editor, chsrc-style mirrors & kiri forge |
-| `lbin` | `lilyco-binfmt` | [lilyco-42/lilyco-tools](https://github.com/lilyco-42/lilyco-tools) | Office file reader (docx/xlsx/pptx/odt) |
-| `lgrep` | `lilyco-grep` | [lilyco-42/lilyco-tools](https://github.com/lilyco-42/lilyco-tools) | Fast grep |
-| `lfiles` | `lilyco-files` | [lilyco-42/lilyco-tools](https://github.com/lilyco-42/lilyco-tools) | File ops |
-| `lplc` | `lilyco-plc` | [lilyco-42/lilyco-tools](https://github.com/lilyco-42/lilyco-tools) | PLC / companion board control |
-| `lbrush` | `lilyco-brush` | [lilyco-42/lilyco-media](https://github.com/lilyco-42/lilyco-media) | Rust-native bash on Windows |
-| `lffmpeg` | `lilyco-ffmpeg` | [lilyco-42/lilyco-media](https://github.com/lilyco-42/lilyco-media) | ffmpeg transcode/resize/trim with live progress |
-| `lvision` | `lilyco-vision` | [lilyco-42/lilyco-media](https://github.com/lilyco-42/lilyco-media) | Vision / OCR |
-| `lsrt` | `lilyco-srt` | [lilyco-42/lilyco-media](https://github.com/lilyco-42/lilyco-media) | Auto-subtitle: faster-whisper ASR + ffmpeg burn-in |
-| `lpet` | `lilyco-pet` | [lilyco-42/lilyco-media](https://github.com/lilyco-42/lilyco-media) | Pet companion |
-| `laic` | `lilyco-aic` | [lilyco-42/lilyco-ai](https://github.com/lilyco-42/lilyco-ai) | Alice in Cradle tooling |
-| `lmpkg` | `lilyco-mpkg` | [lilyco-42/lilyco-ai](https://github.com/lilyco-42/lilyco-ai) | Memory package registry |
-| — | UI / Desktop shells | [lilyco-42/lilyco-ui](https://github.com/lilyco-42/lilyco-ui) | Tauri, Graphite, GTK4 native-ui, floating window |
-| — | Desktop Studios | [lilyco-42/lilyco-studios](https://github.com/lilyco-42/lilyco-studios) | asset-studio, vision-studio, media-studio |
-| — | Agent & Manager | [lilyco-42/lilyco-agent](https://github.com/lilyco-42/lilyco-agent) | lilyco-manager, lilyco-toolhub, tiny-agent, tiny_lilyco |
+| `lenv` | `lilyco-env-cli` | [Lyco-team/lilyco-env](https://github.com/Lyco-team/lilyco-env) | Cross-platform env doctor, JSON/TOML/YAML/INI editor, chsrc-style mirrors & kiri forge |
+| `lbin` | `lilyco-binfmt` | [Lyco-team/lilyco-tools](https://github.com/Lyco-team/lilyco-tools) | Office file reader (docx/xlsx/pptx/odt) |
+| `lgrep` | `lilyco-grep` | [Lyco-team/lilyco-tools](https://github.com/Lyco-team/lilyco-tools) | Fast grep |
+| `lfiles` | `lilyco-files` | [Lyco-team/lilyco-tools](https://github.com/Lyco-team/lilyco-tools) | File ops |
+| `lplc` | `lilyco-plc` | [Lyco-team/lilyco-tools](https://github.com/Lyco-team/lilyco-tools) | PLC / companion board control |
+| `lbrush` | `lilyco-brush` | [Lyco-team/lilyco-media](https://github.com/Lyco-team/lilyco-media) | Rust-native bash on Windows |
+| `lffmpeg` | `lilyco-ffmpeg` | [Lyco-team/lilyco-media](https://github.com/Lyco-team/lilyco-media) | ffmpeg transcode/resize/trim with live progress |
+| `lvision` | `lilyco-vision` | [Lyco-team/lilyco-media](https://github.com/Lyco-team/lilyco-media) | Vision / OCR |
+| `lsrt` | `lilyco-srt` | [Lyco-team/lilyco-media](https://github.com/Lyco-team/lilyco-media) | Auto-subtitle: faster-whisper ASR + ffmpeg burn-in |
+| `lpet` | `lilyco-pet` | [Lyco-team/lilyco-media](https://github.com/Lyco-team/lilyco-media) | Pet companion |
+| `laic` | `lilyco-aic` | [Lyco-team/lilyco-ai](https://github.com/Lyco-team/lilyco-ai) | Alice in Cradle tooling |
+| `lmpkg` | `lilyco-mpkg` | [Lyco-team/lilyco-ai](https://github.com/Lyco-team/lilyco-ai) | Memory package registry |
+| — | UI / Desktop shells | [Lyco-team/lilyco-ui](https://github.com/Lyco-team/lilyco-ui) | Tauri, Graphite, GTK4 native-ui, floating window |
+| — | Desktop Studios | [Lyco-team/lilyco-studios](https://github.com/Lyco-team/lilyco-studios) | asset-studio, vision-studio, media-studio |
+| — | Agent & Manager | [Lyco-team/lilyco-agent](https://github.com/Lyco-team/lilyco-agent) | lilyco-manager, lilyco-toolhub, tiny-agent, tiny_lilyco |
 
 Install any app binary:
 ```bash
