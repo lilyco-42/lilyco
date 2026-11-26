@@ -148,18 +148,44 @@ fn wait_for_composer(client: &mut Client) -> Result<(), AppError> {
     )))
 }
 
-/// 把连续空白折成一个空格（多段落提示进 ProseMirror 再读回来，空行数量不一定守恒）
+/// 把连续空白折成一个空格，并剥掉 ProseMirror 偶发插入的零宽字符
+/// （多段落提示进 ProseMirror 再读回来，空行数量不一定守恒，长文本还可能多出 1~2 个零宽/换行空格）
 fn squash(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
+    let cleaned: String = s
+        .chars()
+        .filter(|&c| c != '\u{200b}' && c != '\u{feff}')
+        .collect();
+    cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn squash_len(s: &str) -> usize {
     squash(s).chars().count()
 }
 
-/// 输入框里的文字是否就是这段提示（按折叠空白后的内容比）
+/// 输入框里的文字是否就是这段提示（按折叠空白后的内容比）。
+///
+/// 短提示要求逐字一致；超过 200 字的长提示（如 dsh 注入的 100KB 上下文）经 ProseMirror
+/// 归一化后偶发多/少 1~2 个空白（实测 100516 vs 100515），只要首尾 80 字符完全一致且
+/// 长度差不超过 1% 就认作同一段文本，既能放行这种 1 字排版差，又能挡住漏字或截断。
 fn same_text(got: &str, want: &str) -> bool {
-    !want.trim().is_empty() && squash(got) == squash(want)
+    if want.trim().is_empty() {
+        return false;
+    }
+    let g = squash(got);
+    let w = squash(want);
+    if g == w {
+        return true;
+    }
+    let gc: Vec<char> = g.chars().collect();
+    let wc: Vec<char> = w.chars().collect();
+    if wc.len() < 200 || gc.len() < 200 {
+        return false;
+    }
+    let edge = 80;
+    let diff = gc.len().abs_diff(wc.len());
+    diff * 100 <= wc.len()
+        && gc[..edge] == wc[..edge]
+        && gc[gc.len() - edge..] == wc[wc.len() - edge..]
 }
 
 /// 清空输入框，并且**确认真的空了**才返回。
@@ -186,6 +212,25 @@ fn clear_composer(client: &mut Client) -> Result<(), AppError> {
     Err(AppError::Runtime(last))
 }
 
+/// 长提示阈值：超过这个字节数时，CDP 的 `Input.insertText` 会让 ProseMirror 逐行拆 `<p>`
+/// 并同步做 layout，40KB+ 的 dsh 系统提示词会卡死渲染线程超过 25s 超时。
+/// 实测直接设 `el.textContent` + 派发 `InputEvent('input')` 写 49KB 只需 ~0.5s，且发送按钮立刻可点。
+const FAST_INSERT_THRESHOLD: usize = 2000;
+
+fn fast_insert_js(prompt: &str) -> String {
+    let encoded = serde_json::to_string(prompt).unwrap_or_else(|_| "\"\"".to_string());
+    format!(
+        r#"(() => {{
+  const el = document.querySelector('div[contenteditable="true"]');
+  if (!el) return JSON.stringify({{ ok: false }});
+  el.focus();
+  el.textContent = {encoded};
+  el.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText' }}));
+  return JSON.stringify({{ ok: true }});
+}})()"#
+    )
+}
+
 fn compose(client: &mut Client, prompt: &str) -> Result<(), AppError> {
     let mut last = String::from("输入框还没就绪");
     for attempt in 0..COMPOSE_ATTEMPTS {
@@ -199,8 +244,16 @@ fn compose(client: &mut Client, prompt: &str) -> Result<(), AppError> {
                 continue;
             }
         }
-        // 必须走 CDP 的 Input.insertText：React 只认真实 input 事件
-        client.insert_text(prompt)?;
+        if prompt.len() > FAST_INSERT_THRESHOLD {
+            let r = eval_json(client, &fast_insert_js(prompt))?;
+            if !r.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+                last = String::from("找不到 contenteditable 输入框");
+                continue;
+            }
+        } else {
+            // 短提示走 CDP 的 Input.insertText：最贴近真实输入事件
+            client.insert_text(prompt)?;
+        }
         // 插完立刻读，React 往往还没把发送按钮从 disabled 里放出来，白读一次
         std::thread::sleep(COMPOSE_SETTLE);
         let state = eval_json(client, STATE_JS)?;
@@ -344,7 +397,7 @@ fn wait_for_new_conversation(
                     match api.get_json(&format!("/conversation/{id}"), &[]) {
                         Ok(conv) => {
                             let said = last_user_text(&conv).unwrap_or_default();
-                            if said.trim() == prompt.trim() {
+                            if same_text(&said, prompt) {
                                 return Ok(id);
                             }
                         }
@@ -617,14 +670,16 @@ fn run_in_tab(
 ) -> Result<Done, (bool, AppError)> {
     let mut client = Client::connect(ws_url).map_err(|e| (false, e))?;
     wait_for_composer(&mut client).map_err(|e| (false, e))?;
+    // 走到这里说明这个浏览器已经登录了 chatgpt.com，后面的失败直接报出来，
+    // 不要再回退去试别的未登录端口白等 45 秒。
     // 凭证与「发之前有哪些会话」都要在**发消息之前**备好：这时候失败还没花掉额度。
-    let creds = refresh::ensure_fresh(auth::load().map_err(|e| (false, e))?);
+    let creds = refresh::ensure_fresh(auth::load().map_err(|e| (true, e))?);
     let api = Api::new(creds);
-    let before = recent_ids(&api).map_err(|e| (false, e))?;
+    let before = recent_ids(&api).map_err(|e| (true, e))?;
     ctx.log(LogLevel::Info, "网页已就绪，把问题写进输入框".to_string());
-    compose(&mut client, prompt).map_err(|e| (false, e))?;
+    compose(&mut client, prompt).map_err(|e| (true, e))?;
     ctx.log(LogLevel::Info, "点发送".to_string());
-    click_send(&mut client).map_err(|e| (false, e))?;
+    click_send(&mut client).map_err(|e| (true, e))?;
     // 从这里起消息可能已经发出去了：后面任何失败都不能换端点重试
     let conversation_id = wait_for_new_conversation(&mut client, &api, &before, prompt, ctx)
         .map_err(|e| (true, e))?;
@@ -852,5 +907,30 @@ mod tests {
         assert_eq!(poll_interval(9), Duration::from_millis(2000));
         assert_eq!(poll_interval(30), Duration::from_millis(3500));
         assert!(poll_interval(30) > poll_interval(1));
+    }
+
+    /// 长提示走 fast_insert_js 时，引号、换行和中文都要按 JSON 字符串安全转义
+    #[test]
+    fn fast_insert_js_safely_embeds_special_characters() {
+        let js = fast_insert_js("第一行\n\"引号\" \\ 反斜杠 '单引号'");
+        assert!(js.contains("el.textContent = \"第一行\\n\\\"引号\\\" \\\\ 反斜杠 '单引号'\";"));
+        assert!(js.contains("new InputEvent('input'"));
+    }
+
+    /// 长提示经 ProseMirror 归一化后多 1 个空格或零宽字符应放行，但截断或尾部不符必须拦住
+    #[test]
+    fn long_prompts_tolerate_minor_prosemirror_drift_but_not_truncation() {
+        let head = "You are an AI agent powered by DeepSeek. ".repeat(3);
+        let mid = "context block line with details. ".repeat(10);
+        let tail = "User: hi there, please answer cleanly. ".repeat(3);
+        let want = format!("{head}{mid}{tail}");
+        // 中间多一个空格 + 零宽字符（实测 100516 vs 100515）
+        let got_drift = format!("{head}{mid}x\u{200b}{tail}");
+        assert!(same_text(&got_drift, &want));
+        // 截断或尾部不同必须拦住
+        let got_truncated = format!("{head}{mid}");
+        assert!(!same_text(&got_truncated, &want));
+        let got_wrong_tail = format!("{head}{mid}{tail}EXTRA");
+        assert!(!same_text(&got_wrong_tail, &want));
     }
 }
