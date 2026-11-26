@@ -34,3 +34,7 @@ Lilyco Rapid 的标量资源默认以 JSON 作为 SQLite 行载荷。适合快�
 - 核心与宿主分开验证。无 std 构建以 Cortex-M4、RISC-V、WASM 和移动目标为基准，主机 API 与 CLI 在 Linux、Windows 和 macOS 分别构建。浏览器覆盖窄屏、平板和桌面。
 
 在本机容器运行时测试中，12 个并发客户端通过 Caddy 发起 200 次 CRUD 读写混合请求，均成功，p95 为 66.20 ms。Linux x86_64 musl API 发布二进制约 3.5 MiB。运行镜像以预编译的实际产物验收，覆盖同源静态文件、API 代理和重启后的 SQLite 卷。
+
+从安装后的脚手架生成两种 preset。API preset 在原样 Compose 环境中注册并写入新生成的 Notes 资源。全栈 preset 从官方 Rust、Node 和 Caddy 构建镜像，验证了同源 API、数据卷、重启恢复以及中文版 Chromium 工作台。320、390、768 和 1440 px 均通过横向溢出检查。Cortex-M4、RISC-V、WASM、Android、iOS、OHOS、Windows 和 macOS 的纯核心均通过目标编译检查。
+
+Lilyco 原有主 workspace 的本机全量验收仍受已有格式差异与 Tauri 缺失 `binaries/lbin-x86_64-unknown-linux-gnu` 影响。Rapid 和改名后的独立核心通过各自的格式、Clippy 和测试门禁。
