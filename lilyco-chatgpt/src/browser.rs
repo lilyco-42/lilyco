@@ -239,9 +239,34 @@ pub(crate) fn create_target(cdp: &str) -> Result<(String, String), AppError> {
     Ok((id, ws))
 }
 
-/// 关掉自己开的标签页。失败就算了 —— 留个空标签不影响正确性。
+/// 关掉自己开的标签页。
+///
+/// Linux 上的 Chromium 关掉最后一个 `page` 标签页时会把整个浏览器进程一起退出，
+/// 下一次请求就会 `Connection refused`。所以关之前先数一下还剩几个 `page`，
+/// 只剩 1 个时宁可留着标签页，绝不把浏览器关掉。
 pub(crate) fn close_target(cdp: &str, id: &str) {
+    if page_count(cdp).unwrap_or(0) <= 1 {
+        return;
+    }
     let _ = agent().get(format!("{cdp}/json/close/{id}")).call();
+}
+
+/// 统计浏览器当前打开的 `page` 标签页数量（读不到返回 None，宁可不关也不误杀浏览器）。
+fn page_count(cdp: &str) -> Option<usize> {
+    let raw = agent()
+        .get(format!("{cdp}/json/list"))
+        .call()
+        .ok()?
+        .into_body()
+        .read_to_string()
+        .ok()?;
+    let items: Value = serde_json::from_str(&raw).ok()?;
+    let n = items
+        .as_array()?
+        .iter()
+        .filter(|t| t.get("type").and_then(Value::as_str) == Some("page"))
+        .count();
+    Some(n)
 }
 
 /// 新开的标签页要等几百毫秒到几秒才拿到 cookie，所以这里重试几次再放弃
