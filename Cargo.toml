@@ -1,15 +1,15 @@
 [workspace]
 members = [
-    "lilyco-core",
-    "lilyco-macros",
-    "lilyco-cli",
-    "lilyco-tui",
-    "lilyco-gui",
-    "lilyco-mcp",
-    "lilyco-ultra-ui",
-    "lilyco",
-    "lilyco-dev",
-    "lilyco-example",
+    "crates/lilyco-core",
+    "crates/lilyco-macros",
+    "crates/lilyco-cli",
+    "crates/lilyco-tui",
+    "crates/lilyco-gui",
+    "crates/lilyco-mcp",
+    "crates/lilyco-ultra-ui",
+    "crates/lilyco",
+    "crates/lilyco-dev",
+    "crates/lilyco-example",
 ]
 resolver = "2"
 
