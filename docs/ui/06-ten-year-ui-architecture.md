@@ -1,5 +1,7 @@
 # 06 · Lilyco 10 年期 UI 抽象、多框架接入规范与演进路线（2026–2036）
 
+> `--gui` 的默认 Web 入口使用 [shadcn/ui 适配器](../../lilyco-gui/web/README.md)。当前 Web 默认渲染器已经接入 shadcn/ui。
+
 > **核心目标**：前端 UI 框架平均每 2–3 年换一代（Bootstrap → AntD/MUI → Chakra → shadcn/ui → NSH/GPUI → 2030+ 新框架），但业务代码和领域模型应该稳定运行 **10 年以上**。
 > 本文规定了 Lilyco 如何将**「语义组件与主题契约」**与**「具体 UI 框架渲染器」**彻底解耦，确保今天写的业务代码在 2036 年换任何新 UI 框架时**一行不改**。
 

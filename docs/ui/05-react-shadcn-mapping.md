@@ -1,5 +1,7 @@
 # 05 · React + shadcn 映射
 
+> `--gui` 的默认 Web 入口使用 [shadcn/ui 适配器](../../lilyco-gui/web/README.md)。本文中的原生渲染和 CSS 映射对应 `/classic`。
+
 > 适用场景：页面不在 `--gui` 里，而是独立前端（`kuake-studio` / `lyblive` 这类 bun + TS + shadcn 项目）。
 > 目标不是让两套代码合并，而是让**视觉语言连续**：同一个产品，换一面墙，气质不变。
 

@@ -74,11 +74,11 @@ Windows 包在 `tests/notices.py` 对 `packaging/webview2-sdk.json` 固定的官
 
 | crate | 版本 | 依赖 | 职责一句话 |
 |---|---|---|---|
-| `lilyco-core` | 0.3.0 | serde/thiserror | 领域模型 + 执行语义 + 校验，零 UI 依赖 |
+| `lilyco-core` | 0.3.1 | serde/thiserror，`ui-schema` 可选 schemars | 领域模型、执行校验与 Web 数据契约 |
 | `lilyco-macros` | 0.3.0 | syn/quote | `#[derive(App)]` / `#[derive(ValueEnum)]` 代码生成 |
 | `lilyco-cli` | 0.3.0 | core + clap | schema → clap 渲染 + 内置标志 + 输出格式化 |
 | `lilyco-tui` | 0.3.0 | core + ratatui | ratatui 表单状态机（单/多命令），不持有执行逻辑 |
-| `lilyco-gui` | 0.3.1 | core + axum/tokio + toml | Web 命令工作台、双语资源、SSE 与 Agent 自描述 |
+| `lilyco-gui` | 0.3.2 | core + axum/tokio + toml | 默认 shadcn/ui、双语资源、SSE 与 Agent 自描述 |
 | `lilyco-mcp` | 0.3.0 | core（零额外依赖） | MCP 2024-11-05 stdio 服务器 + 进度通知 |
 | `lilyco` | 0.2.3 | 全部 | **唯一组合根**：后端自动选择 + 各形态入口 |
 | `lilyco-dev` | 0.3.0 | facade | **元 CLI**（bin `lilyco`）：`new` 脚手架 / `build` / `run` / `doc` 能力表 —— 它自己就是四命令的 dogfooding 样板 |
@@ -140,11 +140,14 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 |---|---|---|
 | `serve_app::<A>()` | `lib.rs:165` | 单命令：**内部建单命令注册表**再走 `serve_registry`（只有那条路登记取消句柄，见 DESIGN.md §8.6）；`serve(schema, runner):81` 是给自定义 runner 的逃生口（页面据此不画「取消」） |
 | `serve_registry()` | `lib.rs:97` | **多命令**；`GET /?cmd=xxx` 渲染对应表单 + 下拉切换 |
-| `serve_state()` | `lib.rs:116` | 路由器装配处：十个端点（含 `/themes`、`/llms.txt`、`/.well-known/agent.json`、`/openapi.json`）+ `security_mw` 一道闸（**新增端点只改这里**） |
+| `serve_state()` | `lilyco-gui/src/lib.rs` | `/` 加载 shadcn/ui，`/classic` 加载经典控制台，路由共用回环令牌中间件 |
+| `UiCatalog` / `UiRunRequest` | `lilyco-core/src/web_ui.rs` | 可见命令、参数、槽位、执行请求。由可选 `ui-schema` 导出 JSON Schema，前端用生成的 TypeScript 类型 |
+| `catalog()` | `lilyco-gui/src/shadcn.rs:24` | `/ui/catalog` 提供类型化数据。适配器按 `ArgKind` 转换控件输入，按 `Component` 和 SSE 更新语义视图 |
+| shadcn/ui 组件来源与构建 | `lilyco-gui/web/README.md` | 官方 Registry 组件及锁、前端主题、契约生成与离线嵌入流程 |
 | `security_mw()` | `security.rs:67` | 回环 Host 校验 + Origin 校验 + 随机 Token（防 DNS rebinding/CSRF），涵盖 `POST /cancel/{id}` |
 | `AppState` | `state.rs:17` | schema / registry / sessions / cancels / token 一处真相（`pub(crate)`，测试夹具在同文件 `fixture`） |
 | `pick_command()` | `render.rs:36` | `?cmd=` → 可见命令（别名命中；隐藏回退第一个可见） |
-| `index()` | `render.rs:122` | 只做装配：取 schema → 拼组件 → 填模板 → 挂响应头（含 `no-store`，见 DESIGN.md §8.4） |
+| `render::index()` | `render.rs:122` | 经典控制台的 HTML 装配与响应头 |
 | `render_field()` | `render.rs:224` | **一个 `ArgKind` 一个组件函数**（`widget_flag/text/number/enum/path/list` + `field_shell`/`dropzone`/`pick_button`/`list_row`/`command_nav`），转义在 `Field` 里算一次 |
 | 前端组件装配 | `assets/index.html` | 末尾 `BOOT` 装配语言、快捷键与文件控件。键盘提交和拖放走同一个表单 |
 | 设计令牌与组件目录 | `lilyco-gui/DESIGN.md` | 命令工作区布局、DOM 契约、i18n 与键盘操作 |
@@ -215,7 +218,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
   应用 crate 只依赖 `lilyco` 一个包：core 的类型（`Context` / `SafetyPolicy` / `SafetyTier` / `Registry`…）从 `lilyco::prelude::*` 拿，
   `derive(App)` 默认展开成 `::lilyco::__core::…` —— 不需要把 `lilyco-core` 写进 `[dependencies]`（`lbin` 已按这条清掉）。
 - **加一个后端**：新 crate 只依赖 core，实现 `Renderer`；facade 加一行分发。参考 lilyco-mcp（最小样板 ≈ 350 行含测试）。
-- **选后端 = 开特性，但只有一处该开**：`lilyco-core` **没有任何特性**（它是后端无关的领域层）；
+- **选后端 = 开 facade 特性**：`lilyco-core` 的 `ui-schema` 用于导出数据类型；
   域 crate 一律 `default = ["full"]` / `full = ["dep:lilyco", "lilyco/full"]` / `android = ["dep:lilyco"]`；
   facade `default = []` + `full = ["tui","web","ultra"]`（后端各自 `dep:` 门控）；
   `lilyco-gui` 的 `pick` 只管它自己的原生文件选择器。

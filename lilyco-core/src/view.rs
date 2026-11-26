@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::progress::LogLevel;
 
 /// 语义色调：前端映射到自己的 success / warning / destructive 变体
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Tone {
@@ -28,6 +29,7 @@ pub enum Tone {
 }
 
 /// 按钮的视觉权重（语义，不是具体配色）
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ButtonVariant {
@@ -38,6 +40,7 @@ pub enum ButtonVariant {
 }
 
 /// 图表类型
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChartKind {
@@ -46,6 +49,7 @@ pub enum ChartKind {
 }
 
 /// Sheet 的贴边方向
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SheetSide {
@@ -56,6 +60,7 @@ pub enum SheetSide {
 }
 
 /// 折叠面板的一项
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AccordionItem {
     pub id: String,
@@ -66,6 +71,7 @@ pub struct AccordionItem {
 }
 
 /// 标签页的一项
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TabItem {
     pub id: String,
@@ -75,6 +81,7 @@ pub struct TabItem {
 }
 
 /// 导航项（侧栏 / 顶部导航）
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NavItem {
     pub id: String,
@@ -82,6 +89,7 @@ pub struct NavItem {
 }
 
 /// 轮播的一项
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CarouselItem {
     pub title: Option<String>,
@@ -90,6 +98,7 @@ pub struct CarouselItem {
 }
 
 /// 键值对
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeyValueItem {
     pub key: String,
@@ -97,6 +106,7 @@ pub struct KeyValueItem {
 }
 
 /// 日志行
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LogLine {
     pub level: LogLevel,
@@ -104,6 +114,7 @@ pub struct LogLine {
 }
 
 /// 菜单项
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MenuItem {
     pub id: String,
@@ -115,6 +126,7 @@ pub struct MenuItem {
 }
 
 /// 菜单分组
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MenuGroup {
     pub label: String,
@@ -123,6 +135,7 @@ pub struct MenuGroup {
 }
 
 /// 命令面板项
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommandItem {
     pub label: String,
@@ -131,6 +144,7 @@ pub struct CommandItem {
 }
 
 /// 一个视图组件。序列化形如 `{"kind":"progress","current":3,"total":10}`。
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Component {
@@ -493,6 +507,7 @@ fn cancel() -> String {
 ///
 /// 由 `#[view(id = "...", title = "...", kind = "...")]` 生成；
 /// 运行时用 [`crate::context::Context::view`] 按同一 `id` 填充。
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ViewSlot {
     pub id: String,

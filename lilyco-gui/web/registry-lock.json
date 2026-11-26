@@ -1,0 +1,158 @@
+{
+  "accordion": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/accordion.json",
+    "sha256": "3c06f187268f1ef53861e053c25a54e3dd66e2c0712796e90297684a1a5a003b"
+  },
+  "alert": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/alert.json",
+    "sha256": "ef4eea2e5a0dadf8e9a9fcf45c1e5913d4e63325e2c4c268426294abebace562"
+  },
+  "alert-dialog": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/alert-dialog.json",
+    "sha256": "a8db5df69320d0a57f8bc466259472c43940494ec21328e4e9d3f9ae02acb26d"
+  },
+  "aspect-ratio": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/aspect-ratio.json",
+    "sha256": "6df19df6b983c450361081b695dbf3541a6fe4a9d2ec148766991e4eb0bf6473"
+  },
+  "avatar": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/avatar.json",
+    "sha256": "bff76087ea9af25c6aa5a5306088dc66e62204a126752c38561736acff00717f"
+  },
+  "badge": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/badge.json",
+    "sha256": "d9fb280e266119c4b62a4c518e63152de27b094c68d3e5f8929d05bfb0c1bc6c"
+  },
+  "breadcrumb": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/breadcrumb.json",
+    "sha256": "b274016175206ddc63cdf16f0a0b43f58ac4ab8e9193c007ef7ee7d8f4ede12d"
+  },
+  "button": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/button.json",
+    "sha256": "fe8220afc0ec9b62c7a520f4e6eb0b56b3b9e951eb963183c29d274395ee476c"
+  },
+  "calendar": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/calendar.json",
+    "sha256": "0e2085eb04cc1c43beb640f7737d94d5360f73d8a81e8b5612929ba954a54bc3"
+  },
+  "card": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/card.json",
+    "sha256": "2e8df508c4b3455f7fb4e799491e54c336081c0d0083c029f7814ff56540b024"
+  },
+  "checkbox": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/checkbox.json",
+    "sha256": "634e5d612dc5caa9df2be3bda59c3080a3c08625c718291017450e255d2d7c41"
+  },
+  "collapsible": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/collapsible.json",
+    "sha256": "ead4349ff7b01d696ef89294a81d18ee1d3f732321398896462c834ab9b9e065"
+  },
+  "command": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/command.json",
+    "sha256": "6762aac17dbc2a8ab713c9b53955a8e22e9a9551bb0973c0a55523a353fbadf8"
+  },
+  "context-menu": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/context-menu.json",
+    "sha256": "46df0755f724b4b64c27028373c119373fcf047cf74fc2e9cef60924834f4b43"
+  },
+  "dialog": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/dialog.json",
+    "sha256": "42f3b23dc51dcf5d019aaeb43a23ee4406d2b2e7962cc64e2443746e7b2b0087"
+  },
+  "drawer": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/drawer.json",
+    "sha256": "7fcdca261698028d96918578b4b5edf0910e14d1f57be1705e215b52f5f03e2e"
+  },
+  "dropdown-menu": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/dropdown-menu.json",
+    "sha256": "99afef51dfb3a58a693e3899e5829a1b512e9460e33fbc937ec1497313366c75"
+  },
+  "hover-card": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/hover-card.json",
+    "sha256": "fbea7f63415b4eaae2d35767feca31c4cd28b6411d7c2ae183a42d009bce1745"
+  },
+  "input": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/input.json",
+    "sha256": "b8d0c2a2ab66080b5fe9a3467884f896eb6f9e6b45ac0185925e831f551362e6"
+  },
+  "input-group": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/input-group.json",
+    "sha256": "80a2d0838226e3ae5af95c646b1b70d8d4eb05f32f31b95433ce599d5d7df680"
+  },
+  "input-otp": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/input-otp.json",
+    "sha256": "d3b3ec1f60d8defd95410989d8eb703ba0325a385c96e458cf9bbde12eff0786"
+  },
+  "label": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/label.json",
+    "sha256": "b3b7b21d2877838fc73713df48a47248392de04a3b3fafa8961369f33ab14530"
+  },
+  "menubar": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/menubar.json",
+    "sha256": "4da1eadf6c7b16baa6688dc0f45acf344caf190e46a41911ffd4bd54df696491"
+  },
+  "native-select": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/native-select.json",
+    "sha256": "ef59704b1eb616772b6069f936bf1f4feede477536554f210f1246c581a69981"
+  },
+  "popover": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/popover.json",
+    "sha256": "7eaf337b3106d5a4f48e126c305b8a32eba297bdeccac52fcbc5082ea7bf302e"
+  },
+  "progress": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/progress.json",
+    "sha256": "894878cd65f908a0341249f7bf45e25667f488e7777f830ba1c4715b47feba06"
+  },
+  "radio-group": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/radio-group.json",
+    "sha256": "9dcd71134f67b2a91b642c2551b5b4c638ca32f1e985b8b031430728d09b277d"
+  },
+  "scroll-area": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/scroll-area.json",
+    "sha256": "829549f352f1e56dfe887446bcc3d1707c0ced739a9efcb75f0af364cd88c581"
+  },
+  "separator": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/separator.json",
+    "sha256": "9a80ff8c110e0c55489509f4f82ebcc929c0174b59544047147b7134f86a54e7"
+  },
+  "sheet": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/sheet.json",
+    "sha256": "708f62c2d8932bc6a96390720ab54dc2c03c2f5d72beb46cc7396a8f4e03811f"
+  },
+  "skeleton": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/skeleton.json",
+    "sha256": "4c2af7fa9c645358a0fb188779deab6f0b981733b62befc25e18aaebea1350dc"
+  },
+  "slider": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/slider.json",
+    "sha256": "d5cce0307dcc21fb8687dbc9e2e97de6efde2c1e6e8fb48a1cc8e01fdae88e0c"
+  },
+  "switch": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/switch.json",
+    "sha256": "adff46ae3684891bdbbb5fdcf07c7dfa1598275ed65715269e444db9ba6021be"
+  },
+  "table": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/table.json",
+    "sha256": "749b0501e97591f8d7c9ef81366d636e4b47857a15a28e6cf3b87841232e74bf"
+  },
+  "tabs": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/tabs.json",
+    "sha256": "50954a06edb2b56af0bc77bbee995c5c6713cced0867c7a999d33f2c7226b584"
+  },
+  "textarea": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/textarea.json",
+    "sha256": "6d096ef81ee782d94696d0ddad1c926e530d952b54b9ff9e8b837d8bbeea8d00"
+  },
+  "toggle": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/toggle.json",
+    "sha256": "f6e3fed0379d2dee67df8a5e7e33694935bf2982dc513cbeacf2ce287b9446a6"
+  },
+  "toggle-group": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/toggle-group.json",
+    "sha256": "ef9df51b1b934763a90779fd5a7ee94ba8f2813d4a4c5bcf2f66eb43c07bd68b"
+  },
+  "tooltip": {
+    "registry": "https://ui.shadcn.com/r/styles/base-vega/tooltip.json",
+    "sha256": "f83d5f511812573f4ac98b866d397a46fda0f27eeb0af0ea89af01969eefbc5a"
+  }
+}

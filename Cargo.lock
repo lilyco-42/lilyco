@@ -3788,8 +3788,9 @@ dependencies = [
 
 [[package]]
 name = "lilyco-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -3879,7 +3880,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-gui"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "async-stream",
  "axum",

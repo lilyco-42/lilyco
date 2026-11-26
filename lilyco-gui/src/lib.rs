@@ -36,6 +36,7 @@ mod i18n;
 mod render;
 mod run;
 mod security;
+mod shadcn;
 mod state;
 mod util;
 
@@ -115,7 +116,12 @@ impl GuiRenderer {
 
     async fn serve_state(&self, state: Arc<AppState>) {
         let app = Router::new()
-            .route("/", get(index))
+            .route("/", get(shadcn::index))
+            .route("/classic", get(index))
+            .route("/ui/catalog", get(shadcn::catalog))
+            .route("/ui/gui.js", get(shadcn::javascript))
+            .route("/ui/gui.css", get(shadcn::stylesheet))
+            .route("/ui/notices.txt", get(shadcn::notices))
             .route("/themes", get(themes_handler))
             .route("/llms.txt", get(llms_txt_handler))
             .route("/.well-known/agent.json", get(agent_card_handler))

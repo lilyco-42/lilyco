@@ -204,7 +204,7 @@ function initCommandNav(){
     // 一是给「已经在切了」一个看得见的答复，二是免得连点排出两次导航
     sel.disabled=true;
     sel.setAttribute("aria-busy","true");
-    const previous=new URL(location.href),next=new URL("/",previous);
+    const previous=new URL(location.href),next=new URL(location.pathname,previous);
     for(const key of ["theme","debug"]){
       if(previous.searchParams.has(key))next.searchParams.set(key,previous.searchParams.get(key));
     }

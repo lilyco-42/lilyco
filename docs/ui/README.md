@@ -1,5 +1,7 @@
 # Lilyco UI 指南
 
+> `--gui` 的默认 Web 入口使用 [shadcn/ui 适配器](../../lilyco-gui/web/README.md)。此目录里的设计令牌和原生控件说明对应 `/classic`。
+
 > 一套**令牌 + 规则**的设计系统，用来做「本地开发者控制台」。
 > 借 shadcn/ui 的克制与语义令牌，不借它的运行时。
 
