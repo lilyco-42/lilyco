@@ -459,6 +459,84 @@ fn cap_transcript(prompt: &str) -> String {
     format!("{head}\n\n[... 已折叠中间约 {omitted} 字符的较早历史，以防超出 ChatGPT 网页上下文上限 ...]\n\n{tail}")
 }
 
+/// 判断最新一条用户消息是否属于「直接请求生图」：
+///
+/// 像 dsh 这样的宿主会在 `messages` 前面注入 10 万字编程 Agent 系统提示词，
+/// 直接一起发给 ChatGPT 会干扰内置画图工具（实测常回「生成未成功，请上传原图」）。
+/// 识别到明确的生图意图后，自动剥离宿主系统提示词，只把纯净的画图指令新开会话发送。
+/// 同时排除「修复无法生成图片」「为什么生图失败」「Create a concise title」这类非画图请求。
+fn is_image_gen_request(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > 800 {
+        return false;
+    }
+    let lower = trimmed.to_lowercase();
+    let compact: String = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
+    // 排除宿主标题生成、排查/修复/提问类文本，防止误伤
+    if lower.starts_with("create a concise title")
+        || lower.starts_with("/goal")
+        || compact.contains("无法生成图片")
+        || compact.contains("生成图片失败")
+        || compact.contains("修复")
+        || compact.contains("报错")
+        || compact.contains("为什么")
+        || compact.contains("代码")
+        || lower.contains("bug")
+    {
+        return false;
+    }
+    const ZH_PREFIXES: &[&str] = &[
+        "画一",
+        "画个",
+        "画幅",
+        "帮我画",
+        "请画",
+        "给我画",
+        "画图",
+        "作图",
+        "生图",
+        "生成一",
+        "生成图",
+        "帮我生成",
+        "请生成",
+        "给我生成",
+        "来一张",
+        "来一只",
+    ];
+    if ZH_PREFIXES.iter().any(|p| compact.starts_with(p)) {
+        return true;
+    }
+    const ZH_KEYWORDS: &[&str] = &[
+        "画一张",
+        "画一只",
+        "画一个",
+        "画一幅",
+        "生成图片",
+        "生成一张",
+        "生成一只",
+        "生成照片",
+        "生成插画",
+        "生成头像",
+        "生成壁纸",
+        "生成海报",
+    ];
+    if ZH_KEYWORDS.iter().any(|k| compact.contains(k)) {
+        return true;
+    }
+    const EN_PREFIXES: &[&str] = &[
+        "draw ",
+        "paint ",
+        "illustrate ",
+        "generate an image",
+        "generate a picture",
+        "generate a photo",
+        "create an image",
+        "create a picture",
+        "make an image",
+    ];
+    EN_PREFIXES.iter().any(|p| lower.starts_with(p))
+}
+
 /// 一次请求要干的活
 enum Job {
     Chat {
@@ -954,22 +1032,41 @@ async fn chat_completions(State(cfg): State<Arc<Config>>, Json(body): Json<Value
                 );
             }
             let (sys, turns) = split_chat_messages(&messages);
-            let anchor = session_anchor(&sys, &turns);
-            let (bound_conversation_id, bound_branch_len, delta_prompt) = anchor
-                .and_then(|key| cfg.sessions.lock().ok()?.get(&key).cloned())
-                .filter(|b| turns.len() > b.sent_turns)
-                .map(|b| {
-                    let delta = format_delta_turns(&turns[b.sent_turns..]);
-                    (Some(b.conversation_id), Some(b.branch_len), Some(delta))
-                })
-                .unwrap_or((None, None, None));
-            Job::Chat {
-                full_prompt,
-                anchor,
-                delta_prompt,
-                total_turns: turns.len(),
-                bound_conversation_id,
-                bound_branch_len,
+            let last_user = turns
+                .iter()
+                .rev()
+                .find(|(r, _)| *r == "User")
+                .map(|(_, t)| t.as_str());
+            if let Some(img_prompt) = last_user.filter(|t| is_image_gen_request(t)) {
+                eprintln!(
+                    "[serve chat] 识别为生图请求，已剥离宿主系统提示词，使用纯净提示词新开会话生图"
+                );
+                Job::Chat {
+                    full_prompt: img_prompt.to_string(),
+                    anchor: None,
+                    delta_prompt: None,
+                    total_turns: 1,
+                    bound_conversation_id: None,
+                    bound_branch_len: None,
+                }
+            } else {
+                let anchor = session_anchor(&sys, &turns);
+                let (bound_conversation_id, bound_branch_len, delta_prompt) = anchor
+                    .and_then(|key| cfg.sessions.lock().ok()?.get(&key).cloned())
+                    .filter(|b| turns.len() > b.sent_turns)
+                    .map(|b| {
+                        let delta = format_delta_turns(&turns[b.sent_turns..]);
+                        (Some(b.conversation_id), Some(b.branch_len), Some(delta))
+                    })
+                    .unwrap_or((None, None, None));
+                Job::Chat {
+                    full_prompt,
+                    anchor,
+                    delta_prompt,
+                    total_turns: turns.len(),
+                    bound_conversation_id,
+                    bound_branch_len,
+                }
             }
         }
         Route::Codex => {
@@ -1240,5 +1337,24 @@ mod tests {
         assert!(capped.ends_with("_TAIL_END"));
         assert!(capped.contains("已折叠中间"));
         assert!(capped.chars().count() <= MAX_CHAT_CHARS);
+    }
+
+    /// 生图请求要准确识别并剥离宿主系统提示词，但排查/修复/标题生成不能误伤
+    #[test]
+    fn image_gen_detector_matches_drawing_and_ignores_coding_prompts() {
+        assert!(is_image_gen_request("画一只戴墨镜的橘猫"));
+        assert!(is_image_gen_request("生成 一张 小狗图片"));
+        assert!(is_image_gen_request("帮我画一个赛博朋克风格的城市海报"));
+        assert!(is_image_gen_request("draw a cat in sunglasses"));
+        assert!(is_image_gen_request("Generate an image of a Shiba Inu"));
+        assert!(!is_image_gen_request(
+            "/goal 修复本机 lchatgpt 无法生成图片的问题"
+        ));
+        assert!(!is_image_gen_request("为什么生成图片失败了？"));
+        assert!(!is_image_gen_request(
+            "Create a concise title for: 画一只戴墨镜的橘猫"
+        ));
+        assert!(!is_image_gen_request("hi"));
+        assert!(!is_image_gen_request("帮我写一段 Rust 代码"));
     }
 }
