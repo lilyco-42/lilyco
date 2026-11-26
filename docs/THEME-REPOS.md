@@ -14,7 +14,8 @@
 | [`lilyco-42/lilyco-ai`](https://github.com/lilyco-42/lilyco-ai) | AI 工具、记忆包与协议转换套件 | `lilyco-aic`, `lilyco-bitnet`, `lilyco-mpkg`, `lilyco-web2cli` |
 | [`lilyco-42/lilyco-tools`](https://github.com/lilyco-42/lilyco-tools) | 系统工具与领域命令行套件 | `lilyco-files`, `lilyco-grep`, `lilyco-binfmt`, `lilyco-plc` |
 
-## 过渡期说明
+## 迁移状态
 
-- 本次拆仓前已合入主仓 Open PR（#75、#44、#43）。
-- 过渡期内主仓源码暂时保留，待各主题仓独立 CI 稳定运行后再经单独 PR 精简主仓 `Cargo.toml`。
+- 本次拆仓前已合入主仓 Open PR（#75、#44、#43），且 5 个独立主题仓 CI 已全部通过。
+- 主仓已完成第一阶段瘦身：移除上述 20 个已迁出领域/重桌面 crate，保留 10 个核心 SDK 框架 crate（总解析包数由 865 降至 249）。
+- `apps/` 下的商业门户与桌面 Studio 留待下一阶段独立迁出。

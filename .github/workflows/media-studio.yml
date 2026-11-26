@@ -1,10 +1,5 @@
 name: Media Studio Desktop
 on:
-  pull_request:
-    paths: ['apps/media-studio/**', 'apps/desktop-common/**', 'lilyco-ffmpeg/**', 'Cargo.lock', '.github/workflows/media-studio.yml']
-  push:
-    branches: [main]
-    paths: ['apps/media-studio/**', 'apps/desktop-common/**', 'lilyco-ffmpeg/**', 'Cargo.lock', '.github/workflows/media-studio.yml']
   workflow_dispatch:
 permissions:
   contents: read

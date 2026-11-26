@@ -1,5 +1,0 @@
-.generated/
-bin/
-vendor/
-__pycache__/
-*.pyc
