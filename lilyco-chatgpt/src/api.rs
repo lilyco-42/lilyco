@@ -23,6 +23,9 @@ pub const BASE: &str = "https://chatgpt.com/backend-api";
 pub const USER_AGENT: &str =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
+/// 单张图 / 附件下载的字节上限（实测生成的 PNG 约 1 MB，留足余量）
+const MAX_DOWNLOAD_BYTES: u64 = 64 * 1024 * 1024;
+
 /// 一次 API 调用
 pub struct Api {
     agent: ureq::Agent,
@@ -82,8 +85,9 @@ impl Api {
         }
     }
 
-    /// GET 一个 JSON 接口。`path` 以 `/` 开头，拼在 BASE 后面。
-    pub fn get_json(&self, path: &str, query: &[(String, String)]) -> Result<Value, AppError> {
+    /// GET 一个接口，返回 (HTTP 状态, 原始响应体)。不把非 2xx 当错误 ——
+    /// 重试策略要自己看状态码（429 是限流，值得等一会儿再试）。
+    fn get_raw(&self, path: &str, query: &[(String, String)]) -> Result<(u16, String), AppError> {
         let url = format!("{BASE}{path}");
         let mut req = self.auth_headers(self.agent.get(&url));
         for (k, v) in query {
@@ -97,11 +101,47 @@ impl Api {
             .into_body()
             .read_to_string()
             .map_err(|e| AppError::Runtime(format!("读响应失败 GET {path}: {e}")))?;
+        Ok((status, body))
+    }
+
+    /// GET 一个 JSON 接口。`path` 以 `/` 开头，拼在 BASE 后面。
+    pub fn get_json(&self, path: &str, query: &[(String, String)]) -> Result<Value, AppError> {
+        let (status, body) = self.get_raw(path, query)?;
         if !(200..300).contains(&status) {
             return Err(http_error("GET", path, status, &body));
         }
         serde_json::from_str(&body)
             .map_err(|e| AppError::Runtime(format!("后端返回的不是 JSON（GET {path}）: {e}")))
+    }
+
+    /// 同 `get_json`，但 429（限流）会退避重试几次再放弃。
+    ///
+    /// 轮询会话正文时最容易被限流：一次生图要盯着一两分钟，一秒钟一个 GET 很快就被
+    /// 后端判成刷接口（实测连打 123 次后整个 `/conversation/{id}` 报 429 约半分钟）。
+    /// 限流不是失败，等一等就过去了。
+    pub fn get_json_retry(
+        &self,
+        path: &str,
+        query: &[(String, String)],
+        attempts: u32,
+    ) -> Result<Value, AppError> {
+        let mut backoff = Duration::from_millis(800);
+        for attempt in 0..attempts.max(1) {
+            let (status, body) = self.get_raw(path, query)?;
+            if (200..300).contains(&status) {
+                return serde_json::from_str(&body).map_err(|e| {
+                    AppError::Runtime(format!("后端返回的不是 JSON（GET {path}）: {e}"))
+                });
+            }
+            // 429 与 5xx 值得再试；401/403/404 再试也是一样的结果
+            let retryable = retryable_status(status);
+            if !retryable || attempt + 1 == attempts.max(1) {
+                return Err(http_error("GET", path, status, &body));
+            }
+            std::thread::sleep(backoff);
+            backoff = (backoff * 2).min(Duration::from_secs(8));
+        }
+        unreachable!("循环里一定会 return")
     }
 
     /// POST 一个 JSON 请求体并**不读完响应**：SSE 需要边到边读，所以 2xx 时把原始
@@ -160,6 +200,55 @@ impl Api {
         serde_json::from_str(&raw)
             .map_err(|e| AppError::Runtime(format!("后端返回的不是 JSON（POST {path}）: {e}")))
     }
+
+    /// GET 一个**绝对** URL 并读回原始字节（生图下载用）。
+    ///
+    /// 与 `get_json` 的区别：不拼 `BASE`（`download_url` 本身就是完整地址），
+    /// 返回字节而不是 JSON。认证头照挂 —— 少了 `chatgpt-account-id` 后端会回
+    /// 403 `File stream access denied.`。
+    pub fn get_bytes(&self, url: &str) -> Result<Vec<u8>, AppError> {
+        let mut res = self
+            .auth_headers(self.agent.get(url))
+            .call()
+            .map_err(|e| AppError::Runtime(format!("请求 GET {url} 失败: {e}")))?;
+        let status = res.status().as_u16();
+        if !(200..300).contains(&status) {
+            let raw = res.body_mut().read_to_string().unwrap_or_default();
+            return Err(http_error("GET", url, status, &raw));
+        }
+        res.body_mut()
+            .with_config()
+            .limit(MAX_DOWNLOAD_BYTES)
+            .read_to_vec()
+            .map_err(|e| AppError::Runtime(format!("读取 GET {url} 的响应体失败: {e}")))
+    }
+
+    /// 下载一张会话里生成的图。
+    ///
+    /// 两步（实测）：先 `GET /files/{id}/download` 拿 `{download_url}`（一个带签名的
+    /// `/backend-api/estuary/content?...` 地址），再带同一套认证头 GET 那个地址拿 PNG。
+    /// 直接用 `sediment://file_…` 里的 id 拼别的端点都不行（403 / 404）。
+    pub fn download_file(&self, file_id: &str) -> Result<Vec<u8>, AppError> {
+        let meta = self.get_json(&format!("/files/{file_id}/download"), &[])?;
+        let url = meta
+            .get("download_url")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                AppError::Runtime(format!(
+                    "后端没给出 {file_id} 的 download_url（返回: {meta}）"
+                ))
+            })?;
+        self.get_bytes(url).map_err(|e| match e {
+            // 换成一句能看出这是「下载图片」失败的话
+            AppError::Runtime(m) => AppError::Runtime(format!("下载图片 {file_id} 失败: {m}")),
+            other => other,
+        })
+    }
+}
+
+/// 这个状态码值不值得等一会儿再试：429（限流）与 5xx 值得，401/403/404 再试也一样。
+pub fn retryable_status(status: u16) -> bool {
+    status == 429 || (500..600).contains(&status)
 }
 
 /// 把后端的非 2xx 响应翻译成一句能照着做的中文错误。
@@ -287,5 +376,17 @@ mod tests {
             "错误信息不该把整个 body 打印出来: {}",
             msg.len()
         );
+    }
+
+    /// 只有限流与服务端抖动值得重试；认证/权限/不存在再试一百次也一样
+    #[test]
+    fn only_rate_limits_and_server_hiccups_are_retried() {
+        assert!(retryable_status(429));
+        assert!(retryable_status(500));
+        assert!(retryable_status(503));
+        assert!(!retryable_status(401));
+        assert!(!retryable_status(403));
+        assert!(!retryable_status(404));
+        assert!(!retryable_status(200));
     }
 }

@@ -262,6 +262,20 @@ def check_serve():
             ok("空 messages 回 400")
         else:
             bad(f"空 messages 应 400，实际 {st} {body[:200]}")
+
+        # 生图端：这里只验拒绝路径（真生成要花一次 chat 额度，留给在线人工验）
+        st, body = probe("/v1/images/generations", {})
+        if st == 400 and "prompt" in body:
+            ok("生图缺 prompt 回 400")
+        else:
+            bad(f"生图缺 prompt 应 400，实际 {st} {body[:200]}")
+        st, body = probe(
+            "/v1/images/generations", {"prompt": "a cat", "response_format": "url"}
+        )
+        if st == 400 and "b64_json" in body:
+            ok("生图只回 b64_json，response_format=url 被拒并说明原因")
+        else:
+            bad(f"response_format=url 应 400 并提 b64_json，实际 {st} {body[:200]}")
     finally:
         p.terminate()
         try:
@@ -464,6 +478,45 @@ def check_mcp():
         ok("缺 conversation_id 被 validate_args 拦下（-32602）")
     else:
         bad(f"缺参应回 -32602，实际 {json.dumps(r5, ensure_ascii=False)[:200]}")
+
+    # 协议版本协商 + resources/*：dsh 的 MCP 客户端只有在 capabilities
+    # 里看到 resources 才会真的发 resources/list，所以这两条必须验。
+    init_new = {"jsonrpc": "2.0", "id": 8, "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18", "capabilities": {}}}
+    rlist = {"jsonrpc": "2.0", "id": 9, "method": "resources/list", "params": {}}
+    rread = {"jsonrpc": "2.0", "id": 10, "method": "resources/read",
+             "params": {"uri": "lilyco://command/models"}}
+    got = mcp_call([init_new, rlist, rread], [8, 9, 10])
+    by_id = {}
+    for m in got:
+        if m.get("id") is not None:
+            by_id[m["id"]] = m
+    r8 = by_id.get(8, {})
+    ver = (r8.get("result") or {}).get("protocolVersion")
+    caps = (r8.get("result") or {}).get("capabilities") or {}
+    if ver == "2025-06-18":
+        ok("协议版本按客户端请求协商（2025-06-18 原样回）")
+    else:
+        bad(f"协议版本协商失败，回了 {ver!r}")
+    if "resources" in caps and "tools" in caps:
+        ok("capabilities 同时声明 tools 与 resources")
+    else:
+        bad(f"capabilities 缺键: {sorted(caps)}")
+    r9 = by_id.get(9, {})
+    resources = (r9.get("result") or {}).get("resources") or []
+    uris = sorted(r.get("uri", "") for r in resources)
+    if len(resources) == len(ALL) and all(
+        u.startswith("lilyco://command/") for u in uris
+    ):
+        ok(f"resources/list 把 {len(resources)} 条命令当资源暴露")
+    else:
+        bad(f"resources/list 不符（{len(resources)} 条）: {uris[:5]}")
+    r10 = by_id.get(10, {})
+    contents = (r10.get("result") or {}).get("contents") or []
+    if contents and "models" in (contents[0].get("text") or ""):
+        ok("resources/read 读回命令 schema JSON")
+    else:
+        bad(f"resources/read 不符: {json.dumps(r10, ensure_ascii=False)[:200]}")
 
 
 def check_tui():

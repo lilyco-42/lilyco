@@ -83,6 +83,79 @@
 > 这一步失败要在**发消息之前**就失败：快照读不到就不发 —— 否则消息发出去了、额度也花了，
 > 却永远认不出是哪条会话。
 
+## 生图：图不在正文里，而且末节点永远 `in_progress`
+
+实测一轮生图，`show-conversation` 看到的 mapping 是这样：
+
+```
+client-created-root
+  └─ user              parts: ["画一只戴墨镜的橘猫"]                finished_successfully
+      └─ assistant     content_type: code（去调画图工具的那个节点）  end_turn: false
+          └─ tool      content_type: multimodal_text，图挂在这里     recipient: all
+              └─ assistant   reasoning_recap（思考摘要）
+                  └─ assistant  content_type: text, parts: [""]      in_progress ← current_node
+```
+
+两个后果，都踩过：
+
+1. **正文是空的。** `parts` 里只有一个空字符串，字面意义上没有「回答」。图在中间那个
+   `tool` 节点的 `parts[]` 里，形状是
+   `{ content_type: "image_asset_pointer", asset_pointer: "sediment://file_<id>", width, height, mime_type }`。
+   于是「这一轮完事了」的判据不能只看 `end_turn == true || status == "finished_successfully"`
+   —— 末节点永远是 `in_progress`，那个条件一次都不成立。现在的判据是
+   「已经出现过 `finished_successfully` + 拿到图 + 正文为空」这个组合。
+2. **同一条 pointer 出现两次。** 一次是 ghostrider 中间态，一次是
+   `is_visually_hidden_from_conversation` 的展示节点，所以按 `file_id` 去重
+   （`sediment://` 前缀切掉就是文件 id）。
+
+一开始没做第 1 条，结果是每次生图都跑满 180 秒轮询、还带 `complete: false`（那 180 秒里
+把 `GET /conversation/{id}` 连打 123 次，还顺带把端点打成 429）。补上判据之后实测 33.7 秒、
+`complete: true`。轮询间隔也跟着放宽了（1.2s → 2s → 3.5s），429/5xx 一律退避重试。
+
+### 取图要两跳、三个头
+
+`sediment://file_xxx` 不是 URL。取字节是 `GET /backend-api/files/{file_id}/download`
+拿一个带签名的 `download_url`，再 GET 那个地址 —— **两跳都要带齐** `authorization` /
+`user-agent` / **`chatgpt-account-id`**，少最后一个直接 403。
+
+```bash
+lchatgpt ask --prompt "画一只戴墨镜的橘猫，扁平插画" --save-images /tmp/imgs
+# → 生成了 1 张图（file_id 见 --json 的 images[]）
+#     [1] file_0000000070c4820995dcb2dfc52ff88c 1254x1254 -> /tmp/imgs/file_000…f88c.png
+```
+
+`--save-images` 是给人看的（落盘，mime 按 magic number 判，不信后端说的）；
+`--inline-images` 是把字节 base64 内联进 `images[].data_base64` 并补上 `mime_type` ——
+这个开关是专门给 **MCP 面**的：MCP 客户端拿不到我们的登录态、没法自己下载
+`sediment://`，只有把字节塞进结果里它才能渲染成 `{type: "image"}` 内容块。
+`show-conversation --inline-images` 同理（读历史里的图）。
+
+`--json` 里那一轮长这样（`data_base64` 已省略）：
+
+```json
+{
+  "quota": "chat",
+  "conversation_id": "6b07c611-1b0c-83ea-bb1a-1e2fe8b6a1a6",
+  "model": "gpt-6-2",
+  "text": "",
+  "images": [
+    {
+      "file_id": "file_0000000070c4820995dcb2dfc52ff88c",
+      "asset_pointer": "sediment://file_0000000070c4820995dcb2dfc52ff88c",
+      "mime": "image/png",
+      "width": 1254,
+      "height": 1254,
+      "caption": "一只戴墨镜的橘猫，扁平插画风格，白底",
+      "mime_type": "image/png",
+      "saved_to": "/tmp/imgs/file_0000000070c4820995dcb2dfc52ff88c.png"
+    }
+  ],
+  "complete": true,
+  "polls": 14,
+  "elapsed_ms": 26732
+}
+```
+
 ## 命令（10 条：7 条 T0 只读 + `ask` / `login` / `serve` T1 需确认）
 
 | 命令 | 分级 | 作用 |
@@ -94,9 +167,9 @@
 | `show-conversation` | T0 | `GET /backend-api/conversation/{id}`；沿 `current_node` 的 `parent` 链回溯出**活动分支**，只留发给用户的 user/assistant 文本，返回 `{ conversation_id, title, create_time, update_time, model_slug, node_count, message_count, returned, truncated, messages }` |
 | `search` | T0 | `GET /backend-api/conversations/search?query=…`；返回 `{ query, limit, count, items }`，每项 `conversation_id / title / update_time / is_starred / snippet / payload`。`snippet` 由后端给、按 240 字符截断 |
 | `auth` | T0 | **本地**凭证体检，不联网：返回 `{ resolved: { ok, source, capability, can_send, account_id, expires_at, expired, refreshable, token }, candidates, store_path, hints }`。`candidates` 逐条列出 env / 仓库 / codex 登录态哪个可用，`hints` 直接给下一步该跑什么 |
-| `ask` | **T1** | **默认花 chat 额度**：驱动浏览器发、REST 读回，返回 `{ quota: "chat", conversation_id, model, text, complete, cdp, polls, elapsed_ms }`（`--cdp` 指定浏览器端点）。加 `--allow-codex` 才改走 `POST /backend-api/codex/responses`（SSE），返回 `{ quota: "codex", model, effort, response_id, text, usage, elapsed_ms, events }`，`--effort` 取 low/medium/high/xhigh/max/ultra |
+| `ask` | **T1** | **默认花 chat 额度**：驱动浏览器发、REST 读回，返回 `{ quota: "chat", conversation_id, model, text, images, complete, cdp, polls, elapsed_ms }`（`--cdp` 指定浏览器端点）。**生图那一轮 `text` 是空串、图在 `images[]` 里**（`file_id / asset_pointer / mime / width / height / caption`，加 `--save-images DIR` 落盘、加 `--inline-images` 内联 base64）。加 `--allow-codex` 才改走 `POST /backend-api/codex/responses`（SSE），返回 `{ quota: "codex", model, effort, response_id, text, usage, elapsed_ms, events }`，`--effort` 取 low/medium/high/xhigh/max/ultra |
 | `login` | **T1** | 把一份登录态收进自己的仓库（`~/.local/share/lchatgpt/auth.json`，0600）。`--from browser` 从正在跑的浏览器抓、`--from codex` 导入 codex 登录态、`--from refresh` 立刻用 refresh_token 续期。返回 `{ action, source, capability, can_send, account_id, email, expires_at, store_path, token, refreshable }` |
-| `serve` | **T1** | 起一个 **OpenAI 兼容的 HTTP 端**（默认 `127.0.0.1:8790`，`/health` + `/v1/models` + `/v1/chat/completions`，支持 SSE），让 dsh 之类的外部客户端把 ChatGPT 当成一个模型来用。模型 id：`lchatgpt:chat`（默认，花 chat 额度）；加 `--allow-codex` 才多出 `lchatgpt:codex`（花 codex 额度）。**阻塞到进程被杀**，所以没有 `--json` 结果 |
+| `serve` | **T1** | 起一个 **OpenAI 兼容的 HTTP 端**（默认 `127.0.0.1:8790`：`/health` + `/v1/models` + `/v1/chat/completions` 支持 SSE + `/v1/images/generations` 生图回 b64_json），让 dsh 之类的外部客户端把 ChatGPT 当成一个模型来用。模型 id：`lchatgpt:chat`（默认，花 chat 额度）；加 `--allow-codex` 才多出 `lchatgpt:codex`（花 codex 额度）。**阻塞到进程被杀**，所以没有 `--json` 结果 |
 
 ## 登录态：三条来源，能力不同
 
@@ -192,10 +265,14 @@ lchatgpt serve --allow-codex        # 多露一条 lchatgpt:codex → 花 codex 
 | `GET /health` | `{ ok, service, quota: "chat" \| "chat+codex", models }` |
 | `GET /v1/models` | OpenAI 的 `{ object: "list", data: [...] }`，pi-ai 的模型发现认这个形状 |
 | `POST /v1/chat/completions` | `stream: true` 时走 SSE（标准 `chat.completion.chunk` + 末尾 `data: [DONE]`）；`false` 时一次性给 `chat.completion` |
+| `POST /v1/images/generations` | 用 **chat 额度**生图：`{created, data: [{b64_json, revised_prompt}]}`。只回 b64_json —— 后端给的图片地址带签名、且必须带登录态头才能取，给 URL 客户端也打不开 |
 
 额度归属**不因为套了一层 HTTP 就变**：默认只有 `lchatgpt:chat`，它走的就是上面那条
 「驱动浏览器」的路；`lchatgpt:codex` 只有在启动时显式 `--allow-codex` 才会出现在
 `/v1/models` 里，否则请求它是 400 并告诉你加这个开关。**看不到的模型不会被偷偷换过去。**
+
+生图端点走的就是 `ask` 的 chat 路径（一次生成约 30 秒）。抓不到图时回 400「这一轮没有生成图片」
+并带上网页那一轮的文字，而不是回一个空数组。`response_format=url` 一律 400 并说明原因。
 
 多轮对话会被压平：chat 路本来就只有「发一段、读一段」，所以 `messages` 里的历史被
 拼成一段文字（多条 user 消息带 `User:` / `Assistant:` 前缀，system 放最前）。codex 路
@@ -244,6 +321,56 @@ dsh --profile headless --patch /tmp/lchatgpt-provider.yml --json "只回答两�
 `max_completion_tokens: 32000`；整轮 19 秒拿到 `香蕉`。**网页路不报 token 用量**，所以
 `step_end` 的 usage 是全 0 —— 这不是 bug，chatgpt.com 的网页接口本来就不给。
 
+## 当 MCP 服务端（`--mcp`）：版本协商、resources、图片内容块
+
+`lchatgpt --mcp` 是 stdio JSON-RPC，注册表里那 10 条命令就是 10 个工具。dsh 这类客户端会挑三件事：
+
+1. **协议版本要按客户端说的回。** 支持 `2025-11-25` / `2025-06-18` / `2025-03-26` /
+   `2024-11-05`，`initialize` 按 `params.protocolVersion` 协商，只有认不出来才回落
+   `2024-11-05`。dsh 的 MCP SDK 是 legacy 握手，回一个它列表外的版本会直接抛
+   `Server's protocol version is not supported`。
+2. **`capabilities` 必须声明 `resources`。** dsh 那边有守卫
+   `getServerCapabilities()?.resources !== void 0` 才肯真的发 `resources/list` —— 少了这个键，
+   客户端永远不问。所以 capabilities 是 `{"tools": {}, "resources": {}}`：`resources/list`
+   把命令当资源（uri `lilyco://command/<name>`），`resources/read` 回该命令的 schema JSON。
+3. **图片走真内容块。** 工具结果里带 `{type: "image", data, mimeType}`：顶层 `images[]` 与
+   `messages[].images[]` 都收，只认 png/jpeg/webp/gif，最多 8 块；出块之后把文本块里的
+   `data_base64` 删掉（一张 1.5 MB 的 PNG 会让上下文翻倍 —— 实测文本块从 1559917 字节
+   降到 624 字节，图只在 image 块里出现一次）。
+
+安全门不变：`ask` / `login` / `serve` 是 T1，默认策略 `DenyElevated` 直接拒；7 条只读命令随便调。
+也就是「让 Agent 自己查额度、读会话、翻历史」安全，「让它替你发消息、换凭证、开端口」要人点头。
+
+### 接进 dsh 的 MCP 侧
+
+```yaml
+- insert:
+    - id: mcp-lchatgpt
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: lchatgpt
+        transport: stdio
+        command: /绝对路径/lchatgpt
+        args: ['--mcp']
+        env:
+          HOME: /home/lilyco
+        startupTimeoutMs: 20000
+        toolCallTimeoutMs: 60000
+        failOnStartupError: false
+```
+
+`serverName` 决定工具前缀：`mcp__lchatgpt__whoami` / `mcp__lchatgpt__show-conversation` …
+改完要重启 dsh（桌面版重启 Electron，`--profile desktop` 被 CLI 拒绝）。
+patch 层顶层只能改**已有** id，新增条目必须写成 `- insert:` 列表，否则报
+`patch: entry "mcp-lchatgpt" not found`。
+
+> **别用「问模型你有哪些工具」来验收。** ChatGPT 网页模型本身不做 function calling，
+> 问它工具会一本正经地回答「这些 MCP 工具均未注册」，或者报一堆不存在的能力名（`python.exec` /
+> `web.run` / `genui.*`）。判据只能是 dsh 真发出去的请求体（`tools` 数组里有没有
+> `mcp__lchatgpt__*`），或者拿一个假 LLM 端点注入 `tool_call` 看它会不会真执行。
+> 两条都实测过：请求体 36 个工具里 10 个是我们的；强注 `mcp__lchatgpt__whoami` 之后
+> dsh 真的执行了并拿到真实 JSON（`turn_end completed`、退出码 0）。
+
 ## 参数语义
 
 - **数字 0 = 用默认值。** `--limit 0` / `--messages 0` 都回退到各自的默认（20 / 20 / 10）。
@@ -263,6 +390,9 @@ dsh --profile headless --patch /tmp/lchatgpt-provider.yml --json "只回答两�
 - `ask --model` 只在 `--allow-codex` 时有效，且只接受 `gpt-6.2-sol`；别的 slug 在发请求
   **之前**就报错并说明原因。chat 路径的模型由网页自己选（见 `models` 的 `default_model_slug`）。
 - `--effort` 同理只在 `--allow-codex` 时有效。
+- `ask --save-images` 给目录就落盘（空串 = 不下载）；`--inline-images` 内联成 base64。
+  两个都只影响「图怎么交付」，不影响花哪份额度。
+- `show-conversation --inline-images` 同理，读历史里的图并内联（T0，只读）。
 - `login --reveal` 才打印完整 token，默认打码；`login --cdp` 指定浏览器端点。
 - `serve --port 0`（或省略）= 8790；`--host ""` = `127.0.0.1`（只监听本机）。
   `serve --allow-codex` 决定 `/v1/models` 里有没有 `lchatgpt:codex`，这是**启动时**的开关：
@@ -292,6 +422,10 @@ lchatgpt search --query Temu
 # 真正提问：默认花 chat 额度（要一台已登录 chatgpt.com 的 chromium）
 lchatgpt ask --prompt "用一句话解释 borrow checker"
 lchatgpt ask --prompt "…" --cdp 127.0.0.1:9229
+
+# 生图：提示词写清楚，图在 images[] 里（text 会是空串）
+lchatgpt ask --prompt "画一只戴墨镜的橘猫，扁平插画" --save-images /tmp/imgs
+lchatgpt ask --prompt "…" --inline-images --json       # 给 MCP 客户端出 image 内容块
 
 # 显式花 codex 额度（--allow-codex 是唯一的开关）
 lchatgpt ask --allow-codex --prompt "用一句话解释 borrow checker" --effort low
@@ -549,6 +683,12 @@ thoughts 255、multimodal_text 2；角色分布 user 65 / assistant 1356 / tool 
 - 只读命令在额度耗尽时**完全正常**，这也是把只读与发送拆成两个分级的原因。
 - `search` 的 `payload.snippet` 是后端把整篇回答压成一行，长的能到几万字符；
   `items[].snippet` 已按 240 字符截断，完整内容在 `items[].payload`。
-- 不处理附件、不读图。`ask` 的 chat 路径**确实**会在网页里留下真实会话（`conversation_id` 就是它）；
+- **chat 那条路只发纯文本**：输入框支持拖文件、粘图片，但这里只走 `Input.insertText`，
+  所以不能上传附件、不能以图问图。**生图是支持的**（图是模型产出的，走 `images[]`）。
+- 生图那一轮的正文通常是空字符串 —— 这不是 bug，见上面「生图：图不在正文里」；
+  `text` 空、`images[]` 非空时人读面打的是「生成了 N 张图」。
+- 轮询会撞 429：早年固定 1.2 秒轮询，一条长任务打到 123 次之后 `GET /conversation/{id}`
+  整体 429 半分钟（连 `show-conversation` 都跟着失败）。现在间隔按轮数放宽（1.2s → 2s → 3.5s），
+  并且 429 / 5xx 退避重试，请求数从 ~150 降到 ~60。
+- `ask` 的 chat 路径**确实**会在网页里留下真实会话（`conversation_id` 就是它）；
   codex 路径是 `store: false` 的无状态调用，不留会话。
-- chat 那条路只发纯文本：输入框支持粘贴图片等，但这里只走 `Input.insertText`。

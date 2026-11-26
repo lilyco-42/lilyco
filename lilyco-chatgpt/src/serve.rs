@@ -40,9 +40,13 @@ use axum::{extract::State, Json, Router};
 use lilyco::prelude::*;
 use serde_json::{json, Value};
 
+use crate::api::Api;
 use crate::ask;
+use crate::auth;
 use crate::chat;
+use crate::refresh;
 use crate::store;
+use crate::util;
 
 /// 省略 `--port` 时用哪个端口（数字参数省略会变成 0，0 在这里等于「用默认」）
 const DEFAULT_PORT: u16 = 8790;
@@ -61,7 +65,7 @@ const MAX_OUTPUT_TOKENS: u64 = 32_000;
     name = "serve",
     run = "run_serve",
     safety = "t1",
-    about = "Expose the ChatGPT account backend as a local OpenAI-compatible HTTP endpoint (GET /v1/models, POST /v1/chat/completions streaming or not, GET /health) so a harness such as dsh can declare this as a provider with api=openai-completions pointing at http://127.0.0.1:8790/v1. Every request spends quota: model lchatgpt:chat drives a chromium already logged in to chatgpt.com and therefore spends the CHAT quota (the default), while model lchatgpt:codex calls POST /backend-api/codex/responses and spends the CODEX quota, existing only when the server was started with --allow-codex. Multi-turn message arrays are flattened into one transcript on the chat route. The command blocks until the process is killed and prints no answer on stdout: it only serves."
+    about = "Expose the ChatGPT account backend as a local OpenAI-compatible HTTP endpoint (GET /v1/models, POST /v1/chat/completions streaming or not, POST /v1/images/generations returning b64_json, GET /health) so a harness such as dsh can declare this as a provider with api=openai-completions pointing at http://127.0.0.1:8790/v1. Every request spends quota: model lchatgpt:chat drives a chromium already logged in to chatgpt.com and therefore spends the CHAT quota (the default), while model lchatgpt:codex calls POST /backend-api/codex/responses and spends the CODEX quota, existing only when the server was started with --allow-codex. Multi-turn message arrays are flattened into one transcript on the chat route. The command blocks until the process is killed and prints no answer on stdout: it only serves."
 )]
 pub struct Serve {
     #[arg(about = "Port to listen on (0 or empty means 8790)", default = 0)]
@@ -151,6 +155,7 @@ fn router(cfg: Arc<Config>) -> Router {
         .route("/health", get(health))
         .route("/v1/models", get(models))
         .route("/v1/chat/completions", post(chat_completions))
+        .route("/v1/images/generations", post(images_generations))
         .with_state(cfg)
 }
 
@@ -329,6 +334,28 @@ enum Job {
 struct Reply {
     text: String,
     usage: Option<Value>,
+    /// 这一轮生成的图（只有 chat 那条路会有）
+    images: Vec<Value>,
+}
+
+impl Reply {
+    /// 生图那一轮没有正文。给客户端一句说明，别交一个空回答出去
+    /// （dsh 的 retryPolicy 把 EMPTY_RESPONSE 当可重试错误，会白花两份额度）。
+    fn text_or_image_note(&self) -> String {
+        if !self.text.trim().is_empty() || self.images.is_empty() {
+            return self.text.clone();
+        }
+        let ids = self
+            .images
+            .iter()
+            .filter_map(|i| i["file_id"].as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "（这一轮没有文字，只生成了 {} 张图：{ids}。取图用 POST /v1/images/generations 或 lchatgpt ask --save-images <目录>）",
+            self.images.len()
+        )
+    }
 }
 
 /// 把 codex 的 {input_tokens,output_tokens} 翻成 OpenAI 的 {prompt,completion,total}_tokens
@@ -421,6 +448,11 @@ fn run_job(cfg: &Config, job: &Job, sink: &mut dyn FnMut(&str)) -> Result<Reply,
     Ok(Reply {
         text: value["text"].as_str().unwrap_or("").to_string(),
         usage: openai_usage(value.get("usage")),
+        images: value
+            .get("images")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
     })
 }
 
@@ -473,6 +505,98 @@ fn error_response(e: &AppError) -> Response {
         _ => api_error(StatusCode::BAD_GATEWAY, format!("{e}"), "upstream_error"),
     }
 }
+/// POST /v1/images/generations —— 用 **chat 额度** 生图。
+///
+/// 网页那边生图就是「往输入框里问一句画图的请求」：图在会话里以
+/// `image_asset_pointer` 出现，正文往往是空的。所以这条路是三步：
+///
+/// 1. 走 `chat::ask`（花 chat 额度；codex 额度在这一层完全不参与）；
+/// 2. 把结果里 `images[].file_id` 逐个 `Api::download_file` 取回字节；
+/// 3. 按 OpenAI 的形状回 `{ created, data: [{ b64_json }] }`。
+///
+/// 只回 `b64_json`：后端给的 `download_url` 带签名、且**必须带登录态头**才能
+/// 取，直接甩给客户端是取不到的，所以这里把字节编码进响应体。
+async fn images_generations(State(cfg): State<Arc<Config>>, Json(body): Json<Value>) -> Response {
+    let prompt = body
+        .get("prompt")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if prompt.is_empty() {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "prompt 不能为空",
+            "invalid_request_error",
+        );
+    }
+    let format = body
+        .get("response_format")
+        .and_then(Value::as_str)
+        .unwrap_or("b64_json")
+        .trim()
+        .to_string();
+    if format != "b64_json" {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            format!("这个端只回 b64_json（收到 response_format={format:?}）：后端给的图片地址带签名、且必须带登录态头才能取，直接给 URL 客户端也打不开"),
+            "invalid_request_error",
+        );
+    }
+
+    let cfg2 = cfg.clone();
+    let joined = tokio::task::spawn_blocking(move || -> Result<Value, AppError> {
+        let ctx = worker_ctx("images");
+        let asked = chat::ask(&prompt, &cfg2.cdp, &ctx)?;
+        let picked: Vec<(String, Option<String>)> = asked
+            .get("images")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|i| {
+                        let id = i.get("file_id")?.as_str()?.to_string();
+                        let caption = i
+                            .get("caption")
+                            .and_then(Value::as_str)
+                            .map(str::to_string);
+                        Some((id, caption))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if picked.is_empty() {
+            let text = asked.get("text").and_then(Value::as_str).unwrap_or("");
+            return Err(AppError::InvalidInput(format!(
+                "这一轮没有生成图片（网页回的是文字：{}）。提示词里把「画一张……」写清楚；只想要文字回答的话用 /v1/chat/completions",
+                util::clip(text, 200)
+            )));
+        }
+        // 下载图要登录态：chat 路用的是浏览器凭据（只读），而 /files/... 走的是
+        // 读接口，所以 auth::load() 就够，不需要 load_for_send()
+        let api = Api::new(refresh::ensure_fresh(auth::load()?));
+        let mut data = Vec::with_capacity(picked.len());
+        for (file_id, caption) in picked {
+            let bytes = api.download_file(&file_id)?;
+            data.push(json!({
+                "b64_json": util::base64_encode(&bytes),
+                "revised_prompt": caption,
+            }));
+        }
+        Ok(json!({ "created": store::now_secs(), "data": data }))
+    })
+    .await;
+
+    match joined {
+        Ok(Ok(out)) => Json(out).into_response(),
+        Ok(Err(e)) => error_response(&e),
+        Err(e) => api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("生图线程崩了: {e}"),
+            "internal_error",
+        ),
+    }
+}
+
 /// 流里往客户端推的东西
 enum Part {
     Delta(String),
@@ -552,7 +676,7 @@ async fn chat_completions(State(cfg): State<Arc<Config>>, Json(body): Json<Value
                 "model": echo_model,
                 "choices": [{
                     "index": 0,
-                    "message": { "role": "assistant", "content": reply.text },
+                    "message": { "role": "assistant", "content": reply.text_or_image_note() },
                     "finish_reason": "stop",
                 }],
                 "usage": reply.usage,

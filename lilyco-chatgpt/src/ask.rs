@@ -17,6 +17,7 @@ use crate::api::Api;
 use crate::auth;
 use crate::chat;
 use crate::refresh;
+use crate::util;
 use lilyco::prelude::*;
 use serde_json::{json, Value};
 
@@ -34,7 +35,7 @@ const DEFAULT_INSTRUCTIONS: &str =
     name = "ask",
     run = "run_ask",
     safety = "t1",
-    about = "Send one prompt to ChatGPT and print the answer. By default it spends the CHAT quota: it drives a chromium that is already logged in to chatgpt.com (compose the prompt in the web composer, click send) and reads the reply back over REST, returning { quota: chat, conversation_id, model, text, complete, cdp, polls, elapsed_ms }. The CODEX quota is only touched when --allow-codex is passed explicitly (a deliberate opt-in, never implicit); that path calls POST /backend-api/codex/responses and returns { quota: codex, model, effort, response_id, text, usage, events, elapsed_ms }. Either path consumes quota, so the command runs at safety T1; when the plan is exhausted the backend reports usage_limit_reached with the reset time instead of retrying."
+    about = "Send one prompt to ChatGPT and print the answer. By default it spends the CHAT quota: it drives a chromium that is already logged in to chatgpt.com (compose the prompt in the web composer, click send) and reads the reply back over REST, returning { quota: chat, conversation_id, model, text, images, complete, cdp, polls, elapsed_ms } (image generations come back with an empty text body and an images[] list); pass --save-images DIR to also download the PNGs, or --inline-images to embed them as base64 (data_base64) so an MCP client can render them as image content blocks. The CODEX quota is only touched when --allow-codex is passed explicitly (a deliberate opt-in, never implicit); that path calls POST /backend-api/codex/responses and returns { quota: codex, model, effort, response_id, text, usage, events, elapsed_ms }. Either path consumes quota, so the command runs at safety T1; when the plan is exhausted the backend reports usage_limit_reached with the reset time instead of retrying."
 )]
 pub struct Ask {
     #[arg(about = "The prompt to send")]
@@ -64,6 +65,16 @@ pub struct Ask {
         default = ""
     )]
     instructions: String,
+    #[arg(
+        about = "Directory to save generated images into (empty means do not download them)",
+        default = ""
+    )]
+    save_images: std::path::PathBuf,
+    #[arg(
+        about = "Download generated images and inline them as images[].data_base64 (needed for MCP clients to receive them as image content blocks)",
+        default = false
+    )]
+    inline_images: bool,
 }
 
 /// SSE 里的一次增量。只认我们需要的几种事件，其余静默跳过。
@@ -124,7 +135,8 @@ fn run_ask(app: &Ask, ctx: &Context) -> Result<Value, AppError> {
     }
     // 默认只花 chat 额度：codex 必须有用户的显式许可
     if !app.allow_codex {
-        let result = chat::ask(&prompt, app.cdp.trim(), ctx)?;
+        let mut result = chat::ask(&prompt, app.cdp.trim(), ctx)?;
+        fetch_images(app, ctx, &mut result);
         print_answer(ctx, &result);
         ctx.tick(1, Some(1), "");
         ctx.done(result.clone(), start.elapsed().as_millis() as u64);
@@ -303,15 +315,136 @@ fn run_codex(
     Ok(result)
 }
 
-/// 人读面：把答案按行打出来（全文仍在 --json 里）
+/// 人读面：把答案按行打出来（全文仍在 --json 里）。
+///
+/// 生图那一路正文通常是空的，所以要单独报一句「生成了 N 张图」——
+/// 否则人读面看上去像是什么也没回。
 fn print_answer(ctx: &Context, result: &Value) {
     for line in result["text"].as_str().unwrap_or("").lines() {
         ctx.log(LogLevel::Info, line.to_string());
+    }
+    if let Some(images) = result["images"].as_array() {
+        if !images.is_empty() {
+            ctx.log(
+                LogLevel::Info,
+                format!(
+                    "生成了 {} 张图（file_id 见 --json 的 images[]）",
+                    images.len()
+                ),
+            );
+            for (n, img) in images.iter().enumerate() {
+                let id = img["file_id"].as_str().unwrap_or("");
+                let w = img["width"].as_u64().unwrap_or(0);
+                let h = img["height"].as_u64().unwrap_or(0);
+                let saved = img["saved_to"].as_str().unwrap_or("");
+                let tail = if saved.is_empty() {
+                    String::new()
+                } else {
+                    format!(" -> {saved}")
+                };
+                ctx.log(LogLevel::Info, format!("  [{}] {id} {w}x{h}{tail}", n + 1));
+            }
+        }
     }
     if result["complete"].as_bool() == Some(false) {
         ctx.log(
             LogLevel::Warn,
             "回答可能还没写完（页面没给出收尾标记）；重新读一次会话可看到完整内容".to_string(),
+        );
+    }
+}
+
+/// 把生成的图下载下来：`--save-images` 落盘，`--inline-images` 内联成 base64。
+///
+/// 两条用途不同：落盘给人看；内联是为了让 MCP 客户端（如 dsh）能收到真正的
+/// `{type:"image"}` 内容块 —— 它拿不到我们的登录态，没法自己下载 `sediment://`。
+///
+/// 下载要两步、都是同一套认证头（缺 chatgpt-account-id 会被 403）：
+/// `GET /files/{file_id}/download` 拿一个带签名的 `download_url`，再 GET 那个地址取字节。
+/// 下载失败只警告、不打断提问 —— 额度已经花掉了，答案该照常交出去。
+fn fetch_images(app: &Ask, ctx: &Context, result: &mut Value) {
+    let dir = app.save_images.clone();
+    let inline = app.inline_images;
+    if dir.as_os_str().is_empty() && !inline {
+        return;
+    }
+    let files: Vec<String> = match result["images"].as_array() {
+        Some(list) => list
+            .iter()
+            .filter_map(|i| i["file_id"].as_str().map(str::to_string))
+            .collect(),
+        None => return,
+    };
+    if files.is_empty() {
+        return;
+    }
+    if !dir.as_os_str().is_empty() {
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            ctx.log(
+                LogLevel::Warn,
+                format!("建不出目录 {}：{e}（图没有落盘）", dir.display()),
+            );
+        }
+    }
+    let creds = match auth::load() {
+        Ok(c) => refresh::ensure_fresh(c),
+        Err(e) => {
+            ctx.log(LogLevel::Warn, format!("拿不到凭证，图没有下载：{e}"));
+            return;
+        }
+    };
+    let api = Api::new(creds);
+    let mut saved: Vec<(String, String)> = Vec::new();
+    let mut inlined: Vec<(String, String, String)> = Vec::new();
+    for file_id in &files {
+        match api.download_file(file_id) {
+            Ok(bytes) => {
+                let (mime, ext) = util::sniff_image_mime(&bytes);
+                if !dir.as_os_str().is_empty() {
+                    let path = dir.join(format!("{file_id}.{ext}"));
+                    match std::fs::write(&path, &bytes) {
+                        Ok(()) => {
+                            ctx.log(
+                                LogLevel::Info,
+                                format!("已存 {} 字节 → {}", bytes.len(), path.display()),
+                            );
+                            saved.push((file_id.clone(), path.display().to_string()));
+                        }
+                        Err(e) => {
+                            ctx.log(LogLevel::Warn, format!("写不进 {}：{e}", path.display()))
+                        }
+                    }
+                }
+                if inline {
+                    inlined.push((
+                        file_id.clone(),
+                        mime.to_string(),
+                        util::base64_encode(&bytes),
+                    ));
+                }
+            }
+            Err(e) => ctx.log(LogLevel::Warn, format!("下载 {file_id} 失败：{e}")),
+        }
+    }
+    if let Some(list) = result["images"].as_array_mut() {
+        for img in list.iter_mut() {
+            let id = img["file_id"].as_str().unwrap_or("").to_string();
+            if let Some((_, path)) = saved.iter().find(|(f, _)| *f == id) {
+                img["saved_to"] = Value::String(path.clone());
+            }
+            if let Some((_, mime, b64)) = inlined.iter().find(|(f, _, _)| *f == id) {
+                img["mime_type"] = Value::String(mime.clone());
+                img["data_base64"] = Value::String(b64.clone());
+            }
+        }
+    }
+    if inline {
+        ctx.log(
+            LogLevel::Info,
+            format!(
+                "已把 {} 张图内联成 base64（MCP 客户端可当 image 内容块收）",
+                inlined.len()
+            ),
         );
     }
 }
@@ -328,6 +461,8 @@ mod tests {
             model: String::new(),
             effort: String::new(),
             instructions: String::new(),
+            save_images: std::path::PathBuf::new(),
+            inline_images: false,
         }
     }
 

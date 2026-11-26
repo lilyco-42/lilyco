@@ -371,16 +371,48 @@ fn wait_for_new_conversation(
 struct Assist {
     text: String,
     done: bool,
+    /// 这一轮生成的图（生图回复只有图、没有字）
+    images: Vec<show::Image>,
 }
 
-/// 活动分支上最后一条 assistant 消息（工具调用节点由 `visible_text` 过滤掉）
+impl Assist {
+    /// 「有内容」= 有字 **或** 有图。生图那一轮最后一个 assistant 节点的 parts 是空串，
+    /// 只看字就会把一次成功的生图判成空会话。
+    fn has_content(&self) -> bool {
+        !self.text.trim().is_empty() || !self.images.is_empty()
+    }
+}
+
+/// 活动分支上最后一条 assistant 消息 + 整条分支上出现过的图。
+///
+/// 文本只看最后一条 assistant 节点（那才是屏幕上那句话）；图要在**整条分支**上收集 ——
+/// 生图时图挂在 `role: "tool"` 的 `multimodal_text` 节点上，而那些节点在收尾的
+/// assistant 节点之前，且一次生成会出现两个指向同一 `asset_pointer` 的节点（`show::images` 去重）。
 fn last_assistant(conversation: &Value) -> Option<Assist> {
-    let mut found = None;
-    for node in show::active_branch(conversation) {
+    let mut found: Option<Assist> = None;
+    let mut images: Vec<show::Image> = Vec::new();
+    let mut finished_seen = false;
+    let chain = show::active_branch(conversation);
+    // 图只算**这一轮**的：从最后一条 user 消息往后数，免得把上一轮的图算进来
+    let from = chain
+        .iter()
+        .rposition(|n| {
+            n.pointer("/message/author/role")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                == "user"
+        })
+        .unwrap_or(0);
+    for node in chain.iter().skip(from) {
         let msg = match node.get("message") {
             Some(m) if m.is_object() => m,
             _ => continue,
         };
+        for img in show::images(msg) {
+            if !images.iter().any(|i| i.file_id == img.file_id) {
+                images.push(img);
+            }
+        }
         let role = msg
             .pointer("/author/role")
             .and_then(Value::as_str)
@@ -390,55 +422,97 @@ fn last_assistant(conversation: &Value) -> Option<Assist> {
         }
         let status = msg.get("status").and_then(Value::as_str).unwrap_or("");
         let end_turn = msg.get("end_turn").and_then(Value::as_bool) == Some(true);
+        if status == "finished_successfully" {
+            finished_seen = true;
+        }
         let text = show::visible_text(msg, false)
             .map(|(_, t)| t)
             .unwrap_or_default();
+        let empty_text = text.trim().is_empty();
         found = Some(Assist {
             text,
             done: end_turn || status == "finished_successfully",
+            images: Vec::new(),
         });
+        // 生图那一轮的收尾节点永远停在 in_progress（实测：图挂在前面的 tool 节点上，
+        // 后面再挂一条空文字的 assistant 节点，status 一直是 in_progress、end_turn 从不置
+        // true）。只要这一轮已经有图、末尾这条是空文字的 in_progress，就算画完了 ——
+        // 否则会一路空等到 POLL_TIMEOUT，把成功生图报成 complete=false。
+        if !images.is_empty() && finished_seen && empty_text && status == "in_progress" {
+            found = Some(Assist {
+                text: String::new(),
+                done: true,
+                images: Vec::new(),
+            });
+        }
     }
-    found
+    found.map(|mut a| {
+        a.images = images;
+        a
+    })
 }
 
-/// 轮询 REST 直到回答写完。返回 (正文, 是否确认写完, 会话用的模型, 轮询次数)
+/// 轮询到的一次结果
+struct Polled {
+    text: String,
+    complete: bool,
+    model: Option<String>,
+    polls: u64,
+    images: Vec<show::Image>,
+}
+
+/// 轮询 REST 直到回答写完。
+///
+/// 判据是「**有字或图** + 收尾标志」：生图那一轮只有图没有字，最后一个 assistant 节点的
+/// parts 是空串，所以不能只看文本（v0.3 之前就在这里把成功生图误报成「会话里还是空的」）。
 fn poll_reply(
     api: &Api,
     conversation_id: &str,
     ctx: &Context,
     on: OnText<'_>,
-) -> Result<(String, bool, Option<String>, u64), AppError> {
+) -> Result<Polled, AppError> {
     let deadline = Instant::now() + POLL_TIMEOUT;
     let mut best = String::new();
+    let mut images: Vec<show::Image> = Vec::new();
     let mut rounds = 0u64;
     let mut last_err = String::new();
     while Instant::now() < deadline {
         rounds += 1;
-        match api.get_json(&format!("/conversation/{conversation_id}"), &[]) {
+        // 429 是限流不是失败：CLI 自己会退避重试几次（见 Api::get_json_retry）
+        match api.get_json_retry(&format!("/conversation/{conversation_id}"), &[], 4) {
             Ok(conv) => {
                 let model = conv
                     .get("default_model_slug")
                     .and_then(Value::as_str)
                     .map(str::to_string);
                 if let Some(a) = last_assistant(&conv) {
-                    if !a.text.trim().is_empty() {
+                    if a.has_content() {
                         best = a.text;
+                        images = a.images;
+                        // 有图时把「图生成了」当作正文交给回调，serve 那边才不会以为没输出
                         on(&best, a.done);
                         if a.done {
-                            return Ok((best, true, model, rounds));
+                            return Ok(Polled {
+                                text: best,
+                                complete: true,
+                                model,
+                                polls: rounds,
+                                images,
+                            });
                         }
                     }
                     ctx.tick(
                         rounds,
                         None,
                         format!(
-                            "{} 字{}",
+                            "{} 字{} 图{}",
                             best.chars().count(),
-                            if a.done {
-                                "（已收尾）"
+                            if images.is_empty() { "" } else { "，" },
+                            if images.is_empty() {
+                                String::new()
                             } else {
-                                "（生成中）"
-                            }
+                                images.len().to_string()
+                            },
                         ),
                     );
                 }
@@ -446,9 +520,9 @@ fn poll_reply(
             // 会话还没落库时后端回 404：这是正常的，继续等
             Err(e) => last_err = first_line(&format!("{e}")).to_string(),
         }
-        std::thread::sleep(POLL_INTERVAL);
+        std::thread::sleep(poll_interval(rounds));
     }
-    if best.trim().is_empty() {
+    if best.trim().is_empty() && images.is_empty() {
         let extra = if last_err.is_empty() {
             String::new()
         } else {
@@ -460,10 +534,28 @@ fn poll_reply(
         )))
     } else {
         // 有正文但没等到收尾：照样交出去，由调用方标 complete=false
-        Ok((best, false, None, rounds))
+        Ok(Polled {
+            text: best,
+            complete: false,
+            model: None,
+            polls: rounds,
+            images,
+        })
     }
 }
 
+/// 轮询间隔：越等越松。
+///
+/// 一次生图要盯着一两分钟，固定 1.2 秒一个 GET 会把 `/conversation/{id}` 打到限流
+/// （实测连打 123 次之后整个端点报 429 约半分钟）。前几轮密一点好让文字回答尽快收工，
+/// 之后就拉开间隔，整段时间里的请求数从 ~150 降到 ~60。
+fn poll_interval(rounds: u64) -> Duration {
+    match rounds {
+        0..=8 => POLL_INTERVAL,
+        9..=20 => Duration::from_millis(2000),
+        _ => Duration::from_millis(3500),
+    }
+}
 fn ask_at(cdp: &str, prompt: &str, ctx: &Context, on: OnText<'_>) -> Result<Value, Attempt> {
     let started = Instant::now();
     browser::probe(cdp).map_err(|error| Attempt { error, sent: false })?;
@@ -481,11 +573,21 @@ fn ask_at(cdp: &str, prompt: &str, ctx: &Context, on: OnText<'_>) -> Result<Valu
                     done.model.as_deref().unwrap_or("(未知)")
                 ),
             );
+            if !done.images.is_empty() {
+                ctx.log(
+                    LogLevel::Info,
+                    format!(
+                        "生成了 {} 张图（file_id 见 --json 的 images）",
+                        done.images.len()
+                    ),
+                );
+            }
             Ok(json!({
                 "quota": "chat",
                 "model": done.model,
                 "conversation_id": done.conversation_id,
                 "text": done.text,
+                "images": done.images.iter().map(show::Image::to_json).collect::<Vec<_>>(),
                 "complete": done.complete,
                 "cdp": cdp,
                 "polls": done.polls,
@@ -503,6 +605,7 @@ struct Done {
     complete: bool,
     model: Option<String>,
     polls: u64,
+    images: Vec<show::Image>,
 }
 
 /// 在一个标签页里走完整条链路。返回 (正文, 是否确认写完, 模型, 轮询次数)
@@ -530,14 +633,14 @@ fn run_in_tab(
         LogLevel::Info,
         format!("落成会话 {conversation_id}，等它写完"),
     );
-    let (text, complete, model, polls) =
-        poll_reply(&api, &conversation_id, ctx, on).map_err(|e| (true, e))?;
+    let polled = poll_reply(&api, &conversation_id, ctx, on).map_err(|e| (true, e))?;
     Ok(Done {
         conversation_id,
-        text,
-        complete,
-        model,
-        polls,
+        text: polled.text,
+        complete: polled.complete,
+        model: polled.model,
+        polls: polled.polls,
+        images: polled.images,
     })
 }
 
@@ -682,5 +785,72 @@ mod tests {
         let a = last_assistant(&conv).expect("生成中也算有消息");
         assert_eq!(a.text, "答到一半");
         assert!(!a.done, "in_progress 不能被当成答完");
+    }
+    /// 生图那一轮的收尾节点永远是 in_progress（实测的会话形状）：图挂在 role=tool 的
+    /// multimodal_text 节点上，末尾再挂一条空文字的 assistant。这条链以前被判成「没答完」，
+    /// 一路空等到超时。现在「有图 + 前面有 finished_successfully + 末尾空文字 in_progress」
+    /// 就算画完了。
+    #[test]
+    fn an_image_round_counts_as_finished_even_though_the_tail_stays_in_progress() {
+        let conv = json!({
+            "current_node": "a3",
+            "mapping": {
+                "u1": {"id": "u1", "parent": null, "children": ["a1"], "message": {
+                    "author": {"role": "user"}, "recipient": "all",
+                    "content": {"content_type": "text", "parts": ["画一只猫"]}}},
+                "a1": {"id": "a1", "parent": "u1", "children": ["t1"], "message": {
+                    "author": {"role": "assistant"}, "recipient": "all",
+                    "status": "finished_successfully", "end_turn": false,
+                    "content": {"content_type": "code", "text": "{}"}}},
+                "t1": {"id": "t1", "parent": "a1", "children": ["a2"], "message": {
+                    "author": {"role": "tool"}, "recipient": "all",
+                    "status": "finished_successfully",
+                    "content": {"content_type": "multimodal_text", "parts": [{
+                        "content_type": "image_asset_pointer",
+                        "asset_pointer": "sediment://file_abc",
+                        "width": 1024, "height": 1024}]}}},
+                "a2": {"id": "a2", "parent": "t1", "children": ["a3"], "message": {
+                    "author": {"role": "assistant"}, "recipient": "all",
+                    "status": "finished_successfully", "end_turn": false,
+                    "content": {"content_type": "reasoning_recap", "content": "想了想"}}},
+                "a3": {"id": "a3", "parent": "a2", "children": [], "message": {
+                    "author": {"role": "assistant"}, "recipient": "all",
+                    "status": "in_progress", "end_turn": false,
+                    "content": {"content_type": "text", "parts": [""]}}},
+            }
+        });
+        let a = last_assistant(&conv).expect("应当认出这一轮");
+        assert!(a.has_content(), "有图就算有内容");
+        assert_eq!(a.images.len(), 1);
+        assert_eq!(a.images[0].file_id, "file_abc");
+        assert!(a.done, "图已经出来了就不该再等收尾标志");
+    }
+
+    /// 光有 in_progress、没有图的时候绝不能判完（文字还在流式写）
+    #[test]
+    fn an_in_progress_tail_without_images_is_not_done() {
+        let conv = json!({
+            "current_node": "a1",
+            "mapping": {
+                "u1": {"id": "u1", "parent": null, "children": ["a1"], "message": {
+                    "author": {"role": "user"}, "recipient": "all",
+                    "content": {"content_type": "text", "parts": ["问"]}}},
+                "a1": {"id": "a1", "parent": "u1", "children": [], "message": {
+                    "author": {"role": "assistant"}, "recipient": "all",
+                    "status": "in_progress", "end_turn": false,
+                    "content": {"content_type": "text", "parts": ["答到一半"]}}},
+            }
+        });
+        let a = last_assistant(&conv).expect("生成中也算有消息");
+        assert!(!a.done, "没图的 in_progress 不能当成答完");
+    }
+
+    /// 越等越松：前 9 轮密、之后拉开，整段时间的请求数才不会被后端判成刷接口
+    #[test]
+    fn the_poll_interval_relaxes_as_the_wait_drags_on() {
+        assert_eq!(poll_interval(1), POLL_INTERVAL);
+        assert_eq!(poll_interval(9), Duration::from_millis(2000));
+        assert_eq!(poll_interval(30), Duration::from_millis(3500));
+        assert!(poll_interval(30) > poll_interval(1));
     }
 }

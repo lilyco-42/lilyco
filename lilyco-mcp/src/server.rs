@@ -21,6 +21,98 @@ pub struct McpServer {
     registry: Arc<Registry>,
 }
 
+/// 资源 URI 前缀：`lilyco://command/<命令名>`
+const COMMAND_URI_PREFIX: &str = "lilyco://command/";
+
+fn command_uri(name: &str) -> String {
+    format!("{COMMAND_URI_PREFIX}{name}")
+}
+
+/// `tools/call` 结果里可以被翻译成 MCP image 内容块的图片。
+///
+/// 约定（lilyco-mcp 不依赖任何具体域 crate，只能认字段）：命令的返回值里若带
+/// `images: [{ data_base64, mime_type }]`，就把它翻成一个 MCP image 内容块。
+/// 图片既可能挂在结果顶层（一次问答生成的图），也可能挂在每条消息上
+/// （会话转录里每一轮的图），所以两处都收：先顶层 `images`，再逐个
+/// `messages[].images`。
+///
+/// 客户端（含 dsh 的 MCP 客户端）要求 base64 严格 canonical —— 这里去掉所有
+/// 空白字符，正好满足。只放行客户端普遍支持的四种 MIME。
+const IMAGE_MIMES: &[&str] = &["image/png", "image/jpeg", "image/webp", "image/gif"];
+/// 一次调用最多带几张图（防止 Agent 上下文被图片灌爆）
+const MAX_IMAGE_BLOCKS: usize = 8;
+
+pub(crate) fn image_blocks(value: &serde_json::Value) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    push_image_blocks(value.get("images"), &mut out);
+    if let Some(messages) = value.get("messages").and_then(|v| v.as_array()) {
+        for message in messages {
+            push_image_blocks(message.get("images"), &mut out);
+        }
+    }
+    out
+}
+
+/// 收一组 `{ data_base64, mime_type }`，能识别的就追加成 image 内容块。
+fn push_image_blocks(images: Option<&serde_json::Value>, out: &mut Vec<serde_json::Value>) {
+    let Some(items) = images.and_then(|v| v.as_array()) else {
+        return;
+    };
+    for item in items {
+        if out.len() >= MAX_IMAGE_BLOCKS {
+            return;
+        }
+        let mime = item
+            .get("mime_type")
+            .or_else(|| item.get("mimeType"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("image/png");
+        if !IMAGE_MIMES.contains(&mime) {
+            continue;
+        }
+        let Some(data) = item.get("data_base64").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let compact: String = data.chars().filter(|c| !c.is_whitespace()).collect();
+        if compact.is_empty() {
+            continue;
+        }
+        out.push(serde_json::json!({
+            "type": "image",
+            "data": compact,
+            "mimeType": mime,
+        }));
+    }
+}
+
+/// 把已经变成 image 内容块的 base64 从文本块里删掉，只留 `file_id` 之类的元信息。
+///
+/// 递归找 `images[]` 里的 `data_base64`，浅层就够（返回结构固定），但递归更稳。
+pub(crate) fn strip_inline_data(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(images) = map.get_mut("images") {
+                if let Some(items) = images.as_array_mut() {
+                    for item in items {
+                        if let Some(object) = item.as_object_mut() {
+                            object.remove("data_base64");
+                        }
+                    }
+                }
+            }
+            for (_, child) in map.iter_mut() {
+                strip_inline_data(child);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                strip_inline_data(item);
+            }
+        }
+        _ => {}
+    }
+}
+
 impl McpServer {
     /// 从命令注册表创建服务器
     pub fn new(registry: Registry) -> Self {
@@ -64,10 +156,14 @@ impl McpServer {
             .unwrap_or_default();
 
         let result = match method {
-            "initialize" => initialize_response(),
+            "initialize" => initialize_response(req.get("params")),
             "ping" => Ok(serde_json::json!({})),
             "tools/list" => Self::tools_list(registry),
             "tools/call" => Self::tools_call(registry, &req, sink, bridge),
+            "resources/list" => Self::resources_list(registry),
+            "resources/templates/list" => Ok(serde_json::json!({ "resourceTemplates": [] })),
+            "resources/read" => Self::resources_read(registry, &req),
+            "prompts/list" => Ok(serde_json::json!({ "prompts": [] })),
             "notifications/initialized" => return None, // 通知无需响应
             _ => {
                 // JSON-RPC 2.0：无 id 的请求是通知，绝不能回响应
@@ -235,6 +331,65 @@ impl McpServer {
         Ok(serde_json::json!({ "tools": tools }))
     }
 
+    /// `resources/list`：把每条可见命令当作一个只读资源。
+    ///
+    /// URI 形如 `lilyco://command/<name>`，内容是该命令的 schema（`resources/read`
+    /// 回的就是 `--schema` 里那一条）。这样 Agent 不必先跑工具就能读到命令的
+    /// 参数与安全分级，也让只声明 resources 的客户端（dsh 的 MCP 资源面板）有东西可列。
+    fn resources_list(registry: &Registry) -> Result<serde_json::Value, (i64, String)> {
+        let resources: Vec<serde_json::Value> = registry
+            .visible()
+            .map(|cmd| {
+                let tier = cmd.schema.safety;
+                let description = if tier == lilyco_core::safety::SafetyTier::ReadOnly {
+                    cmd.schema.about.clone()
+                } else {
+                    format!("{} [safety: {}]", cmd.schema.about, tier.tag())
+                };
+                serde_json::json!({
+                    "uri": command_uri(&cmd.name),
+                    "name": cmd.name,
+                    "description": description,
+                    "mimeType": "application/json",
+                })
+            })
+            .collect();
+        Ok(serde_json::json!({ "resources": resources }))
+    }
+
+    /// `resources/read`：回某条命令的 schema（JSON 文本）。
+    fn resources_read(
+        registry: &Registry,
+        req: &serde_json::Value,
+    ) -> Result<serde_json::Value, (i64, String)> {
+        let uri = req
+            .get("params")
+            .and_then(|p| p.get("uri"))
+            .and_then(|u| u.as_str())
+            .ok_or((ERROR_INVALID_PARAMS, "missing resource uri".to_string()))?;
+        let name = uri.strip_prefix(COMMAND_URI_PREFIX).ok_or((
+            ERROR_INVALID_PARAMS,
+            format!("unsupported resource uri: {uri}（本服务只提供 {COMMAND_URI_PREFIX}<命令名>）"),
+        ))?;
+        let cmd = registry
+            .get(name)
+            .ok_or((ERROR_INVALID_PARAMS, format!("unknown resource: {uri}")))?;
+        let text = serde_json::to_string_pretty(&serde_json::json!({
+            "name": cmd.name,
+            "about": cmd.schema.about,
+            "safety": cmd.schema.safety.tag(),
+            "inputSchema": cmd.schema.to_json_schema(),
+        }))
+        .unwrap_or_default();
+        Ok(serde_json::json!({
+            "contents": [{
+                "uri": uri,
+                "mimeType": "application/json",
+                "text": text,
+            }]
+        }))
+    }
+
     fn tools_call(
         registry: &Registry,
         req: &serde_json::Value,
@@ -341,10 +496,24 @@ impl McpServer {
         };
 
         match result {
-            Ok(value) => Ok(serde_json::json!({
-                "content": [{ "type": "text", "text": value.to_string() }],
-                "isError": false,
-            })),
+            Ok(value) => {
+                // 图片既要在 image 内容块里给出，就别再让同一份 base64 在文本块里
+                // 重复一遍：一个 1.5MB 的 PNG 会变成 3MB 的上下文。
+                let blocks = image_blocks(&value);
+                let text = if blocks.is_empty() {
+                    value.to_string()
+                } else {
+                    let mut stripped = value.clone();
+                    strip_inline_data(&mut stripped);
+                    stripped.to_string()
+                };
+                let mut content = vec![serde_json::json!({
+                    "type": "text",
+                    "text": text,
+                })];
+                content.extend(blocks);
+                Ok(serde_json::json!({ "content": content, "isError": false }))
+            }
             Err(e) => Ok(serde_json::json!({
                 "content": [{ "type": "text", "text": e.to_string() }],
                 "isError": true,

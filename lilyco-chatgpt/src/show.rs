@@ -6,6 +6,7 @@
 
 use crate::api::Api;
 use crate::auth;
+use crate::refresh;
 use crate::util;
 use lilyco::prelude::*;
 use serde_json::{json, Value};
@@ -21,7 +22,7 @@ const MAX_DEPTH: usize = 20_000;
 #[app(
     name = "show-conversation",
     run = "run_show_conversation",
-    about = "Render one conversation as a readable transcript: calls GET /backend-api/conversation/{id}, walks the active branch from current_node upwards through parent links, keeps only user/assistant turns addressed to the user (tool calls and hidden context are dropped) and returns { conversation_id, title, create_time, update_time, model_slug, node_count, message_count, returned, truncated, messages } where each message carries role, kind (text or code), time and text. Read-only (safety T0); nothing is modified."
+    about = "Render one conversation as a readable transcript: calls GET /backend-api/conversation/{id}, walks the active branch from current_node upwards through parent links, and returns { conversation_id, title, create_time, update_time, model_slug, node_count, message_count, returned, truncated, messages } where each message carries role, kind (text, code or image), time, text and, when the turn produced pictures, images[] with file_id / mime_type / width / height / caption. Tool-call nodes and hidden context are dropped, except the tool nodes that carry generated images (image generation replies live there, with an empty text body). Pass --inline-images to also download those pictures and embed them as images[].data_base64, so an MCP client can render them as image content blocks. Read-only (safety T0); nothing is modified."
 )]
 pub struct ShowConversation {
     #[arg(about = "Conversation id, as printed by the list command")]
@@ -41,6 +42,11 @@ pub struct ShowConversation {
         default = false
     )]
     include_reasoning: bool,
+    #[arg(
+        about = "Download the images of this conversation and inline them as images[].data_base64 (read-only; lets an MCP client receive real image content blocks)",
+        default = false
+    )]
+    inline_images: bool,
 }
 
 /// 从 `current_node` 回溯出的节点链（根在前）。
@@ -74,6 +80,96 @@ pub(crate) fn active_branch(conversation: &Value) -> Vec<Value> {
     }
     chain.reverse();
     chain
+}
+
+/// 会话里生成的一张图：`multimodal_text` 节点里 `content_type == "image_asset_pointer"` 的那个 part。
+///
+/// 网页生图**不会**产出文本消息 —— 图挂在 `role: "tool"` 的多模态节点上，整条分支最后那条
+/// assistant 消息的 parts 是空串 `[""]`。所以「答完了」这件事必须同时看图和字。
+#[derive(Debug, Clone)]
+pub(crate) struct Image {
+    /// `sediment://file_xxx` 去掉前缀的那段，下载要用它
+    pub file_id: String,
+    pub asset_pointer: String,
+    pub mime: String,
+    pub width: Option<u64>,
+    pub height: Option<u64>,
+    /// 同一条消息里 "Model caption: …" 那段文字（生图时后端给的图像描述）
+    pub caption: Option<String>,
+}
+
+impl Image {
+    pub(crate) fn to_json(&self) -> Value {
+        json!({
+            "file_id": self.file_id,
+            "asset_pointer": self.asset_pointer,
+            "mime_type": self.mime,
+            "width": self.width,
+            "height": self.height,
+            "caption": self.caption,
+        })
+    }
+}
+
+/// 一个消息节点里带的所有图（按 file_id 去重）。
+///
+/// 一次生图会产生**两个** `multimodal_text` 节点指向同一个 `asset_pointer`
+/// （一个 ghostrider 中间态、一个是 `is_visually_hidden_from_conversation` 的展示节点），
+/// 不去重就会把同一张图算两遍。
+pub(crate) fn images(msg: &Value) -> Vec<Image> {
+    let recipient = msg
+        .get("recipient")
+        .and_then(Value::as_str)
+        .unwrap_or("all");
+    if recipient != "all" {
+        return Vec::new();
+    }
+    let Some(parts) = msg
+        .get("content")
+        .and_then(|c| c.get("parts"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    let mut caption: Option<String> = None;
+    for part in parts {
+        if let Value::String(s) = part {
+            let t = s.trim();
+            if let Some(rest) = t.strip_prefix("Model caption:") {
+                caption = Some(rest.trim().to_string());
+            }
+        }
+    }
+    let mut out: Vec<Image> = Vec::new();
+    for part in parts {
+        let Value::Object(o) = part else { continue };
+        if o.get("content_type").and_then(Value::as_str) != Some("image_asset_pointer") {
+            continue;
+        }
+        let Some(pointer) = o.get("asset_pointer").and_then(Value::as_str) else {
+            continue;
+        };
+        let file_id = pointer
+            .strip_prefix("sediment://")
+            .unwrap_or(pointer)
+            .to_string();
+        if file_id.is_empty() || out.iter().any(|i| i.file_id == file_id) {
+            continue;
+        }
+        out.push(Image {
+            file_id,
+            asset_pointer: pointer.to_string(),
+            mime: o
+                .get("mime_type")
+                .and_then(Value::as_str)
+                .unwrap_or("image/png")
+                .to_string(),
+            width: o.get("width").and_then(Value::as_u64),
+            height: o.get("height").and_then(Value::as_u64),
+            caption: caption.clone(),
+        });
+    }
+    out
 }
 
 /// 一条节点消息里的可见文本；返回 (kind, text)，不可见的节点返回 None。
@@ -135,6 +231,56 @@ pub(crate) fn visible_text(msg: &Value, include_reasoning: bool) -> Option<(Stri
     }
 }
 
+/// 把会话里的图下载下来内联成 base64（`--inline-images`）。
+///
+/// 为什么需要：`sediment://` 只有拿着这份登录态的人才能换成字节，MCP 客户端
+/// 拿不到，所以必须在这里就把字节塞进 `images[].data_base64` —— 之后
+/// `lilyco-mcp` 只做「字段翻译」，不用知道任何 chatgpt 细节。
+fn inline_images(ctx: &Context, messages: &mut [Value]) {
+    let mut ids: Vec<String> = Vec::new();
+    for m in messages.iter() {
+        for img in m["images"].as_array().into_iter().flatten() {
+            if let Some(id) = img["file_id"].as_str() {
+                if !ids.iter().any(|x| x == id) {
+                    ids.push(id.to_string());
+                }
+            }
+        }
+    }
+    if ids.is_empty() {
+        return;
+    }
+    let api = match auth::load() {
+        Ok(c) => Api::new(refresh::ensure_fresh(c)),
+        Err(e) => {
+            ctx.log(LogLevel::Warn, format!("拿不到凭证，图没有内联：{e}"));
+            return;
+        }
+    };
+    let mut got: Vec<(String, String, String)> = Vec::new();
+    for id in &ids {
+        match api.download_file(id) {
+            Ok(bytes) => {
+                let (mime, _) = util::sniff_image_mime(&bytes);
+                got.push((id.clone(), mime.to_string(), util::base64_encode(&bytes)));
+            }
+            Err(e) => ctx.log(LogLevel::Warn, format!("下载 {id} 失败：{e}")),
+        }
+    }
+    for m in messages.iter_mut() {
+        for img in m["images"].as_array_mut().into_iter().flatten() {
+            let id = img["file_id"].as_str().unwrap_or("").to_string();
+            if let Some((_, mime, b64)) = got.iter().find(|(f, _, _)| *f == id) {
+                img["mime_type"] = Value::String(mime.clone());
+                img["data_base64"] = Value::String(b64.clone());
+            }
+        }
+    }
+    ctx.log(
+        LogLevel::Info,
+        format!("已把 {} 张图内联成 base64", got.len()),
+    );
+}
 fn run_show_conversation(app: &ShowConversation, ctx: &Context) -> Result<Value, AppError> {
     let start = std::time::Instant::now();
     let id = app.conversation_id.trim();
@@ -148,7 +294,8 @@ fn run_show_conversation(app: &ShowConversation, ctx: &Context) -> Result<Value,
         total: Some(2),
         message: Some(format!("读会话 {id}")),
     });
-    let conv = api.get_json(&format!("/conversation/{id}"), &[])?;
+    // 这个端点在连着轮询之后容易回 429（限流，不是失败）：退避重试几次再报错
+    let conv = api.get_json_retry(&format!("/conversation/{id}"), &[], 5)?;
     let chain = active_branch(&conv);
     let node_count = chain.len();
     ctx.tick(1, Some(2), "摊平活动分支");
@@ -164,21 +311,33 @@ fn run_show_conversation(app: &ShowConversation, ctx: &Context) -> Result<Value,
             .and_then(|a| a.get("role"))
             .and_then(Value::as_str)
             .unwrap_or("");
-        if role != "user" && role != "assistant" {
+        // 生图节点挂 role "tool"：它不是对话的一方，但不放行就等于把图丢了
+        if role != "user" && role != "assistant" && role != "tool" {
             continue;
         }
-        if let Some((kind, text)) = visible_text(msg, app.include_reasoning) {
-            if text.trim().is_empty() {
-                continue;
-            }
-            let ts = msg.get("create_time").unwrap_or(&Value::Null);
-            all.push(json!({
+        let imgs = images(msg);
+        let ts = msg.get("create_time").unwrap_or(&Value::Null);
+        let maybe_text = visible_text(msg, app.include_reasoning);
+        let mut entry = match maybe_text {
+            Some((kind, text)) if !text.trim().is_empty() => json!({
                 "role": role,
                 "kind": kind,
                 "time": util::iso8601_any(ts),
                 "text": text,
-            }));
+            }),
+            // 只有图、没有字：这正是一次成功生图的样子
+            _ if !imgs.is_empty() => json!({
+                "role": role,
+                "kind": "image",
+                "time": util::iso8601_any(ts),
+                "text": "",
+            }),
+            _ => continue,
+        };
+        if !imgs.is_empty() {
+            entry["images"] = Value::Array(imgs.iter().map(Image::to_json).collect());
         }
+        all.push(entry);
     }
     let message_count = all.len();
     let want = if app.all {
@@ -192,7 +351,10 @@ fn run_show_conversation(app: &ShowConversation, ctx: &Context) -> Result<Value,
         (n as usize).min(message_count)
     };
     let truncated = want < message_count;
-    let messages: Vec<Value> = all.split_off(message_count - want);
+    let mut messages: Vec<Value> = all.split_off(message_count - want);
+    if app.inline_images {
+        inline_images(ctx, &mut messages);
+    }
     let result = json!({
         "conversation_id": conv.get("conversation_id").cloned().unwrap_or(json!(id)),
         "title": conv.get("title").cloned().unwrap_or(Value::Null),

@@ -90,11 +90,63 @@ pub fn base64url_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// 标准 base64（带 `=` 填充）。只用于把图片内联进 JSON / MCP 内容块。
+pub fn base64_encode(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b1 = *chunk.get(1).unwrap_or(&0);
+        let b2 = *chunk.get(2).unwrap_or(&0);
+        let n = ((chunk[0] as u32) << 16) | ((b1 as u32) << 8) | b2 as u32;
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            T[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            T[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// 按魔数判断图片类型：返回 `(mime, 扩展名)`。
+///
+/// MCP 客户端只认 png / jpeg / webp / gif 四种 MIME，所以这里也只用这四个；
+/// 认不出来就当二进制，宁可不上图也不给客户端一个它渲染不了的 mime。
+pub fn sniff_image_mime(bytes: &[u8]) -> (&'static str, &'static str) {
+    if bytes.starts_with(b"\x89PNG") {
+        ("image/png", "png")
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        ("image/jpeg", "jpg")
+    } else if bytes.starts_with(b"RIFF") && bytes.len() > 11 && &bytes[8..12] == b"WEBP" {
+        ("image/webp", "webp")
+    } else if bytes.starts_with(b"GIF8") {
+        ("image/gif", "gif")
+    } else {
+        ("application/octet-stream", "bin")
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn magic_numbers_pick_the_right_image_mime() {
+        assert_eq!(sniff_image_mime(b"\x89PNG\r\n\x1a\n").0, "image/png");
+        assert_eq!(sniff_image_mime(b"\xff\xd8\xff\xe0").1, "jpg");
+        assert_eq!(sniff_image_mime(b"RIFF____WEBP").0, "image/webp");
+        assert_eq!(sniff_image_mime(b"GIF89a").0, "image/gif");
+        assert_eq!(
+            sniff_image_mime(b"not an image").0,
+            "application/octet-stream"
+        );
+    }
     #[test]
     fn epoch_zero_is_the_unix_epoch() {
         assert_eq!(iso8601_from_epoch_secs(0), "1970-01-01T00:00:00Z");
@@ -148,5 +200,25 @@ mod tests {
         let raw = base64url_decode("eyJhIjoxfQ").unwrap();
         assert_eq!(String::from_utf8(raw).unwrap(), "{\"a\":1}");
         assert!(base64url_decode("??").is_none());
+    }
+
+    /// 图片要内联进 JSON，得是标准 base64（带 = 填充），而且空输入不能崩
+    #[test]
+    fn base64_encodes_with_padding() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+        // PNG 魔数：下载回来的字节要能这么编码出去
+        assert_eq!(base64_encode(b"\x89PNG"), "iVBORw==");
+    }
+
+    /// 编码再解码必须回到原字节（两套表在 +/ 与 -_ 上不同，但都要能解）
+    #[test]
+    fn encode_then_decode_round_trips() {
+        let raw: Vec<u8> = (0u8..=255).collect();
+        let enc = base64_encode(&raw);
+        assert_eq!(base64url_decode(&enc).unwrap(), raw);
     }
 }

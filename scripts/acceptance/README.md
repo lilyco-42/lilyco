@@ -95,10 +95,12 @@ CLI `--json` 基准（`auth` 是本地体检，`--offline` 也照跑）→
 **额度归属断言**（`ask --cdp 127.0.0.1:1` 必须失败，报错里必须有 `--allow-codex`、且**不能**出现
 `codex/responses` —— 证明没勾选时一分 codex 额度都没花；这条在线离线都跑）→
 **`serve` 协议面**（起 `serve --port`，本地环回、不联网：`/v1/models` 只露 `lchatgpt:chat`、`/health`
-自报 `quota=chat`、请求 `lchatgpt:codex` 必须 400 并指路 `--allow-codex`、未知模型 400、空 messages 400）→
+自报 `quota=chat`、请求 `lchatgpt:codex` 必须 400 并指路 `--allow-codex`、未知模型 400、空 messages 400、
+`/v1/images/generations` 缺 `prompt` 或传 `response_format=url` 必须 400 并说明只回 `b64_json`）→
 Web（首页 10 条命令、裸 `POST /run` 401、带令牌 `whoami` 的 SSE `done.result` 与 CLI 逐字一致）→
 MCP（`tools/list` 10 工具、`ask` 描述自报 T1、`whoami` 放行、`ask`/`login`/`serve` 都被安全门拒绝、
-`show-conversation` 缺参 `-32602`）→ TUI（真 PTY：选择页列出命令 → `q` 干净退出）。
+`show-conversation` 缺参 `-32602`、协议版本按客户端 `2025-06-18` 原样协商、`capabilities` 同时声明
+`tools` 与 `resources`、`resources/list` 暴露 10 条 `lilyco://command/*`、`resources/read` 读回 schema JSON）→ TUI（真 PTY：选择页列出命令 → `q` 干净退出）。
 
 > 这个域的命令**真的会访问 chatgpt.com**，凭证按 `LCHATGPT_ACCESS_TOKEN` → `LCHATGPT_AUTH_FILE` →
 > `~/.local/share/lchatgpt/auth.json` → `~/.codex/auth.json` 的顺序找。

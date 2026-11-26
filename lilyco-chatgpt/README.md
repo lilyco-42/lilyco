@@ -27,6 +27,42 @@ So the chat path **lets the page send the message** and only does the typing and
 
 Nothing else touches the web chat endpoint: read-only REST is all the other commands need.
 
+## Images: the picture is not in the text
+
+An image turn has **no answer text at all**. Measured mapping for one generation:
+
+```
+client-created-root
+  └─ user              parts: ["a cat in sunglasses"]                    finished_successfully
+      └─ assistant     content_type: code (the draw-tool call)            end_turn: false
+          └─ tool      content_type: multimodal_text — the image lives here  recipient: all
+              └─ assistant   reasoning_recap
+                  └─ assistant  content_type: text, parts: [""]           in_progress ← current_node
+```
+
+Two consequences, both learned the hard way:
+
+1. **The tail node never finishes.** `end_turn == true || status == "finished_successfully"` never
+   becomes true for an image round, so the poll used to run the full 180 s and still report
+   `complete: false`. The criterion is now "a `finished_successfully` node was seen **and** images
+   arrived **and** the tail text is empty". With that, the same generation completes in ~34 s.
+2. **The same pointer appears twice** (a ghostrider intermediate and a hidden display node), so
+   images are de-duplicated by `file_id` (the `sediment://` prefix stripped off).
+
+Fetching the bytes takes two hops and three headers: `GET /backend-api/files/{file_id}/download`
+returns a signed `download_url`, and **both** hops need `authorization` / `user-agent` /
+`chatgpt-account-id` — miss the last one and it is a flat `403`.
+
+`--save-images DIR` writes the files (MIME sniffed from magic bytes, not trusted from the backend).
+`--inline-images` instead embeds `images[].data_base64` + `mime_type` — that exists for the **MCP**
+surface: an MCP client has no login state and cannot fetch a `sediment://` pointer, so the bytes have
+to travel inside the tool result. `show-conversation --inline-images` does the same for history.
+
+Polling also used to trip a 429: a fixed 1.2 s interval hammered `GET /conversation/{id}` 123 times
+in one long round, and the endpoint then answered 429 for about half a minute (taking
+`show-conversation` down with it). The interval now relaxes with the round count (1.2 s → 2 s → 3.5 s)
+and 429 / 5xx are retried with backoff, roughly halving the request count.
+
 ## Commands
 
 | Command | Tier | Purpose |
@@ -38,9 +74,9 @@ Nothing else touches the web chat endpoint: read-only REST is all the other comm
 | `show-conversation` | T0 | render one conversation's **active branch** as a transcript |
 | `search` | T0 | keyword search over history |
 | `auth` | T0 | **local** credential checkup, no network: every candidate source, which one wins, whether it can send, when it expires, and what to run next |
-| `ask` | **T1** | send one prompt — **chat quota by default** (drives a browser, reads the reply over REST); `--allow-codex` switches to SSE codex responses |
+| `ask` | **T1** | send one prompt — **chat quota by default** (drives a browser, reads the reply over REST), returning `{ quota, conversation_id, model, text, images, complete, polls, elapsed_ms }`. Image turns come back with an **empty `text` and a populated `images[]`**; `--save-images DIR` writes the PNGs, `--inline-images` embeds them as base64. `--allow-codex` switches to SSE codex responses |
 | `login` | **T1** | store a login state in lchatgpt's own store (`--from browser` / `codex` / `refresh`) |
-| `serve` | **T1** | an **OpenAI-compatible HTTP endpoint** (`127.0.0.1:8790` by default: `/health`, `/v1/models`, `/v1/chat/completions` with SSE) so a host like dsh can use the account as a model. Models: `lchatgpt:chat` (default) and, only with `--allow-codex`, `lchatgpt:codex`. Blocks until killed — it has no `--json` result |
+| `serve` | **T1** | an **OpenAI-compatible HTTP endpoint** (`127.0.0.1:8790` by default: `/health`, `/v1/models`, `/v1/chat/completions` with SSE, `/v1/images/generations` returning `b64_json`) so a host like dsh can use the account as a model. Models: `lchatgpt:chat` (default) and, only with `--allow-codex`, `lchatgpt:codex`. Blocks until killed — it has no `--json` result |
 
 Reads are T0 so an automated surface (MCP) can use them freely; `ask`, `login` and `serve` are T1 and the default MCP policy (`DenyElevated`) refuses them.
 
@@ -54,6 +90,7 @@ lchatgpt list --limit 5
 lchatgpt show-conversation --conversation-id 6b068588-ab08-83ea-a7fd-49cdd76f6682 --all
 lchatgpt search --query Temu
 lchatgpt ask --prompt "explain the borrow checker in one sentence"          # chat quota
+lchatgpt ask --prompt "a cat in sunglasses, flat art" --save-images /tmp/imgs  # image turn: text empty, PNGs in images[]
 lchatgpt ask --allow-codex --prompt "explain the borrow checker" --effort low  # codex quota
 lchatgpt serve --port 8790                       # OpenAI-compatible endpoint for dsh (blocks)
 lchatgpt --tui     # picker
@@ -107,8 +144,11 @@ A harvested token can only read and has no `refresh_token`, so `login` refuses t
 | `GET /health` | `{ ok, service, quota: "chat" \| "chat+codex", models }` |
 | `GET /v1/models` | OpenAI `{ object: "list", data: [...] }` — the shape pi-ai's discovery expects |
 | `POST /v1/chat/completions` | SSE (`chat.completion.chunk` … `data: [DONE]`) when `stream: true`, a single `chat.completion` otherwise |
+| `POST /v1/images/generations` | generates on the **chat quota**: `{created, data: [{b64_json, revised_prompt}]}`. Only `b64_json` — the upstream download URL is signed and needs the login headers, so handing it to a client is useless |
 
 Quota ownership does not change because there is an HTTP layer in front: **only `lchatgpt:chat` is listed by default**, and it is the browser-driving path. `lchatgpt:codex` appears only when the server was started with `--allow-codex`; asking for it otherwise is a `400` that names the switch. A model the endpoint does not list is never silently substituted.
+
+The image endpoint is the same chat path `ask` uses, so one generation takes ~30 s; when the round produced no image it answers `400` with the text the page returned instead of an empty array, and `response_format=url` is a `400` that explains why.
 
 Multi-turn history is flattened: the chat path can only send one blob and read one blob back, so `messages` are joined into one text (one `User:` / `Assistant:` prefixed block per turn, system first). The codex path keeps turns apart and folds `system` / `developer` into `instructions`.
 
@@ -148,6 +188,59 @@ dsh --profile headless --patch /tmp/lchatgpt-provider.yml --json "answer with tw
 
 Measured: one dsh turn sends two POSTs (the conversation and a session-title request); the main one carries 23 tool definitions and `max_completion_tokens: 32000`; the whole turn took 19 s. **The web path reports no token usage**, so `step_end` usage is all zeros — the chatgpt.com web API simply does not expose it.
 
+## Serving MCP (`--mcp`): version negotiation, resources, image blocks
+
+`lchatgpt --mcp` speaks stdio JSON-RPC, and the same registry turns the 10 commands into 10 tools.
+Three things a strict client such as dsh checks, all of which had to be added:
+
+1. **Answer with the protocol version the client asked for.** `2025-11-25` / `2025-06-18` /
+   `2025-03-26` / `2024-11-05` are supported; `initialize` echoes `params.protocolVersion` and only
+   falls back to `2024-11-05` when it does not recognise it. The dsh MCP SDK does the legacy
+   handshake and throws `Server's protocol version is not supported` for anything outside its list.
+2. **`capabilities` must contain `resources`.** dsh guards on
+   `getServerCapabilities()?.resources !== void 0` before it ever sends `resources/list`, so
+   capabilities is `{"tools": {}, "resources": {}}`: commands are exposed as resources
+   (`lilyco://command/<name>`) and `resources/read` returns that command schema JSON.
+3. **Images travel as real content blocks.** A result carrying `{type: "image", data, mimeType}`
+   is lifted out of both top-level `images[]` and `messages[].images[]` (png/jpeg/webp/gif only,
+   at most 8), and the `data_base64` is then stripped from the text block — a 1.5 MB PNG would
+   otherwise double the context (measured: text block 1 559 917 → 624 bytes, image block keeps the bytes).
+
+The safety gate is unchanged: `ask` / `login` / `serve` are T1 and the default `DenyElevated`
+policy refuses them, so an agent can read quotas and history freely but cannot send, swap credentials,
+or open a port without a human in the loop.
+
+### Wiring the MCP side into dsh
+
+```yaml
+- insert:
+    - id: mcp-lchatgpt
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: lchatgpt
+        transport: stdio
+        command: /absolute/path/to/lchatgpt
+        args: ['--mcp']
+        env:
+          HOME: /home/lilyco
+        startupTimeoutMs: 20000
+        toolCallTimeoutMs: 60000
+        failOnStartupError: false
+```
+
+`serverName` sets the tool prefix (`mcp__lchatgpt__whoami`, `mcp__lchatgpt__show-conversation`, …).
+Restart dsh afterwards (desktop: restart Electron; the CLI refuses `--profile desktop`). A patch
+layer can only modify **existing** ids at the top level — a new entry must be written as a
+`- insert:` list, otherwise you get `patch: entry "mcp-lchatgpt" not found`.
+
+> **Never verify this by asking the model which tools it has.** The ChatGPT web model does no
+> function calling of its own, so it will earnestly answer that none of the MCP tools are
+> registered, or invent capabilities (`python.exec`, `web.run`, `genui.*`). The only honest
+> oracle is the request body dsh actually sends (does `tools` contain `mcp__lchatgpt__*`), or a
+> fake LLM endpoint that injects a `tool_call` and watches whether it runs. Both were measured:
+> 36 tools in the request, 10 of them ours, and an injected `mcp__lchatgpt__whoami` did execute and
+> return the real account JSON (`turn_end completed`, exit code 0).
+
 ## Two things that bite
 
 - **A conversation is a graph, not a line.** `mapping` is `node-id → {id,parent,children,message}`; `current_node` points at what the user last saw. `show-conversation` walks `parent` back from `current_node`, reverses, then drops tool-call nodes (`recipient != "all"`) and reasoning summaries (unless `--include-reasoning`). Measured on a real conversation: 2265 nodes were text 273, code 1668, reasoning_recap 66, thoughts 255 — filtering is not optional.
@@ -166,5 +259,8 @@ Full command table, parameter semantics, real output, and known limits: [`docs/c
 - The chat path is slow: one prompt measured 20–45 s, almost all of it waiting for the page, the send button, and the conversation to land. The codex path is ~2 s.
 - When a window is exhausted the backend answers `429 usage_limit_reached`; that is reported as structured output with the reset time instead of retrying or panicking. Read-only commands are unaffected.
 - A browser login state is read-only and cannot refresh itself; re-run `login --from browser` when it lapses.
-- `serve` is not a general OpenAI API shim: no tool calling, no images, no token accounting on the chat path, and a multi-turn history is flattened into one prompt. `stream: true` on the chat path emits the answer in one or two deltas, because the web conversation is polled rather than streamed.
-- No attachments, no images. Only plain text goes into the composer (`Input.insertText`). The chat path does leave a real conversation behind (the returned `conversation_id` is it); the codex path is a `store: false` stateless call.
+- `serve` is not a general OpenAI API shim: no tool calling, no token accounting on the chat path, and a multi-turn history is flattened into one prompt. `stream: true` on the chat path emits the answer in one or two deltas, because the web conversation is polled rather than streamed.
+- **Only plain text goes into the composer** (`Input.insertText`): files cannot be uploaded and images
+  cannot be used as input. **Generating images is supported** (the model produces them; they arrive in
+  `images[]`). An image turn answer text is usually the empty string — that is not a bug, see the
+  Images section; when `text` is empty and `images[]` is not, the human surface prints "N images generated". The chat path does leave a real conversation behind (the returned `conversation_id` is it); the codex path is a `store: false` stateless call.
