@@ -1,0 +1,10 @@
+bin/
+frontend/
+evidence/
+build/
+dist/
+node_modules/
+ui/node_modules/
+tests/*.mp4
+resources/app.ico
+*.spec

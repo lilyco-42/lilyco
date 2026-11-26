@@ -1,0 +1,122 @@
+name: Media Studio Desktop
+on:
+  pull_request:
+    paths: ['apps/media-studio/**', 'apps/desktop-common/**', 'lilyco-ffmpeg/**', 'Cargo.lock', '.github/workflows/media-studio.yml']
+  push:
+    branches: [main]
+    paths: ['apps/media-studio/**', 'apps/desktop-common/**', 'lilyco-ffmpeg/**', 'Cargo.lock', '.github/workflows/media-studio.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: media-studio-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  workspace-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Existing desktop and software GPU prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev libxdo-dev libegl1 libgl1-mesa-dri mesa-vulkan-drivers
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vision-workspace-contract
+          cache-on-failure: true
+      - name: Real existing Tauri sidecar
+        shell: bash
+        run: |
+          cargo build --locked -p lilyco-binfmt --bin lbin
+          TRIPLE=$(rustc -vV | sed -n 's|host: ||p')
+          mkdir -p lilyco-tauri/binaries
+          cp target/debug/lbin "lilyco-tauri/binaries/lbin-${TRIPLE}"
+      - name: AGENTS workspace gates
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --workspace --all-targets
+          cargo test --locked --workspace
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: media-studio-engine
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Original headless lffmpeg, without a second encoder implementation
+        run: |
+          cargo clippy --locked -p lilyco-ffmpeg --no-default-features --features android --all-targets
+          cargo test --locked -p lilyco-ffmpeg --no-default-features --features android
+          cargo build --release --locked -p lilyco-ffmpeg --no-default-features --features android
+          mkdir -p apps/media-studio/bin
+          cp target/release/lffmpeg apps/media-studio/bin/lffmpeg
+      - name: Build actual shadcn interface and self-hosted font
+        working-directory: apps/media-studio/ui
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Install bounded verification dependencies
+        working-directory: apps/media-studio
+        run: |
+          python -m pip install -r requirements.txt httpx==0.28.1
+          npm install --no-save --package-lock=false playwright@1.56.1
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          test -x "$(command -v google-chrome)"
+          printf 'CHROME_PATH=%s\n' "$(readlink -f "$(command -v google-chrome)")" >> "$GITHUB_ENV"
+      - name: Keep the actual CI Chrome sandbox enabled
+        shell: bash
+        run: |
+          if command -v apparmor_parser >/dev/null && [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo tee /etc/apparmor.d/media-ci-chrome >/dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile media-ci-chrome "$CHROME_PATH" flags=(unconfined) {
+            userns,
+          }
+          EOF
+            sudo apparmor_parser -r /etc/apparmor.d/media-ci-chrome
+          fi
+      - name: Original component and generated Lyco icon payloads
+        working-directory: apps/media-studio
+        run: python tests/source_receipts.py
+      - name: Real media encoding, decoding, process cancellation and HTTP boundaries
+        working-directory: apps/media-studio
+        run: |
+          python tests/fixture.py
+          python -m unittest discover -s tests -v
+      - name: Browser codec decoding, responsive keyboard workflows and file deletion
+        working-directory: apps/media-studio
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m uvicorn studio.app:create_app --factory --host 127.0.0.1 --port 8046 > evidence/server.log 2>&1 &
+          PID=$!
+          trap 'kill "$PID" || true' EXIT
+          READY=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8046/ >/dev/null; then READY=1; break; fi
+            sleep .25
+          done
+          test "$READY" = 1
+          node tests/ui.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: media-studio-acceptance-${{ github.sha }}
+          path: apps/media-studio/evidence/
+          if-no-files-found: error

@@ -1,0 +1,5 @@
+fastapi==0.135.1
+uvicorn==0.42.0
+python-multipart==0.0.22
+pywebview==6.2.1; sys_platform == 'win32'
+pillow==11.3.0
