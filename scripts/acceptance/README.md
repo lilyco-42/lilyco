@@ -90,12 +90,14 @@ python scripts/acceptance/chatgpt_probe.py "$BIN" --offline  # CI：只验协议
 ```
 
 `lchatgpt` 七条只读命令（`whoami` / `usage` / `models` / `list` / `show-conversation` / `search` / `auth`，全 T0）
-与两条提权命令（`ask` 会消耗配额、`login` 会落盘凭证，均 T1）。探针覆盖：`--schema` 的 9 条命令与分级 →
+与三条提权命令（`ask` 会消耗配额、`login` 会落盘凭证、`serve` 会把端口对外开，均 T1）。探针覆盖：`--schema` 的 10 条命令与分级 →
 CLI `--json` 基准（`auth` 是本地体检，`--offline` 也照跑）→
 **额度归属断言**（`ask --cdp 127.0.0.1:1` 必须失败，报错里必须有 `--allow-codex`、且**不能**出现
 `codex/responses` —— 证明没勾选时一分 codex 额度都没花；这条在线离线都跑）→
-Web（首页 9 条命令、裸 `POST /run` 401、带令牌 `whoami` 的 SSE `done.result` 与 CLI 逐字一致）→
-MCP（`tools/list` 9 工具、`ask` 描述自报 T1、`whoami` 放行、`ask` 与 `login` 都被安全门拒绝、
+**`serve` 协议面**（起 `serve --port`，本地环回、不联网：`/v1/models` 只露 `lchatgpt:chat`、`/health`
+自报 `quota=chat`、请求 `lchatgpt:codex` 必须 400 并指路 `--allow-codex`、未知模型 400、空 messages 400）→
+Web（首页 10 条命令、裸 `POST /run` 401、带令牌 `whoami` 的 SSE `done.result` 与 CLI 逐字一致）→
+MCP（`tools/list` 10 工具、`ask` 描述自报 T1、`whoami` 放行、`ask`/`login`/`serve` 都被安全门拒绝、
 `show-conversation` 缺参 `-32602`）→ TUI（真 PTY：选择页列出命令 → `q` 干净退出）。
 
 > 这个域的命令**真的会访问 chatgpt.com**，凭证按 `LCHATGPT_ACCESS_TOKEN` → `LCHATGPT_AUTH_FILE` →

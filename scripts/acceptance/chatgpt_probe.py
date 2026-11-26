@@ -10,16 +10,18 @@ CI 里没有凭证也不该联网，所以：
     MCP 握手 + tools/list 分级 + T1 拒绝 + 缺参 -32602。不发起任何外网请求。
 
 验收点：
-  1. --schema 里 9 条命令齐全，whoami/usage/models/list/show-conversation/search/auth 为 T0，
-     ask 与 login 为 T1
+  1. --schema 里 10 条命令齐全，whoami/usage/models/list/show-conversation/search/auth 为 T0，
+     ask / login / serve 为 T1
   2. CLI --json 基准（在线）；auth 是本地体检，--offline 也照跑；
      另有一条不分在线离线的断言：ask 默认只走 chat 额度 —— 把 --cdp 指向死端口时
      必须失败、报错里要有 --allow-codex，且绝不能碰 codex/responses
-  3. Web：首页 9 条命令 → 裸 POST /run 401 → 带令牌 whoami → SSE done.result 与 CLI 逐字一致
-  4. MCP：initialize → tools/list（ask 的 description 带 T1）→ tools/call whoami 放行
+  3. serve：起 OpenAI 兼容端（本地环回，不联网）→ /v1/models 只有 lchatgpt:chat、
+     /health 自报 quota=chat、要 lchatgpt:codex 被拒且报错指路 --allow-codex、不认识模型 400
+  4. Web：首页 10 条命令 → 裸 POST /run 401 → 带令牌 whoami → SSE done.result 与 CLI 逐字一致
+  5. MCP：initialize → tools/list（ask 的 description 带 T1）→ tools/call whoami 放行
      → tools/call ask、login 被安全门拒绝（DenyElevated）→ whoami 缺参不会发生（零参数），
      改用 show-conversation 缺 conversation_id 验 -32602
-  5. TUI：--tui 能起、能列命令、q 退出（无 winpty 时降级跳过）
+  6. TUI：--tui 能起、能列命令、q 退出（无 winpty 时降级跳过）
 """
 import json
 import os
@@ -40,8 +42,8 @@ TOKEN_HEADER = "X-Lilyco-Token"
 
 # T0 只读；auth 只摸本地文件与 env，不联网，所以 --offline 也能验
 READS = ["whoami", "usage", "models", "list", "show-conversation", "search", "auth"]
-# T1 confirm：ask 会打远端、login 会落盘凭证
-WRITES = ["ask", "login"]
+# T1 confirm：ask 会打远端、login 会落盘凭证、serve 会把端口对外开
+WRITES = ["ask", "login", "serve"]
 ALL = sorted(READS + WRITES)
 fails = []
 
@@ -159,7 +161,11 @@ def check_schema():
         bad(f"这些只读命令的分级不是 T0: {wrong}")
     else:
         ok(f"{len(READS)} 条只读命令均为 T0")
-    for name, why in (("ask", "会写远端服务"), ("login", "会落盘凭证")):
+    for name, why in (
+        ("ask", "会写远端服务"),
+        ("login", "会落盘凭证"),
+        ("serve", "会把端口对外开"),
+    ):
         if tiers.get(name) in ("confirm", "Confirm", "t1"):
             ok(f"{name} 为 T1（{why}）")
         else:
@@ -187,6 +193,82 @@ def check_default_quota():
     else:
         ok("没勾选时没有碰 codex/responses（没花 codex 额度）")
 
+
+def check_serve():
+    """serve 是 OpenAI 兼容端，本身不会替我们回答问题（那要花额度），
+    所以这里只验协议面：它肯起来、模型清单对、没勾选时 codex 那条路是关着的。"""
+    print("\n=== 3) serve（OpenAI 兼容端）===")
+    port = PORT + 1
+    p = subprocess.Popen(
+        [BIN, "serve", "--port", str(port)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+    )
+    base = f"http://127.0.0.1:{port}"
+
+    def probe(path, payload=None):
+        url = base + path
+        data = None if payload is None else json.dumps(payload).encode()
+        headers = {"Content-Type": "application/json"}
+        req = urllib.request.Request(url, data=data, headers=headers, method=None if data is None else "POST")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                return r.status, r.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode("utf-8", "replace")
+        except Exception as e:  # noqa: BLE001
+            return None, str(e)
+
+    try:
+        st, body = None, ""
+        for _ in range(80):
+            st, body = probe("/v1/models")
+            if st == 200:
+                break
+            time.sleep(0.25)
+        if st != 200:
+            bad(f"serve 的 /v1/models 起不来: {st} {body[:200]}")
+            return
+        ids = [m["id"] for m in json.loads(body)["data"]]
+        if ids == ["lchatgpt:chat"]:
+            ok(f"只露出 chat 模型: {ids}")
+        else:
+            bad(f"没勾选 --allow-codex 却有这些模型: {ids}")
+        st, body = probe("/health")
+        health = json.loads(body) if st == 200 else {}
+        if health.get("ok") and health.get("quota") == "chat":
+            ok("健康检查自报 quota=chat")
+        else:
+            bad(f"/health 不符: {st} {body[:200]}")
+        msg = {"messages": [{"role": "user", "content": "ping"}], "model": "lchatgpt:codex"}
+        st, body = probe("/v1/chat/completions", msg)
+        text = body if isinstance(body, str) else ""
+        if st == 400 and "--allow-codex" in text:
+            ok("没勾选时 lchatgpt:codex 被拒，报错指路 --allow-codex")
+        else:
+            bad(f"codex 模型应 400 并提 --allow-codex，实际 {st} {text[:200]}")
+        st, body = probe(
+            "/v1/chat/completions",
+            {"messages": [{"role": "user", "content": "ping"}], "model": "gpt-4o"},
+        )
+        if st == 400 and "lchatgpt" in body:
+            ok("不认识模型回 400 并列出本端提供哪些")
+        else:
+            bad(f"未知模型应 400，实际 {st} {body[:200]}")
+        st, body = probe("/v1/chat/completions", {"model": "lchatgpt:chat", "messages": []})
+        if st == 400:
+            ok("空 messages 回 400")
+        else:
+            bad(f"空 messages 应 400，实际 {st} {body[:200]}")
+    finally:
+        p.terminate()
+        try:
+            p.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.communicate()
 
 def cli_baseline():
     print("\n=== 2) CLI 基准（--json）===")
@@ -226,7 +308,7 @@ def cli_baseline():
 
 
 def check_web(base):
-    print("\n=== 3) Web 面 ===")
+    print("\n=== 4) Web 面 ===")
     env = dict(os.environ, LILYCO_PORT=str(PORT), LILYCO_UI="web")
     p = subprocess.Popen(
         [BIN, "--gui"],
@@ -315,7 +397,7 @@ def check_web(base):
 
 
 def check_mcp():
-    print("\n=== 4) MCP 面 ===")
+    print("\n=== 5) MCP 面 ===")
     init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {"protocolVersion": "2024-11-05", "capabilities": {}}}
     lst = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
@@ -364,6 +446,15 @@ def check_mcp():
         ok("login（T1）被安全门拒绝，MCP 面不能替换凭证")
     else:
         bad(f"login（T1）未被拒绝: {text[:240]}")
+    denied_serve = {"jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                    "params": {"name": "serve", "arguments": {}}}
+    got = mcp_call([init, lst, denied_serve], [1, 2, 7])
+    r7 = [m for m in got if m.get("id") == 7][-1]
+    text = json.dumps(r7, ensure_ascii=False)
+    if "T1" in text or "拒绝" in text or "denied" in text.lower():
+        ok("serve（T1）被安全门拒绝，MCP 面不能开监听端口")
+    else:
+        bad(f"serve（T1）未被拒绝: {text[:240]}")
     missing = {"jsonrpc": "2.0", "id": 5, "method": "tools/call",
                "params": {"name": "show-conversation", "arguments": {}}}
     got = mcp_call([init, lst, missing], [1, 2, 5])
@@ -376,7 +467,7 @@ def check_mcp():
 
 
 def check_tui():
-    print("\n=== 5) TUI 面 ===")
+    print("\n=== 6) TUI 面 ===")
     """用 stdlib pty 起真终端。必须 ioctl 设窗口尺寸：不设就是 0x0，
     ratatui 会把列表挤成一列甚至什么都不画（踩过：只收到 783 字节）。
     容器/无 pty 环境直接跳过，不制造假失败。"""
@@ -450,6 +541,7 @@ def main():
     print(f"binary: {BIN}  offline: {OFFLINE}")
     check_schema()
     base = cli_baseline()
+    check_serve()
     check_web(base)
     check_mcp()
     check_tui()

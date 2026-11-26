@@ -66,8 +66,16 @@
 //! 不改远端任何状态，所以 MCP 面也放行。
 //!
 //! 写命令（T1 Confirm）：`ask`（向模型发送内容并消耗额度 —— 默认 chat，`--allow-codex`
-//! 才动 codex）、`login`（写本地凭证文件、会去读浏览器登录态）。
+//! 才动 codex）、`login`（写本地凭证文件、会去读浏览器登录态）、`serve`
+//! （起一个 OpenAI 兼容的 HTTP 端，外部客户端可以通过它花额度提问）。
 //! MCP / Web 这类自动化面注册时用 `DenyElevated`，因此只在本地交互面可用。
+//!
+//! # 给别的程序当模型提供端
+//!
+//! `lchatgpt serve --port 8790` 把同一套能力吐成 OpenAI 兼容的 `/v1/models` 与
+//! `/v1/chat/completions`（SSE）。默认只提供 `lchatgpt:chat`（chat 额度）；
+//! 启动时加 `--allow-codex` 才会多露出 `lchatgpt:codex`。这样 dsh（DeepSeek
+//! Harness）之类的客户端把它当一条 `api: openai-completions` 的 route 就能用。
 
 mod api;
 mod ask;
@@ -81,6 +89,8 @@ mod login;
 mod models;
 mod refresh;
 mod search;
+#[cfg(feature = "server")]
+mod serve;
 mod show;
 mod store;
 mod usage;
@@ -92,7 +102,8 @@ use std::sync::Arc;
 
 pub fn build_registry_with_policy(policy: Arc<dyn SafetyPolicy>) -> Registry {
     let mut reg = Registry::new().with_policy(policy);
-    let cmds: Vec<RegisteredCommand> = vec![
+    #[allow(unused_mut)]
+    let mut cmds: Vec<RegisteredCommand> = vec![
         RegisteredCommand::from_app::<whoami::Whoami>(),
         RegisteredCommand::from_app::<usage::Usage>(),
         RegisteredCommand::from_app::<models::Models>(),
@@ -103,6 +114,10 @@ pub fn build_registry_with_policy(policy: Arc<dyn SafetyPolicy>) -> Registry {
         RegisteredCommand::from_app::<ask::Ask>(),
         RegisteredCommand::from_app::<login::Login>(),
     ];
+    // `serve` 只在编了 server feature 时存在：它是把同一批能力吐成 OpenAI 兼容
+    // HTTP 端的那一层，给 dsh 之类的外部客户端当模型提供端用。
+    #[cfg(feature = "server")]
+    cmds.push(RegisteredCommand::from_app::<serve::Serve>());
     for c in cmds {
         let name = c.schema.name.clone();
         reg.register(c)
@@ -208,10 +223,12 @@ mod tests {
     use super::*;
 
     fn names() -> Vec<String> {
-        build_registry_with_policy(Arc::new(Unrestricted))
+        let mut v: Vec<String> = build_registry_with_policy(Arc::new(Unrestricted))
             .visible()
             .map(|c| c.schema.name.clone())
-            .collect()
+            .collect();
+        v.sort();
+        v
     }
 
     fn tier(name: &str) -> SafetyTier {
@@ -225,20 +242,23 @@ mod tests {
     /// 命令集合是契约：加删都必须是显式的改动
     #[test]
     fn registry_lists_the_commands_this_domain_answers() {
-        assert_eq!(
-            names(),
-            vec![
-                "ask".to_string(),
-                "auth".to_string(),
-                "list".to_string(),
-                "login".to_string(),
-                "models".to_string(),
-                "search".to_string(),
-                "show-conversation".to_string(),
-                "usage".to_string(),
-                "whoami".to_string(),
-            ]
-        );
+        // `serve` 挂在 server feature 后面：关掉它就只有九条命令
+        let mut want: Vec<String> = vec![
+            "ask".to_string(),
+            "auth".to_string(),
+            "list".to_string(),
+            "login".to_string(),
+            "models".to_string(),
+            "search".to_string(),
+        ];
+        #[cfg(feature = "server")]
+        want.push("serve".to_string());
+        want.push("show-conversation".to_string());
+        want.push("usage".to_string());
+        want.push("whoami".to_string());
+        want.sort();
+        // Registry 内部是 HashMap，顺序不保证 —— 比排序后的集合
+        assert_eq!(names(), want);
     }
 
     /// GET 只读 = T0，改动远端或写本地凭证 = T1；分级错了 MCP 面就会放行写操作
@@ -265,6 +285,12 @@ mod tests {
             SafetyTier::Confirm,
             "`login` 会写本地凭证并读浏览器登录态，必须是 T1"
         );
+        #[cfg(feature = "server")]
+        assert_eq!(
+            tier("serve"),
+            SafetyTier::Confirm,
+            "`serve` 会让外部进程花额度提问，必须是 T1"
+        );
     }
 
     /// MCP 面必须拒绝 ask 与 login —— 否则 AI 可以在你不知情时烧配额 / 换掉你的凭证
@@ -287,6 +313,11 @@ mod tests {
         assert!(
             matches!(verdict("login"), GateDecision::Deny(_)),
             "MCP 面必须拦住 login"
+        );
+        #[cfg(feature = "server")]
+        assert!(
+            matches!(verdict("serve"), GateDecision::Deny(_)),
+            "MCP 面必须拦住 serve —— 它会让外部进程花额度"
         );
         assert!(
             matches!(verdict("whoami"), GateDecision::Allow),

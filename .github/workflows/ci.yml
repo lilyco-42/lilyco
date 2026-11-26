@@ -100,8 +100,8 @@ jobs:
       - name: Build lbin (for the office two-reader cross-check)
         run: cargo build -p lilyco-binfmt
 
-      # lchatgpt 的四端一致性：--offline 只验注册表形状与 Web/MCP/TUI 协议面，
-      # 不联网、不需要凭证（真实外网那半跑在开发机上）
+      # lchatgpt 的四端一致性：--offline 只验注册表形状、serve 的 /v1 协议面（本地环回）
+      # 与 Web/MCP/TUI 三端，不联网、不需要凭证（真实外网那半跑在开发机上）
       - name: Build lchatgpt (four-surface probe)
         run: cargo build -p lilyco-chatgpt
 

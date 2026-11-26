@@ -3767,9 +3767,12 @@ dependencies = [
 name = "lilyco-chatgpt"
 version = "0.3.0"
 dependencies = [
+ "async-stream",
+ "axum",
  "lilyco",
  "serde",
  "serde_json",
+ "tokio",
  "tungstenite",
  "ureq",
 ]

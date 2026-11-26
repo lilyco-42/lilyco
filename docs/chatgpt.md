@@ -83,7 +83,7 @@
 > 这一步失败要在**发消息之前**就失败：快照读不到就不发 —— 否则消息发出去了、额度也花了，
 > 却永远认不出是哪条会话。
 
-## 命令（9 条：7 条 T0 只读 + `ask` / `login` T1 需确认）
+## 命令（10 条：7 条 T0 只读 + `ask` / `login` / `serve` T1 需确认）
 
 | 命令 | 分级 | 作用 |
 |---|---|---|
@@ -96,6 +96,7 @@
 | `auth` | T0 | **本地**凭证体检，不联网：返回 `{ resolved: { ok, source, capability, can_send, account_id, expires_at, expired, refreshable, token }, candidates, store_path, hints }`。`candidates` 逐条列出 env / 仓库 / codex 登录态哪个可用，`hints` 直接给下一步该跑什么 |
 | `ask` | **T1** | **默认花 chat 额度**：驱动浏览器发、REST 读回，返回 `{ quota: "chat", conversation_id, model, text, complete, cdp, polls, elapsed_ms }`（`--cdp` 指定浏览器端点）。加 `--allow-codex` 才改走 `POST /backend-api/codex/responses`（SSE），返回 `{ quota: "codex", model, effort, response_id, text, usage, elapsed_ms, events }`，`--effort` 取 low/medium/high/xhigh/max/ultra |
 | `login` | **T1** | 把一份登录态收进自己的仓库（`~/.local/share/lchatgpt/auth.json`，0600）。`--from browser` 从正在跑的浏览器抓、`--from codex` 导入 codex 登录态、`--from refresh` 立刻用 refresh_token 续期。返回 `{ action, source, capability, can_send, account_id, email, expires_at, store_path, token, refreshable }` |
+| `serve` | **T1** | 起一个 **OpenAI 兼容的 HTTP 端**（默认 `127.0.0.1:8790`，`/health` + `/v1/models` + `/v1/chat/completions`，支持 SSE），让 dsh 之类的外部客户端把 ChatGPT 当成一个模型来用。模型 id：`lchatgpt:chat`（默认，花 chat 额度）；加 `--allow-codex` 才多出 `lchatgpt:codex`（花 codex 额度）。**阻塞到进程被杀**，所以没有 `--json` 结果 |
 
 ## 登录态：三条来源，能力不同
 
@@ -175,6 +176,74 @@ lchatgpt login --from codex      # 导入 codex 登录态：能读能发能续�
 lchatgpt auth                    # 看一眼现在生效的是哪份、能不能发
 ```
 
+## 给别的程序当模型提供端（`serve` → dsh）
+
+`lchatgpt serve` 把 ChatGPT 账号包成一个 **OpenAI 兼容的 HTTP 端**，于是任何会打
+`/v1/chat/completions` 的客户端都能把它当成一个模型。这是给 **dsh（DeepSeek Harness）**
+这类宿主准备的：宿主里那条 `llm-pi-ai` route 写 `api: openai-completions` 指过来即可。
+
+```bash
+lchatgpt serve --port 8790          # 只露 lchatgpt:chat → 花 chat 额度（驱动浏览器）
+lchatgpt serve --allow-codex        # 多露一条 lchatgpt:codex → 花 codex 额度
+```
+
+| 端点 | 作用 |
+|---|---|
+| `GET /health` | `{ ok, service, quota: "chat" \| "chat+codex", models }` |
+| `GET /v1/models` | OpenAI 的 `{ object: "list", data: [...] }`，pi-ai 的模型发现认这个形状 |
+| `POST /v1/chat/completions` | `stream: true` 时走 SSE（标准 `chat.completion.chunk` + 末尾 `data: [DONE]`）；`false` 时一次性给 `chat.completion` |
+
+额度归属**不因为套了一层 HTTP 就变**：默认只有 `lchatgpt:chat`，它走的就是上面那条
+「驱动浏览器」的路；`lchatgpt:codex` 只有在启动时显式 `--allow-codex` 才会出现在
+`/v1/models` 里，否则请求它是 400 并告诉你加这个开关。**看不到的模型不会被偷偷换过去。**
+
+多轮对话会被压平：chat 路本来就只有「发一段、读一段」，所以 `messages` 里的历史被
+拼成一段文字（多条 user 消息带 `User:` / `Assistant:` 前缀，system 放最前）。codex 路
+保留逐条消息，`system` / `developer` 折进 `instructions`。
+
+### 接进 dsh（实测跑通）
+
+dsh 的 profile 改 `~/.dsh/profiles/<name>/cordis.patch.yml`，在 `llm-pi-ai` 那条的
+`config.providers` 下加一个 route：
+
+```yaml
+      lchatgpt:
+        displayName: lchatgpt
+        api: openai-completions
+        baseURL: http://127.0.0.1:8790/v1
+        # 本地端不校验 key，但 pi-ai 要求 apiKey 或 Authorization 头二者有其一
+        headers:
+          Authorization: Bearer unused
+        models:
+          - id: "lchatgpt:chat"
+            input: [text]
+            name: ChatGPT (chat quota, 走浏览器)
+            contextWindow: 128000
+            maxTokens: 32000
+```
+
+三个关键点（都踩过）：
+
+1. `api:` 只能取 pi-ai 这一版支持的四种协议（`openai-completions` / `openai-responses` /
+   `anthropic-messages` / `google-generative-ai`）。写 `openai-codex-responses` 会被拒 ——
+   那条协议只能走 catalog provider 的 OAuth 登录，不是 patch 能表达的。
+2. **不要写 `apiKeyEnv`**。`apiKeyEnv` 是「去 harness 凭证库里取一条」的引用，取不到就是
+   `MISSING_CREDENTIAL`；本地端本来就没有 key，用 `headers.Authorization` 占位就够了
+   （pi-ai 见到非空 authorization 就放行）。
+3. 改完 patch **必须重启 dsh**（桌面版要重启 Electron，`--profile desktop` 被 CLI 拒绝）。
+
+验证不用开 UI：用 headless profile 加一个临时 overlay 就能一问一答。
+
+```bash
+lchatgpt serve --port 8790 &
+dsh --profile headless --patch /tmp/lchatgpt-provider.yml --json "只回答两个字：香蕉"
+# → {"type":"text","text":"香蕉"} … {"type":"final","text":"香蕉"}
+```
+
+实测：dsh 一次提问会发两个 POST（主对话 + 生成会话标题），主请求带着 23 个工具定义和
+`max_completion_tokens: 32000`；整轮 19 秒拿到 `香蕉`。**网页路不报 token 用量**，所以
+`step_end` 的 usage 是全 0 —— 这不是 bug，chatgpt.com 的网页接口本来就不给。
+
 ## 参数语义
 
 - **数字 0 = 用默认值。** `--limit 0` / `--messages 0` 都回退到各自的默认（20 / 20 / 10）。
@@ -195,6 +264,11 @@ lchatgpt auth                    # 看一眼现在生效的是哪份、能不能
   **之前**就报错并说明原因。chat 路径的模型由网页自己选（见 `models` 的 `default_model_slug`）。
 - `--effort` 同理只在 `--allow-codex` 时有效。
 - `login --reveal` 才打印完整 token，默认打码；`login --cdp` 指定浏览器端点。
+- `serve --port 0`（或省略）= 8790；`--host ""` = `127.0.0.1`（只监听本机）。
+  `serve --allow-codex` 决定 `/v1/models` 里有没有 `lchatgpt:codex`，这是**启动时**的开关：
+  没开就是没开，请求里写 `lchatgpt:codex` 会 400 并提示加参数。
+- `serve --cdp` 和 `serve --effort` 分别透传给 chat 路与 codex 路，语义同 `ask`。
+- `serve` 没有 `--json` / `--json-stream`：它不「跑完就退出」，而是阻塞到进程被杀。
 
 ## 典型用法
 
@@ -223,6 +297,9 @@ lchatgpt ask --prompt "…" --cdp 127.0.0.1:9229
 lchatgpt ask --allow-codex --prompt "用一句话解释 borrow checker" --effort low
 lchatgpt ask --allow-codex --prompt "…" --json-stream   # SSE 事件流，给脚本 / AI 消费
 
+# 给 dsh 之类的外部客户端当模型提供端（OpenAI 兼容，阻塞不退出）
+lchatgpt serve --port 8790              # 只露 lchatgpt:chat
+lchatgpt serve --allow-codex            # 额外露出 lchatgpt:codex
 # 同一套命令的其他三个面
 lchatgpt --tui
 lchatgpt --gui        # 浏览器界面（http://127.0.0.1:<port>）
@@ -460,7 +537,7 @@ thoughts 255、multimodal_text 2；角色分布 user 65 / assistant 1356 / tool 
   （`gpt-5-1` / `gpt-6-2` …）一律 400 `model_not_supported`，所以命令里做了白名单，
   传别的模型直接 `InvalidArg` 而不是发出去再报错。chat 那条路的模型由网页决定，不由 CLI 挑。
 - **chat 那条路要一台活着的浏览器**：这是它花 chat 额度的代价。没有浏览器就没有 chat 发送，
-  命令会失败并指路 `--allow-codex`；其余 8 条命令完全不受影响。
+  命令会失败并指路 `--allow-codex`；其余 9 条命令完全不受影响（`serve` 只在真有人提问时才碰浏览器）。
 - **chat 那条路慢**：实测一条消息 20~45 秒，绝大部分是在等页面就绪、等按钮点亮、等会话落库。
   codex 那条路 2 秒级。
 - **浏览器登录态只能读**：它缺 `api.connectors.invoke`，`ask` 会明确拒绝并指向

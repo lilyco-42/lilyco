@@ -133,57 +133,54 @@ fn run_ask(app: &Ask, ctx: &Context) -> Result<Value, AppError> {
     run_codex(app, &prompt, ctx, start)
 }
 
-/// `--allow-codex` 那条路：POST /backend-api/codex/responses（SSE）
-fn run_codex(
-    app: &Ask,
-    prompt: &str,
-    ctx: &Context,
-    start: std::time::Instant,
-) -> Result<Value, AppError> {
-    let model = match app.model.trim() {
-        "" => DEFAULT_MODEL.to_string(),
-        "gpt-6.2-sol" => DEFAULT_MODEL.to_string(),
-        other => {
-            return Err(AppError::InvalidArg(format!(
-                "模型 {other} 在 codex responses 上不可用；ChatGPT 账号只接受 {DEFAULT_MODEL}"
-            )))
-        }
-    };
-    let effort = match app.effort.trim() {
-        "" => "low".to_string(),
-        e if EFFORTS.contains(&e) => e.to_string(),
-        other => {
-            return Err(AppError::InvalidArg(format!(
-                "effort 只能是 {}，收到 {other}",
-                EFFORTS.join(" / ")
-            )))
-        }
-    };
-    let instructions = if app.instructions.trim().is_empty() {
-        DEFAULT_INSTRUCTIONS.to_string()
-    } else {
-        app.instructions.trim().to_string()
-    };
+/// codex responses 对 ChatGPT 账号只认这一个 slug
+pub(crate) fn resolve_model(model: &str) -> Result<String, AppError> {
+    match model.trim() {
+        "" | "gpt-6.2-sol" => Ok(DEFAULT_MODEL.to_string()),
+        other => Err(AppError::InvalidArg(format!(
+            "模型 {other} 在 codex responses 上不可用；ChatGPT 账号只接受 {DEFAULT_MODEL}"
+        ))),
+    }
+}
 
+/// 推理档位白名单校验（省略 = low）
+pub(crate) fn resolve_effort(effort: &str) -> Result<String, AppError> {
+    match effort.trim() {
+        "" => Ok("low".to_string()),
+        e if EFFORTS.contains(&e) => Ok(e.to_string()),
+        other => Err(AppError::InvalidArg(format!(
+            "effort 只能是 {}，收到 {other}",
+            EFFORTS.join(" / ")
+        ))),
+    }
+}
+
+/// 客户端没给系统提示时用的那份（`serve` 需要拿到同一个默认值）
+#[cfg_attr(not(feature = "server"), allow(dead_code))]
+pub(crate) fn default_instructions() -> &'static str {
+    DEFAULT_INSTRUCTIONS
+}
+
+/// 跑一次 `POST /backend-api/codex/responses`，边走边把**累计全文**回调出去。
+///
+/// `input` 是 responses 协议里的输入项数组（`[{type:message,role,content:[…]}]`）：
+/// CLI 那条路只放一条用户消息，`serve` 会放整段对话。
+pub(crate) fn stream_codex(
+    input: &Value,
+    model: &str,
+    effort: &str,
+    instructions: &str,
+    ctx: &Context,
+    on: &mut dyn FnMut(&str),
+) -> Result<Value, AppError> {
+    let start = std::time::Instant::now();
     // 发消息要用带 api.connectors.invoke 的凭证；过期就顺手用 refresh_token 续一份
     // （换到的 refresh_token 会写回仓库）
     let api = Api::streaming(refresh::ensure_fresh(auth::load_for_send()?));
-    ctx.log(
-        LogLevel::Warn,
-        "用的是 codex 额度（--allow-codex）".to_string(),
-    );
-    ctx.emit(Progress::Started {
-        total: None,
-        message: Some(format!("codex · {model} / effort={effort}")),
-    });
     let body = json!({
         "model": model,
         "instructions": instructions,
-        "input": [{
-            "type": "message",
-            "role": "user",
-            "content": [{"type": "input_text", "text": prompt}],
-        }],
+        "input": input,
         "stream": true,
         "store": false,
         "reasoning": {"effort": effort},
@@ -219,6 +216,7 @@ fn run_codex(
                 Some(Chunk::Text(d)) => {
                     text.push_str(&d);
                     events += 1;
+                    on(&text);
                     // 每 20 个增量报一次进度，别把 stderr 刷爆
                     if events.is_multiple_of(20) {
                         ctx.tick(events, None, format!("{} 字", text.chars().count()));
@@ -244,16 +242,55 @@ fn run_codex(
             "流结束但没有任何文本增量；用 --json-stream 看完整事件流".to_string(),
         ));
     }
+    Ok(json!({
+        "model": model,
+        "response_id": response_id,
+        "text": text,
+        "usage": usage,
+        "events": events,
+        "elapsed_ms": start.elapsed().as_millis() as u64,
+    }))
+}
+
+/// `--allow-codex` 那条路：POST /backend-api/codex/responses（SSE）
+fn run_codex(
+    app: &Ask,
+    prompt: &str,
+    ctx: &Context,
+    start: std::time::Instant,
+) -> Result<Value, AppError> {
+    let model = resolve_model(&app.model)?;
+    let effort = resolve_effort(&app.effort)?;
+    let instructions = if app.instructions.trim().is_empty() {
+        DEFAULT_INSTRUCTIONS.to_string()
+    } else {
+        app.instructions.trim().to_string()
+    };
+
+    ctx.log(
+        LogLevel::Warn,
+        "用的是 codex 额度（--allow-codex）".to_string(),
+    );
+    ctx.emit(Progress::Started {
+        total: None,
+        message: Some(format!("codex · {model} / effort={effort}")),
+    });
+    let input = json!([{
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": prompt}],
+    }]);
+    let v = stream_codex(&input, &model, &effort, &instructions, ctx, &mut |_| {})?;
 
     let result = json!({
         "quota": "codex",
         "model": model,
         "effort": effort,
-        "response_id": response_id,
-        "text": text,
-        "usage": usage,
+        "response_id": v["response_id"].clone(),
+        "text": v["text"].clone(),
+        "usage": v["usage"].clone(),
         "elapsed_ms": start.elapsed().as_millis() as u64,
-        "events": events,
+        "events": v["events"].clone(),
     });
     print_answer(ctx, &result);
     if let Some(u) = result["usage"].as_object() {

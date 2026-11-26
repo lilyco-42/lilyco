@@ -91,6 +91,12 @@ const READY_JS: &str = r#"(() => {
 
 /// 一次尝试的失败：`sent` 为真表示「消息可能已经发出去了」——
 /// 这种情况绝不能换一个浏览器再发一遍，否则用户会得到两条一样的消息。
+/// 生成过程中每次读到更新后的全文就回调一次：`(全文, 是否已收尾)`。
+///
+/// 参数是**累计全文**而不是增量 —— 网页那条路每次只能读到整段回答，增量要靠调用方
+/// 自己 diff（`serve` 就是把它翻成 OpenAI 的 delta 流）。
+pub type OnText<'a> = &'a mut dyn FnMut(&str, bool);
+
 struct Attempt {
     error: AppError,
     sent: bool,
@@ -142,22 +148,56 @@ fn wait_for_composer(client: &mut Client) -> Result<(), AppError> {
     )))
 }
 
+/// 把连续空白折成一个空格（多段落提示进 ProseMirror 再读回来，空行数量不一定守恒）
+fn squash(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn squash_len(s: &str) -> usize {
+    squash(s).chars().count()
+}
+
+/// 输入框里的文字是否就是这段提示（按折叠空白后的内容比）
+fn same_text(got: &str, want: &str) -> bool {
+    !want.trim().is_empty() && squash(got) == squash(want)
+}
+
+/// 清空输入框，并且**确认真的空了**才返回。
+///
+/// 只调一次 Selection + deleteFromDocument 不够：ProseMirror 会把删空的段落重新补回来，
+/// 长提示更是常常只删掉一部分 —— 残字留在里面，后面 insertText 插进去的就是残字加新字，
+/// 于是永远比不出「一模一样」。
+fn clear_composer(client: &mut Client) -> Result<(), AppError> {
+    let mut last = String::from("清空没生效");
+    for _ in 0..4 {
+        let cleared = eval_json(client, CLEAR_JS)?;
+        if !cleared.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+            return Err(AppError::Runtime(
+                "找不到 contenteditable 输入框".to_string(),
+            ));
+        }
+        let left = cleared.get("text").and_then(Value::as_str).unwrap_or("");
+        if left.trim().is_empty() {
+            return Ok(());
+        }
+        last = format!("还剩 {} 字", squash_len(left));
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    Err(AppError::Runtime(last))
+}
+
 fn compose(client: &mut Client, prompt: &str) -> Result<(), AppError> {
     let mut last = String::from("输入框还没就绪");
     for attempt in 0..COMPOSE_ATTEMPTS {
         if attempt > 0 {
             std::thread::sleep(Duration::from_millis(400));
         }
-        let cleared = match eval_json(client, CLEAR_JS) {
-            Ok(v) => v,
+        match clear_composer(client) {
+            Ok(()) => {}
             Err(e) => {
                 last = format!("清空输入框失败: {e}");
                 continue;
             }
-        };
-        if !cleared.get("ok").and_then(Value::as_bool).unwrap_or(false) {
-            last = "找不到 contenteditable 输入框".to_string();
-            continue;
         }
         // 必须走 CDP 的 Input.insertText：React 只认真实 input 事件
         client.insert_text(prompt)?;
@@ -169,12 +209,17 @@ fn compose(client: &mut Client, prompt: &str) -> Result<(), AppError> {
             .get("enabled")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        if text.trim() == prompt.trim() && enabled {
+        // 不能拿原文逐字比：ProseMirror 会把空行变成独立的段，innerText 读回来时空行
+        // 与原文未必一字不差（多段落的长提示尤其如此）。折叠空白后再比，既容忍这种
+        // 排版差异，又能挡住 insertText 漏字（漏字会让折叠后的长度对不上）。
+        if same_text(text, prompt) && enabled {
             return Ok(());
         }
         last = format!(
-            "输入框里是 {:?}，发送按钮{}",
+            "输入框里是 {:?}（{} 字，期望 {} 字），发送按钮{}",
             crate::util::clip(text, 40),
+            squash_len(text),
+            squash_len(prompt),
             if enabled { "可点" } else { "不可点" }
         );
     }
@@ -361,6 +406,7 @@ fn poll_reply(
     api: &Api,
     conversation_id: &str,
     ctx: &Context,
+    on: OnText<'_>,
 ) -> Result<(String, bool, Option<String>, u64), AppError> {
     let deadline = Instant::now() + POLL_TIMEOUT;
     let mut best = String::new();
@@ -377,6 +423,7 @@ fn poll_reply(
                 if let Some(a) = last_assistant(&conv) {
                     if !a.text.trim().is_empty() {
                         best = a.text;
+                        on(&best, a.done);
                         if a.done {
                             return Ok((best, true, model, rounds));
                         }
@@ -417,13 +464,13 @@ fn poll_reply(
     }
 }
 
-fn ask_at(cdp: &str, prompt: &str, ctx: &Context) -> Result<Value, Attempt> {
+fn ask_at(cdp: &str, prompt: &str, ctx: &Context, on: OnText<'_>) -> Result<Value, Attempt> {
     let started = Instant::now();
     browser::probe(cdp).map_err(|error| Attempt { error, sent: false })?;
     // 自己开一个标签页，不碰用户正在看的那些；用完（无论成败）都关掉
     let (target_id, ws_url) =
         browser::create_target(cdp).map_err(|error| Attempt { error, sent: false })?;
-    let outcome = run_in_tab(&ws_url, prompt, ctx);
+    let outcome = run_in_tab(&ws_url, prompt, ctx, on);
     browser::close_target(cdp, &target_id);
     match outcome {
         Ok(done) => {
@@ -459,7 +506,12 @@ struct Done {
 }
 
 /// 在一个标签页里走完整条链路。返回 (正文, 是否确认写完, 模型, 轮询次数)
-fn run_in_tab(ws_url: &str, prompt: &str, ctx: &Context) -> Result<Done, (bool, AppError)> {
+fn run_in_tab(
+    ws_url: &str,
+    prompt: &str,
+    ctx: &Context,
+    on: OnText<'_>,
+) -> Result<Done, (bool, AppError)> {
     let mut client = Client::connect(ws_url).map_err(|e| (false, e))?;
     wait_for_composer(&mut client).map_err(|e| (false, e))?;
     // 凭证与「发之前有哪些会话」都要在**发消息之前**备好：这时候失败还没花掉额度。
@@ -479,7 +531,7 @@ fn run_in_tab(ws_url: &str, prompt: &str, ctx: &Context) -> Result<Done, (bool, 
         format!("落成会话 {conversation_id}，等它写完"),
     );
     let (text, complete, model, polls) =
-        poll_reply(&api, &conversation_id, ctx).map_err(|e| (true, e))?;
+        poll_reply(&api, &conversation_id, ctx, on).map_err(|e| (true, e))?;
     Ok(Done {
         conversation_id,
         text,
@@ -491,9 +543,21 @@ fn run_in_tab(ws_url: &str, prompt: &str, ctx: &Context) -> Result<Done, (bool, 
 
 /// 用 chat 额度发一条消息（默认路径）。返回结果 JSON。
 pub fn ask(prompt: &str, cdp: &str, ctx: &Context) -> Result<Value, AppError> {
+    ask_streaming(prompt, cdp, ctx, &mut |_, _| {})
+}
+
+/// 同上，但每次轮询读到新的全文就回调一次 —— `serve` 靠它把网页那条路翻成 SSE。
+///
+/// 注意回调给的是**累计全文**：网页只有一个「当前答案」，没有 token 级增量。
+pub fn ask_streaming(
+    prompt: &str,
+    cdp: &str,
+    ctx: &Context,
+    on: OnText<'_>,
+) -> Result<Value, AppError> {
     let mut tried: Vec<String> = Vec::new();
     for endpoint in browser::candidate_endpoints(cdp) {
-        match ask_at(&endpoint, prompt, ctx) {
+        match ask_at(&endpoint, prompt, ctx, &mut *on) {
             Ok(v) => return Ok(v),
             Err(attempt) => {
                 if attempt.sent {
@@ -523,6 +587,26 @@ pub fn ask(prompt: &str, cdp: &str, ctx: &Context) -> Result<Value, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 多段落提示过一遍 ProseMirror 再读回来，空行数量不一定守恒（实测长提示会多出
+    /// 几十个空行），所以比对必须折叠空白；但漏字仍然要能挡住。
+    #[test]
+    fn the_composer_check_tolerates_whitespace_but_not_missing_text() {
+        let want = "第一段\n\n第二段 有 空格\n第三段";
+        // 页面把它渲染成每段一个 <p>，读回来空行更多、行尾多一个空格
+        let got = "第一段\n\n\n\n第二段 有 空格 \n\n第三段";
+        assert!(same_text(got, want), "只差空白就不该拦");
+        // 少了半个字必须拦（否则会把残句发出去）
+        assert!(!same_text("第一段\n\n第二段 有 空\n第三段", want));
+        assert!(!same_text("", want));
+    }
+
+    #[test]
+    fn the_whitespace_measure_matches_between_shapes() {
+        assert_eq!(squash_len("a\n\nb"), 3);
+        assert_eq!(squash_len("a   b"), 3);
+        assert_eq!(squash_len("   "), 0);
+    }
 
     #[test]
     fn a_conversation_id_is_read_out_of_the_path() {

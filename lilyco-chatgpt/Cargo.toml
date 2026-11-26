@@ -24,11 +24,19 @@ ureq = { version = "3", default-features = false, features = ["rustls", "gzip", 
 # 可选的浏览器登录态抓取：CDP 走 websocket。只用 handshake（本机 ws:// 不需要 TLS），
 # 它是纯 Rust，不启动也不链接任何浏览器 —— 二进制里没有 chromium/ego-lite 依赖。
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
+# `serve`：把同样的能力吐成 OpenAI 兼容的 /v1/*，给 dsh（DeepSeek Harness）这类
+# 客户端当模型提供端用。与 lilyco-web2cli 同一个 HTTP 栈（axum 0.8 + tokio，已在
+# workspace 的 Cargo.lock 里），optional —— 不要这个能力就 --no-default-features。
+axum = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "net"], optional = true }
+async-stream = { version = "0.3", optional = true }
 
 [features]
 default = ["full"]
 # 全功能（CLI + TUI + Web + MCP）
-full = ["dep:lilyco", "lilyco/full"]
+full = ["dep:lilyco", "lilyco/full", "server"]
+# OpenAI 兼容 HTTP 端（`lchatgpt serve`）
+server = ["dep:axum", "dep:tokio", "async-stream"]
 # Android/Termux：headless（CLI + MCP）
 android = ["dep:lilyco"]
 

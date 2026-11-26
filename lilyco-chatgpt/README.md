@@ -1,10 +1,10 @@
 # lilyco-chatgpt (`lchatgpt`)
 
-**Drive the chatgpt.com account backend from the terminal: read-only conversation history, model list, two quota pools — and one command that actually asks the model.**
+**Drive the chatgpt.com account backend from the terminal: read-only conversation history, model list, two quota pools — and a command that actually asks the model, plus an OpenAI-compatible endpoint that lets other hosts (dsh) use the account as a model provider.**
 
 One `#[derive(App)]` struct per command, so every command also shows up as a TUI form, a Web console, and an MCP tool with no extra code.
 
-Everything ships as **one self-contained binary**: no OpenAI API key, no ego-lite install, no chromium install. A browser is **optional in two separate ways**: it is one source of login state (`lchatgpt login --from browser`), and it is what `ask` drives on its default path. Neither is a hard dependency — with nothing listening on a CDP port the chat path fails with an actionable error and the other eight commands keep working.
+Everything ships as **one self-contained binary**: no OpenAI API key, no ego-lite install, no chromium install. A browser is **optional in two separate ways**: it is one source of login state (`lchatgpt login --from browser`), and it is what `ask` drives on its default path. Neither is a hard dependency — with nothing listening on a CDP port the chat path fails with an actionable error and every other command keeps working.
 
 ## Two quota pools: chat by default, codex only on request
 
@@ -40,8 +40,9 @@ Nothing else touches the web chat endpoint: read-only REST is all the other comm
 | `auth` | T0 | **local** credential checkup, no network: every candidate source, which one wins, whether it can send, when it expires, and what to run next |
 | `ask` | **T1** | send one prompt — **chat quota by default** (drives a browser, reads the reply over REST); `--allow-codex` switches to SSE codex responses |
 | `login` | **T1** | store a login state in lchatgpt's own store (`--from browser` / `codex` / `refresh`) |
+| `serve` | **T1** | an **OpenAI-compatible HTTP endpoint** (`127.0.0.1:8790` by default: `/health`, `/v1/models`, `/v1/chat/completions` with SSE) so a host like dsh can use the account as a model. Models: `lchatgpt:chat` (default) and, only with `--allow-codex`, `lchatgpt:codex`. Blocks until killed — it has no `--json` result |
 
-Reads are T0 so an automated surface (MCP) can use them freely; `ask` and `login` are T1 and the default MCP policy (`DenyElevated`) refuses them.
+Reads are T0 so an automated surface (MCP) can use them freely; `ask`, `login` and `serve` are T1 and the default MCP policy (`DenyElevated`) refuses them.
 
 ```bash
 lchatgpt auth                                    # what credential am I actually using?
@@ -54,6 +55,7 @@ lchatgpt show-conversation --conversation-id 6b068588-ab08-83ea-a7fd-49cdd76f668
 lchatgpt search --query Temu
 lchatgpt ask --prompt "explain the borrow checker in one sentence"          # chat quota
 lchatgpt ask --allow-codex --prompt "explain the borrow checker" --effort low  # codex quota
+lchatgpt serve --port 8790                       # OpenAI-compatible endpoint for dsh (blocks)
 lchatgpt --tui     # picker
 lchatgpt --gui     # web console
 lchatgpt --mcp     # stdio JSON-RPC
@@ -96,6 +98,56 @@ Refresh: only the codex credential carries a `refresh_token`. `ask --allow-codex
 
 A harvested token can only read and has no `refresh_token`, so `login` refuses to silently downgrade: if the store already holds a send-capable credential, the read-only one is reported and discarded unless you pass `--force`.
 
+## Using the account as a model provider (`serve` → dsh)
+
+`lchatgpt serve` wraps the account in an **OpenAI-compatible HTTP endpoint**, so any client that speaks `/v1/chat/completions` can treat ChatGPT as a model. It exists for hosts like **dsh (DeepSeek Harness)**, whose `llm-pi-ai` plugin serves a route with `api: openai-completions`.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | `{ ok, service, quota: "chat" \| "chat+codex", models }` |
+| `GET /v1/models` | OpenAI `{ object: "list", data: [...] }` — the shape pi-ai's discovery expects |
+| `POST /v1/chat/completions` | SSE (`chat.completion.chunk` … `data: [DONE]`) when `stream: true`, a single `chat.completion` otherwise |
+
+Quota ownership does not change because there is an HTTP layer in front: **only `lchatgpt:chat` is listed by default**, and it is the browser-driving path. `lchatgpt:codex` appears only when the server was started with `--allow-codex`; asking for it otherwise is a `400` that names the switch. A model the endpoint does not list is never silently substituted.
+
+Multi-turn history is flattened: the chat path can only send one blob and read one blob back, so `messages` are joined into one text (one `User:` / `Assistant:` prefixed block per turn, system first). The codex path keeps turns apart and folds `system` / `developer` into `instructions`.
+
+### Wiring it into dsh
+
+Add a route under `config.providers` of the `llm-pi-ai` entry in `~/.dsh/profiles/<name>/cordis.patch.yml`:
+
+```yaml
+      lchatgpt:
+        displayName: lchatgpt
+        api: openai-completions
+        baseURL: http://127.0.0.1:8790/v1
+        # the local endpoint ignores keys, but pi-ai needs an apiKey or an Authorization header
+        headers:
+          Authorization: Bearer unused
+        models:
+          - id: "lchatgpt:chat"
+            input: [text]
+            name: ChatGPT (chat quota, drives a browser)
+            contextWindow: 128000
+            maxTokens: 32000
+```
+
+Three things that are easy to get wrong:
+
+1. `api:` must be one of the four protocols this pi-ai build serves (`openai-completions`, `openai-responses`, `anthropic-messages`, `google-generative-ai`). `openai-codex-responses` is **rejected** — that one is reachable only through a catalog provider's OAuth login, not through a patch.
+2. **Do not set `apiKeyEnv`.** It is a reference into the harness credential store; with nothing stored you get `MISSING_CREDENTIAL`. A placeholder `headers.Authorization` is enough (pi-ai accepts any non-empty authorization).
+3. Restart dsh after editing a patch. The desktop profile is owned by the Electron app (`--profile desktop` is refused on the CLI), so only the UI restart applies it.
+
+Verify without opening a UI — a headless profile plus a temporary overlay answers one prompt and exits:
+
+```bash
+lchatgpt serve --port 8790 &
+dsh --profile headless --patch /tmp/lchatgpt-provider.yml --json "answer with two words: banana"
+# -> {"type":"text",...} ... {"type":"final",...}
+```
+
+Measured: one dsh turn sends two POSTs (the conversation and a session-title request); the main one carries 23 tool definitions and `max_completion_tokens: 32000`; the whole turn took 19 s. **The web path reports no token usage**, so `step_end` usage is all zeros — the chatgpt.com web API simply does not expose it.
+
 ## Two things that bite
 
 - **A conversation is a graph, not a line.** `mapping` is `node-id → {id,parent,children,message}`; `current_node` points at what the user last saw. `show-conversation` walks `parent` back from `current_node`, reverses, then drops tool-call nodes (`recipient != "all"`) and reasoning summaries (unless `--include-reasoning`). Measured on a real conversation: 2265 nodes were text 273, code 1668, reasoning_recap 66, thoughts 255 — filtering is not optional.
@@ -110,8 +162,9 @@ Full command table, parameter semantics, real output, and known limits: [`docs/c
 ## Known limits
 
 - The codex path is verified live end to end (`output_text.delta` streaming, `response_id`, token usage), but only on `gpt-6.2-sol` — a ChatGPT account gets `400 model_not_supported` for every other slug, so the command whitelists it. The chat path takes whatever model the web page picks.
-- The chat path needs a live, logged-in chromium — that is the price of spending the chat quota. No browser means no chat send (the command fails and points at `--allow-codex`); the other eight commands are unaffected.
+- The chat path needs a live, logged-in chromium — that is the price of spending the chat quota. No browser means no chat send (the command fails and points at `--allow-codex`); every other command is unaffected.
 - The chat path is slow: one prompt measured 20–45 s, almost all of it waiting for the page, the send button, and the conversation to land. The codex path is ~2 s.
 - When a window is exhausted the backend answers `429 usage_limit_reached`; that is reported as structured output with the reset time instead of retrying or panicking. Read-only commands are unaffected.
 - A browser login state is read-only and cannot refresh itself; re-run `login --from browser` when it lapses.
+- `serve` is not a general OpenAI API shim: no tool calling, no images, no token accounting on the chat path, and a multi-turn history is flattened into one prompt. `stream: true` on the chat path emits the answer in one or two deltas, because the web conversation is polled rather than streamed.
 - No attachments, no images. Only plain text goes into the composer (`Input.insertText`). The chat path does leave a real conversation behind (the returned `conversation_id` is it); the codex path is a `store: false` stateless call.
