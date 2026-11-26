@@ -1,7 +1,14 @@
 //! 协议常量与 JSON-RPC 线格式：这一层只认「报文长什么样」，不认注册表。
 
-/// MCP 协议版本（2024-11-05）
+/// MCP 协议版本（本实现声明的最低版本，也是协商不上时的回落值）
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
+
+/// 本实现能协商的协议版本，新的在前。
+///
+/// 客户端在 `initialize` 里报 `params.protocolVersion`；给的是这里面的值就原样回，
+/// 否则回 [`PROTOCOL_VERSION`]，由客户端自己决定是否继续（官方 SDK 会因此断开）。
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] =
+    &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 /// JSON-RPC 错误码
 pub const ERROR_PARSE: i64 = -32700;
@@ -34,10 +41,40 @@ pub(crate) fn progress_notification(
     .to_string()
 }
 
-pub(crate) fn initialize_response() -> Result<serde_json::Value, (i64, String)> {
+/// 协商 `initialize` 的协议版本：客户端给的是我们支持的版本就原样回，
+/// 否则回最低版本 [`PROTOCOL_VERSION`]。
+///
+/// 为什么必须「原样回」：官方 SDK（dsh 用的 @modelcontextprotocol/client 就是）在
+/// legacy 握手后会校验 `legacyVersions.includes(result.protocolVersion)`，不在列表里
+/// 直接抛 `Server's protocol version is not supported` 并断开连接。
+pub(crate) fn negotiate_version(params: Option<&serde_json::Value>) -> &'static str {
+    let offered = params
+        .and_then(|p| p.get("protocolVersion"))
+        .and_then(|v| v.as_str());
+    match offered {
+        Some(v) => SUPPORTED_PROTOCOL_VERSIONS
+            .iter()
+            .copied()
+            .find(|s| *s == v)
+            .unwrap_or(PROTOCOL_VERSION),
+        None => PROTOCOL_VERSION,
+    }
+}
+
+/// `initialize` 的结果。
+///
+/// `capabilities` 里的 `resources` 必须是**存在的键**（哪怕空对象）：不少客户端
+/// （含 dsh 的 MCP 客户端）用 `serverCapabilities.resources !== undefined` 判断要不要
+/// 真的发 `resources/list`，键缺失就直接返回空列表、一条请求都不发。
+pub(crate) fn initialize_response(
+    params: Option<&serde_json::Value>,
+) -> Result<serde_json::Value, (i64, String)> {
     Ok(serde_json::json!({
-        "protocolVersion": PROTOCOL_VERSION,
-        "capabilities": { "tools": {} },
+        "protocolVersion": negotiate_version(params),
+        "capabilities": {
+            "tools": {},
+            "resources": {},
+        },
         "serverInfo": {
             "name": "lilyco",
             "version": env!("CARGO_PKG_VERSION"),

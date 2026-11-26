@@ -57,7 +57,7 @@ fn test_registry() -> Registry {
 }
 
 #[test]
-fn initialize_returns_protocol_version() {
+fn initialize_falls_back_to_the_lowest_version() {
     let server = McpServer::new(test_registry());
     let resp = server
         .handle_line(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#)
@@ -66,6 +66,36 @@ fn initialize_returns_protocol_version() {
     assert_eq!(v["id"], 1);
     assert_eq!(v["result"]["protocolVersion"], PROTOCOL_VERSION);
     assert_eq!(v["result"]["capabilities"]["tools"], serde_json::json!({}));
+    // `resources` 必须是存在的键：dsh 用它判断要不要真的发 resources/list
+    assert_eq!(
+        v["result"]["capabilities"]["resources"],
+        serde_json::json!({})
+    );
+}
+
+#[test]
+fn initialize_echoes_a_version_it_supports() {
+    for version in SUPPORTED_PROTOCOL_VERSIONS {
+        let server = McpServer::new(test_registry());
+        let line = format!(
+            r#"{{"jsonrpc":"2.0","id":7,"method":"initialize","params":{{"protocolVersion":"{version}"}}}}"#
+        );
+        let resp = server.handle_line(&line).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+        assert_eq!(v["result"]["protocolVersion"], *version);
+    }
+}
+
+#[test]
+fn initialize_rejects_an_unknown_version_by_falling_back() {
+    let server = McpServer::new(test_registry());
+    let resp = server
+        .handle_line(
+            r#"{"jsonrpc":"2.0","id":8,"method":"initialize","params":{"protocolVersion":"1999-01-01"}}"#,
+        )
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["result"]["protocolVersion"], PROTOCOL_VERSION);
 }
 
 #[test]
@@ -738,4 +768,207 @@ fn serve_e2e_roots_roundtrip() {
         "roots should round-trip: {final_out}"
     );
     client.join().unwrap();
+}
+
+// ---- resources：每条命令一个 lilyco://command/<name> 资源 ----
+
+#[test]
+fn resources_list_exposes_each_visible_command() {
+    let server = McpServer::new(test_registry());
+    let resp = server
+        .handle_line(r#"{"jsonrpc":"2.0","id":11,"method":"resources/list"}"#)
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    let resources = v["result"]["resources"].as_array().unwrap();
+    assert_eq!(resources.len(), 1);
+    assert_eq!(resources[0]["uri"], "lilyco://command/echo");
+    assert_eq!(resources[0]["name"], "echo");
+    assert_eq!(resources[0]["mimeType"], "application/json");
+}
+
+#[test]
+fn resources_read_returns_the_command_schema() {
+    let server = McpServer::new(test_registry());
+    let resp = server
+        .handle_line(
+            r#"{"jsonrpc":"2.0","id":12,"method":"resources/read","params":{"uri":"lilyco://command/echo"}}"#,
+        )
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    let contents = v["result"]["contents"].as_array().unwrap();
+    assert_eq!(contents.len(), 1);
+    assert_eq!(contents[0]["mimeType"], "application/json");
+    let text = contents[0]["text"].as_str().unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(text).unwrap();
+    assert_eq!(parsed["name"], "echo");
+    assert_eq!(parsed["safety"], "T0");
+    assert_eq!(parsed["inputSchema"]["type"], "object");
+}
+
+#[test]
+fn resources_read_rejects_an_unknown_uri() {
+    let server = McpServer::new(test_registry());
+    let resp = server
+        .handle_line(
+            r#"{"jsonrpc":"2.0","id":13,"method":"resources/read","params":{"uri":"file:///etc/passwd"}}"#,
+        )
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["error"]["code"], ERROR_INVALID_PARAMS);
+}
+
+#[test]
+fn empty_resource_template_and_prompt_tables_answer_cleanly() {
+    let server = McpServer::new(test_registry());
+    for (id, method, key) in [
+        (14, "resources/templates/list", "resourceTemplates"),
+        (15, "prompts/list", "prompts"),
+    ] {
+        let line = format!(r#"{{"jsonrpc":"2.0","id":{id},"method":"{method}"}}"#);
+        let resp = server.handle_line(&line).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+        assert_eq!(v["result"][key], serde_json::json!([]), "{method}");
+    }
+}
+
+// ---- tools/call 的图片内容块 ----
+
+/// 一个会「出图」的 App：返回值里带 `images[].data_base64`，由 server 译成 image 块
+struct Painter;
+
+impl App for Painter {
+    fn schema() -> CommandSchema {
+        CommandSchema {
+            name: "paint".into(),
+            about: "paint something".into(),
+            args: vec![],
+            subcommands: vec![],
+            safety: lilyco_core::safety::SafetyTier::ReadOnly,
+        }
+    }
+
+    fn from_args(_args: &HashMap<String, serde_json::Value>) -> Result<Self, AppError> {
+        Ok(Painter)
+    }
+
+    fn run(&self, ctx: &Context) -> Result<serde_json::Value, AppError> {
+        let r = serde_json::json!({
+            "text": "",
+            "images": [
+                { "file_id": "file_a", "mime_type": "image/png", "data_base64": "iVBORw==" },
+                { "file_id": "file_b", "mime_type": "image/svg+xml", "data_base64": "PHN2Zz4=" },
+                { "file_id": "file_c", "mime_type": "image/webp", "data_base64": "UklGRg==" },
+            ],
+        });
+        ctx.done(r.clone(), 0);
+        Ok(r)
+    }
+}
+
+fn painter_registry() -> Registry {
+    let mut reg = Registry::new();
+    reg.register(RegisteredCommand::from_app::<Painter>())
+        .unwrap();
+    reg
+}
+
+#[test]
+fn images_travel_as_mcp_image_blocks() {
+    let server = McpServer::new(painter_registry());
+    let resp = server
+        .handle_line(
+            r#"{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"paint","arguments":{}}}"#,
+        )
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["result"]["isError"], false);
+    let content = v["result"]["content"].as_array().unwrap();
+    assert_eq!(content[0]["type"], "text");
+    let images: Vec<&serde_json::Value> = content.iter().filter(|c| c["type"] == "image").collect();
+    // 只放行客户端支持的四种 MIME：png 与 webp 通过，image/svg+xml 被丢掉
+    assert_eq!(images.len(), 2);
+    assert_eq!(images[0]["mimeType"], "image/png");
+    assert_eq!(images[0]["data"], "iVBORw==");
+    assert_eq!(images[1]["mimeType"], "image/webp");
+    // 文本块仍然在，且是完整结果（Agent 还能读到 file_id 等元数据）
+    assert!(content[0]["text"].as_str().unwrap().contains("file_a"));
+}
+
+#[test]
+fn image_blocks_strip_whitespace_and_skip_bad_entries() {
+    let value = serde_json::json!({
+        "images": [
+            { "mime_type": "image/png", "data_base64": "iVBO\nRw==" },
+            { "mime_type": "image/png" },
+            { "mime_type": "text/plain", "data_base64": "aGk=" },
+        ]
+    });
+    let blocks = crate::server::image_blocks(&value);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0]["data"], "iVBORw==");
+    assert_eq!(crate::server::image_blocks(&serde_json::json!({})).len(), 0);
+}
+
+#[test]
+fn image_blocks_read_top_level_and_nested_images() {
+    let value = serde_json::json!({
+        "text": "first",
+        "images": [{ "file_id": "file_a", "mime_type": "image/png", "data_base64": "AAAA" }],
+        "messages": [
+            { "role": "user", "text": "draw", "images": null },
+            {
+                "role": "assistant",
+                "text": "",
+                "images": [
+                    { "file_id": "file_b", "mime_type": "image/jpeg", "data_base64": "BBBB" }
+                ]
+            }
+        ]
+    });
+    let blocks = crate::server::image_blocks(&value);
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(blocks[0]["type"], "image");
+    assert_eq!(blocks[0]["data"], "AAAA");
+    assert_eq!(blocks[0]["mimeType"], "image/png");
+    assert_eq!(blocks[1]["data"], "BBBB");
+    assert_eq!(blocks[1]["mimeType"], "image/jpeg");
+}
+
+#[test]
+fn image_blocks_skip_unknown_mimes_and_empty_data() {
+    let value = serde_json::json!({
+        "images": [
+            { "mime_type": "application/octet-stream", "data_base64": "AAAA" },
+            { "mime_type": "image/png", "data_base64": "   " },
+            { "mime_type": "image/webp", "data_base64": " CC\nCC " }
+        ]
+    });
+    let blocks = crate::server::image_blocks(&value);
+    assert_eq!(blocks.len(), 1);
+    // 客户端要求严格 canonical 的 base64：空白必须被剔掉
+    assert_eq!(blocks[0]["data"], "CCCC");
+}
+
+#[test]
+fn image_blocks_stop_at_the_cap() {
+    let many: Vec<serde_json::Value> = (0..20)
+        .map(|i| serde_json::json!({ "mime_type": "image/png", "data_base64": format!("D{i}") }))
+        .collect();
+    let value = serde_json::json!({ "images": many });
+    assert_eq!(crate::server::image_blocks(&value).len(), 8);
+}
+
+#[test]
+fn inline_base64_is_stripped_from_the_text_block() {
+    let mut value = serde_json::json!({
+        "messages": [{
+            "images": [{ "file_id": "file_a", "data_base64": "QUJD" }]
+        }]
+    });
+    crate::server::strip_inline_data(&mut value);
+    // 图已经在 image 内容块里了，文本块再带一份会让上下文翻倍
+    assert!(value["messages"][0]["images"][0]
+        .get("data_base64")
+        .is_none());
+    assert_eq!(value["messages"][0]["images"][0]["file_id"], "file_a");
 }
