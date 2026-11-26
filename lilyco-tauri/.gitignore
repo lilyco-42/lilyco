@@ -10,3 +10,9 @@ resources/icon-build.json
 resources/icon-package-evidence.json
 resources/native-window-icon.png
 icon-deb-inspection/
+
+ui/node_modules/
+resources/FRONTEND-LICENSES.json
+resources/RUST-LICENSES.json
+resources/MICROSOFT-WEBVIEW2-SDK-LICENSE.txt
+tests/evidence/

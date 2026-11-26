@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-tauri"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 description = "lilyco 办公文件桌面端（Tauri 2）：选一份 docx / xlsx / pptx / odt / pdf，把 lbin 那份结构账显示出来"
 # 桌面端是产物不是库：不进 crates.io，也就不参与发布闸门

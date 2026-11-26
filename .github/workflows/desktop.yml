@@ -29,7 +29,26 @@ permissions:
   contents: write
 
 jobs:
+  windows-launch-contract:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Observe ordinary Windows token and CI profile access before compilation
+        run: |
+          python lilyco-tauri/tests/test_windows_native_process.py
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          python lilyco-tauri/tests/test_nsis_payload.py
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          ./lilyco-tauri/tests/test_shortcut_icon.ps1
+          python lilyco-tauri/tests/test_native_file_dialog.py
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
   workspace-contract:
+    needs: windows-launch-contract
     runs-on: ubuntu-latest
     timeout-minutes: 100
     steps:
@@ -40,6 +59,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Build the actual shadcn Office interface
+        working-directory: lilyco-tauri/ui
+        run: |
+          npm ci
+          npm run build
+      - name: Preserve original component sources and complete frontend notices
+        run: python lilyco-tauri/prepare_ui_notices.py
       - name: Prepare reviewed Lyco desktop icons in Actions
         run: |
           python -m pip install pillow==11.3.0 pefile==2024.8.26
@@ -51,11 +77,13 @@ jobs:
       - name: Existing desktop and software GPU prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev libxdo-dev libegl1 libgl1-mesa-dri mesa-vulkan-drivers
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev libxdo-dev webkit2gtk-driver xvfb libegl1 libgl1-mesa-dri mesa-vulkan-drivers
       - uses: Swatinem/rust-cache@v2
         with:
           key: vision-workspace-contract
           cache-on-failure: true
+      - name: Validate original Rust and SDK attribution policy
+        run: python lilyco-tauri/tests/test_rust_notices.py
       - name: Real existing Tauri sidecar
         shell: bash
         run: |
@@ -91,6 +119,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Build the actual shadcn Office interface
+        working-directory: lilyco-tauri/ui
+        run: |
+          npm ci
+          npm run build
+      - name: Preserve original component sources and complete frontend notices
+        run: python lilyco-tauri/prepare_ui_notices.py
       - name: Prepare reviewed Lyco desktop icons in Actions
         run: |
           python -m pip install pillow==11.3.0 pefile==2024.8.26
@@ -103,11 +138,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
-            patchelf libssl-dev libxdo-dev
+            patchelf libssl-dev libxdo-dev webkit2gtk-driver xvfb
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Collect actual locked Rust and native SDK original notices
+        run: |
+          python lilyco-tauri/tests/test_rust_notices.py
+          python lilyco-tauri/tests/test_native_endpoint.py
+          python lilyco-tauri/collect_rust_notices.py
+
+      - name: Verify ordinary Windows process permissions and owned-process cleanup
+        if: matrix.label == 'windows'
+        run: python lilyco-tauri/tests/test_windows_native_process.py
 
       # sidecar 得先有：桌面端不自己再造一个读者，它跑的就是 CI 上那本对账认的 lbin
       - name: 编 lbin（随包带出来的 sidecar）
@@ -181,7 +226,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: lilyco-tauri
-          # 见上面第 2 条：前端零 npm 依赖，所以 CLI 由 npx 现取，版本与 Cargo 那边的 tauri = "2" 同族
+          # React/shadcn 在前置步骤构建；此处显式使用同一固定 Tauri v2 CLI。
           tauriScript: npx --yes @tauri-apps/cli@2.12.1
           includeRelease: true
           # Build only. The three platform receipts are checked below, after this
@@ -189,6 +234,26 @@ jobs:
 
       - name: Inspect actual packaged icon payloads
         run: python lilyco-tauri/desktop_icons.py verify --platform ${{ matrix.label }}
+      - name: Install the pinned official Tauri driver
+        if: matrix.label != 'macos'
+        run: cargo install tauri-driver --version 2.1.0 --locked
+      - name: Match the actual WebView2 driver version (Windows)
+        if: matrix.label == 'windows'
+        shell: pwsh
+        run: |
+          cargo install --git https://github.com/chippers/msedgedriver-tool --rev 8c4b34f51b45f5cf08013366d703de464ab871d1 --locked
+          & "$env:USERPROFILE/.cargo/bin/msedgedriver-tool.exe"
+          $PWD.Path >> $env:GITHUB_PATH
+      - name: Actual native file/event/CLI/UI round trip (Windows)
+        if: matrix.label == 'windows'
+        run: python lilyco-tauri/tests/native_workbench.py
+      - name: Actual native file/event/CLI/UI round trip (Linux)
+        if: matrix.label == 'linux'
+        run: xvfb-run -a python lilyco-tauri/tests/native_workbench.py
+      - name: Actual NSIS installation, installed UI and safe uninstall (Windows)
+        if: matrix.label == 'windows'
+        shell: pwsh
+        run: ./lilyco-tauri/tests/install_acceptance.ps1
       # bundle 到底落在哪由 find 说，不靠猜：workspace 成员可能出在 target/release/bundle，
       # 也可能出在 target/<triple>/release/bundle，收齐后平铺进 dist/。
       # 空手而归时明着红（并把 target 下所有 bundle 目录打出来），而不是静默交一个空工件
@@ -207,7 +272,10 @@ jobs:
           fi
           while IFS= read -r f; do cp "$f" dist/; done < /tmp/bundles.txt
           cp lilyco-tauri/resources/icon-build.json lilyco-tauri/resources/icon-package-evidence.json dist/
+          cp lilyco-tauri/resources/FRONTEND-LICENSES.json lilyco-tauri/resources/RUST-LICENSES.json dist/
+          if [ "$RUNNER_OS" = "Windows" ]; then cp lilyco-tauri/resources/MICROSOFT-WEBVIEW2-SDK-LICENSE.txt dist/; fi
           if [ "$RUNNER_OS" = "Windows" ]; then cp lilyco-tauri/resources/native-window-icon.png dist/; fi
+          if [ -d lilyco-tauri/tests/evidence ]; then cp -r lilyco-tauri/tests/evidence dist/native-workbench; fi
           echo "=== 收到的工件 ==="
           ls -l dist
 
@@ -217,3 +285,15 @@ jobs:
           name: lilyco-office-${{ matrix.label }}
           if-no-files-found: error
           path: dist
+
+      - name: Preserve actual native failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: office-native-failure-${{ matrix.label }}
+          if-no-files-found: ignore
+          path: |
+            lilyco-tauri/tests/evidence/
+            lilyco-tauri/resources/icon-package-evidence.json
+            lilyco-tauri/resources/native-window-icon.png
+            lilyco-tauri/resources/RUST-LICENSES.json

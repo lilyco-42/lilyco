@@ -32,6 +32,21 @@ pub struct CommandInfo {
     pub hint: String,
 }
 
+/// 保留同一次 CLI 调用的原文，避免 JS 重排或舍入 JSON 数值。
+#[derive(Debug, Serialize)]
+pub struct OfficeOutput {
+    pub value: Value,
+    pub json: String,
+}
+
+impl OfficeOutput {
+    fn from_stdout(stdout: Vec<u8>) -> Result<Self> {
+        let json = String::from_utf8(stdout).map_err(|one| AppError::Parse(one.to_string()))?;
+        let value = serde_json::from_str(&json).map_err(|one| AppError::Parse(one.to_string()))?;
+        Ok(Self { value, json })
+    }
+}
+
 /// 前端渲染那排按钮用的一本协议，不各写各的
 #[tauri::command]
 pub fn office_commands() -> Vec<CommandInfo> {
@@ -48,7 +63,7 @@ pub fn office_commands() -> Vec<CommandInfo> {
 ///
 /// `--json` 恒加：这一层给前端的必须是结构，不是给人看的排版；页面自己按账本渲染
 #[tauri::command]
-pub async fn office_run(app: AppHandle, command: String, path: String) -> Result<Value> {
+pub async fn office_run(app: AppHandle, command: String, path: String) -> Result<OfficeOutput> {
     if !COMMANDS.iter().any(|one| one.0 == command) {
         return Err(AppError::Args(format!("不认识的命令：{command}")));
     }
@@ -77,12 +92,31 @@ pub async fn office_run(app: AppHandle, command: String, path: String) -> Result
             String::from_utf8_lossy(&output.stderr).trim()
         )));
     }
-    serde_json::from_slice(&output.stdout).map_err(|one| AppError::Parse(one.to_string()))
+    OfficeOutput::from_stdout(output.stdout)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::COMMANDS;
+    use super::{OfficeOutput, COMMANDS};
+
+    #[test]
+    fn original_stdout_preserves_precision_whitespace_and_invocation_timing() {
+        let original = concat!(
+            "{\n  \"large\": 9007199254740993, \"fraction\": 1.2300,",
+            " \"elapsed_ms\": 3, \"text\": \"中文\"\n}\n"
+        );
+        let output = OfficeOutput::from_stdout(original.as_bytes().to_vec()).unwrap();
+        assert_eq!(output.json.as_bytes(), original.as_bytes());
+        assert_eq!(output.value["large"].as_u64(), Some(9007199254740993));
+        assert_eq!(output.value["elapsed_ms"].as_u64(), Some(3));
+        assert_eq!(output.value["text"].as_str(), Some("中文"));
+    }
+
+    #[test]
+    fn invalid_utf8_and_non_json_are_not_presented_as_success() {
+        assert!(OfficeOutput::from_stdout(vec![0xff]).is_err());
+        assert!(OfficeOutput::from_stdout(b"not JSON".to_vec()).is_err());
+    }
 
     /// 这一层唯一的自由就是那十个名字：它们必须与 `lbin` 真正认得的子命令一字不差
     #[test]
