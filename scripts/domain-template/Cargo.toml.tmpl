@@ -1,10 +1,10 @@
 [package]
 name = "@CRATE@"
-version.workspace = true
+version = "0.1.0"
 edition = "2021"
 description = "@BIN@ — <这个域回答什么问题>，四端 (CLI / TUI / Web / MCP) + AI 可调"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/lilyco-42/lilyco"
+repository = "https://github.com/Lyco-team/lilyco"
 keywords = ["cli", "mcp"]
 categories = ["command-line-interface", "development-tools"]
 
@@ -13,11 +13,9 @@ name = "@BIN@"
 path = "src/main.rs"
 
 [dependencies]
-# 可选：android 构建用 headless（--no-default-features --features android，
-# 只剩 CLI + MCP，纯 Rust 可在 aarch64-linux-android 编译）。
-# 应用 crate 只依赖 facade：core 的类型走 lilyco::prelude::*，
-# derive(App) 默认展开成 ::lilyco::__core::…（要绕开 facade 用 #[app(crate = "lilyco_core")]）
-lilyco = { version = "0.3", path = "../lilyco", optional = true, default-features = false }
+# 默认独立可编译（无需处于 lilyco 父级 workspace 内）。
+# Android/Termux 构建用 headless：--no-default-features --features android（纯 Rust CLI + MCP）。
+lilyco = { git = "https://github.com/Lyco-team/lilyco.git", optional = true, default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -31,12 +29,6 @@ android = ["dep:lilyco"]
 [dev-dependencies]
 tempfile = "3"
 
-# ── cargo binstall ────────────────────────────────────────
-# 只有 crate 发布且 CI 真的产出该资产时才有效；资产命名 `{ name }-{ target }{ binary-ext }`
-# （完整 target triple）、pkg-fmt = "bin"（下载的单文件即二进制）。
-# 坑：`{ name }` 展开成**包名**（lilyco-<域>），而 CI 的 staging 现在按**二进制名**
-# （l<域>-…）发布，两者对不上 → binstall 只会 404 回退源码编译。补 release 资产时
-# 顺手拷一份按包名命名的，或照 docs/INTEGRATION.md §0 的两种改法二选一。
 [package.metadata.binstall]
-pkg-url = "https://github.com/lilyco-42/lilyco/releases/download/v{ version }/{ name }-{ target }{ binary-ext }"
+pkg-url = "https://github.com/Lyco-team/lilyco/releases/download/v{ version }/{ name }-{ target }{ binary-ext }"
 pkg-fmt = "bin"

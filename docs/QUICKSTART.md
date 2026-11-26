@@ -1,10 +1,11 @@
 ﻿## Quick Start
 
-Create a new project and add the dependencies:
+Create a new project and add the dependencies (`features = ["full"]` enables TUI + Web GUI alongside CLI + MCP; default features are headless CLI + MCP):
 
 ```bash
 cargo new imgpress && cd imgpress
-cargo add lilyco serde serde_json image      # 一个框架依赖即可（宏经 facade 解析路径）
+cargo add --git https://github.com/Lyco-team/lilyco.git lilyco --features full
+cargo add serde serde_json image
 ```
 
 Paste this into `src/main.rs`:

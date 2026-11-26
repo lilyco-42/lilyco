@@ -146,6 +146,14 @@ mod tests {
             TEMPLATE_CARGO_TOML.contains("@BIN@"),
             "Cargo.toml 模板丢了 @BIN@"
         );
+        assert!(
+            !TEMPLATE_CARGO_TOML.contains("version.workspace"),
+            "外部开发者独立脚手架不能依赖父级 workspace"
+        );
+        assert!(
+            !TEMPLATE_CARGO_TOML.contains("path = \"../lilyco\""),
+            "外部开发者独立脚手架不能写死相对路径 ../lilyco"
+        );
         assert!(TEMPLATE_MAIN_RS.contains("@BIN@"), "main.rs 模板丢了 @BIN@");
         assert!(TEMPLATE_SHOW_RS.contains("@BIN@"), "show.rs 模板丢了 @BIN@");
     }
