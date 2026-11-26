@@ -72,6 +72,11 @@ fn write_web(path: &Path) -> Result<()> {
     put(path, "ops/Caddyfile", contents!("ops/Caddyfile"))?;
     put(path, "web/package.json", contents!("web/package.json"))?;
     put(path, "web/pnpm-lock.yaml", contents!("web/pnpm-lock.yaml"))?;
+    put(
+        path,
+        "web/pnpm-workspace.yaml",
+        contents!("web/pnpm-workspace.yaml"),
+    )?;
     put(path, "web/tsconfig.json", contents!("web/tsconfig.json"))?;
     put(path, "web/vite.config.ts", contents!("web/vite.config.ts"))?;
     put(path, "web/index.html", contents!("web/index.html"))?;

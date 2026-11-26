@@ -32,6 +32,7 @@ fn presets_generate_portable_paths_and_refuse_to_overwrite() {
                 .unwrap()
                 .contains("ops/lilyco-no_std")
         );
+        assert_eq!(product.join("web/pnpm-workspace.yaml").exists(), fullstack);
         let metadata = Command::new("cargo")
             .current_dir(&product)
             .args(["metadata", "--locked", "--no-deps", "--format-version", "1"])

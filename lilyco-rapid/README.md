@@ -15,7 +15,7 @@ lilyco-rapid dev
 
 默认 API 为 `http://127.0.0.1:8421`，Web 为 `http://127.0.0.1:5173`。
 在 `Rapid.toml` 调整 API 地址，或通过 `RAPID_WEB_PORT` 调整 Vite 端口。修改地址后重启开发进程。
-本地全栈开发需要 Rust、Node.js 和 pnpm。仅需 API 时添加 `--preset api`，它只需要 Rust。
+本地全栈开发需要 Rust、Node.js 和 pnpm 12。仅需 API 时添加 `--preset api`，它只需要 Rust。
 
 ```sh
 lilyco-rapid generate resource notes --field title:string --field priority:i32 --field archived:bool

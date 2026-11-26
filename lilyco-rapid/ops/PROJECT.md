@@ -1,7 +1,7 @@
 # Lilyco Rapid 项目
 
 在项目目录执行 `lilyco-rapid dev`。API 地址见 `Rapid.toml`，有 `web/` 时
-Vite 会同时启动，终端会显示本机地址。开发 UI 需要 Node.js 与 pnpm。
+Vite 会同时启动，终端会显示本机地址。开发 UI 需要 Node.js 与 pnpm 12。
 
 ```sh
 lilyco-rapid generate resource notes --field title:string --field archived:bool
