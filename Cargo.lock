@@ -3879,7 +3879,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-gui"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-stream",
  "axum",
@@ -3889,6 +3889,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "toml 1.1.6+spec-1.1.0",
  "webbrowser",
  "windows-sys 0.61.2",
 ]

@@ -32,6 +32,7 @@
 
 mod ai_web;
 mod files;
+mod i18n;
 mod render;
 mod run;
 mod security;

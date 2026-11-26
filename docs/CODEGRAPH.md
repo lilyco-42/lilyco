@@ -78,7 +78,7 @@ Windows 包在 `tests/notices.py` 对 `packaging/webview2-sdk.json` 固定的官
 | `lilyco-macros` | 0.3.0 | syn/quote | `#[derive(App)]` / `#[derive(ValueEnum)]` 代码生成 |
 | `lilyco-cli` | 0.3.0 | core + clap | schema → clap 渲染 + 内置标志 + 输出格式化 |
 | `lilyco-tui` | 0.3.0 | core + ratatui | ratatui 表单状态机（单/多命令），不持有执行逻辑 |
-| `lilyco-gui` | 0.3.0 | core + axum/tokio | Web 控制台 + SSE 进度 + 回环安全中间件 |
+| `lilyco-gui` | 0.3.1 | core + axum/tokio + toml | Web 命令工作台、双语资源、SSE 与 Agent 自描述 |
 | `lilyco-mcp` | 0.3.0 | core（零额外依赖） | MCP 2024-11-05 stdio 服务器 + 进度通知 |
 | `lilyco` | 0.2.3 | 全部 | **唯一组合根**：后端自动选择 + 各形态入口 |
 | `lilyco-dev` | 0.3.0 | facade | **元 CLI**（bin `lilyco`）：`new` 脚手架 / `build` / `run` / `doc` 能力表 —— 它自己就是四命令的 dogfooding 样板 |
@@ -138,16 +138,18 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 ### lilyco-gui（`lilyco-gui/src/`，按职责分文件；对外只有 `GuiRenderer` / `RunnerFn` / `TOKEN_HEADER`）
 | 符号 | 位置 | 说明 |
 |---|---|---|
-| `serve_app::<A>()` | `lib.rs:158` | 单命令：**内部建单命令注册表**再走 `serve_registry`（只有那条路登记取消句柄，见 DESIGN.md §8.6）；`serve(schema, runner):78` 是给自定义 runner 的逃生口（页面据此不画「取消」） |
-| `serve_registry()` | `lib.rs:94` | **多命令**；`GET /?cmd=xxx` 渲染对应表单 + 下拉切换 |
-| `serve_state()` | `lib.rs:113` | 路由器装配处：十个端点（含 `/themes`、`/llms.txt`、`/.well-known/agent.json`、`/openapi.json`）+ `security_mw` 一道闸（**新增端点只改这里**） |
-| `security_mw()` | `security.rs:63` | 回环 Host 校验 + Origin 校验 + 随机 Token（防 DNS rebinding/CSRF）；`PROTECTED_POST:21` 是那份端点清单 |
+| `serve_app::<A>()` | `lib.rs:165` | 单命令：**内部建单命令注册表**再走 `serve_registry`（只有那条路登记取消句柄，见 DESIGN.md §8.6）；`serve(schema, runner):81` 是给自定义 runner 的逃生口（页面据此不画「取消」） |
+| `serve_registry()` | `lib.rs:97` | **多命令**；`GET /?cmd=xxx` 渲染对应表单 + 下拉切换 |
+| `serve_state()` | `lib.rs:116` | 路由器装配处：十个端点（含 `/themes`、`/llms.txt`、`/.well-known/agent.json`、`/openapi.json`）+ `security_mw` 一道闸（**新增端点只改这里**） |
+| `security_mw()` | `security.rs:67` | 回环 Host 校验 + Origin 校验 + 随机 Token（防 DNS rebinding/CSRF），涵盖 `POST /cancel/{id}` |
 | `AppState` | `state.rs:17` | schema / registry / sessions / cancels / token 一处真相（`pub(crate)`，测试夹具在同文件 `fixture`） |
-| `pick_command()` | `render.rs:32` | `?cmd=` → 可见命令（别名命中；隐藏回退第一个可见） |
-| `index()` | `render.rs:44` | 只做装配：取 schema → 拼组件 → 填模板 → 挂响应头（含 `no-store`，见 DESIGN.md §8.4） |
-| `render_field()` | `render.rs:122` | **一个 `ArgKind` 一个组件函数**（`widget_flag/text/number/enum/path/list` + `field_shell`/`dropzone`/`pick_button`/`list_row`/`command_nav`），转义在 `Field` 里算一次 |
-| 前端组件装配 | `assets/index.html` | 一个组件一个 `init*` + 末尾一行 `BOOT`；`initDropzone` 负责拖拽区里三个控件的点击分流 |
-| 设计令牌与组件目录 | `lilyco-gui/DESIGN.md` | §1–§6 颜色/间距/排版/圆角/动效/响应式的**唯一一张表**（`app.css` 只许引用表里的值），§7 DOM 契约，§10 每个组件的构成/七态/令牌/无障碍 |
+| `pick_command()` | `render.rs:36` | `?cmd=` → 可见命令（别名命中；隐藏回退第一个可见） |
+| `index()` | `render.rs:122` | 只做装配：取 schema → 拼组件 → 填模板 → 挂响应头（含 `no-store`，见 DESIGN.md §8.4） |
+| `render_field()` | `render.rs:224` | **一个 `ArgKind` 一个组件函数**（`widget_flag/text/number/enum/path/list` + `field_shell`/`dropzone`/`pick_button`/`list_row`/`command_nav`），转义在 `Field` 里算一次 |
+| 前端组件装配 | `assets/index.html` | 末尾 `BOOT` 装配语言、快捷键与文件控件。键盘提交和拖放走同一个表单 |
+| 设计令牌与组件目录 | `lilyco-gui/DESIGN.md` | 命令工作区布局、DOM 契约、i18n 与键盘操作 |
+| 双语资源 | `i18n.rs:20` / `assets/i18n/ui.toml` | 内嵌 TOML 解析一次，提供默认文案与浏览器词典 |
+| Agent 自描述 | `ai_web.rs:27` / `:56` / `:88` | LLM 指南、Agent Card、OpenAPI（令牌与 SSE 契约） |
 | `run_handler()` | `run.rs:88` | `/run`：多命令按 `req.cmd` 显式分发（未知/隐藏 → 400，**绝不静默换命令**）；单命令 runner 模式直接 spawn 调用方的 `RunnerFn` |
 | `run_progress()` | `run.rs:45` | 唯一会登记取消句柄的执行循环：handler → `executor::spawn` → SSE 事件转发 → 终态清理 `cancels`（`/cancel` 只找得到这条路上的会话） |
 | `upload_handler()` | `files.rs:98` | 拖拽上传 → base64 → 服务端临时副本（净化文件名 + 双重体积上限） |

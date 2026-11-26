@@ -25,6 +25,7 @@ use lilyco_core::theme::{
 };
 
 use crate::files::MAX_UPLOAD_BYTES;
+use crate::i18n::{default_message, localize_template, script_catalog};
 use crate::state::AppState;
 use crate::util::html_escape;
 
@@ -177,7 +178,8 @@ pub(crate) async fn index(
         Some(extra) => format!("{}{extra}", include_str!("../assets/app.css")),
         None => include_str!("../assets/app.css").to_string(),
     };
-    let html = HTML_TEMPLATE
+    let html = localize_template(HTML_TEMPLATE)
+        .replace("__CATALOG__", script_catalog())
         .replace("__CSS__", &css_bundle)
         .replace("__CANCEL_JS__", cancellable)
         .replace("__CMD_NAV__", &cmd_nav)
@@ -186,7 +188,12 @@ pub(crate) async fn index(
         .replace("__VIEWS_ATTR__", views_attr)
         .replace("__ABOUT__", &html_escape(&schema.about))
         .replace("__CMD_NAME__", &html_escape(&schema.name))
-        .replace("__CMD_JS__", &serde_json::json!(schema.name).to_string())
+        .replace(
+            "__CMD_JS__",
+            &serde_json::json!(schema.name)
+                .to_string()
+                .replace('<', "\\u003c"),
+        )
         .replace("__META__", &meta_json)
         .replace("__BODY_ATTR__", debug_attr)
         // token 最后注入且 token 为随机字母数字，无碰撞风险
@@ -353,15 +360,19 @@ fn widget_number(f: &Field, min: Option<f64>, max: Option<f64>) -> String {
         .unwrap_or_else(|| min.map(|m| m.to_string()).unwrap_or_default());
     let esc = &f.esc_name;
     let range = match (min, max) {
-        (Some(lo), Some(hi)) => Some(format!("取值 {lo} – {hi}")),
-        (Some(lo), None) => Some(format!("取值 >= {lo}")),
-        (None, Some(hi)) => Some(format!("取值 <= {hi}")),
+        (Some(lo), Some(hi)) => Some(format!("{lo} – {hi}")),
+        (Some(lo), None) => Some(format!(">= {lo}")),
+        (None, Some(hi)) => Some(format!("<= {hi}")),
         (None, None) => None,
     };
     let (described, hint) = match range {
-        Some(text) => (
+        Some(range) => (
             format!(r##" aria-describedby="hint-{esc}""##),
-            format!(r##"<span class="field-hint" id="hint-{esc}">{text}</span>"##),
+            format!(
+                r##"<span class="field-hint" id="hint-{esc}" data-i18n="bounds" data-range="{range_attr}">{text}</span>"##,
+                range_attr = html_escape(&range),
+                text = html_escape(&default_message("bounds").replace("{range}", &range))
+            ),
         ),
         None => (String::new(), String::new()),
     };
@@ -393,9 +404,9 @@ fn widget_enum(f: &Field, values: &[String]) -> String {
 /// - 手填 → 用户自己的字符串
 fn widget_path(f: &Field, must_exist: bool) -> String {
     let hint = if must_exist {
-        "拖到这里，或点「选择文件」—— 上传后自动回填服务端路径"
+        "drop_required"
     } else {
-        "可选：拖拽上传，或直接手填路径"
+        "drop_optional"
     };
     format!(
         r##"<input type="text" id="field-{esc}" class="mono" data-component="path" placeholder="{ph}"{req} value="{dv}" spellcheck="false" aria-describedby="up-{esc}">
@@ -423,10 +434,15 @@ fn dropzone(f: &Field, hint: &str) -> String {
     format!(
         r##"<div class="dropzone" data-component="dropzone" data-target="{esc}" data-max-upload="{MAX_UPLOAD_BYTES}">
 <input type="file" class="visually-hidden" tabindex="-1" aria-hidden="true">
-<span class="dz-icon" aria-hidden="true">⇪</span><span class="dz-hint">{hint}</span>
+<span class="dz-icon" aria-hidden="true">⇪</span>
+<span class="dz-hint" data-i18n="{hint}">{hint_text}</span>
+<span class="dz-active" data-i18n="drop_active">{active}</span>
 <span class="dz-status" id="up-{esc}" role="status" aria-live="polite"></span>
-<button type="button" class="btn-icon dz-browse" data-component="browse">选择文件</button>{pick}
+<button type="button" class="btn-icon dz-browse" data-component="browse" data-i18n="browse">{browse}</button>{pick}
 <button type="button" class="file-chip" id="chip-{esc}" hidden></button></div>"##,
+        hint_text = html_escape(default_message(hint)),
+        active = html_escape(default_message("drop_active")),
+        browse = html_escape(default_message("browse")),
         pick = pick_button(f)
     )
 }
@@ -437,8 +453,11 @@ fn pick_button(f: &Field) -> String {
         return String::new();
     }
     format!(
-        r##"<button type="button" class="btn-icon dz-pick" data-component="pick" data-pick="{esc}" aria-label="用系统选择器挑本机文件" title="用系统选择器挑本机文件（只回填真实路径，不上传副本）">本机</button>"##,
-        esc = f.esc_name
+        r##"<button type="button" class="btn-icon dz-pick" data-component="pick" data-pick="{esc}" aria-label="{label}" data-i18n-label="native_label" title="{title}" data-i18n-title="native_title" data-i18n="native">{text}</button>"##,
+        esc = f.esc_name,
+        label = html_escape(default_message("native_label")),
+        title = html_escape(default_message("native_title")),
+        text = html_escape(default_message("native"))
     )
 }
 
@@ -454,10 +473,11 @@ fn widget_list(f: &Field, item: &ArgKind) -> String {
     let esc = &f.esc_name;
     format!(
         r##"<div class="list-rows" id="list-{esc}" data-component="list" data-list="{esc}" data-item="{kind}">{rows}</div>
-<button type="button" class="btn-icon list-add" data-component="list-add" data-list-add="{esc}">＋ 添加一项</button>"##,
+<button type="button" class="btn-icon list-add" data-component="list-add" data-list-add="{esc}" data-i18n="add_item">{add}</button>"##,
         esc = esc,
         kind = kind_name(item),
-        rows = list_row(f, item) + &list_row(f, item)
+        rows = list_row(f, item) + &list_row(f, item),
+        add = html_escape(default_message("add_item"))
     )
 }
 
@@ -495,7 +515,8 @@ fn list_row(f: &Field, item: &ArgKind) -> String {
         ),
     };
     format!(
-        r##"<div class="list-row">{control}<button type="button" class="btn-icon row-del" aria-label="删除该行">✕</button></div>"##
+        r##"<div class="list-row">{control}<button type="button" class="btn-icon row-del" aria-label="{label}" data-i18n-label="delete_row">✕</button></div>"##,
+        label = html_escape(default_message("delete_row"))
     )
 }
 
@@ -519,8 +540,9 @@ fn command_nav(registry: &Registry, current: &str) -> String {
         })
         .collect();
     format!(
-        r##"<select id="cmd-nav" data-component="command-nav" aria-label="切换命令">{opts}</select>"##,
-        opts = opts
+        r##"<select id="cmd-nav" data-component="command-nav" aria-label="{label}" data-i18n-label="switch_command">{opts}</select>"##,
+        opts = opts,
+        label = html_escape(default_message("switch_command"))
     )
 }
 
@@ -719,7 +741,7 @@ mod tests {
             "must_exist=false 的 Path 话术要允许手填"
         );
         assert!(
-            !out.contains("拖到这里，或点「选择文件」"),
+            !out.contains(r#"data-i18n="drop_required">"#),
             "两种 must_exist 的话术串了"
         );
     }
@@ -883,7 +905,7 @@ mod tests {
         )])
         .await;
         assert!(
-            lo.contains(r##"min="0""##) && lo.contains("取值 >= 0"),
+            lo.contains(r##"min="0""##) && lo.contains("取值 &gt;= 0"),
             "只有 min 时也要念出来"
         );
         let hi = page(vec![arg(
@@ -898,7 +920,7 @@ mod tests {
         )])
         .await;
         assert!(
-            hi.contains(r##"max="9""##) && hi.contains("取值 <= 9"),
+            hi.contains(r##"max="9""##) && hi.contains("取值 &lt;= 9"),
             "只有 max 时也要念出来"
         );
         assert!(
@@ -1140,6 +1162,7 @@ mod tests {
             .unwrap()
             .replace("__CMD_JS__", "\"demo\"")
             .replace("__CANCEL_JS__", "true")
+            .replace("__CATALOG__", "{}")
             .replace("__META__", "[]");
         let mut path = std::env::temp_dir();
         path.push(format!("lilyco-gui-inline-{}.js", std::process::id()));
@@ -1192,7 +1215,9 @@ mod tests {
     fn the_chip_and_the_oversize_message_say_what_they_mean() {
         let page = HTML_TEMPLATE;
         assert!(
-            page.contains(r##"setAttribute("aria-label","清除已上传的 "##),
+            page.contains(r##"tr("remove_file",{name})"##)
+                && page.contains(r##"chip.setAttribute("aria-label",chip.title)"##)
+                && default_message("remove_file").contains("{name}"),
             "chip 的可访问名不再说明它清除的是什么了"
         );
         assert!(
@@ -1293,7 +1318,7 @@ mod tests {
             );
         }
         assert!(
-            html.contains("未识别组件"),
+            html.contains(r#"tr("unknown_component""#),
             "缺少未知组件的降级渲染：协议新增变体时旧前端至少要看得见"
         );
     }

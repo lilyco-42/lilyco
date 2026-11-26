@@ -13,6 +13,7 @@ use lilyco_core::schema::CommandSchema;
 use lilyco_core::theme::UI_PROTOCOL_VERSION;
 use serde_json::{json, Map, Value};
 
+use crate::security::TOKEN_HEADER;
 use crate::state::AppState;
 
 fn visible_schemas(state: &AppState) -> Vec<CommandSchema> {
@@ -99,19 +100,21 @@ pub(crate) async fn openapi_handler(State(state): State<Arc<AppState>>) -> Json<
             "description": state.schema.about,
         },
         "paths": {
-            "/llms.txt": { "get": { "operationId": "llmsTxt", "summary": "LLM concise guide" } },
-            "/.well-known/agent.json": { "get": { "operationId": "agentCard", "summary": "A2A Agent Card" } },
-            "/themes": { "get": { "operationId": "listThemes", "summary": "10 built-in UI ThemeSpecs and AdapterCapabilities" } },
+            "/llms.txt": { "get": { "operationId": "llmsTxt", "responses": { "200": { "description": "LLM command guide" } } } },
+            "/.well-known/agent.json": { "get": { "operationId": "agentCard", "responses": { "200": { "description": "Lilyco Agent Card" } } } },
+            "/themes": { "get": { "operationId": "listThemes", "responses": { "200": { "description": "UI theme presets and adapter capabilities" } } } },
             "/run": {
                 "post": {
                     "operationId": "runCommand",
-                    "summary": "Execute a visible Lilyco command and receive an SSE session_id",
+                    "summary": "Execute a visible Lilyco command and return its session ID",
+                    "security": [{ "loopbackToken": [] }],
                     "requestBody": {
                         "required": true,
                         "content": {
                             "application/json": {
                                 "schema": {
                                     "type": "object",
+                                    "required": ["args"],
                                     "properties": {
                                         "cmd": { "type": "string" },
                                         "args": { "type": "object" }
@@ -119,12 +122,31 @@ pub(crate) async fn openapi_handler(State(state): State<Arc<AppState>>) -> Json<
                                 }
                             }
                         }
+                    },
+                    "responses": {
+                        "200": { "description": "Command accepted", "content": { "application/json": {
+                            "schema": { "type": "object", "required": ["session_id"], "properties": { "session_id": { "type": "string" } } }
+                        } } },
+                        "400": { "description": "Invalid command or arguments" },
+                        "401": { "description": "Missing or invalid loopback token" }
+                    }
+                }
+            },
+            "/progress/{session_id}": {
+                "get": {
+                    "operationId": "streamProgress",
+                    "parameters": [{ "name": "session_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+                    "responses": {
+                        "200": { "description": "Run progress and result events, or an error event for an unknown or consumed session", "content": { "text/event-stream": { "schema": { "type": "string" } } } }
                     }
                 }
             }
         },
         "components": {
-            "schemas": cmd_schemas
+            "schemas": cmd_schemas,
+            "securitySchemes": {
+                "loopbackToken": { "type": "apiKey", "in": "header", "name": TOKEN_HEADER }
+            }
         }
     }))
 }
@@ -189,5 +211,18 @@ mod tests {
         assert_eq!(oa["openapi"], "3.1.0");
         assert!(oa["components"]["schemas"].get("ping").is_some());
         assert!(oa["components"]["schemas"].get("secret-internal").is_none());
+        assert_eq!(
+            oa["components"]["securitySchemes"]["loopbackToken"]["name"],
+            TOKEN_HEADER
+        );
+        assert_eq!(
+            oa["paths"]["/run"]["post"]["security"],
+            json!([{"loopbackToken": []}])
+        );
+        assert!(
+            oa["paths"]["/progress/{session_id}"]["get"]["responses"]["200"]["content"]
+                .get("text/event-stream")
+                .is_some()
+        );
     }
 }
