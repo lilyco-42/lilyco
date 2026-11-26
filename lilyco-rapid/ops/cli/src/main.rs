@@ -7,7 +7,10 @@ use clap::{Parser, Subcommand, ValueEnum};
 mod database;
 mod resource;
 mod run;
+mod runtime;
 mod scaffold;
+
+use runtime::ContainerRuntime;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -35,11 +38,26 @@ enum Command {
         dir: PathBuf,
         #[arg(long, global = true)]
         config: Option<PathBuf>,
+        /// Choose the Compose runtime for a generated local database.
+        #[arg(
+            long,
+            env = "RAPID_CONTAINER_RUNTIME",
+            value_enum,
+            default_value_t,
+            global = true
+        )]
+        runtime: ContainerRuntime,
     },
     /// Start the API and, when present, the Vite development server.
     Dev {
         #[arg(long, default_value = ".")]
         dir: PathBuf,
+        /// Skip the frontend and its dependency installation.
+        #[arg(long)]
+        api_only: bool,
+        /// Choose the Compose runtime for a generated local database.
+        #[arg(long, env = "RAPID_CONTAINER_RUNTIME", value_enum, default_value_t)]
+        runtime: ContainerRuntime,
     },
 }
 
@@ -118,24 +136,34 @@ fn execute(cli: Cli) -> Result<()> {
             let file = resource::write(&dir, &collection, &field)?;
             println!("Created {} → /api/{collection}", file.display());
         }
-        Command::Dev { dir } => run::dev(&dir)?,
+        Command::Dev {
+            dir,
+            api_only,
+            runtime,
+        } => run::dev(&dir, api_only, runtime)?,
         Command::Data {
             action,
             dir,
             config,
-        } => transfer(action, &dir, config)?,
+            runtime,
+        } => transfer(action, &dir, config, runtime)?,
     }
     Ok(())
 }
 
-fn transfer(action: Data, dir: &std::path::Path, config: Option<PathBuf>) -> Result<()> {
+fn transfer(
+    action: Data,
+    dir: &std::path::Path,
+    config: Option<PathBuf>,
+    runtime: ContainerRuntime,
+) -> Result<()> {
     let mut command = Process::new("cargo");
     command
         .current_dir(dir)
         .args(["run", "--locked", "-p", "rapid-server", "--"]);
     if let Some(config) = config {
         command.arg("--config").arg(config);
-    } else if let Some(connection) = database::dev_connection(dir)? {
+    } else if let Some(connection) = database::dev_connection(dir, runtime)? {
         connection.apply(&mut command);
     }
     match action {

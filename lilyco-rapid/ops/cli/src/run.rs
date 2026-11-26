@@ -15,12 +15,13 @@ use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use crate::{
     Result,
     database::{self, LocalConnection},
+    runtime::ContainerRuntime,
 };
 
 const BUILD_DEBOUNCE: Duration = Duration::from_millis(250);
 const POLL: Duration = Duration::from_millis(100);
 
-pub fn dev(project: &Path) -> Result<()> {
+pub fn dev(project: &Path, api_only: bool, runtime: ContainerRuntime) -> Result<()> {
     let project = project.canonicalize()?;
     if !project.join("Rapid.toml").is_file() {
         return Err("project directory must contain Rapid.toml".into());
@@ -29,12 +30,17 @@ pub fn dev(project: &Path) -> Result<()> {
     let flag = stop.clone();
     ctrlc::set_handler(move || flag.store(true, Ordering::Relaxed))?;
 
-    let database = database::dev_connection(&project)?;
+    let web = if api_only {
+        None
+    } else {
+        WebSetup::prepare(project.join("web"))?
+    };
+    let database = database::dev_connection(&project, runtime)?;
     let api = Api::new(project, database);
     let (tx, rx) = mpsc::channel();
     let _watcher = watch(&api.project, tx)?;
     let server = api.build_and_start()?;
-    let mut web = start_web(&api.project.join("web"))?;
+    let mut web = web.map(WebSetup::start).transpose()?;
     monitor(
         &api,
         server,
@@ -124,23 +130,41 @@ fn watch(project: &Path, tx: mpsc::Sender<()>) -> Result<RecommendedWatcher> {
     Ok(watcher)
 }
 
-fn start_web(web: &Path) -> Result<Option<Running>> {
-    if !web.join("package.json").is_file() {
-        return Ok(None);
+struct WebSetup {
+    dir: PathBuf,
+    install: Running,
+}
+
+impl WebSetup {
+    fn prepare(dir: PathBuf) -> Result<Option<Self>> {
+        if !dir.join("package.json").is_file() {
+            return Ok(None);
+        }
+        let child = Command::new(if cfg!(windows) { "pnpm.cmd" } else { "pnpm" })
+            .current_dir(&dir)
+            .args(["install", "--frozen-lockfile", "--prefer-offline"])
+            .spawn()?;
+        let install = Running {
+            child,
+            _staged: None,
+        };
+        Ok(Some(Self { dir, install }))
     }
-    checked(
-        Command::new(if cfg!(windows) { "pnpm.cmd" } else { "pnpm" })
-            .current_dir(web)
-            .args(["install", "--frozen-lockfile"]),
-    )?;
-    let child = Command::new("node")
-        .current_dir(web)
-        .arg("node_modules/vite/bin/vite.js")
-        .spawn()?;
-    Ok(Some(Running {
-        child,
-        _staged: None,
-    }))
+
+    fn start(mut self) -> Result<Running> {
+        let status = self.install.child.wait()?;
+        if !status.success() {
+            return Err(format!("pnpm install exited with {status}").into());
+        }
+        let child = Command::new("node")
+            .current_dir(&self.dir)
+            .arg("node_modules/vite/bin/vite.js")
+            .spawn()?;
+        Ok(Running {
+            child,
+            _staged: None,
+        })
+    }
 }
 
 pub(crate) fn checked(command: &mut Command) -> Result<()> {

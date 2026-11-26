@@ -15,7 +15,23 @@ lilyco-rapid dev
 
 默认 API 为 `http://127.0.0.1:8421`，Web 为 `http://127.0.0.1:5173`。
 在 `Rapid.toml` 调整 API 地址，或通过 `RAPID_WEB_PORT` 调整 Vite 端口。修改地址后重启开发进程。
-本地全栈开发需要 Rust、Node.js 和 pnpm 12。仅需 API 时添加 `--preset api`，它只需要 Rust。
+本地全栈开发需要 Rust、Node.js 和 pnpm 12。`--preset api` 只生成后端，默认使用 SQLite，启动只需要 Rust。
+
+已有全栈项目也可以用 `lilyco-rapid dev --api-only` 直接启动后端，跳过 Node.js 和依赖安装。全栈开发时，pnpm 优先复用本机缓存，并与数据库启动和 Rust 编译并行执行。
+
+### 选择 Docker 或 Kiri
+
+Docker 是默认容器运行时。使用 Kiri 时，在装好 Kiri 的机器上运行下面的命令。SQLite 文件与已有外部数据库连接可直接用于本地开发。[Kiri 安装文档](https://docs.runkiri.com/install/)
+
+```sh
+lilyco-rapid dev --runtime kiri
+lilyco-rapid dev --api-only --runtime kiri
+lilyco-rapid data export snapshot.json --runtime kiri
+```
+
+`RAPID_CONTAINER_RUNTIME=kiri` 可设为同一终端内的默认值。整套容器部署可直接运行 `kiri compose up --build -d`，使用同一份 Compose 配置。两个引擎分别管理命名卷。已有项目切换引擎时，可先用 `data export` 从源引擎导出，再用 `data import` 导入目标引擎的空库。[Kiri Compose](https://docs.runkiri.com/docker/compose/)
+
+### 生成业务资源
 
 ```sh
 lilyco-rapid generate resource notes --field title:string --field priority:i32 --field archived:bool

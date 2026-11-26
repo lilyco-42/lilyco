@@ -3,6 +3,8 @@
 在项目目录执行 `lilyco-rapid dev`。API 地址见 `Rapid.toml`，有 `web/` 时
 Vite 会同时启动，终端会显示本机地址。开发 UI 需要 Node.js 与 pnpm 12。
 
+只开发 API 时执行 `lilyco-rapid dev --api-only`。Docker 为默认容器运行时。装有 Kiri 时可用 `lilyco-rapid dev --runtime kiri`，或设置 `RAPID_CONTAINER_RUNTIME=kiri`。整套容器部署可用 `kiri compose up --build -d`。
+
 ```sh
 lilyco-rapid generate resource notes --field title:string --field archived:bool
 cargo run --locked -p rapid-server

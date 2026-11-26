@@ -41,4 +41,8 @@ SQLx 0.9.1 支持与 rusqlite 共用打过补丁的 `libsqlite3-sys` 0.39.1。�
 
 Turso 复用官方 Hrana 协议类型，用 reqwest 和已修补的 Rustls 发送绑定参数。TLS 重定向受到来源限制。导入使用事务和批量绑定，减少远端往返。libSQL 0.24.32 实库覆盖导入、读取、分配新 ID、拒绝覆盖和回导。云环境仍需部署方使用自己的实例验收。[Hrana v3 规范](https://github.com/tursodatabase/libsql/blob/main/docs/HRANA_3_SPEC.md)
 
+### 容器运行时和开发启动
+
+开发者可用同一项目选择 Docker 或 Kiri，减少配置切换。CLI 用同一个运行时完成数据库启动、健康等待和本机端口发现。API-only 开发模式跳过前端依赖和 Vite。全栈模式在后端准备期间运行锁定依赖的 pnpm 安装，并优先使用本地包缓存。Compose 继续统一描述部署服务。[Kiri Compose](https://docs.runkiri.com/docker/compose/)
+
 Lilyco 原有主 workspace 的本机全量验收仍受已有格式差异与 Tauri 缺失 `binaries/lbin-x86_64-unknown-linux-gnu` 影响。Rapid 和改名后的独立核心通过各自的格式、Clippy 和测试门禁。

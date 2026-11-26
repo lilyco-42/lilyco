@@ -2,7 +2,7 @@ use std::{fs, io::Write, net::SocketAddr, path::Path, process::Command};
 
 use clap::ValueEnum;
 
-use crate::Result;
+use crate::{Result, runtime::ContainerRuntime};
 
 const DATABASE_URL: &str = "RAPID_DATABASE_URL";
 
@@ -125,7 +125,10 @@ impl LocalConnection {
     }
 }
 
-pub fn dev_connection(project: &Path) -> Result<Option<LocalConnection>> {
+pub fn dev_connection(
+    project: &Path,
+    runtime: ContainerRuntime,
+) -> Result<Option<LocalConnection>> {
     let env = project.join(".env");
     if std::env::var_os(DATABASE_URL).is_some() || !env.is_file() {
         return Ok(None);
@@ -146,15 +149,22 @@ pub fn dev_connection(project: &Path) -> Result<Option<LocalConnection>> {
             !password.is_empty() && password.bytes().all(|byte| byte.is_ascii_hexdigit())
         })
         .ok_or("invalid RAPID_DB_PASSWORD in generated .env")?;
-    let status = compose(project)
+    let program = runtime.executable();
+    let status = runtime
+        .compose(project)
         .args(["up", "-d", "--wait", "database"])
-        .status()?;
+        .status()
+        .map_err(|error| format!("could not run {program} compose: {error}"))?;
     if !status.success() {
-        return Err(
-            format!("could not start local database: Docker Compose exited with {status}").into(),
-        );
+        return Err(format!(
+            "could not start local database: {program} compose exited with {status}"
+        )
+        .into());
     }
-    let output = compose(project).args(["port", "database", port]).output()?;
+    let output = runtime
+        .compose(project)
+        .args(["port", "database", port])
+        .output()?;
     if !output.status.success() {
         return Err("could not determine the local database port".into());
     }
@@ -170,12 +180,6 @@ pub fn dev_connection(project: &Path) -> Result<Option<LocalConnection>> {
     Ok(Some(LocalConnection(format!(
         "{engine}://rapid:{password}@{address}/rapid{tls}"
     ))))
-}
-
-fn compose(project: &Path) -> Command {
-    let mut command = Command::new("docker");
-    command.current_dir(project).arg("compose");
-    command
 }
 
 fn secret() -> Result<String> {
