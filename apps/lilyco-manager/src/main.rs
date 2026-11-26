@@ -64,6 +64,8 @@ mod runs {
 struct App {
     db: DatabaseConnection,
     token: String,
+    /// 可选只读 token：可读取全部 GET 接口，但写接口返回 403。
+    read_token: Option<String>,
     apps: Arc<Vec<Manifest>>,
     warnings: Arc<Vec<String>>,
     supervisor: Supervisor,
@@ -117,6 +119,15 @@ fn authorised(headers: &HeaderMap, token: &str) -> bool {
     headers.get("x-lilyco-token").and_then(|v| v.to_str().ok()) == Some(token)
 }
 
+/// 读取接口接受主 token 或只读 token；写接口仍只接受主 token。
+fn authorised_read(headers: &HeaderMap, state: &App) -> bool {
+    authorised(headers, &state.token)
+        || state
+            .read_token
+            .as_deref()
+            .is_some_and(|token| authorised(headers, token))
+}
+
 /// 状态变更接口额外校验同源，降低 DNS rebinding / 跨站请求风险。
 fn authorised_mutation(headers: &HeaderMap, token: &str) -> bool {
     if !authorised(headers, token) {
@@ -137,11 +148,13 @@ async fn index() -> Html<&'static str> {
 
 /// 面板用它决定是否禁用写控件；只返回模式与版本，不泄露本机路径。
 async fn settings(State(state): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
-    if !authorised(&headers, &state.token) {
+    if !authorised_read(&headers, &state) {
         return Err(StatusCode::UNAUTHORIZED);
     }
+    // 只读 token 与服务器只读模式对面板是同一个效果。
+    let read_only = state.read_only || !authorised(&headers, &state.token);
     Ok(Json(json!({
-        "read_only": state.read_only,
+        "read_only": read_only,
         "version": env!("CARGO_PKG_VERSION"),
     })))
 }
@@ -149,7 +162,7 @@ async fn settings(State(state): State<App>, headers: HeaderMap) -> Result<Json<V
 /// 机器可读的接口清单：给管理面板、脚本和契约测试共用。
 /// 只暴露路由形状与鉴权要求，不包含 token、本机路径或进程信息。
 async fn openapi(State(state): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
-    if !authorised(&headers, &state.token) {
+    if !authorised_read(&headers, &state) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     Ok(Json(api_spec()))
@@ -195,7 +208,7 @@ fn api_spec() -> Value {
         "info": {
             "title": "Lilyco Manager API",
             "version": env!("CARGO_PKG_VERSION"),
-            "description": "本机只读工具、应用生命周期、MCP 聚合与开发任务。全部接口要求 x-lilyco-token，状态变更接口额外校验 Origin/Host 同源；开发任务日志流先用 POST 换一次性票据，再由 EventSource 带 ticket 订阅。设置 LILYCO_MANAGER_READ_ONLY=1 后所有写接口在鉴权后返回 403，GET 与日志流保持可用。",
+            "description": "本机只读工具、应用生命周期、MCP 聚合与开发任务。全部接口要求 x-lilyco-token，状态变更接口额外校验 Origin/Host 同源；开发任务日志流先用 POST 换一次性票据，再由 EventSource 带 ticket 订阅。设置 LILYCO_MANAGER_READ_ONLY=1 后所有写接口在鉴权后返回 403；也可设置 LILYCO_MANAGER_READ_TOKEN 提供一个只能读取的 token。GET 与日志流保持可用。",
         },
         "servers": [{"url": "http://127.0.0.1"}],
         "components": {
@@ -253,7 +266,7 @@ async fn ecosystem(
     State(state): State<App>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, StatusCode> {
-    if !authorised(&headers, &state.token) {
+    if !authorised_read(&headers, &state) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     let projects: Value =
@@ -262,7 +275,7 @@ async fn ecosystem(
 }
 
 async fn list(State(state): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
-    if !authorised(&headers, &state.token) {
+    if !authorised_read(&headers, &state) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     Ok(Json(json!({"tools":tools()})))
@@ -313,7 +326,7 @@ async fn adapter_call(name: &str) -> Result<Value, StatusCode> {
 }
 
 async fn adapters(State(state): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
-    if !authorised(&headers, &state.token) {
+    if !authorised_read(&headers, &state) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     Ok(Json(json!({"adapters": [
@@ -327,6 +340,7 @@ async fn run(
     headers: HeaderMap,
     Path(name): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
+    // 工具执行会写 runs，属于写操作：只读 token 不通过（中间件也会拦）。
     if !authorised(&headers, &state.token) {
         return Err(StatusCode::UNAUTHORIZED);
     }
@@ -349,7 +363,7 @@ async fn run(
 }
 
 async fn history(State(state): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
-    if !authorised(&headers, &state.token) {
+    if !authorised_read(&headers, &state) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     let records = runs::Entity::find()
@@ -370,7 +384,7 @@ async fn history(State(state): State<App>, headers: HeaderMap) -> Result<Json<Va
 /// 项目/方案审计视图：只取 `project.*` 与 `plan.*`，最新 50 条。
 /// 不接受任意 SQL 或用户前缀，避免把运行历史查询变成注入面。
 async fn audit(State(state): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
-    if !authorised(&headers, &state.token) {
+    if !authorised_read(&headers, &state) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     let records = runs::Entity::find()
@@ -395,7 +409,7 @@ async fn audit(State(state): State<App>, headers: HeaderMap) -> Result<Json<Valu
 }
 
 async fn app_list(State(state): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
-    if !authorised(&headers, &state.token) {
+    if !authorised_read(&headers, &state) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     let mut apps = Vec::with_capacity(state.apps.len());
@@ -572,7 +586,7 @@ async fn app_logs(
     Path(id): Path<String>,
     Query(query): Query<LogQuery>,
 ) -> Result<Json<Value>, StatusCode> {
-    if !authorised(&headers, &state.token) {
+    if !authorised_read(&headers, &state) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     let app = find_app(&state, &id)?;
@@ -586,7 +600,7 @@ async fn app_schema(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
-    if !authorised(&headers, &state.token) {
+    if !authorised_read(&headers, &state) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     let app = find_app(&state, &id)?;
@@ -624,7 +638,7 @@ async fn app_release(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
-    if !authorised(&headers, &state.token) {
+    if !authorised_read(&headers, &state) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     let app = find_app(&state, &id)?;
@@ -723,7 +737,7 @@ async fn app_dev(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
-    if !authorised(&headers, &state.token) {
+    if !authorised_read(&headers, &state) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     let app = find_app(&state, &id)?;
@@ -775,7 +789,7 @@ async fn dev_job_logs(
     Path(job): Path<String>,
     Query(query): Query<LogQuery>,
 ) -> Result<Json<Value>, StatusCode> {
-    if !authorised(&headers, &state.token) {
+    if !authorised_read(&headers, &state) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     let limit = query.limit.unwrap_or(200).clamp(1, 500);
@@ -886,7 +900,7 @@ async fn mcp_tools(
     State(state): State<App>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, StatusCode> {
-    if !authorised(&headers, &state.token) {
+    if !authorised_read(&headers, &state) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     let mut set = tokio::task::JoinSet::new();
@@ -1000,7 +1014,7 @@ async fn mcp_config(
     State(state): State<App>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, StatusCode> {
-    if !authorised(&headers, &state.token) {
+    if !authorised_read(&headers, &state) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     Ok(Json(mcp_config_value(&state)))
@@ -1088,6 +1102,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if token.len() < 24 {
         return Err("LILYCO_MANAGER_TOKEN must be at least 24 characters".into());
     }
+    let read_token = match std::env::var("LILYCO_MANAGER_READ_TOKEN") {
+        Ok(value) => {
+            if value.len() < 24 {
+                return Err("LILYCO_MANAGER_READ_TOKEN must be at least 24 characters".into());
+            }
+            if value == token {
+                return Err(
+                    "LILYCO_MANAGER_READ_TOKEN must differ from LILYCO_MANAGER_TOKEN".into(),
+                );
+            }
+            Some(value)
+        }
+        Err(_) => None,
+    };
     let registry = manifest::load();
     for warning in &registry.warnings {
         eprintln!("lilyco-manager: {warning}");
@@ -1095,6 +1123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = build_state(
         db,
         token.clone(),
+        read_token,
         registry.apps,
         registry.warnings,
         read_only_mode(),
@@ -1146,6 +1175,7 @@ fn read_only_mode() -> bool {
 fn build_state(
     db: DatabaseConnection,
     token: String,
+    read_token: Option<String>,
     apps: Vec<Manifest>,
     warnings: Vec<String>,
     read_only: bool,
@@ -1153,6 +1183,7 @@ fn build_state(
     App {
         db,
         token,
+        read_token,
         apps: Arc::new(apps),
         warnings: Arc::new(warnings),
         supervisor: Supervisor::default(),
@@ -1172,7 +1203,7 @@ async fn projects_guard(
     next: Next,
 ) -> Result<Response, StatusCode> {
     let allowed = if request.method() == Method::GET || request.method() == Method::HEAD {
-        authorised(request.headers(), &state.token)
+        authorised_read(request.headers(), &state)
     } else {
         authorised_mutation(request.headers(), &state.token)
     };
@@ -1309,8 +1340,17 @@ async fn write_guard(
     let read_request = matches!(*request.method(), Method::GET | Method::HEAD)
         || (path.starts_with("/api/dev/jobs/") && path.ends_with("/stream"));
     if !read_request {
-        if !authorised_mutation(request.headers(), &state.token) {
-            return Err(StatusCode::UNAUTHORIZED);
+        let write_allowed = authorised_mutation(request.headers(), &state.token);
+        if !write_allowed {
+            let known_read = state
+                .read_token
+                .as_deref()
+                .is_some_and(|token| authorised(request.headers(), token));
+            return Err(if known_read {
+                StatusCode::FORBIDDEN
+            } else {
+                StatusCode::UNAUTHORIZED
+            });
         }
         let stream_ticket = path.starts_with("/api/dev/jobs/") && path.ends_with("/stream-ticket");
         if state.read_only && !stream_ticket {
@@ -1382,7 +1422,7 @@ mod tests {
             .await
             .unwrap();
         projects::ensure_tables(&db).await.unwrap();
-        build_state(db, "t".repeat(32), apps, vec![], read_only)
+        build_state(db, "t".repeat(32), None, apps, vec![], read_only)
     }
 
     async fn test_state() -> App {
@@ -1720,6 +1760,64 @@ mod tests {
             .await;
             assert_eq!(status, StatusCode::BAD_REQUEST);
         }
+    }
+
+    /// 只读 token：GET 全通、写 403、settings 对本会话报告 read_only；
+    /// 主 token 读写不受影响，未知 token 仍 401。
+    #[tokio::test]
+    async fn read_token_can_read_but_not_write() {
+        let mut app = test_state().await;
+        let read = "r".repeat(32);
+        app.read_token = Some(read.clone());
+        let write = app.token.clone();
+
+        let (status, body) = call(&app, request("GET", "/api/settings", Some(&read))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["read_only"], true);
+
+        let (status, body) = call(&app, request("GET", "/api/settings", Some(&write))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["read_only"], false);
+
+        let (status, body) = call(&app, request("GET", "/api/tools", Some(&read))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["tools"].as_array().unwrap().len(), 2);
+
+        let (status, body) = call(&app, request("GET", "/api/projects", Some(&read))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["count"], 0);
+
+        let (status, _) = call_json(
+            &app,
+            "POST",
+            "/api/projects",
+            json!({"name": "只读拒绝"}),
+            Some(&read),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        // 工具执行会写运行历史，读 token 同样不能触发。
+        let (status, _) = call(
+            &app,
+            request("POST", "/api/tools/manager.health/run", Some(&read)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        let (status, body) = call_json(
+            &app,
+            "POST",
+            "/api/projects",
+            json!({"name": "主 token 允许"}),
+            Some(&write),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["project"]["name"], "主 token 允许");
+
+        let (status, _) = call(&app, request("GET", "/api/tools", Some(&"x".repeat(32)))).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
     /// 只读模式：GET 与日志流票据保持可用，写操作在鉴权后 403；

@@ -102,6 +102,7 @@ bun scripts/smoke-server.mjs
 | `LILYCO_MANAGER_APPS` | 清单目录列表，使用平台路径分隔符 |
 | `LILYCO_MANAGER_NO_BROWSER` | 设置后不自动打开浏览器 |
 | `LILYCO_MANAGER_READ_ONLY` | `1`/`true`/`yes` 开启只读模式：写接口鉴权后返回 403，GET 与日志流保持可用 |
+| `LILYCO_MANAGER_READ_TOKEN` | 可选只读 token（至少 24 字符、须不同于主 token）：GET 全通，写接口 403，面板自动进入只读 |
 | `LILYCO_MANAGER_BIN_<ID>` | 覆盖单个应用的二进制绝对路径 |
 | `LILYCO_TOOLHUB` | `hub.py` 绝对路径，用于导出 MCP 客户端配置 |
 | `LILYCO_DESKTOP_SWITCHER_EXE` / `LILYCO_CLI_EXE` | 只读适配器可执行文件覆盖 |

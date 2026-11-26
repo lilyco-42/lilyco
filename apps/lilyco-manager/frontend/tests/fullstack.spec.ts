@@ -224,3 +224,80 @@ test('只读模式真实二进制：面板禁用写控件，接口 403', async (
     rmSync(readOnlyTemp, { recursive: true, force: true })
   }
 })
+
+test('只读 token 真实二进制：可读不可写，主 token 仍可写', async ({ page }) => {
+  test.skip(!binary, '设置 LILYCO_MANAGER_E2E_BIN 后运行全栈用例')
+  if (!binary) return
+  const readToken = 'readonly0123456789abcdef'.repeat(2)
+  const readTemp = mkdtempSync(join(tmpdir(), 'lilyco-manager-readtoken-'))
+  const readApps = join(readTemp, 'apps')
+  mkdirSync(readApps)
+  const readChild = spawn(binary, [], {
+    env: {
+      ...process.env,
+      LILYCO_MANAGER_DB: join(readTemp, 'runs.sqlite'),
+      LILYCO_MANAGER_APPS: readApps,
+      LILYCO_MANAGER_NO_BROWSER: '1',
+      LILYCO_MANAGER_TOKEN: token,
+      LILYCO_MANAGER_READ_TOKEN: readToken,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  readChild.stderr.on('data', () => {})
+  try {
+    const readUrl = await waitForUrl(readChild.stdout)
+    // 用只读 token 打开：会话级只读，面板与写接口一起收紧。
+    await page.goto(`${readUrl}/#token=${readToken}`)
+    await expect(page.getByTestId('read-only-banner')).toContainText('只读模式')
+
+    const settings = await page.evaluate(
+      async (value) => (await fetch('/api/settings', { headers: { 'x-lilyco-token': value } })).json(),
+      readToken,
+    )
+    expect(settings.read_only).toBe(true)
+
+    const mainSettings = await page.evaluate(
+      async (value) => (await fetch('/api/settings', { headers: { 'x-lilyco-token': value } })).json(),
+      token,
+    )
+    expect(mainSettings.read_only).toBe(false)
+
+    const readTools = await page.evaluate(
+      async (value) => (await fetch('/api/tools', { headers: { 'x-lilyco-token': value } })).status,
+      readToken,
+    )
+    expect(readTools).toBe(200)
+
+    await page.getByRole('button', { name: '项目/方案' }).click()
+    await expect(page.getByRole('button', { name: '创建项目' })).toBeDisabled()
+
+    const blocked = await page.evaluate(
+      async (value) =>
+        (
+          await fetch('/api/projects', {
+            method: 'POST',
+            headers: { 'x-lilyco-token': value, 'content-type': 'application/json' },
+            body: JSON.stringify({ name: '只读 token 拒绝' }),
+          })
+        ).status,
+      readToken,
+    )
+    expect(blocked).toBe(403)
+
+    const allowed = await page.evaluate(
+      async (value) =>
+        (
+          await fetch('/api/projects', {
+            method: 'POST',
+            headers: { 'x-lilyco-token': value, 'content-type': 'application/json' },
+            body: JSON.stringify({ name: '主 token 允许' }),
+          })
+        ).status,
+      token,
+    )
+    expect(allowed).toBe(200)
+  } finally {
+    readChild.kill()
+    rmSync(readTemp, { recursive: true, force: true })
+  }
+})
