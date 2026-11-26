@@ -19,6 +19,8 @@ mod sqlite;
 mod sqlx_store;
 #[cfg(feature = "sqlx-server")]
 mod sqlx_transfer;
+#[cfg(feature = "turso")]
+mod turso;
 
 #[derive(Clone)]
 pub struct Store(Arc<dyn Engine>);
@@ -53,7 +55,7 @@ pub enum StoreError {
     Lock,
     #[error("unsupported database version {0}")]
     Version(u32),
-    #[error("rusqlite only supports the SQLite engine")]
+    #[error("the configured database engine and driver are incompatible")]
     IncompatibleDriver,
     #[error("the SeaORM driver requires the seaorm Cargo feature")]
     SeaormFeature,
@@ -61,24 +63,30 @@ pub enum StoreError {
     Feature(EngineKind),
     #[error("storage engine {0} requires asynchronous initialization")]
     RequiresConnect(EngineKind),
-    #[cfg(feature = "sqlx-server")]
+    #[cfg(any(feature = "sqlx-server", feature = "turso"))]
     #[error(
-        "database URL variable name must contain only uppercase ASCII letters, digits and underscores"
+        "database environment variable name must contain only uppercase ASCII letters, digits and underscores"
     )]
-    InvalidUrlVariable,
-    #[cfg(feature = "sqlx-server")]
-    #[error("database URL variable {0} is missing or empty")]
-    MissingUrl(String),
-    #[cfg(feature = "sqlx-server")]
+    InvalidVariable,
+    #[cfg(any(feature = "sqlx-server", feature = "turso"))]
+    #[error("database environment variable {0} is missing or empty")]
+    MissingVariable(String),
+    #[cfg(any(feature = "sqlx-server", feature = "turso"))]
     #[error("database URL in {0} does not match the configured engine")]
     InvalidUrl(String),
-    #[cfg(feature = "sqlx-server")]
+    #[cfg(feature = "turso")]
+    #[error("database token in {0} contains invalid characters")]
+    InvalidToken(String),
+    #[cfg(not(feature = "turso"))]
+    #[error("the Turso engine requires the turso Cargo feature")]
+    TursoFeature,
+    #[cfg(any(feature = "sqlx-server", feature = "turso"))]
     #[error("database {operation} failed ({kind})")]
     Remote {
         operation: &'static str,
         kind: &'static str,
     },
-    #[cfg(feature = "sqlx-server")]
+    #[cfg(any(feature = "sqlx-server", feature = "turso"))]
     #[error("database identity exceeds the supported record ID range")]
     IdentityRange,
     #[cfg(feature = "sqlx-server")]
@@ -124,7 +132,15 @@ impl Store {
     pub async fn connect(config: &Storage) -> Result<Self, StoreError> {
         match (config.engine, config.driver()) {
             (EngineKind::Sqlite, Driver::Rusqlite) => Self::open(config),
-            (_, Driver::Rusqlite) => Err(StoreError::IncompatibleDriver),
+            #[cfg(feature = "turso")]
+            (EngineKind::Turso, Driver::Libsql) => {
+                Ok(Self(Arc::new(turso::Turso::connect(config).await?)))
+            }
+            #[cfg(not(feature = "turso"))]
+            (EngineKind::Turso, Driver::Libsql) => Err(StoreError::TursoFeature),
+            (EngineKind::Turso, _) | (_, Driver::Rusqlite | Driver::Libsql) => {
+                Err(StoreError::IncompatibleDriver)
+            }
             #[cfg(feature = "seaorm")]
             (_, Driver::Seaorm) => Ok(Self(Arc::new(seaorm::Orm::connect(config).await?))),
             #[cfg(not(feature = "seaorm"))]
@@ -190,6 +206,29 @@ impl Store {
     pub async fn delete<T: Resource>(&self, id: u32) -> Result<bool, StoreError> {
         self.0.delete(T::COLLECTION, id).await
     }
+}
+
+#[cfg(any(feature = "sqlx-server", feature = "turso"))]
+fn environment(key: &str) -> Result<String, StoreError> {
+    if key.is_empty()
+        || !key
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+    {
+        return Err(StoreError::InvalidVariable);
+    }
+    std::env::var(key)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| StoreError::MissingVariable(key.to_owned()))
+}
+
+#[cfg(any(feature = "sqlx-server", feature = "turso"))]
+fn identity(value: i64) -> Result<u32, StoreError> {
+    u32::try_from(value)
+        .ok()
+        .filter(|id| *id > 0)
+        .ok_or(StoreError::IdentityRange)
 }
 
 fn decode<T: Resource>(row: Stored) -> Result<Record<T>, StoreError> {

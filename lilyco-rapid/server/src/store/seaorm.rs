@@ -10,8 +10,8 @@ use sea_orm::{
 use crate::{config::Storage, data::Snapshot};
 
 use super::{
-    Engine, StoreError, Stored,
-    sqlx_store::{Sql, connection, identity},
+    Engine, StoreError, Stored, identity,
+    sqlx_store::{Sql, connection},
 };
 
 mod entity {

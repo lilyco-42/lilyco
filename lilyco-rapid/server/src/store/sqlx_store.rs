@@ -13,7 +13,7 @@ use crate::{
     data::Snapshot,
 };
 
-use super::{Engine, StoreError, Stored};
+use super::{Engine, StoreError, Stored, environment, identity};
 
 pub struct Sql {
     pool: AnyPool,
@@ -221,17 +221,7 @@ pub(super) fn connection(config: &Storage) -> Result<(Dialect, String), StoreErr
         return Ok((Dialect::Sqlite, sqlite_url(config)?));
     }
     let key = &config.connection.url_env;
-    if key.is_empty()
-        || !key
-            .bytes()
-            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
-    {
-        return Err(StoreError::InvalidUrlVariable);
-    }
-    let url = std::env::var(key)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| StoreError::MissingUrl(key.clone()))?;
+    let url = environment(key)?;
     let dialect = match config.engine {
         EngineKind::Postgres
             if url.starts_with("postgres://") || url.starts_with("postgresql://") =>
@@ -268,13 +258,6 @@ fn schema_migration(dialect: Dialect) -> Option<&'static str> {
         Dialect::Mysql => Some(include_str!("../../migrations/001_mysql.sql")),
         Dialect::Sqlite => None,
     }
-}
-
-pub(super) fn identity(raw: i64) -> Result<u32, StoreError> {
-    u32::try_from(raw)
-        .ok()
-        .filter(|id| *id != 0)
-        .ok_or(StoreError::IdentityRange)
 }
 
 fn decode_row(row: AnyRow) -> Result<Stored, StoreError> {

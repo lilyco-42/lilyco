@@ -13,7 +13,7 @@ export type Operation = { method: string; path: string; id: string; body: unknow
 // Data read from the OpenAPI document for the project UI.
 export type Catalog = { name: string; version: string; storage?: string; collections: Collection[]; operations: Operation[] };
 
-const storageNames = new Map([["sqlite", "SQLite"], ["postgres", "PostgreSQL"], ["mysql", "MySQL"]]);
+const storageNames = new Map([["sqlite", "SQLite"], ["postgres", "PostgreSQL"], ["mysql", "MySQL"], ["turso", "Turso"]]);
 
 function object(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)

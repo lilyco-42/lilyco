@@ -48,6 +48,7 @@ pub enum EngineKind {
     Sqlite,
     Postgres,
     Mysql,
+    Turso,
 }
 
 impl std::fmt::Display for EngineKind {
@@ -56,6 +57,7 @@ impl std::fmt::Display for EngineKind {
             Self::Sqlite => "sqlite",
             Self::Postgres => "postgres",
             Self::Mysql => "mysql",
+            Self::Turso => "turso",
         })
     }
 }
@@ -68,12 +70,14 @@ pub enum Driver {
     Rusqlite,
     Sqlx,
     Seaorm,
+    Libsql,
 }
 
 impl Storage {
     pub fn driver(&self) -> Driver {
         match (self.engine, self.connection.driver) {
             (EngineKind::Sqlite, Driver::Auto) => Driver::Rusqlite,
+            (EngineKind::Turso, Driver::Auto) => Driver::Libsql,
             (_, Driver::Auto) => Driver::Sqlx,
             (_, driver) => driver,
         }
@@ -86,6 +90,7 @@ pub struct Connection {
     pub driver: Driver,
     pub url_env: String,
     pub max_connections: NonZeroU32,
+    pub token_env: String,
 }
 
 impl Default for Connection {
@@ -94,6 +99,7 @@ impl Default for Connection {
             driver: Driver::Auto,
             url_env: "RAPID_DATABASE_URL".to_owned(),
             max_connections: NonZeroU32::MIN.saturating_add(7),
+            token_env: "RAPID_DATABASE_TOKEN".to_owned(),
         }
     }
 }

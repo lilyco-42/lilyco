@@ -90,6 +90,7 @@ fn register(api: &mut crate::Api) -> Result<(), crate::StartupError> {
 | `sqlite` | `rusqlite`（默认）、`sqlx`、`seaorm` | SQLite 文件 |
 | `postgres` | `sqlx`（默认）、`seaorm` | PostgreSQL 容器或外部连接 |
 | `mysql` | `sqlx`（默认）、`seaorm` | MySQL 容器或外部连接 |
+| `turso` | `libsql`（默认） | Turso Cloud 或本机 libSQL 服务 |
 
 ```sh
 lilyco-rapid new notes-pg --db postgres --db-driver seaorm --gateway pingap
@@ -97,6 +98,8 @@ lilyco-rapid dev --dir notes-pg
 ```
 
 对生成的 PostgreSQL 或 MySQL 项目，`dev` 通过 Docker Compose 启动数据库并自动注入连接信息。若已设置 `RAPID_DATABASE_URL`，`dev` 使用该连接。直接运行 API 时从 `[storage].connection.url_env` 指定的环境变量读取连接 URL，默认变量名为 `RAPID_DATABASE_URL`。数据库密码放在环境变量或生成的 `.env`。
+
+使用 `--db turso` 时，传入 `RAPID_DATABASE_URL` 和 `RAPID_DATABASE_TOKEN`。云端地址可用 `libsql://` 或 `https://`。本机 libSQL 开发服务可用 `http://127.0.0.1:<port>`。Compose 预设连接带令牌的云端服务。[Turso HTTP API](https://docs.turso.tech/sdk/http/reference)
 
 SQLite 上更换驱动时可沿用原文件。停止写入后，在 `Rapid.toml` 调整 `[storage].connection.driver`，并在 `server/Cargo.toml` 的默认特性中启用 `sqlx-server` 或 `seaorm`。同一 PostgreSQL 或 MySQL 实例的两个驱动也共用存储表。
 
@@ -112,7 +115,7 @@ lilyco-rapid data import /path/to/backup.json --dir new-app
 ## 工作区结构
 
 - `core/` 复用 `lilyco-no_std` 校验。默认用 `core + alloc` 表达业务资源，可在无操作系统目标编译。Cargo 构建脚本注册 `resources/` 下的模块。
-- `server/` 用 Axum、Schemars 和 Utoipa 提供类型化 API，经存储接口调用 SQLite、SQLx 或 SeaORM。HTTP 和数据库驱动运行在 `std`。
+- `server/` 用 Axum、Schemars 和 Utoipa 提供类型化 API。存储适配器包括 rusqlite、SQLx、SeaORM 和 Turso HTTP。HTTP 和数据库驱动运行在 `std`。
 - `web/` 基于 Lilyco 的 React、Vite、Tailwind 和 shadcn 按钮模板。工作台消费 OpenAPI 的标量字段，复杂模型仍可在 API reference 中用 JSON 操作。
 - `ops/` 包含脚手架 CLI 和部署配方。生成项目内含 `lilyco-no_std` 源码快照，可独立构建。
 

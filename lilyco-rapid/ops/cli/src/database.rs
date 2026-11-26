@@ -11,6 +11,7 @@ pub enum Database {
     Sqlite,
     Postgres,
     Mysql,
+    Turso,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Eq)]
@@ -19,6 +20,7 @@ pub enum Driver {
     Rusqlite,
     Sqlx,
     Seaorm,
+    Libsql,
 }
 
 #[derive(Clone, Copy)]
@@ -29,10 +31,17 @@ pub struct StorageChoice {
 
 impl StorageChoice {
     pub fn check(self) -> Result<()> {
-        if self.database != Database::Sqlite && self.driver == Driver::Rusqlite {
-            return Err("--db-driver rusqlite can only be used with --db sqlite".into());
+        match (self.database, self.driver) {
+            (Database::Turso, Driver::Auto | Driver::Libsql) => Ok(()),
+            (Database::Turso, _) | (_, Driver::Libsql) => {
+                Err("--db turso uses --db-driver libsql".into())
+            }
+            (Database::Sqlite, Driver::Rusqlite) => Ok(()),
+            (_, Driver::Rusqlite) => {
+                Err("--db-driver rusqlite can only be used with --db sqlite".into())
+            }
+            _ => Ok(()),
         }
-        Ok(())
     }
 
     pub fn config(self, settings: &str) -> String {
@@ -41,6 +50,7 @@ impl StorageChoice {
             Driver::Rusqlite => "rusqlite",
             Driver::Sqlx => "sqlx",
             Driver::Seaorm => "seaorm",
+            Driver::Libsql => "libsql",
         };
         settings.replace(
             "[storage]\n",
@@ -53,6 +63,7 @@ impl StorageChoice {
 
     pub fn write(self, path: &Path) -> Result<()> {
         let feature = match (self.database, self.driver) {
+            (Database::Turso, _) => Some("turso"),
             (_, Driver::Seaorm) => Some("seaorm"),
             (Database::Sqlite, Driver::Auto | Driver::Rusqlite) => None,
             _ => Some("sqlx-server"),
@@ -65,9 +76,17 @@ impl StorageChoice {
                 content.replace("default = []", &format!("default = [\"{feature}\"]")),
             )?;
         }
-        if self.database == Database::Sqlite {
-            return Ok(());
-        }
+        let recipe = match self.database {
+            Database::Sqlite => return Ok(()),
+            Database::Postgres => include_bytes!("../../../ops/postgres.yaml").as_slice(),
+            Database::Mysql => include_bytes!("../../../ops/mysql.yaml").as_slice(),
+            Database::Turso => {
+                return Ok(fs::write(
+                    path.join("compose.override.yaml"),
+                    include_bytes!("../../../ops/turso.yaml"),
+                )?);
+            }
+        };
 
         let mut settings = fs::OpenOptions::new();
         settings.create_new(true).write(true);
@@ -82,11 +101,6 @@ impl StorageChoice {
         if self.database == Database::Mysql {
             writeln!(settings, "RAPID_DB_ROOT_PASSWORD={}", secret()?)?;
         }
-        let recipe = match self.database {
-            Database::Postgres => include_bytes!("../../../ops/postgres.yaml").as_slice(),
-            Database::Mysql => include_bytes!("../../../ops/mysql.yaml").as_slice(),
-            Database::Sqlite => return Ok(()),
-        };
         fs::write(path.join("compose.override.yaml"), recipe)?;
         Ok(())
     }
@@ -98,6 +112,7 @@ impl Database {
             Self::Sqlite => "sqlite",
             Self::Postgres => "postgres",
             Self::Mysql => "mysql",
+            Self::Turso => "turso",
         }
     }
 }

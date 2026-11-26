@@ -363,6 +363,21 @@ async fn remote_sqlx_drivers_persist_and_enforce_the_same_http_contract() {
 
 const TRANSFER_TASK: &str = r#"{"title":"跨库迁移测试","done":false}"#;
 
+#[cfg(feature = "turso")]
+#[tokio::test]
+#[ignore = "requires a dedicated libSQL server"]
+async fn remote_turso_preserves_records_and_identity() {
+    use rapid_server::config::EngineKind;
+
+    let dir = tempfile::tempdir().unwrap();
+    let snapshot = source_snapshot(&dir).await;
+    let mut config = settings(&dir);
+    config.storage.engine = EngineKind::Turso;
+    config.storage.connection.url_env = "RAPID_TEST_TURSO_URL".into();
+    config.storage.connection.token_env = "RAPID_TEST_TURSO_TOKEN".into();
+    check_snapshot(&config, &dir, &snapshot).await;
+}
+
 async fn create_task(app: &Router) -> Value {
     let created = request(app, Method::POST, "/api/tasks", Some(TRANSFER_TASK)).await;
     as_json(created, StatusCode::CREATED).await

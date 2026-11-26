@@ -52,7 +52,7 @@ jobs:
         working-directory: lilyco-rapid/ops/cli
         run: cargo test --locked
 
-  relational-databases:
+  database-adapters:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -78,6 +78,10 @@ jobs:
         options: >-
           --health-cmd "mysqladmin ping -h 127.0.0.1 --silent"
           --health-interval 3s --health-timeout 4s --health-retries 30
+      turso:
+        image: ghcr.io/tursodatabase/libsql-server:v0.24.32
+        ports:
+          - 8080/tcp
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -92,7 +96,10 @@ jobs:
         env:
           RAPID_TEST_POSTGRES_URL: postgres://rapid:rapid_ci_only@127.0.0.1:${{ job.services.postgres.ports[5432] }}/rapid
           RAPID_TEST_MYSQL_URL: mysql://rapid:rapid_ci_only@127.0.0.1:${{ job.services.mysql.ports[3306] }}/rapid?ssl-mode=required
-        run: cargo test --locked --workspace --all-features -- --include-ignored
+          RAPID_TEST_TURSO_URL: http://127.0.0.1:${{ job.services.turso.ports[8080] }}
+        run: |
+          curl --retry 20 --retry-delay 1 --retry-all-errors -fsS "$RAPID_TEST_TURSO_URL/health"
+          cargo test --locked --workspace --all-features -- --include-ignored
 
   portable-core:
     runs-on: ubuntu-latest

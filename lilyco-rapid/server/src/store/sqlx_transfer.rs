@@ -5,8 +5,8 @@ use sqlx::{Any, AnyConnection, AnyPool, Transaction};
 use crate::data::{Row, Snapshot};
 
 use super::{
-    StoreError,
-    sqlx_store::{Dialect, identity, remote},
+    StoreError, identity,
+    sqlx_store::{Dialect, remote},
 };
 
 pub(super) async fn export(pool: &AnyPool, dialect: Dialect) -> Result<Snapshot, StoreError> {

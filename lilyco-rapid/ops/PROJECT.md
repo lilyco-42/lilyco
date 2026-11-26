@@ -14,5 +14,6 @@ docker compose up --build -d
 - 在 `server/src/app.rs` 用 `api.get_query`、`api.get_path`、`api.get` 或 `api.post_json` 注册自定义处理函数。请求和响应结构体派生 `schemars::JsonSchema`，即可出现在 API 文档。示例请求为 `/api/hello?name=Lilyco`。
 - 资源代码改动会触发 API 重编，刷新页面后会读取新的 OpenAPI。
 - `Rapid.toml` 定义地址、数据库与请求限制。托管 PostgreSQL 和 MySQL 连接信息通过 `RAPID_DATABASE_URL` 提供，或由 `dev` 从本地 Compose 数据库获得。
+- Turso 项目通过 `RAPID_DATABASE_URL` 和 `RAPID_DATABASE_TOKEN` 连接已有数据库。
 - `lilyco-rapid data export /path/to/backup.json` 导出资源记录，`lilyco-rapid data import /path/to/backup.json` 导入已经配置好的空目标库，保留记录和 ID。迁移时暂停写入，保留源库，核验数据后再切流量。
 - Compose 默认只绑定本机，并以命名卷保存数据。对公网开放时，在入口接入身份认证、授权和 HTTPS。
