@@ -245,28 +245,62 @@ fn model_ids(cfg: &Config) -> Vec<&'static str> {
         vec![MODEL_CHAT]
     }
 }
-/// 这笔请求该花哪份额度
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// 这笔请求该花哪份额度（chat 路径可附带网页模型与推理强度）
+#[derive(Clone, Debug, PartialEq)]
 enum Route {
-    Chat,
+    Chat {
+        web_model: Option<String>,
+        effort: Option<String>,
+    },
     Codex,
 }
 
 fn pick_route(model: &str, cfg: &Config) -> Result<Route, String> {
     let bare = model.trim();
-    let tail = bare
+    let (has_prefix, tail) = if let Some(t) = bare
         .strip_prefix("lchatgpt:")
         .or_else(|| bare.strip_prefix("lchatgpt-"))
         .or_else(|| bare.strip_prefix("lchatgpt/"))
-        .unwrap_or(bare);
+    {
+        (true, t)
+    } else {
+        (false, bare)
+    };
     let route = match tail {
-        "" | "chat" => Route::Chat,
+        "" | "chat" => Route::Chat {
+            web_model: None,
+            effort: None,
+        },
         "codex" => Route::Codex,
         other => {
-            let known = model_ids(cfg).join(" / ");
-            return Err(format!(
-                "不认识的模型 {other:?}；这个端只提供 {known}（id 前缀 lchatgpt: 可省）"
-            ));
+            if let Some(eff) = other.strip_prefix("chat:") {
+                chat::parse_chat_effort(eff).map_err(|e| format!("{e}"))?;
+                Route::Chat {
+                    web_model: None,
+                    effort: Some(eff.trim().to_string()),
+                }
+            } else if has_prefix {
+                // 支持 lchatgpt:<网页模型>[:<强度>]，如 lchatgpt:gpt-6-2:high / lchatgpt:gpt-6:instant
+                let (m, eff) = match other.split_once(':') {
+                    Some((m, e)) => {
+                        chat::parse_chat_effort(e).map_err(|err| format!("{err}"))?;
+                        (m.trim(), Some(e.trim().to_string()))
+                    }
+                    None => (other.trim(), None),
+                };
+                if m.is_empty() {
+                    return Err("模型名不能为空".to_string());
+                }
+                Route::Chat {
+                    web_model: Some(m.to_string()),
+                    effort: eff,
+                }
+            } else {
+                let known = model_ids(cfg).join(" / ");
+                return Err(format!(
+                    "不认识的模型 {other:?}；这个端只提供 {known}（也支持 lchatgpt:<模型>:<强度> 如 lchatgpt:gpt-6-2:high）"
+                ));
+            }
         }
     };
     if route == Route::Codex && !cfg.allow_codex {
@@ -552,11 +586,16 @@ enum Job {
         bound_conversation_id: Option<String>,
         /// 命中会话已知的分支节点数（避免续聊前多发一次 GET 撞 429）
         bound_branch_len: Option<usize>,
+        /// 可选切换网页模型（如 `gpt-6-2` / `gpt-6` / `gpt-5-6`）
+        web_model: Option<String>,
+        /// 可选切换网页推理强度（`instant` / `medium` / `high`）
+        effort: Option<String>,
     },
     Codex {
         input: Value,
         model: String,
         instructions: String,
+        effort: String,
     },
 }
 
@@ -735,6 +774,8 @@ fn run_job(cfg: &Config, job: &Job, sink: &mut dyn FnMut(&str)) -> Result<Reply,
             total_turns,
             bound_conversation_id,
             bound_branch_len,
+            web_model,
+            effort,
         } => {
             let ctx = worker_ctx("chat");
             let mut on = |text: &str, _done: bool| {
@@ -744,13 +785,14 @@ fn run_job(cfg: &Config, job: &Job, sink: &mut dyn FnMut(&str)) -> Result<Reply,
             };
             let res = match (bound_conversation_id.as_deref(), delta_prompt.as_deref()) {
                 (Some(cid), Some(delta)) if !delta.trim().is_empty() => {
-                    match chat::ask_in_conversation_streaming(
-                        Some(cid),
-                        *bound_branch_len,
-                        delta,
-                        &cfg.cdp,
-                        &ctx,
-                        &mut on,
+                    let cont_opts = chat::ChatOptions {
+                        conversation_id: Some(cid),
+                        known_branch_len: *bound_branch_len,
+                        model: web_model.as_deref(),
+                        effort: effort.as_deref(),
+                    };
+                    match chat::ask_with_options_streaming(
+                        cont_opts, delta, &cfg.cdp, &ctx, &mut on,
                     ) {
                         Ok(v) => Ok(v),
                         Err(e) => {
@@ -764,26 +806,26 @@ fn run_job(cfg: &Config, job: &Job, sink: &mut dyn FnMut(&str)) -> Result<Reply,
                                 }
                             }
                             let capped = cap_transcript(full_prompt);
-                            chat::ask_in_conversation_streaming(
-                                None,
-                                None,
-                                &capped,
-                                &cfg.cdp,
-                                &ctx,
-                                &mut on,
+                            let fresh_opts = chat::ChatOptions {
+                                model: web_model.as_deref(),
+                                effort: effort.as_deref(),
+                                ..Default::default()
+                            };
+                            chat::ask_with_options_streaming(
+                                fresh_opts, &capped, &cfg.cdp, &ctx, &mut on,
                             )
                         }
                     }
                 }
                 _ => {
                     let capped = cap_transcript(full_prompt);
-                    chat::ask_in_conversation_streaming(
-                        None,
-                        None,
-                        &capped,
-                        &cfg.cdp,
-                        &ctx,
-                        &mut on,
+                    let fresh_opts = chat::ChatOptions {
+                        model: web_model.as_deref(),
+                        effort: effort.as_deref(),
+                        ..Default::default()
+                    };
+                    chat::ask_with_options_streaming(
+                        fresh_opts, &capped, &cfg.cdp, &ctx, &mut on,
                     )
                 }
             }?;
@@ -818,6 +860,7 @@ fn run_job(cfg: &Config, job: &Job, sink: &mut dyn FnMut(&str)) -> Result<Reply,
             input,
             model,
             instructions,
+            effort,
         } => {
             let ctx = worker_ctx("codex");
             let mut on = |text: &str| {
@@ -826,7 +869,7 @@ fn run_job(cfg: &Config, job: &Job, sink: &mut dyn FnMut(&str)) -> Result<Reply,
                 }
             };
             (
-                ask::stream_codex(input, model, &cfg.effort, instructions, &ctx, &mut on)?,
+                ask::stream_codex(input, model, effort, instructions, &ctx, &mut on)?,
                 None,
             )
         }
@@ -1020,9 +1063,26 @@ async fn chat_completions(State(cfg): State<Arc<Config>>, Json(body): Json<Value
         );
     }
     let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
+    // 支持 OpenAI 标准字段 reasoning_effort 或 reasoning.effort（dsh / zerostack 切推理强度时发这个）
+    let req_effort = body
+        .get("reasoning_effort")
+        .or_else(|| body.pointer("/reasoning/effort"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
 
     let job = match route {
-        Route::Chat => {
+        Route::Chat {
+            web_model,
+            effort: route_effort,
+        } => {
+            let effort = req_effort.or(route_effort);
+            if let Some(e) = effort.as_deref() {
+                if let Err(err) = chat::parse_chat_effort(e) {
+                    return error_response(&err);
+                }
+            }
             let full_prompt = transcript(&messages);
             if full_prompt.trim().is_empty() {
                 return api_error(
@@ -1048,6 +1108,8 @@ async fn chat_completions(State(cfg): State<Arc<Config>>, Json(body): Json<Value
                     total_turns: 1,
                     bound_conversation_id: None,
                     bound_branch_len: None,
+                    web_model,
+                    effort,
                 }
             } else {
                 let anchor = session_anchor(&sys, &turns);
@@ -1066,6 +1128,8 @@ async fn chat_completions(State(cfg): State<Arc<Config>>, Json(body): Json<Value
                     total_turns: turns.len(),
                     bound_conversation_id,
                     bound_branch_len,
+                    web_model,
+                    effort,
                 }
             }
         }
@@ -1081,10 +1145,18 @@ async fn chat_completions(State(cfg): State<Arc<Config>>, Json(body): Json<Value
                 Ok(m) => m,
                 Err(e) => return error_response(&e),
             };
+            let effort = match req_effort.as_deref() {
+                Some(e) => match ask::resolve_effort(e) {
+                    Ok(v) => v,
+                    Err(err) => return error_response(&err),
+                },
+                None => cfg.effort.clone(),
+            };
             Job::Codex {
                 input,
                 model,
                 instructions,
+                effort,
             }
         }
     };
@@ -1212,9 +1284,35 @@ mod tests {
     #[test]
     fn only_the_chat_route_is_open_without_the_codex_flag() {
         let c = cfg(false);
-        assert_eq!(pick_route("lchatgpt:chat", &c).ok(), Some(Route::Chat));
-        assert_eq!(pick_route("chat", &c).ok(), Some(Route::Chat));
-        assert_eq!(pick_route("", &c).ok(), Some(Route::Chat));
+        let default_chat = Route::Chat {
+            web_model: None,
+            effort: None,
+        };
+        assert_eq!(pick_route("lchatgpt:chat", &c).ok(), Some(default_chat.clone()));
+        assert_eq!(pick_route("chat", &c).ok(), Some(default_chat.clone()));
+        assert_eq!(pick_route("", &c).ok(), Some(default_chat));
+        assert_eq!(
+            pick_route("lchatgpt:chat:high", &c).ok(),
+            Some(Route::Chat {
+                web_model: None,
+                effort: Some("high".into()),
+            })
+        );
+        assert_eq!(
+            pick_route("lchatgpt:gpt-6-2:instant", &c).ok(),
+            Some(Route::Chat {
+                web_model: Some("gpt-6-2".into()),
+                effort: Some("instant".into()),
+            })
+        );
+        assert_eq!(
+            pick_route("lchatgpt:gpt-6", &c).ok(),
+            Some(Route::Chat {
+                web_model: Some("gpt-6".into()),
+                effort: None,
+            })
+        );
+        assert!(pick_route("lchatgpt:chat:invalid_effort", &c).is_err());
         let err = pick_route("lchatgpt:codex", &c).expect_err("没挂 codex 额度就该拒绝");
         assert!(err.contains("--allow-codex"), "{err}");
         assert_eq!(

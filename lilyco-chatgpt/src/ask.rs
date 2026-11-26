@@ -51,13 +51,13 @@ pub struct Ask {
     )]
     cdp: String,
     #[arg(
-        about = "Codex model slug (empty means gpt-6.2-sol, the only slug a ChatGPT account accepts)",
-        default = "gpt-6.2-sol"
+        about = "Model slug (chat path: e.g. gpt-6-2 / gpt-6 / gpt-5-6 / gpt-6-2-instant / gpt-6-2-thinking, empty = web default; codex path: gpt-6.2-sol)",
+        default = ""
     )]
     model: String,
     #[arg(
-        about = "Codex reasoning effort: low / medium / high / xhigh / max / ultra",
-        default = "low"
+        about = "Reasoning effort (chat path: instant|low / medium / high|max, empty = web default; codex path: low / medium / high / xhigh / max / ultra)",
+        default = ""
     )]
     effort: String,
     #[arg(
@@ -135,7 +135,14 @@ fn run_ask(app: &Ask, ctx: &Context) -> Result<Value, AppError> {
     }
     // 默认只花 chat 额度：codex 必须有用户的显式许可
     if !app.allow_codex {
-        let mut result = chat::ask(&prompt, app.cdp.trim(), ctx)?;
+        let model = (!app.model.trim().is_empty()).then_some(app.model.trim());
+        let effort = (!app.effort.trim().is_empty()).then_some(app.effort.trim());
+        let opts = chat::ChatOptions {
+            model,
+            effort,
+            ..Default::default()
+        };
+        let mut result = chat::ask_with_options(&prompt, app.cdp.trim(), opts, ctx)?;
         fetch_images(app, ctx, &mut result);
         print_answer(ctx, &result);
         ctx.tick(1, Some(1), "");

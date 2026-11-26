@@ -422,6 +422,32 @@ impl Client {
         Ok(())
     }
 
+    /// 用 CDP 在指定视口坐标点一下左键（Radix UI 下拉菜单只认真实 pointer/mouse 事件）
+    pub(crate) fn click_point(&mut self, x: f64, y: f64) -> Result<(), AppError> {
+        self.call(
+            "Input.dispatchMouseEvent",
+            json!({ "type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1 }),
+        )?;
+        self.call(
+            "Input.dispatchMouseEvent",
+            json!({ "type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1 }),
+        )?;
+        Ok(())
+    }
+
+    /// 用 CDP 发送一次按键（用于操作 Radix `[role="slider"]` 推理强度滑块与 Escape 关菜单）
+    pub(crate) fn press_key(&mut self, key: &str, code: &str, vk: u32) -> Result<(), AppError> {
+        self.call(
+            "Input.dispatchKeyEvent",
+            json!({ "type": "keyDown", "key": key, "code": code, "windowsVirtualKeyCode": vk }),
+        )?;
+        self.call(
+            "Input.dispatchKeyEvent",
+            json!({ "type": "keyUp", "key": key, "code": code, "windowsVirtualKeyCode": vk }),
+        )?;
+        Ok(())
+    }
+
     /// 在页面里求值，拿回 JSON 值（字符串 / 数字 / 布尔）
     pub(crate) fn eval_js(&mut self, expression: &str) -> Result<Value, AppError> {
         let res = self.call(

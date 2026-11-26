@@ -89,6 +89,251 @@ const READY_JS: &str = r#"(() => {
   return JSON.stringify({ ready: !!el, href: location.href, state: document.readyState });
 })()"#;
 
+/// chat 路径的可选控制项：续接会话、指定网页模型、指定推理强度（Instant / Medium / High）
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ChatOptions<'a> {
+    pub conversation_id: Option<&'a str>,
+    pub known_branch_len: Option<usize>,
+    /// 网页模型名或 slug，如 `gpt-6-2` / `GPT-6.2` / `gpt-6` / `gpt-5-6` / `gpt-6-2-instant` / `gpt-6-2-thinking`
+    pub model: Option<&'a str>,
+    /// 推理强度：`instant` / `low` (0) · `medium` (1) · `high` / `xhigh` / `max` (2)
+    pub effort: Option<&'a str>,
+}
+
+/// 把用户传的推理强度名映射到 ChatGPT 网页滑块的 0 / 1 / 2 档位。
+///
+/// 实测网页滑块 `[role="slider"]` 的三档：`0 = Instant`，`1 = Medium`，`2 = High`。
+pub fn parse_chat_effort(raw: &str) -> Result<Option<u8>, AppError> {
+    let s = raw.trim().to_ascii_lowercase();
+    if s.is_empty() {
+        return Ok(None);
+    }
+    match s.as_str() {
+        "instant" | "low" | "none" | "off" | "minimal" | "0" => Ok(Some(0)),
+        "medium" | "standard" | "normal" | "default" | "1" => Ok(Some(1)),
+        "high" | "xhigh" | "max" | "ultra" | "extended" | "thinking" | "2" => Ok(Some(2)),
+        other => Err(AppError::InvalidArg(format!(
+            "不认识的 chat 推理强度 {other:?}。可选: instant(low) / medium / high(xhigh/max)"
+        ))),
+    }
+}
+
+/// 拆解网页模型名：像 `gpt-6-2-instant` / `gpt-6-2-thinking` 这类 slug 同时隐含了模型和强度。
+pub fn split_chat_model_hint(raw: &str) -> (Option<String>, Option<u8>) {
+    let s = raw.trim();
+    if s.is_empty() {
+        return (None, None);
+    }
+    let lower = s.to_ascii_lowercase();
+    if let Some(base) = lower.strip_suffix("-instant") {
+        return (Some(base.to_string()), Some(0));
+    }
+    if let Some(base) = lower.strip_suffix("-thinking") {
+        return (Some(base.to_string()), Some(2));
+    }
+    (Some(lower), None)
+}
+
+/// 归一化模型标签，把 `gpt-6-2` / `GPT-6.2` / `gpt-5-6` / `GPT-5.6 Sol` 统一到同一套可比形式
+fn normalize_model_key(s: &str) -> String {
+    let first = s
+        .lines()
+        .next()
+        .unwrap_or(s)
+        .split('|')
+        .next()
+        .unwrap_or(s)
+        .trim()
+        .to_ascii_lowercase();
+    let base = first.split_whitespace().next().unwrap_or(&first);
+    base.replace('-', ".")
+}
+
+/// 查找网页顶部/输入框旁的「选择 ChatGPT 模型」按钮中心坐标
+const MODEL_BTN_JS: &str = r#"(() => {
+  const btn = Array.from(document.querySelectorAll('button')).find(b => {
+    const a = (b.getAttribute('aria-label') || '').toLowerCase();
+    return a.includes('chatgpt 模型') || a.includes('chatgpt model') || a.includes('choose chatgpt');
+  });
+  if (!btn) return JSON.stringify({ ok: false });
+  const r = btn.getBoundingClientRect();
+  return JSON.stringify({
+    ok: true,
+    x: r.x + r.width / 2,
+    y: r.y + r.height / 2,
+    text: (btn.innerText || '').trim(),
+  });
+})()"#;
+
+/// 读出已打开的模型/强度菜单里的所有 radio 模型项与滑块状态
+const MODEL_MENU_JS: &str = r#"(() => {
+  const pop = document.querySelector('[role="menu"][data-state="open"], [data-radix-menu-content]');
+  if (!pop) return JSON.stringify({ open: false });
+  const radios = Array.from(pop.querySelectorAll('[role="menuitemradio"]')).map(el => {
+    const r = el.getBoundingClientRect();
+    return {
+      text: (el.innerText || '').trim(),
+      checked: el.getAttribute('aria-checked') === 'true',
+      x: r.x + r.width / 2,
+      y: r.y + r.height / 2,
+    };
+  });
+  const slider = pop.querySelector('[role="slider"]');
+  const label = pop.querySelector('[role="menuitem"]')?.innerText?.trim() || '';
+  return JSON.stringify({
+    open: true,
+    radios,
+    slider: slider ? {
+      val: Number(slider.getAttribute('aria-valuenow') ?? 0),
+      min: Number(slider.getAttribute('aria-valuemin') ?? 0),
+      max: Number(slider.getAttribute('aria-valuemax') ?? 2),
+      label,
+    } : null,
+  });
+})()"#;
+
+/// 在已就绪的 ChatGPT 网页里切换模型和/或推理强度（均为空时跳过，零开销）。
+fn apply_model_and_effort(
+    client: &mut Client,
+    model_raw: Option<&str>,
+    effort_raw: Option<&str>,
+    ctx: &Context,
+) -> Result<(), AppError> {
+    let (model_hint, implied_effort) = match model_raw {
+        Some(m) => split_chat_model_hint(m),
+        None => (None, None),
+    };
+    let explicit_effort = match effort_raw {
+        Some(e) => parse_chat_effort(e)?,
+        None => None,
+    };
+    let target_effort = explicit_effort.or(implied_effort);
+    if model_hint.is_none() && target_effort.is_none() {
+        return Ok(());
+    }
+
+    let open_menu = |client: &mut Client| -> Result<Value, AppError> {
+        // 刚进页面时 React 事件监听可能还没挂稳，最多试 3 次点开菜单
+        for attempt in 0..3 {
+            if attempt > 0 {
+                std::thread::sleep(Duration::from_millis(600));
+            }
+            let btn = eval_json(client, MODEL_BTN_JS)?;
+            if !btn.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+                continue;
+            }
+            let x = btn["x"].as_f64().unwrap_or(0.0);
+            let y = btn["y"].as_f64().unwrap_or(0.0);
+            if x <= 0.0 || y <= 0.0 {
+                continue;
+            }
+            client.click_point(x, y)?;
+            for _ in 0..6 {
+                std::thread::sleep(Duration::from_millis(200));
+                let m = eval_json(client, MODEL_MENU_JS)?;
+                if m.get("open").and_then(Value::as_bool).unwrap_or(false) {
+                    return Ok(m);
+                }
+            }
+        }
+        Err(AppError::Runtime("点了模型按钮但下拉菜单没弹出来".to_string()))
+    };
+
+    let mut menu = open_menu(client)?;
+
+    if let Some(want_model) = model_hint.as_deref() {
+        let want_key = normalize_model_key(want_model);
+        let radios = menu
+            .get("radios")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let matched = radios.iter().find(|r| {
+            let txt = r.get("text").and_then(Value::as_str).unwrap_or("");
+            normalize_model_key(txt) == want_key
+        });
+        if let Some(item) = matched {
+            let already = item
+                .get("checked")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let label = item
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or(want_model)
+                .lines()
+                .next()
+                .unwrap_or(want_model);
+            if !already {
+                let x = item["x"].as_f64().unwrap_or(0.0);
+                let y = item["y"].as_f64().unwrap_or(0.0);
+                client.click_point(x, y)?;
+                std::thread::sleep(Duration::from_millis(350));
+                ctx.log(LogLevel::Info, format!("已切换网页模型 → {label}"));
+                // 点完模型后 Radix 菜单可能自动收起，后面还要调强度的话重新打开
+                if target_effort.is_some() {
+                    let check = eval_json(client, MODEL_MENU_JS)?;
+                    if !check.get("open").and_then(Value::as_bool).unwrap_or(false) {
+                        menu = open_menu(client)?;
+                    } else {
+                        menu = check;
+                    }
+                }
+            }
+        } else {
+            let avail: Vec<String> = radios
+                .iter()
+                .filter_map(|r| {
+                    r.get("text")
+                        .and_then(Value::as_str)
+                        .and_then(|t| t.lines().next())
+                        .map(str::to_string)
+                })
+                .collect();
+            let _ = client.press_key("Escape", "Escape", 27);
+            return Err(AppError::InvalidArg(format!(
+                "网页模型菜单里找不到 {want_model:?}（当前可选: {}）",
+                avail.join(" / ")
+            )));
+        }
+    }
+
+    if let Some(target) = target_effort {
+        if let Some(slider) = menu.get("slider").filter(|v| v.is_object()) {
+            let max = slider.get("max").and_then(Value::as_u64).unwrap_or(2) as u8;
+            let clamped = target.min(max);
+            let _ = client.eval_js(
+                "document.querySelector('[role=\"menu\"][data-state=\"open\"] [role=\"slider\"], [data-radix-menu-content] [role=\"slider\"]')?.focus()",
+            );
+            std::thread::sleep(Duration::from_millis(120));
+            client.press_key("Home", "Home", 36)?;
+            std::thread::sleep(Duration::from_millis(150));
+            for _ in 0..clamped {
+                client.press_key("ArrowRight", "ArrowRight", 39)?;
+                std::thread::sleep(Duration::from_millis(150));
+            }
+            let after = eval_json(client, MODEL_MENU_JS).unwrap_or(Value::Null);
+            let label = after
+                .pointer("/slider/label")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            ctx.log(
+                LogLevel::Info,
+                format!("已切换推理强度 → 档位 {clamped} ({label})"),
+            );
+        } else {
+            ctx.log(
+                LogLevel::Warn,
+                "当前选中的网页模型没有推理强度滑块，已跳过强度切换".to_string(),
+            );
+        }
+    }
+
+    let _ = client.press_key("Escape", "Escape", 27);
+    std::thread::sleep(Duration::from_millis(200));
+    Ok(())
+}
+
 /// 一次尝试的失败：`sent` 为真表示「消息可能已经发出去了」——
 /// 这种情况绝不能换一个浏览器再发一遍，否则用户会得到两条一样的消息。
 /// 生成过程中每次读到更新后的全文就回调一次：`(全文, 是否已收尾)`。
@@ -634,8 +879,7 @@ fn poll_interval(rounds: u64) -> Duration {
 }
 fn ask_at(
     cdp: &str,
-    existing_conversation_id: Option<&str>,
-    known_branch_len: Option<usize>,
+    opts: ChatOptions<'_>,
     prompt: &str,
     ctx: &Context,
     on: OnText<'_>,
@@ -643,19 +887,12 @@ fn ask_at(
     let started = Instant::now();
     browser::probe(cdp).map_err(|error| Attempt { error, sent: false })?;
     // 自己开一个标签页，不碰用户正在看的那些
-    let (target_id, ws_url) = match existing_conversation_id {
+    let (target_id, ws_url) = match opts.conversation_id {
         Some(id) => browser::create_target_url(cdp, &format!("https://chatgpt.com/c/{id}")),
         None => browser::create_target(cdp),
     }
     .map_err(|error| Attempt { error, sent: false })?;
-    let outcome = run_in_tab(
-        &ws_url,
-        existing_conversation_id,
-        known_branch_len,
-        prompt,
-        ctx,
-        on,
-    );
+    let outcome = run_in_tab(&ws_url, opts, prompt, ctx, on);
     // 只有在「明确完成」或「消息根本没发出去」时才关临时标签页；
     // 如果消息已发出但超时/未完，保留标签页，避免把仍在进行的生图任务硬掐断。
     let should_close = match &outcome {
@@ -714,8 +951,7 @@ struct Done {
 /// 在一个标签页里走完整条链路。返回 (正文, 是否确认写完, 模型, 轮询次数)
 fn run_in_tab(
     ws_url: &str,
-    existing_conversation_id: Option<&str>,
-    known_branch_len: Option<usize>,
+    opts: ChatOptions<'_>,
     prompt: &str,
     ctx: &Context,
     on: OnText<'_>,
@@ -724,12 +960,15 @@ fn run_in_tab(
     wait_for_composer(&mut client).map_err(|e| (false, e))?;
     // 走到这里说明这个浏览器已经登录了 chatgpt.com，后面的失败直接报出来，
     // 不要再回退去试别的未登录端口白等 45 秒。
+    // 切换模型/推理强度也在发消息之前完成，失败不会花掉额度。
+    apply_model_and_effort(&mut client, opts.model, opts.effort, ctx)
+        .map_err(|e| (true, e))?;
     // 凭证与「发之前的状态快照」都要在**发消息之前**备好：这时候失败还没花掉额度。
     let creds = refresh::ensure_fresh(auth::load().map_err(|e| (true, e))?);
     let api = Api::new(creds);
 
-    let (conversation_id, min_branch_len) = if let Some(cid) = existing_conversation_id {
-        let before_len = match known_branch_len {
+    let (conversation_id, min_branch_len) = if let Some(cid) = opts.conversation_id {
+        let before_len = match opts.known_branch_len {
             Some(n) if n > 0 => n,
             _ => {
                 let before_conv = api
@@ -776,43 +1015,34 @@ fn run_in_tab(
 
 /// 用 chat 额度发一条消息（默认路径）。返回结果 JSON。
 pub fn ask(prompt: &str, cdp: &str, ctx: &Context) -> Result<Value, AppError> {
-    ask_streaming(prompt, cdp, ctx, &mut |_, _| {})
+    ask_with_options(prompt, cdp, ChatOptions::default(), ctx)
 }
 
-/// 同上，但每次轮询读到新的全文就回调一次 —— `serve` 靠它把网页那条路翻成 SSE。
-///
-/// 注意回调给的是**累计全文**：网页只有一个「当前答案」，没有 token 级增量。
-pub fn ask_streaming(
+/// 同 `ask`，但可指定网页模型与推理强度。
+pub fn ask_with_options(
+    prompt: &str,
+    cdp: &str,
+    opts: ChatOptions<'_>,
+    ctx: &Context,
+) -> Result<Value, AppError> {
+    ask_with_options_streaming(opts, prompt, cdp, ctx, &mut |_, _| {})
+}
+
+/// 完整可控的 chat 路径：支持续接会话、指定网页模型、指定推理强度与流式回调。
+pub fn ask_with_options_streaming(
+    opts: ChatOptions<'_>,
     prompt: &str,
     cdp: &str,
     ctx: &Context,
     on: OnText<'_>,
 ) -> Result<Value, AppError> {
-    ask_in_conversation_streaming(None, None, prompt, cdp, ctx, on)
-}
-
-/// 同 `ask_streaming`，但可选传入已有的 `conversation_id` 与已知的 `branch_len`：
-/// - `Some(id)` 时直接打开 `https://chatgpt.com/c/{id}` 续聊，只发送增量消息；
-/// - 同时传入 `known_branch_len` 时省掉发前额外一次 `GET /conversation/{id}`，避免 429；
-/// - `None` 时新开一条会话。
-pub fn ask_in_conversation_streaming(
-    existing_conversation_id: Option<&str>,
-    known_branch_len: Option<usize>,
-    prompt: &str,
-    cdp: &str,
-    ctx: &Context,
-    on: OnText<'_>,
-) -> Result<Value, AppError> {
+    // 提前校验强度参数：拼错了不用开浏览器就报错
+    if let Some(e) = opts.effort {
+        parse_chat_effort(e)?;
+    }
     let mut tried: Vec<String> = Vec::new();
     for endpoint in browser::candidate_endpoints(cdp) {
-        match ask_at(
-            &endpoint,
-            existing_conversation_id,
-            known_branch_len,
-            prompt,
-            ctx,
-            &mut *on,
-        ) {
+        match ask_at(&endpoint, opts, prompt, ctx, &mut *on) {
             Ok(v) => return Ok(v),
             Err(attempt) => {
                 if attempt.sent {
@@ -1029,5 +1259,30 @@ mod tests {
         assert!(!same_text(&got_truncated, &want));
         let got_wrong_tail = format!("{head}{mid}{tail}EXTRA");
         assert!(!same_text(&got_wrong_tail, &want));
+    }
+
+    #[test]
+    fn chat_effort_and_model_hints_parse_cleanly() {
+        assert_eq!(parse_chat_effort("").unwrap(), None);
+        assert_eq!(parse_chat_effort("instant").unwrap(), Some(0));
+        assert_eq!(parse_chat_effort("low").unwrap(), Some(0));
+        assert_eq!(parse_chat_effort("medium").unwrap(), Some(1));
+        assert_eq!(parse_chat_effort("high").unwrap(), Some(2));
+        assert_eq!(parse_chat_effort("max").unwrap(), Some(2));
+        assert!(parse_chat_effort("bogus").is_err());
+
+        assert_eq!(
+            split_chat_model_hint("gpt-6-2-instant"),
+            (Some("gpt-6-2".into()), Some(0))
+        );
+        assert_eq!(
+            split_chat_model_hint("gpt-6-2-thinking"),
+            (Some("gpt-6-2".into()), Some(2))
+        );
+        assert_eq!(normalize_model_key("GPT-6.2"), normalize_model_key("gpt-6-2"));
+        assert_eq!(
+            normalize_model_key("GPT-5.6 Sol | 将于 12月23日 下线"),
+            normalize_model_key("gpt-5-6")
+        );
     }
 }
