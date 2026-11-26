@@ -35,7 +35,8 @@ use std::convert::Infallible;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 
-use axum::http::StatusCode;
+use axum::extract::Path;
+use axum::http::{header, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -101,12 +102,17 @@ const MAX_CHAT_CHARS: usize = 120_000;
 /// 内存里最多记住多少条「客户端会话 → ChatGPT 网页会话」绑定
 const MAX_BOUND_SESSIONS: usize = 64;
 
+/// 生图在 /v1/chat/completions 里自动落盘的目录（同时通过 GET /images/<文件名> 提供访问）
+const SERVE_IMAGE_DIR: &str = "/tmp/lchatgpt-images";
+
 /// 一条已绑定的网页会话：后续轮次只往这条 `/c/<id>` 发增量消息
 #[derive(Clone, Debug)]
 struct BoundSession {
     conversation_id: String,
     /// 已经发进这条网页会话的非 system 轮次数（包含上一轮已生成的 assistant 回复）
     sent_turns: usize,
+    /// 上一轮结束时活动分支的节点数，续聊直接复用，避免发前再 GET 一次触发 429
+    branch_len: usize,
 }
 
 /// 一个端口进程共享的设置
@@ -114,6 +120,7 @@ struct Config {
     cdp: String,
     allow_codex: bool,
     effort: String,
+    base_origin: String,
     sessions: Mutex<HashMap<u64, BoundSession>>,
 }
 
@@ -134,6 +141,7 @@ fn run_serve(app: &Serve, ctx: &Context) -> Result<Value, AppError> {
         cdp: app.cdp.trim().to_string(),
         allow_codex: app.allow_codex,
         effort,
+        base_origin: format!("http://{bind}"),
         sessions: Mutex::new(HashMap::new()),
     });
 
@@ -175,7 +183,26 @@ fn router(cfg: Arc<Config>) -> Router {
         .route("/v1/models", get(models))
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/images/generations", post(images_generations))
+        .route("/images/{name}", get(serve_image))
         .with_state(cfg)
+}
+
+async fn serve_image(Path(name): Path<String>) -> Response {
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+    {
+        return api_error(StatusCode::BAD_REQUEST, "非法图片文件名", "invalid_request_error");
+    }
+    let path = std::path::Path::new(SERVE_IMAGE_DIR).join(&name);
+    match std::fs::read(&path) {
+        Ok(bytes) => {
+            let (mime, _) = util::sniff_image_mime(&bytes);
+            ([(header::CONTENT_TYPE, mime)], bytes).into_response()
+        }
+        Err(_) => api_error(StatusCode::NOT_FOUND, "图片不存在", "not_found"),
+    }
 }
 
 async fn health(State(cfg): State<Arc<Config>>) -> Json<Value> {
@@ -445,6 +472,8 @@ enum Job {
         total_turns: usize,
         /// 命中的已有 ChatGPT 网页会话 id
         bound_conversation_id: Option<String>,
+        /// 命中会话已知的分支节点数（避免续聊前多发一次 GET 撞 429）
+        bound_branch_len: Option<usize>,
     },
     Codex {
         input: Value,
@@ -453,19 +482,45 @@ enum Job {
     },
 }
 
+/// 已自动下载落盘并挂到 `/images/<name>` 的生成图
+struct SavedImage {
+    file_id: String,
+    caption: Option<String>,
+    local_path: String,
+    url: String,
+}
+
 /// 干完之后的成品
 struct Reply {
     text: String,
     usage: Option<Value>,
     /// 这一轮生成的图（只有 chat 那条路会有）
     images: Vec<Value>,
+    /// 已自动落盘并提供本地 HTTP 访问的图片
+    saved_images: Vec<SavedImage>,
 }
 
 impl Reply {
-    /// 生图那一轮没有正文。给客户端一句说明，别交一个空回答出去
+    /// 生图那一轮没有正文。自动附上已落盘图片链接与路径，别交一个空回答出去
     /// （dsh 的 retryPolicy 把 EMPTY_RESPONSE 当可重试错误，会白花两份额度）。
     fn text_or_image_note(&self) -> String {
-        if !self.text.trim().is_empty() || self.images.is_empty() {
+        if !self.text.trim().is_empty() {
+            return self.text.clone();
+        }
+        if !self.saved_images.is_empty() {
+            let mut lines = Vec::with_capacity(self.saved_images.len() + 1);
+            for img in &self.saved_images {
+                let alt = img
+                    .caption
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or(&img.file_id);
+                lines.push(format!("![{alt}]({})", img.url));
+                lines.push(format!("- 已保存到本地：`{}`", img.local_path));
+            }
+            return lines.join("\n");
+        }
+        if self.images.is_empty() {
             return self.text.clone();
         }
         let ids = self
@@ -479,6 +534,56 @@ impl Reply {
             self.images.len()
         )
     }
+}
+
+/// 把 chat 生图结果里的 file_id 自动下载到 `SERVE_IMAGE_DIR`，供 `/images/<name>` 直接展示
+fn save_chat_images(base_origin: &str, images: &[Value], ctx: &Context) -> Vec<SavedImage> {
+    if images.is_empty() {
+        return Vec::new();
+    }
+    if std::fs::create_dir_all(SERVE_IMAGE_DIR).is_err() {
+        return Vec::new();
+    }
+    let creds = match auth::load() {
+        Ok(c) => refresh::ensure_fresh(c),
+        Err(e) => {
+            ctx.log(LogLevel::Warn, format!("下载生图跳过（读凭证失败: {e}）"));
+            return Vec::new();
+        }
+    };
+    let api = Api::new(creds);
+    let mut out = Vec::new();
+    for img in images {
+        let Some(file_id) = img.get("file_id").and_then(Value::as_str) else {
+            continue;
+        };
+        let caption = img
+            .get("caption")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        match api.download_file(file_id) {
+            Ok(bytes) => {
+                let (_, ext) = util::sniff_image_mime(&bytes);
+                let filename = format!("{file_id}.{ext}");
+                let path = std::path::Path::new(SERVE_IMAGE_DIR).join(&filename);
+                if std::fs::write(&path, &bytes).is_ok() {
+                    out.push(SavedImage {
+                        file_id: file_id.to_string(),
+                        caption,
+                        local_path: path.display().to_string(),
+                        url: format!("{base_origin}/images/{filename}"),
+                    });
+                }
+            }
+            Err(e) => {
+                ctx.log(
+                    LogLevel::Warn,
+                    format!("自动下载生图 {file_id} 失败: {e}"),
+                );
+            }
+        }
+    }
+    out
 }
 
 /// 把 codex 的 {input_tokens,output_tokens} 翻成 OpenAI 的 {prompt,completion,total}_tokens
@@ -551,6 +656,7 @@ fn run_job(cfg: &Config, job: &Job, sink: &mut dyn FnMut(&str)) -> Result<Reply,
             delta_prompt,
             total_turns,
             bound_conversation_id,
+            bound_branch_len,
         } => {
             let ctx = worker_ctx("chat");
             let mut on = |text: &str, _done: bool| {
@@ -562,6 +668,7 @@ fn run_job(cfg: &Config, job: &Job, sink: &mut dyn FnMut(&str)) -> Result<Reply,
                 (Some(cid), Some(delta)) if !delta.trim().is_empty() => {
                     match chat::ask_in_conversation_streaming(
                         Some(cid),
+                        *bound_branch_len,
                         delta,
                         &cfg.cdp,
                         &ctx,
@@ -581,6 +688,7 @@ fn run_job(cfg: &Config, job: &Job, sink: &mut dyn FnMut(&str)) -> Result<Reply,
                             let capped = cap_transcript(full_prompt);
                             chat::ask_in_conversation_streaming(
                                 None,
+                                None,
                                 &capped,
                                 &cfg.cdp,
                                 &ctx,
@@ -591,7 +699,14 @@ fn run_job(cfg: &Config, job: &Job, sink: &mut dyn FnMut(&str)) -> Result<Reply,
                 }
                 _ => {
                     let capped = cap_transcript(full_prompt);
-                    chat::ask_in_conversation_streaming(None, &capped, &cfg.cdp, &ctx, &mut on)
+                    chat::ask_in_conversation_streaming(
+                        None,
+                        None,
+                        &capped,
+                        &cfg.cdp,
+                        &ctx,
+                        &mut on,
+                    )
                 }
             }?;
             if let (Some(key), Some(cid)) = (
@@ -599,6 +714,10 @@ fn run_job(cfg: &Config, job: &Job, sink: &mut dyn FnMut(&str)) -> Result<Reply,
                 res.get("conversation_id").and_then(Value::as_str),
             ) {
                 if !cid.is_empty() {
+                    let branch_len = res
+                        .get("branch_len")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0) as usize;
                     if let Ok(mut map) = cfg.sessions.lock() {
                         if map.len() >= MAX_BOUND_SESSIONS && !map.contains_key(key) {
                             map.clear();
@@ -609,6 +728,7 @@ fn run_job(cfg: &Config, job: &Job, sink: &mut dyn FnMut(&str)) -> Result<Reply,
                                 conversation_id: cid.to_string(),
                                 // +1 代表本轮即将回给客户端的 assistant 回复
                                 sent_turns: total_turns + 1,
+                                branch_len,
                             },
                         );
                     }
@@ -634,16 +754,24 @@ fn run_job(cfg: &Config, job: &Job, sink: &mut dyn FnMut(&str)) -> Result<Reply,
         }
     };
     let text = value["text"].as_str().unwrap_or("").to_string();
+    let images = value
+        .get("images")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let saved_images = if images.is_empty() {
+        Vec::new()
+    } else {
+        let ctx = worker_ctx("images");
+        save_chat_images(&cfg.base_origin, &images, &ctx)
+    };
     let usage = openai_usage(value.get("usage"))
         .or_else(|| chat_prompt_for_usage.map(|p| estimated_usage(p, &text)));
     Ok(Reply {
         text,
         usage,
-        images: value
-            .get("images")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default(),
+        images,
+        saved_images,
     })
 }
 
@@ -827,20 +955,21 @@ async fn chat_completions(State(cfg): State<Arc<Config>>, Json(body): Json<Value
             }
             let (sys, turns) = split_chat_messages(&messages);
             let anchor = session_anchor(&sys, &turns);
-            let (bound_conversation_id, delta_prompt) = anchor
+            let (bound_conversation_id, bound_branch_len, delta_prompt) = anchor
                 .and_then(|key| cfg.sessions.lock().ok()?.get(&key).cloned())
                 .filter(|b| turns.len() > b.sent_turns)
                 .map(|b| {
                     let delta = format_delta_turns(&turns[b.sent_turns..]);
-                    (Some(b.conversation_id), Some(delta))
+                    (Some(b.conversation_id), Some(b.branch_len), Some(delta))
                 })
-                .unwrap_or((None, None));
+                .unwrap_or((None, None, None));
             Job::Chat {
                 full_prompt,
                 anchor,
                 delta_prompt,
                 total_turns: turns.len(),
                 bound_conversation_id,
+                bound_branch_len,
             }
         }
         Route::Codex => {
@@ -918,13 +1047,26 @@ async fn chat_completions(State(cfg): State<Arc<Config>>, Json(body): Json<Value
         yield Ok::<Event, Infallible>(
             Event::default().data(chunk(&head_id, created, &head_model, "", None)),
         );
+        let mut emitted_any = false;
         while let Some(part) = rx.recv().await {
             match part {
                 Part::Delta(d) => {
+                    if !d.is_empty() {
+                        emitted_any = true;
+                    }
                     yield Ok(Event::default()
                         .data(chunk(&head_id, created, &head_model, &d, None)));
                 }
                 Part::Done(reply) => {
+                    // 生图那一轮正文是空的，流式期间没有发出任何 delta；
+                    // 这里必须补发一条图片 Markdown / 说明，否则 dsh 会报 completed response with no content 并重试！
+                    if !emitted_any {
+                        let fallback = reply.text_or_image_note();
+                        if !fallback.is_empty() {
+                            yield Ok(Event::default()
+                                .data(chunk(&head_id, created, &head_model, &fallback, None)));
+                        }
+                    }
                     yield Ok(Event::default()
                         .data(last_chunk(&head_id, created, &head_model, reply.usage.clone())));
                     break;
@@ -958,6 +1100,7 @@ mod tests {
             cdp: String::new(),
             allow_codex,
             effort: "low".into(),
+            base_origin: "http://127.0.0.1:8790".into(),
             sessions: Mutex::new(HashMap::new()),
         }
     }

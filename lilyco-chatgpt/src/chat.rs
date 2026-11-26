@@ -40,8 +40,8 @@ const LIST_INTERVAL: Duration = Duration::from_millis(2000);
 const SNAPSHOT_ATTEMPTS: usize = 5;
 /// 快照与轮询时取多少个最近的会话
 const LIST_LIMIT: u64 = 20;
-/// 等回答写完的最长等待
-const POLL_TIMEOUT: Duration = Duration::from_secs(180);
+/// 等回答写完的最长等待（生图或深度思考可能超过 3 分钟，给足 6 分钟）
+const POLL_TIMEOUT: Duration = Duration::from_secs(360);
 /// 两次轮询之间歇多久（1.2 秒：实测 3 次采样就稳定，再密只是白打后端）
 const POLL_INTERVAL: Duration = Duration::from_millis(1200);
 /// 往输入框里写字最多试几次（CDP 的 insertText 会漏、React 的 state 会滞后，
@@ -524,6 +524,8 @@ struct Polled {
     model: Option<String>,
     polls: u64,
     images: Vec<show::Image>,
+    /// 本轮结束后活动分支的节点数，续聊下一轮直接复用，不必再额外 GET 一次撞 429
+    branch_len: usize,
 }
 
 /// 轮询 REST 直到回答写完。
@@ -542,11 +544,17 @@ fn poll_reply(
     let mut images: Vec<show::Image> = Vec::new();
     let mut rounds = 0u64;
     let mut last_err = String::new();
+    let mut last_branch_len = min_branch_len;
+    // 刚点完发送时先缓 2.5 秒再首次查询，减少无效请求与 429
+    if min_branch_len > 0 {
+        std::thread::sleep(Duration::from_millis(2500));
+    }
     while Instant::now() < deadline {
         rounds += 1;
         // 429 是限流不是失败：CLI 自己会退避重试几次（见 Api::get_json_retry）
-        match api.get_json_retry(&format!("/conversation/{conversation_id}"), &[], 4) {
+        match api.get_json_retry(&format!("/conversation/{conversation_id}"), &[], 5) {
             Ok(conv) => {
+                last_branch_len = show::active_branch(&conv).len();
                 let model = conv
                     .get("default_model_slug")
                     .and_then(Value::as_str)
@@ -564,6 +572,7 @@ fn poll_reply(
                                 model,
                                 polls: rounds,
                                 images,
+                                branch_len: last_branch_len,
                             });
                         }
                     }
@@ -606,6 +615,7 @@ fn poll_reply(
             model: None,
             polls: rounds,
             images,
+            branch_len: last_branch_len,
         })
     }
 }
@@ -625,20 +635,36 @@ fn poll_interval(rounds: u64) -> Duration {
 fn ask_at(
     cdp: &str,
     existing_conversation_id: Option<&str>,
+    known_branch_len: Option<usize>,
     prompt: &str,
     ctx: &Context,
     on: OnText<'_>,
 ) -> Result<Value, Attempt> {
     let started = Instant::now();
     browser::probe(cdp).map_err(|error| Attempt { error, sent: false })?;
-    // 自己开一个标签页，不碰用户正在看的那些；用完（无论成败）都关掉
+    // 自己开一个标签页，不碰用户正在看的那些
     let (target_id, ws_url) = match existing_conversation_id {
         Some(id) => browser::create_target_url(cdp, &format!("https://chatgpt.com/c/{id}")),
         None => browser::create_target(cdp),
     }
     .map_err(|error| Attempt { error, sent: false })?;
-    let outcome = run_in_tab(&ws_url, existing_conversation_id, prompt, ctx, on);
-    browser::close_target(cdp, &target_id);
+    let outcome = run_in_tab(
+        &ws_url,
+        existing_conversation_id,
+        known_branch_len,
+        prompt,
+        ctx,
+        on,
+    );
+    // 只有在「明确完成」或「消息根本没发出去」时才关临时标签页；
+    // 如果消息已发出但超时/未完，保留标签页，避免把仍在进行的生图任务硬掐断。
+    let should_close = match &outcome {
+        Ok(done) => done.complete,
+        Err((sent, _)) => !sent,
+    };
+    if should_close {
+        browser::close_target(cdp, &target_id);
+    }
     match outcome {
         Ok(done) => {
             ctx.log(
@@ -664,6 +690,7 @@ fn ask_at(
                 "text": done.text,
                 "images": done.images.iter().map(show::Image::to_json).collect::<Vec<_>>(),
                 "complete": done.complete,
+                "branch_len": done.branch_len,
                 "cdp": cdp,
                 "polls": done.polls,
                 "elapsed_ms": started.elapsed().as_millis() as u64,
@@ -681,12 +708,14 @@ struct Done {
     model: Option<String>,
     polls: u64,
     images: Vec<show::Image>,
+    branch_len: usize,
 }
 
 /// 在一个标签页里走完整条链路。返回 (正文, 是否确认写完, 模型, 轮询次数)
 fn run_in_tab(
     ws_url: &str,
     existing_conversation_id: Option<&str>,
+    known_branch_len: Option<usize>,
     prompt: &str,
     ctx: &Context,
     on: OnText<'_>,
@@ -700,10 +729,15 @@ fn run_in_tab(
     let api = Api::new(creds);
 
     let (conversation_id, min_branch_len) = if let Some(cid) = existing_conversation_id {
-        let before_conv = api
-            .get_json_retry(&format!("/conversation/{cid}"), &[], 3)
-            .map_err(|e| (true, e))?;
-        let before_len = show::active_branch(&before_conv).len();
+        let before_len = match known_branch_len {
+            Some(n) if n > 0 => n,
+            _ => {
+                let before_conv = api
+                    .get_json_retry(&format!("/conversation/{cid}"), &[], 5)
+                    .map_err(|e| (true, e))?;
+                show::active_branch(&before_conv).len()
+            }
+        };
         ctx.log(
             LogLevel::Info,
             format!("续接会话 {cid}（已有 {before_len} 节点），把增量消息写进输入框"),
@@ -736,6 +770,7 @@ fn run_in_tab(
         model: polled.model,
         polls: polled.polls,
         images: polled.images,
+        branch_len: polled.branch_len,
     })
 }
 
@@ -753,14 +788,16 @@ pub fn ask_streaming(
     ctx: &Context,
     on: OnText<'_>,
 ) -> Result<Value, AppError> {
-    ask_in_conversation_streaming(None, prompt, cdp, ctx, on)
+    ask_in_conversation_streaming(None, None, prompt, cdp, ctx, on)
 }
 
-/// 同 `ask_streaming`，但可选传入已有的 `conversation_id`：
-/// - `Some(id)` 时直接打开 `https://chatgpt.com/c/{id}` 续聊，只发送增量消息，省掉重发全部历史与等待落库；
+/// 同 `ask_streaming`，但可选传入已有的 `conversation_id` 与已知的 `branch_len`：
+/// - `Some(id)` 时直接打开 `https://chatgpt.com/c/{id}` 续聊，只发送增量消息；
+/// - 同时传入 `known_branch_len` 时省掉发前额外一次 `GET /conversation/{id}`，避免 429；
 /// - `None` 时新开一条会话。
 pub fn ask_in_conversation_streaming(
     existing_conversation_id: Option<&str>,
+    known_branch_len: Option<usize>,
     prompt: &str,
     cdp: &str,
     ctx: &Context,
@@ -768,7 +805,14 @@ pub fn ask_in_conversation_streaming(
 ) -> Result<Value, AppError> {
     let mut tried: Vec<String> = Vec::new();
     for endpoint in browser::candidate_endpoints(cdp) {
-        match ask_at(&endpoint, existing_conversation_id, prompt, ctx, &mut *on) {
+        match ask_at(
+            &endpoint,
+            existing_conversation_id,
+            known_branch_len,
+            prompt,
+            ctx,
+            &mut *on,
+        ) {
             Ok(v) => return Ok(v),
             Err(attempt) => {
                 if attempt.sent {
