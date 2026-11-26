@@ -22,6 +22,14 @@ flowchart TD
 
 ## 1. Workspace 依赖（严格单向，禁止反向）
 
+### 独立快速开发工作区
+
+- `lilyco-no_std` 0.1.1 在 `lilyco-no_std/src/lib.rs:7` 保留无 std 边界。类型执行入口在 `lilyco-no_std/src/core/executor.rs:5`。宿主文件能力和备份在 `lilyco-no_std/src/adapters/workspace.rs` 与 `lilyco-no_std/src/adapters/snapshot.rs`。
+- Rapid CLI 在 `lilyco-rapid/ops/cli/src/main.rs:12` 装配创建、资源生成和开发启动。生成项目包括 `lilyco-no_std` 源码快照。
+- `lilyco-rapid/core/src/lib.rs:9` 定义资源接口及共用校验。`lilyco-rapid/server/src/lib.rs` 注册类型、路由和 OpenAPI。数据适配器为 `lilyco-rapid/server/src/store.rs`。
+- `lilyco-rapid/web/src/App.tsx` 提供独立工作台与 API reference，按 OpenAPI 渲染可编辑标量字段。设计与命令见 [LILYCO-RAPID.md](LILYCO-RAPID.md)。
+
+
 ### 应用扩展：素材工坊
 
 `apps/asset-studio/` 是独立的本机 FastAPI + React/shadcn 前端，调用已编译 `laic`，不复制解析器或 core 执行器。

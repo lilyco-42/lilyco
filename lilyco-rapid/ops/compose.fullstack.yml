@@ -1,0 +1,19 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: ops/Dockerfile.api
+    restart: unless-stopped
+    volumes:
+      - records:/app/data
+  web:
+    build:
+      context: .
+      dockerfile: ops/Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:${RAPID_PORT:-8080}:8080"
+volumes:
+  records:

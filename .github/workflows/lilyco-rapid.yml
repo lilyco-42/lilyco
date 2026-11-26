@@ -1,0 +1,107 @@
+name: Lilyco Rapid
+
+on:
+  push:
+    paths:
+      - 'lilyco-rapid/**'
+      - 'lilyco-no_std/**'
+      - '.github/workflows/lilyco-rapid.yml'
+  pull_request:
+    paths:
+      - 'lilyco-rapid/**'
+      - 'lilyco-no_std/**'
+      - '.github/workflows/lilyco-rapid.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            lilyco-rapid
+            lilyco-rapid/ops/cli
+      - working-directory: lilyco-rapid
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo test --locked --workspace
+      - working-directory: lilyco-rapid/ops/cli
+        run: |
+          cargo fmt -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+
+  portable-core:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [thumbv7em-none-eabi, riscv32imac-unknown-none-elf, wasm32-unknown-unknown, aarch64-linux-android, aarch64-unknown-linux-ohos]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - working-directory: lilyco-rapid
+        run: cargo check --locked -p rapid-core --no-default-features --target ${{ matrix.target }}
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - working-directory: lilyco-rapid
+        run: cargo check --locked -p rapid-core --no-default-features --target aarch64-apple-ios
+
+  generated-project:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Scaffold an application without repository dependencies
+        shell: bash
+        run: |
+          cargo install --locked --path lilyco-rapid/ops/cli --root "$RUNNER_TEMP/rapid-tools"
+          echo "$RUNNER_TEMP/rapid-tools/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/rapid-tools/bin/lilyco-rapid" new release-smoke --dir "$RUNNER_TEMP"
+      - name: Build and run the generated Compose stack
+        shell: bash
+        env:
+          RAPID_PORT: 18421
+        run: |
+          cd "$RUNNER_TEMP/release-smoke"
+          lilyco-rapid generate resource notes --field title:string --field priority:i32
+          docker compose up --build -d
+          for attempt in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:18421/readyz; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18421/ >/tmp/rapid-index.html
+          grep -q 'Lilyco Rapid' /tmp/rapid-index.html
+          curl -fsS -H 'Content-Type: application/json' -d '{"title":"deployment check","priority":2}' \
+            http://127.0.0.1:18421/api/notes | grep -q 'deployment check'
+          docker compose restart api
+          curl --retry 15 --retry-delay 1 --retry-all-errors -fsS http://127.0.0.1:18421/api/notes \
+            | grep -q 'deployment check'
+      - if: always()
+        shell: bash
+        run: |
+          if test -f "$RUNNER_TEMP/release-smoke/compose.yaml"; then
+            cd "$RUNNER_TEMP/release-smoke"
+            docker compose logs
+            docker compose down -v
+          fi

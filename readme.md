@@ -2,6 +2,8 @@
   <img src="docs/banner.svg" width="720" alt="banner">
 </div>
 
+**Lilyco Rapid** 支持项目脚手架、类型化 CRUD、OpenAPI 和独立 React 工作台。用 `lilyco-rapid new` 创建项目，`lilyco-rapid dev` 本机启动，`docker compose up --build` 部署。详见 [快速入门](lilyco-rapid/README.md)。
+
 # Lilyco
 
 **One struct. Four interfaces (CLI / TUI / Web / MCP). Zero boilerplate. Cross-platform (Windows / Linux / Android).**

@@ -1,0 +1,26 @@
+{
+	admin off
+	persist_config off
+}
+
+{$RAPID_WEB_LISTEN::8080} {
+	bind {$RAPID_WEB_BIND:0.0.0.0}
+	root * {$RAPID_WEB_ROOT:/srv}
+	encode zstd gzip
+
+	@api path /api /api/* /openapi.json /healthz /readyz
+	handle @api {
+		reverse_proxy {$RAPID_UPSTREAM:api:8421}
+	}
+
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		X-Frame-Options DENY
+	}
+}

@@ -1,0 +1,15 @@
+[project]
+name = "Lilyco Rapid"
+
+[http]
+address = "127.0.0.1:8421"
+max_body_bytes = 16384
+max_in_flight = 32
+
+[storage]
+path = "data/rapid.sqlite3"
+busy_timeout_ms = 2500
+
+[resources]
+max_text_bytes = 200
+page_size = 40
