@@ -34,7 +34,7 @@ docker compose up --build -d
 在生成的全栈项目根目录准备 API 和静态文件。
 
 ```sh
-cargo build --release --locked -p rapid-server
+cargo build --release --locked -p rapid-server --target-dir target
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web build
 ```

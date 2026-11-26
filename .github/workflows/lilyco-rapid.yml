@@ -33,16 +33,24 @@ jobs:
           workspaces: |
             lilyco-rapid
             lilyco-rapid/ops/cli
-      - working-directory: lilyco-rapid
-        run: |
-          cargo fmt --all -- --check
-          cargo clippy --locked --workspace --all-targets -- -D warnings
-          cargo test --locked --workspace
-      - working-directory: lilyco-rapid/ops/cli
-        run: |
-          cargo fmt -- --check
-          cargo clippy --locked --all-targets -- -D warnings
-          cargo test --locked
+      - name: Format API and core
+        working-directory: lilyco-rapid
+        run: cargo fmt --all -- --check
+      - name: Lint API and core
+        working-directory: lilyco-rapid
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Test API and core
+        working-directory: lilyco-rapid
+        run: cargo test --locked --workspace
+      - name: Format CLI
+        working-directory: lilyco-rapid/ops/cli
+        run: cargo fmt -- --check
+      - name: Lint CLI
+        working-directory: lilyco-rapid/ops/cli
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Test CLI
+        working-directory: lilyco-rapid/ops/cli
+        run: cargo test --locked
 
   portable-core:
     runs-on: ubuntu-latest
@@ -90,6 +98,7 @@ jobs:
             if curl -fsS http://127.0.0.1:18421/readyz; then break; fi
             sleep 1
           done
+          curl -fsS http://127.0.0.1:18421/readyz
           curl -fsS http://127.0.0.1:18421/ >/tmp/rapid-index.html
           grep -q 'Lilyco Rapid' /tmp/rapid-index.html
           curl -fsS -H 'Content-Type: application/json' -d '{"title":"deployment check","priority":2}' \
