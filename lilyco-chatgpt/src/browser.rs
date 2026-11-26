@@ -205,12 +205,17 @@ fn pick_target(cdp: &str) -> Result<(String, String, bool), AppError> {
     Ok((id, ws, true))
 }
 
-/// 新开一个标签页，返回 (target id, WebSocket 调试地址)。
+/// 新开一个标签页（默认打开 chatgpt.com 首页），返回 (target id, WebSocket 调试地址)。
+pub(crate) fn create_target(cdp: &str) -> Result<(String, String), AppError> {
+    create_target_url(cdp, TARGET_URL)
+}
+
+/// 新开一个指定 URL 的标签页（用于续接已有会话 `/c/<id>`），返回 (target id, WebSocket 调试地址)。
 ///
 /// 注意 Chrome 只认 `PUT`，`GET /json/new` 会回 405 —— 这点坑过一次。
-pub(crate) fn create_target(cdp: &str) -> Result<(String, String), AppError> {
+pub(crate) fn create_target_url(cdp: &str, url: &str) -> Result<(String, String), AppError> {
     let created = agent()
-        .put(format!("{cdp}/json/new?{TARGET_URL}"))
+        .put(format!("{cdp}/json/new?{url}"))
         .send_empty()
         .map_err(|e| AppError::Runtime(format!("开新标签页失败: {e}")))?;
     let status = created.status();

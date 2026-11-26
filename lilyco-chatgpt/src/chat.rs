@@ -441,22 +441,34 @@ impl Assist {
 /// 文本只看最后一条 assistant 节点（那才是屏幕上那句话）；图要在**整条分支**上收集 ——
 /// 生图时图挂在 `role: "tool"` 的 `multimodal_text` 节点上，而那些节点在收尾的
 /// assistant 节点之前，且一次生成会出现两个指向同一 `asset_pointer` 的节点（`show::images` 去重）。
+#[cfg(test)]
 fn last_assistant(conversation: &Value) -> Option<Assist> {
+    last_assistant_after(conversation, 0)
+}
+
+/// 同 `last_assistant`，但忽略活动分支前 `min_branch_len` 个旧节点 ——
+/// 续接已有会话发新消息时，用发消息前的分支长度做下界，确保绝不会把上一轮的旧回答当成新回答。
+fn last_assistant_after(conversation: &Value, min_branch_len: usize) -> Option<Assist> {
     let mut found: Option<Assist> = None;
     let mut images: Vec<show::Image> = Vec::new();
     let mut finished_seen = false;
     let chain = show::active_branch(conversation);
+    if min_branch_len > 0 && chain.len() <= min_branch_len {
+        return None;
+    }
+    let slice = &chain[min_branch_len..];
     // 图只算**这一轮**的：从最后一条 user 消息往后数，免得把上一轮的图算进来
-    let from = chain
-        .iter()
-        .rposition(|n| {
-            n.pointer("/message/author/role")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                == "user"
-        })
-        .unwrap_or(0);
-    for node in chain.iter().skip(from) {
+    let from = match slice.iter().rposition(|n| {
+        n.pointer("/message/author/role")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            == "user"
+    }) {
+        Some(idx) => idx,
+        None if min_branch_len > 0 => return None,
+        None => 0,
+    };
+    for node in slice.iter().skip(from) {
         let msg = match node.get("message") {
             Some(m) if m.is_object() => m,
             _ => continue,
@@ -521,6 +533,7 @@ struct Polled {
 fn poll_reply(
     api: &Api,
     conversation_id: &str,
+    min_branch_len: usize,
     ctx: &Context,
     on: OnText<'_>,
 ) -> Result<Polled, AppError> {
@@ -538,7 +551,7 @@ fn poll_reply(
                     .get("default_model_slug")
                     .and_then(Value::as_str)
                     .map(str::to_string);
-                if let Some(a) = last_assistant(&conv) {
+                if let Some(a) = last_assistant_after(&conv, min_branch_len) {
                     if a.has_content() {
                         best = a.text;
                         images = a.images;
@@ -609,13 +622,22 @@ fn poll_interval(rounds: u64) -> Duration {
         _ => Duration::from_millis(3500),
     }
 }
-fn ask_at(cdp: &str, prompt: &str, ctx: &Context, on: OnText<'_>) -> Result<Value, Attempt> {
+fn ask_at(
+    cdp: &str,
+    existing_conversation_id: Option<&str>,
+    prompt: &str,
+    ctx: &Context,
+    on: OnText<'_>,
+) -> Result<Value, Attempt> {
     let started = Instant::now();
     browser::probe(cdp).map_err(|error| Attempt { error, sent: false })?;
     // 自己开一个标签页，不碰用户正在看的那些；用完（无论成败）都关掉
-    let (target_id, ws_url) =
-        browser::create_target(cdp).map_err(|error| Attempt { error, sent: false })?;
-    let outcome = run_in_tab(&ws_url, prompt, ctx, on);
+    let (target_id, ws_url) = match existing_conversation_id {
+        Some(id) => browser::create_target_url(cdp, &format!("https://chatgpt.com/c/{id}")),
+        None => browser::create_target(cdp),
+    }
+    .map_err(|error| Attempt { error, sent: false })?;
+    let outcome = run_in_tab(&ws_url, existing_conversation_id, prompt, ctx, on);
     browser::close_target(cdp, &target_id);
     match outcome {
         Ok(done) => {
@@ -664,6 +686,7 @@ struct Done {
 /// 在一个标签页里走完整条链路。返回 (正文, 是否确认写完, 模型, 轮询次数)
 fn run_in_tab(
     ws_url: &str,
+    existing_conversation_id: Option<&str>,
     prompt: &str,
     ctx: &Context,
     on: OnText<'_>,
@@ -672,23 +695,40 @@ fn run_in_tab(
     wait_for_composer(&mut client).map_err(|e| (false, e))?;
     // 走到这里说明这个浏览器已经登录了 chatgpt.com，后面的失败直接报出来，
     // 不要再回退去试别的未登录端口白等 45 秒。
-    // 凭证与「发之前有哪些会话」都要在**发消息之前**备好：这时候失败还没花掉额度。
+    // 凭证与「发之前的状态快照」都要在**发消息之前**备好：这时候失败还没花掉额度。
     let creds = refresh::ensure_fresh(auth::load().map_err(|e| (true, e))?);
     let api = Api::new(creds);
-    let before = recent_ids(&api).map_err(|e| (true, e))?;
-    ctx.log(LogLevel::Info, "网页已就绪，把问题写进输入框".to_string());
-    compose(&mut client, prompt).map_err(|e| (true, e))?;
-    ctx.log(LogLevel::Info, "点发送".to_string());
-    click_send(&mut client).map_err(|e| (true, e))?;
-    // 从这里起消息可能已经发出去了：后面任何失败都不能换端点重试
-    let conversation_id = wait_for_new_conversation(&mut client, &api, &before, prompt, ctx)
+
+    let (conversation_id, min_branch_len) = if let Some(cid) = existing_conversation_id {
+        let before_conv = api
+            .get_json_retry(&format!("/conversation/{cid}"), &[], 3)
+            .map_err(|e| (true, e))?;
+        let before_len = show::active_branch(&before_conv).len();
+        ctx.log(
+            LogLevel::Info,
+            format!("续接会话 {cid}（已有 {before_len} 节点），把增量消息写进输入框"),
+        );
+        compose(&mut client, prompt).map_err(|e| (true, e))?;
+        ctx.log(LogLevel::Info, "点发送".to_string());
+        click_send(&mut client).map_err(|e| (true, e))?;
+        drop(client);
+        (cid.to_string(), before_len)
+    } else {
+        let before = recent_ids(&api).map_err(|e| (true, e))?;
+        ctx.log(LogLevel::Info, "网页已就绪，把问题写进输入框".to_string());
+        compose(&mut client, prompt).map_err(|e| (true, e))?;
+        ctx.log(LogLevel::Info, "点发送".to_string());
+        click_send(&mut client).map_err(|e| (true, e))?;
+        // 从这里起消息可能已经发出去了：后面任何失败都不能换端点重试
+        let cid = wait_for_new_conversation(&mut client, &api, &before, prompt, ctx)
+            .map_err(|e| (true, e))?;
+        drop(client);
+        ctx.log(LogLevel::Info, format!("落成会话 {cid}，等它写完"));
+        (cid, 0)
+    };
+
+    let polled = poll_reply(&api, &conversation_id, min_branch_len, ctx, on)
         .map_err(|e| (true, e))?;
-    drop(client);
-    ctx.log(
-        LogLevel::Info,
-        format!("落成会话 {conversation_id}，等它写完"),
-    );
-    let polled = poll_reply(&api, &conversation_id, ctx, on).map_err(|e| (true, e))?;
     Ok(Done {
         conversation_id,
         text: polled.text,
@@ -713,9 +753,22 @@ pub fn ask_streaming(
     ctx: &Context,
     on: OnText<'_>,
 ) -> Result<Value, AppError> {
+    ask_in_conversation_streaming(None, prompt, cdp, ctx, on)
+}
+
+/// 同 `ask_streaming`，但可选传入已有的 `conversation_id`：
+/// - `Some(id)` 时直接打开 `https://chatgpt.com/c/{id}` 续聊，只发送增量消息，省掉重发全部历史与等待落库；
+/// - `None` 时新开一条会话。
+pub fn ask_in_conversation_streaming(
+    existing_conversation_id: Option<&str>,
+    prompt: &str,
+    cdp: &str,
+    ctx: &Context,
+    on: OnText<'_>,
+) -> Result<Value, AppError> {
     let mut tried: Vec<String> = Vec::new();
     for endpoint in browser::candidate_endpoints(cdp) {
-        match ask_at(&endpoint, prompt, ctx, &mut *on) {
+        match ask_at(&endpoint, existing_conversation_id, prompt, ctx, &mut *on) {
             Ok(v) => return Ok(v),
             Err(attempt) => {
                 if attempt.sent {

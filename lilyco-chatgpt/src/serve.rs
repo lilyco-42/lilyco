@@ -29,8 +29,11 @@
 //! `chat::ask_streaming` 的回调给的是**累计全文**，这里按 `Diff` 逐次算出新增量再
 //! 发 `delta`，所以客户端看到的是粗粒度的增长（约每 1.2 秒一批），不是 token 级流。
 
+use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::convert::Infallible;
-use std::sync::Arc;
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, Mutex};
 
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -92,11 +95,26 @@ pub struct Serve {
     effort: String,
 }
 
+/// 新开/滚动会话时单条文本的字符上限：超过这个长度会折叠中间历史，
+/// 防止 ChatGPT 网页输入框拒收或直接把会话强制关闭。
+const MAX_CHAT_CHARS: usize = 120_000;
+/// 内存里最多记住多少条「客户端会话 → ChatGPT 网页会话」绑定
+const MAX_BOUND_SESSIONS: usize = 64;
+
+/// 一条已绑定的网页会话：后续轮次只往这条 `/c/<id>` 发增量消息
+#[derive(Clone, Debug)]
+struct BoundSession {
+    conversation_id: String,
+    /// 已经发进这条网页会话的非 system 轮次数（包含上一轮已生成的 assistant 回复）
+    sent_turns: usize,
+}
+
 /// 一个端口进程共享的设置
 struct Config {
     cdp: String,
     allow_codex: bool,
     effort: String,
+    sessions: Mutex<HashMap<u64, BoundSession>>,
 }
 
 fn run_serve(app: &Serve, ctx: &Context) -> Result<Value, AppError> {
@@ -116,6 +134,7 @@ fn run_serve(app: &Serve, ctx: &Context) -> Result<Value, AppError> {
         cdp: app.cdp.trim().to_string(),
         allow_codex: app.allow_codex,
         effort,
+        sessions: Mutex::new(HashMap::new()),
     });
 
     let models = if cfg.allow_codex {
@@ -318,10 +337,114 @@ fn codex_input(messages: &[Value]) -> (Value, String) {
     }
     (Value::Array(items), sys.join("\n\n"))
 }
+/// 按字符数估算 token（CJK 约 1.5 token/字，ASCII 约 0.25 token/字）。
+/// 网页端不返回真实 usage，不填的话 dsh / zerostack 会一直显示 0% 且永不自动压缩。
+fn estimate_tokens(text: &str) -> u64 {
+    if text.trim().is_empty() {
+        return 0;
+    }
+    let mut cjk = 0u64;
+    let mut other = 0u64;
+    for c in text.chars() {
+        if ('\u{4E00}'..='\u{9FFF}').contains(&c)
+            || ('\u{3400}'..='\u{4DBF}').contains(&c)
+            || ('\u{3000}'..='\u{303F}').contains(&c)
+            || ('\u{FF00}'..='\u{FFEF}').contains(&c)
+        {
+            cjk += 1;
+        } else {
+            other += 1;
+        }
+    }
+    ((cjk * 3).div_ceil(2) + other.div_ceil(4)).max(1)
+}
+
+fn estimated_usage(prompt: &str, completion: &str) -> Value {
+    let p = estimate_tokens(prompt);
+    let c = estimate_tokens(completion);
+    json!({
+        "prompt_tokens": p,
+        "completion_tokens": c,
+        "total_tokens": p + c,
+    })
+}
+
+/// 拆分 system 与非 system 轮次，供会话锚点、增量发送与完整转录共用
+fn split_chat_messages(messages: &[Value]) -> (Vec<String>, Vec<(&'static str, String)>) {
+    let mut sys: Vec<String> = Vec::new();
+    let mut turns: Vec<(&'static str, String)> = Vec::new();
+    for m in messages {
+        let role = m.get("role").and_then(Value::as_str).unwrap_or("user");
+        let text = message_text(m);
+        if text.trim().is_empty() {
+            continue;
+        }
+        match role {
+            "system" | "developer" => sys.push(text),
+            "assistant" => turns.push(("Assistant", text)),
+            "tool" | "function" => turns.push(("Tool", text)),
+            _ => turns.push(("User", text)),
+        }
+    }
+    (sys, turns)
+}
+
+/// 生成会话锚点：取 system 前 200 字符（不含尾部动态时间戳）+ 第一条 User 消息。
+/// 这样 dsh 每轮刷新 time-context 时，依然能稳定命中同一条 ChatGPT 网页会话。
+fn session_anchor(sys: &[String], turns: &[(&'static str, String)]) -> Option<u64> {
+    let first_user = turns.iter().find(|(r, _)| *r == "User").map(|(_, t)| t)?;
+    let mut h = DefaultHasher::new();
+    if let Some(s) = sys.first() {
+        let head: String = s.chars().take(200).collect();
+        head.hash(&mut h);
+    }
+    first_user.hash(&mut h);
+    Some(h.finish())
+}
+
+/// 把增量轮次压成发往已有会话的一段文本（单条 User 直接发原文，多条带标签）
+fn format_delta_turns(turns: &[(&'static str, String)]) -> String {
+    if turns.len() == 1 && turns[0].0 == "User" {
+        return turns[0].1.clone();
+    }
+    turns
+        .iter()
+        .map(|(r, t)| format!("{r}: {t}"))
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+/// 超长兜底：新开或滚动会话时如果整段转录超过 `MAX_CHAT_CHARS`，
+/// 保留头部（system 身份）与尾部（最近几轮），折叠中间过老内容，防止网页强关。
+fn cap_transcript(prompt: &str) -> String {
+    let total = prompt.chars().count();
+    if total <= MAX_CHAT_CHARS {
+        return prompt.to_string();
+    }
+    let head_keep = 36_000;
+    let tail_keep = MAX_CHAT_CHARS.saturating_sub(head_keep + 200);
+    let head: String = prompt.chars().take(head_keep).collect();
+    let tail: String = prompt
+        .chars()
+        .skip(total.saturating_sub(tail_keep))
+        .collect();
+    let omitted = total.saturating_sub(head_keep + tail_keep);
+    format!("{head}\n\n[... 已折叠中间约 {omitted} 字符的较早历史，以防超出 ChatGPT 网页上下文上限 ...]\n\n{tail}")
+}
+
 /// 一次请求要干的活
 enum Job {
     Chat {
-        prompt: String,
+        /// 完整转录（用于新开会话、超限滚动兜底、以及估算总 prompt_tokens）
+        full_prompt: String,
+        /// 客户端会话指纹
+        anchor: Option<u64>,
+        /// 如果命中已有会话，只发这些新增轮次
+        delta_prompt: Option<String>,
+        /// 本次请求里的非 system 轮次数
+        total_turns: usize,
+        /// 命中的已有 ChatGPT 网页会话 id
+        bound_conversation_id: Option<String>,
     },
     Codex {
         input: Value,
@@ -421,15 +544,77 @@ fn worker_ctx(tag: &str) -> Context {
 /// 真正干活：ureq / CDP 都是同步的，所以整个 job 在 spawn_blocking 里跑
 fn run_job(cfg: &Config, job: &Job, sink: &mut dyn FnMut(&str)) -> Result<Reply, AppError> {
     let mut diff = Diff::default();
-    let value = match job {
-        Job::Chat { prompt } => {
+    let (value, chat_prompt_for_usage) = match job {
+        Job::Chat {
+            full_prompt,
+            anchor,
+            delta_prompt,
+            total_turns,
+            bound_conversation_id,
+        } => {
             let ctx = worker_ctx("chat");
             let mut on = |text: &str, _done: bool| {
                 if let Some(d) = diff.next(text) {
                     sink(&d);
                 }
             };
-            chat::ask_streaming(prompt, &cfg.cdp, &ctx, &mut on)?
+            let res = match (bound_conversation_id.as_deref(), delta_prompt.as_deref()) {
+                (Some(cid), Some(delta)) if !delta.trim().is_empty() => {
+                    match chat::ask_in_conversation_streaming(
+                        Some(cid),
+                        delta,
+                        &cfg.cdp,
+                        &ctx,
+                        &mut on,
+                    ) {
+                        Ok(v) => Ok(v),
+                        Err(e) => {
+                            ctx.log(
+                                LogLevel::Warn,
+                                format!("续接会话 {cid} 失败（{e}），自动滚动新开会话继续"),
+                            );
+                            if let Some(key) = anchor {
+                                if let Ok(mut map) = cfg.sessions.lock() {
+                                    map.remove(key);
+                                }
+                            }
+                            let capped = cap_transcript(full_prompt);
+                            chat::ask_in_conversation_streaming(
+                                None,
+                                &capped,
+                                &cfg.cdp,
+                                &ctx,
+                                &mut on,
+                            )
+                        }
+                    }
+                }
+                _ => {
+                    let capped = cap_transcript(full_prompt);
+                    chat::ask_in_conversation_streaming(None, &capped, &cfg.cdp, &ctx, &mut on)
+                }
+            }?;
+            if let (Some(key), Some(cid)) = (
+                anchor,
+                res.get("conversation_id").and_then(Value::as_str),
+            ) {
+                if !cid.is_empty() {
+                    if let Ok(mut map) = cfg.sessions.lock() {
+                        if map.len() >= MAX_BOUND_SESSIONS && !map.contains_key(key) {
+                            map.clear();
+                        }
+                        map.insert(
+                            *key,
+                            BoundSession {
+                                conversation_id: cid.to_string(),
+                                // +1 代表本轮即将回给客户端的 assistant 回复
+                                sent_turns: total_turns + 1,
+                            },
+                        );
+                    }
+                }
+            }
+            (res, Some(full_prompt.as_str()))
         }
         Job::Codex {
             input,
@@ -442,12 +627,18 @@ fn run_job(cfg: &Config, job: &Job, sink: &mut dyn FnMut(&str)) -> Result<Reply,
                     sink(&d);
                 }
             };
-            ask::stream_codex(input, model, &cfg.effort, instructions, &ctx, &mut on)?
+            (
+                ask::stream_codex(input, model, &cfg.effort, instructions, &ctx, &mut on)?,
+                None,
+            )
         }
     };
+    let text = value["text"].as_str().unwrap_or("").to_string();
+    let usage = openai_usage(value.get("usage"))
+        .or_else(|| chat_prompt_for_usage.map(|p| estimated_usage(p, &text)));
     Ok(Reply {
-        text: value["text"].as_str().unwrap_or("").to_string(),
-        usage: openai_usage(value.get("usage")),
+        text,
+        usage,
         images: value
             .get("images")
             .and_then(Value::as_array)
@@ -626,15 +817,31 @@ async fn chat_completions(State(cfg): State<Arc<Config>>, Json(body): Json<Value
 
     let job = match route {
         Route::Chat => {
-            let prompt = transcript(&messages);
-            if prompt.trim().is_empty() {
+            let full_prompt = transcript(&messages);
+            if full_prompt.trim().is_empty() {
                 return api_error(
                     StatusCode::BAD_REQUEST,
                     "messages 里没有任何文本内容",
                     "invalid_request_error",
                 );
             }
-            Job::Chat { prompt }
+            let (sys, turns) = split_chat_messages(&messages);
+            let anchor = session_anchor(&sys, &turns);
+            let (bound_conversation_id, delta_prompt) = anchor
+                .and_then(|key| cfg.sessions.lock().ok()?.get(&key).cloned())
+                .filter(|b| turns.len() > b.sent_turns)
+                .map(|b| {
+                    let delta = format_delta_turns(&turns[b.sent_turns..]);
+                    (Some(b.conversation_id), Some(delta))
+                })
+                .unwrap_or((None, None));
+            Job::Chat {
+                full_prompt,
+                anchor,
+                delta_prompt,
+                total_turns: turns.len(),
+                bound_conversation_id,
+            }
         }
         Route::Codex => {
             let (input, sys) = codex_input(&messages);
@@ -751,6 +958,7 @@ mod tests {
             cdp: String::new(),
             allow_codex,
             effort: "low".into(),
+            sessions: Mutex::new(HashMap::new()),
         }
     }
 
@@ -845,5 +1053,49 @@ mod tests {
         let end = last_chunk("id1", 1, MODEL_CHAT, None);
         let v: Value = serde_json::from_str(&end).unwrap();
         assert_eq!(v["choices"][0]["finish_reason"], "stop");
+    }
+
+    /// system 尾部动态时间戳变化时，会话锚点必须稳定不变
+    #[test]
+    fn session_anchor_ignores_dynamic_tail_in_system_prompt() {
+        let sys_prefix = "You are an AI agent. ".repeat(15); // > 200 chars
+        let t1_msgs = vec![
+            json!({"role": "system", "content": format!("{sys_prefix}\nTime: 18:10")}),
+            json!({"role": "user", "content": "帮我分析架构"}),
+        ];
+        let t2_msgs = vec![
+            json!({"role": "system", "content": format!("{sys_prefix}\nTime: 18:15")}),
+            json!({"role": "user", "content": "帮我分析架构"}),
+            json!({"role": "assistant", "content": "好的"}),
+            json!({"role": "user", "content": "继续"}),
+        ];
+        let (s1, u1) = split_chat_messages(&t1_msgs);
+        let (s2, u2) = split_chat_messages(&t2_msgs);
+        assert_eq!(session_anchor(&s1, &u1), session_anchor(&s2, &u2));
+        assert_eq!(format_delta_turns(&u2[2..]), "继续");
+    }
+
+    #[test]
+    fn estimated_usage_reports_nonzero_tokens() {
+        let u = estimated_usage("你好世界 hello world", "ok");
+        assert!(u["prompt_tokens"].as_u64().unwrap() >= 6);
+        assert!(u["completion_tokens"].as_u64().unwrap() >= 1);
+        assert_eq!(
+            u["total_tokens"].as_u64().unwrap(),
+            u["prompt_tokens"].as_u64().unwrap() + u["completion_tokens"].as_u64().unwrap()
+        );
+    }
+
+    #[test]
+    fn cap_transcript_folds_middle_when_over_limit() {
+        let big = format!(
+            "HEAD_START_{}_TAIL_END",
+            "x".repeat(MAX_CHAT_CHARS + 5000)
+        );
+        let capped = cap_transcript(&big);
+        assert!(capped.starts_with("HEAD_START_"));
+        assert!(capped.ends_with("_TAIL_END"));
+        assert!(capped.contains("已折叠中间"));
+        assert!(capped.chars().count() <= MAX_CHAT_CHARS);
     }
 }
