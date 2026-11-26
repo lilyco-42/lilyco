@@ -47,33 +47,42 @@ From one struct you get:
 
 ---
 
-## Framework Crates
+## Framework Crates (`crates/`)
 
 | Crate | What it does |
 |---|---|
-| [`lilyco-core`](lilyco-core) | Context, Progress, AppError, traits |
-| [`lilyco-macros`](lilyco-macros) | `#[derive(App)]` — generates CLI/TUI/Web/MCP |
-| [`lilyco-cli`](lilyco-cli) | clap-based CLI front-end |
-| [`lilyco-tui`](lilyco-tui) | crossterm interactive form |
-| [`lilyco-gui`](lilyco-gui) | Web UI (SSE progress) |
-| [`lilyco-mcp`](lilyco-mcp) | MCP stdio server |
-| [`lilyco`](lilyco) | Facade — `lilyco::run::<T>()` dispatches all four ends |
+| [`lilyco-core`](crates/lilyco-core) | Context, Progress, AppError, SafetyTier, traits |
+| [`lilyco-macros`](crates/lilyco-macros) | `#[derive(App)]` — generates CLI/TUI/Web/MCP |
+| [`lilyco-cli`](crates/lilyco-cli) | clap-based CLI front-end |
+| [`lilyco-tui`](crates/lilyco-tui) | crossterm interactive form |
+| [`lilyco-gui`](crates/lilyco-gui) | Web UI (SSE progress) |
+| [`lilyco-mcp`](crates/lilyco-mcp) | MCP stdio server |
+| [`lilyco-ultra-ui`](crates/lilyco-ultra-ui) | JSON UI spec & renderer |
+| [`lilyco`](crates/lilyco) | Facade — `lilyco::run::<T>()` dispatches all four ends |
+| [`lilyco-dev`](crates/lilyco-dev) | Meta CLI (`lilyco new / build / run / doc`) |
+| [`lilyco-example`](crates/lilyco-example) | Minimal 30-line four-surface example |
 
-## Application Crates
+## Application Theme Repositories (Topic: `#lilyco`)
 
-| Binary | Crate | What it does |
-|---|---|---|
-| `lbin` | [lilyco-binfmt](lilyco-binfmt) | Office file reader (docx/xlsx/pptx/odt) |
-| `lbrush` | [lilyco-brush](lilyco-brush) | Rust-native bash on Windows |
-| `lgrep` | [lilyco-grep](lilyco-grep) | Fast grep |
-| `lfiles` | [lilyco-files](lilyco-files) | File ops |
-| `lplc` | [lilyco-plc](lilyco-plc) | PLC / companion board control |
-| `lffmpeg` | [lilyco-ffmpeg](lilyco-ffmpeg) | ffmpeg transcode/resize/trim with live progress |
-| `lvision` | [lilyco-vision](lilyco-vision) | Vision / OCR |
-| `lsrt` | [lilyco-srt](lilyco-srt) | Auto-subtitle: faster-whisper ASR + ffmpeg burn-in |
-| `laic` | [lilyco-aic](lilyco-aic) | Alice in Cradle tooling |
-| `lpet` | [lilyco-pet](lilyco-pet) | Pet companion |
-| `lmpkg` | [lilyco-mpkg](lilyco-mpkg) | Memory package registry |
+Application crates have been split into independent theme repositories (all tagged with GitHub topic **`lilyco`**, see [docs/THEME-REPOS.md](docs/THEME-REPOS.md)):
+
+| Binary | Crate | Repository | What it does |
+|---|---|---|---|
+| `lenv` | `lilyco-env-cli` | [lilyco-42/lilyco-env](https://github.com/lilyco-42/lilyco-env) | Cross-platform env doctor, JSON/TOML/YAML/INI editor, chsrc-style mirrors & kiri forge |
+| `lbin` | `lilyco-binfmt` | [lilyco-42/lilyco-tools](https://github.com/lilyco-42/lilyco-tools) | Office file reader (docx/xlsx/pptx/odt) |
+| `lgrep` | `lilyco-grep` | [lilyco-42/lilyco-tools](https://github.com/lilyco-42/lilyco-tools) | Fast grep |
+| `lfiles` | `lilyco-files` | [lilyco-42/lilyco-tools](https://github.com/lilyco-42/lilyco-tools) | File ops |
+| `lplc` | `lilyco-plc` | [lilyco-42/lilyco-tools](https://github.com/lilyco-42/lilyco-tools) | PLC / companion board control |
+| `lbrush` | `lilyco-brush` | [lilyco-42/lilyco-media](https://github.com/lilyco-42/lilyco-media) | Rust-native bash on Windows |
+| `lffmpeg` | `lilyco-ffmpeg` | [lilyco-42/lilyco-media](https://github.com/lilyco-42/lilyco-media) | ffmpeg transcode/resize/trim with live progress |
+| `lvision` | `lilyco-vision` | [lilyco-42/lilyco-media](https://github.com/lilyco-42/lilyco-media) | Vision / OCR |
+| `lsrt` | `lilyco-srt` | [lilyco-42/lilyco-media](https://github.com/lilyco-42/lilyco-media) | Auto-subtitle: faster-whisper ASR + ffmpeg burn-in |
+| `lpet` | `lilyco-pet` | [lilyco-42/lilyco-media](https://github.com/lilyco-42/lilyco-media) | Pet companion |
+| `laic` | `lilyco-aic` | [lilyco-42/lilyco-ai](https://github.com/lilyco-42/lilyco-ai) | Alice in Cradle tooling |
+| `lmpkg` | `lilyco-mpkg` | [lilyco-42/lilyco-ai](https://github.com/lilyco-42/lilyco-ai) | Memory package registry |
+| — | UI / Desktop shells | [lilyco-42/lilyco-ui](https://github.com/lilyco-42/lilyco-ui) | Tauri, Graphite, GTK4 native-ui, floating window |
+| — | Desktop Studios | [lilyco-42/lilyco-studios](https://github.com/lilyco-42/lilyco-studios) | asset-studio, vision-studio, media-studio |
+| — | Agent & Manager | [lilyco-42/lilyco-agent](https://github.com/lilyco-42/lilyco-agent) | lilyco-manager, lilyco-toolhub, tiny-agent, tiny_lilyco |
 
 Install any app binary:
 ```bash

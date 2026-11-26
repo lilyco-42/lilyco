@@ -7,12 +7,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-# 同一 ref 只保留最新一次运行：连续推 main（例如连合几个 PR）或快速补推 PR 时，
-# 取消陈旧的 in-progress run，别让它们白占 runner。
-# 背景（2026-10-11）：连续合并 3 个 PR 触发 3 个完整 run，每个约 1 小时，白跑约 2 小时。
-# 用 github.workflow 做前缀，避免与 desktop.yml 的同名 ref 撞组。
-# 但 tag 运行永不取消 —— 下面的 release job 会 `gh release create`，
-# 中途被砍可能留下半发布的 release。tag 有自己的 ref，天然与 main 分属不同组。
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -21,13 +15,10 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # 组织级架构守则（git 依赖锁 rev / 大文件不入库）—— reusable workflow
   hygiene:
     name: hygiene (架构守则)
     uses: lilyco-42/.github/.github/workflows/lyco-hygiene.yml@main
 
-  # 框架 crate：core/macros/cli/tui/gui/mcp/ultra-ui/facade
-  # 与应用 job 拆分 —— 应用挂了不拖累框架绿（守则：框架 CI 不被应用 C 依赖卡住）
   framework:
     name: framework (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -44,422 +35,55 @@ jobs:
           rustup toolchain install stable --profile minimal --component rustfmt,clippy
           rustup default stable
 
-      - name: Clippy (framework, all targets)
-        run: cargo clippy -p lilyco-core -p lilyco-macros -p lilyco-cli -p lilyco-tui -p lilyco-gui -p lilyco-mcp -p lilyco-ultra-ui -p lilyco --all-targets
+      - name: Check formatting
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo fmt --all -- --check
 
-      - name: Run tests (framework, headless)
-        run: cargo test -p lilyco-core -p lilyco-macros -p lilyco-cli -p lilyco-tui -p lilyco-gui -p lilyco-mcp -p lilyco-ultra-ui -p lilyco
+      - name: Clippy (workspace, all targets)
+        run: cargo clippy --workspace --all-targets
+
+      - name: Run tests (workspace)
+        run: cargo test --workspace
 
       - name: "Run tests (facade full features: tui + web + ultra)"
         run: cargo test -p lilyco --features full
 
-      - name: Verify docs build (framework)
-        run: cargo doc -p lilyco-core -p lilyco-macros -p lilyco-cli -p lilyco-tui -p lilyco-gui -p lilyco-mcp -p lilyco-ultra-ui -p lilyco --no-deps
+      - name: Verify docs build
+        run: cargo doc --workspace --no-deps
 
-  # 应用 crate：框架消费者。ubuntu 单平台快验（windows 应用产物走 release-build）
-  apps:
-    name: apps (fmt + clippy + test)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # P1 出图：ubuntu CI 无独显，装 Mesa 软件 GPU 栈（lavapipe Vulkan / llvmpipe GL），
-      # 让 lilyco-graphite 的 `export_png_when_gpu_available` 能真实执行而非优雅跳过。
-      # 装不上也不影响 SVG 主路径 —— 那条是纯 CPU 矢量渲染，零 GPU 依赖。
-      # 必须放在 apps：只有这个 job 的 `cargo test` 会跑到 -p lilyco-graphite。
-      - name: Install Mesa software GPU (PNG export best-effort)
-        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1-mesa-dri mesa-vulkan-drivers
-
-      - name: Install stable toolchain (fmt + clippy)
-        run: |
-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
-          rustup default stable
-
-      # Retain all existing gates; reuse compilation between UI changes/main.
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: apps-correctness
-          cache-on-failure: true
-
-      - name: Check formatting (workspace)
-        run: cargo fmt --all -- --check
-
-      - name: Clippy (apps, all targets)
-        run: cargo clippy -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt -p lilyco-aic -p lilyco-dev -p lilyco-srt --all-targets
-
-      - name: Run tests (apps)
-        run: cargo test -p lilyco-example -p lilyco-grep -p lilyco-files -p lilyco-plc -p lilyco-brush -p lilyco-ffmpeg -p lilyco-vision -p lilyco-graphite -p lilyco-mpkg -p lilyco-pet -p lilyco-bitnet -p lilyco-letsgal -p lilyco-binfmt -p lilyco-aic -p lilyco-dev -p lilyco-srt
-
-      # 办公文件这一摊的证据制度：同一批字节，两套独立实现必须给出同样的答案。
-      # 编译只在这里发生（本机不跑 cargo build），fixture 是提交进来的真实生产者文件，
-      # 第二读者只用 Python 标准库，不装任何第三方包。
-      # 这条闸门只读源码：一条 check() 少给一个参数会让 60 分钟的 cross-check 在最后才炸
-      - name: Gate probe shape (check arity + scripts parse)
-        run: python3 scripts/acceptance/probe_gates.py
-
-      - name: Build lbin (for the office two-reader cross-check)
-        run: cargo build -p lilyco-binfmt
-
-      - name: Office cross-check — Rust 读者 vs 标准库 Python 读者
-        run: python3 scripts/acceptance/office_probe.py target/debug/lbin
-
-  # NSH/GTK4 原生后端：独立 workspace（nsh-base 要 unicode-width ^0.2.2，
-  # 与主 workspace 的 ratatui =0.2.0 不能共存），所以单独 job、单独缓存，
-  # 不并入 framework/apps 的 cargo fmt/clippy/test。
-  # 只跑 Linux：GTK4 是这条路径唯一的目标平台，xvfb 提供无头 X11。
-  native-ui:
-    name: native-ui (ubuntu-latest)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: lilyco-native-ui
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install GTK4 + GStreamer dev headers (nsh-platform-linux)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev \
-            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
-
-      - name: Install stable toolchain (fmt + clippy)
-        run: |
-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
-          rustup default stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: lilyco-native-ui -> target
-          key: native-ui
-
-      - name: Check formatting (native-ui workspace)
-        run: cargo fmt --check
-
-      - name: Clippy (native-ui, all targets)
-        run: cargo clippy --all-targets -- -D warnings
-
-      # UiSpec 契约覆盖：13 种元素都能渲染、React/原生两个后端吃同一份 spec。
-      - name: Run tests (native-ui)
-        run: cargo test
-
-      # 冒烟只验证「窗口能起来并活过 10 秒」，不测像素。
-      # timeout 杀掉进程时退出码为 124，是成功路径；panic/CRITICAL 才算失败。
-      - name: Headless startup smoke (Xvfb + software GL)
-        run: |
-          sudo apt-get install -y xvfb libgl1-mesa-dri
-          cargo build
-          set +e
-          GDK_BACKEND=x11 GSK_RENDERER=cairo LIBGL_ALWAYS_SOFTWARE=1 \
-            xvfb-run -a -s "-screen 0 1280x800x24" \
-            timeout 10 ./target/debug/lilyco-native-ui > smoke.log 2>&1
-          code=$?
-          set -e
-          cat smoke.log
-          echo "startup exit code: $code"
-          test "$code" -eq 124
-          ! grep -Eq "panicked|CRITICAL" smoke.log
-
-  # 产出可直接使用的二进制 —— 本机不装 Rust 也能拿到
-  release-build:
-    name: build binaries (windows)
-    runs-on: windows-latest
-    needs: [framework, apps]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install stable toolchain
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-
-      - name: Build lbrush (release)
-        run: cargo build --release -p lilyco-brush
-
-      - name: Upload lbrush artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: lbrush-windows
-          path: target/release/lbrush.exe
-          if-no-files-found: error
-
-      - name: Build lvision (release)
-        run: cargo build --release -p lilyco-vision
-
-      - name: Upload lvision artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: lvision-windows
-          path: target/release/lvision.exe
-          if-no-files-found: error
-
-      - name: Build lffmpeg (release)
-        run: cargo build --release -p lilyco-ffmpeg
-
-      - name: Upload lffmpeg artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: lffmpeg-windows
-          path: target/release/lffmpeg.exe
-          if-no-files-found: error
-
-      - name: Build lsrt (release)
-        run: cargo build --release -p lilyco-srt
-
-      - name: Upload lsrt artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: lsrt-windows
-          path: target/release/lsrt.exe
-          if-no-files-found: error
-
-  # Android（Termux）：headless 构建（CLI + MCP，纯 Rust）
-      - name: Build laic (release)
-        run: cargo build --release -p lilyco-aic
-
-      - name: Upload laic artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: laic-windows
-          path: target/release/laic.exe
-          if-no-files-found: error
-
-  # crossterm 的 cfg(unix) 不含 android，TUI/Web 后端在 android 目标上关闭
   android:
-    name: build android (aarch64)
+    name: build android (aarch64 headless)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: android-actions/setup-android@v3
         with:
           packages: 'ndk;27.2.12479018'
-
       - name: Install android target
         run: rustup target add aarch64-linux-android
-
-      - name: "Build lbrush (android headless: CLI+MCP)"
+      - name: Check headless SDK (CLI + MCP) for Android aarch64
         run: |
           NDK_BIN="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
           export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android24-clang"
-          cargo build --release -p lilyco-brush \
-            --no-default-features --features android \
-            --target aarch64-linux-android
+          cargo check -p lilyco-core -p lilyco-cli -p lilyco-mcp -p lilyco --no-default-features --target aarch64-linux-android
 
-      - name: Upload lbrush artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: lbrush-android-arm64
-          path: target/aarch64-linux-android/release/lbrush
-          if-no-files-found: error
-
-      - name: "Build lvision (android headless: CLI+MCP)"
-        run: |
-          NDK_BIN="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
-          export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android24-clang"
-          cargo build --release -p lilyco-vision \
-            --no-default-features --features android \
-            --target aarch64-linux-android
-
-      - name: Upload lvision artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: lvision-android-arm64
-          path: target/aarch64-linux-android/release/lvision
-          if-no-files-found: error
-
-      - name: "Build lffmpeg (android headless: CLI+MCP)"
-        run: |
-          NDK_BIN="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
-          export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android24-clang"
-          cargo build --release -p lilyco-ffmpeg \
-            --no-default-features --features android \
-            --target aarch64-linux-android
-
-      - name: Upload lffmpeg artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: lffmpeg-android-arm64
-          path: target/aarch64-linux-android/release/lffmpeg
-          if-no-files-found: error
-
-      - name: "Build lsrt (android headless: CLI+MCP)"
-        run: |
-          NDK_BIN="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
-          export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android24-clang"
-          cargo build --release -p lilyco-srt \
-            --no-default-features --features android \
-            --target aarch64-linux-android
-
-      - name: Upload lsrt artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: lsrt-android-arm64
-          path: target/aarch64-linux-android/release/lsrt
-          if-no-files-found: error
-
-      # 办公文件那一套（docx/xlsx/pptx/odt/…）的读取器：crate 里 `android` 这个 feature
-      # 本来就是为这条路留的（flate2 走纯 Rust 后端，Termux 那条链上没有 C 工具链）。
-      - name: "Build laic (android headless: CLI+MCP)"
-        run: |
-          NDK_BIN="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
-          export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android24-clang"
-          cargo build --release -p lilyco-aic \
-            --no-default-features --features android \
-            --target aarch64-linux-android
-
-      - name: Upload laic artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: laic-android-arm64
-          path: target/aarch64-linux-android/release/laic
-          if-no-files-found: error
-
-      # headless 单文件，scp 到板上或 termux 里直接跑 lbin office-*。
-      - name: "Build lbin (android headless: office reader)"
-        run: |
-          NDK_BIN="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
-          export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android24-clang"
-          cargo build --release -p lilyco-binfmt --bin lbin \
-            --no-default-features --features android \
-            --target aarch64-linux-android
-
-      - name: Upload lbin artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: lbin-android-arm64
-          path: target/aarch64-linux-android/release/lbin
-          if-no-files-found: error
-
-  # P3 伴飞计算机（Radxa Cubie A7A / Allwinner A733 等 aarch64 Linux 板）：
-  # headless 构建（CLI + MCP + PLC），aarch64-unknown-linux-musl 静态单文件，
-  # scp 到板上即可跑（与 cache-node 的 musl 静态单文件先例同一路数）。
-  # 独立并行 job，不挂 needs，不影响 PR 主路径（test）。
   companion:
-    name: companion (aarch64)
+    name: companion (aarch64 musl headless)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Install stable toolchain + aarch64 musl target
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add aarch64-unknown-linux-musl
-
-      # aarch64 交叉链接器：rustc 给 musl 目标的链接命令传 AArch64 专用旗标
-      # （--fix-cortex-a53-843419），宿主 x86_64 的 ld 不认识，必须换 aarch64 ld。
-      # 纯 Rust 下该 gcc 只当链接驱动用——CRT/libc 全部来自 rustc 自带的 musl 自包含文件，
-      # 产物仍是静态 musl 单文件（不是 glibc 动态链接）
       - name: Install aarch64 cross linker
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
-
-      - name: "Build headless (CLI + MCP + PLC) for aarch64 musl"
+      - name: Build headless SDK (CLI + MCP) for aarch64 musl
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
         run: |
-          cargo build -p lilyco -p lilyco-core -p lilyco-cli -p lilyco-mcp -p lilyco-plc \
+          cargo build -p lilyco -p lilyco-core -p lilyco-cli -p lilyco-mcp \
             --target aarch64-unknown-linux-musl --no-default-features --release
-
-      - name: Upload lplc artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: lplc-aarch64-linux-musl
-          path: target/aarch64-unknown-linux-musl/release/lplc
-          if-no-files-found: error
-
-  # 打 tag（v*）时：把 windows + android 二进制发布为 GitHub Release
-  release:
-    name: publish GitHub release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [release-build, android]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # gh release create 需要（仓库默认工作流权限可能是只读）
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: lbrush-windows
-          path: release/lbrush-windows
-      - uses: actions/download-artifact@v4
-        with:
-          name: lvision-windows
-          path: release/lvision-windows
-      - uses: actions/download-artifact@v4
-        with:
-          name: lffmpeg-windows
-          path: release/lffmpeg-windows
-      - uses: actions/download-artifact@v4
-        with:
-          name: lbrush-android-arm64
-          path: release/lbrush-android-arm64
-      - uses: actions/download-artifact@v4
-        with:
-          name: lvision-android-arm64
-          path: release/lvision-android-arm64
-      - uses: actions/download-artifact@v4
-        with:
-          name: lffmpeg-android-arm64
-          path: release/lffmpeg-android-arm64
-      - uses: actions/download-artifact@v4
-        with:
-          name: lsrt-windows
-          path: release/lsrt-windows
-      - uses: actions/download-artifact@v4
-        with:
-          name: lsrt-android-arm64
-          path: release/lsrt-android-arm64
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: laic-windows
-          path: release/laic-windows
-      - uses: actions/download-artifact@v4
-        with:
-          name: laic-android-arm64
-          path: release/laic-android-arm64
-      - name: Stage release files (platform-suffixed names)
-        run: |
-          mkdir -p staging
-          cp release/lbrush-windows/lbrush.exe staging/lbrush-windows.exe
-          cp release/lvision-windows/lvision.exe staging/lvision-windows.exe
-          cp release/lbrush-android-arm64/lbrush staging/lbrush-android-arm64
-          cp release/lvision-android-arm64/lvision staging/lvision-android-arm64
-          # lffmpeg 用完整 target triple 命名，供 cargo binstall 匹配 { target }
-          cp release/lffmpeg-windows/lffmpeg.exe staging/lffmpeg-x86_64-pc-windows-msvc.exe
-          cp release/lffmpeg-android-arm64/lffmpeg staging/lffmpeg-aarch64-linux-android
-          # laic 同理：包名 lilyco-aic + triple，与 [package.metadata.binstall] 的 pkg-url 对齐
-          cp release/laic-windows/laic.exe staging/lilyco-aic-x86_64-pc-windows-msvc.exe
-          cp release/laic-android-arm64/laic staging/lilyco-aic-aarch64-linux-android
-          cp release/lsrt-windows/lsrt.exe staging/lsrt-x86_64-pc-windows-msvc.exe
-          cp release/lsrt-android-arm64/lsrt staging/lsrt-aarch64-linux-android
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" \
-            staging/lbrush-windows.exe \
-            staging/lvision-windows.exe \
-            staging/lbrush-android-arm64 \
-            staging/lvision-android-arm64 \
-            staging/lffmpeg-x86_64-pc-windows-msvc.exe \
-            staging/lffmpeg-aarch64-linux-android \
-            staging/lsrt-x86_64-pc-windows-msvc.exe \
-            staging/lsrt-aarch64-linux-android \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes
