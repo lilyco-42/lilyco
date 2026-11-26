@@ -1,0 +1,19 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: ops/Dockerfile.api
+    restart: unless-stopped
+    volumes:
+      - records:/app/data
+  gateway:
+    image: caddy:2.11.9-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    volumes:
+      - ./ops/Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "127.0.0.1:${RAPID_PORT:-8421}:8080"
+volumes:
+  records:

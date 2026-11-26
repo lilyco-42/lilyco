@@ -30,11 +30,72 @@ pub struct Http {
     pub max_in_flight: NonZeroUsize,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Storage {
     pub path: PathBuf,
     pub busy_timeout_ms: NonZeroU32,
+    #[serde(default)]
+    pub engine: EngineKind,
+    #[serde(default)]
+    pub connection: Connection,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EngineKind {
+    #[default]
+    Sqlite,
+    Postgres,
+    Mysql,
+}
+
+impl std::fmt::Display for EngineKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Sqlite => "sqlite",
+            Self::Postgres => "postgres",
+            Self::Mysql => "mysql",
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Driver {
+    #[default]
+    Auto,
+    Rusqlite,
+    Sqlx,
+    Seaorm,
+}
+
+impl Storage {
+    pub fn driver(&self) -> Driver {
+        match (self.engine, self.connection.driver) {
+            (EngineKind::Sqlite, Driver::Auto) => Driver::Rusqlite,
+            (_, Driver::Auto) => Driver::Sqlx,
+            (_, driver) => driver,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Connection {
+    pub driver: Driver,
+    pub url_env: String,
+    pub max_connections: NonZeroU32,
+}
+
+impl Default for Connection {
+    fn default() -> Self {
+        Self {
+            driver: Driver::Auto,
+            url_env: "RAPID_DATABASE_URL".to_owned(),
+            max_connections: NonZeroU32::MIN.saturating_add(7),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]

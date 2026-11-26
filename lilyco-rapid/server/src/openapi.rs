@@ -4,6 +4,7 @@
 use schemars::{JsonSchema, generate::SchemaSettings};
 use utoipa::openapi::{
     Content, Info, OpenApi, RefOr, Required, Response,
+    extensions::Extensions,
     path::{
         HttpMethod, OperationBuilder, Parameter, ParameterBuilder, ParameterIn, PathItem,
         PathItemBuilder, Paths,
@@ -14,6 +15,9 @@ use utoipa::openapi::{
 };
 
 use crate::{
+    StartupError,
+    config::EngineKind,
+    endpoint::placeholder,
     error::Problem,
     store::{Page, Record},
 };
@@ -22,10 +26,20 @@ use crate::{
 pub struct Routes(Paths);
 
 impl Routes {
-    pub fn resource<T: JsonSchema>(&mut self, name: &str) -> Result<(), serde_json::Error> {
+    pub fn resource<T: JsonSchema>(&mut self, name: &str) -> Result<(), StartupError> {
+        let path = format!("/api/{name}");
+        let item = format!("{path}/{{id}}");
+        if self.has_shape(&path) || self.has_shape(&item) {
+            return Err(StartupError::EndpointConflict(path));
+        }
         let docs = ResourceDoc::for_type::<T>()?;
-        let id = parameter("id", ParameterIn::Path, docs.cursor.clone());
-        let after = parameter("after", ParameterIn::Query, docs.cursor.clone());
+        let id = parameter("id", ParameterIn::Path, RefOr::T(docs.cursor.clone()), true);
+        let after = parameter(
+            "after",
+            ParameterIn::Query,
+            RefOr::T(docs.cursor.clone()),
+            false,
+        );
         let missing = docs.problem("Record not found");
         let id_error = docs.problem("Invalid record ID");
 
@@ -54,16 +68,15 @@ impl Routes {
             .response("404", missing)
             .response("400", id_error);
 
-        let path = format!("/api/{name}");
         self.0.paths.insert(
-            path.clone(),
+            path,
             PathItemBuilder::new()
                 .operation(HttpMethod::Get, list)
                 .operation(HttpMethod::Post, create)
                 .build(),
         );
         self.0.paths.insert(
-            format!("{path}/{{id}}"),
+            item,
             PathItemBuilder::new()
                 .parameters(Some([id]))
                 .operation(HttpMethod::Get, read)
@@ -74,7 +87,46 @@ impl Routes {
         Ok(())
     }
 
-    pub fn document(mut self, title: &str) -> Result<OpenApi, serde_json::Error> {
+    fn has_shape(&self, path: &str) -> bool {
+        self.0.paths.keys().any(|existing| {
+            existing
+                .split('/')
+                .map(route_segment)
+                .eq(path.split('/').map(route_segment))
+        })
+    }
+
+    pub fn endpoint(
+        &mut self,
+        path: &str,
+        method: HttpMethod,
+        operation: OperationBuilder,
+    ) -> Result<(), StartupError> {
+        if let Some(item) = self.0.paths.get_mut(path) {
+            let slot = match method {
+                HttpMethod::Get => &mut item.get,
+                HttpMethod::Post => &mut item.post,
+                _ => return Err(StartupError::InvalidEndpoint(path.to_owned())),
+            };
+            if slot.is_some() {
+                return Err(StartupError::EndpointConflict(path.to_owned()));
+            }
+            *slot = Some(operation.build());
+        } else if self.has_shape(path) {
+            return Err(StartupError::EndpointConflict(path.to_owned()));
+        } else {
+            self.0
+                .paths
+                .insert(path.to_owned(), PathItem::new(method, operation));
+        }
+        Ok(())
+    }
+
+    pub fn document(
+        mut self,
+        title: &str,
+        engine: EngineKind,
+    ) -> Result<OpenApi, serde_json::Error> {
         let health = OperationBuilder::new()
             .operation_id(Some("health"))
             .response("204", Response::new("API is running"));
@@ -88,10 +140,12 @@ impl Routes {
         self.0
             .paths
             .insert("/readyz".into(), PathItem::new(HttpMethod::Get, ready));
-        Ok(OpenApi::new(
-            Info::new(title, env!("CARGO_PKG_VERSION")),
-            self.0,
-        ))
+        let mut document = OpenApi::new(Info::new(title, env!("CARGO_PKG_VERSION")), self.0);
+        document.extensions = Some(Extensions::from_iter([(
+            "x-rapid-storage",
+            engine.to_string(),
+        )]));
+        Ok(document)
     }
 }
 
@@ -141,7 +195,7 @@ impl ResourceDoc {
     }
 }
 
-fn schema<T: JsonSchema>() -> Result<Schema, serde_json::Error> {
+pub(crate) fn schema<T: JsonSchema>() -> Result<Schema, serde_json::Error> {
     let settings = SchemaSettings::draft2020_12().with(|setting| {
         setting.inline_subschemas = true;
         setting.meta_schema = None;
@@ -154,21 +208,33 @@ fn schema<T: JsonSchema>() -> Result<Schema, serde_json::Error> {
     )
 }
 
-fn parameter(name: &str, location: ParameterIn, schema: Schema) -> Parameter {
-    let required = if location == ParameterIn::Path {
-        Required::True
+fn route_segment(segment: &str) -> &str {
+    if placeholder(segment).is_some() {
+        "{}"
     } else {
-        Required::False
-    };
+        segment
+    }
+}
+
+pub(crate) fn parameter(
+    name: &str,
+    location: ParameterIn,
+    schema: RefOr<Schema>,
+    required: bool,
+) -> Parameter {
     ParameterBuilder::new()
         .name(name)
         .parameter_in(location)
-        .required(required)
-        .schema(Some(RefOr::T(schema)))
+        .required(if required {
+            Required::True
+        } else {
+            Required::False
+        })
+        .schema(Some(schema))
         .build()
 }
 
-fn response(description: &str, schema: Schema) -> Response {
+pub(crate) fn response(description: &str, schema: Schema) -> Response {
     ResponseBuilder::new()
         .description(description)
         .content("application/json", Content::new(Some(schema)))

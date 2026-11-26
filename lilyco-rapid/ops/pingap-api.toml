@@ -1,0 +1,10 @@
+[upstreams.rapid]
+addrs = ["api:8421"]
+discovery = "dns"
+
+[locations.api]
+upstream = "rapid"
+
+[servers.rapid]
+addr = "0.0.0.0:8080"
+locations = ["api"]

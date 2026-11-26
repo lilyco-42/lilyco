@@ -1,0 +1,23 @@
+[upstreams.rapid]
+addrs = ["api:8421"]
+discovery = "dns"
+
+[locations.api]
+path = '~^/(api(/|$)|openapi[.]json$|healthz$|readyz$)'
+upstream = "rapid"
+weight = 100
+
+[plugins.static]
+category = "directory"
+path = "/srv"
+autoindex = false
+charset = "utf-8"
+headers = ["X-Content-Type-Options:nosniff", "Referrer-Policy:strict-origin-when-cross-origin"]
+
+[locations.web]
+path = "/"
+plugins = ["static"]
+
+[servers.rapid]
+addr = "0.0.0.0:8080"
+locations = ["api", "web"]

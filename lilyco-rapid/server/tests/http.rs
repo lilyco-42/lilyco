@@ -188,3 +188,257 @@ fn duplicate_resources_fail_without_panicking() {
     api.register::<rapid_core::resource_tasks::Model>().unwrap();
     assert!(api.register::<rapid_core::resource_tasks::Model>().is_err());
 }
+
+#[derive(serde::Deserialize, serde::Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Count {
+    count: u32,
+}
+
+#[tokio::test]
+async fn handwritten_handlers_derive_requests_and_responses_from_rust_types() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = settings(&directory);
+    let mut api = Api::new();
+    api.get("/api/build", || async { Ok(Count { count: 1 }) })
+        .unwrap();
+    api.get_path(
+        "/api/build/{count}",
+        |input: Count| async move { Ok(input) },
+    )
+    .unwrap();
+    assert!(
+        api.get_path(
+            "/api/build/{other}",
+            |input: Count| async move { Ok(input) }
+        )
+        .is_err()
+    );
+    assert!(
+        api.get("/api/build", || async { Ok(Count { count: 0 }) })
+            .is_err()
+    );
+    api.post_json("/api/build", |input: Count| async move { Ok(input) })
+        .unwrap();
+    let app = api.router(&config).unwrap();
+    let accepted = request(&app, Method::POST, "/api/build", Some(r#"{"count":7}"#)).await;
+    assert_eq!(as_json(accepted, StatusCode::OK).await["count"], 7);
+    let invalid = request(&app, Method::POST, "/api/build", Some(r#"{"count":"7"}"#)).await;
+    assert_eq!(
+        as_json(invalid, StatusCode::UNPROCESSABLE_ENTITY).await["code"],
+        "invalid_json"
+    );
+    let path = request(&app, Method::GET, "/api/build/5", None).await;
+    assert_eq!(as_json(path, StatusCode::OK).await["count"], 5);
+    let invalid = request(&app, Method::GET, "/api/build/abc", None).await;
+    assert_eq!(
+        as_json(invalid, StatusCode::BAD_REQUEST).await["code"],
+        "invalid_path"
+    );
+
+    let doc = as_json(
+        request(&app, Method::GET, "/openapi.json", None).await,
+        StatusCode::OK,
+    )
+    .await;
+    let request =
+        &doc["paths"]["/api/build"]["post"]["requestBody"]["content"]["application/json"]["schema"];
+    assert_eq!(request["properties"]["count"]["type"], "integer");
+    assert_eq!(request["additionalProperties"], false);
+    assert_eq!(
+        doc["paths"]["/api/build/{count}"]["get"]["parameters"][0]["required"],
+        true
+    );
+}
+
+#[tokio::test]
+async fn starter_query_example_is_live_and_documented() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = project_router(&settings(&dir)).unwrap();
+    let hello = request(&app, Method::GET, "/api/hello?name=Lilyco", None).await;
+    assert_eq!(
+        as_json(hello, StatusCode::OK).await["message"],
+        "Hello, Lilyco!"
+    );
+    let missing = request(&app, Method::GET, "/api/hello", None).await;
+    assert_eq!(
+        as_json(missing, StatusCode::BAD_REQUEST).await["code"],
+        "invalid_query"
+    );
+    let doc = as_json(
+        request(&app, Method::GET, "/openapi.json", None).await,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(
+        doc["paths"]["/api/hello"]["get"]["parameters"][0]["name"],
+        "name"
+    );
+}
+
+#[cfg(feature = "sqlx-server")]
+#[tokio::test]
+async fn switching_sqlite_driver_reuses_records_and_sequence() {
+    use rapid_server::connect_project;
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = settings(&dir);
+    config.storage.path = dir.path().join("preview with spaces.sqlite3");
+    let old_router = project_router(&config).unwrap();
+    let existing = request(
+        &old_router,
+        Method::POST,
+        "/api/tasks",
+        Some(r#"{"title":"Before","done":false}"#),
+    )
+    .await;
+    assert_eq!(as_json(existing, StatusCode::CREATED).await["id"], 1);
+    drop(old_router);
+
+    for (offset, &driver) in relational_drivers().iter().enumerate() {
+        config.storage.connection.driver = driver;
+        let new_router = connect_project(&config).await.unwrap();
+        let existing = request(&new_router, Method::GET, "/api/tasks/1", None).await;
+        assert_eq!(
+            as_json(existing, StatusCode::OK).await["data"]["title"],
+            "Before"
+        );
+        let row = create_task(&new_router).await;
+        assert_eq!(row["id"], offset + 2);
+    }
+}
+
+#[tokio::test]
+async fn snapshot_restores_ids_and_protects_existing_sqlite_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let snapshot = source_snapshot(&dir).await;
+    let mut target = settings(&dir);
+    target.storage.path = dir.path().join("target.sqlite3");
+    let malformed = dir.path().join("malformed.json");
+    std::fs::write(
+        &malformed,
+        r#"{"format":1,"watermark":2,"records":[{"id":1,"collection":"tasks","payload":"{bad"}]}"#,
+    )
+    .unwrap();
+    assert!(
+        rapid_server::data::import(&target.storage, &malformed)
+            .await
+            .is_err()
+    );
+    assert!(!target.storage.path.exists());
+    check_snapshot(&target, &dir, &snapshot).await;
+}
+
+#[cfg(feature = "sqlx-server")]
+#[tokio::test]
+#[ignore = "requires separate test PostgreSQL and MySQL databases"]
+async fn remote_sqlx_drivers_persist_and_enforce_the_same_http_contract() {
+    use rapid_server::{config::EngineKind, connect_project};
+
+    let dir = tempfile::tempdir().unwrap();
+    let snapshot = source_snapshot(&dir).await;
+    let mut config = settings(&dir);
+    for (engine, env) in [
+        (EngineKind::Postgres, "RAPID_TEST_POSTGRES_URL"),
+        (EngineKind::Mysql, "RAPID_TEST_MYSQL_URL"),
+    ] {
+        config.storage.engine = engine;
+        config.storage.connection.url_env = env.into();
+        for &driver in relational_drivers() {
+            config.storage.connection.driver = driver;
+            check_snapshot(&config, &dir, &snapshot).await;
+            let app = connect_project(&config).await.unwrap();
+            assert_eq!(
+                request(&app, Method::GET, "/readyz", None).await.status(),
+                204
+            );
+            let doc = request(&app, Method::GET, "/openapi.json", None).await;
+            assert_eq!(
+                as_json(doc, StatusCode::OK).await["x-rapid-storage"],
+                engine.to_string()
+            );
+        }
+    }
+}
+
+const TRANSFER_TASK: &str = r#"{"title":"跨库迁移测试","done":false}"#;
+
+async fn create_task(app: &Router) -> Value {
+    let created = request(app, Method::POST, "/api/tasks", Some(TRANSFER_TASK)).await;
+    as_json(created, StatusCode::CREATED).await
+}
+
+async fn source_snapshot(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    let config = settings(dir);
+    let app = project_router(&config).unwrap();
+    assert_eq!(create_task(&app).await["id"], 1);
+    assert_eq!(create_task(&app).await["id"], 2);
+    assert_eq!(
+        request(&app, Method::DELETE, "/api/tasks/2", None)
+            .await
+            .status(),
+        204
+    );
+    let output = dir.path().join("source.json");
+    assert_eq!(
+        rapid_server::data::export(&config.storage, &output)
+            .await
+            .unwrap(),
+        1
+    );
+    assert!(
+        rapid_server::data::export(&config.storage, &output)
+            .await
+            .is_err()
+    );
+    output
+}
+
+async fn check_snapshot(config: &Config, dir: &tempfile::TempDir, snapshot: &std::path::Path) {
+    use rapid_server::{connect_project, data};
+
+    assert_eq!(data::import(&config.storage, snapshot).await.unwrap(), 1);
+    assert!(data::import(&config.storage, snapshot).await.is_err());
+    let app = connect_project(config).await.unwrap();
+    let existing = as_json(
+        request(&app, Method::GET, "/api/tasks/1", None).await,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(
+        existing["data"],
+        serde_json::from_str::<Value>(TRANSFER_TASK).unwrap()
+    );
+    let update = request(&app, Method::PUT, "/api/tasks/1", Some(TRANSFER_TASK)).await;
+    assert_eq!(as_json(update, StatusCode::OK).await, existing);
+
+    let export_dir = tempfile::tempdir_in(dir).unwrap();
+    let output = export_dir.path().join("roundtrip.json");
+    assert_eq!(data::export(&config.storage, &output).await.unwrap(), 1);
+    let actual: Value = serde_json::from_slice(&std::fs::read(output).unwrap()).unwrap();
+    let original: Value = serde_json::from_slice(&std::fs::read(snapshot).unwrap()).unwrap();
+    assert_eq!(actual["records"], original["records"]);
+    let watermark = actual["watermark"].as_u64().unwrap();
+    assert!(watermark >= original["watermark"].as_u64().unwrap());
+    let row = create_task(&app).await;
+    let new_id = row["id"].as_u64().unwrap();
+    assert!(new_id > watermark);
+    for path in ["/api/tasks/1".to_owned(), format!("/api/tasks/{new_id}")] {
+        assert_eq!(
+            request(&app, Method::DELETE, &path, None).await.status(),
+            204
+        );
+        assert_eq!(request(&app, Method::GET, &path, None).await.status(), 404);
+    }
+}
+
+#[cfg(feature = "sqlx-server")]
+fn relational_drivers() -> &'static [rapid_server::config::Driver] {
+    use rapid_server::config::Driver;
+
+    &[
+        Driver::Sqlx,
+        #[cfg(feature = "seaorm")]
+        Driver::Seaorm,
+    ]
+}

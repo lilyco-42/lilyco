@@ -52,6 +52,48 @@ jobs:
         working-directory: lilyco-rapid/ops/cli
         run: cargo test --locked
 
+  relational-databases:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: rapid
+          POSTGRES_PASSWORD: rapid_ci_only
+          POSTGRES_DB: rapid
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U rapid -d rapid"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: rapid_ci_root_only
+          MYSQL_USER: rapid
+          MYSQL_PASSWORD: rapid_ci_only
+          MYSQL_DATABASE: rapid
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval 3s --health-timeout 4s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: lilyco-rapid
+      - working-directory: lilyco-rapid
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - working-directory: lilyco-rapid
+        env:
+          RAPID_TEST_POSTGRES_URL: postgres://rapid:rapid_ci_only@127.0.0.1:${{ job.services.postgres.ports[5432] }}/rapid
+          RAPID_TEST_MYSQL_URL: mysql://rapid:rapid_ci_only@127.0.0.1:${{ job.services.mysql.ports[3306] }}/rapid?ssl-mode=required
+        run: cargo test --locked --workspace --all-features -- --include-ignored
+
   portable-core:
     runs-on: ubuntu-latest
     strategy:

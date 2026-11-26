@@ -1,15 +1,46 @@
 use std::{error::Error, path::PathBuf};
 
+use clap::{Parser, Subcommand};
 use rapid_server::config::Config;
+
+#[derive(Parser)]
+struct Cli {
+    #[arg(long)]
+    config: Option<PathBuf>,
+    #[command(subcommand)]
+    action: Option<Action>,
+}
+
+#[derive(Subcommand)]
+enum Action {
+    Export { path: PathBuf },
+    Import { path: PathBuf },
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt().init();
-    let path = std::env::var_os("RAPID_CONFIG")
-        .map(PathBuf::from)
+    let cli = Cli::parse();
+    let path = cli
+        .config
+        .or_else(|| std::env::var_os("RAPID_CONFIG").map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("Rapid.toml"));
     let config = Config::load(&path)?;
-    let app = rapid_server::project_router(&config)?;
+    match cli.action {
+        Some(Action::Export { path }) => {
+            let count = rapid_server::data::export(&config.storage, &path).await?;
+            println!("Exported {count} records to {}", path.display());
+            return Ok(());
+        }
+        Some(Action::Import { path }) => {
+            let count = rapid_server::data::import(&config.storage, &path).await?;
+            println!("Imported and verified {count} records");
+            return Ok(());
+        }
+        None => {}
+    }
+
+    let app = rapid_server::connect_project(&config).await?;
     let listener = tokio::net::TcpListener::bind(config.http.address).await?;
     tracing::info!(address = %listener.local_addr()?, project = %config.project.name, "API listening");
     axum::serve(listener, app)

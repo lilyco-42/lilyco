@@ -49,6 +49,63 @@ fn presets_generate_portable_paths_and_refuse_to_overwrite() {
 }
 
 #[test]
+fn database_drivers_and_gateways_generate_independent_configuration() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let output = rapid(
+        root,
+        &[
+            "new",
+            "dashboard",
+            "--db",
+            "postgres",
+            "--db-driver",
+            "seaorm",
+            "--gateway",
+            "pingap",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let workspace = root.join("dashboard");
+    let settings = fs::read_to_string(workspace.join("Rapid.toml")).unwrap();
+    assert!(settings.contains("engine = \"postgres\""));
+    assert!(settings.contains("driver = \"seaorm\""));
+    let manifest = fs::read_to_string(workspace.join("server/Cargo.toml")).unwrap();
+    assert!(manifest.contains("default = [\"seaorm\"]"));
+    let dockerfile = fs::read_to_string(workspace.join("ops/Dockerfile.web")).unwrap();
+    assert!(dockerfile.contains("FROM vicanso/pingap:"));
+    assert!(workspace.join("ops/Pingap.toml").is_file());
+    assert!(workspace.join("compose.override.yaml").is_file());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            workspace
+                .join(".env")
+                .metadata()
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+    assert!(
+        !rapid(
+            root,
+            &["new", "invalid", "--db", "mysql", "--db-driver", "rusqlite"]
+        )
+        .status
+        .success()
+    );
+    assert!(!root.join("invalid").exists());
+}
+
+#[test]
 fn resource_generator_checks_input_and_writes_once() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();

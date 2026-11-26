@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-rapid"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 description = "Generate and run typed Lilyco web applications"
@@ -10,6 +10,9 @@ description = "Generate and run typed Lilyco web applications"
 [dependencies]
 clap = { version = "4.6", features = ["derive"] }
 ctrlc = "3.4"
+dotenvy = "0.15"
+getrandom = "0.4"
+hex = "0.4"
 include_dir = "0.7"
 notify = "8.2"
 tempfile = "3"

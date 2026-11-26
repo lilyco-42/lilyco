@@ -5,7 +5,7 @@ use std::{
 
 use include_dir::{Dir, include_dir};
 
-use crate::{Preset, Result, slug};
+use crate::{Gateway, NewProject, Preset, Result, database::StorageChoice, slug};
 
 const CORE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../core");
 const SERVER: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../server");
@@ -19,15 +19,22 @@ macro_rules! contents {
     };
 }
 
-pub fn new(parent: &Path, name: &str, preset: Preset) -> Result<PathBuf> {
+pub fn new(project: &NewProject) -> Result<PathBuf> {
+    let name = &project.name;
+    let storage = StorageChoice {
+        database: project.db,
+        driver: project.db_driver,
+    };
+    storage.check()?;
+    let gateway = gateway(project)?;
     if !slug(name) {
         return Err(
             "project name must be lowercase, with up to 48 letters, digits or hyphens".into(),
         );
     }
-    let path = parent.join(name);
+    let path = project.dir.join(name);
     fs::create_dir(&path).map_err(|error| format!("create {}: {error}", path.display()))?;
-    if let Err(error) = populate(&path, name, preset) {
+    if let Err(error) = populate(&path, project, storage, gateway) {
         if let Err(cleanup) = fs::remove_dir_all(&path) {
             eprintln!(
                 "could not remove incomplete project {}: {cleanup}",
@@ -39,15 +46,20 @@ pub fn new(parent: &Path, name: &str, preset: Preset) -> Result<PathBuf> {
     Ok(path)
 }
 
-fn populate(path: &Path, name: &str, preset: Preset) -> Result<()> {
+fn populate(
+    path: &Path,
+    project: &NewProject,
+    storage: StorageChoice,
+    gateway: Gateway,
+) -> Result<()> {
     let workspace = WORKSPACE.replace(
         "path = \"../lilyco-no_std\"",
         "path = \"ops/lilyco-no_std\"",
     );
     put(path, "Cargo.toml", workspace.as_bytes())?;
     put(path, "Cargo.lock", contents!("Cargo.lock"))?;
-    let settings = include_str!("../../../Rapid.toml").replace("Lilyco Rapid", name);
-    put(path, "Rapid.toml", settings.as_bytes())?;
+    let settings = include_str!("../../../Rapid.toml").replace("Lilyco Rapid", &project.name);
+    put(path, "Rapid.toml", storage.config(&settings).as_bytes())?;
     put(path, ".gitignore", contents!(".gitignore"))?;
     put(path, ".dockerignore", contents!(".dockerignore"))?;
     put(path, "LICENSE", include_bytes!("../../../../LICENSE"))?;
@@ -55,21 +67,62 @@ fn populate(path: &Path, name: &str, preset: Preset) -> Result<()> {
     put(path, "ops/Dockerfile.api", contents!("ops/Dockerfile.api"))?;
     extract(&CORE, &path.join("core"))?;
     extract(&SERVER, &path.join("server"))?;
+    storage.write(path)?;
     extract(&LIB_SRC, &path.join("ops/lilyco-no_std/src"))?;
     let manifest = include_str!("../../../../lilyco-no_std/Cargo.toml");
     put(path, "ops/lilyco-no_std/Cargo.toml", manifest.as_bytes())?;
 
-    match preset {
-        Preset::Api => put(path, "compose.yaml", contents!("ops/compose.api.yml"))?,
-        Preset::Fullstack => write_web(path)?,
+    match (project.preset, gateway) {
+        (Preset::Api, Gateway::Direct) => {
+            put(path, "compose.yaml", contents!("ops/compose.api.yml"))
+        }
+        (Preset::Api, Gateway::Caddy | Gateway::Pingap) => write_api_gateway(path, gateway),
+        (Preset::Fullstack, Gateway::Caddy | Gateway::Pingap) => write_web(path, gateway),
+        _ => Err("invalid gateway for project preset".into()),
     }
-    Ok(())
 }
 
-fn write_web(path: &Path) -> Result<()> {
+fn gateway(project: &NewProject) -> Result<Gateway> {
+    match (project.preset, project.gateway) {
+        (Preset::Api, None | Some(Gateway::Direct)) => Ok(Gateway::Direct),
+        (Preset::Fullstack, None) | (_, Some(Gateway::Caddy)) => Ok(Gateway::Caddy),
+        (_, Some(Gateway::Pingap)) => Ok(Gateway::Pingap),
+        (Preset::Fullstack, Some(Gateway::Direct)) => {
+            Err("fullstack requires Caddy or Pingap to serve the web build".into())
+        }
+    }
+}
+
+fn write_api_gateway(path: &Path, gateway: Gateway) -> Result<()> {
+    let recipe = match gateway {
+        Gateway::Caddy => {
+            put(path, "ops/Caddyfile", contents!("ops/caddy-api.Caddyfile"))?;
+            contents!("ops/compose.api-caddy.yml").as_slice()
+        }
+        Gateway::Pingap => {
+            put(path, "ops/Pingap.toml", contents!("ops/pingap-api.toml"))?;
+            contents!("ops/compose.api-pingap.yml").as_slice()
+        }
+        Gateway::Direct => return Err("a proxy gateway is required".into()),
+    };
+    put(path, "compose.yaml", recipe)
+}
+
+fn write_web(path: &Path, gateway: Gateway) -> Result<()> {
     put(path, "compose.yaml", contents!("ops/compose.fullstack.yml"))?;
-    put(path, "ops/Dockerfile.web", contents!("ops/Dockerfile.web"))?;
-    put(path, "ops/Caddyfile", contents!("ops/Caddyfile"))?;
+    let runtime = match gateway {
+        Gateway::Caddy => {
+            put(path, "ops/Caddyfile", contents!("ops/Caddyfile"))?;
+            include_str!("../../../ops/caddy-runtime.Dockerfile")
+        }
+        Gateway::Pingap => {
+            put(path, "ops/Pingap.toml", contents!("ops/pingap-web.toml"))?;
+            include_str!("../../../ops/pingap-runtime.Dockerfile")
+        }
+        Gateway::Direct => return Err("a proxy gateway is required".into()),
+    };
+    let dockerfile = [include_str!("../../../ops/Dockerfile.web"), runtime].join("\n");
+    put(path, "ops/Dockerfile.web", dockerfile.as_bytes())?;
     put(path, "web/package.json", contents!("web/package.json"))?;
     put(path, "web/pnpm-lock.yaml", contents!("web/pnpm-lock.yaml"))?;
     put(

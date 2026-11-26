@@ -1,0 +1,22 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: ops/Dockerfile.api
+    restart: unless-stopped
+    volumes:
+      - records:/app/data
+  gateway:
+    image: vicanso/pingap:0.16.2-distroless
+    user: "65532:65532"
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      PINGAP_CONF: /opt/pingap/rapid.toml
+    volumes:
+      - ./ops/Pingap.toml:/opt/pingap/rapid.toml:ro
+    ports:
+      - "127.0.0.1:${RAPID_PORT:-8421}:8080"
+volumes:
+  records:

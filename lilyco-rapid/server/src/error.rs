@@ -22,6 +22,8 @@ pub enum ApiError {
     Invalid(FieldError),
     InvalidId,
     InvalidQuery,
+    EndpointQuery,
+    EndpointPath,
     NotFound,
     MethodNotAllowed,
     Store(StoreError),
@@ -61,6 +63,16 @@ impl ApiError {
                 StatusCode::BAD_REQUEST,
                 "invalid_query",
                 "Use a nonnegative 32-bit cursor in the after parameter.",
+            ),
+            Self::EndpointQuery => (
+                StatusCode::BAD_REQUEST,
+                "invalid_query",
+                "Use query parameters that match the documented fields.",
+            ),
+            Self::EndpointPath => (
+                StatusCode::BAD_REQUEST,
+                "invalid_path",
+                "Use path parameters that match the documented fields.",
             ),
             Self::NotFound => (
                 StatusCode::NOT_FOUND,

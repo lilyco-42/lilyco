@@ -12,7 +12,10 @@ use std::{
 
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
-use crate::Result;
+use crate::{
+    Result,
+    database::{self, LocalConnection},
+};
 
 const BUILD_DEBOUNCE: Duration = Duration::from_millis(250);
 const POLL: Duration = Duration::from_millis(100);
@@ -26,7 +29,8 @@ pub fn dev(project: &Path) -> Result<()> {
     let flag = stop.clone();
     ctrlc::set_handler(move || flag.store(true, Ordering::Relaxed))?;
 
-    let api = Api::new(project);
+    let database = database::dev_connection(&project)?;
+    let api = Api::new(project, database);
     let (tx, rx) = mpsc::channel();
     let _watcher = watch(&api.project, tx)?;
     let server = api.build_and_start()?;
@@ -46,16 +50,18 @@ struct Api {
     project: PathBuf,
     target: PathBuf,
     executable: String,
+    database: Option<LocalConnection>,
 }
 
 impl Api {
-    fn new(project: PathBuf) -> Self {
+    fn new(project: PathBuf, database: Option<LocalConnection>) -> Self {
         let target = project.join("target");
         let executable = format!("rapid-server{}", std::env::consts::EXE_SUFFIX);
         Self {
             project,
             target,
             executable,
+            database,
         }
     }
 
@@ -80,9 +86,12 @@ impl Api {
     }
 
     fn start(&self, staged: tempfile::TempDir) -> Result<Running> {
-        let child = Command::new(staged.path().join(&self.executable))
-            .current_dir(&self.project)
-            .spawn()?;
+        let mut command = Command::new(staged.path().join(&self.executable));
+        command.current_dir(&self.project);
+        if let Some(database) = &self.database {
+            database.apply(&mut command);
+        }
+        let child = command.spawn()?;
         Ok(Running {
             child,
             _staged: Some(staged),
@@ -134,7 +143,7 @@ fn start_web(web: &Path) -> Result<Option<Running>> {
     }))
 }
 
-fn checked(command: &mut Command) -> Result<()> {
+pub(crate) fn checked(command: &mut Command) -> Result<()> {
     let status = command.status()?;
     if !status.success() {
         return Err(format!(

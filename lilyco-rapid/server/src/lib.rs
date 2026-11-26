@@ -1,7 +1,11 @@
 #![forbid(unsafe_code)]
 
+mod app;
 pub mod config;
+pub mod data;
+mod endpoint;
 mod error;
+pub use error::ApiError;
 mod openapi;
 mod store;
 
@@ -17,7 +21,7 @@ use axum::{
 use rapid_core::Resource;
 use schemars::JsonSchema;
 
-use crate::{config::Config, error::ApiError, store::Store};
+use crate::{config::Config, store::Store};
 
 mod routes;
 
@@ -37,6 +41,12 @@ pub enum StartupError {
     InvalidConcurrency,
     #[error("invalid resource collection name {0:?}")]
     InvalidCollection(&'static str),
+    #[error("endpoint path {0:?} must start with /api/ and use valid segments")]
+    InvalidEndpoint(String),
+    #[error("endpoint parameter model must match {0:?}")]
+    InvalidParameters(String),
+    #[error("endpoint conflicts with an existing route at {0}")]
+    EndpointConflict(String),
     #[error("resource collection {0:?} registered twice")]
     Duplicate(&'static str),
 }
@@ -81,15 +91,25 @@ impl Api {
     }
 
     pub fn router(self, config: &Config) -> Result<Router, StartupError> {
+        self.make_router(config, Store::open(&config.storage)?)
+    }
+
+    pub async fn connect(self, config: &Config) -> Result<Router, StartupError> {
+        self.make_router(config, Store::connect(&config.storage).await?)
+    }
+
+    fn make_router(self, config: &Config, store: Store) -> Result<Router, StartupError> {
         let max_in_flight = config.http.max_in_flight.get();
         if max_in_flight > tokio::sync::Semaphore::MAX_PERMITS {
             return Err(StartupError::InvalidConcurrency);
         }
         let api = Bytes::from(serde_json::to_vec(
-            &self.openapi.document(&config.project.name)?,
+            &self
+                .openapi
+                .document(&config.project.name, config.storage.engine)?,
         )?);
         let state = routes::State {
-            store: Store::open(&config.storage)?,
+            store,
             rules: config.resources,
         };
         Ok(self
@@ -117,7 +137,16 @@ impl Default for Api {
 }
 
 pub fn project_router(config: &Config) -> Result<Router, StartupError> {
+    configured_api(config)?.router(config)
+}
+
+pub async fn connect_project(config: &Config) -> Result<Router, StartupError> {
+    configured_api(config)?.connect(config).await
+}
+
+fn configured_api(config: &Config) -> Result<Api, StartupError> {
     let mut api = Api::new();
     rapid_core::register_resources!(api);
-    api.router(config)
+    app::register(&mut api, config.resources.max_text_bytes)?;
+    Ok(api)
 }

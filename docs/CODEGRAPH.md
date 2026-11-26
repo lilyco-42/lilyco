@@ -25,9 +25,9 @@ flowchart TD
 ### 独立快速开发工作区
 
 - `lilyco-no_std` 0.1.1 在 `lilyco-no_std/src/lib.rs:7` 保留无 std 边界。类型执行入口在 `lilyco-no_std/src/core/executor.rs:5`。宿主文件能力和备份在 `lilyco-no_std/src/adapters/workspace.rs` 与 `lilyco-no_std/src/adapters/snapshot.rs`。
-- Rapid CLI 在 `lilyco-rapid/ops/cli/src/main.rs:12` 装配创建、资源生成和开发启动。生成项目包括 `lilyco-no_std` 源码快照。
-- `lilyco-rapid/core/src/lib.rs:9` 定义资源接口及共用校验。`lilyco-rapid/server/src/lib.rs` 注册类型、路由和 OpenAPI。数据适配器为 `lilyco-rapid/server/src/store.rs`。
-- `lilyco-rapid/web/src/App.tsx` 提供独立工作台与 API reference，按 OpenAPI 渲染可编辑标量字段。设计与命令见 [LILYCO-RAPID.md](LILYCO-RAPID.md)。
+- `lilyco-rapid` CLI 0.1.1 在 `lilyco-rapid/ops/cli/src/main.rs:22` 装配项目模板、资源生成、开发启动和数据迁移。`lilyco-rapid/ops/cli/src/scaffold.rs:22` 生成独立项目，包含 `lilyco-no_std` 源码快照。
+- `rapid-core` 0.1.0 在 `lilyco-rapid/core/src/lib.rs:9` 定义资源接口及共用校验。`rapid-server` 0.1.1 的 `lilyco-rapid/server/src/lib.rs:101` 装配路由与 OpenAPI，`lilyco-rapid/server/src/endpoint.rs:30` 接入手写的类型化端点。
+- `lilyco-rapid/server/src/store.rs:124` 连接存储适配器，`lilyco-rapid/server/src/data.rs:68` 导出和导入可移植快照。`lilyco-rapid/web/src/App.tsx:119` 提供 API 文档与请求交互。设计与命令见 [LILYCO-RAPID.md](LILYCO-RAPID.md)。
 
 
 ### 应用扩展：素材工坊

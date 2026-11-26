@@ -101,7 +101,7 @@ export function App() {
           <div className="metrics" aria-label={text("overview")}>
             <Metric icon={Layers3} label={text("resources")} value={String(data?.collections.length ?? "—")} />
             <Metric icon={Braces} label={text("contract")} value={data?.version ? "v" + data.version : "—"} />
-            <Metric icon={Database} label={text("storage")} value={text(ready === undefined ? "checking" : ready ? "storage_ready" : "storage_offline")} />
+            <Metric icon={Database} label={data?.storage ?? text("storage")} value={text(ready === undefined ? "checking" : ready ? "storage_ready" : "storage_offline")} />
           </div>
           {selected && <Workbench key={selected.path} collection={selected} />}
         </> : <Reference operations={data?.operations ?? []} />}
@@ -141,7 +141,7 @@ function Reference({ operations }: { operations: Operation[] }) {
 }
 
 function TryRequest({ operation }: { operation: Operation }) {
-  const [record, setRecord] = useState("");
+  const [values, setValues] = useState<Record<string, string>>({});
   const [example, setExample] = useState(() => exampleFor(operation.body));
   const [response, setResponse] = useState("");
   const [busy, setBusy] = useState(false);
@@ -151,15 +151,23 @@ function TryRequest({ operation }: { operation: Operation }) {
     if (busy) return;
     setBusy(true);
     setResponse("");
-    try { setResponse(await tryOperation(operation, record, example)); }
+    try { setResponse(await tryOperation(operation, values, example)); }
     catch (error) { setResponse(error instanceof Error ? error.message : text("network_error")); }
     finally { setBusy(false); }
   }
 
   return <form className="try-form" onSubmit={(event) => void submit(event)}>
-    {operation.path.includes("{id}") && <label className="field">
-      <span>{text("id")}</span><input required inputMode="numeric" pattern="[1-9][0-9]*" value={record}
-        onChange={(event) => setRecord(event.target.value)} /></label>}
+    {operation.params.map((parameter) => {
+      const key = parameter.location + ":" + parameter.name;
+      return <label key={key} className="field">
+        <span>{parameter.name === "id" ? text("id") : title(parameter.name)}{" "}<small>{text(parameter.location === "path" ? "path_parameter" : "query_parameter")}</small></span>
+        <input required={parameter.required} inputMode={parameter.kind === "integer" ? "numeric" : "text"}
+          value={values[key] ?? ""} onChange={(event) => {
+            const value = event.target.value;
+            setValues((previous) => ({ ...previous, [key]: value }));
+          }} />
+      </label>;
+    })}
     {operation.body !== undefined && <label className="field">
       <span>{text("try_json")}</span><textarea required value={example} rows={4}
         onChange={(event) => setExample(event.target.value)} /></label>}
