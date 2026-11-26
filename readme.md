@@ -6,18 +6,31 @@
 
 **One struct. Four interfaces (CLI / TUI / Web / MCP). Zero boilerplate. Cross-platform (Windows / Linux / Android).**
 
+[![Crates.io](https://img.shields.io/crates/v/lilyco.svg)](https://crates.io/crates/lilyco)
+[![Docs.rs](https://docs.rs/lilyco/badge.svg)](https://docs.rs/lilyco)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
-[![CI](https://img.shields.io/github/actions/workflow/status/lilyco-42/lilyco/ci.yml?branch=main&label=CI)](https://github.com/lilyco-42/lilyco/actions)
-[![Release](https://img.shields.io/github/v/release/lilyco-42/lilyco)](https://github.com/lilyco-42/lilyco/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/Lyco-team/lilyco/ci.yml?branch=main&label=CI)](https://github.com/Lyco-team/lilyco/actions)
+[![Release](https://img.shields.io/github/v/release/Lyco-team/lilyco)](https://github.com/Lyco-team/lilyco/releases)
 
 Lilyco is a Rust framework that generates **CLI**, **TUI**, **Web UI**, and a **standard MCP server** — from a single struct definition. Every app is an AI tool by default: agents (DeepSeek Harness, Claude Code, Cursor…) call it directly through MCP or JSON-stream. Same binary runs on Windows, Linux, and Android (Termux).
 
 ---
 
-## Quick Start
+## Quick Start (5-Minute Copy-Paste)
+
+Add `lilyco` to your `Cargo.toml` (use `features = ["full"]` for CLI + TUI + Web + MCP, or omit features for headless CLI + MCP on Android/Termux):
+
+```toml
+[dependencies]
+lilyco = { git = "https://github.com/Lyco-team/lilyco.git", features = ["full"] }
+serde_json = "1"
+```
+
+Paste into `src/main.rs`:
 
 ```rust
+use std::path::PathBuf;
 use lilyco::prelude::*;
 
 #[derive(App)]
@@ -31,7 +44,7 @@ struct ImgCompress {
 
 fn run_compress(app: &ImgCompress, ctx: &Context) -> Result<serde_json::Value, AppError> {
     // your logic here; ctx emits progress, logs, cancellation
-    Ok(serde_json::json!({ "done": true }))
+    Ok(serde_json::json!({ "input": app.input, "quality": app.quality, "done": true }))
 }
 
 fn main() {
@@ -40,10 +53,23 @@ fn main() {
 ```
 
 From one struct you get:
-- `imgpress --input photo.jpg --quality 50` — CLI
+- `cargo run -- --input photo.jpg --quality 50` — CLI
 - Interactive TUI form (when run in a terminal)
-- `imgpress --gui` — Web UI with SSE progress
-- `imgpress --mcp` — MCP stdio server (AI agents call it directly)
+- `cargo run -- --gui` — Web UI with SSE progress
+- `cargo run -- --mcp` — MCP stdio server (AI agents call it directly)
+
+### Connect to Claude Desktop / Cursor / Codex (MCP)
+
+```json
+{
+  "mcpServers": {
+    "imgpress": {
+      "command": "/path/to/imgpress",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
 
 ---
 

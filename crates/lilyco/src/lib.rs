@@ -69,6 +69,7 @@ use lilyco_core::progress::LogLevel;
 use lilyco_core::registry::Handler;
 #[cfg(feature = "tui")]
 use lilyco_core::{AppError, Progress};
+#[cfg(any(feature = "tui", test))]
 use std::sync::Arc;
 
 /// 宏展开的后端路径：`#[derive(App)]` 生成的代码引用 `::lilyco::__core::…`
