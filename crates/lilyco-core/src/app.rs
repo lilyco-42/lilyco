@@ -23,6 +23,11 @@ pub trait App: Sized {
     fn views() -> Vec<crate::view::ViewSlot> {
         Vec::new()
     }
+
+    /// Optional command and argument descriptions packaged as a TOML language catalog.
+    fn ui_messages() -> Option<&'static str> {
+        None
+    }
 }
 
 /// 渲染器：把 CommandSchema 转换成各端的表示

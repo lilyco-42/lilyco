@@ -4,6 +4,7 @@ use crate::error::AppError;
 use crate::safety::SafetyTier;
 
 /// 一个参数的完整机器可读描述
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArgSchema {
     pub name: String,
@@ -17,6 +18,7 @@ pub struct ArgSchema {
 ///
 /// CLI: Flag → --flag, Text → --name <value>, Number → --count <num>,
 /// Enum → --mode <choice>, Path → --file <path>, List → --tag a --tag b
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ArgKind {

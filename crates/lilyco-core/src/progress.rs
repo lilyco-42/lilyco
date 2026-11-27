@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 /// - CLI → JSON stream 到 stdout
 /// - TUI → 进度条组件更新
 /// - GUI → 进度环 + 取消按钮
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Progress {
@@ -68,6 +69,7 @@ pub enum Progress {
 }
 
 /// 日志级别
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum LogLevel {

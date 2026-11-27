@@ -18,7 +18,11 @@ use crate::state::AppState;
 pub const TOKEN_HEADER: &str = "X-Lilyco-Token";
 
 /// 需要令牌 + 回环 Origin 校验的 POST 端点
-const PROTECTED_POST: &[&str] = &["/run", "/upload", "/cancel", "/pick"];
+const PROTECTED_POST: &[&str] = &["/run", "/upload", "/pick"];
+
+fn token_required(path: &str) -> bool {
+    PROTECTED_POST.contains(&path) || path.starts_with("/cancel/")
+}
 
 fn is_loopback_host(host: &str) -> bool {
     let host = host.trim().to_ascii_lowercase();
@@ -73,7 +77,7 @@ pub(crate) async fn security_mw(
     }
 
     let path = request.uri().path();
-    if request.method() == Method::POST && PROTECTED_POST.contains(&path) {
+    if request.method() == Method::POST && token_required(path) {
         if let Some(origin) = header_str(headers, "origin") {
             let ok = origin_host(origin).map(is_loopback_host).unwrap_or(false);
             if !ok {
@@ -98,8 +102,14 @@ mod tests {
     #[test]
     fn pick_endpoint_is_token_gated() {
         assert!(
-            PROTECTED_POST.contains(&"/pick"),
+            token_required("/pick"),
             "/pick 漏在闸外：{PROTECTED_POST:?}"
         );
+    }
+
+    #[test]
+    fn session_cancel_is_token_gated() {
+        assert!(token_required("/cancel/session-id"));
+        assert!(!token_required("/progress/session-id"));
     }
 }

@@ -115,9 +115,9 @@ pub struct Env<'a> {
 /// 自动探测后端。
 ///
 /// 优先级（借鉴 mininterface 的 precedence：显式参数 > 环境变量 > 自动）：
-/// 1. CLI 标志：`--mcp` / `--gui`（`--web` 同义）
+/// 1. CLI 标志：`--mcp` / `--gui`（`--web` 同义）/ `--tui`
 /// 2. 环境变量 `LILYCO_UI`：`cli` | `tui` | `web` | `mcp` | `auto`
-/// 3. 自动：stdin 是终端且设置了 `TERM` → TUI；否则 CLI（可管道化，脚本/AI 友好）
+/// 3. 自动：无参数且 stdin 是终端且设置了 `TERM` → TUI；有参数或被管道调用 → CLI
 ///
 /// 被特性关掉的后端在探测中直接跳过（如 Android headless 构建永远落到 CLI）。
 pub fn detect_backend(env: &Env) -> Backend {
@@ -128,6 +128,10 @@ pub fn detect_backend(env: &Env) -> Backend {
     #[cfg(feature = "web")]
     if env.args.iter().any(|a| a == "--gui" || a == "--web") {
         return Backend::Web;
+    }
+    #[cfg(feature = "tui")]
+    if env.args.iter().any(|a| a == "--tui") {
+        return Backend::Tui;
     }
     // 2. 环境变量
     if let Some(ui) = (env.env)("LILYCO_UI") {
@@ -145,7 +149,10 @@ pub fn detect_backend(env: &Env) -> Backend {
     }
     // 3. 自动
     #[cfg(feature = "tui")]
-    if env.stdin_is_terminal && (env.env)("TERM").map(|t| !t.is_empty()).unwrap_or(false) {
+    if env.args.is_empty()
+        && env.stdin_is_terminal
+        && (env.env)("TERM").is_some_and(|term| !term.is_empty())
+    {
         return Backend::Tui;
     }
     Backend::Cli
@@ -348,50 +355,21 @@ pub fn run_registry_with_policy(
 /// 包住了，已注册的命令无法事后换门。重建 = 把「策略 → 各 handler」的
 /// 包裹关系按新策略重新建立一遍，对调用方完全透明。
 ///
-/// 重建会**保留**命令名、别名、隐藏标记、schema（含各自的安全分级）与视图槽位。
+/// 重建会保留命令元数据，包括视图槽位与界面文案。
 fn into_registry_with_policy(
     registry: Registry,
     policy: std::sync::Arc<dyn lilyco_core::safety::SafetyPolicy>,
 ) -> Registry {
     let mut out = Registry::new().with_policy(policy);
-    // 先收集再重建，避免同时持有对新表的可变借用与对旧表的借用
-    let entries: Vec<(
-        String,
-        Vec<String>,
-        bool,
-        lilyco_core::schema::CommandSchema,
-        Vec<lilyco_core::view::ViewSlot>,
-    )> = registry
-        .iter()
-        .map(|c| {
-            (
-                c.name.clone(),
-                c.aliases.clone(),
-                c.hidden,
-                c.schema.clone(),
-                c.views.clone(),
-            )
-        })
-        .collect();
-    for (name, aliases, hidden, schema, views) in entries {
-        match registry.get(&name).and_then(|c| c.handler.clone()) {
-            Some(handler) => {
-                let mut cmd = lilyco_core::registry::RegisteredCommand::new(name, schema)
-                    .with_handler(handler)
-                    .hidden(hidden)
-                    .aliases(aliases);
-                cmd.views = views;
-                // 重建只改安全策略，命令本身不该丢东西
-                debug_assert!(cmd.handler.is_some());
-                out.register(cmd).unwrap_or_else(|e| {
-                    eprintln!("重建注册表失败: {e}");
-                    std::process::exit(1);
-                });
-            }
-            None => {
-                eprintln!("跳过无 handler 的命令 `{name}`");
-            }
+    for command in registry.iter() {
+        if command.handler.is_none() {
+            eprintln!("跳过无 handler 的命令 `{}`", command.name);
+            continue;
         }
+        out.register(command.clone()).unwrap_or_else(|e| {
+            eprintln!("重建注册表失败: {e}");
+            std::process::exit(1);
+        });
     }
     out
 }
@@ -880,7 +858,6 @@ mod tests {
     }
 
     #[cfg(feature = "tui")]
-    #[cfg(feature = "tui")]
     #[test]
     fn auto_tui_when_terminal_and_term() {
         let args: Vec<String> = Vec::new();
@@ -897,6 +874,18 @@ mod tests {
             stdin_is_terminal: true,
         };
         assert_eq!(detect_backend(&e), Backend::Tui);
+    }
+
+    #[test]
+    fn cli_arguments_keep_terminal_invocations_scriptable() {
+        let args = ["--help".into()];
+        let term = |key: &str| (key == "TERM").then(|| "xterm".into());
+        let env = Env {
+            args: &args,
+            env: &term,
+            stdin_is_terminal: true,
+        };
+        assert_eq!(detect_backend(&env), Backend::Cli);
     }
 
     #[test]
@@ -966,8 +955,7 @@ mod tests {
             env: &getterm,
             stdin_is_terminal: true,
         };
-        // --tui 不是 detect_backend 认识的标志（那是单命令形态的自动探测），
-        // 多命令形态由 detect_registry_backend 处理 → 它读真实 argv，测试里跳过
+        // 单命令和多命令入口都接受显式 TUI 选择。
         assert_eq!(detect_backend(&e), Backend::Tui);
     }
 

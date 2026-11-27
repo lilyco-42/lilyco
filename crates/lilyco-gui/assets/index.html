@@ -2,52 +2,109 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <meta name="lilyco-token" content="__TOKEN__">
-<title>__CMD_NAME__ · lilyco 控制台</title>
+<link rel="alternate" type="text/plain" href="/llms.txt" title="LLM guide">
+<link rel="alternate" type="application/json" href="/.well-known/agent.json" title="Agent Card">
+<link rel="service-desc" type="application/openapi+json" href="/openapi.json" title="OpenAPI">
+<title>__CMD_NAME__ · @{console}</title>
 <style>__CSS__</style>
 </head>
 <body__BODY_ATTR__>
 <header class="topbar" data-component="topbar">
-  <div class="brand"><span class="brand-mark" aria-hidden="true">◆</span> lilyco <span class="brand-sub">Web 控制台</span></div>
-  __CMD_NAV__
-  <button type="button" id="theme-toggle" class="icon-btn" aria-label="切换深浅主题">◐</button>
+  <div class="topbar-inner">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">◆</span><strong>lilyco</strong><span class="brand-sub" data-i18n="console">@{console}</span></div>
+    <div class="topbar-tools">
+      <select id="theme-toggle" class="theme-select" aria-label="@{theme}" data-i18n-label="theme">
+        <option value="system" data-i18n="theme_system">@{theme_system}</option>
+        <option value="light" data-i18n="theme_light">@{theme_light}</option>
+        <option value="dark" data-i18n="theme_dark">@{theme_dark}</option>
+      </select>
+      <select id="locale-toggle" class="theme-select" aria-label="@{language}" data-i18n-label="language">
+        <option value="system" data-i18n="language_system">@{language_system}</option>
+        <option value="zh-CN" lang="zh-CN" data-i18n="language_chinese">@{language_chinese}</option>
+        <option value="en" lang="en" data-i18n="language_english">@{language_english}</option>
+      </select>
+      <button type="button" id="shortcuts-open" class="icon-btn" aria-haspopup="dialog" aria-label="@{shortcuts}" data-i18n-label="shortcuts" title="@{shortcuts}" data-i18n-title="shortcuts">⌨</button>
+    </div>
+    __CMD_NAV__
+  </div>
 </header>
 
-<main class="page">
-<section class="card">
+<div class="page">
+<nav class="workspace-nav" aria-label="@{navigation}" data-i18n-label="navigation">
+  <a href="#form-title"><span aria-hidden="true">≡</span><span data-i18n="parameters">@{parameters}</span></a>
+  <a href="#cli-title"><span aria-hidden="true">›_</span><span data-i18n="preview">@{preview}</span></a>
+  <a href="#agent-title"><span aria-hidden="true">◇</span><span data-i18n="ai_access">@{ai_access}</span></a>
+</nav>
+<main class="workspace">
+<header class="command-head">
   <h1 class="card-title">__CMD_NAME__</h1>
-  <p class="card-about">__ABOUT__</p>
+  <p class="card-about" data-i18n="app.about">__ABOUT__</p>
+</header>
 
-  <form id="form" novalidate>
+<div class="card">
+  <section class="sheet form-panel" aria-labelledby="form-title">
+    <header class="sheet-head"><h2 id="form-title" data-i18n="parameters">@{parameters}</h2></header>
+    <form id="form" novalidate>
+      <div class="form-fields">
 __FIELDS__
-    <div class="actions" data-component="run-bar">
-      <button type="submit" id="run-btn" class="btn primary"><span class="btn-label">▶ 运行</span></button>
-      <button type="button" id="cancel-btn" class="btn danger" hidden>■ 取消</button>
-      <button type="button" id="copy-cli" class="btn ghost">复制 CLI</button>
-    </div>
-    <div class="cli-preview mono" id="preview" data-component="cli-preview" aria-live="off"></div>
-  </form>
-
-  <!-- 语义视图区：内容全部由后端声明、前端按协议渲染（可换成 shadcn 实现） -->
-  <section id="views"__VIEWS_ATTR__ data-component="views" aria-live="polite">__VIEWS__</section>
-
-  <section id="out" hidden data-component="output">
-    <div class="out-head">
-      <h2>输出</h2>
-      <div class="progress" id="progress" data-indet="1" role="progressbar" aria-label="运行进度"
-           aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" id="progress-bar"></div></div>
-    </div>
-    <div id="log" class="terminal" role="log" aria-live="polite" tabindex="0" data-component="log"></div>
-    <div class="result-wrap" id="result-wrap" hidden data-component="result">
-      <div class="result-head"><span>结果</span><button type="button" id="copy-result" class="btn-icon">复制</button></div>
-      <!-- 可滚动区一律 tabindex=0 让键盘能滚（WCAG 2.1.1），与 #log 同一条规矩 -->
-      <pre id="result" class="mono" role="region" aria-label="运行结果" tabindex="0"></pre>
-    </div>
+      </div>
+      <div class="actions" data-component="run-bar">
+        <button type="submit" id="run-btn" class="btn primary" aria-keyshortcuts="Control+Enter Meta+Enter"><span class="btn-label"><span aria-hidden="true">▶</span> <span data-i18n="run">@{run}</span></span><kbd class="run-key" aria-hidden="true">Ctrl / ⌘ ↵</kbd></button>
+        <button type="button" id="cancel-btn" class="btn danger" aria-keyshortcuts="Escape Control+Shift+Enter Meta+Shift+Enter" hidden><span aria-hidden="true">■</span> <span data-i18n="cancel">@{cancel}</span></button>
+      </div>
+    </form>
   </section>
-</section>
-<footer class="foot">lilyco · 本地回环会话 · 令牌随进程轮换</footer>
+
+  <div class="run-panel">
+    <section class="sheet" aria-labelledby="cli-title">
+      <header class="sheet-head">
+        <h2 id="cli-title" data-i18n="preview">@{preview}</h2>
+        <button type="button" id="copy-cli" class="btn ghost" data-i18n="copy_cli">@{copy_cli}</button>
+      </header>
+      <div class="cli-preview mono" id="preview" data-component="cli-preview" aria-live="off"></div>
+    </section>
+
+    <section class="sheet" id="out" hidden data-component="output" aria-labelledby="output-title">
+      <div class="sheet-head out-head">
+        <h2 id="output-title" data-i18n="output">@{output}</h2>
+        <span id="run-state" class="run-state" role="status" data-i18n="running">@{running}</span>
+        <div class="progress" id="progress" data-indet="1" role="progressbar" aria-label="@{progress}" data-i18n-label="progress"
+             aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" id="progress-bar"></div></div>
+      </div>
+      <div id="log" class="terminal" role="log" aria-live="polite" tabindex="0" data-component="log" data-empty-label="@{waiting_output}"></div>
+      <div class="result-wrap" id="result-wrap" hidden data-component="result">
+        <div class="result-head"><span data-i18n="result">@{result}</span><button type="button" id="copy-result" class="btn-icon" data-i18n="copy">@{copy}</button></div>
+        <pre id="result" class="mono" role="region" aria-label="@{run_result}" tabindex="0" data-i18n-label="run_result"></pre>
+      </div>
+    </section>
+    <section class="sheet" aria-labelledby="agent-title">
+      <header class="sheet-head"><h2 id="agent-title" data-i18n="ai_access">@{ai_access}</h2></header>
+      <ul class="agent-links">
+        <li><a href="/llms.txt" target="_blank" rel="noopener"><strong>llms.txt</strong><span data-i18n="llm_guide">@{llm_guide}</span></a></li>
+        <li><a href="/.well-known/agent.json" target="_blank" rel="noopener"><strong>Agent Card</strong><span data-i18n="agent_card">@{agent_card}</span></a></li>
+        <li><a href="/openapi.json" target="_blank" rel="noopener"><strong>OpenAPI</strong><span data-i18n="api_schema">@{api_schema}</span></a></li>
+      </ul>
+    </section>
+  </div>
+
+  <!-- 语义视图区：内容由后端声明，前端按协议渲染。 -->
+  <section id="views"__VIEWS_ATTR__ data-component="views" aria-live="polite">__VIEWS__</section>
+</div>
+<footer class="foot" data-i18n="footer">@{footer}</footer>
 </main>
+</div>
+<dialog id="shortcuts" class="sheet shortcuts" aria-labelledby="shortcuts-title">
+  <header class="sheet-head"><h2 id="shortcuts-title" data-i18n="shortcuts">@{shortcuts}</h2></header>
+  <dl>
+    <div><dt data-i18n="run">@{run}</dt><dd><kbd>Ctrl / ⌘</kbd> <kbd>Enter</kbd></dd></div>
+    <div class="shortcut-cancel" hidden><dt data-i18n="focus_cancel">@{focus_cancel}</dt><dd><kbd>Ctrl / ⌘</kbd> <kbd>Shift</kbd> <kbd>Enter</kbd></dd></div>
+    <div class="shortcut-cancel" hidden><dt data-i18n="escape_cancel">@{escape_cancel}</dt><dd><kbd>Esc</kbd></dd></div>
+    <div><dt data-i18n="dismiss_dialog">@{dismiss_dialog}</dt><dd><kbd>Esc</kbd></dd></div>
+  </dl>
+  <form method="dialog"><button type="submit" class="btn ghost" data-i18n="close">@{close}</button></form>
+</dialog>
 
 <script>
 "use strict";
@@ -61,28 +118,114 @@ __FIELDS__
 const TOKEN=document.querySelector('meta[name="lilyco-token"]').content;
 const CMD=__CMD_JS__;
 const SCHEMA_ARGS=__META__;
+const CATALOG=__CATALOG__;
 // 服务端登记过取消句柄才有这颗按钮；没有就别画（点了只得到一句 404）
 const CANCELABLE=__CANCEL_JS__;
 const $=id=>document.getElementById(id);
 const qsa=sel=>Array.from(document.querySelectorAll(sel));
+const readPreference=key=>{
+  try{return localStorage.getItem(key)}catch{return null}
+};
+const savePreference=(key,value)=>{
+  try{localStorage.setItem(key,value)}catch{/* Preferences are optional. */}
+};
+let locale="zh-CN";
+function tr(key,params={}){
+  const text=CATALOG[locale]?.[key]??CATALOG["zh-CN"]?.[key]??key;
+  if(key.startsWith("app."))return text;
+  return text.replace(/\{([a-z_]+)\}/g,(_,name)=>String(params[name]??""));
+}
 /* 装配清单：新增组件写一个 initXxx 并加进这里。
    真正的启动那一行在本文件**最末尾** —— 组件函数读的是下面的顶层 const，
    提前跑会撞上 TDZ（ReferenceError），而一个组件抛错会带走后面所有组件。 */
-const BOOT=[initTheme,initCommandNav,initCliPreview,initDropzone,initPickButton,initList,
+const BOOT=[initLocale,initTheme,initShortcuts,initCommandNav,initCliPreview,initDropzone,initPickButton,initList,
             initProgress,initLog,initResult,initRunBar];
+
+function applyLocale(){
+  document.documentElement.lang=locale;
+  document.title=tr("document_title",{command:CMD});
+  for(const node of qsa("[data-i18n]")){
+    if(!node.dataset.copying)node.textContent=tr(node.dataset.i18n,{range:node.dataset.range});
+  }
+  for(const node of qsa("[data-i18n-label]"))node.setAttribute("aria-label",tr(node.dataset.i18nLabel));
+  for(const node of qsa("[data-i18n-title]"))node.title=tr(node.dataset.i18nTitle);
+  for(const node of qsa("[data-i18n-placeholder]"))node.placeholder=tr(node.dataset.i18nPlaceholder);
+  $("log").dataset.emptyLabel=tr("waiting_output");
+  qsa(".dropzone").forEach(renderUploadStatus);
+}
+function initLocale(){
+  const key="lilyco-language",control=$("locale-toggle");
+  const refresh=()=>{
+    locale=control.value==="system"?browserLocale():control.value;
+    applyLocale();
+  };
+  const restore=()=>{
+    const saved=readPreference(key);
+    control.value=saved==="en"||saved==="zh-CN"?saved:"system";
+    refresh();
+  };
+  restore();
+  control.addEventListener("change",()=>{
+    savePreference(key,control.value);
+    refresh();
+  });
+  window.addEventListener("languagechange",()=>{
+    if(control.value==="system")refresh();
+  });
+  window.addEventListener("storage",event=>{
+    if(event.key===key||event.key===null)restore();
+  });
+}
+function browserLocale(){
+  for(const tag of [...navigator.languages,navigator.language]){
+    const primary=tag.toLowerCase().split("-")[0];
+    if(primary==="zh")return"zh-CN";
+    if(primary==="en")return"en";
+  }
+  return"en";
+}
+
+function initShortcuts(){
+  const dialog=$("shortcuts"),open=$("shortcuts-open"),runButton=$("run-btn"),cancelButton=$("cancel-btn");
+  if(typeof dialog.showModal!=="function"&&typeof dialog.show!=="function")open.hidden=true;
+  else open.addEventListener("click",()=>{
+    if(typeof dialog.showModal==="function")dialog.showModal();else dialog.show();
+  });
+  qsa(".shortcut-cancel").forEach(row=>{row.hidden=!CANCELABLE});
+  document.addEventListener("keydown",e=>{
+    if(e.defaultPrevented||e.isComposing||e.repeat||e.altKey)return;
+    const commandEnter=e.key==="Enter"&&e.ctrlKey!==e.metaKey;
+    if(dialog.open){if(commandEnter)e.preventDefault();return}
+    const canCancel=!cancelButton.hidden&&!cancelButton.disabled;
+    if(e.key==="Escape"&&canCancel&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey){
+      const editing=e.target.closest?.("input,textarea,select,[contenteditable]");
+      if(!editing){e.preventDefault();cancelButton.click()}
+    }
+    if(!commandEnter)return;
+    if(e.shiftKey){
+      if(!canCancel)return;
+      e.preventDefault();cancelButton.focus();
+    }else if(!runButton.disabled){
+      e.preventDefault();$("form").requestSubmit(runButton);
+    }
+  });
+}
 
 /* ── 顶栏 · 主题切换 ── */
 function initTheme(){
-  const root=document.documentElement,btn=$("theme-toggle");
-  const theme=()=>root.dataset.theme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");
-  const saved=localStorage.getItem("lilyco-theme");
-  if(saved)root.dataset.theme=saved;
-  btn.setAttribute("aria-pressed",String(theme()==="dark"));
-  btn.addEventListener("click",()=>{
-    const next=theme()==="dark"?"light":"dark";
-    root.dataset.theme=next;
-    localStorage.setItem("lilyco-theme",next);
-    btn.setAttribute("aria-pressed",String(next==="dark"));
+  const root=document.documentElement,select=$("theme-toggle"),key="lilyco-theme";
+  const apply=value=>{
+    select.value=value==="light"||value==="dark"?value:"system";
+    if(select.value==="system")delete root.dataset.theme;
+    else root.dataset.theme=select.value;
+  };
+  apply(readPreference(key));
+  select.addEventListener("change",()=>{
+    apply(select.value);
+    savePreference(key,select.value);
+  });
+  window.addEventListener("storage",event=>{
+    if(event.key===key||event.key===null)apply(readPreference(key));
   });
 }
 
@@ -95,12 +238,27 @@ function initCommandNav(){
     // 一是给「已经在切了」一个看得见的答复，二是免得连点排出两次导航
     sel.disabled=true;
     sel.setAttribute("aria-busy","true");
-    location.href="/?cmd="+encodeURIComponent(sel.value);
+    const previous=new URL(location.href),next=new URL(location.pathname,previous);
+    for(const key of ["theme","debug"]){
+      if(previous.searchParams.has(key))next.searchParams.set(key,previous.searchParams.get(key));
+    }
+    next.searchParams.set("cmd",sel.value);
+    location.assign(next);
   });
 }
 
-/* ── CLI 预览 + 读表 ── */
+/* ── CLI 预览 + 读表 + URL 参数预填（深链分享）── */
 function initCliPreview(){
+  const qs=new URLSearchParams(location.search);
+  for(const a of SCHEMA_ARGS){
+    const alt=a.name.replace(/-/g,"_");
+    const v=qs.has(a.name)?qs.get(a.name):(qs.has(alt)?qs.get(alt):null);
+    if(v===null)continue;
+    const el=$("field-"+a.name);
+    if(!el)continue;
+    if(a.kind==="Flag")el.checked=(v==="1"||v==="true"||v==="");
+    else el.value=v;
+  }
   // input 会冒泡，所以动态加出来的行也在这里一并覆盖
   $("form").addEventListener("input",updatePreview);
   $("form").addEventListener("change",updatePreview);
@@ -153,11 +311,10 @@ function copyText(text,btn){
   if(btn.dataset.copying)return;   // 反馈期间别再叠一层：两次定时器会互相把状态色抹掉
   btn.dataset.copying="1";
   const done=ok=>{
-    const old=btn.dataset.label||btn.textContent;
-    btn.dataset.label=old;btn.textContent=ok?"已复制":"复制失败";
+    btn.textContent=tr(ok?"copied":"copy_failed");
     btn.classList.remove("copied","copy-failed");
     btn.classList.add(ok?"copied":"copy-failed");
-    setTimeout(()=>{btn.textContent=old;btn.classList.remove("copied","copy-failed");delete btn.dataset.copying},1200);
+    setTimeout(()=>{btn.textContent=tr(btn.dataset.i18n);btn.classList.remove("copied","copy-failed");delete btn.dataset.copying},1200);
   };
   // writeText 也可能同步抛（非安全上下文里 clipboard 就是 undefined）；不接住就永远卡在
   // data-copying=1，之后每次复制都被上面那道闸门吞掉
@@ -165,111 +322,169 @@ function copyText(text,btn){
 }
 
 /* ── Path · 拖拽上传（拿到的是服务端暂存副本路径）── */
+const fileStatus=new WeakMap();
+const uploadedNames=new WeakMap();
 function initDropzone(){
-  qsa(".dropzone").forEach(dz=>{
-    const fi=dz.querySelector('input[type=file]');
-    dz.querySelector(".dz-browse").addEventListener("click",()=>fi.click());
-    // 拖拽区是容器，里面每个控件各管各的：点在空白处才算「选文件」
-    dz.addEventListener("click",e=>{if(!e.target.closest("button,input,.dz-status"))fi.click()});
-    fi.addEventListener("change",()=>{
-      if(fi.files[0])uploadFile(fi.files[0],dz);
-      fi.value="";  // 不清空的话，连着选同一个文件不再触发 change
-    });
-    const chip=dzParts(dz).chip;
-    chip.addEventListener("click",()=>clearUpload(dz));
-    dz.addEventListener("dragover",e=>{e.preventDefault();dz.classList.add("drag-over")});
-    // 扫过子元素也会触发 dragleave，不判 relatedTarget 就会一直闪
-    dz.addEventListener("dragleave",e=>{if(!dz.contains(e.relatedTarget))dz.classList.remove("drag-over")});
-    dz.addEventListener("drop",e=>{
-      e.preventDefault();dz.classList.remove("drag-over");
-      const f=e.dataTransfer&&e.dataTransfer.files[0];
-      if(f)uploadFile(f,dz);
-    });
+  const zones=qsa(".dropzone");
+  if(!zones.length)return;
+  zones.forEach(bindFileInput);
+  bindFileDrops(zones);
+}
+function bindFileInput(dz){
+  const picker=dz.querySelector('input[type=file]');
+  const {input,chip}=dzParts(dz);
+  const browse=()=>{if(!isFileBusy(dz))picker.click()};
+  dz.querySelector(".dz-browse").addEventListener("click",browse);
+  dz.addEventListener("click",e=>{
+    if(!e.target.closest("button,input,.dz-status"))browse();
   });
+  picker.addEventListener("change",()=>{
+    acceptFiles(picker.files,dz);
+    picker.value="";
+  });
+  chip.addEventListener("click",()=>{
+    input.value="";
+    resetFile(dz);
+    input.focus();
+    updatePreview();
+  });
+  input.addEventListener("input",()=>resetFile(dz));
+}
+function bindFileDrops(zones){
+  const form=$("form");
+  const zoneAt=target=>target.closest?.(".field")?.querySelector(".dropzone")
+    ??(zones.length===1&&form.contains(target)?zones[0]:null);
+  const hasFiles=e=>e.dataTransfer?.types.includes("Files");
+  let active=null;
+  function showDropTarget(zone){
+    if(active===zone)return;
+    active?.classList.remove("drag-over");
+    active=zone;
+    active?.classList.add("drag-over");
+  }
+  document.addEventListener("dragover",e=>{
+    if(!hasFiles(e))return;
+    e.preventDefault();
+    const zone=zoneAt(e.target);
+    const ready=zone&&!isFileBusy(zone);
+    showDropTarget(ready?zone:null);
+    e.dataTransfer.dropEffect=ready?"copy":"none";
+  });
+  document.addEventListener("dragleave",e=>{
+    if(!e.relatedTarget||!form.contains(e.relatedTarget))showDropTarget(null);
+  });
+  document.addEventListener("drop",e=>{
+    if(!hasFiles(e))return;
+    e.preventDefault();
+    showDropTarget(null);
+    const zone=zoneAt(e.target);
+    if(zone)acceptFiles(e.dataTransfer.files,zone);
+  });
+}
+function acceptFiles(files,dz){
+  if(isFileBusy(dz)||!files.length)return;
+  if(files.length>1){setStatus(dz,"err","single_file");return}
+  uploadFile(files[0],dz);
 }
 function dzParts(dz){
   const name=dz.dataset.target;
-  return {name,input:$("field-"+name),status:$("up-"+name),chip:$("chip-"+name)};
+  return {input:$("field-"+name),status:$("up-"+name),chip:$("chip-"+name)};
 }
-function setStatus(dz,cls,text){
-  const s=dzParts(dz).status;
-  s.textContent=text;s.className="dz-status"+(cls?" "+cls:"");
+function renderUploadStatus(dz){
+  const {status,chip}=dzParts(dz);
+  const message=fileStatus.get(dz),name=uploadedNames.get(dz);
+  status.textContent=message?tr(message.key,message.params):"";
+  status.className="dz-status"+(message?.tone?" "+message.tone:"");
+  if(name!==undefined)chip.title=tr("remove_file",{name});
+  if(name!==undefined)chip.setAttribute("aria-label",chip.title);
+}
+function setStatus(dz,tone,key,params){
+  if(key)fileStatus.set(dz,{tone,key,params});else fileStatus.delete(dz);
+  renderUploadStatus(dz);
+}
+function isFileBusy(dz){return dz.getAttribute("aria-busy")==="true"}
+function setFileBusy(dz,busy){
+  dz.setAttribute("aria-busy",String(busy));
+  dz.querySelectorAll("button").forEach(btn=>{btn.disabled=busy});
 }
 function fmtSize(n){return n>1048576?(n/1048576).toFixed(1)+" MB":n>1024?(n/1024).toFixed(1)+" KB":n+" B"}
-function clearUpload(dz){
-  const p=dzParts(dz);
-  p.input.value="";p.chip.hidden=true;p.chip.textContent="";
-  dz.classList.remove("uploaded");setStatus(dz,"","");updatePreview();
+function resetFile(dz){
+  const {chip}=dzParts(dz);
+  uploadedNames.delete(dz);
+  chip.hidden=true;chip.textContent="";
+  dz.classList.remove("uploaded");setStatus(dz);
+}
+function oversizeMessage(file,dz,max){
+  const bytes=n=>n.toLocaleString(locale)+" B";
+  const limit={name:file.name,actual:bytes(file.size),limit:bytes(max)};
+  const advice=dz.querySelector("[data-pick]")?"oversize_native":"oversize_manual";
+  return tr("oversize",limit)+" "+tr(advice);
+}
+function readFileData(file){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.addEventListener("load",()=>resolve(String(reader.result).split(",",2)[1]));
+    reader.addEventListener("error",()=>reject(new Error(tr("read_failed",{name:file.name}))));
+    reader.readAsDataURL(file);
+  });
+}
+async function sendFile(file){
+  const dataB64=await readFileData(file);
+  let response;
+  try{
+    response=await fetch("/upload",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},
+      body:JSON.stringify({name:file.name,dataB64})});
+  }catch(error){
+    throw new Error(tr("upload_interrupted",{reason:error.message}));
+  }
+  if(response.ok)return response.json();
+  const reason=await response.text().catch(()=>"");
+  throw new Error(tr("http_error",{status:response.status,reason:reason||tr("http_no_reason")}));
 }
 async function uploadFile(file,dz){
-  const p=dzParts(dz);
-  const fail=msg=>setStatus(dz,"err","上传失败："+msg);
-  // 上限由服务端注入（data-max-upload），页面不抄第二份数字。
-  // 必须在读文件之前拦：超限还去 FileReader 读 base64 会先吃光内存，
-  // 硬发出去也只会被服务端掐断，浏览器报一句没头没尾的 Failed to fetch。
+  const {input,chip}=dzParts(dz),previous=input.value;
   const max=Number(dz.dataset.maxUpload)||0;
   if(max&&file.size>max){
-    const hasPick=!!dz.querySelector("[data-pick]");
-    // 报字节而不是只报 MB：209,715,201 B 和 209,715,200 B 都显示成「200.0 MB」，
-    // 只给 MB 的话用户读到的是「200 MB 超过 200 MB」这种自相矛盾的话
-    const bytes=n=>n.toLocaleString("en-US")+" B";
-    fail(file.name+" 有 "+bytes(file.size)+"（"+fmtSize(file.size)+"），超过上传上限 "+bytes(max)+"（"+fmtSize(max)+"）—— 浏览器要把整个文件读成 base64 再发给服务端。"
-      +(hasPick?"改点右边的「本机」—— 服务端直接弹系统选择器，回填原始路径，不复制也不限大小。"
-               :"这条构建没开本机选择器：请手填路径，或换小一点的文件。"));
+    setStatus(dz,"err","upload_failed",{reason:oversizeMessage(file,dz,max)});
     return;
   }
-  setStatus(dz,"busy","上传中 "+file.name+"（"+fmtSize(file.size)+"）…");
+  setFileBusy(dz,true);
+  setStatus(dz,"busy","uploading",{name:file.name,size:fmtSize(file.size)});
   try{
-    const dataUrl=await new Promise((res,rej)=>{
-      const r=new FileReader();
-      r.addEventListener("load",()=>res(r.result));
-      r.addEventListener("error",()=>rej(new Error("读取文件失败（"+file.name+"）")));
-      r.readAsDataURL(file);
-    });
-    const b64=String(dataUrl).split(",",2)[1]||"";
-    let resp;
-    try{
-      resp=await fetch("/upload",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},
-        body:JSON.stringify({name:file.name,dataB64:b64})});
-    }catch(netErr){
-      // fetch 直接 reject = 请求根本没拿到响应：多半是 body 太大被服务端中途断开
-      fail("传输被中断（"+netErr.message+"）。若文件较大，改点「本机」直接引用原始路径；否则重试一次。");
-      return;
-    }
-    if(!resp.ok){
-      const body=await resp.text().catch(()=>"");
-      throw new Error(body?("HTTP "+resp.status+"："+body):("HTTP "+resp.status+"（服务端未给原因）"));
-    }
-    const j=await resp.json();
-    p.input.value=j.path;
-    p.chip.textContent=file.name+" · "+fmtSize(j.size);
-    // 光有文件名+大小读屏不知道这是干什么的按钮，动作得进可访问名
-    p.chip.setAttribute("aria-label","清除已上传的 "+file.name);
-    p.chip.title="清除已上传的副本路径";
-    p.chip.hidden=false;
+    const result=await sendFile(file);
+    if(input.value!==previous)return;
+    input.value=result.path;
+    uploadedNames.set(dz,file.name);
+    chip.textContent=file.name+" · "+fmtSize(result.size);
+    chip.hidden=false;
     dz.classList.add("uploaded");
-    setStatus(dz,"ok","已就绪：服务端路径已回填");
+    setStatus(dz,"ok","uploaded");
     updatePreview();
-  }catch(err){fail(err.message||String(err))}
+  }catch(error){
+    setStatus(dz,"err","upload_failed",{reason:error.message});
+  }finally{setFileBusy(dz,false)}
 }
 
-/* ── Path · 「本机」：服务端弹系统对话框，回填磁盘上的原始路径（不上传副本）── */
 function initPickButton(){
-  qsa("[data-pick]").forEach(btn=>btn.addEventListener("click",async()=>{
-    const name=btn.getAttribute("data-pick"),field=$("field-"+name),status=$("up-"+name);
-    if(!field)return;
-    btn.disabled=true;
-    if(status){status.textContent="等待系统对话框…（可能被压在后面，看一下任务栏）";status.className="dz-status busy"}
-    try{
-      const resp=await fetch("/pick",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:"{}"});
-      const j=await resp.json();
-      if(j.path){
-        field.value=j.path;updatePreview();
-        if(status){status.textContent="已选择："+j.path;status.className="dz-status ok"}
-      }else if(status){status.textContent=j.error||"已取消";status.className="dz-status"}
-    }catch(err){if(status){status.textContent="选择框失败："+err;status.className="dz-status err"}}
-    finally{btn.disabled=false}
-  }));
+  qsa("[data-pick]").forEach(btn=>btn.addEventListener("click",()=>pickFile(btn.closest(".dropzone"))));
+}
+async function pickFile(dz){
+  if(isFileBusy(dz))return;
+  const {input}=dzParts(dz),previous=input.value;
+  setFileBusy(dz,true);setStatus(dz,"busy","picking");
+  try{
+    const response=await fetch("/pick",{method:"POST",headers:{"Content-Type":"application/json","X-Lilyco-Token":TOKEN},body:"{}"});
+    const result=await response.json();
+    if(!response.ok||result.error)throw new Error(result.error||tr("http_no_reason"));
+    if(input.value!==previous)return;
+    if(result.path){
+      resetFile(dz);
+      input.value=result.path;updatePreview();
+      setStatus(dz,"ok","picked",{path:result.path});
+    }else setStatus(dz,"","pick_cancelled");
+  }catch(error){
+    setStatus(dz,"err","pick_failed",{reason:error.message});
+  }finally{setFileBusy(dz,false)}
 }
 
 /* ── List · 动态行（初始行由服务端按 item 类型画好，这里只管增删）── */
@@ -325,8 +540,10 @@ function setProgress(p){
 }
 // 收尾态：done 整条转绿，error 整条涂红，跑起来之前清空
 function setProgressState(s){
-  const bar=$("progress");
+  const bar=$("progress"),state=$("run-state");
   if(s)bar.dataset.state=s;else bar.removeAttribute("data-state");
+  state.dataset.i18n=s==="done"?"run_done":s==="error"?"run_failed":"running";
+  state.textContent=tr(state.dataset.i18n);
 }
 
 /* ── 日志区 ── */
@@ -375,6 +592,8 @@ async function run(e){
   // （光靠 `if(es)` 挡不住 —— es 要等 /run 的 fetch 回来才赋值，
   //   实测连点三次 requestSubmit 就真发出三个 POST /run。）
   if($("run-btn").disabled||es)return;
+  const busyFile=document.querySelector('.dropzone[aria-busy="true"]');
+  if(busyFile){dzParts(busyFile).input.focus();return}
   const data=readForm(),out=$("out");
   // 上一次的结论不清掉，日志在滚、结果区还写着旧 JSON —— 看着像这次运行刚出结果
   out.hidden=false;clearViews();initLog();clearResult();setProgress(null);setProgressState(null);setBusy(true);
@@ -390,14 +609,17 @@ async function run(e){
   }catch(err){
     // 请求就没成功，根本没有进度可等：把不确定态的跑动动画停下来，
     // 不然那条一直滚的进度条看着像「还在跑」
-    logLine("err","请求失败："+err.message);setProgress(0);setBusy(false);return;
+    logLine("err",tr("request_failed",{reason:err.message}));setProgress(1);setProgressState("error");finish();return;
   }
   es=new EventSource("/progress/"+sid);
   es.addEventListener("message",ev=>{
     let p;try{p=JSON.parse(ev.data)}catch{return}
     applyEvent(p);
   });
-  es.addEventListener("error",finish);  // 服务端关流也会走这里
+  es.addEventListener("error",()=>{
+    if(!es)return;
+    setProgress(1);setProgressState("error");logLine("err",tr("stream_lost"));finish();
+  });
 }
 /* ── 语义视图组件：后端声明 kind + 数据，这里只决定长什么样 ──
    换一套 UI（如 shadcn/ui）时替换 renderComponent 即可，后端与协议不改。 */
@@ -421,7 +643,7 @@ function renderComponent(c){
     case "skeleton":return vwrap("skeleton",Array.from({length:c.lines||3}).map(()=>'<div class="v-sk-line"></div>').join(""));
     case "key_value":return vwrap("key_value",(c.items||[]).map(it=>'<div class="v-kv-row"><span class="v-kv-k">'+esc(it.key)+'</span><span class="v-kv-v mono">'+esc(it.value)+'</span></div>').join(""));
     case "table":return vwrap("table",(c.caption?'<div class="v-desc">'+esc(c.caption)+'</div>':"")+'<table><thead><tr>'+(c.columns||[]).map(h=>'<th>'+esc(h)+'</th>').join("")+'</tr></thead><tbody>'+(c.rows||[]).map(r=>'<tr>'+r.map(v=>'<td>'+esc(v)+'</td>').join("")+'</tr>').join("")+'</tbody></table>');
-    case "log":return vwrap("log",(c.lines||[]).map(l=>'<div class="line '+(l.level==="error"?"err":l.level==="warn"?"warn":"")+'">'+esc(l.text)+'</div>').join("")||'<div class="line">（无日志）</div>');
+    case "log":return vwrap("log",(c.lines||[]).map(l=>'<div class="line '+(l.level==="error"?"err":l.level==="warn"?"warn":"")+'">'+esc(l.text)+'</div>').join("")||'<div class="line">'+esc(tr("no_log"))+'</div>');
     case "result":return vwrap("result",'<div class="v-title">'+esc(c.title)+'</div>'+(c.value!=null?'<pre class="mono">'+esc(JSON.stringify(c.value,null,2))+'</pre>':""),c.ok?"success":"danger");
     case "button":return '<button type="button" class="btn v-btn '+(c.variant||"outline")+'" data-view-kind="button" data-action="'+esc(c.action)+'"'+(c.disabled?" disabled":"")+'>'+esc(c.label)+'</button>';
     /* 批 2 · 布局与导航 */
@@ -431,22 +653,22 @@ function renderComponent(c){
     case "collapsible":return '<details class="v v-collapse" data-view-kind="collapsible"'+(c.open?" open":"")+'><summary>'+esc(c.title)+'</summary>'+vkids(c.children)+'</details>';
     case "accordion":return '<div class="v v-accordion" data-view-kind="accordion">'+((c.items||[]).map(it=>'<details'+(it.open?" open":"")+'><summary>'+esc(it.title)+'</summary><div class="v-desc">'+esc(it.body)+'</div></details>').join(""))+'</div>';
     case "tabs":return '<div class="v v-tabs" data-view-kind="tabs">'+'<div class="v-tablist" role="tablist">'+((c.items||[]).map(t=>'<span class="v-tab'+(t.id===c.active?" active":"")+'" role="tab" aria-selected="'+(t.id===c.active)+'">'+esc(t.label)+'</span>').join(""))+'</div>'+vkids(((c.items||[]).find(t=>t.id===c.active)||(c.items||[])[0]||{children:[]}).children)+'</div>';
-    case "breadcrumb":return '<nav class="v v-crumb" data-view-kind="breadcrumb" aria-label="面包屑">'+((c.items||[]).map((x,i)=>'<span'+(i===(c.items||[]).length-1?' aria-current="page"':"")+'>'+esc(x)+'</span>').join('<span class="v-dot">/</span>'))+'</nav>';
-    case "pagination":return '<nav class="v v-page" data-view-kind="pagination" aria-label="分页">第 '+esc(c.page)+' / '+esc(c.pages)+' 页</nav>';
-    case "sidebar":return '<nav class="v v-sidebar" data-view-kind="sidebar" aria-label="侧栏">'+((c.items||[]).map(it=>'<span class="v-nav'+(it.id===c.active?" active":"")+'">'+esc(it.label)+'</span>').join(""))+'</nav>';
+    case "breadcrumb":return '<nav class="v v-crumb" data-view-kind="breadcrumb" aria-label="'+esc(tr("breadcrumb"))+'">'+((c.items||[]).map((x,i)=>'<span'+(i===(c.items||[]).length-1?' aria-current="page"':"")+'>'+esc(x)+'</span>').join('<span class="v-dot">/</span>'))+'</nav>';
+    case "pagination":return '<nav class="v v-page" data-view-kind="pagination" aria-label="'+esc(tr("pagination"))+'">'+esc(tr("page_of",{page:c.page,total:c.pages}))+'</nav>';
+    case "sidebar":return '<nav class="v v-sidebar" data-view-kind="sidebar" aria-label="'+esc(tr("sidebar"))+'">'+((c.items||[]).map(it=>'<span class="v-nav'+(it.id===c.active?" active":"")+'">'+esc(it.label)+'</span>').join(""))+'</nav>';
     case "resizable":return '<div class="v v-resize" data-view-kind="resizable" style="grid-template-columns:'+Math.round((c.ratio||0.5)*100)+'% 1fr">'+vkids(c.start)+vkids(c.end)+'</div>';
     case "carousel":return '<div class="v v-carousel" data-view-kind="carousel"><div class="v-desc">'+((c.index||0)+1)+' / '+((c.items||[]).length)+'</div>'+vkids(((c.items||[])[c.index||0]||{children:[]}).children)+'</div>';
     case "avatar":return '<div class="v v-avatar" data-view-kind="avatar" role="img" aria-label="'+esc(c.name)+'"><span>'+esc((c.name||"?").slice(0,1))+'</span></div>';
-    case "chart":return '<div class="v v-chart" data-view-kind="chart" role="img" aria-label="图表">'+((c.series||[]).map((v,i)=>'<div class="v-bar" style="height:'+Math.max(2,Math.min(100,v))+'%"><span>'+esc((c.labels||[])[i]||"")+'</span></div>').join(""))+'</div>';
+    case "chart":return '<div class="v v-chart" data-view-kind="chart" role="img" aria-label="'+esc(tr("chart"))+'">'+((c.series||[]).map((v,i)=>'<div class="v-bar" style="height:'+Math.max(2,Math.min(100,v))+'%"><span>'+esc((c.labels||[])[i]||"")+'</span></div>').join(""))+'</div>';
     /* 批 3 · 交互与浮层（浮层用原生 details/dialog，不引入任何运行时） */
     case "toggle":return '<button type="button" class="btn v-btn" data-view-kind="toggle" aria-pressed="'+!!c.pressed+'">'+esc(c.label)+'</button>';
     case "toggle_group":return '<div class="v v-group" data-view-kind="toggle_group" role="group">'+((c.options||[]).map(o=>'<span class="v-chip'+((c.selected||[]).includes(o)?" active":"")+'">'+esc(o)+'</span>').join(""))+'</div>';
     case "tooltip":return '<span class="v v-tip" data-view-kind="tooltip" title="'+esc(c.text)+'">'+vkids(c.children)+'</span>';
     case "hover_card":return '<details class="v v-hover" data-view-kind="hover_card"><summary>'+esc(c.trigger)+'</summary><div class="v-title">'+esc(c.title)+'</div><div class="v-desc">'+esc(c.body)+'</div></details>';
-    case "dialog":return '<dialog class="v v-dialog" data-view-kind="dialog"'+(c.open?" open":"")+'>'+(c.description?'<div class="v-desc">'+esc(c.description)+'</div>':"")+vkids(c.children)+'<button type="button" class="btn-icon" data-close="1">关闭</button></dialog>';
-    case "sheet":return '<dialog class="v v-dialog v-sheet '+esc(c.side||"right")+'" data-view-kind="sheet"'+(c.open?" open":"")+'>'+vkids(c.children)+'<button type="button" class="btn-icon" data-close="1">关闭</button></dialog>';
-    case "drawer":return '<dialog class="v v-dialog" data-view-kind="drawer"'+(c.open?" open":"")+'>'+vkids(c.children)+'<button type="button" class="btn-icon" data-close="1">关闭</button></dialog>';
-    case "alert_dialog":return '<dialog class="v v-dialog" data-view-kind="alert_dialog"'+(c.open?" open":"")+'>'+(c.description?'<div class="v-desc">'+esc(c.description)+'</div>':"")+'<div class="v-group"><span class="v-chip active">'+esc(c.confirm||"确认")+'</span><span class="v-chip">'+esc(c.cancel||"取消")+'</span></div><button type="button" class="btn-icon" data-close="1">关闭</button></dialog>';
+    case "dialog":return '<dialog class="v v-dialog" data-view-kind="dialog"'+(c.open?" open":"")+'>'+(c.description?'<div class="v-desc">'+esc(c.description)+'</div>':"")+vkids(c.children)+'<button type="button" class="btn-icon" data-close="1" data-i18n="close">'+esc(tr("close"))+'</button></dialog>';
+    case "sheet":return '<dialog class="v v-dialog v-sheet '+esc(c.side||"right")+'" data-view-kind="sheet"'+(c.open?" open":"")+'>'+vkids(c.children)+'<button type="button" class="btn-icon" data-close="1" data-i18n="close">'+esc(tr("close"))+'</button></dialog>';
+    case "drawer":return '<dialog class="v v-dialog" data-view-kind="drawer"'+(c.open?" open":"")+'>'+vkids(c.children)+'<button type="button" class="btn-icon" data-close="1" data-i18n="close">'+esc(tr("close"))+'</button></dialog>';
+    case "alert_dialog":return '<dialog class="v v-dialog" data-view-kind="alert_dialog"'+(c.open?" open":"")+'>'+(c.description?'<div class="v-desc">'+esc(c.description)+'</div>':"")+'<div class="v-group"><span class="v-chip active">'+esc(c.confirm||tr("confirm"))+'</span><span class="v-chip">'+esc(c.cancel||tr("cancel"))+'</span></div><button type="button" class="btn-icon" data-close="1" data-i18n="close">'+esc(tr("close"))+'</button></dialog>';
     case "popover":return '<details class="v v-pop" data-view-kind="popover"'+(c.open?" open":"")+'><summary>'+esc(c.trigger)+'</summary>'+vkids(c.children)+'</details>';
     case "dropdown_menu":return '<details class="v v-pop" data-view-kind="dropdown_menu"><summary>'+esc(c.trigger)+'</summary><div class="v-menu">'+((c.items||[]).map(it=>'<span class="v-menu-item'+(it.danger?" danger":"")+'">'+esc(it.label)+'</span>').join(""))+'</div></details>';
     case "context_menu":return '<div class="v v-menu" data-view-kind="context_menu">'+((c.items||[]).map(it=>'<span class="v-menu-item'+(it.danger?" danger":"")+'">'+esc(it.label)+'</span>').join(""))+'</div>';
@@ -461,12 +683,12 @@ function renderComponent(c){
     case "switch":return '<label class="v-row" data-view-kind="switch"><input type="checkbox" role="switch"'+(c.checked?" checked":"")+'>'+esc(c.label)+'</label>';
     case "slider":return '<label class="v-row" data-view-kind="slider">'+esc(c.label||c.name)+'<input type="range" min="'+(c.min||0)+'" max="'+(c.max||100)+'" value="'+(c.value||0)+'"></label>';
     case "combobox":return '<label class="v-row" data-view-kind="combobox">'+esc(c.label||c.name)+'<input type="text" list="'+esc(c.name)+'-opts" value="'+esc(c.value)+'"><datalist id="'+esc(c.name)+'-opts">'+((c.options||[]).map(o=>'<option value="'+esc(o)+'">').join(""))+'</datalist></label>';
-    case "input_otp":return '<div class="v v-otp" data-view-kind="input_otp">'+Array.from({length:c.length||6}).map((_,i)=>'<input type="text" maxlength="1" inputmode="numeric" value="'+esc((c.value||"")[i]||"")+'" aria-label="第 '+(i+1)+' 位">').join("")+'</div>';
+    case "input_otp":return '<div class="v v-otp" data-view-kind="input_otp">'+Array.from({length:c.length||6}).map((_,i)=>'<input type="text" maxlength="1" inputmode="numeric" value="'+esc((c.value||"")[i]||"")+'" aria-label="'+esc(tr("digit_position",{number:i+1}))+'">').join("")+'</div>';
     case "calendar":return '<div class="v v-cal" data-view-kind="calendar" aria-label="'+esc(c.month)+'">'+esc(c.month)+((c.marked||[]).map(d=>'<span class="marked">'+esc(d)+'</span>').join(""))+'</div>';
     case "date_picker":return '<label class="v-row" data-view-kind="date_picker">'+esc(c.label||c.name)+'<input type="date" value="'+esc(c.value||"")+'"></label>';
     case "form":return '<div class="v v-form" data-view-kind="form">'+(c.submit?'<div class="v-title">'+esc(c.submit)+'</div>':"")+vkids(c.children)+'</div>';
     case "label":return '<div class="v v-label" data-view-kind="label"'+(c.html_for?' for="'+esc(c.html_for)+'"':"")+'>'+esc(c.text)+'</div>';
-    default:return '<div class="v v-unknown" data-view-kind="'+esc(c.kind)+'"><div class="v-desc">未识别组件：'+esc(c.kind)+'</div><pre class="mono">'+esc(JSON.stringify(c,null,2))+'</pre></div>';
+    default:return '<div class="v v-unknown" data-view-kind="'+esc(c.kind)+'"><div class="v-desc">'+esc(tr("unknown_component",{kind:c.kind}))+'</div><pre class="mono">'+esc(JSON.stringify(c,null,2))+'</pre></div>';
   }
 }
 function showView(id,c){
@@ -493,7 +715,7 @@ function clearViews(){
 
 function applyEvent(p){
   switch(p.type){
-    case "started":logLine(null,p.message||"运行中…");break;
+    case "started":logLine(null,p.message||tr("running"));break;
     case "tick":setProgress(p.percent);if(p.message)logLine(null,p.message);break;
     case "log":logLine(p.level==="error"?"err":p.level==="warn"?"warn":null,"["+(p.level||"info")+"] "+p.message);break;
     case "telemetry":logLine("tele",p.key+" = "+JSON.stringify(p.value));break;
@@ -511,9 +733,9 @@ async function cancel(){
   try{
     const resp=await fetch("/cancel/"+activeSid,{method:"POST",headers:{"X-Lilyco-Token":TOKEN}});
     if(!resp.ok)throw new Error((await resp.text())||("HTTP "+resp.status));
-    logLine("warn","已发送取消请求（命令需响应 ctx.is_cancelled）");
+    logLine("warn",tr("cancel_sent"));
   }catch(err){
-    logLine("err","取消失败："+err.message);btn.disabled=false;  // 失败了才值得再点一次
+    logLine("err",tr("cancel_failed",{reason:err.message}));btn.disabled=false;  // 失败了才值得再点一次
   }
 }
 
@@ -528,7 +750,7 @@ for(const init of BOOT){
 if(bootFailures.length){
   const d=document.createElement("div");
   d.className="line err";
-  d.textContent="组件装配失败，页面功能不完整：" + bootFailures.join("；");
+  d.textContent=tr("boot_failed",{reason:bootFailures.join("; ")});
   $("out").hidden=false;
   $("log").appendChild(d);
   console.error(bootFailures.join("\n"));

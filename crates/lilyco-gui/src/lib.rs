@@ -32,9 +32,11 @@
 
 mod ai_web;
 mod files;
+mod i18n;
 mod render;
 mod run;
 mod security;
+mod shadcn;
 mod state;
 mod util;
 
@@ -49,6 +51,7 @@ use tokio::sync::Mutex;
 
 use lilyco_core::registry::{Handler, RegisteredCommand, Registry};
 use lilyco_core::schema::CommandSchema;
+use lilyco_core::web_ui::UiCli;
 use lilyco_core::{App, AppError};
 
 pub use crate::run::RunnerFn;
@@ -85,6 +88,7 @@ impl GuiRenderer {
             cancels: Mutex::new(HashMap::new()),
             runner,
             token: generate_id(),
+            cli: None,
         });
         self.serve_state(state).await;
     }
@@ -94,6 +98,10 @@ impl GuiRenderer {
     /// `GET /?cmd=xxx` 按命令渲染表单（页头下拉切换）；隐藏命令不在下拉中，
     /// 与 CLI help / MCP tools/list 语义一致。执行走 Registry 内的 handler。
     pub async fn serve_registry(&self, registry: Registry) {
+        self.serve_registry_inner(registry, true).await;
+    }
+
+    async fn serve_registry_inner(&self, registry: Registry, uses_subcommand: bool) {
         let default_schema = registry
             .visible()
             .next()
@@ -108,13 +116,25 @@ impl GuiRenderer {
             // registry 模式的执行路径在 run_handler 内按 ?cmd 分发，不走这里
             runner: Arc::new(|_, _| Box::pin(async {})),
             token: generate_id(),
+            cli: std::env::current_exe()
+                .ok()
+                .and_then(|path| path.into_os_string().into_string().ok())
+                .map(|program| UiCli {
+                    program,
+                    uses_subcommand,
+                }),
         });
         self.serve_state(state).await;
     }
 
     async fn serve_state(&self, state: Arc<AppState>) {
         let app = Router::new()
-            .route("/", get(index))
+            .route("/", get(shadcn::index))
+            .route("/classic", get(index))
+            .route("/ui/catalog", get(shadcn::catalog))
+            .route("/ui/gui.js", get(shadcn::javascript))
+            .route("/ui/gui.css", get(shadcn::stylesheet))
+            .route("/ui/notices.txt", get(shadcn::notices))
             .route("/themes", get(themes_handler))
             .route("/llms.txt", get(llms_txt_handler))
             .route("/.well-known/agent.json", get(agent_card_handler))
@@ -176,9 +196,11 @@ impl GuiRenderer {
             app.run(ctx)
         });
         let mut registry = Registry::new();
+        let mut command = RegisteredCommand::new(schema.name.clone(), schema).with_handler(handler);
+        command.ui_messages = A::ui_messages();
         registry
-            .register(RegisteredCommand::new(schema.name.clone(), schema).with_handler(handler))
+            .register(command)
             .expect("serve_app: 空注册表不会拒绝它的第一条命令");
-        self.serve_registry(registry).await;
+        self.serve_registry_inner(registry, false).await;
     }
 }

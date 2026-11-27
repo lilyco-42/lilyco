@@ -20,72 +20,66 @@ Reading this as: 一台**本地开发者控制台**（一命令一表单 + 进�
 
 ## 1. 色彩令牌
 
-品牌色取自仓库门面，不新造：`docs/banner.svg` 主蓝 `#2563eb`，`docs/logo.png` 近黑 `#181828` / 近白 `#f8f8f8`。
-**单一强调色锁**：蓝只用于 brand mark、当前命令、焦点环、主按钮、进度条、链接。
-绿色**不再是强调色**，只表示「就绪 / 成功」这一种语义。
+工作台默认采用暖灰面板与低饱和紫色。紫色用于品牌标记、焦点、主按钮、链接及滑块。绿色表示就绪和成功。
 
 ### 1.1 浅色
 
 | 语义 | 值 | 用在哪 |
 |---|---|---|
-| canvas | `#f6f7f9` | 页面底 |
-| surface | `#ffffff` | 卡片、输入框底 |
-| surface-2 | `#f1f3f5` | 次级面板、chip、CLI 预览底 |
-| surface-3 | `#e7eaee` | 进度条槽、分隔块 |
-| hairline | `#e0e3e8` | 卡片/表格装饰性分隔线（不受 1.4.11 约束） |
-| control-border | `#7d8794` | **输入框、按钮描边、拖拽区虚线**（对 surface 3.64:1，对 canvas 3.4:1） |
-| ink | `#16191d` | 主文本（对 surface 17.6:1） |
-| ink-muted | `#5f6b7a` | 次文本、说明（对 surface 5.43:1） |
-| accent | `#2563eb` | 强调（对 surface 5.17:1） |
-| on-accent | `#ffffff` | 强调底上的字 |
+| canvas | `#f5f3ef` | 页面底 |
+| surface | `#fffdfa` | 卡片、输入框底 |
+| surface-2 | `#f2efeb` | 次级面板、chip |
+| surface-3 | `#e4dfdc` | 进度条槽、分隔块 |
+| hairline | `#e5ded8` | 卡片/表格装饰性分隔线（不受 1.4.11 约束） |
+| control-border | `#867c86` | **输入框、按钮描边、拖拽区虚线** |
+| ink | `#28232c` | 主文本 |
+| ink-muted | `#645c69` | 次文本、说明 |
+| accent | `#654a89` | 强调 |
+| on-accent | `#fffdfa` | 强调底上的字 |
 | ok | `#0e7a55` | 就绪/成功（5.34:1） |
 | warn | `#8a5a06` | 进行中/提醒（5.92:1） |
 | danger | `#b3261e` | 错误、必填星号、取消（6.54:1） |
-
-上面每一对比值都在**最终资产**上重算过一遍（2026-09-23，两套主题，`getComputedStyle` 取色后按 WCAG 公式算）：
-ink 17.63 / 14.50、ink-muted 5.43 / 7.07、accent on surface 5.17 / 6.83、on-accent on accent 5.17 / 7.32、
-danger 文本 6.54 / 6.94、`--control` 描边 3.64 / 3.30（非文本按 3:1）、终端字/底 16.02 —— 全部达 AA。
 
 ### 1.2 深色
 
 | 语义 | 值 | 用在哪 |
 |---|---|---|
-| canvas | `#0d1014` | 页面底（不用纯黑，避免与纯白对撞刺眼） |
-| surface | `#151a20` | 卡片 |
-| surface-2 | `#1b2128` | 次级面板 |
-| surface-3 | `#232b34` | 进度条槽 |
-| hairline | `#28313b` | 装饰分隔 |
-| control-border | `#5f6d7c` | 控件描边（对 surface 3.3:1） |
-| ink | `#e7eaee` | 主文本（14.5:1） |
-| ink-muted | `#9aa6b4` | 次文本（7.07:1） |
-| accent | `#6ea1ff` | 强调（对 surface 6.83:1；浅底蓝在深底上不够亮，故提亮） |
-| on-accent | `#0b1220` | 强调底上的字（深字浅底，7.32:1） |
+| canvas | `#19171c` | 页面底 |
+| surface | `#221f26` | 卡片 |
+| surface-2 | `#2b2730` | 次级面板 |
+| surface-3 | `#393240` | 进度条槽 |
+| hairline | `#3f3745` | 装饰分隔 |
+| control-border | `#95879e` | 控件描边 |
+| ink | `#f1eaf2` | 主文本 |
+| ink-muted | `#b8abba` | 次文本 |
+| accent | `#c6a9ed` | 深色主题强调色 |
+| on-accent | `#221832` | 强调底上的字 |
 | ok | `#3ddc97` | 就绪 |
 | warn | `#f0b23a` | 进行中 |
 | danger | `#ff7b72` | 错误 |
 
 ### 1.3 终端区（两套主题共用同一深底）
 
-`#0d1117` 底 / `#e6edf3` 字；日志语义色 `err #ff7b72`、`warn #e3b341`、`tele #56d364`、
-空态占位 `#8b949e`、滚动条滑块 `#30363d`。这一串就是终端区允许出现的全部十六进制字面量 ——
+`#211c27` 底 / `#f1eaf2` 字；日志语义色 `err #ff7b72`、`warn #e3b341`、`tele #56d364`、
+空态占位 `#8b949e`、滚动条滑块 `#30363d`。终端区的色值集中在本节 ——
 `app.css` 里出现的每一个颜色字面量都必须在本文档里能找到（`every_css_color_is_in_the_design_table` 盯着），
 终端区以外的一律走 §1.1/§1.2 的令牌，不许在样式里直接写色。
-理由：日志是「机器的输出」，不随主题变，避免浅色主题下日志区像一块贴歪的纸。
+CLI 预览跟随主题的次级面板，命令提示符使用强调色。日志使用本节固定色板。
 
 ## 2. 空间与响应式
 
 `--s-1: 4px` `--s-2: 8px` `--s-3: 12px` `--s-4: 16px` `--s-5: 24px` `--s-6: 32px` `--s-7: 48px`。
 所有 gap / padding / margin 只能取这些值；出现 10px、14px、18px 就是漂移，审计时按 §6 的机械检查扫掉。
-阅读宽度 `max-width: 72ch`（约 720px 正文），整页 `860px`；≥1200px 时不放大字号，只放宽结果区。
+页面和顶栏共用 `1320px` 版心。桌面工作区旁有 `176px` 导航，窄屏切换到顶部换行导航。命令区按可用宽度布局参数与运行面板，窄屏按表单、CLI、输出、Agent 接入依次排列。外边距由 `clamp(12px, 3vw, 32px)` 控制，页面底部包含安全区。
 
 ### 2.1 响应式分两层，组件层不看视口
 
-- **视口层**只管页面级留白与 iOS 输入字号（`max-width: 720px` / `420px`、`min-width: 721px` / `1200px`）。
-- **组件层一律 container query**：`.card` `.field` `.actions` `.out-head` `.topbar` 声明
+- **视口层**负责 iOS 输入字号（`max-width: 720px`）和触屏按钮高度。
+- **组件层使用 container query**：`.page` `.form-panel` `.field` `.topbar` 声明
   `container-type: inline-size`，按钮组、拖拽区、chip、命令下拉按**自己拿到的宽度**决策。
   理由：这页会被塞进不同宽度的容器（窄侧栏、分屏、别的工具里），只看视口的话，
   一个 360px 宽的卡片里的按钮组照样挤成一团 —— 而视口可能是 1440px。
-  需要 Chrome 105+ / Safari 16+ / Firefox 110+；每条组件规则另有视口兜底，老浏览器不会退化成坏布局。
+  `920px` 版心启用参数／运行分栏，`516px` 参数卡片启用标量双列，`460px` 顶栏下拉另起一行。基础流式布局默认单列，顶栏的 flex 换行适用于无 container query 的浏览器。
 - **flex 子项一律 `min-width: 0`**（输入框、chip、状态行、下拉）。默认值是 `auto`，
   一条 150 字符的 Windows 长路径就能把整行撑破 —— 这是本机控制台最常见的溢出源。
 
@@ -102,9 +96,10 @@ danger 文本 6.54 / 6.94、`--control` 描边 3.64 / 3.30（非文本按 3:1）
 
 | 角色 | px | weight | line-height | tracking | 用在哪 |
 |---|---|---|---|---|---|
-| title | 22 | 650 | 1.25 | -0.2px | 命令名（`card-title`） |
-| about | 14 | 400 | **1.7** | 0 | 命令说明（长英文描述，CJK 行高兜底） |
-| label | 13 | 600 | 1.4 | 0 | 字段标签 |
+| title | 27–37 | 700 | 1.1 | -0.04em | 命令名（`card-title`），按视口缩放 |
+| about | 15 | 400 | **1.7** | 0 | 命令说明 |
+| section | 15 | 650 | 1.4 | 0 | 参数、CLI 预览、运行输出标题 |
+| label | 14 | 600 | 1.4 | 0 | 字段标签 |
 | body | 15 | 400 | 1.6 | 0 | 页面基准字号（`body`） |
 | meta | 12.5 | 400 | 1.5 | 0 | 状态行、chip、页脚 |
 | mono-data | 13 | 400 | 1.55 | 0 | CLI 预览、结果 JSON、日志 |
@@ -115,11 +110,11 @@ danger 文本 6.54 / 6.94、`--control` 描边 3.64 / 3.30（非文本按 3:1）
 
 ## 4. 圆角与高度（一套锁死）
 
-`--r-control: 8px`（输入框、按钮、下拉）`--r-panel: 12px`（卡片、终端、结果）`--r-pill: 999px`（chip、进度条）。
-控件高度：常规 **40px**（输入框与 `.btn`），紧凑 28px（`btn-icon`），图标按钮 34px。
+`--r-control: 8px`（输入框、按钮、下拉）`--r-panel: 12px`（终端、结果）`--r-card: 12px`（卡片）`--r-pill: 999px`（chip、进度条）。
+控件高度：输入框、常规按钮与主题按钮最低 **44px**。桌面紧凑按钮最低 32px，窄屏及粗指针上最低 44px。整行复选标签提供 44px 热区。
 输入框必须显式 `line-height: 1.4`：不锁的话它会继承 body 的 1.6，15/16px 字加 padding 把控件顶到 43px 以上，
 「40px」就成了假数（这条是浏览器实测打脸后写进来的，36px 那版就是错在没量）。
-**只有这三档圆角**；出现 10px/16px 即为漂移。例外只有两类非界面元素：滚动条滑块 4px、spinner 的 50% 正圆。
+滚动条滑块用 4px 圆角，spinner 用 50% 正圆。
 
 ## 5. 动效
 
@@ -150,12 +145,12 @@ danger 文本 6.54 / 6.94、`--control` 描边 3.64 / 3.30（非文本按 3:1）
 ## 6. 分层：hairline 优先于阴影
 
 层次只靠三件事：`hairline` 描边、`surface` 与 `canvas` 的色差、8px 节奏的留白。
-**层次阴影全页只允许一处**：卡片（`0 1px 2px` + `0 4px 16px`，透明度 ≤ 0.06；深色主题下直接置 `none`）。
+参数与运行面板共用卡片阴影（`0 1px 2px` + `0 4px 16px`，透明度 ≤ 0.06；深色主题下置 `none`）。整个工作区共用同一套色板。
 焦点环用的是 `box-shadow: 0 0 0 3px` 扩散环，那不是层次阴影，属允许的第二个 `box-shadow` 用法。
-禁止：卡片套卡片、给按钮/输入框加投影、玻璃拟态叠加模糊（顶栏那条 `backdrop-filter` 是唯一的例外，因为它压在滚动内容上）。
+原生控件与按钮用描边和焦点状态区分。顶栏为实色背景。
 `--hairline`（卡片、面板的边）是**装饰性分隔**，不承担 WCAG 1.4.11 说的「认出组件所必需的边界」，
 所以它故意不过 3:1（实测对卡片底只有 1.3）；需要过 3:1 的是**控件描边** `--control`，
-明 / 暗实测 3.64 / 3.30 —— 别拿工具的一句「对比度不足」去把 hairline 调深，那会毁掉这套层次。
+在面板底上的明 / 暗对比分别是 3.64 / 4.39。
 
 ## 7. 不许改的名字（样式可以重写，这些不行）
 
@@ -227,6 +222,8 @@ danger 文本 6.54 / 6.94、`--control` 描边 3.64 / 3.30（非文本按 3:1）
    200 则说「已发送取消请求（命令需响应 ctx.is_cancelled）」并保持禁用（空点击比禁用的按钮更糟）。
 
 ## 9. 体积预算
+
+2026-11-26 工作台仍为离线内嵌资源。双语词典通过 `assets/i18n/ui.toml` 编译进程序，运行时只解析一次。
 
 | 文件 | 重设计前 | 现在（2026-09-23 实测） | 引入视图协议后（2026-11-16） |
 |------|---------|------|------|
@@ -332,11 +329,11 @@ checkbox 由 UA 给 `pointer`）；`input[type=text]:hover, input[type=number]:h
 
 | 组件 | 构成 | 七态 | 用到的令牌 | 无障碍 |
 |------|------|------|-----------|--------|
-| `topbar` | brand + `command-nav` + 主题按钮 | hover / focus / active / pressed（`aria-pressed=true`=深色，=success 语义）/ disabled·loading·empty·error：n/a（常驻骨架，brand 恒在） | `--surface`（82% 混合）`--hairline` `--s-2`；按钮另用 `--control` `--ink` `--accent` `--surface-3` `--r-control` | `position:sticky` + `backdrop-filter`；实测 320–420 下拉换到第二行（99px）、≥560 单行（57px），各档顶栏自身无横向溢出，主题按钮始终距右 16px |
+| `topbar` | brand + 主题按钮 + `command-nav` | hover / focus / active / pressed（`aria-pressed=true` = 深色） | `--surface` `--hairline` `--gutter` `--s-3`；按钮用 `--control` `--ink` `--accent` `--surface-3` `--r-control` | 主题按钮最低 44px，下拉在窄屏另起一行，键盘顺序与视觉顺序一致 |
 | `command-nav` | `<select id=cmd-nav>`，可见命令 >1 才出现 | hover / focus / **disabled + `aria-busy="true"`**（实测 `opacity 0.55` + `cursor:progress`：那是「正在办」不是「不许办」）/ loading·empty·error·success：n/a（值域非空、选不出非法值，成不成功由整页重载自己回答） | `--control`（描边，3.64·3.30）`--ink` `--surface` `--r-control` | `aria-label="切换命令"`；跳转在 `initCommandNav`，不写内联 `onchange` |
-| `run-bar` | `运行` + `取消` + `复制 CLI` | hover / focus / disabled（跑起来时，实测 `opacity 0.55`；它同时就是「一次只跑一个」的闸门，见 §8.5）/ loading（转圈 + `aria-busy`；reduce 下改文字 `…`，见 §5）/ error（取消失败按钮解禁）/ success（跑完 `setBusy(false)` 复原；`setBusy` 连 `取消` 的 `disabled` 一起复原，见 §8.6）/ empty：n/a（按钮没有空态） | `--accent` `--on-accent`（5.17·7.32）`--control` `--danger` `--hairline` `--s-2` `--r-control` | `type=submit` 语义保留；`aria-busy` 给读屏；窄容器 ≤420 竖排各占满；`取消` 只在服务端能取消时出现（`__CANCEL_JS__`） |
-| `cli-preview` | `$ ` 前缀 + 一行命令文本 | empty = `display:none`（不留孤零零的 `$ `）/ 其余六态：n/a（纯展示，交互在 `复制 CLI` 那颗上） | `--surface-2` `--hairline` `--ink-muted`（4.88·6.56 对预览底）`--accent`（`$ ` 前缀）`--r-control` `--s-3` | 只读文本；`updatePreview` 每次表单 input/change 都重算 |
-| `output` | `out-head` + `log` + `result-wrap` 的容器 | empty（`hidden`）/ 有内容（撤 `hidden`）/ error（装配失败时也强制露出来，见 §8.3）/ hover·focus·disabled·loading·success：n/a（它自己不接收交互） | `--s-5`；标题行 `--ink-muted` `--s-3` `--s-4` | `#log` 与每个 `.dz-status`（`role=status`）都是 live region，`#out` **不再叠 `aria-live`**，免得同一句话念两遍 |
+| `run-bar` | `运行` + `取消` | hover / focus / disabled（见 §8.5）/ loading（转圈 + `aria-busy`，reduce 下改文字 `…`）/ error（取消失败按钮解禁）/ success（结束后复原，见 §8.6） | `--accent` `--on-accent` `--control` `--danger` `--hairline` `--panel-padding` `--r-control` | `type=submit`、`aria-busy`；窄版按钮分配可用宽度；取消取决于 `__CANCEL_JS__` |
+| `cli-preview` | 面板标题、`复制 CLI` 按钮、`$ ` 前缀和命令文本 | 空命令隐藏代码区；复制反馈见下方 | `--surface` `--hairline` `--terminal-bg` `--terminal-text` `--terminal-prompt` `--r-panel` | `updatePreview` 监听表单 input/change，长命令换行，复制结果保留原始文本 |
+| `output` | `out-head` + `log` + `result-wrap` | empty（`hidden`）/ 有内容（撤 `hidden`）/ error（装配失败时露出，见 §8.3） | `--surface` `--hairline` `--panel-padding` `--r-card` | 标题标记输出区，日志保留独立 live region |
 | `progress` | `.progress` 槽 + `.progress-bar` 条 | loading=不确定（`data-indet=1` 跑动；reduce 下铺满 + 压淡）/ 确定（`aria-valuenow`）/ success（`data-state=done` 整条 `--ok`）/ error（`data-state=error` 整条 `--danger` 且走满）/ empty（宽 0% = 什么都没发生，所以收尾不给 0%）/ hover·focus·disabled：n/a（非交互） | `--surface-3`（槽）`--accent` `--ok` `--danger` `--r-pill` | `role=progressbar` + `aria-valuemin/max`；无比例时**不给** `valuenow`（别骗读屏） |
 | `log` | `.terminal` 里的 `.line` 流 | empty（`等待输出…`，`#8b949e`）/ loading=running（持续追加）/ error（`.line.err` `#ff7b72`）/ warn（`#e3b341`）/ tele（`#56d364`）/ focus（`:focus-visible` 内描边）/ 满（500 行上限，实测灌 620 只留 500、滚动跟到底）/ hover·disabled·success：n/a | `--mono` `--hairline` `--r-panel` `--s-3` `--s-4` + §1.3 固定色板（`#0d1117` / `#e6edf3`，16.02:1） | `role=log` `aria-live=polite`；`tabindex=0` 让键盘用户能滚这段可滚动区域（WCAG 2.1.1）。焦点环分两层证据：**实测**到的是同一份 `:focus-visible` 规则在可聚焦控件上生效（`copy-cli` 读回 `outline: 1.6px solid #6ea1ff`）；`#log` / `#result` 这两块只核到规则级（`.terminal:focus-visible, #result:focus-visible` 在 CSSOM 里存在 + 两者 `tabIndex===0`）—— 这台自动化环境的 Tab 不总能移动焦点，别把规则级说成实测 |
 | `result` | `结果` 标题 + `复制` + `<pre>` | empty = 整块 `hidden`（**每次运行开头就清**：`run()` 调 `clearResult()`，不然日志在滚、结果还写着上一次的 JSON）/ success（跑完露出 JSON）/ focus（`<pre>` 自己 `:focus-visible` 内描边）/ hover·disabled·loading：n/a / error：n/a（失败没有结果，也不在跑） | `--surface-2` `--hairline` `--ink`（17.63·14.50）`--mono` `--r-panel` `--s-3` `--s-4` | `JSON.stringify(…,2)` 纯文本、不走 innerHTML；≥1200 限高内滚；横向也溢出，所以和 `#log` 同一条规矩：`role=region` + `aria-label` + `tabindex=0`，键盘能滚（WCAG 2.1.1）；焦点环的证据层级同上一条 |
@@ -351,7 +348,14 @@ checkbox 由 UA 给 `pointer`）；`input[type=text]:hover, input[type=number]:h
 `copied` `#3ddc97`、`copy-failed` `#ff7b72`；日志空态占位 `#8b949e`（终端固定色板，见 §1.3）；
 主题按钮按下（`aria-pressed=true`）描边与字色转 `#6ea1ff`。
 
-### 10.4 加一个组件的清单
+### 10.4 工作台导航、语言和快捷键
+
+- 语言词条维护在 `assets/i18n/ui.toml`。中文首屏由内嵌词典渲染，`initLocale` 就地切换中英并更新 `lang`、可访问名称、提示和当前上传状态。选择记在浏览器。命令提供方负责参数、业务说明及业务日志的翻译。
+- `Ctrl/⌘+Enter` 提交表单。可取消的命令运行期间，`Ctrl/⌘+Shift+Enter` 聚焦取消按钮。快捷键弹窗由顶栏按钮打开，Esc 关闭。运行时在编辑控件之外按 Esc 可取消。快捷键处理尊重输入法、禁用和对话框焦点。
+- 文件可拖到对应参数，也可从键盘打开文件选择器或直接填路径。只有一个路径参数时，表单其他区域也能接住文件。多个文件会显示错误，单次传输期间避免并发覆盖输入，并在用户手动改值后保留其输入。
+- Agent 面板和 HTML `head` 声明 `llms.txt`、Agent Card、OpenAPI。元数据以注册表为准，调用 `/run` 使用本地会话令牌，SSE 回报结果。
+
+### 10.5 加一个组件的清单
 
 1. `render.rs`：写 `widget_xxx`，进 `render_field` 的 `match`，`data-component="xxx"` 自报家门。
 2. `assets/index.html`：写 `initXxx`，加进 `BOOT`（漏了会被 `every_js_component_init_is_bootted` 拦下）。

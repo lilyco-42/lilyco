@@ -17,6 +17,7 @@ serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 webbrowser = "1"
 rand = "0.8"
+toml = "0.8"
 # 原生文件选择器：页面里「用系统选择器挑本机文件」那个按钮走这条路径。
 # 只要 xdg-portal 后端 —— rfd 的 default 还带 wayland，会拉 wayland-sys 的 pkg-config 构建脚本，
 # 交叉编译到 Linux 直接编不动。
