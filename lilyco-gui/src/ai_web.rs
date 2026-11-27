@@ -194,6 +194,7 @@ mod tests {
             cancels: tokio::sync::Mutex::new(std::collections::HashMap::new()),
             runner: Arc::new(|_args, _tx| Box::pin(async {})),
             token: "test-token".into(),
+            cli: None,
         });
 
         let llms_resp = llms_txt_handler(State(Arc::clone(&state))).await;

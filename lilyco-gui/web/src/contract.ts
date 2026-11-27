@@ -521,9 +521,18 @@ export interface UiContract {
 }
 export interface UiCatalog {
   can_cancel: boolean;
+  cli?: UiCli | null;
   commands: UiCommand[];
   protocol_version: string;
   selected: string;
+  [k: string]: unknown;
+}
+/**
+ * Local executable and calling convention for the copyable command.
+ */
+export interface UiCli {
+  program: string;
+  uses_subcommand: boolean;
   [k: string]: unknown;
 }
 export interface UiCommand {

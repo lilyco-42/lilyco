@@ -47,15 +47,30 @@ pub(crate) async fn catalog(
             selected,
             can_cancel: state.registry.is_some(),
             protocol_version: UI_PROTOCOL_VERSION.to_owned(),
+            cli: state.cli.clone(),
         }),
     )
 }
 
 pub(crate) async fn index(State(state): State<Arc<AppState>>) -> Response {
+    let messages = match &state.registry {
+        Some(registry) => script_catalog(registry.visible().map(|command| {
+            (
+                Some(command.name.as_str()),
+                &command.schema,
+                command.ui_messages,
+            )
+        })),
+        None => script_catalog([(
+            Some(state.schema.name.as_str()),
+            state.schema.as_ref(),
+            None,
+        )]),
+    };
     let html = include_str!("../assets/shadcn/index.html")
         .replace("__UPLOAD_LIMIT__", &MAX_UPLOAD_BYTES.to_string())
         .replace("__PICK__", if cfg!(feature = "pick") { "1" } else { "0" })
-        .replace("__CATALOG__", script_catalog())
+        .replace("__CATALOG__", &messages)
         .replace("__TOKEN__", &html_escape(&state.token));
     let mut response = Html(html).into_response();
     response.headers_mut().insert(
@@ -144,6 +159,9 @@ mod tests {
         assert_eq!(actual.commands[0].name, "ping");
         assert_eq!(actual.protocol_version, UI_PROTOCOL_VERSION);
         assert!(actual.can_cancel);
+        let cli = actual.cli.unwrap();
+        assert_eq!(cli.program, "/usr/local/bin/demo");
+        assert!(cli.uses_subcommand);
     }
 
     #[tokio::test]

@@ -15,8 +15,16 @@
   <div class="topbar-inner">
     <div class="brand"><span class="brand-mark" aria-hidden="true">◆</span><strong>lilyco</strong><span class="brand-sub" data-i18n="console">@{console}</span></div>
     <div class="topbar-tools">
-      <button type="button" id="theme-toggle" class="icon-btn" aria-label="@{theme}" data-i18n-label="theme"></button>
-      <button type="button" id="locale-toggle" class="icon-btn" aria-label="@{language}" data-i18n-label="language" data-i18n="switch_language">@{switch_language}</button>
+      <select id="theme-toggle" class="theme-select" aria-label="@{theme}" data-i18n-label="theme">
+        <option value="system" data-i18n="theme_system">@{theme_system}</option>
+        <option value="light" data-i18n="theme_light">@{theme_light}</option>
+        <option value="dark" data-i18n="theme_dark">@{theme_dark}</option>
+      </select>
+      <select id="locale-toggle" class="theme-select" aria-label="@{language}" data-i18n-label="language">
+        <option value="system" data-i18n="language_system">@{language_system}</option>
+        <option value="zh-CN" lang="zh-CN" data-i18n="language_chinese">@{language_chinese}</option>
+        <option value="en" lang="en" data-i18n="language_english">@{language_english}</option>
+      </select>
       <button type="button" id="shortcuts-open" class="icon-btn" aria-haspopup="dialog" aria-label="@{shortcuts}" data-i18n-label="shortcuts" title="@{shortcuts}" data-i18n-title="shortcuts">⌨</button>
     </div>
     __CMD_NAV__
@@ -32,7 +40,7 @@
 <main class="workspace">
 <header class="command-head">
   <h1 class="card-title">__CMD_NAME__</h1>
-  <p class="card-about">__ABOUT__</p>
+  <p class="card-about" data-i18n="app.about">__ABOUT__</p>
 </header>
 
 <div class="card">
@@ -124,6 +132,7 @@ const savePreference=(key,value)=>{
 let locale="zh-CN";
 function tr(key,params={}){
   const text=CATALOG[locale]?.[key]??CATALOG["zh-CN"]?.[key]??key;
+  if(key.startsWith("app."))return text;
   return text.replace(/\{([a-z_]+)\}/g,(_,name)=>String(params[name]??""));
 }
 /* 装配清单：新增组件写一个 initXxx 并加进这里。
@@ -140,18 +149,40 @@ function applyLocale(){
   }
   for(const node of qsa("[data-i18n-label]"))node.setAttribute("aria-label",tr(node.dataset.i18nLabel));
   for(const node of qsa("[data-i18n-title]"))node.title=tr(node.dataset.i18nTitle);
+  for(const node of qsa("[data-i18n-placeholder]"))node.placeholder=tr(node.dataset.i18nPlaceholder);
   $("log").dataset.emptyLabel=tr("waiting_output");
   qsa(".dropzone").forEach(renderUploadStatus);
 }
 function initLocale(){
-  const saved=readPreference("lilyco-language");
-  if(saved==="en")locale=saved;
-  applyLocale();
-  $("locale-toggle").addEventListener("click",()=>{
-    locale=locale==="en"?"zh-CN":"en";
-    savePreference("lilyco-language",locale);
+  const key="lilyco-language",control=$("locale-toggle");
+  const refresh=()=>{
+    locale=control.value==="system"?browserLocale():control.value;
     applyLocale();
+  };
+  const restore=()=>{
+    const saved=readPreference(key);
+    control.value=saved==="en"||saved==="zh-CN"?saved:"system";
+    refresh();
+  };
+  restore();
+  control.addEventListener("change",()=>{
+    savePreference(key,control.value);
+    refresh();
   });
+  window.addEventListener("languagechange",()=>{
+    if(control.value==="system")refresh();
+  });
+  window.addEventListener("storage",event=>{
+    if(event.key===key||event.key===null)restore();
+  });
+}
+function browserLocale(){
+  for(const tag of [...navigator.languages,navigator.language]){
+    const primary=tag.toLowerCase().split("-")[0];
+    if(primary==="zh")return"zh-CN";
+    if(primary==="en")return"en";
+  }
+  return"en";
 }
 
 function initShortcuts(){
@@ -182,16 +213,19 @@ function initShortcuts(){
 
 /* ── 顶栏 · 主题切换 ── */
 function initTheme(){
-  const root=document.documentElement,btn=$("theme-toggle");
-  const theme=()=>root.dataset.theme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");
-  const saved=readPreference("lilyco-theme");
-  if(saved)root.dataset.theme=saved;
-  btn.setAttribute("aria-pressed",String(theme()==="dark"));
-  btn.addEventListener("click",()=>{
-    const next=theme()==="dark"?"light":"dark";
-    root.dataset.theme=next;
-    savePreference("lilyco-theme",next);
-    btn.setAttribute("aria-pressed",String(next==="dark"));
+  const root=document.documentElement,select=$("theme-toggle"),key="lilyco-theme";
+  const apply=value=>{
+    select.value=value==="light"||value==="dark"?value:"system";
+    if(select.value==="system")delete root.dataset.theme;
+    else root.dataset.theme=select.value;
+  };
+  apply(readPreference(key));
+  select.addEventListener("change",()=>{
+    apply(select.value);
+    savePreference(key,select.value);
+  });
+  window.addEventListener("storage",event=>{
+    if(event.key===key||event.key===null)apply(readPreference(key));
   });
 }
 

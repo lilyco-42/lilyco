@@ -1,0 +1,11 @@
+[zh-CN]
+about = "压缩图片并调整尺寸"
+
+[zh-CN.args]
+input = "输入图片文件"
+output = "输出路径（留空时自动生成）"
+format = "输出格式"
+quality = "质量（1–100，仅 JPEG）"
+width = "最大宽度（像素，0 表示不限制）"
+height = "最大高度（像素，0 表示不限制）"
+dry-run = "仅预览（不写入文件）"

@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 
 use lilyco_core::registry::Registry;
 use lilyco_core::schema::CommandSchema;
+use lilyco_core::web_ui::UiCli;
 
 use crate::run::RunnerFn;
 
@@ -24,6 +25,7 @@ pub(crate) struct AppState {
     pub(crate) cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub(crate) runner: RunnerFn,
     pub(crate) token: String,
+    pub(crate) cli: Option<UiCli>,
 }
 
 /// 测试夹具：各模块的测试共用同一批构造，断言本身留在测试里。
@@ -39,7 +41,7 @@ pub(crate) mod fixture {
     use lilyco_core::safety::SafetyTier;
     use lilyco_core::schema::{ArgKind, ArgSchema, CommandSchema};
 
-    use super::AppState;
+    use super::{AppState, UiCli};
     use crate::run::RunnerFn;
 
     pub(crate) fn schema_of(name: &str, about: &str, args: Vec<ArgSchema>) -> CommandSchema {
@@ -78,6 +80,7 @@ pub(crate) mod fixture {
             cancels: Mutex::new(HashMap::new()),
             runner,
             token: "test-token".into(),
+            cli: None,
         })
     }
 
@@ -134,6 +137,10 @@ pub(crate) mod fixture {
             cancels: Mutex::new(HashMap::new()),
             runner,
             token: "test-token".into(),
+            cli: Some(UiCli {
+                program: "/usr/local/bin/demo".into(),
+                uses_subcommand: true,
+            }),
         })
     }
 

@@ -30,7 +30,7 @@ enum Format {
 
 /// Compress and resize image files
 #[derive(App)]
-#[app(run = "run_compress")]
+#[app(run = "run_compress", ui_messages = "../i18n/imgpress.toml")]
 struct ImgCompress {
     /// Input image file
     #[arg(must_exist = true)]

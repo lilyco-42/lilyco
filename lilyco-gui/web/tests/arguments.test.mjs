@@ -17,5 +17,10 @@ test("maps component values to the argument shape accepted by Rust", () => {
 });
 
 test("preserves literal shell characters in the copyable POSIX preview", () => {
-  assert.equal(cliPreview("inspect", { input: "a'$(touch x)", quiet: false }), "inspect --input 'a'\\''$(touch x)'");
+  const standalone = {program: "/tools/img press", uses_subcommand: false};
+  assert.equal(cliPreview(standalone, "ImgCompress", { input: "a'$(touch x)", quiet: false }),
+    "LILYCO_UI=cli '/tools/img press' --input 'a'\\''$(touch x)'");
+  const registry = {program: "/tools/fmt", uses_subcommand: true};
+  assert.equal(cliPreview(registry, "inspect", { offset: -3, names: ["--prefix", "two words"] }),
+    "LILYCO_UI=cli /tools/fmt inspect --offset=-3 --names=--prefix --names 'two words'");
 });

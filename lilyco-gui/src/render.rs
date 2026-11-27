@@ -124,12 +124,12 @@ pub(crate) async fn index(
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
     // 多命令模式：?cmd= 决定渲染哪个命令的表单
-    let (schema, views) = match &state.registry {
+    let (schema, views, messages) = match &state.registry {
         Some(reg) => {
             let cmd = pick_command(reg, params.get("cmd").map(|x| x.as_str()));
-            (cmd.schema.clone(), cmd.views.clone())
+            (cmd.schema.clone(), cmd.views.clone(), cmd.ui_messages)
         }
-        None => (state.schema.as_ref().clone(), Vec::new()),
+        None => (state.schema.as_ref().clone(), Vec::new(), None),
     };
     let views_html = render_view_slots(&views);
     let views_attr = if views.is_empty() { " hidden" } else { "" };
@@ -179,7 +179,7 @@ pub(crate) async fn index(
         None => include_str!("../assets/app.css").to_string(),
     };
     let html = localize_template(HTML_TEMPLATE)
-        .replace("__CATALOG__", script_catalog())
+        .replace("__CATALOG__", &script_catalog([(None, &schema, messages)]))
         .replace("__CSS__", &css_bundle)
         .replace("__CANCEL_JS__", cancellable)
         .replace("__CMD_NAV__", &cmd_nav)
@@ -278,7 +278,14 @@ impl<'a> Field<'a> {
         } else {
             ""
         };
-        format!("{}{}", self.label, mark)
+        format!("{}{}", self.localized_label(), mark)
+    }
+
+    fn localized_label(&self) -> String {
+        format!(
+            r#"<span data-i18n="app.arg.{}">{}</span>"#,
+            self.esc_name, self.label
+        )
     }
 }
 
@@ -305,16 +312,16 @@ fn widget_flag(f: &Field) -> String {
         .then_some(" checked")
         .unwrap_or("");
     format!(
-        r##"<label class="flag-row" data-component="flag"><input type="checkbox" id="field-{esc}"{checked}> <span>{label}</span></label>"##,
+        r##"<label class="flag-row" data-component="flag"><input type="checkbox" id="field-{esc}"{checked}> {label}</label>"##,
         esc = f.esc_name,
-        label = f.label
+        label = f.localized_label()
     )
 }
 
 /// `Text`：单行输入
 fn widget_text(f: &Field) -> String {
     format!(
-        r##"<input type="text" id="field-{esc}" data-component="text" placeholder="{ph}"{req} value="{dv}">"##,
+        r##"<input type="text" id="field-{esc}" data-component="text" placeholder="{ph}" data-i18n-placeholder="app.arg.{esc}"{req} value="{dv}">"##,
         esc = f.esc_name,
         ph = f.placeholder(),
         req = f.req_a,
@@ -409,7 +416,7 @@ fn widget_path(f: &Field, must_exist: bool) -> String {
         "drop_optional"
     };
     format!(
-        r##"<input type="text" id="field-{esc}" class="mono" data-component="path" placeholder="{ph}"{req} value="{dv}" spellcheck="false" aria-describedby="up-{esc}">
+        r##"<input type="text" id="field-{esc}" class="mono" data-component="path" placeholder="{ph}" data-i18n-placeholder="app.arg.{esc}"{req} value="{dv}" spellcheck="false" aria-describedby="up-{esc}">
 {dz}"##,
         esc = f.esc_name,
         ph = f.placeholder(),
@@ -674,6 +681,7 @@ mod tests {
             cancels: Mutex::new(HashMap::new()),
             runner: Arc::new(|_, _| Box::pin(async {})),
             token: "t".into(),
+            cli: None,
         });
         let body = body_of(index(State(state), Query(HashMap::new())).await).await;
         assert!(!body.contains("<script>alert"), "about must be escaped");

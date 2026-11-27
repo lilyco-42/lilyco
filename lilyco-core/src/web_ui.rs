@@ -31,6 +31,16 @@ pub struct UiCatalog {
     pub selected: String,
     pub can_cancel: bool,
     pub protocol_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli: Option<UiCli>,
+}
+
+/// Local executable and calling convention for the copyable command.
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UiCli {
+    pub program: String,
+    pub uses_subcommand: bool,
 }
 
 #[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]

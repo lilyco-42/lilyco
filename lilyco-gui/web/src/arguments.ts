@@ -1,4 +1,4 @@
-import type { ArgKind, ArgSchema } from "./contract";
+import type { ArgKind, ArgSchema, UiCli } from "./contract";
 
 export type Draft = string | boolean | Draft[];
 export type Argument = null | string | boolean | number | Argument[];
@@ -34,13 +34,18 @@ function quote(value: string): string {
   return /^[\w./:@%+=,-]+$/.test(value) ? value : "'" + value.replaceAll("'", "'\\''") + "'";
 }
 
-export function cliPreview(command: string, args: Record<string, Argument>): string {
-  const parts = [quote(command)];
+export function cliPreview(cli: UiCli, command: string, args: Record<string, Argument>): string {
+  const parts = ["LILYCO_UI=cli", quote(cli.program)];
+  if (cli.uses_subcommand) parts.push(quote(command));
+  function addValue(key: string, value: string) {
+    if (value.startsWith("-")) parts.push("--" + key + "=" + quote(value));
+    else parts.push("--" + key, quote(value));
+  }
   for (const [key, value] of Object.entries(args)) {
     if (value === true) parts.push("--" + key);
     else if (Array.isArray(value)) {
-      for (const item of value) parts.push("--" + key, quote(typeof item === "string" ? item : JSON.stringify(item)));
-    } else if (value !== null && value !== false) parts.push("--" + key, quote(String(value)));
+      for (const item of value) addValue(key, typeof item === "string" ? item : JSON.stringify(item));
+    } else if (value !== null && value !== false) addValue(key, String(value));
   }
   return parts.join(" ");
 }

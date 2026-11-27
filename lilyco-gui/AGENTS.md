@@ -9,6 +9,7 @@
 | [shadcn-ui/ui](https://github.com/shadcn-ui/ui) | 组件变体、表单错误、对话框焦点和主题令牌。优先从 [官方组件与 Registry](https://ui.shadcn.com/docs) 取组件。 | MIT。现有组件来源与升级记录见 [Registry 锁](web/registry-lock.json)。 |
 | [chriskiehl/Gooey](https://github.com/chriskiehl/Gooey) | 从参数声明生成文件选择、枚举和运行页。研究常用参数、可选参数和运行反馈的层次。 | MIT。参考表单生成与交互。 |
 | [gradio-app/gradio](https://github.com/gradio-app/gradio) | 输入与输出分区、上传后的文件状态、长任务进度和结果预览。 | Apache-2.0。参考单工具的完整运行流程。 |
+| [GoogleChromeLabs/squoosh](https://github.com/GoogleChromeLabs/squoosh) | 用醒目的拖入或选择文件入口开始，编辑后直接对比并下载结果。以 [文件入口源码](https://github.com/GoogleChromeLabs/squoosh/blob/dev/src/shared/prerendered-app/Intro/index.tsx) 对照 `imgpress --gui` 的首次使用路径。 | Apache-2.0。参考文件导入和结果预览；组件采用 shadcn/ui。 |
 | [scalar/scalar](https://github.com/scalar/scalar) | 从 OpenAPI 找到操作、查看约束、试运行、复制请求与读响应。适合完善 Lilyco 的交互式 API 文档。 | MIT。复用前核对具体发布包。 |
 | [fastapi/full-stack-fastapi-template](https://github.com/fastapi/full-stack-fastapi-template) | FastAPI 与 React/Vite/shadcn/ui 的完整示例。重点看生成的 API 客户端和表单如何消费共享契约。 | MIT。参考 FastAPI 式易用性和项目组织。 |
 | [MichalGniadek/klask](https://github.com/MichalGniadek/klask) | Rust 参数映射到文件选择、多值输入、枚举和输出。适合对照 CLI GUI 的参数覆盖。 | MIT。README 以 Clap 3 为基础，适合作为历史实现参考。 |
@@ -17,5 +18,6 @@
 
 - 先用 Gooey、Gradio 对照一条「选命令 → 填参数 → 执行 → 查看结果」流程，再用 shadcn/ui 整理视觉层次与组件状态。
 - 文件框提供拖放、键盘可达的选择按钮和结果状态。上传中的反馈、运行错误、空输出与复制结果都应可辨认。
+- 用 `imgpress` 做第一条视觉验收路径：选择或拖入图片，确认文件名和参数，运行后查看结果。借鉴 Squoosh 的文件入口和 Gradio 的任务反馈，按现有 Rust 契约所提供的数据决定展示内容。
 - 评审用现有同一条真实命令，记录 320、390、768、1440px 的明暗主题、键盘路径、表单错误和运行回显。
 - Gooey 的成功路径建立在结构化参数声明上。社区讨论也记录了不同解析库之间的适配成本，给 Lilyco 的启发是坚持由 schema 映射控件。[上游使用讨论](https://news.ycombinator.com/item?id=38586767)

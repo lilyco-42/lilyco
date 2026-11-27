@@ -13,7 +13,7 @@ flowchart TD
     A["用户 struct + #[derive(App)]"] --> B["CommandSchema<br/>core/schema.rs"]
     B --> C[lilyco-cli: clap]
     B --> D[lilyco-tui: ratatui 表单]
-    B --> E[lilyco-gui: axum+自研设计系统]
+    B --> E[lilyco-gui: axum + shadcn/ui]
     B --> F[lilyco-mcp: stdio JSON-RPC]
     C & D & E & F --> G["core::executor<br/>唯一执行宿主"]
     G --> H["Handler(&Context, args JSON)<br/>→ Progress 事件流 → Done/Error"]
@@ -21,6 +21,17 @@ flowchart TD
 ```
 
 ## 1. Workspace 依赖（严格单向，禁止反向）
+
+### Lain42 门户与运营管理
+
+`apps/lain42-portal/web/src/pages/OperationsPage.tsx:220` 提供 `/admin`，从 `/tool` 的管理员入口进入。
+`apps/lain42-portal/src/admin_routes.rs:21` 装配统计、两站商品对比和页面访问采集。
+`apps/lain42-portal/src/admin_analytics.rs:120` 从 dev 本地账本汇总注册、活跃、积分和订单。
+`apps/lain42-portal/src/visitor_region.rs:22` 根据连接来源查询 `LAIN_REGION_DB`，访问表仅记录地区代码。
+管理员登录签发独立会话。`LAIN_ADMIN_SECRET` 用于管理签名，`LAIN_ADMIN_USERS` 决定可登录的管理员。
+两站按商品 SKU 对照。主站账户、订单、积分、校园跑权益及订阅保持来源站点。
+`apps/lain42-portal/web/src/pages/CampusServicePage.tsx:4` 连接主站权益和续费入口。
+`apps/lain42-portal/src/proxy_health.rs:57` 从主站读取公开网关检测并缓存，测量不参与订阅配送。
 
 ### 应用扩展：素材工坊
 
@@ -74,17 +85,20 @@ Windows 包在 `tests/notices.py` 对 `packaging/webview2-sdk.json` 固定的官
 
 | crate | 版本 | 依赖 | 职责一句话 |
 |---|---|---|---|
-| `lilyco-core` | 0.3.1 | serde/thiserror，`ui-schema` 可选 schemars | 领域模型、执行校验与 Web 数据契约 |
-| `lilyco-macros` | 0.3.0 | syn/quote | `#[derive(App)]` / `#[derive(ValueEnum)]` 代码生成 |
-| `lilyco-cli` | 0.3.0 | core + clap | schema → clap 渲染 + 内置标志 + 输出格式化 |
-| `lilyco-tui` | 0.3.0 | core + ratatui | ratatui 表单状态机（单/多命令），不持有执行逻辑 |
-| `lilyco-gui` | 0.3.2 | core + axum/tokio + toml | 默认 shadcn/ui、双语资源、SSE 与 Agent 自描述 |
+| `lilyco-core` | 0.3.2 | serde/thiserror，`ui-schema` 可选 schemars | 领域模型、执行校验与 Web 数据契约 |
+| `lilyco-macros` | 0.3.1 | syn/quote | `#[derive(App)]` / `#[derive(ValueEnum)]` 代码生成，可嵌入应用语言包 |
+| `lilyco-cli` | 0.3.1 | core + clap | 参数类型、分组帮助、面向人员和程序的输出 |
+| `lilyco-tui` | 0.3.1 | core + ratatui | ratatui 表单状态机（单/多命令）、运行进度和结果 |
+| `lilyco-gui` | 0.3.3 | core + axum/tokio + toml | 默认 shadcn/ui、双语资源、SSE 与 Agent 自描述 |
 | `lilyco-mcp` | 0.3.0 | core（零额外依赖） | MCP 2024-11-05 stdio 服务器 + 进度通知 |
-| `lilyco` | 0.2.3 | 全部 | **唯一组合根**：后端自动选择 + 各形态入口 |
+| `lilyco-tauri` | 0.3.2 | Tauri + lbin sidecar | Office 原生选文件、拖放、双语界面和结果 |
+| `lilyco-native-ui` | 0.3.1 | 独立 workspace，NSH/GTK4 | `UiSpec` 原生渲染、表单焦点和选择状态 |
+| `lilyco` | 0.3.1 | 全部 | **唯一组合根**：后端自动选择 + 各形态入口 |
 | `lilyco-dev` | 0.3.0 | facade | **元 CLI**（bin `lilyco`）：`new` 脚手架 / `build` / `run` / `doc` 能力表 —— 它自己就是四命令的 dogfooding 样板 |
 | `lilyco-vision` | 0.3.1 | facade + image + vtracer + tempfile | 原有八视觉工具；截图独立临时 profile，图片工坊通过 MCP 复用 |
 | `lilyco-web2cli` | 0.3.2 | facade + ureq + html5ever + tungstenite + base64 + url + regex + toml + tempfile | **Web2CLI**：网页 / OpenAPI / HAR 自动发现并编译为 `Registry`（CLI / TUI / Web / MCP），内置 Cloudflare 响应诊断、ego-lite 人工交接、分类资料库（`vault`）、多格式 Cookie 导入、CDP 多层 `iframe` 控制、多步向导与人类审核闸门（`review`/`wizard`）、成功模板沉淀（`recipe`） |
 | `lilyco-chatgpt` | 0.3.0 | facade + ureq + serde_json + tungstenite（CDP 客户端：`login --from browser` 抓登录态、`ask` 的 chat 路径驱动网页，纯 Rust）+ axum/tokio/async-stream（可选 `server` feature：`serve` 命令的 OpenAI 兼容端） | **ChatGPT**（bin `lchatgpt`）：把 chatgpt.com 账号后端写成四端命令 —— 会话历史只读（`whoami`/`usage`/`models`/`list`/`show-conversation`/`search`/`auth`，全 T0）、两条发送路径（`ask`，T1）、登录态入库（`login`，T1）与一个 OpenAI 兼容 HTTP 端（`serve`，T1，给 dsh 之类的外部宿主当模型 provider）。**两种额度分开花**：`ask` 默认走 chat 额度（驱动已登录 chatgpt.com 的 chromium 发、用自己的 Bearer 走 REST 读回），codex 额度必须显式 `--allow-codex` 才动。产物是单一自包含二进制：凭证按 env → `LCHATGPT_AUTH_FILE` → 自己的仓库 `~/.local/share/lchatgpt/auth.json` → `~/.codex/auth.json` 回落，**可选**地用浏览器（登录态来源 + chat 路径要驱动的那台），端口没人照样可用 |
+| `lilyco-account-pool` | 0.1.0 | 独立 workspace：`axum` + `rusqlite` + `aes-gcm` + `hmac` | BYO 私有账号池服务：dev HMAC / 生产 HS256 JWT 双鉴权、`X-Pool-API-Key` Agent 接入、凭证 AES-256-GCM 加密、服务器侧 Buddy Switch 签到调度；公网路由须单独验证发布，调试入口为 `127.0.0.1:8793` |
 
 Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被特性门控）。
 
@@ -92,15 +106,15 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 
 | 符号 | 位置 | 说明 |
 |---|---|---|
-| `trait App` | `lilyco-core/src/app.rs:10` | `schema()` + `from_args()` + `run(&Context)` + `views()`（默认空，宏按 `#[view]` 生成）；宏自动实现 |
-| `trait Renderer` | `lilyco-core/src/app.rs:22` | `render(&CommandSchema) -> Output`，各后端实现 |
+| `trait App` | `lilyco-core/src/app.rs:10` | `schema()`、`from_args()`、`run(&Context)`、可选 `views()` 和 `ui_messages()`；宏自动实现 |
+| `trait Renderer` | `lilyco-core/src/app.rs:34` | `render(&CommandSchema) -> Output`，各后端实现 |
 | `struct CommandSchema` | `lilyco-core/src/schema.rs:40` | 命令的机器可读描述（四端渲染的唯一事实源） |
 | `enum ArgKind` | `lilyco-core/src/schema.rs:21` | Flag/Text/Number{min,max}/Enum/Path{must_exist}/List |
 | `validate_args()` | `lilyco-core/src/schema.rs:105` | **三端唯一参数校验实现**（required/range/enum/must_exist/List 递归） |
 | `to_json_schema/openai/anthropic` | `lilyco-core/src/schema.rs:49,73,85` | AI tool 定义导出 |
 | `type Handler` | `lilyco-core/src/registry.rs:23` | `Arc<dyn Fn(&Context, &Value) -> Result<Value, AppError>>` |
 | `struct Registry` | `lilyco-core/src/registry.rs` | 多命令注册表；`register:148` `get(含别名):163` `visible:180` `from_json:194` `with_policy`（**必须在 `register` 之前调用**：门在注册时包住 handler） |
-| `RegisteredCommand::from_app` | `lilyco-core/src/registry.rs:92` | App 类型 → 注册表条目（零样板入口） |
+| `RegisteredCommand::from_app` | `lilyco-core/src/registry.rs:112` | App 类型 → 注册表条目，携带执行器、视图槽位和可选的应用语言包 |
 | `spawn()` / `execute()` | `lilyco-core/src/executor.rs:35,92` | **唯一执行宿主**：后台线程 + 进度 channel |
 | `struct Task` | `lilyco-core/src/executor.rs:20` | `cancel` + `rx` + `handle` |
 | `enum Progress` | `lilyco-core/src/progress.rs:10` | Started/Tick/Log/Telemetry/Done/Error/**View**，serde tag=`type` |
@@ -119,20 +133,21 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `struct CliRenderer` | `renderer.rs:27` | schema → clap 的渲染入口；`handle_builtin_flags():46`、`output_format():90`、`extract_args():103` |
 | `run::<A>()` | `single.rs:17` | 单命令一行启动（clap 校验 → extract → executor → drain） |
 | `run_registry` / `run_registry_from` | `registry.rs:28,33` | **多命令**：Registry → clap 子命令树（支持显式参数列表）；根级 `--schema` 打印清单 |
-| `build_registry_command()` | `registry.rs:55` | 纯函数构建根 Command（别名/隐藏→hide(true)） |
-| `resolve_registry_command()` | `registry.rs:82` | 规范名/别名 → 注册表条目（含 schema.name 兜底） |
-| `drain_events()` | `registry.rs:114` | 单/多命令共用的进度消费（Human/Json/JsonStream） |
-| `build_command()` / `add_builtin_flags()` | `command.rs:17` / `command.rs:133` | 构造规则本体：一个 `ArgKind` 怎么变成 `clap::Arg` |
+| `build_registry_command()` | `registry.rs:64` | 构造根 Command，沿用统一的 Clap 帮助样式 |
+| `resolve_registry_command()` | `registry.rs:93` | 规范名/别名 → 注册表条目（含 schema.name 兜底） |
+| `drain_events()` | `registry.rs:125` | 单/多命令共用进度消费。人类可读进度写 stderr，结构化结果和流写 stdout |
+| `build_command()` / `add_builtin_flags()` | `command.rs:23` / `command.rs:152` | `ArgKind` 决定值类型提示，内置选项按自动化、输出与界面分组 |
 
 ### lilyco-tui（状态机，三文件）
 | 符号 | 位置 | 说明 |
 |---|---|---|
 | `enum AppState` | `lilyco-tui/src/renderer.rs:43` | CommandSelect → Form → Confirm → Running → Done/Error |
-| `struct TuiApp` | `lilyco-tui/src/app.rs:13` | `new():31` 单命令；`new_multi():46` 多命令（mininterface picker 模式） |
-| `handle_event()` | `lilyco-tui/src/app.rs:81` | 按状态分发；Done/Error 后多命令回选择页 |
+| `struct TuiApp` | `lilyco-tui/src/app.rs:13` | `new():33` 单命令；`new_multi():49` 多命令（mininterface picker 模式） |
+| `handle_event()` | `lilyco-tui/src/app.rs:85` | 按状态分发；帮助窗口隔离焦点，Alt+↑/↓ 可跳过路径补全 |
 | `struct FormRenderer` | `lilyco-tui/src/renderer.rs:14` | `validation_errors():131`（提交前校验）、`cli_preview():98` |
-| `struct FormField` | `lilyco-tui/src/widgets.rs:73` | 携带 `ArgKind` 约束；`validate():99` 与 core validate_args 同语义 |
-| `render_command_select()` | `lilyco-tui/src/renderer.rs:238` | 多命令选择页（↑↓/jk + Enter） |
+| `struct FormField` | `lilyco-tui/src/widgets.rs` | 按终端列宽分配标签和值，聚焦长路径时展示编辑端 |
+| `render_form()` / `render_command_select()` | `lilyco-tui/src/renderer.rs:151` / `lilyco-tui/src/renderer.rs:214` | 在可用视口内保留当前字段或选中命令，底部呈现上下文快捷键 |
+| `render_running()` | `lilyco-tui/src/renderer.rs:312` | 由 Running 状态调用，展示进度、最新日志与取消键 |
 | `path_complete()` | `lilyco-tui/src/app.rs` | Path 字段 Tab 目录补全（readline 风格循环候选；`split_dir_prefix` 兼容 `/` 与 `\`） |
 
 ### lilyco-gui（`lilyco-gui/src/`，按职责分文件；对外只有 `GuiRenderer` / `RunnerFn` / `TOKEN_HEADER`）
@@ -142,7 +157,8 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `serve_registry()` | `lib.rs:97` | **多命令**；`GET /?cmd=xxx` 渲染对应表单 + 下拉切换 |
 | `serve_state()` | `lilyco-gui/src/lib.rs` | `/` 加载 shadcn/ui，`/classic` 加载经典控制台，路由共用回环令牌中间件 |
 | `UiCatalog` / `UiRunRequest` | `lilyco-core/src/web_ui.rs` | 可见命令、参数、槽位、执行请求。由可选 `ui-schema` 导出 JSON Schema，前端用生成的 TypeScript 类型 |
-| `catalog()` | `lilyco-gui/src/shadcn.rs:24` | `/ui/catalog` 提供类型化数据。适配器按 `ArgKind` 转换控件输入，按 `Component` 和 SSE 更新语义视图 |
+| `catalog()` | `lilyco-gui/src/shadcn.rs:24` | `/ui/catalog` 提供类型化数据，含可选的 CLI 可执行文件与调用方式。适配器按 `ArgKind` 转换控件输入，按 `Component` 和 SSE 更新视图 |
+| Web 表单、输出与文件交互 | `lilyco-gui/web/src/{main,fields,files,output}.tsx` | shadcn 工作区宽屏并排，窄屏可跳转输出。上传绑定对应路径，列表更新基于最新草稿 |
 | shadcn/ui 组件来源与构建 | `lilyco-gui/web/README.md` | 官方 Registry 组件及锁、前端主题、契约生成与离线嵌入流程 |
 | `security_mw()` | `security.rs:67` | 回环 Host 校验 + Origin 校验 + 随机 Token（防 DNS rebinding/CSRF），涵盖 `POST /cancel/{id}` |
 | `AppState` | `state.rs:17` | schema / registry / sessions / cancels / token 一处真相（`pub(crate)`，测试夹具在同文件 `fixture`） |
@@ -151,7 +167,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `render_field()` | `render.rs:224` | **一个 `ArgKind` 一个组件函数**（`widget_flag/text/number/enum/path/list` + `field_shell`/`dropzone`/`pick_button`/`list_row`/`command_nav`），转义在 `Field` 里算一次 |
 | 前端组件装配 | `assets/index.html` | 末尾 `BOOT` 装配语言、快捷键与文件控件。键盘提交和拖放走同一个表单 |
 | 设计令牌与组件目录 | `lilyco-gui/DESIGN.md` | 命令工作区布局、DOM 契约、i18n 与键盘操作 |
-| 双语资源 | `i18n.rs:20` / `assets/i18n/ui.toml` | 内嵌 TOML 解析一次，提供默认文案与浏览器词典 |
+| 双语资源 | `lilyco-gui/src/i18n.rs` / `assets/i18n/ui.toml` / `web/src/i18n.ts` | 两种 Web 渲染器共用语言偏好、框架词条和由 `App::ui_messages()` 提供的命令与参数文案 |
 | Agent 自描述 | `ai_web.rs:27` / `:56` / `:88` | LLM 指南、Agent Card、OpenAPI（令牌与 SSE 契约） |
 | `run_handler()` | `run.rs:88` | `/run`：多命令按 `req.cmd` 显式分发（未知/隐藏 → 400，**绝不静默换命令**）；单命令 runner 模式直接 spawn 调用方的 `RunnerFn` |
 | `run_progress()` | `run.rs:45` | 唯一会登记取消句柄的执行循环：handler → `executor::spawn` → SSE 事件转发 → 终态清理 `cancels`（`/cancel` 只找得到这条路上的会话） |
@@ -172,7 +188,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 
 | 符号 | 行 | 说明 |
 |---|---|---|
-| `detect_backend()` | 122 | `--mcp/--gui` > `LILYCO_UI` > 终端探测（TUI 失败回退 CLI） |
+| `detect_backend()` | 123 | 显式 `--mcp/--gui/--tui` 优先于 `LILYCO_UI`。仅无参数的交互式终端自动进入 TUI |
 | `run::<A>()` / `run_with()` | 165 / 170 | 单命令四端自动选择 |
 | `serve_mcp()` | 189 | 注册表 → MCP 服务器 |
 | `run_cli_registry()` | 206 | 注册表 → clap 子命令 |
@@ -183,7 +199,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `run_registry_with_policy()` | 315 | 调用方自带策略（逃生舱，业务通常不要用） |
 | `detect_registry_backend()` | 392 | 多命令形态探测：**自动探测出的 TUI 降级为 CLI**（裸跑不该被拽进交互界面；进 TUI 须显式 `--tui`） |
 | `build_multi_tui()` | 488 | 纯函数：注册表 →（选择页 TuiApp + 名字→handler 表）。与事件循环分离以便无 TTY 单测（隐藏命令过滤、空注册表报错） |
-| `into_registry_with_policy()` | 342 | 对已有注册表重建以换策略（**兜底**：只能替换，不能解开已包在 handler 上的旧门） |
+| `into_registry_with_policy()` | 359 | 重建注册表时保留命令元数据。旧 handler 上已有的策略仍随 handler 生效 |
 | `run_tui_event_loop()` | 515 | 单/多命令共享的 TUI 循环（非阻塞 drain + 可取消） |
 
 ## 5. 多命令语义对照（四端对齐）
@@ -268,7 +284,7 @@ apps/desktop-common/desktop_icons.py:11 prepare_icon：仅在 Actions 从固定�
 
 ### 发行边界：现有 office Tauri 桌面端
 
-`lilyco-tauri/src/lib.rs` 注册 `commands::office_commands` 和 `office_run`；
+`lilyco-tauri/src/lib.rs` 注册 `office_commands`、`office_run` 和 `office_messages`。前端通过 WebView 拖放事件或原生对话框获得文件路径，通过 TOML 语言包更新界面。语言默认跟随 WebView 的语言偏好，可显式覆盖。宽窗口并排显示操作区与结果。
 `tauri.conf.json` 明确使用原生 `binaries/lbin` sidecar，不是截图或空网页。
 办公字段仍由相同 lilyco-binfmt 原CLI读取；安装文件存在不等于全部GUI验收完成。
 Desktop workflow仅把 `v[0-9]*` 框架版本标签传给Tauri release上传。

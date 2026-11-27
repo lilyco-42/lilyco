@@ -285,6 +285,7 @@ mod tests {
             cancels: Mutex::new(HashMap::new()),
             runner: Arc::new(|_, _| Box::pin(async {})),
             token: "t".into(),
+            cli: None,
         });
         let req = RunRequest {
             args: HashMap::new(),

@@ -1,31 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { KeyboardIcon, MoonIcon, SunIcon } from "lucide-react";
+import { ArrowDownIcon, ExternalLinkIcon, GlobeIcon, KeyboardIcon, LoaderCircleIcon, PlayIcon, TerminalIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/ui/alert";
-import { Button } from "@/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/ui/card";
+import { Button, buttonVariants } from "@/ui/button";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/ui/dropdown-menu";
 import { NativeSelect, NativeSelectOption } from "@/ui/native-select";
 import { Skeleton } from "@/ui/skeleton";
 import { TooltipProvider } from "@/ui/tooltip";
 import { ArgumentField } from "./fields";
 import { argumentValue, cliPreview, createDrafts } from "./arguments";
-import { Language, preference, setPreference, translate, useText, type Locale } from "./i18n";
+import { Language, translate, useLanguage, useText } from "./i18n";
 import { Copy, RunOutput } from "./output";
 import { useRun } from "./run";
 import { fetchCatalog } from "./transport";
 import { ViewNode } from "./views";
-import type { UiCatalog, UiCommand } from "./contract";
+import type { UiCatalog, UiCli, UiCommand } from "./contract";
+import { ThemeMenu } from "./theme";
 import "./theme.css";
 
 function App() {
-  const [locale, setLocale] = useState<Locale>(preference("lilyco-language") === "en" ? "en" : "zh-CN");
+  const {mode, locale, choose} = useLanguage();
   const [catalog, setCatalog] = useState<UiCatalog>();
   const [error, setError] = useState("");
-  const [dark, setDark] = useState(() => {
-    const saved = preference("lilyco-theme");
-    return saved ? saved === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-  });
   const t = translate(locale);
 
   useEffect(() => {
@@ -36,7 +34,6 @@ function App() {
     return () => controller.abort();
   }, []);
   useEffect(() => { document.documentElement.lang = locale; }, [locale]);
-  useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
   useEffect(() => {
     const blockFiles = (event: DragEvent) => {
       if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
@@ -48,21 +45,27 @@ function App() {
 
   return <Language.Provider value={t}><TooltipProvider>
     <header className="border-b">
-      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-6">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-6 lg:px-8">
         <span className="text-sm font-semibold">Lilyco</span>
         <div className="flex gap-1">
-          <Button variant="ghost" aria-label={t("language")} onClick={() => {
-            const next = locale === "en" ? "zh-CN" : "en";
-            setLocale(next); setPreference("lilyco-language", next);
-          }}>{t("switch_language")}</Button>
-          <Button variant="ghost" size="icon" aria-label={t("theme")} aria-pressed={dark} onClick={() => {
-            setDark(!dark); setPreference("lilyco-theme", dark ? "light" : "dark");
-          }}>{dark ? <SunIcon /> : <MoonIcon />}</Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label={t("language")} title={t("language")} />}>
+              <GlobeIcon aria-hidden="true" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuRadioGroup value={mode} onValueChange={choose}>
+                <DropdownMenuRadioItem value="system" closeOnClick className="min-h-11">{t("language_system")}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="zh-CN" closeOnClick className="min-h-11" lang="zh-CN">{t("language_chinese")}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="en" closeOnClick className="min-h-11" lang="en">{t("language_english")}</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <ThemeMenu />
           <Shortcuts canCancel={catalog?.can_cancel ?? false} />
         </div>
       </div>
     </header>
-    <main className="mx-auto grid w-full max-w-5xl min-w-0 gap-6 p-4 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-6 sm:pt-8">
+    <main className="mx-auto grid w-full max-w-6xl min-w-0 gap-6 p-4 pt-6 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-6 sm:pt-10 lg:px-8">
       {error ? <Alert variant="destructive" role="alert"><AlertDescription>{t("request_failed", {reason: error})}</AlertDescription></Alert>
         : catalog ? <Workspace catalog={catalog} /> : <Skeleton className="h-36 w-full" aria-label={t("loading_catalog")} />}
       <AgentAccess />
@@ -92,6 +95,7 @@ function Workspace({catalog}: {catalog: UiCatalog}) {
   const t = useText();
   const command = catalog.commands.find(item => item.name === selected);
   if (!command) return null;
+  const about = t(`app.${command.name}.about`);
   const names = new Set(catalog.commands.map(item => item.name));
   function select(next: string) {
     if (blocked || !names.has(next) || next === selected) return;
@@ -105,14 +109,14 @@ function Workspace({catalog}: {catalog: UiCatalog}) {
     <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
       <div className="min-w-0">
         <h1 className="text-2xl font-semibold tracking-tight wrap-anywhere sm:text-3xl">{command.name}</h1>
-        {command.about && <p className="mt-1 text-sm text-muted-foreground wrap-anywhere">{command.about}</p>}
+        {about && <p className="mt-1 text-sm text-muted-foreground wrap-anywhere">{about}</p>}
       </div>
       {catalog.commands.length > 1 && <NativeSelect aria-label={t("switch_command")} value={selected}
         className="w-full sm:max-w-60" disabled={blocked} onChange={event => select(event.target.value)}>
         {catalog.commands.map(item => <NativeSelectOption key={item.name} value={item.name}>{item.name}</NativeSelectOption>)}
       </NativeSelect>}
     </div>
-    <CommandForm key={command.name} command={command} controls={{
+    <CommandForm key={command.name} command={command} cli={catalog.cli} controls={{
       canCancel: catalog.can_cancel, setBlocked, canSelect: (name: string) => names.has(name) && name !== selected && !blocked, select,
     }} />
   </>;
@@ -120,7 +124,7 @@ function Workspace({catalog}: {catalog: UiCatalog}) {
 
 type Control = { canCancel: boolean; setBlocked: (blocked: boolean) => void; canSelect: (name: string) => boolean; select: (name: string) => void };
 
-function CommandForm({command, controls}: {command: UiCommand; controls: Control}) {
+function CommandForm({command, controls, cli}: {command: UiCommand; controls: Control; cli?: UiCli | null}) {
   const [drafts, setDrafts] = useState(() => createDrafts(command.args, location.search));
   const [files, setFiles] = useState(0);
   const {state, run, cancel, cancellable, cancelSent} = useRun();
@@ -130,7 +134,7 @@ function CommandForm({command, controls}: {command: UiCommand; controls: Control
   const running = state.phase === "running";
   const blocked = running || files > 0;
   const args = Object.fromEntries(command.args.map(definition => [definition.name, argumentValue(definition.kind, drafts[definition.name])]));
-  const preview = cliPreview(command.name, args);
+  const preview = cli ? cliPreview(cli, command.name, args) : null;
 
   useEffect(() => { document.title = t("document_title", {command: command.name}); }, [command.name, t]);
   useEffect(() => { controls.setBlocked(blocked); }, [blocked, controls.setBlocked]);
@@ -146,40 +150,51 @@ function CommandForm({command, controls}: {command: UiCommand; controls: Control
     return () => window.removeEventListener("keydown", shortcut);
   }, [blocked]);
 
-  return <>
-    <Card aria-labelledby="parameters-heading">
-      <CardHeader>
-        <CardTitle><h2 id="parameters-heading">{t("parameters")}</h2></CardTitle>
-      </CardHeader>
-      <form ref={form} id="command-form" noValidate onSubmit={event => {event.preventDefault(); if (!blocked) void run({cmd: command.name, args});}}>
-        <CardContent className="grid min-w-0 gap-4">
-          {command.args.map(definition => <ArgumentField key={definition.name} arg={definition} value={drafts[definition.name]}
-            onChange={value => setDrafts(previous => ({...previous, [definition.name]: value}))}
-            onBusy={delta => setFiles(count => count + delta)} />)}
-        </CardContent>
-        <CardFooter className="mt-4 flex flex-wrap gap-2">
-          <Button type="submit" size="lg" disabled={blocked}
-            aria-keyshortcuts="Control+Enter Meta+Enter" aria-busy={running}>{t(running ? "running" : "run")}</Button>
-          {controls.canCancel && running && <Button ref={stop} variant="outline"
-            aria-keyshortcuts="Control+Shift+Enter Meta+Shift+Enter"
-            disabled={!cancellable} onClick={() => void cancel()}>{t("cancel")}</Button>}
-        </CardFooter>
-      </form>
-    </Card>
-    <Card size="sm">
-      <CardHeader className="flex flex-wrap items-center justify-between gap-2">
-        <CardTitle><h2>{t("preview")}</h2></CardTitle><Copy value={preview} label={t("copy_cli")} />
-      </CardHeader>
-      <CardContent><pre className="rounded-md bg-muted p-3 text-xs whitespace-pre-wrap wrap-anywhere">{preview}</pre></CardContent>
-    </Card>
-    <RunOutput state={state} cancelSent={cancelSent} />
-    <div className="grid min-w-0 gap-4">
-      {command.views.filter(slot => !state.views.has(slot.id)).map(slot =>
-        <Skeleton key={slot.id} className="h-12" aria-label={slot.title ?? slot.id} />)}
+  return <div className="grid min-w-0 gap-5">
+    <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      <Card className="min-w-0">
+        <form ref={form} id="command-form" aria-labelledby="parameters-heading" noValidate
+          onSubmit={event => {event.preventDefault(); if (!blocked) void run({cmd: command.name, args});}}>
+          <CardHeader>
+            <CardTitle><h2 id="parameters-heading">{t("parameters")}</h2></CardTitle>
+          </CardHeader>
+          {command.args.length > 0 && <CardContent className="mt-5 grid min-w-0 items-start gap-4 sm:grid-cols-2">
+            {command.args.map(definition => <ArgumentField key={definition.name} arg={definition}
+              label={t(`app.${command.name}.arg.${definition.name}`)} value={drafts[definition.name]} uploading={files > 0}
+              onChange={update => setDrafts(previous => ({...previous, [definition.name]: update(previous[definition.name])}))}
+              onBusy={delta => setFiles(count => count + delta)} />)}
+          </CardContent>}
+          <CardFooter className="mt-5 flex flex-wrap gap-2 border-t">
+            <Button type="submit" size="lg" className="min-h-11 px-4" disabled={blocked}
+              aria-keyshortcuts="Control+Enter Meta+Enter" aria-busy={running}>
+              {running ? <LoaderCircleIcon aria-hidden="true" className="motion-safe:animate-spin" /> : <PlayIcon aria-hidden="true" />}
+              {t(running ? "running" : "run")}
+            </Button>
+            {controls.canCancel && running && <Button ref={stop} variant="outline"
+              aria-keyshortcuts="Control+Shift+Enter Meta+Shift+Enter"
+              disabled={!cancellable} onClick={() => void cancel()}>{t("cancel")}</Button>}
+            {state.phase !== "idle" && <a href="#run-output" className={buttonVariants({variant: "ghost", className: "min-h-11 lg:hidden"})}>
+              {t("jump_to_output")} <ArrowDownIcon aria-hidden="true" />
+            </a>}
+          </CardFooter>
+        </form>
+      </Card>
+      <div className="grid min-w-0 gap-4">
+        <RunOutput state={state} cancelSent={cancelSent} />
+        {preview !== null && <Card size="sm">
+          <CardHeader className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle><h2 className="flex items-center gap-2"><TerminalIcon className="size-4" aria-hidden="true" />{t("preview")}</h2></CardTitle>
+            <Copy value={preview} label={t("copy_cli")} />
+          </CardHeader>
+          <CardContent><pre className="max-h-48 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap wrap-anywhere">{preview}</pre></CardContent>
+        </Card>}
+      </div>
+    </div>
+    {state.views.size > 0 && <div className="grid min-w-0 gap-4">
       {[...state.views.entries()].map(([id, component]) =>
         <ViewNode key={id} component={component} actions={controls} />)}
-    </div>
-  </>;
+    </div>}
+  </div>;
 }
 
 function AgentAccess() {
@@ -189,12 +204,12 @@ function AgentAccess() {
     {href: "/.well-known/agent.json", name: "Agent Card", description: "agent_card"},
     {href: "/openapi.json", name: "OpenAPI", description: "api_schema"},
   ];
-  return <Card size="sm">
-    <CardHeader><CardTitle><h2>{t("ai_access")}</h2></CardTitle><CardDescription>{t("footer")}</CardDescription></CardHeader>
-    <CardContent className="flex flex-wrap gap-2">{links.map(link =>
-      <Button key={link.href} variant="outline" nativeButton={false} title={t(link.description)}
-        render={<a href={link.href} target="_blank" rel="noopener" />}>{link.name}</Button>)}</CardContent>
-  </Card>;
+  return <footer className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t pt-3">
+    <div className="text-sm font-medium" id="agent-access-heading">{t("ai_access")}</div>
+    <nav aria-labelledby="agent-access-heading" className="flex flex-wrap gap-1">{links.map(link =>
+      <a key={link.href} href={link.href} target="_blank" rel="noopener" title={t(link.description)}
+        className={buttonVariants({variant: "ghost", className: "min-h-11"})}>{link.name}<ExternalLinkIcon aria-hidden="true" /></a>)}</nav>
+  </footer>;
 }
 
 const root = document.getElementById("root");

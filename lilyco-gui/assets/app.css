@@ -6,20 +6,20 @@
   /* 让原生控件（下拉箭头、滚动条、日期选择器）跟随主题，否则深色下还是白底 */
   color-scheme: light;
   /* 色彩：浅色 */
-  --canvas: #f4f6fc;
-  --surface: #ffffff;
-  --surface-2: #f3f6fd;
-  --surface-3: #e7eaee;
-  --hairline: #dfe6f2;
-  --control: #7d8794;          /* 控件描边：对 surface 3.64:1（1.4.11） */
-  --ink: #16191d;              /* 17.6:1 */
-  --ink-muted: #5f6b7a;        /* 5.43:1 */
-  --accent: #2563eb;           /* 品牌蓝，取自 docs/banner.svg；对 surface 5.17:1 */
-  --on-accent: #ffffff;
+  --canvas: #f5f3ef;
+  --surface: #fffdfa;
+  --surface-2: #f2efeb;
+  --surface-3: #e4dfdc;
+  --hairline: #e5ded8;
+  --control: #867c86;
+  --ink: #28232c;
+  --ink-muted: #645c69;
+  --accent: #654a89;
+  --on-accent: #fffdfa;
   --ok: #0e7a55;
   --warn: #8a5a06;
   --danger: #b3261e;
-  --accent-soft: rgba(37, 99, 235, 0.1);
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
 
   /* 空间：8px 节奏（DESIGN.md §2） */
   --s-1: 4px;
@@ -38,9 +38,8 @@
   --workspace: 1320px;
   --gutter: clamp(var(--s-3), 3vw, var(--s-6));
   --panel-padding: clamp(var(--s-4), 2.4vw, var(--s-5));
-  --terminal-bg: #0d1117;
-  --terminal-text: #e6edf3;
-  --terminal-prompt: #9dbdff;
+  --terminal-bg: #211c27;
+  --terminal-text: #f1eaf2;
 
   /* 排版 */
   --ui: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
@@ -54,40 +53,40 @@
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --canvas: #0c111d;
-  --surface: #141d2b;
-  --surface-2: #1b2637;
-  --surface-3: #233147;
-  --hairline: #2b3a50;
-  --control: #748398;
-  --ink: #e7eaee;
-  --ink-muted: #9aa6b4;
-  --accent: #6ea1ff;           /* 深底上要提亮才够对比 */
-  --on-accent: #0b1220;
+  --canvas: #19171c;
+  --surface: #221f26;
+  --surface-2: #2b2730;
+  --surface-3: #393240;
+  --hairline: #3f3745;
+  --control: #95879e;
+  --ink: #f1eaf2;
+  --ink-muted: #b8abba;
+  --accent: #c6a9ed;
+  --on-accent: #221832;
   --ok: #3ddc97;
   --warn: #f0b23a;
   --danger: #ff7b72;
-  --accent-soft: rgba(110, 161, 255, 0.16);
+  --accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
   --shadow-card: none;         /* 深色靠 hairline 分层，不靠阴影 */
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]):not([data-theme="dark"]) {
     color-scheme: dark;
-    --canvas: #0c111d;
-    --surface: #141d2b;
-    --surface-2: #1b2637;
-    --surface-3: #233147;
-    --hairline: #2b3a50;
-    --control: #748398;
-    --ink: #e7eaee;
-    --ink-muted: #9aa6b4;
-    --accent: #6ea1ff;
-    --on-accent: #0b1220;
+    --canvas: #19171c;
+    --surface: #221f26;
+    --surface-2: #2b2730;
+    --surface-3: #393240;
+    --hairline: #3f3745;
+    --control: #95879e;
+    --ink: #f1eaf2;
+    --ink-muted: #b8abba;
+    --accent: #c6a9ed;
+    --on-accent: #221832;
     --ok: #3ddc97;
     --warn: #f0b23a;
     --danger: #ff7b72;
-    --accent-soft: rgba(110, 161, 255, 0.16);
+    --accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
     --shadow-card: none;
   }
 }
@@ -125,7 +124,6 @@ body {
 .topbar-tools { display: flex; gap: var(--s-1); }
 .topbar-tools .icon-btn { border-color: transparent; }
 .topbar-tools .icon-btn:hover { border-color: var(--accent); }
-#locale-toggle { font: 650 13px var(--ui); }
 .brand {
   display: flex;
   align-items: center;
@@ -173,8 +171,7 @@ body {
 .icon-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
 .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .icon-btn:active { background: var(--surface-3); }
-#theme-toggle::before { content: "☾"; }
-#theme-toggle[aria-pressed="true"]::before { content: "☀"; }
+.topbar .theme-select { flex: 0 0 auto; width: auto; }
 .icon-btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 
 /* ── 版心与命令头 ── */
@@ -542,14 +539,14 @@ input[type="checkbox"] {
   margin: var(--panel-padding);
   padding: var(--s-4);
   border-radius: var(--r-panel);
-  background: var(--terminal-bg);
-  color: var(--terminal-text);
+  background: var(--surface-2);
+  color: var(--ink);
   font-size: 13px;
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.cli-preview::before { content: "$ "; color: var(--terminal-prompt); font-weight: 700; }
+.cli-preview::before { content: "$ "; color: var(--accent); font-weight: 700; }
 /* 空预览（JS 没起来，或还没算出命令）不显示那条孤零零的 "$ " */
 .cli-preview:empty { display: none; }
 

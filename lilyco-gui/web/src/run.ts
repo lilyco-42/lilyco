@@ -93,12 +93,13 @@ export function useRun() {
   }
 
   async function cancel() {
-    if (!session || cancelling.current) return;
+    const source = stream.current;
+    if (!session || !source || cancelling.current) return;
     cancelling.current = true;
     setCancelSent(true);
     try { await cancelRun(session); }
     catch (error) {
-      if (!active.current) return;
+      if (stream.current !== source) return;
       setState(previous => ({...previous, log: append(previous.log, messageOf(error))}));
       cancelling.current = false;
       setCancelSent(false);

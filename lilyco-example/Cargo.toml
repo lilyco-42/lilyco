@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-example"
-version.workspace = true
+version = "0.3.1"
 edition = "2021"
 description = "Lilyco demo — image compression tool"
 license = "MIT OR Apache-2.0"
