@@ -17,6 +17,7 @@ struct AppAttrs {
     run: Option<String>,
     name: Option<String>,
     safety: Option<String>,
+    ui_messages: Option<syn::LitStr>,
     /// `#[app(crate = "lilyco_core")]`：不依赖 facade、只用 core + macros 的嵌入方
     /// 用它把展开路径指过去。默认仍是 `::lilyco::__core`（facade 里 `pub use lilyco_core as __core`，
     /// 两条路径下的条目一一对应）。
@@ -31,6 +32,7 @@ fn parse_app_attrs(attrs: &[Attribute]) -> AppAttrs {
         run: None,
         name: None,
         safety: None,
+        ui_messages: None,
         crate_path: None,
     };
 
@@ -57,6 +59,8 @@ fn parse_app_attrs(attrs: &[Attribute]) -> AppAttrs {
                     if let Lit::Str(s) = s {
                         result.safety = Some(s.value());
                     }
+                } else if meta.path.is_ident("ui_messages") {
+                    result.ui_messages = Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("crate") {
                     let s: Lit = meta.value()?.parse()?;
                     if let Lit::Str(s) = s {
@@ -481,6 +485,14 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
         }
     };
 
+    let messages_impl = app_attrs.ui_messages.as_ref().map(|path| {
+        quote! {
+            fn ui_messages() -> Option<&'static str> {
+                Some(include_str!(#path))
+            }
+        }
+    });
+
     let expanded = quote! {
         impl #core::App for #struct_name {
             fn schema() -> #core::schema::CommandSchema {
@@ -503,6 +515,7 @@ pub fn derive_app_impl(input: TokenStream) -> TokenStream {
 
             #run_impl
             #views_impl
+            #messages_impl
         }
     };
 

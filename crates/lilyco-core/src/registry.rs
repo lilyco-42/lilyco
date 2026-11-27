@@ -42,6 +42,9 @@ pub struct RegisteredCommand {
     /// 静态视图槽位：页面先画壳，运行时按 id 填充
     #[serde(default)]
     pub views: Vec<crate::view::ViewSlot>,
+    /// Language resource compiled into an app. Serialized schemas retain their canonical descriptions.
+    #[serde(skip)]
+    pub ui_messages: Option<&'static str>,
     /// 执行处理器；声明式加载（JSON）时不携带
     #[serde(skip)]
     pub handler: Option<Handler>,
@@ -69,6 +72,7 @@ impl RegisteredCommand {
             hidden: false,
             schema,
             views: Vec::new(),
+            ui_messages: None,
             handler: None,
         }
     }
@@ -124,6 +128,7 @@ impl RegisteredCommand {
             hidden: false,
             schema,
             views,
+            ui_messages: A::ui_messages(),
             handler: Some(handler),
         }
     }

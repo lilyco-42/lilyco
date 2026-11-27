@@ -91,13 +91,7 @@ async fn run_progress(job: Job<'_>) {
 
 // ── Handlers ───────────────────────────────────────────────
 
-#[derive(serde::Deserialize)]
-pub(crate) struct RunRequest {
-    args: HashMap<String, serde_json::Value>,
-    /// 多命令模式：要执行的命令名（单命令模式忽略）
-    #[serde(default)]
-    cmd: Option<String>,
-}
+use lilyco_core::web_ui::UiRunRequest as RunRequest;
 
 pub(crate) async fn run_handler(
     State(state): State<Arc<AppState>>,
@@ -291,6 +285,7 @@ mod tests {
             cancels: Mutex::new(HashMap::new()),
             runner: Arc::new(|_, _| Box::pin(async {})),
             token: "t".into(),
+            cli: None,
         });
         let req = RunRequest {
             args: HashMap::new(),

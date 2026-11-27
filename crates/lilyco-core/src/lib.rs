@@ -24,6 +24,7 @@ pub mod safety;
 pub mod schema;
 pub mod theme;
 pub mod view;
+pub mod web_ui;
 
 // Re-exports at crate root for macro-generated code
 pub use app::{App, Renderer};

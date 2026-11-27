@@ -19,6 +19,7 @@ mod value_enum;
 /// ## Struct level
 /// - `#[app(about = "...")]` — 命令描述
 /// - `#[app(run = "fn_name")]` — 指定 run() 调用的业务逻辑函数
+/// - `#[app(ui_messages = "../i18n/command.toml")]` — 以源码文件为基准嵌入界面文案
 ///
 /// ## Field level
 /// - `#[arg(about = "...")]` — 参数描述
