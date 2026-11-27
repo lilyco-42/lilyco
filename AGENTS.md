@@ -29,6 +29,10 @@ workspace 依赖图、全部关键符号（带 `文件:行号`）、四端调用
    - 任何 Web UI 改动必须通过 `320px / 390px / 768px / 1440px` 真实浏览器零横向溢出（`scrollWidth <= innerWidth`）验收。
 8. **禁止重复造轮子（`https://lib.rs` 优先）**：开工前必查 `docs/CRATE_CATALOG.md` 与 `https://lib.rs`。成熟 MIT/Apache-2.0 crate 覆盖 ≥ 80% 需求时必须直接复用（HTML 解析用 `scraper`、Cookie 用 `cookie`/`cookie_store`、模板用 `askama`/`maud`、多后端 SQL 用 `sqlx`/`sea-orm`/`turso`、MCP 优先 `rmcp`、OpenAPI 用 `utoipa`）；公共基础 crate 版本统一锁在根 `Cargo.toml` 的 `[workspace.dependencies]`。
 
+## 界面参考
+
+各模块的参考项目、适用场景与许可证见 [Web GUI](lilyco-gui/AGENTS.md)、[CLI](lilyco-cli/AGENTS.md)、[TUI](lilyco-tui/AGENTS.md)、[Tauri 桌面](lilyco-tauri/AGENTS.md)、[原生界面](lilyco-native-ui/AGENTS.md)。
+
 ## 常用命令
 
 ```bash
