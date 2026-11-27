@@ -16,7 +16,7 @@ path = "src/main.rs"
 # 元 CLI 本身就是框架消费者（dogfooding）：四个子命令全是 #[derive(App)]，
 # 经 facade 走 Registry 四端 —— 这是对「30 行最小应用」的持续验收。
 # headless（default = []）即可：元 CLI 只需要 CLI / MCP 面。
-lilyco = { version = "0.3", path = "../lilyco", default-features = false }
+lilyco = { version = "0.3.1", path = "../lilyco", default-features = false }
 serde_json = "1"
 
 [dev-dependencies]

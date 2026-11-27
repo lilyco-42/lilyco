@@ -23,9 +23,9 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub const TEMPLATE_CARGO_TOML: &str =
-    include_str!("../../../scripts/domain-template/Cargo.toml.tmpl");
-pub const TEMPLATE_MAIN_RS: &str = include_str!("../../../scripts/domain-template/src/main.rs");
-pub const TEMPLATE_SHOW_RS: &str = include_str!("../../../scripts/domain-template/src/show.rs");
+    include_str!("../templates/Cargo.toml.tmpl");
+pub const TEMPLATE_MAIN_RS: &str = include_str!("../templates/src/main.rs");
+pub const TEMPLATE_SHOW_RS: &str = include_str!("../templates/src/show.rs");
 
 /// 域名规则：小写字母开头，只含小写字母/数字/连字符，不以连字符结尾、
 /// 不含连续连字符，≤32 字符。返回 Err(原因)。
