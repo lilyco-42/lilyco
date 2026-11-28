@@ -37,6 +37,191 @@ fn themes() -> &'static ThemeSet {
     THEMES.get_or_init(ThemeSet::load_defaults)
 }
 
+#[cfg(feature = "image")]
+mod image_support {
+    use std::collections::{HashMap, VecDeque};
+    use std::path::Path;
+    use std::sync::{Mutex, OnceLock};
+
+    use image::ImageReader;
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+    use ratatui::widgets::StatefulWidget;
+    use ratatui_image::picker::{Picker, ProtocolType};
+    use ratatui_image::protocol::StatefulProtocol;
+    use ratatui_image::StatefulImage;
+
+    const CACHE_LIMIT: usize = 16;
+
+    static PICKER: OnceLock<Option<Picker>> = OnceLock::new();
+    static CACHE: OnceLock<Mutex<BoundedCache<StatefulProtocol>>> = OnceLock::new();
+
+    fn picker() -> Option<&'static Picker> {
+        PICKER
+            .get_or_init(|| {
+                Picker::from_query_stdio()
+                    .ok()
+                    .filter(|picker| picker.protocol_type() != ProtocolType::Halfblocks)
+            })
+            .as_ref()
+    }
+
+    pub(super) fn measure_height(src: &str, width: u16) -> Option<u16> {
+        if is_remote_or_missing(src) || width == 0 {
+            return None;
+        }
+        let picker = picker()?;
+        if picker.protocol_type() == ProtocolType::Halfblocks {
+            return None;
+        }
+        let (image_width, image_height) = image_dimensions(src)?;
+        if image_width == 0 || image_height == 0 {
+            return None;
+        }
+        let font = picker.font_size();
+        let font_width = f64::from(font.0.max(1));
+        let font_height = f64::from(font.1.max(1));
+        let available_width = f64::from(width);
+        let image_cells_width = (f64::from(image_width) / font_width).ceil().max(1.0);
+        let scale = (available_width / image_cells_width).min(1.0);
+        let height_cells = (f64::from(image_height) / font_height * scale)
+            .ceil()
+            .clamp(1.0, 20.0);
+        Some(height_cells as u16)
+    }
+
+    pub(super) fn try_render_image(src: &str, area: Rect, buf: &mut Buffer) -> bool {
+        if area.is_empty() || is_remote_or_missing(src) {
+            return false;
+        }
+        try_render_image_with_picker(src, area, buf, picker())
+    }
+
+    fn try_render_image_with_picker(
+        src: &str,
+        area: Rect,
+        buf: &mut Buffer,
+        picker: Option<&Picker>,
+    ) -> bool {
+        let Some(picker) = picker else {
+            return false;
+        };
+        if picker.protocol_type() == ProtocolType::Halfblocks || area.is_empty() {
+            return false;
+        }
+        if is_remote_or_missing(src) {
+            return false;
+        }
+        let cache = CACHE.get_or_init(|| Mutex::new(BoundedCache::new(CACHE_LIMIT)));
+        let Ok(mut cache) = cache.lock() else {
+            return false;
+        };
+        if !cache.contains(src) {
+            let Some(image) = load_image(src) else {
+                return false;
+            };
+            let protocol = picker.new_resize_protocol(image);
+            cache.insert(src.to_string(), protocol);
+        }
+        let Some(protocol) = cache.get_mut(src) else {
+            return false;
+        };
+        StatefulImage::<StatefulProtocol>::default().render(area, buf, protocol);
+        true
+    }
+
+    fn is_remote_or_missing(src: &str) -> bool {
+        src.starts_with("http://") || src.starts_with("https://") || !Path::new(src).is_file()
+    }
+
+    fn load_image(src: &str) -> Option<image::DynamicImage> {
+        let reader = ImageReader::open(src).ok()?.with_guessed_format().ok()?;
+        reader.decode().ok()
+    }
+
+    fn image_dimensions(src: &str) -> Option<(u32, u32)> {
+        let reader = ImageReader::open(src).ok()?.with_guessed_format().ok()?;
+        reader.into_dimensions().ok()
+    }
+
+    struct BoundedCache<V> {
+        entries: HashMap<String, V>,
+        order: VecDeque<String>,
+        limit: usize,
+    }
+
+    impl<V> BoundedCache<V> {
+        fn new(limit: usize) -> Self {
+            Self {
+                entries: HashMap::new(),
+                order: VecDeque::new(),
+                limit: limit.max(1),
+            }
+        }
+
+        fn len(&self) -> usize {
+            self.entries.len()
+        }
+
+        fn contains(&self, key: &str) -> bool {
+            self.entries.contains_key(key)
+        }
+
+        fn get_mut(&mut self, key: &str) -> Option<&mut V> {
+            self.entries.get_mut(key)
+        }
+
+        fn insert(&mut self, key: String, value: V) {
+            if self.entries.contains_key(&key) {
+                self.order.retain(|item| item != &key);
+                self.order.push_back(key.clone());
+                self.entries.insert(key, value);
+                return;
+            }
+            while self.len() >= self.limit {
+                let Some(oldest) = self.order.pop_front() else {
+                    break;
+                };
+                self.entries.remove(&oldest);
+            }
+            self.order.push_back(key.clone());
+            self.entries.insert(key, value);
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn image_cache_is_bounded() {
+            let mut cache = BoundedCache::<u32>::new(2);
+            cache.insert("a".into(), 1);
+            cache.insert("b".into(), 2);
+            cache.insert("c".into(), 3);
+            assert_eq!(cache.len(), 2);
+            assert!(!cache.contains("a"), "最旧条目应被淘汰");
+            assert!(cache.contains("b"));
+            assert!(cache.contains("c"));
+        }
+
+        #[test]
+        fn image_feature_falls_back_without_picker() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = dir.path().join("test.png");
+            let image = image::RgbaImage::new(4, 4);
+            image.save(&path).expect("save png");
+            let area = Rect::new(0, 0, 10, 4);
+            let mut buf = Buffer::empty(area);
+            let src = path.to_string_lossy().to_string();
+            assert!(
+                !try_render_image_with_picker(&src, area, &mut buf, None),
+                "没有 Picker 时必须降级"
+            );
+        }
+    }
+}
+
 /// 本适配器的能力声明（框架协议要求的显式契约）
 pub fn adapter_capabilities() -> AdapterCapabilities {
     AdapterCapabilities {
@@ -114,6 +299,32 @@ pub fn supported_kinds() -> Vec<String> {
 }
 
 // ── 尺寸计算 ─────────────────────────────────────────────
+
+fn image_height_from_option(height: Option<u32>) -> Option<u16> {
+    height.map(|height| u16::try_from(height.clamp(1, 20)).unwrap_or(1))
+}
+
+#[cfg(not(feature = "image"))]
+fn image_measure(alt: &str, _src: &str, width: u16, height: Option<u32>) -> u16 {
+    image_height_from_option(height).unwrap_or_else(|| 1u16.saturating_add(text_height(alt, width)))
+}
+
+#[cfg(feature = "image")]
+fn image_measure(alt: &str, src: &str, width: u16, height: Option<u32>) -> u16 {
+    image_height_from_option(height)
+        .or_else(|| image_support::measure_height(src, width))
+        .unwrap_or_else(|| 1u16.saturating_add(text_height(alt, width)))
+}
+
+#[cfg(not(feature = "image"))]
+fn try_render_image(_src: &str, _area: Rect, _buf: &mut Buffer) -> bool {
+    false
+}
+
+#[cfg(feature = "image")]
+fn try_render_image(src: &str, area: Rect, buf: &mut Buffer) -> bool {
+    image_support::try_render_image(src, area, buf)
+}
 
 /// 计算组件在给定宽度下需要的行数
 pub fn measure(component: &Component, width: u16) -> u16 {
@@ -269,10 +480,9 @@ pub fn measure(component: &Component, width: u16) -> u16 {
         Component::Pane { children, .. } => {
             2u16.saturating_add(children_height(children, width.saturating_sub(2)))
         }
-        Component::Image { alt, height, .. } => match *height {
-            Some(height) => u16::try_from(height.clamp(1, 20)).unwrap_or(1),
-            None => 1u16.saturating_add(text_height(alt, width)),
-        },
+        Component::Image {
+            src, alt, height, ..
+        } => image_measure(alt, src, width, *height),
     }
 }
 
@@ -1549,16 +1759,18 @@ pub fn render_with_theme(component: &Component, area: Rect, buf: &mut Buffer, th
             render_children(children, inner, buf, theme);
         }
         Component::Image { src, alt, .. } => {
-            // 图形协议渲染需要 ratatui-image + Kitty/Sixel；当前只做终端降级占位，
-            // 后续可作为可选 feature 接入，不在默认构建里引入。
-            let placeholder = if alt.is_empty() {
-                "[图片]".to_string()
-            } else {
-                format!("[图片] {alt}")
-            };
-            write_row(buf, area, 0, &placeholder, theme.text_style());
-            if area.height > 1 {
-                write_row(buf, area, 1, src, theme.muted_style());
+            // `image` feature 用 ratatui-image + Kitty/Sixel 图形协议；默认构建或失败时
+            // 降级为 `[图片] alt` + 截断 src，不依赖任何图形终端能力。
+            if !try_render_image(src, area, buf) {
+                let placeholder = if alt.is_empty() {
+                    "[图片]".to_string()
+                } else {
+                    format!("[图片] {alt}")
+                };
+                write_row(buf, area, 0, &placeholder, theme.text_style());
+                if area.height > 1 {
+                    write_row(buf, area, 1, src, theme.muted_style());
+                }
             }
         }
     }

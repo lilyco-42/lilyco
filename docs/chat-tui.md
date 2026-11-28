@@ -60,7 +60,7 @@ lilyco-core
 1. **M1 只读聊天流**：✅ 已完成（core 组件 + TUI 渲染 + 焦点/选择/滚动 + 单测 + 真机截图）。
 2. **M2 输入**：✅ 已完成——composer 插入模式、草稿、`Send` intent；反向 `UiAction` 通道已落地（core `action.rs` + `Context::poll_action` + executor/facade/TUI 注入），真机验证 App 收到 `Send("你好")`。
 3. **M3 动作**：✅ 已完成——`Copy/Open/Send` 直接入队；`Delete/Edit/Reply/React` 先弹确认层（`Enter` 确认 / `Esc` 取消，居中覆盖层，边框用 `theme.warn`），确认后才产生 intent。
-4. **M4 增强**：✅ keymap/theme 外置；Markdown 子集；代码语法高亮（syntect 纯 Rust）；图片语义组件 + 终端降级（`[图片] alt` + 截断 src，真机验证）。图形协议渲染（`ratatui-image`）作为可选 feature 待做——依赖 Kitty/Sixel，pyte 无法目检。
+4. **M4 增强**：✅ keymap/theme 外置；Markdown 子集；代码语法高亮（syntect 纯 Rust）；图片语义组件 + 终端降级；图形协议渲染（可选 `image` feature，`ratatui-image 9` + `image`，默认关闭）。Kitty 0.51 真机截图四色象限各 19,200 像素、饱和色 7.5%、无降级文本。
 5. **M5 应用接入**：✅ lilyco-qq 已更新 rev 到 `c553be3`，`search` 声明 `chat` 并发送 `MessageList`，`recent` 声明 `conversations` 并发送 `Sidebar`；本地提交 `b3b5619`（该仓库未配置远程，未 push）。
 
 ## 验收

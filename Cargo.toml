@@ -103,6 +103,8 @@ repository = "https://github.com/lilyco-42/lilyco"
 axum = "0.8"
 base64 = "0.22"
 cookie = "0.18"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+ratatui-image = { version = "9", default-features = false, features = ["crossterm"] }
 ring = "0.17"
 scraper = "0.23"
 serde = "1"
