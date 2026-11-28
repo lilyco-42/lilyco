@@ -22,8 +22,7 @@ use lilyco::prelude::*;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
-pub const TEMPLATE_CARGO_TOML: &str =
-    include_str!("../templates/Cargo.toml.tmpl");
+pub const TEMPLATE_CARGO_TOML: &str = include_str!("../templates/Cargo.toml.tmpl");
 pub const TEMPLATE_MAIN_RS: &str = include_str!("../templates/src/main.rs");
 pub const TEMPLATE_SHOW_RS: &str = include_str!("../templates/src/show.rs");
 
