@@ -2,6 +2,8 @@
 //!
 //! 所有下标都会夹紧到合法范围，任何方法都不会 panic。
 
+use lilyco_core::action::UiAction;
+
 /// 本地动作意图；只入队，不执行网络或真实写操作。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChatAction {
@@ -12,6 +14,20 @@ pub enum ChatAction {
     Copy(usize),
     React(usize),
     Open(usize),
+}
+
+impl From<ChatAction> for UiAction {
+    fn from(action: ChatAction) -> Self {
+        match action {
+            ChatAction::Send(text) => UiAction::Send(text),
+            ChatAction::Reply(index) => UiAction::Reply(index),
+            ChatAction::Edit(index) => UiAction::Edit(index),
+            ChatAction::Delete(index) => UiAction::Delete(index),
+            ChatAction::Copy(index) => UiAction::Copy(index),
+            ChatAction::React(index) => UiAction::React(index),
+            ChatAction::Open(index) => UiAction::Open(index),
+        }
+    }
 }
 
 impl ChatAction {

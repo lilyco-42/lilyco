@@ -62,6 +62,8 @@ use lilyco_core::App;
 
 // TUI 后端专属导入（crossterm 不支持 Android，按 feature 门控）
 #[cfg(feature = "tui")]
+use lilyco_core::action::UiAction;
+#[cfg(feature = "tui")]
 use lilyco_core::executor;
 #[cfg(feature = "tui")]
 use lilyco_core::progress::LogLevel;
@@ -458,9 +460,15 @@ fn run_ultra() {
 #[cfg(feature = "tui")]
 fn run_tui<A: App + Send + 'static>() -> std::io::Result<()> {
     let schema = A::schema();
+    let (action_tx, action_rx) = std::sync::mpsc::channel::<UiAction>();
     let mut handlers = std::collections::HashMap::new();
-    handlers.insert(schema.name.clone(), build_handler::<A>());
-    let mut app = lilyco_tui::TuiApp::new(&schema).with_views(A::views());
+    handlers.insert(
+        schema.name.clone(),
+        build_handler_with_actions::<A>(Some(action_rx)),
+    );
+    let mut app = lilyco_tui::TuiApp::new(&schema)
+        .with_views(A::views())
+        .with_action_sender(action_tx);
     run_tui_event_loop(&mut app, &handlers)
 }
 
@@ -548,7 +556,20 @@ fn run_tui_event_loop(
                         "no handler for command `{name}`"
                     )));
                 };
-                task_state = TaskState::Running(executor::spawn(handler, args));
+                // 多命令每次运行重建通道：rx 只能移动一次，handler 又可能复用。
+                // 单命令已在 run_tui 里由 build_handler_with_actions 注入。
+                let action_rx = if app.commands.is_some() {
+                    let (action_tx, action_rx) = std::sync::mpsc::channel::<UiAction>();
+                    app.set_action_sender(Some(action_tx));
+                    Some(action_rx)
+                } else {
+                    None
+                };
+                let task = match action_rx {
+                    Some(action_rx) => executor::spawn_with_actions(handler, args, Some(action_rx)),
+                    None => executor::spawn(handler, args),
+                };
+                task_state = TaskState::Running(task);
             }
         }
 
@@ -571,6 +592,7 @@ fn run_tui_event_loop(
 
         // 4. 已离开 Running（Done / Error / 回到选择页）→ 请求取消并回收线程
         if app.state() != &AppState::Running {
+            let had_task = matches!(task_state, TaskState::Running(_));
             if let TaskState::Running(task) = &task_state {
                 task.cancel
                     .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -579,6 +601,10 @@ fn run_tui_event_loop(
                 let _ = task.handle.join();
             }
             task_state = TaskState::Idle;
+            // 只在任务真正结束后清 sender；不要清掉 run_tui 在 Form/Confirm 前注入的通道
+            if had_task {
+                app.set_action_sender(None);
+            }
         }
 
         // 5. 轮询键盘事件（Running 时短超时，持续刷新 elapsed 计时）
@@ -637,6 +663,26 @@ fn build_handler<A: App + Send + 'static>() -> Handler {
             obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         let a = A::from_args(&map)?;
         a.run(ctx)
+    })
+}
+
+/// 构建带动作接收端的单命令 handler。
+///
+/// 接收端在 handler 首次执行时挂到 executor 提供的 `Context` 上；
+/// 单命令 TUI 只用一次，因此 `Option` 取走后不需要再补。
+#[cfg(feature = "tui")]
+fn build_handler_with_actions<A: App + Send + 'static>(
+    actions: Option<std::sync::mpsc::Receiver<UiAction>>,
+) -> Handler {
+    let actions = Arc::new(std::sync::Mutex::new(actions));
+    let handler = build_handler::<A>();
+    Arc::new(move |ctx, args| {
+        if let Ok(mut slot) = actions.lock() {
+            if let Some(receiver) = slot.take() {
+                ctx.attach_actions(receiver);
+            }
+        }
+        handler(ctx, args)
     })
 }
 
@@ -1296,5 +1342,63 @@ mod tests {
         let cont = app.handle_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(!cont, "Esc 应要求事件循环退出");
         assert!(app.should_quit);
+    }
+
+    /// 单命令 handler 的反向动作通道：App::run 里 poll 到 Send("你好")
+    #[cfg(feature = "tui")]
+    mod action_echo {
+        use crate::__core::error::AppError;
+        use crate::__core::schema::CommandSchema;
+        use crate::__core::{App, Context, UiAction};
+
+        pub struct Echo;
+
+        impl App for Echo {
+            fn schema() -> CommandSchema {
+                CommandSchema {
+                    name: "echo_action".into(),
+                    about: "动作回传测试".into(),
+                    args: vec![],
+                    subcommands: vec![],
+                    safety: crate::__core::safety::SafetyTier::ReadOnly,
+                }
+            }
+
+            fn from_args(
+                _args: &std::collections::HashMap<String, serde_json::Value>,
+            ) -> Result<Self, AppError> {
+                Ok(Echo)
+            }
+
+            fn run(&self, ctx: &Context) -> Result<serde_json::Value, AppError> {
+                let mut received = None;
+                for _ in 0..200 {
+                    match ctx.poll_action() {
+                        Some(UiAction::Send(text)) => {
+                            received = Some(text);
+                            break;
+                        }
+                        Some(_) => break,
+                        None => std::thread::sleep(std::time::Duration::from_millis(5)),
+                    }
+                }
+                Ok(serde_json::json!({ "send": received }))
+            }
+        }
+    }
+
+    #[cfg(feature = "tui")]
+    #[test]
+    fn build_handler_with_actions_delivers_ui_action() {
+        use crate::__core::action::UiAction;
+
+        let (action_tx, action_rx) = std::sync::mpsc::channel::<UiAction>();
+        let handler = build_handler_with_actions::<action_echo::Echo>(Some(action_rx));
+        let task = executor::spawn(handler, serde_json::json!({}));
+        action_tx
+            .send(UiAction::Send("你好".into()))
+            .expect("send action");
+        let result = task.handle.join().expect("join").expect("result");
+        assert_eq!(result["send"], "你好");
     }
 }

@@ -1,7 +1,10 @@
+use std::sync::mpsc::Sender;
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
+use lilyco_core::action::UiAction;
 use lilyco_core::schema::CommandSchema;
 use lilyco_core::view::{Component, ViewSlot};
 
@@ -37,6 +40,8 @@ pub struct TuiApp {
     pub chat: ChatState,
     /// 本地动作 intent 队列（只入队，不执行）
     pub pending_actions: Vec<ChatAction>,
+    /// 动作回传通道；有 sender 时动作直接发送，不进入本地队列
+    action_tx: Option<Sender<UiAction>>,
     /// 聊天键位
     pub keymap: Keymap,
     /// 主题令牌
@@ -62,6 +67,7 @@ impl TuiApp {
             view: ViewState::default(),
             chat: ChatState::default(),
             pending_actions: Vec::new(),
+            action_tx: None,
             keymap: Keymap::load_default(),
             theme: Theme::load_default(),
             g_pending: false,
@@ -91,6 +97,7 @@ impl TuiApp {
             view: ViewState::default(),
             chat: ChatState::default(),
             pending_actions: Vec::new(),
+            action_tx: None,
             keymap: Keymap::load_default(),
             theme: Theme::load_default(),
             g_pending: false,
@@ -116,6 +123,26 @@ impl TuiApp {
     pub fn with_theme(mut self, theme: Theme) -> Self {
         self.theme = theme;
         self
+    }
+
+    /// 注入动作回传 sender（单命令 / 宿主）
+    pub fn with_action_sender(mut self, sender: Sender<UiAction>) -> Self {
+        self.action_tx = Some(sender);
+        self
+    }
+
+    /// 切换或清空动作 sender（多命令每次运行重建通道）
+    pub fn set_action_sender(&mut self, sender: Option<Sender<UiAction>>) {
+        self.action_tx = sender;
+    }
+
+    /// 发送动作：有 sender 时回传 App；无 sender 时保留本地队列
+    fn queue_action(&mut self, action: ChatAction) {
+        if let Some(sender) = &self.action_tx {
+            let _ = sender.send(UiAction::from(action));
+        } else {
+            self.pending_actions.push(action);
+        }
     }
 
     /// 取走本地动作 intent 队列
@@ -461,7 +488,7 @@ impl TuiApp {
             KeyCode::Enter => {
                 if let Some(action) = self.chat.pending_confirm().cloned() {
                     self.chat.clear_confirm();
-                    self.pending_actions.push(action);
+                    self.queue_action(action);
                 }
             }
             KeyCode::Esc => self.chat.clear_confirm(),
@@ -539,7 +566,7 @@ impl TuiApp {
             if action.requires_confirm() {
                 self.chat.request_confirm(action);
             } else {
-                self.pending_actions.push(action);
+                self.queue_action(action);
             }
             return true;
         }
@@ -592,7 +619,7 @@ impl TuiApp {
         }
         if self.keymap.is(KeyAction::Send, key) {
             let draft = self.chat.take_draft();
-            self.pending_actions.push(ChatAction::Send(draft));
+            self.queue_action(ChatAction::Send(draft));
             self.chat.exit_insert();
             return true;
         }
@@ -1036,6 +1063,24 @@ mod tests {
             app.drain_actions(),
             vec![ChatAction::Copy(1), ChatAction::Open(1)]
         );
+    }
+
+    #[test]
+    fn with_action_sender_forwards_chat_action() {
+        let (action_tx, action_rx) = std::sync::mpsc::channel();
+        let mut app = running_app().with_action_sender(action_tx);
+        app.handle_event(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+        app.handle_event(KeyEvent::new(KeyCode::Char('你'), KeyModifiers::NONE));
+        app.handle_event(KeyEvent::new(KeyCode::Char('好'), KeyModifiers::NONE));
+        app.handle_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(
+            action_rx.try_recv().ok(),
+            Some(UiAction::Send("你好".into())),
+            "有 sender 时应直接回传 UiAction"
+        );
+        assert!(app.pending_actions.is_empty(), "有 sender 时本地不积压");
+        assert_eq!(app.chat.draft(), "");
     }
 
     #[test]

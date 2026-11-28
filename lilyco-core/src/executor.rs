@@ -11,6 +11,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 
+use crate::action::UiAction;
 use crate::context::{Context, OutputFormat};
 use crate::error::AppError;
 use crate::progress::Progress;
@@ -33,7 +34,19 @@ pub struct Task {
 /// 消费者（CLI / TUI / MCP）不再需要自己兜底合成，也不会因 handler 忘报
 /// 终态而永久阻塞在 channel 上。
 pub fn spawn(handler: Handler, args: serde_json::Value) -> Task {
-    spawn_with(handler, args, None)
+    spawn_with_actions(handler, args, None)
+}
+
+/// 带 UI 动作接收端的后台任务。
+///
+/// receiver 被注入 handler 的 Context；handler 返回后 Context 随之丢弃，
+/// 动作通道自然关闭，无需额外线程。
+pub fn spawn_with_actions(
+    handler: Handler,
+    args: serde_json::Value,
+    actions: Option<Receiver<UiAction>>,
+) -> Task {
+    spawn_inner(handler, args, None, actions)
 }
 
 /// [`spawn`] 的宿主桥变体：给 handler 的 Context 附加反向能力（采样 / roots）
@@ -45,11 +58,23 @@ pub fn spawn_with(
     args: serde_json::Value,
     host: Option<Arc<dyn crate::context::HostBridge>>,
 ) -> Task {
+    spawn_inner(handler, args, host, None)
+}
+
+fn spawn_inner(
+    handler: Handler,
+    args: serde_json::Value,
+    host: Option<Arc<dyn crate::context::HostBridge>>,
+    actions: Option<Receiver<UiAction>>,
+) -> Task {
     let cancel = Arc::new(AtomicBool::new(false));
     let (tx, rx) = channel();
     let mut ctx = Context::new(tx.clone(), cancel.clone(), OutputFormat::Human);
     if let Some(host) = host {
         ctx = ctx.with_host(host);
+    }
+    if let Some(actions) = actions {
+        ctx = ctx.with_actions(actions);
     }
 
     let handle = std::thread::spawn(move || {
@@ -277,5 +302,37 @@ mod tests {
             .filter(|e| matches!(e, Progress::Done { .. } | Progress::Error { .. }))
             .count();
         assert_eq!(terminals, 1, "exactly one terminal event, got {events:?}");
+    }
+
+    #[test]
+    fn poll_action_without_channel_returns_none() {
+        let (tx, _rx) = channel();
+        let ctx = Context::new_test(tx);
+        assert!(ctx.poll_action().is_none());
+    }
+
+    #[test]
+    fn spawn_with_actions_receives_ui_action() {
+        let (action_tx, action_rx) = channel::<UiAction>();
+        let handler: Handler = Arc::new(|ctx, _args| {
+            let mut received = None;
+            for _ in 0..100 {
+                if let Some(action) = ctx.poll_action() {
+                    if let UiAction::Send(text) = action {
+                        received = Some(text);
+                    }
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Ok(serde_json::json!({ "send": received }))
+        });
+
+        let task = spawn_with_actions(handler, serde_json::json!({}), Some(action_rx));
+        action_tx
+            .send(UiAction::Send("你好".into()))
+            .expect("send action");
+        let result = task.handle.join().expect("join").expect("result");
+        assert_eq!(result["send"], "你好");
     }
 }

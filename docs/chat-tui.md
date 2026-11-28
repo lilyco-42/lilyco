@@ -58,7 +58,7 @@ lilyco-core
 ## 里程碑
 
 1. **M1 只读聊天流**：✅ 已完成（core 组件 + TUI 渲染 + 焦点/选择/滚动 + 单测 + 真机截图）。
-2. **M2 输入**：⚠ 部分完成——composer 插入模式、草稿、`Send` intent 已做；**真实发送需要 UI→App 双向通道**，设计见 `docs/chat-tui-m2-channel.md`（推荐反向 `UiAction` channel），未接网络。
+2. **M2 输入**：✅ 已完成——composer 插入模式、草稿、`Send` intent；反向 `UiAction` 通道已落地（core `action.rs` + `Context::poll_action` + executor/facade/TUI 注入），真机验证 App 收到 `Send("你好")`。
 3. **M3 动作**：✅ 已完成——`Copy/Open/Send` 直接入队；`Delete/Edit/Reply/React` 先弹确认层（`Enter` 确认 / `Esc` 取消，居中覆盖层，边框用 `theme.warn`），确认后才产生 intent。
 4. **M4 增强**：⚠ keymap/theme 外置 ✅；Markdown 子集 ✅（标题/引用/列表/围栏代码/粗斜删除线/行内代码，纯自研无依赖）；代码高亮与图片（`ratatui-image`）待做。
 5. **M5 应用接入**：✅ lilyco-qq 已更新 rev 到 `c553be3`，`search` 声明 `chat` 并发送 `MessageList`，`recent` 声明 `conversations` 并发送 `Sidebar`；本地提交 `b3b5619`（该仓库未配置远程，未 push）。

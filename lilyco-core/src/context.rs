@@ -1,7 +1,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Sender;
-use std::sync::Arc;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
 
+use crate::action::UiAction;
 use crate::error::AppError;
 use crate::progress::{LogLevel, Progress};
 
@@ -34,6 +35,8 @@ pub struct Context {
     terminal_sent: AtomicBool,
     /// 宿主桥（可选）：采样 / roots 等反向能力
     host: Option<Arc<dyn HostBridge>>,
+    /// UI 反向动作接收端（可选）；锁中毒时 poll_action 返回 None
+    action_rx: Mutex<Option<Receiver<UiAction>>>,
 }
 
 /// 输出格式
@@ -60,6 +63,7 @@ impl Context {
             output_format,
             terminal_sent: AtomicBool::new(false),
             host: None,
+            action_rx: Mutex::new(None),
         }
     }
 
@@ -71,6 +75,7 @@ impl Context {
             output_format: OutputFormat::Human,
             terminal_sent: AtomicBool::new(false),
             host: None,
+            action_rx: Mutex::new(None),
         }
     }
 
@@ -82,6 +87,7 @@ impl Context {
             output_format: OutputFormat::Human,
             terminal_sent: AtomicBool::new(false),
             host: None,
+            action_rx: Mutex::new(None),
         }
     }
 
@@ -183,6 +189,26 @@ impl Context {
     pub fn with_host(mut self, host: Arc<dyn HostBridge>) -> Self {
         self.host = Some(host);
         self
+    }
+
+    /// 附加 UI 动作接收端（由 executor 的 `spawn_with_actions` 注入）
+    pub fn with_actions(mut self, actions: Receiver<UiAction>) -> Self {
+        self.action_rx = Mutex::new(Some(actions));
+        self
+    }
+
+    /// 在已有 Context 上附加动作接收端（facade 的 `build_handler_with_actions` 使用）
+    pub fn attach_actions(&self, actions: Receiver<UiAction>) {
+        if let Ok(mut slot) = self.action_rx.lock() {
+            *slot = Some(actions);
+        }
+    }
+
+    /// 非阻塞读取一条 UI 动作；无通道、通道关闭或锁中毒时返回 None
+    pub fn poll_action(&self) -> Option<UiAction> {
+        let guard = self.action_rx.lock().ok()?;
+        let receiver = guard.as_ref()?;
+        receiver.try_recv().ok()
     }
 
     /// 请求宿主 LLM 采样（MCP `sampling/createMessage`）。

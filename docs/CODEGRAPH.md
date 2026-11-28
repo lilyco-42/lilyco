@@ -85,15 +85,15 @@ Windows 包在 `tests/notices.py` 对 `packaging/webview2-sdk.json` 固定的官
 
 | crate | 版本 | 依赖 | 职责一句话 |
 |---|---|---|---|
-| `lilyco-core` | 0.3.2 | serde/thiserror，`ui-schema` 可选 schemars | 领域模型、执行校验与 Web 数据契约 |
+| `lilyco-core` | 0.3.3 | serde/thiserror，`ui-schema` 可选 schemars | 领域模型、执行校验、UI 动作（`UiAction`）与 Web 数据契约 |
 | `lilyco-macros` | 0.3.1 | syn/quote | `#[derive(App)]` / `#[derive(ValueEnum)]` 代码生成，可嵌入应用语言包 |
 | `lilyco-cli` | 0.3.1 | core + clap | 参数类型、分组帮助、面向人员和程序的输出 |
-| `lilyco-tui` | 0.3.2 | core + ratatui | ratatui 表单状态机（单/多命令）、语义视图渲染（ViewState/Component）、运行进度和结果 |
+| `lilyco-tui` | 0.3.3 | core + ratatui | 表单状态机、语义视图渲染、聊天模板（焦点/选择/输入/确认/intent）、keymap/theme 外置 |
 | `lilyco-gui` | 0.3.3 | core + axum/tokio + toml | 默认 shadcn/ui、双语资源、SSE 与 Agent 自描述 |
 | `lilyco-mcp` | 0.3.0 | core（零额外依赖） | MCP 2024-11-05 stdio 服务器 + 进度通知 |
 | `lilyco-tauri` | 0.3.2 | Tauri + lbin sidecar | Office 原生选文件、拖放、双语界面和结果 |
 | `lilyco-native-ui` | 0.3.1 | 独立 workspace，NSH/GTK4 | `UiSpec` 原生渲染、表单焦点和选择状态 |
-| `lilyco` | 0.3.1 | 全部 | **唯一组合根**：后端自动选择 + 各形态入口 |
+| `lilyco` | 0.3.2 | 全部 | **唯一组合根**：后端自动选择 + 各形态入口 |
 | `lilyco-dev` | 0.3.0 | facade | **元 CLI**（bin `lilyco`）：`new` 脚手架 / `build` / `run` / `doc` 能力表 —— 它自己就是四命令的 dogfooding 样板 |
 | `lilyco-vision` | 0.3.1 | facade + image + vtracer + tempfile | 原有八视觉工具；截图独立临时 profile，图片工坊通过 MCP 复用 |
 | `lilyco-web2cli` | 0.3.2 | facade + ureq + html5ever + tungstenite + base64 + url + regex + toml + tempfile | **Web2CLI**：网页 / OpenAPI / HAR 自动发现并编译为 `Registry`（CLI / TUI / Web / MCP），内置 Cloudflare 响应诊断、ego-lite 人工交接、分类资料库（`vault`）、多格式 Cookie 导入、CDP 多层 `iframe` 控制、多步向导与人类审核闸门（`review`/`wizard`）、成功模板沉淀（`recipe`） |

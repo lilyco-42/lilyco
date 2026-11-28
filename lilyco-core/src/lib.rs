@@ -14,6 +14,7 @@
 
 // ── 模块声明 ──────────────────────────────────────────────
 
+pub mod action;
 pub mod app;
 pub mod context;
 pub mod error;
@@ -27,10 +28,13 @@ pub mod view;
 pub mod web_ui;
 
 // Re-exports at crate root for macro-generated code
+pub use action::UiAction;
 pub use app::{App, Renderer};
 pub use context::{Context, HostBridge, OutputFormat};
 pub use error::AppError;
-pub use executor::{execute, execute_with, spawn, spawn_with, RunOutcome, Task};
+pub use executor::{
+    execute, execute_with, spawn, spawn_with, spawn_with_actions, RunOutcome, Task,
+};
 pub use progress::{LogLevel, Progress};
 pub use registry::{Handler, RegisteredCommand, Registry, RegistryError};
 pub use safety::{
@@ -492,10 +496,13 @@ mod tests {
 
 /// Lilyco 的 prelude：一次导入所有常用类型和 trait
 pub mod prelude {
+    pub use crate::action::UiAction;
     pub use crate::app::{App, Renderer};
     pub use crate::context::{Context, HostBridge, OutputFormat};
     pub use crate::error::AppError;
-    pub use crate::executor::{execute, execute_with, spawn, spawn_with, RunOutcome, Task};
+    pub use crate::executor::{
+        execute, execute_with, spawn, spawn_with, spawn_with_actions, RunOutcome, Task,
+    };
     pub use crate::progress::{LogLevel, Progress};
     pub use crate::registry::{Handler, RegisteredCommand, Registry, RegistryError};
     pub use crate::safety::{
