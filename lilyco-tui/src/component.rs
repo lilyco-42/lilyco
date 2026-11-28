@@ -11,11 +11,31 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Gauge, Paragraph, Sparkline, Tabs, Widget, Wrap};
+use std::sync::OnceLock;
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{FontStyle, Style as SyntectStyle, ThemeSet};
+use syntect::parsing::SyntaxSet;
+use syntect::util::LinesWithEndings;
 
 use crate::theme::{color, Theme};
 
 /// 适配器标识
 pub const ADAPTER_ID: &str = "lilyco-tui";
+
+/// 代码块固定深色背景；保证内置暗色主题的高对比前景可读
+const CODE_BLOCK_BG: Color = Color::Rgb(16, 18, 24);
+const CODE_THEME: &str = "base16-ocean.dark";
+
+static SYNTAXES: OnceLock<SyntaxSet> = OnceLock::new();
+static THEMES: OnceLock<ThemeSet> = OnceLock::new();
+
+fn syntaxes() -> &'static SyntaxSet {
+    SYNTAXES.get_or_init(SyntaxSet::load_defaults_newlines)
+}
+
+fn themes() -> &'static ThemeSet {
+    THEMES.get_or_init(ThemeSet::load_defaults)
+}
 
 /// 本适配器的能力声明（框架协议要求的显式契约）
 pub fn adapter_capabilities() -> AdapterCapabilities {
@@ -290,24 +310,28 @@ fn wrap_body_styled(body: &str, width: u16, theme: &Theme) -> Vec<Line<'static>>
     let text = theme.text_style();
     let heading = theme.accent_style().add_modifier(Modifier::BOLD);
     let quote_prefix = styled_chars("│ ", muted);
-    let code_prefix = styled_chars("│ ", muted);
     let bullet_prefix = styled_chars("• ", text);
     let continuation = styled_chars("  ", text);
 
     let mut lines = Vec::new();
     let mut in_code = false;
+    let mut code_lang = String::new();
+    let mut code = String::new();
     for raw in body.split('\n') {
         if in_code {
             if raw.starts_with("```") {
                 in_code = false;
+                append_code_block(&mut lines, &code_lang, &code, width, theme);
             } else {
-                let content = styled_chars(raw, muted);
-                append_wrapped(&mut lines, &content, &code_prefix, &code_prefix, width);
+                code.push_str(raw);
+                code.push('\n');
             }
             continue;
         }
         if raw.starts_with("```") {
             in_code = true;
+            code_lang = raw.trim_start_matches('`').trim().to_string();
+            code.clear();
             continue;
         }
         if let Some(content) = raw.strip_prefix("### ") {
@@ -330,6 +354,9 @@ fn wrap_body_styled(body: &str, width: u16, theme: &Theme) -> Vec<Line<'static>>
             append_wrapped(&mut lines, &content, &[], &[], width);
         }
     }
+    if in_code {
+        append_code_block(&mut lines, &code_lang, &code, width, theme);
+    }
     if lines.is_empty() {
         lines.push(Line::default());
     }
@@ -338,6 +365,115 @@ fn wrap_body_styled(body: &str, width: u16, theme: &Theme) -> Vec<Line<'static>>
 
 fn styled_chars(text: &str, style: Style) -> Vec<StyledChar> {
     text.chars().map(|ch| StyledChar { ch, style }).collect()
+}
+
+fn append_code_block(
+    out: &mut Vec<Line<'static>>,
+    lang: &str,
+    code: &str,
+    width: u16,
+    theme: &Theme,
+) {
+    let known = code_syntax(lang).is_some() && themes().themes.contains_key(CODE_THEME);
+    let prefix_style = if known {
+        theme.border_style().bg(CODE_BLOCK_BG)
+    } else {
+        theme.muted_style().bg(CODE_BLOCK_BG)
+    };
+    let prefix = styled_chars("│ ", prefix_style);
+    for line in highlight_code(lang, code, theme) {
+        let content = line_to_styled_chars(&line);
+        append_wrapped(out, &content, &prefix, &prefix, width);
+    }
+}
+
+/// 高亮围栏代码块；未知语言/缺失主题回退 muted 纯文本。
+fn highlight_code(lang: &str, code: &str, theme: &Theme) -> Vec<Line<'static>> {
+    let Some(syntax) = code_syntax(lang) else {
+        return plain_code_lines(code, theme);
+    };
+    let Some(theme_def) = themes().themes.get(CODE_THEME) else {
+        return plain_code_lines(code, theme);
+    };
+
+    let base = theme.text_style().bg(CODE_BLOCK_BG);
+    let mut highlighter = HighlightLines::new(syntax, theme_def);
+    let mut lines = Vec::new();
+    for raw in LinesWithEndings::from(code) {
+        let ranges = match highlighter.highlight_line(raw, syntaxes()) {
+            Ok(ranges) => ranges,
+            Err(_) => return plain_code_lines(code, theme),
+        };
+        let mut spans = Vec::new();
+        for (style, text) in ranges {
+            let clean: String = text
+                .chars()
+                .filter(|ch| *ch != '\n' && *ch != '\r')
+                .collect();
+            if clean.is_empty() {
+                continue;
+            }
+            spans.push(Span::styled(clean, map_syntect_style(style, base)));
+        }
+        lines.push(Line::from(spans));
+    }
+    if lines.is_empty() {
+        lines.push(Line::default());
+    }
+    lines
+}
+
+fn plain_code_lines(code: &str, theme: &Theme) -> Vec<Line<'static>> {
+    let style = theme.muted_style().bg(CODE_BLOCK_BG);
+    let mut lines: Vec<Line<'static>> = code
+        .lines()
+        .map(|line| Line::from(Span::styled(line.to_string(), style)))
+        .collect();
+    if lines.is_empty() {
+        lines.push(Line::default());
+    }
+    lines
+}
+
+fn code_syntax(lang: &str) -> Option<&'static syntect::parsing::SyntaxReference> {
+    let lang = lang.trim();
+    if lang.is_empty() {
+        return None;
+    }
+    let set = syntaxes();
+    set.find_syntax_by_token(lang)
+        .or_else(|| set.find_syntax_by_extension(lang))
+}
+
+fn line_to_styled_chars(line: &Line<'static>) -> Vec<StyledChar> {
+    let mut chars = Vec::new();
+    for span in &line.spans {
+        for ch in span.content.chars() {
+            chars.push(StyledChar {
+                ch,
+                style: span.style,
+            });
+        }
+    }
+    chars
+}
+
+fn map_syntect_style(style: SyntectStyle, base: Style) -> Style {
+    let mut style_out = base.fg(Color::Rgb(
+        style.foreground.r,
+        style.foreground.g,
+        style.foreground.b,
+    ));
+    if style.font_style.contains(FontStyle::BOLD) {
+        style_out = style_out.add_modifier(Modifier::BOLD);
+    }
+    if style.font_style.contains(FontStyle::ITALIC) {
+        style_out = style_out.add_modifier(Modifier::ITALIC);
+    }
+    if style.font_style.contains(FontStyle::UNDERLINE) {
+        style_out = style_out.add_modifier(Modifier::UNDERLINED);
+    }
+    style_out
 }
 
 fn append_wrapped(
@@ -1820,10 +1956,62 @@ mod tests {
 
         let theme = Theme::default();
         let buf = render_buffer(&component, 40, 6);
-        let (x, y) = find_symbol(&buf, 40, 6, "l").expect("代码单元格");
-        let cell = buf.cell((x, y)).expect("代码单元格");
-        assert_eq!(cell.fg, color(&theme.muted), "代码块应为 muted");
-        assert!(cell.modifier.contains(Modifier::DIM));
+        let (x, y) = find_symbol(&buf, 40, 6, "│").expect("代码块前缀");
+        let cell = buf.cell((x, y)).expect("代码块前缀");
+        assert_eq!(
+            cell.fg,
+            color(&theme.border),
+            "代码块前缀应使用 theme.border"
+        );
+    }
+
+    #[test]
+    fn code_block_rust_highlights_keywords() {
+        let component = message_list("```rust\nfn main() {}\n```");
+        let theme = Theme::default();
+        let buf = render_buffer(&component, 40, 6);
+        let (x, y) = find_symbol(&buf, 40, 6, "f").expect("关键字单元格");
+        let cell = buf.cell((x, y)).expect("关键字单元格");
+        assert!(
+            matches!(cell.fg, Color::Rgb(_, _, _)),
+            "关键字应使用 syntect RGB 前景: {:?}",
+            cell.fg
+        );
+        assert_ne!(cell.fg, color(&theme.text), "关键字不应是默认正文色");
+    }
+
+    #[test]
+    fn code_block_unknown_language_falls_back_to_plain() {
+        let component = message_list("```unknown\nabc\n```");
+        let out = render_to_string(&component, 40, 6);
+        assert!(out.contains("│ abc"), "{out}");
+
+        let theme = Theme::default();
+        let buf = render_buffer(&component, 40, 6);
+        let (x, y) = find_symbol(&buf, 40, 6, "a").expect("回退代码单元格");
+        let cell = buf.cell((x, y)).expect("回退代码单元格");
+        assert_eq!(cell.fg, color(&theme.muted), "未知语言应回退 muted");
+    }
+
+    #[test]
+    fn code_block_measure_matches_render() {
+        let body = "```rust\nfn main() {\n    println!(\"hi\");\n}\n```";
+        let component = message_list(body);
+        let theme = Theme::default();
+        let body_lines = wrap_body_styled(body, 40, &theme).len();
+        let height = measure(&component, 40);
+        assert_eq!(
+            usize::from(height),
+            body_lines + 2,
+            "头部 1 行 + 代码块 + 空行 1 行"
+        );
+
+        let out = render_to_string(&component, 40, height);
+        assert!(
+            out.contains("println!(\"hi\");"),
+            "中间代码行不应丢失: {out}"
+        );
+        assert!(out.contains("│ }"), "最后一行代码不应丢失: {out}");
     }
 
     #[test]

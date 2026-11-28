@@ -1,6 +1,6 @@
 [package]
 name = "lilyco-tui"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 description = "Lilyco TUI renderer — interactive terminal form with live CLI preview"
 license = "MIT OR Apache-2.0"
@@ -14,6 +14,7 @@ ratatui = "0.29"
 crossterm = "0.28"
 serde = { workspace = true, features = ["derive"] }
 serde_json = "1"
+syntect.workspace = true
 toml.workspace = true
 
 [dev-dependencies]
