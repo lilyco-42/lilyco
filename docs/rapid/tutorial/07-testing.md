@@ -1,16 +1,16 @@
 # 第 7 章 · 测试与 CI
 
 > **本章你会学到**
-> 1. 生成项目自带的 HTTP 测试覆盖什么；
+> 1. 主 workspace 的 HTTP 测试覆盖什么；
 > 2. 用 `/openapi.json` 做契约断言；
 > 3. 在主 workspace 里跑 Rapid 的测试；
 > 4. 把格式、Clippy、测试放进 CI。
 
 ---
 
-## 7.1 生成项目的测试
+## 7.1 框架测试
 
-`server/tests/http.rs` 已覆盖：
+`crates/rapid-server/tests/http.rs` 覆盖：
 
 - 健康检查与就绪检查；
 - 列表、创建、读取、替换、删除；
@@ -18,14 +18,13 @@
 - 分页游标；
 - 存储重启后的数据持久化。
 
-运行：
+在 Lilyco 仓库根目录运行：
 
 ```sh
-cd notes
 cargo test -p rapid-server
 ```
 
-测试使用 `tempfile` 目录中的 SQLite，不碰你的 `data/rapid.sqlite3`。
+生成项目本身不包含框架测试；你可以在 `server/tests/` 下按同样方式添加业务测试。测试使用临时 SQLite，不碰项目的 `data/rapid.sqlite3`。
 
 ---
 
@@ -36,7 +35,7 @@ cargo test -p rapid-server
 ```rust
 #[tokio::test]
 async fn hello_is_documented() {
-    let app = project_router(/* 测试配置 */).await;
+    let app = app_server::router(/* 测试配置 */).await.unwrap();
     let response = app
         .oneshot(Request::get("/openapi.json").body(Body::empty()).unwrap())
         .await

@@ -3,7 +3,7 @@
 安装：
 
 ```sh
-cargo install --locked --path crates/lilyco-rapid
+cargo install --locked lilyco-rapid
 ```
 
 全局：

@@ -8,7 +8,7 @@
 | **驱动（driver）** | 存储实现，如 `rusqlite`、`sqlx`、`seaorm`、`mongodb`、`libsql` |
 | **预设（preset）** | `api` 仅后端；`fullstack` 含前端与 Caddy |
 | **入口（gateway）** | `direct` 直连、`caddy`、`pingap` |
-| **源码快照** | `new` 生成的 `core/`、`server/`、`ops/lilyco-no_std/`，可脱离主仓独立构建 |
+| **版本依赖** | 生成项目通过 crates.io 依赖 `rapid-core` / `rapid-server`，不复制框架源码 |
 | **工作台** | `web/` 前端，消费 `/openapi.json` 与资源 API |
 | **契约** | `/openapi.json` 描述的请求/响应 schema |
 | **游标** | 列表分页的 `after` / `next` 值，基于自增 ID |
@@ -18,6 +18,6 @@
 | **Pingap** | 按路径分流的反向代理 |
 | **Caddy** | 全栈默认入口，静态文件 + API 反代 |
 | **`Rapid.toml`** | 项目外置配置：端口、存储、分页、文本上限 |
-| **workspace** | 生成项目的 Cargo 工作区，成员为 `core` 与 `server` |
-| **`lilyco-no_std`** | 无分配 Agent 核心，`core/` 的校验基础 |
+| **workspace** | 生成项目的 Cargo 工作区，成员为 `app-core` 与 `app-server` |
+| **`lilyco-no_std`** | 无分配 Agent 核心，`rapid-core` 的依赖 |
 | **Claude / MCP** | 与本教程无关；Rapid 的入口是 HTTP，不是 MCP |

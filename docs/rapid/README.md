@@ -11,9 +11,9 @@ Lilyco Rapid 是主 workspace `crates/` 下的全栈框架，由四个 crate 组
 | `crates/lilyco-rapid` | CLI：`new` / `generate` / `dev` / `data` |
 | `crates/rapid-core` | 类型化端点与资源配置核心 |
 | `crates/rapid-server` | Axum 运行时、OpenAPI、SQLite/SQLx/Mongo/SeaORM 存储 |
-| `crates/lilyco-no_std` | 无分配 Agent 核心（生成项目携带源码快照） |
+| `crates/lilyco-no_std` | 无分配 Agent 核心；作为 `rapid-core` 的依赖 |
 
-`lilyco-rapid new` 生成的项目是**独立 workspace**，不依赖本仓库即可构建与部署。
+`lilyco-rapid new` 生成的项目是**独立 workspace**，通过 crates.io 依赖 `rapid-core` / `rapid-server`，不复制框架源码。
 
 ## Why
 
@@ -25,10 +25,8 @@ Lilyco Rapid 是主 workspace `crates/` 下的全栈框架，由四个 crate 组
 
 ## How（5 分钟）
 
-在 Lilyco 仓库根目录：
-
 ```sh
-cargo install --locked --git https://github.com/Lyco-team/lilyco lilyco-rapid
+cargo install --locked lilyco-rapid
 
 lilyco-rapid new notes --preset api
 cd notes
@@ -78,7 +76,7 @@ python3 docs/rapid/check-links.py
 
 ## 设计取舍
 
-- 生成项目**不依赖本仓库路径**：`core/`、`server/`、`ops/lilyco-no_std/` 都是源码快照。
+- 生成项目**不复制框架源码**：`core/` 与 `server/` 是业务骨架，依赖 crates.io 上的 `rapid-core` / `rapid-server`。
 - CLI 的内嵌模板位于 `crates/lilyco-rapid/templates/`，修改模板后必须重新编译 CLI。
 - 后端不渲染 UI；`web/` 是独立前端，通过 `/openapi.json` 获取契约。
 - 展示性字段、分页大小等可调参数在 `Rapid.toml`，不要写死在业务代码里。

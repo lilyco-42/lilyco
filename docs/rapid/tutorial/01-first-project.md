@@ -10,10 +10,10 @@
 
 ## 1.1 安装 CLI
 
-从官方仓库安装：
+从 crates.io 安装：
 
 ```sh
-cargo install --locked --git https://github.com/Lyco-team/lilyco lilyco-rapid
+cargo install --locked lilyco-rapid
 ```
 
 > 在 Lilyco 仓库内开发时，可用 `cargo install --locked --path crates/lilyco-rapid` 安装本地版本。
@@ -24,7 +24,7 @@ cargo install --locked --git https://github.com/Lyco-team/lilyco lilyco-rapid
 lilyco-rapid --version
 ```
 
-应输出 `lilyco-rapid 0.1.4`（以仓库 `Cargo.toml` 为准）。
+应输出 `lilyco-rapid 0.1.5`（以 crates.io 最新版本为准）。
 
 > CLI 的模板通过 `include_dir!` 编译期内嵌。修改 `crates/lilyco-rapid/templates/` 后，必须重新安装或 `cargo build -p lilyco-rapid`，否则生成的项目仍是旧模板。
 
@@ -44,44 +44,34 @@ cd notes
 ```text
 notes/
 ├── Cargo.toml          # 独立 workspace：core + server
-├── Cargo.lock
 ├── Rapid.toml          # 端口、存储路径、资源分页
 ├── compose.yaml
 ├── .gitignore
 ├── .dockerignore
 ├── LICENSE
 ├── README.md
-├── core/
-│   ├── Cargo.toml      # rapid-core 的源码快照
+├── core/               # app-core（业务资源）
+│   ├── Cargo.toml      # 依赖 crates.io 的 rapid-core
 │   ├── build.rs        # 注册 resources/ 下的模块
 │   ├── resources/tasks.rs
-│   └── src/lib.rs
-├── server/
-│   ├── Cargo.toml      # rapid-server 的源码快照
-│   ├── migrations/     # SQLite/Postgres/MySQL/Surreal 建表
-│   ├── src/
-│   │   ├── main.rs
-│   │   ├── app.rs      # 你的业务端点注册在这里
-│   │   ├── routes.rs
-│   │   ├── data.rs
-│   │   ├── store.rs
-│   │   ├── config.rs
-│   │   ├── error.rs
-│   │   ├── endpoint.rs
-│   │   └── openapi.rs
-│   └── tests/http.rs
+│   └── src/lib.rs      # re-export rapid-core 类型 + 注册宏
+├── server/             # app-server（业务端点与启动）
+│   ├── Cargo.toml      # 依赖 crates.io 的 rapid-server
+│   └── src/
+│       ├── main.rs     # HTTP 启动 + data 子命令
+│       ├── lib.rs      # 组装 Api 与资源注册
+│       └── app.rs      # 你的业务端点注册在这里
 └── ops/
-    ├── Dockerfile.api
-    └── lilyco-no_std/  # 核心源码快照
+    └── Dockerfile.api
 ```
 
 三个决定，每个都有后果：
 
 | 位置 | 后果 |
 |---|---|
-| `core/` 是源码快照，不是路径依赖 | 项目可脱离本仓库独立构建、发布 |
+| `core/` 与 `server/` 是业务骨架 | 只写业务代码，框架由 crates.io 的 `rapid-core` / `rapid-server` 提供 |
 | `server/Cargo.toml` 默认启用 SQLite | 不装 Docker 也能启动 |
-| `ops/lilyco-no_std/` 被 `exclude` | 它参与编译但不是 workspace 成员，避免与主仓特性冲突 |
+| 生成的 crate 名为 `app-core` / `app-server` | 与发布的 rapid crate 不重名，可同时依赖 |
 
 ---
 

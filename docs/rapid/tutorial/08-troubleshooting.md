@@ -76,7 +76,7 @@ curl -s http://127.0.0.1:8421/readyz
 CLI 模板是编译期内嵌的：
 
 ```sh
-cargo install --locked --path crates/lilyco-rapid --force
+cargo install --locked lilyco-rapid --force
 ```
 
 或开发时：
@@ -89,7 +89,7 @@ cargo build -p lilyco-rapid
 
 ### `Cargo.lock` 与 `--locked` 失败
 
-生成项目自带锁文件。依赖被手动改动后：
+生成项目首次 `cargo build` 会创建 `Cargo.lock`；发布前提交它。依赖被手动改动后：
 
 ```sh
 cd notes
@@ -105,7 +105,7 @@ cargo update -p <crate>
 ### 升级 CLI
 
 ```sh
-cargo install --locked --path crates/lilyco-rapid --force
+cargo install --locked lilyco-rapid --force
 lilyco-rapid --version
 ```
 

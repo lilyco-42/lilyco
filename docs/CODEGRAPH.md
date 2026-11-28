@@ -89,8 +89,8 @@ Windows 包在 `tests/notices.py` 对 `packaging/webview2-sdk.json` 固定的官
 | `lilyco-core` | 0.3.0 | serde/thiserror | 领域模型 + 执行语义 + 校验，零 UI 依赖 |
 | `lilyco-no_std` | 0.1.1 | heapless（可选 cap-std/ureq/extism） | 无分配 Agent 核心；`std`/`llm-*`/`wasm-tools` 由 feature 门控 |
 | `rapid-core` | 0.1.0 | lilyco-no_std + serde | 类型化 API 核心（schema feature 提供 JSON Schema） |
-| `rapid-server` | 0.1.4 | rapid-core + axum + SQLite/可选 SQLx/Mongo/SeaORM | Axum 运行时、OpenAPI/交互文档、多存储驱动 |
-| `lilyco-rapid` | 0.1.4 | clap/include_dir | 脚手架/CLI：生成并运行类型化全栈项目（模板内嵌） |
+| `rapid-server` | 0.1.5 | rapid-core + axum + SQLite/可选 SQLx/Mongo/SeaORM | Axum 运行时、OpenAPI/交互文档、多存储驱动 |
+| `lilyco-rapid` | 0.1.5 | clap/include_dir | 脚手架/CLI：生成并运行类型化全栈项目（模板内嵌） |
 | `lilyco-macros` | 0.3.0 | syn/quote | `#[derive(App)]` / `#[derive(ValueEnum)]` 代码生成 |
 | `lilyco-cli` | 0.3.0 | core + clap | schema → clap 渲染 + 内置标志 + 输出格式化 |
 | `lilyco-tui` | 0.3.0 | core + ratatui | ratatui 表单状态机（单/多命令），不持有执行逻辑 |
