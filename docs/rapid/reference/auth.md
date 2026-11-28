@@ -70,7 +70,7 @@ cargo test -p rapid-server --features auth --test auth
 
 结果：**2 passed**，覆盖未登录 401、登录 200、admin 授权、viewer 越权 403、连续请求 429、会话续期。
 
-生成项目端到端（rapid-server 0.1.8 + lilyco-rapid 0.1.10）：
+生成项目端到端（rapid-server 0.1.8 + lilyco-rapid 0.1.11）：
 
 ```text
 health=204
