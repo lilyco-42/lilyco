@@ -7,7 +7,7 @@ use clap::{Arg, ArgAction, Command};
 
 use lilyco_core::prelude::*;
 
-use crate::command::{build_command, leak_str};
+use crate::command::{build_command, leak_str, HELP_STYLES};
 use crate::renderer::CliRenderer;
 
 /// 多命令一行启动：把整个 [`Registry`] 渲染成 clap 子命令树。
@@ -63,6 +63,7 @@ where
 /// `resolve_registry_command` 在运行期解析。
 pub fn build_registry_command(app_name: &str, registry: &Registry) -> Command {
     let mut root = Command::new(leak_str(app_name))
+        .styles(HELP_STYLES)
         .disable_version_flag(true)
         .arg_required_else_help(true);
 
@@ -80,9 +81,31 @@ pub fn build_registry_command(app_name: &str, registry: &Registry) -> Command {
     root.arg(
         Arg::new("schema")
             .long("schema")
+            .help_heading("自动化")
             .help("打印注册表 JSON 清单（全部命令）并退出")
             .action(ArgAction::SetTrue)
             .exclusive(true),
+    )
+    .arg(
+        Arg::new("tui")
+            .long("tui")
+            .help_heading("后端")
+            .help("以交互式 TUI 启动（由 lilyco facade 处理）")
+            .action(ArgAction::SetTrue),
+    )
+    .arg(
+        Arg::new("gui")
+            .long("gui")
+            .help_heading("后端")
+            .help("以 Web GUI 启动（由 lilyco facade 处理）")
+            .action(ArgAction::SetTrue),
+    )
+    .arg(
+        Arg::new("mcp")
+            .long("mcp")
+            .help_heading("后端")
+            .help("以 MCP stdio 服务启动（由 lilyco facade 处理）")
+            .action(ArgAction::SetTrue),
     )
 }
 
@@ -145,16 +168,19 @@ pub(crate) fn drain_events(task: Task, output_format: OutputFormat) {
         _ => {
             for event in task.rx {
                 match &event {
+                    Progress::Started {
+                        message: Some(message),
+                        ..
+                    } => eprintln!("  Start  {message}"),
                     Progress::Tick {
-                        message, percent, ..
-                    } => {
-                        if let Some(msg) = message {
-                            let pct = percent
-                                .map(|p| format!("{:3.0}%", p * 100.0))
-                                .unwrap_or_default();
-                            eprintln!("\r  {pct}  {msg}");
-                        }
-                    }
+                        message: Some(message),
+                        percent: Some(percent),
+                        ..
+                    } => eprintln!("  {:>3.0}%  {message}", percent * 100.0),
+                    Progress::Tick {
+                        message: Some(message),
+                        ..
+                    } => eprintln!("        {message}"),
                     Progress::Log { level, message } => {
                         eprintln!("  [{level:?}] {message}");
                     }
@@ -170,17 +196,16 @@ pub(crate) fn drain_events(task: Task, output_format: OutputFormat) {
                                 println!("{r}");
                             }
                         }
-                        eprintln!("\n  Done in {duration_ms}ms");
+                        eprintln!("  Done in {duration_ms}ms");
                         break;
                     }
                     Progress::Error { message, .. } => {
-                        eprintln!("\n  Error: {message}");
+                        eprintln!("  Error: {message}");
                         std::process::exit(1);
                     }
                     _ => {}
                 }
             }
-            eprintln!();
         }
     }
 
