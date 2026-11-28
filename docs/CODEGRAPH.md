@@ -93,7 +93,7 @@ Windows 包在 `tests/notices.py` 对 `packaging/webview2-sdk.json` 固定的官
 | `lilyco-mcp` | 0.3.0 | core（零额外依赖） | MCP 2024-11-05 stdio 服务器 + 进度通知 |
 | `lilyco-tauri` | 0.3.2 | Tauri + lbin sidecar | Office 原生选文件、拖放、双语界面和结果 |
 | `lilyco-native-ui` | 0.3.1 | 独立 workspace，NSH/GTK4 | `UiSpec` 原生渲染、表单焦点和选择状态 |
-| `lilyco` | 0.3.2 | 全部 | **唯一组合根**：后端自动选择 + 各形态入口 |
+| `lilyco` | 0.3.3 | 全部；TUI 图片可选 `tui-image` | **唯一组合根**：后端自动选择 + 各形态入口 |
 | `lilyco-dev` | 0.3.0 | facade | **元 CLI**（bin `lilyco`）：`new` 脚手架 / `build` / `run` / `doc` 能力表 —— 它自己就是四命令的 dogfooding 样板 |
 | `lilyco-vision` | 0.3.1 | facade + image + vtracer + tempfile | 原有八视觉工具；截图独立临时 profile，图片工坊通过 MCP 复用 |
 | `lilyco-web2cli` | 0.3.2 | facade + ureq + html5ever + tungstenite + base64 + url + regex + toml + tempfile | **Web2CLI**：网页 / OpenAPI / HAR 自动发现并编译为 `Registry`（CLI / TUI / Web / MCP），内置 Cloudflare 响应诊断、ego-lite 人工交接、分类资料库（`vault`）、多格式 Cookie 导入、CDP 多层 `iframe` 控制、多步向导与人类审核闸门（`review`/`wizard`）、成功模板沉淀（`recipe`） |

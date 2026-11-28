@@ -1,6 +1,6 @@
 [package]
 name = "lilyco"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 description = "Lilyco facade — one dependency, auto backend selection (CLI / TUI / Web / MCP)"
 license = "MIT OR Apache-2.0"
@@ -34,6 +34,8 @@ full = ["tui", "web", "ultra"]
 # Android/Termux 等无 crossterm 平台：
 #   --no-default-features（只剩 CLI + MCP，纯 Rust，aarch64-linux-android 可编）
 tui = ["dep:lilyco-tui", "dep:crossterm", "dep:ratatui"]
+# TUI 图片图形渲染（可选）：Kitty/Sixel 终端下启用 ratatui-image
+tui-image = ["tui", "lilyco-tui/image"]
 web = ["dep:lilyco-gui", "dep:tokio"]
 # Ultra UI：JSON → React 生成器 playground（--ultra）
 # run_ultra 自建 tokio runtime，所以单开 ultra 也必须带 dep:tokio
