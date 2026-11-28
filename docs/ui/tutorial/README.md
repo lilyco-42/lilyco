@@ -49,7 +49,7 @@
 |---|---|---|
 | Rust | 1.75+（edition 2021） | `rustc --version` |
 | cargo | 随 rustup 安装 | `cargo --version` |
-| 本仓库 | 有 `/home/lilyco/code/lilyco` 可读 | `ls lilyco/Cargo.toml` |
+| 依赖 | crates.io 上的 `lilyco` 0.3.1 可下载 | 第 1 章会写进 `Cargo.toml` |
 | 浏览器 | 能开 `http://127.0.0.1:*` | 第 1 章会用到 |
 
 不需要 Node、Python、Docker。Web 端是内嵌单页，不依赖任何前端工具链。

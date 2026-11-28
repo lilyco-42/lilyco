@@ -9,7 +9,7 @@
 
 ```toml
 [dependencies]
-lilyco = { path = "/home/lilyco/code/lilyco/lilyco", features = ["tui", "web"] }
+lilyco = { version = "0.3.1", features = ["tui", "web"] }
 serde_json = "1"
 ```
 

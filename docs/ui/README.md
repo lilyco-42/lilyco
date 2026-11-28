@@ -62,8 +62,8 @@
 
 ## 唯一来源
 
-- **数值**只有一个来源：[`lilyco-gui/DESIGN.md`](../../lilyco-gui/DESIGN.md)。本文档只叙述规则与用法，不复制第二份数值表。
-- **实现**只有一个来源：`lilyco-gui/assets/app.css` 与 `lilyco-gui/assets/index.html`。
+- **数值**只有一个来源：[`crates/lilyco-gui/DESIGN.md`](../../crates/lilyco-gui/DESIGN.md)。本文档只叙述规则与用法，不复制第二份数值表。
+- **实现**只有一个来源：`crates/lilyco-gui/assets/app.css` 与 `crates/lilyco-gui/assets/index.html`。
 - 两者冲突时，以**代码 + 测试**为准，然后回来改文档。
 
 改样式前请先读 [03 · 设计语言](03-design-language.md) 的「改之前先看闸门」一节：

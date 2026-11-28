@@ -10,11 +10,13 @@
 
 ## 1.1 安装 CLI
 
-在 Lilyco 仓库根目录：
+从官方仓库安装：
 
 ```sh
-cargo install --locked --path crates/lilyco-rapid
+cargo install --locked --git https://github.com/Lyco-team/lilyco lilyco-rapid
 ```
+
+> 在 Lilyco 仓库内开发时，可用 `cargo install --locked --path crates/lilyco-rapid` 安装本地版本。
 
 确认版本：
 

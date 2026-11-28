@@ -106,7 +106,7 @@ cd /tmp/rapid-smoke/smoke && cargo metadata --locked --no-deps >/dev/null
 
 ```sh
 cd notes && cargo test -p rapid-server
-cd /home/lilyco/code/lilyco   # 或你的仓库根
+cd <lilyco 仓库根>
 cargo test -p rapid-core -p rapid-server -p lilyco-rapid
 ```
 

@@ -28,12 +28,14 @@ Lilyco Rapid 是主 workspace `crates/` 下的全栈框架，由四个 crate 组
 在 Lilyco 仓库根目录：
 
 ```sh
-cargo install --locked --path crates/lilyco-rapid
+cargo install --locked --git https://github.com/Lyco-team/lilyco lilyco-rapid
 
 lilyco-rapid new notes --preset api
 cd notes
 lilyco-rapid dev
 ```
+
+> 在 Lilyco 仓库内开发时，也可用 `cargo install --locked --path crates/lilyco-rapid` 安装本地版本。
 
 另开终端：
 
