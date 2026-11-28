@@ -31,7 +31,7 @@ fn presets_generate_portable_paths_and_refuse_to_overwrite() {
         assert!(
             fs::read_to_string(product.join("Cargo.toml"))
                 .unwrap()
-                .contains("rapid-server = \"0.1.5\"")
+                .contains("rapid-server = \"0.1.8\"")
         );
         assert_eq!(product.join("web/pnpm-workspace.yaml").exists(), fullstack);
         let metadata = Command::new("cargo")
@@ -47,6 +47,24 @@ fn presets_generate_portable_paths_and_refuse_to_overwrite() {
         assert!(!rapid(root, &["new", name]).status.success());
     }
     assert!(!rapid(root, &["new", "../escape"]).status.success());
+}
+
+#[test]
+fn auth_generation_includes_migration_and_login_route() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let output = rapid(root, &["new", "student", "--preset", "api", "--auth"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let product = root.join("student");
+    assert!(product.join("server/migrations/auth.sql").is_file());
+    let lib = fs::read_to_string(product.join("server/src/lib.rs")).unwrap();
+    assert!(lib.contains("auth::router"));
+    let manifest = fs::read_to_string(product.join("Cargo.toml")).unwrap();
+    assert!(manifest.contains("features = [\"auth\"]"));
 }
 
 #[test]

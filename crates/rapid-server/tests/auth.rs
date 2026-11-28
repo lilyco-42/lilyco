@@ -8,11 +8,11 @@ use axum::{
     extract::ConnectInfo,
     http::{Method, Request, StatusCode, header},
 };
-use rapid_server::auth::{AuthOptions, router};
+use rapid_server::auth::{AuthOptions, demo_router};
 use tower::ServiceExt;
 
 async fn app() -> Router {
-    router(AuthOptions {
+    demo_router(AuthOptions {
         requests_per_second: 100,
         burst: 100,
         ..AuthOptions::default()
@@ -22,7 +22,7 @@ async fn app() -> Router {
 }
 
 async fn limited_app(burst: u32) -> Router {
-    router(AuthOptions {
+    demo_router(AuthOptions {
         burst,
         ..AuthOptions::default()
     })

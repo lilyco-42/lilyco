@@ -171,6 +171,14 @@ impl Default for AuthOptions {
 }
 
 pub async fn router(options: AuthOptions) -> Result<Router, AuthError> {
+    build_router(options, false).await
+}
+
+pub async fn demo_router(options: AuthOptions) -> Result<Router, AuthError> {
+    build_router(options, true).await
+}
+
+async fn build_router(options: AuthOptions, demo: bool) -> Result<Router, AuthError> {
     let backend = Backend {
         users: Arc::new(hash_users(options.users)?),
     };
@@ -184,12 +192,16 @@ pub async fn router(options: AuthOptions) -> Result<Router, AuthError> {
         .burst_size(options.burst)
         .finish()
         .ok_or(AuthError::RateLimit)?;
-    Ok(Router::new()
+    let mut router = Router::new()
         .route("/auth/login", post(login))
         .route("/auth/logout", post(logout))
-        .route("/auth/me", get(me))
-        .route("/api/tasks", get(read_tasks))
-        .route("/api/tasks/{id}", delete(delete_task))
+        .route("/auth/me", get(me));
+    if demo {
+        router = router
+            .route("/api/tasks", get(read_tasks))
+            .route("/api/tasks/{id}", delete(delete_task));
+    }
+    Ok(router
         .with_state(AppState { authz })
         .layer(auth)
         .layer(GovernorLayer::new(governor)))

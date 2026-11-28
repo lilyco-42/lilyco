@@ -81,6 +81,9 @@ struct NewProject {
     frontend: frontend::Options,
     #[arg(long, default_value = ".")]
     dir: PathBuf,
+    /// Include login/session/RBAC routes in the generated server.
+    #[arg(long)]
+    auth: bool,
 }
 
 #[derive(Subcommand)]

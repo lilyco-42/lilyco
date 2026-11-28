@@ -2720,7 +2720,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-rapid"
-version = "0.1.7"
+version = "0.1.9"
 dependencies = [
  "clap",
  "ctrlc",
@@ -3721,7 +3721,7 @@ dependencies = [
 
 [[package]]
 name = "rapid-server"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "argon2",
  "async-trait",

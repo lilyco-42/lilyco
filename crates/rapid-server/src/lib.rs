@@ -50,6 +50,9 @@ pub enum StartupError {
     EndpointConflict(String),
     #[error("resource collection {0:?} registered twice")]
     Duplicate(&'static str),
+    #[cfg(feature = "auth")]
+    #[error("initialize auth: {0}")]
+    Auth(String),
 }
 
 impl Api {

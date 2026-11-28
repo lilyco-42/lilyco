@@ -68,7 +68,15 @@ fn populate(
     storage: StorageChoice,
     gateway: Gateway,
 ) -> Result<()> {
-    put(path, "Cargo.toml", WORKSPACE.as_bytes())?;
+    let workspace = if project.auth {
+        WORKSPACE.replace(
+            "rapid-server = \"0.1.7\"",
+            "rapid-server = { version = \"0.1.7\", features = [\"auth\"] }",
+        )
+    } else {
+        WORKSPACE.to_owned()
+    };
+    put(path, "Cargo.toml", workspace.as_bytes())?;
     let settings = include_str!("../Rapid.toml").replace("Lilyco Rapid", &project.name);
     put(path, "Rapid.toml", storage.config(&settings).as_bytes())?;
     put(path, ".gitignore", contents!(".gitignore"))?;
@@ -77,6 +85,18 @@ fn populate(
     put(path, "README.md", contents!("ops/PROJECT.md"))?;
     put(path, "ops/Dockerfile.api", contents!("ops/Dockerfile.api"))?;
     extract(&SKELETON, path)?;
+    if project.auth {
+        put(
+            path,
+            "server/src/lib.rs",
+            include_bytes!("../templates/skeleton/server/src/lib.auth.rs"),
+        )?;
+        put(
+            path,
+            "server/migrations/auth.sql",
+            include_bytes!("../templates/skeleton/server/migrations/auth.sql"),
+        )?;
+    }
     fs::rename(
         path.join("core/Cargo.toml.tmpl"),
         path.join("core/Cargo.toml"),
