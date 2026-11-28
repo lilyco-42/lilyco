@@ -70,7 +70,7 @@ struct Api {
 impl Api {
     fn new(project: PathBuf, database: Option<LocalConnection>) -> Self {
         let target = project.join("target");
-        let executable = format!("rapid-server{}", std::env::consts::EXE_SUFFIX);
+        let executable = format!("app-server{}", std::env::consts::EXE_SUFFIX);
         Self {
             project,
             target,
@@ -83,7 +83,7 @@ impl Api {
         checked(
             Command::new("cargo")
                 .current_dir(&self.project)
-                .args(["build", "--locked", "-p", "rapid-server", "--target-dir"])
+                .args(["build", "--locked", "-p", "app-server", "--target-dir"])
                 .arg(&self.target),
         )
     }
