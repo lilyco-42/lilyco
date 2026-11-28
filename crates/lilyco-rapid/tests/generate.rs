@@ -24,18 +24,19 @@ fn presets_generate_portable_paths_and_refuse_to_overwrite() {
             String::from_utf8_lossy(&output.stderr)
         );
         let product = root.join(name);
-        assert!(product.join("ops/lilyco-no_std/src/lib.rs").is_file());
+        assert!(product.join("core/src/lib.rs").is_file());
+        assert!(product.join("server/src/app.rs").is_file());
         assert!(product.join("compose.yaml").is_file());
         assert_eq!(product.join("web/package.json").exists(), fullstack);
         assert!(
             fs::read_to_string(product.join("Cargo.toml"))
                 .unwrap()
-                .contains("ops/lilyco-no_std")
+                .contains("rapid-server = \"0.1.5\"")
         );
         assert_eq!(product.join("web/pnpm-workspace.yaml").exists(), fullstack);
         let metadata = Command::new("cargo")
             .current_dir(&product)
-            .args(["metadata", "--locked", "--no-deps", "--format-version", "1"])
+            .args(["metadata", "--no-deps", "--format-version", "1"])
             .output()
             .unwrap();
         assert!(

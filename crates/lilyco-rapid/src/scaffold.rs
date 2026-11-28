@@ -7,9 +7,7 @@ use include_dir::{Dir, include_dir};
 
 use crate::{Gateway, NewProject, Preset, Result, database::StorageChoice, frontend, slug};
 
-const CORE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../rapid-core");
-const SERVER: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../rapid-server");
-const LIB_SRC: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../lilyco-no_std/src");
+const SKELETON: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/templates/skeleton");
 const WORKSPACE: &str = include_str!("../templates/workspace-Cargo.toml");
 
 macro_rules! contents {
@@ -70,39 +68,16 @@ fn populate(
     storage: StorageChoice,
     gateway: Gateway,
 ) -> Result<()> {
-    let workspace = WORKSPACE.replace(
-        "path = \"../lilyco-no_std\"",
-        "path = \"ops/lilyco-no_std\"",
-    );
-    put(path, "Cargo.toml", workspace.as_bytes())?;
-    put(
-        path,
-        "Cargo.lock",
-        include_bytes!("../templates/Cargo.lock").as_slice(),
-    )?;
+    put(path, "Cargo.toml", WORKSPACE.as_bytes())?;
     let settings = include_str!("../Rapid.toml").replace("Lilyco Rapid", &project.name);
     put(path, "Rapid.toml", storage.config(&settings).as_bytes())?;
     put(path, ".gitignore", contents!(".gitignore"))?;
     put(path, ".dockerignore", contents!(".dockerignore"))?;
-    put(path, "LICENSE", include_bytes!("../../../LICENSE"))?;
+    put(path, "LICENSE", include_bytes!("../templates/LICENSE"))?;
     put(path, "README.md", contents!("ops/PROJECT.md"))?;
     put(path, "ops/Dockerfile.api", contents!("ops/Dockerfile.api"))?;
-    extract(&CORE, &path.join("core"))?;
-    put(
-        path,
-        "core/Cargo.toml",
-        include_bytes!("../templates/core-Cargo.toml").as_slice(),
-    )?;
-    extract(&SERVER, &path.join("server"))?;
-    put(
-        path,
-        "server/Cargo.toml",
-        include_bytes!("../templates/server-Cargo.toml").as_slice(),
-    )?;
+    extract(&SKELETON, path)?;
     storage.write(path)?;
-    extract(&LIB_SRC, &path.join("ops/lilyco-no_std/src"))?;
-    let manifest = include_str!("../../lilyco-no_std/Cargo.toml");
-    put(path, "ops/lilyco-no_std/Cargo.toml", manifest.as_bytes())?;
 
     match (project.preset, gateway) {
         (Preset::Api, Gateway::Direct) => {

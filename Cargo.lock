@@ -2500,7 +2500,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-rapid"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "clap",
  "ctrlc",
@@ -3407,7 +3407,7 @@ dependencies = [
 
 [[package]]
 name = "rapid-server"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "async-trait",
  "axum",

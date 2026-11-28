@@ -6,7 +6,7 @@ use axum::{
     http::{Method, Request, StatusCode, header},
     response::Response,
 };
-use rapid_server::{Api, config::Config, project_router};
+use rapid_server::{Api, ApiError, config::Config};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -15,6 +15,48 @@ fn settings(directory: &tempfile::TempDir) -> Config {
     config.storage.path = directory.path().join("persistent.sqlite3");
     config.resources.page_size = NonZeroU16::new(1).unwrap();
     config
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Task {
+    title: String,
+    done: bool,
+}
+
+impl rapid_core::Resource for Task {
+    const COLLECTION: &'static str = "tasks";
+
+    fn validate(&self, max_text_bytes: NonZeroU16) -> Result<(), rapid_core::FieldError> {
+        rapid_core::validate_text("title", &self.title, max_text_bytes)
+    }
+}
+
+#[derive(serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Greeting {
+    name: String,
+}
+
+#[derive(serde::Serialize, schemars::JsonSchema)]
+struct Reply {
+    message: String,
+}
+
+async fn greet(input: Greeting) -> Result<Reply, ApiError> {
+    let limit = NonZeroU16::new(200).unwrap();
+    rapid_core::validate_text("name", &input.name, limit).map_err(ApiError::Invalid)?;
+    Ok(Reply {
+        message: format!("Hello, {}!", input.name.trim()),
+    })
+}
+
+fn router(config: &Config) -> Router {
+    let mut api = Api::new();
+    api.register::<Task>().unwrap();
+    api.get_query("/api/hello", move |input| greet(input))
+        .unwrap();
+    api.router(config).unwrap()
 }
 
 async fn request(router: &Router, method: Method, path: &str, body: Option<&str>) -> Response {
@@ -39,7 +81,7 @@ async fn as_json(response: Response, status: StatusCode) -> Value {
 async fn typed_api_persists_across_restarts_and_exposes_its_contract() {
     let directory = tempfile::tempdir().unwrap();
     let config = settings(&directory);
-    let app = project_router(&config).unwrap();
+    let app = router(&config);
     assert_eq!(
         request(&app, Method::GET, "/readyz", None).await.status(),
         204
@@ -88,7 +130,7 @@ async fn typed_api_persists_across_restarts_and_exposes_its_contract() {
     assert!(doc["paths"]["/api/tasks/{id}"]["delete"]["responses"]["204"].is_object());
 
     drop(app);
-    let app = project_router(&config).unwrap();
+    let app = router(&config);
     let page = as_json(
         request(&app, Method::GET, route, None).await,
         StatusCode::OK,
@@ -128,7 +170,7 @@ async fn malformed_and_oversized_requests_leave_storage_empty() {
     let mut config = settings(&directory);
     config.http.max_body_bytes = 90.try_into().unwrap();
     let route = "/api/tasks";
-    let app = project_router(&config).unwrap();
+    let app = router(&config);
     for (body, status, code) in [
         (
             r#"{"title":"x","done":false,"unrecognized":1}"#,
@@ -185,8 +227,8 @@ async fn malformed_and_oversized_requests_leave_storage_empty() {
 #[test]
 fn duplicate_resources_fail_without_panicking() {
     let mut api = Api::new();
-    api.register::<rapid_core::resource_tasks::Model>().unwrap();
-    assert!(api.register::<rapid_core::resource_tasks::Model>().is_err());
+    api.register::<Task>().unwrap();
+    assert!(api.register::<Task>().is_err());
 }
 
 #[derive(serde::Deserialize, serde::Serialize, schemars::JsonSchema)]
@@ -254,7 +296,7 @@ async fn handwritten_handlers_derive_requests_and_responses_from_rust_types() {
 #[tokio::test]
 async fn starter_query_example_is_live_and_documented() {
     let dir = tempfile::tempdir().unwrap();
-    let app = project_router(&settings(&dir)).unwrap();
+    let app = router(&settings(&dir));
     let hello = request(&app, Method::GET, "/api/hello?name=Lilyco", None).await;
     assert_eq!(
         as_json(hello, StatusCode::OK).await["message"],
@@ -279,12 +321,11 @@ async fn starter_query_example_is_live_and_documented() {
 #[cfg(feature = "sqlx-server")]
 #[tokio::test]
 async fn switching_sqlite_driver_reuses_records_and_sequence() {
-    use rapid_server::connect_project;
 
     let dir = tempfile::tempdir().unwrap();
     let mut config = settings(&dir);
     config.storage.path = dir.path().join("preview with spaces.sqlite3");
-    let old_router = project_router(&config).unwrap();
+    let old_router = router(&config);
     let existing = request(
         &old_router,
         Method::POST,
@@ -297,7 +338,7 @@ async fn switching_sqlite_driver_reuses_records_and_sequence() {
 
     for (offset, &driver) in relational_drivers().iter().enumerate() {
         config.storage.connection.driver = driver;
-        let new_router = connect_project(&config).await.unwrap();
+        let new_router = router(&config);
         let existing = request(&new_router, Method::GET, "/api/tasks/1", None).await;
         assert_eq!(
             as_json(existing, StatusCode::OK).await["data"]["title"],
@@ -333,7 +374,7 @@ async fn snapshot_restores_ids_and_protects_existing_sqlite_data() {
 #[tokio::test]
 #[ignore = "requires separate test PostgreSQL and MySQL databases"]
 async fn remote_sqlx_drivers_persist_and_enforce_the_same_http_contract() {
-    use rapid_server::{config::EngineKind, connect_project};
+    use rapid_server::config::EngineKind;
 
     let dir = tempfile::tempdir().unwrap();
     let snapshot = source_snapshot(&dir).await;
@@ -347,7 +388,7 @@ async fn remote_sqlx_drivers_persist_and_enforce_the_same_http_contract() {
         for &driver in relational_drivers() {
             config.storage.connection.driver = driver;
             check_snapshot(&config, &dir, &snapshot).await;
-            let app = connect_project(&config).await.unwrap();
+            let app = router(&config);
             assert_eq!(
                 request(&app, Method::GET, "/readyz", None).await.status(),
                 204
@@ -423,7 +464,7 @@ async fn create_task(app: &Router) -> Value {
 
 async fn source_snapshot(dir: &tempfile::TempDir) -> std::path::PathBuf {
     let config = settings(dir);
-    let app = project_router(&config).unwrap();
+    let app = router(&config);
     assert_eq!(create_task(&app).await["id"], 1);
     assert_eq!(create_task(&app).await["id"], 2);
     assert_eq!(
@@ -448,7 +489,7 @@ async fn source_snapshot(dir: &tempfile::TempDir) -> std::path::PathBuf {
 }
 
 async fn check_snapshot(config: &Config, dir: &tempfile::TempDir, snapshot: &std::path::Path) {
-    use rapid_server::{connect_project, data};
+    use rapid_server::data;
 
     assert_eq!(data::import(&config.storage, snapshot).await.unwrap(), 1);
     let occupied = data::import(&config.storage, snapshot).await.unwrap_err();
@@ -457,7 +498,7 @@ async fn check_snapshot(config: &Config, dir: &tempfile::TempDir, snapshot: &std
             .to_string()
             .contains("destination already contains Rapid records")
     );
-    let app = connect_project(config).await.unwrap();
+    let app = router(config);
     let existing = as_json(
         request(&app, Method::GET, "/api/tasks/1", None).await,
         StatusCode::OK,
@@ -494,7 +535,7 @@ async fn check_snapshot(config: &Config, dir: &tempfile::TempDir, snapshot: &std
 async fn check_concurrent_creates(config: &Config) {
     use std::collections::BTreeSet;
 
-    let app = rapid_server::connect_project(config).await.unwrap();
+    let app = router(config);
     let mut concurrent = tokio::task::JoinSet::new();
     for _ in 0..8 {
         let app = app.clone();

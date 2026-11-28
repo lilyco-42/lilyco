@@ -1,14 +1,15 @@
 [package]
-name = "rapid-core"
+name = "app-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
 [features]
+default = ["schema"]
 schema = ["dep:schemars"]
 
 [dependencies]
+rapid-core = { workspace = true }
 serde.workspace = true
-lilyco-no_std.workspace = true
 schemars = { workspace = true, optional = true }

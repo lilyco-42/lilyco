@@ -3,7 +3,11 @@ use std::{env, error::Error, fs, io, path::PathBuf};
 fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=resources");
     let directory = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?).join("resources");
-    let mut files = fs::read_dir(&directory)?.collect::<Result<Vec<_>, _>>()?;
+    let mut files = if directory.is_dir() {
+        fs::read_dir(&directory)?.collect::<Result<Vec<_>, _>>()?
+    } else {
+        Vec::new()
+    };
     files.sort_by_key(|entry| entry.file_name());
 
     let mut modules = String::new();

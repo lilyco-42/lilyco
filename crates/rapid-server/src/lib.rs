@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 
-mod app;
 pub mod config;
 pub mod data;
 mod endpoint;
@@ -137,16 +136,9 @@ impl Default for Api {
 }
 
 pub fn project_router(config: &Config) -> Result<Router, StartupError> {
-    configured_api(config)?.router(config)
+    Api::new().router(config)
 }
 
 pub async fn connect_project(config: &Config) -> Result<Router, StartupError> {
-    configured_api(config)?.connect(config).await
-}
-
-fn configured_api(config: &Config) -> Result<Api, StartupError> {
-    let mut api = Api::new();
-    rapid_core::register_resources!(api);
-    app::register(&mut api, config.resources.max_text_bytes)?;
-    Ok(api)
+    Api::new().connect(config).await
 }
