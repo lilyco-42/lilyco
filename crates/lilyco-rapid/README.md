@@ -7,10 +7,28 @@
 在 Lilyco 仓库根目录开始。
 
 ```sh
-cargo install --locked --path lilyco-rapid/ops/cli
+cargo install --locked --path crates/lilyco-rapid
 lilyco-rapid new notes-workspace
 cd notes-workspace
 lilyco-rapid dev
+```
+
+### 本仓库位置
+
+Rapid 由四个 crate 组成，都在主 workspace 的 `crates/` 下：
+
+| 路径 | 职责 |
+|---|---|
+| `crates/lilyco-rapid` | 本 CLI（`new` / `generate` / `dev` / `data`）；`templates/` 内嵌生成模板 |
+| `crates/rapid-core` | 类型化端点与资源配置核心；`schema` feature 产出 JSON Schema |
+| `crates/rapid-server` | Axum 运行时、OpenAPI/交互文档、SQLite/SQLx/Mongo/SeaORM 存储 |
+| `crates/lilyco-no_std` | 无分配 Agent 核心；生成项目会携带其源码快照 |
+
+主 workspace 的验证命令：
+
+```sh
+cargo test -p rapid-core -p rapid-server -p lilyco-rapid
+cargo test -p lilyco-no_std --features std
 ```
 
 默认 API 为 `http://127.0.0.1:8421`，Web 为 `http://127.0.0.1:5173`。
@@ -148,11 +166,13 @@ lilyco-rapid data import /path/to/backup.json --dir new-app
 
 可用 `--config <TOML>` 指定单独配置。指定配置时，由调用者注入其中需要的连接环境变量。导入在事务内校验目标记录，保留 ID 和已分配的最大 ID，并拒绝覆盖已有记录。快照只含 Rapid 资源记录，包含完整载荷，需按项目数据保护。使用了自定义表、业务索引或数据库特有能力时，需要为那些数据另备迁移。
 
-## 工作区结构
+## 生成项目结构
+
+`lilyco-rapid new` 产物是独立 workspace，不包含本 CLI 源码：
 
 - `core/` 复用 `lilyco-no_std` 校验。默认用 `core + alloc` 表达业务资源，可在无操作系统目标编译。Cargo 构建脚本注册 `resources/` 下的模块。
 - `server/` 用 Axum、Schemars 和 Utoipa 提供类型化 API，数据库驱动通过存储接口接入。HTTP 和数据库驱动运行在 `std`。
 - `web/` 使用 Vite、Tailwind 和可选前端框架。工作台消费 OpenAPI 的标量字段，复杂模型仍可在 API reference 中用 JSON 操作。
-- `ops/` 包含脚手架 CLI 和部署配方。生成项目内含 `lilyco-no_std` 源码快照，可独立构建。
+- `ops/` 存放 Compose、Caddy/Pingap 与数据库编排等部署配方；`ops/lilyco-no_std/` 是核心源码快照，保证项目可独立构建。
 
-参考了 FastAPI 的契约与交互文档、Spring Boot 的外置配置与健康检查、Rails 和 Loco 的资源生成工作流。设计与审查记录见 [docs/LILYCO-RAPID.md](../docs/LILYCO-RAPID.md)。
+参考了 FastAPI 的契约与交互文档、Spring Boot 的外置配置与健康检查、Rails 和 Loco 的资源生成工作流。CLI 源码与模板在本仓库 `crates/lilyco-rapid`。
