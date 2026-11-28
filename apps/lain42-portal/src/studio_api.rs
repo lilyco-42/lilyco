@@ -133,8 +133,9 @@ pub fn studio_router() -> Router<Arc<AppState>> {
         .route("/studio/api/verify", post(verify_client_entitlement))
         .route("/studio/api/marketing/event", post(marketing_event))
         .route("/studio/api/contact", post(create_contact_ticket))
-        .route("/studio/api/proxy/quality", get(get_proxy_quality))
-        .route("/api/proxy/quality", get(get_proxy_quality))
+        .route("/studio/api/proxy/quality", get(crate::proxy_health::report))
+        .route("/api/proxy/quality", get(crate::proxy_health::report))
+        .route("/api/proxy/official-audit", get(crate::proxy_health::official_audit))
 }
 
 fn err(code: StatusCode, detail: impl Into<String>) -> (StatusCode, Json<Value>) {
@@ -160,6 +161,25 @@ fn verify_token(secret: &str, token: &str) -> Option<String> {
     String::from_utf8(payload_bytes).ok()
 }
 
+pub(crate) fn check_admin_secret(st: &AppState, headers: &HeaderMap) -> bool {
+    let Some(secret) = st.admin_secret.as_deref() else { return false };
+    let Some(supplied) = headers.get("x-admin-secret") else { return false };
+    let expected_key = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
+    let supplied_key = hmac::Key::new(hmac::HMAC_SHA256, supplied.as_bytes());
+    let proof = hmac::sign(&supplied_key, b"lain42-admin");
+    hmac::verify(&expected_key, b"lain42-admin", proof.as_ref()).is_ok()
+}
+
+pub(crate) fn admin_session_username(st: &AppState, headers: &HeaderMap) -> Option<String> {
+    let secret = st.admin_secret.as_deref()?;
+    let token = headers.get("x-admin-session")?.to_str().ok()?;
+    let payload = verify_token(secret, token)?;
+    let (username, issued) = payload.strip_prefix("admin|")?.split_once('|')?;
+    let age = lilyco_license::current_unix_secs().checked_sub(issued.parse::<u64>().ok()?)?;
+    (age < 12 * 3600 && crate::admin_routes::is_admin_name(username))
+        .then(|| username.to_string())
+}
+
 pub(crate) fn hash_password(secret: &str, username: &str, password: &str) -> String {
     let key = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
     let msg = format!("pw:{}:{}", username.to_ascii_lowercase(), password);
@@ -183,7 +203,7 @@ pub(crate) fn extract_username(headers: &HeaderMap, secret: &str) -> Result<Stri
     Ok(user.to_string())
 }
 
-fn catalog_json() -> Value {
+pub(crate) fn catalog_json() -> Value {
     serde_json::from_str(RAW_PRODUCTS_JSON).unwrap_or_else(|_| json!({ "ok": true, "products": [] }))
 }
 
@@ -281,6 +301,9 @@ async fn register(
             "用户名需为 3-24 位字母、数字或下划线",
         ));
     }
+    if crate::admin_routes::is_admin_name(username) {
+        return Err(err(StatusCode::BAD_REQUEST, "该用户名不可注册"));
+    }
     if req.password.len() < 8 {
         return Err(err(StatusCode::BAD_REQUEST, "密码至少需要 8 位"));
     }
@@ -313,11 +336,15 @@ async fn login(
         .map_err(|e| err(StatusCode::UNAUTHORIZED, e.to_string()))?;
     let now = lilyco_license::current_unix_secs();
     let token = sign_token(&st.license_secret, &format!("{}|{now}", user.username));
+    let admin_token = st.admin_secret.as_deref()
+        .filter(|_| crate::admin_routes::is_admin_name(&user.username))
+        .map(|secret| sign_token(secret, &format!("admin|{}|{now}", user.username)));
     Ok(Json(json!({
         "ok": true,
         "account_id": user.id,
         "username": user.username,
-        "token": token
+        "token": token,
+        "admin_token": admin_token
     })))
 }
 
@@ -326,11 +353,12 @@ async fn get_me(
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let username = extract_username(&headers, &st.license_secret)?;
-    let me = st
+    let mut me = st
         .db
         .studio_get_me(&username)
         .await
         .map_err(|e| err(StatusCode::UNAUTHORIZED, e.to_string()))?;
+    me["is_admin"] = json!(admin_session_username(&st, &headers).as_deref() == Some(&username));
     Ok(Json(me))
 }
 
@@ -375,6 +403,12 @@ async fn points_purchase(
     Json(req): Json<PurchaseReq>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let username = extract_username(&headers, &st.license_secret)?;
+    if req.product.starts_with("paodou_") {
+        return Err(err(
+            StatusCode::CONFLICT,
+            "校园跑权益由主站发放，请前往 https://lain42.top/shop 购买",
+        ));
+    }
     let (_name, points_price, _cny, prefix) = find_product_in_catalog(&req.product)
         .ok_or_else(|| err(StatusCode::BAD_REQUEST, format!("未知商品: {}", req.product)))?;
     let res = st
@@ -957,27 +991,6 @@ async fn create_contact_ticket(
     })))
 }
 
-async fn get_proxy_quality() -> Json<Value> {
-    Json(json!({
-        "ok": true,
-        "updated_at": "2026-11-22",
-        "auto_switch_interval_sec": 120,
-        "nodes": [
-            { "name": "🇰🇷 韩国首尔 · AnyTLS", "region": "KR", "protocol": "AnyTLS", "kbps": 9598, "peak_kbps": 12696, "status": "ok" },
-            { "name": "🇰🇷 韩国首尔 · TUIC v5", "region": "KR", "protocol": "TUIC", "kbps": 6293, "peak_kbps": 10696, "status": "ok" },
-            { "name": "🇰🇷 韩国首尔 · VMess WS", "region": "KR", "protocol": "VMess", "kbps": 5914, "peak_kbps": 11302, "status": "ok" },
-            { "name": "🇰🇷 韩国首尔 · VLESS Reality", "region": "KR", "protocol": "VLESS", "kbps": 5211, "peak_kbps": 11980, "status": "ok" },
-            { "name": "🇦🇺 澳大利亚悉尼 · VLESS Reality", "region": "AU", "protocol": "VLESS", "kbps": 2660, "peak_kbps": 2679, "status": "ok" },
-            { "name": "🇦🇺 澳大利亚悉尼 · AnyTLS", "region": "AU", "protocol": "AnyTLS", "kbps": 2647, "peak_kbps": 2725, "status": "ok" },
-            { "name": "🇺🇸 美国西雅图 · Hysteria2 (端口跳跃)", "region": "US", "protocol": "Hysteria2", "kbps": 2607, "peak_kbps": 3477, "status": "ok" },
-            { "name": "🇩🇪 德国法兰克福 · VLESS 中转", "region": "DE", "protocol": "VLESS", "kbps": 2574, "peak_kbps": 2642, "status": "ok" },
-            { "name": "🇺🇸 美国西雅图 · TUIC v5", "region": "US", "protocol": "TUIC", "kbps": 1966, "peak_kbps": 2966, "status": "ok" },
-            { "name": "🇵🇭 菲律宾马尼拉 · VMess WS", "region": "PH", "protocol": "VMess", "kbps": 1405, "peak_kbps": 1470, "status": "ok" },
-            { "name": "🇵🇭 菲律宾马尼拉 · AnyTLS", "region": "PH", "protocol": "AnyTLS", "kbps": 1307, "peak_kbps": 2075, "status": "ok" }
-        ]
-    }))
-}
-
 // =========================================================================
 // 异步支付 Webhook 回调（支付宝 RSA2 / 爱发电 / Creem）
 // =========================================================================
@@ -1070,15 +1083,157 @@ async fn proxy_panel_sub_shortcut(
     proxy_subscription(State(st), headers, Path((token, "base64".to_string()))).await
 }
 
+struct PanelLiveSub {
+    userinfo: Option<String>,
+    metered_clash_line: Option<String>,
+}
+
+fn fetch_panel_live_sub(panel_url: &str) -> PanelLiveSub {
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(4)))
+        .build()
+        .new_agent();
+    let Ok(mut resp) = agent
+        .get(panel_url)
+        .header("User-Agent", "clash-verge/v2.2.3")
+        .call()
+    else {
+        return PanelLiveSub {
+            userinfo: None,
+            metered_clash_line: None,
+        };
+    };
+    let userinfo = resp
+        .headers()
+        .get("subscription-userinfo")
+        .and_then(|v| v.to_str().ok())
+        .map(ToString::to_string);
+    let metered_clash_line = resp
+        .body_mut()
+        .read_to_string()
+        .ok()
+        .and_then(|raw| {
+            let trimmed = raw.trim();
+            let decoded_bytes = STANDARD
+                .decode(trimmed)
+                .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(trimmed))
+                .ok()?;
+            let decoded = String::from_utf8(decoded_bytes).ok()?;
+            for line in decoded.lines() {
+                if let Some(b64) = line.strip_prefix("vmess://") {
+                    let b = STANDARD
+                        .decode(b64.trim())
+                        .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(b64.trim()))
+                        .ok()?;
+                    let v: serde_json::Value = serde_json::from_slice(&b).ok()?;
+                    let add = v.get("add").and_then(|x| x.as_str())?;
+                    let port = v
+                        .get("port")
+                        .and_then(|x| x.as_u64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))?;
+                    let uuid = v.get("id").and_then(|x| x.as_str())?;
+                    let path = v.get("path").and_then(|x| x.as_str()).unwrap_or("/vmess");
+                    let host = v.get("host").and_then(|x| x.as_str()).unwrap_or(add);
+                    let tls = v.get("tls").and_then(|x| x.as_str()).unwrap_or("") == "tls";
+                    return Some(format!(
+                        "  - {{ name: \"⚡ 云枢主线 · 实时计费 (推荐)\", type: vmess, server: {add}, port: {port}, uuid: {uuid}, alterId: 0, cipher: auto, udp: true, tls: {tls}, network: ws, ws-opts: {{ path: {path}, headers: {{ Host: {host} }} }} }}\n"
+                    ));
+                }
+            }
+            None
+        });
+    PanelLiveSub {
+        userinfo,
+        metered_clash_line,
+    }
+}
+
+fn parse_iso_to_unix(iso: &str) -> Option<i64> {
+    // Parse "YYYY-MM-DDTHH:MM:SS..." (UTC) using Howard Hinnant days-from-civil algorithm
+    let b = iso.as_bytes();
+    if b.len() < 19 {
+        return None;
+    }
+    let y: i64 = iso.get(0..4)?.parse().ok()?;
+    let m: i64 = iso.get(5..7)?.parse().ok()?;
+    let d: i64 = iso.get(8..10)?.parse().ok()?;
+    let hh: i64 = iso.get(11..13)?.parse().ok()?;
+    let mm: i64 = iso.get(14..16)?.parse().ok()?;
+    let ss: i64 = iso.get(17..19)?.parse().ok()?;
+    let yr = y - if m <= 2 { 1 } else { 0 };
+    let era = if yr >= 0 { yr } else { yr - 399 } / 400;
+    let yoe = yr - era * 400;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468;
+    Some(days * 86400 + hh * 3600 + mm * 60 + ss)
+}
+
 async fn proxy_subscription(
     State(st): State<Arc<AppState>>,
     headers: HeaderMap,
     Path((token, mut format)): Path<(String, String)>,
 ) -> Response {
-    let ent = match st.db.studio_find_active_entitlement_by_key(&token).await {
-        Ok(Some((u, p, _))) if p.starts_with("proxy_") => (u, p),
+    let ent = match st.db.studio_find_active_proxy_by_token(&token).await {
+        Ok(Some(v)) => v,
         _ => return (StatusCode::NOT_FOUND, "无效或已过期的代理订阅令牌").into_response(),
     };
+    let meta_val: serde_json::Value = serde_json::from_str(&ent.2).unwrap_or_default();
+    let meta_gb = meta_val
+        .get("traffic_gb")
+        .and_then(|v| v.as_u64())
+        .filter(|&gb| gb > 0);
+    let fallback_gb: u64 = match ent.1.as_str() {
+        "proxy_1m_1g" => 10,
+        "proxy_6m" => 40,
+        "proxy_1y_15g" => 120,
+        "proxy_1y_140g" => 480,
+        "proxy_1m" => 100,
+        "proxy_15_3m" => 300,
+        "proxy_15_1y" => 1200,
+        "proxy_1m_220g" => 220,
+        "proxy_3m" => 660,
+        "proxy_1y" => 2640,
+        "proxy_3y" => 7920,
+        "proxy_pro_1m" => 1000,
+        "proxy_pro_3m" => 3000,
+        "proxy_pro_1y" => 12000,
+        "proxy_pro_3y" => 36000,
+        _ => 100,
+    };
+    let total_bytes: u64 = meta_gb.unwrap_or(fallback_gb) * 1024 * 1024 * 1024;
+    let fallback_expire: i64 = meta_val
+        .get("expires_at")
+        .and_then(|v| v.as_str())
+        .and_then(parse_iso_to_unix)
+        .unwrap_or(1893456000);
+
+    // Sync real live traffic usage + personal metered node from Server A proxy-panel when linked
+    let panel_url = meta_val
+        .get("sub_url")
+        .and_then(|v| v.as_str())
+        .filter(|u| u.contains("lain42.top/panel/api/sub/"))
+        .map(ToString::to_string);
+    let panel_url = match panel_url {
+        Some(u) => Some(u),
+        None => st.db.studio_find_user_panel_sub_url(&ent.0).await.ok().flatten(),
+    };
+    let live_panel = if let Some(url) = panel_url {
+        tokio::task::spawn_blocking(move || fetch_panel_live_sub(&url))
+            .await
+            .unwrap_or(PanelLiveSub {
+                userinfo: None,
+                metered_clash_line: None,
+            })
+    } else {
+        PanelLiveSub {
+            userinfo: None,
+            metered_clash_line: None,
+        }
+    };
+
+    let userinfo = live_panel
+        .userinfo
+        .unwrap_or_else(|| format!("upload=0; download=0; total={total_bytes}; expire={fallback_expire}"));
     let ua = headers
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
@@ -1098,21 +1253,18 @@ async fn proxy_subscription(
         format = "clash".to_string();
     }
     if format.eq_ignore_ascii_case("clash") || format.eq_ignore_ascii_case("yaml") {
-        let total_bytes: u64 = match ent.1.as_str() {
-            "proxy_1m_220g" => 220 * 1024 * 1024 * 1024,
-            "proxy_3m" => 660 * 1024 * 1024 * 1024,
-            "proxy_1y" => 2640 * 1024 * 1024 * 1024,
-            "proxy_6m" => 10 * 1024 * 1024 * 1024,
-            "proxy_1y_140g" => 140 * 1024 * 1024 * 1024,
-            "proxy_1m_1g" => 1 * 1024 * 1024 * 1024,
-            "proxy_1y_15g" => 15 * 1024 * 1024 * 1024,
-            _ => 100 * 1024 * 1024 * 1024,
-        };
-        let userinfo = format!("upload=0; download=0; total={total_bytes}; expire=1893456000");
-        let yaml = format!(
-            "# LYCO Connect · {}\nport: 7890\nsocks-port: 7891\nallow-lan: false\nmode: rule\nlog-level: info\nproxies:\n  - {{ name: \"🇰🇷 韩国首尔 · VLESS 专线\", type: vless, server: 43.108.96.128, port: 443, uuid: f15f4aa6-e908-4f6a-b539-f5a8bdc1ad66, udp: true, tls: true, flow: xtls-rprx-vision, client-fingerprint: chrome, servername: apple.com, reality-opts: {{ public-key: 6wq54dJFy1fLskAQq1wl99afSQI8-j3LaMHIOvMBSm4, short-id: 293b1096 }} }}\n  - {{ name: \"🇰🇷 韩国首尔 · VMess WS\", type: vmess, server: 43.108.96.128, port: 2052, uuid: f15f4aa6-e908-4f6a-b539-f5a8bdc1ad66, alterId: 0, cipher: auto, udp: true, tls: false, network: ws, ws-opts: {{ path: /f15f4aa6-e908-4f6a-b539-f5a8bdc1ad66-vm, headers: {{ Host: www.bing.com }} }} }}\n  - {{ name: \"🇰🇷 韩国二 · VLESS 中转\", type: vless, server: 43.108.97.29, port: 51215, uuid: 3200e506-fc3e-4df2-b196-ebb54c8e7894, udp: true, tls: true, flow: xtls-rprx-vision, client-fingerprint: chrome, servername: apple.com, dialer-proxy: \"🇰🇷 韩国首尔 · VLESS 专线\", reality-opts: {{ public-key: s-tFxsSP3k0Jdb_B_ZJALBG67Hozc5g3Njx7CWTSyG4, short-id: 5d10928b }} }}\n  - {{ name: \"🇰🇷 韩国二 · VMess 中转\", type: vmess, server: 43.108.97.29, port: 2086, uuid: 3200e506-fc3e-4df2-b196-ebb54c8e7894, alterId: 0, cipher: auto, udp: true, tls: false, network: ws, dialer-proxy: \"🇰🇷 韩国首尔 · VLESS 专线\", ws-opts: {{ path: /3200e506-fc3e-4df2-b196-ebb54c8e7894-vm, headers: {{ Host: www.bing.com }} }} }}\n  - {{ name: \"🇦🇺 澳大利亚悉尼 · VLESS 专线\", type: vless, server: 13.236.116.49, port: 32549, uuid: 244022a3-0176-4409-95f2-72a4fbc6d800, udp: true, tls: true, flow: xtls-rprx-vision, client-fingerprint: chrome, servername: apple.com, reality-opts: {{ public-key: drsVOt3moGRJSi5XJ1HXdDcyxUnL0dt9_L5-XSgEGlc, short-id: 59baa9e3 }} }}\n  - {{ name: \"🇦🇺 澳大利亚悉尼 · VMess WS\", type: vmess, server: 13.236.116.49, port: 12360, uuid: 244022a3-0176-4409-95f2-72a4fbc6d800, alterId: 0, cipher: auto, udp: true, tls: false, network: ws, ws-opts: {{ path: /244022a3-0176-4409-95f2-72a4fbc6d800-vm, headers: {{ Host: www.bing.com }} }} }}\n  - {{ name: \"🇩🇪 德国法兰克福 · VLESS 中转\", type: vless, server: 217.216.188.167, port: 35179, uuid: 4470b15f-953e-4820-9145-fbc2bf606537, udp: true, tls: true, flow: xtls-rprx-vision, client-fingerprint: chrome, servername: apple.com, dialer-proxy: \"🇦🇺 澳大利亚悉尼 · VLESS 专线\", reality-opts: {{ public-key: 2H7g1y_JkAnHEoFssUOpGLxxMvdYQC28y2GgyGsKd1M, short-id: 87050970 }} }}\n  - {{ name: \"🇵🇭 菲律宾马尼拉 · VLESS 专线\", type: vless, server: 8.220.186.171, port: 12360, uuid: dafe41d4-1f78-4527-9f7e-d080a47ba577, udp: true, tls: true, flow: xtls-rprx-vision, client-fingerprint: chrome, servername: apple.com, reality-opts: {{ public-key: -5ZOXIcqFgL8_sqASL3VaJ8XFiGKQXT1D4iLYNDsTgs, short-id: b4e1150a }} }}\n  - {{ name: \"🇵🇭 菲律宾马尼拉 · VMess WS\", type: vmess, server: 8.220.186.171, port: 8880, uuid: dafe41d4-1f78-4527-9f7e-d080a47ba577, alterId: 0, cipher: auto, udp: true, tls: false, network: ws, ws-opts: {{ path: /dafe41d4-1f78-4527-9f7e-d080a47ba577-vm, headers: {{ Host: www.bing.com }} }} }}\n  - {{ name: \"🇺🇸 美国西雅图 · Hysteria2\", type: hysteria2, server: 107.174.11.33, port: 51466, password: 67b84bf3-b69a-482b-95a9-769640b5e4b3, sni: www.bing.com, skip-cert-verify: true }}\n  - {{ name: \"🇺🇸 美国西雅图 · TUIC\", type: tuic, server: 107.174.11.33, port: 24062, uuid: 67b84bf3-b69a-482b-95a9-769640b5e4b3, password: 67b84bf3-b69a-482b-95a9-769640b5e4b3, sni: www.bing.com, alpn: [h3], skip-cert-verify: true, udp-relay-mode: native, congestion-controller: bbr }}\n  - {{ name: \"🇺🇸 美国西雅图 · VLESS 中转\", type: vless, server: 107.174.11.33, port: 32549, uuid: 67b84bf3-b69a-482b-95a9-769640b5e4b3, udp: true, tls: true, flow: xtls-rprx-vision, client-fingerprint: chrome, servername: apple.com, dialer-proxy: \"🇵🇭 菲律宾马尼拉 · VLESS 专线\", reality-opts: {{ public-key: UECDs9_eQZwo6nlF7l1nw5gGJRaV-reXsX88yKL00TA, short-id: 1c66dccd }} }}\nproxy-groups:\n  - name: \"🆕 自建专线 · 自动测速\"\n    type: url-test\n    url: https://cp.cloudflare.com/generate_204\n    interval: 120\n    tolerance: 35\n    proxies: [\"🇰🇷 韩国首尔 · VLESS 专线\", \"🇰🇷 韩国首尔 · VMess WS\", \"🇰🇷 韩国二 · VLESS 中转\", \"🇰🇷 韩国二 · VMess 中转\", \"🇦🇺 澳大利亚悉尼 · VLESS 专线\", \"🇦🇺 澳大利亚悉尼 · VMess WS\", \"🇩🇪 德国法兰克福 · VLESS 中转\", \"🇵🇭 菲律宾马尼拉 · VLESS 专线\", \"🇵🇭 菲律宾马尼拉 · VMess WS\", \"🇺🇸 美国西雅图 · Hysteria2\", \"🇺🇸 美国西雅图 · TUIC\", \"🇺🇸 美国西雅图 · VLESS 中转\"]\n  - name: \"LYCO-Auto\"\n    type: url-test\n    url: https://cp.cloudflare.com/generate_204\n    interval: 120\n    tolerance: 35\n    proxies: [\"🇰🇷 韩国首尔 · VLESS 专线\", \"🇰🇷 韩国首尔 · VMess WS\", \"🇰🇷 韩国二 · VLESS 中转\", \"🇰🇷 韩国二 · VMess 中转\", \"🇦🇺 澳大利亚悉尼 · VLESS 专线\", \"🇦🇺 澳大利亚悉尼 · VMess WS\", \"🇩🇪 德国法兰克福 · VLESS 中转\", \"🇵🇭 菲律宾马尼拉 · VLESS 专线\", \"🇵🇭 菲律宾马尼拉 · VMess WS\", \"🇺🇸 美国西雅图 · Hysteria2\", \"🇺🇸 美国西雅图 · TUIC\", \"🇺🇸 美国西雅图 · VLESS 中转\"]\n  - name: \"📚 学术文献 · 校园网直连\"\n    type: select\n    proxies: [DIRECT, \"LYCO-Auto\"]\nrules:\n  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve\n  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve\n  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve\n  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve\n  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve\n  - DOMAIN-SUFFIX,edu.cn,DIRECT\n  - DOMAIN-SUFFIX,ac.cn,DIRECT\n  - DOMAIN-SUFFIX,gov.cn,DIRECT\n  - DOMAIN-SUFFIX,cnki.net,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,cnki.com.cn,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,wanfangdata.com.cn,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,cqvip.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,chaoxing.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,duxiu.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,sslibrary.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,ncpssd.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,nstl.gov.cn,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,sciengine.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,carsi.edu.cn,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,elsevier.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,sciencedirect.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,scopus.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,springer.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,springerlink.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,nature.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,ieee.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,wiley.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,webofscience.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,webofknowledge.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,clarivate.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,acs.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,rsc.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,tandfonline.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,jstor.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,oup.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,cambridge.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,sagepub.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,proquest.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,ebscohost.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,nih.gov,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,mdpi.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,arxiv.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,acm.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,aps.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,aip.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,science.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,cell.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,thelancet.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,cn,DIRECT\n  - GEOIP,CN,DIRECT\n  - MATCH,LYCO-Auto\n",
+        let mut yaml = format!(
+            "# LYCO Connect · {}\nport: 7890\nsocks-port: 7891\nallow-lan: false\nmode: rule\nlog-level: info\nunified-delay: true\ntcp-concurrent: true\nkeep-alive-interval: 15\nproxies:\n  - {{ name: \"🇰🇷 韩国首尔 · AnyTLS 极速\", type: anytls, server: 43.108.96.128, port: 46462, password: f15f4aa6-e908-4f6a-b539-f5a8bdc1ad66, sni: www.bing.com, skip-cert-verify: true, udp: true }}\n  - {{ name: \"🇰🇷 韩国首尔 · TUIC v5 极速\", type: tuic, server: 43.108.96.128, port: 58781, uuid: f15f4aa6-e908-4f6a-b539-f5a8bdc1ad66, password: f15f4aa6-e908-4f6a-b539-f5a8bdc1ad66, sni: www.bing.com, alpn: [h3], skip-cert-verify: true, udp-relay-mode: native, congestion-controller: bbr }}\n  - {{ name: \"🇰🇷 韩国首尔 · Hysteria2\", type: hysteria2, server: 43.108.96.128, port: 64581, password: f15f4aa6-e908-4f6a-b539-f5a8bdc1ad66, sni: www.bing.com, alpn: [h3], up: \"50 Mbps\", down: \"200 Mbps\", skip-cert-verify: true }}\n  - {{ name: \"🇰🇷 韩国首尔 · VLESS 专线\", type: vless, server: 43.108.96.128, port: 443, uuid: f15f4aa6-e908-4f6a-b539-f5a8bdc1ad66, udp: true, tls: true, flow: xtls-rprx-vision, client-fingerprint: chrome, servername: apple.com, reality-opts: {{ public-key: 6wq54dJFy1fLskAQq1wl99afSQI8-j3LaMHIOvMBSm4, short-id: 293b1096 }} }}\n  - {{ name: \"🇰🇷 韩国首尔 · VMess WS\", type: vmess, server: 43.108.96.128, port: 2052, uuid: f15f4aa6-e908-4f6a-b539-f5a8bdc1ad66, alterId: 0, cipher: auto, udp: true, tls: false, network: ws, ws-opts: {{ path: /f15f4aa6-e908-4f6a-b539-f5a8bdc1ad66-vm, headers: {{ Host: www.bing.com }} }} }}\n  - {{ name: \"🇰🇷 韩国二 · VLESS 中转\", type: vless, server: 43.108.97.29, port: 51215, uuid: 3200e506-fc3e-4df2-b196-ebb54c8e7894, udp: true, tls: true, flow: xtls-rprx-vision, client-fingerprint: chrome, servername: apple.com, dialer-proxy: \"🇰🇷 韩国首尔 · VLESS 专线\", reality-opts: {{ public-key: s-tFxsSP3k0Jdb_B_ZJALBG67Hozc5g3Njx7CWTSyG4, short-id: 5d10928b }} }}\n  - {{ name: \"🇦🇺 澳大利亚悉尼 · AnyTLS 极速\", type: anytls, server: 13.236.116.49, port: 34657, password: 244022a3-0176-4409-95f2-72a4fbc6d800, sni: www.bing.com, skip-cert-verify: true, udp: true }}\n  - {{ name: \"🇦🇺 澳大利亚悉尼 · TUIC v5\", type: tuic, server: 13.236.116.49, port: 19893, uuid: 244022a3-0176-4409-95f2-72a4fbc6d800, password: 244022a3-0176-4409-95f2-72a4fbc6d800, sni: www.bing.com, alpn: [h3], skip-cert-verify: true, udp-relay-mode: native, congestion-controller: bbr }}\n  - {{ name: \"🇦🇺 澳大利亚悉尼 · Hysteria2\", type: hysteria2, server: 13.236.116.49, port: 27739, password: 244022a3-0176-4409-95f2-72a4fbc6d800, sni: www.bing.com, alpn: [h3], up: \"50 Mbps\", down: \"200 Mbps\", skip-cert-verify: true }}\n  - {{ name: \"🇦🇺 澳大利亚悉尼 · VLESS 专线\", type: vless, server: 13.236.116.49, port: 32549, uuid: 244022a3-0176-4409-95f2-72a4fbc6d800, udp: true, tls: true, flow: xtls-rprx-vision, client-fingerprint: chrome, servername: apple.com, reality-opts: {{ public-key: drsVOt3moGRJSi5XJ1HXdDcyxUnL0dt9_L5-XSgEGlc, short-id: 59baa9e3 }} }}\n  - {{ name: \"🇵🇭 菲律宾马尼拉 · AnyTLS 极速\", type: anytls, server: 8.220.186.171, port: 42596, password: dafe41d4-1f78-4527-9f7e-d080a47ba577, sni: www.bing.com, skip-cert-verify: true, udp: true }}\n  - {{ name: \"🇵🇭 菲律宾马尼拉 · TUIC v5\", type: tuic, server: 8.220.186.171, port: 15913, uuid: dafe41d4-1f78-4527-9f7e-d080a47ba577, password: dafe41d4-1f78-4527-9f7e-d080a47ba577, sni: www.bing.com, alpn: [h3], skip-cert-verify: true, udp-relay-mode: native, congestion-controller: bbr }}\n  - {{ name: \"🇵🇭 菲律宾马尼拉 · Hysteria2\", type: hysteria2, server: 8.220.186.171, port: 57782, password: dafe41d4-1f78-4527-9f7e-d080a47ba577, sni: www.bing.com, alpn: [h3], up: \"50 Mbps\", down: \"200 Mbps\", skip-cert-verify: true }}\n  - {{ name: \"🇵🇭 菲律宾马尼拉 · VLESS 专线\", type: vless, server: 8.220.186.171, port: 12360, uuid: dafe41d4-1f78-4527-9f7e-d080a47ba577, udp: true, tls: true, flow: xtls-rprx-vision, client-fingerprint: chrome, servername: apple.com, reality-opts: {{ public-key: -5ZOXIcqFgL8_sqASL3VaJ8XFiGKQXT1D4iLYNDsTgs, short-id: b4e1150a }} }}\n  - {{ name: \"🇺🇸 美国西雅图 · Hysteria2\", type: hysteria2, server: 107.174.11.33, port: 51466, password: 67b84bf3-b69a-482b-95a9-769640b5e4b3, sni: www.bing.com, up: \"50 Mbps\", down: \"200 Mbps\", skip-cert-verify: true }}\n  - {{ name: \"🇺🇸 美国西雅图 · TUIC\", type: tuic, server: 107.174.11.33, port: 24062, uuid: 67b84bf3-b69a-482b-95a9-769640b5e4b3, password: 67b84bf3-b69a-482b-95a9-769640b5e4b3, sni: www.bing.com, alpn: [h3], skip-cert-verify: true, udp-relay-mode: native, congestion-controller: bbr }}\n  - {{ name: \"🇩🇪 德国法兰克福 · VLESS 中转\", type: vless, server: 217.216.188.167, port: 35179, uuid: 4470b15f-953e-4820-9145-fbc2bf606537, udp: true, tls: true, flow: xtls-rprx-vision, client-fingerprint: chrome, servername: apple.com, dialer-proxy: \"🇦🇺 澳大利亚悉尼 · VLESS 专线\", reality-opts: {{ public-key: 2H7g1y_JkAnHEoFssUOpGLxxMvdYQC28y2GgyGsKd1M, short-id: 87050970 }} }}\nproxy-groups:\n  - name: \"⚡ 极速专线 · 手动切换\"\n    type: select\n    proxies: [\"LYCO-Auto\", \"🇰🇷 韩国首尔 · AnyTLS 极速\", \"🇰🇷 韩国首尔 · TUIC v5 极速\", \"🇰🇷 韩国首尔 · Hysteria2\", \"🇰🇷 韩国首尔 · VLESS 专线\", \"🇦🇺 澳大利亚悉尼 · AnyTLS 极速\", \"🇦🇺 澳大利亚悉尼 · TUIC v5\", \"🇦🇺 澳大利亚悉尼 · Hysteria2\", \"🇦🇺 澳大利亚悉尼 · VLESS 专线\", \"🇵🇭 菲律宾马尼拉 · AnyTLS 极速\", \"🇵🇭 菲律宾马尼拉 · TUIC v5\", \"🇵🇭 菲律宾马尼拉 · Hysteria2\", \"🇵🇭 菲律宾马尼拉 · VLESS 专线\", \"🇺🇸 美国西雅图 · Hysteria2\", \"🇺🇸 美国西雅图 · TUIC\", \"🇩🇪 德国法兰克福 · VLESS 中转\", \"🇰🇷 韩国首尔 · VMess WS\"]\n  - name: \"LYCO-Auto\"\n    type: url-test\n    url: https://www.gstatic.com/generate_204\n    interval: 90\n    tolerance: 30\n    proxies: [\"🇰🇷 韩国首尔 · AnyTLS 极速\", \"🇰🇷 韩国首尔 · TUIC v5 极速\", \"🇰🇷 韩国首尔 · Hysteria2\", \"🇰🇷 韩国首尔 · VLESS 专线\", \"🇦🇺 澳大利亚悉尼 · AnyTLS 极速\", \"🇦🇺 澳大利亚悉尼 · TUIC v5\", \"🇦🇺 澳大利亚悉尼 · Hysteria2\", \"🇵🇭 菲律宾马尼拉 · AnyTLS 极速\", \"🇵🇭 菲律宾马尼拉 · TUIC v5\", \"🇵🇭 菲律宾马尼拉 · Hysteria2\"]\n  - name: \"📚 学术文献 · 校园网直连\"\n    type: select\n    proxies: [DIRECT, \"⚡ 极速专线 · 手动切换\"]\nrules:\n  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve\n  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve\n  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve\n  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve\n  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve\n  - DOMAIN-SUFFIX,edu.cn,DIRECT\n  - DOMAIN-SUFFIX,ac.cn,DIRECT\n  - DOMAIN-SUFFIX,gov.cn,DIRECT\n  - DOMAIN-SUFFIX,cnki.net,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,cnki.com.cn,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,wanfangdata.com.cn,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,cqvip.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,chaoxing.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,duxiu.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,sslibrary.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,ncpssd.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,nstl.gov.cn,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,sciengine.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,carsi.edu.cn,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,elsevier.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,sciencedirect.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,scopus.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,springer.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,springerlink.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,nature.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,ieee.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,wiley.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,webofscience.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,webofknowledge.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,clarivate.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,acs.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,rsc.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,tandfonline.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,jstor.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,oup.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,cambridge.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,sagepub.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,proquest.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,ebscohost.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,nih.gov,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,mdpi.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,arxiv.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,acm.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,aps.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,aip.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,science.org,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,cell.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,thelancet.com,📚 学术文献 · 校园网直连\n  - DOMAIN-SUFFIX,cn,DIRECT\n  - GEOIP,CN,DIRECT\n  - MATCH,⚡ 极速专线 · 手动切换\n",
             ent.0
         );
+        if let Some(metered_line) = live_panel.metered_clash_line.as_deref() {
+            yaml = yaml.replacen("proxies:\n", &format!("proxies:\n{metered_line}"), 1);
+            yaml = yaml.replacen(
+                "proxies: [\"LYCO-Auto\", ",
+                "proxies: [\"⚡ 云枢主线 · 实时计费 (推荐)\", \"LYCO-Auto\", ",
+                1,
+            );
+        }
         (
             [
                 (header::CONTENT_TYPE, "text/yaml; charset=utf-8"),
@@ -1127,7 +1279,13 @@ async fn proxy_subscription(
     } else {
         let raw = "vless://f15f4aa6-e908-4f6a-b539-f5a8bdc1ad66@43.108.96.128:443?encryption=none&security=reality&sni=apple.com&fp=chrome&pbk=6wq54dJFy1fLskAQq1wl99afSQI8-j3LaMHIOvMBSm4&sid=293b1096&type=tcp&flow=xtls-rprx-vision#%F0%9F%87%B0%F0%9F%87%B7%20%E9%9F%A9%E5%9B%BD%20%C2%B7%20VLESS\nvless://dafe41d4-1f78-4527-9f7e-d080a47ba577@8.220.186.171:12360?encryption=none&security=reality&sni=apple.com&fp=chrome&pbk=-5ZOXIcqFgL8_sqASL3VaJ8XFiGKQXT1D4iLYNDsTgs&sid=b4e1150a&type=tcp&flow=xtls-rprx-vision#%F0%9F%87%B5%F0%9F%87%AD%20%E8%8F%B2%E5%BE%8B%E5%AE%BE%20%C2%B7%20VLESS\nhysteria2://67b84bf3-b69a-482b-95a9-769640b5e4b3@107.174.11.33:51466?sni=www.bing.com&alpn=h3&insecure=1#%F0%9F%87%BA%F0%9F%87%B8%20%E7%BE%8E%E5%9B%BD%20%C2%B7%20Hysteria2\ntuic://67b84bf3-b69a-482b-95a9-769640b5e4b3:67b84bf3-b69a-482b-95a9-769640b5e4b3@107.174.11.33:24062?sni=www.bing.com&alpn=h3&insecure=1&congestion_control=bbr&udp_relay_mode=native#%F0%9F%87%BA%F0%9F%87%B8%20%E7%BE%8E%E5%9B%BD%20%C2%B7%20TUIC\n";
         (
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            [
+                (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
+                (
+                    header::HeaderName::from_static("subscription-userinfo"),
+                    userinfo.as_str(),
+                ),
+            ],
             STANDARD.encode(raw.as_bytes()),
         )
             .into_response()

@@ -397,6 +397,33 @@ impl PortalDb {
         Ok(None)
     }
 
+    /// 查找该用户绑定的 Server A `proxy-panel` 实时计费订阅 URL（用于同步真实流量与个人计费节点）。
+    pub async fn studio_find_user_panel_sub_url(
+        &self,
+        username: &str,
+    ) -> Result<Option<String>, DbError> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT COALESCE(meta_json, '{}') FROM studio_entitlements \
+                 WHERE username = ?1 AND status = 'active' AND meta_json LIKE '%lain42.top/panel/api/sub/%' \
+                 ORDER BY id DESC LIMIT 1",
+                (username,),
+            )
+            .await?;
+        if let Some(r) = rows.next().await? {
+            let meta_str = as_str(r.get_value(0)?)?;
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&meta_str) {
+                if let Some(url) = val.get("sub_url").and_then(|v| v.as_str()) {
+                    if url.contains("lain42.top/panel/api/sub/") {
+                        return Ok(Some(url.to_string()));
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// 校验用户是否拥有指定商品的生效权益（用于 `/studio/api/download/{product}` 门控）。
     pub async fn studio_user_has_entitlement(
         &self,
