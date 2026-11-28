@@ -1,33 +1,66 @@
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeftRight,
   BarChart3,
   Cpu,
   Download,
   Globe,
+  GraduationCap,
+  KeyRound,
   LayoutDashboard,
+  Loader2,
   Menu,
-  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   ShoppingBag,
   Sparkles,
-  Sun,
   User,
   Wallet,
   Wrench,
   X,
 } from "lucide-react";
 import { apiFetch, getToken, setToken, type MeResponse } from "./lib/api";
+import { useTheme } from "./lib/theme";
 import { Badge, Button } from "./components/ui/primitives";
-import { HomePage } from "./pages/HomePage";
-import { VpnPage } from "./pages/VpnPage";
-import { ShopPage } from "./pages/ShopPage";
-import { DownloadsPage } from "./pages/DownloadsPage";
-import { ModelsPage } from "./pages/ModelsPage";
-import { AccountPage } from "./pages/AccountPage";
-import { ToolsPage } from "./pages/ToolsPage";
-import { AdminAnalyticsPage } from "./pages/AdminAnalyticsPage";
+
+const HomePage = lazy(() =>
+  import("./pages/HomePage").then((m) => ({ default: m.HomePage }))
+);
+const VpnPage = lazy(() =>
+  import("./pages/VpnPage").then((m) => ({ default: m.VpnPage }))
+);
+const ShopPage = lazy(() =>
+  import("./pages/ShopPage").then((m) => ({ default: m.ShopPage }))
+);
+const DownloadsPage = lazy(() =>
+  import("./pages/DownloadsPage").then((m) => ({ default: m.DownloadsPage }))
+);
+const ModelsPage = lazy(() =>
+  import("./pages/ModelsPage").then((m) => ({ default: m.ModelsPage }))
+);
+const AccountPage = lazy(() =>
+  import("./pages/AccountPage").then((m) => ({ default: m.AccountPage }))
+);
+const ToolsPage = lazy(() =>
+  import("./pages/ToolsPage").then((m) => ({ default: m.ToolsPage }))
+);
+const AccountPoolPage = lazy(() =>
+  import("./pages/AccountPoolPage").then((m) => ({ default: m.AccountPoolPage }))
+);
+const MyAgentPage = lazy(() =>
+  import("./pages/MyAgentPage").then((m) => ({ default: m.MyAgentPage }))
+);
+const ApiKeysPage = lazy(() =>
+  import("./pages/ApiKeysPage").then((m) => ({ default: m.ApiKeysPage }))
+);
+const OperationsPage = lazy(() =>
+  import("./pages/OperationsPage").then((m) => ({ default: m.OperationsPage }))
+);
+const CampusServicePage = lazy(() =>
+  import("./pages/CampusServicePage").then((m) => ({
+    default: m.CampusServicePage,
+  }))
+);
 
 interface NavItem {
   id: string;
@@ -39,19 +72,35 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: "home", path: "/", label: "总览面板", icon: <LayoutDashboard className="h-4 w-4" /> },
-  { id: "vpn", path: "/vpn", label: "极速专线", badge: "12.7MB/s", icon: <Globe className="h-4 w-4" /> },
+  { id: "vpn", path: "/vpn", label: "极速专线", icon: <Globe className="h-4 w-4" /> },
   { id: "shop", path: "/shop", label: "积分商城", icon: <ShoppingBag className="h-4 w-4" /> },
   { id: "downloads", path: "/downloads", label: "免费下载库", badge: "1000+", icon: <Download className="h-4 w-4" /> },
   { id: "models", path: "/models", label: "AI 模型中转", icon: <Cpu className="h-4 w-4" /> },
+  { id: "account-pool", path: "/account-pool", label: "我的账号池", icon: <Wallet className="h-4 w-4" /> },
+  { id: "my-agent", path: "/my-agent", label: "我的 Agent", icon: <Sparkles className="h-4 w-4" /> },
+  { id: "api-keys", path: "/api-keys", label: "API Key", icon: <KeyRound className="h-4 w-4" /> },
   { id: "account", path: "/account", label: "账户与工单", icon: <User className="h-4 w-4" /> },
   { id: "tool", path: "/tool", label: "开发者工具", icon: <Wrench className="h-4 w-4" /> },
-  { id: "admin", path: "/admin", label: "数据看板", badge: "Admin", icon: <BarChart3 className="h-4 w-4" /> },
+  { id: "campus", path: "/campus", label: "校园服务", icon: <GraduationCap className="h-4 w-4" /> },
+  { id: "admin", path: "/admin", label: "运营管理", icon: <BarChart3 className="h-4 w-4" /> },
 ];
 
+const PUBLIC_BASE = (import.meta.env.VITE_PUBLIC_BASE || "").replace(/\/$/, "");
+
+function withBase(path: string): string {
+  if (!PUBLIC_BASE) return path;
+  if (path === PUBLIC_BASE || path.startsWith(`${PUBLIC_BASE}/`)) return path;
+  return `${PUBLIC_BASE}${path}`;
+}
+
 function pathToTab(pathname: string): string {
-  const clean = pathname.replace(/\/+$/, "") || "/";
+  const raw = PUBLIC_BASE && pathname.startsWith(PUBLIC_BASE)
+    ? pathname.slice(PUBLIC_BASE.length) || "/"
+    : pathname;
+  const clean = raw.replace(/\/+$/, "") || "/";
   const found = NAV_ITEMS.find((item) => item.path === clean);
   if (found) return found.id;
+  if (clean === "/campus-dock") return "campus";
   if (clean.startsWith("/downloads")) return "downloads";
   return "home";
 }
@@ -60,19 +109,17 @@ export function App() {
   const [tab, setTab] = useState<string>(() => pathToTab(window.location.pathname));
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [dark, setDark] = useState<boolean>(() => {
-    const saved = localStorage.getItem("lain42_theme");
-    if (saved) return saved === "dark";
-    return true;
-  });
+  const theme = useTheme();
   const [me, setMe] = useState<MeResponse | null>(null);
-
+  const lastTracked = useRef<string | undefined>(undefined);
   useEffect(() => {
-    const root = document.documentElement;
-    if (dark) root.classList.add("dark");
-    else root.classList.remove("dark");
-    localStorage.setItem("lain42_theme", dark ? "dark" : "light");
-  }, [dark]);
+    if (lastTracked.current === tab) return;
+    lastTracked.current = tab;
+    if (tab === "admin") return;
+    void apiFetch("/api/analytics/visit", {
+      method: "POST", body: JSON.stringify({ page: tab }), keepalive: true,
+    }).catch(() => {});
+  }, [tab]);
 
   const refreshMe = useCallback(() => {
     if (!getToken()) {
@@ -101,8 +148,9 @@ export function App() {
     const item = NAV_ITEMS.find((n) => n.id === nextTab) || NAV_ITEMS[0];
     setTab(item.id);
     setMobileOpen(false);
-    if (window.location.pathname !== item.path) {
-      window.history.pushState({}, "", item.path);
+    const nextPath = withBase(item.path);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, "", nextPath);
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -149,11 +197,7 @@ export function App() {
       {/* Nav Items */}
       <nav className="flex-1 space-y-1 p-2.5 overflow-y-auto">
         {NAV_ITEMS.filter(
-          (item) =>
-            item.id !== "admin" ||
-            (me &&
-              (me.username.toLowerCase() === "lilyco42ovo" ||
-                me.username.toLowerCase() === "admin"))
+          (item) => item.id !== "admin" || me?.is_admin
         ).map((item) => {
           const active = tab === item.id;
           return (
@@ -281,53 +325,80 @@ export function App() {
               </Button>
             )}
 
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setDark((d) => !d)}
-              title={dark ? "切换浅色模式" : "切换深色模式"}
+            <select
+              aria-label="主题"
+              className="h-11 max-w-full shrink-0 rounded-md border border-border bg-background px-2 text-base text-foreground focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"
+              value={theme.mode}
+              onChange={(event) => theme.select(event.target.value)}
             >
-              {dark ? (
-                <Sun className="h-4 w-4 text-amber-400" />
-              ) : (
-                <Moon className="h-4 w-4" />
-              )}
-            </Button>
+              <option value="system">跟随系统</option>
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
+            </select>
           </div>
         </header>
 
         {/* Main Content */}
         <main className="flex-1 p-4 lg:p-6 max-w-6xl w-full mx-auto">
-          {tab === "home" && <HomePage onNavigate={navigate} />}
-          {tab === "vpn" && (
-            <VpnPage
-              me={me}
-              onRefreshMe={refreshMe}
-              onNavigate={navigate}
-            />
-          )}
-          {tab === "shop" && (
-            <ShopPage
-              me={me}
-              onRefreshMe={refreshMe}
-              onNeedAuth={() => navigate("account")}
-            />
-          )}
-          {tab === "downloads" && <DownloadsPage />}
-          {tab === "models" && <ModelsPage />}
-          {tab === "account" && (
-            <AccountPage me={me} onRefreshMe={refreshMe} />
-          )}
-          {tab === "tool" && <ToolsPage />}
-          {tab === "admin" && (
-            <AdminAnalyticsPage me={me} onNeedAuth={() => navigate("account")} />
-          )}
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin text-emerald-500" />
+                <span>正在加载模块...</span>
+              </div>
+            }
+          >
+            {tab === "home" && <HomePage onNavigate={navigate} />}
+            {tab === "vpn" && (
+              <VpnPage
+                me={me}
+                onRefreshMe={refreshMe}
+                onNavigate={navigate}
+              />
+            )}
+            {tab === "shop" && (
+              <ShopPage
+                me={me}
+                onRefreshMe={refreshMe}
+                onNeedAuth={() => navigate("account")}
+              />
+            )}
+            {tab === "downloads" && <DownloadsPage />}
+            {tab === "models" && <ModelsPage />}
+            {tab === "account-pool" && (
+              <AccountPoolPage me={me} onNeedAuth={() => navigate("account")} />
+            )}
+            {tab === "my-agent" && (
+              <MyAgentPage
+                me={me}
+                onNeedAuth={() => navigate("account")}
+                onOpenApiKeys={() => navigate("api-keys")}
+              />
+            )}
+            {tab === "api-keys" && (
+              <ApiKeysPage me={me} onNeedAuth={() => navigate("account")} />
+            )}
+            {tab === "account" && (
+              <AccountPage me={me} onRefreshMe={refreshMe} />
+            )}
+            {tab === "tool" && (
+              <ToolsPage
+                onOpenOperations={
+                  me?.is_admin ? () => navigate("admin") : undefined
+                }
+              />
+            )}
+            {tab === "campus" && <CampusServicePage />}
+            {tab === "admin" && (
+              <OperationsPage me={me} onNeedAuth={() => navigate("account")} />
+            )}
+          </Suspense>
         </main>
 
         {/* Footer */}
         <footer className="border-t py-4 px-6 text-xs text-muted-foreground flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            © {new Date().getFullYear()} Lain42 Cloud · dev.lain42.top 新一代商业化控制台
+            © {new Date().getFullYear()} Lain42 Cloud · {(import.meta.env.VITE_BRAND_HOST || (import.meta.env.VITE_PUBLIC_BASE ? "lain42.top" : "dev.lain42.top"))} 新一代商业化控制台
           </div>
           <div className="flex items-center gap-4">
             <a
