@@ -3808,7 +3808,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-core"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "schemars 0.8.22",
  "serde",
@@ -4044,7 +4044,7 @@ dependencies = [
 
 [[package]]
 name = "lilyco-tui"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "crossterm",
  "lilyco-core",

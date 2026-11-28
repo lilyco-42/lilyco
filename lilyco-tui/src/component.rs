@@ -106,6 +106,7 @@ pub fn supported_kinds() -> Vec<String> {
         "message_list",
         "composer",
         "pane",
+        "image",
     ]
     .iter()
     .map(|kind| (*kind).to_string())
@@ -268,6 +269,10 @@ pub fn measure(component: &Component, width: u16) -> u16 {
         Component::Pane { children, .. } => {
             2u16.saturating_add(children_height(children, width.saturating_sub(2)))
         }
+        Component::Image { alt, height, .. } => match *height {
+            Some(height) => u16::try_from(height.clamp(1, 20)).unwrap_or(1),
+            None => 1u16.saturating_add(text_height(alt, width)),
+        },
     }
 }
 
@@ -1543,6 +1548,19 @@ pub fn render_with_theme(component: &Component, area: Rect, buf: &mut Buffer, th
             block.render(area, buf);
             render_children(children, inner, buf, theme);
         }
+        Component::Image { src, alt, .. } => {
+            // 图形协议渲染需要 ratatui-image + Kitty/Sixel；当前只做终端降级占位，
+            // 后续可作为可选 feature 接入，不在默认构建里引入。
+            let placeholder = if alt.is_empty() {
+                "[图片]".to_string()
+            } else {
+                format!("[图片] {alt}")
+            };
+            write_row(buf, area, 0, &placeholder, theme.text_style());
+            if area.height > 1 {
+                write_row(buf, area, 1, src, theme.muted_style());
+            }
+        }
     }
 }
 
@@ -2126,6 +2144,54 @@ mod tests {
             Some(Color::Magenta),
             "Pane 标题应为 accent"
         );
+    }
+
+    #[test]
+    fn image_renders_placeholder_and_alt() {
+        let component = Component::Image {
+            src: "https://example.com/very/long/path/does/not/fit.png".into(),
+            alt: "示例图".into(),
+            width: None,
+            height: None,
+        };
+        let out = render_to_string(&component, 20, 4);
+        assert!(out.contains("[图片] 示例图"), "占位与 alt 缺失: {out}");
+        assert!(out.contains("https://example.com"), "src 前缀缺失: {out}");
+        assert!(!out.contains("does/not/fit.png"), "src 应按宽度截断: {out}");
+
+        let theme = Theme::default();
+        let buf = render_buffer(&component, 20, 4);
+        let (x, y) = find_symbol(&buf, 20, 4, "h").expect("src 单元格");
+        assert_eq!(
+            buf.cell((x, y)).map(|cell| cell.fg),
+            Some(color(&theme.muted)),
+            "src 应使用 muted"
+        );
+    }
+
+    #[test]
+    fn image_measure_uses_height_when_present() {
+        let image = |height| Component::Image {
+            src: "x".into(),
+            alt: "a".into(),
+            width: None,
+            height: Some(height),
+        };
+        assert_eq!(measure(&image(0), 40), 1, "height=0 夹紧到 1");
+        assert_eq!(measure(&image(5), 40), 5);
+        assert_eq!(measure(&image(100), 40), 20, "height 上限 20");
+    }
+
+    #[test]
+    fn image_measure_uses_alt_when_no_height() {
+        let alt = "这是一段需要换行的说明文字";
+        let component = Component::Image {
+            src: "x".into(),
+            alt: alt.into(),
+            width: None,
+            height: None,
+        };
+        assert_eq!(measure(&component, 10), 1 + text_height(alt, 10));
     }
 
     #[test]

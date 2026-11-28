@@ -528,6 +528,15 @@ pub enum Component {
         #[serde(default)]
         children: Vec<Component>,
     },
+    Image {
+        src: String,
+        #[serde(default)]
+        alt: String,
+        #[serde(default)]
+        width: Option<u32>,
+        #[serde(default)]
+        height: Option<u32>,
+    },
 }
 
 fn half() -> f64 {
@@ -731,6 +740,22 @@ mod tests {
         })
         .expect("serialize");
         assert_eq!(v["kind"], "pane");
+    }
+
+    #[test]
+    fn image_serializes_with_kind() {
+        let v = serde_json::to_value(Component::Image {
+            src: "https://example.com/a.png".into(),
+            alt: "示例图".into(),
+            width: Some(480),
+            height: Some(320),
+        })
+        .expect("serialize");
+        assert_eq!(v["kind"], "image");
+        assert_eq!(v["src"], "https://example.com/a.png");
+        assert_eq!(v["alt"], "示例图");
+        assert_eq!(v["width"], 480);
+        assert_eq!(v["height"], 320);
     }
 
     #[test]
