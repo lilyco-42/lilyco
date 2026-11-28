@@ -1,9 +1,12 @@
 //! 云枢智创 · lain42 全 Rust 门户入口（环境隔离：dev / test 独立端口与 Turso 数据库文件）。
 
+mod admin_routes;
 mod db;
 mod mirror;
+mod proxy_health;
 mod routes;
 mod studio_api;
+mod visitor_region;
 
 use std::sync::Arc;
 
@@ -12,6 +15,7 @@ use routes::{build_router, AppState};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    std::sync::LazyLock::force(&db::admin_analytics::STARTED);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(String::as_str).unwrap_or("serve");
 
@@ -56,8 +60,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let license_secret = arg_val(&args, "--license-secret")
                 .or_else(|| std::env::var("LAIN_LICENSE_SECRET").ok())
                 .unwrap_or_else(|| "lain42-dev-secret-change-in-prod".to_string());
-            let static_dir = arg_val(&args, "--static-dir")
-                .or_else(|| std::env::var("LAIN_STATIC_DIR").ok());
+            let static_dir =
+                arg_val(&args, "--static-dir").or_else(|| std::env::var("LAIN_STATIC_DIR").ok());
             let pay_config_dir = arg_val(&args, "--pay-config-dir")
                 .or_else(|| std::env::var("LAIN_PAY_CONFIG_DIR").ok());
 
@@ -65,6 +69,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 db,
                 env_name: env_name.clone(),
                 license_secret,
+                admin_secret: std::env::var("LAIN_ADMIN_SECRET")
+                    .ok()
+                    .filter(|key| key.len() >= 32),
                 static_dir: static_dir.clone(),
                 pay_config_dir: pay_config_dir.clone(),
             });
@@ -74,16 +81,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "lain42-portal ({env_name}) listening on http://{bind} [db={db_path}, static={:?}, pay_dir={:?}, engine=Turso Pure-Rust]",
                 static_dir, pay_config_dir
             );
-            axum::serve(listener, app).await?;
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await?;
         }
     }
     Ok(())
 }
 
 fn arg_val(args: &[String], flag: &str) -> Option<String> {
-    args.windows(2)
-        .find(|w| w[0] == flag)
-        .map(|w| w[1].clone())
+    args.windows(2).find(|w| w[0] == flag).map(|w| w[1].clone())
 }
 
 #[cfg(test)]
@@ -100,10 +109,161 @@ mod tests {
             db,
             env_name: "test".to_string(),
             license_secret: "unit-test-secret".to_string(),
+            admin_secret: Some("unit-test-admin-secret".to_string()),
             static_dir: None,
             pay_config_dir: None,
         });
         build_router(state)
+    }
+
+    #[tokio::test]
+    async fn operations_overview_counts_only_accepted_visits_and_requires_admin() {
+        let app = test_app().await;
+        let request = |path, body| Request::builder().uri(path).body(body).unwrap();
+        let access = app
+            .clone()
+            .oneshot(request("/api/admin/overview", Body::empty()))
+            .await
+            .unwrap();
+        assert_eq!(access.status(), StatusCode::FORBIDDEN);
+
+        let register = app.clone().oneshot(Request::post("/studio/api/register")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"username":"ops_fixture","password":"fixturepass","email":"ops@example.test"}"#)).unwrap()).await.unwrap();
+        assert_eq!(register.status(), StatusCode::OK);
+        let registration: serde_json::Value =
+            serde_json::from_slice(&register.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        let authorization = format!("Bearer {}", registration["token"].as_str().unwrap());
+
+        for (body, expected) in [
+            (r#"{"page":"tool"}"#, StatusCode::NO_CONTENT),
+            (r#"{"page":"vpn"}"#, StatusCode::NO_CONTENT),
+            (
+                r#"{"page":"tool","country":"US"}"#,
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            (r#"{"page":"unknown"}"#, StatusCode::UNPROCESSABLE_ENTITY),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::post("/api/analytics/visit")
+                        .header("content-type", "application/json")
+                        .header("authorization", &authorization)
+                        .header("user-agent", "Mozilla/5.0 (Linux; Android 16)")
+                        .header("cf-ipcountry", "US")
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected);
+        }
+
+        let campus_purchase = app
+            .clone()
+            .oneshot(
+                Request::post("/studio/api/points/purchase")
+                    .header("content-type", "application/json")
+                    .header("authorization", &authorization)
+                    .body(Body::from(
+                        r#"{"product":"paodou_6m","reference":"fixture"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(campus_purchase.status(), StatusCode::CONFLICT);
+
+        let admin_request = |path| {
+            Request::get(path)
+                .header("x-admin-secret", "unit-test-admin-secret")
+                .body(Body::empty())
+                .unwrap()
+        };
+        let invalid_period = app
+            .clone()
+            .oneshot(admin_request("/api/admin/overview?days=91"))
+            .await
+            .unwrap();
+        assert_eq!(invalid_period.status(), StatusCode::BAD_REQUEST);
+
+        let response = app
+            .oneshot(admin_request("/api/admin/overview?days=7"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let report: serde_json::Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        let timeline = report["activity"]["timeline"].as_array().unwrap();
+        assert_eq!(timeline.len(), 7);
+        assert_eq!(
+            timeline
+                .iter()
+                .map(|day| day["views"].as_i64().unwrap())
+                .sum::<i64>(),
+            2
+        );
+        assert_eq!(report["commerce"]["users"]["registered"], 1);
+        assert_eq!(report["commerce"]["users"]["active"], 1);
+        assert_eq!(report["commerce"]["orders"], 0);
+        assert_eq!(report["activity"]["systems"][0]["key"], "Android");
+        assert_eq!(report["activity"]["regions"][0]["key"], "unknown");
+    }
+
+    #[tokio::test]
+    async fn admin_access_uses_a_separate_session() {
+        let db = PortalDb::open(":memory:").await.unwrap();
+        let state = Arc::new(AppState {
+            db,
+            env_name: "test".into(),
+            license_secret: "unit-test-secret".into(),
+            admin_secret: Some("unit-test-admin-secret".into()),
+            static_dir: None,
+            pay_config_dir: None,
+        });
+        let password =
+            studio_api::hash_password(&state.license_secret, "lilyco42ovo", "fixturepass");
+        state
+            .db
+            .studio_register("lilyco42ovo", &password, "admin@example.test")
+            .await
+            .unwrap();
+        let app = build_router(state);
+        let login = app
+            .clone()
+            .oneshot(
+                Request::post("/studio/api/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"username":"lilyco42ovo","password":"fixturepass"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&login.into_body().collect().await.unwrap().to_bytes()).unwrap();
+        let authorization = format!("Bearer {}", body["token"].as_str().unwrap());
+        let privileged = body["admin_token"].as_str().unwrap();
+        for (session, expected) in [("", StatusCode::FORBIDDEN), (privileged, StatusCode::OK)] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::get("/api/admin/overview?days=1")
+                        .header("authorization", &authorization)
+                        .header("x-admin-session", session)
+                        .header("x-admin-secret", "unit-test-secret")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected);
+        }
     }
 
     #[tokio::test]
@@ -139,7 +299,9 @@ mod tests {
                     .uri("/studio/api/payments/afdian/intents")
                     .header("authorization", format!("Bearer {token}"))
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"product":"points_cny_30","reference":"ref1"}"#))
+                    .body(Body::from(
+                        r#"{"product":"points_cny_30","reference":"ref1"}"#,
+                    ))
                     .unwrap(),
             )
             .await
@@ -155,7 +317,9 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/studio/api/payments/afdian/intents/{intent_id}/check"))
+                    .uri(format!(
+                        "/studio/api/payments/afdian/intents/{intent_id}/check"
+                    ))
                     .header("authorization", format!("Bearer {token}"))
                     .header("content-type", "application/json")
                     .body(Body::from("{}"))
@@ -174,7 +338,9 @@ mod tests {
                     .uri("/studio/api/points/purchase")
                     .header("authorization", format!("Bearer {token}"))
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"product":"proxy_1m_220g","reference":"ref2"}"#))
+                    .body(Body::from(
+                        r#"{"product":"proxy_1m_220g","reference":"ref2"}"#,
+                    ))
                     .unwrap(),
             )
             .await
@@ -206,7 +372,9 @@ mod tests {
                     .uri("/studio/api/points/purchase")
                     .header("authorization", format!("Bearer {token}"))
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"product":"proxy_1m","reference":"ref_deny_bonus"}"#))
+                    .body(Body::from(
+                        r#"{"product":"proxy_1m","reference":"ref_deny_bonus"}"#,
+                    ))
                     .unwrap(),
             )
             .await
@@ -221,7 +389,9 @@ mod tests {
                     .uri("/studio/api/points/purchase")
                     .header("authorization", format!("Bearer {token}"))
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"product":"rembg_creator","reference":"ref_allow_bonus"}"#))
+                    .body(Body::from(
+                        r#"{"product":"rembg_creator","reference":"ref_allow_bonus"}"#,
+                    ))
                     .unwrap(),
             )
             .await
@@ -279,7 +449,9 @@ mod tests {
             userinfo.contains("total=236223201280"),
             "220GB plan must advertise 236223201280 bytes in Subscription-Userinfo, got {userinfo}"
         );
-        let sub_yaml = String::from_utf8(sub.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+        let sub_yaml =
+            String::from_utf8(sub.into_body().collect().await.unwrap().to_bytes().to_vec())
+                .unwrap();
         assert!(sub_yaml.contains("LYCO-Auto"));
         assert!(sub_yaml.contains("🇦🇺 澳大利亚悉尼 · VLESS 专线"));
         assert!(sub_yaml.contains("🇰🇷 韩国二 · VLESS 中转"));
@@ -300,36 +472,62 @@ mod tests {
 
         let rob = app
             .clone()
-            .oneshot(Request::builder().uri("/robots.txt").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/robots.txt")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(rob.status(), StatusCode::OK);
 
         let sm = app
             .clone()
-            .oneshot(Request::builder().uri("/sitemap.xml").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/sitemap.xml")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(sm.status(), StatusCode::OK);
-        let sm_body = String::from_utf8(sm.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+        let sm_body =
+            String::from_utf8(sm.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
         assert!(sm_body.contains("/downloads/clash-verge-rev"));
 
         let dls = app
             .clone()
-            .oneshot(Request::builder().uri("/downloads").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/downloads")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(dls.status(), StatusCode::OK);
 
         let dl_detail = app
             .clone()
-            .oneshot(Request::builder().uri("/downloads/clash-verge-rev").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/downloads/clash-verge-rev")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(dl_detail.status(), StatusCode::OK);
 
         let go_dl = app
-            .oneshot(Request::builder().uri("/go/download/clash-verge-rev").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/go/download/clash-verge-rev")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(go_dl.status(), StatusCode::TEMPORARY_REDIRECT);
@@ -356,7 +554,12 @@ mod tests {
                 .unwrap();
             assert_eq!(resp.status(), StatusCode::OK, "path={path}");
             let body = String::from_utf8(
-                resp.into_body().collect().await.unwrap().to_bytes().to_vec(),
+                resp.into_body()
+                    .collect()
+                    .await
+                    .unwrap()
+                    .to_bytes()
+                    .to_vec(),
             )
             .unwrap();
             assert!(body.contains(needle), "missing `{needle}` in {path}");
@@ -378,10 +581,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(order_resp.status(), StatusCode::CREATED);
-        let order_json: serde_json::Value = serde_json::from_slice(
-            &order_resp.into_body().collect().await.unwrap().to_bytes(),
-        )
-        .unwrap();
+        let order_json: serde_json::Value =
+            serde_json::from_slice(&order_resp.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
         let order_id = order_json["order"]["id"].as_str().unwrap().to_string();
 
         let confirm_resp = app
@@ -396,10 +598,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(confirm_resp.status(), StatusCode::OK);
-        let confirm_json: serde_json::Value = serde_json::from_slice(
-            &confirm_resp.into_body().collect().await.unwrap().to_bytes(),
-        )
-        .unwrap();
+        let confirm_json: serde_json::Value =
+            serde_json::from_slice(&confirm_resp.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
         assert_eq!(confirm_json["order"]["status"], "paid");
         // Initial 10 welcome credits + 100 purchased = 110
         assert_eq!(confirm_json["account"]["credits"], 110);
@@ -428,13 +629,17 @@ mod tests {
         // 4. Verify health & MCP tool call
         let health_resp = app
             .clone()
-            .oneshot(Request::builder().uri("/api/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/api/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
-        let health: serde_json::Value = serde_json::from_slice(
-            &health_resp.into_body().collect().await.unwrap().to_bytes(),
-        )
-        .unwrap();
+        let health: serde_json::Value =
+            serde_json::from_slice(&health_resp.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
         assert_eq!(health["db"]["orders_count"], 1);
         assert_eq!(health["db"]["accounts_count"], 1);
         assert_eq!(health["db"]["announcements_count"], 3);
@@ -454,7 +659,13 @@ mod tests {
             .unwrap();
         assert_eq!(mcp_resp.status(), StatusCode::OK);
         let mcp_body = String::from_utf8(
-            mcp_resp.into_body().collect().await.unwrap().to_bytes().to_vec(),
+            mcp_resp
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
         )
         .unwrap();
         assert!(mcp_body.contains("wb-cn:deepseek-v3.2"));
