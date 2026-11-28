@@ -7,7 +7,7 @@ use clap::{Arg, ArgAction, Command};
 
 use lilyco_core::prelude::*;
 
-use crate::command::{build_command, leak_str, HELP_STYLES};
+use crate::command::{build_command, leak_str};
 use crate::renderer::CliRenderer;
 
 /// 多命令一行启动：把整个 [`Registry`] 渲染成 clap 子命令树。
@@ -63,7 +63,6 @@ where
 /// `resolve_registry_command` 在运行期解析。
 pub fn build_registry_command(app_name: &str, registry: &Registry) -> Command {
     let mut root = Command::new(leak_str(app_name))
-        .styles(HELP_STYLES)
         .disable_version_flag(true)
         .arg_required_else_help(true);
 
