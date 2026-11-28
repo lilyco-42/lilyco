@@ -1095,7 +1095,7 @@ fn fetch_panel_live_sub(panel_url: &str) -> PanelLiveSub {
         .new_agent();
     let Ok(mut resp) = agent
         .get(panel_url)
-        .header("User-Agent", "clash-verge/v2.2.3")
+        .header("User-Agent", "v2rayN/6.0")
         .call()
     else {
         return PanelLiveSub {
@@ -1103,11 +1103,24 @@ fn fetch_panel_live_sub(panel_url: &str) -> PanelLiveSub {
             metered_clash_line: None,
         };
     };
-    let userinfo = resp
+    let mut userinfo = resp
         .headers()
         .get("subscription-userinfo")
         .and_then(|v| v.to_str().ok())
         .map(ToString::to_string);
+    if userinfo.is_none() {
+        if let Ok(r2) = agent
+            .head(panel_url)
+            .header("User-Agent", "clash-verge/v2.2.3")
+            .call()
+        {
+            userinfo = r2
+                .headers()
+                .get("subscription-userinfo")
+                .and_then(|v| v.to_str().ok())
+                .map(ToString::to_string);
+        }
+    }
     let metered_clash_line = resp
         .body_mut()
         .read_to_string()
