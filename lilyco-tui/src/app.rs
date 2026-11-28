@@ -3,8 +3,13 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
 use lilyco_core::schema::CommandSchema;
+use lilyco_core::view::{Component, ViewSlot};
 
+use crate::chat::{ChatAction, ChatState};
+use crate::config::{KeyAction, Keymap};
 use crate::renderer::{self, AppState, FormRenderer};
+use crate::theme::Theme;
+use crate::view::ViewState;
 use crate::widgets::{FieldValue, FormField};
 
 // ── TuiApp ────────────────────────────────────────────────
@@ -26,6 +31,20 @@ pub struct TuiApp {
     pub active_command: Option<String>,
     /// 路径补全会话：`(base 键, 候选列表, 当前索引)`；值变更即失效
     completion: Option<(String, Vec<String>, usize)>,
+    /// 语义视图状态（静态槽位 + 运行时组件）
+    pub view: ViewState,
+    /// 聊天交互状态（焦点 / 选择 / 输入模式 / 草稿）
+    pub chat: ChatState,
+    /// 本地动作 intent 队列（只入队，不执行）
+    pub pending_actions: Vec<ChatAction>,
+    /// 聊天键位
+    pub keymap: Keymap,
+    /// 主题令牌
+    pub theme: Theme,
+    /// `gg` 前缀键是否按下
+    g_pending: bool,
+    /// 每个命令声明的静态视图槽位
+    views_by_command: std::collections::HashMap<String, Vec<ViewSlot>>,
 }
 
 impl TuiApp {
@@ -40,6 +59,13 @@ impl TuiApp {
             selected_command: 0,
             active_command: Some(schema.name.clone()),
             completion: None,
+            view: ViewState::default(),
+            chat: ChatState::default(),
+            pending_actions: Vec::new(),
+            keymap: Keymap::load_default(),
+            theme: Theme::load_default(),
+            g_pending: false,
+            views_by_command: std::collections::HashMap::new(),
         }
     }
 
@@ -62,6 +88,86 @@ impl TuiApp {
             selected_command: 0,
             active_command: None,
             completion: None,
+            view: ViewState::default(),
+            chat: ChatState::default(),
+            pending_actions: Vec::new(),
+            keymap: Keymap::load_default(),
+            theme: Theme::load_default(),
+            g_pending: false,
+            views_by_command: std::collections::HashMap::new(),
+        }
+    }
+
+    /// 绑定静态视图槽位（单命令）
+    pub fn with_views(mut self, slots: Vec<ViewSlot>) -> Self {
+        let name = self.form.command_name.clone();
+        self.views_by_command.insert(name, slots.clone());
+        self.view = ViewState::new(slots);
+        self
+    }
+
+    /// 注入自定义键位（测试 / 宿主）
+    pub fn with_keymap(mut self, keymap: Keymap) -> Self {
+        self.keymap = keymap;
+        self
+    }
+
+    /// 注入自定义主题（测试 / 宿主）
+    pub fn with_theme(mut self, theme: Theme) -> Self {
+        self.theme = theme;
+        self
+    }
+
+    /// 取走本地动作 intent 队列
+    pub fn drain_actions(&mut self) -> Vec<ChatAction> {
+        std::mem::take(&mut self.pending_actions)
+    }
+
+    /// 多命令模式 + 每命令视图槽位
+    pub fn new_multi_with_views(
+        app_name: &str,
+        entries: Vec<(CommandSchema, Vec<ViewSlot>)>,
+    ) -> Self {
+        let schemas: Vec<CommandSchema> =
+            entries.iter().map(|(schema, _)| schema.clone()).collect();
+        let mut app = Self::new_multi(app_name, schemas);
+        app.views_by_command = entries
+            .into_iter()
+            .map(|(schema, slots)| (schema.name.clone(), slots))
+            .collect();
+        app
+    }
+
+    /// 写入运行时视图组件（同 id 覆盖）
+    pub fn apply_view(&mut self, id: impl Into<String>, component: Component) {
+        self.view.apply(id, component);
+        self.sync_chat_limit();
+        self.sync_view_chat_state();
+    }
+
+    /// 把本地聊天状态写回语义视图，驱动选中行与输入区渲染
+    fn sync_view_chat_state(&mut self) {
+        self.view.apply_chat_state(
+            self.chat.selected(),
+            self.chat.draft(),
+            self.chat.is_insert(),
+        );
+    }
+
+    /// 当前视图中第一个 MessageList 的消息条数
+    fn message_list_limit(&self) -> Option<usize> {
+        self.view.iter_components().find_map(message_list_len)
+    }
+
+    /// 把聊天选中下标夹紧到消息列表长度
+    fn sync_chat_limit(&mut self) {
+        let Some(limit) = self.message_list_limit() else {
+            return;
+        };
+        if limit == 0 {
+            self.chat.select_top();
+        } else if self.chat.selected() >= limit {
+            self.chat.select_bottom(limit);
         }
     }
 
@@ -106,10 +212,25 @@ impl TuiApp {
                     );
                 }
             }
-            AppState::Form | AppState::Running => {
+            AppState::Form => {
                 renderer::render_form(&self.form, area, buf);
                 if self.show_help {
                     render_help_overlay(area, buf);
+                }
+            }
+            AppState::Running => {
+                if self.view.is_empty() {
+                    renderer::render_running(&self.form, area, buf);
+                } else {
+                    renderer::render_running_with_view(
+                        &self.form,
+                        &self.view,
+                        self.pending_actions.len(),
+                        self.chat.pending_confirm(),
+                        &self.theme,
+                        area,
+                        buf,
+                    );
                 }
             }
             AppState::Confirm => {
@@ -150,6 +271,12 @@ impl TuiApp {
                     let schema = schemas[idx].clone();
                     self.form = FormRenderer::new(&schema);
                     self.active_command = Some(schema.name.clone());
+                    let slots = self
+                        .views_by_command
+                        .get(&schema.name)
+                        .cloned()
+                        .unwrap_or_default();
+                    self.view = ViewState::new(slots);
                 }
             }
             _ => {}
@@ -160,6 +287,22 @@ impl TuiApp {
     fn handle_form_event(&mut self, key: KeyEvent) -> bool {
         use KeyCode::*;
 
+        if self.show_help {
+            if matches!(key.code, Esc | Enter | Tab | F(1)) {
+                self.show_help = false;
+            }
+            return true;
+        }
+        if key.modifiers.contains(KeyModifiers::ALT) {
+            match key.code {
+                Down => self.form.next_field(),
+                Up => self.form.prev_field(),
+                _ => return true,
+            }
+            self.completion = None;
+            return true;
+        }
+
         // 全局快捷键优先
         match key.code {
             Esc => {
@@ -167,33 +310,25 @@ impl TuiApp {
                 return false;
             }
             Tab => {
-                if self.show_help {
-                    self.show_help = false;
+                // 路径输入中 Tab 保持补全，Alt+↓ 始终可前往下一字段。
+                let is_path_with_input = self
+                    .form
+                    .focused_field()
+                    .is_some_and(|f| matches!(&f.value, FieldValue::Path(v) if !v.is_empty()));
+                if is_path_with_input {
+                    self.path_complete();
                 } else {
-                    // Path 字段聚焦且已有输入 → Tab 用于目录补全（readline 风格，
-                    // 重复 Tab 循环候选）；空值时照常切换字段，保证前进导航可达
-                    let is_path_with_input = self
-                        .form
-                        .focused_field()
-                        .is_some_and(|f| matches!(&f.value, FieldValue::Path(v) if !v.is_empty()));
-                    if is_path_with_input {
-                        self.path_complete();
-                    } else {
-                        self.completion = None;
-                        self.form.next_field();
-                    }
+                    self.completion = None;
+                    self.form.next_field();
                 }
                 return true;
             }
             BackTab => {
+                self.completion = None;
                 self.form.prev_field();
                 return true;
             }
             Enter => {
-                if self.show_help {
-                    self.show_help = false;
-                    return true;
-                }
                 // 全量校验（required / Number 范围 / Path must_exist）不通过则
                 // 留在表单并显示红色消息；通过则清消息进入确认
                 let errors = self.form.validation_errors();
@@ -301,25 +436,188 @@ impl TuiApp {
     }
 
     fn handle_running_event(&mut self, key: KeyEvent) -> bool {
-        // 取消：Ctrl-C、c / C、q / Q、Esc
-        // 注意：取消只改变 UI 状态为 Error；真正的中断由 facade 通过
-        // executor::Task.cancel 请求，handler 读取 ctx.is_cancelled() 优雅退出。
-        let is_ctrl_c =
-            key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL);
-        let is_cancel = is_ctrl_c
-            || matches!(
-                key.code,
-                KeyCode::Char('c')
-                    | KeyCode::Char('C')
-                    | KeyCode::Char('q')
-                    | KeyCode::Char('Q')
-                    | KeyCode::Esc
-            );
-        if is_cancel {
-            self.form.app_state = AppState::Error;
-            self.form.error_message = Some("用户取消".into());
+        self.sync_chat_limit();
+        let was_g = self.g_pending;
+        self.g_pending = false;
+
+        if self.chat.pending_confirm().is_some() {
+            let cont = self.handle_chat_confirm_event(key);
+            self.sync_view_chat_state();
+            return cont;
+        }
+
+        let cont = if self.chat.is_insert() {
+            self.handle_running_insert_event(key)
+        } else {
+            self.handle_running_normal_event(key, was_g)
+        };
+        self.sync_view_chat_state();
+        cont
+    }
+
+    /// 确认层按键：Enter 入队，Esc 取消，其它键忽略
+    fn handle_chat_confirm_event(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Enter => {
+                if let Some(action) = self.chat.pending_confirm().cloned() {
+                    self.chat.clear_confirm();
+                    self.pending_actions.push(action);
+                }
+            }
+            KeyCode::Esc => self.chat.clear_confirm(),
+            _ => {}
         }
         true
+    }
+
+    fn handle_running_normal_event(&mut self, key: KeyEvent, was_g: bool) -> bool {
+        let limit = self.message_list_limit();
+
+        if self.keymap.is(KeyAction::SelectNext, key) {
+            if let Some(limit) = limit {
+                self.chat.select_next(limit);
+            } else {
+                self.view.scroll_by(1);
+            }
+            return true;
+        }
+        if self.keymap.is(KeyAction::SelectPrev, key) {
+            if limit.is_some() {
+                self.chat.select_prev();
+            } else {
+                self.view.scroll_by(-1);
+            }
+            return true;
+        }
+        if self.keymap.is(KeyAction::SelectTop, key) {
+            if limit.is_some() {
+                self.chat.select_top();
+            } else {
+                self.view.reset_scroll();
+            }
+            return true;
+        }
+        if self.keymap.is(KeyAction::SelectBottom, key) {
+            if let Some(limit) = limit {
+                self.chat.select_bottom(limit);
+            }
+            return true;
+        }
+        if self.keymap.is(KeyAction::HalfPageDown, key) {
+            if let Some(limit) = limit {
+                self.chat.half_page_down(limit);
+            } else {
+                self.view.scroll_by(10);
+            }
+            return true;
+        }
+        if self.keymap.is(KeyAction::HalfPageUp, key) {
+            if limit.is_some() {
+                self.chat.half_page_up();
+            } else {
+                self.view.scroll_by(-10);
+            }
+            return true;
+        }
+        if key.code == KeyCode::PageDown {
+            self.view.scroll_by(10);
+            return true;
+        }
+        if key.code == KeyCode::PageUp {
+            self.view.scroll_by(-10);
+            return true;
+        }
+        if self.keymap.is(KeyAction::Insert, key) {
+            self.chat.enter_insert();
+            return true;
+        }
+        if self.keymap.is(KeyAction::Send, key) {
+            // Normal 模式不发送；发送必须经宿主 / 权限门
+            return true;
+        }
+        if let Some(action) = self.normal_chat_action(key) {
+            if action.requires_confirm() {
+                self.chat.request_confirm(action);
+            } else {
+                self.pending_actions.push(action);
+            }
+            return true;
+        }
+        if self.keymap.is(KeyAction::Cancel, key) {
+            self.cancel_running();
+            return true;
+        }
+
+        // 兼容旧 `gg`：默认 keymap 的顶键是 Home，这里保留双 g 别名
+        if key.code == KeyCode::Char('g') {
+            if was_g {
+                if limit.is_some() {
+                    self.chat.select_top();
+                } else {
+                    self.view.reset_scroll();
+                }
+            } else {
+                self.g_pending = true;
+            }
+            return true;
+        }
+        true
+    }
+
+    /// Normal 模式消息动作；仅入队 intent，不执行真实操作
+    fn normal_chat_action(&self, key: KeyEvent) -> Option<ChatAction> {
+        let selected = self.chat.selected();
+        if self.keymap.matches(&["y".to_string()], key) {
+            Some(ChatAction::Copy(selected))
+        } else if self.keymap.matches(&["r".to_string()], key) {
+            Some(ChatAction::Reply(selected))
+        } else if self.keymap.matches(&["R".to_string()], key) {
+            Some(ChatAction::React(selected))
+        } else if self.keymap.matches(&["e".to_string()], key) {
+            Some(ChatAction::Edit(selected))
+        } else if self.keymap.matches(&["d".to_string()], key) {
+            Some(ChatAction::Delete(selected))
+        } else if self.keymap.matches(&["o".to_string()], key) {
+            Some(ChatAction::Open(selected))
+        } else {
+            None
+        }
+    }
+
+    /// 插入模式：普通字符入草稿，Esc 只退出插入不取消任务
+    fn handle_running_insert_event(&mut self, key: KeyEvent) -> bool {
+        if self.keymap.is(KeyAction::ExitInsert, key) {
+            self.chat.exit_insert();
+            return true;
+        }
+        if self.keymap.is(KeyAction::Send, key) {
+            let draft = self.chat.take_draft();
+            self.pending_actions.push(ChatAction::Send(draft));
+            self.chat.exit_insert();
+            return true;
+        }
+        if self.keymap.is(KeyAction::Cancel, key) && key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.cancel_running();
+            return true;
+        }
+        match key.code {
+            KeyCode::Backspace => self.chat.backspace(),
+            KeyCode::Char(ch) if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if ch == 'j' {
+                    self.chat.newline();
+                }
+            }
+            KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::ALT) => {
+                self.chat.push_char(ch);
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn cancel_running(&mut self) {
+        self.form.app_state = AppState::Error;
+        self.form.error_message = Some("用户取消".into());
     }
 
     fn handle_terminal_event(&mut self, _key: KeyEvent) -> bool {
@@ -333,6 +631,7 @@ impl TuiApp {
             }
             self.form.app_state = AppState::CommandSelect;
             self.active_command = None;
+            self.view = ViewState::default();
             true
         } else {
             self.should_quit = true;
@@ -394,6 +693,37 @@ impl TuiApp {
     }
 }
 
+// ── 聊天视图辅助 ──────────────────────────────────────────
+
+/// 递归查找第一个 MessageList 的消息条数
+fn message_list_len(component: &Component) -> Option<usize> {
+    match component {
+        Component::MessageList { entries, .. } => Some(entries.len()),
+        Component::Card { children, .. }
+        | Component::Section { children, .. }
+        | Component::ScrollArea { children, .. }
+        | Component::AspectRatio { children, .. }
+        | Component::Collapsible { children, .. }
+        | Component::Tooltip { children, .. }
+        | Component::Form { children, .. }
+        | Component::Dialog { children, .. }
+        | Component::Sheet { children, .. }
+        | Component::Drawer { children, .. }
+        | Component::Popover { children, .. }
+        | Component::Pane { children, .. } => children.iter().find_map(message_list_len),
+        Component::Resizable { start, end, .. } => {
+            start.iter().chain(end.iter()).find_map(message_list_len)
+        }
+        Component::Tabs { items, .. } => items
+            .iter()
+            .find_map(|item| item.children.iter().find_map(message_list_len)),
+        Component::Carousel { items, .. } => items
+            .iter()
+            .find_map(|item| item.children.iter().find_map(message_list_len)),
+        _ => None,
+    }
+}
+
 // ── 路径补全辅助 ──────────────────────────────────────────
 
 /// 拆分路径输入为（目录前缀, 文件名前缀），兼容 `/` 与 `\` 分隔符
@@ -411,38 +741,315 @@ pub(crate) fn split_dir_prefix(text: &str) -> (String, String) {
 // ── 帮助 overlay ──────────────────────────────────────────
 
 fn render_help_overlay(area: Rect, buf: &mut Buffer) {
-    use ratatui::style::{Color, Style};
-
     let text = "\
-        快捷键帮助
+Esc / F1         关闭帮助\n\
+Tab / Shift+Tab  切换字段\n\
+Alt+↑ / Alt+↓    上一项 / 下一项\n\
+Tab              补全已输入的路径\n\
+↑↓               调整数字\n\
+←→               切换枚举选项\n\
+空格             切换开关\n\
+Enter            确认执行";
+    renderer::render_popup(area, buf, " 快捷键 ", text);
+}
 
-        Tab / Shift+Tab      切换字段焦点
-        Tab(Path 输入中)     路径补全 / 循环候选
-        ↑↓                   数字加减
-        ←→                   Enum 选项切换
-        空格                  Flag 切换
-        Enter                 确认执行
-        Esc                   退出
-        F1                    关闭帮助
-    ";
-    let w = 36u16;
-    let h = 13u16;
-    let x = area.x + (area.width.saturating_sub(w)) / 2;
-    let y = area.y + (area.height.saturating_sub(h)) / 2;
-    let dark = Style::default().bg(Color::DarkGray);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lilyco_core::safety::SafetyTier;
+    use lilyco_core::view::{ComposerMode, MessageEntry, Tone};
 
-    for dy in 0..h {
-        buf.set_string(x, y + dy, &" ".repeat(w as usize), dark);
-    }
-    for (i, line) in text.lines().enumerate() {
-        let trimmed = line.trim();
-        if !trimmed.is_empty() {
-            buf.set_string(
-                x + 2,
-                y + 1 + i as u16,
-                trimmed,
-                Style::default().fg(Color::White).bg(Color::DarkGray),
-            );
+    fn schema() -> CommandSchema {
+        CommandSchema {
+            name: "chat".into(),
+            about: "聊天".into(),
+            args: vec![],
+            subcommands: vec![],
+            safety: SafetyTier::ReadOnly,
         }
+    }
+
+    fn running_app() -> TuiApp {
+        let mut app = TuiApp::new(&schema());
+        app.form.app_state = AppState::Running;
+        app
+    }
+
+    fn entries(count: usize) -> Vec<MessageEntry> {
+        (0..count)
+            .map(|index| MessageEntry {
+                author: "作者".into(),
+                time: "12:00".into(),
+                body: format!("第{index}条"),
+                edited: false,
+                reply_to: None,
+                tone: Tone::Neutral,
+                mine: false,
+            })
+            .collect()
+    }
+
+    fn composer(value: &str, mode: ComposerMode) -> Component {
+        Component::Composer {
+            value: value.into(),
+            placeholder: "写点什么".into(),
+            mode,
+            attachments: vec![],
+        }
+    }
+
+    fn message_list(count: usize, selected: Option<usize>) -> Component {
+        Component::MessageList {
+            entries: entries(count),
+            selected,
+            unread: None,
+        }
+    }
+
+    #[test]
+    fn chat_state_sync_writes_selection_and_draft() {
+        let mut app = running_app();
+        app.apply_view("messages", message_list(3, Some(0)));
+        app.apply_view("composer", composer("", ComposerMode::Normal));
+
+        app.chat.select_next(3);
+        app.sync_view_chat_state();
+
+        match app.view.get("messages") {
+            Some(Component::MessageList { selected, .. }) => {
+                assert_eq!(*selected, Some(1), "选中下标应写回 MessageList");
+            }
+            other => panic!("期望 MessageList，实际 {other:?}"),
+        }
+        match app.view.get("composer") {
+            Some(Component::Composer { value, .. }) => {
+                assert_eq!(value, app.chat.draft(), "Composer value 应等于草稿");
+            }
+            other => panic!("期望 Composer，实际 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn insert_mode_draft_is_visible_in_composer() {
+        let mut app = running_app();
+        app.apply_view("composer", composer("", ComposerMode::Normal));
+
+        app.chat.enter_insert();
+        app.chat.push_char('你');
+        app.chat.push_char('好');
+        app.sync_view_chat_state();
+
+        match app.view.get("composer") {
+            Some(Component::Composer { value, mode, .. }) => {
+                assert_eq!(*mode, ComposerMode::Insert);
+                assert_eq!(value, "你好");
+            }
+            other => panic!("期望 Composer，实际 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn chat_state_sync_reaches_nested_pane_children() {
+        let mut app = running_app();
+        app.apply_view(
+            "chat",
+            Component::Pane {
+                id: "main".into(),
+                title: "聊天".into(),
+                active: true,
+                children: vec![message_list(4, None), composer("", ComposerMode::Normal)],
+            },
+        );
+
+        app.chat.select_next(4);
+        app.chat.enter_insert();
+        app.chat.push_char('草');
+        app.sync_view_chat_state();
+
+        match app.view.get("chat") {
+            Some(Component::Pane { children, .. }) => {
+                assert!(
+                    matches!(
+                        children.first(),
+                        Some(Component::MessageList {
+                            selected: Some(1),
+                            ..
+                        })
+                    ),
+                    "嵌套 MessageList 应同步选中"
+                );
+                assert!(
+                    matches!(
+                        children.get(1),
+                        Some(Component::Composer {
+                            value,
+                            mode: ComposerMode::Insert,
+                            ..
+                        }) if value == "草"
+                    ),
+                    "嵌套 Composer 应同步草稿与模式"
+                );
+            }
+            other => panic!("期望 Pane，实际 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn running_j_selects_nested_message_list() {
+        let mut app = running_app();
+        app.apply_view(
+            "chat",
+            Component::Pane {
+                id: "main".into(),
+                title: "聊天".into(),
+                active: true,
+                children: vec![message_list(4, None)],
+            },
+        );
+
+        app.handle_event(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+
+        assert_eq!(app.chat.selected(), 1, "嵌套消息列表也应响应 j");
+        match app.view.get("chat") {
+            Some(Component::Pane { children, .. }) => {
+                assert!(
+                    matches!(
+                        children.first(),
+                        Some(Component::MessageList {
+                            selected: Some(1),
+                            ..
+                        })
+                    ),
+                    "嵌套 MessageList 的 selected 应更新"
+                );
+            }
+            other => panic!("期望 Pane，实际 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn enter_in_insert_mode_queues_send_and_clears_draft() {
+        let mut app = running_app();
+        app.apply_view("composer", composer("", ComposerMode::Normal));
+
+        app.handle_event(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+        app.handle_event(KeyEvent::new(KeyCode::Char('你'), KeyModifiers::NONE));
+        app.handle_event(KeyEvent::new(KeyCode::Char('好'), KeyModifiers::NONE));
+        app.handle_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(
+            app.pending_actions,
+            vec![ChatAction::Send("你好".into())],
+            "Enter 应只入队 Send intent"
+        );
+        assert_eq!(app.chat.draft(), "", "发送后草稿应清空");
+        assert!(!app.chat.is_insert(), "发送后退出插入模式");
+        assert_eq!(*app.state(), AppState::Running, "发送不改变运行状态");
+        match app.view.get("composer") {
+            Some(Component::Composer { value, mode, .. }) => {
+                assert_eq!(value, "");
+                assert_eq!(*mode, ComposerMode::Normal);
+            }
+            other => panic!("期望 Composer，实际 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn normal_mode_actions_queue_selected_index() {
+        let mut app = running_app();
+        app.apply_view("messages", message_list(3, None));
+        app.chat.select_next(3);
+        app.chat.select_next(3);
+        assert_eq!(app.chat.selected(), 2);
+
+        for key in [
+            KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE),
+        ] {
+            app.handle_event(key);
+        }
+
+        assert_eq!(
+            app.pending_actions,
+            vec![ChatAction::Copy(2), ChatAction::Open(2)],
+            "复制 / 打开直接入队"
+        );
+        assert!(app.chat.pending_confirm().is_none());
+        assert_eq!(app.chat.selected(), 2, "动作不移动选择");
+    }
+
+    #[test]
+    fn destructive_action_requires_confirmation() {
+        let mut app = running_app();
+        app.apply_view("messages", message_list(3, None));
+        app.chat.select_next(3);
+        app.chat.select_next(3);
+
+        app.handle_event(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+
+        assert_eq!(
+            app.chat.pending_confirm().cloned(),
+            Some(ChatAction::Delete(2))
+        );
+        assert!(app.drain_actions().is_empty(), "确认前不应入队");
+    }
+
+    #[test]
+    fn confirm_enter_queues_and_clears() {
+        let mut app = running_app();
+        app.apply_view("messages", message_list(3, None));
+        app.chat.select_next(3);
+        app.chat.select_next(3);
+        app.handle_event(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+
+        app.handle_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(app.chat.pending_confirm().is_none());
+        assert_eq!(app.drain_actions(), vec![ChatAction::Delete(2)]);
+        assert_eq!(*app.state(), AppState::Running);
+    }
+
+    #[test]
+    fn confirm_esc_cancels_without_intent() {
+        let mut app = running_app();
+        app.apply_view("messages", message_list(3, None));
+        app.chat.select_next(3);
+        app.handle_event(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+
+        app.handle_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        assert!(app.chat.pending_confirm().is_none());
+        assert!(app.drain_actions().is_empty(), "Esc 不应产生 intent");
+        assert_eq!(*app.state(), AppState::Running, "Esc 只取消确认");
+    }
+
+    #[test]
+    fn copy_and_open_skip_confirmation() {
+        let mut app = running_app();
+        app.apply_view("messages", message_list(3, None));
+        app.chat.select_next(3);
+        app.handle_event(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        app.handle_event(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE));
+
+        assert!(app.chat.pending_confirm().is_none());
+        assert_eq!(
+            app.drain_actions(),
+            vec![ChatAction::Copy(1), ChatAction::Open(1)]
+        );
+    }
+
+    #[test]
+    fn drain_actions_takes_and_clears() {
+        let mut app = running_app();
+        app.pending_actions.push(ChatAction::Send("hi".into()));
+        app.pending_actions.push(ChatAction::Delete(1));
+
+        let taken = app.drain_actions();
+        assert_eq!(
+            taken,
+            vec![ChatAction::Send("hi".into()), ChatAction::Delete(1)]
+        );
+        assert!(app.pending_actions.is_empty());
+        assert!(app.drain_actions().is_empty());
     }
 }

@@ -18,14 +18,42 @@ use crate::progress::LogLevel;
 
 /// 语义色调：前端映射到自己的 success / warning / destructive 变体
 #[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Tone {
+    #[default]
     Neutral,
     Info,
     Success,
     Warn,
     Danger,
+}
+
+/// 单条聊天消息
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MessageEntry {
+    pub author: String,
+    pub time: String,
+    pub body: String,
+    #[serde(default)]
+    pub edited: bool,
+    #[serde(default)]
+    pub reply_to: Option<String>,
+    #[serde(default)]
+    pub tone: Tone,
+    #[serde(default)]
+    pub mine: bool,
+}
+
+/// 输入区模式
+#[cfg_attr(feature = "ui-schema", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComposerMode {
+    #[default]
+    Normal,
+    Insert,
 }
 
 /// 按钮的视觉权重（语义，不是具体配色）
@@ -473,6 +501,33 @@ pub enum Component {
         items: Vec<NavItem>,
         active: Option<String>,
     },
+
+    // ── 聊天 ────────────────────────────────────
+    MessageList {
+        entries: Vec<MessageEntry>,
+        #[serde(default)]
+        selected: Option<usize>,
+        #[serde(default)]
+        unread: Option<usize>,
+    },
+    Composer {
+        #[serde(default)]
+        value: String,
+        #[serde(default)]
+        placeholder: String,
+        #[serde(default)]
+        mode: ComposerMode,
+        #[serde(default)]
+        attachments: Vec<String>,
+    },
+    Pane {
+        id: String,
+        title: String,
+        #[serde(default)]
+        active: bool,
+        #[serde(default)]
+        children: Vec<Component>,
+    },
 }
 
 fn half() -> f64 {
@@ -637,6 +692,55 @@ mod tests {
         );
         let c: Component = serde_json::from_str(r#"{"kind":"skeleton"}"#).unwrap();
         assert_eq!(c, Component::Skeleton { lines: 3 });
+    }
+
+    #[test]
+    fn chat_components_serialize_with_kinds() {
+        let list = Component::MessageList {
+            entries: vec![MessageEntry {
+                author: "兰雀".into(),
+                time: "12:00".into(),
+                body: "你好".into(),
+                edited: false,
+                reply_to: None,
+                tone: Tone::Neutral,
+                mine: false,
+            }],
+            selected: Some(0),
+            unread: Some(0),
+        };
+        let v = serde_json::to_value(&list).expect("serialize");
+        assert_eq!(v["kind"], "message_list");
+        assert_eq!(v["entries"][0]["tone"], "neutral");
+
+        let v = serde_json::to_value(Component::Composer {
+            value: "hi".into(),
+            placeholder: "写点什么".into(),
+            mode: ComposerMode::Insert,
+            attachments: vec!["a.png".into()],
+        })
+        .expect("serialize");
+        assert_eq!(v["kind"], "composer");
+        assert_eq!(v["mode"], "insert");
+
+        let v = serde_json::to_value(Component::Pane {
+            id: "main".into(),
+            title: "聊天".into(),
+            active: true,
+            children: vec![],
+        })
+        .expect("serialize");
+        assert_eq!(v["kind"], "pane");
+    }
+
+    #[test]
+    fn message_entry_defaults_fill_when_fields_absent() {
+        let entry: MessageEntry =
+            serde_json::from_str(r#"{"author":"a","time":"t","body":"b"}"#).expect("deserialize");
+        assert!(!entry.edited);
+        assert!(!entry.mine);
+        assert_eq!(entry.reply_to, None);
+        assert_eq!(entry.tone, Tone::Neutral);
     }
 
     #[test]

@@ -42,8 +42,9 @@ pub use theme::{
     ThemePreset, ThemeSpec, UI_PROTOCOL_VERSION,
 };
 pub use view::{
-    AccordionItem, ButtonVariant, CarouselItem, ChartKind, CommandItem, Component, KeyValueItem,
-    LogLine, MenuGroup, MenuItem, NavItem, SheetSide, TabItem, Tone, ViewSlot,
+    AccordionItem, ButtonVariant, CarouselItem, ChartKind, CommandItem, Component, ComposerMode,
+    KeyValueItem, LogLine, MenuGroup, MenuItem, MessageEntry, NavItem, SheetSide, TabItem, Tone,
+    ViewSlot,
 };
 
 // ── 便捷导入 ──────────────────────────────────────────────
@@ -504,6 +505,7 @@ pub mod prelude {
     pub use crate::schema::{ArgKind, ArgSchema, CommandSchema, ValueEnum};
     pub use crate::view::{
         AccordionItem, ButtonVariant, CarouselItem, ChartKind, CommandItem, Component,
-        KeyValueItem, LogLine, MenuGroup, MenuItem, NavItem, SheetSide, TabItem, Tone, ViewSlot,
+        ComposerMode, KeyValueItem, LogLine, MenuGroup, MenuItem, MessageEntry, NavItem, SheetSide,
+        TabItem, Tone, ViewSlot,
     };
 }

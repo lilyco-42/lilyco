@@ -1,12 +1,15 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
-use ratatui::widgets::{Gauge, Widget};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::widgets::{Block, Clear, Gauge, Padding, Paragraph, Widget, Wrap};
 
 use lilyco_core::prelude::*;
 use lilyco_core::schema::CommandSchema;
 
-use crate::widgets::FormField;
+use crate::chat::ChatAction;
+use crate::theme::Theme;
+use crate::view::ViewState;
+use crate::widgets::{FieldValue, FormField};
 
 // ── 表单渲染器 ─────────────────────────────────────────────
 
@@ -149,92 +152,68 @@ impl FormRenderer {
 /// │ [Tab]切换 [Enter]确认 [Esc]退出 [F1]帮助            │
 /// └────────────────────────────────────────────────────┘
 pub fn render_form(fr: &FormRenderer, area: Rect, buf: &mut Buffer) {
-    let header_h = 3u16;
-    let footer_h = 3u16;
-    let form_h = area.height.saturating_sub(header_h + footer_h);
+    if area.is_empty() {
+        return;
+    }
+    let header_rows = if area.height >= 8 { 3 } else { 1 };
+    let footer_rows = u16::from(area.height > 2) + u16::from(area.height > 3);
+    let visible = area.height.saturating_sub(header_rows + footer_rows);
+    render_title(buf, area, &fr.command_name);
+    if header_rows > 1 {
+        write_row(buf, area, 1, &format!(" {}", fr.command_about), muted());
+        write_row(buf, area, 2, &format!(" $ {}", fr.cli_preview()), muted());
+    }
 
-    // ── 顶部标题栏 ──
-    let header = Rect {
-        y: area.y,
-        height: header_h,
-        ..area
-    };
-    let title = format!(" {} — {} ", fr.command_name, fr.command_about);
-    let title_style = Style::default().fg(Color::Black).bg(Color::Cyan);
-    buf.set_string(header.x, header.y, &title, title_style);
-
-    // CLI 预览（标题下方）
-    let preview = format!(" $ {} ", fr.cli_preview());
-    let preview_area = Rect {
-        y: header.y + 1,
-        height: 1,
-        ..area
-    };
-    buf.set_string(
-        preview_area.x,
-        preview_area.y,
-        &preview,
-        Style::default().fg(Color::Green),
+    let start = visible_start(
+        fr.fields.len(),
+        fr.focus_index,
+        fr.scroll_offset.into(),
+        visible,
     );
-
-    // 分隔线
-    let sep_y = header.y + 2;
-    let sep = "─".repeat(area.width as usize);
-    buf.set_string(area.x, sep_y, &sep, Style::default().fg(Color::DarkGray));
-
-    // ── 表单区域 ──
-    let form_area = Rect {
-        y: sep_y + 1,
-        height: form_h,
-        ..area
+    for (row, field) in fr
+        .fields
+        .iter()
+        .skip(start)
+        .take(usize::from(visible))
+        .enumerate()
+    {
+        field.render(
+            Rect::new(area.x, area.y + header_rows + row as u16, area.width, 1),
+            buf,
+            start + row == fr.focus_index,
+        );
+    }
+    let hint = match fr.focused_field().map(|field| &field.value) {
+        Some(FieldValue::Path(path)) if !path.is_empty() => "Tab 补全 · Alt+↓ 下一项",
+        Some(FieldValue::Number(_)) => "↑↓ 调数值",
+        Some(FieldValue::Enum { .. }) => "←→ 切选项",
+        Some(FieldValue::Flag(_)) => "空格 切换",
+        _ => "",
     };
-
-    let visible_count = form_area.height as usize;
-    let start = fr.scroll_offset as usize;
-
-    for (idx, field) in fr.fields.iter().enumerate().skip(start).take(visible_count) {
-        let row_y = form_area.y + (idx - start) as u16;
-        if row_y >= form_area.y + form_area.height {
-            break;
-        }
-        let field_area = Rect {
-            y: row_y,
-            height: 1,
-            x: form_area.x,
-            width: form_area.width,
+    if footer_rows == 2 {
+        let (message, style) = if let Some(message) = &fr.validation_message {
+            (format!(" ⚠ {message}"), Style::default().fg(Color::Red))
+        } else if fr.fields.is_empty() {
+            (" 无参数".into(), muted())
+        } else {
+            (
+                format!(" {}/{}  {hint}", fr.focus_index + 1, fr.fields.len()),
+                muted(),
+            )
         };
-        let focused = idx == fr.focus_index;
-        field.render(field_area, buf, focused);
+        write_row(buf, area, area.height - 2, &message, style);
     }
-
-    // ── 底部快捷键 ──
-    let footer_y = area.y + area.height - footer_h;
-    if let Some(msg) = &fr.validation_message {
-        // 校验消息占 footer 首行，红色警示；超宽截断
-        let text = format!(" ⚠ {msg} ");
-        let max = area.width as usize;
-        let shown: String = text.chars().take(max).collect();
-        buf.set_string(area.x, footer_y, &shown, Style::default().fg(Color::Red));
+    if footer_rows > 0 {
+        let shortcuts = if area.width >= 57 {
+            " Enter 确认 · Tab 切换 · F1 帮助 · Esc 退出"
+        } else {
+            " Enter · Tab · F1 · Esc"
+        };
+        write_row(buf, area, area.height - 1, shortcuts, muted());
     }
-    let shortcuts = match fr.app_state {
-        AppState::CommandSelect => "[↑↓] 选择  [Enter] 进入  [Esc] 退出",
-        AppState::Form => "[Tab] 切换  [Enter] 确认  [Esc] 退出  [F1] 帮助",
-        AppState::Confirm => "[Enter] 确认执行  [Esc] 返回",
-        AppState::Running => "[Ctrl-C] 取消",
-        AppState::Done => "[Enter] 退出",
-        AppState::Error => "[任意键] 返回",
-    };
-    buf.set_string(
-        area.x,
-        footer_y + 1,
-        shortcuts,
-        Style::default().fg(Color::DarkGray),
-    );
 }
 
-/// 渲染多命令选择页（`AppState::CommandSelect`）
-///
-/// 交互克隆 mininterface 的 subcommand picker：↑↓ 高亮、Enter 进入所选命令的表单。
+/// 渲染多命令选择页，选中条目始终留在可见区域。
 pub fn render_command_select(
     app_name: &str,
     schemas: &[CommandSchema],
@@ -242,167 +221,237 @@ pub fn render_command_select(
     area: Rect,
     buf: &mut Buffer,
 ) {
-    // 标题栏
-    let title = format!(" {app_name} — 选择命令 ({}) ", schemas.len());
-    buf.set_string(
-        area.x,
-        area.y,
-        &title,
-        Style::default().fg(Color::Black).bg(Color::Cyan),
-    );
-
-    let sep_y = area.y + 1;
-    let sep = "─".repeat(area.width as usize);
-    buf.set_string(area.x, sep_y, &sep, Style::default().fg(Color::DarkGray));
-
-    let list_y = sep_y + 1;
-    let list_h = area.height.saturating_sub(3 + list_y - area.y);
-    for (i, schema) in schemas.iter().enumerate().take(list_h as usize) {
-        let row_y = list_y + i as u16;
-        let marker = if i == selected { "▶ " } else { "  " };
-        let line = format!("{marker}{:<16} {}", schema.name, schema.about);
-        let style = if i == selected {
-            Style::default().fg(Color::Black).bg(Color::Cyan)
+    if area.is_empty() {
+        return;
+    }
+    render_title(buf, area, &format!("{app_name}  /  选择命令"));
+    let visible = area.height.saturating_sub(2);
+    let start = visible_start(schemas.len(), selected, 0, visible);
+    for (row, schema) in schemas
+        .iter()
+        .skip(start)
+        .take(usize::from(visible))
+        .enumerate()
+    {
+        let focused = start + row == selected;
+        let marker = if focused { "›" } else { " " };
+        let style = if focused {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
-        let max = area.width as usize;
-        let shown: String = line.chars().take(max).collect();
-        buf.set_string(area.x, row_y, &shown, style);
+        let line = format!("{marker} {}  {}", schema.name, schema.about);
+        write_row(buf, area, row as u16 + 1, &line, style);
     }
+    if area.height > 1 {
+        write_row(
+            buf,
+            area,
+            area.height - 1,
+            " ↑↓ 选择 · Enter · Esc",
+            muted(),
+        );
+    }
+}
 
-    // 终端高度可能为 0（pty 未设置窗口大小时），用 saturating_sub 避免下溢 panic
-    let footer_y = area.y + area.height.saturating_sub(1);
-    buf.set_string(
-        area.x,
-        footer_y,
-        "[↑↓] 选择  [Enter] 进入  [Esc] 退出",
-        Style::default().fg(Color::DarkGray),
+fn visible_start(len: usize, focus: usize, offset: usize, visible: u16) -> usize {
+    let visible = usize::from(visible);
+    offset
+        .min(focus)
+        .max(focus.saturating_add(1).saturating_sub(visible))
+        .min(len.saturating_sub(visible))
+}
+
+fn muted() -> Style {
+    Style::default().add_modifier(Modifier::DIM)
+}
+
+fn write_row(buf: &mut Buffer, area: Rect, row: u16, text: &str, style: Style) {
+    if row < area.height {
+        buf.set_stringn(area.x, area.y + row, text, usize::from(area.width), style);
+    }
+}
+
+fn render_title(buf: &mut Buffer, area: Rect, title: &str) {
+    let style = Style::default().add_modifier(Modifier::BOLD | Modifier::REVERSED);
+    if !area.is_empty() {
+        buf.set_style(Rect { height: 1, ..area }, style);
+        write_row(buf, area, 0, &format!(" {title}"), style);
+    }
+}
+
+pub(crate) fn render_popup(area: Rect, buf: &mut Buffer, title: &str, content: &str) {
+    if area.is_empty() {
+        return;
+    }
+    let width = 64.min(area.width);
+    let height = (content.lines().count() as u16 + 4).min(area.height);
+    let popup = Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
     );
+    let block = Block::bordered()
+        .title(title)
+        .padding(Padding::horizontal(1))
+        .border_style(Style::default().fg(Color::Cyan));
+    Clear.render(popup, buf);
+    Paragraph::new(content)
+        .block(block)
+        .wrap(Wrap { trim: false })
+        .render(popup, buf);
 }
 
 /// 渲染确认对话框 overlay
 pub fn render_confirm(fr: &FormRenderer, area: Rect, buf: &mut Buffer) {
-    let preview = fr.cli_preview();
-    let msg = format!(" 确认执行？\n\n 命令: {preview}\n\n [Enter] 确认  [Esc] 取消 ");
-
-    // 居中弹窗
-    let w = 60u16.min(area.width);
-    let h = 6u16;
-    let x = area.x + (area.width.saturating_sub(w)) / 2;
-    let y = area.y + (area.height.saturating_sub(h)) / 2;
-    let popup = Rect {
-        x,
-        y,
-        width: w,
-        height: h,
-    };
-
-    // 背景
-    for dy in 0..h {
-        let line = " ".repeat(w as usize);
-        buf.set_string(
-            popup.x,
-            popup.y + dy,
-            &line,
-            Style::default().bg(Color::DarkGray),
-        );
-    }
-
-    for (i, line) in msg.lines().enumerate() {
-        if i < h as usize {
-            buf.set_string(
-                popup.x + 2,
-                popup.y + i as u16,
-                line,
-                Style::default().fg(Color::White).bg(Color::DarkGray),
-            );
-        }
-    }
+    let content = format!("Enter 执行 · Esc 返回\n\n$ {}", fr.cli_preview());
+    render_popup(area, buf, " 确认执行 ", &content);
 }
 
 /// 渲染 Running 状态
 pub fn render_running(fr: &FormRenderer, area: Rect, buf: &mut Buffer) {
-    // 进度条
-    let gauge_y = area.y;
-    let pct = fr.progress_percent.unwrap_or(0.0);
-    let gauge = Gauge::default()
-        .ratio(f64::from(pct).clamp(0.0, 1.0))
-        .label(format!("{:.0}%", pct * 100.0));
-    gauge.render(
-        Rect {
-            y: gauge_y,
-            height: 3,
-            ..area
-        },
-        buf,
-    );
-
-    // 滚动日志
-    let log_start = gauge_y + 4;
-    let log_area = Rect {
-        y: log_start,
-        height: area.height.saturating_sub(log_start + 3),
-        ..area
-    };
-    let visible_logs = log_area.height as usize;
-    let logs = &fr.progress_log;
-    let skip = if logs.len() > visible_logs {
-        logs.len() - visible_logs
-    } else {
-        0
-    };
-    for (i, msg) in logs.iter().skip(skip).enumerate() {
-        buf.set_string(
-            log_area.x,
-            log_area.y + i as u16,
-            msg,
-            Style::default().fg(Color::White),
-        );
+    if area.is_empty() {
+        return;
     }
+    render_title(buf, area, &format!("运行中  /  {}", fr.command_name));
+    if area.height > 2 {
+        let progress = Rect::new(area.x, area.y + 1, area.width, 1);
+        if let Some(percent) = fr.progress_percent.filter(|value| value.is_finite()) {
+            Gauge::default()
+                .ratio(f64::from(percent).clamp(0.0, 1.0))
+                .gauge_style(Style::default().fg(Color::Cyan))
+                .render(progress, buf);
+        } else {
+            Paragraph::new(" 正在处理…")
+                .style(muted())
+                .render(progress, buf);
+        }
+        let logs = Rect::new(area.x, area.y + 2, area.width, area.height - 3);
+        let start = fr
+            .progress_log
+            .len()
+            .saturating_sub(usize::from(logs.height));
+        for (row, message) in fr.progress_log.iter().skip(start).enumerate() {
+            write_row(buf, logs, row as u16, message, Style::default());
+        }
+    }
+    if area.height > 1 {
+        write_row(buf, area, area.height - 1, " Ctrl+C / Esc 取消", muted());
+    }
+}
 
-    // 底部：已用时间
-    let footer_y = area.y + area.height - 2;
-    buf.set_string(
+/// 渲染 Running 状态与语义视图：有视图时上半区交给 `ViewState`，底部保留进度与取消提示
+pub fn render_running_with_view(
+    fr: &FormRenderer,
+    view: &ViewState,
+    pending: usize,
+    confirm: Option<&ChatAction>,
+    theme: &Theme,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    if area.is_empty() {
+        return;
+    }
+    render_title(buf, area, &format!("运行中  /  {}", fr.command_name));
+    if area.height <= 1 {
+        return;
+    }
+    let content = Rect::new(
         area.x,
-        footer_y,
-        &format!(" 已用时间: {}s  [Ctrl-C] 取消 ", fr.elapsed_ms / 1000),
-        Style::default().fg(Color::DarkGray),
+        area.y + 1,
+        area.width,
+        area.height.saturating_sub(2),
     );
+    view.render(content, buf, theme);
+    let mut footer = String::new();
+    if let Some(percent) = fr.progress_percent.filter(|value| value.is_finite()) {
+        footer.push_str(&format!(
+            " {:>3}%",
+            (f64::from(percent) * 100.0).round() as u16
+        ));
+    }
+    if view.needs_scrollbar(content.width, content.height) {
+        footer.push_str(" · j/k 滚动");
+    }
+    if pending > 0 {
+        footer.push_str(&format!(" · 待发送 {pending}"));
+    }
+    footer.push_str(" · Ctrl+C / Esc 取消");
+    write_row(buf, area, area.height - 1, &footer, muted());
+    render_confirm_overlay(confirm, theme, area, buf);
 }
 
-/// 渲染 Done 状态
+/// 在视口中央绘制写操作确认层
+fn render_confirm_overlay(
+    confirm: Option<&ChatAction>,
+    theme: &Theme,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let Some(action) = confirm else {
+        return;
+    };
+    let width = area.width.saturating_sub(4).min(48);
+    if width == 0 || area.height == 0 {
+        return;
+    }
+    let height = 5.min(area.height);
+    let popup = Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
+    );
+    Clear.render(popup, buf);
+    let block = Block::bordered()
+        .title("确认操作")
+        .border_style(theme.warn_style())
+        .title_style(theme.warn_style());
+    let inner = block.inner(popup);
+    block.render(popup, buf);
+    if inner.height > 0 {
+        write_row(buf, inner, 0, &action.confirm_text(), theme.text_style());
+    }
+    if inner.height > 1 {
+        write_row(
+            buf,
+            inner,
+            1,
+            "[Enter] 确认  [Esc] 取消",
+            theme.muted_style(),
+        );
+    }
+}
+
 pub fn render_done(fr: &FormRenderer, area: Rect, buf: &mut Buffer) {
-    let text = format!(
-        " ✓ 任务完成！\n\n 耗时: {}ms\n 结果: {}",
-        fr.elapsed_ms,
-        serde_json::to_string_pretty(fr.result.as_ref().unwrap_or(&serde_json::Value::Null))
-            .unwrap_or_default()
-    );
-    for (i, line) in text.lines().enumerate() {
-        buf.set_string(
-            area.x + 2,
-            area.y + 2 + i as u16,
-            line,
-            Style::default().fg(Color::Green),
-        );
-    }
+    let data = fr.result.as_ref().unwrap_or(&serde_json::Value::Null);
+    let result = serde_json::to_string_pretty(data).unwrap_or_default();
+    render_outcome(area, buf, &format!("完成 · {} ms", fr.elapsed_ms), &result);
 }
 
-/// 渲染 Error 状态
 pub fn render_error(fr: &FormRenderer, area: Rect, buf: &mut Buffer) {
-    let text = format!(
-        " ✗ 错误\n\n {}",
-        fr.error_message.as_deref().unwrap_or("未知错误")
+    render_outcome(
+        area,
+        buf,
+        "运行错误",
+        fr.error_message.as_deref().unwrap_or("未知错误"),
     );
-    for (i, line) in text.lines().enumerate() {
-        buf.set_string(
-            area.x + 2,
-            area.y + 2 + i as u16,
-            line,
-            Style::default().fg(Color::Red),
-        );
+}
+
+fn render_outcome(area: Rect, buf: &mut Buffer, title: &str, details: &str) {
+    render_title(buf, area, title);
+    if area.is_empty() || area.height < 2 {
+        return;
     }
+    let content = Rect::new(area.x, area.y + 1, area.width, area.height - 2);
+    Paragraph::new(details)
+        .wrap(Wrap { trim: false })
+        .render(content, buf);
+    write_row(buf, area, area.height - 1, " Enter 继续", muted());
 }
 
 // ── TuiRenderer ────────────────────────────────────────────

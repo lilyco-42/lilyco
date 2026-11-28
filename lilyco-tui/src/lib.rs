@@ -1,9 +1,19 @@
 pub mod app;
+pub mod chat;
+pub mod component;
+pub mod config;
 pub mod renderer;
+pub mod theme;
+pub mod view;
 pub mod widgets;
 
 pub use app::TuiApp;
+pub use chat::{ChatAction, ChatState};
+pub use component::{adapter_capabilities, supported_kinds};
+pub use config::{KeyAction, Keymap};
 pub use renderer::{AppState, FormRenderer, TuiRenderer};
+pub use theme::{color, ColorSpec, Theme};
+pub use view::ViewState;
 pub use widgets::{FieldValue, FormField};
 
 // ── 测试 ──────────────────────────────────────────────────
@@ -100,6 +110,41 @@ mod tests {
         assert!(out.contains("output"), "should show output: {out}");
     }
 
+    #[test]
+    fn narrow_form_keeps_focus_visible_and_help_consumes_escape() {
+        let mut app = TuiApp::new(&test_schema());
+        app.form.focus_index = 4;
+        app.fields_mut()[4].value = FieldValue::Path("很长的目录/很长的文件/图片.png".into());
+        let out = render_to_string(&app, 26, 6);
+        assert!(out.contains("› *output"), "{out}");
+        assert!(out.contains(".png"), "{out}");
+
+        app.handle_event(key(KeyCode::F(1)));
+        let _ = render_to_string(&app, 7, 3);
+        assert!(app.handle_event(key(KeyCode::Esc)));
+        assert!(!app.show_help);
+        assert!(!app.should_quit);
+
+        app.handle_event(KeyEvent::new(KeyCode::Down, KeyModifiers::ALT));
+        assert_eq!(app.form.focus_index, 0);
+    }
+
+    #[test]
+    fn running_view_shows_progress_and_logs_at_nonzero_origin() {
+        let mut app = TuiApp::new(&test_schema());
+        app.form.app_state = AppState::Running;
+        app.form.progress_percent = Some(0.5);
+        app.form.progress_log.push("reading image".into());
+        let terminal = render_to_string(&app, 40, 8);
+        assert!(terminal.contains("50%"), "{terminal}");
+        assert!(terminal.contains("reading image"), "{terminal}");
+        assert!(terminal.contains("Ctrl+C / Esc"), "{terminal}");
+
+        let area = Rect::new(5, 3, 15, 3);
+        app.render(area, &mut Buffer::empty(area));
+        let _ = render_to_string(&app, 1, 1);
+    }
+
     // ─── 测试 2：切换 Flag 后 CLI 预览更新 ──────────────
 
     #[test]
@@ -176,16 +221,12 @@ mod tests {
         if let FieldValue::Number(n) = &mut app.fields_mut()[3].value {
             *n = 51.0; // 上限
         }
-        assert_eq!(
-            app.form.cli_preview().contains("51"),
-            true,
-            "should show 51"
-        );
+        assert!(app.form.cli_preview().contains("51"), "should show 51");
 
         if let FieldValue::Number(n) = &mut app.fields_mut()[3].value {
             *n = 0.0; // 下限
         }
-        assert_eq!(app.form.cli_preview().contains("0"), true, "should show 0");
+        assert!(app.form.cli_preview().contains("0"), "should show 0");
     }
 
     #[test]
@@ -648,5 +689,122 @@ mod tests {
                 "no candidates → value unchanged"
             );
         }
+    }
+
+    #[test]
+    fn running_j_k_scrolls_view() {
+        use lilyco_core::view::{Component, Tone};
+        let schema = test_schema();
+        let mut app = TuiApp::new(&schema);
+        app.form.app_state = AppState::Running;
+        for index in 0..20 {
+            app.apply_view(
+                format!("m{index}"),
+                Component::Badge {
+                    text: format!("第{index}条"),
+                    tone: Tone::Neutral,
+                },
+            );
+        }
+        app.handle_event(key(KeyCode::Char('j')));
+        assert_eq!(app.view.scroll(), 1);
+        app.handle_event(key(KeyCode::PageDown));
+        assert_eq!(app.view.scroll(), 11);
+        app.handle_event(key(KeyCode::Home));
+        assert_eq!(app.view.scroll(), 0);
+        app.handle_event(key(KeyCode::Char('q')));
+        assert_eq!(*app.state(), AppState::Error);
+    }
+
+    #[test]
+    fn running_insert_mode_edits_draft_and_esc_exits_without_cancel() {
+        let schema = test_schema();
+        let mut app = TuiApp::new(&schema);
+        app.form.app_state = AppState::Running;
+
+        app.handle_event(key(KeyCode::Char('i')));
+        assert!(app.chat.is_insert());
+        app.handle_event(key(KeyCode::Char('h')));
+        app.handle_event(key(KeyCode::Char('i')));
+        assert_eq!(app.chat.draft(), "hi", "普通字符应进入草稿");
+
+        let ctrl_j = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL);
+        app.handle_event(ctrl_j);
+        app.handle_event(key(KeyCode::Char('x')));
+        assert_eq!(app.chat.draft(), "hi\nx", "Ctrl+J 在插入模式换行");
+
+        app.handle_event(key(KeyCode::Esc));
+        assert!(!app.chat.is_insert(), "Esc 退出插入模式");
+        assert_eq!(*app.state(), AppState::Running, "Esc 不取消任务");
+        assert_eq!(app.chat.draft(), "hi\nx", "退出插入不清空草稿");
+
+        app.handle_event(key(KeyCode::Char('q')));
+        assert_eq!(*app.state(), AppState::Error, "q 仍可取消");
+    }
+
+    #[test]
+    fn running_message_list_selection_gg_and_clamp() {
+        use lilyco_core::view::{Component, MessageEntry, Tone};
+
+        fn list(count: usize) -> Component {
+            Component::MessageList {
+                entries: (0..count)
+                    .map(|index| MessageEntry {
+                        author: "作者".into(),
+                        time: "12:00".into(),
+                        body: format!("第{index}条"),
+                        edited: false,
+                        reply_to: None,
+                        tone: Tone::Neutral,
+                        mine: false,
+                    })
+                    .collect(),
+                selected: None,
+                unread: None,
+            }
+        }
+
+        let schema = test_schema();
+        let mut app = TuiApp::new(&schema);
+        app.form.app_state = AppState::Running;
+        app.apply_view("chat", list(5));
+
+        app.handle_event(key(KeyCode::Char('j')));
+        assert_eq!(app.chat.selected(), 1, "j 选择下一条");
+        app.handle_event(key(KeyCode::Char('G')));
+        assert_eq!(app.chat.selected(), 4, "G 选择末尾");
+        app.handle_event(key(KeyCode::Char('g')));
+        assert_eq!(app.chat.selected(), 4, "单次 g 不跳顶");
+        app.handle_event(key(KeyCode::Char('g')));
+        assert_eq!(app.chat.selected(), 0, "gg 到顶");
+
+        app.apply_view("chat", list(2));
+        assert_eq!(app.chat.selected(), 0, "列表变短后选择夹紧");
+
+        app.handle_event(key(KeyCode::Char('q')));
+        assert_eq!(*app.state(), AppState::Error);
+    }
+
+    #[test]
+    fn confirm_overlay_renders_description() {
+        use lilyco_core::view::{Component, Tone};
+
+        let schema = test_schema();
+        let mut app = TuiApp::new(&schema);
+        app.form.app_state = AppState::Running;
+        app.apply_view(
+            "chat",
+            Component::Badge {
+                text: "消息".into(),
+                tone: Tone::Info,
+            },
+        );
+        app.chat.request_confirm(ChatAction::Delete(2));
+
+        let out = render_to_string(&app, 80, 24);
+        let compact: String = out.split_whitespace().collect();
+        assert!(compact.contains("确认操作"), "确认层标题缺失: {out}");
+        assert!(compact.contains("[Enter]确认"), "确认提示缺失: {out}");
+        assert!(compact.contains("删除第3条消息？"), "动作描述缺失: {out}");
     }
 }

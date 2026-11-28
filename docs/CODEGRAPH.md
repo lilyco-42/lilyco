@@ -88,7 +88,7 @@ Windows 包在 `tests/notices.py` 对 `packaging/webview2-sdk.json` 固定的官
 | `lilyco-core` | 0.3.2 | serde/thiserror，`ui-schema` 可选 schemars | 领域模型、执行校验与 Web 数据契约 |
 | `lilyco-macros` | 0.3.1 | syn/quote | `#[derive(App)]` / `#[derive(ValueEnum)]` 代码生成，可嵌入应用语言包 |
 | `lilyco-cli` | 0.3.1 | core + clap | 参数类型、分组帮助、面向人员和程序的输出 |
-| `lilyco-tui` | 0.3.1 | core + ratatui | ratatui 表单状态机（单/多命令）、运行进度和结果 |
+| `lilyco-tui` | 0.3.2 | core + ratatui | ratatui 表单状态机（单/多命令）、语义视图渲染（ViewState/Component）、运行进度和结果 |
 | `lilyco-gui` | 0.3.3 | core + axum/tokio + toml | 默认 shadcn/ui、双语资源、SSE 与 Agent 自描述 |
 | `lilyco-mcp` | 0.3.0 | core（零额外依赖） | MCP 2024-11-05 stdio 服务器 + 进度通知 |
 | `lilyco-tauri` | 0.3.2 | Tauri + lbin sidecar | Office 原生选文件、拖放、双语界面和结果 |
@@ -139,9 +139,15 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `drain_events()` | `registry.rs:125` | 单/多命令共用进度消费。人类可读进度写 stderr，结构化结果和流写 stdout |
 | `build_command()` / `add_builtin_flags()` | `command.rs:23` / `command.rs:152` | `ArgKind` 决定值类型提示，内置选项按自动化、输出与界面分组 |
 
-### lilyco-tui（状态机，三文件）
+### lilyco-tui（状态机 + 视图适配器 + 聊天模板，八文件）
 | 符号 | 位置 | 说明 |
 |---|---|---|
+| `struct ViewState` | `lilyco-tui/src/view.rs` | 静态 `ViewSlot` + 运行时 `Component`（同 id 覆盖）；超视口时裁剪 + 右侧滚动条，`j/k`、`PgUp/PgDn`、`Home` 滚动；`apply_chat_state()` 递归写回嵌套 `MessageList/Composer` |
+| `struct ChatState` | `lilyco-tui/src/chat.rs` | 焦点/选择/插入态/草稿 + `ChatAction` intent 队列（下标夹紧，不 panic） |
+| `struct Keymap` | `lilyco-tui/src/config.rs` | `keymap.toml` 外置键位（XDG/HOME，解析失败回退默认） |
+| `struct Theme` | `lilyco-tui/src/theme.rs` | `theme.toml` 外置令牌（命名色/#RRGGBB，失败回退 `Color::Reset`） |
+| `component::render()` / `measure()` | `lilyco-tui/src/component.rs` | `Component` 各变体的终端渲染与高度测量；适配器能力见 `adapter_capabilities()` |
+| `render_running_with_view()` | `lilyco-tui/src/renderer.rs` | Running 状态有视图时上半区渲染 ViewState，底部保留进度与取消提示 |
 | `enum AppState` | `lilyco-tui/src/renderer.rs:43` | CommandSelect → Form → Confirm → Running → Done/Error |
 | `struct TuiApp` | `lilyco-tui/src/app.rs:13` | `new():33` 单命令；`new_multi():49` 多命令（mininterface picker 模式） |
 | `handle_event()` | `lilyco-tui/src/app.rs:85` | 按状态分发；帮助窗口隔离焦点，Alt+↑/↓ 可跳过路径补全 |
