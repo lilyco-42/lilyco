@@ -10,6 +10,10 @@ members = [
     "crates/lilyco",
     "crates/lilyco-dev",
     "crates/lilyco-example",
+    "crates/rapid-core",
+    "crates/rapid-server",
+    "crates/lilyco-rapid",
+    "crates/lilyco-no_std",
 ]
 resolver = "2"
 

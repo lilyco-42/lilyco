@@ -1,0 +1,8 @@
+/target/
+/data/
+/web/node_modules/
+/web/dist/
+/web-next/node_modules/
+/web-next/dist/
+/ops/cli/target/
+/.env

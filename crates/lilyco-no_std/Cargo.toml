@@ -1,0 +1,47 @@
+[package]
+name = "lilyco-no_std"
+version = "0.1.1"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+description = "no_std allocation-free agent core for the Lilyco framework"
+repository = "https://github.com/lilyco-42/lilyco"
+
+# 作为 lilyco 主 workspace 成员参与统一构建；no_std 与桌面依赖隔离由 feature 控制。
+[features]
+default = []
+alloc = []
+std = ["dep:cap-std", "dep:cap-fs-ext", "dep:cap-tempfile"]
+llm-http = ["std", "dep:ureq", "dep:serde_json"]
+llm-anthropic = ["std", "dep:ureq", "dep:serde_json"]
+wasm-tools = ["std", "dep:extism"]
+
+[dependencies]
+heapless = "0.9.4"
+cap-std = { version = "3.4", optional = true }
+cap-fs-ext = { version = "3.4", optional = true }
+cap-tempfile = { version = "3.4", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "tiny-agent"
+path = "src/bin/tiny-agent.rs"
+required-features = ["std"]
+[dependencies.ureq]
+version = "2"
+optional = true
+
+[dependencies.serde_json]
+version = "1"
+optional = true
+
+[dependencies.extism]
+version = "1"
+optional = true
+
+[[bin]]
+name = "lilyco-agent"
+path = "src/bin/lilyco-agent.rs"
+required-features = ["std"]

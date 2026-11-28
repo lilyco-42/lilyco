@@ -1,0 +1,4 @@
+services:
+  api:
+    environment:
+      RAPID_DATABASE_URL: ${RAPID_DATABASE_URL:?missing MongoDB database URL}

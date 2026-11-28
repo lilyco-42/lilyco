@@ -1,0 +1,25 @@
+services:
+  api:
+    environment:
+      RAPID_DATABASE_URL: postgres://rapid:${RAPID_DB_PASSWORD:?missing local database password}@database:5432/rapid
+    depends_on:
+      database:
+        condition: service_healthy
+  database:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rapid
+      POSTGRES_DB: rapid
+      POSTGRES_PASSWORD: ${RAPID_DB_PASSWORD:?missing local database password}
+    ports:
+      - "127.0.0.1::5432"
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "rapid", "-d", "rapid"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+volumes:
+  database:

@@ -1,0 +1,5 @@
+services:
+  api:
+    environment:
+      RAPID_DATABASE_URL: ${RAPID_DATABASE_URL:?missing Turso database URL}
+      RAPID_DATABASE_TOKEN: ${RAPID_DATABASE_TOKEN:?missing Turso database token}

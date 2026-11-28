@@ -87,6 +87,10 @@ From one struct you get:
 | [`lilyco`](crates/lilyco) | Facade — `lilyco::run::<T>()` dispatches all four ends |
 | [`lilyco-dev`](crates/lilyco-dev) | Meta CLI (`lilyco new / build / run / doc`) |
 | [`lilyco-example`](crates/lilyco-example) | Minimal 30-line four-surface example |
+| [`lilyco-no_std`](crates/lilyco-no_std) | 无分配 Agent 核心（`no_std`，桌面依赖由 feature 隔离） |
+| [`rapid-core`](crates/rapid-core) | 类型化 API 核心（serde，可选 JSON Schema） |
+| [`rapid-server`](crates/rapid-server) | Axum 运行时 + OpenAPI/交互文档 + 多存储驱动 |
+| [`lilyco-rapid`](crates/lilyco-rapid) | 脚手架 CLI：生成并运行类型化全栈项目 |
 
 ## Application Theme Repositories (Topic: `#lilyco`)
 

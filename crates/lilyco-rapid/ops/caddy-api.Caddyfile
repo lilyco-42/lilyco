@@ -1,0 +1,14 @@
+{
+	admin off
+	persist_config off
+}
+
+:8080 {
+	encode zstd gzip
+	reverse_proxy api:8421
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		X-Frame-Options DENY
+	}
+}
