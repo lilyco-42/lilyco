@@ -321,7 +321,6 @@ async fn starter_query_example_is_live_and_documented() {
 #[cfg(feature = "sqlx-server")]
 #[tokio::test]
 async fn switching_sqlite_driver_reuses_records_and_sequence() {
-
     let dir = tempfile::tempdir().unwrap();
     let mut config = settings(&dir);
     config.storage.path = dir.path().join("preview with spaces.sqlite3");
