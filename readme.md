@@ -132,6 +132,7 @@ cargo binstall lilyco-ffmpeg   # or lilyco-srt, lilyco-brush, ...
 - [AI Integration](docs/AI-INTEGRATION.md) — MCP, JSON Schema, progress protocol
 - [Examples](docs/EXAMPLES.md) — more apps built on lilyco
 - [UI Guidelines](docs/ui/README.md) — 入门介绍 + 手把手教程 + 设计语言 + 组件参考（内置 Web 端与 React 映射）
+- [Lilyco Rapid](docs/rapid/README.md) — 全栈框架：8 章教程 + CLI / 配置 / API 参考
 - [DSH Integration](docs/DSH.md)
 - [Testing](docs/TESTING.md)
 - [Port Allocation](docs/PORT-ALLOCATION.md) — 4200 金融、4300 游戏…按用途分段；manager 段内分配、冲突漂移、`GET /api/ports` 预警

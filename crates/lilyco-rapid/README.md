@@ -2,6 +2,8 @@
 
 注册 Rust 函数即可得到类型化 HTTP 端点、OpenAPI 和交互文档。CLI 可生成 CRUD 资源，也可按项目选择数据库、驱动和代理，并启动独立的 Web 工作台。
 
+> 完整教程与参考见 [docs/rapid](../../docs/rapid/README.md)：8 章教程 + CLI / 配置 / API 参考。
+
 ## 快速开始
 
 在 Lilyco 仓库根目录开始。
