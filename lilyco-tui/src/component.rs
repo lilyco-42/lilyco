@@ -234,8 +234,12 @@ pub fn measure(component: &Component, width: u16) -> u16 {
             u16::from(query.is_some()).saturating_add(items.len().max(1) as u16)
         }
         Component::MessageList { entries, .. } => entries.iter().fold(0u16, |acc, entry| {
-            let body =
-                u16::try_from(wrap_body(&entry.body, width).len().max(1)).unwrap_or(u16::MAX);
+            let body = u16::try_from(
+                wrap_body_styled(&entry.body, width, &Theme::default())
+                    .len()
+                    .max(1),
+            )
+            .unwrap_or(u16::MAX);
             acc.saturating_add(1).saturating_add(body).saturating_add(1)
         }),
         Component::Composer { attachments, .. } => {
@@ -271,40 +275,226 @@ fn text_height(text: &str, width: u16) -> u16 {
     rows.max(1)
 }
 
-fn wrap_body(text: &str, width: u16) -> Vec<String> {
-    let max = usize::from(width);
-    if max == 0 {
+#[derive(Clone, Copy)]
+struct StyledChar {
+    ch: char,
+    style: Style,
+}
+
+/// Markdown 子集正文：行级样式 + 行内样式 + 按显示宽度换行。
+fn wrap_body_styled(body: &str, width: u16, theme: &Theme) -> Vec<Line<'static>> {
+    if width == 0 {
         return Vec::new();
     }
-    let mut lines: Vec<String> = Vec::new();
-    for raw in text.split('\n') {
-        if raw.is_empty() {
-            lines.push(String::new());
+    let muted = theme.muted_style();
+    let text = theme.text_style();
+    let heading = theme.accent_style().add_modifier(Modifier::BOLD);
+    let quote_prefix = styled_chars("│ ", muted);
+    let code_prefix = styled_chars("│ ", muted);
+    let bullet_prefix = styled_chars("• ", text);
+    let continuation = styled_chars("  ", text);
+
+    let mut lines = Vec::new();
+    let mut in_code = false;
+    for raw in body.split('\n') {
+        if in_code {
+            if raw.starts_with("```") {
+                in_code = false;
+            } else {
+                let content = styled_chars(raw, muted);
+                append_wrapped(&mut lines, &content, &code_prefix, &code_prefix, width);
+            }
             continue;
         }
-        let mut current = String::new();
-        let mut used = 0usize;
-        for ch in raw.chars() {
-            let ch_width = Line::from(ch.to_string()).width();
-            if used > 0 && used.saturating_add(ch_width) > max {
-                lines.push(std::mem::take(&mut current));
-                used = 0;
-            }
-            if used == 0 && ch_width > max {
-                lines.push(ch.to_string());
-                continue;
-            }
-            current.push(ch);
-            used = used.saturating_add(ch_width);
+        if raw.starts_with("```") {
+            in_code = true;
+            continue;
         }
-        if !current.is_empty() {
-            lines.push(current);
+        if let Some(content) = raw.strip_prefix("### ") {
+            let content = parse_inline(content, heading, theme);
+            append_wrapped(&mut lines, &content, &[], &[], width);
+        } else if let Some(content) = raw.strip_prefix("## ") {
+            let content = parse_inline(content, heading, theme);
+            append_wrapped(&mut lines, &content, &[], &[], width);
+        } else if let Some(content) = raw.strip_prefix("# ") {
+            let content = parse_inline(content, heading, theme);
+            append_wrapped(&mut lines, &content, &[], &[], width);
+        } else if let Some(content) = raw.strip_prefix("> ") {
+            let content = parse_inline(content, muted, theme);
+            append_wrapped(&mut lines, &content, &quote_prefix, &quote_prefix, width);
+        } else if let Some(content) = raw.strip_prefix("- ").or_else(|| raw.strip_prefix("* ")) {
+            let content = parse_inline(content, text, theme);
+            append_wrapped(&mut lines, &content, &bullet_prefix, &continuation, width);
+        } else {
+            let content = parse_inline(raw, text, theme);
+            append_wrapped(&mut lines, &content, &[], &[], width);
         }
     }
     if lines.is_empty() {
-        lines.push(String::new());
+        lines.push(Line::default());
     }
     lines
+}
+
+fn styled_chars(text: &str, style: Style) -> Vec<StyledChar> {
+    text.chars().map(|ch| StyledChar { ch, style }).collect()
+}
+
+fn append_wrapped(
+    out: &mut Vec<Line<'static>>,
+    content: &[StyledChar],
+    first_prefix: &[StyledChar],
+    continuation_prefix: &[StyledChar],
+    width: u16,
+) {
+    let prefix_width = styled_width(first_prefix).max(styled_width(continuation_prefix));
+    let content_width = usize::from(width).saturating_sub(prefix_width).max(1);
+    for (index, group) in wrap_styled_chars(content, content_width)
+        .into_iter()
+        .enumerate()
+    {
+        let prefix = if index == 0 {
+            first_prefix
+        } else {
+            continuation_prefix
+        };
+        let mut line = Vec::with_capacity(prefix.len().saturating_add(group.len()));
+        line.extend_from_slice(prefix);
+        line.extend_from_slice(&group);
+        out.push(styled_line(&line));
+    }
+}
+
+fn wrap_styled_chars(chars: &[StyledChar], max_width: usize) -> Vec<Vec<StyledChar>> {
+    let mut lines: Vec<Vec<StyledChar>> = Vec::new();
+    let mut current = Vec::new();
+    let mut used = 0usize;
+    for sc in chars {
+        let width = char_width(sc.ch);
+        if used > 0 && used.saturating_add(width) > max_width {
+            lines.push(std::mem::take(&mut current));
+            used = 0;
+        }
+        if used == 0 && width > max_width {
+            lines.push(vec![*sc]);
+            continue;
+        }
+        current.push(*sc);
+        used = used.saturating_add(width);
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(Vec::new());
+    }
+    lines
+}
+
+fn styled_line(chars: &[StyledChar]) -> Line<'static> {
+    let mut spans = Vec::new();
+    let mut current = String::new();
+    let mut style: Option<Style> = None;
+    for sc in chars {
+        if style == Some(sc.style) {
+            current.push(sc.ch);
+        } else {
+            if let Some(style) = style {
+                spans.push(Span::styled(std::mem::take(&mut current), style));
+            }
+            style = Some(sc.style);
+            current.push(sc.ch);
+        }
+    }
+    if let Some(style) = style {
+        spans.push(Span::styled(current, style));
+    }
+    Line::from(spans)
+}
+
+fn styled_width(chars: &[StyledChar]) -> usize {
+    chars.iter().map(|sc| char_width(sc.ch)).sum()
+}
+
+fn char_width(ch: char) -> usize {
+    Line::from(ch.to_string()).width()
+}
+
+fn parse_inline(text: &str, base: Style, theme: &Theme) -> Vec<StyledChar> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let mut index = 0usize;
+    let mut plain_start = 0usize;
+    while index < chars.len() {
+        if let Some((open_len, close, style)) = inline_match(&chars, index, theme) {
+            push_styled_slice(&mut out, &chars[plain_start..index], base);
+            push_styled_slice(&mut out, &chars[index + open_len..close], base.patch(style));
+            index = close + open_len;
+            plain_start = index;
+        } else {
+            index = index.saturating_add(unclosed_marker_len(&chars, index));
+        }
+    }
+    push_styled_slice(&mut out, &chars[plain_start..], base);
+    out
+}
+
+fn inline_match(chars: &[char], index: usize, theme: &Theme) -> Option<(usize, usize, Style)> {
+    let ch = *chars.get(index)?;
+    if ch == '*' && chars.get(index + 1) == Some(&'*') {
+        let close = find_seq(chars, index + 2, &['*', '*'])?;
+        return Some((2, close, Style::default().add_modifier(Modifier::BOLD)));
+    }
+    if ch == '~' && chars.get(index + 1) == Some(&'~') {
+        let close = find_seq(chars, index + 2, &['~', '~'])?;
+        return Some((
+            2,
+            close,
+            Style::default().add_modifier(Modifier::CROSSED_OUT),
+        ));
+    }
+    if ch == '`' {
+        let close = find_char(chars, index + 1, '`')?;
+        return Some((1, close, theme.accent_style()));
+    }
+    if ch == '*' {
+        let close = find_char(chars, index + 1, '*')?;
+        return Some((1, close, Style::default().add_modifier(Modifier::ITALIC)));
+    }
+    None
+}
+
+fn unclosed_marker_len(chars: &[char], index: usize) -> usize {
+    match chars.get(index) {
+        Some('*') if chars.get(index + 1) == Some(&'*') => 2,
+        Some('~') if chars.get(index + 1) == Some(&'~') => 2,
+        _ => 1,
+    }
+}
+
+fn find_seq(chars: &[char], from: usize, sequence: &[char]) -> Option<usize> {
+    let mut index = from;
+    while index.saturating_add(sequence.len()) <= chars.len() {
+        if chars.get(index..index + sequence.len()) == Some(sequence) {
+            return Some(index);
+        }
+        index = index.saturating_add(1);
+    }
+    None
+}
+
+fn find_char(chars: &[char], from: usize, needle: char) -> Option<usize> {
+    chars
+        .iter()
+        .enumerate()
+        .skip(from)
+        .find_map(|(index, ch)| (*ch == needle).then_some(index))
+}
+
+fn push_styled_slice(out: &mut Vec<StyledChar>, chars: &[char], style: Style) {
+    for &ch in chars {
+        out.push(StyledChar { ch, style });
+    }
 }
 
 fn ratio_percent(ratio: f64) -> u16 {
@@ -1149,7 +1339,7 @@ pub fn render_with_theme(component: &Component, area: Rect, buf: &mut Buffer, th
                 if offset >= area.height {
                     break;
                 }
-                let body_lines = wrap_body(&entry.body, area.width);
+                let body_lines = wrap_body_styled(&entry.body, area.width, theme);
                 let body_height = u16::try_from(body_lines.len())
                     .unwrap_or(u16::MAX)
                     .min(area.height.saturating_sub(offset));
@@ -1157,13 +1347,7 @@ pub fn render_with_theme(component: &Component, area: Rect, buf: &mut Buffer, th
                     for (row, line) in body_lines.iter().take(usize::from(body_height)).enumerate()
                     {
                         let row = u16::try_from(row).unwrap_or(u16::MAX);
-                        write_row(
-                            buf,
-                            area,
-                            offset.saturating_add(row),
-                            line,
-                            theme.text_style(),
-                        );
+                        write_line(buf, area, offset.saturating_add(row), line.clone());
                     }
                     offset = offset.saturating_add(body_height);
                 }
@@ -1278,6 +1462,13 @@ fn write_spans(buf: &mut Buffer, area: Rect, row: u16, spans: Vec<Span<'static>>
     Paragraph::new(Line::from(spans)).render(Rect::new(area.x, area.y + row, area.width, 1), buf);
 }
 
+fn write_line(buf: &mut Buffer, area: Rect, row: u16, line: Line<'static>) {
+    if row >= area.height || area.width == 0 {
+        return;
+    }
+    Paragraph::new(line).render(Rect::new(area.x, area.y + row, area.width, 1), buf);
+}
+
 fn message_header(entry: &MessageEntry, selected: bool, unread: bool) -> String {
     let mut prefix = String::new();
     if selected {
@@ -1372,6 +1563,40 @@ mod tests {
         let mut buf = Buffer::empty(area);
         render(component, area, &mut buf);
         buffer_text(&buf, area)
+    }
+
+    fn render_buffer(component: &Component, width: u16, height: u16) -> Buffer {
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        render(component, area, &mut buf);
+        buf
+    }
+
+    fn find_symbol(buf: &Buffer, width: u16, height: u16, symbol: &str) -> Option<(u16, u16)> {
+        for y in 0..height {
+            for x in 0..width {
+                if buf.cell((x, y)).is_some_and(|cell| cell.symbol() == symbol) {
+                    return Some((x, y));
+                }
+            }
+        }
+        None
+    }
+
+    fn message_list(body: &str) -> Component {
+        Component::MessageList {
+            entries: vec![MessageEntry {
+                author: "作者".into(),
+                time: "12:00".into(),
+                body: body.into(),
+                edited: false,
+                reply_to: None,
+                tone: Tone::Neutral,
+                mine: false,
+            }],
+            selected: None,
+            unread: None,
+        }
     }
 
     #[test]
@@ -1526,7 +1751,104 @@ mod tests {
         );
         assert_eq!(cell.fg, Color::Cyan, "选中行应为 accent: {out}");
 
+        let (body_x, body_y) = find_symbol(&buf, 40, 10, "明").expect("选中消息正文单元格");
+        let body_cell = buf.cell((body_x, body_y)).expect("正文单元格");
+        assert!(
+            !body_cell.modifier.contains(Modifier::REVERSED),
+            "选中反色只作用于头部，正文保持原样式: {out}"
+        );
+
         assert_eq!(measure(&component, 40), 7, "测量应与渲染行数一致");
+    }
+
+    #[test]
+    fn message_list_renders_inline_markdown() {
+        let theme = Theme::default();
+        let body = "**粗体** 与 `代码` 与 *斜体* 与 ~~删除~~";
+        let buf = render_buffer(&message_list(body), 80, 6);
+
+        let (x, y) = find_symbol(&buf, 80, 6, "粗").expect("粗体单元格");
+        assert!(
+            buf.cell((x, y))
+                .is_some_and(|cell| cell.modifier.contains(Modifier::BOLD)),
+            "粗体应有 BOLD"
+        );
+
+        let (x, y) = find_symbol(&buf, 80, 6, "代").expect("代码单元格");
+        assert_eq!(
+            buf.cell((x, y)).map(|cell| cell.fg),
+            Some(color(&theme.accent)),
+            "行内代码应使用 accent"
+        );
+
+        let (x, y) = find_symbol(&buf, 80, 6, "斜").expect("斜体单元格");
+        assert!(
+            buf.cell((x, y))
+                .is_some_and(|cell| cell.modifier.contains(Modifier::ITALIC)),
+            "斜体应有 ITALIC"
+        );
+
+        let (x, y) = find_symbol(&buf, 80, 6, "删").expect("删除线单元格");
+        assert!(
+            buf.cell((x, y))
+                .is_some_and(|cell| cell.modifier.contains(Modifier::CROSSED_OUT)),
+            "删除线应有 CROSSED_OUT"
+        );
+    }
+
+    #[test]
+    fn message_list_renders_heading_quote_and_list() {
+        let component = message_list("# 标题\n> 引用\n- 列表");
+        let out = render_to_string(&component, 40, 8);
+        assert!(out.contains("标题"), "{out}");
+        assert!(out.contains("│ 引用"), "{out}");
+        assert!(out.contains("• 列表"), "{out}");
+
+        let theme = Theme::default();
+        let buf = render_buffer(&component, 40, 8);
+        let (x, y) = find_symbol(&buf, 40, 8, "标").expect("标题单元格");
+        let cell = buf.cell((x, y)).expect("标题单元格");
+        assert!(cell.modifier.contains(Modifier::BOLD));
+        assert_eq!(cell.fg, color(&theme.accent));
+    }
+
+    #[test]
+    fn message_list_renders_fenced_code_block() {
+        let component = message_list("```rust\nlet x = 1;\n```");
+        let out = render_to_string(&component, 40, 6);
+        assert!(out.contains("│ let x = 1;"), "{out}");
+
+        let theme = Theme::default();
+        let buf = render_buffer(&component, 40, 6);
+        let (x, y) = find_symbol(&buf, 40, 6, "l").expect("代码单元格");
+        let cell = buf.cell((x, y)).expect("代码单元格");
+        assert_eq!(cell.fg, color(&theme.muted), "代码块应为 muted");
+        assert!(cell.modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn message_list_measure_matches_render() {
+        let body = "# 标题\n**粗体** 行\n```\ncode\n```";
+        let component = message_list(body);
+        let theme = Theme::default();
+        let body_lines = wrap_body_styled(body, 40, &theme).len();
+        let height = measure(&component, 40);
+        assert_eq!(
+            usize::from(height),
+            body_lines + 2,
+            "头部 1 行 + 正文 + 空行 1 行"
+        );
+
+        let out = render_to_string(&component, 40, height);
+        assert!(out.contains("code"), "最后一行代码不应丢失: {out}");
+    }
+
+    #[test]
+    fn unclosed_markdown_markers_render_as_plain_text() {
+        let out = render_to_string(&message_list("**未闭合 和 `代码 和 ~~删除"), 80, 4);
+        assert!(out.contains("**未闭合"), "{out}");
+        assert!(out.contains("`代码"), "{out}");
+        assert!(out.contains("~~删除"), "{out}");
     }
 
     #[test]

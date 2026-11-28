@@ -146,7 +146,7 @@ Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被
 | `struct ChatState` | `lilyco-tui/src/chat.rs` | 焦点/选择/插入态/草稿 + `ChatAction` intent 队列（下标夹紧，不 panic） |
 | `struct Keymap` | `lilyco-tui/src/config.rs` | `keymap.toml` 外置键位（XDG/HOME，解析失败回退默认） |
 | `struct Theme` | `lilyco-tui/src/theme.rs` | `theme.toml` 外置令牌（命名色/#RRGGBB，失败回退 `Color::Reset`） |
-| `component::render()` / `measure()` | `lilyco-tui/src/component.rs` | `Component` 各变体的终端渲染与高度测量；适配器能力见 `adapter_capabilities()` |
+| `component::render()` / `measure()` | `lilyco-tui/src/component.rs` | `Component` 各变体的终端渲染与高度测量；`MessageList` 正文支持 Markdown 子集（`wrap_body_styled`）；适配器能力见 `adapter_capabilities()` |
 | `render_running_with_view()` | `lilyco-tui/src/renderer.rs` | Running 状态有视图时上半区渲染 ViewState，底部保留进度与取消提示 |
 | `enum AppState` | `lilyco-tui/src/renderer.rs:43` | CommandSelect → Form → Confirm → Running → Done/Error |
 | `struct TuiApp` | `lilyco-tui/src/app.rs:13` | `new():33` 单命令；`new_multi():49` 多命令（mininterface picker 模式） |
