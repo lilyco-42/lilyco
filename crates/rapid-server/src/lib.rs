@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "auth")]
+pub mod auth;
 pub mod config;
 pub mod data;
 mod endpoint;

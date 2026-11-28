@@ -63,6 +63,7 @@ curl http://127.0.0.1:8421/api/tasks
 - [CLI 参考](reference/cli.md)
 - [Rapid.toml 配置](reference/rapid-toml.md)
 - [HTTP API 与错误](reference/api.md)
+- [Auth 集成（P0）](reference/auth.md)
 - [错误索引](appendix/errors.md)
 - [术语表](appendix/glossary.md)
 

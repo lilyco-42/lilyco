@@ -54,8 +54,7 @@ async fn greet(input: Greeting) -> Result<Reply, ApiError> {
 fn router(config: &Config) -> Router {
     let mut api = Api::new();
     api.register::<Task>().unwrap();
-    api.get_query("/api/hello", move |input| greet(input))
-        .unwrap();
+    api.get_query("/api/hello", greet).unwrap();
     api.router(config).unwrap()
 }
 

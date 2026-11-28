@@ -125,6 +125,8 @@ pub enum ConfigError {
     Read(PathBuf, #[source] std::io::Error),
     #[error("invalid TOML at {0}: {1}")]
     Parse(PathBuf, #[source] toml::de::Error),
+    #[error("invalid JSON at {0}: {1}")]
+    Json(PathBuf, #[source] serde_json::Error),
     #[error("RAPID_BIND must be a socket address: {0}")]
     Address(#[from] std::net::AddrParseError),
     #[error("cannot read RAPID_BIND: {0}")]
@@ -135,8 +137,13 @@ impl Config {
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
         let content =
             std::fs::read_to_string(path).map_err(|err| ConfigError::Read(path.to_owned(), err))?;
-        let mut config: Self =
-            toml::from_str(&content).map_err(|err| ConfigError::Parse(path.to_owned(), err))?;
+        let mut config: Self = match path.extension().and_then(|ext| ext.to_str()) {
+            Some("json") => serde_json::from_str(&content)
+                .map_err(|err| ConfigError::Json(path.to_owned(), err))?,
+            _ => {
+                toml::from_str(&content).map_err(|err| ConfigError::Parse(path.to_owned(), err))?
+            }
+        };
         match env::var("RAPID_BIND") {
             Ok(address) => config.http.address = address.parse()?,
             Err(env::VarError::NotPresent) => {}
@@ -149,5 +156,71 @@ impl Config {
                 .join(&config.storage.path);
         }
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write(name: &str, content: &str) -> PathBuf {
+        let path = env::temp_dir().join(format!("rapid-config-{}-{name}", std::process::id()));
+        std::fs::write(&path, content).expect("write configuration");
+        path
+    }
+
+    #[test]
+    fn json_configuration_loads_and_resolves_relative_paths() {
+        let path = write(
+            "demo.json",
+            r#"{
+              "project": {"name": "json-demo"},
+              "http": {"address": "127.0.0.1:8421", "max_body_bytes": 16384, "max_in_flight": 32},
+              "storage": {
+                "path": "data/demo.sqlite3",
+                "busy_timeout_ms": 2500,
+                "engine": "postgres",
+                "connection": {"driver": "seaorm", "url_env": "DEMO_DATABASE_URL", "max_connections": 8}
+              },
+              "resources": {"max_text_bytes": 200, "page_size": 40}
+            }"#,
+        );
+        let config = Config::load(&path).expect("load JSON configuration");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(config.project.name, "json-demo");
+        assert_eq!(config.storage.engine, EngineKind::Postgres);
+        assert_eq!(config.storage.connection.driver, Driver::Seaorm);
+        assert_eq!(config.storage.connection.url_env, "DEMO_DATABASE_URL");
+        assert!(config.storage.path.is_absolute());
+        assert!(config.storage.path.ends_with("data/demo.sqlite3"));
+    }
+
+    #[test]
+    fn toml_configuration_still_loads() {
+        let path = write(
+            "demo.toml",
+            r#"
+[project]
+name = "toml-demo"
+
+[http]
+address = "127.0.0.1:8421"
+max_body_bytes = 16384
+max_in_flight = 32
+
+[storage]
+path = "data/demo.sqlite3"
+busy_timeout_ms = 2500
+
+[resources]
+max_text_bytes = 200
+page_size = 40
+"#,
+        );
+        let config = Config::load(&path).expect("load TOML configuration");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(config.project.name, "toml-demo");
+        assert_eq!(config.storage.engine, EngineKind::Sqlite);
+        assert!(config.storage.path.is_absolute());
     }
 }
