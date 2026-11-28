@@ -1110,7 +1110,7 @@ fn fetch_panel_live_sub(panel_url: &str) -> PanelLiveSub {
         .map(ToString::to_string);
     if userinfo.is_none() {
         if let Ok(r2) = agent
-            .head(panel_url)
+            .get(panel_url)
             .header("User-Agent", "clash-verge/v2.2.3")
             .call()
         {
