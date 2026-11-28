@@ -1,0 +1,13 @@
+[package]
+name = "lilyco-permission"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Capability/resource/field permission policy for Lilyco tools and AI agents"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+toml.workspace = true

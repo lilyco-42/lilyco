@@ -99,6 +99,7 @@ Windows 包在 `tests/notices.py` 对 `packaging/webview2-sdk.json` 固定的官
 | `lilyco-web2cli` | 0.3.2 | facade + ureq + html5ever + tungstenite + base64 + url + regex + toml + tempfile | **Web2CLI**：网页 / OpenAPI / HAR 自动发现并编译为 `Registry`（CLI / TUI / Web / MCP），内置 Cloudflare 响应诊断、ego-lite 人工交接、分类资料库（`vault`）、多格式 Cookie 导入、CDP 多层 `iframe` 控制、多步向导与人类审核闸门（`review`/`wizard`）、成功模板沉淀（`recipe`） |
 | `lilyco-chatgpt` | 0.3.0 | facade + ureq + serde_json + tungstenite（CDP 客户端：`login --from browser` 抓登录态、`ask` 的 chat 路径驱动网页，纯 Rust）+ axum/tokio/async-stream（可选 `server` feature：`serve` 命令的 OpenAI 兼容端） | **ChatGPT**（bin `lchatgpt`）：把 chatgpt.com 账号后端写成四端命令 —— 会话历史只读（`whoami`/`usage`/`models`/`list`/`show-conversation`/`search`/`auth`，全 T0）、两条发送路径（`ask`，T1）、登录态入库（`login`，T1）与一个 OpenAI 兼容 HTTP 端（`serve`，T1，给 dsh 之类的外部宿主当模型 provider）。**两种额度分开花**：`ask` 默认走 chat 额度（驱动已登录 chatgpt.com 的 chromium 发、用自己的 Bearer 走 REST 读回），codex 额度必须显式 `--allow-codex` 才动。产物是单一自包含二进制：凭证按 env → `LCHATGPT_AUTH_FILE` → 自己的仓库 `~/.local/share/lchatgpt/auth.json` → `~/.codex/auth.json` 回落，**可选**地用浏览器（登录态来源 + chat 路径要驱动的那台），端口没人照样可用 |
 | `lilyco-account-pool` | 0.1.0 | 独立 workspace：`axum` + `rusqlite` + `aes-gcm` + `hmac` | BYO 私有账号池服务：dev HMAC / 生产 HS256 JWT 双鉴权、`X-Pool-API-Key` Agent 接入、凭证 AES-256-GCM 加密、服务器侧 Buddy Switch 签到调度；公网路由须单独验证发布，调试入口为 `127.0.0.1:8793` |
+| `lilyco-permission` | 0.1.0 | serde + serde_json + thiserror + toml | 能力/资源/字段三层权限策略：默认拒绝、deny 覆盖 allow、资源通配、字段 allow/deny、写操作二次确认与 JSONL 审计；供 Agent 工具网关复用 |
 
 Android/Termux：`lilyco --no-default-features` 剩 CLI+MCP（crossterm/axum 被特性门控）。
 

@@ -3964,6 +3964,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lilyco-permission"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "toml 1.1.6+spec-1.1.0",
+]
+
+[[package]]
 name = "lilyco-pet"
 version = "0.3.0"
 dependencies = [

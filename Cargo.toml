@@ -30,6 +30,7 @@ members = [
     "lilyco-srt",
     "lilyco-float",
     "lilyco-license",
+    "lilyco-permission",
     "lilyco-pay",
     "lilyco-web2cli",
 ]
@@ -85,6 +86,7 @@ default-members = [
     "lilyco",
     "lilyco-srt",
     "lilyco-license",
+    "lilyco-permission",
     "lilyco-pay",
     "lilyco-web2cli",
     "lilyco-chatgpt",
