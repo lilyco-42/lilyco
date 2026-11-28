@@ -169,6 +169,8 @@ pub struct Registry {
     commands: BTreeMap<String, RegisteredCommand>,
     aliases: BTreeMap<String, String>,
     policy: Arc<dyn SafetyPolicy>,
+    /// 无参数启动时默认执行的命令
+    default_command: Option<String>,
 }
 
 impl Default for Registry {
@@ -177,6 +179,7 @@ impl Default for Registry {
             commands: BTreeMap::new(),
             aliases: BTreeMap::new(),
             policy: Arc::new(crate::safety::DenyElevated),
+            default_command: None,
         }
     }
 }
@@ -187,6 +190,7 @@ impl std::fmt::Debug for Registry {
             .field("commands", &self.commands)
             .field("aliases", &self.aliases)
             .field("policy", &"<dyn SafetyPolicy>")
+            .field("default_command", &self.default_command)
             .finish()
     }
 }
@@ -206,6 +210,17 @@ impl Registry {
     /// 当前安全策略
     pub fn policy(&self) -> &Arc<dyn SafetyPolicy> {
         &self.policy
+    }
+
+    /// 设置无参数启动时默认执行的命令
+    pub fn with_default_command(mut self, name: impl Into<String>) -> Self {
+        self.default_command = Some(name.into());
+        self
+    }
+
+    /// 无参数启动时的默认命令
+    pub fn default_command(&self) -> Option<&str> {
+        self.default_command.as_deref()
     }
 
     /// 注册一条命令。校验：非空名、无重名；别名索引同步建立。
@@ -590,5 +605,12 @@ mod tests {
             args: &serde_json::json!({}),
         };
         assert!(matches!(reg.policy().check(probe), GateDecision::Deny(_)));
+    }
+
+    #[test]
+    fn default_command_can_be_set_and_read() {
+        let reg = Registry::new().with_default_command("chat");
+        assert_eq!(reg.default_command(), Some("chat"));
+        assert_eq!(Registry::new().default_command(), None);
     }
 }

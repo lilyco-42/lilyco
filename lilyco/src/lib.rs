@@ -299,7 +299,80 @@ pub fn run_web_registry(app_name: &str, registry: Registry) {
 /// }
 /// ```
 pub fn run_registry(app_name: &str, registry: Registry) {
+    let raw: Vec<String> = std::env::args().collect();
+    let program = raw.first().cloned().unwrap_or_else(|| app_name.to_string());
+    let args: Vec<String> = raw.iter().skip(1).cloned().collect();
+    let default = registry
+        .default_command()
+        .filter(|name| registry.contains(name));
+    let stdin_is_terminal = std::io::stdin().is_terminal();
+    let stdout_is_terminal = std::io::stdout().is_terminal();
+    if let Some((mode, invocation)) = default_command_invocation(
+        &program,
+        &args,
+        default,
+        stdin_is_terminal,
+        stdout_is_terminal,
+    ) {
+        let default_name = default.map(str::to_string);
+        let policy: std::sync::Arc<dyn lilyco_core::safety::SafetyPolicy> =
+            std::sync::Arc::new(lilyco_core::safety::Interactive);
+        let registry = into_registry_with_policy(registry, policy);
+        match mode {
+            DefaultCommandMode::Cli => {
+                run_cli_registry_from(app_name, registry, invocation);
+            }
+            #[cfg(feature = "tui")]
+            DefaultCommandMode::Tui => {
+                if run_tui_registry_impl_with_default(app_name, &registry, default_name.as_deref())
+                    .is_err()
+                {
+                    let fallback = vec![
+                        program,
+                        default_name.unwrap_or_else(|| app_name.to_string()),
+                    ];
+                    run_cli_registry_from(app_name, registry, fallback);
+                }
+            }
+            #[cfg(not(feature = "tui"))]
+            DefaultCommandMode::Tui => {
+                run_cli_registry_from(app_name, registry, invocation);
+            }
+        }
+        return;
+    }
     run_registry_with(app_name, registry, detect_registry_backend());
+}
+
+/// 无参数默认命令的后端选择（纯函数，便于无 TTY 单测）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DefaultCommandMode {
+    Tui,
+    Cli,
+}
+
+/// 无参数 + default_command 时构造等价启动参数；显式参数时返回 None。
+fn default_command_invocation(
+    program: &str,
+    args: &[String],
+    default: Option<&str>,
+    stdin_is_terminal: bool,
+    stdout_is_terminal: bool,
+) -> Option<(DefaultCommandMode, Vec<String>)> {
+    if !args.is_empty() {
+        return None;
+    }
+    let default = default?;
+    let mode = if stdin_is_terminal && stdout_is_terminal {
+        DefaultCommandMode::Tui
+    } else {
+        DefaultCommandMode::Cli
+    };
+    let mut invocation = vec![program.to_string(), default.to_string()];
+    if mode == DefaultCommandMode::Tui {
+        invocation.push("--tui".into());
+    }
+    Some((mode, invocation))
 }
 
 /// 显式指定后端运行注册表
@@ -362,7 +435,11 @@ fn into_registry_with_policy(
     registry: Registry,
     policy: std::sync::Arc<dyn lilyco_core::safety::SafetyPolicy>,
 ) -> Registry {
+    let default_command = registry.default_command().map(str::to_string);
     let mut out = Registry::new().with_policy(policy);
+    if let Some(default_command) = default_command {
+        out = out.with_default_command(default_command);
+    }
     for command in registry.iter() {
         if command.handler.is_none() {
             eprintln!("跳过无 handler 的命令 `{}`", command.name);
@@ -476,6 +553,22 @@ fn run_tui<A: App + Send + 'static>() -> std::io::Result<()> {
 #[cfg(feature = "tui")]
 fn run_tui_registry_impl(app_name: &str, registry: &Registry) -> std::io::Result<()> {
     let (mut app, handlers) = build_multi_tui(app_name, registry)?;
+    run_tui_event_loop(&mut app, &handlers)
+}
+
+/// 无参数启动：TUI 选择页直接高亮默认命令
+#[cfg(feature = "tui")]
+fn run_tui_registry_impl_with_default(
+    app_name: &str,
+    registry: &Registry,
+    default: Option<&str>,
+) -> std::io::Result<()> {
+    let (mut app, handlers) = build_multi_tui(app_name, registry)?;
+    if let (Some(default), Some(commands)) = (default, app.commands.as_ref()) {
+        if let Some(index) = commands.iter().position(|schema| schema.name == default) {
+            app.selected_command = index;
+        }
+    }
     run_tui_event_loop(&mut app, &handlers)
 }
 
@@ -1400,5 +1493,36 @@ mod tests {
             .expect("send action");
         let result = task.handle.join().expect("join").expect("result");
         assert_eq!(result["send"], "你好");
+    }
+
+    #[test]
+    fn default_command_uses_tui_when_stdin_stdout_are_terminals() {
+        let (mode, invocation) =
+            default_command_invocation("lilyco-qq", &[], Some("chat"), true, true)
+                .expect("no args + default command");
+        assert_eq!(mode, DefaultCommandMode::Tui);
+        assert_eq!(invocation, vec!["lilyco-qq", "chat", "--tui"]);
+    }
+
+    #[test]
+    fn default_command_uses_cli_when_not_a_terminal() {
+        let (mode, invocation) =
+            default_command_invocation("lilyco-qq", &[], Some("chat"), false, false)
+                .expect("no args + default command");
+        assert_eq!(mode, DefaultCommandMode::Cli);
+        assert_eq!(invocation, vec!["lilyco-qq", "chat"]);
+    }
+
+    #[test]
+    fn explicit_args_and_missing_default_disable_the_shortcut() {
+        let args = vec!["--help".to_string()];
+        assert!(
+            default_command_invocation("lilyco-qq", &args, Some("chat"), true, true).is_none(),
+            "显式参数必须优先"
+        );
+        assert!(
+            default_command_invocation("lilyco-qq", &[], None, true, true).is_none(),
+            "没有 default_command 时不应改写参数"
+        );
     }
 }
