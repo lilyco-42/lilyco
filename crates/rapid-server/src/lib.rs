@@ -113,6 +113,10 @@ impl Api {
         };
         Ok(self
             .router
+            .merge(
+                utoipa_swagger_ui::SwaggerUi::new("/docs")
+                    .config(utoipa_swagger_ui::Config::from("/openapi.json")),
+            )
             .route("/healthz", get(|| async { StatusCode::NO_CONTENT }))
             .route("/readyz", get(routes::ready))
             .route(

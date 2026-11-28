@@ -86,6 +86,10 @@ async fn typed_api_persists_across_restarts_and_exposes_its_contract() {
         request(&app, Method::GET, "/readyz", None).await.status(),
         204
     );
+    let docs = request(&app, Method::GET, "/docs/", None).await;
+    assert_eq!(docs.status(), StatusCode::OK);
+    let body = to_bytes(docs.into_body(), 64 * 1024).await.unwrap();
+    assert!(String::from_utf8_lossy(&body).contains("Swagger UI"));
     let route = "/api/tasks";
     let first = as_json(
         request(
