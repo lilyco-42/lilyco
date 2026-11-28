@@ -7,7 +7,7 @@
 | GET | `/healthz` | 进程存活 |
 | GET | `/readyz` | 进程 + 存储就绪 |
 | GET | `/openapi.json` | OpenAPI 3.1 文档 |
-| GET | `/docs` | 交互文档（GET 可试调用） |
+| GET | `/docs` | Swagger UI 交互文档（离线内置；访问 `/docs/`，GET 可试调用） |
 
 `healthz` 不查数据库；`readyz` 会访问存储。编排系统应分别使用这两个探针。
 

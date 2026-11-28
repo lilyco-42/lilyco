@@ -24,7 +24,7 @@ cargo install --locked lilyco-rapid
 lilyco-rapid --version
 ```
 
-应输出 `lilyco-rapid 0.1.6`（以 crates.io 最新版本为准）。
+应输出 `lilyco-rapid 0.1.7`（以 crates.io 最新版本为准）。
 
 > CLI 的模板通过 `include_dir!` 编译期内嵌。修改 `crates/lilyco-rapid/templates/` 后，必须重新安装或 `cargo build -p lilyco-rapid`，否则生成的项目仍是旧模板。
 
