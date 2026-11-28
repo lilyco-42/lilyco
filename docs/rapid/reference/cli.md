@@ -35,6 +35,7 @@ lilyco-rapid new [OPTIONS] <NAME>
 | `--gateway` | 预设决定 | `direct`, `caddy`, `pingap` |
 | `--ui` | `react` | `react`, `vue`, `svelte` |
 | `--ui-kit` | `shadcn` | `shadcn`, `native` |
+| `--auth` | 关闭 | 生成 `/auth/*` 与 `server/migrations/auth.sql` |
 | `--dir` | `.` | 输出父目录 |
 
 示例：
