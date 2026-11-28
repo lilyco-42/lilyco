@@ -69,10 +69,7 @@ fn populate(
     gateway: Gateway,
 ) -> Result<()> {
     let workspace = if project.auth {
-        WORKSPACE.replace(
-            "rapid-server = \"0.1.7\"",
-            "rapid-server = { version = \"0.1.7\", features = [\"auth\"] }",
-        )
+        WORKSPACE.replace("features = []", "features = [\"auth\"]")
     } else {
         WORKSPACE.to_owned()
     };

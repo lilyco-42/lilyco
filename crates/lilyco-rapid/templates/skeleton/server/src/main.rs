@@ -1,4 +1,4 @@
-use std::{error::Error, path::PathBuf};
+use std::{error::Error, net::SocketAddr, path::PathBuf};
 
 use app_server::router;
 use clap::{Parser, Subcommand};
@@ -44,9 +44,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let app = router(&config).await?;
     let listener = tokio::net::TcpListener::bind(config.http.address).await?;
     tracing::info!(address = %listener.local_addr()?, project = %config.project.name, "API listening");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown())
+    .await?;
     Ok(())
 }
 

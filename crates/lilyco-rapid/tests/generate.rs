@@ -31,7 +31,7 @@ fn presets_generate_portable_paths_and_refuse_to_overwrite() {
         assert!(
             fs::read_to_string(product.join("Cargo.toml"))
                 .unwrap()
-                .contains("rapid-server = \"0.1.8\"")
+                .contains("rapid-server = { version = \"0.1.8\"")
         );
         assert_eq!(product.join("web/pnpm-workspace.yaml").exists(), fullstack);
         let metadata = Command::new("cargo")

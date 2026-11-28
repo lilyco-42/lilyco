@@ -10,8 +10,12 @@ pub async fn router(config: &Config) -> Result<Router, StartupError> {
     app_core::register_resources!(api);
     app::register(&mut api, config.resources.max_text_bytes)?;
     let app = api.connect(config).await?;
-    let auth = rapid_server::auth::router(rapid_server::auth::AuthOptions::default())
-        .await
-        .map_err(|error| StartupError::Auth(error.to_string()))?;
+    let auth = rapid_server::auth::router(rapid_server::auth::AuthOptions {
+        requests_per_second: 20,
+        burst: 60,
+        ..Default::default()
+    })
+    .await
+    .map_err(|error| StartupError::Auth(error.to_string()))?;
     Ok(app.merge(auth))
 }
