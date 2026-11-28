@@ -77,6 +77,14 @@ fn populate(
     put(path, "README.md", contents!("ops/PROJECT.md"))?;
     put(path, "ops/Dockerfile.api", contents!("ops/Dockerfile.api"))?;
     extract(&SKELETON, path)?;
+    fs::rename(
+        path.join("core/Cargo.toml.tmpl"),
+        path.join("core/Cargo.toml"),
+    )?;
+    fs::rename(
+        path.join("server/Cargo.toml.tmpl"),
+        path.join("server/Cargo.toml"),
+    )?;
     storage.write(path)?;
 
     match (project.preset, gateway) {
