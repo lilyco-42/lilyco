@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Cloud,
   ExternalLink,
+  Layers,
   Search,
   Smartphone,
   Star,
@@ -12,6 +13,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { apiFetch, type DownloadItem } from "../lib/api";
 import { Badge, Button, Card, Input } from "../components/ui/primitives";
 import { ChsrcWebPanel } from "../components/ChsrcWebPanel";
+import { MultiChannelDownloadModal } from "../components/MultiChannelDownloadModal";
 
 const CATS = [
   { id: "all", label: "全部" },
@@ -76,6 +78,7 @@ export function DownloadsPage() {
   });
   const [target, setTarget] = useState<string>(() => detectClientTarget());
   const [quarkModal, setQuarkModal] = useState<DownloadItem | null>(null);
+  const [assetsModal, setAssetsModal] = useState<DownloadItem | null>(null);
 
   const [os, arch] = target.split(":");
 
@@ -240,14 +243,25 @@ export function DownloadsPage() {
               <div className="mt-4 space-y-2 border-t pt-3">
                 {hasQuark ? (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => openQuarkExpress(it)}
-                      className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md bg-gradient-to-r from-orange-500 to-amber-500 px-3 text-xs font-semibold text-white shadow-xs hover:from-orange-600 hover:to-amber-600 transition-all cursor-pointer"
-                    >
-                      <Cloud className="h-3.5 w-3.5" />
-                      极速网盘下载（夸克免密秒存）
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => openQuarkExpress(it)}
+                        className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-gradient-to-r from-orange-500 to-amber-500 px-3 text-xs font-semibold text-white shadow-xs hover:from-orange-600 hover:to-amber-600 transition-all cursor-pointer"
+                      >
+                        <Cloud className="h-3.5 w-3.5" />
+                        夸克极速下载
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAssetsModal(it)}
+                        className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 text-xs font-medium text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 transition-colors cursor-pointer"
+                        title="查看 Windows x86_64 .exe / macOS / Linux 等全平台安装包与多渠道直链"
+                      >
+                        <Layers className="h-3.5 w-3.5" />
+                        全部版本
+                      </button>
+                    </div>
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground px-0.5">
                       <a
                         href={mirrorHref}
@@ -255,7 +269,7 @@ export function DownloadsPage() {
                         rel="noopener noreferrer"
                         className="hover:text-foreground underline-offset-2 hover:underline"
                       >
-                        普通镜像源下载
+                        按当前系统直链下载 ({os}:{arch})
                       </a>
                       <a
                         href={`/downloads/${it.slug}`}
@@ -266,21 +280,33 @@ export function DownloadsPage() {
                     </div>
                   </>
                 ) : (
-                  <div className="flex items-center gap-1.5">
-                    <a
-                      href={mirrorHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-md bg-emerald-600 px-2.5 text-xs font-medium text-white hover:bg-emerald-700"
-                    >
-                      <Zap className="h-3.5 w-3.5" /> 高速镜像源下载
-                    </a>
-                    <a
-                      href={`/downloads/${it.slug}`}
-                      className="inline-flex h-8 items-center justify-center rounded-md border border-input px-2 text-xs font-medium hover:bg-accent"
-                    >
-                      详情 <ExternalLink className="ml-1 h-3 w-3" />
-                    </a>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <a
+                        href={mirrorHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-md bg-emerald-600 px-2.5 text-xs font-medium text-white hover:bg-emerald-700"
+                      >
+                        <Zap className="h-3.5 w-3.5" /> 高速镜像下载
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => setAssetsModal(it)}
+                        className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-input px-2.5 text-xs font-medium hover:bg-accent cursor-pointer"
+                        title="查看 Windows x86_64 .exe / macOS / Linux 等全平台安装包与多渠道直链"
+                      >
+                        <Layers className="h-3.5 w-3.5" /> 全部版本
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-end text-[11px] text-muted-foreground px-0.5">
+                      <a
+                        href={`/downloads/${it.slug}`}
+                        className="inline-flex items-center gap-0.5 hover:text-foreground"
+                      >
+                        详情 <ExternalLink className="h-2.5 w-2.5" />
+                      </a>
+                    </div>
                   </div>
                 )}
               </div>
@@ -355,25 +381,36 @@ export function DownloadsPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground">
-              <span>不想用网盘？</span>
-              <a
-                href={`/go/mirror/${encodeURIComponent(
-                  quarkModal.slug
-                )}?mirror=${encodeURIComponent(
-                  mirror
-                )}&ghproxy=${encodeURIComponent(ghProxy)}&os=${encodeURIComponent(
-                  os
-                )}&arch=${encodeURIComponent(arch)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-muted-foreground hover:text-foreground underline underline-offset-4"
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
+              <span>需要指定平台（如 Windows x86_64 .exe）？</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const current = quarkModal;
+                  setQuarkModal(null);
+                  setAssetsModal(current);
+                }}
+                className="font-medium text-emerald-600 dark:text-emerald-400 hover:underline underline-offset-4 cursor-pointer"
               >
-                改用普通镜像源下载（TUNA / 阿里云 / GitHub）
-              </a>
+                打开全平台多渠道安装包列表 →
+              </button>
             </div>
           </Card>
         </div>
+      )}
+
+      {/* Multi-Platform & Multi-Channel Release Assets Modal */}
+      {assetsModal && (
+        <MultiChannelDownloadModal
+          item={assetsModal}
+          ghProxy={ghProxy}
+          initialOs={os}
+          initialArch={arch}
+          onClose={() => setAssetsModal(null)}
+          onTrack={(channel, mirrorLabel, assetOs, assetArch) =>
+            trackBehavior(assetsModal.slug, channel, mirrorLabel, assetOs, assetArch)
+          }
+        />
       )}
     </div>
   );

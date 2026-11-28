@@ -26,6 +26,7 @@ pub struct AppState {
     pub db: PortalDb,
     pub env_name: String,
     pub license_secret: String,
+    pub admin_secret: Option<String>,
     pub static_dir: Option<String>,
     pub pay_config_dir: Option<String>,
 }
@@ -200,6 +201,7 @@ struct McpReq {
 pub fn build_router(state: Arc<AppState>) -> Router {
     let api_and_ai = Router::new()
         .merge(studio_router())
+        .merge(crate::admin_routes::router())
         .route("/api/health", get(api_health))
         .route(
             "/api/announcements",
@@ -215,6 +217,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/themes", get(api_themes))
         .route("/api/downloads", get(api_downloads))
         .route("/api/downloads/{slug}/resolve", get(api_resolve_download))
+        .route("/api/downloads/{slug}/assets", get(api_download_assets))
         .route("/api/analytics/event", post(api_analytics_event))
         .route("/api/admin/analytics/summary", get(api_admin_analytics_summary))
         .route("/api/admin/users", get(api_admin_list_users))
@@ -232,6 +235,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/relay", any(proxy_relay_root))
         .route("/relay/", any(proxy_relay_root))
         .route("/relay/{*rest}", any(proxy_relay_sub))
+        .route("/api/pool", any(proxy_pool_root))
+        .route("/api/pool/", any(proxy_pool_root))
+        .route("/api/pool/{*rest}", any(proxy_pool_sub))
         .route("/lain42-indexnow-key.txt", get(indexnow_key_txt))
         .route("/llms.txt", get(llms_txt))
         .route("/.well-known/agent.json", get(agent_json))
@@ -799,15 +805,9 @@ async fn api_analytics_event(
     Json(json!({ "ok": true }))
 }
 
-fn check_admin_access(st: &AppState, headers: &axum::http::HeaderMap) -> Result<(), (StatusCode, String)> {
-    let secret = headers
-        .get("x-admin-secret")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    let is_secret_ok = !secret.is_empty() && secret == st.license_secret;
-    let is_admin_user = crate::studio_api::extract_username(headers, &st.license_secret)
-        .map(|u| u.eq_ignore_ascii_case("lilyco42ovo") || u.eq_ignore_ascii_case("admin"))
-        .unwrap_or(false);
+pub(crate) fn check_admin_access(st: &AppState, headers: &axum::http::HeaderMap) -> Result<(), (StatusCode, String)> {
+    let is_secret_ok = crate::studio_api::check_admin_secret(st, headers);
+    let is_admin_user = crate::studio_api::admin_session_username(st, headers).is_some();
     if !is_secret_ok && !is_admin_user {
         return Err((StatusCode::FORBIDDEN, "仅管理员可执行该操作".to_string()));
     }
@@ -960,11 +960,7 @@ async fn api_admin_update_quark(
     headers: axum::http::HeaderMap,
     Json(req): Json<AdminQuarkReq>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let secret = headers
-        .get("x-admin-secret")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    if secret.is_empty() || secret != st.license_secret {
+    if !crate::studio_api::check_admin_secret(&st, &headers) {
         return Err((StatusCode::UNAUTHORIZED, "unauthorized".to_string()));
     }
     let updated = st
@@ -997,6 +993,23 @@ async fn api_resolve_download(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(json!({ "ok": true, "resolution": resolved })))
+}
+
+async fn api_download_assets(
+    State(st): State<Arc<AppState>>,
+    Path(slug): Path<String>,
+    Query(q): Query<crate::mirror::MirrorQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let Some(item) = st.db.get_download(&slug).await.map_err(internal_err)? else {
+        return Err((StatusCode::NOT_FOUND, format!("未找到下载项: {slug}")));
+    };
+    let ghproxy = q.ghproxy;
+    let res = tokio::task::spawn_blocking(move || {
+        crate::mirror::resolve_release_assets(&item, ghproxy.as_deref())
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(json!({ "ok": true, "data": res })))
 }
 
 async fn go_mirror_download(
@@ -1114,6 +1127,14 @@ async fn mcp_endpoint(State(st): State<Arc<AppState>>, Json(req): Json<McpReq>) 
 
 fn internal_err<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+}
+
+async fn proxy_pool_root(req: Request) -> Response {
+    proxy_local_service(8793, "", req).await
+}
+
+async fn proxy_pool_sub(Path(rest): Path<String>, req: Request) -> Response {
+    proxy_local_service(8793, &rest, req).await
 }
 
 async fn proxy_mc_assets_root(req: Request) -> Response {

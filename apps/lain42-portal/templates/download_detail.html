@@ -46,6 +46,59 @@
       </div>
     </section>
 
+    <section class="card" style="display:grid;gap:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+        <h2 style="margin:0;font-size:17px;">全平台 / 多渠道安装包下载</h2>
+        <span id="assets-meta" class="badge">正在同步最新 Release...</span>
+      </div>
+      <div id="assets-list" style="display:grid;gap:10px;font-size:13.5px;">
+        <div class="muted">正在从 GitHub Release 拉取 Windows x86_64 (.exe/.msi) / macOS / Linux 全平台文件...</div>
+      </div>
+      <script>
+      (function(){
+        var el = document.getElementById('assets-list');
+        var meta = document.getElementById('assets-meta');
+        function fmtSize(b){
+          if(!b) return '';
+          if(b >= 1073741824) return (b/1073741824).toFixed(2)+' GB';
+          if(b >= 1048576) return (b/1048576).toFixed(1)+' MB';
+          if(b >= 1024) return Math.round(b/1024)+' KB';
+          return b+' B';
+        }
+        fetch('/api/downloads/{{ item.slug }}/assets')
+          .then(function(r){ return r.json(); })
+          .then(function(res){
+            var d = res && res.data;
+            if(!d || !d.assets || !d.assets.length){
+              meta.textContent = '仅目录直链';
+              el.innerHTML = '<div class="muted">该仓库暂无二进制 Release 附件，请使用上方夸克网盘或 GitHub Release 链接。</div>';
+              return;
+            }
+            var primary = d.assets.filter(function(a){ return !a.is_auxiliary; });
+            var shown = primary.length ? primary : d.assets;
+            meta.textContent = d.version + ' · 共 ' + shown.length + ' 个主安装包';
+            el.innerHTML = shown.map(function(a){
+              var btns = (a.mirrors || []).map(function(m){
+                var cls = m.recommended ? 'btn btn-sm btn-primary' : 'btn btn-sm';
+                return '<a class="'+cls+'" href="'+m.url+'" target="_blank" rel="noopener">'+m.label+'</a>';
+              }).join(' ');
+              return '<div style="padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg-subtle);display:grid;gap:8px;">'
+                + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">'
+                + '<code style="font-weight:600;word-break:break-all;">'+a.name+'</code>'
+                + '<span class="muted" style="font-size:12px;">'+a.os.toUpperCase()+' / '+a.arch+' '+fmtSize(a.size_bytes)+'</span>'
+                + '</div>'
+                + '<div style="display:flex;flex-wrap:wrap;gap:6px;">'+btns+'</div>'
+                + '</div>';
+            }).join('');
+          })
+          .catch(function(){
+            meta.textContent = '加载失败';
+            el.innerHTML = '<div class="muted">实时列表暂不可用，请使用上方链接下载。</div>';
+          });
+      })();
+      </script>
+    </section>
+
     <section class="card" style="display:grid;gap:10px;">
       <h2 style="margin:0;font-size:17px;">安装包信息与安全校验</h2>
       <div style="display:grid;gap:8px;font-size:14px;">
