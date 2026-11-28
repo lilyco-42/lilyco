@@ -68,6 +68,36 @@ fn auth_generation_includes_migration_and_login_route() {
 }
 
 #[test]
+fn antd_generation_uses_antd_starter_without_lock() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let output = rapid(
+        root,
+        &[
+            "new",
+            "admin",
+            "--preset",
+            "fullstack",
+            "--ui",
+            "react",
+            "--ui-kit",
+            "antd",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let product = root.join("admin");
+    let package = fs::read_to_string(product.join("web/package.json")).unwrap();
+    assert!(package.contains("\"antd\""));
+    let app = fs::read_to_string(product.join("web/src/App.tsx")).unwrap();
+    assert!(app.contains("from \"antd\""));
+    assert!(!product.join("web/pnpm-lock.yaml").exists());
+}
+
+#[test]
 fn database_drivers_and_gateways_generate_independent_configuration() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();

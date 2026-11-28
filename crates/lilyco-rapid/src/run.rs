@@ -148,10 +148,15 @@ impl WebSetup {
         if !dir.join("package.json").is_file() {
             return Ok(None);
         }
-        let child = Command::new(if cfg!(windows) { "pnpm.cmd" } else { "pnpm" })
-            .current_dir(&dir)
-            .args(["install", "--frozen-lockfile", "--prefer-offline"])
-            .spawn()?;
+        let frozen = dir.join("pnpm-lock.yaml").is_file();
+        let mut command = Command::new(if cfg!(windows) { "pnpm.cmd" } else { "pnpm" });
+        command.current_dir(&dir);
+        if frozen {
+            command.args(["install", "--frozen-lockfile", "--prefer-offline"]);
+        } else {
+            command.args(["install", "--prefer-offline"]);
+        }
+        let child = command.spawn()?;
         let install = Running {
             child,
             _staged: None,

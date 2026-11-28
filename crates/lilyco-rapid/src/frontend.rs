@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{fs, path::Path};
 
 use clap::ValueEnum;
 use include_dir::{Dir, include_dir};
@@ -48,6 +48,7 @@ enum Framework {
 enum UiKit {
     Shadcn,
     Native,
+    Antd,
 }
 
 pub fn validate(options: Options, supports_web: bool) -> Result<()> {
@@ -62,6 +63,11 @@ pub fn validate(options: Options, supports_web: bool) -> Result<()> {
         )
     ) {
         return Err("shadcn uses React in Rapid; choose --ui-kit native for Vue or Svelte".into());
+    }
+    if matches!(options.ui_kit, Some(UiKit::Antd))
+        && !matches!(options.ui.unwrap_or(Framework::React), Framework::React)
+    {
+        return Err("antd uses React in Rapid; choose --ui react with --ui-kit antd".into());
     }
     Ok(())
 }
@@ -85,7 +91,9 @@ pub fn write(path: &Path, options: Options) -> Result<()> {
 
 fn react(path: &Path, kit: UiKit) -> Result<()> {
     put(path, "package.json", web!("package.json"))?;
-    put(path, "pnpm-lock.yaml", web!("pnpm-lock.yaml"))?;
+    if !matches!(kit, UiKit::Antd) {
+        put(path, "pnpm-lock.yaml", web!("pnpm-lock.yaml"))?;
+    }
     put(path, "tsconfig.json", web!("tsconfig.json"))?;
     put(path, "vite.config.ts", web!("vite.config.ts"))?;
     put(path, "index.html", web!("index.html"))?;
@@ -95,6 +103,24 @@ fn react(path: &Path, kit: UiKit) -> Result<()> {
             path,
             "src/components/button.tsx",
             include_bytes!("../ops/ui/react-button.tsx"),
+        )?;
+    }
+    if matches!(kit, UiKit::Antd) {
+        for file in ["src/components/button.tsx", "src/components/Workbench.tsx"] {
+            let file = path.join(file);
+            if file.is_file() {
+                fs::remove_file(file)?;
+            }
+        }
+        put(
+            path,
+            "package.json",
+            include_bytes!("../templates/web-antd/package.json"),
+        )?;
+        put(
+            path,
+            "src/App.tsx",
+            include_bytes!("../templates/web-antd/App.tsx"),
         )?;
     }
     Ok(())

@@ -34,7 +34,7 @@ lilyco-rapid new [OPTIONS] <NAME>
 | `--db-driver` | `auto` | `auto`, `rusqlite`, `sqlx`, `seaorm`, `mongodb`, `surrealdb`, `libsql` |
 | `--gateway` | 预设决定 | `direct`, `caddy`, `pingap` |
 | `--ui` | `react` | `react`, `vue`, `svelte` |
-| `--ui-kit` | `shadcn` | `shadcn`, `native` |
+| `--ui-kit` | `shadcn` | `shadcn`, `native`, `antd`（仅 React） |
 | `--auth` | 关闭 | 生成 `/auth/*` 与 `server/migrations/auth.sql` |
 | `--dir` | `.` | 输出父目录 |
 
